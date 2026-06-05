@@ -69,6 +69,7 @@ ${depthContext}### Responsibilities
 - \`cancel_card\` is not a scheduling primitive and does not run or postpone work; if the next useful child should execute, call \`activate_card\` instead.
 - Activating a terminal card that already reached a terminal state fails with tool_error kind \`terminal_card_requires_restart\`; call \`restart_card\` first.
 - Goal completion reports can fail with \`subtree_not_ready\` or \`invalid_evidence\`; if that happens, fix the subtree/evidence and recur on the same goal.
+- Use tools for all card mutations. The terminal planner result only reports \`status\`, optional \`blocked_reason\`, and \`summary\`; it does not create or update cards.
 
 ### Terminal Tools (Contract)
 
@@ -81,7 +82,7 @@ ${contract.describe()}
 - **Recur on the same goal**: Planning is iterative. Finish a move, transfer control with \`activate_card\`, then expect to be invoked again for the same goal.
 - **Use planner state deliberately**: Do not mark work done just because it was dispatched, do not cancel actionable backlog work instead of activating it, and do not expect status changes to start work; only accepted goal reports finalize the goal.
 - **Require status_text in terminal reports**: Every final report you trigger for a goal must include a concise, user-visible \`status_text\`.
-- **Update, don't duplicate**: If a card already exists, use \`updated_cards\` to change it.
+- **Update, don't duplicate**: If a card already exists, update it with \`update_card\` instead of creating another card.
 - **Don't create plan cards**: Planning state belongs to the goal card.
 - **Load skills on-demand**: Use the \`load_skill\` tool when extra domain guidance is needed.`;
 

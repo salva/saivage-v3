@@ -69,6 +69,7 @@ export interface CardRecord {
   duration_ms?: number | null; status_text?: string | null; status_text_updated_at?: string | null;
   status_text_author_session_id?: string | null; latest_self_report?: Record<string, unknown> | null; metadata?: CardMetadata | null; allowedActions?: CardAction[]; retries: number;
 }
+export interface CardView extends CardRecord { display_path: string | null; }
 export type CardHistoryKind = 'update' | 'status' | 'mutate' | 'depends' | 'delete' | 'archive';
 export interface CardHistoryEntry { entry_id: string; kind: CardHistoryKind; card_id: string; version_seq: number; snapshot: CardRecord; changed_at: string; changed_by_actor: NoteAuthor; changed_by_surface: ControlActionSurface; change_reason: string | null; changed_fields: string[]; change_summary: string; }
 export type CardHistoryHeader = Omit<CardHistoryEntry, 'snapshot'>;
@@ -80,7 +81,7 @@ export type CardDependencyIndex = Record<string, string[]>;
 export type CardBlocksIndex = Record<string, string[]>;
 export interface ProjectConfig { id: 'project'; name: string; context: string; goals_summary: string; constraints: string[]; max_goal_depth: number; planner_enabled: boolean; created_at: string; updated_at: string; }
 export type DiaryKind = 'planner_invocation' | 'planner_decision' | 'card_mutation' | 'review_assessment' | 'failure_handling';
-export interface DiaryEntry { id: string; goal_card_id: string; invocation_id: string; kind: DiaryKind; timestamp: string; input_summary?: string; decision?: string; rationale?: string; created_cards?: string[]; updated_cards?: string[]; reviewed_cards?: string[]; assessment?: ReviewAssessment; raw?: Record<string, unknown>; }
+export interface DiaryEntry { id: string; goal_card_id: string; invocation_id: string; kind: DiaryKind; timestamp: string; input_summary?: string; decision?: string; rationale?: string; reviewed_cards?: string[]; assessment?: ReviewAssessment; raw?: Record<string, unknown>; }
 export interface AnalystIssue { summary: string; severity?: 'info' | 'warning' | 'blocker'; evidence_path?: string; }
 export interface ReviewerIssue { summary: string; severity: 'info' | 'warning' | 'blocker'; evidence_card_id?: string; recommendation?: string; }
 export interface ReviewerResult { result: 'pass' | 'needs_corrections'; summary: string; achieved: string[]; issues: ReviewerIssue[]; evidence_card_ids: string[]; }

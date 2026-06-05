@@ -25,6 +25,7 @@
           >
             <div class="card-header-row">
               <span class="card-type-icon">{{ typeIcon(card.type) }}</span>
+              <span v-if="card.display_path" class="card-display-path">{{ card.display_path }}</span>
               <span class="card-title">{{ card.title }}</span>
             </div>
             <div class="card-meta">
@@ -196,6 +197,14 @@ const columns = computed<Column[]>(() =>
 
 .card-type-icon {
   font-size: 14px;
+  flex-shrink: 0;
+}
+
+.card-display-path {
+  color: var(--accent-2);
+  font-family: 'SF Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
   flex-shrink: 0;
 }
 

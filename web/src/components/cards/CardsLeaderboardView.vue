@@ -27,6 +27,7 @@
             <td class="col-rank">{{ idx + 1 }}</td>
             <td class="col-title">
               <span class="card-type-icon">{{ typeIcon(card.type) }}</span>
+              <span v-if="card.display_path" class="card-display-path">{{ card.display_path }}</span>
               {{ card.title }}
             </td>
             <td class="col-type">{{ card.type }}</td>
@@ -210,6 +211,14 @@ function formatMetric(val: unknown): string {
 
 .lb-row:hover {
   background: var(--surface-1);
+}
+
+.card-display-path {
+  margin: 0 6px;
+  color: var(--accent-2);
+  font-family: 'SF Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .row-done {

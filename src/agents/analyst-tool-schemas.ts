@@ -114,7 +114,6 @@ export const ANALYST_TOOL_DEFINITIONS: ToolDefinition[] = [
       urgency: strEnum('Optional urgency level.', URGENCY_VALUES),
       acceptance: str('Optional acceptance criteria text.'),
       depends_on: arr(str('A card ID'), 'Optional dependency list.'),
-      id: str('Optional pre-assigned card ID.'),
     },
     ['type', 'title', 'description'],
   ),

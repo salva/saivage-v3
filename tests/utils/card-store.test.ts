@@ -163,14 +163,13 @@ describe('CardStore validation of persisted state', () => {
 });
 
 describe('CardStore CRUD still works with validated indexes', () => {
-  it('canonicalizes explicit project card ids to project on create', () => {
+  it('creates the project card with canonical id project', () => {
     rmSync(tmpDir, { recursive: true, force: true });
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-cs-project-id-'));
     store = new CardStore(tmpDir);
 
     const card = store.create(
       makeCard({
-        id: 'root-spec-plan-project',
         type: 'project',
         parent: null,
         title: 'Root from docs',
@@ -182,9 +181,6 @@ describe('CardStore CRUD still works with validated indexes', () => {
     expect(card.depth).toBe(0);
     expect(card.position).toBe(0);
     expect(existsSync(join(tmpDir, '.saivage', 'cards', 'by-id', 'project.json'))).toBe(true);
-    expect(
-      existsSync(join(tmpDir, '.saivage', 'cards', 'by-id', 'root-spec-plan-project.json')),
-    ).toBe(false);
   });
 
   it('rejects attempts to create a project card under another card', () => {
@@ -193,7 +189,6 @@ describe('CardStore CRUD still works with validated indexes', () => {
     expect(() =>
       store.create(
         makeCard({
-          id: 'nested-project',
           type: 'project',
           parent: goal.id,
           title: 'Nested project',
@@ -236,38 +231,32 @@ describe('CardStore CRUD still works with validated indexes', () => {
 
   it('does not reuse ids reserved by deleted card history', () => {
     const deleted = store.create(makeCard({ type: 'goal', title: 'Deleted' }));
-    expect(deleted.id).toBe('goal-1');
+    expect(deleted.id).toBe('card-1');
 
     store.delete(deleted.id);
 
     const next = store.create(makeCard({ type: 'goal', title: 'Next' }));
-    expect(next.id).toBe('goal-2');
-    expect(() =>
-      store.create(makeCard({ id: deleted.id, type: 'goal', title: 'Explicit Reuse' })),
-    ).toThrow(/already reserved by history or archive state/);
+    expect(next.id).toBe('card-2');
   });
 
   it('does not reuse ids reserved by archived cards', () => {
     const archived = store.create(makeCard({ type: 'goal', title: 'Archived' }));
-    expect(archived.id).toBe('goal-1');
+    expect(archived.id).toBe('card-1');
 
     store.archiveAndDeleteSubtree([archived.id]);
 
     const next = store.create(makeCard({ type: 'goal', title: 'Next' }));
-    expect(next.id).toBe('goal-2');
-    expect(() =>
-      store.create(makeCard({ id: archived.id, type: 'goal', title: 'Explicit Reuse' })),
-    ).toThrow(/already reserved by history or archive state/);
+    expect(next.id).toBe('card-2');
   });
 
   it('reserves ids from history after store reload', () => {
     const first = store.create(makeCard({ type: 'goal', title: 'First' }));
-    expect(first.id).toBe('goal-1');
+    expect(first.id).toBe('card-1');
     store.delete(first.id);
 
     const reloaded = new CardStore(tmpDir);
     const next = reloaded.create(makeCard({ type: 'goal', title: 'After Reload' }));
-    expect(next.id).toBe('goal-2');
+    expect(next.id).toBe('card-2');
   });
 
   it('leaves no group commit marker after a successful reorder', () => {

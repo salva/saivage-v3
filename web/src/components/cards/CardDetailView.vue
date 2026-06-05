@@ -10,11 +10,11 @@
       <section class="detail-section header-section" :class="{ 'live-highlight': liveHighlighted }" data-testid="card-detail-highlight">
         <div class="detail-title-row">
           <span class="detail-type-badge" :class="'type-' + currentCard.type">{{ typeIcon(currentCard.type) }} {{ currentCard.type }}</span>
-          <h1 class="detail-title">{{ currentCard.title }}</h1>
+          <h1 class="detail-title"><span v-if="currentCard.display_path" class="detail-display-path">{{ currentCard.display_path }}</span>{{ currentCard.title }}</h1>
           <span class="detail-status-chip" :class="'status-' + currentCard.status">{{ currentCard.status }}</span>
           <button type="button" class="discuss-btn" aria-label="Seed analyst chat with this card" @click="seedAnalystForCard">Discuss with analyst</button>
         </div>
-        <div class="detail-id">ID: {{ currentCard.id }}</div>
+        <div class="detail-id">ID: {{ currentCard.id }}<span v-if="currentCard.display_path"> · Path: {{ currentCard.display_path }}</span></div>
         <div class="detail-callout" role="status">{{ lifecycle?.explanation || statusExplainer(currentCard.status) }}</div>
         <div v-if="detailFreshness.isStale" class="detail-callout warning" role="status">
           This card detail may be stale. Refresh to reload canonical card and evidence data from the server.
@@ -96,7 +96,7 @@
         <div v-if="currentChildren.length" class="children-list">
           <button v-for="child in currentChildren" :key="child.id" type="button" class="child-row" @click="navigateCard(child.id)">
             <span class="generated-file-main">
-              <span class="generated-file-path">{{ child.id }}</span>
+              <span class="generated-file-path">{{ child.display_path || child.id }}</span>
               <span class="badge">{{ child.type }}</span>
               <span class="badge" :class="statusBadgeClass(child.status)">{{ child.status }}</span>
             </span>
@@ -483,6 +483,7 @@ function actionLabel(action: string): string {
 .badge.warning { color:var(--warn); }
 .badge.error { color:var(--danger); }
 .detail-title { font-size:20px; font-weight:600; color:var(--text); margin:0; }
+.detail-display-path { margin-right:8px; color:var(--accent-2); font-family:'SF Mono',monospace; font-size:18px; }
 .detail-status-chip { font-size:11px; font-weight:600; padding:2px 10px; border-radius:10px; text-transform:uppercase; border:1px solid transparent; }
 .status-active,.status-running { background:var(--entry-user-bg); color:var(--accent-2); border-color:var(--accent-2); }
 .status-done { background:var(--entry-accent-bg); color:var(--accent); border-color:var(--accent); }

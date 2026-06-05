@@ -54,11 +54,12 @@ describe('Runtime executor fallback evidence persistence', () => {
   it('stores fallback result evidence and does not silently complete the parent goal', async () => {
     const plannerResult: PlannerResult = {
       status: 'done',
-      created_cards: [],
-      updated_cards: [],
+      summary: 'done',
     };
+    const store = new (await import('../../src/cards/card-store.js')).CardStore(projectRoot);
+    const createdCard = store.create({ type: 'code', parent: 'project', depth: 1, title: 'Generate output', description: 'Create output file and verify it', status: 'backlog', depends_on: [], priority: 1, tags: [], urgency: 'normal', created_by: 'planner', blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 });
     const executorResult: ExecutorResult = {
-      card_id: 'code-1',
+      card_id: createdCard.id,
       status: 'failed',
       status_text: 'Executor fallback evidence preserved',
       error: 'Executor final response was malformed or missing required status; preserved tool evidence via fallback result.',
@@ -77,7 +78,7 @@ describe('Runtime executor fallback evidence persistence', () => {
         tool_errors: [],
         parse_failure: {
           message: 'Executor final response was malformed or missing required status; preserved tool evidence via fallback result.',
-          raw_response: '{"card_id":"code-1"}',
+          raw_response: JSON.stringify({ card_id: createdCard.id }),
         },
       },
     };
@@ -87,23 +88,21 @@ describe('Runtime executor fallback evidence persistence', () => {
         summary: 'Executor failed as expected for malformed final JSON fallback evidence test',
         achieved: ['Fallback evidence persisted on the card.'],
         issues: [],
-        evidence_card_ids: ['code-1'],
+        evidence_card_ids: [createdCard.id],
       },
     };
 
     const parentSession = createSession(join(projectRoot, '.saivage'), 'planner', 'project', 'project');
-    appendMessage(join(projectRoot, '.saivage'), parentSession.id, { role: 'assistant', kind: 'tool_call', tool: 'activate_card', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'activate-project-code-1', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: 'code-1' }) } }] }) }, { round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0 });
-    const store = new (await import('../../src/cards/card-store.js')).CardStore(projectRoot);
-    store.create({ id: 'code-1', type: 'code', parent: 'project', depth: 1, title: 'Generate output', description: 'Create output file and verify it', status: 'backlog', depends_on: [], priority: 1, tags: [], urgency: 'normal', created_by: 'planner', blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 });
+    appendMessage(join(projectRoot, '.saivage'), parentSession.id, { role: 'assistant', kind: 'tool_call', tool: 'activate_card', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'activate-project-card-1', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: createdCard.id }) } }] }) }, { round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0 });
     const parentRun = appendRuntimeRun(projectRoot, { run_id: 'test-parent-run', kind: 'root', card_id: 'project', parent_run_id: null, command_id: null, activation_id: null, phase: 'planner', runtime_status: 'running', session_id: parentSession.id });
-    const childRun = appendRuntimeRun(projectRoot, { run_id: 'test-child-run', kind: 'child', card_id: 'code-1', parent_run_id: parentRun.run_id, command_id: null, activation_id: null, phase: 'pending', runtime_status: 'running', session_id: null });
-    upsertRuntimeActivation(projectRoot, { idempotency_key: 'test-parent-run:activate-project-code-1:code-1', parent_card_id: 'project', parent_run_id: parentRun.run_id, parent_session_id: parentSession.id, parent_tool_call_id: 'activate-project-code-1', child_card_id: 'code-1', status: 'pending', precondition: 'accepted', runtime_run_id: childRun.run_id, error: null });
+    const childRun = appendRuntimeRun(projectRoot, { run_id: 'test-child-run', kind: 'child', card_id: createdCard.id, parent_run_id: parentRun.run_id, command_id: null, activation_id: null, phase: 'pending', runtime_status: 'running', session_id: null });
+    upsertRuntimeActivation(projectRoot, { idempotency_key: `test-parent-run:activate-project-card-1:${createdCard.id}`, parent_card_id: 'project', parent_run_id: parentRun.run_id, parent_session_id: parentSession.id, parent_tool_call_id: 'activate-project-card-1', child_card_id: createdCard.id, status: 'pending', precondition: 'accepted', runtime_run_id: childRun.run_id, error: null });
     const harness = createHarness(projectRoot, new StubAgentRuntime(plannerResult, executorResult, reviewerResult));
     await harness.api.start();
     await harness.dispatchTestTools.dispatchGoal('project');
     await harness.api.shutdown();
 
-    const codeCard = harness.cardTestTools.read('code-1') as CardRecord;
+    const codeCard = harness.cardTestTools.read(createdCard.id) as CardRecord;
     expect(codeCard.status).toBe('needs_verification');
     expect(codeCard.lifecycle.error).toBeNull();
     expect(codeCard.lifecycle.completed_at).toBeNull();
@@ -114,7 +113,7 @@ describe('Runtime executor fallback evidence persistence', () => {
         generated_files: ['generated/output.txt'],
         verification_commands: [expect.objectContaining({ command: 'npm test -- result-parser', process_id: 'proc-55', status: 'exited', exit_code: 0, timed_out: false })],
         artifact_paths: [],
-        parse_failure: expect.objectContaining({ raw_response: '{"card_id":"code-1"}' }),
+        parse_failure: expect.objectContaining({ raw_response: JSON.stringify({ card_id: createdCard.id }) }),
         evidence_registration_ignored: expect.objectContaining({
           artifacts: expect.arrayContaining([expect.stringContaining('generated/output.txt')]),
           attachments: expect.arrayContaining([expect.stringContaining('logs/command-tail.txt')]),
@@ -124,20 +123,21 @@ describe('Runtime executor fallback evidence persistence', () => {
     expect(codeCard.artifacts).toEqual([]);
     expect(codeCard.attachments).toEqual([]);
 
-    const toolResult = getSessionMessages(join(projectRoot, '.saivage'), parentSession.id).find((message) => message.kind === 'tool_result' && message.tool_call_id === 'activate-project-code-1');
+    const toolResult = getSessionMessages(join(projectRoot, '.saivage'), parentSession.id).find((message) => message.kind === 'tool_result' && message.tool_call_id === 'activate-project-card-1');
     expect(toolResult).toBeUndefined();
-    const activation = readRuntimeState(projectRoot)?.runtime_activations?.find((record) => record.child_card_id === 'code-1');
+    const activation = readRuntimeState(projectRoot)?.runtime_activations?.find((record) => record.child_card_id === createdCard.id);
     expect(activation?.status).not.toBe('completed');
   });
 
   it('ignores project-file artifact claims without failing a done executor result', async () => {
     const plannerResult: PlannerResult = {
       status: 'done',
-      created_cards: [],
-      updated_cards: [],
+      summary: 'done',
     };
+    const store = new (await import('../../src/cards/card-store.js')).CardStore(projectRoot);
+    const createdCard = store.create({ type: 'code', parent: 'project', depth: 1, title: 'Generate output', description: 'Create output file and verify it', status: 'backlog', depends_on: [], priority: 1, tags: [], urgency: 'normal', created_by: 'planner', blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 });
     const executorResult: ExecutorResult = {
-      card_id: 'code-1',
+      card_id: createdCard.id,
       status: 'done',
       status_text: 'Generated project file and verified it',
       summary: 'generated output file',
@@ -160,23 +160,21 @@ describe('Runtime executor fallback evidence persistence', () => {
         summary: 'Executor result evidence is enough; project files were not registered as artifacts.',
         achieved: ['Project file change was recorded in result metadata.'],
         issues: [],
-        evidence_card_ids: ['code-1'],
+        evidence_card_ids: [createdCard.id],
       },
     };
 
     const parentSession = createSession(join(projectRoot, '.saivage'), 'planner', 'project', 'project');
-    appendMessage(join(projectRoot, '.saivage'), parentSession.id, { role: 'assistant', kind: 'tool_call', tool: 'activate_card', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'activate-project-code-1', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: 'code-1' }) } }] }) }, { round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0 });
-    const store = new (await import('../../src/cards/card-store.js')).CardStore(projectRoot);
-    store.create({ id: 'code-1', type: 'code', parent: 'project', depth: 1, title: 'Generate output', description: 'Create output file and verify it', status: 'backlog', depends_on: [], priority: 1, tags: [], urgency: 'normal', created_by: 'planner', blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 });
+    appendMessage(join(projectRoot, '.saivage'), parentSession.id, { role: 'assistant', kind: 'tool_call', tool: 'activate_card', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'activate-project-card-1', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: createdCard.id }) } }] }) }, { round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0 });
     const parentRun = appendRuntimeRun(projectRoot, { run_id: 'test-parent-run', kind: 'root', card_id: 'project', parent_run_id: null, command_id: null, activation_id: null, phase: 'planner', runtime_status: 'running', session_id: parentSession.id });
-    const childRun = appendRuntimeRun(projectRoot, { run_id: 'test-child-run', kind: 'child', card_id: 'code-1', parent_run_id: parentRun.run_id, command_id: null, activation_id: null, phase: 'pending', runtime_status: 'running', session_id: null });
-    upsertRuntimeActivation(projectRoot, { idempotency_key: 'test-parent-run:activate-project-code-1:code-1', parent_card_id: 'project', parent_run_id: parentRun.run_id, parent_session_id: parentSession.id, parent_tool_call_id: 'activate-project-code-1', child_card_id: 'code-1', status: 'pending', precondition: 'accepted', runtime_run_id: childRun.run_id, error: null });
+    const childRun = appendRuntimeRun(projectRoot, { run_id: 'test-child-run', kind: 'child', card_id: createdCard.id, parent_run_id: parentRun.run_id, command_id: null, activation_id: null, phase: 'pending', runtime_status: 'running', session_id: null });
+    upsertRuntimeActivation(projectRoot, { idempotency_key: `test-parent-run:activate-project-card-1:${createdCard.id}`, parent_card_id: 'project', parent_run_id: parentRun.run_id, parent_session_id: parentSession.id, parent_tool_call_id: 'activate-project-card-1', child_card_id: createdCard.id, status: 'pending', precondition: 'accepted', runtime_run_id: childRun.run_id, error: null });
     const harness = createHarness(projectRoot, new StubAgentRuntime(plannerResult, executorResult, reviewerResult));
     await harness.api.start();
     await harness.dispatchTestTools.dispatchGoal('project');
     await harness.api.shutdown();
 
-    const codeCard = harness.cardTestTools.read('code-1') as CardRecord;
+    const codeCard = harness.cardTestTools.read(createdCard.id) as CardRecord;
     expect(codeCard.status).toBe('done');
     expect(codeCard.lifecycle.error).toBeNull();
     expect(codeCard.artifacts).toEqual([]);
@@ -193,7 +191,7 @@ describe('Runtime executor fallback evidence persistence', () => {
       }),
     }));
 
-    const toolResult = getSessionMessages(join(projectRoot, '.saivage'), parentSession.id).find((message) => message.kind === 'tool_result' && message.tool_call_id === 'activate-project-code-1');
+    const toolResult = getSessionMessages(join(projectRoot, '.saivage'), parentSession.id).find((message) => message.kind === 'tool_result' && message.tool_call_id === 'activate-project-card-1');
     expect(toolResult).toBeDefined();
     const completion = JSON.parse(toolResult!.content) as { outcome: string; artifacts: unknown[]; attachments: unknown[] };
     expect(completion.outcome).toBe('done');
@@ -205,11 +203,12 @@ describe('Runtime executor fallback evidence persistence', () => {
   it('resumes an already-active pending terminal activation before executor finish', async () => {
     const plannerResult: PlannerResult = {
       status: 'done',
-      created_cards: [],
-      updated_cards: [],
+      summary: 'done',
     };
+    const store = new (await import('../../src/cards/card-store.js')).CardStore(projectRoot);
+    const createdCard = store.create({ type: 'code', parent: 'project', depth: 1, title: 'Already active terminal card', description: 'Complete an already-active pending activation', status: 'backlog', depends_on: [], priority: 1, tags: [], urgency: 'normal', created_by: 'planner', blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 });
     const executorResult: ExecutorResult = {
-      card_id: 'code-active',
+      card_id: createdCard.id,
       status: 'done',
       status_text: 'Active pending activation completed',
       summary: 'completed active pending activation',
@@ -224,24 +223,22 @@ describe('Runtime executor fallback evidence persistence', () => {
         summary: 'Active pending activation completed and reviewed.',
         achieved: ['Active pending activation completed.'],
         issues: [],
-        evidence_card_ids: ['code-active'],
+        evidence_card_ids: [createdCard.id],
       },
     };
 
     const parentSession = createSession(join(projectRoot, '.saivage'), 'planner', 'project', 'project');
-    appendMessage(join(projectRoot, '.saivage'), parentSession.id, { role: 'assistant', kind: 'tool_call', tool: 'activate_card', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'activate-project-code-active', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: 'code-active' }) } }] }) }, { round_id: 'r-user-00000000000000000000000000000002', message_index: 0, block_index: 0 });
-    const store = new (await import('../../src/cards/card-store.js')).CardStore(projectRoot);
-    store.create({ id: 'code-active', type: 'code', parent: 'project', depth: 1, title: 'Already active terminal card', description: 'Complete an already-active pending activation', status: 'backlog', depends_on: [], priority: 1, tags: [], urgency: 'normal', created_by: 'planner', blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 });
-    store.setStatus('code-active', 'active');
+    appendMessage(join(projectRoot, '.saivage'), parentSession.id, { role: 'assistant', kind: 'tool_call', tool: 'activate_card', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'activate-project-card-1', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: createdCard.id }) } }] }) }, { round_id: 'r-user-00000000000000000000000000000002', message_index: 0, block_index: 0 });
+    store.setStatus(createdCard.id, 'active');
     const parentRun = appendRuntimeRun(projectRoot, { run_id: 'test-parent-run-active', kind: 'root', card_id: 'project', parent_run_id: null, command_id: null, activation_id: null, phase: 'planner', runtime_status: 'running', session_id: parentSession.id });
-    const childRun = appendRuntimeRun(projectRoot, { run_id: 'test-child-run-active', kind: 'child', card_id: 'code-active', parent_run_id: parentRun.run_id, command_id: null, activation_id: null, phase: 'pending', runtime_status: 'running', session_id: null });
-    upsertRuntimeActivation(projectRoot, { idempotency_key: 'test-parent-run-active:activate-project-code-active:code-active', parent_card_id: 'project', parent_run_id: parentRun.run_id, parent_session_id: parentSession.id, parent_tool_call_id: 'activate-project-code-active', child_card_id: 'code-active', status: 'pending', precondition: 'accepted', runtime_run_id: childRun.run_id, error: null });
+    const childRun = appendRuntimeRun(projectRoot, { run_id: 'test-child-run-active', kind: 'child', card_id: createdCard.id, parent_run_id: parentRun.run_id, command_id: null, activation_id: null, phase: 'pending', runtime_status: 'running', session_id: null });
+    upsertRuntimeActivation(projectRoot, { idempotency_key: `test-parent-run-active:activate-project-card-1:${createdCard.id}`, parent_card_id: 'project', parent_run_id: parentRun.run_id, parent_session_id: parentSession.id, parent_tool_call_id: 'activate-project-card-1', child_card_id: createdCard.id, status: 'pending', precondition: 'accepted', runtime_run_id: childRun.run_id, error: null });
 
     const harness = createHarness(projectRoot, new StubAgentRuntime(plannerResult, executorResult, reviewerResult));
     await harness.dispatchTestTools.dispatchGoal('project');
     await harness.api.shutdown();
 
-    const codeCard = harness.cardTestTools.read('code-active') as CardRecord;
+    const codeCard = harness.cardTestTools.read(createdCard.id) as CardRecord;
     expect(codeCard.status).toBe('done');
     expect(codeCard.lifecycle.completed_at).toEqual(expect.any(String));
     expect(Date.parse(codeCard.lifecycle.completed_at!)).not.toBeNaN();
@@ -250,9 +247,9 @@ describe('Runtime executor fallback evidence persistence', () => {
       executor: expect.objectContaining({ evidence: 'active pending activation completed' }),
       latest_self_report: expect.objectContaining({ outcome: 'done' }),
     }));
-    const activation = readRuntimeState(projectRoot)?.runtime_activations?.find((record) => record.child_card_id === 'code-active');
+    const activation = readRuntimeState(projectRoot)?.runtime_activations?.find((record) => record.child_card_id === createdCard.id);
     expect(activation?.status).toBe('completed');
-    const toolResult = getSessionMessages(join(projectRoot, '.saivage'), parentSession.id).find((message) => message.kind === 'tool_result' && message.tool_call_id === 'activate-project-code-active');
+    const toolResult = getSessionMessages(join(projectRoot, '.saivage'), parentSession.id).find((message) => message.kind === 'tool_result' && message.tool_call_id === 'activate-project-card-1');
     expect(toolResult).toBeDefined();
     expect(JSON.parse(toolResult!.content)).toEqual(expect.objectContaining({ outcome: 'done' }));
   });

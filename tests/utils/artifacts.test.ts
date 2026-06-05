@@ -95,7 +95,7 @@ describe('registerArtifact', () => {
       retain: true,
     }, srcFile);
 
-    expect(ref.id).toMatch(/^art-goal-1-1$/);
+    expect(ref.id).toBe(`art-${card.id}-1`);
     expect(ref.card_id).toBe(card.id);
     expect(ref.type).toBe('model');
     expect(ref.description).toBe('Trained model');
@@ -277,7 +277,7 @@ describe('registerAttachment', () => {
       description: 'A test screenshot',
     }, srcFile);
 
-    expect(ref.id).toMatch(/^att-goal-1-1$/);
+    expect(ref.id).toBe(`att-${card.id}-1`);
     expect(ref.card_id).toBe(card.id);
     expect(ref.mime).toBe('image/png');
     expect(ref.title).toBe('Screenshot');

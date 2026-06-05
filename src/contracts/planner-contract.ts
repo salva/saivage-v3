@@ -68,8 +68,6 @@ export function createPlannerContract(
         result: {
           status: parsed.status,
           blocked_reason: parsed.blocked_reason ?? undefined,
-          created_cards: parsed.created_cards,
-          updated_cards: parsed.updated_cards,
           summary: parsed.summary,
         },
       };

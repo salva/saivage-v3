@@ -8,7 +8,7 @@ export interface CardMutationContext {
   reason?: string;
 }
 
-export type NewCardInput = Omit<CardRecord, 'created_at' | 'updated_at' | 'id' | 'version_seq' | 'position' | 'lifecycle'> & { id?: string; lifecycle?: CardLifecycleState };
+export type NewCardInput = Omit<CardRecord, 'created_at' | 'updated_at' | 'id' | 'version_seq' | 'position' | 'lifecycle'> & { lifecycle?: CardLifecycleState };
 
 const CRITICAL_FIELDS: ReadonlySet<string> = new Set([
   'type',
@@ -283,13 +283,9 @@ export function assertCanCreateCard(input: NewCardInput): void {
   }
 }
 
-export function normalizeNewCardId(
-  type: CardType,
-  explicitId: string | undefined,
-  generateId: () => string,
-): string {
+export function newCardId(type: CardType, generateId: () => string): string {
   if (type === 'project') return PROJECT_CARD_ID;
-  return explicitId ?? generateId();
+  return generateId();
 }
 
 export function buildNewCard({ input, id, depth, position, timestamp }: BuildNewCardParams): CardRecord {

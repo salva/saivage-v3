@@ -149,7 +149,6 @@ describe('Cleanup Utility Smoke Tests', () => {
     writeFileSync(artifactPath, 'important model');
 
     store.create({
-      id: 'test-card',
       type: 'code',
       parent: 'project',
       title: 'test-card',
@@ -157,7 +156,7 @@ describe('Cleanup Utility Smoke Tests', () => {
       status: 'done',
       lifecycle: {
         status: 'done',
-        result: { kind: 'planner_done', created_cards: [], updated_cards: [], summary: 'done' },
+        result: { kind: 'planner_done', summary: 'done' },
         error: null,
         completed_at: new Date().toISOString(),
       },
@@ -171,7 +170,7 @@ describe('Cleanup Utility Smoke Tests', () => {
       acceptance: '',
       artifacts: [{
         id: 'art-test-card-1',
-        card_id: 'test-card',
+        card_id: 'card-1',
         path: artifactPath,
         type: 'model',
         description: 'test model',
@@ -206,7 +205,6 @@ describe('Cleanup Utility Smoke Tests', () => {
   it('cleanAll: returns summary counts', () => {
     const swd = saivageWorkDir();
     const card = store.create({
-      id: 'card-with-tmp',
       type: 'code',
       parent: 'project',
       title: 'card-with-tmp',
@@ -214,7 +212,7 @@ describe('Cleanup Utility Smoke Tests', () => {
       status: 'done',
       lifecycle: {
         status: 'done',
-        result: { kind: 'planner_done', created_cards: [], updated_cards: [], summary: 'done' },
+        result: { kind: 'planner_done', summary: 'done' },
         error: null,
         completed_at: new Date().toISOString(),
       },

@@ -30,8 +30,6 @@ export function buildReviewerInvocationFailurePatch(input: {
       kind: 'planner_blocked',
       blocked_reason: input.blockedReason,
       resume_reason: 'reviewer_unavailable',
-      created_cards: [],
-      updated_cards: [],
     },
   } satisfies Extract<CardLifecycleState, { status: 'blocked' }>;
   return {

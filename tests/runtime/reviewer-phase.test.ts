@@ -27,8 +27,6 @@ describe('reviewer phase decisions', () => {
           kind: 'planner_blocked',
           blocked_reason: 'reviewer failed',
           resume_reason: 'reviewer_unavailable',
-          created_cards: [],
-          updated_cards: [],
         }),
       }),
     });

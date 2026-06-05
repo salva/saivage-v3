@@ -65,7 +65,7 @@ const runtimeRun = {
 
 const card = {
   id: 'card-1',
-  display_path: 'Card 1',
+  display_path: '1',
   type: 'code',
   parent: null,
   depth: 0,

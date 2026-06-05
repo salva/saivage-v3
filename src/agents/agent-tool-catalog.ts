@@ -60,7 +60,6 @@ export const PLANNER_TOOL_DEFINITIONS: ToolDefinition[] = [
       acceptance: str('Optional acceptance criteria text.'),
       depends_on: arr(str('A card ID'), 'Optional dependency list.'),
       related: arr(str('A card ID'), 'Optional related-card list.'),
-      id: str('Optional pre-assigned card ID.'),
     },
     ['type', 'title', 'description'],
   ),

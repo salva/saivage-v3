@@ -64,7 +64,7 @@ import {
   collectChangedFields,
   isTerminalState,
   isTerminalType,
-  normalizeNewCardId,
+  newCardId,
   prunePartialPatch,
   summarizeChangedFields,
   validateTransition as validateLifecycleTransition,
@@ -105,8 +105,8 @@ function valuesEqual(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
-function generateId(type: string, existingIds: string[]): string {
-  const prefix = type;
+function generateId(existingIds: string[]): string {
+  const prefix = 'card';
   const maxNum = existingIds
     .filter((id) => id.startsWith(prefix + '-'))
     .map((id) => {
@@ -329,7 +329,7 @@ export class CardStore {
     this.refreshState();
     const nowStamp = now();
     const allKnownIds = this.state.allKnownIds();
-    const id = normalizeNewCardId(input.type, input.id, () => generateId(input.type, allKnownIds));
+    const id = newCardId(input.type, () => generateId(allKnownIds));
 
     if (this.state.isReservedId(id)) {
       throw new Error(
@@ -546,8 +546,6 @@ export class CardStore {
               kind: 'planner_blocked',
               blocked_reason: blockedReason,
               resume_reason: 'planner_blocked',
-              created_cards: [],
-              updated_cards: [],
             },
             error: blockedReason,
             completed_at: null,

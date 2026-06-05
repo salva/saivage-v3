@@ -10,32 +10,11 @@ import type { PlannerEnvelope, PlannerTypedResult } from './planner-contract.js'
 import type { ExecutorResultEnvelope } from './executor-envelope.js';
 import type { ReviewerResultEnvelope } from './reviewer-envelope.js';
 
-export interface PlannerCardCreate {
-  type: string;
-  title: string;
-  description: string;
-  status: string;
-  depends_on: string[];
-  priority: number;
-  tags?: string[];
-  id?: string;
-}
-
-export interface PlannerCardUpdate {
-  id: string;
-  status?: string;
-  title?: string;
-  description?: string;
-  acceptance?: string;
-}
-
 export type PlannerStatus = 'continue' | 'done' | 'blocked';
 
 export interface PlannerResult {
   status: PlannerStatus;
   blocked_reason?: string;
-  created_cards: PlannerCardCreate[];
-  updated_cards: PlannerCardUpdate[];
   summary?: string;
 }
 

@@ -546,7 +546,7 @@ describe('Runtime/Supervisor wiring for abort and force-cancel', () => {
   it('delegates abortSession to agentRuntime.cancelSession via mock AgentRuntime', () => {
     const mockAgentRuntime: AgentRuntime = {
       invokePlanner(_request) {
-        return { goal_card_id: 'p', created_cards: [], updated_cards: [], status: 'done' };
+        return { status: 'done' };
       },
       invokeExecutor(_request) {
         return { card_id: 'c', status: 'done' as const, status_text: 'Completed successfully', artifacts: [], attachments: [], fallback_with_evidence: null };

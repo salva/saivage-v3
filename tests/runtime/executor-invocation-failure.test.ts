@@ -44,7 +44,6 @@ describe('executor invocation failure handler', () => {
       materializeProjectCard(projectRoot);
       const cards = new CardStore(projectRoot);
       const codeCard = cards.create({
-        id: 'code-a',
         type: 'code',
         parent: 'project',
         depth: 1,
@@ -64,14 +63,15 @@ describe('executor invocation failure handler', () => {
         retries: 0,
       });
       const parentRun = appendRuntimeRun(projectRoot, { run_id: 'run-parent', kind: 'root', card_id: 'project', parent_run_id: null, command_id: null, activation_id: null, phase: 'planner', runtime_status: 'running', session_id: 'planner:project' });
-      const childRun = appendRuntimeRun(projectRoot, { run_id: 'run-child', kind: 'child', card_id: 'code-a', parent_run_id: parentRun.run_id, command_id: null, activation_id: null, phase: 'executor', runtime_status: 'running', session_id: 'executor-code-a' });
+      const codeCardId = codeCard.id;
+      const childRun = appendRuntimeRun(projectRoot, { run_id: 'run-child', kind: 'child', card_id: codeCardId, parent_run_id: parentRun.run_id, command_id: null, activation_id: null, phase: 'executor', runtime_status: 'running', session_id: `executor-${codeCardId}` });
       upsertRuntimeActivation(projectRoot, {
-        idempotency_key: 'run-parent:call-a:code-a',
+        idempotency_key: `run-parent:call-a:${codeCardId}`,
         parent_card_id: 'project',
         parent_run_id: parentRun.run_id,
         parent_session_id: 'planner:project',
         parent_tool_call_id: 'call-a',
-        child_card_id: 'code-a',
+        child_card_id: codeCardId,
         status: 'running',
         precondition: 'accepted',
         runtime_run_id: childRun.run_id,
@@ -79,16 +79,16 @@ describe('executor invocation failure handler', () => {
       });
       updateRuntimeState(projectRoot, {
         status: 'running',
-        current_card_id: 'code-a',
-        current_agent_session_id: 'executor-code-a',
+        current_card_id: codeCardId,
+        current_agent_session_id: `executor-${codeCardId}`,
         active_card_run: {
-          card_id: 'code-a',
+          card_id: codeCardId,
           card_type: 'code',
           phase: 'executor',
           runtime_status: 'running',
           caller_session_id: 'planner:project',
           caller_tool_call_id: 'call-a',
-          executor_session_id: 'executor-code-a',
+          executor_session_id: `executor-${codeCardId}`,
           correction_attempts: 0,
           started_at: '2026-01-01T00:00:00.000Z',
           last_turn_at: '2026-01-01T00:00:00.000Z',
@@ -144,9 +144,9 @@ describe('executor invocation failure handler', () => {
       expect(state?.active_card_run).toBeNull();
       expect(state?.current_card_id).toBeNull();
       expect(state?.current_agent_session_id).toBeNull();
-      expect((cards.read('code-a') as CardRecord).status).toBe('failed');
+      expect((cards.read(codeCardId) as CardRecord).status).toBe('failed');
       expect(failureToolResults).toEqual([
-        { cardId: 'code-a', outcome: 'failed', summary: 'Terminal card code-a execution failed before producing a result.' },
+        { cardId: codeCardId, outcome: 'failed', summary: `Terminal card ${codeCardId} execution failed before producing a result.` },
       ]);
     } finally {
       rmSync(projectRoot, { recursive: true, force: true });
@@ -169,7 +169,7 @@ function testEffects(overrides: Partial<ExecutorInvocationFailureEffects> = {}):
 
 function failingAgentRuntime(): AgentExecutionPort {
   return {
-    invokePlanner: () => ({ status: 'done', created_cards: [], updated_cards: [] }),
+    invokePlanner: () => ({ status: 'done' }),
     invokeExecutor: () => { throw new Error('executor exploded'); },
     invokeReviewer: () => ({ assessment: { result: 'pass', summary: 'ok', achieved: [], issues: [], evidence_card_ids: [] } }),
     cancelSession: () => false,

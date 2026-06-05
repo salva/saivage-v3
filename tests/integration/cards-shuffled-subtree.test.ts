@@ -43,18 +43,22 @@ let tmpDir: string;
 let app: FastifyInstance;
 let baseUrl: string;
 let authToken: string;
+let parentId: string;
+let expectedChildOrder: string[];
 
 beforeEach(async () => {
   tmpDir = mkdtempSync(join(tmpdir(), 'saivage-shuffled-subtree-'));
   initProjectTree(tmpDir);
   const store = new CardStore(tmpDir);
-  const parent = store.create(makeCard({ id: 'goal-parent', type: 'goal', title: 'Parent' }));
-  const alpha = store.create(makeCard({ id: 'goal-alpha', type: 'goal', title: 'Alpha', parent: parent.id }));
-  const beta = store.create(makeCard({ id: 'goal-beta', type: 'goal', title: 'Beta', parent: parent.id }));
-  const gamma = store.create(makeCard({ id: 'goal-gamma', type: 'goal', title: 'Gamma', parent: parent.id }));
-  store.create(makeCard({ id: 'code-alpha-1', title: 'Alpha child', parent: alpha.id }));
-  store.create(makeCard({ id: 'code-beta-1', title: 'Beta child', parent: beta.id }));
+  const parent = store.create(makeCard({ type: 'goal', title: 'Parent' }));
+  const alpha = store.create(makeCard({ type: 'goal', title: 'Alpha', parent: parent.id }));
+  const beta = store.create(makeCard({ type: 'goal', title: 'Beta', parent: parent.id }));
+  const gamma = store.create(makeCard({ type: 'goal', title: 'Gamma', parent: parent.id }));
+  store.create(makeCard({ title: 'Alpha child', parent: alpha.id }));
+  store.create(makeCard({ title: 'Beta child', parent: beta.id }));
   void gamma;
+  parentId = parent.id;
+  expectedChildOrder = [beta.id, gamma.id, alpha.id];
 
   rewritePosition(tmpDir, alpha.id, 2);
   rewritePosition(tmpDir, beta.id, 0);
@@ -79,20 +83,19 @@ afterEach(async () => {
 describe('shuffled persisted subtree ordering', () => {
   it('returns persisted position order through store, operator cards.get, get_card, and get_tree', async () => {
     const reloaded = new CardStore(tmpDir);
-    const expected = ['goal-beta', 'goal-gamma', 'goal-alpha'];
-    expect(reloaded.listChildren('goal-parent')).toEqual(expected);
+    expect(reloaded.listChildren(parentId)).toEqual(expectedChildOrder);
 
-    const response = await fetch(`${baseUrl}/api/cards/goal-parent`, { headers: { authorization: `Bearer ${authToken}` } });
+    const response = await fetch(`${baseUrl}/api/cards/${parentId}`, { headers: { authorization: `Bearer ${authToken}` } });
     expect(response.status).toBe(200);
     const body = await response.json() as { children: Array<{ id: string }> };
-    expect(body.children.map((child) => child.id)).toEqual(expected);
+    expect(body.children.map((child) => child.id)).toEqual(expectedChildOrder);
 
-    const cardResult = await get_card({ projectRoot: tmpDir, store: reloaded, actor: 'analyst', surface: 'web-chat' }, { id: 'goal-parent' });
+    const cardResult = await get_card({ projectRoot: tmpDir, store: reloaded, actor: 'analyst', surface: 'web-chat' }, { id: parentId });
     expect(cardResult.success).toBe(true);
-    expect(((cardResult.data as { children: Array<{ id: string }> }).children).map((child) => child.id)).toEqual(expected);
+    expect(((cardResult.data as { children: Array<{ id: string }> }).children).map((child) => child.id)).toEqual(expectedChildOrder);
 
-    const treeResult = await get_tree({ projectRoot: tmpDir, store: reloaded, actor: 'analyst', surface: 'web-chat' }, { rootId: 'goal-parent' });
+    const treeResult = await get_tree({ projectRoot: tmpDir, store: reloaded, actor: 'analyst', surface: 'web-chat' }, { rootId: parentId });
     expect(treeResult.success).toBe(true);
-    expect(((treeResult.data as { children: Array<{ id: string }> }).children).map((child) => child.id)).toEqual(expected);
+    expect(((treeResult.data as { children: Array<{ id: string }> }).children).map((child) => child.id)).toEqual(expectedChildOrder);
   });
 });

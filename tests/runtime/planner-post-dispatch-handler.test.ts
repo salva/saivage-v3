@@ -6,7 +6,7 @@ describe('planner post-dispatch handler', () => {
     const calls: string[] = [];
     const result = await handlePlannerPostDispatchDecision({
       goalId: 'goal-a',
-      decision: { kind: 'block', blockedReason: 'blocked', planning: { kind: 'planner_blocked', blocked_reason: 'blocked', resume_reason: 'planner_blocked', created_cards: [], updated_cards: [] }, terminalReason: 'planner_blocked' },
+      decision: { kind: 'block', blockedReason: 'blocked', planning: { kind: 'planner_blocked', blocked_reason: 'blocked', resume_reason: 'planner_blocked' }, terminalReason: 'planner_blocked' },
       effects: testEffects({ blockGoalWithPlanning: async (input) => { calls.push(`${input.goalId}:${input.terminalReason}`); } }),
     });
     expect(result).toEqual({ plannerDone: false, shouldReturn: true });

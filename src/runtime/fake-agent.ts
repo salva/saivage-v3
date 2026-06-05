@@ -1,8 +1,8 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { ReviewAssessment, CardStatus, ArtifactRef, AgentMessage, HandoffSummary, AgentSession } from '../schemas/index.js';
+import type { ReviewAssessment, ArtifactRef, AgentMessage, HandoffSummary, AgentSession } from '../schemas/index.js';
 import type { AgentExecutionPort, PlannerInvocationRequest, ExecutorInvocationRequest, ReviewerInvocationRequest, SessionReinvokeRequest, RuntimeActivationLedgerPort } from '../contracts/index.js';
-import { appendMessage, completeSession, createSession, markSessionWaiting } from './session-persistence.js';
+import { completeSession, createSession, markSessionWaiting } from './session-persistence.js';
 import type { SessionStamper } from '../contracts/session-stamper.js';
 import type { PlannerResult, ExecutorResult, ReviewerResult, PlannerStatus, ExecutorFallbackReason } from '../contracts/index.js';
 
@@ -34,18 +34,16 @@ export interface FakeExecutorResult {
 export interface FakePlannerResult {
   status: PlannerStatus;
   blocked_reason?: string;
-  created_cards?: Array<{ id?: string; type: string; title: string; description: string; status: CardStatus; depends_on: string[]; priority: number; tags?: string[] }>;
-  updated_cards?: Array<{ id: string; status?: CardStatus; title?: string; description?: string }>;
   summary?: string;
 }
 
 export interface FakeReviewerResult { assessment: ReviewAssessment; }
 export interface FakeAgentFixture { name: string; planner?: FakePlannerResult[]; executor?: Record<string, FakeExecutorResult>; reviewer?: FakeReviewerResult[]; }
-export interface FakeAgentConfig { mapping: Record<string, string>; fixtureDir: string; saivageDir?: string; autoActivateCreatedCards?: boolean; activationLedger?: RuntimeActivationLedgerPort; sessionStamper?: SessionStamper; }
+export interface FakeAgentConfig { mapping: Record<string, string>; fixtureDir: string; saivageDir?: string; activationLedger?: RuntimeActivationLedgerPort; sessionStamper?: SessionStamper; }
 interface FakeActiveSession { sessionId: string; role: 'planner' | 'executor' | 'reviewer'; goalId: string; cardId: string | null; lastAction: string; nextAction: string; contextSummary: string; }
 
 function convertPlannerResult(raw: FakePlannerResult): PlannerResult {
-  return { status: raw.status, blocked_reason: raw.blocked_reason, created_cards: (raw.created_cards ?? []).map((c) => ({ ...c, status: c.status as string })), updated_cards: (raw.updated_cards ?? []).map((u) => ({ ...u, status: u.status as string | undefined })), summary: raw.summary };
+  return { status: raw.status, blocked_reason: raw.blocked_reason, summary: raw.summary };
 }
 function convertExecutorResult(raw: FakeExecutorResult): ExecutorResult {
   return { card_id: raw.card_id, status: raw.status, status_text: raw.status_text, error: raw.error, result: raw.result, artifacts: (raw.artifacts ?? []).map((a) => ({ type: a.type, description: a.description, retain: a.retain, sourceFile: a.sourceFile })), attachments: (raw.attachments ?? []).map((a) => ({ mime: a.mime, title: a.title, description: a.description, sourceFile: a.sourceFile })), summary: undefined, fallback_with_evidence: raw.fallback_with_evidence ?? null };
@@ -100,11 +98,6 @@ export class FakeAgentAdapter implements AgentExecutionPort {
       const result = fixture.planner[count];
       this.plannerCounters.set(fixture.name, count + 1);
       converted = convertPlannerResult(result);
-      if (this.config.autoActivateCreatedCards !== false && this.config.saivageDir && persistedSessionId && converted.created_cards.length > 0) {
-        const toolCalls = converted.created_cards.map((card) => ({ id: `activate:${goalId}:${card.id}:${count}`, type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: card.id }) } }));
-        for (const toolCall of toolCalls) appendMessage(this.config.saivageDir, persistedSessionId, { role: 'assistant', kind: 'tool_call', content: JSON.stringify({ role: 'assistant', tool_calls: [toolCall] }), tool: 'activate_card', tool_call_id: toolCall.id }, this.sessionStamper.stampInRound(persistedSessionId));
-        this.createFixtureActivationRecords(goalId, persistedSessionId, toolCalls);
-      }
       return converted;
     } finally {
       if (this.config.saivageDir && persistedSessionId) {
@@ -117,21 +110,6 @@ export class FakeAgentAdapter implements AgentExecutionPort {
     }
   }
 
-  private createFixtureActivationRecords(goalId: string, plannerSessionId: string, toolCalls: Array<{ id: string; function: { arguments: string } }>): void {
-    if (!this.config.saivageDir) return;
-    const state = this.config.activationLedger?.readState();
-    const parentRun = (state?.runtime_runs ?? []).find((run) => run.card_id === goalId && run.phase === 'planner' && run.runtime_status === 'running' && !run.finished_at)
-      ?? this.config.activationLedger?.appendRun({ kind: goalId === 'project' ? 'root' : 'child', card_id: goalId, parent_run_id: null, command_id: null, activation_id: null, phase: 'planner', runtime_status: 'running', session_id: plannerSessionId, run_id: `fixture-parent-run:${goalId}:${plannerSessionId}` });
-    if (!parentRun) return;
-    for (const call of toolCalls) {
-      let childCardId = '';
-      try { const args = JSON.parse(call.function.arguments); childCardId = String(args.cardId ?? args.card_id ?? ''); } catch { void 0; }
-      if (!childCardId) continue;
-      const childRun = this.config.activationLedger?.appendRun({ kind: 'child', card_id: childCardId, parent_run_id: parentRun.run_id, command_id: null, activation_id: null, phase: 'pending', runtime_status: 'running', session_id: null, run_id: `fixture-child-run:${goalId}:${childCardId}:${call.id}` });
-      if (!childRun) continue;
-      this.config.activationLedger?.upsertActivation({ idempotency_key: `fixture:${parentRun.run_id}:${plannerSessionId}:${call.id}:${childCardId}`, parent_card_id: goalId, parent_run_id: parentRun.run_id, parent_session_id: plannerSessionId, parent_tool_call_id: call.id, child_card_id: childCardId, status: 'pending', precondition: 'accepted', runtime_run_id: childRun.run_id, error: null });
-    }
-  }
   invokeExecutor(request: ExecutorInvocationRequest): ExecutorResult;
   invokeExecutor(cardId: string, goalId: string, systemPrompt?: string, contextMessages?: AgentMessage[]): ExecutorResult;
   invokeExecutor(requestOrCardId: ExecutorInvocationRequest | string, goalId?: string): ExecutorResult { return typeof requestOrCardId === 'string' ? this.invokeExecutorForCard(requestOrCardId, goalId ?? '') : this.invokeExecutorForCard(requestOrCardId.cardId, requestOrCardId.goalId); }

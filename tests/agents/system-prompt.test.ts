@@ -21,10 +21,13 @@ describe('System Prompt Builder', () => {
       expect(prompt.length).toBeGreaterThan(0);
     });
 
-    it('contains planner role and created_cards schema', () => {
+    it('contains planner role and tool-mutation guidance', () => {
       const prompt = buildPlannerPrompt(plannerContract);
       expect(prompt).toContain('Planner');
-      expect(prompt).toContain('created_cards');
+      expect(prompt).toContain('Use tools for all card mutations');
+      expect(prompt).toContain('only reports `status`, optional `blocked_reason`, and `summary`');
+      expect(prompt).not.toContain('created_cards');
+      expect(prompt).not.toContain('updated_cards');
     });
 
     it('includes stage-3 activation and recurrence instructions', () => {

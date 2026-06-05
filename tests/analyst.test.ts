@@ -18,6 +18,9 @@ import {
 } from '../src/runtime/state.js';
 import {
   create_card,
+  list_cards,
+  get_card,
+  get_tree,
   edit_card,
   delete_card,
   queue_notification,
@@ -147,11 +150,10 @@ function setupTestProject(projectRoot: string): CardStore {
     artifacts: [],
     attachments: [],
     retries: 0,
-    id: 'goal-1',
   });
   store.create({
     type: 'code',
-    parent: 'goal-1',
+    parent: 'card-1',
     title: 'Code Task 1',
     description: 'Implement feature',
     status: 'backlog',
@@ -167,7 +169,6 @@ function setupTestProject(projectRoot: string): CardStore {
     artifacts: [],
     attachments: [],
     retries: 0,
-    id: 'code-1',
   });
   return store;
 }
@@ -289,16 +290,36 @@ describe('Analyst Tools', () => {
   it('creates a card under goal, returns success with card data', async () => {
     const r = await create_card(ctx(projectRoot, store), {
       type: 'code',
-      parent: 'goal-1',
+      parent: 'card-1',
       title: 'New Code Card',
       description: 'A new card',
     });
     expect(r.success).toBe(true);
     const c = r.data as Record<string, unknown>;
     expect(c.title).toBe('New Code Card');
-    expect(c.parent).toBe('goal-1');
+    expect(c.parent).toBe('card-1');
     expect(c.type).toBe('code');
-    expect(c.id).toMatch(/^code-/);
+    expect(c.id).toMatch(/^card-/);
+    expect(c.display_path).toBe('1.2');
+  });
+
+  it('includes display paths in analyst card projections', async () => {
+    const list = await list_cards(ctx(projectRoot, store), {});
+    const detail = await get_card(ctx(projectRoot, store), { id: 'card-1' });
+    const tree = await get_tree(ctx(projectRoot, store), {});
+
+    expect(list.success).toBe(true);
+    expect(list.data).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'project', display_path: null }),
+      expect.objectContaining({ id: 'card-1', display_path: '1' }),
+    ]));
+    expect(detail.success).toBe(true);
+    expect(detail.data).toEqual(expect.objectContaining({ id: 'card-1', display_path: '1' }));
+    expect((detail.data as { children: Array<{ id: string; display_path: string | null }> }).children).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'card-2', display_path: '1.1' }),
+    ]));
+    expect(tree.success).toBe(true);
+    expect(tree.data).toEqual(expect.objectContaining({ id: 'project', display_path: null }));
   });
 
   it('creates the first project card in an empty store', async () => {
@@ -368,59 +389,59 @@ describe('Analyst Tools', () => {
   });
 
   it('denies delete_card for matrix-disallowed target states', async () => {
-    store.setStatus('goal-1', 'running');
+    store.setStatus('card-1', 'running');
 
     const result = await delete_card(
       { projectRoot, store, actor: 'runtime', surface: 'runtime' },
-      { ids: ['goal-1'] },
+      { ids: ['card-1'] },
     );
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('delete_card denied by permission matrix');
-    expect(result.error).toContain("card 'goal-1'");
+    expect(result.error).toContain("card 'card-1'");
     expect(result.error).toContain("state 'running'");
-    expect(store.read('goal-1')).not.toBeNull();
+    expect(store.read('card-1')).not.toBeNull();
   });
 
   it('denies delete_card when a descendant is matrix-disallowed', async () => {
-    store.setStatus('goal-1', 'backlog');
-    store.setStatus('code-1', 'active');
-    store.setStatus('code-1', 'running');
+    store.setStatus('card-1', 'backlog');
+    store.setStatus('card-2', 'active');
+    store.setStatus('card-2', 'running');
 
     const result = await delete_card(
       { projectRoot, store, actor: 'runtime', surface: 'runtime' },
-      { ids: ['goal-1'] },
+      { ids: ['card-1'] },
     );
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('delete_card denied by permission matrix');
-    expect(result.error).toContain("card 'code-1'");
+    expect(result.error).toContain("card 'card-2'");
     expect(result.error).toContain("state 'running'");
-    expect(store.read('goal-1')).not.toBeNull();
-    expect(store.read('code-1')).not.toBeNull();
+    expect(store.read('card-1')).not.toBeNull();
+    expect(store.read('card-2')).not.toBeNull();
   });
 
   it('allows delete_card for a matrix-allowed state', async () => {
-    store.update('code-1', { status: 'backlog' });
+    store.update('card-2', { status: 'backlog' });
 
     const result = await delete_card(
       { projectRoot, store, actor: 'runtime', surface: 'runtime' },
-      { ids: ['code-1'] },
+      { ids: ['card-2'] },
     );
 
     expect(result.success).toBe(true);
-    expect(result.data).toEqual({ deleted: ['code-1'], top_level_deleted: ['code-1'] });
-    expect(store.read('code-1')).toBeNull();
+    expect(result.data).toEqual({ deleted: ['card-2'], top_level_deleted: ['card-2'] });
+    expect(store.read('card-2')).toBeNull();
   });
 
   it('queues analyst notifications and audits metadata without body content', async () => {
     const result = await queue_notification(ctx(projectRoot, store), {
-      recipient: 'code-1',
+      recipient: 'card-2',
       kind: 'heads_up',
       body: 'secret notification body',
     });
 
-    expect(result).toEqual({ success: true, data: { queued: true, recipient: 'code-1' } });
+    expect(result).toEqual({ success: true, data: { queued: true, recipient: 'card-2' } });
     const audits = listControlActions(projectRoot);
     expect(audits).toEqual(
       expect.arrayContaining([
@@ -428,16 +449,16 @@ describe('Analyst Tools', () => {
           actor: 'analyst',
           surface: 'web-chat',
           action: 'notification.queue',
-          target_id: 'code-1',
+          target_id: 'card-2',
           outcome: 'ok',
         }),
       ]),
     );
     const audit = audits.find(
-      (entry) => entry.action === 'notification.queue' && entry.target_id === 'code-1',
+      (entry) => entry.action === 'notification.queue' && entry.target_id === 'card-2',
     );
     expect(audit?.params_summary).toContain('heads_up');
-    expect(audit?.params_summary).toContain('code-1');
+    expect(audit?.params_summary).toContain('card-2');
     expect(audit?.outcome_summary).not.toContain('secret notification body');
     expect(audit?.params_summary).not.toContain('secret notification body');
   });
@@ -466,7 +487,7 @@ describe('Analyst Tools', () => {
   it('audits analyst reorder_child with the calling surface', async () => {
     const childTwo = store.create({
       type: 'code',
-      parent: 'goal-1',
+      parent: 'card-1',
       title: 'Code Task 2',
       description: '',
       status: 'backlog',
@@ -482,12 +503,11 @@ describe('Analyst Tools', () => {
       artifacts: [],
       attachments: [],
       retries: 0,
-      id: 'code-2',
     });
 
     const reorderResult = await reorder_child(ctx(projectRoot, store), {
-      parentId: 'goal-1',
-      orderedChildIds: [childTwo.id, 'code-1'],
+      parentId: 'card-1',
+      orderedChildIds: [childTwo.id, 'card-2'],
     });
     expect(reorderResult.success).toBe(true);
 
@@ -498,7 +518,7 @@ describe('Analyst Tools', () => {
           actor: 'analyst',
           surface: 'web-chat',
           action: 'card.reorder_child',
-          target_id: 'goal-1',
+          target_id: 'card-1',
           outcome: 'ok',
         }),
       ]),
@@ -508,7 +528,7 @@ describe('Analyst Tools', () => {
   it('returns actionable enum preflight errors for invalid create_card values', async () => {
     const result = await create_card(ctx(projectRoot, store), {
       type: 'task' as never,
-      parent: 'goal-1',
+      parent: 'card-1',
       title: 'Bad Card',
       description: 'Invalid type',
       status: 'ready' as never,
@@ -524,7 +544,7 @@ describe('Analyst Tools', () => {
     const result = await edit_card(
       { projectRoot, store, actor: 'runtime', surface: 'runtime' },
       {
-        id: 'code-1',
+        id: 'card-2',
         status: 'todo',
       },
     );

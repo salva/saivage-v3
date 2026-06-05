@@ -25,21 +25,21 @@ describe('card history and notes tools', () => {
     const root = mkdtempSync(join(tmpdir(), 'wave-f-history-tools-'));
     try {
       const store = setup(root);
-      store.create({ id: 'goal-1', type: 'goal', parent: 'project', depth: 0, title: 'goal', description: '', status: 'backlog', tags: [], priority: 1, position: 0, urgency: 'normal', created_by: 'analyst', acceptance: '', depends_on: [], blocks: [], related: [], artifacts: [], attachments: [], retries: 0 } as any);
-      store.create({ id: 'code-1', type: 'code', parent: 'goal-1', depth: 0, title: 'before', description: 'old', status: 'backlog', tags: [], priority: 1, position: 0, urgency: 'normal', created_by: 'analyst', acceptance: 'a', depends_on: [], blocks: [], related: [], artifacts: [], attachments: [], retries: 0 } as any);
-      store.mutateCard('code-1', { title: 'after', acceptance: 'b' }, { actor: 'analyst', surface: 'web-chat', reason: 'operator edit' });
+      const goal = store.create({ type: 'goal', parent: 'project', depth: 0, title: 'goal', description: '', status: 'backlog', tags: [], priority: 1, position: 0, urgency: 'normal', created_by: 'analyst', acceptance: '', depends_on: [], blocks: [], related: [], artifacts: [], attachments: [], retries: 0 } as any);
+      const code = store.create({ type: 'code', parent: goal.id, depth: 0, title: 'before', description: 'old', status: 'backlog', tags: [], priority: 1, position: 0, urgency: 'normal', created_by: 'analyst', acceptance: 'a', depends_on: [], blocks: [], related: [], artifacts: [], attachments: [], retries: 0 } as any);
+      store.mutateCard(code.id, { title: 'after', acceptance: 'b' }, { actor: 'analyst', surface: 'web-chat', reason: 'operator edit' });
       const toolCtx = ctx(root, store);
-      const history = await list_card_history(toolCtx, { cardId: 'code-1' });
+      const history = await list_card_history(toolCtx, { cardId: code.id });
       expect(history.success).toBe(true);
       expect((history.data as Array<{ version_seq: number }>)).toHaveLength(1);
       expect((history.data as Array<{ version_seq: number }>)[0]?.version_seq).toBe(1);
 
-      const entry = await get_card_history_entry(toolCtx, { cardId: 'code-1', version_seq: 1 });
+      const entry = await get_card_history_entry(toolCtx, { cardId: code.id, version_seq: 1 });
       expect(entry.success).toBe(true);
       expect((entry.data as { snapshot: { title: string; acceptance: string } }).snapshot.title).toBe('before');
       expect((entry.data as { snapshot: { title: string; acceptance: string } }).snapshot.acceptance).toBe('a');
 
-      const diff = await diff_card(toolCtx, { cardId: 'code-1' });
+      const diff = await diff_card(toolCtx, { cardId: code.id });
       expect(diff.success).toBe(true);
       const fields = (diff.data as { diff: Array<{ field: string }> }).diff.map((item) => item.field);
       expect(fields).toEqual(expect.arrayContaining(['acceptance','title']));

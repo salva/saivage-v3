@@ -3,7 +3,7 @@ import { buildCompletedRuntimeCommandState, buildCurrentAgentSessionPatch, build
 import type { PlannerDoneResult } from '../../src/schemas/index.js';
 import type { RuntimeState } from '../../src/schemas/types.js';
 
-const plannerDone: PlannerDoneResult = { kind: 'planner_done', created_cards: [], updated_cards: [], summary: 'done' };
+const plannerDone: PlannerDoneResult = { kind: 'planner_done', summary: 'done' };
 
 function state(overrides: Partial<RuntimeState> = {}): RuntimeState {
   return {

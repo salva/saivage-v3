@@ -24,8 +24,8 @@ describe('planner contract', () => {
     if (projected.kind !== 'result') return;
     expect(projected.result.status).toBe('continue');
     expect(projected.result.summary).toBe('ok');
-    expect(projected.result.created_cards).toEqual([]);
-    expect(projected.result.updated_cards).toEqual([]);
+    expect(projected.result).not.toHaveProperty('created_cards');
+    expect(projected.result).not.toHaveProperty('updated_cards');
   });
 
   it('rejects removed emit_planner_deferred terminal', () => {

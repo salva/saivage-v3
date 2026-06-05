@@ -7,7 +7,7 @@ import { createRuntimeStateMutationPort } from '../../src/runtime/mutations.js';
 import { initRuntimeState, readRuntimeState, updateRuntimeState } from '../../src/runtime/state.js';
 import type { PlannerDoneResult } from '../../src/schemas/index.js';
 
-const plannerDone: PlannerDoneResult = { kind: 'planner_done', created_cards: [], updated_cards: [], summary: 'done' };
+const plannerDone: PlannerDoneResult = { kind: 'planner_done', summary: 'done' };
 
 describe('runtime mutations', () => {
   it('applies runtime state patches through the mutation port', () => {

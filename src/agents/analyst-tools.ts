@@ -39,6 +39,7 @@ import {
 } from './analyst-secret-classifier.js';
 import { runAuditedAnalystTool } from './analyst-tool-runner.js';
 import { queueNotification, resolveRecipient } from '../notifications/index.js';
+import { toCardView, computeCardDisplayPath } from '../application/read-models/card-view.js';
 import {
   getRedactedConfig,
   mcpAdd,
@@ -145,8 +146,8 @@ function saivageDir(projectRoot: string): string {
 function getStore(ctx: ToolContext): CardStore {
   return ctx.store ?? new CardStore(ctx.projectRoot);
 }
-function cardSummary(card: CardRecord) {
-  return { id: card.id, title: card.title, type: card.type, status: card.status };
+function cardSummary(card: CardRecord, store?: CardStore) {
+  return { id: card.id, display_path: store ? computeCardDisplayPath(store, card) : null, title: card.title, type: card.type, status: card.status };
 }
 function normalizeParentValue(value: unknown): string | null | undefined {
   if (value === null) return null;
@@ -476,14 +477,13 @@ export async function create_card(
     acceptance?: string;
     depends_on?: string[];
     related?: string[];
-    id?: string;
   },
 ): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, params, {
     action: 'card.create',
     safety_class: 'low',
     target_kind: 'card',
-    getTargetId: (p) => p.id ?? null,
+    getTargetId: () => null,
     run: async () => {
       try {
         const typeCheck = preflightEnum(
@@ -544,9 +544,8 @@ export async function create_card(
           artifacts: [],
           attachments: [],
           retries: 0,
-          ...(params.id ? { id: params.id } : {}),
         });
-        return { success: true, data: card };
+        return { success: true, data: toCardView(store, card) };
       } catch (err) {
         return {
           success: false,
@@ -758,6 +757,7 @@ export async function list_cards(
       success: true,
       data: cards.map((c) => ({
         id: c.id,
+        display_path: computeCardDisplayPath(store, c),
         type: c.type,
         title: c.title,
         status: c.status,
@@ -779,8 +779,8 @@ export async function get_card(ctx: ToolContext, params: { id: string }): Promis
       .listChildren(params.id)
       .map((cid) => store.read(cid))
       .filter((c): c is CardRecord => c !== null)
-      .map(cardSummary);
-    return { success: true, data: { ...card, children } };
+      .map((child) => cardSummary(child, store));
+    return { success: true, data: { ...toCardView(store, card), children } };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -790,6 +790,7 @@ interface TreeNode {
   type: string;
   title: string;
   status: string;
+  display_path: string | null;
   children: TreeNode[];
 }
 function buildNode(store: CardStore, id: string): TreeNode | null {
@@ -797,6 +798,7 @@ function buildNode(store: CardStore, id: string): TreeNode | null {
   if (!card) return null;
   return {
     id: card.id,
+    display_path: computeCardDisplayPath(store, card),
     type: card.type,
     title: card.title,
     status: card.status,

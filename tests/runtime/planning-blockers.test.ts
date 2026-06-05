@@ -3,7 +3,7 @@ import { blockedPlanningReason, cardHasBlockedPlanning, getBlockedPlanning, isRe
 import type { CardRecord, PlannerBlockedResult } from '../../src/schemas/index.js';
 
 function planning(overrides: Partial<PlannerBlockedResult> = {}): PlannerBlockedResult {
-  return { kind: 'planner_blocked', blocked_reason: 'Need operator input', resume_reason: 'planner_blocked', created_cards: [], updated_cards: [], ...overrides };
+  return { kind: 'planner_blocked', blocked_reason: 'Need operator input', resume_reason: 'planner_blocked', ...overrides };
 }
 
 function card(result: CardRecord['lifecycle']['result'] = null, overrides: Partial<CardRecord> = {}): CardRecord {

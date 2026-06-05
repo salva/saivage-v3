@@ -18,15 +18,11 @@ export function decideGoalActivationTransition(status: CardRecord['status']): Go
 }
 
 export function hasPlannerAction(input: {
-  createdCardIds: readonly string[];
-  updatedCardIds: readonly string[];
   hasGoalDispatch: boolean;
   hasUnfinishedChildWork: boolean;
   executedTerminal: boolean;
 }): boolean {
   return (
-    input.createdCardIds.length > 0 ||
-    input.updatedCardIds.length > 0 ||
     input.hasGoalDispatch ||
     input.hasUnfinishedChildWork ||
     input.executedTerminal
@@ -56,8 +52,6 @@ export function getActiveTokenBudgetPlanningBlocker(input: {
 export function buildPlannerBlockedDecision(input: {
   currentCard: CardRecord | null | undefined;
   plannerBlockedReason: string | null;
-  createdCardIds: readonly string[];
-  updatedCardIds: readonly string[];
 }): { blockedReason: string | null; planning: PlannerBlockedResult; terminalReason: string } {
   const preservePreciseBlocker = shouldPreservePrecisePlanningBlocker(input.currentCard ?? null, 'planner_blocked');
   const preservedPlanning = preservePreciseBlocker ? getBlockedPlanning(input.currentCard ?? null) : null;
@@ -75,8 +69,6 @@ export function buildPlannerBlockedDecision(input: {
         kind: 'planner_blocked',
         blocked_reason: blockedReason ?? 'Planner blocked without a reason.',
         resume_reason: 'reviewer_unavailable',
-        created_cards: [...input.createdCardIds],
-        updated_cards: [...input.updatedCardIds],
       },
       terminalReason: 'reviewer_invocation_failed',
     };
@@ -88,8 +80,6 @@ export function buildPlannerBlockedDecision(input: {
         kind: 'planner_blocked',
         blocked_reason: blockedReason ?? 'Reviewer capacity is unavailable.',
         resume_reason: 'reviewer_unavailable',
-        created_cards: [...input.createdCardIds],
-        updated_cards: [...input.updatedCardIds],
       },
       terminalReason: 'reviewer_invocation_failed',
     };
@@ -100,8 +90,6 @@ export function buildPlannerBlockedDecision(input: {
       kind: 'planner_blocked',
       blocked_reason: input.plannerBlockedReason ?? 'Planner blocked without a reason.',
       resume_reason: 'planner_blocked',
-      created_cards: [...input.createdCardIds],
-      updated_cards: [...input.updatedCardIds],
     },
     terminalReason: 'planner_blocked',
   };
@@ -128,8 +116,6 @@ export function buildPlannerInvocationFailureBlocker(input: {
       kind: 'planner_blocked',
       blocked_reason: blockedReason,
       resume_reason: resumeReason,
-      created_cards: [],
-      updated_cards: [],
     },
   };
 }
@@ -139,8 +125,6 @@ export function buildPlannerContinuePatch(input: {
   plannerDeclaredDone: boolean;
   hasUnfinishedChildWork: boolean;
   hasGoalDispatch: boolean;
-  createdCardIds: readonly string[];
-  updatedCardIds: readonly string[];
 }): Partial<CardRecord> {
   void input;
   return {};
@@ -155,8 +139,6 @@ export type PlannerPostDispatchDecision =
 export function decidePlannerPostDispatch(input: {
   plannerResult: PlannerResult;
   currentCard: CardRecord | null | undefined;
-  createdCardIds: readonly string[];
-  updatedCardIds: readonly string[];
   hasGoalDispatch: boolean;
   hasUnfinishedChildWork: boolean;
   executedTerminal: boolean;
@@ -166,8 +148,6 @@ export function decidePlannerPostDispatch(input: {
     const decision = buildPlannerBlockedDecision({
       currentCard: input.currentCard,
       plannerBlockedReason: input.plannerResult.blocked_reason ?? null,
-      createdCardIds: input.createdCardIds,
-      updatedCardIds: input.updatedCardIds,
     });
     return { kind: 'block', blockedReason: decision.blockedReason ?? '', planning: decision.planning, terminalReason: decision.terminalReason };
   }
@@ -196,8 +176,6 @@ export function decidePlannerPostDispatch(input: {
   }
 
   const plannerHadAction = hasPlannerAction({
-    createdCardIds: input.createdCardIds,
-    updatedCardIds: input.updatedCardIds,
     hasGoalDispatch: input.hasGoalDispatch,
     hasUnfinishedChildWork: input.hasUnfinishedChildWork,
     executedTerminal: input.executedTerminal,
@@ -212,8 +190,6 @@ export function decidePlannerPostDispatch(input: {
         kind: 'planner_blocked',
         blocked_reason: blockedReason,
         resume_reason: 'non_actionable_continue',
-        created_cards: [],
-        updated_cards: [],
       },
       terminalReason: 'planner_non_actionable_continue',
     };
@@ -228,8 +204,6 @@ export function decidePlannerPostDispatch(input: {
         kind: 'planner_blocked',
         blocked_reason: blockedReason,
         resume_reason: 'non_actionable_project_done',
-        created_cards: [],
-        updated_cards: [],
       },
       terminalReason: 'planner_non_actionable_project_done',
     };
@@ -244,8 +218,6 @@ export function decidePlannerPostDispatch(input: {
     plannerDeclaredDone: input.plannerResult.status === 'done',
     hasUnfinishedChildWork: input.hasUnfinishedChildWork,
     hasGoalDispatch: input.hasGoalDispatch,
-    createdCardIds: input.createdCardIds,
-    updatedCardIds: input.updatedCardIds,
   });
   if (input.plannerResult.status === 'done' && !input.hasGoalDispatch && input.hasUnfinishedChildWork) {
     return { kind: 'exit_with_unfinished_child_work', patch, terminalReason: 'planner_done_with_unfinished_child_work' };
@@ -258,17 +230,9 @@ export function summarizePlannerPostDispatch(input: {
   childCards: readonly Pick<CardRecord, 'parent' | 'status'>[];
   goalId: string;
 }): {
-  createdCardIds: string[];
-  updatedCardIds: string[];
   hasUnfinishedChildWork: boolean;
 } {
   return {
-    createdCardIds: (input.plannerResult.created_cards ?? [])
-      .map((card) => card.id)
-      .filter((id): id is string => Boolean(id)),
-    updatedCardIds: (input.plannerResult.updated_cards ?? [])
-      .map((card) => card.id)
-      .filter((id): id is string => Boolean(id)),
     hasUnfinishedChildWork: input.childCards.some(
       (card) =>
         card.parent === input.goalId &&

@@ -80,8 +80,6 @@ export async function handlePlannerInvocationFailure(input: {
       card: input.currentCard,
       blockedReason: plannerFailureBlocker.blockedReason,
       resumeReason: plannerFailureBlocker.resumeReason,
-      createdCards: [],
-      updatedCards: [],
       effects: {
         transitionCard: (cardId, event, details) => input.effects.transitionCard(cardId, event as 'block', details),
         updateCard: (cardId, patch) => input.effects.updateCard(cardId, patch),
@@ -109,8 +107,6 @@ export async function handlePlannerInvocationFailure(input: {
   await commitPlannerFailed({
     card: input.currentCard,
     error: errorMessage,
-    createdCards: [],
-    updatedCards: [],
     completedAt,
     effects: {
       transitionCard: (cardId, event, details) => input.effects.transitionCard(cardId, event as 'fail', details),

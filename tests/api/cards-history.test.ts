@@ -11,6 +11,7 @@ const TEST_ROOT = join(tmpdir(), `saivage-cards-history-${Date.now()}`);
 let app: FastifyInstance;
 let port: number;
 const authToken = 'test-token';
+let trackedCardId: string;
 
 function authHeader(token?: string): Record<string, string> {
   if (!token) return {};
@@ -53,7 +54,6 @@ beforeAll(async () => {
 
   const store = new CardStore(TEST_ROOT);
   const created = store.create({
-    id: 'code-1',
     title: 'Tracked card',
     type: 'code',
     parent: 'project',
@@ -72,6 +72,7 @@ beforeAll(async () => {
     attachments: [],
     retries: 0,
   });
+  trackedCardId = created.id;
   store.mutateCard(created.id, { description: 'apiKey="secret-123"', acceptance: 'updated acceptance' }, { actor: 'analyst', surface: 'rest', reason: 'seed cards history test' });
 }, 30000);
 
@@ -82,12 +83,12 @@ afterAll(async () => {
 
 describe('cards history api', () => {
   it('requires auth', async () => {
-    const res = await fetch(url('/api/cards/code-1/history'));
+    const res = await fetch(url(`/api/cards/${trackedCardId}/history`));
     expect(res.status).toBe(401);
   });
 
   it('lists history headers without snapshot bodies', async () => {
-    const res = await fetch(url('/api/cards/code-1/history'), { headers: authHeader(authToken) });
+    const res = await fetch(url(`/api/cards/${trackedCardId}/history`), { headers: authHeader(authToken) });
     expect(res.status).toBe(200);
     const body = await res.json() as { history: Array<Record<string, unknown>>; total: number };
     expect(body.total).toBe(1);
@@ -96,7 +97,7 @@ describe('cards history api', () => {
   });
 
   it('returns full redacted history entry by sequence', async () => {
-    const res = await fetch(url('/api/cards/code-1/history/1'), { headers: authHeader(authToken) });
+    const res = await fetch(url(`/api/cards/${trackedCardId}/history/1`), { headers: authHeader(authToken) });
     expect(res.status).toBe(200);
     const body = await res.json() as { entry: { snapshot: { acceptance: string; description: string } } };
     expect(body.entry.snapshot.acceptance).toBe('accept initial');
@@ -104,7 +105,7 @@ describe('cards history api', () => {
   });
 
   it('returns diff with redacted values', async () => {
-    const res = await fetch(url('/api/cards/code-1/diff?from=1&to=2'), { headers: authHeader(authToken) });
+    const res = await fetch(url(`/api/cards/${trackedCardId}/diff?from=1&to=2`), { headers: authHeader(authToken) });
     expect(res.status).toBe(200);
     const body = await res.json() as { diff: Array<{ field: string; before: unknown; after: unknown }> };
     const description = body.diff.find((entry) => entry.field === 'description');
@@ -113,18 +114,18 @@ describe('cards history api', () => {
   });
 
   it('resolves to=last as the current version_seq with non-empty diff', async () => {
-    const res = await fetch(url('/api/cards/code-1/diff?from=1&to=last'), { headers: authHeader(authToken) });
+    const res = await fetch(url(`/api/cards/${trackedCardId}/diff?from=1&to=last`), { headers: authHeader(authToken) });
     expect(res.status).toBe(200);
     const body = await res.json() as { from: number; to: number; diff: unknown[]; card_id: string };
     expect(body.from).toBe(1);
     expect(body.to).toBeGreaterThanOrEqual(2);
-    expect(body.card_id).toBe('code-1');
+    expect(body.card_id).toBe(trackedCardId);
     expect(Array.isArray(body.diff)).toBe(true);
     expect(body.diff.length).toBeGreaterThan(0);
   });
 
   it('defaults from to max(1, to-1) when only to=last is supplied', async () => {
-    const res = await fetch(url('/api/cards/code-1/diff?to=last'), { headers: authHeader(authToken) });
+    const res = await fetch(url(`/api/cards/${trackedCardId}/diff?to=last`), { headers: authHeader(authToken) });
     expect(res.status).toBe(200);
     const body = await res.json() as { from: number; to: number };
     expect(body.to).toBeGreaterThanOrEqual(1);
@@ -132,7 +133,7 @@ describe('cards history api', () => {
   });
 
   it('applies defaults when no pivots are supplied', async () => {
-    const res = await fetch(url('/api/cards/code-1/diff'), { headers: authHeader(authToken) });
+    const res = await fetch(url(`/api/cards/${trackedCardId}/diff`), { headers: authHeader(authToken) });
     expect(res.status).toBe(200);
     const body = await res.json() as { from: number; to: number };
     expect(body.to).toBeGreaterThanOrEqual(1);
@@ -141,12 +142,12 @@ describe('cards history api', () => {
   });
 
   it('rejects from=last&to=1 with 400 after post-resolution from > to', async () => {
-    const res = await fetch(url('/api/cards/code-1/diff?from=last&to=1'), { headers: authHeader(authToken) });
+    const res = await fetch(url(`/api/cards/${trackedCardId}/diff?from=last&to=1`), { headers: authHeader(authToken) });
     expect(res.status).toBe(400);
   });
 
   it('accepts current as an alias for last', async () => {
-    const res = await fetch(url('/api/cards/code-1/diff?from=1&to=current'), { headers: authHeader(authToken) });
+    const res = await fetch(url(`/api/cards/${trackedCardId}/diff?from=1&to=current`), { headers: authHeader(authToken) });
     expect(res.status).toBe(200);
     const body = await res.json() as { from: number; to: number };
     expect(body.from).toBe(1);
@@ -154,7 +155,7 @@ describe('cards history api', () => {
   });
 
   it('rejects from=0 because the regex excludes zero', async () => {
-    const res = await fetch(url('/api/cards/code-1/diff?from=0&to=last'), { headers: authHeader(authToken) });
+    const res = await fetch(url(`/api/cards/${trackedCardId}/diff?from=0&to=last`), { headers: authHeader(authToken) });
     expect(res.status).toBe(400);
   });
 
@@ -162,10 +163,10 @@ describe('cards history api', () => {
     const missingCard = await fetch(url('/api/cards/missing/history'), { headers: authHeader(authToken) });
     expect(missingCard.status).toBe(404);
 
-    const missingSeq = await fetch(url('/api/cards/code-1/history/999'), { headers: authHeader(authToken) });
+    const missingSeq = await fetch(url(`/api/cards/${trackedCardId}/history/999`), { headers: authHeader(authToken) });
     expect(missingSeq.status).toBe(404);
 
-    const badDiff = await fetch(url('/api/cards/code-1/diff?from=a&to=2'), { headers: authHeader(authToken) });
+    const badDiff = await fetch(url(`/api/cards/${trackedCardId}/diff?from=a&to=2`), { headers: authHeader(authToken) });
     expect(badDiff.status).toBe(400);
   });
 });

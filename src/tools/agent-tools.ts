@@ -91,7 +91,6 @@ const createCardInput = z.object({
   acceptance: z.string().optional(),
   depends_on: stringArraySchema.optional(),
   related: stringArraySchema.optional(),
-  id: z.string().optional(),
 }).strict();
 
 const editCardInput = z.object({

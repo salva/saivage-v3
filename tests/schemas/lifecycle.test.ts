@@ -21,8 +21,8 @@ import {
 const now = '2026-01-01T00:00:00.000Z';
 
 const selfReport = { result: 'done', outcome: 'done', summary: 'ok', status_text: 'done', at: now };
-const plannerDone: PlannerDoneResult = { kind: 'planner_done', created_cards: [], updated_cards: [], summary: 'done' };
-const plannerBlocked: PlannerBlockedResult = { kind: 'planner_blocked', blocked_reason: 'input needed', resume_reason: 'operator_input', created_cards: [], updated_cards: [] };
+const plannerDone: PlannerDoneResult = { kind: 'planner_done', summary: 'done' };
+const plannerBlocked: PlannerBlockedResult = { kind: 'planner_blocked', blocked_reason: 'input needed', resume_reason: 'operator_input' };
 const executorFailure: ExecutorFailureResult = { kind: 'executor_failure', error: 'boom', partial_result: null, latest_self_report: { ...selfReport, result: 'failed', outcome: 'failed', summary: 'boom', status_text: 'failed' } };
 const executorNeedsVerification: ExecutorNeedsVerificationResult = { kind: 'executor_needs_verification', reason: 'check output', preserved_result: {}, fallback_reason: null, latest_self_report: { ...selfReport, result: 'needs_verification', outcome: 'needs_verification', summary: 'check output', status_text: 'verify' } };
 

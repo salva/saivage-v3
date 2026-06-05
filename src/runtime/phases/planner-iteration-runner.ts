@@ -13,7 +13,6 @@ import { buildCurrentAgentSessionPatch } from '../runtime-core.js';
 import { decidePlannerPostDispatch, summarizePlannerPostDispatch } from './planner-phase.js';
 import { handlePlannerPostDispatchDecision } from './planner-post-dispatch-handler.js';
 import { PlannerPhaseRunner } from './planner-phase-runner.js';
-import { PlannerResultApplier } from './planner-result-applier.js';
 import { commitPlannerBlocked } from '../terminal-commit/index.js';
 
 export type PlannerIterationResult =
@@ -70,12 +69,6 @@ export class PlannerIterationRunner {
       throw failure.error;
     }
 
-    await new PlannerResultApplier({
-      cardStore: this.deps.cards,
-      now: this.deps.now,
-      transitionCard: (cardId, action, details) => this.deps.stateMachine.transitionCard(cardId, action, details),
-      updateCard: (cardId, patch) => this.deps.cards.commitTerminalLifecyclePatch(cardId, patch),
-    }).apply(goalId, plannerResult);
     this.deps.mutations.apply({ kind: 'patchRuntimeState', patch: buildCurrentAgentSessionPatch(`planner:${goalId}`) });
     const execution = await this.deps.pendingActivations.dispatch(goalId);
     if (this.deps.lifecycle.shuttingDown) return { kind: 'shutdown' };
@@ -86,8 +79,6 @@ export class PlannerIterationRunner {
     const postDispatchDecision = decidePlannerPostDispatch({
       plannerResult,
       currentCard: this.deps.cards.read(goalId),
-      createdCardIds: postDispatchSummary.createdCardIds,
-      updatedCardIds: postDispatchSummary.updatedCardIds,
       hasGoalDispatch: execution.dispatchedGoal,
       hasUnfinishedChildWork: postDispatchSummary.hasUnfinishedChildWork,
       executedTerminal: execution.executedTerminal,
@@ -122,8 +113,6 @@ export class PlannerIterationRunner {
       card,
       blockedReason: input.blockedReason,
       resumeReason: input.terminalReason,
-      createdCards: Array.isArray(input.planning.created_cards) ? input.planning.created_cards.filter((id): id is string => typeof id === 'string') : [],
-      updatedCards: Array.isArray(input.planning.updated_cards) ? input.planning.updated_cards.filter((id): id is string => typeof id === 'string') : [],
       effects: {
         transitionCard: (cardId, event, details) => this.deps.stateMachine.transitionCard(cardId, event as 'block', details),
         updateCard: (cardId, patch) => this.deps.cards.commitTerminalLifecyclePatch(cardId, patch),
@@ -140,8 +129,6 @@ export class PlannerIterationRunner {
 function plannerDoneContext(plannerResult: PlannerResult): PlannerDoneResult {
   return {
     kind: 'planner_done',
-    created_cards: (plannerResult.created_cards ?? []).map((card) => card.id).filter((id): id is string => Boolean(id)),
-    updated_cards: (plannerResult.updated_cards ?? []).map((card) => card.id).filter((id): id is string => Boolean(id)),
     summary: plannerResult.summary ?? 'Planner marked goal done.',
   };
 }

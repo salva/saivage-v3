@@ -40,7 +40,7 @@ describe('AgentAdapter dispatch precondition', () => {
       if (sessionId.startsWith('planner:')) {
         return {
           kind: 'tool_calls',
-          tool_calls: [{ id: 'c1', type: 'function', function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'done', summary: 'done', created_cards: [], updated_cards: [] }) } }],
+          tool_calls: [{ id: 'c1', type: 'function', function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'done', summary: 'done' }) } }],
         };
       }
       return {

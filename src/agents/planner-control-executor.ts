@@ -182,7 +182,6 @@ export class PlannerControlExecutor {
             artifacts: [],
             attachments: [],
             retries: 0,
-            ...(typeof args.id === 'string' && args.id ? { id: args.id } : {}),
           });
           result = { success: true, data: card };
           break;

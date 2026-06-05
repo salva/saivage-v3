@@ -13,7 +13,7 @@ import { createRuntimeCoreTestContainer } from '../../src/runtime/core-compositi
 import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 
 class NoopAgentRuntime implements AgentRuntime {
-  invokePlanner(): Promise<PlannerResult> { return Promise.resolve({ status: 'continue', created_cards: [], updated_cards: [] }); }
+  invokePlanner(): Promise<PlannerResult> { return Promise.resolve({ status: 'continue' }); }
   invokeExecutor(): Promise<ExecutorResult> { return Promise.resolve({ card_id: 'x', status: 'done', status_text: 'noop', artifacts: [], attachments: [], fallback_with_evidence: null }); }
   invokeReviewer(): Promise<ReviewerResult> { return Promise.resolve({ assessment: { result: 'pass', summary: 'noop', achieved: [], issues: [], evidence_card_ids: [] } }); }
   cancelSession(): boolean { return false; }

@@ -96,6 +96,7 @@ export type {
   CardHistoryEntry,
   CardHistoryKind,
   CardRecord,
+  CardView,
   CardStatus,
   CardType,
   ControlActionAuditEntry,

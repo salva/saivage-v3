@@ -10,7 +10,7 @@ import {
   collectChangedFields,
   isTerminalState,
   isTerminalType,
-  normalizeNewCardId,
+  newCardId,
   prunePartialPatch,
   summarizeChangedFields,
   validateMutablePatch,
@@ -86,7 +86,7 @@ describe('card lifecycle domain rules', () => {
   });
 
   it('locks terminal lifecycle fields behind explicit commit or repair contexts', () => {
-    const done = baseCard({ status: 'done', lifecycle: { status: 'done', result: { kind: 'planner_done', created_cards: [], updated_cards: [], summary: 'done' }, error: null, completed_at: '2026-01-01T00:10:00.000Z' } });
+    const done = baseCard({ status: 'done', lifecycle: { status: 'done', result: { kind: 'planner_done', summary: 'done' }, error: null, completed_at: '2026-01-01T00:10:00.000Z' } });
     expect(() => validateMutablePatch(done, { lifecycle: { ...done.lifecycle, error: 'stale' } as never }, { childCount: 0 })).toThrow(/lifecycle-owned/);
     expect(() => validateMutablePatch(done, { lifecycle: { ...done.lifecycle, result: { ok: false } } as never }, { childCount: 0 }, { actor: 'analyst', surface: 'web-chat', reason: 'analyst edit' })).toThrow(/lifecycle-owned/);
     expect(() => validateMutablePatch(done, { lifecycle: { ...done.lifecycle, completed_at: '2026-01-01T00:11:00.000Z' } as never }, { childCount: 0 }, { actor: 'runtime', surface: 'runtime', reason: 'terminal lifecycle commit' })).not.toThrow();
@@ -94,12 +94,12 @@ describe('card lifecycle domain rules', () => {
   });
 
   it('allows restart patches to clear lifecycle fields while reopening', () => {
-    const blocked = baseCard({ status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'planner_blocked', blocked_reason: 'blocked', resume_reason: 'planner_blocked', created_cards: [], updated_cards: [] }, error: 'blocked', completed_at: null } });
+    const blocked = baseCard({ status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'planner_blocked', blocked_reason: 'blocked', resume_reason: 'planner_blocked' }, error: 'blocked', completed_at: null } });
     expect(() => validateMutablePatch(blocked, { status: 'backlog', lifecycle: { status: 'backlog', result: null, error: null, completed_at: null } }, { childCount: 0 }, { actor: 'runtime', surface: 'runtime', reason: 'status -> backlog' })).not.toThrow();
   });
 
   it('rejects project-card type drift and nested project creation identity', () => {
-    expect(normalizeNewCardId('project', 'root-spec-plan-project', () => 'unused')).toBe('project');
+    expect(newCardId('project', () => 'unused')).toBe('project');
     expect(() => validateMutablePatch(baseCard(), { type: 'project' }, { childCount: 0 })).toThrow(/canonical id 'project'|type 'project'/);
     expect(() => validateMutablePatch(baseCard({ id: 'project', type: 'project' }), { type: 'goal' }, { childCount: 0 })).toThrow(/canonical project card/);
   });
@@ -119,7 +119,6 @@ describe('card lifecycle domain rules', () => {
       id: 'goal-2',
       input: {
         ...baseCard({ id: 'ignored', title: 'Created', version_seq: 99 }),
-        id: 'explicit',
       },
       depth: 2,
       position: 3,
@@ -136,8 +135,10 @@ describe('card lifecycle domain rules', () => {
     try {
       initProjectTree(root);
       const store = new CardStore(root);
-      store.create({ ...baseCard({ id: 'project', type: 'project', parent: null, depth: 0 }) });
-      const card = store.create({ ...baseCard({ id: undefined, title: 'G' }) });
+      const { id: _projectId, ...projectInput } = baseCard({ id: 'project', type: 'project', parent: null, depth: 0 });
+      store.create(projectInput);
+      const { id: _cardId, ...cardInput } = baseCard({ title: 'G' });
+      const card = store.create(cardInput);
       store.setStatus(card.id, 'active');
       store.setStatus(card.id, 'running');
 
@@ -155,8 +156,10 @@ describe('card lifecycle domain rules', () => {
     try {
       initProjectTree(root);
       const store = new CardStore(root);
-      store.create({ ...baseCard({ id: 'project', type: 'project', parent: null, depth: 0 }) });
-      const card = store.create({ ...baseCard({ id: undefined, title: 'G2' }) });
+      const { id: _projectId, ...projectInput } = baseCard({ id: 'project', type: 'project', parent: null, depth: 0 });
+      store.create(projectInput);
+      const { id: _cardId, ...cardInput } = baseCard({ title: 'G2' });
+      const card = store.create(cardInput);
       store.setStatus(card.id, 'active');
       store.setStatus(card.id, 'running');
 
@@ -174,8 +177,10 @@ describe('card lifecycle domain rules', () => {
     try {
       initProjectTree(root);
       const store = new CardStore(root);
-      store.create({ ...baseCard({ id: 'project', type: 'project', parent: null, depth: 0 }) });
-      const card = store.create({ ...baseCard({ id: undefined, title: 'G3' }) });
+      const { id: _projectId, ...projectInput } = baseCard({ id: 'project', type: 'project', parent: null, depth: 0 });
+      store.create(projectInput);
+      const { id: _cardId, ...cardInput } = baseCard({ title: 'G3' });
+      const card = store.create(cardInput);
       store.setStatus(card.id, 'active');
       store.setStatus(card.id, 'running');
 

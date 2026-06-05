@@ -8,7 +8,7 @@ export type ReviewerPhaseOutcome =
   | { role: 'reviewer'; kind: 'needs_corrections'; goal_id: string; assessment_id: string; summary: string; issues: Array<Record<string, unknown>> };
 
 export type PlannerPhaseOutcome =
-  | { role: 'planner'; kind: 'done'; card_id: string; summary: string; created_cards: string[]; updated_cards: string[] }
-  | { role: 'planner'; kind: 'blocked'; card_id: string; blocked_reason: string; resume_reason: string; created_cards: string[]; updated_cards: string[] };
+  | { role: 'planner'; kind: 'done'; card_id: string; summary: string }
+  | { role: 'planner'; kind: 'blocked'; card_id: string; blocked_reason: string; resume_reason: string };
 
 export type PhaseOutcome = ExecutorPhaseOutcome | ReviewerPhaseOutcome | PlannerPhaseOutcome;

@@ -68,8 +68,6 @@ function makeDeps(card: CardRecord): PlannerIterationRunnerDeps {
     agentRuntime: {
       invokePlanner: jest.fn(() => ({
         status: 'continue',
-        created_cards: [],
-        updated_cards: [],
         summary: 'goal needs another planning pass',
       })),
     } as unknown as AgentExecutionPort,

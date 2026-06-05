@@ -52,7 +52,7 @@ describe('F23 — dispatchGoal acceptance', () => {
       lifecycle: { status: 'failed', result: { kind: 'executor_failure', error: 'failed', partial_result: null, latest_self_report: { result: 'failed', outcome: 'failed', summary: 'failed', status_text: 'failed', at: new Date().toISOString() } }, error: 'failed', completed_at: new Date().toISOString() },
     });
 
-    const plannerResult: PlannerResult = { status: 'done', created_cards: [], updated_cards: [] };
+    const plannerResult: PlannerResult = { status: 'done' };
     const executorResult: ExecutorResult = { card_id: 'x', status: 'done', status_text: 'noop', artifacts: [], attachments: [], fallback_with_evidence: null };
     const reviewerResult: ReviewerResult = { assessment: { result: 'pass', summary: 'noop', achieved: [], issues: [], evidence_card_ids: [] } };
 
@@ -81,7 +81,7 @@ describe('F23 — dispatchGoal acceptance', () => {
     store.setStatus('project', 'running');
     try { store.setStatus('project', 'needs_verification' as never); } catch { /* may reject */ }
 
-    const plannerResult: PlannerResult = { status: 'done', created_cards: [], updated_cards: [] };
+    const plannerResult: PlannerResult = { status: 'done' };
     const executorResult: ExecutorResult = { card_id: 'x', status: 'done', status_text: 'noop', artifacts: [], attachments: [], fallback_with_evidence: null };
     const reviewerResult: ReviewerResult = { assessment: { result: 'pass', summary: 'noop', achieved: [], issues: [], evidence_card_ids: [] } };
 
@@ -101,9 +101,9 @@ describe('F23 — dispatchGoal acceptance', () => {
 
   it('F23 — dispatchGoal with non-goal card type fails loudly via activate error', async () => {
     const store = new CardStore(projectRoot);
-    store.create({ type: 'code', parent: 'project', title: 't', description: 'd', status: 'backlog', depth: 1, tags: [], priority: 1, urgency: 'normal', created_by: 'planner', acceptance: '', depends_on: [], blocks: [], related: [], artifacts: [], attachments: [], retries: 0, id: 'code-1' });
+    const code = store.create({ type: 'code', parent: 'project', title: 't', description: 'd', status: 'backlog', depth: 1, tags: [], priority: 1, urgency: 'normal', created_by: 'planner', acceptance: '', depends_on: [], blocks: [], related: [], artifacts: [], attachments: [], retries: 0 });
 
-    const plannerResult: PlannerResult = { status: 'done', created_cards: [], updated_cards: [] };
+    const plannerResult: PlannerResult = { status: 'done' };
     const executorResult: ExecutorResult = { card_id: 'x', status: 'done', status_text: 'noop', artifacts: [], attachments: [], fallback_with_evidence: null };
     const reviewerResult: ReviewerResult = { assessment: { result: 'pass', summary: 'noop', achieved: [], issues: [], evidence_card_ids: [] } };
 
@@ -112,7 +112,7 @@ describe('F23 — dispatchGoal acceptance', () => {
       agentRuntime: new StubAgentRuntime(plannerResult, executorResult, reviewerResult),
     });
     await api.start();
-    await dispatchTestTools.dispatchGoal('code-1');
+    await dispatchTestTools.dispatchGoal(code.id);
     await api.shutdown();
 
     const errs = readErrorsJsonl(projectRoot);

@@ -133,7 +133,7 @@ function reportLifecycle(status: Extract<CardStatus, 'done' | 'failed' | 'blocke
   if (status === 'done') {
     return {
       status,
-      result: { kind: 'planner_done', created_cards: [], updated_cards: [], summary: report.summary ?? statusText },
+      result: { kind: 'planner_done', summary: report.summary ?? statusText },
       error: null,
       completed_at: completedAt,
     };
@@ -141,7 +141,7 @@ function reportLifecycle(status: Extract<CardStatus, 'done' | 'failed' | 'blocke
   if (status === 'blocked') {
     return {
       status,
-      result: { kind: 'planner_blocked', blocked_reason: statusText, resume_reason: 'planner_report_blocked', created_cards: [], updated_cards: [] },
+      result: { kind: 'planner_blocked', blocked_reason: statusText, resume_reason: 'planner_report_blocked' },
       error: statusText,
       completed_at: null,
     };
@@ -151,8 +151,6 @@ function reportLifecycle(status: Extract<CardStatus, 'done' | 'failed' | 'blocke
     result: {
       kind: 'planner_failure',
       error: statusText,
-      created_cards: [],
-      updated_cards: [],
     },
     error: statusText,
     completed_at: completedAt,
@@ -528,8 +526,6 @@ export class PlannerToolsService {
           kind: 'planner_blocked',
           blocked_reason: message,
           resume_reason: 'reviewer_unavailable',
-          created_cards: [],
-          updated_cards: [],
         },
         error: message,
         completed_at: null,

@@ -20,8 +20,8 @@ export function toolCallsResult(calls: ToolCall[]): LlmCompleteResult {
   return { kind: 'tool_calls', tool_calls: calls };
 }
 
-export function plannerResult(payload: { status?: 'continue' | 'done'; summary?: string; created_cards?: unknown[]; updated_cards?: unknown[] } = {}): LlmCompleteResult {
-  const obj = { status: 'done', summary: 'done', created_cards: [], updated_cards: [], ...payload };
+export function plannerResult(payload: { status?: 'continue' | 'done'; summary?: string } = {}): LlmCompleteResult {
+  const obj = { status: 'done', summary: 'done', ...payload };
   return toolCallsResult([envelopeToolCall('emit_planner_result', obj)]);
 }
 

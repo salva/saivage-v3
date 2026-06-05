@@ -50,8 +50,6 @@ describe('planner output actionability guard', () => {
       name: 'non-actionable-project-planner',
       planner: [{
         status: 'continue',
-        created_cards: [],
-        updated_cards: [],
         summary: 'Planner continued but produced no card, update, activation, unfinished child work, or blocker.',
       }],
     };
@@ -68,8 +66,6 @@ describe('planner output actionability guard', () => {
     expect(project?.lifecycle.error).toContain('Planner returned continue without creating/updating cards');
     expect(project?.lifecycle.result).toEqual(expect.objectContaining({
       resume_reason: 'planner_non_actionable_continue',
-      created_cards: [],
-      updated_cards: [],
     }));
     expect(harness.stateTestTools.read()?.active_card_run).toBeNull();
     expect(harness.stateTestTools.read()?.current_card_id).toBeNull();
@@ -81,8 +77,6 @@ describe('planner output actionability guard', () => {
       planner: [{
         status: 'blocked',
         blocked_reason: 'test planner declared a durable blocker',
-        created_cards: [],
-        updated_cards: [],
         summary: 'Planner stopped with an explicit blocker.',
       }],
     };
@@ -101,8 +95,6 @@ describe('planner output actionability guard', () => {
     expect(project?.lifecycle.result).toEqual(expect.objectContaining({
       resume_reason: 'planner_blocked',
       blocked_reason: 'test planner declared a durable blocker',
-      created_cards: [],
-      updated_cards: [],
     }));
     expect(harness.stateTestTools.read()?.status).toBe('idle');
     expect(harness.stateTestTools.read()?.active_card_run).toBeNull();
@@ -119,8 +111,6 @@ describe('planner output actionability guard', () => {
       planner: [{
         status: 'blocked',
         blocked_reason: genericPlannerReason,
-        created_cards: [],
-        updated_cards: [],
         summary: 'Planner stopped after seeing report_goal_done tool_error.',
       }],
     };
@@ -130,7 +120,7 @@ describe('planner output actionability guard', () => {
     harness = createHarness(mapping, fakeAgent);
     harness.cardTestTools.repairTerminalLifecycle('project', {
       status: 'active',
-      lifecycle: { status: 'active', result: { kind: 'planner_blocked', blocked_reason: reviewerBlockedReason, resume_reason: 'reviewer_unavailable', created_cards: [], updated_cards: [] }, error: reviewerBlockedReason, completed_at: null },
+      lifecycle: { status: 'active', result: { kind: 'planner_blocked', blocked_reason: reviewerBlockedReason, resume_reason: 'reviewer_unavailable' }, error: reviewerBlockedReason, completed_at: null },
       status_text: reviewerBlockedReason,
     });
 
@@ -160,8 +150,6 @@ describe('planner output actionability guard', () => {
       planner: [{
         status: 'blocked',
         blocked_reason: reviewerCapacityReason,
-        created_cards: [],
-        updated_cards: [],
         summary: 'Planner reported only reviewer/provider capacity as the terminal acceptance blocker.',
       }],
     };
@@ -180,8 +168,6 @@ describe('planner output actionability guard', () => {
     expect(project?.lifecycle.result).toEqual(expect.objectContaining({
       blocked_reason: reviewerCapacityReason,
       resume_reason: 'reviewer_invocation_failed',
-      created_cards: [],
-      updated_cards: [],
     }));
     expect(project?.lifecycle.result).not.toEqual(expect.objectContaining({
       resume_reason: 'planner_blocked',

@@ -407,8 +407,6 @@ describe('synthesizeReportGoalEnvelope', () => {
       kind: 'result',
       payload: {
         status: 'done',
-        created_cards: [],
-        updated_cards: [],
         summary: 'report_goal_done accepted for goal goal-1.',
       },
     });
@@ -417,8 +415,6 @@ describe('synthesizeReportGoalEnvelope', () => {
       kind: 'result',
       payload: {
         status: 'continue',
-        created_cards: [],
-        updated_cards: [],
         summary: 'report_goal_done: goal goal-1 needs re-planning (review corrections exhausted); continuing.',
       },
     });
@@ -428,8 +424,6 @@ describe('synthesizeReportGoalEnvelope', () => {
       payload: {
         status: 'blocked',
         blocked_reason: 'report_goal_blocked accepted with goal status blocked.',
-        created_cards: [],
-        updated_cards: [],
         summary: 'report_goal_blocked accepted for goal goal-1.',
       },
     });
@@ -439,8 +433,6 @@ describe('synthesizeReportGoalEnvelope', () => {
       payload: {
         status: 'blocked',
         blocked_reason: 'report_goal_failed accepted with goal status failed.',
-        created_cards: [],
-        updated_cards: [],
         summary: 'report_goal_failed accepted for goal goal-1.',
       },
     });

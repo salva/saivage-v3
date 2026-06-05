@@ -115,7 +115,7 @@ export function synthesizeReportGoalEnvelope(
   if (status === 'done') {
     return {
       kind: 'result',
-      payload: { status: 'done', created_cards: [], updated_cards: [], summary: `${toolName} accepted for goal ${goalId}.` },
+      payload: { status: 'done', summary: `${toolName} accepted for goal ${goalId}.` },
     };
   }
   if (status === 'changed') {
@@ -123,8 +123,6 @@ export function synthesizeReportGoalEnvelope(
       kind: 'result',
       payload: {
         status: 'continue',
-        created_cards: [],
-        updated_cards: [],
         summary: `${toolName}: goal ${goalId} needs re-planning (review corrections exhausted); continuing.`,
       },
     };
@@ -135,8 +133,6 @@ export function synthesizeReportGoalEnvelope(
       payload: {
         status: 'blocked',
         blocked_reason: `${toolName} accepted with goal status ${String(status)}.`,
-        created_cards: [],
-        updated_cards: [],
         summary: `${toolName} accepted for goal ${goalId}.`,
       },
     };

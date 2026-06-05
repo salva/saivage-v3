@@ -69,34 +69,13 @@ describe('Runtime Integration', () => {
       name: 'happy-goal',
       planner: [
         {
-          created_cards: [
-            {
-              id: 'code-happy-1',
-              type: 'code',
-              title: 'Write happy feature',
-              description: 'Implement the happy path feature',
-              status: 'backlog',
-              depends_on: [],
-              priority: 1,
-            },
-            {
-              id: 'code-happy-2',
-              type: 'code',
-              title: 'Write tests for happy feature',
-              description: 'Add tests',
-              status: 'backlog',
-              depends_on: ['code-happy-1'],
-              priority: 2,
-            },
-          ],
+          status: 'done',
+          summary: 'Planner completed after direct card setup.',
+        },
+        {
           status: 'done',
         },
         {
-          updated_cards: [],
-          status: 'done',
-        },
-        {
-          updated_cards: [],
           status: 'done',
         },
       ],
@@ -145,43 +124,20 @@ describe('Runtime Integration', () => {
       name: 'review-fail-goal',
       planner: [
         {
-          created_cards: [
-            {
-              id: 'code-rf-1',
-              type: 'code',
-              title: 'Initial implementation',
-              description: 'First attempt',
-              status: 'backlog',
-              depends_on: [],
-              priority: 1,
-            },
-          ],
+          status: 'done',
+          summary: 'Planner completed after direct card setup.',
+        },
+        {
           status: 'done',
         },
         {
-          updated_cards: [],
+          status: 'done',
+          summary: 'Correction already exists from direct setup.',
+        },
+        {
           status: 'done',
         },
         {
-          created_cards: [
-            {
-              id: 'code-rf-2',
-              type: 'code',
-              title: 'Correction card',
-              description: 'Fix the issues from review',
-              status: 'backlog',
-              depends_on: [],
-              priority: 1,
-            },
-          ],
-          status: 'done',
-        },
-        {
-          updated_cards: [],
-          status: 'done',
-        },
-        {
-          updated_cards: [],
           status: 'done',
         },
       ],
@@ -245,39 +201,17 @@ describe('Runtime Integration', () => {
       name: 'exec-fail-goal',
       planner: [
         {
-          created_cards: [
-            {
-              id: 'code-ef-1',
-              type: 'code',
-              title: 'Will fail card',
-              description: 'This card will fail',
-              status: 'backlog',
-              depends_on: [],
-              priority: 1,
-            },
-          ],
           status: 'continue',
+          summary: 'Planner continued after direct card setup.',
         },
         {
-          created_cards: [
-            {
-              id: 'code-ef-2',
-              type: 'code',
-              title: 'Replacement card',
-              description: 'Try again',
-              status: 'backlog',
-              depends_on: [],
-              priority: 1,
-            },
-          ],
+          status: 'done',
+          summary: 'Replacement already exists from direct setup.',
+        },
+        {
           status: 'done',
         },
         {
-          updated_cards: [],
-          status: 'done',
-        },
-        {
-          updated_cards: [],
           status: 'done',
         },
       ],
@@ -326,25 +260,13 @@ describe('Runtime Integration', () => {
       name: 'crash-recovery',
       planner: [
         {
-          created_cards: [
-            {
-              id: 'code-resume-1',
-              type: 'code',
-              title: 'Resume card',
-              description: 'Resume after crash',
-              status: 'backlog',
-              depends_on: [],
-              priority: 1,
-            },
-          ],
+          status: 'done',
+          summary: 'Planner completed after direct card setup.',
+        },
+        {
           status: 'done',
         },
         {
-          updated_cards: [],
-          status: 'done',
-        },
-        {
-          updated_cards: [],
           status: 'done',
         },
       ],
@@ -403,40 +325,17 @@ describe('Runtime Integration', () => {
       planner: [
         {
           status: 'done',
-          created_cards: [
-            {
-              id: 'research-plan-card-1',
-              type: 'research',
-              title: 'Inspect context',
-              description: 'Inspect the current goal context',
-              status: 'backlog',
-              depends_on: [],
-              priority: 0,
-            },
-            {
-              id: 'research-plan-card-2',
-              type: 'research',
-              title: 'Define next executable implementation step',
-              description: 'Define the next implementation step',
-              status: 'backlog',
-              depends_on: ['research-plan-card-1'],
-              priority: 1,
-            },
-          ],
-          summary: 'Created two research cards.',
+          summary: 'Research cards are prepared directly by the test.',
         },
         {
-          updated_cards: [],
           status: 'done',
           summary: 'Research is complete.',
         },
         {
-          updated_cards: [],
           status: 'done',
           summary: 'Research is complete.',
         },
         {
-          updated_cards: [],
           status: 'done',
           summary: 'Research is complete.',
         },
@@ -473,8 +372,6 @@ describe('Runtime Integration', () => {
         {
           status: 'blocked',
           blocked_reason: 'Needs parent planner to choose a different strategy.',
-          created_cards: [],
-          updated_cards: [],
           summary: 'No viable local next step.',
         },
       ],
@@ -484,7 +381,7 @@ describe('Runtime Integration', () => {
     writeFixture(fixtureDir, 'blocked-planner-goal', fixture);
   }
 
-  function createPlannerMarksGoalDoneFixture(): void {
+  function createPlannerMarksGoalDoneFixture(goalId = 'goal-planner-done'): void {
     const fixture: FakeAgentFixture = {
       name: 'planner-marks-goal-done',
       planner: [
@@ -501,7 +398,7 @@ describe('Runtime Integration', () => {
         {
           assessment: {
             id: 'review-planner-done-001',
-            goal_card_id: 'goal-planner-done',
+            goal_card_id: goalId,
             reviewer_session_id: 'rev-planner-done',
             assessment_id: 'assessment-test',
             at: '2025-01-01T00:00:00.000Z',
@@ -509,7 +406,7 @@ describe('Runtime Integration', () => {
             summary: 'Goal completed.',
             achieved: ['Goal done'],
             issues: [],
-            evidence_card_ids: ['goal-planner-done'],
+            evidence_card_ids: [goalId],
             created_at: new Date().toISOString(),
           },
         },
@@ -551,7 +448,6 @@ describe('Runtime Integration', () => {
 
   function makeGoalCard(store: CardStore, id: string, title: string): CardRecord {
     return store.create({
-      id,
       type: 'goal',
       parent: 'project',
       depth: 0,
@@ -579,7 +475,6 @@ describe('Runtime Integration', () => {
     overrides: Partial<CardRecord> = {},
   ): CardRecord {
     return store.create({
-      id,
       type: 'code',
       parent: parentId,
       depth: 0,
@@ -605,14 +500,14 @@ describe('Runtime Integration', () => {
     it('does not start backlog root work from status-only startup', async () => {
       createHappyPathFixture();
       const store = new CardStore(tmpDir);
-      makeGoalCard(store, 'goal-1', 'Happy Goal');
+      const goal = makeGoalCard(store, 'goal-1', 'Happy Goal');
 
       makeRuntime({ autoDispatchBacklog: true });
 
       await harness.api.start();
       await new Promise((resolve) => setTimeout(resolve, 25));
 
-      expect(store.read('goal-1')?.status).toBe('backlog');
+      expect(store.read(goal.id)?.status).toBe('backlog');
       expect(store.read('code-happy-1')).toBeNull();
       expect(store.read('code-happy-2')).toBeNull();
 
@@ -630,61 +525,61 @@ describe('Runtime Integration', () => {
   describe('Planner goal-owned planning contract', () => {
     it('allows blocked goals to be reopened to backlog for replanning', () => {
       const store = new CardStore(tmpDir);
-      makeGoalCard(store, 'goal-reopen', 'Reopen Blocked Goal');
-      store.setStatus('goal-reopen', 'active');
-      store.setStatus('goal-reopen', 'running');
-      store.repairTerminalLifecycle('goal-reopen', {
+      const goal = makeGoalCard(store, 'goal-reopen', 'Reopen Blocked Goal');
+      store.setStatus(goal.id, 'active');
+      store.setStatus(goal.id, 'running');
+      store.repairTerminalLifecycle(goal.id, {
         status: 'blocked',
-        lifecycle: { status: 'blocked', result: { kind: 'planner_blocked', blocked_reason: 'blocked', resume_reason: 'planner_blocked', created_cards: [], updated_cards: [] }, error: 'blocked', completed_at: null },
+        lifecycle: { status: 'blocked', result: { kind: 'planner_blocked', blocked_reason: 'blocked', resume_reason: 'planner_blocked' }, error: 'blocked', completed_at: null },
       });
 
-      store.setStatus('goal-reopen', 'backlog');
+      store.setStatus(goal.id, 'backlog');
 
-      expect(store.read('goal-reopen')!.status).toBe('backlog');
+      expect(store.read(goal.id)!.status).toBe('backlog');
     });
 
 
     it('marks a goal blocked when the planner returns blocked', async () => {
       createBlockedPlannerFixture();
       const store = new CardStore(tmpDir);
-      makeGoalCard(store, 'goal-blocked', 'Blocked Goal');
+      const goalCard = makeGoalCard(store, 'goal-blocked', 'Blocked Goal');
 
       const fakeAgent = new FakeAgentAdapter({
-        mapping: { 'goal-blocked': 'blocked-planner-goal' },
+        mapping: { [goalCard.id]: 'blocked-planner-goal' },
         fixtureDir,
       });
-      makeRuntime({ overrides: { 'goal-blocked': 'blocked-planner-goal' }, agentRuntime: fakeAgent });
+      makeRuntime({ overrides: { [goalCard.id]: 'blocked-planner-goal' }, agentRuntime: fakeAgent });
       await harness.api.start();
-      await dispatchTools.dispatchGoal('goal-blocked');
+      await dispatchTools.dispatchGoal(goalCard.id);
 
-      const goal = store.read('goal-blocked');
+      const goal = store.read(goalCard.id);
       expect(goal!.status).toBe('blocked');
       expect(goal!.lifecycle.result).toMatchObject({
         kind: 'planner_blocked',
         blocked_reason: 'Needs parent planner to choose a different strategy.',
       });
-      expect(fakeAgent.getPlannerCount('goal-blocked')).toBe(1);
+      expect(fakeAgent.getPlannerCount(goalCard.id)).toBe(1);
 
       await harness.api.shutdown();
     });
 
     it('idles persisted runtime state when planner already marked reviewed goal done', async () => {
-      createPlannerMarksGoalDoneFixture();
       const store = new CardStore(tmpDir);
-      makeGoalCard(store, 'goal-planner-done', 'Planner Done Goal');
-      store.update('goal-planner-done', {
-        artifacts: [{ id: 'artifact-goal-planner-done', card_id: 'goal-planner-done', path: 'reports/goal-planner-done.md', type: 'report', description: 'review evidence', retain: true, created_at: new Date().toISOString() }],
+      const goal = makeGoalCard(store, 'goal-planner-done', 'Planner Done Goal');
+      createPlannerMarksGoalDoneFixture(goal.id);
+      store.update(goal.id, {
+        artifacts: [{ id: 'artifact-goal-planner-done', card_id: goal.id, path: 'reports/goal-planner-done.md', type: 'report', description: 'review evidence', retain: true, created_at: new Date().toISOString() }],
       });
 
-      makeRuntime();
+      makeRuntime({ overrides: { [goal.id]: 'planner-marks-goal-done' } });
       await harness.api.start();
 
       const completedEvents: string[] = [];
       harness.eventTestTools.on('goal_completed', () => completedEvents.push('goal_completed'));
 
-      await dispatchTools.dispatchGoal('goal-planner-done');
+      await dispatchTools.dispatchGoal(goal.id);
 
-      expect(store.read('goal-planner-done')!.status).toBe('done');
+      expect(store.read(goal.id)!.status).toBe('done');
       expect(completedEvents).toContain('goal_completed');
       expect(readRuntimeState(tmpDir)).toMatchObject({
         status: 'idle',
@@ -791,20 +686,20 @@ describe('Runtime Integration', () => {
     it('resets active and running cards to backlog after crash', async () => {
       createHappyPathFixture();
       const store = new CardStore(tmpDir);
-      makeGoalCard(store, 'goal-1', 'Crash Goal');
+      const goalCard = makeGoalCard(store, 'goal-1', 'Crash Goal');
 
-      store.setStatus('goal-1', 'active');
-      makeTerminalCard(store, 'code-crash-1', 'goal-1', {
+      store.setStatus(goalCard.id, 'active');
+      const terminalCard = makeTerminalCard(store, 'code-crash-1', goalCard.id, {
         status: 'running',
       });
 
       makeRuntime();
       await harness.lifecycleTestTools.performCrashRecovery();
 
-      const goal = store.read('goal-1');
+      const goal = store.read(goalCard.id);
       expect(goal!.status).toBe('backlog');
 
-      const card = store.read('code-crash-1');
+      const card = store.read(terminalCard.id);
       expect(card!.status).toBe('backlog');
     });
 
@@ -818,11 +713,11 @@ describe('Runtime Integration', () => {
       const store = new CardStore(tmpDir);
       const goal = makeGoalCard(store, 'goal-q', 'Activation Goal');
 
-      makeTerminalCard(store, 'code-q-1', goal.id, {
+      const q1 = makeTerminalCard(store, 'code-q-1', goal.id, {
         title: 'Q1 - no deps, priority 5',
         priority: 5,
       });
-      makeTerminalCard(store, 'code-q-2', goal.id, {
+      const q2 = makeTerminalCard(store, 'code-q-2', goal.id, {
         title: 'Q2 - no deps, priority 1',
         priority: 1,
       });
@@ -830,8 +725,8 @@ describe('Runtime Integration', () => {
       makeRuntime();
 
       expect(harness.stateTestTools.read()?.runtime_activations ?? []).toEqual([]);
-      expect(store.read('code-q-1')!.status).toBe('backlog');
-      expect(store.read('code-q-2')!.status).toBe('backlog');
+      expect(store.read(q1.id)!.status).toBe('backlog');
+      expect(store.read(q2.id)!.status).toBe('backlog');
     });
   });
 

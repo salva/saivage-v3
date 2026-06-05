@@ -17,9 +17,9 @@ function setupCards() {
   const projectRoot = tempRoot('saivage-runtime-golden-');
   initProjectTree(projectRoot);
   const cardStore = new CardStore(projectRoot);
-  cardStore.create({ id: 'goal-a', type: 'goal', parent: 'project', depth: 1, title: 'Goal A', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], blocks: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
-  cardStore.create({ id: 'code-a', type: 'code', parent: 'goal-a', depth: 2, title: 'Code A', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], blocks: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
-  return { projectRoot, cardStore };
+  const goal = cardStore.create({ type: 'goal', parent: 'project', depth: 1, title: 'Goal A', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], blocks: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
+  const code = cardStore.create({ type: 'code', parent: goal.id, depth: 2, title: 'Code A', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], blocks: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
+  return { projectRoot, cardStore, goalId: goal.id, codeId: code.id };
 }
 
 
@@ -60,23 +60,23 @@ describe('runtime redesign final golden behavior', () => {
   it('status changes cannot auto-dispatch root or child work; child work requires activate_card from an active parent run', async () => {
     const ctx = setupCards();
     try {
-      ctx.cardStore.setStatus('code-a', 'active');
+      ctx.cardStore.setStatus(ctx.codeId, 'active');
       expect(readRuntimeState(ctx.projectRoot)?.runtime_runs ?? []).toHaveLength(0);
 
       const exec = new PlannerControlExecutor({ projectRoot: ctx.projectRoot, cardStore: ctx.cardStore, activationLedger: activationLedger(ctx.projectRoot) });
-      const rejected = await exec.execute({ toolName: 'activate_card', toolCallId: 'call-a', argumentsJson: JSON.stringify({ cardId: 'code-a' }), parentCardId: 'goal-a', sessionId: 'planner:goal-a' });
+      const rejected = await exec.execute({ toolName: 'activate_card', toolCallId: 'call-a', argumentsJson: JSON.stringify({ cardId: ctx.codeId }), parentCardId: ctx.goalId, sessionId: `planner:${ctx.goalId}` });
       expect(rejected.kind).toBe('tool_error');
       expect(JSON.parse(rejected.content).actionable_error.code).toBe('activate_card_parent_not_active');
       expect(readRuntimeState(ctx.projectRoot)?.runtime_runs ?? []).toHaveLength(0);
 
-      appendRuntimeRun(ctx.projectRoot, { run_id: 'run-parent', kind: 'root', card_id: 'goal-a', parent_run_id: null, command_id: 'cmd-a', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: 'planner:goal-a' });
-      const accepted = await exec.execute({ toolName: 'activate_card', toolCallId: 'call-a', argumentsJson: JSON.stringify({ cardId: 'code-a' }), parentCardId: 'goal-a', sessionId: 'planner:goal-a' });
+      appendRuntimeRun(ctx.projectRoot, { run_id: 'run-parent', kind: 'root', card_id: ctx.goalId, parent_run_id: null, command_id: 'cmd-a', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: `planner:${ctx.goalId}` });
+      const accepted = await exec.execute({ toolName: 'activate_card', toolCallId: 'call-a', argumentsJson: JSON.stringify({ cardId: ctx.codeId }), parentCardId: ctx.goalId, sessionId: `planner:${ctx.goalId}` });
       expect(accepted.kind).toBe('tool_result');
       const body = JSON.parse(accepted.content);
       expect(body.success).toBe(true);
       const state = readRuntimeState(ctx.projectRoot)!;
-      expect(state.runtime_activations).toEqual(expect.arrayContaining([expect.objectContaining({ child_card_id: 'code-a', parent_run_id: 'run-parent' })]));
-      expect(state.runtime_runs).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'child', card_id: 'code-a', parent_run_id: 'run-parent' })]));
+      expect(state.runtime_activations).toEqual(expect.arrayContaining([expect.objectContaining({ child_card_id: ctx.codeId, parent_run_id: 'run-parent' })]));
+      expect(state.runtime_runs).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'child', card_id: ctx.codeId, parent_run_id: 'run-parent' })]));
     } finally { rmSync(ctx.projectRoot, { recursive: true, force: true }); }
   });
 

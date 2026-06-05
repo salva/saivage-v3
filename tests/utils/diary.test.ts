@@ -165,8 +165,7 @@ describe('appendDiaryEntry', () => {
       input_summary: 'Decided approach',
       decision: 'Use A over B',
       rationale: 'A is faster',
-      created_cards: ['card-1', 'card-2'],
-      updated_cards: ['card-3'],
+      reviewed_cards: ['card-1', 'card-2'],
     });
 
     const fileContent = readEntryFile('plan-1', '000001.planner_decision.json');
@@ -177,8 +176,7 @@ describe('appendDiaryEntry', () => {
     expect(fileContent!.input_summary).toBe('Decided approach');
     expect(fileContent!.decision).toBe('Use A over B');
     expect(fileContent!.rationale).toBe('A is faster');
-    expect(fileContent!.created_cards).toEqual(['card-1', 'card-2']);
-    expect(fileContent!.updated_cards).toEqual(['card-3']);
+    expect(fileContent!.reviewed_cards).toEqual(['card-1', 'card-2']);
   });
 
   it('validates with diaryEntrySchema before writing (rejects invalid)', () => {
@@ -227,14 +225,14 @@ describe('getDiaryEntries', () => {
       kind: 'planner_decision',
       decision: 'X',
       rationale: 'Because Y',
-      created_cards: ['c1'],
+      reviewed_cards: ['c1'],
     });
 
     const entries = getDiaryEntries(saivageDir, 'plan-1');
     expect(entries.length).toBe(1);
     expect(entries[0].decision).toBe('X');
     expect(entries[0].rationale).toBe('Because Y');
-    expect(entries[0].created_cards).toEqual(['c1']);
+    expect(entries[0].reviewed_cards).toEqual(['c1']);
   });
 });
 

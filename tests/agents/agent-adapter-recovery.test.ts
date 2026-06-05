@@ -55,7 +55,7 @@ function plannerDone(status: 'continue' | 'done' = 'done'): LlmCompleteResult {
       type: 'function',
       function: {
         name: 'emit_planner_result',
-        arguments: JSON.stringify({ created_cards: [], updated_cards: [], status, summary: 'done' }),
+        arguments: JSON.stringify({ status, summary: 'done' }),
       },
     }],
   };
@@ -114,7 +114,7 @@ describe('AgentAdapter invocation recovery policy integration', () => {
     const seen: string[] = [];
     const llmCall = jest.fn<LlmCallFn>(async (candidate): Promise<LlmCompleteResult> => {
       seen.push(candidate.provider);
-      if (seen.length === 1) return messageResult('{"created_cards":[],"updated_cards":[],"status":"not-a-valid-status"}');
+      if (seen.length === 1) return messageResult('{"status":"not-a-valid-status"}');
       return plannerDone();
     });
     adapter.setLlmCallFn(llmCall);

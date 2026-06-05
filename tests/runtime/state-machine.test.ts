@@ -164,10 +164,9 @@ describe('RuntimeStateMachine (Step 2 skeleton)', () => {
 });
 
 describe('RuntimeStateMachine.transitionCard (Step 5 decomposition)', () => {
-  function seed(cardStore: CardStore, id: string, status: import('../../src/schemas/types.js').CardStatus): void {
+  function seed(cardStore: CardStore, status: import('../../src/schemas/types.js').CardStatus): string {
     const now = new Date().toISOString();
-    cardStore.create({
-      id,
+    const card = cardStore.create({
       type: 'code',
       parent: null,
       title: 't',
@@ -187,12 +186,13 @@ describe('RuntimeStateMachine.transitionCard (Step 5 decomposition)', () => {
       depth: 0,
       blocks: [],
     });
+    return card.id;
   }
 
   function lifecycleForStatus(status: import('../../src/schemas/types.js').CardStatus, now: string): CardLifecycleState {
-    if (status === 'done') return { status, result: { kind: 'planner_done', created_cards: [], updated_cards: [], summary: 'done' }, error: null, completed_at: now };
+    if (status === 'done') return { status, result: { kind: 'planner_done', summary: 'done' }, error: null, completed_at: now };
     if (status === 'failed') return { status, result: { kind: 'executor_failure', error: 'failed', partial_result: null, latest_self_report: { result: 'failed', outcome: 'failed', summary: 'failed', status_text: 'failed', at: now } }, error: 'failed', completed_at: now };
-    if (status === 'blocked') return { status, result: { kind: 'planner_blocked', blocked_reason: 'blocked', resume_reason: 'planner_blocked', created_cards: [], updated_cards: [] }, error: 'blocked', completed_at: null };
+    if (status === 'blocked') return { status, result: { kind: 'planner_blocked', blocked_reason: 'blocked', resume_reason: 'planner_blocked' }, error: 'blocked', completed_at: null };
     if (status === 'needs_verification') return { status, result: { kind: 'executor_needs_verification', reason: 'needs verification', preserved_result: {}, fallback_reason: null, latest_self_report: { result: 'needs_verification', outcome: 'needs_verification', summary: 'needs verification', status_text: 'needs verification', at: now } }, error: null, completed_at: null };
     return { status, result: null, error: null, completed_at: status === 'cancelled' ? now : null } as CardLifecycleState;
   }
@@ -253,8 +253,8 @@ describe('RuntimeStateMachine.transitionCard (Step 5 decomposition)', () => {
     try {
       initRuntimeState(projectRoot);
       const { cardStore, machine, setStatusCalls } = build(projectRoot);
-      seed(cardStore, 'c1', from);
-      const ok = await machine.transitionCard('c1', action, payload);
+      const cardId = seed(cardStore, from);
+      const ok = await machine.transitionCard(cardId, action, payload);
       expect(ok).toBe(true);
       expect(setStatusCalls.map((c) => c.status)).toEqual(expected);
     } finally { rmSync(projectRoot, { recursive: true, force: true }); }
@@ -265,8 +265,8 @@ describe('RuntimeStateMachine.transitionCard (Step 5 decomposition)', () => {
     try {
       initRuntimeState(projectRoot);
       const { cardStore, machine, setStatusCalls, errorLogger } = build(projectRoot);
-      seed(cardStore, 'c1', 'done');
-      const ok = await machine.transitionCard('c1', 'fail');
+      const cardId = seed(cardStore, 'done');
+      const ok = await machine.transitionCard(cardId, 'fail');
       expect(ok).toBe(false);
       expect(setStatusCalls.length).toBe(0);
       const errs = errorLogger.getErrors().filter((e) => e.code === 'state_machine_invalid_source_state');
@@ -279,8 +279,8 @@ describe('RuntimeStateMachine.transitionCard (Step 5 decomposition)', () => {
     try {
       initRuntimeState(projectRoot);
       const { cardStore, machine, setStatusCalls, errorLogger } = build(projectRoot);
-      seed(cardStore, 'c1', 'done');
-      const ok = await machine.transitionCard('c1', 'planner_set_status', { requestedStatus: 'running' });
+      const cardId = seed(cardStore, 'done');
+      const ok = await machine.transitionCard(cardId, 'planner_set_status', { requestedStatus: 'running' });
       expect(ok).toBe(false);
       expect(setStatusCalls.length).toBe(0);
       const errs = errorLogger.getErrors().filter((e) => e.code === 'state_machine_planner_status_rejected');

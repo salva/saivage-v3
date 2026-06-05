@@ -75,7 +75,7 @@ describe('application read models', () => {
     materializeProjectCard(root);
     const lifecycle = {
       status: 'done',
-      result: { kind: 'planner_done' as const, created_cards: [] as string[], updated_cards: [] as string[], summary: 'complete' },
+      result: { kind: 'planner_done' as const, summary: 'complete' },
       error: null,
       completed_at: '2026-01-01T00:00:00.000Z',
     } as const;
@@ -88,6 +88,28 @@ describe('application read models', () => {
 
     expect(project).toEqual(expect.objectContaining({ status: 'done', lifecycle }));
     expect(detail.card.lifecycle).toEqual(project?.lifecycle);
+  });
+
+  it('projects dynamic card display paths without changing stable ids', () => {
+    const store = new CardStore(root);
+    materializeProjectCard(root);
+    const goal = store.create({ type: 'goal', parent: 'project', depth: 1, title: 'Goal', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 });
+    const first = store.create({ type: 'code', parent: goal.id, depth: 2, title: 'First', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 });
+    const second = store.create({ type: 'code', parent: goal.id, depth: 2, title: 'Second', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 });
+    const service = new CardsReadModelService(root);
+
+    const projectDetail = service.getCard('project').body as { card: { display_path: string | null } };
+    const goalDetail = service.getCard(goal.id).body as { card: { id: string; display_path: string | null }; children: Array<{ id: string; display_path: string | null }> };
+
+    expect(projectDetail.card.display_path).toBeNull();
+    expect(goalDetail.card).toEqual(expect.objectContaining({ id: goal.id, display_path: '1' }));
+    expect(goalDetail.children.map((child) => [child.id, child.display_path])).toEqual([[first.id, '1.1'], [second.id, '1.2']]);
+
+    expect(store.reorderChildren(goal.id, [second.id, first.id], { actor: 'analyst', surface: 'web-chat', reason: 'test reorder' })).toEqual({ ok: true, changed: 2 });
+    const reordered = service.getCard(goal.id).body as { children: Array<{ id: string; display_path: string | null }> };
+
+    expect(reordered.children.map((child) => child.id).sort()).toEqual([first.id, second.id].sort());
+    expect(reordered.children.map((child) => [child.id, child.display_path])).toEqual([[second.id, '1.1'], [first.id, '1.2']]);
   });
 
   it('keeps workspace file safety and binary decisions in the file read model', () => {

@@ -46,7 +46,7 @@ describe('Runtime stale running-intent reconciliation', () => {
     const cards = new CardStore(root);
     cards.repairTerminalLifecycle('project', {
       status: 'done',
-      lifecycle: { status: 'done', result: { kind: 'planner_done', created_cards: [], updated_cards: [], summary: 'terminal project' }, error: null, completed_at: '2026-01-01T00:00:00.000Z' },
+      lifecycle: { status: 'done', result: { kind: 'planner_done', summary: 'terminal project' }, error: null, completed_at: '2026-01-01T00:00:00.000Z' },
     });
     cards.update('project', { status_text: 'project terminal for stale-intent regression' });
 
@@ -116,7 +116,7 @@ describe('Runtime stale running-intent reconciliation', () => {
     const cards = new CardStore(root);
     cards.repairTerminalLifecycle('project', {
       status: 'done',
-      lifecycle: { status: 'done', result: { kind: 'planner_done', created_cards: [], updated_cards: [], summary: 'terminal project' }, error: null, completed_at: '2026-01-01T00:00:00.000Z' },
+      lifecycle: { status: 'done', result: { kind: 'planner_done', summary: 'terminal project' }, error: null, completed_at: '2026-01-01T00:00:00.000Z' },
     });
     cards.update('project', { status_text: 'project terminal with closed root runs' });
 

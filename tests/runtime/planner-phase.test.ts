@@ -3,10 +3,10 @@ import { buildPlannerActivationPlanningPatch, buildPlannerActiveRunPatch, buildP
 import type { CardRecord, PlannerBlockedResult } from '../../src/schemas/index.js';
 import type { PlannerResult } from '../../src/contracts/index.js';
 
-const tokenBudgetPlanning: PlannerBlockedResult = { kind: 'planner_blocked', blocked_reason: 'Token budget exceeded', resume_reason: 'planner_context_length_exceeded', created_cards: [], updated_cards: [] };
+const tokenBudgetPlanning: PlannerBlockedResult = { kind: 'planner_blocked', blocked_reason: 'Token budget exceeded', resume_reason: 'planner_context_length_exceeded' };
 
 function plannerResult(status: PlannerResult['status']): PlannerResult {
-  return { status, summary: 'summary', created_cards: [], updated_cards: [] } as PlannerResult;
+  return { status, summary: 'summary' };
 }
 
 describe('planner phase decisions', () => {
@@ -19,8 +19,8 @@ describe('planner phase decisions', () => {
   });
 
   it('detects whether a planner result had durable action', () => {
-    expect(hasPlannerAction({ createdCardIds: [], updatedCardIds: [], hasGoalDispatch: false, hasUnfinishedChildWork: false, executedTerminal: false })).toBe(false);
-    expect(hasPlannerAction({ createdCardIds: ['a'], updatedCardIds: [], hasGoalDispatch: false, hasUnfinishedChildWork: false, executedTerminal: false })).toBe(true);
+    expect(hasPlannerAction({ hasGoalDispatch: false, hasUnfinishedChildWork: false, executedTerminal: false })).toBe(false);
+    expect(hasPlannerAction({ hasGoalDispatch: true, hasUnfinishedChildWork: false, executedTerminal: false })).toBe(true);
   });
 
   it('blocks non-actionable continue results only when no action occurred', () => {
@@ -36,15 +36,15 @@ describe('planner phase decisions', () => {
   });
 
   it('builds generic and reviewer-unavailable planner blocker planning payloads', () => {
-    expect(buildPlannerBlockedDecision({ currentCard: null, plannerBlockedReason: 'blocked', createdCardIds: ['a'], updatedCardIds: [] })).toEqual({
+    expect(buildPlannerBlockedDecision({ currentCard: null, plannerBlockedReason: 'blocked' })).toEqual({
       blockedReason: 'blocked',
-      planning: { kind: 'planner_blocked', blocked_reason: 'blocked', resume_reason: 'planner_blocked', created_cards: ['a'], updated_cards: [] },
+      planning: { kind: 'planner_blocked', blocked_reason: 'blocked', resume_reason: 'planner_blocked' },
       terminalReason: 'planner_blocked',
     });
-    expect(buildPlannerBlockedDecision({ currentCard: null, plannerBlockedReason: 'report_goal_done reviewer unavailable: exhausted', createdCardIds: [], updatedCardIds: ['b'] })).toEqual(expect.objectContaining({
+    expect(buildPlannerBlockedDecision({ currentCard: null, plannerBlockedReason: 'report_goal_done reviewer unavailable: exhausted' })).toEqual(expect.objectContaining({
       blockedReason: 'report_goal_done reviewer unavailable: exhausted',
       terminalReason: 'reviewer_invocation_failed',
-      planning: expect.objectContaining({ kind: 'planner_blocked', resume_reason: 'reviewer_unavailable', updated_cards: ['b'] }),
+      planning: expect.objectContaining({ kind: 'planner_blocked', resume_reason: 'reviewer_unavailable' }),
     }));
   });
 
@@ -72,8 +72,6 @@ describe('planner phase decisions', () => {
       plannerDeclaredDone: true,
       hasUnfinishedChildWork: true,
       hasGoalDispatch: false,
-      createdCardIds: ['created-a'],
-      updatedCardIds: ['updated-a'],
     })).toEqual({});
   });
 
@@ -81,8 +79,6 @@ describe('planner phase decisions', () => {
     expect(decidePlannerPostDispatch({
       plannerResult: { ...plannerResult('blocked'), blocked_reason: 'blocked by planner' },
       currentCard: null,
-      createdCardIds: ['created-a'],
-      updatedCardIds: [],
       hasGoalDispatch: false,
       hasUnfinishedChildWork: false,
       executedTerminal: false,
@@ -90,7 +86,7 @@ describe('planner phase decisions', () => {
     })).toEqual({
       kind: 'block',
       blockedReason: 'blocked by planner',
-      planning: { kind: 'planner_blocked', blocked_reason: 'blocked by planner', resume_reason: 'planner_blocked', created_cards: ['created-a'], updated_cards: [] },
+      planning: { kind: 'planner_blocked', blocked_reason: 'blocked by planner', resume_reason: 'planner_blocked' },
       terminalReason: 'planner_blocked',
     });
   });
@@ -99,8 +95,6 @@ describe('planner phase decisions', () => {
     const continueDecision = decidePlannerPostDispatch({
       plannerResult: plannerResult('continue'),
       currentCard: null,
-      createdCardIds: [],
-      updatedCardIds: [],
       hasGoalDispatch: false,
       hasUnfinishedChildWork: false,
       executedTerminal: false,
@@ -112,8 +106,6 @@ describe('planner phase decisions', () => {
     const projectDoneDecision = decidePlannerPostDispatch({
       plannerResult: plannerResult('done'),
       currentCard: null,
-      createdCardIds: [],
-      updatedCardIds: [],
       hasGoalDispatch: false,
       hasUnfinishedChildWork: false,
       executedTerminal: false,
@@ -127,8 +119,6 @@ describe('planner phase decisions', () => {
     expect(decidePlannerPostDispatch({
       plannerResult: plannerResult('done'),
       currentCard: null,
-      createdCardIds: ['created-a'],
-      updatedCardIds: [],
       hasGoalDispatch: false,
       hasUnfinishedChildWork: false,
       executedTerminal: false,
@@ -138,9 +128,7 @@ describe('planner phase decisions', () => {
     expect(decidePlannerPostDispatch({
       plannerResult: plannerResult('continue'),
       currentCard: null,
-      createdCardIds: ['created-a'],
-      updatedCardIds: [],
-      hasGoalDispatch: false,
+      hasGoalDispatch: true,
       hasUnfinishedChildWork: false,
       executedTerminal: false,
       isProjectCard: false,
@@ -149,8 +137,6 @@ describe('planner phase decisions', () => {
     expect(decidePlannerPostDispatch({
       plannerResult: plannerResult('done'),
       currentCard: null,
-      createdCardIds: [],
-      updatedCardIds: [],
       hasGoalDispatch: false,
       hasUnfinishedChildWork: true,
       executedTerminal: false,
@@ -160,11 +146,7 @@ describe('planner phase decisions', () => {
 
   it('summarizes post-dispatch planner action inputs', () => {
     expect(summarizePlannerPostDispatch({
-      plannerResult: {
-        ...plannerResult('continue'),
-        created_cards: [{ id: 'created-a' } as any, {} as any],
-        updated_cards: [{ id: 'updated-a' } as any],
-      },
+      plannerResult: plannerResult('continue'),
       goalId: 'goal-a',
       childCards: [
         { parent: 'goal-a', status: 'done' },
@@ -172,8 +154,6 @@ describe('planner phase decisions', () => {
         { parent: 'other', status: 'active' },
       ] as any,
     })).toEqual({
-      createdCardIds: ['created-a'],
-      updatedCardIds: ['updated-a'],
       hasUnfinishedChildWork: true,
     });
   });

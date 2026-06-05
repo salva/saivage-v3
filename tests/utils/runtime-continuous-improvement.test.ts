@@ -26,16 +26,15 @@ function advanceToTerminal(store: CardStore, goalId: string, targetStatus: CardS
   if (targetStatus === 'done') {
     store.repairTerminalLifecycle(goalId, {
       status: 'done',
-      lifecycle: { status: 'done', result: { kind: 'planner_done', created_cards: [], updated_cards: [], summary: 'done' }, error: null, completed_at: new Date().toISOString() },
+      lifecycle: { status: 'done', result: { kind: 'planner_done', summary: 'done' }, error: null, completed_at: new Date().toISOString() },
     });
     return;
   }
   store.setStatus(goalId, targetStatus);
 }
 
-function makeGoalCard(store: CardStore, id: string, title: string): CardRecord {
+function makeGoalCard(store: CardStore, title: string): CardRecord {
   return store.create({
-    id,
     type: 'goal',
     parent: 'project',
     depth: 0,
@@ -61,18 +60,8 @@ function createProjectImprovementFixture(fixtureDir: string): void {
     name: 'project-improvement',
     planner: [
       {
-        created_cards: [
-          {
-            id: 'goal-ci-1',
-            type: 'goal',
-            title: 'CI-proposed goal 1',
-            description: 'Auto-proposed improvement goal',
-            status: 'backlog',
-            depends_on: [],
-            priority: 1,
-          },
-        ],
         status: 'done',
+        summary: 'Continuous improvement planner would propose work if invoked.',
       },
     ],
     executor: {},
@@ -110,10 +99,10 @@ describe('Runtime continuousImprovement reserved config', () => {
   it('does not invoke an improvement planner even when reserved flag is true and all top-level goals are terminal', async () => {
     createProjectImprovementFixture(fixtureDir);
     const setupStore = new CardStore(tmpDir);
-    makeGoalCard(setupStore, 'goal-1', 'Feature A');
-    advanceToTerminal(setupStore, 'goal-1', 'done');
-    makeGoalCard(setupStore, 'goal-2', 'Feature B');
-    advanceToTerminal(setupStore, 'goal-2', 'done');
+    const featureA = makeGoalCard(setupStore, 'Feature A');
+    advanceToTerminal(setupStore, featureA.id, 'done');
+    const featureB = makeGoalCard(setupStore, 'Feature B');
+    advanceToTerminal(setupStore, featureB.id, 'done');
 
     createRuntime({
       continuousImprovement: true,
@@ -168,8 +157,8 @@ describe('Runtime continuousImprovement reserved config', () => {
   it('does not write continuous-improvement events to the runtime event log', async () => {
     createProjectImprovementFixture(fixtureDir);
     const setupStore = new CardStore(tmpDir);
-    makeGoalCard(setupStore, 'goal-1', 'Done Goal');
-    advanceToTerminal(setupStore, 'goal-1', 'done');
+    const doneGoal = makeGoalCard(setupStore, 'Done Goal');
+    advanceToTerminal(setupStore, doneGoal.id, 'done');
 
     createRuntime({
       continuousImprovement: true,

@@ -22,7 +22,7 @@ function makeCard(
 } {
   const status = overrides.status ?? 'backlog';
   const lifecycle = overrides.lifecycle ?? (status === 'blocked'
-    ? { status: 'blocked', result: { kind: 'planner_blocked', blocked_reason: 'blocked', resume_reason: 'planner_blocked', created_cards: [], updated_cards: [] }, error: 'blocked', completed_at: null }
+    ? { status: 'blocked', result: { kind: 'planner_blocked', blocked_reason: 'blocked', resume_reason: 'planner_blocked' }, error: 'blocked', completed_at: null }
     : { status, result: null, error: null, completed_at: null } as CardRecord['lifecycle']);
   return {
     parent: 'project',
@@ -138,7 +138,7 @@ describe('PlannerControlExecutor', () => {
     });
 
     const result = await executor.execute({
-      sessionId: 'planner:goal',
+      sessionId: `planner:${goal.id}`,
       toolCallId: 'call-cancel',
       toolName: 'cancel_card',
       argumentsJson: JSON.stringify({ cardId: child.id }),
@@ -195,7 +195,7 @@ describe('PlannerControlExecutor', () => {
     });
 
     const result = await executor.execute({
-      sessionId: 'planner:goal',
+      sessionId: `planner:${goal.id}`,
       toolCallId: 'call-report',
       toolName: 'report_goal_done',
       argumentsJson: JSON.stringify({
@@ -251,7 +251,7 @@ describe('PlannerControlExecutor', () => {
     });
 
     const result = await executor.execute({
-      sessionId: 'planner:goal',
+      sessionId: `planner:${goal.id}`,
       toolCallId: 'call-report',
       toolName: 'report_goal_done',
       argumentsJson: JSON.stringify({
@@ -287,8 +287,6 @@ describe('PlannerControlExecutor', () => {
     expect(blocked?.lifecycle.result).toMatchObject({
       kind: 'planner_blocked',
         resume_reason: 'reviewer_unavailable',
-        created_cards: [],
-        updated_cards: [],
     });
   });
 
@@ -314,7 +312,7 @@ describe('PlannerControlExecutor', () => {
     });
 
     const result = await executor.execute({
-      sessionId: 'planner:goal',
+      sessionId: `planner:${goal.id}`,
       toolCallId: 'call-report',
       toolName: 'report_goal_done',
       argumentsJson: JSON.stringify({ status_text: 'complete' }),
@@ -346,7 +344,7 @@ describe('PlannerControlExecutor', () => {
     });
 
     const result = await executor.execute({
-      sessionId: 'planner:goal',
+      sessionId: `planner:${goal.id}`,
       toolCallId: 'call-report',
       toolName: 'report_goal_done',
       argumentsJson: JSON.stringify({ status_text: 'complete' }),
@@ -366,7 +364,7 @@ describe('PlannerControlExecutor', () => {
   });
 
   it('dispatches queue_notification through planner-control and audits planner runtime surface', async () => {
-    store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'active' }));
+    const goal = store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'active' }));
     const executor = new PlannerControlExecutor({
       cardStore: store,
       projectRoot: tmpDir,
@@ -374,11 +372,11 @@ describe('PlannerControlExecutor', () => {
     });
 
     const result = await executor.execute({
-      sessionId: 'planner:goal',
+      sessionId: `planner:${goal.id}`,
       toolCallId: 'call-notify',
       toolName: 'queue_notification',
       argumentsJson: JSON.stringify({
-        recipient: 'goal',
+        recipient: goal.id,
         kind: 'heads_up',
         body: 'planner body must not audit',
       }),
@@ -392,10 +390,10 @@ describe('PlannerControlExecutor', () => {
     });
     expect(JSON.parse(result.content)).toEqual({
       success: true,
-      data: { queued: true, recipient: 'goal' },
+      data: { queued: true, recipient: goal.id },
     });
     const audit = listControlActions(tmpDir).find(
-      (entry) => entry.action === 'notification.queue' && entry.target_id === 'goal',
+      (entry) => entry.action === 'notification.queue' && entry.target_id === goal.id,
     );
     expect(audit).toEqual(
       expect.objectContaining({ actor: 'planner', surface: 'runtime', outcome: 'ok' }),
@@ -406,11 +404,11 @@ describe('PlannerControlExecutor', () => {
   });
 
   it('returns successful activate_card as a durable activation record without mutating status', async () => {
-    store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'active' }));
+    const goal = store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'active' }));
     const child = store.create(
-      makeCard({ type: 'code', title: 'Child', parent: 'goal', depth: 2 }),
+      makeCard({ type: 'code', title: 'Child', parent: goal.id, depth: 2 }),
     );
-    appendActivePlannerRun(tmpDir);
+    appendActivePlannerRun(tmpDir, goal.id);
     const executor = new PlannerControlExecutor({
       cardStore: store,
       projectRoot: tmpDir,
@@ -418,10 +416,10 @@ describe('PlannerControlExecutor', () => {
     });
 
     const result = await executor.execute({
-      sessionId: 'planner:goal',
+      sessionId: `planner:${goal.id}`,
       toolCallId: 'call-activate',
       toolName: 'activate_card',
-      parentCardId: 'goal',
+      parentCardId: goal.id,
       argumentsJson: JSON.stringify({ cardId: child.id }),
     });
 
@@ -435,9 +433,9 @@ describe('PlannerControlExecutor', () => {
     expect(body.success).toBe(true);
     expect(body.deferred).toBeUndefined();
     expect(body.activation).toEqual(expect.objectContaining({
-      parent_card_id: 'goal',
+      parent_card_id: goal.id,
       child_card_id: child.id,
-      parent_session_id: 'planner:goal',
+      parent_session_id: `planner:${goal.id}`,
       parent_tool_call_id: 'call-activate',
       status: 'pending',
     }));
@@ -445,10 +443,10 @@ describe('PlannerControlExecutor', () => {
   });
 
   it('rejects activate_card for a non-child of the active parent planner', async () => {
-    store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'active' }));
-    const nestedGoal = store.create(makeCard({ id: 'nested-goal', type: 'goal', title: 'Nested', parent: 'goal', depth: 2 }));
+    const goal = store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'active' }));
+    const nestedGoal = store.create(makeCard({ id: 'nested-goal', type: 'goal', title: 'Nested', parent: goal.id, depth: 2 }));
     const grandchild = store.create(makeCard({ type: 'code', title: 'Grandchild', parent: nestedGoal.id, depth: 3 }));
-    appendActivePlannerRun(tmpDir);
+    appendActivePlannerRun(tmpDir, goal.id);
     const executor = new PlannerControlExecutor({
       cardStore: store,
       projectRoot: tmpDir,
@@ -456,10 +454,10 @@ describe('PlannerControlExecutor', () => {
     });
 
     const result = await executor.execute({
-      sessionId: 'planner:goal',
+      sessionId: `planner:${goal.id}`,
       toolCallId: 'call-grandchild',
       toolName: 'activate_card',
-      parentCardId: 'goal',
+      parentCardId: goal.id,
       argumentsJson: JSON.stringify({ cardId: grandchild.id }),
     });
 
@@ -469,7 +467,7 @@ describe('PlannerControlExecutor', () => {
       actionable_error: expect.objectContaining({
         code: 'activate_card_not_direct_child',
         currentState: expect.objectContaining({
-          parentCardId: 'goal',
+          parentCardId: goal.id,
           childCardId: grandchild.id,
           actualParentId: nestedGoal.id,
         }),
@@ -479,19 +477,19 @@ describe('PlannerControlExecutor', () => {
   });
 
   it('preserves service success and tool_error payload shapes', async () => {
-    store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'active' }));
-    const child = store.create(makeCard({ type: 'code', title: 'Child', parent: 'goal', depth: 2 }));
+    const goal = store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'active' }));
+    const child = store.create(makeCard({ type: 'code', title: 'Child', parent: goal.id, depth: 2 }));
     const blockedDep = store.create(makeCard({ type: 'code', title: 'Dep', status: 'blocked' }));
     const blockedTarget = store.create(
       makeCard({
         type: 'code',
         title: 'Blocked target',
-        parent: 'goal',
+        parent: goal.id,
         depth: 2,
         depends_on: [blockedDep.id],
       }),
     );
-    appendActivePlannerRun(tmpDir);
+    appendActivePlannerRun(tmpDir, goal.id);
     const executor = new PlannerControlExecutor({
       cardStore: store,
       projectRoot: tmpDir,
@@ -499,7 +497,7 @@ describe('PlannerControlExecutor', () => {
     });
 
     const cancel = await executor.execute({
-      sessionId: 'planner:goal',
+      sessionId: `planner:${goal.id}`,
       toolCallId: 'call-cancel',
       toolName: 'cancel_card',
       argumentsJson: JSON.stringify({ cardId: child.id }),
@@ -513,10 +511,10 @@ describe('PlannerControlExecutor', () => {
     );
 
     const activate = await executor.execute({
-      sessionId: 'planner:goal',
+      sessionId: `planner:${goal.id}`,
       toolCallId: 'call-activate',
       toolName: 'activate_card',
-      parentCardId: 'goal',
+      parentCardId: goal.id,
       argumentsJson: JSON.stringify({ cardId: blockedTarget.id }),
     });
     expect(activate.kind).toBe('tool_error');

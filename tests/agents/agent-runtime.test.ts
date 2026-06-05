@@ -50,7 +50,7 @@ describe('AgentRuntime Interface', () => {
 
   describe('FakeAgentAdapter implements AgentRuntime', () => {
     it('satisfies AgentRuntime interface at the type level', () => {
-      const fixture: FakeAgentFixture = { name: 'test-goal', planner: [{ created_cards: [], status: 'continue' }], executor: {}, reviewer: [] };
+      const fixture: FakeAgentFixture = { name: 'test-goal', planner: [{ status: 'continue' }], executor: {}, reviewer: [] };
       writeFixture(fixtureDir, 'test-goal', fixture);
       const adapter = new FakeAgentAdapter({ mapping: { 'goal-1': 'test-goal', '*': 'test-goal' }, fixtureDir });
       const rt: AgentRuntime = assertAgentRuntime(adapter);
@@ -58,15 +58,12 @@ describe('AgentRuntime Interface', () => {
     });
 
     it('invokePlanner returns PlannerResult (AgentRuntime signature)', () => {
-      const fixture: FakeAgentFixture = { name: 'test-goal', planner: [{ created_cards: [{ id: 'code-test-1', type: 'code', title: 'Test card', description: 'A test card', status: 'backlog', depends_on: [], priority: 1 }], updated_cards: [], status: 'continue' }], executor: {}, reviewer: [] };
+      const fixture: FakeAgentFixture = { name: 'test-goal', planner: [{ status: 'continue', summary: 'planned next step' }], executor: {}, reviewer: [] };
       writeFixture(fixtureDir, 'test-goal', fixture);
       const adapter = new FakeAgentAdapter({ mapping: { 'goal-1': 'test-goal', '*': 'test-goal' }, fixtureDir });
       const result = adapter.invokePlanner('goal-1', 'system prompt', []);
       const pr: PlannerResult = result;
-      expect(pr.created_cards).toHaveLength(1);
-      expect(pr.created_cards[0].id).toBe('code-test-1');
-      expect(pr.created_cards[0].type).toBe('code');
-      expect(pr.created_cards[0].title).toBe('Test card');
+      expect(pr.summary).toBe('planned next step');
       expect(pr.status).toBe('continue');
     });
 
@@ -97,7 +94,7 @@ describe('AgentRuntime Interface', () => {
     });
 
     it('returns canonical planner results on repeated invocations', () => {
-      const fixture: FakeAgentFixture = { name: 'test-goal', planner: [{ created_cards: [], status: 'done' }, { created_cards: [], status: 'continue' }], executor: {}, reviewer: [] };
+      const fixture: FakeAgentFixture = { name: 'test-goal', planner: [{ status: 'done' }, { status: 'continue' }], executor: {}, reviewer: [] };
       writeFixture(fixtureDir, 'test-goal', fixture);
       const adapter = new FakeAgentAdapter({ mapping: { 'goal-1': 'test-goal', '*': 'test-goal' }, fixtureDir });
       const rawResult = adapter.invokePlanner('goal-1');

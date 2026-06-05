@@ -13,7 +13,7 @@ describe('PlannerPhaseRunner', () => {
       agentRuntime: {
         invokePlanner(input: PlannerInvocationRequest) {
           request = input;
-          return { status: 'blocked', blocked_reason: 'waiting', created_cards: [], updated_cards: [] };
+          return { status: 'blocked', blocked_reason: 'waiting' };
         },
       } as unknown as AgentExecutionPort,
       skillsEngine: {

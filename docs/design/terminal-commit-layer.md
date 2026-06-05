@@ -192,8 +192,6 @@ interface ExecutorNeedsVerificationResult {
 
 interface PlannerDoneResult {
   kind: 'planner_done';
-  created_cards: string[];
-  updated_cards: string[];
   summary: string;
 }
 
@@ -201,8 +199,6 @@ interface PlannerBlockedResult {
   kind: 'planner_blocked';
   blocked_reason: string;
   resume_reason: string;
-  created_cards: string[];
-  updated_cards: string[];
 }
 
 interface ReviewerPassResult {

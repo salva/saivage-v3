@@ -47,8 +47,8 @@ function setupRoot(): string {
 
 function seedDeleteCards(root: string): CardStore {
   const store = new CardStore(root);
-  store.create({ type: 'goal', parent: 'project', title: 'Goal', description: 'Goal', status: 'backlog', depth: 0, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', acceptance: '', depends_on: [], blocks: [], related: [], artifacts: [], attachments: [], retries: 0, id: 'goal-1' });
-  for (const id of ['code-1', 'code-2', 'code-3']) store.create({ type: 'code', parent: 'goal-1', title: id, description: id, status: 'backlog', depth: 0, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', acceptance: '', depends_on: [], blocks: [], related: [], artifacts: [], attachments: [], retries: 0, id });
+  const goal = store.create({ type: 'goal', parent: 'project', title: 'Goal', description: 'Goal', status: 'backlog', depth: 0, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', acceptance: '', depends_on: [], blocks: [], related: [], artifacts: [], attachments: [], retries: 0 });
+  for (const title of ['code-1', 'code-2', 'code-3']) store.create({ type: 'code', parent: goal.id, title, description: title, status: 'backlog', depth: 0, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', acceptance: '', depends_on: [], blocks: [], related: [], artifacts: [], attachments: [], retries: 0 });
   return store;
 }
 
@@ -86,17 +86,18 @@ describe('Contract C2 partial-success reporting', () => {
     let procId: string | undefined;
     try {
       const store = seedDeleteCards(root);
-      const proc = startProcess(root, 'sleep 30', { cardId: 'code-2', requiredForCardCompletion: true, ownerKind: 'runtime' });
+      const codeIds = store.listChildren('card-1');
+      const proc = startProcess(root, 'sleep 30', { cardId: codeIds[1], requiredForCardCompletion: true, ownerKind: 'runtime' });
       procId = proc.id;
-      store.setStatus('code-2', 'active');
-      store.setStatus('code-2', 'running');
-      const result = await delete_card({ projectRoot: root, store, actor: 'analyst', surface: 'web-chat' }, { ids: ['code-1', 'code-2', 'code-3'] });
+      store.setStatus(codeIds[1], 'active');
+      store.setStatus(codeIds[1], 'running');
+      const result = await delete_card({ projectRoot: root, store, actor: 'analyst', surface: 'web-chat' }, { ids: codeIds });
       expect(result.success).toBe(true);
       expect(result.data).toMatchObject({ partial: true, total: 3, succeeded: 2 });
       const data = result.data as { failures: Array<{ id: string; reason: string }>; totals?: unknown };
       expect(data.totals).toBeUndefined();
       expect(data.failures).toHaveLength(1);
-      expect(data.failures[0]).toEqual({ id: 'code-2', reason: expect.stringContaining("delete_card denied by permission matrix") });
+      expect(data.failures[0]).toEqual({ id: codeIds[1], reason: expect.stringContaining("delete_card denied by permission matrix") });
     } finally { if (procId) await killProcess(root, procId, 'SIGTERM'); rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -106,14 +107,15 @@ describe('Contract C2 partial-success reporting', () => {
     let procId: string | undefined;
     try {
       const store = seedDeleteCards(root);
-      const proc = startProcess(root, 'sleep 30', { cardId: 'code-2', requiredForCardCompletion: true, ownerKind: 'runtime' });
+      const codeIds = store.listChildren('card-1');
+      const proc = startProcess(root, 'sleep 30', { cardId: codeIds[1], requiredForCardCompletion: true, ownerKind: 'runtime' });
       procId = proc.id;
-      store.setStatus('code-2', 'active');
-      store.setStatus('code-2', 'running');
-      jest.spyOn(globalThis, 'fetch').mockImplementation(async () => toolResponse('delete_card', { ids: ['code-1', 'code-2', 'code-3'] }));
+      store.setStatus(codeIds[1], 'active');
+      store.setStatus(codeIds[1], 'running');
+      jest.spyOn(globalThis, 'fetch').mockImplementation(async () => toolResponse('delete_card', { ids: codeIds }));
       const handler = new AnalystHandler(root, createTestAnalystRuntime());
       const response = await handler.handleMessage('s-c2', 'delete code cards');
-      expect(response.message.content).toContain('Partial success: 2 of 3 succeeded. Failed: code-2. Reasons: delete_card denied by permission matrix');
+      expect(response.message.content).toContain(`Partial success: 2 of 3 succeeded. Failed: ${codeIds[1]}. Reasons: delete_card denied by permission matrix`);
     } finally { if (procId) await killProcess(root, procId, 'SIGTERM'); rmSync(root, { recursive: true, force: true }); }
   });
 });

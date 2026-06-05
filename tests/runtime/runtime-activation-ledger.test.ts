@@ -16,10 +16,10 @@ function setup() {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-runtime-activation-'));
   initProjectTree(projectRoot);
   const cardStore = new CardStore(projectRoot);
-  cardStore.create({ id: 'project', type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'active', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], blocks: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
-  cardStore.create({ id: 'goal-a', type: 'goal', parent: 'project', depth: 1, title: 'Goal A', description: '', status: 'active', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], blocks: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
-  cardStore.create({ id: 'code-a', type: 'code', parent: 'goal-a', depth: 2, title: 'Code A', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], blocks: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
-  return { projectRoot, cardStore };
+  cardStore.create({ type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'active', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], blocks: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
+  const goal = cardStore.create({ type: 'goal', parent: 'project', depth: 1, title: 'Goal A', description: '', status: 'active', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], blocks: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
+  const code = cardStore.create({ type: 'code', parent: goal.id, depth: 2, title: 'Code A', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], blocks: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
+  return { projectRoot, cardStore, goalId: goal.id, codeId: code.id };
 }
 
 
@@ -36,7 +36,7 @@ describe('runtime activation ledger target contract (Wave 1)', () => {
     const ctx = setup();
     try {
       const exec = new PlannerControlExecutor({ projectRoot: ctx.projectRoot, cardStore: ctx.cardStore, activationLedger: activationLedger(ctx.projectRoot) });
-      const msg = await exec.execute({ toolName: 'activate_card', toolCallId: 'call-a', argumentsJson: JSON.stringify({ cardId: 'code-a' }), parentCardId: 'goal-a', sessionId: 'planner:goal-a' });
+      const msg = await exec.execute({ toolName: 'activate_card', toolCallId: 'call-a', argumentsJson: JSON.stringify({ cardId: ctx.codeId }), parentCardId: ctx.goalId, sessionId: `planner:${ctx.goalId}` });
       expect(msg.kind).toBe('tool_error');
       const body = JSON.parse(msg.content);
       expect(body.actionable_error.code).toBe('activate_card_parent_not_active');
@@ -46,9 +46,9 @@ describe('runtime activation ledger target contract (Wave 1)', () => {
   it('duplicate activate_card calls return the same unresolved activation record without orphan child runs', async () => {
     const ctx = setup();
     try {
-      appendRuntimeRun(ctx.projectRoot, { run_id: 'run-parent', kind: 'root', card_id: 'goal-a', parent_run_id: null, command_id: 'cmd-a', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: 'planner:goal-a' });
+      appendRuntimeRun(ctx.projectRoot, { run_id: 'run-parent', kind: 'root', card_id: ctx.goalId, parent_run_id: null, command_id: 'cmd-a', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: `planner:${ctx.goalId}` });
       const exec = new PlannerControlExecutor({ projectRoot: ctx.projectRoot, cardStore: ctx.cardStore, activationLedger: activationLedger(ctx.projectRoot) });
-      const invocation = { toolName: 'activate_card', toolCallId: 'call-a', argumentsJson: JSON.stringify({ cardId: 'code-a' }), parentCardId: 'goal-a', sessionId: 'planner:goal-a' };
+      const invocation = { toolName: 'activate_card', toolCallId: 'call-a', argumentsJson: JSON.stringify({ cardId: ctx.codeId }), parentCardId: ctx.goalId, sessionId: `planner:${ctx.goalId}` };
       const first = JSON.parse((await exec.execute(invocation)).content);
       const second = JSON.parse((await exec.execute(invocation)).content);
       expect(first.success).toBe(true);
@@ -58,7 +58,7 @@ describe('runtime activation ledger target contract (Wave 1)', () => {
 
       const state = readRuntimeState(ctx.projectRoot)!;
       const activations = state.runtime_activations ?? [];
-      const childRuns = (state.runtime_runs ?? []).filter((run) => run.kind === 'child' && run.card_id === 'code-a' && run.parent_run_id === 'run-parent');
+      const childRuns = (state.runtime_runs ?? []).filter((run) => run.kind === 'child' && run.card_id === ctx.codeId && run.parent_run_id === 'run-parent');
       expect(activations).toHaveLength(1);
       expect(childRuns).toHaveLength(1);
       expect(activations[0].runtime_run_id).toBe(childRuns[0].run_id);
@@ -69,10 +69,10 @@ describe('runtime activation ledger target contract (Wave 1)', () => {
   it('links activation and child runtime run to the matching session-owned parent run when same card has multiple active planner runs', async () => {
     const ctx = setup();
     try {
-      appendRuntimeRun(ctx.projectRoot, { run_id: 'run-parent-other-session', kind: 'root', card_id: 'goal-a', parent_run_id: null, command_id: 'cmd-a', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: 'planner:goal-a:old-session' });
-      appendRuntimeRun(ctx.projectRoot, { run_id: 'run-parent-matching-session', kind: 'root', card_id: 'goal-a', parent_run_id: null, command_id: 'cmd-b', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: 'planner:goal-a:current-session' });
+      appendRuntimeRun(ctx.projectRoot, { run_id: 'run-parent-other-session', kind: 'root', card_id: ctx.goalId, parent_run_id: null, command_id: 'cmd-a', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: `planner:${ctx.goalId}:old-session` });
+      appendRuntimeRun(ctx.projectRoot, { run_id: 'run-parent-matching-session', kind: 'root', card_id: ctx.goalId, parent_run_id: null, command_id: 'cmd-b', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: `planner:${ctx.goalId}:current-session` });
       const exec = new PlannerControlExecutor({ projectRoot: ctx.projectRoot, cardStore: ctx.cardStore, activationLedger: activationLedger(ctx.projectRoot) });
-      const invocation = { toolName: 'activate_card', toolCallId: 'call-current', argumentsJson: JSON.stringify({ cardId: 'code-a' }), parentCardId: 'goal-a', sessionId: 'planner:goal-a:current-session' };
+      const invocation = { toolName: 'activate_card', toolCallId: 'call-current', argumentsJson: JSON.stringify({ cardId: ctx.codeId }), parentCardId: ctx.goalId, sessionId: `planner:${ctx.goalId}:current-session` };
 
       const firstMsg = await exec.execute(invocation);
       expect(firstMsg.kind).toBe('tool_result');
@@ -95,9 +95,9 @@ describe('runtime activation ledger target contract (Wave 1)', () => {
 
       const stateAfterSecond = readRuntimeState(ctx.projectRoot)!;
       const matchingChildRuns = (stateAfterSecond.runtime_runs ?? [])
-        .filter((run) => run.kind === 'child' && run.card_id === 'code-a' && run.parent_run_id === 'run-parent-matching-session');
+        .filter((run) => run.kind === 'child' && run.card_id === ctx.codeId && run.parent_run_id === 'run-parent-matching-session');
       const wrongParentChildRuns = (stateAfterSecond.runtime_runs ?? [])
-        .filter((run) => run.kind === 'child' && run.card_id === 'code-a' && run.parent_run_id === 'run-parent-other-session');
+        .filter((run) => run.kind === 'child' && run.card_id === ctx.codeId && run.parent_run_id === 'run-parent-other-session');
       expect(matchingChildRuns).toHaveLength(1);
       expect(wrongParentChildRuns).toHaveLength(0);
     } finally { rmSync(ctx.projectRoot, { recursive: true, force: true }); }
@@ -109,21 +109,21 @@ describe('runtime activation ledger target contract (Wave 1)', () => {
     const ctx = setup();
     let logger: EventLogger | null = null;
     try {
-      appendRuntimeRun(ctx.projectRoot, { run_id: 'run-parent', kind: 'root', card_id: 'goal-a', parent_run_id: null, command_id: 'cmd-a', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: 'planner:goal-a' });
+      appendRuntimeRun(ctx.projectRoot, { run_id: 'run-parent', kind: 'root', card_id: ctx.goalId, parent_run_id: null, command_id: 'cmd-a', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: `planner:${ctx.goalId}` });
       logger = new EventLogger(join(ctx.projectRoot, '.saivage'));
       const eventBus = new EventBus();
       const events: Array<{ kind: string; run?: unknown; activation?: unknown }> = [];
       const sub = eventBus.subscribe({ handler: (event) => { if (event.kind === 'runtime_run' || event.kind === 'runtime_activation') events.push(event); } });
       const exec = new PlannerControlExecutor({ projectRoot: ctx.projectRoot, cardStore: ctx.cardStore, activationLedger: activationLedger(ctx.projectRoot), eventLogger: logger, eventBus });
 
-      const msg = await exec.execute({ toolName: 'activate_card', toolCallId: 'call-a', argumentsJson: JSON.stringify({ cardId: 'code-a' }), parentCardId: 'goal-a', sessionId: 'planner:goal-a' });
+      const msg = await exec.execute({ toolName: 'activate_card', toolCallId: 'call-a', argumentsJson: JSON.stringify({ cardId: ctx.codeId }), parentCardId: ctx.goalId, sessionId: `planner:${ctx.goalId}` });
       sub.unsubscribe();
       expect(msg.kind).toBe('tool_result');
 
       const state = readRuntimeState(ctx.projectRoot)!;
-      const activation = state.runtime_activations!.find((record) => record.child_card_id === 'code-a');
+      const activation = state.runtime_activations!.find((record) => record.child_card_id === ctx.codeId);
       const childRun = state.runtime_runs!.find((record) => record.run_id === activation!.runtime_run_id);
-      expect(activation?.idempotency_key).toBe('run-parent:planner:goal-a:call-a:code-a');
+      expect(activation?.idempotency_key).toBe(`run-parent:planner:${ctx.goalId}:call-a:${ctx.codeId}`);
       expect(events).toEqual(expect.arrayContaining([
         expect.objectContaining({ kind: 'runtime_run', run: childRun }),
         expect.objectContaining({ kind: 'runtime_activation', activation }),
@@ -136,7 +136,7 @@ describe('runtime activation ledger target contract (Wave 1)', () => {
     const ctx = setup();
     let logger: EventLogger | null = null;
     try {
-      appendRuntimeRun(ctx.projectRoot, { run_id: 'run-parent', kind: 'root', card_id: 'goal-a', parent_run_id: null, command_id: 'cmd-a', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: 'planner:goal-a' });
+      appendRuntimeRun(ctx.projectRoot, { run_id: 'run-parent', kind: 'root', card_id: ctx.goalId, parent_run_id: null, command_id: 'cmd-a', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: `planner:${ctx.goalId}` });
       const config = {
         providers: {},
         models: {},
@@ -162,10 +162,10 @@ describe('runtime activation ledger target contract (Wave 1)', () => {
       });
 
       const result = await (agentAdapter as any).processToolCall(
-        { id: 'call-runtime-ledger', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: 'code-a' }) } },
+        { id: 'call-runtime-ledger', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: ctx.codeId }) } },
         'planner',
-        'planner:goal-a',
-        { goalId: 'goal-a', cardId: 'goal-a' },
+        `planner:${ctx.goalId}`,
+        { goalId: ctx.goalId, cardId: ctx.goalId },
       );
       sub.unsubscribe();
 
@@ -175,10 +175,10 @@ describe('runtime activation ledger target contract (Wave 1)', () => {
       for (const event of events) expect(loggedEventSchema.parse(event)).toEqual(event);
 
       const state = readRuntimeState(ctx.projectRoot)!;
-      const activation = state.runtime_activations!.find((record) => record.child_card_id === 'code-a');
+      const activation = state.runtime_activations!.find((record) => record.child_card_id === ctx.codeId);
       const childRun = state.runtime_runs!.find((record) => record.run_id === activation!.runtime_run_id);
       expect(events[0]).toEqual(expect.objectContaining({ kind: 'runtime_run', run: childRun }));
-      expect(activation?.idempotency_key).toBe('run-parent:planner:goal-a:call-runtime-ledger:code-a');
+      expect(activation?.idempotency_key).toBe(`run-parent:planner:${ctx.goalId}:call-runtime-ledger:${ctx.codeId}`);
       expect(events[1]).toEqual(expect.objectContaining({ kind: 'runtime_activation', activation }));
       expect((events[1] as any).activation.idempotency_key).toBe(activation?.idempotency_key);
 
@@ -197,23 +197,23 @@ describe('runtime activation ledger target contract (Wave 1)', () => {
   it('does not let a sessionless active parent run authorize a nonmatching nonempty planner session', async () => {
     const ctx = setup();
     try {
-      appendRuntimeRun(ctx.projectRoot, { run_id: 'run-parent-sessionless', kind: 'root', card_id: 'goal-a', parent_run_id: null, command_id: 'cmd-a', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: null });
+      appendRuntimeRun(ctx.projectRoot, { run_id: 'run-parent-sessionless', kind: 'root', card_id: ctx.goalId, parent_run_id: null, command_id: 'cmd-a', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: null });
       const exec = new PlannerControlExecutor({ projectRoot: ctx.projectRoot, cardStore: ctx.cardStore, activationLedger: activationLedger(ctx.projectRoot) });
-      const msg = await exec.execute({ toolName: 'activate_card', toolCallId: 'call-current', argumentsJson: JSON.stringify({ cardId: 'code-a' }), parentCardId: 'goal-a', sessionId: 'planner:goal-a:current-session' });
+      const msg = await exec.execute({ toolName: 'activate_card', toolCallId: 'call-current', argumentsJson: JSON.stringify({ cardId: ctx.codeId }), parentCardId: ctx.goalId, sessionId: `planner:${ctx.goalId}:current-session` });
 
       expect(msg.kind).toBe('tool_error');
       const body = JSON.parse(msg.content);
       expect(body.actionable_error.code).toBe('activate_card_parent_not_active');
       expect(body.actionable_error.currentState).toEqual(expect.objectContaining({
-        parentCardId: 'goal-a',
-        childCardId: 'code-a',
-        sessionId: 'planner:goal-a:current-session',
+        parentCardId: ctx.goalId,
+        childCardId: ctx.codeId,
+        sessionId: `planner:${ctx.goalId}:current-session`,
         parentRunId: null,
       }));
       expect(body.actionable_error.currentState.parentRunCandidates).toEqual([
         expect.objectContaining({
           run_id: 'run-parent-sessionless',
-          card_id: 'goal-a',
+          card_id: ctx.goalId,
           phase: 'planner',
           runtime_status: 'running',
           session_id: null,
@@ -225,26 +225,26 @@ describe('runtime activation ledger target contract (Wave 1)', () => {
   it('returns actionable parent-not-active details when active parent runs do not match the invoking session', async () => {
     const ctx = setup();
     try {
-      appendRuntimeRun(ctx.projectRoot, { run_id: 'run-parent-other-session', kind: 'root', card_id: 'goal-a', parent_run_id: null, command_id: 'cmd-a', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: 'planner:goal-a:other-session' });
+      appendRuntimeRun(ctx.projectRoot, { run_id: 'run-parent-other-session', kind: 'root', card_id: ctx.goalId, parent_run_id: null, command_id: 'cmd-a', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: `planner:${ctx.goalId}:other-session` });
       const exec = new PlannerControlExecutor({ projectRoot: ctx.projectRoot, cardStore: ctx.cardStore, activationLedger: activationLedger(ctx.projectRoot) });
-      const msg = await exec.execute({ toolName: 'activate_card', toolCallId: 'call-current', argumentsJson: JSON.stringify({ cardId: 'code-a' }), parentCardId: 'goal-a', sessionId: 'planner:goal-a:current-session' });
+      const msg = await exec.execute({ toolName: 'activate_card', toolCallId: 'call-current', argumentsJson: JSON.stringify({ cardId: ctx.codeId }), parentCardId: ctx.goalId, sessionId: `planner:${ctx.goalId}:current-session` });
 
       expect(msg.kind).toBe('tool_error');
       const body = JSON.parse(msg.content);
       expect(body.actionable_error.code).toBe('activate_card_parent_not_active');
       expect(body.actionable_error.currentState).toEqual(expect.objectContaining({
-        parentCardId: 'goal-a',
-        childCardId: 'code-a',
-        sessionId: 'planner:goal-a:current-session',
+        parentCardId: ctx.goalId,
+        childCardId: ctx.codeId,
+        sessionId: `planner:${ctx.goalId}:current-session`,
         parentRunId: null,
       }));
       expect(body.actionable_error.currentState.parentRunCandidates).toEqual([
         expect.objectContaining({
           run_id: 'run-parent-other-session',
-          card_id: 'goal-a',
+          card_id: ctx.goalId,
           phase: 'planner',
           runtime_status: 'running',
-          session_id: 'planner:goal-a:other-session',
+          session_id: `planner:${ctx.goalId}:other-session`,
         }),
       ]);
     } finally { rmSync(ctx.projectRoot, { recursive: true, force: true }); }

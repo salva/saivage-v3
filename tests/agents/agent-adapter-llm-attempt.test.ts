@@ -78,7 +78,7 @@ function okPlannerToolCall(model: string) {
         content: null,
         tool_calls: [{
           id: 'call_1', type: 'function',
-          function: { name: 'emit_planner_result', arguments: JSON.stringify({ created_cards: [], updated_cards: [], status: 'continue' }) },
+          function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'continue' }) },
         }],
       },
       finish_reason: 'tool_calls',

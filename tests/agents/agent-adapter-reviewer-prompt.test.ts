@@ -158,8 +158,6 @@ describe('AgentAdapter planner-control reviewer prompt contract', () => {
     expect(result).toEqual(expect.objectContaining({
       status: 'done',
       summary: `report_goal_done accepted for goal ${goal.id}.`,
-      created_cards: [],
-      updated_cards: [],
     }));
     expect(llmCalls.filter((call) => call.sessionId === `planner:${goal.id}`)).toHaveLength(1);
     const reviewerCall = llmCalls.find((call) => call.sessionId.startsWith(`reviewer:${goal.id}:`));

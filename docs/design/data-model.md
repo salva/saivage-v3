@@ -182,8 +182,6 @@ interface DiaryEntry {
   input_summary?: string;
   decision?: string;
   rationale?: string;
-  created_cards?: string[];
-  updated_cards?: string[];
   reviewed_cards?: string[];
   assessment?: ReviewAssessment;
   raw?: Record<string, unknown>;

@@ -5,8 +5,6 @@ import { validateTerminalOverlay } from './validators.js';
 
 export async function commitPlannerDone(input: {
   card: CardRecord;
-  createdCards: string[];
-  updatedCards: string[];
   summary: string;
   completedAt: string;
   effects: TerminalCommitEffects;
@@ -14,7 +12,7 @@ export async function commitPlannerDone(input: {
   if (input.card.type === 'project' || input.card.type === 'goal') {
     throw new Error(`Planner done cannot be terminal for parent card type '${input.card.type}'.`);
   }
-  const result: PlannerDoneResult = { kind: 'planner_done', created_cards: input.createdCards, updated_cards: input.updatedCards, summary: input.summary };
+  const result: PlannerDoneResult = { kind: 'planner_done', summary: input.summary };
   const lifecycle = { status: 'done', result, error: null, completed_at: input.completedAt } satisfies Extract<CardLifecycleState, { status: 'done' }>;
   assertNoTerminalOverlayErrors(input.card, lifecycle);
   const transitioned = await input.effects.transitionCard(input.card.id, 'complete', { summary: input.summary });
@@ -27,13 +25,11 @@ export async function commitPlannerBlocked(input: {
   card: CardRecord;
   blockedReason: string;
   resumeReason: string;
-  createdCards: string[];
-  updatedCards: string[];
   effects: TerminalCommitEffects;
 }): Promise<TerminalCommitReceipt<Extract<CardLifecycleState, { status: 'blocked' }>, PlannerBlockedResult>> {
   if (!input.blockedReason.trim()) throw new Error('Cannot commit planner blocked without a non-empty blocked reason.');
   if (!input.resumeReason.trim()) throw new Error('Cannot commit planner blocked without a non-empty resume reason.');
-  const result: PlannerBlockedResult = { kind: 'planner_blocked', blocked_reason: input.blockedReason, resume_reason: input.resumeReason, created_cards: input.createdCards, updated_cards: input.updatedCards };
+  const result: PlannerBlockedResult = { kind: 'planner_blocked', blocked_reason: input.blockedReason, resume_reason: input.resumeReason };
   const lifecycle = { status: 'blocked', result, error: input.blockedReason, completed_at: null } satisfies Extract<CardLifecycleState, { status: 'blocked' }>;
   assertNoTerminalOverlayErrors(input.card, lifecycle);
   const transitioned = await input.effects.transitionCard(input.card.id, 'block', { blocked_reason: input.blockedReason });
@@ -45,13 +41,11 @@ export async function commitPlannerBlocked(input: {
 export async function commitPlannerFailed(input: {
   card: CardRecord;
   error: string;
-  createdCards: string[];
-  updatedCards: string[];
   completedAt: string;
   effects: TerminalCommitEffects;
 }): Promise<TerminalCommitReceipt<Extract<CardLifecycleState, { status: 'failed' }>, PlannerFailureResult>> {
   if (!input.error.trim()) throw new Error('Cannot commit planner failure without a non-empty error.');
-  const result: PlannerFailureResult = { kind: 'planner_failure', error: input.error, created_cards: input.createdCards, updated_cards: input.updatedCards };
+  const result: PlannerFailureResult = { kind: 'planner_failure', error: input.error };
   const lifecycle = { status: 'failed', result, error: input.error, completed_at: input.completedAt } satisfies Extract<CardLifecycleState, { status: 'failed' }>;
   assertNoTerminalOverlayErrors(input.card, lifecycle);
   const transitioned = await input.effects.transitionCard(input.card.id, 'fail', { reason: 'planner_error', error: input.error });

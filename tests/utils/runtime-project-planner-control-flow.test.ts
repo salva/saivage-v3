@@ -1,104 +1,20 @@
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
-import { FakeAgentAdapter, type FakeAgentFixture, type FakeReviewerResult } from '../../src/agents/fake-agent.js';
 import { releaseLock } from '../../src/runtime/lock.js';
-import { getSessionMessages } from '../../src/agents/session-persistence.js';
 import { AgentAdapter, createAgentAdapter } from '../../src/agents/agent-adapter.js';
-import { createRuntimeCoreTestContainer, type RuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
+import { createRuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
 import { materializeProjectCard } from '../helpers/materialize-project-card.js';
-
-function activateMessages(root: string, plannerCardId: string) {
-  return getSessionMessages(join(root, '.saivage'), `planner:${plannerCardId}`).filter((m) => m.tool === 'activate_card');
-}
-
-function activateToolCallIds(root: string, plannerCardId: string): string[] {
-  return activateMessages(root, plannerCardId)
-    .filter((m) => m.kind === 'tool_call')
-    .flatMap((m) => {
-      try {
-        const parsed = JSON.parse(m.content) as { toolCalls?: Array<{ id?: string }> };
-        return (parsed.toolCalls ?? []).map((call) => call.id).filter((id): id is string => Boolean(id));
-      } catch {
-        return [];
-      }
-    });
-}
 
 describe('Runtime caller-edge reconstruction from unresolved activate_card calls', () => {
   let tmpDir: string;
   let fixtureDir: string;
-  let harness: RuntimeCoreTestContainer;
-
-  function createHarness(mapping: Record<string, string>, fakeAgent: FakeAgentAdapter): RuntimeCoreTestContainer {
-    return createRuntimeCoreTestContainer({
-      config: { projectRoot: tmpDir, fakeAgentConfig: { mapping, fixtureDir, autoActivateCreatedCards: false } },
-      agentRuntime: fakeAgent,
-    });
-  }
-
   function makeFixtureDir(baseDir: string): string { const dir = join(baseDir, 'fixtures'); mkdirSync(dir, { recursive: true }); return dir; }
-  function writeFixture(dir: string, name: string, fixture: FakeAgentFixture): void { writeFileSync(join(dir, `${name}.json`), JSON.stringify(fixture, null, 2), 'utf-8'); }
 
   beforeEach(() => { tmpDir = mkdtempSync(join(tmpdir(), 'saivage-project-loop-')); fixtureDir = makeFixtureDir(tmpDir); initProjectTree(tmpDir); materializeProjectCard(tmpDir); });
-  afterEach(async () => { if (harness) { try { await harness.api.shutdown(); } catch {} } try { releaseLock(tmpDir); } catch {} rmSync(tmpDir, { recursive: true, force: true }); });
-
-  it('does not auto-dispatch planner-created child cards from status alone without activation records', async () => {
-    const projectFixture: FakeAgentFixture = { name: 'project-parent', planner: [{ status: 'done', created_cards: [{ id: 'goal-parent-1', type: 'goal', title: 'Initial top-level goal', description: 'Create the first top-level goal.', status: 'backlog', depends_on: [], priority: 1 }], summary: 'Initial project planning created one top-level goal.' }, { status: 'done', created_cards: [{ id: 'goal-parent-2', type: 'goal', title: 'Second top-level goal', description: 'Create a second top-level goal after the first completes.', status: 'backlog', depends_on: [], priority: 2 }], summary: 'Project planner resumed and created a second top-level goal.' }, { status: 'done', created_cards: [], summary: 'Project planner resumed again after the second goal completed and confirmed no further work.' }], reviewer: [{ assessment: { id: 'review-project', goal_card_id: 'project', reviewer_session_id: 'rev-project', assessment_id: 'assessment-test', at: '2025-01-01T00:00:00.000Z', result: 'pass', summary: 'Project planning and follow-up goals were accepted.', achieved: ['Created first top-level goal', 'Created second top-level goal after resume'], issues: [], evidence_card_ids: ['goal-parent-1', 'goal-parent-2'], created_at: new Date().toISOString() } }] };
-    const goalOneReview: FakeReviewerResult = { assessment: { id: 'review-goal-1', goal_card_id: 'goal-parent-1', reviewer_session_id: 'rev-goal-1', assessment_id: 'assessment-test', at: '2025-01-01T00:00:00.000Z', result: 'pass', summary: 'Both leaf cards executed.', achieved: ['Execution evidence for code-parent-1', 'Execution evidence for code-parent-2'], issues: [], evidence_card_ids: ['code-parent-1', 'code-parent-2'], created_at: new Date().toISOString() } };
-    const goalTwoReview: FakeReviewerResult = { assessment: { id: 'review-goal-2', goal_card_id: 'goal-parent-2', reviewer_session_id: 'rev-goal-2', assessment_id: 'assessment-test', at: '2025-01-01T00:00:00.000Z', result: 'pass', summary: 'The second top-level goal leaf card executed.', achieved: ['Execution evidence for code-parent-3'], issues: [], evidence_card_ids: ['code-parent-3'], created_at: new Date().toISOString() } };
-    const goalOneFixture: FakeAgentFixture = { name: 'goal-two-leaves', planner: [{ status: 'done', created_cards: [{ id: 'code-parent-1', type: 'code', title: 'First leaf card', description: 'This card should execute.', status: 'backlog', depends_on: [], priority: 1 }, { id: 'code-parent-2', type: 'code', title: 'Second leaf card', description: 'This card should execute after the first.', status: 'backlog', depends_on: ['code-parent-1'], priority: 2 }], summary: 'Created two child cards and declared done.' }, { status: 'done', created_cards: [], summary: 'Goal planner resumed after first child execution and is waiting for remaining evidence.' }, { status: 'done', created_cards: [], summary: 'Goal planner resumed after second child execution and is ready for final review.' }], executor: { 'code-parent-1': { card_id: 'code-parent-1', status: 'done', status_text: 'Completed successfully', result: { evidence: 'completed first leaf card' } }, 'code-parent-2': { card_id: 'code-parent-2', status: 'done', status_text: 'Completed successfully', result: { evidence: 'completed second leaf card' } } }, reviewer: [goalOneReview, goalOneReview, goalOneReview] };
-    const goalTwoFixture: FakeAgentFixture = { name: 'goal-one-leaf', planner: [{ status: 'done', created_cards: [{ id: 'code-parent-3', type: 'code', title: 'Third leaf card', description: 'This card should execute for the second top-level goal.', status: 'backlog', depends_on: [], priority: 1 }], summary: 'Created one child card and declared done.' }, { status: 'done', created_cards: [], summary: 'Goal planner resumed after child execution and confirmed completion.' }], executor: { 'code-parent-3': { card_id: 'code-parent-3', status: 'done', status_text: 'Completed successfully', result: { evidence: 'completed third leaf card' } } }, reviewer: [goalTwoReview] };
-    writeFixture(fixtureDir, 'project-parent', projectFixture); writeFixture(fixtureDir, 'goal-two-leaves', goalOneFixture); writeFixture(fixtureDir, 'goal-one-leaf', goalTwoFixture);
-    const mapping = { project: 'project-parent', 'goal-parent-1': 'goal-two-leaves', 'goal-parent-2': 'goal-one-leaf' };
-    const fakeAgent = new FakeAgentAdapter({ mapping, fixtureDir, autoActivateCreatedCards: false });
-    harness = createHarness(mapping, fakeAgent);
-    await harness.api.start(); await harness.dispatchTestTools.dispatchGoal('project');
-
-    expect(harness.cardTestTools.read('goal-parent-1')?.status).toBe('backlog');
-    expect(harness.cardTestTools.read('goal-parent-2')).toBeNull();
-    expect(harness.cardTestTools.read('code-parent-1')).toBeNull();
-    expect(harness.cardTestTools.read('code-parent-2')).toBeNull();
-    expect(harness.cardTestTools.read('code-parent-3')).toBeNull();
-    expect(harness.stateTestTools.read()?.runtime_activations ?? []).toEqual([]);
-    expect(harness.stateTestTools.read()?.runtime_activations ?? []).toEqual([]);
-    expect(harness.stateTestTools.read()?.active_card_run).toBeNull();
-    expect(existsSync(join(tmpDir, '.saivage', 'runtime', 'planner-dispatches'))).toBe(false);
-
-    const projectActivateMessages = activateMessages(tmpDir, 'project');
-    const projectCalls = projectActivateMessages.filter((m) => m.kind === 'tool_call');
-    const projectResults = projectActivateMessages.filter((m) => m.kind === 'tool_result');
-    expect(activateToolCallIds(tmpDir, 'project')).toEqual([]);
-    expect(projectResults).toHaveLength(0);
-    expect(harness.cardTestTools.read('project')?.lifecycle.result?.review).toBeUndefined();
-  });
-
-  it('does not infer nested execution from backlog child statuses without activate_card edges', async () => {
-    const projectFixture: FakeAgentFixture = { name: 'project-stage4', planner: [{ status: 'done', created_cards: [{ id: 'goal-parent', type: 'goal', title: 'Parent goal', description: 'parent', status: 'backlog', depends_on: [], priority: 1 }], summary: 'created parent' }, { status: 'done', created_cards: [], summary: 'project complete' }], reviewer: [{ assessment: { id: 'review-project-stage4', goal_card_id: 'project', reviewer_session_id: 'rev-project-stage4', assessment_id: 'assessment-test', at: '2025-01-01T00:00:00.000Z', result: 'pass', summary: 'project done', achieved: ['parent goal done'], issues: [], evidence_card_ids: ['goal-parent'], created_at: new Date().toISOString() } }] };
-    const parentGoalFixture: FakeAgentFixture = { name: 'goal-parent-stage4', planner: [{ status: 'done', created_cards: [{ id: 'goal-child', type: 'goal', title: 'Child goal', description: 'child', status: 'backlog', depends_on: [], priority: 1 }], summary: 'created child' }, { status: 'done', created_cards: [], summary: 'parent complete' }], reviewer: [{ assessment: { id: 'review-goal-parent-stage4', goal_card_id: 'goal-parent', reviewer_session_id: 'rev-parent-stage4', assessment_id: 'assessment-test', at: '2025-01-01T00:00:00.000Z', result: 'pass', summary: 'parent done', achieved: ['child goal done'], issues: [], evidence_card_ids: ['goal-child'], created_at: new Date().toISOString() } }] };
-    const childGoalFixture: FakeAgentFixture = { name: 'goal-child-stage4', planner: [{ status: 'done', created_cards: [{ id: 'code-leaf', type: 'code', title: 'Leaf code', description: 'leaf', status: 'backlog', depends_on: [], priority: 1 }], summary: 'created leaf' }, { status: 'done', created_cards: [], summary: 'child complete' }], executor: { 'code-leaf': { card_id: 'code-leaf', status: 'done', status_text: 'leaf complete', result: { evidence: true } } }, reviewer: [{ assessment: { id: 'review-goal-child-stage4', goal_card_id: 'goal-child', reviewer_session_id: 'rev-child-stage4', assessment_id: 'assessment-test', at: '2025-01-01T00:00:00.000Z', result: 'pass', summary: 'child done', achieved: ['leaf complete'], issues: [], evidence_card_ids: ['code-leaf'], created_at: new Date().toISOString() } }] };
-    writeFixture(fixtureDir, 'project-stage4', projectFixture); writeFixture(fixtureDir, 'goal-parent-stage4', parentGoalFixture); writeFixture(fixtureDir, 'goal-child-stage4', childGoalFixture);
-    const mapping = { project: 'project-stage4', 'goal-parent': 'goal-parent-stage4', 'goal-child': 'goal-child-stage4' };
-    const fakeAgent = new FakeAgentAdapter({ mapping, fixtureDir, autoActivateCreatedCards: false });
-    harness = createHarness(mapping, fakeAgent);
-    const completionEvents: Array<Record<string, unknown>> = [];
-    harness.eventTestTools.on('project_run_completed', (event) => completionEvents.push(event as Record<string, unknown>));
-    await harness.api.start(); await harness.dispatchTestTools.dispatchGoal('project');
-
-    expect(harness.stateTestTools.read()?.active_card_run).toBeNull();
-    expect(harness.stateTestTools.read()?.current_card_id).toBeNull();
-    expect(harness.cardTestTools.read('goal-parent')?.status).toBe('backlog');
-    expect(harness.cardTestTools.read('goal-child')).toBeNull();
-    expect(harness.cardTestTools.read('code-leaf')).toBeNull();
-    expect(harness.stateTestTools.read()?.runtime_activations ?? []).toEqual([]);
-    expect(activateToolCallIds(tmpDir, 'project')).toEqual([]);
-    expect(activateMessages(tmpDir, 'project').filter((m) => m.kind === 'tool_result')).toHaveLength(0);
-    expect(activateMessages(tmpDir, 'goal-parent')).toHaveLength(0);
-    expect(activateMessages(tmpDir, 'goal-child')).toHaveLength(0);
-    expect(completionEvents).toEqual([]);
-  });
+  afterEach(() => { try { releaseLock(tmpDir); } catch {} rmSync(tmpDir, { recursive: true, force: true }); });
 
   it('preserves public harness and adapter APIs', () => {
     const harness = createRuntimeCoreTestContainer({

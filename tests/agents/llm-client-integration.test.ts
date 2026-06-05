@@ -776,18 +776,8 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
     const { server, port } = await createMockServer((_req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(okToolCallResp('emit_planner_result', JSON.stringify({
-        created_cards: [
-          {
-            type: 'code',
-            title: 'Add auth middleware',
-            description: 'Implement auth',
-            status: 'backlog',
-            depends_on: [],
-            priority: 1,
-          },
-        ],
-        updated_cards: [],
         status: 'continue',
+        summary: 'ready to continue',
       }))));
     });
 
@@ -824,10 +814,8 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
         'goal-1', sp(), msgs(),
       );
 
-      expect(result.created_cards).toHaveLength(1);
-      expect(result.created_cards[0].title).toBe('Add auth middleware');
-      expect(result.created_cards[0].type).toBe('code');
       expect(result.status).toBe('continue');
+      expect(result.summary).toBe('ready to continue');
     } finally {
       await closeServer(server);
       if (tempDir) cleanupDir(tempDir);
@@ -844,7 +832,7 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
             type: 'function_call',
             call_id: 'call_codex_1',
             name: 'emit_planner_result',
-            arguments: JSON.stringify({ created_cards: [], updated_cards: [], status: 'continue' }),
+            arguments: JSON.stringify({ status: 'continue' }),
           },
         })}\n\n`,
         `data: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed' } })}\n\n`,
@@ -1068,8 +1056,6 @@ describe('Account-level Provider Config Overrides', () => {
     const { server, port, cap } = await createMockServer((_req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(okToolCallResp('emit_planner_result', JSON.stringify({
-        created_cards: [],
-        updated_cards: [],
         status: 'continue',
       }))));
     });
@@ -1103,7 +1089,7 @@ describe('Account-level Provider Config Overrides', () => {
         'goal-1', sp(), msgs(),
       );
 
-      expect(result.created_cards).toBeDefined();
+      expect(result.status).toBe('continue');
       expect(cap.headers['authorization']).toBe('Bearer sk-account-level');
       // Verify it hit our mock server (not the overridden URL)
       expect(cap.url).toBe('/v1/chat/completions');
@@ -1117,8 +1103,6 @@ describe('Account-level Provider Config Overrides', () => {
     const { server, port, cap } = await createMockServer((_req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(okToolCallResp('emit_planner_result', JSON.stringify({
-        created_cards: [],
-        updated_cards: [],
         status: 'continue',
       }))));
     });
@@ -1159,8 +1143,6 @@ describe('Account-level Provider Config Overrides', () => {
     const { server, port, cap } = await createMockServer((_req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(okToolCallResp('emit_planner_result', JSON.stringify({
-        created_cards: [],
-        updated_cards: [],
         status: 'continue',
       }))));
     });
@@ -1254,8 +1236,6 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
   // Shared planner result that parses cleanly
   function plannerContent() {
     return JSON.stringify({
-      created_cards: [],
-      updated_cards: [],
       status: 'done',
     });
   }

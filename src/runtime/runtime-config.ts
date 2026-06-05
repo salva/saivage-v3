@@ -76,7 +76,6 @@ export interface RuntimeConfig {
     mapping: Record<string, string>;
     fixtureDir: string;
     saivageDir?: string;
-    autoActivateCreatedCards?: boolean;
   };
   agentExecutionFactory?: (
     projectRoot: string,

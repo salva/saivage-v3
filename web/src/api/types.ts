@@ -3,7 +3,7 @@ import type {
   AttachmentRef,
   CardHistoryEntry,
   CardHistoryHeader,
-  CardRecord as ContractCardRecord,
+  CardView as ContractCardView,
   CardStatus,
   CardType,
   ControlActionSurface,
@@ -520,7 +520,7 @@ export interface FreshnessState {
 
 
 
-export type CardRecord = ContractCardRecord & { notes?: NoteRecord[]; children?: CardRecord[] };
+export type CardRecord = ContractCardView & { notes?: NoteRecord[]; children?: CardRecord[] };
 export type CardListResponse = OperatorApiSuccess<'cards.list'>;
 export type CardDetailResponse = OperatorApiSuccess<'cards.get'> & {
   evidence?: CardEvidence;
@@ -553,5 +553,4 @@ export type DebugErrorsResponse = Omit<OperatorApiSuccess<'debug.errors'>, 'erro
 export type DebugTimelineResponse = Omit<OperatorApiSuccess<'debug.timeline'>, 'events'> & { events: DebugTimelineEvent[]; };
 export interface ProcessListResponse { processes: ProcessView[]; }
 export interface ProcessDetailResponse { process: ProcessView; }
-
 

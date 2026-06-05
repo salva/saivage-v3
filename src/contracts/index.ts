@@ -254,8 +254,6 @@ export type {
   SessionReinvokeRequest,
   RuntimeActivationLedgerPort,
   RuntimeStateSnapshotPort,
-  PlannerCardCreate,
-  PlannerCardUpdate,
   PlannerStatus,
   PlannerResult,
   ExecutorArtifactDef,

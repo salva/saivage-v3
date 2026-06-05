@@ -55,8 +55,8 @@ describe('CardStore startup refusal for legacy cards', () => {
         attachments: [],
         retries: 0,
       });
-      const b = setup.create({ ...a, id: undefined, title: 'B' });
-      const c = setup.create({ ...a, id: undefined, title: 'C' });
+      const b = setup.create({ ...a, title: 'B' });
+      const c = setup.create({ ...a, title: 'C' });
       writeCard(root, { ...a, position: 0 });
       writeCard(root, { ...b, position: 1 });
       writeCard(root, { ...c, position: 3 });
@@ -97,7 +97,7 @@ describe('CardStore startup refusal for legacy cards', () => {
         attachments: [],
         retries: 0,
       });
-      const b = setup.create({ ...a, id: undefined, title: 'B' });
+      const b = setup.create({ ...a, title: 'B' });
       writeCard(root, { ...a, position: 0, created_at: '2026-01-01T00:00:00.000Z' });
       writeCard(root, { ...b, position: 0, created_at: '2026-01-01T00:00:01.000Z' });
 

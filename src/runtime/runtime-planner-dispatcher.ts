@@ -186,8 +186,6 @@ export class RuntimePlannerDispatcher {
       card,
       blockedReason: reason,
       resumeReason: reason,
-      createdCards: [],
-      updatedCards: [],
       effects: {
         transitionCard: (cardId, event, details) => this.deps.stateMachine.transitionCard(cardId, event as 'block', details),
         updateCard: (cardId, patch) => this.deps.cards.commitTerminalLifecyclePatch(cardId, patch),

@@ -4,7 +4,6 @@ export function materializeProjectCard(projectRoot: string): void {
   const store = new CardStore(projectRoot);
   if (store.read('project')) return;
   store.create({
-    id: 'project',
     type: 'project',
     parent: null,
     depth: 0,

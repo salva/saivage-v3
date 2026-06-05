@@ -39,8 +39,6 @@ export interface ExecutorNeedsVerificationResult extends Record<string, unknown>
 
 export interface PlannerDoneResult extends Record<string, unknown> {
   kind: 'planner_done';
-  created_cards: string[];
-  updated_cards: string[];
   summary: string;
 }
 
@@ -48,15 +46,11 @@ export interface PlannerBlockedResult extends Record<string, unknown> {
   kind: 'planner_blocked';
   blocked_reason: string;
   resume_reason: string;
-  created_cards: string[];
-  updated_cards: string[];
 }
 
 export interface PlannerFailureResult extends Record<string, unknown> {
   kind: 'planner_failure';
   error: string;
-  created_cards: string[];
-  updated_cards: string[];
 }
 
 export interface ReviewerPassResult extends Record<string, unknown> {
@@ -148,8 +142,6 @@ export const executorNeedsVerificationResultSchema: z.ZodType<ExecutorNeedsVerif
 
 export const plannerDoneResultSchema: z.ZodType<PlannerDoneResult> = z.object({
   kind: z.literal('planner_done'),
-  created_cards: z.array(z.string()),
-  updated_cards: z.array(z.string()),
   summary: z.string(),
 }).strict();
 
@@ -157,15 +149,11 @@ export const plannerBlockedResultSchema: z.ZodType<PlannerBlockedResult> = z.obj
   kind: z.literal('planner_blocked'),
   blocked_reason: nonEmptyStringSchema,
   resume_reason: nonEmptyStringSchema,
-  created_cards: z.array(z.string()),
-  updated_cards: z.array(z.string()),
 }).strict();
 
 export const plannerFailureResultSchema: z.ZodType<PlannerFailureResult> = z.object({
   kind: z.literal('planner_failure'),
   error: nonEmptyStringSchema,
-  created_cards: z.array(z.string()),
-  updated_cards: z.array(z.string()),
 }).strict();
 
 export const reviewerPassResultSchema: z.ZodType<ReviewerPassResult> = z.object({

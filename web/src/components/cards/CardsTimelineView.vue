@@ -16,6 +16,7 @@
         <div class="tl-content">
           <div class="tl-title">
             <span class="tl-type-icon">{{ typeIcon(event.card.type) }}</span>
+            <span v-if="event.card.display_path" class="tl-display-path">{{ event.card.display_path }}</span>
             {{ event.card.title }}
           </div>
           <div class="tl-meta">
@@ -179,6 +180,14 @@ function formatDuration(ms: number | null | undefined): string {
 
 .tl-type-icon {
   font-size: 14px;
+  flex-shrink: 0;
+}
+
+.tl-display-path {
+  color: var(--accent-2);
+  font-family: 'SF Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
   flex-shrink: 0;
 }
 

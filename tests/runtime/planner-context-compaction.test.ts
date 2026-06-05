@@ -21,8 +21,6 @@ class CapturingPlannerAdapter extends FakeAgentAdapter {
     return {
       status: 'blocked',
       blocked_reason: 'test planner stopped after prompt capture',
-      created_cards: [],
-      updated_cards: [],
       summary: 'captured prompt',
     };
   }
@@ -64,7 +62,6 @@ describe('planner prompt context compaction', () => {
       lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
     });
     harness.cardTestTools.create({
-      id: 'child-heavy',
       type: 'code',
       parent: 'project',
       depth: 1,
@@ -78,7 +75,7 @@ describe('planner prompt context compaction', () => {
       depends_on: [],
       related: [],
       blocks: [],
-      artifacts: Array.from({ length: 12 }, (_, index) => ({ id: `artifact-${index}`, card_id: 'child-heavy', type: 'report', description: `${index}:${longBlob}`, path: `.saivage-work/artifacts/${index}.txt`, retain: true, created_at: '2026-06-01T00:00:00.000Z' })),
+      artifacts: Array.from({ length: 12 }, (_, index) => ({ id: `artifact-${index}`, card_id: 'card-1', type: 'report', description: `${index}:${longBlob}`, path: `.saivage-work/artifacts/${index}.txt`, retain: true, created_at: '2026-06-01T00:00:00.000Z' })),
       attachments: Array.from({ length: 12 }, (_, index) => ({ id: `attachment-${index}`, card_id: 'child-heavy', mime: 'text/plain', title: `${index}:${longBlob}`, path: `.saivage-work/attachments/${index}.txt`, created_at: '2026-06-01T00:00:00.000Z' })),
       acceptance: '',
       retries: 0,

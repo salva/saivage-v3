@@ -26,7 +26,8 @@
           <!-- Planner-state dot -->
           <span class="node-status-dot" :class="`status-${node.card.status}`"></span>
 
-          <!-- Title -->
+          <!-- Display path and title -->
+          <span v-if="node.card.display_path" class="node-path">{{ node.card.display_path }}</span>
           <span class="node-title">{{ node.card.title }}</span>
 
           <!-- Priority -->
@@ -211,6 +212,14 @@ const renderedTree = computed<TreeNode[]>(() => {
 
 .tree-node:hover .node-title {
   color: var(--text);
+}
+
+.node-path {
+  color: var(--accent-2);
+  font-family: 'SF Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
 }
 
 .node-priority {

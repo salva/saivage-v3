@@ -535,7 +535,7 @@ describe('Runtime supervisor cancellation integration', () => {
 
     const agentRuntime: AgentRuntime = {
       invokePlanner() {
-        return { goal_card_id: 'p', created_cards: [], updated_cards: [], status: 'done' };
+        return { goal_card_id: 'p', status: 'done' };
       },
       invokeExecutor() {
         return { card_id: 'c', status: 'done' as const, status_text: 'Completed successfully', artifacts: [], attachments: [], fallback_with_evidence: null };
@@ -580,7 +580,7 @@ describe('Runtime supervisor cancellation integration', () => {
 
     const agentRuntime: AgentRuntime = {
       invokePlanner() {
-        return { goal_card_id: 'p', created_cards: [], updated_cards: [], status: 'done' };
+        return { goal_card_id: 'p', status: 'done' };
       },
       invokeExecutor() {
         return { card_id: 'c', status: 'done' as const, status_text: 'Completed successfully', artifacts: [], attachments: [], fallback_with_evidence: null };

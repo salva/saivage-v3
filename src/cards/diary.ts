@@ -156,8 +156,6 @@ export function appendDiaryEntry(
     ...(entry.input_summary !== undefined ? { input_summary: entry.input_summary } : {}),
     ...(entry.decision !== undefined ? { decision: entry.decision } : {}),
     ...(entry.rationale !== undefined ? { rationale: entry.rationale } : {}),
-    ...(entry.created_cards !== undefined ? { created_cards: entry.created_cards } : {}),
-    ...(entry.updated_cards !== undefined ? { updated_cards: entry.updated_cards } : {}),
     ...(entry.reviewed_cards !== undefined ? { reviewed_cards: entry.reviewed_cards } : {}),
     ...(entry.assessment !== undefined ? { assessment: entry.assessment } : {}),
     ...(entry.raw !== undefined ? { raw: entry.raw } : {}),

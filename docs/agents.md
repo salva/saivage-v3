@@ -342,8 +342,8 @@ progress because it repeats the same tool-call fingerprint or exhausts
 the bounded tool-call loop, the adapter records a `model_issue`, adds a
 final-answer prompt that forbids further tool calls, and requires the
 next assistant payload to be the normal planner result envelope. The
-runtime parses only that coerced envelope (`status`, `summary`,
-`created_cards`, `updated_cards`, and optional `blocked_reason`); raw
+runtime parses only that coerced envelope (`status`, `summary`, and
+optional `blocked_reason`); raw
 `toolCalls` objects are never a runtime state transition. `activate_card`
 is a synchronous barrier from the planner perspective: runtime persists
 the activation, runs the child to a terminal outcome, appends exactly one
