@@ -86,7 +86,6 @@ import { ToolRuntime, AGENT_TOOL_DEFINITIONS } from '../tools/index.js';
 import { AgentSessionCoordinator, type SessionCreatedHook } from './agent-session-coordinator.js';
 import { AgentToolExecutor } from './agent-tool-executor.js';
 import { AgentLlmInvocationGateway } from './agent-llm-gateway.js';
-import { AgentRoleRunner } from './agent-role-runner.js';
 import { decide as decideCardPermission } from '../permissions/index.js';
 import { createToolTurnRecord, updateToolCallExecution } from './tool-turn-ledger.js';
 
@@ -261,7 +260,6 @@ export class AgentAdapter implements AgentExecutionPort {
   private readonly sessionCoordinator: AgentSessionCoordinator;
   private readonly toolExecutor: AgentToolExecutor;
   private readonly llmGateway: AgentLlmInvocationGateway;
-  private readonly roleRunner: AgentRoleRunner;
   private readonly fallbackCurrentRoundId = new Map<string, string>();
   private readonly fallbackBlockCounters = new Map<string, number>();
   private readonly cardStore: Pick<CardStore, 'read' | 'listChildren'>;
@@ -355,17 +353,11 @@ export class AgentAdapter implements AgentExecutionPort {
       registry: this.registry,
       eventLogger: this.eventLogger,
     });
-    this.roleRunner = new AgentRoleRunner({
-      config: this.config,
-      eventBus: this.eventBus,
-      eventLogger: this.eventLogger,
-    });
   }
 
   setEventBus(eventBus: EventEmitter): void {
     this.eventBus = eventBus;
     this.sessionCoordinator.setEventBus(eventBus);
-    this.roleRunner.setEventBus(eventBus);
   }
   setRuntimeLedgerEventBus(eventBus: { emit(event: LoggedEvent): void }): void {
     this.runtimeLedgerEventBus = eventBus;
@@ -422,9 +414,6 @@ export class AgentAdapter implements AgentExecutionPort {
   }
   private redactProviderErrorMessage(message: unknown): string {
     return redactTextForOutbound(message, 'model.issue', { source: 'agent-adapter' });
-  }
-  private resetOnRoleChange(role: AgentRole): void {
-    this.roleRunner.resetOnRoleChange(role);
   }
   cancelSession(sessionId: string): boolean {
     return this.sessionCoordinator.cancelSession(sessionId);
@@ -670,7 +659,6 @@ export class AgentAdapter implements AgentExecutionPort {
   ): Promise<R> {
     if (!this.llmCallFn)
       throw new Error('No LLM call function registered. Call setLlmCallFn() first.');
-    this.resetOnRoleChange(role);
     const modelParams = getModelParamsForRole(this.config, role);
     const tools = this.buildToolsForRole(role);
     const capabilityRequest = capabilityRequestForLlmOptions({
