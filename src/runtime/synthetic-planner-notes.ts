@@ -1,6 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { CardStore } from '../cards/store-api.js';
 import { writeFileAtomic } from '../persistence/index.js';
 import { appendMessage } from './session-persistence.js';
 import type { RoundStamp } from '../contracts/session-stamper.js';
@@ -61,8 +60,5 @@ export function injectQueuedSyntheticPlannerNotes(projectRoot: string, plannerSe
 }
 
 export function consumeChangedCardActivation(projectRoot: string, cardId: string): number {
-  const store = new CardStore(projectRoot);
-  const card = store.read(cardId);
-  if (card?.status === 'changed') store.setStatus(cardId, 'running');
   return discardSubtreeChangedSyntheticNotes(projectRoot, cardId);
 }
