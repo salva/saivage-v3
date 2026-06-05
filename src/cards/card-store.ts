@@ -331,19 +331,23 @@ export class CardStore {
     }
     if (input.parent !== null) {
       const parentCard = this.read(input.parent);
-      if (!parentCard) throw new Error(`Parent card '${input.parent}' does not exist.`);
-      if (isTerminalType(parentCard.type)) {
-        throw new Error(
-          `Cannot create child under terminal card '${input.parent}' (type: ${parentCard.type}). Terminal cards cannot have children.`,
-        );
-      }
-      if (isTerminalState(parentCard.status)) {
-        throw new Error(
-          `Cannot create child under card '${input.parent}' because it is in status '${parentCard.status}'. Children cannot be created under cards in ${parentCard.status} status.`,
-        );
+      if (!parentCard) {
+        if (input.parent !== PROJECT_CARD_ID) throw new Error(`Parent card '${input.parent}' does not exist.`);
+      } else {
+        if (isTerminalType(parentCard.type)) {
+          throw new Error(
+            `Cannot create child under terminal card '${input.parent}' (type: ${parentCard.type}). Terminal cards cannot have children.`,
+          );
+        }
+        if (isTerminalState(parentCard.status)) {
+          throw new Error(
+            `Cannot create child under card '${input.parent}' because it is in status '${parentCard.status}'. Children cannot be created under cards in ${parentCard.status} status.`,
+          );
+        }
       }
     }
-    const depth = input.parent === null ? 0 : (this.read(input.parent)!.depth + 1);
+    const parentForDepth = input.parent === null ? null : this.read(input.parent);
+    const depth = input.parent === null ? 0 : parentForDepth ? parentForDepth.depth + 1 : 1;
     const position = input.parent === null ? 0 : this.state.childrenOf(input.parent).length;
     if (depth > this.maxDepth) {
       throw new Error(
@@ -395,7 +399,9 @@ export class CardStore {
 
   reorderChildren(parentId: string, orderedChildIds: string[], ctx: CardMutationContext): ReorderChildrenResult {
     this.refreshState();
-    if (!this.state.get(parentId)) throw new Error(`Parent card '${parentId}' does not exist.`);
+    if (parentId !== PROJECT_CARD_ID && !this.state.get(parentId)) {
+      throw new Error(`Parent card '${parentId}' does not exist.`);
+    }
     let plan: { changed: string[]; nextPositions: Map<string, number> };
     try {
       plan = this.state.reorderChildren(parentId, orderedChildIds);

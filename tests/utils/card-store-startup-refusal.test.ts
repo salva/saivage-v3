@@ -4,12 +4,14 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { CardStore } from '../../src/cards/card-store.js';
+import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 
 describe('CardStore startup refusal for legacy cards', () => {
   it('fails with actionable saivage reset error when version_seq is missing', () => {
     const root = mkdtempSync(join(tmpdir(), 'card-legacy-'));
     try {
       initProjectTree(root);
+      materializeProjectCard(root);
       const legacyPath = join(root, '.saivage', 'cards', 'by-id', 'project.json');
       const legacy = JSON.parse(readFileSync(legacyPath, 'utf-8')) as Record<string, unknown>;
       delete legacy.version_seq;

@@ -325,6 +325,33 @@ describe('Analyst Tools', () => {
     }
   });
 
+  it('creates a top-level goal under the virtual project root in an empty store', async () => {
+    const emptyRoot = uniqueDir();
+    mkdirSync(join(emptyRoot, '.saivage', 'cards', 'by-id'), { recursive: true });
+    const emptyStore = new CardStore(emptyRoot);
+
+    try {
+      const result = await create_card(ctx(emptyRoot, emptyStore), {
+        type: 'goal',
+        parent: 'project',
+        title: 'First goal',
+        description: 'Top-level work without a materialized project card',
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual(
+        expect.objectContaining({
+          type: 'goal',
+          parent: 'project',
+          depth: 1,
+        }),
+      );
+      expect(emptyStore.read('project')).toBeNull();
+    } finally {
+      rmSync(emptyRoot, { recursive: true, force: true });
+    }
+  });
+
   it('rejects duplicate project card creation', async () => {
     const result = await create_card(ctx(projectRoot, store), {
       type: 'project',

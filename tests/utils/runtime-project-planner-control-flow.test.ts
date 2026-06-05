@@ -8,6 +8,7 @@ import { releaseLock } from '../../src/runtime/lock.js';
 import { getSessionMessages } from '../../src/agents/session-persistence.js';
 import { AgentAdapter, createAgentAdapter } from '../../src/agents/agent-adapter.js';
 import { createRuntimeCoreTestContainer, type RuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
+import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 
 function activateMessages(root: string, plannerCardId: string) {
   return getSessionMessages(join(root, '.saivage'), `planner:${plannerCardId}`).filter((m) => m.tool === 'activate_card');
@@ -41,7 +42,7 @@ describe('Runtime caller-edge reconstruction from unresolved activate_card calls
   function makeFixtureDir(baseDir: string): string { const dir = join(baseDir, 'fixtures'); mkdirSync(dir, { recursive: true }); return dir; }
   function writeFixture(dir: string, name: string, fixture: FakeAgentFixture): void { writeFileSync(join(dir, `${name}.json`), JSON.stringify(fixture, null, 2), 'utf-8'); }
 
-  beforeEach(() => { tmpDir = mkdtempSync(join(tmpdir(), 'saivage-project-loop-')); fixtureDir = makeFixtureDir(tmpDir); initProjectTree(tmpDir); });
+  beforeEach(() => { tmpDir = mkdtempSync(join(tmpdir(), 'saivage-project-loop-')); fixtureDir = makeFixtureDir(tmpDir); initProjectTree(tmpDir); materializeProjectCard(tmpDir); });
   afterEach(async () => { if (harness) { try { await harness.api.shutdown(); } catch {} } try { releaseLock(tmpDir); } catch {} rmSync(tmpDir, { recursive: true, force: true }); });
 
   it('does not auto-dispatch planner-created child cards from status alone without activation records', async () => {

@@ -13,6 +13,7 @@ import {
   DebugReadModelService,
   WorkspaceFileReadModelService,
 } from '../../src/application/read-models/index.js';
+import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 
 let root: string;
 
@@ -52,7 +53,7 @@ describe('application read models', () => {
     const response = buildCardRunsResponse(root);
 
     expect(response.active_card_run?.card_id).toBe(goal.id);
-    expect(response.active_breadcrumb.map((entry) => entry.card_id)).toEqual(['project', goal.id]);
+    expect(response.active_breadcrumb.map((entry) => entry.card_id)).toEqual([goal.id]);
   });
 
   it('projects operator card lists and card index counts with allowed actions', () => {
@@ -63,14 +64,15 @@ describe('application read models', () => {
     const state = service.getRuntimeState().body as { cardIndex: { total: number; byStatus: Record<string, number>; byType: Record<string, number> } };
     const list = service.listCards().body as { cards: Array<{ allowedActions?: string[] }> };
 
-    expect(state.cardIndex.total).toBe(2);
-    expect(state.cardIndex.byStatus.backlog).toBe(2);
+    expect(state.cardIndex.total).toBe(1);
+    expect(state.cardIndex.byStatus.backlog).toBe(1);
     expect(state.cardIndex.byType.code).toBe(1);
     expect(list.cards.every((card) => Array.isArray(card.allowedActions))).toBe(true);
   });
 
   it('exposes canonical lifecycle in operator read models', () => {
     const store = new CardStore(root);
+    materializeProjectCard(root);
     const lifecycle = {
       status: 'done',
       result: { kind: 'planner_done' as const, created_cards: [] as string[], updated_cards: [] as string[], summary: 'complete' },

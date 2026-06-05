@@ -10,6 +10,7 @@ import type { AgentExecutionPort as AgentRuntime } from '../../src/contracts/ind
 import type { PlannerResult, ExecutorResult, ReviewerResult } from '../../src/contracts/index.js';
 import type { HandoffSummary } from '../../src/schemas/types.js';
 import { createRuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
+import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 
 class NoopAgentRuntime implements AgentRuntime {
   invokePlanner(): Promise<PlannerResult> { return Promise.resolve({ status: 'continue', created_cards: [], updated_cards: [] }); }
@@ -36,6 +37,7 @@ describe('startup agent session sweep', () => {
     projectRoot = mkdtempSync(join(tmpdir(), 'saivage-startup-sweep-'));
     saivageDir = join(projectRoot, '.saivage');
     initProjectTree(projectRoot);
+    materializeProjectCard(projectRoot);
   });
 
   afterEach(() => {

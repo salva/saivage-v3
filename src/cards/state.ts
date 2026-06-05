@@ -401,7 +401,7 @@ export interface LoadCardStoreStateOptions {
 
 /**
  * Load `CardStoreState` from disk: parse every `cards/by-id/*.json`, validate
- * structural invariants (depth, exactly one project root, parent resolution,
+ * structural invariants (depth, optional project root, parent resolution,
  * no cycles, no terminal children, depends-on closure), validate per-card
  * history contiguity, and build adjacency caches.
  */
@@ -427,6 +427,7 @@ export function loadCardStoreState(
     );
   }
   const projectCard = projectCards[0];
+  const hasMaterializedProject = projectCard !== undefined;
   if (projectCard) {
     if (projectCard.id !== PROJECT_CARD_ID) {
       throw new CardStoreInvariantError(
@@ -443,12 +444,14 @@ export function loadCardStoreState(
     if (card.parent === card.id) {
       throw new CardStoreInvariantError(`Card '${card.id}' cannot parent itself.`);
     }
-    if (card.parent !== null && !byId.has(card.parent)) {
+    const hasVirtualProjectParent =
+      !hasMaterializedProject && card.parent === PROJECT_CARD_ID;
+    if (card.parent !== null && !byId.has(card.parent) && !hasVirtualProjectParent) {
       throw new CardStoreInvariantError(
         `Card '${card.id}' references missing parent '${card.parent}'.`,
       );
     }
-    if (card.parent !== null) {
+    if (card.parent !== null && !hasVirtualProjectParent) {
       const parent = byId.get(card.parent)!;
       if (isTerminalType(parent.type)) {
         throw new CardStoreInvariantError(
@@ -475,7 +478,9 @@ export function loadCardStoreState(
     }
     visiting.add(id);
     const card = byId.get(id)!;
-    const d = card.parent === null ? 0 : computeDepth(card.parent) + 1;
+    const hasVirtualProjectParent =
+      !hasMaterializedProject && card.parent === PROJECT_CARD_ID;
+    const d = card.parent === null ? 0 : hasVirtualProjectParent ? 1 : computeDepth(card.parent) + 1;
     visiting.delete(id);
     if (d > maxDepth) {
       throw new CardStoreInvariantError(

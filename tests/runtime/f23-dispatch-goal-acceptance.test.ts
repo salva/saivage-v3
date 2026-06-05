@@ -9,6 +9,7 @@ import type { AgentExecutionPort as AgentRuntime } from '../../src/contracts/ind
 import type { PlannerResult, ExecutorResult, ReviewerResult } from '../../src/contracts/index.js';
 import type { HandoffSummary } from '../../src/schemas/types.js';
 import { createRuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
+import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 
 class StubAgentRuntime implements AgentRuntime {
   constructor(
@@ -37,6 +38,7 @@ describe('F23 — dispatchGoal acceptance', () => {
   beforeEach(() => {
     projectRoot = mkdtempSync(join(tmpdir(), 'saivage-f23-'));
     initProjectTree(projectRoot);
+    materializeProjectCard(projectRoot);
   });
 
   afterEach(() => {

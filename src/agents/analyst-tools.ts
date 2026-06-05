@@ -158,7 +158,7 @@ function normalizeParentValue(value: unknown): string | null | undefined {
 }
 function defaultParentForCreate(store: CardStore, type: CardType): string | null | undefined {
   if (type === 'project') return null;
-  if (type === 'goal') return store.read(PROJECT_CARD_ID) ? PROJECT_CARD_ID : undefined;
+  if (type === 'goal') return PROJECT_CARD_ID;
   const activeGoals = store
     .list()
     .filter(
@@ -173,7 +173,7 @@ function defaultParentForCreate(store: CardStore, type: CardType): string | null
     .filter((card) => card.type === 'goal')
     .sort((a, b) => a.priority - b.priority);
   if (allGoals.length === 1) return allGoals[0].id;
-  return store.read(PROJECT_CARD_ID) ? PROJECT_CARD_ID : undefined;
+  return PROJECT_CARD_ID;
 }
 function summarizeShellCommand(command: string): string {
   return redactShellText(command)
@@ -523,7 +523,7 @@ export async function create_card(
             error: `Cannot create ${params.type} card without a parent. Inspect the card tree and provide an existing parent ID.`,
           };
         }
-        if (parent !== null && !store.read(parent))
+        if (parent !== null && parent !== PROJECT_CARD_ID && !store.read(parent))
           return { success: false, error: `Parent card '${parent}' does not exist.` };
 
         const card = store.create({

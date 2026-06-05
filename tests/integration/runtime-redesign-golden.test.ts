@@ -53,7 +53,7 @@ describe('runtime redesign final golden behavior', () => {
       expect(state.runtime_intent?.status).toBe('running');
       expect(state.runtime_commands).toEqual(expect.arrayContaining([expect.objectContaining({ command: 'start_project', status: 'completed' })]));
       expect(state.runtime_runs).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'root', card_id: 'project' })]));
-      expect(dispatched).toEqual(['project']);
+      expect(dispatched).toEqual([]);
     } finally { rmSync(projectRoot, { recursive: true, force: true }); }
   });
 

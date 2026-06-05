@@ -13,6 +13,7 @@ import {
 import { releaseLock } from '../../src/runtime/lock.js';
 import { FakeAgentAdapter } from '../../src/agents/fake-agent.js';
 import { createRuntimeCoreTestContainer, type RuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
+import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 
 let root: string | null = null;
 let harness: RuntimeCoreTestContainer | null = null;
@@ -41,6 +42,7 @@ describe('Runtime stale running-intent reconciliation', () => {
   it('reconciles an open root run and preserves running intent for redispatch', async () => {
     root = mkdtempSync(join(tmpdir(), 'saivage-idle-running-intent-'));
     initProjectTree(root);
+    materializeProjectCard(root);
     const cards = new CardStore(root);
     cards.repairTerminalLifecycle('project', {
       status: 'done',
@@ -110,6 +112,7 @@ describe('Runtime stale running-intent reconciliation', () => {
   it('stops expected-idle intent when all root runs are already closed and project is terminal', async () => {
     root = mkdtempSync(join(tmpdir(), 'saivage-idle-running-intent-closed-'));
     initProjectTree(root);
+    materializeProjectCard(root);
     const cards = new CardStore(root);
     cards.repairTerminalLifecycle('project', {
       status: 'done',

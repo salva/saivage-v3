@@ -116,7 +116,7 @@ export class RuntimeProjectCommandRunner {
       sourceCommandId: command.command_id,
       reason: retryDescription?.intentReason ?? 'explicit start_project command',
     });
-    const run = this.deps.mutations.apply({
+    let run = this.deps.mutations.apply({
       kind: 'appendRuntimeRun',
       run: {
         kind: 'root',
@@ -129,8 +129,21 @@ export class RuntimeProjectCommandRunner {
         session_id: null,
       },
     });
+    if (!projectCard) {
+      const completed = this.deps.mutations.apply({
+        kind: 'updateRuntimeRun',
+        runId: run.run_id,
+        updates: {
+          phase: 'completed',
+          runtime_status: 'idle',
+          finished_at: this.deps.now(),
+          outcome: { kind: 'completed', result: 'done', finished_at: this.deps.now() },
+        },
+      });
+      if (completed) run = completed;
+    }
     this.deps.publishRuntimeRun(run);
-    if (!this.deps.lifecycle.paused) {
+    if (projectCard && !this.deps.lifecycle.paused) {
       this.deps.trackBackgroundDispatch(
         this.deps.dispatchGoalThroughScheduler(PROJECT_CARD_ID)
           .then(() => {

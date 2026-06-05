@@ -7,6 +7,7 @@ import { FakeAgentAdapter } from '../../src/agents/fake-agent.js';
 import { releaseLock } from '../../src/runtime/lock.js';
 import type { PlannerInvocationRequest, PlannerResult } from '../../src/contracts/index.js';
 import { createRuntimeCoreTestContainer, type RuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
+import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 
 class CapturingPlannerAdapter extends FakeAgentAdapter {
   capturedPrompt = '';
@@ -35,6 +36,7 @@ describe('planner prompt context compaction', () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-planner-context-compaction-'));
     mkdirSync(join(tmpDir, 'fixtures'), { recursive: true });
     initProjectTree(tmpDir);
+    materializeProjectCard(tmpDir);
   });
 
   afterEach(async () => {

@@ -6,6 +6,7 @@ import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { FakeAgentAdapter, type FakeAgentFixture } from '../../src/agents/fake-agent.js';
 import { releaseLock } from '../../src/runtime/lock.js';
 import { createRuntimeCoreTestContainer, type RuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
+import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 
 function makeFixtureDir(baseDir: string): string {
   const dir = join(baseDir, 'fixtures');
@@ -33,6 +34,7 @@ describe('planner output actionability guard', () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-planner-actionability-'));
     fixtureDir = makeFixtureDir(tmpDir);
     initProjectTree(tmpDir);
+    materializeProjectCard(tmpDir);
   });
 
   afterEach(async () => {

@@ -289,23 +289,14 @@ export function planStartProjectPrecondition(input: {
     retryingTerminalToolPlanningBlocker: false,
     retryingPlanningBlocker: false,
   };
-  if (!input.projectCardExists) {
-    return {
-      ...base,
-      error: makeRuntimePreconditionError({
-        code: 'runtime_start_project_card_missing',
-        message: `Cannot start project runtime because project card '${input.projectCardId}' does not exist.`,
-        nextAction: `Create or initialize the root project card with id '${input.projectCardId}', then retry start_project.`,
-        currentState: { projectCardId: input.projectCardId },
-      }),
-    };
-  }
   const retryingTokenBudgetPlanningBlocker =
+    input.projectCardExists &&
     input.source !== 'runtime' &&
     input.projectCardStatus === 'blocked' &&
     input.blockedPlanning?.resume_reason === 'planner_context_length_exceeded' &&
     input.blockedPlanning?.failure_kind === 'token_budget_exceeded';
   const retryingTerminalToolPlanningBlocker =
+    input.projectCardExists &&
     input.source !== 'runtime' &&
     input.projectCardStatus === 'blocked' &&
     input.blockedPlanning?.resume_reason === 'planner_terminal_tool_exhausted' &&

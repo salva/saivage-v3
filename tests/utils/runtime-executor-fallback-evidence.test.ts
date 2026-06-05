@@ -10,6 +10,7 @@ import type { PlannerResult, ExecutorResult, ReviewerResult } from '../../src/co
 import type { CardRecord, HandoffSummary } from '../../src/schemas/types.js';
 import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from '../../src/runtime/state.js';
 import { createRuntimeCoreTestContainer, type RuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
+import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 
 class StubAgentRuntime implements AgentRuntime {
   constructor(
@@ -39,6 +40,7 @@ describe('Runtime executor fallback evidence persistence', () => {
   beforeEach(() => {
     projectRoot = mkdtempSync(join(tmpdir(), 'saivage-runtime-fallback-'));
     initProjectTree(projectRoot);
+    materializeProjectCard(projectRoot);
     mkdirSync(join(projectRoot, 'generated'), { recursive: true });
     mkdirSync(join(projectRoot, 'logs'), { recursive: true });
     writeFileSync(join(projectRoot, 'generated', 'output.txt'), 'generated output\n', 'utf8');

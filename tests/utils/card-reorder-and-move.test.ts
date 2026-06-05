@@ -78,6 +78,17 @@ describe('ordered children', () => {
     expect(store.read(b.id)!.version_seq).toBe(before.version_seq);
   });
 
+  it('reorders top-level cards under the virtual project root', () => {
+    const a = store.create(makeCard({ id: 'goal-a', type: 'goal', title: 'A' }));
+    const b = store.create(makeCard({ id: 'goal-b', type: 'goal', title: 'B' }));
+
+    const result = store.reorderChildren('project', [b.id, a.id], ctx);
+
+    expect(result).toEqual({ ok: true, changed: 2 });
+    expect(store.listChildren('project')).toEqual([b.id, a.id]);
+    expect(store.read('project')).toBeNull();
+  });
+
   it('refuses parent changes through update and mutateCard', () => {
     const a = store.create(makeCard({ id: 'goal-a', type: 'goal' }));
     const b = store.create(makeCard({ id: 'goal-b', type: 'goal' }));
