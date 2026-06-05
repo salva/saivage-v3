@@ -71,10 +71,6 @@ exports[`tool-definition-serializer snapshots Chat wire shape for sample catalog
             "description": "A detailed description.",
             "type": "string",
           },
-          "id": {
-            "description": "Optional pre-assigned card ID.",
-            "type": "string",
-          },
           "priority": {
             "description": "Optional priority value (0-100).",
             "type": "integer",
@@ -237,10 +233,6 @@ exports[`tool-definition-serializer snapshots Codex wire shape for sample catalo
         },
         "description": {
           "description": "A detailed description.",
-          "type": "string",
-        },
-        "id": {
-          "description": "Optional pre-assigned card ID.",
           "type": "string",
         },
         "priority": {
