@@ -33,7 +33,7 @@ function makeCard(
     blocks: [],
     related: [],
     acceptance: '',
-    lifecycle: { status: overrides.status ?? 'backlog', result: null, error: null, completed_at: null },
+    lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
     metrics: null,
     artifacts: [],
     attachments: [],

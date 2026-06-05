@@ -29,6 +29,7 @@ import type {
 import { EventBus } from '../events/index.js';
 import { queueNotification } from '../notifications/index.js';
 import { ProjectMutex } from './project-mutex.js';
+import { repairSiblingPositions } from './position-repair.js';
 import {
   CardStoreInvariantError,
   CardStoreState,
@@ -190,6 +191,7 @@ export class CardStore {
     recoverCommitMarkers(projectRoot);
     this.mutex = new ProjectMutex();
     this.projectLock = new ProjectLock(join(projectRoot, '.saivage', 'project.lock'));
+    repairSiblingPositions(projectRoot, this.maxDepth, this.mutex, this.projectLock, this.eventBus);
     this.state = loadCardStoreState(projectRoot, { maxDepth: this.maxDepth });
   }
 
