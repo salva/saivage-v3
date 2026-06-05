@@ -754,7 +754,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       expect(state.current_card_id).toBeNull();
       expect(state.current_agent_session_id).toBeNull();
       expect(state.active_card_run).toBeNull();
-      expect(cards.read('project')).toEqual(expect.objectContaining({ status: 'running' }));
+      expect(cards.read('project')).toEqual(expect.objectContaining({ status: 'failed' }));
       expect(state.runtime_runs).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -869,7 +869,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       expect(state.active_card_run).toBeNull();
       expect(cards.read('project')).toEqual(
         expect.objectContaining({
-          status: 'running',
+          status: 'failed',
           status_text: 'Planner failed: planner start boom',
         }),
       );

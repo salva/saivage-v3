@@ -294,7 +294,7 @@ export class ActivationUnwindRunner {
     summary: string,
   ): string {
     const child = this.deps.cards.read(childCardId);
-    const failureKind = child?.lifecycle.result?.kind === 'executor_failure' ? child.lifecycle.result.error : undefined;
+    const failureKind = (child?.lifecycle.result?.kind === 'executor_failure' || child?.lifecycle.result?.kind === 'planner_failure') ? (child.lifecycle.result as { error: string }).error : undefined;
     return JSON.stringify(
       createActivationCompletionEnvelope({
         child_card_id: childCardId,

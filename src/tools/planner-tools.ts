@@ -148,16 +148,10 @@ function reportLifecycle(status: Extract<CardStatus, 'done' | 'failed' | 'blocke
   return {
     status,
     result: {
-      kind: 'executor_failure',
+      kind: 'planner_failure',
       error: statusText,
-      partial_result: report,
-      latest_self_report: {
-        result: 'failed',
-        outcome: 'failed',
-        summary: report.summary ?? statusText,
-        status_text: statusText,
-        at: completedAt,
-      },
+      created_cards: [],
+      updated_cards: [],
     },
     error: statusText,
     completed_at: completedAt,

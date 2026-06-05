@@ -54,19 +54,19 @@ describe('planner invocation failure handler', () => {
       failedRun,
       effects: testEffects({
         transitionCard: async (cardId, event) => { calls.push(`${event}:${cardId}`); },
-        updateCard: async (_cardId, patch) => { calls.push(`update:${patch.status_text}`); },
+        updateCard: async (_cardId, patch) => { calls.push(`update:${patch.lifecycle?.result?.kind}:${patch.status}`); },
         transitionRuntime: async (event, details) => { calls.push(`${event}:${details.reason}`); },
       }),
     });
 
     expect(result).toEqual({ kind: 'rethrow', error });
-    expect(calls).toEqual(['fail:goal-a', 'update:Planner failed: planner exploded', 'goal_exit:planner_error']);
+    expect(calls).toEqual(['fail:goal-a', 'update:planner_failure:failed', 'goal_exit:planner_error']);
   });
 });
 
 function testEffects(overrides: Partial<PlannerInvocationFailureEffects> = {}): PlannerInvocationFailureEffects {
   return {
-    now: () => 'now',
+    now: () => '2026-01-01T00:00:00.000Z',
     emitRuntimeDiagnostic: () => undefined,
     appendRuntimeDiagnostic: () => undefined,
     appendError: () => undefined,

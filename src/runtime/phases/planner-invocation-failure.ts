@@ -1,7 +1,7 @@
 import type { CardRecord, RuntimeRunRecord, RuntimeState } from '../../schemas/index.js';
 import { unwrapFailure, type LlmTransportFailure } from '../../contracts/llm-failure.js';
 import { buildPlannerInvocationFailureBlocker } from './planner-phase.js';
-import { commitPlannerBlocked } from '../terminal-commit/index.js';
+import { commitPlannerBlocked, commitPlannerFailed } from '../terminal-commit/index.js';
 
 export type PlannerInvocationFailureKind = 'token_budget' | 'terminal_tool' | 'generic';
 
@@ -104,12 +104,18 @@ export async function handlePlannerInvocationFailure(input: {
     return { kind: 'handled' };
   }
 
-  await input.effects.transitionCard(input.goalId, 'fail', {
-    reason: 'planner_error',
+  if (!input.currentCard) throw new Error(`Cannot fail missing planner goal '${input.goalId}'.`);
+  const completedAt = input.effects.now();
+  await commitPlannerFailed({
+    card: input.currentCard,
     error: errorMessage,
-  });
-  await input.effects.updateCard(input.goalId, {
-    status_text: `Planner failed: ${errorMessage}`,
+    createdCards: [],
+    updatedCards: [],
+    completedAt,
+    effects: {
+      transitionCard: (cardId, event, details) => input.effects.transitionCard(cardId, event as 'fail', details),
+      updateCard: (cardId, patch) => input.effects.updateCard(cardId, patch),
+    },
   });
   if (input.failedRun) {
     const finishedAt = input.effects.now();

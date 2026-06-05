@@ -52,6 +52,13 @@ export interface PlannerBlockedResult extends Record<string, unknown> {
   updated_cards: string[];
 }
 
+export interface PlannerFailureResult extends Record<string, unknown> {
+  kind: 'planner_failure';
+  error: string;
+  created_cards: string[];
+  updated_cards: string[];
+}
+
 export interface ReviewerPassResult extends Record<string, unknown> {
   kind: 'reviewer_pass';
   planning: PlannerDoneResult | PlannerBlockedResult;
@@ -72,10 +79,11 @@ export type CardResult =
   | ExecutorNeedsVerificationResult
   | PlannerDoneResult
   | PlannerBlockedResult
+  | PlannerFailureResult
   | ReviewerPassResult;
 
 export type DoneResult = ExecutorSuccessResult | PlannerDoneResult | ReviewerPassResult;
-export type FailureResult = ExecutorFailureResult;
+export type FailureResult = ExecutorFailureResult | PlannerFailureResult;
 export type BlockedResult = PlannerBlockedResult;
 export type NeedsVerificationResult = ExecutorNeedsVerificationResult;
 
@@ -153,6 +161,13 @@ export const plannerBlockedResultSchema: z.ZodType<PlannerBlockedResult> = z.obj
   updated_cards: z.array(z.string()),
 }).strict();
 
+export const plannerFailureResultSchema: z.ZodType<PlannerFailureResult> = z.object({
+  kind: z.literal('planner_failure'),
+  error: nonEmptyStringSchema,
+  created_cards: z.array(z.string()),
+  updated_cards: z.array(z.string()),
+}).strict();
+
 export const reviewerPassResultSchema: z.ZodType<ReviewerPassResult> = z.object({
   kind: z.literal('reviewer_pass'),
   planning: z.union([plannerDoneResultSchema, plannerBlockedResultSchema]),
@@ -173,11 +188,12 @@ export const cardResultSchema: z.ZodType<CardResult> = z.union([
   executorNeedsVerificationResultSchema,
   plannerDoneResultSchema,
   plannerBlockedResultSchema,
+  plannerFailureResultSchema,
   reviewerPassResultSchema,
 ]);
 
 export const doneResultSchema: z.ZodType<DoneResult> = z.union([executorSuccessResultSchema, plannerDoneResultSchema, reviewerPassResultSchema]);
-export const failureResultSchema: z.ZodType<FailureResult> = executorFailureResultSchema;
+export const failureResultSchema: z.ZodType<FailureResult> = z.union([executorFailureResultSchema, plannerFailureResultSchema]);
 export const blockedResultSchema: z.ZodType<BlockedResult> = plannerBlockedResultSchema;
 export const needsVerificationResultSchema: z.ZodType<NeedsVerificationResult> = executorNeedsVerificationResultSchema;
 

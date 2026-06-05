@@ -1,4 +1,4 @@
-import type { CardLifecycleState, CardRecord, PlannerBlockedResult, PlannerDoneResult } from '../../schemas/index.js';
+import type { CardLifecycleState, CardRecord, PlannerBlockedResult, PlannerDoneResult, PlannerFailureResult } from '../../schemas/index.js';
 import { lifecycleCardPatch } from './lifecycle-patch.js';
 import type { TerminalCommitEffects, TerminalCommitReceipt } from './commit-executor.js';
 import { validateTerminalOverlay } from './validators.js';
@@ -38,6 +38,24 @@ export async function commitPlannerBlocked(input: {
   assertNoTerminalOverlayErrors(input.card, lifecycle);
   const transitioned = await input.effects.transitionCard(input.card.id, 'block', { blocked_reason: input.blockedReason });
   const patch = { ...lifecycleCardPatch(lifecycle), status_text: input.blockedReason };
+  await input.effects.updateCard(input.card.id, patch);
+  return { lifecycle, result, patch, transitioned: transitioned !== false };
+}
+
+export async function commitPlannerFailed(input: {
+  card: CardRecord;
+  error: string;
+  createdCards: string[];
+  updatedCards: string[];
+  completedAt: string;
+  effects: TerminalCommitEffects;
+}): Promise<TerminalCommitReceipt<Extract<CardLifecycleState, { status: 'failed' }>, PlannerFailureResult>> {
+  if (!input.error.trim()) throw new Error('Cannot commit planner failure without a non-empty error.');
+  const result: PlannerFailureResult = { kind: 'planner_failure', error: input.error, created_cards: input.createdCards, updated_cards: input.updatedCards };
+  const lifecycle = { status: 'failed', result, error: input.error, completed_at: input.completedAt } satisfies Extract<CardLifecycleState, { status: 'failed' }>;
+  assertNoTerminalOverlayErrors(input.card, lifecycle);
+  const transitioned = await input.effects.transitionCard(input.card.id, 'fail', { reason: 'planner_error', error: input.error });
+  const patch = { ...lifecycleCardPatch(lifecycle), status_text: `Planner failed: ${input.error}` };
   await input.effects.updateCard(input.card.id, patch);
   return { lifecycle, result, patch, transitioned: transitioned !== false };
 }

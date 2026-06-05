@@ -71,6 +71,13 @@ export function validateTerminalOverlay(_previousCard: CardRecord, nextLifecycle
   if (nextLifecycle.status === 'failed' && (!nextLifecycle.error || nextLifecycle.completed_at === null)) {
     diagnostics.push('Failed lifecycle requires non-empty error and completed_at.');
   }
+  if (nextLifecycle.status === 'failed') {
+    switch (nextLifecycle.result.kind) {
+      case 'executor_failure':
+      case 'planner_failure':
+        break;
+    }
+  }
   if (nextLifecycle.status === 'blocked' && (!nextLifecycle.error || nextLifecycle.completed_at !== null)) {
     diagnostics.push('Blocked lifecycle requires non-empty error and completed_at:null.');
   }

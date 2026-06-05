@@ -866,6 +866,7 @@ export class AgentAdapter implements AgentExecutionPort {
                         }
                         if (activation && typeof activation === 'object' && 'activation_id' in activation) {
                           if (activeToolTurnId) updateToolCallExecution({ saivageDir: this.saivageDir, turnId: activeToolTurnId, toolCallId: tc.id, status: 'waiting_barrier', activationId: String((activation as { activation_id: unknown }).activation_id) });
+                          markSessionWaiting(this.saivageDir, session.id);
                           await activationBarrier.dispatch({ activation: activation as import('../schemas/index.js').RuntimeActivationRecord });
                           if (activeToolTurnId) updateToolCallExecution({ saivageDir: this.saivageDir, turnId: activeToolTurnId, toolCallId: tc.id, status: 'completed' });
                           continue;
