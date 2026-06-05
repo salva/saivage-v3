@@ -14,6 +14,7 @@ import { CardStore } from '../../src/cards/card-store.js';
 import {
   registerArtifact,
   registerAttachment,
+  registerEvidenceRefs,
   getArtifacts,
   getArtifactsByRetention,
   getAttachments,
@@ -209,6 +210,53 @@ describe('registerArtifact', () => {
     expect(ref.created_at).toMatch(
       /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
     );
+  });
+});
+
+describe('registerEvidenceRefs', () => {
+  it('registers multiple artifacts in one card mutation with contiguous ids', () => {
+    const card = makeCard(store, 'goal', 'Test Goal');
+    const src1 = makeSourceFile(sourceDir, 'batch-a.txt', 'a');
+    const src2 = makeSourceFile(sourceDir, 'batch-b.txt', 'b');
+    const before = store.read(card.id)!;
+
+    const result = registerEvidenceRefs(saivageWorkDir, store, card.id, {
+      artifacts: [
+        { type: 'data', description: 'A', retain: true, sourceFile: src1 },
+        { type: 'log', description: 'B', retain: false, sourceFile: src2 },
+      ],
+    });
+
+    expect(result.artifacts.map((artifact) => artifact.id)).toEqual([
+      `art-${card.id}-1`,
+      `art-${card.id}-2`,
+    ]);
+    const updated = store.read(card.id)!;
+    expect(updated.version_seq).toBe(before.version_seq + 1);
+    expect(updated.artifacts.map((artifact) => artifact.id)).toEqual(result.artifacts.map((artifact) => artifact.id));
+    expect(store.listCardHistory(card.id)).toHaveLength(1);
+  });
+
+  it('derives ids from locked current card state when another store has a stale snapshot', () => {
+    const card = makeCard(store, 'goal', 'Test Goal');
+    const staleStore = new CardStore(tmpDir);
+    expect(staleStore.read(card.id)!.artifacts).toHaveLength(0);
+    const src1 = makeSourceFile(sourceDir, 'fresh.txt', 'fresh');
+    const src2 = makeSourceFile(sourceDir, 'stale.txt', 'stale');
+
+    const first = registerEvidenceRefs(saivageWorkDir, store, card.id, {
+      artifacts: [{ type: 'data', description: 'Fresh', retain: true, sourceFile: src1 }],
+    });
+    const second = registerEvidenceRefs(saivageWorkDir, staleStore, card.id, {
+      artifacts: [{ type: 'log', description: 'Stale', retain: false, sourceFile: src2 }],
+    });
+
+    expect(first.artifacts[0].id).toBe(`art-${card.id}-1`);
+    expect(second.artifacts[0].id).toBe(`art-${card.id}-2`);
+    expect(store.read(card.id)!.artifacts.map((artifact) => artifact.id)).toEqual([
+      `art-${card.id}-1`,
+      `art-${card.id}-2`,
+    ]);
   });
 });
 

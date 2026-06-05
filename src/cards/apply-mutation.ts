@@ -177,16 +177,25 @@ export function applyMutationSync(
   return { card: outcome.card, historyEntry: outcome.historyEntry };
 }
 
-interface LockedOutcome {
+export interface ApplyMutationLockedOutcome {
   card: CardRecord | null;
   historyEntry: CardHistoryEntry | null;
   event: CardHistoryAppendedPayload | null;
 }
 
+export function applyMutationWithOwnedLockSync(
+  deps: ApplyMutationDeps,
+  lockHandle: LockHandle,
+  op: ApplyMutationOp,
+): ApplyMutationLockedOutcome {
+  deps.projectLock.assertOwns(lockHandle);
+  return applyMutationLocked(deps, op);
+}
+
 function applyMutationLocked(
   deps: ApplyMutationDeps,
   op: ApplyMutationOp,
-): LockedOutcome {
+): ApplyMutationLockedOutcome {
   const { projectRoot, state } = deps;
   if (op.kind === 'create') {
     const card = cardRecordSchema.parse(op.card);

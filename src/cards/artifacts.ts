@@ -2,7 +2,7 @@ import { copyFileSync, existsSync, mkdirSync, statSync, unlinkSync } from 'node:
 import { join, basename } from 'node:path';
 import { artifactRefSchema, attachmentRefSchema } from '../schemas/index.js';
 import type { ArtifactRef, AttachmentRef } from '../schemas/index.js';
-import type { CardStore } from './card-store.js';
+import type { CardStore, NewArtifactRef, NewAttachmentRef } from './card-store.js';
 
 // ── Helpers ───────────────────────────────────────────────────
 
@@ -10,30 +10,132 @@ function now(): string {
   return new Date().toISOString();
 }
 
-/**
- * Compute the next sequence number for artifacts or attachments
- * within a card's existing refs. ID format: '{prefix}-{cardId}-{seq}'
- * where seq is 1-based.
- */
-function nextSeq(cardId: string, prefix: 'art' | 'att', existingIds: string[]): number {
-  const pattern = new RegExp(`^${prefix}-${escapeRegex(cardId)}-(\\d+)$`);
-  const maxSeq = existingIds
-    .map((id) => {
-      const m = id.match(pattern);
-      return m ? parseInt(m[1], 10) : 0;
-    })
-    .reduce((max, n) => Math.max(max, n), 0);
-  return maxSeq + 1;
-}
-
-function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 function targetDir(saivageWorkDir: string, cardId: string, subdir: string): string {
   const dir = join(saivageWorkDir, 'cards', cardId, subdir);
   mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+export interface ArtifactRegistrationInput {
+  type: ArtifactRef['type'];
+  description: string;
+  retain: boolean;
+  sourceFile: string;
+}
+
+export interface AttachmentRegistrationInput {
+  mime: string;
+  title: string;
+  description?: string;
+  sourceFile: string;
+}
+
+function assertSourceFile(sourceFile: string): void {
+  if (!existsSync(sourceFile)) {
+    throw new Error(`Source file not found: ${sourceFile}`);
+  }
+  if (!statSync(sourceFile).isFile()) {
+    throw new Error(`Source path is not a file: ${sourceFile}`);
+  }
+}
+
+function prepareArtifact(saivageWorkDir: string, cardId: string, artifact: ArtifactRegistrationInput): NewArtifactRef {
+  assertSourceFile(artifact.sourceFile);
+  const subdir = artifact.retain ? 'artifacts/retained' : 'artifacts/working';
+  const destDir = targetDir(saivageWorkDir, cardId, subdir);
+  const destPath = join(destDir, basename(artifact.sourceFile));
+  copyFileSync(artifact.sourceFile, destPath);
+  return {
+    path: destPath,
+    type: artifact.type,
+    description: artifact.description,
+    retain: artifact.retain,
+    created_at: now(),
+  };
+}
+
+function prepareAttachment(saivageWorkDir: string, cardId: string, attachment: AttachmentRegistrationInput): NewAttachmentRef {
+  assertSourceFile(attachment.sourceFile);
+  const destDir = targetDir(saivageWorkDir, cardId, 'attachments');
+  const destPath = join(destDir, basename(attachment.sourceFile));
+  copyFileSync(attachment.sourceFile, destPath);
+  return {
+    path: destPath,
+    mime: attachment.mime,
+    title: attachment.title,
+    description: attachment.description,
+    created_at: now(),
+  };
+}
+
+export function registerEvidenceRefs(
+  saivageWorkDir: string,
+  store: CardStore,
+  cardId: string,
+  input: { artifacts?: ArtifactRegistrationInput[]; attachments?: AttachmentRegistrationInput[] },
+): { artifacts: ArtifactRef[]; attachments: AttachmentRef[] } {
+  if (!store.read(cardId)) throw new Error(`Card '${cardId}' not found.`);
+  const artifacts = (input.artifacts ?? []).map((artifact) => prepareArtifact(saivageWorkDir, cardId, artifact));
+  const attachments = (input.attachments ?? []).map((attachment) => prepareAttachment(saivageWorkDir, cardId, attachment));
+  const appended = store.appendEvidenceRefs(cardId, { artifacts, attachments });
+  return {
+    artifacts: appended.artifacts.map((artifact) => artifactRefSchema.parse(artifact)),
+    attachments: appended.attachments.map((attachment) => attachmentRefSchema.parse(attachment)),
+  };
+}
+
+export function registerEvidenceRefsBestEffort(
+  saivageWorkDir: string,
+  store: CardStore,
+  cardId: string,
+  input: { artifacts?: ArtifactRegistrationInput[]; attachments?: AttachmentRegistrationInput[] },
+): { artifacts: ArtifactRef[]; attachments: AttachmentRef[]; artifactRegistrationErrors: string[]; attachmentRegistrationErrors: string[] } {
+  const artifactRegistrationErrors: string[] = [];
+  const attachmentRegistrationErrors: string[] = [];
+  const artifacts: NewArtifactRef[] = [];
+  const attachments: NewAttachmentRef[] = [];
+  if (!store.read(cardId)) {
+    const errorMessage = `Card '${cardId}' not found.`;
+    return {
+      artifacts: [],
+      attachments: [],
+      artifactRegistrationErrors: (input.artifacts ?? []).map(() => errorMessage),
+      attachmentRegistrationErrors: (input.attachments ?? []).map(() => errorMessage),
+    };
+  }
+
+  for (const artifact of input.artifacts ?? []) {
+    try {
+      artifacts.push(prepareArtifact(saivageWorkDir, cardId, artifact));
+    } catch (err) {
+      artifactRegistrationErrors.push(err instanceof Error ? err.message : String(err));
+    }
+  }
+  for (const attachment of input.attachments ?? []) {
+    try {
+      attachments.push(prepareAttachment(saivageWorkDir, cardId, attachment));
+    } catch (err) {
+      attachmentRegistrationErrors.push(err instanceof Error ? err.message : String(err));
+    }
+  }
+  if (artifacts.length === 0 && attachments.length === 0) {
+    return { artifacts: [], attachments: [], artifactRegistrationErrors, attachmentRegistrationErrors };
+  }
+
+  try {
+    const appended = store.appendEvidenceRefs(cardId, { artifacts, attachments });
+    return {
+      artifacts: appended.artifacts.map((artifact) => artifactRefSchema.parse(artifact)),
+      attachments: appended.attachments.map((attachment) => attachmentRefSchema.parse(attachment)),
+      artifactRegistrationErrors,
+      attachmentRegistrationErrors,
+    };
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    if (artifacts.length > 0) artifactRegistrationErrors.push(errorMessage);
+    if (attachments.length > 0) attachmentRegistrationErrors.push(errorMessage);
+    return { artifacts: [], attachments: [], artifactRegistrationErrors, attachmentRegistrationErrors };
+  }
 }
 
 // ── Public API ────────────────────────────────────────────────
@@ -43,7 +145,7 @@ function targetDir(saivageWorkDir: string, cardId: string, subdir: string): stri
  *
  * Copies the source file into .saivage-work/cards/{cardId}/artifacts/
  * (retained/ or working/ based on retain flag) and adds an ArtifactRef
- * to the card via CardStore.update().
+ * to the card via CardStore.appendEvidenceRefs().
  *
  * @param saivageWorkDir - Path to .saivage-work/ directory
  * @param store - CardStore instance (to read/update the card)
@@ -63,63 +165,14 @@ export function registerArtifact(
   },
   sourceFile: string,
 ): ArtifactRef {
-  // 1. Read the card
-  const card = store.read(cardId);
-  if (!card) {
-    throw new Error(`Card '${cardId}' not found.`);
-  }
-
-  // 2. Verify source file exists
-  if (!existsSync(sourceFile)) {
-    throw new Error(`Source file not found: ${sourceFile}`);
-  }
-  if (!statSync(sourceFile).isFile()) {
-    throw new Error(`Source path is not a file: ${sourceFile}`);
-  }
-
-  // 3. Generate ID
-  const existingIds = card.artifacts.map((a) => a.id);
-  const seq = nextSeq(cardId, 'art', existingIds);
-  const id = `art-${cardId}-${seq}`;
-
-  // 4. Determine target directory and file name
-  const subdir = artifact.retain ? 'artifacts/retained' : 'artifacts/working';
-  const destDir = targetDir(saivageWorkDir, cardId, subdir);
-  const fileName = basename(sourceFile);
-  const destPath = join(destDir, fileName);
-
-  // 5. Copy the file
-  copyFileSync(sourceFile, destPath);
-
-  // 6. Build the ArtifactRef
-  const ref: ArtifactRef = {
-    id,
-    card_id: cardId,
-    path: destPath,
-    type: artifact.type,
-    description: artifact.description,
-    retain: artifact.retain,
-    created_at: now(),
-  };
-
-  // 7. Validate
-  const parsed = artifactRefSchema.safeParse(ref);
-  if (!parsed.success) {
-    throw new Error(`ArtifactRef validation failed: ${parsed.error.message}`);
-  }
-
-  // 8. Update the card
-  const updatedArtifacts = [...card.artifacts, parsed.data];
-  store.update(cardId, { artifacts: updatedArtifacts });
-
-  return parsed.data;
+  return registerEvidenceRefs(saivageWorkDir, store, cardId, { artifacts: [{ ...artifact, sourceFile }] }).artifacts[0];
 }
 
 /**
  * Register an attachment on a card.
  *
  * Copies the source file into .saivage-work/cards/{cardId}/attachments/
- * and adds an AttachmentRef to the card via CardStore.update().
+ * and adds an AttachmentRef to the card via CardStore.appendEvidenceRefs().
  *
  * @param saivageWorkDir - Path to .saivage-work/ directory
  * @param store - CardStore instance
@@ -139,55 +192,7 @@ export function registerAttachment(
   },
   sourceFile: string,
 ): AttachmentRef {
-  // 1. Read the card
-  const card = store.read(cardId);
-  if (!card) {
-    throw new Error(`Card '${cardId}' not found.`);
-  }
-
-  // 2. Verify source file exists
-  if (!existsSync(sourceFile)) {
-    throw new Error(`Source file not found: ${sourceFile}`);
-  }
-  if (!statSync(sourceFile).isFile()) {
-    throw new Error(`Source path is not a file: ${sourceFile}`);
-  }
-
-  // 3. Generate ID
-  const existingIds = card.attachments.map((a) => a.id);
-  const seq = nextSeq(cardId, 'att', existingIds);
-  const id = `att-${cardId}-${seq}`;
-
-  // 4. Determine target directory and file name
-  const destDir = targetDir(saivageWorkDir, cardId, 'attachments');
-  const fileName = basename(sourceFile);
-  const destPath = join(destDir, fileName);
-
-  // 5. Copy the file
-  copyFileSync(sourceFile, destPath);
-
-  // 6. Build the AttachmentRef
-  const ref: AttachmentRef = {
-    id,
-    card_id: cardId,
-    path: destPath,
-    mime: attachment.mime,
-    title: attachment.title,
-    description: attachment.description,
-    created_at: now(),
-  };
-
-  // 7. Validate
-  const parsed = attachmentRefSchema.safeParse(ref);
-  if (!parsed.success) {
-    throw new Error(`AttachmentRef validation failed: ${parsed.error.message}`);
-  }
-
-  // 8. Update the card
-  const updatedAttachments = [...card.attachments, parsed.data];
-  store.update(cardId, { attachments: updatedAttachments });
-
-  return parsed.data;
+  return registerEvidenceRefs(saivageWorkDir, store, cardId, { attachments: [{ ...attachment, sourceFile }] }).attachments[0];
 }
 
 /**

@@ -37,6 +37,46 @@ describe('executor evidence registration', () => {
     expect(errors).toEqual([{ phase: 'artifact_registration', errorMessage: 'artifact failed' }]);
   });
 
+  it('batches registerable artifacts and attachments when batch registrar is available', () => {
+    const batches: unknown[] = [];
+    const result = registerExecutorEvidence(
+      {
+        projectRoot: '/project',
+        registerArtifact: () => {
+          throw new Error('single artifact path should not be used');
+        },
+        registerAttachment: () => {
+          throw new Error('single attachment path should not be used');
+        },
+        registerEvidenceBatch: (input) => {
+          batches.push(input);
+        },
+        onRegistrationError: () => undefined,
+      },
+      {
+        status: 'done',
+        status_text: 'Done',
+        artifacts: [
+          { type: 'log', description: 'one', retain: false, sourceFile: '.saivage-work/run/one.log' },
+          { type: 'data', description: 'two', retain: true, sourceFile: '.saivage-work/run/two.json' },
+        ],
+        attachments: [{ mime: 'text/plain', title: 'note', sourceFile: '.saivage-work/run/note.txt' }],
+      } as ExecutorResult,
+    );
+
+    expect(result.artifactRegistrationErrors).toEqual([]);
+    expect(result.attachmentRegistrationErrors).toEqual([]);
+    expect(batches).toEqual([
+      {
+        artifacts: [
+          { type: 'log', description: 'one', retain: false, sourceFile: '/project/.saivage-work/run/one.log' },
+          { type: 'data', description: 'two', retain: true, sourceFile: '/project/.saivage-work/run/two.json' },
+        ],
+        attachments: [{ mime: 'text/plain', title: 'note', description: undefined, sourceFile: '/project/.saivage-work/run/note.txt' }],
+      },
+    ]);
+  });
+
   it('builds card result patches for ignored evidence registrations only when needed', () => {
     expect(buildIgnoredExecutorEvidencePatch({
       existingLifecycle: { status: 'running', result: null, error: null, completed_at: null },

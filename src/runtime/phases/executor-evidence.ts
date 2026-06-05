@@ -1,5 +1,5 @@
 import { isAbsolute, relative, resolve } from 'node:path';
-import { registerArtifact, registerAttachment } from '../../cards/artifact-api.js';
+import { registerEvidenceRefs, registerEvidenceRefsBestEffort } from '../../cards/artifact-api.js';
 import type { CardStore } from '../../cards/store-api.js';
 import type { ExecutorResult } from '../../contracts/index.js';
 import type { CardLifecycleState, CardRecord } from '../../schemas/index.js';
@@ -16,6 +16,10 @@ export interface ExecutorEvidenceRegistrarDeps {
   projectRoot: string;
   registerArtifact(input: { type: 'model' | 'data' | 'config' | 'log' | 'report' | 'other'; description: string; retain: boolean; sourceFile: string }): void;
   registerAttachment(input: { mime: string; title: string; description?: string; sourceFile: string }): void;
+  registerEvidenceBatch?(input: {
+    artifacts: Array<{ type: 'model' | 'data' | 'config' | 'log' | 'report' | 'other'; description: string; retain: boolean; sourceFile: string }>;
+    attachments: Array<{ mime: string; title: string; description?: string; sourceFile: string }>;
+  }): { artifactRegistrationErrors: string[]; attachmentRegistrationErrors: string[] } | void;
   onRegistrationError(input: { phase: 'artifact_registration' | 'attachment_registration'; error: unknown; errorMessage: string }): void;
 }
 
@@ -28,10 +32,13 @@ export function createExecutorEvidenceRegistrar(input: {
   return {
     projectRoot: input.projectRoot,
     registerArtifact: (artifact) => {
-      registerArtifact(saivageWorkDir(input.projectRoot), input.cards, input.cardId, artifact, artifact.sourceFile);
+      registerEvidenceRefs(saivageWorkDir(input.projectRoot), input.cards, input.cardId, { artifacts: [artifact] });
     },
     registerAttachment: (attachment) => {
-      registerAttachment(saivageWorkDir(input.projectRoot), input.cards, input.cardId, attachment, attachment.sourceFile);
+      registerEvidenceRefs(saivageWorkDir(input.projectRoot), input.cards, input.cardId, { attachments: [attachment] });
+    },
+    registerEvidenceBatch: (evidence) => {
+      return registerEvidenceRefsBestEffort(saivageWorkDir(input.projectRoot), input.cards, input.cardId, evidence);
     },
     onRegistrationError: input.onRegistrationError,
   };
@@ -62,6 +69,8 @@ export function registerExecutorEvidence(deps: ExecutorEvidenceRegistrarDeps, ex
   const attachmentRegistrationErrors: string[] = [];
   const ignoredArtifactRegistrations: string[] = [];
   const ignoredAttachmentRegistrations: string[] = [];
+  const artifactBatch: Array<{ type: 'model' | 'data' | 'config' | 'log' | 'report' | 'other'; description: string; retain: boolean; sourceFile: string }> = [];
+  const attachmentBatch: Array<{ mime: string; title: string; description?: string; sourceFile: string }> = [];
 
   for (const artDef of execResult.artifacts ?? []) {
     const sourcePath = artDef.sourceFile ?? artDef.path ?? '';
@@ -70,13 +79,7 @@ export function registerExecutorEvidence(deps: ExecutorEvidenceRegistrarDeps, ex
       ignoredArtifactRegistrations.push(resolved.ignored);
       continue;
     }
-    try {
-      deps.registerArtifact({ type: artDef.type, description: artDef.description, retain: artDef.retain, sourceFile: resolved.sourceFile });
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      artifactRegistrationErrors.push(errorMessage);
-      deps.onRegistrationError({ phase: 'artifact_registration', error: err, errorMessage });
-    }
+    artifactBatch.push({ type: artDef.type, description: artDef.description, retain: artDef.retain, sourceFile: resolved.sourceFile });
   }
 
   for (const attDef of execResult.attachments ?? []) {
@@ -86,12 +89,49 @@ export function registerExecutorEvidence(deps: ExecutorEvidenceRegistrarDeps, ex
       ignoredAttachmentRegistrations.push(resolved.ignored);
       continue;
     }
+    attachmentBatch.push({ mime: attDef.mime, title: attDef.title, description: attDef.description, sourceFile: resolved.sourceFile });
+  }
+
+  if (deps.registerEvidenceBatch && (artifactBatch.length > 0 || attachmentBatch.length > 0)) {
     try {
-      deps.registerAttachment({ mime: attDef.mime, title: attDef.title, description: attDef.description, sourceFile: resolved.sourceFile });
+      const batchResult = deps.registerEvidenceBatch({ artifacts: artifactBatch, attachments: attachmentBatch });
+      for (const errorMessage of batchResult?.artifactRegistrationErrors ?? []) {
+        artifactRegistrationErrors.push(errorMessage);
+        deps.onRegistrationError({ phase: 'artifact_registration', error: new Error(errorMessage), errorMessage });
+      }
+      for (const errorMessage of batchResult?.attachmentRegistrationErrors ?? []) {
+        attachmentRegistrationErrors.push(errorMessage);
+        deps.onRegistrationError({ phase: 'attachment_registration', error: new Error(errorMessage), errorMessage });
+      }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
-      attachmentRegistrationErrors.push(errorMessage);
-      deps.onRegistrationError({ phase: 'attachment_registration', error: err, errorMessage });
+      if (artifactBatch.length > 0) {
+        artifactRegistrationErrors.push(errorMessage);
+        deps.onRegistrationError({ phase: 'artifact_registration', error: err, errorMessage });
+      }
+      if (attachmentBatch.length > 0) {
+        attachmentRegistrationErrors.push(errorMessage);
+        deps.onRegistrationError({ phase: 'attachment_registration', error: err, errorMessage });
+      }
+    }
+  } else {
+    for (const artifact of artifactBatch) {
+      try {
+        deps.registerArtifact(artifact);
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        artifactRegistrationErrors.push(errorMessage);
+        deps.onRegistrationError({ phase: 'artifact_registration', error: err, errorMessage });
+      }
+    }
+    for (const attachment of attachmentBatch) {
+      try {
+        deps.registerAttachment(attachment);
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        attachmentRegistrationErrors.push(errorMessage);
+        deps.onRegistrationError({ phase: 'attachment_registration', error: err, errorMessage });
+      }
     }
   }
 
