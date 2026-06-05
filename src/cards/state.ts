@@ -1,6 +1,6 @@
 // F13 r5 §"Read model" — in-memory snapshot of every CardRecord plus derived
 // adjacency. The single source of truth for `CardStore` reads. Mutated only
-// by applyMutation under the ProjectMutex.
+// by applyMutation under the project lock.
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -138,7 +138,7 @@ export class CardStoreState {
     return [...(this._blocksInverse.get(dependencyId) ?? [])];
   }
 
-  /** Upsert a card and recompute adjacency. Caller must hold the project mutex. */
+  /** Upsert a card and recompute adjacency. Caller must hold the project lock. */
   upsert(card: CardRecord): void {
     const prior = this._cards.get(card.id);
     if (prior && prior.parent !== card.parent) this.removeChildEdge(prior.parent, card.id);
