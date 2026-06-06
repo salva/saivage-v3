@@ -11,6 +11,7 @@ The current shape is roughly:
 - `server.ts` creates Fastify, `LiveSyncSocket`, `SyncHub`, and request restart glue.
 - `startRuntimeApplication()` optionally creates `RuntimeApplication`, catches failures, and returns `{ startupFailure }` instead of throwing.
 - `server.ts` falls back to `new CardStore(projectRoot)` when runtime startup failed or was disabled.
+- `registerWebSocket()` falls back to a private `LiveSyncSocket` when one is not provided.
 - `startMcpManager()` catches failures and returns `{ startupFailure }` instead of throwing.
 - `registerServerRoutes()` accepts provider functions and optional runtime/MCP dependencies.
 - `stopServerResources()` accepts optional dependencies and swallows stop failures.
@@ -46,6 +47,8 @@ That design makes sense for a health-dashboard-only server, but Saivage's operat
 ### Fallback Services Create Split-Brain State
 
 `server.ts` currently falls back to a standalone `CardStore` if `runtimeApplication` is absent. This repeats the exact category of bug we just fixed: more than one service instance can become authoritative depending on which code path handles the request.
+
+`registerWebSocket()` also constructs a fallback `LiveSyncSocket`. That is the same split-brain shape for live updates: websocket clients may attach to one socket set while runtime/card invalidations publish through another. Runtime-enabled server startup must provide the single socket instance explicitly.
 
 The correct invariant is:
 
@@ -100,7 +103,7 @@ The normal startup order should be:
    - `CardStore(projectRoot, maxDepth, eventBus)`
    - `LiveSyncSocket`
    - `SyncHub(liveSyncSocket)`
-5. Create runtime application from those primitives.
+5. Create runtime application from those primitives. Runtime-local collaborators such as the skills engine, session stamper, context compactor, candidate availability store, and agent adapter may remain internal to runtime application assembly unless another server component needs to share them.
 6. Start runtime application. If this throws, abort startup.
 7. Wire `SyncHub` to `runtimeApplication.runtimeApi`.
 8. Create and start `McpManager`. If this throws, abort startup.
@@ -163,11 +166,11 @@ export interface RuntimeApplicationServices {
 export function createRuntimeApplication(services: RuntimeApplicationServices): RuntimeApplication
 ```
 
-This removes remaining hidden ownership from `runtime-composition.ts`.
+This removes remaining hidden ownership of shared server primitives from `runtime-composition.ts`. Runtime-private collaborators should stay inside `createRuntimeApplication()` unless they are deliberately promoted to shared server services. Do not lift every internal runtime collaborator into `ServerServices`; that would make the server composition root larger without improving ownership clarity.
 
 ### Runtime Core
 
-`RuntimeConfig` should stop accepting optional `eventBus` and optional `cardStore`. Optional injection is still a fallback smell. Make them required for production runtime assembly:
+`RuntimeConfig` should stop accepting optional shared services. Optional injection is still a fallback smell. Make the shared runtime services required for production runtime assembly:
 
 ```ts
 export interface RuntimeConfig {
@@ -180,7 +183,7 @@ export interface RuntimeConfig {
 }
 ```
 
-Tests that need isolated runtime cores should construct a test service graph explicitly.
+Then remove fallback construction and ownership flags from `Runtime` for these services, including `new CardStore(...)`, `new EventLogger(...)`, `new ErrorLogger(...)`, `_ownsEventLogger`, and `_ownsErrorLogger` branches. Tests that need isolated runtime cores should construct a test service graph explicitly.
 
 ### Routes
 
@@ -204,7 +207,7 @@ Then delete `requireCardStore()` style defensive helpers where they only support
 
 ### WebSocket
 
-`registerWebSocket()` should require `runtimeApplication` and `liveSyncSocket`. A WebSocket without a runtime-backed Analyst is not useful and should not be registered.
+`registerWebSocket()` should require `runtimeApplication`, `liveSyncSocket`, and `requestServerRestart`. A WebSocket without a runtime-backed Analyst is not useful and should not be registered. It must not construct its own `LiveSyncSocket` fallback.
 
 ### Analyst Tools
 
@@ -277,17 +280,20 @@ No `runtimeStartupFailure`, no `mcpStartupFailure`, no fallback `CardStore`.
 
 Remove startup-failure availability plumbing from normal server routes.
 
-Current `ServerAvailabilityInputs` is built around optional components. Replace it with a simple live service health projection:
+Current `ServerAvailabilityInputs` is built around optional components and startup-failure objects. Replace it with a required-service health projection:
 
 ```ts
 export interface ServerAvailabilityInputs {
   projectRoot: string;
   runtimeApplication: RuntimeApplication;
   mcpManager: McpManager;
+  readRuntimeHealth?: () => RuntimeHealthSnapshot;
 }
 ```
 
 If startup fails, `/health/ready` is not available because the server never started. That is correct.
+
+Do not reduce availability to object presence alone. A constructed `RuntimeApplication` means startup succeeded, but availability should still project runtime liveness from runtime state or a runtime health callback so a mid-process runtime failure can be reported as degraded or unavailable. Remove only the startup-failure diagnostic plumbing, not useful live health diagnostics.
 
 ## Tests To Remove Or Rewrite
 
@@ -322,7 +328,10 @@ It is acceptable to delete broad mocks that recreate the old optional service gr
 - Change `createRuntimeApplication(projectRoot, config)` to `createRuntimeApplication(services)`.
 - Move `EventBus`, `EventLogger`, `ErrorLogger`, and `CardStore` construction out of runtime composition.
 - Make `RuntimeConfig.eventBus` and `RuntimeConfig.cardStore` required.
-- Remove fallback construction from `Runtime`.
+- Make `RuntimeConfig.eventLogger` and `RuntimeConfig.errorLogger` required.
+- Remove fallback construction and ownership flags from `Runtime` for shared services.
+
+This step has a large type surface in tests. Either land it together with Step 3 in one coherent commit, or update runtime test helpers first so every direct runtime assembly passes explicit shared services.
 
 ### Step 3: Remove Runtime Startup Fallback
 
@@ -341,13 +350,15 @@ It is acceptable to delete broad mocks that recreate the old optional service gr
 - Change `registerServerRoutes()` to accept concrete `runtimeApplication` and `mcpManager`.
 - Remove provider functions where not required for dynamic reload.
 - Remove `requireCardStore()` defensive branches that only support absent runtime.
+- Change `registerWebSocket()` options so `liveSyncSocket`, `runtimeApplication`, and `requestServerRestart` are required.
+- Delete the fallback `new LiveSyncSocket()` branch in websocket registration.
 
 ### Step 6: Simplify Shutdown
 
 - Replace `stopServerResources({ optional... })` with `services.stop()`.
 - Stop order should be deterministic:
-  1. stop accepting connections / close Fastify
-  2. dispose websocket/sync hub
+  1. dispose websocket/sync hub so clients cannot receive events through a partially stopping graph
+  2. stop accepting connections / close Fastify
   3. stop Telegram if started
   4. stop MCP
   5. shutdown runtime
@@ -361,6 +372,7 @@ Shutdown can log cleanup failures, but startup dependencies are no longer option
 - Remove tests that assert partial startup continues.
 - Remove mocks that pass `runtimeApplication: undefined` into route registration.
 - Add direct route-unit tests only where a route is intentionally independent from runtime.
+- Remove the transitional `createRuntime` parameter from production startup and `createServerServices()` once degraded-mode route tests are gone.
 
 ## Expected Touch Points
 
@@ -380,7 +392,6 @@ This will be wide-touching. Likely files:
 - `src/application/runtime-composition.ts`
 - `src/runtime/runtime-config.ts`
 - `src/runtime/runtime.ts`
-- `src/runtime/core-composition.ts`
 - `src/agents/analyst-handler.ts`
 - `src/tools/analyst-tool-types.ts`
 - server, route, websocket, runtime startup, and availability tests
@@ -389,6 +400,8 @@ This will be wide-touching. Likely files:
 
 - Production server startup has one obvious linear service graph.
 - There is no production fallback `new CardStore(projectRoot)` outside the service graph.
+- There is no production fallback `new LiveSyncSocket()` outside the service graph.
+- `server.ts` and route composition do not construct fallback `CardStore` instances.
 - Runtime startup failure rejects server startup.
 - MCP startup failure rejects server startup unless explicitly disabled by config.
 - `registerServerRoutes()` receives concrete runtime/MCP/card services, not optional providers.
