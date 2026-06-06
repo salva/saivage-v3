@@ -22,19 +22,20 @@ Two call-site patterns for diagnostics:
 
 Every dispatcher that needs diagnostics calls **both** separately, with slightly different shapes (`emitRuntimeDiagnostic` passes the raw `error: unknown`; `appendEvent` passes `error_message: string` and optionally `error_name`). Three phase-level effects interfaces (`PlannerInvocationFailureEffects`, `ExecutorInvocationFailureEffects`, `ReviewerInvocationFailureEffects`) define both `emitRuntimeDiagnostic` and `appendRuntimeDiagnostic` as separate methods, forcing every call site to remember both.
 
-**Call sites that call both:**
+**Call sites that currently require both channels:**
 - `runtime-planner-dispatcher.ts:68-75` and `:100-107`
 - `executor-activation-dispatcher.ts:80-88` and `:125-127`
 - `runtime-reviewer-dispatcher.ts:95-104`
 - `phases/planner-invocation-failure.ts:70-72`
 - `phases/executor-invocation-failure.ts:24-25`
 - `phases/reviewer-invocation-failure.ts:22-23`
-- `runtime-project-commands.ts:100,158,167`
 
 **Additional standalone `appendEvent({ kind: 'runtime_diagnostic' })` calls:**
 - `analyst-handler.ts:228` (logBoundaryDiagnostic)
 - `startup-run-reconciliation.ts:41`
 - `persisted-planner-history.ts:83`
+- `runtime-project-commands.ts:100,158,167`
+- `runtime-planner-dispatcher.ts:171-173` (replan diagnostic)
 
 ### Design
 
@@ -56,7 +57,7 @@ buildRuntimeDiagnosticEvent(input: DiagnosticInput): RuntimeEvent;
 
 `publishRuntimeDiagnostic` owns both channels:
 1. Emits on the event bus via `this.emit('runtime_diagnostic', { ... })` first
-2. Best-effort appends to the durable event log via `this.eventLogger.appendEvent({ kind: 'runtime_diagnostic', goal_id, card_id, phase, error_message, error_name })`. Errors during durable-log append are caught and logged, not propagated.
+2. Best-effort appends to the durable event log via `this.eventLogger.appendEvent({ kind: 'runtime_diagnostic', goal_id, card_id, phase, error_message, error_name })`. This append must not re-emit through `emitLoggedEvent`; the event bus already received the diagnostic in step 1. Errors during durable-log append are caught and logged, not propagated.
 3. Derives `error_message` and `error_name` from the `error` field internally (same logic currently in `emitRuntimeDiagnostic`)
 
 `buildRuntimeDiagnosticEvent(input)` constructs a `RuntimeEvent` for direct `EventLogger`-only use by early-startup modules that do not have a `RuntimeEventPublisher` yet. This avoids forcing publisher wiring into early-start modules.
@@ -101,7 +102,7 @@ this.deps.publishRuntimeDiagnostic({ goal_id: goalId, phase: 'activate', error: 
 - `publishRuntimeDiagnostic` on `RuntimeEventPublisher` — the single entry point
 - `RuntimeServices.publishRuntimeDiagnostic` replaces `RuntimeServices.emitRuntimeDiagnostic`
 - Phase effects interfaces have a single `publishRuntimeDiagnostic` method
-- `runtime-project-commands.ts` gains `publishRuntimeDiagnostic` in its deps `Pick`; it no longer calls `eventLogger.appendEvent({ kind: 'runtime_diagnostic' })` directly
+- `runtime-project-commands.ts` gains `publishRuntimeDiagnostic` in its deps `Pick`; its direct `eventLogger.appendEvent({ kind: 'runtime_diagnostic' })` calls move to `publishRuntimeDiagnostic`
 - Standalone `appendEvent({ kind: 'runtime_diagnostic' })` call sites (analyst handler, startup reconciliation, etc.) migrate to `publishRuntimeDiagnostic` where they have access to a publisher, or use `buildRuntimeDiagnosticEvent` + direct `eventLogger.appendEvent` for early-startup modules that lack publisher access
 
 #### Key decisions
@@ -115,7 +116,7 @@ this.deps.publishRuntimeDiagnostic({ goal_id: goalId, phase: 'activate', error: 
 
 ### Implementation Steps
 
-**Step 4A-1:** Add `publishRuntimeDiagnostic` and `buildRuntimeDiagnosticEvent` to `RuntimeEventPublisher`. `publishRuntimeDiagnostic` calls both `this.emit` and `this.eventLogger.appendEvent` (with best-effort error swallowing on the durable append). `buildRuntimeDiagnosticEvent` constructs a `RuntimeEvent` for direct `EventLogger`-only use. Remove `emitRuntimeDiagnostic` from `RuntimeEventPublisher` and `RuntimeServices`. Update `RuntimeServices` interface to replace `emitRuntimeDiagnostic` with `publishRuntimeDiagnostic`. Migrate all dual call sites in dispatchers and phases to use `publishRuntimeDiagnostic`. Update `PlannerInvocationFailureEffects`, `ExecutorInvocationFailureEffects`, `ReviewerInvocationFailureEffects` to use single `publishRuntimeDiagnostic` instead of both `emitRuntimeDiagnostic` and `appendRuntimeDiagnostic`. Migrate `runtime-planner-dispatcher.ts`, `executor-activation-dispatcher.ts`, `runtime-reviewer-dispatcher.ts`. Add `publishRuntimeDiagnostic` to `RuntimeProjectCommandRunner` deps `Pick` in `runtime-project-commands.ts` and migrate its direct `eventLogger.appendEvent({ kind: 'runtime_diagnostic' })` calls to `publishRuntimeDiagnostic`. Migrate `phases/planner-failure-handler.ts` to provide `publishRuntimeDiagnostic` and remove `emitRuntimeDiagnostic`/`appendRuntimeDiagnostic` from its deps. All callers compile in one commit.
+**Step 4A-1:** Add `publishRuntimeDiagnostic` and `buildRuntimeDiagnosticEvent` to `RuntimeEventPublisher`. `publishRuntimeDiagnostic` calls both `this.emit` and `this.eventLogger.appendEvent` (with best-effort error swallowing on the durable append, and no second bus emission from the append). `buildRuntimeDiagnosticEvent` constructs a `RuntimeEvent` for direct `EventLogger`-only use. Remove `emitRuntimeDiagnostic` from `RuntimeEventPublisher` and `RuntimeServices`. Update `RuntimeServices` interface to replace `emitRuntimeDiagnostic` with `publishRuntimeDiagnostic`. Migrate all dual call sites in dispatchers and phases to use `publishRuntimeDiagnostic`. Update `PlannerInvocationFailureEffects`, `ExecutorInvocationFailureEffects`, `ReviewerInvocationFailureEffects` to use single `publishRuntimeDiagnostic` instead of both `emitRuntimeDiagnostic` and `appendRuntimeDiagnostic`. Migrate `runtime-planner-dispatcher.ts`, including its replan diagnostic, `executor-activation-dispatcher.ts`, and `runtime-reviewer-dispatcher.ts`. Add `publishRuntimeDiagnostic` to `RuntimeProjectCommandRunner` deps `Pick` in `runtime-project-commands.ts` and migrate its direct `eventLogger.appendEvent({ kind: 'runtime_diagnostic' })` calls to `publishRuntimeDiagnostic`. Migrate `phases/planner-failure-handler.ts` to provide `publishRuntimeDiagnostic` and remove `emitRuntimeDiagnostic`/`appendRuntimeDiagnostic` from its deps. All callers compile in one commit.
 
 **Step 4A-2:** Migrate standalone call sites: `analyst-handler.ts` logBoundaryDiagnostic, `startup-run-reconciliation.ts`, `persisted-planner-history.ts`. Where the call site has a `RuntimeEventPublisher`, use `publishRuntimeDiagnostic`. Where it doesn't (early startup), use `buildRuntimeDiagnosticEvent(input)` to construct the event and call `eventLogger.appendEvent` directly. Delete all remaining `appendRuntimeDiagnostic` references. Clean up.
 
@@ -159,6 +160,7 @@ export interface CompactionPolicy {
   threshold: number;
   maxCompactions: number;
   keepFraction: number;
+  cooldownMs?: number;
   summarizeFn?: (messages: AgentMessage[]) => Promise<string>;
 }
 
@@ -171,6 +173,7 @@ export interface CompactionResult { /* same shape as current, minus module-level
 
 export class ContextCompactor {
   private readonly stateMap = new Map<string, CompactionState>();
+  private readonly sessionQueues = new Map<string, Promise<unknown>>();
 
   constructor(private readonly deps: ContextCompactorDeps) {}
 
@@ -185,7 +188,7 @@ export class ContextCompactor {
 
 #### What each method does
 
-- **`compactSession`**: The current `compaction.ts:compactSession` logic, but state is per-instance instead of module-level. Persists by calling `replaceSessionMessages`. Used by analyst handler.
+- **`compactSession`**: The current `compaction.ts:compactSession` logic, but state is per-instance and per-session serialized instead of module-level. Persists by calling `replaceSessionMessages`. Used by analyst handler.
 - **`compactPlannerInMemory`**: The current `buildPlannerHistoryCompactionMessage` + `buildPlannerRecentMessageTail` + `buildPlannerStateContextMessage` logic from `agent-adapter.ts`. Per-call parameters (`projectRoot`, `goalId`, `cardStore`, `runtimeStateProvider`) are passed as method arguments, not constructor deps. Returns the compacted message array. Does not persist. Used by planner invocation.
 - **`pruneToolBoundary`**: Unified boundary pruning. Merges `trimToCleanToolBoundary` (analyst-handler) and `trimLeadingOrphanToolRows` (compaction.ts). One implementation, one name. Handles orphan result/error rows and unmatched calls. Pure function, also available as a method for convenience. Used in session compaction and analyst cleanup.
 
@@ -210,6 +213,7 @@ export class ContextCompactor {
 #### Key decisions
 
 - **Per-instance state, not module-level.** The `ContextCompactor` is constructed per-project and owned by the runtime composition. No more interleaved-async global Map.
+- **Per-session serialization.** `compactSession` serializes work by `sessionId` inside the instance so concurrent analyst turns for the same session cannot both read the same compaction count, compact, and then overwrite each other's state. Different sessions can compact independently.
 - **Per-call params on `compactPlannerInMemory`, not in constructor.** `projectRoot`, `goalId`, `cardStore`, and `runtimeStateProvider` are per-invocation parameters passed as method arguments to `compactPlannerInMemory`, not stored in `ContextCompactorDeps`. The constructor deps only hold long-lived shared resources (`saivageDir`, `sessionStamper`).
 - **No temporary-instance shim for `compactSession`.** Either migrate callers atomically or use a module-level singleton for a single compiling step. A temporary instance per call loses compaction state tracking.
 - **Planner in-memory compaction remains in-memory.** It never writes to session files. The planner's model messages are built fresh each invocation. The `ContextCompactor.compactPlannerInMemory` method returns the compacted array without side effects.
@@ -218,7 +222,7 @@ export class ContextCompactor {
 
 ### Implementation Steps
 
-**Step 4B-1:** Create `src/agents/context-compactor.ts` with the `ContextCompactor` class. Move all logic from `compaction.ts` into it (session compaction, fallback creation, boundary pruning, state tracking). Add the `compactPlannerInMemory` method that wraps the current `compactPlannerModelMessagesForContext` logic with per-call params (`projectRoot`, `goalId`, `cardStore`, `runtimeStateProvider`). Add the `pruneToolBoundary` method that unifies both boundary trimming implementations and handles orphan result/error rows and unmatched calls. Delete `compaction.ts` entirely. Migrate all callers to import from `context-compactor.ts` directly. If a module-level singleton is needed for a single compiling step, use one; do not create a temporary instance per call.
+**Step 4B-1:** Create `src/agents/context-compactor.ts` with the `ContextCompactor` class. Move all logic from `compaction.ts` into it (session compaction, fallback creation, boundary pruning, state tracking, `cooldownMs`). Add per-session queueing around `compactSession`. Add the `compactPlannerInMemory` method that wraps the current `compactPlannerModelMessagesForContext` logic with per-call params (`projectRoot`, `goalId`, `cardStore`, `runtimeStateProvider`) and keeps `buildPlannerStateContextMessage` in `planner-state-context.ts`. Add the `pruneToolBoundary` method that unifies both boundary trimming implementations and handles orphan result/error rows and unmatched calls. Delete `compaction.ts` entirely. Migrate all callers to import from `context-compactor.ts` directly. If a module-level singleton is needed for a single compiling step, use one; do not create a temporary instance per call.
 
 **Step 4B-2:** Update `agent-adapter.ts` to accept and use a `ContextCompactor` instance. Remove `compactPlannerModelMessagesForContext`, `buildPlannerHistoryCompactionMessage`, `buildPlannerRecentMessageTail`, and the planner compaction constants from `agent-adapter.ts`. The `invokeAgent` method (or its tool loop) calls `compactor.compactPlannerInMemory(...)` with per-call params. Wire `ContextCompactor` construction in `runtime-composition.ts` or wherever `AgentAdapter` is constructed.
 
@@ -279,11 +283,12 @@ export interface RuntimeControlResult {
 }
 
 export interface PauseResumeEffects {
-  updateLifecyclePaused(paused: boolean): void;
-  setProcessTerminalBuffering(enabled: boolean): void;
+  now?: () => string;
+  updateLifecyclePaused?(paused: boolean): void;
+  setProcessTerminalBuffering?(enabled: boolean): void;
   applyStatePatch(patch: Partial<RuntimeState>): void;
-  emitEvent(eventName: 'paused' | 'resumed'): void;
-  logEvent(event: { kind: EventKind; ... }): void;
+  emitEvent?(eventName: 'paused' | 'resumed'): void;
+  logEvent?(event: { kind: 'paused' | 'resumed'; ... }): void;
   injectPlannerResumeContext?(goalId: string, sessionId: string, reason: string): void;
   injectQueuedPlannerNotes?(sessionId: string): void;
   requestImmediateTick?(): void;
@@ -306,17 +311,17 @@ export function resumeRuntimeCommand(
 Both `pauseRuntimeCommand` and `resumeRuntimeCommand`:
 1. Read current state via `readRuntimeState(projectRoot)`
 2. Validate: check for frozen, check for unavailable
-3. Compute the state patch via `buildPauseRuntimeStatePatch(now())` / `buildResumeRuntimeStatePatch(state)`
+3. Compute the state patch via `buildPauseRuntimeStatePatch(effects.now?.() ?? new Date().toISOString())` / `buildResumeRuntimeStatePatch(state)`
 4. Apply the patch through `effects.applyStatePatch(patch)`
 5. Call effect hooks:
-   - **Pause:** `effects.updateLifecyclePaused(true)`, `effects.setProcessTerminalBuffering(true)`, `effects.emitEvent('paused')`, `effects.logEvent({ kind: EventKind.Paused, ... })`, `effects.sendNotification?.('Runtime was paused.')`
-   - **Resume:** `effects.updateLifecyclePaused(false)`, `effects.setProcessTerminalBuffering(false)`, planner context injection if active planner run, `effects.applyStatePatch(resumePatch)`, `effects.emitEvent('resumed')`, `effects.logEvent({ kind: EventKind.Resumed, ... })`, `effects.requestImmediateTick?.()`, `effects.sendNotification?.('Runtime was resumed.')`
+   - **Pause:** `effects.updateLifecyclePaused?.(true)`, `effects.setProcessTerminalBuffering?.(true)`, `effects.emitEvent?.('paused')`, `effects.logEvent?.({ kind: 'paused', ... })`, `effects.sendNotification?.('Runtime was paused.')`
+   - **Resume:** `effects.updateLifecyclePaused?.(false)`, `effects.setProcessTerminalBuffering?.(false)`, planner context injection if active planner run, `effects.applyStatePatch(resumePatch)`, `effects.emitEvent?.('resumed')`, `effects.logEvent?.({ kind: 'resumed', ... })`, `effects.requestImmediateTick?.()`, `effects.sendNotification?.('Runtime was resumed.')`
 
-**Live runtime** provides full effects (lifecycle, buffering, planner context, tick). The live path currently does NOT send notifications; `sendNotification` is optional in `PauseResumeEffects` and is not wired for the live path. Adding it to the live path would be a behavior change that must be documented if done. **Offline/API path** provides a minimal effects set that does `applyStatePatch` + `sendNotification`. The frozen/unavailable validation is shared.
+**Live runtime** provides full effects (lifecycle, buffering, planner context, tick). The live path currently does NOT send notifications; `sendNotification` is optional in `PauseResumeEffects` and is not wired for the live path. Adding it to the live path would be a behavior change that must be documented if done. **Offline/API path** provides a minimal effects set that does `applyStatePatch` + `sendNotification`. The frozen/unavailable validation is shared and remains reachable through `control.ts`.
 
 #### Live path error handling
 
-`PauseResumeEffects.applyStatePatch` for the live path must catch and log (not throw) on state-file write failures. This preserves the current `mutations.apply(...)` best-effort error-swallowing behavior from `runtime-pause-resume.ts`, where failures to write state are diagnosed rather than propagated.
+`PauseResumeEffects.applyStatePatch` for the live path must catch and not throw on state-file write failures. If a diagnostic channel is available, log the failure best-effort; otherwise preserve the current `runtime-pause-resume.ts` behavior of swallowing `mutations.apply(...)` failures so pause/resume side effects still run.
 
 #### Avoiding recursion through `runtimeApi`
 
@@ -324,44 +329,44 @@ The offline path (`control.ts`) currently calls `runtimeApi.pause()/resume()` wh
 
 #### Preserving `control.ts` as boundary
 
-`control.ts` remains as the CLI/analyst persisted-state boundary. It calls `pauseRuntimeCommand`/`resumeRuntimeCommand` with minimal effects (`applyStatePatch` + `sendNotification`). Live runtime calls with full effects. Both avoid recursion through `runtimeApi`.
+`control.ts` remains as the CLI/analyst persisted-state boundary and exported API. Its `pauseRuntimeControl`/`resumeRuntimeControl` functions call `pauseRuntimeCommand`/`resumeRuntimeCommand` with minimal effects (`applyStatePatch` + `sendNotification`) and no longer delegate through `runtimeApi`. Live runtime calls the same commands with full effects. Both avoid recursion through `runtimeApi`.
 
 #### What gets deleted
 
-- `runtime-pause-resume.ts:RuntimePauseResumeController` (logic moves to the effects-based command handler)
+- The inline implementation inside `runtime-pause-resume.ts:createRuntimePauseResumeController` (logic moves to the effects-based command handler; the small controller facade can remain for `RuntimeApi.pause()/resume()` wiring)
 - The inline pause/resume logic in `control.ts:pauseRuntimeControl/resumeRuntimeControl` is replaced by calls to `pauseRuntimeCommand`/`resumeRuntimeCommand`
 
 #### What survives as canonical
 
 - `src/runtime/runtime-control-commands.ts` — `pauseRuntimeCommand` and `resumeRuntimeCommand` are the single authority
 - `control.ts` — preserved as CLI/analyst persisted-state boundary, now calls `pauseRuntimeCommand`/`resumeRuntimeCommand` with minimal effects
-- `control-api.ts` re-exports `pauseRuntimeCommand`, `resumeRuntimeCommand`, and `FROZEN_RUNTIME_RECOVERY_MESSAGE`
+- `control-api.ts` continues to re-export `pauseRuntimeControl` and `resumeRuntimeControl`; `FROZEN_RUNTIME_RECOVERY_MESSAGE` is re-exported from `runtime-control-commands.ts`
 - `buildPauseRuntimeStatePatch` / `buildResumeRuntimeStatePatch` stay in `runtime-core.ts` (shared pure functions, unchanged)
 
 #### Callers migrate
 
 | Current caller | Current path | Migration |
 |---|---|---|
-| `cli.ts` | `pauseRuntimeControl({ projectRoot })` | `pauseRuntimeCommand(projectRoot, minimalEffects)` where `minimalEffects` only does `applyStatePatch` + `sendNotification` |
-| `analyst-runtime-tools.ts` | `pauseRuntimeControl({ projectRoot, runtimeApi })` | `pauseRuntimeCommand(projectRoot, minimalEffects)` where `minimalEffects` wraps `applyStatePatch` + `sendNotification` |
-| `runtime-pause-resume.ts` consumer | `controller.pause()` / `controller.resume()` | `pauseRuntimeCommand(projectRoot, fullEffects)` / `resumeRuntimeCommand(projectRoot, fullEffects)` where `fullEffects` has all hooks including lifecycle, buffering, planner context, tick |
+| `cli.ts` | `pauseRuntimeControl({ projectRoot })` | Keep calling `pauseRuntimeControl`; `control.ts` delegates to `pauseRuntimeCommand(projectRoot, minimalEffects)` |
+| `analyst-runtime-tools.ts` | `pauseRuntimeControl({ projectRoot, runtimeApi })` | Keep calling `pauseRuntimeControl`; remove the `runtimeApi` delegation inside `control.ts` so it uses minimal effects directly |
+| `runtime-pause-resume.ts` consumer | `controller.pause()` / `controller.resume()` | Keep the controller facade; its methods call `pauseRuntimeCommand(projectRoot, fullEffects)` / `resumeRuntimeCommand(projectRoot, fullEffects)` where `fullEffects` has all hooks including lifecycle, buffering, planner context, tick |
 
 #### Key decisions
 
 - **Effects ports, not inheritance.** No base class or interface hierarchy. Just a bag of function callbacks. Some are optional (`injectPlannerResumeContext`, `injectQueuedPlannerNotes`, `requestImmediateTick`, `sendNotification`) because different paths don't need them and they're undefined.
 - **Frozen detection is shared.** The frozen/unavailable validation currently in `control.ts` is kept in the unified command handler. It's not an "effect" — it's a precondition check that always runs.
 - **Notification is an effect, not inline.** The `queueNotification` call currently inlined in `control.ts` becomes `effects.sendNotification?.(...)`. Offline path provides it; live runtime path does not currently provide it. `sendNotification` is optional in `PauseResumeEffects`. Adding it to the live path would be a documented behavior change.
-- **`logEvent` uses `EventKind` discriminated union.** The `kind` parameter is `EventKind`, not `string`.
+- **`logEvent` uses runtime event literals.** The `kind` parameter is `'paused' | 'resumed'`, matching the existing `eventLogger.appendEvent({ kind: 'paused' })` / `{ kind: 'resumed' }` calls.
 - **The `FROZEN_RUNTIME_RECOVERY_MESSAGE` constant moves** from `control.ts` to `runtime-control-commands.ts`.
-- **Best-effort state patch for live path.** `effects.applyStatePatch(patch)` for the live path catches and logs failures rather than throwing, preserving the current `mutations.apply(...)` behavior from `runtime-pause-resume.ts`.
+- **Best-effort state patch for live path.** `effects.applyStatePatch(patch)` for the live path catches failures rather than throwing. Log best-effort if a diagnostic channel is available, but do not make logging a new failure path. This preserves the current `mutations.apply(...)` behavior from `runtime-pause-resume.ts`.
 
 ### Implementation Steps
 
-**Step 4C-1:** Create `src/runtime/runtime-control-commands.ts`. Copy the validation logic from `control.ts` (frozen check, unavailable check) into `pauseRuntimeCommand` and `resumeRuntimeCommand`. Define `PauseResumeEffects` interface with `EventKind`-typed `logEvent`. Implement both functions to: validate, compute patch, call effects. Make `control.ts` delegate to `pauseRuntimeCommand`/`resumeRuntimeCommand` with minimal effects wrappers (preserving exact current behavior for both offline and live paths). All callers compile unchanged.
+**Step 4C-1:** Create `src/runtime/runtime-control-commands.ts`. Copy the validation logic from `control.ts` (frozen check, unavailable check) into `pauseRuntimeCommand` and `resumeRuntimeCommand`. Define `PauseResumeEffects` interface with optional live-only hooks and `'paused' | 'resumed'` event literals. Implement both functions to: validate, compute patch, call effects. Make `control.ts` delegate to `pauseRuntimeCommand`/`resumeRuntimeCommand` with minimal effects wrappers (`applyStatePatch` + `sendNotification`) and remove its `runtimeApi.pause()/resume()` delegation. `cli.ts` and `analyst-runtime-tools.ts` keep using the `control.ts` boundary. All callers compile unchanged.
 
-**Step 4C-2:** Update `runtime-pause-resume.ts` to construct `PauseResumeEffects` and call `pauseRuntimeCommand`/`resumeRuntimeCommand` instead of having its own inline pause/resume logic. The `createRuntimePauseResumeController` factory returns an object whose `pause()`/`resume()` methods call the unified commands with full effects. The live path `applyStatePatch` wraps `mutations.apply(...)` with try/catch logging (best-effort). Update the runtime composition layer that creates the controller.
+**Step 4C-2:** Update `runtime-pause-resume.ts` to construct `PauseResumeEffects` and call `pauseRuntimeCommand`/`resumeRuntimeCommand` instead of having its own inline pause/resume logic. The `createRuntimePauseResumeController` factory returns an object whose `pause()`/`resume()` methods call the unified commands with full effects. The live path `applyStatePatch` wraps `mutations.apply(...)` with try/catch and does not throw; diagnostic logging is best-effort only. Update the runtime composition layer only if constructor deps change.
 
-**Step 4C-3:** Confirm `cli.ts` and `analyst-runtime-tools.ts` call `pauseRuntimeCommand`/`resumeRuntimeCommand` directly with their respective effects. For CLI: construct `minimalEffects` that only does `applyStatePatch` + `sendNotification`. For analyst tools: construct minimal effects that wrap `applyStatePatch` + `sendNotification`. `control.ts` remains as the CLI/analyst boundary and delegates to unified commands. Remove `RuntimePauseResumeController` from `runtime-pause-resume.ts` (its logic is now in the effects-based command handler). Update `control-api.ts` to re-export from `runtime-control-commands.ts`.
+**Step 4C-3:** Confirm `cli.ts` and `analyst-runtime-tools.ts` still call the `control.ts` boundary and do not pass behavior through `runtimeApi.pause()/resume()`. Keep `RuntimePauseResumeController` as a thin facade if that is the smallest compile-safe runtime API wiring. Update `control-api.ts` to re-export `FROZEN_RUNTIME_RECOVERY_MESSAGE` from `runtime-control-commands.ts` while continuing to export `pauseRuntimeControl` and `resumeRuntimeControl` from `control.ts`.
 
 ### Validation
 
@@ -417,6 +422,7 @@ export interface AdapterResult {
 }
 
 export interface ToolDispatchResult {
+  role: 'tool';
   kind: 'tool_result' | 'tool_error';
   content: string;
   tool: string;
@@ -429,6 +435,7 @@ export interface ToolDispatchContext {
   goalId?: string;
   cardId?: string;
   surface?: RoleToolPolicySurface;
+  analystSurface?: ControlActionSurface;
   knownRuntimeTool?: (name: string) => boolean;
   knownPlannerTool?: (name: string) => boolean;
   toolCallIdPrefix?: string;
@@ -443,13 +450,14 @@ export interface ToolDispatchAdapter {
 export interface ToolDispatchPolicy {
   maxResultLength: number;
   categoryMaxResultLength?: Record<string, number>;
-  persistToolResults: boolean;
 }
 
 export interface ToolDispatchPersistence {
   persistToolResult(sessionId: string, msg: AgentToolMessage): void;
 }
 ```
+
+`dispatch(...)` returns a `ToolDispatchResult`/`AgentToolMessage` and does not automatically write to session storage. The persistence port is a caller-owned hook for the loops that decide when a result is safe to append. This preserves planner activation-barrier behavior, where an accepted `activate_card` result is consumed by the barrier and not always appended immediately.
 
 **Registered adapter categories:**
 - **`runtime`** — wraps the current `ToolRuntime` invocation from `agent-tool-executor.ts`
@@ -462,7 +470,7 @@ export interface ToolDispatchPersistence {
 #### What the ToolDispatcher owns
 
 - **Argument parsing**: `JSON.parse(envelope.arguments)` with error handling. The parsed args are passed to adapters alongside the raw envelope.
-- **Policy check**: `RoleToolPolicy.decide(...)` for every tool call, using `knownRuntimeTool`/`knownPlannerTool` from context for authorization routing.
+- **Policy check**: `RoleToolPolicy.decide(...)` for agent-runtime, planner-control, MCP, skill, workspace, and contract-terminal tools, using `knownRuntimeTool`/`knownPlannerTool` from context for authorization routing. Analyst surface restrictions use the existing `RoleToolPolicy.assertAnalystSurfaceTool(toolName, analystSurface)` because `RoleToolPolicySurface` is a tool-category surface, not `web-chat`/`telegram`.
 - **Result envelope construction**: consistent `{ kind, content, tool, tool_call_id }` shape, wrapping the `AdapterResult` from the adapter. The dispatcher owns `tool_call_id`, `tool`, and truncation.
 - **Truncation**: unified `maxResultLength` policy (default 16K, configurable). Planner-control activation/terminal envelopes are exempt from truncation via `categoryMaxResultLength`. All paths use the same truncation rule.
 - **Error formatting**: consistent envelope for parse errors, unknown tools, policy denials
@@ -474,11 +482,11 @@ export interface ToolDispatchPersistence {
 - **`McpAdapter`**: owns MCP server discovery, invocation, content supervision.
 - **`SkillAdapter`**: owns skill loading logic.
 - **`WorkspaceAdapter`**: owns workspace tool invocation.
-- **`AnalystAdapter`**: owns `TOOL_REGISTRY` lookup and analyst-specific tool context construction. Analyst surface comes from `AnalystHandler`'s actual surface (web/telegram), not a hardcoded `'web'`.
+- **`AnalystAdapter`**: owns `TOOL_REGISTRY` lookup and analyst-specific tool context construction. Analyst surface comes from `AnalystHandler`'s actual `ControlActionSurface` (`web-chat`, `telegram`, etc.), not the current hardcoded `'web'` policy check in `LlmIntentResolver`.
 
 #### What gets deleted
 
-- `analyst-handler.ts`: inline tool dispatch loop (lines 272-368). The loop body that parses args, looks up `TOOL_REGISTRY`, calls the function, formats result, truncates, persists, and broadcasts. All of this moves to the `AnalystAdapter` and `ToolDispatcher`.
+- `analyst-handler.ts`: inline tool dispatch loop (lines 272-368). The loop body that parses args, looks up `TOOL_REGISTRY`, calls the function, formats result, and truncates moves to the `AnalystAdapter` and `ToolDispatcher`. Broadcast/activity metadata and `responseTextForResult` handling stay in `AnalystHandler`.
 - `analyst-handler.ts`: `TOOL_REGISTRY` import and direct usage. The `AnalystAdapter` encapsulates it.
 - `agent-tool-executor.ts:processToolCall` method. The `AgentToolExecutor` class becomes a thin composition that constructs a `ToolDispatcher` with the right adapters.
 - `planner-control-executor.ts:execute` is called from inside the `PlannerControlAdapter`, not from `processToolCall` directly. The `PlannerControlExecutor` class itself is preserved; only the dispatch envelope cruft around it is removed.
@@ -496,18 +504,19 @@ export interface ToolDispatchPersistence {
 - **Adapters return domain results, not envelopes.** `AdapterResult = { success, data?, error?, metadata? }`. The dispatcher constructs `ToolDispatchResult` with `tool_call_id`, `tool`, truncation, and wrapping.
 - **Planner-control is not "just another tool."** Its handler has domain semantics (direct-child validation, card mutation side effects, reviewer invocation). The adapter pattern preserves this. The dispatcher handles envelope concerns; the adapter handles domain logic. Planner-control activation/terminal envelopes are exempt from the 16K truncation default via `categoryMaxResultLength`.
 - **Truncation is a dispatcher policy, not per-path logic.** The 16K char limit in the analyst handler becomes the default `maxResultLength` in `ToolDispatchPolicy`. All paths use the same truncation rule. `categoryMaxResultLength` allows per-category overrides.
-- **Policy checking is unified.** Every tool call goes through `RoleToolPolicy.decide(...)` in the dispatcher. The `ToolDispatchContext` provides `knownRuntimeTool` and `knownPlannerTool` for authorization routing. The analyst handler uses `assertAnalystSurfaceTool(toolName, surface)` or the actual analyst surface from `AnalystHandler`, not a hardcoded `'web'`.
+- **Policy checking is unified.** Every non-analyst tool call goes through `RoleToolPolicy.decide(...)` in the dispatcher. The `ToolDispatchContext` provides `knownRuntimeTool` and `knownPlannerTool` for authorization routing. Analyst calls use `RoleToolPolicy.assertAnalystSurfaceTool(toolName, analystSurface)` with the actual `AnalystHandler` surface (`web-chat`, `telegram`, etc.), not the hardcoded `'web'` currently used by `LlmIntentResolver`.
 - **The analyst dedup fingerprint check** (`findRecentDuplicateResponse`) stays in the analyst handler's outer loop. It is not a dispatcher concern.
 - **Assistant tool-call persistence stays in the caller loop.** `ToolDispatchPersistence` includes `persistToolResult` only. Tool-call persistence (`persistToolCall`) is not in `ToolDispatchPersistence`; it remains in the caller loops that manage LLM turn iteration.
+- **Tool-result persistence timing stays in caller loops.** The dispatcher standardizes the result shape and truncation; the caller decides when to invoke `persistToolResult`. Agent code must keep the activation-barrier special case before appending results. Analyst code persists after activity/broadcast bookkeeping and before the next LLM turn.
 - **Analyst handler keeps UI/broadcast metadata and `responseTextForResult` handling.** These are analyst-specific concerns that belong in `AnalystHandler`, not in the dispatcher.
 
 ### Implementation Steps
 
-**Step 4D-1:** Create `src/agents/tool-dispatcher.ts` with `ToolDispatcher`, `ToolCallEnvelope`, `AdapterResult`, `ToolDispatchResult`, `ToolDispatchContext` (including `knownRuntimeTool`, `knownPlannerTool`), `ToolDispatchAdapter`, `ToolDispatchPolicy` (including `categoryMaxResultLength`), and `ToolDispatchPersistence` (including only `persistToolResult`, not `persistToolCall`). Implement the `dispatch` method: parse arguments, run policy check, find matching adapter, call adapter with both raw `envelope` and parsed `args`, construct `ToolDispatchResult` from `AdapterResult`, truncate result per policy (exempt planner-control envelopes via `categoryMaxResultLength`), call persistence hooks, return result. Create adapter registrations for each category. Do not yet remove any existing code — just add the new module with exports.
+**Step 4D-1:** Create `src/agents/tool-dispatcher.ts` with `ToolDispatcher`, `ToolCallEnvelope`, `AdapterResult`, `ToolDispatchResult`, `ToolDispatchContext` (including `knownRuntimeTool`, `knownPlannerTool`, and optional `analystSurface`), `ToolDispatchAdapter`, `ToolDispatchPolicy` (including `categoryMaxResultLength`), and `ToolDispatchPersistence` (including only `persistToolResult`, not `persistToolCall`). Implement the `dispatch` method: parse arguments, run policy check, find matching adapter, call adapter with both raw `envelope` and parsed `args`, construct `ToolDispatchResult` from `AdapterResult`, truncate result per policy (exempt planner-control envelopes via `categoryMaxResultLength`), and return the result without automatically writing session storage. Create adapter registrations for each category. Do not yet remove any existing code — just add the new module with exports.
 
-**Step 4D-2:** Create adapter implementations: `PlannerControlAdapter`, `RuntimeToolAdapter` (wrapping `ToolRuntime`), `McpAdapter`, `SkillAdapter`, `WorkspaceAdapter`, `AnalystAdapter`. Each wraps its existing domain logic. The `AnalystAdapter` gets its surface from `AnalystHandler`'s actual surface, not a hardcoded `'web'`. Wire `AgentToolExecutor` to construct a `ToolDispatcher` with runtime, planner-control, MCP, skill, and workspace adapters. Add a compatibility method `processToolCall(tc, role, sessionId, invocation)` on `AgentToolExecutor` that delegates to `dispatcher.dispatch(...)`. All existing callers compile. Test with `npm test`.
+**Step 4D-2:** Create adapter implementations: `PlannerControlAdapter`, `RuntimeToolAdapter` (wrapping `ToolRuntime`), `McpAdapter`, `SkillAdapter`, `WorkspaceAdapter`, `AnalystAdapter`. Each wraps its existing domain logic. The `AnalystAdapter` gets its surface from `AnalystHandler`'s actual `ControlActionSurface`, not a hardcoded `'web'`. Wire `AgentToolExecutor` to construct a `ToolDispatcher` with runtime, planner-control, MCP, skill, and workspace adapters. Add a compatibility method `processToolCall(tc, role, sessionId, invocation)` on `AgentToolExecutor` that delegates to `dispatcher.dispatch(...)` and returns the message for the existing caller to append. All existing callers compile. Test with `npm test`.
 
-**Step 4D-3:** Refactor `analyst-handler.ts` to use the `ToolDispatcher` with the `AnalystAdapter`. Replace the inline tool dispatch loop in `runAnalystLoop` with: (1) parse LLM result, (2) for each tool call, call `dispatcher.dispatch(...)`, (3) persist results. Keep `findRecentDuplicateResponse` in the analyst handler's outer loop (not a dispatcher concern). Wire `ToolDispatchPersistence` for analyst session persistence (only `persistToolResult`). Remove `TOOL_REGISTRY` import from `analyst-handler.ts` (moved into `AnalystAdapter`). Preserve analyst prompt/tool filtering by actual surface (`web`/`telegram`).
+**Step 4D-3:** Refactor `analyst-handler.ts` to use the `ToolDispatcher` with the `AnalystAdapter`. Replace the inline tool dispatch loop in `runAnalystLoop` with: (1) parse LLM result, (2) persist assistant tool-call rows in the caller loop, (3) for each tool call, call `dispatcher.dispatch(...)`, (4) emit activity/broadcast metadata, persist the returned tool result, and apply `responseTextForResult` handling. Keep `findRecentDuplicateResponse` in the analyst handler's outer loop (not a dispatcher concern). Wire `ToolDispatchPersistence` for analyst session persistence (only `persistToolResult`). Remove `TOOL_REGISTRY` import from `analyst-handler.ts` (moved into `AnalystAdapter`). Preserve analyst prompt/tool filtering by actual `ControlActionSurface` (`web-chat`, `telegram`, etc.).
 
 **Step 4D-4:** Remove `AgentToolExecutor.processToolCall` dispatch body. The method becomes a one-liner delegating to `this.dispatcher.dispatch(...)`. Remove the 53-line if/else chain. Remove the individual method-level tool dispatch logic (MCP, skill, workspace inline paths). All of that lives in adapters now.
 
@@ -616,68 +625,71 @@ export class InvocationService {
 
 `invokeWithRecovery` returns `LlmCompleteResult` directly, not a separate `InvocationResult` type.
 
+`InvocationService` is the shared LLM-turn transport/recovery service. It owns candidate resolution, client/recorder caching through `AgentLlmInvocationGateway`, LLM option construction, and candidate availability marking around raw `complete()` calls. It does not own `AgentLoopDriver`, contract verification, planner activation barriers, or analyst response/broadcast logic.
+
 #### How both paths use it
 
 **Agent path (`AgentAdapter.invokeAgent`):**
-- Calls `invocationService.resolveCandidates(role, capabilityRequest)` for the candidate chain
+- Calls `invocationService.resolveCandidates(role, capabilityRequest)` for candidate resolution
 - In the `AgentLoopDriver` turn body, calls `invocationService.invokeCall(request, candidate)` for each individual LLM call
 - Recovery logic stays in `invokeAgent` / `AgentLoopDriver` (it's agent-specific: repair budget, contract verification, multiple attempts)
 - Session management, tool loop, and contract verification remain in `AgentAdapter` — those are agent-specific orchestration, not LLM transport
-- `AgentAdapter` keeps recovery decisions, candidate availability, `llm_attempt` model issue persistence, and contract outcome success/failure handling
-- `InvocationService` owns raw `complete()` only
+- `AgentAdapter` keeps recovery decisions for contract/protocol failures, `llm_attempt` event persistence, model-issue session messages, and contract outcome success/failure handling
+- `InvocationService` owns raw LLM `complete()` execution, transport client/recorder caching, and availability marking for the candidate passed to `invokeCall`
 
 **Analyst path (`AnalystHandler`):**
 - No more `LlmIntentResolver` class
 - `AnalystHandler` calls `invocationService.invokeWithRecovery(request)` which handles the candidate chain, availability marking, and error recovery
 - The analyst tool loop stays in `AnalystHandler` (it's the same pattern as the agent tool loop but with different loop control and tool dispatch)
 - `AnalystHandler.runAnalystLoop` calls the invocation service for the LLM turn, then dispatches tools through `ToolDispatcher`
-- `AnalystHandler` keeps `findRecentDuplicateResponse`, UI/broadcast metadata, `responseTextForResult` handling, and prompt/tool filtering by actual surface (web/telegram)
+- `AnalystHandler` keeps `findRecentDuplicateResponse`, UI/broadcast metadata, `responseTextForResult` handling, and prompt/tool filtering by actual `ControlActionSurface` (`web-chat`, `telegram`, etc.)
+- `AnalystHandler` replaces its private `readSession`/`writeSession` helpers with the existing `session-persistence.ts` session helpers (`getSession`, `createSession`, message append/read functions)
 
 #### What the InvocationService owns
 
 - **Candidate resolution**: `router.resolve(role, capabilityRequest)` and `router.getLastCapabilitySkips()`
-- **LLM call execution**: `AgentLlmInvocationGateway.createLlmCallFn()` or direct `client.complete()`
+- **LLM call execution**: `AgentLlmInvocationGateway.createLlmCallFn()`; do not duplicate `LlmProviderGateway`/`resolveLlmTransportConfig`/recorder caches in the service
 - **Availability marking**: `candidateAvailability.markSucceeded/markFailed` after each call
 - **Recovery on transport errors**: iterating over the candidate chain, applying `defaultInvocationRecoveryPolicy`, marking availability
 
 #### What stays in the callers
 
-- **Agent path**: session creation, context message building, tool loop (`AgentLoopDriver`), contract verification, planner compaction, attempt recording, retry orchestration, `llm_attempt` model issue persistence, contract outcome success/failure
-- **Analyst path**: tool loop orchestration, session read/write, dedup check, broadcast/emit events, `findRecentDuplicateResponse`, UI/broadcast metadata, `responseTextForResult`, prompt/tool filtering by actual surface
+- **Agent path**: session creation, context message building, tool loop (`AgentLoopDriver`), contract verification, planner compaction, attempt recording, retry orchestration for contract/protocol failures, `llm_attempt` model issue persistence, contract outcome success/failure
+- **Analyst path**: tool loop orchestration, analyst session lifecycle via shared session-persistence helpers, dedup check, broadcast/emit events, `findRecentDuplicateResponse`, UI/broadcast metadata, `responseTextForResult`, prompt/tool filtering by actual `ControlActionSurface`
 
 #### What gets deleted
 
 - `analyst-llm-resolver.ts` — the entire `LlmIntentResolver` class and its candidate iteration/recovery logic
 - `analyst-llm-resolver.ts:ANALYST_TOOL_REGISTRY` — moved into `AnalystAdapter` (from sub-wave 4D). Any importer of this alias needs path update.
 - `analyst-llm-resolver.ts:ANALYST_SYSTEM_PROMPT`, `getAnalystSystemPrompt`, `getAnalystToolDefinitions`, `ANALYST_NO_MODEL_REPLY`, `AnalystOfflineError` — these move to `analyst-handler.ts` or a new `analyst-prompt.ts`
-- `analyst-handler.ts` direct session read/write methods (`readSession`, `writeSession`, `sessionFilePath`, `sessionsDir`) — migrate to use `session-persistence.ts` functions
+- `analyst-handler.ts` direct session read/write methods (`readSession`, `writeSession`, `sessionFilePath`, `sessionsDir`) — migrate to use `session-persistence.ts` functions (`getSession`, `createSession`, `appendMessage`, `getSessionMessages`)
 
 #### What survives as canonical
 
 - `src/agents/invocation-service.ts` — the unified service
 - `src/agents/agent-llm-gateway.ts` — preserved, used by `InvocationService`
-- `src/agents/agent-adapter.ts` — simplified, delegates LLM concerns to `InvocationService`. Constructor injection of `LlmCallFn` or `InvocationService` replaces the `setLlmCallFn` setter pattern. `AgentAdapter` keeps recovery decisions, candidate availability, `llm_attempt` model issue persistence, and contract outcome success/failure. `InvocationService` owns raw `complete()` only.
-- `src/agents/analyst-handler.ts` — simplified, uses `InvocationService` for LLM calls. Keeps `findRecentDuplicateResponse`, UI/broadcast metadata, `responseTextForResult`, and analyst prompt/tool filtering by actual surface (web/telegram).
+- `src/agents/agent-adapter.ts` — simplified, delegates LLM transport concerns to `InvocationService`. Constructor injection of `LlmCallFn` or `InvocationService` replaces the `setLlmCallFn` setter pattern. `AgentAdapter` keeps contract/protocol recovery decisions, `llm_attempt` model issue persistence, and contract outcome success/failure. `InvocationService` owns raw `complete()` execution and availability updates for LLM transport calls.
+- `src/agents/analyst-handler.ts` — simplified, uses `InvocationService` for LLM calls. Keeps `findRecentDuplicateResponse`, UI/broadcast metadata, `responseTextForResult`, and analyst prompt/tool filtering by actual `ControlActionSurface`.
 
 #### Key decisions
 
-- **The agent loop is NOT LLM invocation.** The `AgentLoopDriver` turn logic (contract verification, tool dispatch, repair budget) is agent-specific orchestration. It is not duplicated — it simply doesn't exist in the analyst path. What's duplicated is the LLM transport layer: resolve candidate → get client → call → handle transport error → mark availability. That's what `InvocationService` owns. `InvocationService` must not depend on `ToolDispatcher`.
+- **The agent contract loop is NOT the shared invocation boundary.** The `AgentLoopDriver` turn logic (contract verification, tool dispatch, repair budget, planner activation barriers) is agent-specific orchestration. It is not duplicated — it simply doesn't exist in the analyst path. What's duplicated is the LLM turn transport layer: resolve candidate → get client/recorder → call → handle transport error → mark availability. That's what `InvocationService` owns. `InvocationService` must not depend on `ToolDispatcher`.
 - **`invokeWithRecovery` is for the analyst.** The analyst needs a simple "try candidates, recover on failures, return result" flow. The agent needs finer control (per-attempt recovery in the loop). The service provides both: `invokeWithRecovery` for the analyst case, and `invokeCall` for individual calls that the agent loop manages. `invokeWithRecovery` returns `LlmCompleteResult` directly.
 - **No `InvocationResult` type.** Use `LlmCompleteResult` directly. No separate `InvocationResult` type is introduced.
 - **No backward compat for `LlmIntentResolver`.** Delete it. `AnalystOfflineError` moves to `analyst-handler.ts` or becomes `AnalystInvocationError` in `invocation-service.ts`. The `ANALYST_NO_MODEL_REPLY` string is analyst-specific and stays in the analyst handler.
 - **Constructor injection for test fakes.** `AgentAdapter` takes `LlmCallFn` or `InvocationService` via constructor injection. The `setLlmCallFn` setter is removed. Fake-LLM injection for tests uses constructor injection.
 - **`InvocationServiceConfig.candidateAvailability` defaults to `MemoryCandidateAvailability`.** If omitted, the service creates a `MemoryCandidateAvailability` internally. Callers don't need to provide one unless they want shared availability tracking.
-- **AgentAdapter keeps agent-specific concerns.** Recovery decisions, candidate availability, `llm_attempt` model issue persistence, and contract outcome success/failure stay in `AgentAdapter`. `InvocationService` owns raw `complete()` only.
-- **Analyst handler keeps analyst-specific concerns.** UI/broadcast metadata, `responseTextForResult` handling, `findRecentDuplicateResponse`, and prompt/tool filtering by actual surface (`web`/`telegram`) stay in `AnalystHandler`.
-- **Session management unification is out of scope for this wave.** The analyst's `readSession`/`writeSession` and `getOrCreateAnalystSession` use different file paths and schema than `session-persistence.ts`. They can be unified later (Wave 5 or 6). For now, the analyst handler keeps its session methods but delegates LLM call orchestration to `InvocationService`.
+- **AgentAdapter keeps agent-specific concerns.** Contract/protocol recovery decisions, `llm_attempt` model issue persistence, model-issue session messages, and contract outcome success/failure stay in `AgentAdapter`. `InvocationService` owns raw `complete()` execution and candidate availability updates for transport calls.
+- **Analyst handler keeps analyst-specific concerns.** UI/broadcast metadata, `responseTextForResult` handling, `findRecentDuplicateResponse`, and prompt/tool filtering by actual `ControlActionSurface` (`web-chat`, `telegram`, etc.) stay in `AnalystHandler`.
+- **Analyst session helpers are in scope.** The analyst already stores sessions/messages under the same `.saivage/agents/` tree. Replace its private file-path/read/write helpers with the existing `session-persistence.ts` helpers while keeping analyst-specific session IDs (`analyst`, `telegram-<chatId>`) and dedup logic in `AnalystHandler`.
 
 ### Implementation Steps
 
-**Step 4E-1:** Create `src/agents/invocation-service.ts` with `InvocationService`. Extract the LLM transport orchestration currently in `LlmIntentResolver.chat` (candidate chain iteration, availability marking, gateway call) and the same pattern from `AgentAdapter.invokeAgent` (the inner candidate loop portion). The service provides `resolveCandidates`, `invokeCall` (single candidate), and `invokeWithRecovery` (full chain). `invokeWithRecovery` returns `LlmCompleteResult` directly. `InvocationServiceConfig.candidateAvailability` defaults to `MemoryCandidateAvailability` if omitted. Wire `InvocationService` construction in `runtime-composition.ts` or `AgentAdapter` constructor. Add constructor injection for `LlmCallFn`/`InvocationService` to `AgentAdapter` (replacing the `setLlmCallFn` setter pattern). Do not yet remove `LlmIntentResolver`. All existing callers compile.
+**Step 4E-1:** Create `src/agents/invocation-service.ts` with `InvocationService`. Extract the LLM transport orchestration currently in `LlmIntentResolver.chat` (candidate chain iteration, availability marking, gateway call) and the same transport-call path from `AgentAdapter.invokeAgent` (candidate resolution and `AgentLlmInvocationGateway` use, not `AgentLoopDriver` or contract verification). The service provides `resolveCandidates`, `invokeCall` (single candidate), and `invokeWithRecovery` (full chain). `invokeWithRecovery` returns `LlmCompleteResult` directly. `InvocationServiceConfig.candidateAvailability` defaults to `MemoryCandidateAvailability` if omitted. Wire `InvocationService` construction in `runtime-composition.ts` or `AgentAdapter` constructor. Add constructor injection for `LlmCallFn`/`InvocationService` to `AgentAdapter` (replacing the `setLlmCallFn` setter pattern). Do not yet remove `LlmIntentResolver`. All existing callers compile.
 
-**Step 4E-2:** Refactor `AgentAdapter.invokeAgent` to use `InvocationService` for candidate resolution and individual LLM calls. Replace the inline `this.router.resolve(...)` + `for (const candidate of candidateChain)` loop with `invocationService.resolveCandidates(...)` and `invocationService.invokeCall(...)`. The `AgentLoopDriver` turn body still constructs turn messages and calls `this.llmCallFn`, but `llmCallFn` now delegates to `invocationService.invokeCall` instead of `AgentLlmInvocationGateway` directly. Keep `AgentLlmInvocationGateway` as the underlying transport. `AgentAdapter` keeps recovery decisions, candidate availability, `llm_attempt` model issue persistence, and contract outcome success/failure.
+**Step 4E-2:** Refactor `AgentAdapter.invokeAgent` to use `InvocationService` for candidate resolution and individual LLM calls. Replace the inline `this.router.resolve(...)` + transport-call path with `invocationService.resolveCandidates(...)` and `invocationService.invokeCall(...)`, while keeping the agent-specific candidate loop/retry decisions around `AgentLoopDriver`. The `AgentLoopDriver` turn body still constructs turn messages and calls a `LlmCallFn`, but that function now delegates to `invocationService.invokeCall` instead of `AgentLlmInvocationGateway` directly. Keep `AgentLlmInvocationGateway` as the underlying transport. `AgentAdapter` keeps contract/protocol recovery decisions, `llm_attempt` model issue persistence, and contract outcome success/failure.
 
-**Step 4E-3:** Refactor `AnalystHandler` to use `InvocationService.invokeWithRecovery` for LLM calls. Remove the `LlmIntentResolver` dependency. Move analyst-specific concerns (`ANALYST_SYSTEM_PROMPT`, `getAnalystToolDefinitions`, `AnalystOfflineError`) into `AnalystHandler` or a helper module. Delete `analyst-llm-resolver.ts`. Update all imports. `AnalystHandler` keeps `findRecentDuplicateResponse`, UI/broadcast metadata, `responseTextForResult` handling, and prompt/tool filtering by actual surface (web/telegram). The `AnalystHandler` loop now: (1) compacts via `ContextCompactor`, (2) calls `invocationService.invokeWithRecovery(...)` for the LLM turn, (3) dispatches tools via `ToolDispatcher`, (4) loops if tool_calls result. Any importers of `ANALYST_TOOL_REGISTRY` alias from `analyst-llm-resolver.ts` need path updates.
+**Step 4E-3:** Refactor `AnalystHandler` to use `InvocationService.invokeWithRecovery` for LLM calls. Remove the `LlmIntentResolver` dependency. Move analyst-specific concerns (`ANALYST_SYSTEM_PROMPT`, `getAnalystToolDefinitions`, `AnalystOfflineError`) into `AnalystHandler` or a helper module. Replace private `readSession`/`writeSession`/path helpers with `session-persistence.ts` helpers while preserving analyst-specific session IDs. Delete `analyst-llm-resolver.ts`. Update all imports. `AnalystHandler` keeps `findRecentDuplicateResponse`, UI/broadcast metadata, `responseTextForResult` handling, and prompt/tool filtering by actual `ControlActionSurface` (`web-chat`, `telegram`, etc.). The `AnalystHandler` loop now: (1) compacts via `ContextCompactor`, (2) calls `invocationService.invokeWithRecovery(...)` for the LLM turn, (3) dispatches tools via `ToolDispatcher`, (4) loops if tool_calls result. Any importers of `ANALYST_TOOL_REGISTRY` alias from `analyst-llm-resolver.ts` need path updates.
 
 **Step 4E-4:** Clean up `AgentLlmInvocationGateway` and `AgentAdapter`. Since `InvocationService` now wraps `AgentLlmInvocationGateway`, the `AgentAdapter.llmCallFn` field can be simplified. The `AgentAdapter` constructs or receives an `InvocationService` and delegates to it. Remove the `setLlmCallFn` setter pattern entirely. Fake-LLM injection for tests uses constructor injection. `InvocationService` owns the gateway.
 

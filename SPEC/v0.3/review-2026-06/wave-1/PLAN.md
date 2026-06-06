@@ -6,38 +6,41 @@ Issues: F05, F12, F17, F31
 
 ### F05: Consolidate fsync and atomic-write utilities
 
-**Problem:** Four files define their own `fsyncDir`/`fsyncDirectory`. Three separate atomic-write patterns exist with different durability guarantees and no clear ownership.
+**Problem:** Five files define their own sync or async `fsyncDir`/`fsyncDirectory`. Three separate atomic-write patterns exist with different durability guarantees and no clear ownership.
 
 **New module structure:**
 
 | File | Action |
 |------|--------|
-| `src/persistence/durable-write.ts` | **CREATE** — single owner of `fsyncDir`, `fsyncFile`, `writeFileAtomic`, `writeFileSyncDurable` |
+| `src/persistence/durable-write.ts` | **CREATE** — single owner of `fsyncDir`, `fsyncDirAsync`, `fsyncFile`, `writeFileAtomic`, `writeFileSyncDurable` |
 | `src/persistence/atomic-json-file.ts` | MODIFY — remove local `fsyncDirectory`, import from `durable-write.ts` |
 | `src/persistence/file-tree.ts` | MODIFY — remove `writeFileAtomic`, `writeFileSyncDurable`, `fsyncDirectory`; import from `durable-write.ts` for internal use only; do NOT re-export |
 | `src/persistence/jsonl-ledger.ts` | No change needed (doesn't have its own fsync) |
 | `src/cards/apply-mutation.ts` | MODIFY — remove local `fsyncDir` and `fsyncFileAtPath`; import `fsyncDir`, `fsyncFile` from `durable-write.ts` |
 | `src/cards/commit-marker.ts` | MODIFY — remove local `fsyncDir`; import `fsyncDir` from `durable-write.ts` |
+| `src/auth/auth-profile-store.ts` | MODIFY — remove async local `fsyncDirectory`; import `fsyncDirAsync` from `durable-write.ts` |
 
 **New API in `src/persistence/durable-write.ts`:**
 
 ```ts
 export function fsyncDir(dirPath: string): void;
+export function fsyncDirAsync(dirPath: string): Promise<void>;
 export function fsyncFile(path: string): void;
 export function writeFileAtomic(targetPath: string, data: string): void;
 export function writeFileSyncDurable(targetPath: string, data: string): void;
 ```
 
 - `fsyncDir` — best-effort directory fsync (opens dir for reading, fsyncs, closes; catches and ignores errors).
+- `fsyncDirAsync` — async best-effort directory fsync for existing async persistence code such as `auth-profile-store.ts`.
 - `fsyncFile` — opens file for read-write, fsyncs, closes. Used for staging writes that need file-level durability before rename.
 - `writeFileAtomic` — mkdir, write to tmp with random suffix, rename. No file fsync, no dir fsync. For non-critical writes where crash-atomic rename is sufficient (diary index, session files, quarantine, project init).
 - `writeFileSyncDurable` — mkdir, open fd, write, fsync fd, close, rename, fsyncDir. For writes that must survive process crash (commit markers, session persistence, runtime state, config).
 
-These are the exact same implementations currently in `file-tree.ts`, moved to a module whose name communicates their purpose. The `fsyncDir` implementation from `atomic-json-file.ts` is identical to the one in `file-tree.ts`; both are deleted in favor of the single export.
+These are the exact same sync implementations currently in `file-tree.ts`, moved to a module whose name communicates their purpose. The `fsyncDir` implementation from `atomic-json-file.ts` is identical to the one in `file-tree.ts`; both are deleted in favor of the single export. The async `fsyncDirectory` in `auth-profile-store.ts` is kept async but moved behind `fsyncDirAsync` so the final tree has one sync and one async directory-fsync primitive.
 
-**Why not abstract further:** A shared `fsyncDir`, a `fsyncFile`, and two clearly named write functions is sufficient. There is no need for a write-strategy enum, builder, or abstraction layer. The naming itself (`Atomic` vs `Durable`) communicates the guarantee.
+**Why not abstract further:** A shared sync/async directory fsync pair, a `fsyncFile`, and two clearly named write functions is sufficient. There is no need for a write-strategy enum, builder, or abstraction layer. The naming itself (`Atomic` vs `Durable`) communicates the guarantee.
 
-**Migration path:** `persistence/index.ts` exports `fsyncDir`, `fsyncFile`, `writeFileAtomic`, `writeFileSyncDurable` directly from `durable-write.js`. `file-tree.ts` imports from `durable-write.ts` for its own project initialization use but does NOT re-export these functions. Callers that currently import `writeFileAtomic` or `writeFileSyncDurable` from `file-tree.js` must be updated to import from `persistence/index.js` or `durable-write.js` directly. This ensures clear ownership and avoids transitive re-export chains.
+**Migration path:** `persistence/index.ts` exports `fsyncDir`, `fsyncDirAsync`, `fsyncFile`, `writeFileAtomic`, `writeFileSyncDurable` directly from `durable-write.js`. `file-tree.ts` imports from `durable-write.ts` for its own project initialization use but does NOT re-export these functions. Callers that currently import `writeFileAtomic` or `writeFileSyncDurable` from `file-tree.js` must be updated to import from `persistence/index.js` or `durable-write.js` directly. This ensures clear ownership and avoids transitive re-export chains.
 
 ---
 
@@ -50,7 +53,7 @@ These are the exact same implementations currently in `file-tree.ts`, moved to a
 | File | Action |
 |------|--------|
 | `src/persistence/project-lock.ts` | MODIFY — add stale detection to `withLock` and `withLockSync`, add `LockMetadata` interface |
-| `src/persistence/errors.ts` | MODIFY — add `StaleLockError` (imports `LockMetadata` from `project-lock.ts`) |
+| `src/persistence/errors.ts` | MODIFY — add `StaleLockError` (type-imports `LockMetadata` from `project-lock.ts`) |
 
 **New lock metadata and stale detection:**
 
@@ -67,11 +70,14 @@ export interface LockMetadata {
 `StaleLockError` is defined in `src/persistence/errors.ts`:
 
 ```ts
-import { LockMetadata } from './project-lock.js';
+import type { LockMetadata } from './project-lock.js';
 
 export class StaleLockError extends PersistenceError {
-  constructor(readonly lockPath: string, readonly metadata: LockMetadata) {
-    super(`Stale lock detected at ${lockPath}: held by PID ${metadata.pid} on ${metadata.hostname} since ${metadata.acquired_at}`);
+  constructor(readonly lockPath: string, readonly metadata: LockMetadata | null, reason = 'stale lock detected') {
+    const holder = metadata
+      ? `held by PID ${metadata.pid} on ${metadata.hostname} since ${metadata.acquired_at}`
+      : 'metadata unreadable or invalid';
+    super(`Stale lock at ${lockPath}: ${reason}; ${holder}`);
   }
 }
 ```
@@ -80,13 +86,13 @@ export class StaleLockError extends PersistenceError {
 
 **Stale detection on acquisition failure:**
 
-On `EEXIST`, both `withLock` and `withLockSync` read the lock file metadata and check staleness inside the acquisition loop (not as a separate public method):
+On `EEXIST`, both `withLock` and `withLockSync` read the lock file metadata and check staleness inside acquisition (not as a separate public method):
 
-1. If metadata is unreadable or invalid → throw `StaleLockError` (cannot determine staleness safely).
-2. If hostname does not match current host → throw `StaleLockError` (cannot verify PID on different host).
+1. If metadata is unreadable or invalid → throw `StaleLockError(lockPath, null, 'invalid lock metadata')` (cannot determine staleness safely).
+2. If hostname does not match current host → throw `StaleLockError(lockPath, metadata, 'lock belongs to a different host')` (cannot verify PID on different host).
 3. If PID is alive (including `process.kill(pid, 0)` returning `EPERM`) → lock is genuinely held; retry after delay.
 4. If PID is dead AND `staleLockAction === 'remove'` → remove lock file and retry acquisition.
-5. If PID is dead AND `staleLockAction === 'error'` → throw `StaleLockError`.
+5. If PID is dead AND `staleLockAction === 'error'` → throw `StaleLockError(lockPath, metadata, 'lock holder process is not alive')`.
 
 Default is `staleLockAction: 'error'`. Runtime startup or explicit recovery paths may opt into `'remove'` after logging stale metadata.
 
@@ -126,8 +132,8 @@ async withLock<T>(fn: (handle: LockHandle) => Promise<T>): Promise<T> {
 }
 
 withLockSync<T>(fn: (handle: LockHandle) => T): T {
-  // Same stale detection on EEXIST, synchronous retry loop
-  // Remove queuedAsyncCallCount rejection (not worth the complexity)
+  // On EEXIST: read metadata, remove stale same-host dead-PID locks when configured, otherwise throw
+  // Keep rejecting when an in-process async lock is queued or active
 }
 ```
 
@@ -261,11 +267,12 @@ Each step is a minimal compilable commit. All steps must pass `npm run typecheck
 
 **Files:** Create `src/persistence/durable-write.ts`
 
-Move `writeFileAtomic`, `writeFileSyncDurable`, and `fsyncDir` (the `fsyncDirectory` from `file-tree.ts`) into this new module. Use the `file-tree.ts` implementations verbatim (they already have directory-fsync in `writeFileSyncDurable` and best-effort-fsync in `fsyncDir`). Also add `fsyncFile` for file-level durability before rename.
+Move `writeFileAtomic`, `writeFileSyncDurable`, and `fsyncDir` (the `fsyncDirectory` from `file-tree.ts`) into this new module. Use the `file-tree.ts` implementations verbatim (they already have directory-fsync in `writeFileSyncDurable` and best-effort-fsync in `fsyncDir`). Also add `fsyncFile` for file-level durability before rename and `fsyncDirAsync` for the existing async auth profile persistence path.
 
 ```ts
 // src/persistence/durable-write.ts
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { open } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { randomBytes } from 'node:crypto';
 
@@ -289,6 +296,18 @@ export function fsyncFile(path: string): void {
     fsyncSync(fd);
   } finally {
     closeSync(fd);
+  }
+}
+
+export async function fsyncDirAsync(dirPath: string): Promise<void> {
+  let handle: Awaited<ReturnType<typeof open>> | undefined;
+  try {
+    handle = await open(dirPath, 'r');
+    await handle.sync();
+  } catch {
+    // Best-effort directory fsync; not all platforms permit opening a directory.
+  } finally {
+    await handle?.close().catch(() => undefined);
   }
 }
 
@@ -331,34 +350,35 @@ export function writeFileSyncDurable(targetPath: string, data: string): void {
 **Files:** Modify `src/persistence/file-tree.ts`, modify `src/persistence/index.ts`
 
 - Remove the local `fsyncDirectory` function and the implementations of `writeFileAtomic` and `writeFileSyncDurable`.
-- Import `writeFileAtomic`, `writeFileSyncDurable`, `fsyncDir` from `./durable-write.js` for internal use within `file-tree.ts`.
+- Import `writeFileAtomic` and `writeFileSyncDurable` from `./durable-write.js` for internal use within `file-tree.ts`.
 - Do NOT re-export `writeFileAtomic` or `writeFileSyncDurable` from `file-tree.ts`.
 
 The `file-tree.ts` changes:
 
 ```ts
-import { fsyncDir, writeFileAtomic, writeFileSyncDurable } from './durable-write.js';
+import { writeFileAtomic, writeFileSyncDurable } from './durable-write.js';
 ```
 
 Remove: the local `fsyncDirectory` function, the local `writeFileAtomic` function, the local `writeFileSyncDurable` function. Remove `fsyncSync`, `openSync`, `randomBytes` from the `node:fs` and `node:crypto` imports if no longer needed.
 
-In `src/persistence/index.ts`, add direct exports from `./durable-write.js`:
+In `src/persistence/index.ts`, remove `writeFileAtomic` and `writeFileSyncDurable` from the existing `./file-tree.js` export block, then add direct exports from `./durable-write.js`:
 
 ```ts
-export { fsyncDir, fsyncFile, writeFileAtomic, writeFileSyncDurable } from './durable-write.js';
+export { fsyncDir, fsyncDirAsync, fsyncFile, writeFileAtomic, writeFileSyncDurable } from './durable-write.js';
 ```
 
 Callers that previously imported `writeFileAtomic` or `writeFileSyncDurable` from `file-tree.js` must be updated to import from `persistence/index.js` or `durable-write.js` directly.
 
 **Verification:** `npm run typecheck && npm test`. All existing callers of `writeFileAtomic` and `writeFileSyncDurable` resolve through `persistence/index.js`. No behavior change.
 
-### Step 3: Make `atomic-json-file.ts` use shared `fsyncDir`
+### Step 3: Make `atomic-json-file.ts` and `auth-profile-store.ts` use shared directory fsync
 
-**Files:** Modify `src/persistence/atomic-json-file.ts`
+**Files:** Modify `src/persistence/atomic-json-file.ts`, `src/auth/auth-profile-store.ts`
 
-- Remove the local `fsyncDirectory` function (lines 19-29).
-- Import `fsyncDir` from `./durable-write.js`.
-- Replace the call from `fsyncDirectory(dir)` to `fsyncDir(dir)` in `writeJson`.
+- In `atomic-json-file.ts`, remove the local `fsyncDirectory` function (lines 19-29).
+- Import `fsyncDir` from `./durable-write.js` and replace `fsyncDirectory(dir)` with `fsyncDir(dir)` in `writeJson`.
+- In `auth-profile-store.ts`, remove the local async `fsyncDirectory` function (lines 204-214).
+- Import `fsyncDirAsync` from `../persistence/durable-write.js` and replace `await fsyncDirectory(parent)` with `await fsyncDirAsync(parent)` in `writeAuthProfilesAtomic`.
 
 **Verification:** `npm run typecheck && npm test`.
 
@@ -403,11 +423,14 @@ export interface LockMetadata {
 In `src/persistence/errors.ts`, add:
 
 ```ts
-import { LockMetadata } from './project-lock.js';
+import type { LockMetadata } from './project-lock.js';
 
 export class StaleLockError extends PersistenceError {
-  constructor(readonly lockPath: string, readonly metadata: LockMetadata) {
-    super(`Stale lock detected at ${lockPath}: held by PID ${metadata.pid} on ${metadata.hostname} since ${metadata.acquired_at}`);
+  constructor(readonly lockPath: string, readonly metadata: LockMetadata | null, reason = 'stale lock detected') {
+    const holder = metadata
+      ? `held by PID ${metadata.pid} on ${metadata.hostname} since ${metadata.acquired_at}`
+      : 'metadata unreadable or invalid';
+    super(`Stale lock at ${lockPath}: ${reason}; ${holder}`);
   }
 }
 ```
@@ -421,16 +444,16 @@ Update `src/persistence/index.ts` to export `StaleLockError` from `./errors.js` 
 **Files:** Modify `src/persistence/project-lock.ts`
 
 Major changes:
-1. Add `import os from 'node:os'`
+1. Add `import { hostname } from 'node:os'`
 2. Import `{ StaleLockError }` from `./errors.js` and use local `LockMetadata`
 3. Add `staleLockAction` to `ProjectLockOptions` (default `'error'`)
 4. Add `isPidAlive` helper (conservative: `EPERM` means alive)
 5. Add `readLockMetadata` helper
 6. Add `writeLockMetadata` helper
 7. Modify `withLock`: on `EEXIST`, read metadata, check hostname/PID staleness inside the acquisition loop, auto-remove or throw `StaleLockError`
-8. Modify `withLockSync`: same stale detection on `EEXIST`
+8. Modify `withLockSync`: on `EEXIST`, detect invalid/different-host/dead-PID locks and optionally remove stale same-host dead-PID locks; keep immediate failure for live locks and in-process async queue conflicts
 9. Write lock metadata with `hostname` field: `{ pid, acquired_at, hostname }`
-10. Remove `queuedAsyncCallCount` field (no longer needed — `withLockSync` no longer rejects based on async queue state)
+10. Keep `queuedAsyncCallCount` so `withLockSync` continues to fail fast when async callers are already queued
 
 No public `removeStaleLock()` method. Stale detection and removal happen exclusively inside the acquisition loop after observing `EEXIST`.
 
@@ -456,25 +479,31 @@ function isPidAlive(pid: number): boolean {
 function readLockMetadata(lockPath: string): LockMetadata | null {
   try {
     const raw = readFileSync(lockPath, 'utf-8').trim();
-    return JSON.parse(raw) as LockMetadata;
+    const parsed = JSON.parse(raw) as Partial<LockMetadata>;
+    if (typeof parsed.pid !== 'number' || !Number.isSafeInteger(parsed.pid) || parsed.pid <= 0) return null;
+    if (typeof parsed.acquired_at !== 'string' || Number.isNaN(Date.parse(parsed.acquired_at))) return null;
+    if (typeof parsed.hostname !== 'string' || parsed.hostname.length === 0) return null;
+    return { pid: parsed.pid, acquired_at: parsed.acquired_at, hostname: parsed.hostname };
   } catch {
     return null;
   }
 }
 
 function writeLockMetadata(lockPath: string, fd: number): void {
-  const meta: LockMetadata = { pid: process.pid, acquired_at: new Date().toISOString(), hostname: os.hostname() };
+  const meta: LockMetadata = { pid: process.pid, acquired_at: new Date().toISOString(), hostname: hostname() };
   writeFileSync(fd, JSON.stringify(meta) + '\n', 'utf-8');
 }
 ```
 
-Stale detection logic (same for both `withLock` and `withLockSync`, inside the acquisition loop after observing `EEXIST`):
+Stale detection logic for `withLock`, inside the acquisition loop after observing `EEXIST`:
 
-1. Read metadata with `readLockMetadata`. If unreadable or invalid → throw `StaleLockError` (cannot determine staleness safely).
-2. If hostname does not match `os.hostname()` → throw `StaleLockError` (cannot verify PID on different host).
+1. Read metadata with `readLockMetadata`. If unreadable or invalid → throw `StaleLockError(lockPath, null, 'invalid lock metadata')` (cannot determine staleness safely).
+2. If hostname does not match `hostname()` → throw `StaleLockError(lockPath, metadata, 'lock belongs to a different host')` (cannot verify PID on different host).
 3. If `isPidAlive(meta.pid)` returns `true` → lock is genuinely held; retry after delay.
 4. If PID is dead AND `staleLockAction === 'remove'` → `unlinkSync(lockPath)`, then retry acquisition.
-5. If PID is dead AND `staleLockAction === 'error'` → throw `StaleLockError`.
+5. If PID is dead AND `staleLockAction === 'error'` → throw `StaleLockError(lockPath, metadata, 'lock holder process is not alive')`.
+
+`withLockSync` uses the same metadata checks after `EEXIST`, but it does not wait on live locks. If the PID is alive, or this process already has an active/queued async lock, it preserves the current fail-fast behavior by throwing `LockTimeoutError(lockPath, 0)`. If the PID is dead and `staleLockAction === 'remove'`, it unlinks and retries the synchronous `openSync('wx')`; otherwise it throws `StaleLockError`.
 
 `ProjectLock` keeps both `withLock` and `withLockSync`:
 
@@ -483,7 +512,7 @@ export class ProjectLock {
   private readonly timeoutMs: number;
   private readonly retryDelayMs: number;
   private readonly staleLockAction: 'error' | 'remove';
-  // ... existing fields minus queuedAsyncCallCount
+  // ... existing queue fields, including queuedAsyncCallCount
 
   constructor(readonly lockPath: string, options: ProjectLockOptions = {}) {
     this.timeoutMs = options.timeoutMs ?? 30_000;
@@ -497,7 +526,7 @@ export class ProjectLock {
 }
 ```
 
-**Verification:** `npm run typecheck && npm test`. All existing lock tests pass. New stale-lock tests added covering: stale lock with dead same-host PID (removed when `staleLockAction='remove'`, error when `'error'`), stale lock with alive PID (retry), different hostname (always error), unreadable metadata (error).
+**Verification:** Add focused cases to `tests/persistence/persistence-primitives.test.ts`, then run `npm run typecheck && npm test`. Cover: stale lock with dead same-host PID (removed when `staleLockAction='remove'`, error when `'error'`), live PID with async acquisition retries until timeout, live PID with sync acquisition fails fast, different hostname (always error), unreadable/invalid metadata (error), and sync acquisition still rejects when an in-process async lock is queued.
 
 ### Step 8: Create `src/utils/clock.ts` and `src/cards/value-equality.ts`
 
@@ -526,7 +555,7 @@ export { now } from './clock.js';
 
 ### Step 9: Migrate all `now()` callers
 
-**Files:** Modify 8 files, each in its own focused change:
+**Files:** Modify 9 caller files, each in its own focused change:
 
 1. `src/runtime/runtime.ts` — remove local `now`, add `import { now } from '../utils/clock.js'`
 2. `src/runtime/runtime-startup.ts` — remove local `now`, add `import { now } from '../utils/clock.js'`
@@ -577,13 +606,13 @@ Remove the comment block about "raw (non-versioned) JSONL helpers" (the section 
 
 **`src/persistence/jsonl-ledger.ts`:** Remove the raw functions and their comment block (lines 140-251). The `JsonlLedger` class remains as the versioned-envelope authority.
 
-**`src/persistence/index.ts`:** Change the export of `appendSyncIdempotent`, `appendSyncIdempotentByKey`, `lastLineSync` from `./jsonl-ledger.js` to `./raw-jsonl.js`. Add `LastLineSyncResult` type export from `./raw-jsonl.js`. Also add exports for `fsyncDir`, `fsyncFile`, `writeFileAtomic`, `writeFileSyncDurable` from `./durable-write.js` directly (not through `./file-tree.js`).
+**`src/persistence/index.ts`:** Change the export of `appendSyncIdempotent`, `appendSyncIdempotentByKey`, `lastLineSync` from `./jsonl-ledger.js` to `./raw-jsonl.js`. Add `LastLineSyncResult` type export from `./raw-jsonl.js`. Also add exports for `fsyncDir`, `fsyncDirAsync`, `fsyncFile`, `writeFileAtomic`, `writeFileSyncDurable` from `./durable-write.js` directly (not through `./file-tree.js`).
 
 **Verification:** `npm run typecheck && npm test`. All callers of `appendSyncIdempotent` etc. still resolve through the index re-export.
 
 ### Step 13: Make diary read failures explicit
 
-**Files:** Modify `src/cards/diary.ts`
+**Files:** Modify `src/cards/diary.ts`, `tests/utils/diary.test.ts`
 
 **Add `DiaryReadError` and `DiaryIntegrityError`:**
 
@@ -665,6 +694,8 @@ for (const rev of reviewIndex.reviews) {
   assessments.push(diaryEntry.assessment);
 }
 ```
+
+**Tests:** Update `tests/utils/diary.test.ts` to import `DiaryReadError` and `DiaryIntegrityError`, remove expectations that indexed missing files are skipped or converted to `null`, and keep the existing missing-diary-directory behavior (`getDiaryEntries` returns `[]`, `getDiaryEntry` returns `null`).
 
 **Verification:** `npm run typecheck && npm test`. Tests that relied on silent skip/fabrication behavior will need to be updated to expect `DiaryReadError` or `DiaryIntegrityError`. This is intentional — silent data degradation is a bug, not a feature. Diary tests must cover: missing diary directory remains empty/null; indexed diary file missing throws `DiaryReadError`; review index pointing to missing/no-assessment diary entry throws `DiaryIntegrityError`.
 
