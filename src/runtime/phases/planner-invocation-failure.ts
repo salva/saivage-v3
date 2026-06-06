@@ -1,5 +1,6 @@
 import type { CardRecord, RuntimeRunRecord, RuntimeState } from '../../schemas/index.js';
-import { unwrapFailure, type LlmTransportFailure } from '../../contracts/llm-failure.js';
+import { defaultInvocationRecoveryPolicy } from '../../agents/invocation-recovery-policy.js';
+import type { LlmTransportFailure } from '../../contracts/llm-failure.js';
 import { buildPlannerInvocationFailureBlocker } from './planner-phase.js';
 import { commitPlannerBlocked, commitPlannerFailed } from '../terminal-commit/index.js';
 
@@ -10,7 +11,7 @@ function isTokenBudgetFailure(error: unknown): boolean {
     const failure = (error as { failure: LlmTransportFailure }).failure;
     if (failure?.kind === 'token_budget_exceeded') return true;
   }
-  const failure = unwrapFailure(error);
+  const failure = defaultInvocationRecoveryPolicy.classify(error);
   if (failure.kind === 'token_budget_exceeded') return true;
   const message = error instanceof Error ? error.message : String(error);
   return /context_length_exceeded|token budget exceeded|maximum context length/i.test(message);

@@ -3,8 +3,6 @@ import type { RuntimeApplication } from '../../application/runtime-composition.j
 import type { McpManager } from '../../mcp/manager-api.js';
 import type { TelegramBot } from '../../telegram/index.js';
 import { clearProjectNotificationDeliveryAdapters } from '../../notifications/index.js';
-import { resetChatRouteState } from '../routes/chats-files-debug.js';
-import { resetAnalystWebSocketState } from '../websocket.js';
 import type { LiveSyncSocket } from '../live-sync-socket.js';
 import type { SyncHub } from '../sync-hub.js';
 
@@ -18,9 +16,7 @@ export async function stopServerResources(options: {
   syncHub?: SyncHub;
 }): Promise<void> {
   const { projectRoot, fastify, runtimeApplication, mcpManager, telegramBot, liveSyncSocket, syncHub } = options;
-  resetChatRouteState(projectRoot);
   liveSyncSocket?.dispose();
-  resetAnalystWebSocketState(projectRoot);
   clearProjectNotificationDeliveryAdapters(projectRoot);
   if (runtimeApplication) syncHub?.dispose(runtimeApplication.runtimeApi);
 

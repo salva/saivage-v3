@@ -1,7 +1,6 @@
 import { join } from 'node:path';
 import type { AgentMessage } from '../schemas/index.js';
 import type { ToolDefinition, LlmInvocationClient, LlmCompleteResult } from './llm-contracts.js';
-import { unwrapFailure } from './llm-errors.js';
 import { LlmProviderGateway } from './llm-provider-gateway.js';
 import { ANALYST_TOOL_DEFINITIONS } from './analyst-tool-schemas.js';
 import { RoleToolPolicy } from './role-tool-policy.js';
@@ -16,6 +15,7 @@ import { resolveLlmTransportConfig } from './llm-transport.js';
 import { createLlmExchangeRecorder, toRecorderLogger } from './llm-exchange-recorder.js';
 import type { LlmExchangeRecorder, LlmExchangeRecorderLogger } from './llm-exchange-recorder.js';
 import { buildLlmOptions } from './llm-options-factory.js';
+import { defaultInvocationRecoveryPolicy } from './invocation-recovery-policy.js';
 import {
   ANALYST_ISSUE_SEVERITY_VALUES,
   CARD_STATUS_VALUES,
@@ -120,8 +120,20 @@ export class LlmIntentResolver {
 
   async chat(messages: AgentMessage[], projectContext: string): Promise<LlmCompleteResult> {
     const tools = getAnalystToolDefinitions();
-    const chain = await this.router.resolve('analyst', this.capabilityRequest());
-    if (chain.length === 0) throw new AnalystOfflineError(ANALYST_NO_MODEL_REPLY);
+    const capabilityRequest = this.capabilityRequest();
+    const chain = await this.router.resolve('analyst', capabilityRequest);
+    if (chain.length === 0) {
+      const decision = defaultInvocationRecoveryPolicy.decideNoCandidates({
+        role: 'analyst',
+        attempt: 1,
+        maxAttempts: 1,
+        recoveryDelayMs: this.runtimeConfig.recoveryDelayMs ?? 60000,
+        maxRecoveryRetries: this.runtimeConfig.maxRecoveryRetries ?? 3,
+        capabilityRequest,
+        capabilitySkips: this.router.getLastCapabilitySkips(),
+      });
+      throw new AnalystOfflineError(decision.message === `No healthy candidates available for role 'analyst'.` ? ANALYST_NO_MODEL_REPLY : decision.message);
+    }
 
     const modelParams = getModelParamsForRole(this.config, 'analyst');
     const systemPrompt = `${getAnalystSystemPrompt()}\n\n${projectContext}`;
@@ -158,30 +170,30 @@ export class LlmIntentResolver {
         await this.availability.markSucceeded(candidate);
         return result;
       } catch (err) {
-        const failure = unwrapFailure(err);
-        if (failure.kind === 'auth_permanent') {
-          await this.availability.markFailed(candidate, { state: 'BLOCKED_UNTIL', untilMs: Date.now() + 3_600_000, reason: 'auth_permanent' });
+        const decision = defaultInvocationRecoveryPolicy.decideFailure(err, {
+          role: 'analyst',
+          candidate,
+          attempt: 1,
+          maxAttempts: chain.length,
+          recoveryDelayMs: this.runtimeConfig.recoveryDelayMs ?? 60000,
+          maxRecoveryRetries: this.runtimeConfig.maxRecoveryRetries ?? 3,
+          capabilityRequest,
+          capabilitySkips: this.router.getLastCapabilitySkips(),
+          sessionId,
+        });
+        const failureKind = decision.failure?.kind ?? 'unknown';
+        if (failureKind === 'auth_permanent') {
+          if (decision.markFailed && decision.availability) await this.availability.markFailed(candidate, decision.availability);
           lastTransportError = err instanceof Error ? err : new Error(String(err));
           continue;
         }
         if (
-          failure.kind === 'rate_limit' ||
-          failure.kind === 'server_transient' ||
-          failure.kind === 'timeout' ||
-          failure.kind === 'parse_error'
+          failureKind === 'rate_limit' ||
+          failureKind === 'server_transient' ||
+          failureKind === 'timeout' ||
+          failureKind === 'parse_error'
         ) {
-          if (failure.kind !== 'parse_error') {
-            const now = Date.now();
-            let untilMs = now + Math.max(this.runtimeConfig.recoveryDelayMs ?? 60_000, 5_000);
-            if (failure.kind === 'rate_limit') {
-              if (typeof failure.retryAfterMs === 'number' && failure.retryAfterMs > 0) untilMs = now + failure.retryAfterMs;
-              else if (typeof failure.resetsAt === 'string') {
-                const parsed = Date.parse(failure.resetsAt);
-                if (Number.isFinite(parsed) && parsed > now) untilMs = parsed;
-              }
-            }
-            await this.availability.markFailed(candidate, { state: failure.kind === 'rate_limit' ? 'BLOCKED_UNTIL' : 'COOLING', untilMs, reason: failure.kind });
-          }
+          if (decision.markFailed && decision.availability) await this.availability.markFailed(candidate, decision.availability);
           lastTransportError = err instanceof Error ? err : new Error(String(err));
           continue;
         }

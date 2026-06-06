@@ -3,7 +3,6 @@ import { join } from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { CardStore } from '../../cards/store-api.js';
 import { redactOperatorErrorMessage } from '../../workspace/index.js';
-import { resetAnalystHandlerCache } from '../../agents/analyst-api.js';
 import { listRecentReviews, listQuarantineIndex } from '../../workspace/index.js';
 import type { DoctorCheck, DoctorIssue, DoctorResponse } from '../../schemas/index.js';
 
@@ -12,16 +11,8 @@ export const internalDebugRoutes = [
   { method: 'GET', path: '/api/debug/supervision' },
 ] as const;
 
-export function resetChatRouteState(projectRoot?: string): void {
-  resetAnalystHandlerCache(projectRoot);
-}
-
 export function registerInternalDebugRoutes(fastify: FastifyInstance, projectRoot: string): void {
   const saivageDir = join(projectRoot, '.saivage');
-
-  fastify.addHook('onClose', async () => {
-    resetChatRouteState(projectRoot);
-  });
 
   fastify.get('/api/debug/doctor', async (_request: FastifyRequest, reply: FastifyReply) => {
     try {

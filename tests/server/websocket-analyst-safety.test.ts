@@ -5,19 +5,17 @@ import { LiveSyncSocket } from '../../src/server/live-sync-socket.js';
 
 const mockGetOrCreateAnalystSession = jest.fn();
 const mockGetAnalystHandler = jest.fn();
-const mockResetAnalystHandlerCache = jest.fn();
 
 jest.unstable_mockModule('../../src/agents/analyst-handler.js', () => ({
   AnalystHandler: jest.fn(),
   GLOBAL_ANALYST_SESSION_ID: 'analyst',
   getOrCreateAnalystSession: mockGetOrCreateAnalystSession,
   getAnalystHandler: mockGetAnalystHandler,
-  resetAnalystHandlerCache: mockResetAnalystHandlerCache,
 }));
 
 const authPolicyModule = await import('../../src/server/auth-policy.js');
 const { configureAuthPolicy, getAuthPolicy, resetAuthPolicyForTests } = authPolicyModule;
-const { registerWebSocket, resetAnalystWebSocketState } = await import('../../src/server/websocket.js');
+const { registerWebSocket } = await import('../../src/server/websocket.js');
 
 function createSocket() {
   const handlers = new Map<string, (...args: any[]) => void>();
@@ -54,7 +52,6 @@ describe('websocket analyst safety and live-sync control', () => {
     mockGetAnalystHandler.mockReturnValue({
       handleMessage: jest.fn(async () => ({ message: { role: 'assistant', content: 'ok' }, toolInvocations: [] })),
     });
-    resetAnalystWebSocketState();
     delete process.env.SAIVAGE_API_TOKEN;
     resetAuthPolicyForTests();
   });

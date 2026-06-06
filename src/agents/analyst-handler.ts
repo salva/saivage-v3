@@ -371,32 +371,8 @@ export class AnalystHandler {
   }
 }
 
-interface CachedHandler {
-  handler: AnalystHandler;
-  runtimeDeps: AnalystRuntimeDeps;
-  onActivity?: ActivityCallback;
-  actor: ActorRole;
-  surface: ControlActionSurface;
-  requestServerRestart?: () => Promise<void>;
-}
-const analystHandlersByRoot = new Map<string, CachedHandler>();
-
 export function getAnalystHandler(projectRoot: string, opts: { runtimeDeps: AnalystRuntimeDeps; onActivity?: ActivityCallback; actor?: ActorRole; surface?: ControlActionSurface; requestServerRestart?: () => Promise<void> }): AnalystHandler {
   const actor = opts.actor ?? 'analyst';
   const surface = opts.surface ?? 'web-chat';
-  const cached = analystHandlersByRoot.get(projectRoot);
-  if (cached
-    && cached.runtimeDeps === opts.runtimeDeps
-    && cached.onActivity === opts.onActivity
-    && cached.actor === actor
-    && cached.surface === surface
-    && cached.requestServerRestart === opts.requestServerRestart) return cached.handler;
-  const handler = new AnalystHandler(projectRoot, opts.runtimeDeps, opts.onActivity, actor, surface, opts.requestServerRestart);
-  analystHandlersByRoot.set(projectRoot, { handler, runtimeDeps: opts.runtimeDeps, onActivity: opts.onActivity, actor, surface, requestServerRestart: opts.requestServerRestart });
-  return handler;
-}
-
-export function resetAnalystHandlerCache(projectRoot?: string): void {
-  if (projectRoot) { analystHandlersByRoot.delete(projectRoot); return; }
-  analystHandlersByRoot.clear();
+  return new AnalystHandler(projectRoot, opts.runtimeDeps, opts.onActivity, actor, surface, opts.requestServerRestart);
 }

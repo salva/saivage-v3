@@ -10,7 +10,7 @@
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
-import { getOrCreateAnalystSession, getAnalystHandler, resetAnalystHandlerCache } from '../agents/analyst-api.js';
+import { getOrCreateAnalystSession, getAnalystHandler } from '../agents/analyst-api.js';
 import { redactOperatorErrorMessage } from '../workspace/index.js';
 import { sanitizeAnalystPayload, sanitizeAnalystText } from '../agents/analyst-api.js';
 import type { RuntimeApplication } from '../application/runtime-composition.js';
@@ -24,10 +24,6 @@ export type { WsEnvelope, WsEventType };
 
 const wsSessions = new WeakMap<WebSocket, string>();
 const analystTurnQueues = new WeakMap<WebSocket, Promise<void>>();
-
-export function resetAnalystWebSocketState(projectRoot?: string): void {
-  resetAnalystHandlerCache(projectRoot);
-}
 
 function serializeOutboundEnvelope(event: WsEnvelope): string {
   const envelope: Redacted<WsEnvelope> = redactForOutbound(validateKnownWsEnvelope(event) as WsEnvelope, 'operator.websocket', { source: 'websocket' });
@@ -100,7 +96,6 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string,
     : runtimeApplicationOrRequestRestart as (() => Promise<void>) | undefined;
   fastify.addHook('onClose', async () => {
     liveSyncSocket.dispose();
-    resetAnalystWebSocketState(projectRoot);
   });
 
   fastify.get(

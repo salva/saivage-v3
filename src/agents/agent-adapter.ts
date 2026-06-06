@@ -35,7 +35,6 @@ import type {
   RuntimeActivationRecord,
 } from '../schemas/index.js';
 import type { NotificationCenter } from '../notifications/index.js';
-import { invokeWithRecovery, type RecoveryContext } from './recovery.js';
 import type { ContentSupervisor } from '../workspace/index.js';
 import { getSafeFileForAgent, type SafeFileResult } from '../workspace/index.js';
 import type {
@@ -94,6 +93,22 @@ import { readRuntimeState } from '../runtime/state.js';
 
 export type AgentRole = OperationalAgentRole;
 export type InvokableAgentRole = AgentInvocationRole;
+
+interface AgentRecoveryContext {
+  attempt: number;
+  maxAttempts: number;
+  isRecovery: boolean;
+  previousError?: Error;
+  directive: string;
+}
+
+interface AgentInvocationAttempt<R> {
+  attempt: number;
+  success: boolean;
+  result?: R;
+  error?: Error;
+}
+
 export interface AgentAdapterConfig {
   projectRoot: string;
   saivageDir: string;
@@ -141,6 +156,10 @@ export function synthesizeReportGoalEnvelope(
 
 function delayInvocationRecovery(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
+}
+
+function buildRecoveryDirective(previousError: Error | undefined): string {
+  return `RECOVERY DIRECTIVE: Your previous invocation failed. Please re-read authoritative state from disk (cards, notes, plan diary) to understand the current state before proceeding. Previous error: ${previousError?.message ?? 'Unknown error'}`;
 }
 
 const PLANNER_HISTORY_CONTEXT_LIMIT_TOKENS = 24000;
@@ -752,27 +771,9 @@ export class AgentAdapter implements AgentExecutionPort {
         },
         { round_id: msg.round_id, message_index: msg.message_index, block_index: msg.block_index },
       );
-    const recoveryOpts = {
-      recoveryDelayMs: this.runtimeConfig.recoveryDelayMs ?? 60000,
-      maxRetries: this.runtimeConfig.maxRecoveryRetries ?? 3,
-      publishEvents: true,
-      eventBus: this.eventBus,
-      cardId,
-      goalId,
-      sessionId: session.id,
-      agentRole: role,
-      persistFailure: (error: Error, attempt: number, _ctx: RecoveryContext) => {
-        try {
-          this.appendSessionMessage(session.id, {
-            role: 'system',
-            kind: 'model_issue',
-            content: `Agent invocation failed (attempt ${attempt}): ${this.redactProviderErrorMessage(error.message)}`,
-          });
-        } catch {
-          void 0;
-        }
-      },
-    };
+    const recoveryDelayMs = this.runtimeConfig.recoveryDelayMs ?? 60000;
+    const maxRecoveryRetries = this.runtimeConfig.maxRecoveryRetries ?? 3;
+    const maxOuterAttempts = maxRecoveryRetries + 1;
     const invocationStart = Date.now();
     let attemptOutcomeCount = 0;
     let lastSucceededAttemptPayload: LlmAttemptPayload | undefined;
@@ -787,7 +788,7 @@ export class AgentAdapter implements AgentExecutionPort {
       if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'llm_attempt', ...payload });
       if (this.eventBus) this.eventBus.emit('llm_attempt', payload);
     };
-    const agentFn = async (recoveryCtx: RecoveryContext) => {
+    const agentFn = async (recoveryCtx: AgentRecoveryContext) => {
       const candidateChain = await this.router.resolve(role, capabilityRequest);
       const capabilitySkips = this.router.getLastCapabilitySkips();
       if (candidateChain.length === 0) {
@@ -819,11 +820,16 @@ export class AgentAdapter implements AgentExecutionPort {
             let startedAtIso = '';
             try {
               updateSessionModel(this.saivageDir, session.id, candidate.model);
-              if (recoveryCtx.isRecovery && recoveryCtx.directive)
+              const recoveryDirective = recoveryCtx.isRecovery
+                ? recoveryCtx.directive
+                : sameCandidateRecoveryAttempt > 1
+                  ? buildRecoveryDirective(lastError ?? undefined)
+                  : '';
+              if (recoveryDirective)
                 this.appendSessionMessage(session.id, {
                   role: 'system',
                   kind: 'model_recovered',
-                  content: recoveryCtx.directive,
+                  content: recoveryDirective,
                 });
               const abortController = new AbortController();
               this.sessionCoordinator.trackAbortController(session.id, abortController);
@@ -1199,7 +1205,54 @@ export class AgentAdapter implements AgentExecutionPort {
         this.sessionCoordinator.clearCancellation(session.id);
       }
     };
-    const attempts = await invokeWithRecovery(agentFn, recoveryOpts);
+    const attempts: AgentInvocationAttempt<R>[] = [];
+    for (let attempt = 1; attempt <= maxOuterAttempts; attempt += 1) {
+      const previousError = attempts[attempt - 2]?.error;
+      const recoveryCtx: AgentRecoveryContext = {
+        attempt,
+        maxAttempts: maxOuterAttempts,
+        isRecovery: attempt > 1,
+        previousError,
+        directive: attempt > 1 ? buildRecoveryDirective(previousError) : '',
+      };
+      try {
+        const result = await agentFn(recoveryCtx);
+        attempts.push({ attempt, success: true, result });
+        if (this.eventBus)
+          this.eventBus.emit('agent_recovered', {
+            role,
+            attempt,
+            sessionId: session.id,
+            cardId,
+            goalId,
+          });
+        break;
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        attempts.push({ attempt, success: false, error });
+        try {
+          this.appendSessionMessage(session.id, {
+            role: 'system',
+            kind: 'model_issue',
+            content: `Agent invocation failed (attempt ${attempt}): ${this.redactProviderErrorMessage(error.message)}`,
+          });
+        } catch {
+          void 0;
+        }
+        if (this.eventBus)
+          this.eventBus.emit('agent_invocation_failed', {
+            role,
+            attempt,
+            error: error.message,
+            sessionId: session.id,
+            cardId,
+            goalId,
+            recoverable: attempt < maxOuterAttempts,
+          });
+        if (attempt >= maxOuterAttempts) break;
+        await delayInvocationRecovery(recoveryDelayMs);
+      }
+    }
     const summaryLast = attempts[attempts.length - 1];
     const summaryCancelled =
       this.sessionCoordinator.isCancelled(session.id) ||

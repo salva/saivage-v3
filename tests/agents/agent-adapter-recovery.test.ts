@@ -68,10 +68,6 @@ function plannerToolResult(tool_calls: { id: string; name: string; arguments: st
   };
 }
 
-function messageResult(content: string): LlmCompleteResult {
-  return { kind: 'message', content };
-}
-
 describe('AgentAdapter invocation recovery policy integration', () => {
   let root: string;
 
@@ -104,17 +100,18 @@ describe('AgentAdapter invocation recovery policy integration', () => {
     expect(issue?.content).not.toContain('sk-syntheticSECRET123456');
   });
 
-  it.skip('retries parse/contract failures on the same candidate without using fallback', async () => {
-    // M05: tools-only flow turns parse failures into provider_protocol_error which aborts; retry semantics moved to M09.
+  it('retries parse transport failures on the same candidate and injects an explicit recovery directive', async () => {
     const cfg = config();
     cfg.runtime.maxRecoveryRetries = 1;
     cfg.runtime.recoveryDelayMs = 0;
     const adapter = makeAdapter(root, cfg);
     const markFailed = jest.spyOn(adapter.candidateAvailability, 'markFailed');
     const seen: string[] = [];
-    const llmCall = jest.fn<LlmCallFn>(async (candidate): Promise<LlmCompleteResult> => {
+    let secondAttemptMessages: string[] = [];
+    const llmCall = jest.fn<LlmCallFn>(async (candidate, _systemPrompt, messages): Promise<LlmCompleteResult> => {
       seen.push(candidate.provider);
-      if (seen.length === 1) return messageResult('{"status":"not-a-valid-status"}');
+      if (seen.length === 1) throw new LlmRequestError({ kind: 'parse_error', provider: candidate.provider, message: 'invalid json', bodyPreview: '{' });
+      secondAttemptMessages = messages.map((message) => message.content);
       return plannerDone();
     });
     adapter.setLlmCallFn(llmCall);
@@ -124,6 +121,7 @@ describe('AgentAdapter invocation recovery policy integration', () => {
     expect(result.status).toBe('done');
     expect(seen).toEqual(['p1', 'p1']);
     expect(llmCall).toHaveBeenCalledTimes(2);
+    expect(secondAttemptMessages.some((content) => content.includes('RECOVERY DIRECTIVE'))).toBe(true);
     expect(markFailed).not.toHaveBeenCalled();
     expect(adapter.candidateAvailability.isAvailable({ provider: 'p1', account: null, model: 'm1' })).toBe(true);
     expect(adapter.candidateAvailability.isAvailable({ provider: 'p2', account: null, model: 'm2' })).toBe(true);

@@ -13,12 +13,10 @@ jest.unstable_mockModule('../../src/agents/analyst-handler.js', () => ({
   AnalystHandler: jest.fn().mockImplementation(() => ({ handleMessage })),
   GLOBAL_ANALYST_SESSION_ID: 'analyst',
   getAnalystHandler: jest.fn().mockImplementation(() => ({ handleMessage })),
-  resetAnalystHandlerCache: jest.fn(),
   getOrCreateAnalystSession,
 }));
 
 const { registerOperatorContractRoutes } = await import('../../src/server/routes/operator-contracts.js');
-const { resetChatRouteState } = await import('../../src/server/routes/chats-files-debug.js');
 
 function setupRoot(): string {
   const root = mkdtempSync(join(tmpdir(), 's08-chat-route-'));
@@ -42,11 +40,9 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
       message: { id: 'm1', role: 'assistant', kind: 'text', content: 'ok', timestamp: '2025-01-01T00:00:00Z' },
       toolInvocations: [],
     });
-    resetChatRouteState();
   });
 
   afterEach(() => {
-    resetChatRouteState();
     rmSync(root, { recursive: true, force: true });
   });
 
