@@ -1,9 +1,13 @@
 import { EventBus } from '../../src/events/bus.js';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { RuntimeApplication } from '../../src/application/runtime-composition.js';
 import type { AnalystRuntimeDeps } from '../../src/agents/analyst-api.js';
 import type { RuntimeApi } from '../../src/runtime/runtime-api.js';
 import type { RoundStamp } from '../../src/agents/session-persistence.js';
 import { generateRoundId } from '../../src/schemas/round-id-server.js';
+import { CardStore } from '../../src/cards/card-store.js';
 
 interface TestRoundState { currentRoundId: string | null; nextMessageIndex: number; nextBlockIndex: number; }
 
@@ -109,10 +113,12 @@ function createFlatTestAnalystRuntime(opts: { eventBus?: EventBus } = {}): TestA
   return runtime;
 }
 
-export function createTestAnalystRuntime(opts: { eventBus?: EventBus } = {}): AnalystRuntimeDeps {
+export function createTestAnalystRuntime(opts: { eventBus?: EventBus; cardStore?: CardStore } = {}): AnalystRuntimeDeps {
   const analystRuntime = createFlatTestAnalystRuntime(opts);
+  const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-test-analyst-runtime-'));
   return {
     runtime: analystRuntime,
+    cardStore: opts.cardStore ?? new CardStore(projectRoot),
     stamper: analystRuntime,
     candidateAvailability: analystRuntime.candidateAvailability,
     eventLogger: analystRuntime.eventLogger,
@@ -121,8 +127,10 @@ export function createTestAnalystRuntime(opts: { eventBus?: EventBus } = {}): An
   };
 }
 
-export function createTestRuntimeApplication(opts: { eventBus?: EventBus } = {}): RuntimeApplication {
+export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardStore?: CardStore } = {}): RuntimeApplication {
   const analystRuntime = createFlatTestAnalystRuntime(opts);
+  const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-test-runtime-app-'));
+  const cardStore = opts.cardStore ?? new CardStore(projectRoot);
   return {
     runtimeApi: {
       start: () => analystRuntime.start(),
@@ -138,6 +146,7 @@ export function createTestRuntimeApplication(opts: { eventBus?: EventBus } = {})
     get analystDeps() {
       return {
         runtime: analystRuntime,
+        cardStore,
         stamper: analystRuntime,
         candidateAvailability: analystRuntime.candidateAvailability,
         eventLogger: analystRuntime.eventLogger,

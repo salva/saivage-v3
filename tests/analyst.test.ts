@@ -175,7 +175,7 @@ function setupTestProject(projectRoot: string): CardStore {
   return store;
 }
 
-function ctx(projectRoot: string, store?: CardStore): ToolContext {
+function ctx(projectRoot: string, store: CardStore): ToolContext {
   return { projectRoot, store, actor: 'analyst', surface: 'web-chat' };
 }
 
@@ -645,7 +645,7 @@ describe('Analyst Handler', () => {
   });
 
   it('deduplicates the same chat message when two transports submit it together', async () => {
-    const handler = new AnalystHandler(projectRoot, createTestAnalystRuntime());
+    const handler = new AnalystHandler(projectRoot, createTestAnalystRuntime({ cardStore: new CardStore(projectRoot) }));
     const first = await handler.handleMessage('s16', 'list all cards');
     const second = await handler.handleMessage('s16', 'list all cards');
     expect(second.message.content).toBe(first.message.content);
@@ -677,9 +677,9 @@ describe('API Chat and WebSocket Integration', () => {
       await import('../src/server/routes/chats-files-debug.js');
     const { registerWebSocket } = await import('../src/server/websocket.js');
 
-    registerCardRoutes(app, projectRoot, createTestRuntimeApplication());
+    registerCardRoutes(app, projectRoot, createTestRuntimeApplication({ cardStore: new CardStore(projectRoot) }));
     registerChatsFilesDebugRoutes(app, projectRoot);
-    registerWebSocket(app, projectRoot, createTestRuntimeApplication());
+    registerWebSocket(app, projectRoot, createTestRuntimeApplication({ cardStore: new CardStore(projectRoot) }));
 
     await app.listen({ port: 0, host: '127.0.0.1' });
     port = (app.server.address() as { port: number }).port;

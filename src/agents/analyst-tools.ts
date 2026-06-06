@@ -148,7 +148,7 @@ function saivageDir(projectRoot: string): string {
   return join(projectRoot, '.saivage');
 }
 function getStore(ctx: ToolContext): CardStore {
-  return ctx.store ?? new CardStore(ctx.projectRoot);
+  return ctx.store;
 }
 function cardSummary(card: CardRecord, store?: CardStore) {
   return { id: card.id, display_path: store ? computeCardDisplayPath(store, card) : null, title: card.title, type: card.type, status: card.status };
@@ -196,7 +196,7 @@ function summarizeShellCommand(command: string): string {
 
 export interface ToolContext {
   projectRoot: string;
-  store?: CardStore;
+  store: CardStore;
   sessionId?: string;
   runtime?: Pick<RuntimeApi, 'startProject' | 'stopProject' | 'pause' | 'resume'>;
   mcpManager?: McpManager;

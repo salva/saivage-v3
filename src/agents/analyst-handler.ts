@@ -68,6 +68,7 @@ export interface AnalystResponse {
 }
 
 export interface AnalystRuntimeDeps {
+  cardStore: CardStore;
   runtime: Pick<RuntimeApi, 'startProject' | 'stopProject' | 'pause' | 'resume'>;
   stamper: SessionStamper & { getActivityStatus(sessionId: string): SessionActivity };
   candidateAvailability?: CandidateAvailability;
@@ -248,7 +249,7 @@ export class AnalystHandler {
     this.runtimeDeps.stamper.openAssistantRound(sessionId);
     const toolInvocations: NonNullable<AnalystResponse['toolInvocations']> = [];
     const projectContext = this.buildProjectContext();
-    const ctx: ToolContext = { projectRoot: this.projectRoot, sessionId, runtime: this.runtimeDeps.runtime, mcpManager: this.runtimeDeps.mcpManager, requestServerRestart: this.requestServerRestart, actor: this.actor, surface: this.surface };
+    const ctx: ToolContext = { projectRoot: this.projectRoot, store: this.runtimeDeps.cardStore, sessionId, runtime: this.runtimeDeps.runtime, mcpManager: this.runtimeDeps.mcpManager, requestServerRestart: this.requestServerRestart, actor: this.actor, surface: this.surface };
     const previousToolCallFingerprints = new Set<string>();
 
     for (;;) {
@@ -363,7 +364,7 @@ export class AnalystHandler {
 
   private buildProjectContext(): string {
     try {
-      const store = new CardStore(this.projectRoot);
+      const store = this.runtimeDeps.cardStore;
       return JSON.stringify({ projectRoot: this.projectRoot, cards: store.list().map((card) => ({ id: card.id, type: card.type, parent: card.parent, status: card.status, title: card.title, description: card.description, acceptance: card.acceptance, priority: card.priority, tags: card.tags })) }, null, 2);
     } catch {
       return `Project root: ${this.projectRoot}`;

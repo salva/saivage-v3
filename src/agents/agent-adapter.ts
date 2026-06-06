@@ -303,7 +303,7 @@ export class AgentAdapter implements AgentExecutionPort {
     this.cardStore = cfg.cardStore ?? new CardStore(this.projectRoot);
     this.runtimeStateProvider = cfg.runtimeStateProvider;
     this.toolRuntime = new ToolRuntime(
-      { bus: cfg.eventBus },
+      { cardStore: new CardStore(this.projectRoot), bus: cfg.eventBus },
       AGENT_TOOL_DEFINITIONS,
     );
     this.plannerControlExecutor = new PlannerControlExecutor({

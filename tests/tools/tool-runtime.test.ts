@@ -2,7 +2,10 @@ import { describe, expect, it } from '@jest/globals';
 import { EventEmitter } from 'node:events';
 import { z } from 'zod';
 
+import { CardStore } from '../../src/cards/card-store.js';
 import { defineTool, ToolRuntime } from '../../src/tools/runtime.js';
+
+function deps() { return { cardStore: new CardStore(process.cwd()) }; }
 
 const echoTool = defineTool({
   name: 'echo',
@@ -36,25 +39,25 @@ const deleteTool = defineTool({
 
 describe('ToolRuntime', () => {
   it('returns schema metadata from the typed definitions', () => {
-    const runtime = new ToolRuntime({}, [echoTool]);
+    const runtime = new ToolRuntime(deps(), [echoTool]);
     expect(runtime.schema()).toEqual([expect.objectContaining({ function: expect.objectContaining({ name: 'echo' }), roles: ['planner', 'executor'] })]);
     expect(runtime.toolNamesForRole('executor')).toEqual(['echo']);
   });
 
   it('rejects invalid input before execution', async () => {
-    const runtime = new ToolRuntime({}, [echoTool]);
+    const runtime = new ToolRuntime(deps(), [echoTool]);
     const result = await runtime.invoke({ name: 'echo', input: { text: 5 }, role: 'planner', correlationId: 'call-1', projectRoot: process.cwd() });
     expect(result).toEqual(expect.objectContaining({ ok: false, error: expect.objectContaining({ kind: 'ToolInputRejected' }) }));
   });
 
   it('rejects roles that are not listed on the tool definition', async () => {
-    const runtime = new ToolRuntime({}, [echoTool]);
+    const runtime = new ToolRuntime(deps(), [echoTool]);
     const result = await runtime.invoke({ name: 'echo', input: { text: 'hello' }, role: 'reviewer', correlationId: 'call-2', projectRoot: process.cwd() });
     expect(result).toEqual(expect.objectContaining({ ok: false, error: expect.objectContaining({ kind: 'ToolRoleRejected' }) }));
   });
 
   it('does not apply card permissions outside context-rich tool boundaries', async () => {
-    const runtime = new ToolRuntime({}, [deleteTool]);
+    const runtime = new ToolRuntime(deps(), [deleteTool]);
     const result = await runtime.invoke({ name: 'delete_test_card', input: { id: 'card-1' }, role: 'planner', correlationId: 'call-3', projectRoot: process.cwd() });
     expect(result).toEqual({ ok: true, output: { success: true } });
   });
@@ -65,7 +68,7 @@ describe('ToolRuntime', () => {
     bus.on('tool_invoked', () => events.push('tool_invoked'));
     bus.on('runtime_actionable_error', () => events.push('runtime_actionable_error'));
     bus.on('tool_failed', () => events.push('tool_failed'));
-    const runtime = new ToolRuntime({ bus }, [badOutputTool]);
+    const runtime = new ToolRuntime({ ...deps(), bus }, [badOutputTool]);
     const result = await runtime.invoke({ name: 'bad_output', input: {}, role: 'planner', correlationId: 'call-4', projectRoot: process.cwd() });
     expect(result).toEqual(expect.objectContaining({ ok: false, error: expect.objectContaining({ kind: 'ToolContractViolation' }) }));
     expect(events).toEqual(['tool_invoked', 'runtime_actionable_error', 'tool_failed']);

@@ -3,11 +3,13 @@ import type { EventEmitter } from 'node:events';
 
 import type { PermissionRole } from '../permissions/index.js';
 import type { ResourceScope } from '../lifecycle/index.js';
+import type { CardStore } from '../cards/card-store.js';
 
 export type JsonSchemaObject = { type: 'object'; properties?: { [key: string]: unknown }; required?: string[]; additionalProperties?: boolean };
 
 export interface ToolContext {
   projectRoot: string;
+  cardStore: CardStore;
   sessionId?: string;
   role: PermissionRole;
   surface: 'runtime';
@@ -26,6 +28,7 @@ export interface ToolRegistrySchemaEntry<Name extends string = string> {
 }
 
 export interface ToolRuntimeDependencies {
+  cardStore: CardStore;
   scope?: ResourceScope;
   bus?: EventEmitter;
 }
@@ -119,6 +122,7 @@ export class ToolRuntime<Definitions extends readonly RuntimeToolDefinition[]> {
     try {
       const output = await definition.execute({
         projectRoot: invocation.projectRoot,
+        cardStore: this.deps.cardStore,
         sessionId: invocation.sessionId,
         role: invocation.role,
         surface: 'runtime',

@@ -272,7 +272,7 @@ export const AGENT_TOOL_DEFINITIONS = TOOL_DEFINITIONS.filter((tool) => tool.exe
   output: toolResultSchema,
   parameters: schemaFor(tool),
   roles: tool.roles,
-  execute: async (ctx, input) => tool.executor!({ projectRoot: ctx.projectRoot, actor: actorForRole(ctx.role, tool.name), surface: ctx.surface, sessionId: ctx.sessionId }, input),
+  execute: async (ctx, input) => tool.executor!({ projectRoot: ctx.projectRoot, store: ctx.cardStore, actor: actorForRole(ctx.role, tool.name), surface: ctx.surface, sessionId: ctx.sessionId }, input),
 })) as readonly RuntimeToolDefinition<string, unknown, ToolResult>[];
 
 export const ALL_TOOL_DEFINITIONS_BY_NAME = new Map<string, LlmToolDefinition>([

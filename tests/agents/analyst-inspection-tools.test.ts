@@ -3,9 +3,10 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { list_directory, read_file, run_shell_command, type ToolContext } from '../../src/agents/analyst-tools.js';
+import { CardStore } from '../../src/cards/card-store.js';
 
 function ctx(root: string, surface: ToolContext['surface'] = 'web-chat'): ToolContext {
-  return { projectRoot: root, actor: 'analyst', surface };
+  return { projectRoot: root, store: new CardStore(root), actor: 'analyst', surface };
 }
 
 describe('analyst inspection tools secret-path policy', () => {

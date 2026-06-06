@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { assertAnalystInspectionTarget } from '../../src/workspace/file-access-security.js';
 import { runAuditedAnalystTool } from '../../src/agents/analyst-tool-runner.js';
 import type { ToolContext } from '../../src/agents/analyst-tools.js';
+import { CardStore } from '../../src/cards/card-store.js';
 
 function setupRoot(): string {
   const root = mkdtempSync(join(tmpdir(), 's02-runner-'));
@@ -22,7 +23,7 @@ describe('Audited analyst tool runner', () => {
   it('records schema-safe audit entries for allowed mutations', async () => {
     const root = setupRoot();
     try {
-      const ctx: ToolContext = { projectRoot: root, actor: 'analyst', surface: 'web-chat' };
+      const ctx: ToolContext = { projectRoot: root, store: new CardStore(root), actor: 'analyst', surface: 'web-chat' };
       const result = await runAuditedAnalystTool(ctx, { id: 'card-1' }, {
         action: 'card.test_low',
         safety_class: 'low',
@@ -41,7 +42,7 @@ describe('Audited analyst tool runner', () => {
   it('allows destructive analyst tools on web-chat without an out-of-band confirmation gate', async () => {
     const root = setupRoot();
     try {
-      const ctx: ToolContext = { projectRoot: root, actor: 'analyst', surface: 'web-chat' };
+      const ctx: ToolContext = { projectRoot: root, store: new CardStore(root), actor: 'analyst', surface: 'web-chat' };
       const result = await runAuditedAnalystTool(ctx, { id: 'card-1' }, {
         action: 'card.test_delete',
         safety_class: 'destructive',

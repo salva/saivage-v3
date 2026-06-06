@@ -13,6 +13,7 @@ import type { RuntimeConfig } from '../runtime/runtime-config.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
 import { createRuntimeCoreContainer } from '../runtime/core-composition.js';
 import { SessionStampCounter } from '../contracts/session-stamper.js';
+import { CardStore } from '../cards/card-store.js';
 
 export interface RuntimeApplication {
   readonly runtimeApi: RuntimeApi;
@@ -22,6 +23,7 @@ export interface RuntimeApplication {
 
 function buildAnalystDeps(input: {
   runtimeApi: RuntimeApi;
+  cardStore: CardStore;
   stamper: SessionStampCounter;
   candidateAvailability: CandidateAvailability;
   eventLogger: EventLogger;
@@ -30,6 +32,7 @@ function buildAnalystDeps(input: {
 }): AnalystRuntimeDeps {
   return {
     runtime: input.runtimeApi,
+    cardStore: input.cardStore,
     stamper: input.stamper,
     candidateAvailability: input.candidateAvailability,
     eventLogger: input.eventLogger,
@@ -44,6 +47,7 @@ export function createRuntimeApplication(projectRoot: string, config: SaivageCon
   const errorLogger = new ErrorLogger(saivageDir);
   const skillsEngine = new SkillsEngine({ projectRoot });
   const stamper = new SessionStampCounter();
+  const cardStore = new CardStore(projectRoot);
   const candidateAvailability = new FsCandidateAvailability(projectRoot, {
     compactBytes: config.runtime.candidateAvailabilityCompactBytes,
   });
@@ -116,7 +120,7 @@ export function createRuntimeApplication(projectRoot: string, config: SaivageCon
   return {
     runtimeApi,
     get analystDeps() {
-      return buildAnalystDeps({ runtimeApi, stamper, candidateAvailability, eventLogger, emitAnalystToolInvoked: emitAnalystToolInvokedFromRuntime, mcpManager });
+      return buildAnalystDeps({ runtimeApi, cardStore, stamper, candidateAvailability, eventLogger, emitAnalystToolInvoked: emitAnalystToolInvokedFromRuntime, mcpManager });
     },
     setMcpManager(nextMcpManager) {
       mcpManager = nextMcpManager;
