@@ -12,7 +12,7 @@ This wave assumes Waves 2 and 4 are complete. Verify actual seams before startin
   - F35: A unified `publishRuntimeDiagnostic` owns both event-bus emission and durable logging. Callers provide one diagnostic object once; no separate `emit` + `appendEvent` pairs.
   - F20: One `RuntimeControlCommand` handler computes patches for pause/resume. The runtime calls a single command handler.
 
-These changes mean `AgentAdapter` no longer owns the invocation loop. After the Wave 5A slices, `AttemptRecorder`, `SessionMessageLog`, `AgentSessionLifecycle`, `PlannerEnvelopeTracker`, `InvocationModelContext`, and `AgentInvocationRunner` exist. The remaining 5A implementation target is final facade cleanup and any test seam cleanup that can be done without losing coverage intent.
+These changes mean `AgentAdapter` no longer owns the invocation loop. Wave 5A is complete: `AttemptRecorder`, `SessionMessageLog`, `AgentSessionLifecycle`, `PlannerEnvelopeTracker`, `InvocationModelContext`, `AgentInvocationRunner`, planner-control factory wiring, and activation-barrier compensation extraction exist. `AgentAdapter` remains a facade with constructor wiring, role wrappers, late-bound runtime setters, and a few test-facing private pass-throughs that preserve coverage intent.
 
 Sub-wave 5A requires Wave 4 seams. Sub-waves 5B, 5C, 5D, and 5E may proceed first or in parallel.
 
@@ -36,13 +36,13 @@ Sub-wave 5A requires Wave 4 seams. Sub-waves 5B–5E have no hard dependency on 
 
 ### Current State (After Initial 5A Slices)
 
-`AgentAdapter` (569 lines after the runner extraction) holds:
+`AgentAdapter` (about 500 lines after the final 5A cleanup) holds:
 - Constructor with extensive wiring, including `InvocationService`, `ToolDispatcher`, `ContextCompactor`, session coordination, and planner-control wiring
 - Setter injection: `setContentSupervisor`, `setMcpManager`, `setSkillsEngine`, `setAfterSessionCreatedHook`, plus runtime/event-bus setters. `setLlmCallFn` is already removed; fake LLM injection is constructor-based.
 - Planner-specific compaction functions (lines 124–258) — **already extracted to `ContextCompactor` in Wave 4**
 - `PlannerEnvelopeTracker` — **already extracted in Wave 5A**; `invokeAgent` still constructs it inline until the runner owns invocation state
 - `invokePlanner`, `invokeExecutor`, `invokeReviewer`, `reinvokeSession` — thin wrappers delegating to a now-thin `invokeAgent`
-- Private helpers: `buildToolsForRole`, `processToolCall`, and `buildModelMessages` remain as test-facing/tool-parity seams; `nextFallbackRound`, `appendSessionMessage`, and `compensateActivationBarrierThrow` remain runtime-support helpers
+- Private helpers: `buildToolsForRole`, `processToolCall`, `buildModelMessages`, and `compensateActivationBarrierThrow` remain as test-facing/tool-parity seams; `nextFallbackRound` supports queued synthetic planner notes
 - `invokeAgent` is now a thin delegation to `AgentInvocationRunner.invoke()`
 
 ### Post-Wave-4 State (What invokeAgent Looks Like)
@@ -53,7 +53,7 @@ After Wave 4 extractions:
 - Diagnostic publishing → unified `publishRuntimeDiagnostic`
 - Analyst LLM resolution → deleted (merged into shared `InvocationService`)
 
-The invocation orchestration now lives in `src/agents/invocation-runner.ts`. Remaining 5A cleanup is about shrinking facade wiring, removing or relocating test-only private seams where useful, and making sure the next Wave 6 cleanup targets the runner rather than the old adapter-owned loop.
+The invocation orchestration now lives in `src/agents/invocation-runner.ts`. The planner-control reviewer callback lives in `src/agents/planner-control-factory.ts`, and activation-barrier compensation lives in `src/agents/activation-barrier-compensation.ts`. Wave 6 cleanup must target these post-5A ownership boundaries rather than the old adapter-owned loop.
 
 ### Seams in invokeAgent (Post-Wave-4)
 
@@ -377,10 +377,10 @@ Each step is a minimal compilable commit.
 - Thin delegation wrappers `invokePlanner`, `invokeExecutor`, `invokeReviewer` remain on `AgentAdapter` for API compatibility.
 - **Validation:** `npm run validate:routine`, `npm test`. Full integration test: planner loop, executor tool calls, reviewer assessment. Manual: invoke each role end-to-end.
 
-#### Step 5A-6: Clean up `AgentAdapter` facade — remaining
+#### Step 5A-6: Clean up `AgentAdapter` facade — complete
 
 - Remove all extracted methods from `AgentAdapter`.
-- Verify whether `AgentAdapter` can shrink further from its post-runner 569 lines toward ~300-350 lines. Constructor wiring, planner-control reviewer callback, and test-facing private pass-throughs are the current main remaining size drivers.
+- `AgentAdapter` shrank further after extracting planner-control factory wiring and activation-barrier compensation. It remains above the original target because it still owns runtime composition fields, role wrapper overloads, and explicit test-facing pass-throughs; further reduction should happen only if it removes real ownership rather than hiding wiring behind broad abstractions.
 - Remove unused imports.
 - **Validation:** `npm run validate:routine`, `npm test`, line count check on `agent-adapter.ts`.
 
