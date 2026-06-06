@@ -162,8 +162,6 @@ describe('AgentAdapter activation barrier compensation', () => {
           dispatch: async ({ activation }) => {
             updateRuntimeState(root, {
               status: 'running',
-              current_card_id: child.id,
-              current_agent_session_id: 'executor:child',
               active_card_run: {
                 card_id: child.id,
                 card_type: child.type,
@@ -210,8 +208,6 @@ describe('AgentAdapter activation barrier compensation', () => {
     expect(run).toMatchObject({ phase: 'failed', runtime_status: 'error' });
     expect(run.finished_at).toEqual(expect.any(String));
     expect(state.active_card_run).toBeNull();
-    expect(state.current_card_id).toBeNull();
-    expect(state.current_agent_session_id).toBeNull();
     expect(getSession(join(root, '.saivage'), `planner:${goal.id}`)?.status).toBe('failed');
 
     (adapter as any).compensateActivationBarrierThrow(

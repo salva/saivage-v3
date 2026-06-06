@@ -19,6 +19,7 @@ import { buildCardContextBlock } from './context-builder.js';
 import { readRuntimeState } from './state.js';
 import type { RuntimeServices } from './runtime-services.js';
 import { planClearActiveCardRunPatch } from './runtime-core.js';
+import { deriveCurrentAgentSessionId } from './current-run.js';
 import { selectActivationStartAction } from './transition-policy.js';
 
 export interface ExecutorActivationDispatcherDeps extends Pick<RuntimeServices,
@@ -108,7 +109,7 @@ export class ExecutorActivationDispatcher {
         }
       ).getLastSessionId?.('executor', goalId, card.id),
       activeRunExecutorSessionId: stateAfterExecutor?.active_card_run?.executor_session_id,
-      currentAgentSessionId: stateAfterExecutor?.current_agent_session_id,
+      currentAgentSessionId: deriveCurrentAgentSessionId(stateAfterExecutor),
     });
     const {
       artifactRegistrationErrors,

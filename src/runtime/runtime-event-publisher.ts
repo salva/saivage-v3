@@ -7,8 +7,6 @@ import type {
 import { EventBus, eventKindValues, trackedEventKindValues, type EventPayload } from '../events/index.js';
 import type { EventKind } from '../events/index.js';
 import type { EventLogger } from '../observability/index.js';
-import { buildCurrentAgentSessionPatch } from './runtime-core.js';
-import type { RuntimeStateMutationPort } from './mutations.js';
 
 const TRACKED_EVENT_KINDS: ReadonlySet<EventKind> = new Set(trackedEventKindValues);
 const EVENT_KINDS: ReadonlySet<EventKind> = new Set(eventKindValues);
@@ -18,7 +16,6 @@ export class RuntimeEventPublisher {
 
   constructor(
     private readonly eventLogger: EventLogger,
-    private readonly mutations: RuntimeStateMutationPort,
   ) {}
 
   on(eventName: string | symbol, listener: (...args: unknown[]) => void): void {
@@ -44,13 +41,6 @@ export class RuntimeEventPublisher {
   }
 
   emitAgentEvent(name: string, data: Record<string, unknown>): void {
-    if (name === 'session_started' && typeof data.session_id === 'string') {
-      try {
-        this.mutations.apply({ kind: 'patchRuntimeState', patch: buildCurrentAgentSessionPatch(data.session_id) });
-      } catch {
-        void 0;
-      }
-    }
     this.emit(name, data);
   }
 

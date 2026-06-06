@@ -257,8 +257,8 @@ project card has been activated, or after the project planner goes
 `Dormant`). Otherwise it holds the single card that is currently
 executing, planning, or under review. The persisted-state invariant is
 enforced in `src/runtime/state.ts`: an idle state with
-`current_card_id === null` must not retain a non-terminal running
-`active_card_run`; production reads self-heal historical corruption and
+An idle runtime must not retain a non-terminal running
+`active_card_run`; production reads reject historical corruption and
 `tests/utils/runtime-state-invariant.test.ts` covers the guard.
 
 `src/runtime/activation-reducer.ts` is an internal staged helper for
@@ -923,7 +923,7 @@ above is the in-memory mirror.
   for root runtime intent.
 - the pause runtime command and the resume runtime command — global
   pause gate (§5, §12). Returns the updated `RuntimeState`.
-- `GET /api/agents` — enumerates every persisted `.saivage/agents/messages/*.jsonl` session plus session manifests, parsing `analyst`, `planner:<id>`, `reviewer:<id>`, `executor:<id>`, and `card-*` ids and marking only `RuntimeState.current_agent_session_id` active after reload (enforced by `src/contracts/operator-api-agents.ts`, `src/server/routes/operator-agent-handlers.ts`, and `tests/server/agents-detail-route.test.ts`).
+- `GET /api/agents` — enumerates every persisted `.saivage/agents/messages/*.jsonl` session plus session manifests, parsing `analyst`, `planner:<id>`, `reviewer:<id>`, `executor:<id>`, and `card-*` ids and marking only the session derived from `RuntimeState.active_card_run` active after reload (enforced by `src/contracts/operator-api-agents.ts`, `src/server/routes/operator-agent-handlers.ts`, and `tests/server/agents-detail-route.test.ts`).
 - `GET /ws` — WebSocket analyst chat/event stream. The server checks auth on upgrade, serializes analyst turns per client connection, and sanitizes analyst message/activity/tool payloads before sending them to operators (enforced by `src/server/websocket.ts`, `src/agents/analyst-sanitization.ts`, and `tests/server/websocket-analyst-safety.test.ts`).
 - `GET /api/runtime/card-runs` — returns a typed union for operator UI:
 

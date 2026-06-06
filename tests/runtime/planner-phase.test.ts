@@ -166,8 +166,6 @@ describe('planner phase decisions', () => {
       at: 'now',
     })).toEqual({
       status: 'running',
-      current_card_id: 'goal-a',
-      current_agent_session_id: 'planner:goal-a',
       active_card_run: expect.objectContaining({
         card_id: 'goal-a',
         card_type: 'goal',

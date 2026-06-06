@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { readRuntimeState } from '../../runtime/state-api.js';
 import { agentMessageSchema } from '../../schemas/index.js';
 import type { RuntimeState } from '../../schemas/index.js';
+import { deriveCurrentAgentSessionId } from '../../runtime/current-run.js';
 import type { RuntimeApi } from '../../runtime/control-api.js';
 
 export const GLOBAL_OPERATOR_AGENT_SESSION_ID = 'analyst';
@@ -156,7 +157,7 @@ export class AgentOperatorReadModelService {
       ...(manifest ?? {}),
       id: sessionId,
       role: typeof manifest?.['role'] === 'string' ? manifest['role'] : this.parseRole(sessionId),
-      status: this.listedStatus(state, manifest, sessionId, typeof state?.current_agent_session_id === 'string' ? state.current_agent_session_id : null),
+      status: this.listedStatus(state, manifest, sessionId, deriveCurrentAgentSessionId(state)),
       started_at: startedAt,
     };
   }

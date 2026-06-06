@@ -57,14 +57,10 @@ function activeRunIsIdleTerminal(run: ActiveCardRun | null | undefined): boolean
   return TERMINAL_IDLE_ACTIVE_RUN_STATUSES.has(run.runtime_status);
 }
 
-function isIdleWithoutCurrentCard(state: RuntimeState): boolean {
-  return state.status === 'idle' && (state.current_card_id ?? null) === null;
-}
-
 function describeInvariantViolation(state: RuntimeState): string {
   const status = state.active_card_run?.runtime_status ?? 'null';
   const cardId = state.active_card_run?.card_id ?? 'null';
-  return `RuntimeState invariant violation: idle runtime with current_card_id null cannot retain non-terminal active_card_run (card_id=${cardId}, runtime_status=${status}). Reset .saivage runtime state and restart.`;
+  return `RuntimeState invariant violation: idle runtime cannot retain non-terminal active_card_run (card_id=${cardId}, runtime_status=${status}). Reset .saivage runtime state and restart.`;
 }
 
 function describeMixedLayout(projectRoot: string): string {
@@ -78,7 +74,7 @@ function assertNoMixedRuntimeStateLayout(projectRoot: string): void {
 }
 
 function assertRuntimeStateInvariants(state: RuntimeState): RuntimeState {
-  if (!isIdleWithoutCurrentCard(state) || activeRunIsIdleTerminal(state.active_card_run)) {
+  if (state.status !== 'idle' || activeRunIsIdleTerminal(state.active_card_run)) {
     return state;
   }
   throw new RuntimeStateInvariantError(describeInvariantViolation(state));
@@ -91,8 +87,6 @@ function defaultRuntimeState(): RuntimeState {
     project_id: 'project',
     pid: process.pid,
     started_at: now,
-    current_card_id: null,
-    current_agent_session_id: null,
     active_card_run: null,
     paused: false,
     paused_at: null,

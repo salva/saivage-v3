@@ -1,4 +1,5 @@
 import { setProcessTerminalBuffering } from './process-runner.js';
+import { deriveCurrentAgentSessionId } from './current-run.js';
 import { buildPauseRuntimeStatePatch, buildResumeRuntimeStatePatch } from './runtime-core.js';
 import { readRuntimeState } from './state.js';
 import type { RuntimeGoalContextCoordinator } from './runtime-goal-context.js';
@@ -42,8 +43,7 @@ export function createRuntimePauseResumeController(deps: RuntimePauseResumeContr
     setProcessTerminalBuffering(deps.projectRoot, false);
     try {
       const state = readRuntimeState(deps.projectRoot);
-      const plannerSessionId =
-        state?.active_card_run?.planner_session_id ?? state?.current_agent_session_id;
+      const plannerSessionId = state?.active_card_run?.phase === 'planner' ? deriveCurrentAgentSessionId(state) : null;
       if (plannerSessionId && state?.active_card_run?.card_id) {
         deps.goalContext.appendPlannerResumeContext(
           state.active_card_run.card_id,

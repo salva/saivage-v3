@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { buildCompletedRuntimeCommandState, buildCurrentAgentSessionPatch, buildDispatchPausedRuntimeStatePatch, buildFreezeManifest, buildFreezeRuntimeStatePatch, buildPauseRuntimeStatePatch, buildRejectedRuntimeCommandState, buildResumeFromFreezeRuntimeStatePatch, buildResumeHandoffContext, buildResumeRuntimeStatePatch, buildShutdownRuntimeStatePatch, makeRuntimePreconditionError, observeRuntimeStateInvariants, planClearActiveCardRunPatch, planIdleRunningRootRunReconciliation, planOpenPlannerRunTerminalUpdate, planOpenRootRunStopUpdates, planPlannerRunSessionBinding, planProjectRootRedispatch, planRootRunDispatchFailureUpdate, planRootRunDispatchSuccessUpdate, planStartProjectPrecondition, planSweptCurrentAgentSessionPatch, reduceActivationCompletion, reduceRuntimeEvent } from '../../src/runtime/runtime-core.js';
+import { buildCompletedRuntimeCommandState, buildDispatchPausedRuntimeStatePatch, buildFreezeManifest, buildFreezeRuntimeStatePatch, buildPauseRuntimeStatePatch, buildRejectedRuntimeCommandState, buildResumeFromFreezeRuntimeStatePatch, buildResumeHandoffContext, buildResumeRuntimeStatePatch, buildShutdownRuntimeStatePatch, makeRuntimePreconditionError, observeRuntimeStateInvariants, planClearActiveCardRunPatch, planIdleRunningRootRunReconciliation, planOpenPlannerRunTerminalUpdate, planOpenRootRunStopUpdates, planPlannerRunSessionBinding, planProjectRootRedispatch, planRootRunDispatchFailureUpdate, planRootRunDispatchSuccessUpdate, planStartProjectPrecondition, planSweptCurrentAgentSessionPatch, reduceActivationCompletion, reduceRuntimeEvent } from '../../src/runtime/runtime-core.js';
 import type { PlannerDoneResult } from '../../src/schemas/index.js';
 import type { RuntimeState } from '../../src/schemas/types.js';
 
@@ -10,8 +10,6 @@ function state(overrides: Partial<RuntimeState> = {}): RuntimeState {
     status: 'idle',
     paused: false,
     paused_at: null,
-    current_card_id: null,
-    current_agent_session_id: null,
     active_card_run: null,
     runtime_intent: { status: 'stopped', updated_at: '2026-05-26T00:00:00.000Z' },
     runtime_commands: [],
@@ -122,13 +120,11 @@ describe('runtime core reducers', () => {
   it('builds pause, resume, and freeze-manifest state helper shapes', () => {
     const activeState = state({
       started_at: 'started',
-      current_card_id: 'goal-a',
-      current_agent_session_id: 'planner:goal-a',
       active_card_run: { card_id: 'goal-a', card_type: 'goal', runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:goal-a', correction_attempts: 0, started_at: 'started', last_turn_at: 'turn' },
     });
     expect(buildPauseRuntimeStatePatch('paused')).toEqual({ status: 'paused', paused: true, paused_at: 'paused' });
     expect(buildResumeRuntimeStatePatch(activeState)).toEqual({ status: 'running', paused: false, paused_at: null });
-    expect(buildFreezeRuntimeStatePatch({ state: activeState, frozenAt: 'frozen' })).toEqual(expect.objectContaining({ status: 'frozen', started_at: 'started', current_card_id: 'goal-a', current_agent_session_id: 'planner:goal-a', paused: true, paused_at: 'frozen' }));
+    expect(buildFreezeRuntimeStatePatch({ state: activeState, frozenAt: 'frozen' })).toEqual(expect.objectContaining({ status: 'frozen', started_at: 'started', paused: true, paused_at: 'frozen' }));
     const manifest = buildFreezeManifest({
       state: activeState,
       freezeId: 'freeze-1',
@@ -137,24 +133,21 @@ describe('runtime core reducers', () => {
       handoffSummaries: [{ session_id: 'planner:goal-a', role: 'planner', last_action: 'planned', next_action: 'resume', context_summary: 'context' }],
       runtimeVersion: '0.1.0',
     });
-    expect(manifest).toEqual(expect.objectContaining({ freeze_id: 'freeze-1', reason: 'operator requested freeze', current_agent_session_id: 'planner:goal-a', schema_version: 1 }));
-    expect(buildResumeFromFreezeRuntimeStatePatch(manifest)).toEqual(expect.objectContaining({ status: 'idle', started_at: 'started', current_card_id: 'goal-a', current_agent_session_id: 'planner:goal-a', paused: false, paused_at: null }));
+    expect(manifest).toEqual(expect.objectContaining({ freeze_id: 'freeze-1', reason: 'operator requested freeze', active_card_run: expect.objectContaining({ card_id: 'goal-a' }), schema_version: 1 }));
+    expect(buildResumeFromFreezeRuntimeStatePatch(manifest)).toEqual(expect.objectContaining({ status: 'running', started_at: 'started', active_card_run: expect.objectContaining({ card_id: 'goal-a' }), paused: false, paused_at: null }));
     expect(buildResumeHandoffContext(manifest)).toContain('[Handoff] Session: planner:goal-a');
   });
 
   it('plans startup and shutdown cleanup patches', () => {
     const activeState = state({
       status: 'running',
-      current_card_id: 'goal-a',
-      current_agent_session_id: 'planner:goal-a',
       active_card_run: { card_id: 'goal-a', card_type: 'goal', runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:goal-a', correction_attempts: 0, started_at: 'started', last_turn_at: 'turn' },
     });
-    expect(planClearActiveCardRunPatch({ state: activeState, cardId: 'goal-a' })).toEqual({ status: 'idle', current_card_id: null, current_agent_session_id: null, active_card_run: null });
+    expect(planClearActiveCardRunPatch({ state: activeState, cardId: 'goal-a' })).toEqual({ status: 'idle', active_card_run: null });
     expect(planClearActiveCardRunPatch({ state: activeState, cardId: 'other' })).toBeNull();
-    expect(planSweptCurrentAgentSessionPatch({ state: activeState, sweptSessionIds: ['planner:goal-a'] })).toEqual({ current_agent_session_id: null });
+    expect(planSweptCurrentAgentSessionPatch({ state: activeState, sweptSessionIds: ['planner:goal-a'] })).toEqual({ status: 'idle', active_card_run: null });
     expect(planSweptCurrentAgentSessionPatch({ state: activeState, sweptSessionIds: ['other'] })).toBeNull();
-    expect(buildShutdownRuntimeStatePatch()).toEqual({ status: 'idle', current_card_id: null, current_agent_session_id: null, active_card_run: null, paused: false, paused_at: null });
-    expect(buildCurrentAgentSessionPatch('planner:goal-a')).toEqual({ current_agent_session_id: 'planner:goal-a' });
+    expect(buildShutdownRuntimeStatePatch()).toEqual({ status: 'idle', active_card_run: null, paused: false, paused_at: null });
     expect(buildDispatchPausedRuntimeStatePatch()).toEqual({ status: 'paused' });
   });
 
@@ -199,12 +192,12 @@ describe('runtime core reducers', () => {
   it('reduces lifecycle events to patches without persisting them', () => {
     expect(reduceRuntimeEvent(state(), 'paused', {}, '2026-05-26T01:00:00.000Z')).toEqual({ status: 'paused', paused: true, paused_at: '2026-05-26T01:00:00.000Z' });
     expect(reduceRuntimeEvent(state({ active_card_run: { card_id: 'c1', card_type: 'goal', runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:c1', correction_attempts: 0, started_at: 't', last_turn_at: 't' } }), 'resumed', {}, 'now')).toEqual({ status: 'running', paused: false, paused_at: null });
-    expect(reduceRuntimeEvent(state(), 'goal_exit', {}, 'now')).toEqual({ status: 'idle', current_card_id: null, current_agent_session_id: null, active_card_run: null });
+    expect(reduceRuntimeEvent(state(), 'goal_exit', {}, 'now')).toEqual({ status: 'idle', active_card_run: null });
     expect(reduceRuntimeEvent(state(), 'reviewer_started', {
       goalId: 'goal-a',
       reviewerSessionId: 'reviewer:goal-a',
       activeCardRun: { card_id: 'goal-a', card_type: 'goal', runtime_status: 'running', phase: 'reviewer', caller_session_id: null, caller_tool_call_id: null, reviewer_session_id: 'reviewer:goal-a', correction_attempts: 0, started_at: 'now', last_turn_at: 'now' },
-    }, 'now')).toEqual(expect.objectContaining({ status: 'running', current_card_id: 'goal-a', current_agent_session_id: 'reviewer:goal-a', active_card_run: expect.objectContaining({ card_id: 'goal-a' }) }));
+    }, 'now')).toEqual(expect.objectContaining({ status: 'running', active_card_run: expect.objectContaining({ card_id: 'goal-a', reviewer_session_id: 'reviewer:goal-a' }) }));
   });
 
   it('plans invariant observations and corrections as data', () => {
@@ -212,14 +205,13 @@ describe('runtime core reducers', () => {
       expect.objectContaining({ invariant: 'I1', key: 'global', correction: expect.objectContaining({ status: 'idle' }) }),
     ]);
     expect(observeRuntimeStateInvariants({
-      state: state({ status: 'idle', current_card_id: 'code-a', active_card_run: { card_id: 'code-a', card_type: 'code', runtime_status: 'running', phase: 'executor', caller_session_id: 'planner:goal-a', caller_tool_call_id: null, executor_session_id: 'executor-code-a', correction_attempts: 0, started_at: 't', last_turn_at: 't' } }),
+      state: state({ status: 'idle', active_card_run: { card_id: 'code-a', card_type: 'code', runtime_status: 'running', phase: 'executor', caller_session_id: 'planner:goal-a', caller_tool_call_id: null, executor_session_id: 'executor-code-a', correction_attempts: 0, started_at: 't', last_turn_at: 't' } }),
       currentCardStatus: 'running',
     })).toEqual(expect.arrayContaining([
       expect.objectContaining({ invariant: 'I1', key: 'global', correction: { status: 'running' } }),
     ]));
-    expect(observeRuntimeStateInvariants({ state: state({ current_card_id: 'c1' }), currentCardStatus: 'done' })).toEqual(expect.arrayContaining([
+    expect(observeRuntimeStateInvariants({ state: state({ active_card_run: { card_id: 'c1', card_type: 'goal', runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:c1', correction_attempts: 0, started_at: 't', last_turn_at: 't' } }), currentCardStatus: 'done' })).toEqual(expect.arrayContaining([
       expect.objectContaining({ invariant: 'I2', key: 'c1', correction: expect.objectContaining({ active_card_run: null }) }),
-      expect.objectContaining({ invariant: 'I3', key: 'c1|null' }),
     ]));
     expect(observeRuntimeStateInvariants({
       state: state({

@@ -12,7 +12,7 @@ import {
   updateRuntimeState,
   RuntimeStateLayoutError,
 } from '../../src/runtime/state.js';
-import type { RuntimeState } from '../../src/schemas/types.js';
+import type { ActiveCardRun, RuntimeState } from '../../src/schemas/types.js';
 
 let root: string;
 
@@ -36,8 +36,6 @@ function legacyRuntimeState(overrides: Partial<RuntimeState> = {}): RuntimeState
     project_id: 'project',
     pid: 1234,
     started_at: now,
-    current_card_id: null,
-    current_agent_session_id: null,
     active_card_run: null,
     paused: true,
     paused_at: now,
@@ -45,6 +43,11 @@ function legacyRuntimeState(overrides: Partial<RuntimeState> = {}): RuntimeState
     frozen_reason: null,
     ...overrides,
   };
+}
+
+function activeRun(cardId: string): ActiveCardRun {
+  const now = new Date().toISOString();
+  return { card_id: cardId, card_type: 'goal', runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: `planner:${cardId}`, correction_attempts: 0, started_at: now, last_turn_at: now };
 }
 
 beforeEach(() => {
@@ -67,9 +70,9 @@ describe('RuntimeState authoritative file layout', () => {
     expect(readAuthoritative()).toMatchObject({ status: 'paused', paused: true });
     expect(saved.status).toBe('paused');
 
-    const updated = updateRuntimeState(root, { status: 'running', current_card_id: 'goal-a' });
-    expect(updated).toMatchObject({ status: 'running', current_card_id: 'goal-a' });
-    expect(readRuntimeState(root)).toMatchObject({ status: 'running', current_card_id: 'goal-a' });
+    const updated = updateRuntimeState(root, { status: 'running', active_card_run: activeRun('goal-a') });
+    expect(updated).toMatchObject({ status: 'running', active_card_run: expect.objectContaining({ card_id: 'goal-a' }) });
+    expect(readRuntimeState(root)).toMatchObject({ status: 'running', active_card_run: expect.objectContaining({ card_id: 'goal-a' }) });
     expect(existsSync(legacyPath())).toBe(false);
   });
 
@@ -93,11 +96,11 @@ describe('RuntimeState authoritative file layout', () => {
 
   it('treats old-path changes as non-authoritative after the authoritative file exists by refusing the mixed layout', () => {
     const authoritative = initRuntimeState(root);
-    saveRuntimeState(root, { ...authoritative, status: 'running', current_card_id: 'authoritative-card' });
-    writeFileAtomic(legacyPath(), JSON.stringify(legacyRuntimeState({ status: 'paused', current_card_id: null }), null, 2) + '\n');
+    saveRuntimeState(root, { ...authoritative, status: 'running', active_card_run: activeRun('authoritative-card') });
+    writeFileAtomic(legacyPath(), JSON.stringify(legacyRuntimeState({ status: 'paused', active_card_run: null }), null, 2) + '\n');
 
     expect(() => readRuntimeState(root)).toThrow(RuntimeStateLayoutError);
     const persisted = readAuthoritative();
-    expect(persisted).toMatchObject({ status: 'running', current_card_id: 'authoritative-card' });
+    expect(persisted).toMatchObject({ status: 'running', active_card_run: expect.objectContaining({ card_id: 'authoritative-card' }) });
   });
 });

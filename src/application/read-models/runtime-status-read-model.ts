@@ -1,5 +1,6 @@
 import type { RuntimeApi } from '../../runtime/control-api.js';
 import { readRuntimeState } from '../../runtime/state-api.js';
+import { deriveCurrentCardId } from '../../runtime/current-run.js';
 import type { ServerAvailability } from '../../contracts/index.js';
 
 export interface RuntimeStatusReadModel {
@@ -37,7 +38,7 @@ export function buildRuntimeStatusReadModel(inputs: RuntimeStatusInputs): Runtim
   return {
     runtime: state?.status ?? 'unknown',
     paused: state?.paused ?? false,
-    currentCardId: state?.current_card_id ?? null,
+    currentCardId: deriveCurrentCardId(state),
     goalCount: 0,
     lastTickAt: state?.last_tick_at ?? null,
     pid,

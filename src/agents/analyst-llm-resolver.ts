@@ -17,7 +17,11 @@ import { createLlmExchangeRecorder, toRecorderLogger } from './llm-exchange-reco
 import type { LlmExchangeRecorder, LlmExchangeRecorderLogger } from './llm-exchange-recorder.js';
 import { buildLlmOptions } from './llm-options-factory.js';
 import {
+  ANALYST_ISSUE_SEVERITY_VALUES,
+  CARD_STATUS_VALUES,
+  CARD_TYPE_VALUES,
   TOOL_DEFINITIONS,
+  URGENCY_VALUES,
   type UnifiedToolDefinition,
 } from '../tools/definitions/index.js';
 import type { ToolResult, ToolContext } from './analyst-tools.js';
@@ -47,6 +51,15 @@ export const TOOL_REGISTRY: Record<string, ToolFn> = Object.fromEntries(
 
 function formatToolList(tools: ToolDefinition[]): string {
   return tools.map((tool) => `- ${tool.function.name}: ${tool.function.description}`).join('\n');
+}
+
+function formatVocabularySnippet(): string {
+  return [
+    `Card status: ${CARD_STATUS_VALUES.join(' | ')}`,
+    `Card type: ${CARD_TYPE_VALUES.join(' | ')}`,
+    `Urgency: ${URGENCY_VALUES.join(' | ')}`,
+    `AnalystIssue severity: ${ANALYST_ISSUE_SEVERITY_VALUES.join(' | ')}`,
+  ].join('. ');
 }
 
 const ANALYST_SYSTEM_PROMPT = `You are the Saivage Analyst — the user's conversational control surface for the autonomous runtime. You inspect, navigate, mutate cards, queue notifications, control runtime execution, reconfigure non-secret settings, and investigate/repair by calling registered tools. You do not perform delivery work yourself.
@@ -79,7 +92,7 @@ Safety:
 - Do not use shell commands to mutate source, deploy, run delivery builds/tests, or perform planner/executor work.
 - If a tool returns success=false, explain the failure and suggest a grounded next step.
 
-Vocabularies: Card status: drafting | backlog | active | running | blocked | changed | done | failed | cancelled | needs_verification. Card type: project | goal | architecture | code | test | doc | data | research | ops. Urgency: low | normal | high | critical. AnalystIssue severity: info | warning | blocker.`;
+Vocabularies: ${formatVocabularySnippet()}.`;
 
 export function getAnalystToolDefinitions(): ToolDefinition[] { return ANALYST_TOOL_DEFINITIONS; }
 export function getAnalystSystemPrompt(): string { return ANALYST_SYSTEM_PROMPT; }

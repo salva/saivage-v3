@@ -60,6 +60,28 @@ export function selectRuntimeStatusLabel(runtime: RuntimeState | null): string {
   return runtime.status;
 }
 
+export function selectCurrentCardId(runtime: RuntimeState | null): string | null {
+  return runtime?.active_card_run?.card_id ?? null;
+}
+
+export function selectCurrentAgentSessionId(runtime: RuntimeState | null): string | null {
+  const run = runtime?.active_card_run ?? null;
+  if (!run) return null;
+  switch (run.phase) {
+    case 'planner': return run.planner_session_id ?? null;
+    case 'executor': return run.executor_session_id ?? null;
+    case 'reviewer': return run.reviewer_session_id ?? null;
+  }
+}
+
+export function selectRuntimeStatusTone(runtime: RuntimeState | null): string {
+  const label = selectRuntimeStatusLabel(runtime);
+  if (label === 'error' || label === 'frozen') return 'danger';
+  if (label === 'paused') return 'warning';
+  if (label === 'running') return 'success';
+  return 'neutral';
+}
+
 export function selectRuntimeModeLabel(options: { frozen: boolean; paused: boolean; statusLabel: string }): string {
   if (options.frozen) return 'Frozen';
   if (options.paused) return 'Paused';

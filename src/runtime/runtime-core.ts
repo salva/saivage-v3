@@ -1,6 +1,7 @@
 import type { ActionableErrorEnvelope, CardLifecycleState, CardRecord, CardStatus, FreezeManifest, HandoffSummary, RuntimeCommandRecord, RuntimeLedgerActivationOutcome, RuntimeLedgerRunOutcome, RuntimeRunRecord, RuntimeState } from '../schemas/index.js';
 import type { ActivationCompletionOutcome } from '../schemas/index.js';
 import { TERMINAL_STATUSES } from '../permissions/index.js';
+import { deriveCurrentAgentSessionId, deriveCurrentCardId } from './current-run.js';
 import { isUnresolvedRuntimeActivationStatus } from './state.js';
 
 // Pause field groups:
@@ -167,8 +168,6 @@ export function buildFreezeRuntimeStatePatch(input: {
   return {
     status: 'frozen',
     started_at: input.state?.started_at ?? input.frozenAt,
-    current_card_id: input.state?.current_card_id ?? null,
-    current_agent_session_id: input.state?.current_agent_session_id ?? null,
     paused: true,
     paused_at: input.frozenAt,
   };
@@ -191,8 +190,7 @@ export function buildFreezeManifest(input: {
     project_id: 'project',
     pid: input.pid,
     started_at: input.state?.started_at ?? input.frozenAt,
-    current_card_id: input.state?.current_card_id ?? null,
-    current_agent_session_id: input.state?.current_agent_session_id ?? null,
+    active_card_run: input.state?.active_card_run ?? null,
     queue: [],
     running_processes: [],
     handoff_summaries: input.handoffSummaries,
@@ -203,10 +201,9 @@ export function buildFreezeManifest(input: {
 
 export function buildResumeFromFreezeRuntimeStatePatch(manifest: FreezeManifest): Partial<RuntimeState> {
   return {
-    status: 'idle',
+    status: manifest.active_card_run ? 'running' : 'idle',
     started_at: manifest.started_at,
-    current_card_id: manifest.current_card_id,
-    current_agent_session_id: manifest.current_agent_session_id,
+    active_card_run: manifest.active_card_run ?? null,
     paused: false,
     paused_at: null,
   };
@@ -214,7 +211,7 @@ export function buildResumeFromFreezeRuntimeStatePatch(manifest: FreezeManifest)
 
 export function buildResumeHandoffContext(manifest: FreezeManifest): string | null {
   const handoffSummaries = manifest.handoff_summaries ?? [];
-  if (handoffSummaries.length === 0 || !manifest.current_agent_session_id) return null;
+  if (handoffSummaries.length === 0 || !deriveCurrentAgentSessionId({ active_card_run: manifest.active_card_run ?? null })) return null;
   return handoffSummaries
     .map(
       (h) =>
@@ -227,13 +224,11 @@ export function planClearActiveCardRunPatch(input: {
   state: RuntimeState | null;
   cardId: string;
 }): Partial<RuntimeState> | null {
-  if (input.state?.current_card_id !== input.cardId && input.state?.active_card_run?.card_id !== input.cardId) {
+  if (input.state?.active_card_run?.card_id !== input.cardId) {
     return null;
   }
   return {
     status: 'idle',
-    current_card_id: null,
-    current_agent_session_id: null,
     active_card_run: null,
   };
 }
@@ -242,25 +237,19 @@ export function planSweptCurrentAgentSessionPatch(input: {
   state: RuntimeState | null;
   sweptSessionIds: Iterable<string>;
 }): Partial<RuntimeState> | null {
-  const currentSessionId = input.state?.current_agent_session_id ?? null;
+  const currentSessionId = deriveCurrentAgentSessionId(input.state);
   if (!currentSessionId) return null;
   const sweptSet = new Set(input.sweptSessionIds);
-  return sweptSet.has(currentSessionId) ? { current_agent_session_id: null } : null;
+  return sweptSet.has(currentSessionId) ? { active_card_run: null, status: 'idle' } : null;
 }
 
 export function buildShutdownRuntimeStatePatch(): Partial<RuntimeState> {
   return {
     status: 'idle',
-    current_card_id: null,
-    current_agent_session_id: null,
     active_card_run: null,
     paused: false,
     paused_at: null,
   };
-}
-
-export function buildCurrentAgentSessionPatch(sessionId: string | null): Partial<RuntimeState> {
-  return { current_agent_session_id: sessionId };
 }
 
 /** Sets only the dispatch-paused signal; the pause controller applies paused metadata separately. */
@@ -315,7 +304,6 @@ export function planStartProjectPrecondition(input: {
     !openRootRun &&
     input.state.status === 'idle' &&
     (input.state.active_card_run ?? null) === null &&
-    (input.state.current_card_id ?? null) === null &&
     !input.hasBlockedPlanning;
   const decisionBase = {
     openRootRun,
@@ -362,19 +350,17 @@ export function reduceRuntimeEvent(
     case 'goal_exit':
     case 'card_terminated':
     case 'goal_completed':
-      return { status: 'idle', current_card_id: null, current_agent_session_id: null, active_card_run: null };
+      return { status: 'idle', active_card_run: null };
     case 'reviewer_started': {
-      const goalId = (payload.goalId as string | undefined) ?? null;
-      const reviewerSessionId = (payload.reviewerSessionId as string | undefined) ?? null;
       const activeCardRun = (payload.activeCardRun ?? null) as RuntimeState['active_card_run'];
-      return { status: 'running', current_card_id: goalId, current_agent_session_id: reviewerSessionId, active_card_run: activeCardRun };
+      return { status: 'running', active_card_run: activeCardRun };
     }
     case 'reviewer_finished':
-      return { status: 'idle', current_card_id: null, current_agent_session_id: null, active_card_run: null };
+      return { status: 'idle', active_card_run: null };
   }
 }
 
-export type InvariantId = 'I1' | 'I2' | 'I3' | 'I4' | 'I5' | 'I6' | 'I7' | 'I8';
+export type InvariantId = 'I1' | 'I2' | 'I4' | 'I5' | 'I6' | 'I7' | 'I8';
 
 export interface RuntimeInvariantObservation {
   invariant: InvariantId;
@@ -396,7 +382,7 @@ export function observeRuntimeStateInvariants(input: {
       invariant: 'I1',
       key: 'global',
       details: { status: state.status },
-      correction: { status: 'idle', current_card_id: null, current_agent_session_id: null },
+      correction: { status: 'idle' },
     });
   }
 
@@ -409,23 +395,13 @@ export function observeRuntimeStateInvariants(input: {
     });
   }
 
-  const currentCardId = state.current_card_id ?? null;
+  const currentCardId = deriveCurrentCardId(state);
   if (currentCardId !== null && currentCardStatus !== null && TERMINAL_STATUSES.has(currentCardStatus)) {
     observations.push({
       invariant: 'I2',
       key: currentCardId,
       details: { cardId: currentCardId, cardStatus: currentCardStatus },
-      correction: { status: 'idle', current_card_id: null, current_agent_session_id: null, active_card_run: null },
-    });
-  }
-
-  const runCardId = state.active_card_run?.card_id ?? null;
-  if (runCardId !== currentCardId) {
-    observations.push({
-      invariant: 'I3',
-      key: `${currentCardId ?? 'null'}|${runCardId ?? 'null'}`,
-      details: { currentCardId, activeRunCardId: runCardId },
-      correction: { status: 'idle', current_card_id: null, current_agent_session_id: null, active_card_run: null },
+      correction: { status: 'idle', active_card_run: null },
     });
   }
 
@@ -582,7 +558,6 @@ export function planIdleRunningRootRunReconciliation(input: {
   if (
     (state.runtime_intent?.status ?? 'stopped') !== 'running' ||
     state.status !== 'idle' ||
-    (state.current_card_id ?? null) !== null ||
     (state.active_card_run ?? null) !== null
   ) {
     return null;
@@ -601,8 +576,6 @@ export function planIdleRunningRootRunReconciliation(input: {
           reason: 'Reconciled running runtime intent to expected idle because the project card is terminal and no active card run exists.',
         },
         status: 'idle',
-        current_card_id: null,
-        current_agent_session_id: null,
         active_card_run: null,
         updated_at: nowIso,
       },

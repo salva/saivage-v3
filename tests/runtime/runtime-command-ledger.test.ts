@@ -740,8 +740,6 @@ describe('runtime command ledger target contract (Wave 1)', () => {
 
       const state = readRuntimeState(projectRoot)!;
       expect(state.status).toBe('idle');
-      expect(state.current_card_id).toBeNull();
-      expect(state.current_agent_session_id).toBeNull();
       expect(state.active_card_run).toBeNull();
       expect(cards.read('project')).toEqual(expect.objectContaining({ status: 'failed' }));
       expect(state.runtime_runs).toEqual(
@@ -853,8 +851,6 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       );
       expect(terminalFailedRootEvents).toHaveLength(1);
       expect(state.status).toBe('idle');
-      expect(state.current_card_id).toBeNull();
-      expect(state.current_agent_session_id).toBeNull();
       expect(state.active_card_run).toBeNull();
       expect(cards.read('project')).toEqual(
         expect.objectContaining({
@@ -947,8 +943,6 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       );
       const state = readRuntimeState(projectRoot)!;
       expect(state.status).toBe('idle');
-      expect(state.current_card_id).toBeNull();
-      expect(state.current_agent_session_id).toBeNull();
       expect(state.active_card_run).toBeNull();
       expect(state.runtime_runs).toEqual(
         expect.arrayContaining([

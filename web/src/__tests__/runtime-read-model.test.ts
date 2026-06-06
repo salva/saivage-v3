@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RuntimeRunRecord, RuntimeState } from '../api/types';
-import { selectLiveUpdateState, selectRuntimeStatusLabel, selectRuntimeSummary } from '../stores/runtime-read-model';
+import { selectCurrentAgentSessionId, selectCurrentCardId, selectLiveUpdateState, selectRuntimeStatusLabel, selectRuntimeSummary } from '../stores/runtime-read-model';
 
 function runtime(overrides: Partial<RuntimeState> = {}): RuntimeState {
   return {
@@ -9,8 +9,7 @@ function runtime(overrides: Partial<RuntimeState> = {}): RuntimeState {
     pid: 123,
     started_at: '2025-01-01T00:00:00Z',
     updated_at: '2025-01-01T00:00:00Z',
-    current_card_id: 'goal',
-    current_agent_session_id: 'session',
+    active_card_run: { card_id: 'goal', card_type: 'goal', runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:goal', correction_attempts: 0, started_at: '2025-01-01T00:00:00Z', last_turn_at: '2025-01-01T00:00:00Z' },
     paused: false,
     paused_at: null,
     frozen_reason: null,
@@ -51,6 +50,8 @@ describe('runtime-read-model', () => {
 
   it('single-sources status and live update labels', () => {
     expect(selectRuntimeStatusLabel(runtime({ paused: true }))).toBe('paused');
+    expect(selectCurrentCardId(runtime())).toBe('goal');
+    expect(selectCurrentAgentSessionId(runtime())).toBe('planner:goal');
     expect(selectLiveUpdateState({ connectionState: 'no-token', unauthorized: false, stale: false, wsStale: false })).toBe('offline');
   });
 });

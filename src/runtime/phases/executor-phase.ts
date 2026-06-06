@@ -44,8 +44,6 @@ export function buildExecutorActiveRunPatch(input: {
   const executorSessionId = `executor-${input.card.id}`;
   return {
     status: 'running',
-    current_card_id: input.card.id,
-    current_agent_session_id: executorSessionId,
     active_card_run: activeRunFromActivationState(executorActivationStateFromCard({ ...input, executorSessionId }), input.at),
   };
 }

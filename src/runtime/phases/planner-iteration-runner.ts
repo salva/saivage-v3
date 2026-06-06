@@ -8,7 +8,6 @@ import type { PendingActivationDispatcher } from '../pending-activation-dispatch
 import type { RuntimeRunLedger } from '../runtime-run-ledger.js';
 import type { RuntimeServices } from '../runtime-services.js';
 import { buildGoalEvidenceContext } from '../context-builder.js';
-import { buildCurrentAgentSessionPatch } from '../runtime-core.js';
 import { decidePlannerPostDispatch, summarizePlannerPostDispatch } from './planner-phase.js';
 import { handlePlannerPostDispatchDecision } from './planner-post-dispatch-handler.js';
 import { PlannerPhaseRunner } from './planner-phase-runner.js';
@@ -67,7 +66,6 @@ export class PlannerIterationRunner {
       throw failure.error;
     }
 
-    this.deps.mutations.apply({ kind: 'patchRuntimeState', patch: buildCurrentAgentSessionPatch(`planner:${goalId}`) });
     const execution = await this.deps.pendingActivations.dispatch(goalId);
     if (this.deps.lifecycle.shuttingDown) return { kind: 'shutdown' };
     if (this.deps.lifecycle.paused) return { kind: 'paused' };

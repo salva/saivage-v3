@@ -39,8 +39,6 @@ describe('executor phase decisions', () => {
       at: 'now',
     })).toEqual({
       status: 'running',
-      current_card_id: 'code-a',
-      current_agent_session_id: 'executor-code-a',
       active_card_run: expect.objectContaining({
         card_id: 'code-a',
         card_type: 'code',

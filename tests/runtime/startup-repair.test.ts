@@ -1,5 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 import { buildBlockedPlannerStartupState, buildChildRunStartupState, buildResumePlannerStartupState, buildReviewerInterruptedStartupState, decideStartupActiveRunRepair, executeStartupActiveRunRepairDecision, rehydrateStartupActivation, selectStartupPlannerRedispatchCardId, shouldRestartRunningIntentOnStartup, type StartupActiveRunRepairEffects } from '../../src/runtime/startup-repair.js';
+import { deriveCurrentAgentSessionId, deriveCurrentCardId } from '../../src/runtime/current-run.js';
 import type { CardRecord, RuntimeState } from '../../src/schemas/types.js';
 
 function state(run: NonNullable<RuntimeState['active_card_run']> | null): RuntimeState {
@@ -41,8 +42,6 @@ describe('startup active run repair decisions', () => {
     const previousState = { ...state(run('reviewer')), paused: true, paused_at: 'paused' } as RuntimeState;
     expect(buildReviewerInterruptedStartupState({ previousState, run: run('reviewer'), plannerSessionId: 'planner:card-a', at: 'now' })).toEqual(expect.objectContaining({
       status: 'running',
-      current_card_id: 'card-a',
-      current_agent_session_id: 'planner:card-a',
       paused: false,
       paused_at: null,
       updated_at: 'now',
@@ -56,30 +55,22 @@ describe('startup active run repair decisions', () => {
 
     expect(buildChildRunStartupState({ previousState, parentRun, at: 'now' })).toEqual(expect.objectContaining({
       status: 'running',
-      current_card_id: 'parent-a',
-      current_agent_session_id: 'planner:parent-a',
       active_card_run: expect.objectContaining(parentRun),
       paused: false,
       paused_at: null,
     }));
     expect(buildChildRunStartupState({ previousState, parentRun: null, at: 'now' })).toEqual(expect.objectContaining({
       status: 'idle',
-      current_card_id: null,
-      current_agent_session_id: null,
       active_card_run: null,
     }));
     expect(buildBlockedPlannerStartupState({ previousState, at: 'now' })).toEqual(expect.objectContaining({
       status: 'idle',
-      current_card_id: null,
-      current_agent_session_id: null,
       active_card_run: null,
       paused: false,
       paused_at: null,
     }));
     expect(buildResumePlannerStartupState({ previousState, run: run('planner'), at: 'now' })).toEqual(expect.objectContaining({
       status: 'running',
-      current_card_id: 'card-a',
-      current_agent_session_id: 'planner:card-a',
       active_card_run: expect.objectContaining({ runtime_status: 'running', last_turn_at: 'now' }),
     }));
   });
@@ -88,7 +79,6 @@ describe('startup active run repair decisions', () => {
     expect(shouldRestartRunningIntentOnStartup({
       state: {
         status: 'idle',
-        current_card_id: null,
         active_card_run: null,
         runtime_intent: { status: 'running', source_command_id: 'cmd-1', updated_at: 't0' },
         runtime_runs: [{ run_id: 'root', kind: 'root', finished_at: 'done' }],
@@ -127,7 +117,8 @@ describe('startup active run repair decisions', () => {
 
     expect(calls).toEqual(['reviewer_repair_resume:card-a', 'reviewer_interrupted:planner:card-a']);
     expect(repaired).toBe(saved[0]);
-    expect(repaired).toEqual(expect.objectContaining({ status: 'running', current_agent_session_id: 'planner:card-a' }));
+    expect(repaired).toEqual(expect.objectContaining({ status: 'running' }));
+    expect(deriveCurrentAgentSessionId(repaired)).toBe('planner:card-a');
   });
 
   it('executes executor-interrupted repair through effect ports', async () => {
@@ -152,7 +143,8 @@ describe('startup active run repair decisions', () => {
       'repair:card-a:Execution interrupted by service restart.',
       'unwind:card-a:failed',
     ]);
-    expect(repaired).toEqual(expect.objectContaining({ current_card_id: 'parent-a', current_agent_session_id: 'planner:parent-a' }));
+    expect(deriveCurrentCardId(repaired)).toBe('parent-a');
+    expect(deriveCurrentAgentSessionId(repaired)).toBe('planner:parent-a');
   });
 });
 

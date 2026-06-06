@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { FakeAgentAdapter, type FakeAgentFixture } from '../../src/agents/fake-agent.js';
 import { releaseLock } from '../../src/runtime/lock.js';
+import { deriveCurrentCardId } from '../../src/runtime/current-run.js';
 import { createRuntimeCoreTestContainer, type RuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
 import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 
@@ -68,7 +69,7 @@ describe('planner output actionability guard', () => {
       resume_reason: 'planner_non_actionable_continue',
     }));
     expect(harness.stateTestTools.read()?.active_card_run).toBeNull();
-    expect(harness.stateTestTools.read()?.current_card_id).toBeNull();
+    expect(deriveCurrentCardId(harness.stateTestTools.read())).toBeNull();
   });
 
   it('persists a planner-declared blocker as blocked card status and idle runtime state', async () => {
@@ -98,7 +99,7 @@ describe('planner output actionability guard', () => {
     }));
     expect(harness.stateTestTools.read()?.status).toBe('idle');
     expect(harness.stateTestTools.read()?.active_card_run).toBeNull();
-    expect(harness.stateTestTools.read()?.current_card_id).toBeNull();
+    expect(deriveCurrentCardId(harness.stateTestTools.read())).toBeNull();
   });
 
 

@@ -191,8 +191,6 @@ describe('activation unwind helpers', () => {
       started_at: 't0',
       paused: false,
       paused_at: null,
-      current_card_id: null,
-      current_agent_session_id: null,
       active_card_run: null,
       runtime_intent: { status: 'running', source_command_id: null, updated_at: 't0' },
       runtime_commands: [],

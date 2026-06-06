@@ -65,8 +65,6 @@ describe('Runtime stale running-intent reconciliation', () => {
     saveRuntimeState(root, {
       ...(readRuntimeState(root) ?? base),
       status: 'idle',
-      current_card_id: null,
-      current_agent_session_id: null,
       active_card_run: null,
       runtime_intent: {
         status: 'running',
@@ -137,8 +135,6 @@ describe('Runtime stale running-intent reconciliation', () => {
     saveRuntimeState(root, {
       ...(readRuntimeState(root) ?? base),
       status: 'idle',
-      current_card_id: null,
-      current_agent_session_id: null,
       active_card_run: null,
       runtime_intent: {
         status: 'running',
@@ -161,7 +157,6 @@ describe('Runtime stale running-intent reconciliation', () => {
 
     const reconciled = readRuntimeState(root);
     expect(reconciled?.status).toBe('idle');
-    expect(reconciled?.current_card_id).toBeNull();
     expect(reconciled?.active_card_run).toBeNull();
     expect(reconciled?.runtime_intent?.status).toBe('stopped');
     expect(reconciled?.runtime_intent?.reason).toContain('expected idle');

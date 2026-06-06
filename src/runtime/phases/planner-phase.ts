@@ -246,8 +246,6 @@ export function buildPlannerActiveRunPatch(input: {
   );
   return {
     status: 'running',
-    current_card_id: input.goal.id,
-    current_agent_session_id: input.plannerSessionId,
     active_card_run: activeRun,
   };
 }

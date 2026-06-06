@@ -42,8 +42,6 @@ function corruptIdleState(): RuntimeState {
   const corrupted: RuntimeState = {
     ...base,
     status: 'idle',
-    current_card_id: null,
-    current_agent_session_id: 'planner:goal-a',
     active_card_run: runningRun(),
     updated_at: new Date().toISOString(),
   };
@@ -68,12 +66,11 @@ afterEach(() => {
 });
 
 describe('RuntimeState idle active_card_run invariant', () => {
-  it('rejects saving idle/current_card_id null with a running active_card_run in strict test mode', () => {
+  it('rejects saving idle with a running active_card_run in strict test mode', () => {
     const base = initRuntimeState(root);
     expect(() => saveRuntimeState(root, {
       ...base,
       status: 'idle',
-      current_card_id: null,
       active_card_run: runningRun(),
     })).toThrow(RuntimeStateInvariantError);
   });
@@ -90,7 +87,6 @@ describe('RuntimeState idle active_card_run invariant', () => {
       const parsed = runtimeStateSchema.safeParse({
         ...base,
         status: 'idle',
-        current_card_id: null,
         active_card_run: runningRun({ runtime_status: terminalStatus }),
       });
       expect(parsed.success).toBe(true);
@@ -102,31 +98,23 @@ describe('RuntimeState idle active_card_run invariant', () => {
     initRuntimeState(root);
     updateRuntimeState(root, {
       status: 'running',
-      current_card_id: 'goal-a',
-      current_agent_session_id: 'planner:goal-a',
       active_card_run: runningRun(),
     });
 
     const cleared = updateRuntimeState(root, {
       status: 'idle',
-      current_card_id: null,
-      current_agent_session_id: null,
       active_card_run: null,
     });
     expect(cleared.active_card_run).toBeNull();
 
     const stopped = updateRuntimeState(root, {
       status: 'idle',
-      current_card_id: null,
-      current_agent_session_id: null,
       active_card_run: runningRun({ runtime_status: 'stopped' }),
     });
     expect(stopped.active_card_run?.runtime_status).toBe('stopped');
 
     const cancelled = updateRuntimeState(root, {
       status: 'idle',
-      current_card_id: null,
-      current_agent_session_id: null,
       active_card_run: runningRun({ runtime_status: 'cancelled' }),
     });
     expect(cancelled.active_card_run?.runtime_status).toBe('cancelled');
@@ -156,8 +144,6 @@ describe('RuntimeState idle active_card_run invariant', () => {
     const buildStartupRepairSettleState = (parentRun: ActiveCardRun | null): RuntimeState => ({
       ...previousState,
       status: parentRun ? 'running' : 'idle',
-      current_card_id: parentRun?.card_id ?? null,
-      current_agent_session_id: parentRun?.planner_session_id ?? null,
       active_card_run: parentRun,
       updated_at: new Date().toISOString(),
       paused: false,
@@ -168,8 +154,6 @@ describe('RuntimeState idle active_card_run invariant', () => {
 
     expect(repairedWrite()).toMatchObject({
       status: 'idle',
-      current_card_id: null,
-      current_agent_session_id: null,
       active_card_run: null,
     });
   });

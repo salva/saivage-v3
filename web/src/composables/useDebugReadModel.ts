@@ -13,6 +13,7 @@ import {
   selectSortedProcesses,
   selectTimelineKindOptions,
 } from '../stores/debug-read-model';
+import { selectCurrentAgentSessionId, selectCurrentCardId } from '../stores/runtime-read-model';
 
 export interface ErrorSourceEntry { source: string; errors: DebugError[] }
 export type DebugTabId = 'state' | 'operator' | 'errors' | 'timeline' | 'mcp' | 'processes' | 'supervision';
@@ -32,6 +33,8 @@ export function useDebugReadModel(debugStore: ReturnType<typeof useDebugStore>, 
 
   const runtimeStatusLabel = computed(() => selectRuntimeStatusLabel(debugStore.debugRuntime as RuntimeState | null));
   const runtimeStatusTone = computed(() => selectRuntimeStatusTone(debugStore.debugRuntime as RuntimeState | null));
+  const currentCardId = computed(() => selectCurrentCardId(debugStore.debugRuntime as RuntimeState | null));
+  const currentAgentSessionId = computed(() => selectCurrentAgentSessionId(debugStore.debugRuntime as RuntimeState | null));
   const runtimeDispatchLabel = computed(() => selectRuntimeDispatchLabel(debugStore.debugRuntime as RuntimeState | null));
   const operatorPanelBusy = computed(() => debugStore.loading);
   const operatorWarningBannerMessage = computed<string | null>(() => null);
@@ -58,6 +61,8 @@ export function useDebugReadModel(debugStore: ReturnType<typeof useDebugStore>, 
     selectedTimelineKinds,
     runtimeStatusLabel,
     runtimeStatusTone,
+    currentCardId,
+    currentAgentSessionId,
     runtimeDispatchLabel,
     operatorPanelBusy,
     operatorWarningBannerMessage,

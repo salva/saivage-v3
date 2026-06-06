@@ -583,8 +583,7 @@ describe('Runtime Integration', () => {
       expect(completedEvents).toContain('goal_completed');
       expect(readRuntimeState(tmpDir)).toMatchObject({
         status: 'idle',
-        current_card_id: null,
-        current_agent_session_id: null,
+        active_card_run: null,
       });
 
       await harness.api.shutdown();

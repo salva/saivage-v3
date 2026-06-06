@@ -6,6 +6,11 @@ import {
   type EventKind,
   type LoggedEvent,
   agentRoleValues,
+  analystIssueSeverityValues,
+  cardActionValues,
+  cardStatusValues,
+  cardTypeValues,
+  urgencyValues,
 } from './types.js';
 import { buildLoggedEventSchema } from './event-catalog.js';
 import { roundIdGrammar } from './round-id.js';
@@ -13,10 +18,12 @@ import { cardLifecycleStateSchema } from './lifecycle.js';
 export { roundIdGrammar, assertRoundId, type RoundKind } from './round-id.js';
 
 
-export const cardTypeSchema = z.enum(['project','goal','architecture','code','test','doc','data','research','ops']);
-export const cardStatusSchema = z.enum(['drafting','backlog','active','running','blocked','changed','done','failed','cancelled','needs_verification']);
-export const cardActionSchema = z.enum(['card.start','card.cancel','card.delete','card.restart']);
-export const urgencySchema = z.enum(['low', 'normal', 'high', 'critical']);
+function enumFromCatalog(values: readonly string[]) { return z.enum(values as unknown as [string, ...string[]]); }
+
+export const cardTypeSchema = z.enum(cardTypeValues);
+export const cardStatusSchema = z.enum(cardStatusValues);
+export const cardActionSchema = z.enum(cardActionValues);
+export const urgencySchema = z.enum(urgencyValues);
 export const createdBySchema = z.enum(['user', 'analyst', 'planner']);
 export const noteAuthorSchema = z.enum(['user', 'analyst', 'planner', 'executor', 'reviewer', 'runtime']);
 export const controlActionSurfaceSchema = z.enum(['web-chat', 'telegram', 'rest', 'cli', 'runtime', 'web-ui']);
@@ -31,7 +38,7 @@ export const cardHistoryHeaderSchema: z.ZodType<import('./types.js').CardHistory
 export const cardHistoryEntrySchema: z.ZodType<import('./types.js').CardHistoryEntry> = cardHistoryEntryBaseSchema;
 export const controlActionAuditEntrySchema: z.ZodType<import('./types.js').ControlActionAuditEntry> = z.object({ id: z.string().min(1), actor: noteAuthorSchema, surface: controlActionSurfaceSchema, action: z.string().min(1), target_kind: z.enum(['card', 'note', 'process', 'runtime', 'config', 'session']).nullable(), target_id: z.string().nullable(), params_summary: z.string(), safety_class: z.enum(['read_only', 'low', 'high', 'destructive', 'deployment']).optional(), outcome: z.enum(['ok', 'error', 'denied']), outcome_summary: z.string(), error: z.string().optional(), created_at: z.string().datetime() });
 export const cardIndexEntrySchema = z.object({ id: z.string().min(1), type: cardTypeSchema, parent: z.string().nullable(), status: cardStatusSchema, title: z.string().min(1) });
-export const reviewerIssueSchema: z.ZodType<import('./types.js').ReviewerIssue> = z.object({ summary: z.string(), severity: z.enum(['info', 'warning', 'blocker']), evidence_card_id: z.string().optional(), recommendation: z.string().optional() }).strict();
+export const reviewerIssueSchema: z.ZodType<import('./types.js').ReviewerIssue> = z.object({ summary: z.string(), severity: z.enum(analystIssueSeverityValues), evidence_card_id: z.string().optional(), recommendation: z.string().optional() }).strict();
 const reviewerResultBaseSchema = z.object({ result: z.enum(['pass', 'needs_corrections']), summary: z.string(), achieved: z.array(z.string()), issues: z.array(reviewerIssueSchema), evidence_card_ids: z.array(z.string()) }).strict();
 export const reviewerResultSchema: z.ZodType<import('./types.js').ReviewerResult> = reviewerResultBaseSchema;
 export const reviewAssessmentSchema: z.ZodType<import('./types.js').ReviewAssessment> = reviewerResultBaseSchema.extend({ assessment_id: z.string().min(1), at: z.string().datetime(), reviewer_session_id: z.string().optional(), goal_card_id: z.string().optional(), id: z.string().optional(), created_at: z.string().datetime().optional() }).strict();
@@ -79,12 +86,21 @@ export function createActionableErrorEnvelope(input: import('./types.js').Action
 export function actionableEnumError(field: string, value: unknown, acceptedValues: readonly string[], docsRef = 'docs/v3-planner-control-mcp-contract.md'): import('./types.js').ActionableErrorEnvelope { return createActionableErrorEnvelope({ code: 'invalid_enum_value', message: `Invalid ${field} '${String(value)}'. Accepted values: ${acceptedValues.join(', ')}.`, acceptedValues: [...acceptedValues], currentState: { field, value }, nextAction: `Retry with one of: ${acceptedValues.join(', ')}.`, docsRef }); }
 export const runtimeIntentSchema: z.ZodType<import('./types.js').RuntimeIntent> = z.object({ status: runtimeIntentStatusSchema, updated_at: z.string().datetime(), source_command_id: z.string().nullable(), reason: z.string().nullable().optional() }).strict();
 export const runtimeCommandRecordSchema: z.ZodType<import('./types.js').RuntimeCommandRecord> = z.object({ command_id: z.string().min(1), command: runtimeCommandNameSchema, status: runtimeCommandStatusSchema, requested_at: z.string().datetime(), completed_at: z.string().datetime().nullable().optional(), source: z.enum(['operator', 'tool', 'runtime', 'analyst']), error: actionableErrorEnvelopeSchema.nullable().optional() }).strict();
-export const runtimeRunRecordSchema: z.ZodType<import('./types.js').RuntimeRunRecord> = z.object({ run_id: z.string().min(1), kind: runtimeRunKindSchema, card_id: z.string().min(1), parent_run_id: z.string().nullable().optional(), command_id: z.string().nullable().optional(), activation_id: z.string().nullable().optional(), phase: runtimeRunPhaseSchema, runtime_status: activeCardRunRuntimeStatusSchema, session_id: z.string().nullable().optional(), started_at: z.string().datetime(), updated_at: z.string().datetime(), finished_at: z.string().datetime().nullable().optional(), outcome: runtimeRunOutcomeSchema.nullable().optional() }).strict();
+export const runtimeRunRecordSchema: z.ZodType<import('./types.js').RuntimeRunRecord> = z.object({ run_id: z.string().min(1), kind: runtimeRunKindSchema, card_id: z.string().min(1), parent_run_id: z.string().nullable().optional(), command_id: z.string().nullable().optional(), activation_id: z.string().nullable().optional(), phase: runtimeRunPhaseSchema, runtime_status: activeCardRunRuntimeStatusSchema, session_id: z.string().nullable().optional(), started_at: z.string().datetime(), updated_at: z.string().datetime(), finished_at: z.string().datetime().nullable().optional(), outcome: runtimeRunOutcomeSchema.nullable().optional() }).strict().superRefine((run, ctx) => {
+  const outcome = run.outcome ?? null;
+  const fail = (message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, message, path: ['outcome'] });
+  if (run.phase === 'completed' && (!outcome || outcome.kind !== 'completed' || outcome.result !== 'done')) fail('completed runtime runs must have completed/done outcome');
+  if (run.phase === 'failed' && (!outcome || outcome.kind !== 'completed' || outcome.result !== 'failed')) fail('failed runtime runs must have completed/failed outcome');
+  if (run.phase === 'stopped' && (!outcome || outcome.kind !== 'completed' || outcome.result !== 'stopped')) fail('stopped runtime runs must have completed/stopped outcome');
+  if (run.phase === 'blocked' && (!outcome || outcome.kind !== 'blocked')) fail('blocked runtime runs must have blocked outcome');
+  if (run.phase === 'cancelled' && (!outcome || outcome.kind !== 'completed' || outcome.result !== 'cancelled')) fail('cancelled runtime runs must have completed/cancelled outcome');
+  if (run.phase === 'needs_verification' && (!outcome || outcome.kind !== 'paused' || outcome.reason !== 'needs_verification')) fail('needs_verification runtime runs must have paused/needs_verification outcome');
+});
 export const runtimeActivationRecordSchema: z.ZodType<import('./types.js').RuntimeActivationRecord> = z.object({ activation_id: z.string().min(1), idempotency_key: z.string().min(1), parent_card_id: z.string().min(1), parent_run_id: z.string().min(1), parent_session_id: z.string().min(1), parent_tool_call_id: z.string().min(1), child_card_id: z.string().min(1), status: runtimeActivationStatusSchema, requested_at: z.string().datetime(), updated_at: z.string().datetime(), precondition: z.enum(['accepted', 'rejected']), runtime_run_id: z.string().nullable().optional(), error: actionableErrorEnvelopeSchema.nullable().optional(), outcome: runtimeActivationOutcomeSchema.nullable().optional() }).strict();
 export const activeCardRunSchema: z.ZodType<import('./types.js').ActiveCardRun> = z.object({ card_id: z.string().min(1), card_type: cardTypeSchema, runtime_status: activeCardRunRuntimeStatusSchema, phase: z.enum(['planner', 'executor', 'reviewer']), caller_session_id: z.string().nullable(), caller_tool_call_id: z.string().nullable(), planner_session_id: z.string().nullable().optional(), executor_session_id: z.string().nullable().optional(), reviewer_session_id: z.string().nullable().optional(), correction_attempts: z.number().int().nonnegative(), started_at: z.string().datetime(), last_turn_at: z.string().datetime() });
-export const runtimeStateSchema = z.object({ status: runtimeStatusSchema, project_id: z.literal('project'), pid: z.number().int().positive(), started_at: z.string().datetime(), current_card_id: z.string().nullable().optional(), current_agent_session_id: z.string().nullable().optional(), active_card_run: activeCardRunSchema.nullable().optional(), paused: z.boolean(), paused_at: z.string().datetime().nullable().optional(), updated_at: z.string().datetime(), last_tick_at: z.string().datetime().nullable().optional(), frozen_reason: z.string().nullable().optional(), runtime_intent: runtimeIntentSchema, runtime_commands: z.array(runtimeCommandRecordSchema), runtime_runs: z.array(runtimeRunRecordSchema), runtime_activations: z.array(runtimeActivationRecordSchema) });
+export const runtimeStateSchema = z.object({ status: runtimeStatusSchema, project_id: z.literal('project'), pid: z.number().int().positive(), started_at: z.string().datetime(), active_card_run: activeCardRunSchema.nullable().optional(), paused: z.boolean(), paused_at: z.string().datetime().nullable().optional(), updated_at: z.string().datetime(), last_tick_at: z.string().datetime().nullable().optional(), frozen_reason: z.string().nullable().optional(), runtime_intent: runtimeIntentSchema, runtime_commands: z.array(runtimeCommandRecordSchema), runtime_runs: z.array(runtimeRunRecordSchema), runtime_activations: z.array(runtimeActivationRecordSchema) });
 export const handoffSummarySchema = z.object({ session_id: z.string().min(1), role: agentRoleSchema, last_action: z.string(), next_action: z.string(), context_summary: z.string() });
-export const freezeManifestSchema = z.object({ freeze_id: z.string().min(1), reason: z.string(), created_at: z.string().datetime(), status: z.literal('frozen'), project_id: z.literal('project'), pid: z.number().int().positive(), started_at: z.string().datetime(), current_card_id: z.string().nullable(), current_agent_session_id: z.string().nullable(), queue: z.array(z.string()), running_processes: z.array(z.string().min(1)), handoff_summaries: z.array(handoffSummarySchema), schema_version: z.number().int().positive(), runtime_version: z.string().min(1) });
+export const freezeManifestSchema = z.object({ freeze_id: z.string().min(1), reason: z.string(), created_at: z.string().datetime(), status: z.literal('frozen'), project_id: z.literal('project'), pid: z.number().int().positive(), started_at: z.string().datetime(), active_card_run: activeCardRunSchema.nullable().optional(), queue: z.array(z.string()), running_processes: z.array(z.string().min(1)), handoff_summaries: z.array(handoffSummarySchema), schema_version: z.number().int().positive(), runtime_version: z.string().min(1) }).passthrough().transform((manifest) => ({ ...manifest, active_card_run: manifest.active_card_run ?? null }));
 export const sourceKindSchema = z.enum(['command_output', 'file', 'download', 'web', 'api', 'tool']);
 export const reviewStatusSchema = z.enum(['passed', 'blocked', 'sanitized']);
 export const riskLevelSchema = z.enum(['low', 'medium', 'high']);
@@ -95,8 +111,6 @@ export const skillTriggerSchema = z.object({ type: triggerTypeSchema, pattern: z
 export const skillIndexEntrySchema = z.object({ name: z.string().min(1), file: z.string().min(1), target_agents: z.array(agentRoleSchema), triggers: z.array(skillTriggerSchema), updated_at: z.string().datetime() });
 export const skillIndexSchema = z.array(skillIndexEntrySchema);
 
-
-function enumFromCatalog(values: readonly string[]) { return z.enum(values as unknown as [string, ...string[]]); }
 
 export const runtimeEventKindSchema = enumFromCatalog(runtimeEventKindValues);
 export const agentEventKindSchema = enumFromCatalog(agentEventKindValues);

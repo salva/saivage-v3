@@ -1,6 +1,7 @@
 import type { CardRecord, DebugError, DebugTimelineEvent, ProcessView, RuntimeState } from '../api/types';
 import { redactObservabilityText, redactObservabilityValue } from '../utils/observabilityRedaction';
 import { selectChildrenOf } from './card-presentation';
+import { selectRuntimeStatusLabel as selectSharedRuntimeStatusLabel, selectRuntimeStatusTone as selectSharedRuntimeStatusTone } from './runtime-read-model';
 import { eventKindValues } from '../../../src/schemas/event-catalog';
 
 const CANONICAL_EVENT_KINDS = new Set<string>(eventKindValues as readonly string[]);
@@ -111,16 +112,12 @@ export function selectDebugCardChildren(cards: CardRecord[], debugCardIds: strin
 }
 
 export function selectRuntimeStatusLabel(runtime: RuntimeState | null): string {
-  if (!runtime) return 'Unavailable';
-  if (runtime.status === 'frozen') return 'Frozen';
-  if (runtime.status === 'paused') return 'Paused';
-  if (runtime.status === 'running') return 'Running';
-  if (runtime.status === 'idle') return 'Idle';
-  return 'Error';
+  const label = selectSharedRuntimeStatusLabel(runtime);
+  return label === 'unknown' ? 'Unavailable' : label.charAt(0).toUpperCase() + label.slice(1);
 }
 
 export function selectRuntimeStatusTone(runtime: RuntimeState | null): string {
-  return !runtime ? 'unavailable' : runtime.status;
+  return runtime ? selectSharedRuntimeStatusTone(runtime) : 'unavailable';
 }
 
 export function selectRuntimeDispatchLabel(runtime: RuntimeState | null): string {

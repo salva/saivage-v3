@@ -32,8 +32,8 @@
                 <span class="dg-key">Frozen:</span>
                 <span class="dg-value freeze-value">Yes</span>
               </div>
-              <div class="debug-grid-item"><span class="dg-key">Current Card:</span><span class="dg-value mono">{{ debugRuntime.current_card_id || 'none' }}</span></div>
-              <div class="debug-grid-item"><span class="dg-key">Agent Session:</span><span class="dg-value mono">{{ debugRuntime.current_agent_session_id || 'none' }}</span></div>
+              <div class="debug-grid-item"><span class="dg-key">Current Card:</span><span class="dg-value mono">{{ currentCardId || 'none' }}</span></div>
+              <div class="debug-grid-item"><span class="dg-key">Agent Session:</span><span class="dg-value mono">{{ currentAgentSessionId || 'none' }}</span></div>
             </div>
             <div v-else class="debug-empty">No runtime state.</div>
           </section>
@@ -105,8 +105,8 @@
             <div class="operator-runtime-summary">
               <div class="debug-grid-item"><span class="dg-key">Status:</span><span class="operator-status-badge" :class="'status-' + runtimeStatusTone">{{ runtimeStatusLabel }}</span></div>
               <div class="debug-grid-item"><span class="dg-key">Dispatch:</span><span class="dg-value">{{ runtimeDispatchLabel }}</span></div>
-              <div class="debug-grid-item"><span class="dg-key">Current Card:</span><span class="dg-value mono">{{ debugRuntime?.current_card_id || 'none' }}</span></div>
-              <div class="debug-grid-item"><span class="dg-key">Agent Session:</span><span class="dg-value mono">{{ debugRuntime?.current_agent_session_id || 'none' }}</span></div>
+              <div class="debug-grid-item"><span class="dg-key">Current Card:</span><span class="dg-value mono">{{ currentCardId || 'none' }}</span></div>
+              <div class="debug-grid-item"><span class="dg-key">Agent Session:</span><span class="dg-value mono">{{ currentAgentSessionId || 'none' }}</span></div>
             </div>
 
             <div v-if="debugRuntime?.status === 'frozen'" class="freeze-banner operator-freeze-guidance" role="alert">
@@ -381,6 +381,8 @@ const {
   selectedTimelineKinds,
   runtimeStatusLabel,
   runtimeStatusTone,
+  currentCardId,
+  currentAgentSessionId,
   runtimeDispatchLabel,
   operatorPanelBusy,
   operatorWarningBannerMessage,

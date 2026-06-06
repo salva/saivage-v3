@@ -20,6 +20,7 @@ import type { EventKind } from '../schemas/index.js';
 import type { EventLogger } from '../observability/index.js';
 import { trackedEventKindValues } from '../events/index.js';
 import { readRuntimeState } from './state.js';
+import { deriveCurrentAgentSessionId } from './current-run.js';
 import type { LifecycleFlags } from './runtime-lifecycle-state.js';
 
 // ── Types ─────────────────────────────────────────────────────
@@ -106,8 +107,8 @@ export function createRuntimeSupervisor(input: {
       }
       try {
         const state = readRuntimeState(input.projectRoot);
-        if (state && state.current_agent_session_id) {
-          const sessionId = state.current_agent_session_id;
+        const sessionId = deriveCurrentAgentSessionId(state);
+        if (sessionId) {
           let role = 'executor';
           if (sessionId.startsWith('planner-') || sessionId.startsWith('planner:')) role = 'planner';
           else if (sessionId.startsWith('reviewer-') || sessionId.startsWith('reviewer:')) role = 'reviewer';

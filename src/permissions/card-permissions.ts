@@ -1,12 +1,12 @@
-import type { CardStatus } from '../schemas/index.js';
+import { cardActionValues, cardStatusValues, type CardStatus } from '../schemas/index.js';
 
 export const PERMISSION_ROLES = ['operator', 'planner', 'analyst', 'executor', 'reviewer'] as const;
 export type PermissionRole = (typeof PERMISSION_ROLES)[number];
 
-export const CARD_ACTIONS = ['card.start', 'card.cancel', 'card.delete', 'card.restart'] as const;
+export const CARD_ACTIONS = cardActionValues;
 export type CardAction = (typeof CARD_ACTIONS)[number];
 
-export const CARD_STATES = ['drafting', 'backlog', 'active', 'running', 'blocked', 'changed', 'done', 'failed', 'cancelled', 'needs_verification'] as const satisfies readonly CardStatus[];
+export const CARD_STATES = cardStatusValues satisfies readonly CardStatus[];
 export type CardState = (typeof CARD_STATES)[number];
 
 export type DenyReason = 'wrong_state' | 'not_authorized' | 'card_archived';

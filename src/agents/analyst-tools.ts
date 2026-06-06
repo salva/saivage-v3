@@ -4,6 +4,7 @@ import { existsSync, readFileSync, readdirSync, statSync, lstatSync } from 'node
 import { CardStore, PROJECT_CARD_ID } from '../cards/store-api.js';
 import { getDiaryEntries, deleteDiary } from '../cards/artifact-api.js';
 import { readRuntimeState } from '../runtime/state-api.js';
+import { deriveCurrentCardId } from '../runtime/current-run.js';
 import {
   pauseRuntimeControl,
   resumeRuntimeControl,
@@ -903,7 +904,7 @@ export async function get_status(
         runtimeSummary: {
           status: runtimeState?.status ?? 'unknown',
           paused: runtimeState?.paused ?? false,
-          currentCardId: runtimeState?.current_card_id ?? null,
+          currentCardId: deriveCurrentCardId(runtimeState),
           activeCardRun,
           runtimeIntent,
           projectRuns: runtimeRuns.map((run) => ({

@@ -12,6 +12,7 @@ import type { RuntimeState } from '../schemas/index.js';
 import type { CardStore } from '../cards/store-api.js';
 import type { ErrorLogger, EventLogger } from '../observability/index.js';
 import type { StuckAgentSupervisor, StuckVerdict } from './stuck-agent-supervisor.js';
+import { deriveCurrentCardId } from './current-run.js';
 
 type EmitAgentEvent = (name: string, data: Record<string, unknown>) => void;
 
@@ -34,7 +35,7 @@ function getRuntimeStatus(projectRoot: string, coreParts: RuntimeCoreParts): Ret
   return {
     status: state?.status ?? 'idle',
     paused: state?.paused ?? false,
-    currentCardId: state?.current_card_id ?? null,
+    currentCardId: deriveCurrentCardId(state),
     goalCount: coreParts.countGoals(),
     lastTickAt: state?.last_tick_at ?? null,
   };

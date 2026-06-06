@@ -53,7 +53,6 @@ export function shouldRestartRunningIntentOnStartup(input: {
   return (
     (input.state.runtime_intent?.status ?? 'stopped') === 'running' &&
     input.state.status === 'idle' &&
-    (input.state.current_card_id ?? null) === null &&
     (input.state.active_card_run ?? null) === null &&
     (input.state.runtime_runs ?? []).every((run) => run.kind !== 'root' || Boolean(run.finished_at)) &&
     !input.projectHasBlockedPlanning
@@ -78,8 +77,6 @@ export function buildReviewerInterruptedStartupState(input: {
   return {
     ...input.previousState,
     status: 'running',
-    current_card_id: input.run.card_id,
-    current_agent_session_id: input.plannerSessionId,
     active_card_run: activeRunFromActivationState({
       phase: 'planner',
       cardId: input.run.card_id,
@@ -112,8 +109,6 @@ export function buildChildRunStartupState(input: {
   return {
     ...input.previousState,
     status: activeCardRun ? 'running' : 'idle',
-    current_card_id: activeCardRun?.card_id ?? null,
-    current_agent_session_id: activeCardRun?.planner_session_id ?? null,
     active_card_run: activeCardRun,
     updated_at: input.at,
     paused: false,
@@ -128,8 +123,6 @@ export function buildBlockedPlannerStartupState(input: {
   return {
     ...input.previousState,
     status: 'idle',
-    current_card_id: null,
-    current_agent_session_id: null,
     active_card_run: null,
     updated_at: input.at,
     paused: false,
@@ -145,8 +138,6 @@ export function buildResumePlannerStartupState(input: {
   return {
     ...input.previousState,
     status: 'running',
-    current_card_id: input.run.card_id,
-    current_agent_session_id: input.run.planner_session_id ?? `planner:${input.run.card_id}`,
     active_card_run: activeRunFromActivationState({
       phase: 'planner',
       cardId: input.run.card_id,

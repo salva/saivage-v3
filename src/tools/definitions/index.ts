@@ -44,20 +44,10 @@ import {
   type ToolResult,
 } from '../../agents/analyst-tools.js';
 import type { PermissionRole } from '../../permissions/index.js';
+import { analystIssueSeverityValues, cardStatusValues, cardTypeValues, urgencyValues } from '../../schemas/index.js';
 import { defineTool, type JsonSchemaObject, type ToolDefinition as RuntimeToolDefinition } from '../runtime.js';
 
-export const CARD_STATUS_VALUES = [
-  'drafting',
-  'backlog',
-  'active',
-  'running',
-  'blocked',
-  'changed',
-  'done',
-  'failed',
-  'cancelled',
-  'needs_verification',
-] as const;
+export const CARD_STATUS_VALUES = cardStatusValues;
 export const RUNTIME_CARD_STATUS_VALUES = CARD_STATUS_VALUES.filter((status) => status !== 'needs_verification') as [
   'drafting',
   'backlog',
@@ -69,12 +59,12 @@ export const RUNTIME_CARD_STATUS_VALUES = CARD_STATUS_VALUES.filter((status) => 
   'failed',
   'cancelled',
 ];
-export const CARD_TYPE_VALUES = ['project', 'goal', 'architecture', 'code', 'test', 'doc', 'data', 'research', 'ops'] as const;
+export const CARD_TYPE_VALUES = cardTypeValues;
 export const PLANNER_CREATE_CARD_TYPE_VALUES = ['goal', 'architecture', 'code', 'test', 'doc', 'data', 'research', 'ops'] as const;
 export const CREATE_CARD_TYPE_VALUES = CARD_TYPE_VALUES;
-export const URGENCY_VALUES = ['low', 'normal', 'high', 'critical'] as const;
+export const URGENCY_VALUES = urgencyValues;
 export const NOTE_KIND_VALUES = ['comment', 'progress', 'directive', 'escalation'] as const;
-export const ANALYST_ISSUE_SEVERITY_VALUES = ['info', 'warning', 'blocker'] as const;
+export const ANALYST_ISSUE_SEVERITY_VALUES = analystIssueSeverityValues;
 
 type AgentRole = PermissionRole;
 type ToolExecutor<Input> = (ctx: AnalystToolContext, params: Input) => Promise<ToolResult>;

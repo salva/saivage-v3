@@ -2,6 +2,7 @@ import type { CardRecord, CardStatus, RuntimeState } from '../schemas/index.js';
 import { PROJECT_CARD_ID, type CardStore } from '../cards/store-api.js';
 import type { ErrorLogger } from '../observability/index.js';
 import { planProjectRootRedispatch, observeRuntimeStateInvariants, reduceRuntimeEvent, type RuntimeStateMachineEvent } from './runtime-core.js';
+import { deriveCurrentCardId } from './current-run.js';
 import { planCardTransition } from './transition-policy.js';
 import { cardHasBlockedPlanning } from './planning-blockers.js';
 import { readRuntimeState } from './state.js';
@@ -217,7 +218,7 @@ export class RuntimeStateMachine {
     const state = this.state.read();
     if (state === null) return;
 
-    const currentCardId = state.current_card_id ?? null;
+    const currentCardId = deriveCurrentCardId(state);
     let currentCardStatus: Parameters<typeof observeRuntimeStateInvariants>[0]['currentCardStatus'] = null;
     if (currentCardId !== null) {
       try { currentCardStatus = this.cards.readStatus(currentCardId) ?? null; } catch { currentCardStatus = null; }

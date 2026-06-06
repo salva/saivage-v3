@@ -34,6 +34,8 @@ import {
   selectRuntimeDetail,
   selectRuntimeModeLabel,
   selectRuntimeStatusLabel,
+  selectCurrentAgentSessionId,
+  selectCurrentCardId,
   selectRuntimeSummary,
 } from './runtime-read-model';
 
@@ -68,8 +70,8 @@ export const useRuntimeStore = defineStore('runtime', () => {
   const isRunning = computed(() => status.value === 'running');
   const isPaused = computed(() => runtime.value?.paused ?? false);
   const isFrozen = computed(() => runtime.value?.status === 'frozen');
-  const currentCardId = computed(() => runtime.value?.current_card_id ?? null);
-  const currentAgentSessionId = computed(() => runtime.value?.current_agent_session_id ?? null);
+  const currentCardId = computed(() => selectCurrentCardId(runtime.value));
+  const currentAgentSessionId = computed(() => selectCurrentAgentSessionId(runtime.value));
   const rootRun = computed(() => currentRun.value);
   const commandDisabledReason = computed(() => {
     if (loading.value) return 'Runtime state is still loading.';

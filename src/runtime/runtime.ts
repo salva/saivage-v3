@@ -80,7 +80,7 @@ class Runtime {
       this._errorLogger = new ErrorLogger(join(config.projectRoot, '.saivage'));
       this._ownsErrorLogger = true;
     }
-    this._events = new RuntimeEventPublisher(this._eventLogger, this._mutations);
+    this._events = new RuntimeEventPublisher(this._eventLogger);
     this.cardStore = new CardStore(
       config.projectRoot,
       config.maxGoalDepth,

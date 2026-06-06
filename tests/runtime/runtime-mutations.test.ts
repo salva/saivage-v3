@@ -19,16 +19,15 @@ describe('runtime mutations', () => {
       createRuntimeStateMutationPort(projectRoot).apply({
         kind: 'patchRuntimeState',
         patch: {
+          status: 'running',
           paused: true,
-          current_card_id: 'goal-a',
-          current_agent_session_id: 'planner:goal-a',
+          active_card_run: { card_id: 'goal-a', card_type: 'goal', runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:goal-a', correction_attempts: 0, started_at: '2026-01-01T00:00:00.000Z', last_turn_at: '2026-01-01T00:00:00.000Z' },
         },
       });
 
       expect(readRuntimeState(projectRoot)).toEqual(expect.objectContaining({
         paused: true,
-        current_card_id: 'goal-a',
-        current_agent_session_id: 'planner:goal-a',
+        active_card_run: expect.objectContaining({ card_id: 'goal-a', planner_session_id: 'planner:goal-a' }),
       }));
     } finally {
       rmSync(projectRoot, { recursive: true, force: true });

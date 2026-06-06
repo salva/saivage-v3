@@ -29,8 +29,7 @@ describe('freeze manifest helpers', () => {
       project_id: 'project',
       pid: process.pid,
       started_at: new Date(0).toISOString(),
-      current_card_id: null,
-      current_agent_session_id: null,
+      active_card_run: null,
       queue: [],
       running_processes: [],
       handoff_summaries: [],
@@ -41,9 +40,9 @@ describe('freeze manifest helpers', () => {
   }
 
   it('validates, saves, reads, and clears manifests', () => {
-    const saved = saveFreezeManifest(projectRoot, manifest({ current_card_id: 'card-a' }));
+    const saved = saveFreezeManifest(projectRoot, manifest({ active_card_run: { card_id: 'card-a', card_type: 'goal', runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:card-a', correction_attempts: 0, started_at: new Date(0).toISOString(), last_turn_at: new Date(0).toISOString() } }));
 
-    expect(saved.current_card_id).toBe('card-a');
+    expect(saved.active_card_run?.card_id).toBe('card-a');
     expect(readFreezeManifest(projectRoot)).toEqual(saved);
 
     clearFreezeManifest(projectRoot);
@@ -65,8 +64,7 @@ describe('freeze manifest helpers', () => {
       project_id: 'project',
       pid: process.pid,
       started_at: 'started',
-      current_card_id: 'goal-a',
-      current_agent_session_id: 'planner:goal-a',
+      active_card_run: { card_id: 'goal-a', card_type: 'goal', runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:goal-a', correction_attempts: 0, started_at: '2026-01-01T00:00:00.000Z', last_turn_at: '2026-01-01T00:00:00.000Z' },
       paused: false,
       updated_at: 'updated',
       runtime_intent: { status: 'running', updated_at: 'updated', source_command_id: null },
@@ -76,9 +74,9 @@ describe('freeze manifest helpers', () => {
     };
     const frozen = buildFreezeRuntimeStatePatch({ state, frozenAt: 'frozen-at' });
 
-    expect(frozen).toEqual(expect.objectContaining({ status: 'frozen', current_card_id: 'goal-a', current_agent_session_id: 'planner:goal-a', paused: true, paused_at: 'frozen-at' }));
-    expect(buildResumeFromFreezeRuntimeStatePatch(manifest({ current_card_id: 'goal-a', current_agent_session_id: 'planner:goal-a' }))).toEqual(
-      expect.objectContaining({ status: 'idle', current_card_id: 'goal-a', current_agent_session_id: 'planner:goal-a', paused: false, paused_at: null }),
+    expect(frozen).toEqual(expect.objectContaining({ status: 'frozen', paused: true, paused_at: 'frozen-at' }));
+    expect(buildResumeFromFreezeRuntimeStatePatch(manifest({ active_card_run: state.active_card_run }))).toEqual(
+      expect.objectContaining({ status: 'running', active_card_run: expect.objectContaining({ card_id: 'goal-a' }), paused: false, paused_at: null }),
     );
   });
 
@@ -100,7 +98,7 @@ describe('freeze manifest helpers', () => {
   it('builds active-session handoff context from manifest summaries', () => {
     const handoffContext = buildResumeHandoffContext(
       manifest({
-        current_agent_session_id: 'executor-card-1',
+        active_card_run: { card_id: 'card-1', card_type: 'code', runtime_status: 'running', phase: 'executor', caller_session_id: 'planner:project', caller_tool_call_id: 'call-1', executor_session_id: 'executor-card-1', correction_attempts: 0, started_at: new Date(0).toISOString(), last_turn_at: new Date(0).toISOString() },
         handoff_summaries: [
           {
             session_id: 'executor-card-1',

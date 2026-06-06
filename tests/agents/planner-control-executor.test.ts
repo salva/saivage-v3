@@ -63,8 +63,6 @@ function runtimeWithActive(cardId: string): RuntimeState {
     project_id: 'project',
     pid: 1234,
     started_at: now,
-    current_card_id: cardId,
-    current_agent_session_id: 'executor:active',
     active_card_run: {
       card_id: cardId,
       card_type: 'code',

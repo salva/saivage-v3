@@ -103,8 +103,7 @@ describe('GET /api/agents/:id', () => {
     if (!state) throw new Error('expected initialized runtime state');
     saveRuntimeState(projectRoot, {
       ...state,
-      current_card_id: 'project',
-      current_agent_session_id: 'planner-active',
+      status: 'running',
       active_card_run: {
         card_id: 'project',
         card_type: 'project',

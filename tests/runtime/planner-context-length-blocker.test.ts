@@ -12,6 +12,7 @@ import {
 import { FakeAgentAdapter } from '../../src/agents/fake-agent.js';
 import { LlmRequestError } from '../../src/agents/llm-errors.js';
 import { releaseLock } from '../../src/runtime/lock.js';
+import { deriveCurrentCardId } from '../../src/runtime/current-run.js';
 import type {
   PlannerInvocationRequest,
   PlannerResult,
@@ -185,7 +186,7 @@ describe('planner context-length failures', () => {
       }),
     );
     expect(harness.stateTestTools.read()?.active_card_run).toBeNull();
-    expect(harness.stateTestTools.read()?.current_card_id).toBeNull();
+    expect(deriveCurrentCardId(harness.stateTestTools.read())).toBeNull();
   });
 
   it('persists planner terminal-tool exhaustion as a durable blocker instead of failing the project', async () => {
@@ -209,7 +210,7 @@ describe('planner context-length failures', () => {
     );
     expect(harness.stateTestTools.read()?.status).toBe('idle');
     expect(harness.stateTestTools.read()?.active_card_run).toBeNull();
-    expect(harness.stateTestTools.read()?.current_card_id).toBeNull();
+    expect(deriveCurrentCardId(harness.stateTestTools.read())).toBeNull();
   });
 
   it('aligns a persisted failed project from planner terminal-tool exhaustion to a precise blocker on startup', async () => {
@@ -224,8 +225,6 @@ describe('planner context-length failures', () => {
     });
     updateRuntimeState(tmpDir, {
       status: 'idle',
-      current_card_id: null,
-      current_agent_session_id: null,
       active_card_run: null,
     });
 
@@ -240,7 +239,7 @@ describe('planner context-length failures', () => {
       }),
     );
     expect(harness.stateTestTools.read()?.status).toBe('idle');
-    expect(harness.stateTestTools.read()?.current_card_id).toBeNull();
+    expect(deriveCurrentCardId(harness.stateTestTools.read())).toBeNull();
     expect(harness.stateTestTools.read()?.active_card_run).toBeNull();
     expect(harness.diagnosticTestTools.getBackgroundDispatchCount()).toBe(0);
   });
@@ -259,8 +258,6 @@ describe('planner context-length failures', () => {
     });
     updateRuntimeState(tmpDir, {
       status: 'running',
-      current_card_id: 'project',
-      current_agent_session_id: 'planner:project',
       active_card_run: {
         card_id: 'project',
         card_type: 'project',
@@ -286,7 +283,7 @@ describe('planner context-length failures', () => {
       }),
     );
     expect(harness.stateTestTools.read()?.status).toBe('idle');
-    expect(harness.stateTestTools.read()?.current_card_id).toBeNull();
+    expect(deriveCurrentCardId(harness.stateTestTools.read())).toBeNull();
     expect(harness.stateTestTools.read()?.active_card_run).toBeNull();
   });
 
@@ -304,8 +301,6 @@ describe('planner context-length failures', () => {
     });
     updateRuntimeState(tmpDir, {
       status: 'running',
-      current_card_id: 'project',
-      current_agent_session_id: 'planner:project',
       active_card_run: {
         card_id: 'project',
         card_type: 'project',
@@ -334,7 +329,7 @@ describe('planner context-length failures', () => {
       }),
     );
     expect(harness.stateTestTools.read()?.status).toBe('idle');
-    expect(harness.stateTestTools.read()?.current_card_id).toBeNull();
+    expect(deriveCurrentCardId(harness.stateTestTools.read())).toBeNull();
     expect(harness.stateTestTools.read()?.active_card_run).toBeNull();
     expect(harness.diagnosticTestTools.getBackgroundDispatchCount()).toBe(0);
   });
@@ -364,7 +359,7 @@ describe('planner context-length failures', () => {
       }),
     );
     expect(harness.stateTestTools.read()?.status).toBe('idle');
-    expect(harness.stateTestTools.read()?.current_card_id).toBeNull();
+    expect(deriveCurrentCardId(harness.stateTestTools.read())).toBeNull();
     expect(harness.stateTestTools.read()?.active_card_run).toBeNull();
   });
 
@@ -382,8 +377,6 @@ describe('planner context-length failures', () => {
     });
     updateRuntimeState(tmpDir, {
       status: 'idle',
-      current_card_id: null,
-      current_agent_session_id: null,
       active_card_run: null,
       runtime_intent: {
         status: 'running',
@@ -405,7 +398,7 @@ describe('planner context-length failures', () => {
       }),
     );
     expect(harness.stateTestTools.read()?.status).toBe('idle');
-    expect(harness.stateTestTools.read()?.current_card_id).toBeNull();
+    expect(deriveCurrentCardId(harness.stateTestTools.read())).toBeNull();
     expect(harness.stateTestTools.read()?.active_card_run).toBeNull();
     expect(harness.stateTestTools.read()?.runtime_runs ?? []).toHaveLength(0);
     expect(harness.diagnosticTestTools.getBackgroundDispatchCount()).toBe(0);
@@ -531,8 +524,6 @@ describe('planner context-length failures', () => {
     });
     updateRuntimeState(tmpDir, {
       status: 'idle',
-      current_card_id: null,
-      current_agent_session_id: null,
       active_card_run: null,
       runtime_intent: {
         status: 'running',
@@ -566,8 +557,6 @@ describe('planner context-length failures', () => {
     });
     updateRuntimeState(tmpDir, {
       status: 'idle',
-      current_card_id: null,
-      current_agent_session_id: null,
       active_card_run: null,
       runtime_intent: {
         status: 'running',
@@ -617,6 +606,6 @@ describe('planner context-length failures', () => {
     );
     expect(harness.stateTestTools.read()?.status).toBe('idle');
     expect(harness.stateTestTools.read()?.active_card_run).toBeNull();
-    expect(harness.stateTestTools.read()?.current_card_id).toBeNull();
+    expect(deriveCurrentCardId(harness.stateTestTools.read())).toBeNull();
   });
 });

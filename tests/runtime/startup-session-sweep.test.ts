@@ -55,7 +55,7 @@ describe('startup agent session sweep', () => {
     completeSession(saivageDir, doneExecutor.id, 'done');
     const waitingBefore = readFileSync(join(saivageDir, 'agents', 'sessions', `${waitingPlanner.id}.json`), 'utf8');
     const analystBefore = readFileSync(join(saivageDir, 'agents', 'sessions', `${analyst.id}.json`), 'utf8');
-    updateRuntimeState(projectRoot, { current_agent_session_id: activePlanner.id });
+    updateRuntimeState(projectRoot, { status: 'running', active_card_run: { card_id: 'goal-1', card_type: 'goal', runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: activePlanner.id, correction_attempts: 0, started_at: new Date().toISOString(), last_turn_at: new Date().toISOString() } });
 
     const harness = createRuntimeCoreTestContainer({
       config: { projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' } },
@@ -82,14 +82,12 @@ describe('startup agent session sweep', () => {
       activeReviewer.id,
       activePlanner.id,
     ].sort());
-    expect(stateAfterStartup?.current_agent_session_id).toBeNull();
+    expect(stateAfterStartup?.active_card_run).toBeNull();
     // /api/agents reads these same persisted manifests; route coverage is therefore exercised by the manifest assertions above.
   });
   it('requeues an interrupted planner active run on startup', async () => {
     updateRuntimeState(projectRoot, {
       status: 'running',
-      current_card_id: 'project',
-      current_agent_session_id: 'planner:project',
       active_card_run: {
         card_id: 'project',
         card_type: 'project',

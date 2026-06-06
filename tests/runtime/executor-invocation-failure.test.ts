@@ -80,8 +80,6 @@ describe('executor invocation failure handler', () => {
       });
       updateRuntimeState(projectRoot, {
         status: 'running',
-        current_card_id: codeCardId,
-        current_agent_session_id: `executor-${codeCardId}`,
         active_card_run: {
           card_id: codeCardId,
           card_type: 'code',
@@ -143,8 +141,6 @@ describe('executor invocation failure handler', () => {
 
       const state = readRuntimeState(projectRoot);
       expect(state?.active_card_run).toBeNull();
-      expect(state?.current_card_id).toBeNull();
-      expect(state?.current_agent_session_id).toBeNull();
       expect((cards.read(codeCardId) as CardRecord).status).toBe('failed');
       expect(failureToolResults).toEqual([
         { cardId: codeCardId, outcome: 'failed', summary: `Terminal card ${codeCardId} execution failed before producing a result.` },
