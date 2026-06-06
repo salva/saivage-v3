@@ -19,6 +19,7 @@ import { appendMessage, getSessionMessages } from './session-persistence.js';
 import { generateRoundId } from '../schemas/round-id-server.js';
 import { ANALYST_PARTIAL_SUCCESS_TEMPLATE, ANALYST_UNKNOWN_CAPABILITY_TEMPLATE } from './analyst-tool-runner.js';
 import { parseToolCallMessage, serializeToolCallMessage } from '../contracts/persisted-tool-call.js';
+import { toolFailure, toolFailureFromError } from '../tools/analyst-tool-helpers.js';
 
 
 export interface WorkspaceContext {
@@ -152,7 +153,7 @@ function summarizeForBroadcast(tool: string, result: ToolResult): { summary: str
   const related_note_id = typeof source['note_id'] === 'string' ? String(source['note_id']) : typeof source['related_note_id'] === 'string' ? String(source['related_note_id']) : auditSource?.target_kind === 'note' && auditSource.target_id ? auditSource.target_id : undefined;
   const related_process_id = typeof source['process_id'] === 'string' ? String(source['process_id']) : typeof source['related_process_id'] === 'string' ? String(source['related_process_id']) : auditSource?.target_kind === 'process' && auditSource.target_id ? auditSource.target_id : undefined;
 
-  let summary = result.success ? (tool === 'edit_card' && related_card_id ? `edited card ${related_card_id}` : 'completed') : (result.error ?? 'failed');
+  let summary = result.success ? (tool === 'edit_card' && related_card_id ? `edited card ${related_card_id}` : 'completed') : (result.errorEnvelope?.message ?? result.error ?? 'failed');
   if (auditSource?.outcome_summary) {
     summary = auditSource.outcome_summary;
   } else if (tool === 'read_file' && data) {
@@ -218,7 +219,30 @@ export class AnalystHandler {
 
   private emitActivity(activity: { type: 'tool_call' | 'tool_result' | 'thinking'; content: Record<string, unknown> }): void {
     if (!this.onActivity) return;
-    try { this.onActivity(activity); } catch { void 0; }
+    try { this.onActivity(activity); } catch (err) { this.logBoundaryDiagnostic('analyst_activity_callback_failed', err); }
+  }
+
+  private logBoundaryDiagnostic(phase: string, err: unknown): void {
+    try {
+      this.runtimeDeps.eventLogger?.appendEvent({
+        kind: 'runtime_diagnostic',
+        phase,
+        error_message: err instanceof Error ? err.message : String(err),
+        ...(err instanceof Error ? { error_name: err.name } : {}),
+      });
+    } catch {
+      /* best-effort diagnostics; never fail the analyst response path */
+    }
+  }
+
+  private parseToolArgs(raw: string, phase: string): Record<string, unknown> {
+    try {
+      const candidate = JSON.parse(raw) as unknown;
+      return candidate && typeof candidate === 'object' && !Array.isArray(candidate) ? candidate as Record<string, unknown> : {};
+    } catch (err) {
+      this.logBoundaryDiagnostic(phase, err);
+      return {};
+    }
   }
 
   private async handleMessageSerial(sessionId: string, userContent: string, workspaceContext?: WorkspaceContext): Promise<AnalystResponse> {
@@ -268,7 +292,7 @@ export class AnalystHandler {
           threshold: 0.8,
           maxCompactions: Number.MAX_SAFE_INTEGER,
         }, this.runtimeDeps.stamper);
-      } catch { /* compaction is best-effort; continue with raw history */ }
+      } catch (err) { this.logBoundaryDiagnostic('analyst_history_compaction_failed', err); }
 
       const history = getSessionMessages(saivageDir(this.projectRoot), sessionId);
       const bounded = trimToCleanToolBoundary(history);
@@ -304,17 +328,14 @@ export class AnalystHandler {
       previousToolCallFingerprints.add(fingerprint);
       for (const tc of toolCalls) {
         let parsedArgs: Record<string, unknown>;
-        try {
-          const candidate = JSON.parse(tc.function.arguments) as unknown;
-          parsedArgs = candidate && typeof candidate === 'object' && !Array.isArray(candidate) ? candidate as Record<string, unknown> : {};
-        } catch { parsedArgs = {}; }
+        parsedArgs = this.parseToolArgs(tc.function.arguments, 'analyst_tool_call_arguments_parse_failed');
         const row = serializeToolCallMessage({ id: tc.id, name: tc.function.name, args: parsedArgs });
         appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'tool_call', content: JSON.stringify(row), tool: tc.function.name, tool_call_id: tc.id }, this.runtimeDeps.stamper.stampInRound(sessionId), this.runtimeDeps.stamper);
       }
 
       for (const tc of toolCalls) {
         let params: Record<string, unknown> = {};
-        try { params = JSON.parse(tc.function.arguments) as Record<string, unknown>; } catch { params = {}; }
+        params = this.parseToolArgs(tc.function.arguments, 'analyst_tool_execution_arguments_parse_failed');
 
 
         this.emitActivity({ type: 'tool_call', content: { tool: tc.function.name, params } });
@@ -322,14 +343,14 @@ export class AnalystHandler {
         const toolFn = TOOL_REGISTRY[tc.function.name];
         let result: ToolResult;
         if (!toolFn) {
-          result = { success: false, error: ANALYST_UNKNOWN_CAPABILITY_TEMPLATE(tc.function.name) };
+          result = toolFailure('not_found', ANALYST_UNKNOWN_CAPABILITY_TEMPLATE(tc.function.name), { tool: tc.function.name });
         } else {
           try { result = await toolFn(ctx, params); }
-          catch (err) { result = { success: false, error: err instanceof Error ? err.message : String(err) }; }
+          catch (err) { this.logBoundaryDiagnostic('analyst_tool_handler_failed', err); result = toolFailureFromError(err); }
         }
 
 
-        this.emitActivity({ type: 'tool_result', content: { tool: tc.function.name, success: result.success, hasPreview: !!result.preview } });
+        this.emitActivity({ type: 'tool_result', content: { tool: tc.function.name, success: result.success, hasPreview: !!result.preview, errorKind: result.errorEnvelope?.kind } });
 
         toolInvocations.push({ tool: tc.function.name, params, result });
 
@@ -337,7 +358,7 @@ export class AnalystHandler {
         const truncated = resultJson.length > 16_000 ? resultJson.slice(0, 16_000) + '…[truncated]' : resultJson;
         appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'tool', kind: 'tool_result', content: truncated, tool: tc.function.name, tool_call_id: tc.id }, this.runtimeDeps.stamper.stampInRound(sessionId), this.runtimeDeps.stamper);
         broadcastToolInvocation(this.runtimeDeps, sessionId, tc.function.name, result);
-        const contractText = !toolFn ? result.error : this.responseTextForResult(result);
+        const contractText = !toolFn ? result.errorEnvelope?.message ?? result.error : this.responseTextForResult(result);
         if (contractText) {
           const persisted = appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'text', content: contractText }, this.runtimeDeps.stamper.stampInRound(sessionId), this.runtimeDeps.stamper);
           return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: contractText, timestamp: persisted.timestamp }, toolInvocations };
@@ -366,7 +387,8 @@ export class AnalystHandler {
     try {
       const store = this.runtimeDeps.cardStore;
       return JSON.stringify({ projectRoot: this.projectRoot, cards: store.list().map((card) => ({ id: card.id, type: card.type, parent: card.parent, status: card.status, title: card.title, description: card.description, acceptance: card.acceptance, priority: card.priority, tags: card.tags })) }, null, 2);
-    } catch {
+    } catch (err) {
+      this.logBoundaryDiagnostic('analyst_project_context_build_failed', err);
       return `Project root: ${this.projectRoot}`;
     }
   }

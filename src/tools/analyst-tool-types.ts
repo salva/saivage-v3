@@ -12,11 +12,28 @@ export interface ActionPreview {
   warnings: string[];
 }
 
+export type ToolErrorKind =
+  | 'validation'
+  | 'permission'
+  | 'not_found'
+  | 'conflict'
+  | 'io'
+  | 'provider'
+  | 'internal';
+
+export interface ToolErrorEnvelope {
+  kind: ToolErrorKind;
+  message: string;
+  details?: Record<string, unknown>;
+  retryable?: boolean;
+}
+
 export interface ToolResult {
   success: boolean;
   data?: unknown;
   preview?: ActionPreview;
   error?: string;
+  errorEnvelope?: ToolErrorEnvelope;
 }
 
 export interface ToolContext {

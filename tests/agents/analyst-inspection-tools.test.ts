@@ -21,6 +21,7 @@ describe('analyst inspection tools secret-path policy', () => {
 
       const result = await read_file(ctx(root), { path: secretPath });
       expect(result.success).toBe(false);
+      expect(result.errorEnvelope).toEqual(expect.objectContaining({ kind: 'permission', message: expect.any(String) }));
       expect(result.error).toMatch(/denied/i);
       expect(result.error).toMatch(/secret-bearing path/i);
       expect(result.error).not.toContain('{"token":"secret"}');
@@ -125,6 +126,7 @@ describe('analyst inspection tools secret-path policy', () => {
     try {
       const result = await run_shell_command(ctx(root, 'telegram'), { command: 'ls' });
       expect(result.success).toBe(false);
+      expect(result.errorEnvelope).toEqual(expect.objectContaining({ kind: 'permission', message: expect.any(String) }));
       expect(result.error).toMatch(/not available on Telegram/i);
     } finally {
       rmSync(root, { recursive: true, force: true });

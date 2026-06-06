@@ -134,6 +134,25 @@ describe('runtime command ledger target contract (Wave 1)', () => {
     }
   });
 
+  it('start_project logs project command dispatch fallback failures', async () => {
+    const projectRoot = root();
+    try {
+      initProjectWithRoot(projectRoot);
+      const api = makeRuntime(projectRoot, undefined, async () => {
+        throw new Error('scheduler dispatch boom');
+      });
+      const result = await api.startProject('operator');
+      if (!result.success) throw new Error(`startProject failed: ${result.error.message}`);
+      await waitForBackgroundDispatchesToDrain();
+
+      expect(loggerTools.getEvents()).toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: 'runtime_diagnostic', phase: 'project_command_dispatch_failed', error_message: 'scheduler dispatch boom' }),
+      ]));
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
   it('startup reconciles idle running intent with stale open root run and restarts project scheduling', async () => {
     const projectRoot = root();
     try {

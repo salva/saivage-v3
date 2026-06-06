@@ -9,36 +9,36 @@ import { listControlActions } from '../persistence/index.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
 import { describe, emptyInput, type UnifiedToolDefinition } from './tool-catalog.js';
-import { readJsonlTail } from './analyst-tool-helpers.js';
+import { readJsonlTail, toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
 
 const JSONL_TAIL_DEFAULT = 50;
 const JSONL_TAIL_MAX = 1000;
 
 export async function start_project(ctx: ToolContext, params: Record<string, never> = {}): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, params, { action: 'runtime.start_project', safety_class: 'low', target_kind: 'runtime', getTargetId: () => PROJECT_CARD_ID, run: async () => {
-    if (!ctx.runtime) return { success: false, error: 'Active runtime is not available.' };
+    if (!ctx.runtime) return toolFailure('conflict', 'Active runtime is not available.');
     const data = await ctx.runtime.startProject('analyst');
-    return { success: data.success, ...(data.success ? { data } : { error: data.error.message, data }) };
+    return { success: data.success, ...(data.success ? { data } : { ...toolFailure('conflict', data.error.message), data }) };
   } });
 }
 
 export async function stop_project(ctx: ToolContext, params: Record<string, never> = {}): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, params, { action: 'runtime.stop_project', safety_class: 'destructive', target_kind: 'runtime', getTargetId: () => PROJECT_CARD_ID, run: async () => {
-    if (!ctx.runtime) return { success: false, error: 'Active runtime is not available.' };
+    if (!ctx.runtime) return toolFailure('conflict', 'Active runtime is not available.');
     const data = await ctx.runtime.stopProject('analyst'); return { success: true, data };
   } });
 }
 
 export async function terminate_process(ctx: ToolContext, params: { processId: string }): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, params, { action: 'process.terminate', safety_class: 'destructive', target_kind: 'process', getTargetId: (p) => p.processId, run: async () => {
-    const proc = await killProcess(ctx.projectRoot, params.processId, 'SIGTERM'); if (!proc) return { success: false, error: `Process '${params.processId}' not found.` }; return { success: true, data: proc };
+    const proc = await killProcess(ctx.projectRoot, params.processId, 'SIGTERM'); if (!proc) return toolFailure('not_found', `Process '${params.processId}' not found.`, { processId: params.processId }); return { success: true, data: proc };
   } });
 }
 
 export async function pause_runtime(ctx: ToolContext, params: Record<string, never> = {}): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, params, { action: 'runtime.pause', safety_class: 'low', target_kind: 'runtime', getTargetId: () => 'project', run: async () => {
     const result = pauseRuntimeControl({ projectRoot: ctx.projectRoot, runtimeApi: ctx.runtime });
-    if (!result.ok) return { success: false, error: result.message ?? result.error ?? 'Failed to pause runtime' };
+    if (!result.ok) return toolFailure('conflict', result.message ?? result.error ?? 'Failed to pause runtime');
     return { success: true, data: { status: result.status, paused: result.paused } };
   } });
 }
@@ -46,38 +46,38 @@ export async function pause_runtime(ctx: ToolContext, params: Record<string, nev
 export async function resume_runtime(ctx: ToolContext, params: Record<string, never> = {}): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, params, { action: 'runtime.resume', safety_class: 'low', target_kind: 'runtime', getTargetId: () => 'project', run: async () => {
     const state = readRuntimeState(ctx.projectRoot);
-    if (state?.status === 'frozen' || state?.status === 'error') return { success: false, error: `${state.status === 'frozen' ? FROZEN_RUNTIME_RECOVERY_MESSAGE : 'Runtime is in error state. Inspect Debug errors/timeline and fix the underlying failure before attempting recovery.'}` };
+    if (state?.status === 'frozen' || state?.status === 'error') return toolFailure('conflict', `${state.status === 'frozen' ? FROZEN_RUNTIME_RECOVERY_MESSAGE : 'Runtime is in error state. Inspect Debug errors/timeline and fix the underlying failure before attempting recovery.'}`, { runtime_status: state.status });
     const result = resumeRuntimeControl({ projectRoot: ctx.projectRoot, runtimeApi: ctx.runtime });
-    if (!result.ok) return { success: false, error: result.message ?? result.error ?? 'Failed to resume runtime' };
+    if (!result.ok) return toolFailure('conflict', result.message ?? result.error ?? 'Failed to resume runtime');
     return { success: true, data: { status: result.status, paused: result.paused } };
   } });
 }
 
 export async function restart_server(ctx: ToolContext, params: Record<string, never> = {}): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, params, { action: 'runtime.restart_server', safety_class: 'destructive', target_kind: 'runtime', getTargetId: () => 'server', run: async () => {
-    if (!ctx.requestServerRestart) return { success: false, error: 'Server restart primitive is not available.' };
+    if (!ctx.requestServerRestart) return toolFailure('conflict', 'Server restart primitive is not available.');
     await ctx.requestServerRestart(); return { success: true, data: { restart_requested: true } };
   } });
 }
 
 export async function read_runtime_events(ctx: ToolContext, params: { limit?: number; kind?: string }): Promise<ToolResult> {
-  try { const limit = Math.min(Math.max(1, params.limit ?? JSONL_TAIL_DEFAULT), JSONL_TAIL_MAX); const { entries, total } = readJsonlTail(join(ctx.projectRoot, '.saivage', 'runtime', 'events.jsonl'), limit); const filtered = params.kind ? entries.filter((e) => typeof e === 'object' && e !== null && (e as Record<string, unknown>)['kind'] === params.kind) : entries; return { success: true, data: { total_lines: total, returned: filtered.length, events: filtered } }; }
-  catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; }
+  try { const limit = Math.min(Math.max(1, params.limit ?? JSONL_TAIL_DEFAULT), JSONL_TAIL_MAX); const { entries, total, parseErrors } = readJsonlTail(join(ctx.projectRoot, '.saivage', 'runtime', 'events.jsonl'), limit); const filtered = params.kind ? entries.filter((e) => typeof e === 'object' && e !== null && (e as Record<string, unknown>)['kind'] === params.kind) : entries; return { success: true, data: { total_lines: total, returned: filtered.length, parse_errors: parseErrors, events: filtered } }; }
+  catch (err) { return toolFailureFromError(err, 'io'); }
 }
 
 export async function read_runtime_errors(ctx: ToolContext, params: { limit?: number }): Promise<ToolResult> {
-  try { const limit = Math.min(Math.max(1, params.limit ?? JSONL_TAIL_DEFAULT), JSONL_TAIL_MAX); const { entries, total } = readJsonlTail(join(ctx.projectRoot, '.saivage', 'runtime', 'errors.jsonl'), limit); return { success: true, data: { total_lines: total, returned: entries.length, errors: entries } }; }
-  catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; }
+  try { const limit = Math.min(Math.max(1, params.limit ?? JSONL_TAIL_DEFAULT), JSONL_TAIL_MAX); const { entries, total, parseErrors } = readJsonlTail(join(ctx.projectRoot, '.saivage', 'runtime', 'errors.jsonl'), limit); return { success: true, data: { total_lines: total, returned: entries.length, parse_errors: parseErrors, errors: entries } }; }
+  catch (err) { return toolFailureFromError(err, 'io'); }
 }
 
 export async function read_control_actions(ctx: ToolContext, params: { limit?: number; since?: string }): Promise<ToolResult> {
   try { const limit = Math.min(Math.max(1, params.limit ?? JSONL_TAIL_DEFAULT), JSONL_TAIL_MAX); const all = listControlActions(ctx.projectRoot, params.since ? { since: params.since } : undefined); const tail = all.slice(-limit); return { success: true, data: { total_lines: all.length, returned: tail.length, actions: tail } }; }
-  catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; }
+  catch (err) { return toolFailureFromError(err, 'io'); }
 }
 
 export async function list_processes_tool(ctx: ToolContext, params: { status?: string; cardId?: string }): Promise<ToolResult> {
   try { const procs = listProcesses(ctx.projectRoot, params.cardId ? { cardId: params.cardId } : undefined); const filtered = params.status ? procs.filter((p) => p.status === params.status) : procs; return { success: true, data: filtered.map((p) => ({ id: p.id, command: p.command, card_id: p.card_id, status: p.status, pid: p.pid, started_at: p.started_at, completed_at: p.completed_at, exit_code: p.exit_code })) }; }
-  catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; }
+  catch (err) { return toolFailureFromError(err, 'io'); }
 }
 
 export const analystRuntimeTools: readonly UnifiedToolDefinition<string, any>[] = [

@@ -8,7 +8,7 @@ import { getRedactedConfig, mcpAdd, mcpEdit, mcpRemove, setFailoverChain, setRol
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
 import { describe, emptyInput, type UnifiedToolDefinition } from './tool-catalog.js';
-import { readJsonlTail } from './analyst-tool-helpers.js';
+import { readJsonlTail, toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
 
 const JSONL_TAIL_DEFAULT = 50;
 const JSONL_TAIL_MAX = 1000;
@@ -17,15 +17,15 @@ const GLOBAL_ANALYST_SESSION_ID = 'analyst';
 export async function queue_notification(ctx: ToolContext, params: { recipient: string; kind: string; body: string }): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, { recipient: params.recipient, kind: params.kind }, { action: 'notification.queue', safety_class: 'low', target_kind: 'session', getTargetId: () => params.recipient, run: async () => {
     const resolved = resolveRecipient(ctx.projectRoot, params.recipient);
-    if (resolved === null) return { success: false, data: { reason: 'unknown_recipient', recipient: params.recipient } };
+    if (resolved === null) return { ...toolFailure('not_found', `Unknown notification recipient '${params.recipient}'.`, { reason: 'unknown_recipient', recipient: params.recipient }), data: { reason: 'unknown_recipient', recipient: params.recipient } };
     queueNotification(ctx.projectRoot, resolved, params.kind, params.body, { actor: 'analyst', surface: ctx.surface });
     return { success: true, data: { queued: true, recipient: params.recipient } };
   } });
 }
 
 export async function show_config(ctx: ToolContext, _params: Record<string, never> = {}): Promise<ToolResult> {
-  try { const path = join(ctx.projectRoot, '.saivage', 'saivage.json'); assertAnalystInspectionTarget(path); const result = getRedactedConfig(ctx.projectRoot); if (!result.success) return { success: false, data: { reason: 'invalid_argument', fieldPath: result.fieldPath, detail: result.message } }; return { success: true, data: { config: redactAnalystSecretValue(result.config) } }; }
-  catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; }
+  try { const path = join(ctx.projectRoot, '.saivage', 'saivage.json'); assertAnalystInspectionTarget(path); const result = getRedactedConfig(ctx.projectRoot); if (!result.success) return { ...toolFailure('validation', result.message, { reason: 'invalid_argument', fieldPath: result.fieldPath, detail: result.message }), data: { reason: 'invalid_argument', fieldPath: result.fieldPath, detail: result.message } }; return { success: true, data: { config: redactAnalystSecretValue(result.config) } }; }
+  catch (err) { return toolFailureFromError(err, 'io'); }
 }
 
 type ReconfigureParams = { action: 'set_role_routing' | 'set_failover_chain' | 'mcp_add' | 'mcp_edit' | 'mcp_remove' | 'set_runtime_setting' | 'set_server_setting'; role?: string; model_candidate?: string; for_model?: string; ordered_failover_models?: string[]; name?: string; command?: string; args?: string[]; env?: Record<string, string>; key?: string; value?: unknown };
@@ -33,7 +33,7 @@ type ReconfigureParams = { action: 'set_role_routing' | 'set_failover_chain' | '
 export async function reconfigure(ctx: ToolContext, params: ReconfigureParams): Promise<ToolResult> {
   const actionName = `reconfigure.${params.action.replace(/^set_/, 'set_')}`;
   return runAuditedAnalystTool(ctx, params as ReconfigureParams & Record<string, unknown>, { action: actionName, safety_class: 'low', target_kind: 'config', getTargetId: () => params.name ?? params.role ?? params.key ?? params.action, run: async () => {
-    const invalid = (fieldPath: string, detail: string): ToolResult => ({ success: false, data: { reason: 'invalid_argument', fieldPath, detail }, error: detail });
+    const invalid = (fieldPath: string, detail: string): ToolResult => ({ ...toolFailure('validation', detail, { reason: 'invalid_argument', fieldPath, detail }), data: { reason: 'invalid_argument', fieldPath, detail } });
     let result;
     switch (params.action) {
       case 'set_role_routing': result = setRoleRouting(ctx.projectRoot, params.role!, params.model_candidate!); break;
@@ -56,12 +56,12 @@ export async function list_agent_sessions(ctx: ToolContext, _params: Record<stri
     try { const data = JSON.parse(readFileSync(join(dir, file), 'utf-8')) as Record<string, unknown>; const id = (data['id'] as string) ?? file.replace('.json', ''); if (data['role'] === 'analyst' && id !== GLOBAL_ANALYST_SESSION_ID) return []; return [{ id, role: data['role'] ?? null, status: data['status'] ?? null, started_at: data['started_at'] ?? null, card_id: data['card_id'] ?? null }]; }
     catch (err) { return [{ id: file.replace('.json', ''), error: err instanceof Error ? err.message : String(err) }]; }
   }); return { success: true, data: sessions }; }
-  catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; }
+  catch (err) { return toolFailureFromError(err, 'io'); }
 }
 
 export async function read_agent_session(ctx: ToolContext, params: { sessionId: string; lastN?: number }): Promise<ToolResult> {
-  try { if (typeof params.sessionId !== 'string' || params.sessionId.length === 0) return { success: false, error: 'sessionId is required.' }; if (!/^[a-zA-Z0-9_-]+$/.test(params.sessionId)) return { success: false, error: 'sessionId contains invalid characters.' }; const sessionPath = join(ctx.projectRoot, '.saivage', 'agents', 'sessions', `${params.sessionId}.json`); const messagesPath = join(ctx.projectRoot, '.saivage', 'agents', 'messages', `${params.sessionId}.jsonl`); const session = existsSync(sessionPath) ? JSON.parse(readFileSync(sessionPath, 'utf-8')) : null; const limit = Math.min(Math.max(1, params.lastN ?? JSONL_TAIL_DEFAULT), JSONL_TAIL_MAX); const { entries, total } = readJsonlTail(messagesPath, limit); return { success: true, data: { session, total_messages: total, returned: entries.length, messages: entries } }; }
-  catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; }
+  try { if (typeof params.sessionId !== 'string' || params.sessionId.length === 0) return toolFailure('validation', 'sessionId is required.', { field: 'sessionId' }); if (!/^[a-zA-Z0-9_-]+$/.test(params.sessionId)) return toolFailure('validation', 'sessionId contains invalid characters.', { field: 'sessionId' }); const sessionPath = join(ctx.projectRoot, '.saivage', 'agents', 'sessions', `${params.sessionId}.json`); const messagesPath = join(ctx.projectRoot, '.saivage', 'agents', 'messages', `${params.sessionId}.jsonl`); const session = existsSync(sessionPath) ? JSON.parse(readFileSync(sessionPath, 'utf-8')) : null; const limit = Math.min(Math.max(1, params.lastN ?? JSONL_TAIL_DEFAULT), JSONL_TAIL_MAX); const { entries, total, parseErrors } = readJsonlTail(messagesPath, limit); return { success: true, data: { session, total_messages: total, returned: entries.length, parse_errors: parseErrors, messages: entries } }; }
+  catch (err) { return toolFailureFromError(err, 'io'); }
 }
 
 export const analystMiscTools: readonly UnifiedToolDefinition<string, any>[] = [

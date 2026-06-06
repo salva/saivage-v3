@@ -49,6 +49,19 @@ function toolCallsResponse(calls: Array<{ id: string; name: string; args: Record
   }), { status: 200, headers: { 'Content-Type': 'application/json' } });
 }
 
+function rawToolCallsResponse(calls: Array<{ id: string; name: string; rawArgs: string }>): Response {
+  return new Response(JSON.stringify({
+    id: 'chatcmpl-test', object: 'chat.completion', created: 1, model: TEST_MODEL,
+    choices: [{
+      index: 0, finish_reason: 'tool_calls',
+      message: {
+        role: 'assistant', content: null,
+        tool_calls: calls.map((c) => ({ id: c.id, type: 'function', function: { name: c.name, arguments: c.rawArgs } })),
+      },
+    }],
+  }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+}
+
 function readPersistedRows(root: string, sessionId: string): Array<{ role: string; kind: string; content: string; tool?: string; tool_call_id?: string }> {
   const path = join(root, '.saivage', 'agents', 'messages', `${sessionId}.jsonl`);
   return readFileSync(path, 'utf-8').trim().split('\n').map((line) => JSON.parse(line));
@@ -150,5 +163,52 @@ describe('AnalystHandler F05 contract', () => {
     try { trimToCleanToolBoundary(messages); } catch (err) { caught = err; }
     expect(caught).toBeInstanceOf(PersistedRowCorruptError);
     expect((caught as PersistedRowCorruptError).code).toBe('legacy_tool_calls_wrapper');
+  });
+
+  it('records diagnostics for malformed tool argument JSON instead of swallowing parse failures', async () => {
+    const root = setupRoot();
+    try {
+      const diagnostics: Array<Record<string, unknown>> = [];
+      const runtimeDeps = createTestAnalystRuntime();
+      runtimeDeps.eventLogger = { appendEvent: (event: unknown) => { diagnostics.push(event as Record<string, unknown>); return event as never; } } as never;
+      let call = 0;
+      jest.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+        call += 1;
+        if (call === 1) return rawToolCallsResponse([{ id: 'bad-args', name: 'list_cards', rawArgs: '{not-json' }]);
+        return messageResponse('Done.');
+      });
+
+      const handler = new AnalystHandler(root, runtimeDeps);
+      const response = await handler.handleMessage('s-bad-json', 'list cards');
+
+      expect(response.message.content).toBe('Done.');
+      expect(diagnostics).toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: 'runtime_diagnostic', phase: 'analyst_tool_call_arguments_parse_failed' }),
+        expect.objectContaining({ kind: 'runtime_diagnostic', phase: 'analyst_tool_execution_arguments_parse_failed' }),
+      ]));
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('records diagnostics when activity callbacks throw', async () => {
+    const root = setupRoot();
+    try {
+      const diagnostics: Array<Record<string, unknown>> = [];
+      const runtimeDeps = createTestAnalystRuntime();
+      runtimeDeps.eventLogger = { appendEvent: (event: unknown) => { diagnostics.push(event as Record<string, unknown>); return event as never; } } as never;
+      let call = 0;
+      jest.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+        call += 1;
+        if (call === 1) return toolCallsResponse([{ id: 'call-a', name: 'list_cards', args: {} }]);
+        return messageResponse('Done.');
+      });
+
+      const handler = new AnalystHandler(root, runtimeDeps, () => { throw new Error('activity boom'); });
+      const response = await handler.handleMessage('s-activity', 'list cards');
+
+      expect(response.message.content).toBe('Done.');
+      expect(diagnostics).toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: 'runtime_diagnostic', phase: 'analyst_activity_callback_failed', error_message: 'activity boom' }),
+      ]));
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });

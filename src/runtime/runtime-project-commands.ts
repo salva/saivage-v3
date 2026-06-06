@@ -148,15 +148,28 @@ export class RuntimeProjectCommandRunner {
             const updated = this.deps.mutations.apply({ kind: 'updateRuntimeRun', runId: plan.runId, updates: plan.updates });
             if (updated) this.deps.publishRuntimeRun(updated);
           })
-          .catch(async () => {
+          .catch(async (dispatchError) => {
             try {
               await this.deps.stateMachine.transition('goal_exit', {
                 goalId: PROJECT_CARD_ID,
                 reason: 'dispatch_failed',
               });
-            } catch {
-              void 0;
+            } catch (transitionError) {
+              this.deps.eventLogger.appendEvent({
+                kind: 'runtime_diagnostic',
+                goal_id: PROJECT_CARD_ID,
+                phase: 'project_command_dispatch_failure_transition_failed',
+                error_message: transitionError instanceof Error ? transitionError.message : String(transitionError),
+                ...(transitionError instanceof Error ? { error_name: transitionError.name } : {}),
+              });
             }
+            this.deps.eventLogger.appendEvent({
+              kind: 'runtime_diagnostic',
+              goal_id: PROJECT_CARD_ID,
+              phase: 'project_command_dispatch_failed',
+              error_message: dispatchError instanceof Error ? dispatchError.message : String(dispatchError),
+              ...(dispatchError instanceof Error ? { error_name: dispatchError.name } : {}),
+            });
             const plan = planRootRunDispatchFailureUpdate({ state: readRuntimeState(this.deps.projectRoot), runId: run.run_id, nowIso: this.deps.now() });
             if (!plan) return;
             const updated = this.deps.mutations.apply({ kind: 'updateRuntimeRun', runId: plan.runId, updates: plan.updates });

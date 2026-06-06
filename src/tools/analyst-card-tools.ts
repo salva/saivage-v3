@@ -28,7 +28,7 @@ import {
   type UnifiedToolDefinition,
 } from './tool-catalog.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
-import { buildDeletePreview, cardSummary, defaultParentForCreate, getStore, humanizeToolError, normalizeParentValue, preflightEnum, saivageDir } from './analyst-tool-helpers.js';
+import { buildDeletePreview, cardSummary, defaultParentForCreate, getStore, humanizeToolError, normalizeParentValue, preflightEnum, saivageDir, toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
 
 const markGoalNeedsCorrectionsInput = z.object({
   goalId: describe(z.string(), 'Goal/project card ID.'),
@@ -86,24 +86,24 @@ const listCardsInput = z.object({
 export async function mark_goal_needs_corrections(ctx: ToolContext, params: { goalId: string; issues: unknown[]; note?: string }): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, params, { action: 'goal.needs_corrections', safety_class: 'destructive', target_kind: 'card', getTargetId: (p) => p.goalId, run: async () => {
     try { const issues = normalizeAnalystIssues(params.issues); return { success: true, data: markGoalNeedsCorrections(ctx.projectRoot, params.goalId, issues, params.note) }; }
-    catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; }
+    catch (err) { return toolFailureFromError(err); }
   } });
 }
 
 export async function create_card(ctx: ToolContext, params: { type: CardType; parent: string | null; title: string; description: string; status?: CardStatus; tags?: string[]; priority?: number; urgency?: 'low' | 'normal' | 'high' | 'critical'; acceptance?: string; depends_on?: string[]; related?: string[] }): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, params, { action: 'card.create', safety_class: 'low', target_kind: 'card', getTargetId: () => null, run: async () => {
     try {
-      const typeCheck = preflightEnum(params.type, CREATE_CARD_TYPE_VALUES, 'type', 'create_card'); if (!typeCheck.ok) return { success: false, error: typeCheck.error };
-      const statusCheck = preflightEnum(params.status, CARD_STATUS_VALUES, 'status', 'create_card'); if (!statusCheck.ok) return { success: false, error: statusCheck.error };
-      const urgencyCheck = preflightEnum(params.urgency, URGENCY_VALUES, 'urgency', 'create_card'); if (!urgencyCheck.ok) return { success: false, error: urgencyCheck.error };
+      const typeCheck = preflightEnum(params.type, CREATE_CARD_TYPE_VALUES, 'type', 'create_card'); if (!typeCheck.ok) return { success: false, error: typeCheck.error, errorEnvelope: typeCheck.errorEnvelope };
+      const statusCheck = preflightEnum(params.status, CARD_STATUS_VALUES, 'status', 'create_card'); if (!statusCheck.ok) return { success: false, error: statusCheck.error, errorEnvelope: statusCheck.errorEnvelope };
+      const urgencyCheck = preflightEnum(params.urgency, URGENCY_VALUES, 'urgency', 'create_card'); if (!urgencyCheck.ok) return { success: false, error: urgencyCheck.error, errorEnvelope: urgencyCheck.errorEnvelope };
       const store = getStore(ctx);
       const parent = normalizeParentValue(params.parent) ?? defaultParentForCreate(store, params.type);
-      if (parent === null && params.type !== 'project') return { success: false, error: `Cannot create ${params.type} card without a parent. Inspect the card tree and provide an existing parent ID.` };
-      if (parent === undefined) return { success: false, error: `Cannot create ${params.type} card without a parent. Inspect the card tree and provide an existing parent ID.` };
-      if (parent !== null && parent !== PROJECT_CARD_ID && !store.read(parent)) return { success: false, error: `Parent card '${parent}' does not exist.` };
+      if (parent === null && params.type !== 'project') return toolFailure('validation', `Cannot create ${params.type} card without a parent. Inspect the card tree and provide an existing parent ID.`, { field: 'parent' });
+      if (parent === undefined) return toolFailure('validation', `Cannot create ${params.type} card without a parent. Inspect the card tree and provide an existing parent ID.`, { field: 'parent' });
+      if (parent !== null && parent !== PROJECT_CARD_ID && !store.read(parent)) return toolFailure('not_found', `Parent card '${parent}' does not exist.`, { parent });
       const card = store.create({ type: params.type, parent, depth: 0, title: params.title, description: params.description, status: params.status ?? 'drafting', tags: params.tags ?? [], priority: params.priority ?? 0, urgency: params.urgency ?? 'normal', created_by: 'analyst', acceptance: params.acceptance ?? '', depends_on: params.depends_on ?? [], related: params.related ?? [], blocks: [], artifacts: [], attachments: [], retries: 0 });
       return { success: true, data: toCardView(store, card) };
-    } catch (err) { return { success: false, error: humanizeToolError('create_card', err instanceof Error ? err.message : String(err)) }; }
+    } catch (err) { return toolFailureFromError(err, 'validation', humanizeToolError('create_card', err instanceof Error ? err.message : String(err))); }
   } });
 }
 
@@ -112,17 +112,17 @@ const ALLOWED_EDIT_FIELDS = new Set(['title', 'description', 'status', 'tags', '
 export async function edit_card(ctx: ToolContext, params: { id: string } & Record<string, unknown>): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, params, { action: 'card.update', safety_class: 'high', target_kind: 'card', getTargetId: (p) => p.id, preview: () => ({ type: 'edit_card', summary: `Edit card '${params.id}'.`, affectedCards: getStore(ctx).read(params.id) ? [cardSummary(getStore(ctx).read(params.id)!)] : [], affectedProcesses: [], warnings: [] }), run: async () => {
     try {
-      const statusCheck = preflightEnum(params.status, CARD_STATUS_VALUES, 'status', 'edit_card'); if (!statusCheck.ok) return { success: false, error: statusCheck.error };
-      const urgencyCheck = preflightEnum(params.urgency, URGENCY_VALUES, 'urgency', 'edit_card'); if (!urgencyCheck.ok) return { success: false, error: urgencyCheck.error };
-      const typeCheck = preflightEnum(params.type, CARD_TYPE_VALUES, 'type', 'edit_card'); if (!typeCheck.ok) return { success: false, error: typeCheck.error };
-      const store = getStore(ctx); const card = store.read(params.id); if (!card) return { success: false, error: `Card '${params.id}' not found.` };
+      const statusCheck = preflightEnum(params.status, CARD_STATUS_VALUES, 'status', 'edit_card'); if (!statusCheck.ok) return { success: false, error: statusCheck.error, errorEnvelope: statusCheck.errorEnvelope };
+      const urgencyCheck = preflightEnum(params.urgency, URGENCY_VALUES, 'urgency', 'edit_card'); if (!urgencyCheck.ok) return { success: false, error: urgencyCheck.error, errorEnvelope: urgencyCheck.errorEnvelope };
+      const typeCheck = preflightEnum(params.type, CARD_TYPE_VALUES, 'type', 'edit_card'); if (!typeCheck.ok) return { success: false, error: typeCheck.error, errorEnvelope: typeCheck.errorEnvelope };
+      const store = getStore(ctx); const card = store.read(params.id); if (!card) return toolFailure('not_found', `Card '${params.id}' not found.`, { id: params.id });
       const changes: Record<string, unknown> = {}; const rejected: string[] = [];
       for (const [key, value] of Object.entries(params)) { if (key === 'id') continue; if (ALLOWED_EDIT_FIELDS.has(key)) changes[key] = value; else rejected.push(key); }
-      if (Object.keys(changes).length === 0) return { success: false, error: `edit_card failed: no allowed fields to update. Rejected fields: ${rejected.join(', ') || '(none)'}. Allowed fields include: ${Array.from(ALLOWED_EDIT_FIELDS).join(', ')}. See the 'edit_card' tool's parameter schema.` };
+      if (Object.keys(changes).length === 0) return toolFailure('validation', `edit_card failed: no allowed fields to update. Rejected fields: ${rejected.join(', ') || '(none)'}. Allowed fields include: ${Array.from(ALLOWED_EDIT_FIELDS).join(', ')}. See the 'edit_card' tool's parameter schema.`, { rejected });
       const updated = store.mutateCard(params.id, changes as Partial<CardRecord>, { actor: ctx.actor, surface: ctx.surface, reason: 'analyst edit' });
-      try { notifyPlannerOfAnalystAction(ctx.projectRoot, params.id, `analyst edited card fields: ${Object.keys(changes).join(', ')}`); } catch { void 0; }
+      try { notifyPlannerOfAnalystAction(ctx.projectRoot, params.id, `analyst edited card fields: ${Object.keys(changes).join(', ')}`); } catch { /* best-effort planner notification; edit result remains authoritative */ }
       return { success: true, data: updated };
-    } catch (err) { return { success: false, error: humanizeToolError('edit_card', err instanceof Error ? err.message : String(err)) }; }
+    } catch (err) { return toolFailureFromError(err, 'validation', humanizeToolError('edit_card', err instanceof Error ? err.message : String(err))); }
   } });
 }
 
@@ -143,7 +143,7 @@ export async function delete_card(ctx: ToolContext, params: { ids: string[] }): 
       } catch (err) { failures.push({ id: targetId, reason: err instanceof Error ? err.message : String(err) }); }
     }
     if (deletedTopLevel.length > 0 && failures.length > 0) return { success: true, data: { partial: true, total: params.ids.length, succeeded: deletedTopLevel.length, failures } };
-    if (failures.length > 0) return { success: false, error: failures.map((failure) => `${failure.id}: ${failure.reason}`).join('; '), data: { failures } };
+    if (failures.length > 0) return { ...toolFailure(failures.every((failure) => failure.reason.toLowerCase().includes('not found')) ? 'not_found' : 'conflict', failures.map((failure) => `${failure.id}: ${failure.reason}`).join('; '), { failures }), data: { failures } };
     return { success: true, data: { deleted: deletedAll, top_level_deleted: deletedTopLevel } };
   } });
 }
@@ -155,14 +155,14 @@ export async function list_cards(ctx: ToolContext, params: { status?: CardStatus
     if (params.parent !== undefined) cards = params.parent === null ? cards.filter((c) => c.parent === null) : cards.filter((c) => store.listChildren(params.parent!).includes(c.id));
     if (params.tag) cards = cards.filter((c) => c.tags.includes(params.tag!));
     return { success: true, data: cards.map((c) => ({ id: c.id, display_path: computeCardDisplayPath(store, c), type: c.type, title: c.title, status: c.status, priority: c.priority, parent: c.parent, tags: c.tags })) };
-  } catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; }
+  } catch (err) { return toolFailureFromError(err); }
 }
 
 export async function get_card(ctx: ToolContext, params: { id: string }): Promise<ToolResult> {
-  try { const store = getStore(ctx); const card = store.read(params.id); if (!card) return { success: false, error: `Card '${params.id}' not found.` };
+  try { const store = getStore(ctx); const card = store.read(params.id); if (!card) return toolFailure('not_found', `Card '${params.id}' not found.`, { id: params.id });
     const children = store.listChildren(params.id).map((cid) => store.read(cid)).filter((c): c is CardRecord => c !== null).map((child) => cardSummary(child, store));
     return { success: true, data: { ...toCardView(store, card), children } };
-  } catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; }
+  } catch (err) { return toolFailureFromError(err); }
 }
 
 interface TreeNode { id: string; type: string; title: string; status: string; display_path: string | null; children: TreeNode[]; }
@@ -172,47 +172,47 @@ function buildNode(store: import('../cards/store-api.js').CardStore, id: string)
 }
 
 export async function get_tree(ctx: ToolContext, params: { rootId?: string }): Promise<ToolResult> {
-  try { const store = getStore(ctx); const rootId = params.rootId ?? PROJECT_CARD_ID; if (!store.read(rootId)) return { success: false, error: `Root card '${rootId}' not found.` }; const tree = buildNode(store, rootId); if (!tree) return { success: false, error: `Failed to build tree from '${rootId}'.` }; return { success: true, data: tree }; }
-  catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; }
+  try { const store = getStore(ctx); const rootId = params.rootId ?? PROJECT_CARD_ID; if (!store.read(rootId)) return toolFailure('not_found', `Root card '${rootId}' not found.`, { rootId }); const tree = buildNode(store, rootId); if (!tree) return toolFailure('internal', `Failed to build tree from '${rootId}'.`); return { success: true, data: tree }; }
+  catch (err) { return toolFailureFromError(err); }
 }
 
 export async function get_plan_diary(ctx: ToolContext, params: { goalId: string }): Promise<ToolResult> {
-  try { const store = getStore(ctx); const goal = store.read(params.goalId); if (!goal || (goal.type !== 'goal' && goal.type !== 'project')) return { success: false, error: `Goal '${params.goalId}' not found.` }; return { success: true, data: getDiaryEntries(saivageDir(ctx.projectRoot), params.goalId) }; }
-  catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; }
+  try { const store = getStore(ctx); const goal = store.read(params.goalId); if (!goal || (goal.type !== 'goal' && goal.type !== 'project')) return toolFailure('not_found', `Goal '${params.goalId}' not found.`, { goalId: params.goalId }); return { success: true, data: getDiaryEntries(saivageDir(ctx.projectRoot), params.goalId) }; }
+  catch (err) { return toolFailureFromError(err, 'io'); }
 }
 
 export async function get_card_output(ctx: ToolContext, params: { cardId: string; lines?: number; processId?: string }): Promise<ToolResult> {
-  try { const store = getStore(ctx); if (!store.read(params.cardId)) return { success: false, error: `Card '${params.cardId}' not found.` }; const numLines = params.lines ?? 50;
-    if (params.processId) { const proc = getProcess(ctx.projectRoot, params.processId); if (!proc) return { success: false, error: `Process '${params.processId}' not found.` }; if (proc.card_id !== params.cardId) return { success: false, error: `Process '${params.processId}' is not associated with card '${params.cardId}'.` }; return { success: true, data: { process: { id: proc.id, command: proc.command, status: proc.status, pid: proc.pid }, output: tailOutput(ctx.projectRoot, params.processId, numLines) } }; }
+  try { const store = getStore(ctx); if (!store.read(params.cardId)) return toolFailure('not_found', `Card '${params.cardId}' not found.`, { cardId: params.cardId }); const numLines = params.lines ?? 50;
+    if (params.processId) { const proc = getProcess(ctx.projectRoot, params.processId); if (!proc) return toolFailure('not_found', `Process '${params.processId}' not found.`, { processId: params.processId }); if (proc.card_id !== params.cardId) return toolFailure('conflict', `Process '${params.processId}' is not associated with card '${params.cardId}'.`, { processId: params.processId, cardId: params.cardId }); return { success: true, data: { process: { id: proc.id, command: proc.command, status: proc.status, pid: proc.pid }, output: tailOutput(ctx.projectRoot, params.processId, numLines) } }; }
     return { success: true, data: listProcesses(ctx.projectRoot, { cardId: params.cardId }).map((proc) => ({ id: proc.id, command: proc.command, status: proc.status, pid: proc.pid, started_at: proc.started_at, completed_at: proc.completed_at, exit_code: proc.exit_code, output: tailOutput(ctx.projectRoot, proc.id, numLines) })) };
-  } catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; }
+  } catch (err) { return toolFailureFromError(err, 'io'); }
 }
 
 export async function get_status(ctx: ToolContext, _params: Record<string, never>): Promise<ToolResult> {
   try { const store = getStore(ctx); const runtimeState = readRuntimeState(ctx.projectRoot); const allCards = store.list(); const runningProcesses = listProcesses(ctx.projectRoot).filter((p) => p.status === 'running'); const plannerStateCounts = allCards.reduce<Record<string, number>>((counts, card) => { counts[card.status] = (counts[card.status] ?? 0) + 1; return counts; }, {}); const activeCardRun = runtimeState?.active_card_run ?? null; const runtimeIntent = runtimeState?.runtime_intent ?? null; const runtimeRuns = runtimeState?.runtime_runs ?? []; const activationRecords = runtimeState?.runtime_activations ?? [];
     return { success: true, data: { runtime: runtimeState, runtimeSummary: { status: runtimeState?.status ?? 'unknown', paused: runtimeState?.paused ?? false, currentCardId: deriveCurrentCardId(runtimeState), activeCardRun, runtimeIntent, projectRuns: runtimeRuns.map((run) => ({ run_id: run.run_id, kind: run.kind, card_id: run.card_id, phase: run.phase, runtime_status: run.runtime_status, started_at: run.started_at, finished_at: run.finished_at ?? null })), activations: activationRecords.map((activation) => ({ activation_id: activation.activation_id, parent_card_id: activation.parent_card_id, child_card_id: activation.child_card_id, status: activation.status, requested_at: activation.requested_at, runtime_run_id: activation.runtime_run_id ?? null })) }, runningProcesses: runningProcesses.length, plannerStateCounts, counts: { done: plannerStateCounts.done ?? 0, failed: plannerStateCounts.failed ?? 0, blocked: plannerStateCounts.blocked ?? 0, total: allCards.length } } };
-  } catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; }
+  } catch (err) { return toolFailureFromError(err); }
 }
 
 export async function list_card_history(ctx: ToolContext, params: { cardId: string }): Promise<ToolResult> {
-  try { const store = getStore(ctx); if (!store.read(params.cardId)) return { success: false, error: `Card '${params.cardId}' not found.` }; const entries = store.listCardHistory(params.cardId).map((entry) => ({ card_id: entry.card_id, version_seq: entry.version_seq, changed_at: entry.changed_at, changed_by_actor: entry.changed_by_actor, changed_by_surface: entry.changed_by_surface, change_reason: entry.change_reason, changed_fields: entry.changed_fields, change_summary: entry.change_summary })); return { success: true, data: entries }; }
-  catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; }
+  try { const store = getStore(ctx); if (!store.read(params.cardId)) return toolFailure('not_found', `Card '${params.cardId}' not found.`, { cardId: params.cardId }); const entries = store.listCardHistory(params.cardId).map((entry) => ({ card_id: entry.card_id, version_seq: entry.version_seq, changed_at: entry.changed_at, changed_by_actor: entry.changed_by_actor, changed_by_surface: entry.changed_by_surface, change_reason: entry.change_reason, changed_fields: entry.changed_fields, change_summary: entry.change_summary })); return { success: true, data: entries }; }
+  catch (err) { return toolFailureFromError(err); }
 }
 
 export async function get_card_history_entry(ctx: ToolContext, params: { cardId: string; version_seq: number }): Promise<ToolResult> {
-  try { const store = getStore(ctx); const entry = store.listCardHistory(params.cardId).find((candidate) => candidate.version_seq === params.version_seq); if (!entry) return { success: false, error: `Card '${params.cardId}' has no history entry for version ${params.version_seq}.` }; return { success: true, data: entry }; }
-  catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; }
+  try { const store = getStore(ctx); const entry = store.listCardHistory(params.cardId).find((candidate) => candidate.version_seq === params.version_seq); if (!entry) return toolFailure('not_found', `Card '${params.cardId}' has no history entry for version ${params.version_seq}.`, { cardId: params.cardId, version_seq: params.version_seq }); return { success: true, data: entry }; }
+  catch (err) { return toolFailureFromError(err); }
 }
 
 export async function diff_card(ctx: ToolContext, params: { cardId: string; fromSeq?: number; toSeq?: number }): Promise<ToolResult> {
-  try { const store = getStore(ctx); const card = store.read(params.cardId); if (!card) return { success: false, error: `Card '${params.cardId}' not found.` }; const toSeq = params.toSeq ?? card.version_seq; const fromSeq = params.fromSeq ?? Math.max(1, toSeq - 1); return { success: true, data: { card_id: params.cardId, from_version_seq: fromSeq, to_version_seq: toSeq, diff: store.diffCard(params.cardId, fromSeq, toSeq) } }; }
-  catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; }
+  try { const store = getStore(ctx); const card = store.read(params.cardId); if (!card) return toolFailure('not_found', `Card '${params.cardId}' not found.`, { cardId: params.cardId }); const toSeq = params.toSeq ?? card.version_seq; const fromSeq = params.fromSeq ?? Math.max(1, toSeq - 1); return { success: true, data: { card_id: params.cardId, from_version_seq: fromSeq, to_version_seq: toSeq, diff: store.diffCard(params.cardId, fromSeq, toSeq) } }; }
+  catch (err) { return toolFailureFromError(err); }
 }
 
 export async function reorder_child(ctx: ToolContext, params: { parentId: string; orderedChildIds: string[] }): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, params, { action: 'card.reorder_child', safety_class: 'low', target_kind: 'card', getTargetId: (p) => p.parentId, run: async () => {
-    try { const store = getStore(ctx); const r = store.reorderChildren(params.parentId, params.orderedChildIds, { actor: 'analyst', surface: ctx.surface, reason: 'analyst reorder_child' }); if (r.ok) return { success: true, data: { parent_id: params.parentId, changed: r.changed } }; return { success: false, data: { reason: 'reorder_set_mismatch', missing: r.missing, extra: r.extra, parent_id: params.parentId }, error: 'reorder_set_mismatch' }; }
-    catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; }
+    try { const store = getStore(ctx); const r = store.reorderChildren(params.parentId, params.orderedChildIds, { actor: 'analyst', surface: ctx.surface, reason: 'analyst reorder_child' }); if (r.ok) return { success: true, data: { parent_id: params.parentId, changed: r.changed } }; return { ...toolFailure('conflict', 'reorder_set_mismatch', { reason: 'reorder_set_mismatch', missing: r.missing, extra: r.extra, parent_id: params.parentId }), data: { reason: 'reorder_set_mismatch', missing: r.missing, extra: r.extra, parent_id: params.parentId } }; }
+    catch (err) { return toolFailureFromError(err); }
   } });
 }
 

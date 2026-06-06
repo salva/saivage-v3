@@ -17,7 +17,7 @@ import {
   sanitizedCommandEnv,
 } from '../runtime/command-policy.js';
 import { CARD_STATUS_VALUES, CARD_TYPE_VALUES, URGENCY_VALUES } from './tool-catalog.js';
-import type { ActionPreview, ToolContext } from './analyst-tool-types.js';
+import type { ActionPreview, ToolContext, ToolErrorEnvelope, ToolErrorKind, ToolResult } from './analyst-tool-types.js';
 
 export type ShellCommandParams = {
   command: string;
@@ -94,15 +94,55 @@ export function humanizeToolError(toolName: string, raw: string): string {
   return `${toolName} failed.${hintLine} See the '${toolName}' tool's parameter schema for the full list of accepted fields and values. Original error: ${raw}`;
 }
 
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+export function toolError(kind: ToolErrorKind, message: string, details?: Record<string, unknown>, retryable?: boolean): ToolErrorEnvelope {
+  const envelope: ToolErrorEnvelope = { kind, message };
+  if (details !== undefined) envelope.details = details;
+  if (retryable !== undefined) envelope.retryable = retryable;
+  return envelope;
+}
+
+export function toolFailure(kind: ToolErrorKind, message: string, details?: Record<string, unknown>, retryable?: boolean): ToolResult {
+  const errorEnvelope = toolError(kind, message, details, retryable);
+  return { success: false, error: errorEnvelope.message, errorEnvelope };
+}
+
+export function classifyToolError(err: unknown, fallbackKind: ToolErrorKind = 'internal', messageOverride?: string): ToolErrorEnvelope {
+  const raw = messageOverride ?? errorMessage(err);
+  const lower = raw.toLowerCase();
+  const kind: ToolErrorKind =
+    lower.includes('denied') || lower.includes('not available on telegram') || lower.includes('off-limits') || lower.includes('authorization') ? 'permission'
+      : lower.includes('not found') || lower.includes('does not exist') ? 'not_found'
+        : lower.includes('invalid') || lower.includes('required') || lower.includes('must be') || lower.includes('schema') || lower.includes('allowed values') || lower.includes('no allowed fields') ? 'validation'
+          : lower.includes('cannot') || lower.includes('conflict') || lower.includes('mismatch') ? 'conflict'
+            : lower.includes('enoent') || lower.includes('eacces') || lower.includes('file') || lower.includes('directory') || lower.includes('readable') ? 'io'
+              : fallbackKind;
+  return toolError(kind, raw);
+}
+
+export function toolFailureFromError(err: unknown, fallbackKind: ToolErrorKind = 'internal', messageOverride?: string): ToolResult {
+  const errorEnvelope = classifyToolError(err, fallbackKind, messageOverride);
+  return { success: false, error: errorEnvelope.message, errorEnvelope };
+}
+
 export function preflightEnum<T extends string>(
   value: unknown,
   allowed: readonly T[],
   field: string,
   toolName: string,
-): { ok: true } | { ok: false; error: string } {
+): { ok: true } | { ok: false; error: string; errorEnvelope: ToolErrorEnvelope } {
   if (value === undefined) return { ok: true };
-  if (typeof value !== 'string') return { ok: false, error: `${toolName} failed: field '${field}' must be a string. Allowed values: ${allowed.join(', ')}. See the '${toolName}' tool's parameter schema.` };
-  if (!(allowed as readonly string[]).includes(value)) return { ok: false, error: `${toolName} failed: field '${field}' received '${value}', which is not a valid value. Allowed values: ${allowed.join(', ')}. See the '${toolName}' tool's parameter schema.` };
+  if (typeof value !== 'string') {
+    const message = `${toolName} failed: field '${field}' must be a string. Allowed values: ${allowed.join(', ')}. See the '${toolName}' tool's parameter schema.`;
+    return { ok: false, error: message, errorEnvelope: toolError('validation', message, { field }) };
+  }
+  if (!(allowed as readonly string[]).includes(value)) {
+    const message = `${toolName} failed: field '${field}' received '${value}', which is not a valid value. Allowed values: ${allowed.join(', ')}. See the '${toolName}' tool's parameter schema.`;
+    return { ok: false, error: message, errorEnvelope: toolError('validation', message, { field, allowed: [...allowed] }) };
+  }
   return { ok: true };
 }
 
@@ -269,18 +309,19 @@ export function isBinarySample(buf: Buffer): boolean {
   return suspicious / sample > 0.3;
 }
 
-export function readJsonlTail(path: string, limit: number): { entries: unknown[]; total: number } {
-  if (!existsSync(path)) return { entries: [], total: 0 };
+export function readJsonlTail(path: string, limit: number): { entries: unknown[]; total: number; parseErrors: number } {
+  if (!existsSync(path)) return { entries: [], total: 0, parseErrors: 0 };
   const raw = readFileSync(path, 'utf-8');
   const lines = raw.split('\n').filter((line) => line.trim() !== '');
   const tail = lines.slice(-limit);
   const entries: unknown[] = [];
+  let parseErrors = 0;
   for (const line of tail) {
     try {
       entries.push(JSON.parse(line));
     } catch {
-      void 0;
+      parseErrors += 1;
     }
   }
-  return { entries, total: lines.length };
+  return { entries, total: lines.length, parseErrors };
 }

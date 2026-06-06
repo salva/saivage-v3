@@ -2,6 +2,7 @@ import { evaluateAuthz } from './authz.js';
 import type { SafetyClass } from './authz.js';
 import { recordControlAction, stableStringify } from '../persistence/index.js';
 import type { ToolContext, ToolResult, ActionPreview } from '../tools/analyst-tool-types.js';
+import { toolFailure } from '../tools/analyst-tool-helpers.js';
 
 export interface MutatingSpec<P> {
   action: string;
@@ -19,7 +20,7 @@ export async function runAuditedAnalystTool<P extends Record<string, unknown>>(c
   const auditBase = { actor: ctx.actor, surface: ctx.surface, action: spec.action, target_kind: spec.target_kind, target_id: spec.getTargetId(params), params_summary: paramsSummary(params), safety_class: spec.safety_class };
   if (verdict === 'deny') {
     recordControlAction(ctx.projectRoot, { ...auditBase, outcome: 'denied', outcome_summary: 'authz denied' });
-    return { success: false, error: `Denied by authorization policy for ${ctx.actor}/${ctx.surface}/${spec.safety_class}.` };
+    return toolFailure('permission', `Denied by authorization policy for ${ctx.actor}/${ctx.surface}/${spec.safety_class}.`, { action: spec.action, safety_class: spec.safety_class });
   }
   const result = await spec.run(ctx, params);
   recordControlAction(ctx.projectRoot, {
