@@ -6,7 +6,7 @@ This wave assumes Waves 2 and 4 are complete. Verify actual seams before startin
 
 - **Wave 2 (Card Data Model):** `CardStoreState` is the authoritative in-memory read model. Read methods no longer call `refreshState()`. Mutations update state after durable writes. Defensive `deepClone` remains in this wave. ID generation keeps the sequential `card-N` format but runs inside the locked `create()` mutation after a lock-scoped state reload.
 - **Wave 4 (Path Unification):**
-  - F02: A shared `AgentInvocationService` owns candidate iteration, recovery, recording, and turn loop. The analyst LLM resolver is deleted. Analyst session handling uses shared session persistence.
+  - F02: A shared `InvocationService` owns raw LLM transport, candidate resolution, gateway/recorder caching, and analyst candidate recovery. The analyst LLM resolver is deleted. Analyst session handling uses shared session persistence.
   - F10: A `ToolDispatcher` owns parsing, policy check, result envelope, truncation, persistence hooks, and error formatting. Tool call dispatch in `invokeAgent` delegates to the `ToolDispatcher`.
   - F23: A `ContextCompactor` service owns per-session compaction, boundary trimming, and planner-specific context serialization. `compactPlannerModelMessagesForContext`, `buildPlannerHistoryCompactionMessage`, `buildPlannerRecentMessageTail`, and the planner history constants are extracted from `agent-adapter.ts`.
   - F35: A unified `publishRuntimeDiagnostic` owns both event-bus emission and durable logging. Callers provide one diagnostic object once; no separate `emit` + `appendEvent` pairs.
@@ -37,13 +37,13 @@ Sub-wave 5A requires Wave 4 seams. Sub-waves 5B–5E have no hard dependency on 
 ### Current State (Pre-Wave 5)
 
 `AgentAdapter` (1340 lines) holds:
-- Constructor with extensive wiring (lines 287–376)
-- Setter injection: `setLlmCallFn`, `setContentSupervisor`, `setMcpManager`, `setSkillsEngine`, `setAfterSessionCreatedHook` (lines 388–411)
+- Constructor with extensive wiring, including `InvocationService`, `ToolDispatcher`, `ContextCompactor`, session coordination, and planner-control wiring
+- Setter injection: `setContentSupervisor`, `setMcpManager`, `setSkillsEngine`, `setAfterSessionCreatedHook`, plus runtime/event-bus setters. `setLlmCallFn` is already removed; fake LLM injection is constructor-based.
 - Planner-specific compaction functions (lines 124–258) — **already extracted to `ContextCompactor` in Wave 4**
 - `synthesizeReportGoalEnvelope` (lines 124–155) — planner-specific terminal envelope synthesis
-- `invokePlanner`, `invokeExecutor`, `invokeReviewer`, `reinvokeSession` — thin wrappers delegating to `invokeAgent` (lines 450–601)
-- Private helpers: `processToolCall`, `buildModelMessages`, `nextFallbackRound`, `stampInCurrentFallbackRound`, `appendSessionMessage`, `compensateActivationBarrierThrow` (lines 603–710)
-- `invokeAgent` core (lines 712–1321) — the method to decompose
+- `invokePlanner`, `invokeExecutor`, `invokeReviewer`, `reinvokeSession` — thin wrappers delegating to `invokeAgent`
+- Private helpers: `processToolCall` delegation, `buildModelMessages`, `nextFallbackRound`, `stampInCurrentFallbackRound`, `appendSessionMessage`, `compensateActivationBarrierThrow`
+- `invokeAgent` core — the method to decompose
 
 ### Post-Wave-4 State (What invokeAgent Looks Like)
 
@@ -51,7 +51,7 @@ After Wave 4 extractions:
 - Compaction logic (`compactPlannerModelMessagesForContext` etc.) → `ContextCompactor`
 - Tool dispatch → `ToolDispatcher`
 - Diagnostic publishing → unified `publishRuntimeDiagnostic`
-- Analyst LLM resolution → deleted (merged into shared `AgentInvocationService`)
+- Analyst LLM resolution → deleted (merged into shared `InvocationService`)
 
 The remaining `invokeAgent` will be roughly 400–500 lines. It still handles: candidate resolution, session creation, outer recovery loop, inner candidate iteration, message persistence, contract verification loop coordination, planner envelope tracking, activation barrier, attempt recording, session finalization, and the summary verdict.
 
@@ -70,7 +70,7 @@ The remaining `invokeAgent` will be roughly 400–500 lines. It still handles: c
 | S9: Planner envelope tracking | 915–966 | `pendingPlannerRuntimeEnvelope`, `synthesizeReportGoalEnvelope` | `PlannerEnvelopeTracker` |
 | S10: Activation barrier | 915–933 | `markSessionWaiting`, `activationBarrier.dispatch`, `compensateActivationBarrierThrow` | Stays inline (activation-specific) |
 | S11: Post-invocation summary | 1258–1321 | Verdict computation, session completion, event emission | `AgentInvocationRunner` finalization |
-| S12: Getter pass-throughs | 1323–1340 | `getRouter`, `getRegistry`, `getCandidateAvailability`, `flushRecorders`, `createLlmCallFn` | `AgentAdapter` facade |
+| S12: Getter pass-throughs | approximate tail | `getRouter`, `getRegistry`, `getCandidateAvailability`, `flushRecorders` | `AgentAdapter` facade |
 
 ### New Module Structure
 
@@ -274,7 +274,6 @@ export class AgentAdapter implements AgentExecutionPort {
   getRegistry(): ProviderRegistry { return this.registry; }
   getCandidateAvailability(): CandidateAvailability { return this.candidateAvailability; }
   async flushRecorders(): Promise<void> { ... }
-  createLlmCallFn(): LlmCallFn { ... }
 
   // Other delegation methods (not all listed):
   cancelSession(sessionId: string): boolean { ... }
@@ -290,8 +289,7 @@ export class AgentAdapter implements AgentExecutionPort {
   callMcpTool(serverName: string, toolName: string, args: Record<string, unknown>): Promise<unknown> { ... }
   getSafeFileContent(path: string): Promise<string | null> { ... }
 
-  // Setter injection (until F26 in Wave 6):
-  setLlmCallFn(fn: LlmCallFn): void { ... }
+  // Late-bound runtime wiring that remains after Wave 4:
   setContentSupervisor(supervisor: ContentSupervisor): void { ... }
   setMcpManager(mcpManager: McpToolInvocationPort): void { ... }
   setSkillsEngine(engine: SkillsEngine): void { ... }

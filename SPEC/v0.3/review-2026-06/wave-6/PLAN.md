@@ -94,7 +94,7 @@ Define small, focused port interfaces. Each phase composes exactly the ports it 
 
 | File | Action |
 |------|--------|
-| `src/runtime/effects-ports.ts` | **New.** Define composable ports: `ClockEffects { now(): string }`, `CardTransitionEffects<E extends string = string> { transitionCard(cardId: string, event: E, details: Record<string, unknown>): Promise<unknown> }`, `CardPatchEffects { updateCard(cardId: string, patch: Partial<CardRecord>): Promise<unknown> \| unknown }`, `RuntimeDiagnosticEffects<I extends RuntimeDiagnosticInput = RuntimeDiagnosticInput> { emitRuntimeDiagnostic(input: I): void; appendRuntimeDiagnostic(input: RuntimeDiagnosticLogInput<I>): void }`, `ErrorAppendEffects<I extends ErrorAppendInput = ErrorAppendInput> { appendError(input: I): void }`, `RuntimeRunEffects { updateRuntimeRun(runId: string, updates: Partial<RuntimeRunRecord>): RuntimeRunRecord \| null; publishRuntimeRun(run: RuntimeRunRecord): void }`, `RuntimeTransitionEffects<E extends string = string> { transitionRuntime(event: E, details: Record<string, unknown>): Promise<unknown> }`, `CardReadEffects { readCard(cardId: string): CardRecord \| null }`, `ChildUnwindEffects<O extends string = string> { appendChildUnwindToolResult(cardId: string, outcome: O, summary: string): void }`, and `CardFailureEventEffects { emitCardFailed(cardId: string, goalId: string): void }`. Use generics to preserve literal constraints instead of widening every call site to `string`. |
+| `src/runtime/effects-ports.ts` | **New.** Define composable ports: `ClockEffects { now(): string }`, `CardTransitionEffects<E extends string = string> { transitionCard(cardId: string, event: E, details: Record<string, unknown>): Promise<unknown> }`, `CardPatchEffects { updateCard(cardId: string, patch: Partial<CardRecord>): Promise<unknown> \| unknown }`, `RuntimeDiagnosticEffects<I extends RuntimeDiagnosticInput = RuntimeDiagnosticInput> { publishRuntimeDiagnostic(input: I): void }`, `ErrorAppendEffects<I extends ErrorAppendInput = ErrorAppendInput> { appendError(input: I): void }`, `RuntimeRunEffects { updateRuntimeRun(runId: string, updates: Partial<RuntimeRunRecord>): RuntimeRunRecord \| null; publishRuntimeRun(run: RuntimeRunRecord): void }`, `RuntimeTransitionEffects<E extends string = string> { transitionRuntime(event: E, details: Record<string, unknown>): Promise<unknown> }`, `CardReadEffects { readCard(cardId: string): CardRecord \| null }`, `ChildUnwindEffects<O extends string = string> { appendChildUnwindToolResult(cardId: string, outcome: O, summary: string): void }`, and `CardFailureEventEffects { emitCardFailed(cardId: string, goalId: string): void }`. Use generics to preserve literal constraints instead of widening every call site to `string`. |
 | `src/runtime/phases/reviewer-invocation-failure.ts` | **Modify.** `ReviewerInvocationFailureEffects` becomes an intersection type of `CardTransitionEffects<'block'> & CardPatchEffects & RuntimeDiagnosticEffects<{ goal_id: string; phase: 'reviewer'; error: unknown }> & ErrorAppendEffects<{ message: string; goalId: string; phase: 'reviewer' }> & RuntimeTransitionEffects<'card_terminated'>` plus local `finishOpenPlannerRun`. Remove the explicit interface definition; import ports from `effects-ports.ts`. Do not include `ClockEffects`; this handler does not call `now()`. |
 | `src/runtime/phases/executor-invocation-failure.ts` | **Modify.** `ExecutorInvocationFailureEffects` becomes intersection of `ClockEffects & CardTransitionEffects<'fail'> & CardPatchEffects & RuntimeDiagnosticEffects<{ card_id: string; goal_id: string; phase: 'executor'; error: unknown }> & ErrorAppendEffects<{ message: string; cardId: string; goalId: string; phase: 'executor' }> & ChildUnwindEffects<'failed'> & CardFailureEventEffects` plus `clearActiveCardRun`. |
 | `src/runtime/phases/executor-completion-handler.ts` | **Modify.** `ExecutorCompletionEffects` becomes intersection of `ClockEffects & CardTransitionEffects<'executor_finish' \| 'executor_partial_finish'> & CardPatchEffects & CardReadEffects & ChildUnwindEffects<ActivationCompletionOutcome> & CardFailureEventEffects` plus local optional `recordChildActivationLifecycle`. |
@@ -110,9 +110,6 @@ export type RuntimeDiagnosticInput =
   | { goal_id: string; phase: 'reviewer'; error: unknown }
   | { card_id: string; goal_id: string; phase: 'executor'; error: unknown }
   | { goal_id: string; phase: 'planner'; error: unknown };
-export type RuntimeDiagnosticLogInput<I extends RuntimeDiagnosticInput> =
-  Omit<I, 'error'> & { error_message: string };
-
 export interface ClockEffects { now(): string }
 export interface CardTransitionEffects<E extends string = string> {
   transitionCard(cardId: string, event: E, details: Record<string, unknown>): Promise<unknown>;
@@ -121,8 +118,7 @@ export interface CardPatchEffects {
   updateCard(cardId: string, patch: Partial<CardRecord>): Promise<unknown> | unknown;
 }
 export interface RuntimeDiagnosticEffects<I extends RuntimeDiagnosticInput = RuntimeDiagnosticInput> {
-  emitRuntimeDiagnostic(input: I): void;
-  appendRuntimeDiagnostic(input: RuntimeDiagnosticLogInput<I>): void;
+  publishRuntimeDiagnostic(input: I): void;
 }
 export type ErrorAppendInput = { message: string; goalId?: string; cardId?: string; phase: string };
 export interface ErrorAppendEffects<I extends ErrorAppendInput = ErrorAppendInput> {
@@ -228,16 +224,16 @@ New `src/agents/config/` directory must be created.
 | `src/agents/credential-source-resolver.ts` | **Modify.** Keep provider/account/profile source resolution. Continue accepting `usableProfileAccessToken` as an injected callback, or type it as the new `CredentialRefreshers['usableProfileAccessToken']`. Do not move provider refresh constants into this resolver. |
 | `src/agents/llm-transport.ts` | **Modify.** Remove `refreshOpenAICodexProfile`, `refreshGitHubCopilotProfile`, `OPENAI_CODEX_TOKEN_URL`, `OPENAI_CODEX_CLIENT_ID`, and the inline GitHub Copilot token URL. Build a default `CredentialRefreshers` for `projectRoot` and inject its `usableProfileAccessToken` into `CredentialSourceResolver`. `resolveLlmTransportConfig` may accept an optional refresher for tests. |
 
-### F26: Constructor-inject required AgentAdapter dependencies
+### F26: Cache analyst dependencies after AgentAdapter constructor cleanup
 
-Only `setLlmCallFn` is eliminated. `config` and `projectRoot` are already constructor-injected, but `llmCallFn` is nullable and asserted at invocation time. Cached `analystDeps` must update on `setMcpManager()`.
+`setLlmCallFn` is already eliminated by Wave 4E. `AgentAdapter` now constructs or receives `InvocationService`, and fake LLM injection is constructor-based. The remaining F26 work is to cache runtime-composition analyst dependencies and invalidate/rebuild that cache when `setMcpManager()` updates `mcpManager`.
 
 **File changes:**
 
 | File | Action |
 |------|--------|
-| `src/agents/agent-adapter.ts` | **Modify.** Add `llmCallFn?: LlmCallFn` to `AgentAdapterConfig`; initialize `this.llmCallFn = cfg.llmCallFn ?? this.createLlmCallFn()` or require `cfg.llmCallFn` explicitly if tests can provide one. Remove `setLlmCallFn()` setter and the runtime error that says to call it first. Keep `config` and `projectRoot` as constructor-injected fields. Keep optional setters for `setActivationLedger`, `setContentSupervisor`, `setMcpManager`, `setSkillsEngine`, `setAfterSessionCreatedHook`, `setEventBus`, and `setRuntimeLedgerEventBus` because these are late-bound by runtime composition. |
-| `src/application/runtime-composition.ts` | **Modify.** Construction of `AgentAdapter` already passes `config` and `projectRoot`; pass `llmCallFn` in the constructor if the adapter no longer defaults it internally, and remove `agentAdapter.setLlmCallFn(agentAdapter.createLlmCallFn())`. Replace the `analystDeps` getter that rebuilds on every access with a cached value; invalidate/rebuild the cache when `setMcpManager()` updates `mcpManager`. |
+| `src/agents/agent-adapter.ts` | **No LLM setter work remains.** Keep optional setters for `setActivationLedger`, `setContentSupervisor`, `setMcpManager`, `setSkillsEngine`, `setAfterSessionCreatedHook`, `setEventBus`, and `setRuntimeLedgerEventBus` because these are late-bound by runtime composition. |
+| `src/application/runtime-composition.ts` | **Modify.** Replace the `analystDeps` getter that rebuilds on every access with a cached value; invalidate/rebuild the cache when `setMcpManager()` updates `mcpManager`. |
 
 **Validation:** `npm run validate:routine`, `npm test`. Imports across codebase are preserved by the targeted re-exports in `config-schema.ts` and `config-api.ts`.
 
@@ -384,7 +380,7 @@ Steps are ordered by dependency and risk. Each step is a minimal compilable comm
 | 5 | C | F32 | Make `RepairBudget` immutable and add planner iteration abort-signal plumbing from `RuntimeConfig` through `PlannerIterationRunner`, `PlannerPhaseRunner`, and `AgentAdapter`. Enable the timeout only with cooperative cancellation, not bare `Promise.race`. |
 | 6 | D | F21 | Split `config-schema.ts` into `config/` directory. Update `config-api.ts` re-exports. Avoid open-ended compatibility barrels. |
 | 7 | D | F27 | Extract credential refreshers from `llm-transport.ts`; keep `CredentialSourceResolver` focused on source resolution and inject the refresher callback. Move provider-specific constants. |
-| 8 | D | F26 | Remove `setLlmCallFn`. Constructor/default-initialize `llmCallFn`. Cache `analystDeps`; invalidate on `setMcpManager()`. |
+| 8 | D | F26 | Cache `analystDeps`; invalidate/rebuild on `setMcpManager()`. `setLlmCallFn` removal is already complete in Wave 4E. |
 | 9 | B | F06 | Create `effects-ports.ts`, refactor phase effects interfaces with union `RuntimeDiagnosticInput` type. List all `StartupActiveRunRepairEffects` methods explicitly. |
 | 10 | A | F07 | Create `runtime-event-ledger.ts` and `runtime-state-view.ts`. Keep ledger/projection ownership behind state/mutation persistence, not `RuntimeServices` or phase deps. |
 | 11 | A | F07 | Wire ledger into `state.ts` and `mutations.ts`. Replace array-append mutations with ledger events. Run migration in `performRuntimeStartup()` after read/init, before repair/reconciliation. |
