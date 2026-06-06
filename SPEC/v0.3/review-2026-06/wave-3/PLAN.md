@@ -23,7 +23,7 @@ Requires a separate `packages/contracts` directory, its own `package.json`, `tsc
 **Option B — Build step that copies/exports to `web/src/api/`:**
 Adds a coupling-masking layer. Copies go stale, and the build step must run before `vue-tsc` or `vite build`. Obscures the real dependency.
 
-**Option C — TypeScript path aliases (virtual shared package):**
+**Option C — TypeScript path aliases (named source boundary):**
 Maps `@saivage/contracts` to `src/contracts` in the root `tsconfig.json`, and the web `tsconfig.json` maps it to `../src/contracts`. Vite resolves the alias at dev time. No new packages, no build step, no copy. The alias makes the dependency explicit and grepable. If a file moves, the alias target changes in one place. The web build still depends on server source, but through a named boundary instead of fragile relative paths.
 
 #### Recommended: Option C — TypeScript path aliases
@@ -33,7 +33,7 @@ Maps `@saivage/contracts` to `src/contracts` in the root `tsconfig.json`, and th
 - Makes the cross-boundary dependency explicit and grepable (`@saivage/contracts` vs `../../../src/contracts`).
 - Vite and `vue-tsc` both resolve path aliases natively.
 - The server continues importing from `./contracts/` (relative). No change to server code.
-- When a shared package is genuinely needed (e.g., third-party consumers), the alias resolves to the package instead — a one-line change per `tsconfig.json`.
+- If a real shared package is ever justified by third-party consumers, the alias can later point at that package. That is explicitly not part of this wave.
 
 **Important:** This is a **web-only source-alias transitional boundary**, not a shared npm package. It does not make web independent from server source — it makes the dependency explicit and grepable. Use exact and wildcard aliases (`@saivage/contracts` and `@saivage/contracts/*`) to support subpath imports like `@saivage/schemas/event-catalog`.
 

@@ -4,7 +4,7 @@
 
 This wave assumes Waves 2 and 4 are complete. Verify actual seams before starting; otherwise stop and finish missing waves.
 
-- **Wave 2 (Card Data Model):** `CardStoreState` is the authoritative in-memory read model. Read methods no longer call `refreshState()`. Mutations update state after durable writes. `deepClone` on reads is removed; card records are immutable at the type level. ID generation is inside the locked mutation (ULID/random source), not scan.
+- **Wave 2 (Card Data Model):** `CardStoreState` is the authoritative in-memory read model. Read methods no longer call `refreshState()`. Mutations update state after durable writes. Defensive `deepClone` remains in this wave. ID generation keeps the sequential `card-N` format but runs inside the locked `create()` mutation after a lock-scoped state reload.
 - **Wave 4 (Path Unification):**
   - F02: A shared `AgentInvocationService` owns candidate iteration, recovery, recording, and turn loop. The analyst LLM resolver is deleted. Analyst session handling uses shared session persistence.
   - F10: A `ToolDispatcher` owns parsing, policy check, result envelope, truncation, persistence hooks, and error formatting. Tool call dispatch in `invokeAgent` delegates to the `ToolDispatcher`.
@@ -28,7 +28,7 @@ Sub-wave 5A requires Wave 4 seams. Sub-waves 5B, 5C, 5D, and 5E may proceed firs
 | 5D | F14+F22 | Frontend store decomposition | MEDIUM |
 | 5E | F11 | WebSocket handler decomposition | MEDIUM |
 
-Sub-waves 5B–5E have no hard dependency on each other and can proceed in parallel after 5A. Sub-wave 5A should complete first because the AgentAdapter decomposition removes the most tangled code and makes the runtime composition layer cleaner.
+Sub-wave 5A requires Wave 4 seams. Sub-waves 5B–5E have no hard dependency on 5A or on each other and can proceed first or in parallel once their local prerequisites are present. Before starting any sub-wave, reconcile this plan against the code that actually landed in Waves 2 and 4; if a prerequisite seam changed, fix this plan body first rather than implementing against stale assumptions.
 
 ---
 
@@ -389,8 +389,8 @@ Each step is a minimal compilable commit.
 
 After Wave 2:
 - Reads no longer call `refreshState()`.
-- `deepClone` on reads is removed (records are immutable).
-- ID generation uses ULID/random source, not `generateId` scan.
+- Defensive `deepClone` remains in place; public read results are still cloned.
+- ID generation keeps the sequential `card-N` format but runs inside the locked `create()` mutation after a lock-scoped state reload.
 - `CardStoreState` is the authoritative read model.
 
 ### New Module Structure
