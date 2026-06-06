@@ -164,17 +164,27 @@ async function setupRealProc(
   script: string,
   toolDefs: unknown[],
 ) {
-  const m = mgr as Record<string, unknown>;
   const sp = join(root, 'mcp-' + serverName + '.js');
   writeFileSync(sp, script);
   const proc = realSpawn('node', [sp], { stdio: ['pipe', 'pipe', 'pipe'] });
   await new Promise((r) => setTimeout(r, 150));
 
-  (m.handles as Map<string, unknown>).set(serverName, { process: proc });
-  (m.toolsCache as Map<string, unknown[]>).set(serverName, toolDefs);
-  (m.toolsCacheInitialized as Set<string>).add(serverName);
-  (m.startedAt as Map<string, string>).set(serverName, new Date().toISOString());
+  seedRuntime(mgr, serverName, { process: proc }, toolDefs);
   return proc;
+}
+
+function runtimeFor(mgr: unknown, serverName: string): Record<string, unknown> {
+  const runtime = ((mgr as Record<string, unknown>).runtimes as Map<string, unknown>).get(serverName);
+  if (!runtime) throw new Error(`Missing runtime ${serverName}`);
+  return runtime as Record<string, unknown>;
+}
+
+function seedRuntime(mgr: unknown, serverName: string, handle: unknown, tools: unknown[]): Record<string, unknown> {
+  const runtime = runtimeFor(mgr, serverName);
+  runtime.handle = handle;
+  runtime.tools = tools;
+  runtime.startedAt = new Date().toISOString();
+  return runtime;
 }
 
 afterEach(() => {
@@ -440,9 +450,7 @@ describe('invokeTool stdio transport', () => {
     });
     const mgr = new McpManager(r);
     await mgr.startServer('stdio');
-    const mi = mgr as unknown as Record<string, unknown>;
-    (mi.toolsCache as Map<string, unknown[]>).set('stdio', stdioTools);
-    (mi.toolsCacheInitialized as Set<string>).add('stdio');
+    runtimeFor(mgr, 'stdio').tools = stdioTools;
     await expect(mgr.invokeTool('stdio', 'greet', {})).rejects.toThrow(TransportError);
   });
 });
@@ -466,13 +474,9 @@ describe('invokeTool SSE transport', () => {
   ];
 
   function setupSseHandle(mgr: any, serverName: string) {
-    const mi = mgr as unknown as Record<string, unknown>;
-    (mi.handles as Map<string, unknown>).set(serverName, {
+    seedRuntime(mgr, serverName, {
       abortController: new AbortController(),
-    });
-    (mi.toolsCache as Map<string, unknown[]>).set(serverName, sseTools);
-    (mi.toolsCacheInitialized as Set<string>).add(serverName);
-    (mi.startedAt as Map<string, string>).set(serverName, new Date().toISOString());
+    }, sseTools);
   }
 
   it('sends HTTP POST and returns result.content on success', async () => {
@@ -523,8 +527,7 @@ describe('invokeTool SSE transport', () => {
     writeSaivageJson(r, { mcpServers: { sse: sseCfg() } });
     const mgr = new McpManager(r);
     setupSseHandle(mgr, 'sse');
-    const mi = mgr as unknown as Record<string, unknown>;
-    const handle = (mi.handles as Map<string, any>).get('sse');
+    const handle = runtimeFor(mgr, 'sse').handle as Record<string, unknown>;
     handle.streamableHttpSessionId = 'synthetic-session-1';
 
     const fetchMock = jest.fn(async (_url: string, init?: any) => {
@@ -1003,12 +1006,7 @@ rl.on('line', (line) => {
     const r = makeProjectRoot();
     writeSaivageJson(r, { mcpServers: { sse: sseCfg() } });
     const mgr = new McpManager(r);
-    const mi = mgr as unknown as Record<string, unknown>;
-
-    (mi.handles as Map<string, unknown>).set('sse', { abortController: new AbortController() });
-    (mi.toolsCache as Map<string, unknown[]>).set('sse', stdioTools);
-    (mi.toolsCacheInitialized as Set<string>).add('sse');
-    (mi.startedAt as Map<string, string>).set('sse', new Date().toISOString());
+    seedRuntime(mgr, 'sse', { abortController: new AbortController() }, stdioTools);
 
     let concurrent = 0;
     let maxConcurrent = 0;
@@ -1113,19 +1111,14 @@ describe('ARCH-018 local MCP inputSchema validation', () => {
     tools: unknown[],
     transport: 'stdio' | 'sse' = 'stdio',
   ) {
-    const mi = mgr as unknown as Record<string, unknown>;
-    if (transport === 'stdio') {
-      (mi.handles as Map<string, unknown>).set(serverName, {
-        process: { killed: false, exitCode: null, stdin: null, stdout: null },
-      });
-    } else {
-      (mi.handles as Map<string, unknown>).set(serverName, {
-        abortController: new AbortController(),
-      });
-    }
-    (mi.toolsCache as Map<string, unknown[]>).set(serverName, tools);
-    (mi.toolsCacheInitialized as Set<string>).add(serverName);
-    (mi.startedAt as Map<string, string>).set(serverName, new Date().toISOString());
+    seedRuntime(
+      mgr,
+      serverName,
+      transport === 'stdio'
+        ? { process: { killed: false, exitCode: null, stdin: null, stdout: null } }
+        : { abortController: new AbortController() },
+      tools,
+    );
   }
 
   const strictTool = {
@@ -1224,7 +1217,6 @@ describe('ARCH-018 local MCP inputSchema validation', () => {
     const r = makeProjectRoot();
     writeSaivageJson(r, { mcpServers: { local: stdioCfg({ command: 'node' }) } });
     const mgr = new McpManager(r);
-    const mi = mgr as unknown as Record<string, unknown>;
     setupBareRunningServer(mgr, 'local', [
       {
         name: 'flip',
@@ -1240,7 +1232,7 @@ describe('ARCH-018 local MCP inputSchema validation', () => {
       data: { reason: 'validation_error' },
     });
 
-    (mi.toolsCache as Map<string, unknown[]>).set('local', [
+    runtimeFor(mgr, 'local').tools = [
       {
         name: 'flip',
         inputSchema: {
@@ -1249,7 +1241,7 @@ describe('ARCH-018 local MCP inputSchema validation', () => {
           required: ['value'],
         },
       },
-    ]);
+    ];
 
     await expect(mgr.invokeTool('local', 'flip', { value: 7 })).rejects.toThrow(TransportError);
     expect(mgr.getInvocationStats()['local:flip'].error).toBe(1);
