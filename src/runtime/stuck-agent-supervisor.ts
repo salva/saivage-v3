@@ -46,7 +46,7 @@ export interface StuckVerdict {
  * (src/agents/config-schema.ts: supervisorSectionSchema).
  */
 export interface SupervisorConfig {
-  /** Enable/disable the supervisor. Default: true. */
+  /** Enable/disable the supervisor. Default: false. */
   enabled: boolean;
   /** Check interval in milliseconds. Default: 1200000 (20 min). */
   intervalMs: number;
@@ -60,7 +60,8 @@ export interface SupervisorConfig {
  * Default configuration values when a SupervisorConfig is not fully specified.
  */
 export const DEFAULT_SUPERVISOR_CONFIG: SupervisorConfig = {
-  enabled: true,
+  // The stuck supervisor is dormant until a real ChecksProvider is wired. Starting a no-op timer in production wastes resources and logs noise.
+  enabled: false,
   intervalMs: 1_200_000, // 20 minutes
   consecutiveStuckVerdicts: 3,
   logLines: 400,

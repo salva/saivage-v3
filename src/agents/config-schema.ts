@@ -223,7 +223,7 @@ const securitySectionSchema = z.object({
 
 // Supervisor section
 const supervisorSectionSchema = z.object({
-  enabled: z.boolean().default(true),
+  enabled: z.boolean().default(false),
   model: z.string().optional(),
   intervalMs: z.number().int().positive().default(1200000),
   consecutiveStuckVerdicts: z.number().int().positive().default(3),
@@ -446,4 +446,3 @@ export function getModelListForRole(
 export function getRuntimeConfig(config: SaivageConfig): RuntimeSection {
   return config.runtime;
 }
-

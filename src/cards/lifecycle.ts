@@ -145,6 +145,7 @@ export function buildSetStatusLifecycle(
           kind: 'planner_blocked',
           blocked_reason: blockedReason,
           resume_reason: 'planner_blocked',
+          blocker_cause: 'generic',
         },
         error: blockedReason,
         completed_at: null,

@@ -47,6 +47,7 @@ export async function commitReviewerInvocationFailure(input: {
     kind: 'planner_blocked',
     blocked_reason: input.blockedReason,
     resume_reason: 'reviewer_unavailable',
+    blocker_cause: 'reviewer_unavailable',
   };
   const lifecycle = {
     status: 'blocked',

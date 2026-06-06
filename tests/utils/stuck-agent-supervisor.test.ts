@@ -473,7 +473,7 @@ describe('RuntimeIntegration', () => {
     await harness.api.shutdown();
   });
 
-  it('supervisor default when no explicit config', async () => {
+  it('supervisor is dormant by default when no explicit config exists', async () => {
     const harness = createRuntimeCoreTestContainer({
       config: {
         projectRoot: tmpDir,
@@ -481,7 +481,7 @@ describe('RuntimeIntegration', () => {
       },
     });
     await harness.api.start();
-    expect(harness.supervisorTestTools.isRunning()).toBe(true);
+    expect(harness.supervisorTestTools.isRunning()).toBe(false);
     await harness.api.shutdown();
   });
 

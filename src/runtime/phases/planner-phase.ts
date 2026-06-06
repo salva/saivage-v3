@@ -1,6 +1,6 @@
 import type { CardRecord, PlannerBlockedResult, RuntimeState } from '../../schemas/index.js';
 import type { PlannerResult } from '../../contracts/index.js';
-import { blockedPlanningReason, getBlockedPlanning, isReviewerCapacityPlannerBlocker, shouldPreservePrecisePlanningBlocker } from '../planning-blockers.js';
+import { blockedPlanningReason, getBlockedPlanning, shouldPreservePrecisePlanningBlocker } from '../planning-blockers.js';
 import { activeRunFromActivationState, plannerActivationStateFromGoal } from '../activation-reducer.js';
 import { lifecycleCardPatch } from '../terminal-commit/lifecycle-patch.js';
 
@@ -47,7 +47,6 @@ export function buildPlannerBlockedDecision(input: {
 }): { blockedReason: string | null; planning: PlannerBlockedResult; terminalReason: string } {
   const preservePreciseBlocker = shouldPreservePrecisePlanningBlocker(input.currentCard ?? null, 'planner_blocked');
   const preservedPlanning = preservePreciseBlocker ? getBlockedPlanning(input.currentCard ?? null) : null;
-  const reviewerCapacityPlannerBlocker = isReviewerCapacityPlannerBlocker(input.plannerBlockedReason);
   const blockedReason = preservePreciseBlocker
     ? typeof preservedPlanning?.blocked_reason === 'string'
       ? preservedPlanning.blocked_reason
@@ -61,17 +60,7 @@ export function buildPlannerBlockedDecision(input: {
         kind: 'planner_blocked',
         blocked_reason: blockedReason ?? 'Planner blocked without a reason.',
         resume_reason: 'reviewer_unavailable',
-      },
-      terminalReason: 'reviewer_invocation_failed',
-    };
-  }
-  if (reviewerCapacityPlannerBlocker) {
-    return {
-      blockedReason,
-      planning: {
-        kind: 'planner_blocked',
-        blocked_reason: blockedReason ?? 'Reviewer capacity is unavailable.',
-        resume_reason: 'reviewer_unavailable',
+        blocker_cause: 'reviewer_unavailable',
       },
       terminalReason: 'reviewer_invocation_failed',
     };
@@ -82,6 +71,7 @@ export function buildPlannerBlockedDecision(input: {
       kind: 'planner_blocked',
       blocked_reason: input.plannerBlockedReason ?? 'Planner blocked without a reason.',
       resume_reason: 'planner_blocked',
+      blocker_cause: 'generic',
     },
     terminalReason: 'planner_blocked',
   };
@@ -108,6 +98,7 @@ export function buildPlannerInvocationFailureBlocker(input: {
       kind: 'planner_blocked',
       blocked_reason: blockedReason,
       resume_reason: resumeReason,
+      blocker_cause: input.tokenBudgetFailure ? 'token_budget_exceeded' : 'terminal_tool_exhaustion',
     },
   };
 }
@@ -182,6 +173,7 @@ export function decidePlannerPostDispatch(input: {
         kind: 'planner_blocked',
         blocked_reason: blockedReason,
         resume_reason: 'non_actionable_continue',
+        blocker_cause: 'non_actionable_continue',
       },
       terminalReason: 'planner_non_actionable_continue',
     };
@@ -196,6 +188,7 @@ export function decidePlannerPostDispatch(input: {
         kind: 'planner_blocked',
         blocked_reason: blockedReason,
         resume_reason: 'non_actionable_project_done',
+        blocker_cause: 'non_actionable_continue',
       },
       terminalReason: 'planner_non_actionable_project_done',
     };

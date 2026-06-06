@@ -39,13 +39,24 @@ describe('planner phase decisions', () => {
   it('builds generic and reviewer-unavailable planner blocker planning payloads', () => {
     expect(buildPlannerBlockedDecision({ currentCard: null, plannerBlockedReason: 'blocked' })).toEqual({
       blockedReason: 'blocked',
-      planning: { kind: 'planner_blocked', blocked_reason: 'blocked', resume_reason: 'planner_blocked' },
+      planning: { kind: 'planner_blocked', blocked_reason: 'blocked', resume_reason: 'planner_blocked', blocker_cause: 'generic' },
       terminalReason: 'planner_blocked',
     });
-    expect(buildPlannerBlockedDecision({ currentCard: null, plannerBlockedReason: 'report_goal_done reviewer unavailable: exhausted' })).toEqual(expect.objectContaining({
-      blockedReason: 'report_goal_done reviewer unavailable: exhausted',
+    const preserved = buildPlannerBlockedDecision({
+      currentCard: {
+        lifecycle: {
+          status: 'blocked',
+          error: 'reviewer unavailable',
+          completed_at: null,
+          result: { kind: 'planner_blocked', blocked_reason: 'reviewer unavailable', resume_reason: 'reviewer_unavailable', blocker_cause: 'reviewer_unavailable' },
+        },
+      } as CardRecord,
+      plannerBlockedReason: 'planner generic block',
+    });
+    expect(preserved).toEqual(expect.objectContaining({
+      blockedReason: 'reviewer unavailable',
       terminalReason: 'reviewer_invocation_failed',
-      planning: expect.objectContaining({ kind: 'planner_blocked', resume_reason: 'reviewer_unavailable' }),
+      planning: expect.objectContaining({ kind: 'planner_blocked', resume_reason: 'reviewer_unavailable', blocker_cause: 'reviewer_unavailable' }),
     }));
   });
 
@@ -87,7 +98,7 @@ describe('planner phase decisions', () => {
     })).toEqual({
       kind: 'block',
       blockedReason: 'blocked by planner',
-      planning: { kind: 'planner_blocked', blocked_reason: 'blocked by planner', resume_reason: 'planner_blocked' },
+      planning: { kind: 'planner_blocked', blocked_reason: 'blocked by planner', resume_reason: 'planner_blocked', blocker_cause: 'generic' },
       terminalReason: 'planner_blocked',
     });
   });

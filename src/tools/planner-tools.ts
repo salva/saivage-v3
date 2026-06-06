@@ -141,7 +141,7 @@ function reportLifecycle(status: Extract<CardStatus, 'done' | 'failed' | 'blocke
   if (status === 'blocked') {
     return {
       status,
-      result: { kind: 'planner_blocked', blocked_reason: statusText, resume_reason: 'planner_report_blocked' },
+      result: { kind: 'planner_blocked', blocked_reason: statusText, resume_reason: 'planner_report_blocked', blocker_cause: 'generic' },
       error: statusText,
       completed_at: null,
     };
@@ -529,6 +529,7 @@ export class PlannerToolsService {
           kind: 'planner_blocked',
           blocked_reason: message,
           resume_reason: 'reviewer_unavailable',
+          blocker_cause: 'reviewer_unavailable',
         },
         error: message,
         completed_at: null,

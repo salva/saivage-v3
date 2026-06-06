@@ -1,5 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
-import { blockedPlanningReason, cardHasBlockedPlanning, getBlockedPlanning, isReviewerCapacityPlannerBlocker, shouldPreservePrecisePlanningBlocker } from '../../src/runtime/planning-blockers.js';
+import { blockedPlanningReason, cardHasBlockedPlanning, getBlockedPlanning, shouldPreservePrecisePlanningBlocker } from '../../src/runtime/planning-blockers.js';
+import { buildPlannerInvocationFailureBlocker } from '../../src/runtime/phases/planner-phase.js';
 import type { CardRecord, PlannerBlockedResult } from '../../src/schemas/index.js';
 
 function planning(overrides: Partial<PlannerBlockedResult> = {}): PlannerBlockedResult {
@@ -42,16 +43,15 @@ describe('planning blocker helpers', () => {
     expect(cardHasBlockedPlanning(card(null))).toBe(false);
   });
 
-  it('preserves precise reviewer-capacity blockers only for generic planner blocks', () => {
-    const blocked = card(planning({ resume_reason: 'reviewer_unavailable' }));
+  it('preserves precise reviewer-capacity blockers by creation-time cause only for generic planner blocks', () => {
+    const blocked = card(planning({ resume_reason: 'reviewer_unavailable', blocker_cause: 'reviewer_unavailable' }));
     expect(shouldPreservePrecisePlanningBlocker(blocked, 'planner_blocked')).toBe(true);
     expect(shouldPreservePrecisePlanningBlocker(blocked, 'planner_context_length_exceeded')).toBe(false);
-    expect(shouldPreservePrecisePlanningBlocker(card(planning({ resume_reason: 'other' })), 'planner_blocked')).toBe(false);
+    expect(shouldPreservePrecisePlanningBlocker(card(planning({ resume_reason: 'reviewer_unavailable' })), 'planner_blocked')).toBe(false);
   });
 
-  it('classifies reviewer-capacity planner blocker text', () => {
-    expect(isReviewerCapacityPlannerBlocker('report_goal_done failed because reviewer/provider capacity is unavailable')).toBe(true);
-    expect(isReviewerCapacityPlannerBlocker('report_goal_done failed for unrelated contract error')).toBe(false);
-    expect(isReviewerCapacityPlannerBlocker(null)).toBe(false);
+  it('sets blocker cause at planner invocation failure creation time', () => {
+    expect(buildPlannerInvocationFailureBlocker({ tokenBudgetFailure: true, providerStatus: null }).planning.blocker_cause).toBe('token_budget_exceeded');
+    expect(buildPlannerInvocationFailureBlocker({ tokenBudgetFailure: false, providerStatus: null }).planning.blocker_cause).toBe('terminal_tool_exhaustion');
   });
 });
