@@ -275,6 +275,9 @@ export class StuckAgentSupervisor {
   /** Interval timer for periodic checks */
   private _intervalTimer: ReturnType<typeof setInterval> | null = null;
 
+  /** Initial one-shot check timer scheduled at start. */
+  private _initialCheckTimer: ReturnType<typeof setTimeout> | null = null;
+
   /** Force-cancel timeout for the currently aborted session */
   private _forceCancelTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -338,9 +341,11 @@ export class StuckAgentSupervisor {
     // Don't wait for the first interval — run an initial check after
     // a minimal delay so the supervisor doesn't sit idle for 20 min
     // on a fresh start.
-    setTimeout(() => {
+    this._initialCheckTimer = setTimeout(() => {
+      this._initialCheckTimer = null;
       void this._runCheck();
     }, 1000);
+    this._initialCheckTimer.unref();
 
     // unref the interval to not keep the process alive
     this._intervalTimer.unref();
@@ -360,6 +365,11 @@ export class StuckAgentSupervisor {
     if (this._intervalTimer !== null) {
       clearInterval(this._intervalTimer);
       this._intervalTimer = null;
+    }
+
+    if (this._initialCheckTimer !== null) {
+      clearTimeout(this._initialCheckTimer);
+      this._initialCheckTimer = null;
     }
 
     if (this._forceCancelTimer !== null) {
