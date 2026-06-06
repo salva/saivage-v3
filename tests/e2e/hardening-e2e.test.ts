@@ -384,10 +384,12 @@ describe('Security — Auth, Path Traversal, and Redaction', () => {
     const { registerCardRoutes } = await import('../../src/server/routes/cards.js');
     const { registerChatsFilesDebugRoutes } = await import('../../src/server/routes/chats-files-debug.js');
     const { registerWebSocket } = await import('../../src/server/websocket.js');
+    const { LiveSyncSocket } = await import('../../src/server/live-sync-socket.js');
+    const { createTestRuntimeApplication } = await import('../helpers/test-runtime-application.js');
 
     registerCardRoutes(app, tmpDir, undefined, cardStore);
     registerChatsFilesDebugRoutes(app, tmpDir, cardStore);
-    registerWebSocket(app, tmpDir);
+    registerWebSocket(app, tmpDir, { liveSyncSocket: new LiveSyncSocket(), runtimeApplication: createTestRuntimeApplication({ cardStore }), requestServerRestart: async () => undefined });
 
     await app.listen({ port: 0, host: '127.0.0.1' });
     port = (app.server.address() as { port: number }).port;

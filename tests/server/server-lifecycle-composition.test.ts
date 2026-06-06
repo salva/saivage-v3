@@ -7,6 +7,9 @@ import { stopServerResources } from '../../src/server/composition/server-shutdow
 import { startRuntimeApplication } from '../../src/server/composition/runtime-lifecycle.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import type { SaivageConfig } from '../../src/agents/config-api.js';
+import { EventBus } from '../../src/events/bus.js';
+import { CardStore } from '../../src/cards/store-api.js';
+import { EventLogger, ErrorLogger } from '../../src/observability/index.js';
 
 function config(): SaivageConfig {
   return {
@@ -20,22 +23,16 @@ function config(): SaivageConfig {
 }
 
 describe('server lifecycle composition', () => {
-  it('records runtime application startup failure without throwing', async () => {
+  it('throws runtime application startup failures', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-runtime-startup-fail-'));
     const fastify = { log: { info: jest.fn(), warn: jest.fn() } } as any;
+    const eventBus = new EventBus();
     try {
-      const result = await startRuntimeApplication({ createRuntime: true, projectRoot: root, saivageConfig: { ...config(), runtime: undefined } as unknown as SaivageConfig, fastify });
-      expect(result.runtimeApplication).toBeUndefined();
-      expect(result.startupFailure).toEqual(expect.objectContaining({ code: 'runtime-application-start-failed' }));
-      expect(fastify.log.warn).toHaveBeenCalledWith(expect.stringContaining('Runtime application initialization failed'));
+      await expect(startRuntimeApplication({ projectRoot: root, config: { ...config(), runtime: undefined } as unknown as SaivageConfig, eventBus, eventLogger: new EventLogger(join(root, '.saivage')), errorLogger: new ErrorLogger(join(root, '.saivage')), cardStore: new CardStore(root, undefined, eventBus), fastify })).rejects.toThrow();
+      expect(fastify.log.warn).not.toHaveBeenCalled();
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
-  });
-
-  it('starts no runtime when runtime creation is disabled', async () => {
-    const result = await startRuntimeApplication({ createRuntime: false, projectRoot: '/tmp/project', saivageConfig: config(), fastify: { log: { info: jest.fn(), warn: jest.fn() } } as any });
-    expect(result).toEqual({});
   });
 
 

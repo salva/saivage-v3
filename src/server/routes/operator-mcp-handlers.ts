@@ -8,9 +8,8 @@ export function buildMcpOperatorContractHandlers(options: OperatorMcpProviderCon
   return {
     'mcp.status': () => {
       const serverAvailability = options.serverAvailabilityProvider?.();
-      const provider = options.mcpStatusProvider?.();
-      return { body: { servers: provider?.getStatus() ?? [], ...(serverAvailability ? { serverAvailability } : {}) } };
+      return { body: { servers: options.mcpStatusProvider?.getStatus() ?? [], ...(serverAvailability ? { serverAvailability } : {}) } };
     },
-    'mcp.tools': () => ({ body: options.mcpToolsProvider?.()?.getToolsReadModel() ?? { tools: [], servers: [], invocationStats: {}, serverDetails: [] } }),
+    'mcp.tools': () => ({ body: options.mcpToolsProvider?.getToolsReadModel() ?? { tools: [], servers: [], invocationStats: {}, serverDetails: [] } }),
   };
 }

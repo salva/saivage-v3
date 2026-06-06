@@ -72,10 +72,10 @@ export interface RuntimeConfig {
     activationLedger: RuntimeActivationLedgerPort,
   ) => AgentExecutionPort;
   skillsEngine?: RuntimeSkillsPort;
-  eventLogger?: EventLogger;
-  errorLogger?: ErrorLogger;
-  eventBus?: EventBus;
-  cardStore?: CardStore;
+  eventLogger: EventLogger;
+  errorLogger: ErrorLogger;
+  eventBus: EventBus;
+  cardStore: CardStore;
   sessionStamper?: SessionStamper;
   maxGoalDepth?: number;
   supervisorConfig?: Partial<SupervisorConfig>;

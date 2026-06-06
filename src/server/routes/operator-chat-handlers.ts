@@ -50,9 +50,8 @@ export function buildChatOperatorContractHandlers(options: ChatOperatorHandlerOp
         workspaceContext = validation.value;
       }
       try {
-        const runtimeApplication = options.runtimeApplicationProvider();
-        if (!runtimeApplication) return { statusCode: 503, body: { error: 'Runtime application unavailable.' } };
-        const handler = getAnalystHandler(projectRoot, { runtimeDeps: runtimeApplication.analystDeps, surface: 'web-chat', requestServerRestart: options.requestServerRestart });
+        if (!options.runtimeApplication) return { statusCode: 503, body: { error: 'Runtime application unavailable.' } };
+        const handler = getAnalystHandler(projectRoot, { runtimeDeps: options.runtimeApplication.analystDeps, surface: 'web-chat', requestServerRestart: options.requestServerRestart });
         const response = await handler.handleMessage(GLOBAL_ANALYST_SESSION_ID, requestBody.content, workspaceContext);
         const message = response.message;
         return {

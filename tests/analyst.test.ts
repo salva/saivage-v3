@@ -670,12 +670,15 @@ describe('API Chat and WebSocket Integration', () => {
     const { registerChatsFilesDebugRoutes } =
       await import('../src/server/routes/chats-files-debug.js');
     const { registerWebSocket } = await import('../src/server/websocket.js');
+    const { LiveSyncSocket } = await import('../src/server/live-sync-socket.js');
 
     const routeStore = new CardStore(projectRoot);
     registerCardRoutes(app, projectRoot, createTestRuntimeApplication({ cardStore: routeStore }), routeStore);
     registerChatsFilesDebugRoutes(app, projectRoot, routeStore);
     registerWebSocket(app, projectRoot, {
       runtimeApplication: createTestRuntimeApplication({ cardStore: new CardStore(projectRoot) }),
+      liveSyncSocket: new LiveSyncSocket(),
+      requestServerRestart: async () => undefined,
     });
 
     await app.listen({ port: 0, host: '127.0.0.1' });

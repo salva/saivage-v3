@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { RuntimeApplication } from '../../application/runtime-composition.js';
-import type { CardStore } from '../../cards/store-api.js';
+import type { McpManager } from '../../mcp/manager-api.js';
 import { operatorApiContracts } from '../../contracts/index.js';
 import { getAuthPolicy } from '../auth-policy.js';
 import { buildAgentOperatorContractHandlers } from './operator-agent-handlers.js';
@@ -9,10 +9,10 @@ import { buildConfigOperatorContractHandlers } from './operator-config-handlers.
 import { buildEventsOperatorContractHandlers } from './operator-events-handlers.js';
 import { buildFilesDebugOperatorContractHandlers } from './operator-files-debug-handlers.js';
 import type {
+  OperatorCardStoreContext,
   OperatorAvailabilityContext,
   OperatorConfigContext,
   OperatorContractHandlerMap,
-  OperatorMcpProviderContext,
   OperatorProjectContext,
   OperatorRestartContext,
   OperatorRuntimeProviderContext,
@@ -24,28 +24,25 @@ import { ContractRuntime } from '../contract-runtime.js';
 
 interface OperatorContractRouteRegistrationOptions extends
   OperatorProjectContext,
-  OperatorMcpProviderContext,
   OperatorAvailabilityContext,
   OperatorRestartContext,
   OperatorConfigContext,
-  Partial<OperatorRuntimeProviderContext> {
+  OperatorCardStoreContext,
+  OperatorRuntimeProviderContext {
   fastify: FastifyInstance;
-  cardStore?: CardStore;
-  runtimeApplication?: RuntimeApplication;
+  mcpManager?: McpManager;
 }
 
 export function registerOperatorContractRoutes(options: OperatorContractRouteRegistrationOptions): void {
   const { fastify, projectRoot } = options;
   const runtime = new ContractRuntime();
-  const getRuntimeApplication = () => options.runtimeApplicationProvider?.() ?? options.runtimeApplication;
-  const getCardStore = () => options.cardStore ?? getRuntimeApplication()?.cardStore;
   const handlers: OperatorContractHandlerMap = {
     'auth.wsTicket': () => ({ body: getAuthPolicy().issueWebSocketTicket() }),
-    ...buildRuntimeCardOperatorContractHandlers({ projectRoot, cardStoreProvider: getCardStore, runtimeApplicationProvider: getRuntimeApplication, serverAvailabilityProvider: options.serverAvailabilityProvider }),
-    ...buildMcpOperatorContractHandlers({ mcpStatusProvider: options.mcpStatusProvider, mcpToolsProvider: options.mcpToolsProvider, serverAvailabilityProvider: options.serverAvailabilityProvider }),
-    ...buildAgentOperatorContractHandlers({ projectRoot, runtimeApplication: getRuntimeApplication()?.runtimeApi }),
-    ...buildChatOperatorContractHandlers({ projectRoot, runtimeApplicationProvider: getRuntimeApplication, requestServerRestart: options.requestServerRestart }),
-    ...buildFilesDebugOperatorContractHandlers({ projectRoot, cardStoreProvider: getCardStore }),
+    ...buildRuntimeCardOperatorContractHandlers({ projectRoot, cardStore: options.cardStore, runtimeApplication: options.runtimeApplication, serverAvailabilityProvider: options.serverAvailabilityProvider }),
+    ...buildMcpOperatorContractHandlers({ mcpStatusProvider: options.mcpManager, mcpToolsProvider: options.mcpManager, serverAvailabilityProvider: options.serverAvailabilityProvider }),
+    ...buildAgentOperatorContractHandlers({ projectRoot, runtimeApplication: options.runtimeApplication?.runtimeApi }),
+    ...buildChatOperatorContractHandlers({ projectRoot, runtimeApplication: options.runtimeApplication, requestServerRestart: options.requestServerRestart }),
+    ...buildFilesDebugOperatorContractHandlers({ projectRoot, cardStoreProvider: () => options.cardStore }),
     ...buildProcessOperatorContractHandlers({ projectRoot }),
     ...buildEventsOperatorContractHandlers({ projectRoot }),
     ...buildConfigOperatorContractHandlers({ projectRoot, saivageConfig: options.saivageConfig, configWarnings: options.configWarnings }),

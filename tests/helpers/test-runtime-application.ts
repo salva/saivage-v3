@@ -114,7 +114,8 @@ function createFlatTestAnalystRuntime(opts: { eventBus?: EventBus } = {}): TestA
 }
 
 export function createTestAnalystRuntime(opts: { eventBus?: EventBus; cardStore?: CardStore } = {}): AnalystRuntimeDeps {
-  const analystRuntime = createFlatTestAnalystRuntime(opts);
+  const eventBus = opts.eventBus ?? new EventBus();
+  const analystRuntime = createFlatTestAnalystRuntime({ ...opts, eventBus });
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-test-analyst-runtime-'));
   return {
     runtime: analystRuntime,
@@ -122,14 +123,15 @@ export function createTestAnalystRuntime(opts: { eventBus?: EventBus; cardStore?
     stamper: analystRuntime,
     candidateAvailability: analystRuntime.candidateAvailability,
     eventLogger: analystRuntime.eventLogger,
-    eventBus: opts.eventBus,
+    eventBus,
     emitAnalystToolInvoked: (payload) => analystRuntime.emitAnalystToolInvoked(payload),
     mcpManager: analystRuntime.mcpManager,
   };
 }
 
 export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardStore?: CardStore } = {}): RuntimeApplication {
-  const analystRuntime = createFlatTestAnalystRuntime(opts);
+  const eventBus = opts.eventBus ?? new EventBus();
+  const analystRuntime = createFlatTestAnalystRuntime({ ...opts, eventBus });
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-test-runtime-app-'));
   const cardStore = opts.cardStore ?? new CardStore(projectRoot);
   return {
@@ -152,7 +154,7 @@ export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardSt
         stamper: analystRuntime,
         candidateAvailability: analystRuntime.candidateAvailability,
         eventLogger: analystRuntime.eventLogger,
-        eventBus: opts.eventBus,
+        eventBus,
         emitAnalystToolInvoked: (payload: Parameters<typeof analystRuntime.emitAnalystToolInvoked>[0]) => analystRuntime.emitAnalystToolInvoked(payload),
         mcpManager: analystRuntime.mcpManager,
       };

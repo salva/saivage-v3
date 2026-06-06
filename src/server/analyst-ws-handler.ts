@@ -10,8 +10,8 @@ import { projectAnalystToolInvocationActivity } from './tool-activity-projection
 export interface AnalystWsHandlerOptions {
   projectRoot: string;
   liveSyncSocket: LiveSyncSocket;
-  runtimeApplication?: RuntimeApplication;
-  requestServerRestart?: () => Promise<void>;
+  runtimeApplication: RuntimeApplication;
+  requestServerRestart: () => Promise<void>;
   sendToClient: (ws: WebSocket, event: WsEnvelope) => void;
   broadcast: (event: WsEnvelope) => void;
 }
@@ -38,8 +38,6 @@ export class AnalystWsHandler {
 
         let currentSessionId = this.sessions.get(ws);
         if (!currentSessionId) currentSessionId = this.initialize(ws);
-        if (!this.options.runtimeApplication) throw new Error('Runtime application unavailable for analyst websocket.');
-
         const handler = getAnalystHandler(this.options.projectRoot, {
           runtimeDeps: this.options.runtimeApplication.analystDeps,
           requestServerRestart: this.options.requestServerRestart,

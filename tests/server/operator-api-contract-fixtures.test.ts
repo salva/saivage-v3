@@ -46,7 +46,7 @@ beforeEach(async () => {
   root = mkdtempSync(join(tmpdir(), 'saivage-operator-api-contract-'));
   initProjectTree(root);
   initRuntimeState(root);
-  server = await createServer(root, false);
+  server = await createServer(root);
 });
 
 afterEach(async () => {

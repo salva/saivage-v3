@@ -12,13 +12,12 @@ export interface App {
 export interface StartAppOptions {
   argv: readonly string[];
   env?: Readonly<Record<string, string | undefined>>;
-  createRuntime?: boolean;
 }
 
 export async function startApp(options: StartAppOptions): Promise<App> {
   const environment = loadEnvironment(options.argv, options.env ?? process.env);
   const scope = createResourceScope('app');
-  const server = await startServer({ environment, createRuntime: options.createRuntime, scope: scope.child('server') });
+  const server = await startServer({ environment, scope: scope.child('server') });
 
   async function stop(): Promise<void> {
     await scope.dispose();

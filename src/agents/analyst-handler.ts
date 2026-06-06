@@ -88,7 +88,7 @@ export interface AnalystRuntimeDeps {
   candidateAvailability?: CandidateAvailability;
   eventLogger?: EventLogger;
   emitAnalystToolInvoked(payload: EventPayload<'analyst_tool_invoked'>): void;
-  eventBus?: EventBus;
+  eventBus: EventBus;
   mcpManager?: McpManager;
   contextCompactor?: ContextCompactor;
   invocationService?: InvocationService;

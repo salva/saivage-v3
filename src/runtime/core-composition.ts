@@ -1,4 +1,5 @@
 import { EventEmitter as NodeEventEmitter } from 'node:events';
+import { join } from 'node:path';
 import type { AgentExecutionPort } from '../contracts/index.js';
 import { EventBus } from '../events/bus.js';
 import type { EventKind, EventPayload, TypedEventEmitter } from '../events/index.js';
@@ -8,11 +9,14 @@ import type { RuntimeCardTestStore, RuntimeConfig, RuntimeCoreParts } from './ru
 import type { RuntimeDisposeReportEntry } from './lifecycle.js';
 import { readRuntimeState } from './state.js';
 import type { RuntimeState } from '../schemas/index.js';
-import type { ErrorLogger, EventLogger } from '../observability/index.js';
+import { ErrorLogger, EventLogger } from '../observability/index.js';
 import type { StuckAgentSupervisor, StuckVerdict } from './stuck-agent-supervisor.js';
 import { deriveCurrentCardId } from './current-run.js';
+import { CardStore } from '../cards/store-api.js';
 
 type EmitAgentEvent = (name: string, data: Record<string, unknown>) => void;
+type RuntimeSharedServices = Pick<RuntimeConfig, 'eventLogger' | 'errorLogger' | 'eventBus' | 'cardStore'>;
+type RuntimeConfigInput = Omit<RuntimeConfig, keyof RuntimeSharedServices> & Partial<RuntimeSharedServices>;
 
 // This module keeps application wiring and test fixture assembly at the runtime boundary.
 // Avoid inlining it into application composition unless that boundary is replaced.
@@ -28,6 +32,17 @@ function createAgentEventBus(getEmitAgentEvent: () => EmitAgentEvent | null): No
     return emitted;
   };
   return agentEventBus;
+}
+
+function completeRuntimeConfig(config: RuntimeConfigInput): RuntimeConfig {
+  const eventBus = config.eventBus ?? new EventBus();
+  return {
+    ...config,
+    eventBus,
+    eventLogger: config.eventLogger ?? new EventLogger(join(config.projectRoot, '.saivage')),
+    errorLogger: config.errorLogger ?? new ErrorLogger(join(config.projectRoot, '.saivage')),
+    cardStore: config.cardStore ?? new CardStore(config.projectRoot, config.maxGoalDepth, eventBus),
+  };
 }
 
 function getRuntimeStatus(projectRoot: string, coreParts: RuntimeCoreParts): ReturnType<RuntimeApi['getStatus']> {
@@ -94,7 +109,7 @@ export interface RuntimeCoreTestContainer extends RuntimeCoreContainer {
 }
 
 export function createRuntimeCoreContainer(input: {
-  config: RuntimeConfig;
+  config: RuntimeConfigInput;
   agentRuntime?: AgentExecutionPort;
   getActivityStatus?: RuntimeApi['getActivityStatus'];
   goalDispatcher?: RuntimeConfig['goalDispatcher'];
@@ -104,9 +119,10 @@ export function createRuntimeCoreContainer(input: {
 }): RuntimeCoreContainer {
   const agentEventEmitterHolder: { emit: EmitAgentEvent | null } = { emit: null };
   const agentEventBus = createAgentEventBus(() => agentEventEmitterHolder.emit);
+  const config = completeRuntimeConfig(input.config);
   const assembly = initializeRuntimeImplementation(
     {
-      ...input.config,
+      ...config,
       ...(input.goalDispatcher ? { goalDispatcher: input.goalDispatcher } : {}),
     },
     input.agentRuntime,
@@ -121,7 +137,7 @@ export function createRuntimeCoreContainer(input: {
     startProject: (source) => controls.startProject(source),
     stopProject: (source) => controls.stopProject(source),
     subscribe: (options) => coreParts.subscribe(options),
-    getStatus: () => getRuntimeStatus(input.config.projectRoot, coreParts),
+    getStatus: () => getRuntimeStatus(config.projectRoot, coreParts),
     getActivityStatus: input.getActivityStatus ?? (() => ({ status: 'idle', pending_calls: [], updated_at: new Date(0).toISOString() })),
   };
   const runtimeLedgerEvents = {
@@ -134,12 +150,12 @@ export function createRuntimeCoreContainer(input: {
   input.wireAnalystToolInvokedEmitter?.(emitAnalystToolInvoked);
   return {
     api,
-    projectRoot: input.config.projectRoot,
+    projectRoot: config.projectRoot,
   };
 }
 
 export function createRuntimeCoreTestContainer(input: {
-  config: RuntimeConfig;
+  config: RuntimeConfigInput;
   agentRuntime?: AgentExecutionPort;
   getActivityStatus?: RuntimeApi['getActivityStatus'];
   goalDispatcher?: RuntimeConfig['goalDispatcher'];
@@ -148,9 +164,10 @@ export function createRuntimeCoreTestContainer(input: {
   let lastLifecycleDisposeReport: RuntimeDisposeReportEntry[] = [];
   const agentEventEmitterHolder: { emit: EmitAgentEvent | null } = { emit: null };
   const agentEventBus = createAgentEventBus(() => agentEventEmitterHolder.emit);
+  const config = completeRuntimeConfig(input.config);
   const assembly = initializeRuntimeImplementation(
     {
-      ...input.config,
+      ...config,
       ...(input.goalDispatcher ? { goalDispatcher: input.goalDispatcher } : {}),
     },
     input.agentRuntime,
@@ -177,12 +194,12 @@ export function createRuntimeCoreTestContainer(input: {
     startProject: (source) => controls.startProject(source),
     stopProject: (source) => controls.stopProject(source),
     subscribe: (options) => coreParts.subscribe(options),
-    getStatus: () => getRuntimeStatus(input.config.projectRoot, coreParts),
+    getStatus: () => getRuntimeStatus(config.projectRoot, coreParts),
     getActivityStatus: input.getActivityStatus ?? (() => ({ status: 'idle', pending_calls: [], updated_at: new Date(0).toISOString() })),
   };
   return {
     api,
-    projectRoot: input.config.projectRoot,
+    projectRoot: config.projectRoot,
     agentEventBus,
     runtimeLedgerEvents: {
       emit: <K extends EventKind>(kind: K, payload: EventPayload<K>) => coreParts.publishRuntimeLedgerEvent(kind, payload),
@@ -213,7 +230,7 @@ export function createRuntimeCoreTestContainer(input: {
       runCheck: () => runtimeParts.supervisor.runCheck(),
     },
     stateTestTools: {
-      read: () => readRuntimeState(input.config.projectRoot),
+      read: () => readRuntimeState(config.projectRoot),
     },
     dispatchTestTools: {
       dispatchGoal: (goalId) => runtimeParts.dispatchGoal(goalId),

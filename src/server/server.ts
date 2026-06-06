@@ -4,22 +4,13 @@ import type { Environment } from '../config/index.js';
 import { McpManager } from '../mcp/manager-api.js';
 import { TelegramBot } from '../telegram/index.js';
 import type { RuntimeApplication } from '../application/runtime-composition.js';
-import { configureAuthPolicy } from './auth-policy.js';
 import { createResourceScope, type ResourceScope } from '../lifecycle/index.js';
-import { createFastifyApp } from './composition/fastify-app.js';
-import { startRuntimeApplication } from './composition/runtime-lifecycle.js';
-import { attachMcpManagerToRuntime, startMcpManager } from './composition/mcp-lifecycle.js';
-import { startTelegramNotifications } from './composition/telegram-lifecycle.js';
 import { registerServerRoutes } from './composition/route-composition.js';
-import { stopServerResources } from './composition/server-shutdown.js';
-import type { ServerAvailabilityInputs } from './availability.js';
-import { LiveSyncSocket } from './live-sync-socket.js';
-import { SyncHub } from './sync-hub.js';
-import { CardStore } from '../cards/store-api.js';
+import { createServerServices } from './composition/server-services.js';
 
 export interface ServerConfig { host: string; port: number; projectRoot: string; }
-export interface CreateServerOptions { environment: Environment; createRuntime?: boolean; scope?: ResourceScope; }
-export interface ServerInstance { fastify: FastifyInstance; config: ServerConfig; saivageConfig: SaivageConfig; scope: ResourceScope; mcpManager?: McpManager; telegramBot?: TelegramBot; runtimeApplication?: RuntimeApplication; stop: () => Promise<void>; requestRestart: () => Promise<void>; }
+export interface CreateServerOptions { environment: Environment; scope?: ResourceScope; }
+export interface ServerInstance { fastify: FastifyInstance; config: ServerConfig; saivageConfig: SaivageConfig; scope: ResourceScope; mcpManager: McpManager; telegramBot?: TelegramBot; runtimeApplication: RuntimeApplication; stop: () => Promise<void>; requestRestart: () => Promise<void>; }
 export function isLocalhost(host: string): boolean { return host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '0:0:0:0:0:0:0:1'; }
 export function validateDevModeHost(host: string | undefined, apiToken?: string): void { if (apiToken) return; console.warn('⚠  SAIVAGE_API_TOKEN is not set. Server is running in DEVELOPMENT MODE with auth disabled.\n' + '   Set SAIVAGE_API_TOKEN to a secure random string for production use.'); const resolvedHost = host ?? '0.0.0.0'; if (!isLocalhost(resolvedHost)) console.warn(`⚠  Binding to ${resolvedHost} without SAIVAGE_API_TOKEN. All API endpoints are unauthenticated.`); }
 export function getServerConfig(environment: Environment): ServerConfig { return { host: environment.server.host, port: environment.server.port, projectRoot: environment.projectRoot }; }
@@ -41,65 +32,28 @@ function createEnvironmentFromProjectConfig(projectRoot: string): Environment {
   } as Environment;
 }
 
-export async function createServer(optionsOrProjectRoot: CreateServerOptions | string, createRuntimeArg?: boolean): Promise<ServerInstance> {
+export async function createServer(optionsOrProjectRoot: CreateServerOptions | string): Promise<ServerInstance> {
   const environment = typeof optionsOrProjectRoot === 'string'
     ? createEnvironmentFromProjectConfig(optionsOrProjectRoot)
     : optionsOrProjectRoot.environment;
-  const projectRoot = environment.projectRoot;
-  const createRuntime = typeof optionsOrProjectRoot === 'string' ? createRuntimeArg : optionsOrProjectRoot.createRuntime;
   const scope = typeof optionsOrProjectRoot === 'string' ? createResourceScope('server') : (optionsOrProjectRoot.scope ?? createResourceScope('server'));
   const serverConfig = getServerConfig(environment);
-  const saivageConfig: SaivageConfig = environment.config;
-  configureAuthPolicy({ apiToken: environment.auth.apiToken });
-
-  const fastify = await createFastifyApp(environment);
-  const liveSyncSocket = new LiveSyncSocket();
-  const syncHub = new SyncHub(liveSyncSocket);
-  async function stop(): Promise<void> { await scope.dispose(); }
-  const requestRestart = async (): Promise<void> => {
-    setImmediate(async () => {
-      try { await stop(); } finally { process.exit(75); }
-    });
-  };
-
-  const availabilityInputs: ServerAvailabilityInputs = {
-    projectRoot,
-    runtimeApplication: () => runtimeApplication,
-    mcpManager: () => mcpManager,
-    runtimeStartupFailure: () => runtimeStartupFailure,
-    mcpStartupFailure: () => mcpStartupFailure,
-  };
-
-  const runtimeStartup = await startRuntimeApplication({ createRuntime, projectRoot, saivageConfig, fastify, syncHub });
-  const runtimeApplication = runtimeStartup.runtimeApplication;
-  const runtimeStartupFailure = runtimeStartup.startupFailure;
-  // Routes still need a project-local CardStore when runtime startup is disabled or failed.
-  const cardStore = runtimeApplication?.cardStore ?? new CardStore(projectRoot);
-
-  const mcpStartup = await startMcpManager({ projectRoot, scope, fastify });
-  const mcpManager = mcpStartup.mcpManager;
-  const mcpStartupFailure = mcpStartup.startupFailure;
-  attachMcpManagerToRuntime(runtimeApplication, mcpManager);
-
-  const telegramBot = await startTelegramNotifications({ projectRoot, saivageConfig, fastify, runtimeApplication });
+  const services = await createServerServices({ environment, scope });
 
   registerServerRoutes({
-    fastify,
-    projectRoot,
-    cardStore,
-    runtimeApplicationProvider: () => runtimeApplication,
-    mcpManagerProvider: () => mcpManager,
-    availabilityInputs,
-    saivageConfig,
+    fastify: services.fastify,
+    projectRoot: services.projectRoot,
+    cardStore: services.cardStore,
+    runtimeApplication: services.runtimeApplication,
+    mcpManager: services.mcpManager,
+    saivageConfig: services.config,
     configWarnings: environment.configWarnings,
-    requestServerRestart: requestRestart,
-    liveSyncSocket,
+    requestServerRestart: services.requestRestart,
+    liveSyncSocket: services.liveSyncSocket,
   });
 
-  scope.add({ dispose: () => stopServerResources({ projectRoot, fastify, runtimeApplication, mcpManager, telegramBot, liveSyncSocket, syncHub }) }, { name: 'server-stop' });
-
-  return { fastify, config: serverConfig, saivageConfig, scope, mcpManager, telegramBot, runtimeApplication, stop, requestRestart };
+  return { fastify: services.fastify, config: serverConfig, saivageConfig: services.config, scope: services.scope, mcpManager: services.mcpManager, telegramBot: services.telegramBot, runtimeApplication: services.runtimeApplication, stop: services.stop, requestRestart: services.requestRestart };
 }
 
-export async function startServer(optionsOrProjectRoot: CreateServerOptions | string, createRuntime?: boolean): Promise<ServerInstance> { const server = await createServer(optionsOrProjectRoot as CreateServerOptions | string, createRuntime); const apiToken = typeof optionsOrProjectRoot === 'string' ? undefined : optionsOrProjectRoot.environment.auth.apiToken; validateDevModeHost(server.config.host, apiToken); await server.fastify.listen({ host: server.config.host, port: server.config.port }); return server; }
+export async function startServer(optionsOrProjectRoot: CreateServerOptions | string): Promise<ServerInstance> { const server = await createServer(optionsOrProjectRoot as CreateServerOptions | string); const apiToken = typeof optionsOrProjectRoot === 'string' ? undefined : optionsOrProjectRoot.environment.auth.apiToken; validateDevModeHost(server.config.host, apiToken); await server.fastify.listen({ host: server.config.host, port: server.config.port }); return server; }
 export async function stopServer(server: ServerInstance): Promise<void> { await server.stop(); }

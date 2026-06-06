@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import type { ServerInstance } from '../../src/server/server.js';
 import { buildServerAvailability } from '../../src/server/availability.js';
 import { resetAuthPolicyForTests } from '../../src/server/auth-policy.js';
+import { createTestRuntimeApplication } from '../helpers/test-runtime-application.js';
+import { initRuntimeState } from '../../src/runtime/state.js';
 
 const AUTH_TOKEN = 'availability-test-token';
 
@@ -14,22 +16,7 @@ function setupProject(root: string, withRuntimeState = true): void {
     mkdirSync(join(sd, d), { recursive: true });
   }
   writeFileSync(join(sd, 'saivage.json'), JSON.stringify({ server: { host: '127.0.0.1', port: 8080 }, models: { default: ['test-model'] }, providers: {} }, null, 2));
-  if (withRuntimeState) {
-    writeFileSync(join(sd, 'runtime', 'state.json'), JSON.stringify({
-      status: 'idle',
-      project_id: 'project',
-      started_at: '2026-01-01T00:00:00.000Z',
-      current_card_id: null,
-      current_agent_session_id: null,
-      paused: false,
-      paused_at: null,
-      updated_at: '2026-01-01T00:00:01.000Z',
-      runtime_intent: { status: 'running', updated_at: '2026-01-01T00:00:01.000Z', source_command_id: null, reason: null },
-      runtime_commands: [],
-      runtime_runs: [],
-      runtime_activations: [],
-    }, null, 2));
-  }
+  if (withRuntimeState) initRuntimeState(root);
   writeFileSync(join(sd, 'cards', 'index.json'), JSON.stringify({ cards: {} }));
   writeFileSync(join(sd, 'cards', 'tree', 'project.children.json'), JSON.stringify([]));
   writeFileSync(join(sd, 'cards', 'dependencies', 'depends-on.json'), JSON.stringify({}));
@@ -59,36 +46,30 @@ describe('server availability contract', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('marks runtime degraded when no live runtime is attached but persisted state exists', () => {
+  it('marks runtime available when live runtime services and persisted state are present', () => {
     setupProject(tmpDir, true);
-    const availability = buildServerAvailability({ projectRoot: tmpDir });
+    const availability = buildServerAvailability({ projectRoot: tmpDir, runtimeApplication: createTestRuntimeApplication(), mcpManager: { getStatus: () => [] } });
     expect(availability.components.api.state).toBe('available');
-    expect(availability.components.runtime).toEqual(expect.objectContaining({ state: 'unknown', source: 'unknown' }));
-    expect(availability.components.mcp).toEqual(expect.objectContaining({ state: 'unknown', source: 'unknown' }));
+    expect(availability.components.runtime).toEqual(expect.objectContaining({ state: 'available', source: 'runtime-application' }));
+    expect(availability.components.mcp).toEqual(expect.objectContaining({ state: 'idle', source: 'mcp-manager' }));
   });
 
-  it('distinguishes runtime and MCP startup failures with redacted diagnostics', () => {
+  it('reports missing runtime state as a live-service diagnostic', () => {
     setupProject(tmpDir, false);
-    const availability = buildServerAvailability({
-      projectRoot: tmpDir,
-      runtimeStartupFailure: () => ({ code: 'runtime-application-start-failed', error: new Error(`token=super-secret ${tmpDir}/.saivage/auth-profiles.json`) }),
-      mcpStartupFailure: () => ({ code: 'mcp-manager-start-failed', error: new Error('password=hunter2 failed') }),
-    });
-    expect(availability.components.runtime.state).toBe('unavailable');
-    expect(availability.components.runtime.diagnostic?.code).toBe('runtime-application-start-failed');
-    expect(availability.components.runtime.diagnostic?.summary).not.toContain('super-secret');
-    expect(availability.components.runtime.diagnostic?.summary).not.toContain(tmpDir);
-    expect(availability.components.mcp.state).toBe('unavailable');
-    expect(availability.components.mcp.diagnostic?.summary).not.toContain('hunter2');
+    const availability = buildServerAvailability({ projectRoot: tmpDir, runtimeApplication: createTestRuntimeApplication(), mcpManager: { getStatus: () => [] } });
+    expect(availability.components.runtime.state).toBe('degraded');
+    expect(availability.components.runtime.diagnostic?.code).toBe('runtime-state-missing');
+    expect(availability.components.mcp.state).toBe('idle');
   });
 
   it('distinguishes unknown runtime and empty MCP manager states', () => {
     setupProject(tmpDir, false);
     const availability = buildServerAvailability({
       projectRoot: tmpDir,
-      mcpManager: () => ({ getStatus: () => [] }) as any,
+      runtimeApplication: createTestRuntimeApplication(),
+      mcpManager: { getStatus: () => [] },
     });
-    expect(availability.components.runtime.state).toBe('unknown');
+    expect(availability.components.runtime.state).toBe('degraded');
     expect(availability.components.mcp).toEqual(expect.objectContaining({ state: 'idle', source: 'mcp-manager' }));
     expect(availability.components.mcp.state).not.toBe('degraded');
     expect(availability.components.mcp.diagnostic?.code).toBe('mcp-manager-empty');
@@ -111,7 +92,7 @@ describe('server availability contract', () => {
 
     const runtimeStatus = await server.fastify.inject({ method: 'GET', url: '/api/runtime/status', headers: { authorization: `Bearer ${AUTH_TOKEN}` } });
     expect(runtimeStatus.statusCode).toBe(200);
-    expect(runtimeStatus.json()).toEqual(expect.objectContaining({ runtime: 'unknown', paused: false, currentCardId: null, goalCount: 0, serverAvailability: expect.any(Object) }));
+    expect(runtimeStatus.json()).toEqual(expect.objectContaining({ runtime: 'idle', paused: false, currentCardId: null, goalCount: 0, serverAvailability: expect.any(Object) }));
 
     const mcpStatus = await server.fastify.inject({ method: 'GET', url: '/api/mcp/status', headers: { authorization: `Bearer ${AUTH_TOKEN}` } });
     expect(mcpStatus.statusCode).toBe(200);

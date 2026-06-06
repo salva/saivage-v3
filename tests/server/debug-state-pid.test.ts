@@ -26,7 +26,7 @@ afterEach(async () => {
 describe('GET /api/debug/state pid overlay', () => {
   it('surfaces process.pid on body.runtime.pid', async () => {
     updateRuntimeState(root, { status: 'running' });
-    server = await createServer(root, false);
+    server = await createServer(root);
     const res = await server.fastify.inject({ method: 'GET', url: '/api/debug/state' });
     expect(res.statusCode).toBe(200);
     const body = res.json<{ runtime: { pid: number; status: string } | null }>();

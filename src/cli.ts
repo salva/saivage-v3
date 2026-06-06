@@ -11,12 +11,12 @@ import { readRuntimeState } from './runtime/state-api.js';
 import { readLiveLockHolder } from './runtime/control-api.js';
 import { deriveCurrentCardId } from './runtime/current-run.js';
 
-interface CliOptions { force?: boolean; 'create-runtime'?: boolean; port?: string; host?: string; }
+interface CliOptions { force?: boolean; port?: string; host?: string; }
 const USAGE = `Saivage v3 CLI
 
 Usage:
   saivage init [--force]
-  saivage start [--create-runtime] [--port <port>] [--host <host>]
+  saivage start [--port <port>] [--host <host>]
   saivage status
   saivage pause
   saivage resume
@@ -27,9 +27,9 @@ Usage:
       Refuses while the runtime lockfile is present.
   saivage help
 `;
-function parseCommand(rawArgs: string[]): { command: string; options: CliOptions } { const args = rawArgs.slice(2); if (args.length === 0) return { command: 'help', options: {} }; const command = args[0]!; const rest = args.slice(1); let options: CliOptions = {}; if (rest.length > 0) { const parsed = parseArgs({ args: rest, options: { force: { type: 'boolean' }, 'create-runtime': { type: 'boolean' }, port: { type: 'string' }, host: { type: 'string' } }, allowPositionals: false, strict: true }); options = parsed.values as CliOptions; } return { command, options }; }
+function parseCommand(rawArgs: string[]): { command: string; options: CliOptions } { const args = rawArgs.slice(2); if (args.length === 0) return { command: 'help', options: {} }; const command = args[0]!; const rest = args.slice(1); let options: CliOptions = {}; if (rest.length > 0) { const parsed = parseArgs({ args: rest, options: { force: { type: 'boolean' }, port: { type: 'string' }, host: { type: 'string' } }, allowPositionals: false, strict: true }); options = parsed.values as CliOptions; } return { command, options }; }
 async function handleInit(options: CliOptions): Promise<void> { const projectRoot = process.cwd(); if (!options.force && isInitialized(projectRoot)) { console.log(`Project already initialized at ${projectRoot}`); return; } initProjectTree(projectRoot); console.log(`Project initialized at ${projectRoot}`); }
-async function handleStart(options: CliOptions, args: string[]): Promise<void> { const app = await startApp({ argv: args, createRuntime: options['create-runtime'] === true }); console.log(`Saivage server listening on http://${app.environment.server.host}:${app.environment.server.port}`); }
+async function handleStart(_options: CliOptions, args: string[]): Promise<void> { const app = await startApp({ argv: args }); console.log(`Saivage server listening on http://${app.environment.server.host}:${app.environment.server.port}`); }
 async function handleStatus(): Promise<void> { const projectRoot = findProjectRoot(); if (projectRoot === null) { console.log('Not in a Saivage project'); return; } const state = readRuntimeState(projectRoot); if (state === null) { console.log(`Project root: ${projectRoot}`); console.log('Runtime state: not initialized (no state.json)'); return; } const holder = readLiveLockHolder(projectRoot); console.log(`Project root: ${projectRoot}`); console.log(`Status:       ${state.status}`); console.log(`PID:          ${holder ? holder.pid : '(not running)'}`); console.log(`Paused:       ${state.paused}`); console.log(`Current card: ${deriveCurrentCardId(state) ?? '(none)'}`); console.log(`Started at:   ${state.started_at}`); }
 async function restBaseUrl(projectRoot: string): Promise<string> { const cfgPath = join(projectRoot, '.saivage', 'saivage.json'); let host = '127.0.0.1'; let port = 8080; if (existsSync(cfgPath)) { try { const cfg = JSON.parse(readFileSync(cfgPath, 'utf-8')) as { server?: { host?: string; port?: number } }; host = cfg.server?.host === '0.0.0.0' ? '127.0.0.1' : (cfg.server?.host ?? host); port = cfg.server?.port ?? port; } catch { void 0; } } return `http://${host}:${port}`; }
 async function mutateRuntimeViaCli(projectRoot: string, action: 'pause' | 'resume'): Promise<void> { const verdict = evaluateAuthz({ actor: 'user', surface: 'cli', safety_class: 'low' }); if (verdict === 'deny') { recordControlAction(projectRoot, { actor: 'user', surface: 'cli', action: `runtime.${action}`, target_kind: 'runtime', target_id: 'project', params_summary: stableStringify({ action }), outcome: 'denied', outcome_summary: 'authz denied' }); throw new Error('Denied by authorization policy.'); }

@@ -62,6 +62,7 @@ describe('websocket analyst safety and live-sync control', () => {
     registerWebSocket(fastify, '/tmp/project', {
       liveSyncSocket: new LiveSyncSocket(),
       runtimeApplication: createTestRuntimeApplication(),
+      requestServerRestart: async () => undefined,
     });
     const ticket = getAuthPolicy().issueWebSocketTicket().ticket;
     const { ws } = createSocket();
@@ -80,6 +81,7 @@ describe('websocket analyst safety and live-sync control', () => {
     registerWebSocket(fastify, '/tmp/project', {
       liveSyncSocket,
       runtimeApplication: createTestRuntimeApplication(),
+      requestServerRestart: async () => undefined,
     });
     const { ws, handlers } = createSocket();
     route.handler(ws, { headers: {}, query: {} });
@@ -102,6 +104,7 @@ describe('websocket analyst safety and live-sync control', () => {
     registerWebSocket(fastify, '/tmp/project', {
       liveSyncSocket: new LiveSyncSocket(),
       runtimeApplication: createTestRuntimeApplication(),
+      requestServerRestart: async () => undefined,
     });
     const { ws, handlers } = createSocket();
     route.handler(ws, { headers: {}, query: {} });

@@ -7,7 +7,7 @@ import { SkillsEngine } from '../agents/skills-engine.js';
 import { ContextCompactor } from '../agents/context-compactor.js';
 import type { AnalystRuntimeDeps } from '../agents/analyst-api.js';
 import type { EventPayload } from '../events/index.js';
-import { EventBus } from '../events/index.js';
+import type { EventBus } from '../events/index.js';
 import type { McpManager } from '../mcp/manager-api.js';
 import { EventLogger, ErrorLogger } from '../observability/index.js';
 import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from '../runtime/state.js';
@@ -22,6 +22,15 @@ export interface RuntimeApplication {
   readonly cardStore: CardStore;
   readonly analystDeps: AnalystRuntimeDeps;
   setMcpManager(mcpManager: McpManager): void;
+}
+
+export interface RuntimeApplicationServices {
+  projectRoot: string;
+  config: SaivageConfig;
+  eventBus: EventBus;
+  eventLogger: EventLogger;
+  errorLogger: ErrorLogger;
+  cardStore: CardStore;
 }
 
 function buildAnalystDeps(input: {
@@ -48,15 +57,12 @@ function buildAnalystDeps(input: {
   };
 }
 
-export function createRuntimeApplication(projectRoot: string, config: SaivageConfig): RuntimeApplication {
+export function createRuntimeApplication(services: RuntimeApplicationServices): RuntimeApplication {
+  const { projectRoot, config, eventBus, eventLogger, errorLogger, cardStore } = services;
   const saivageDir = join(projectRoot, '.saivage');
-  const eventLogger = new EventLogger(saivageDir);
-  const errorLogger = new ErrorLogger(saivageDir);
-  const eventBus = new EventBus();
   const skillsEngine = new SkillsEngine({ projectRoot });
   const stamper = new SessionStampCounter();
   const contextCompactor = new ContextCompactor({ saivageDir, sessionStamper: stamper });
-  const cardStore = new CardStore(projectRoot, undefined, eventBus);
   const candidateAvailability = new FsCandidateAvailability(projectRoot, {
     compactBytes: config.runtime.candidateAvailabilityCompactBytes,
   });

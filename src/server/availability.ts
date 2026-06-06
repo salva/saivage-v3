@@ -5,17 +5,10 @@ import { redactOperatorErrorMessage } from '../workspace/index.js';
 import { redactSnippetForOutbound } from '../redaction/index.js';
 import type { ServerAvailability } from '../contracts/index.js';
 
-type StartupFailure = {
-  code: string;
-  error: unknown;
-};
-
 export interface ServerAvailabilityInputs {
   projectRoot: string;
-  runtimeApplication?: () => RuntimeApplication | undefined;
-  mcpManager?: () => McpStatusProvider | undefined;
-  runtimeStartupFailure?: () => StartupFailure | undefined;
-  mcpStartupFailure?: () => StartupFailure | undefined;
+  runtimeApplication: RuntimeApplication;
+  mcpManager: McpStatusProvider;
 }
 
 function nowIso(): string {
@@ -40,10 +33,6 @@ function diagnostic(code: string, error: unknown, projectRoot: string) {
 export function buildServerAvailability(inputs: ServerAvailabilityInputs): ServerAvailability {
   const generatedAt = nowIso();
   const checkedAt = generatedAt;
-  const runtimeApplication = inputs.runtimeApplication?.();
-  const mcpManager = inputs.mcpManager?.();
-  const runtimeFailure = inputs.runtimeStartupFailure?.();
-  const mcpFailure = inputs.mcpStartupFailure?.();
 
   const api = {
     state: 'available' as const,
@@ -52,64 +41,42 @@ export function buildServerAvailability(inputs: ServerAvailabilityInputs): Serve
   };
 
   let runtime: ServerAvailability['components']['runtime'];
-  if (runtimeApplication) {
-    runtime = { state: 'available', source: 'runtime-application', checkedAt };
-  } else if (runtimeFailure) {
+  try {
+    const state = readRuntimeState(inputs.projectRoot);
+    runtime = state
+      ? { state: 'available', source: 'runtime-application', checkedAt }
+      : { state: 'degraded', source: 'runtime-state', checkedAt, diagnostic: { code: 'runtime-state-missing', summary: 'Runtime application is running but runtime state is not initialized.' } };
+  } catch (error) {
     runtime = {
-      state: 'unavailable',
-      source: 'startup',
+      state: 'degraded',
+      source: 'runtime-state',
       checkedAt,
-      diagnostic: diagnostic(runtimeFailure.code, runtimeFailure.error, inputs.projectRoot),
+      diagnostic: diagnostic('runtime-state-read-failed', error, inputs.projectRoot),
     };
-  } else {
-    try {
-      const state = readRuntimeState(inputs.projectRoot);
-      runtime = state
-        ? { state: 'degraded', source: 'runtime-state', checkedAt }
-        : { state: 'unknown', source: 'unknown', checkedAt };
-    } catch (error) {
-      runtime = {
-        state: 'unknown',
-        source: 'runtime-state',
-        checkedAt,
-        diagnostic: diagnostic('runtime-state-read-failed', error, inputs.projectRoot),
-      };
-    }
   }
 
   let mcp: ServerAvailability['components']['mcp'];
-  if (mcpManager) {
-    try {
-      const statuses = mcpManager.getStatus();
-      const hasRunning = statuses.some((status) => status.status === 'running');
-      const hasConfigured = statuses.length > 0;
-      mcp = hasRunning
-        ? { state: 'available', source: 'mcp-manager', checkedAt }
-        : hasConfigured
-          ? { state: 'degraded', source: 'mcp-manager', checkedAt }
-          : {
-              state: 'idle',
-              source: 'mcp-manager',
-              checkedAt,
-              diagnostic: { code: 'mcp-manager-empty', summary: 'No MCP servers configured.' },
-            };
-    } catch (error) {
-      mcp = {
-        state: 'unknown',
-        source: 'mcp-manager',
-        checkedAt,
-        diagnostic: diagnostic('mcp-status-read-failed', error, inputs.projectRoot),
-      };
-    }
-  } else if (mcpFailure) {
+  try {
+    const statuses = inputs.mcpManager.getStatus();
+    const hasRunning = statuses.some((status) => status.status === 'running');
+    const hasConfigured = statuses.length > 0;
+    mcp = hasRunning
+      ? { state: 'available', source: 'mcp-manager', checkedAt }
+      : hasConfigured
+        ? { state: 'degraded', source: 'mcp-manager', checkedAt }
+        : {
+            state: 'idle',
+            source: 'mcp-manager',
+            checkedAt,
+            diagnostic: { code: 'mcp-manager-empty', summary: 'No MCP servers configured.' },
+          };
+  } catch (error) {
     mcp = {
-      state: 'unavailable',
-      source: 'startup',
+      state: 'unknown',
+      source: 'mcp-manager',
       checkedAt,
-      diagnostic: diagnostic(mcpFailure.code, mcpFailure.error, inputs.projectRoot),
+      diagnostic: diagnostic('mcp-status-read-failed', error, inputs.projectRoot),
     };
-  } else {
-    mcp = { state: 'unknown', source: 'unknown', checkedAt };
   }
 
   return {

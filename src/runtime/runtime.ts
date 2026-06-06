@@ -1,4 +1,3 @@
-import { join } from 'node:path';
 import { CardStore } from '../cards/store-api.js';
 import type { AgentExecutionPort } from '../contracts/index.js';
 import { EventLogger } from '../observability/index.js';
@@ -38,9 +37,7 @@ class Runtime {
   private readonly _events: RuntimeEventPublisher;
   private _skillsEngine: RuntimeSkillsPort | null = null;
   private _eventLogger: EventLogger;
-  private _ownsEventLogger: boolean;
   private _errorLogger: ErrorLogger;
-  private _ownsErrorLogger: boolean;
   private _supervisor: StuckAgentSupervisor;
   private readonly _diagnostics: RuntimeDiagnostics;
   private _stateMachine: RuntimeDispatchCollaborators['stateMachine'];
@@ -64,26 +61,10 @@ class Runtime {
     this.projectRoot = config.projectRoot;
     this._diagnostics = createRuntimeDiagnostics(options.diagnosticsObserver);
     this._mutations = createRuntimeStateMutationPort(this.projectRoot);
-    if (config.eventLogger) {
-      this._eventLogger = config.eventLogger;
-      this._ownsEventLogger = false;
-    } else {
-      this._eventLogger = new EventLogger(join(config.projectRoot, '.saivage'));
-      this._ownsEventLogger = true;
-    }
-    if (config.errorLogger) {
-      this._errorLogger = config.errorLogger;
-      this._ownsErrorLogger = false;
-    } else {
-      this._errorLogger = new ErrorLogger(join(config.projectRoot, '.saivage'));
-      this._ownsErrorLogger = true;
-    }
+    this._eventLogger = config.eventLogger;
+    this._errorLogger = config.errorLogger;
     this._events = new RuntimeEventPublisher(this._eventLogger, config.eventBus);
-    this.cardStore = config.cardStore ?? new CardStore(
-      config.projectRoot,
-      config.maxGoalDepth,
-      this._events.eventBus,
-    );
+    this.cardStore = config.cardStore;
     this._sessionStamper = config.sessionStamper ?? new SessionStampCounter();
     this._activationUnwind = new ActivationUnwindRunner({
       cards: this.cardStore,
@@ -151,8 +132,8 @@ class Runtime {
       events: this._events,
       eventLogger: this._eventLogger,
       errorLogger: this._errorLogger,
-      ownsEventLogger: this._ownsEventLogger,
-      ownsErrorLogger: this._ownsErrorLogger,
+      ownsEventLogger: false,
+      ownsErrorLogger: false,
       diagnostics: this._diagnostics,
       mutations: this._mutations,
       lifecycle: this.lifecycle,

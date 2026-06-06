@@ -65,13 +65,13 @@ function rejectUnauthorizedWebSocket(ws: WebSocket): void {
 }
 
 export interface RegisterWebSocketOptions {
-  liveSyncSocket?: LiveSyncSocket;
-  runtimeApplication?: RuntimeApplication;
-  requestServerRestart?: () => Promise<void>;
+  liveSyncSocket: LiveSyncSocket;
+  runtimeApplication: RuntimeApplication;
+  requestServerRestart: () => Promise<void>;
 }
 
-export function registerWebSocket(fastify: FastifyInstance, projectRoot: string, options: RegisterWebSocketOptions = {}): void {
-  const liveSyncSocket = options.liveSyncSocket ?? new LiveSyncSocket();
+export function registerWebSocket(fastify: FastifyInstance, projectRoot: string, options: RegisterWebSocketOptions): void {
+  const liveSyncSocket = options.liveSyncSocket;
   const analystWsHandler = new AnalystWsHandler({
     projectRoot,
     liveSyncSocket,

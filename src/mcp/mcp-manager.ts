@@ -61,12 +61,19 @@ export class McpManager {
 
   async startAll(): Promise<void> {
     const promises: Promise<void>[] = [];
+    const names: string[] = [];
     for (const [name, cfg] of Object.entries(this.servers)) {
       if (!cfg.disabled && cfg.autostart) {
+        names.push(name);
         promises.push(this.startServer(name));
       }
     }
-    await Promise.allSettled(promises);
+    const results = await Promise.allSettled(promises);
+    const failures = results.flatMap((result, index) => result.status === 'rejected' ? [{ name: names[index]!, reason: result.reason }] : []);
+    if (failures.length > 0) {
+      const summary = failures.map((failure) => `${failure.name}: ${failure.reason instanceof Error ? failure.reason.message : String(failure.reason)}`).join('; ');
+      throw new Error(`Failed to start ${failures.length} MCP autostart server(s): ${summary}`);
+    }
   }
 
   /**

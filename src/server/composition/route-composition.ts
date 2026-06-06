@@ -3,7 +3,6 @@ import type { SaivageConfig } from '../../agents/config-api.js';
 import type { RuntimeApplication } from '../../application/runtime-composition.js';
 import type { CardStore } from '../../cards/store-api.js';
 import type { McpManager } from '../../mcp/manager-api.js';
-import type { ServerAvailabilityInputs } from '../availability.js';
 import type { LiveSyncSocket } from '../live-sync-socket.js';
 import { buildServerAvailability } from '../availability.js';
 import { registerOperatorContractRoutes } from '../routes/operator-contracts.js';
@@ -14,23 +13,21 @@ export function registerServerRoutes(options: {
   fastify: FastifyInstance;
   projectRoot: string;
   cardStore: CardStore;
-  runtimeApplicationProvider: () => RuntimeApplication | undefined;
-  mcpManagerProvider: () => McpManager | undefined;
-  availabilityInputs: ServerAvailabilityInputs;
+  runtimeApplication: RuntimeApplication;
+  mcpManager: McpManager;
   saivageConfig: SaivageConfig;
   configWarnings: readonly string[];
   requestServerRestart: () => Promise<void>;
   liveSyncSocket: LiveSyncSocket;
 }): void {
-  const serverAvailabilityProvider = () => buildServerAvailability(options.availabilityInputs);
+  const serverAvailabilityProvider = () => buildServerAvailability({ projectRoot: options.projectRoot, runtimeApplication: options.runtimeApplication, mcpManager: options.mcpManager });
 
   registerOperatorContractRoutes({
     fastify: options.fastify,
     projectRoot: options.projectRoot,
     cardStore: options.cardStore,
-    runtimeApplicationProvider: options.runtimeApplicationProvider,
-    mcpStatusProvider: options.mcpManagerProvider,
-    mcpToolsProvider: options.mcpManagerProvider,
+    runtimeApplication: options.runtimeApplication,
+    mcpManager: options.mcpManager,
     serverAvailabilityProvider,
     requestServerRestart: options.requestServerRestart,
     saivageConfig: options.saivageConfig,
@@ -39,7 +36,7 @@ export function registerServerRoutes(options: {
   registerInternalDebugRoutes(options.fastify, options.projectRoot, options.cardStore);
   registerWebSocket(options.fastify, options.projectRoot, {
     liveSyncSocket: options.liveSyncSocket,
-    runtimeApplication: options.runtimeApplicationProvider(),
+    runtimeApplication: options.runtimeApplication,
     requestServerRestart: options.requestServerRestart,
   });
 }

@@ -16,6 +16,8 @@ import { loadConfig } from '../../src/agents/config-schema.js';
 import { McpManager } from '../../src/mcp/mcp-manager.js';
 import { createTestAnalystRuntime } from '../helpers/test-runtime-application.js';
 import { createRuntimeApplication } from '../../src/application/runtime-composition.js';
+import { EventBus } from '../../src/events/bus.js';
+import { EventLogger, ErrorLogger } from '../../src/observability/index.js';
 
 const TEST_MODEL = 'test-analyst-model';
 
@@ -139,10 +141,11 @@ describe('Contract C3 unknown-internal-capability reply', () => {
 
 describe('Reconfigure MCP live manager refresh', () => {
   it('adds, edits, and removes MCP servers in active manager state', async () => {
-    const root = setupRoot();
-    try {
-      const config = loadConfig(root).config;
-      const runtimeApplication = createRuntimeApplication(root, config);
+      const root = setupRoot();
+      try {
+        const config = loadConfig(root).config;
+      const eventBus = new EventBus();
+      const runtimeApplication = createRuntimeApplication({ projectRoot: root, config, eventBus, eventLogger: new EventLogger(join(root, '.saivage')), errorLogger: new ErrorLogger(join(root, '.saivage')), cardStore: new CardStore(root, undefined, eventBus) });
       const mcpManager = new McpManager(root);
       const depsBeforeMcp = runtimeApplication.analystDeps;
       expect(runtimeApplication.analystDeps).toBe(depsBeforeMcp);

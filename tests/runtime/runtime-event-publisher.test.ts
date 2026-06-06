@@ -3,6 +3,7 @@ import {
   buildRuntimeDiagnosticEvent,
   RuntimeEventPublisher,
 } from '../../src/runtime/runtime-event-publisher.js';
+import { EventBus } from '../../src/events/bus.js';
 
 describe('RuntimeEventPublisher diagnostics', () => {
   it('emits runtime diagnostics before durable append and appends once', () => {
@@ -11,7 +12,7 @@ describe('RuntimeEventPublisher diagnostics', () => {
       order.push('append');
       return event;
     });
-    const publisher = new RuntimeEventPublisher({ appendEvent } as never);
+    const publisher = new RuntimeEventPublisher({ appendEvent } as never, new EventBus());
     const seen: unknown[] = [];
     publisher.on('runtime_diagnostic', (payload) => {
       order.push('emit');
@@ -33,7 +34,7 @@ describe('RuntimeEventPublisher diagnostics', () => {
   it('swallows durable append failures after the event bus emit', () => {
     const appendEvent = jest.fn(() => { throw new Error('disk unavailable'); });
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const publisher = new RuntimeEventPublisher({ appendEvent } as never);
+    const publisher = new RuntimeEventPublisher({ appendEvent } as never, new EventBus());
     const seen: unknown[] = [];
     publisher.on('runtime_diagnostic', (payload) => { seen.push(payload); });
 

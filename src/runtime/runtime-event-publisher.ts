@@ -38,9 +38,9 @@ export class RuntimeEventPublisher {
 
   constructor(
     private readonly eventLogger: EventLogger,
-    eventBus?: EventBus,
+    eventBus: EventBus,
   ) {
-    this.eventBus = eventBus ?? new EventBus();
+    this.eventBus = eventBus;
   }
 
   on(eventName: string | symbol, listener: (...args: unknown[]) => void): void {

@@ -62,15 +62,15 @@ afterEach(() => {
 });
 
 describe('server Telegram startup diagnostics', () => {
-  it('persists a secret-safe diagnostic for telegram channel with bot and no recipients', async () => {
+  it('reports missing recipients for telegram channel with bot and no recipients', async () => {
     mockTelegramLongPoll();
     const root = makeRoot({ telegram: { botToken: '123456:TEST_TOKEN' }, notifications: { channels: ['telegram'] } });
     const { output } = await captureProcessOutput(async () => {
-      const server = await createServer(root, false);
+      const server = await createServer(root);
       await server.stop();
     });
-    expect(output).toContain('Telegram bot requires runtime analyst services.');
-    expect(output).toContain('missing_bot_token');
+    expect(output).toContain('Telegram bot started');
+    expect(output).toContain('missing_recipients');
     expect(output).not.toContain('123456:TEST_TOKEN');
     expect(operatorLog(root)).toBe('');
   });
@@ -78,7 +78,7 @@ describe('server Telegram startup diagnostics', () => {
   it('persists a secret-safe diagnostic for recipients without a bot and registers no adapter', async () => {
     const root = makeRoot({ telegram: { notificationChatIds: [111111] }, notifications: { channels: ['telegram'] } });
     const { output } = await captureProcessOutput(async () => {
-      const server = await createServer(root, false);
+      const server = await createServer(root);
       expect(getProjectNotificationDeliveryAdapters(root)).toEqual([]);
       await server.stop();
     });
@@ -88,12 +88,15 @@ describe('server Telegram startup diagnostics', () => {
     expect(operatorLog(root)).toBe('');
   });
 
-  it('does not register a Telegram adapter without runtime analyst services even for valid configured recipients', async () => {
+  it('registers a Telegram adapter when runtime analyst services and recipients are configured', async () => {
     mockTelegramLongPoll();
     const root = makeRoot({ telegram: { botToken: '123456:TEST_TOKEN', notificationChatIds: [111111, 222222, 111111] }, notifications: { channels: ['telegram'] } });
-    const server = await createServer(root, false);
-    expect(getProjectNotificationDeliveryAdapters(root)).toEqual([]);
-    await server.stop();
+    const server = await createServer(root);
+    try {
+      expect(getProjectNotificationDeliveryAdapters(root)).toHaveLength(1);
+    } finally {
+      await server.stop();
+    }
     expect(operatorLog(root)).toBe('');
   });
 });

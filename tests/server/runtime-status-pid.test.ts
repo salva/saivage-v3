@@ -25,7 +25,7 @@ afterEach(async () => {
 
 describe('GET /api/runtime/status pid overlay', () => {
   it('returns process.pid in the live runtime branch', async () => {
-    server = await createServer(root, true);
+    server = await createServer(root);
     const res = await server.fastify.inject({ method: 'GET', url: '/api/runtime/status' });
     expect(res.statusCode).toBe(200);
     const body = res.json<{ pid: number }>();
@@ -35,7 +35,7 @@ describe('GET /api/runtime/status pid overlay', () => {
   });
 
   it('returns process.pid in the disk-fallback branch (no live runtime)', async () => {
-    server = await createServer(root, false);
+    server = await createServer(root);
     const res = await server.fastify.inject({ method: 'GET', url: '/api/runtime/status' });
     expect(res.statusCode).toBe(200);
     const body = res.json<{ pid: number }>();
@@ -71,7 +71,7 @@ describe('GET /api/runtime/status pid overlay', () => {
     };
     writeFileSync(runtimeStatePath(root), JSON.stringify(payload));
 
-    server = await createServer(root, false);
+    server = await createServer(root);
     const res = await server.fastify.inject({ method: 'GET', url: '/api/runtime/status' });
     expect(res.statusCode).toBe(200);
     const body = res.json<{ pid: number }>();

@@ -46,7 +46,6 @@ describe('boot fail-fast on missing dispatched model roles', () => {
       startApp({
         argv: ['node', 'saivage', 'start'],
         env: { SAIVAGE_PROJECT_ROOT: root, SAIVAGE_API_TOKEN: 'boot-test-token' },
-        createRuntime: true,
       }),
     ).rejects.toBeInstanceOf(EnvironmentLoadError);
     expect(existsSync(join(root, '.saivage', 'events.jsonl'))).toBe(false);
@@ -62,7 +61,6 @@ describe('boot fail-fast on missing dispatched model roles', () => {
         SAIVAGE_HOST: '127.0.0.1',
         SAIVAGE_PORT: '0',
       },
-      createRuntime: false,
     });
     liveApps.push(app);
     expect(Object.isFrozen(app.environment)).toBe(true);
