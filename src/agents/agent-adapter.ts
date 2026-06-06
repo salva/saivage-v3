@@ -27,7 +27,6 @@ import type {
   MessageRole,
   EntityLink,
   LlmAttemptOutcome,
-  LlmAttemptPayload,
   LlmFailureClass,
   RuntimeState,
   RuntimeActivationRecord,
@@ -48,7 +47,6 @@ import type {
   ExecutorResult,
   ReviewerResult,
 } from '../contracts/index.js';
-import type { PlannerResultEnvelope } from '../contracts/planner-envelope.js';
 import type { LlmCallFn } from './llm-contracts.js';
 import { serializeToolCallMessage } from '../contracts/persisted-tool-call.js';
 import { LlmRequestError } from '../contracts/llm-failure.js';
@@ -89,6 +87,8 @@ import { applyRuntimeMutation } from '../runtime/mutations.js';
 import { planClearActiveCardRunPatch } from '../runtime/runtime-core.js';
 import { readRuntimeState } from '../runtime/state.js';
 import { SessionStampCounter } from '../runtime/session-stamp-counter.js';
+import { AttemptRecorder } from './attempt-recorder.js';
+import { PlannerEnvelopeTracker } from './planner-envelope-tracker.js';
 
 export type AgentRole = OperationalAgentRole;
 export type InvokableAgentRole = AgentInvocationRole;
@@ -121,39 +121,6 @@ export interface AgentAdapterConfig {
   contextCompactor?: ContextCompactor;
   invocationService?: InvocationService;
   llmCallFn?: LlmCallFn;
-}
-
-export function synthesizeReportGoalEnvelope(
-  toolName: string,
-  goalId: string,
-  status: string | undefined,
-): { kind: 'result'; payload: PlannerResultEnvelope } | null {
-  if (status === 'done') {
-    return {
-      kind: 'result',
-      payload: { status: 'done', summary: `${toolName} accepted for goal ${goalId}.` },
-    };
-  }
-  if (status === 'changed') {
-    return {
-      kind: 'result',
-      payload: {
-        status: 'continue',
-        summary: `${toolName}: goal ${goalId} needs re-planning (review corrections exhausted); continuing.`,
-      },
-    };
-  }
-  if (status === 'blocked' || status === 'failed') {
-    return {
-      kind: 'result',
-      payload: {
-        status: 'blocked',
-        blocked_reason: `${toolName} accepted with goal status ${String(status)}.`,
-        summary: `${toolName} accepted for goal ${goalId}.`,
-      },
-    };
-  }
-  return null;
 }
 
 function delayInvocationRecovery(ms: number): Promise<void> {
@@ -689,19 +656,8 @@ export class AgentAdapter implements AgentExecutionPort {
     const maxRecoveryRetries = this.runtimeConfig.maxRecoveryRetries ?? 3;
     const maxOuterAttempts = maxRecoveryRetries + 1;
     const invocationStart = Date.now();
-    let attemptOutcomeCount = 0;
-    let lastSucceededAttemptPayload: LlmAttemptPayload | undefined;
-    let lastFailedFailureClass: LlmFailureClass | undefined;
-    let lastRepairAttempts = 0;
-    let pendingPlannerRuntimeEnvelope: PlannerEnvelope | null = null;
-    let lastContractVerdict: 'satisfied' | 'repair_exhausted' | 'no_progress' | undefined;
-    const recordAttemptOutcome = (payload: LlmAttemptPayload): void => {
-      attemptOutcomeCount += 1;
-      if (payload.outcome.kind === 'succeeded') lastSucceededAttemptPayload = payload;
-      else lastFailedFailureClass = payload.outcome.failure_class;
-      if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'llm_attempt', ...payload });
-      if (this.eventBus) this.eventBus.emit('llm_attempt', payload);
-    };
+    const attemptRecorder = new AttemptRecorder(this.eventBus, this.eventLogger);
+    const plannerEnvelopeTracker = new PlannerEnvelopeTracker();
     const agentFn = async (recoveryCtx: AgentRecoveryContext) => {
       const candidateChain = await this.invocationService.resolveCandidates(role, capabilityRequest);
       const capabilitySkips = this.router.getLastCapabilitySkips();
@@ -853,25 +809,10 @@ export class AgentAdapter implements AgentExecutionPort {
                           tc.function.name === 'report_goal_failed' ||
                           tc.function.name === 'report_goal_blocked')
                       ) {
-                        try {
-                          const body = JSON.parse(msg.content) as {
-                            accepted?: unknown;
-                            card?: { status?: unknown };
-                          };
-                          const status = body.card?.status;
-                          if (body.accepted === true) {
-                            pendingPlannerRuntimeEnvelope = synthesizeReportGoalEnvelope(
-                              tc.function.name,
-                              goalId,
-                              typeof status === 'string' ? status : undefined,
-                            ) ?? pendingPlannerRuntimeEnvelope;
-                          }
-                        } catch {
-                          void 0;
-                        }
+                        plannerEnvelopeTracker.trackTerminalToolResult(tc.function.name, goalId, msg.content);
                       }
                     }
-                    return { runtimeSignalledDone: Boolean(pendingPlannerRuntimeEnvelope) };
+                    return { runtimeSignalledDone: plannerEnvelopeTracker.hasEnvelope() };
                   },
                   persistDuplicateDoneIgnored: (toolCallId, toolName) => {
                     this.appendSessionMessage(session.id, {
@@ -924,19 +865,14 @@ export class AgentAdapter implements AgentExecutionPort {
                   },
                   takeRuntimeDoneEnvelope:
                     role === 'planner'
-                      ? () => {
-                          const envelope = pendingPlannerRuntimeEnvelope;
-                          pendingPlannerRuntimeEnvelope = null;
-                          return envelope as E | null;
-                        }
+                      ? () => plannerEnvelopeTracker.takeEnvelope<E>()
                       : undefined,
                 };
                 const driver = createAgentLoopDriver<E, R>(io);
                 const outcome = await driver.run();
                 const callDuration = Date.now() - callStart;
                 if (outcome.kind === 'succeeded') {
-                  lastRepairAttempts = outcome.repairAttempts;
-                  lastContractVerdict = 'satisfied';
+                  attemptRecorder.recordContractVerdict('satisfied', outcome.repairAttempts);
                   const finalResponse = JSON.stringify(outcome.envelope);
                   this.appendSessionMessage(session.id, {
                     role: 'assistant',
@@ -968,7 +904,7 @@ export class AgentAdapter implements AgentExecutionPort {
                       : never,
                   };
                   const succeededCapSkips = this.router.getLastCapabilitySkips();
-                  recordAttemptOutcome({
+                  attemptRecorder.recordOutcome({
                     session_id: session.id,
                     role: role as unknown as import('../schemas/types.js').AgentRole,
                     attempt: recoveryCtx.attempt,
@@ -997,8 +933,7 @@ export class AgentAdapter implements AgentExecutionPort {
                   );
                 }
                 if (outcome.kind === 'repair_exhausted') {
-                  lastRepairAttempts = outcome.repairAttempts;
-                  lastContractVerdict = 'repair_exhausted';
+                  attemptRecorder.recordContractVerdict('repair_exhausted', outcome.repairAttempts);
                   const codes = outcome.lastReport.obligations.map((o) => o.code).join(',');
                   throw new LlmRequestError({
                     kind: 'provider_protocol_error',
@@ -1008,8 +943,7 @@ export class AgentAdapter implements AgentExecutionPort {
                   });
                 }
                 if (outcome.kind === 'no_progress') {
-                  lastRepairAttempts = outcome.repairAttempts;
-                  lastContractVerdict = 'no_progress';
+                  attemptRecorder.recordContractVerdict('no_progress', outcome.repairAttempts);
                   throw new LlmRequestError({
                     kind: 'provider_protocol_error',
                     provider: candidate.provider,
@@ -1067,7 +1001,7 @@ export class AgentAdapter implements AgentExecutionPort {
                 retry_delay_ms: decision.retryDelayMs,
               };
               const failedCapSkips = this.router.getLastCapabilitySkips();
-              recordAttemptOutcome({
+              attemptRecorder.recordOutcome({
                 session_id: session.id,
                 role: role as unknown as import('../schemas/types.js').AgentRole,
                 attempt: recoveryCtx.attempt,
@@ -1179,19 +1113,21 @@ export class AgentAdapter implements AgentExecutionPort {
       goal_id: goalId,
       card_id: cardId,
       contract_id: contract.name + '.v1',
-      attempts_count: attemptOutcomeCount,
+      attempts_count: attemptRecorder.getOutcomeCount(),
       total_duration_ms: Date.now() - invocationStart,
       verdict,
-      repair_attempts: lastRepairAttempts,
-      contract_verdict: lastContractVerdict,
-      final_provider: verdict === 'succeeded' ? lastSucceededAttemptPayload?.provider : undefined,
-      final_model: verdict === 'succeeded' ? lastSucceededAttemptPayload?.model : undefined,
-      final_account: verdict === 'succeeded' ? lastSucceededAttemptPayload?.account : undefined,
-      final_terminal_tool:
-        verdict === 'succeeded' && lastSucceededAttemptPayload?.outcome.kind === 'succeeded'
-          ? lastSucceededAttemptPayload.outcome.terminal_tool
-          : undefined,
-      last_failure_class: verdict === 'succeeded' ? undefined : lastFailedFailureClass,
+      repair_attempts: attemptRecorder.getRepairAttempts(),
+      contract_verdict: attemptRecorder.getContractVerdict(),
+      final_provider: verdict === 'succeeded' ? attemptRecorder.getLastSucceeded()?.provider : undefined,
+      final_model: verdict === 'succeeded' ? attemptRecorder.getLastSucceeded()?.model : undefined,
+      final_account: verdict === 'succeeded' ? attemptRecorder.getLastSucceeded()?.account : undefined,
+      final_terminal_tool: (() => {
+        const succeeded = attemptRecorder.getLastSucceeded();
+        return verdict === 'succeeded' && succeeded?.outcome.kind === 'succeeded'
+          ? succeeded.outcome.terminal_tool
+          : undefined;
+      })(),
+      last_failure_class: verdict === 'succeeded' ? undefined : attemptRecorder.getLastFailedClass(),
     };
     if (this.eventLogger)
       this.eventLogger.appendEvent({ kind: 'llm_invocation_summary', ...summaryPayload });

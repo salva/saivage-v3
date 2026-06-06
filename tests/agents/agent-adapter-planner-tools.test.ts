@@ -8,7 +8,8 @@ import {
   readRuntimeState,
   upsertRuntimeActivation,
 } from '../../src/runtime/state.js';
-import { AgentAdapter, synthesizeReportGoalEnvelope } from '../../src/agents/agent-adapter.js';
+import { AgentAdapter } from '../../src/agents/agent-adapter.js';
+import { synthesizeReportGoalEnvelope } from '../../src/agents/planner-envelope-tracker.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import type { CardRecord } from '../../src/schemas/types.js';
