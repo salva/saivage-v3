@@ -2,13 +2,10 @@ import { copyFileSync, existsSync, mkdirSync, statSync, unlinkSync } from 'node:
 import { join, basename } from 'node:path';
 import { artifactRefSchema, attachmentRefSchema } from '../schemas/index.js';
 import type { ArtifactRef, AttachmentRef } from '../schemas/index.js';
+import { now } from '../utils/clock.js';
 import type { CardStore, NewArtifactRef, NewAttachmentRef } from './card-store.js';
 
 // ── Helpers ───────────────────────────────────────────────────
-
-function now(): string {
-  return new Date().toISOString();
-}
 
 function targetDir(saivageWorkDir: string, cardId: string, subdir: string): string {
   const dir = join(saivageWorkDir, 'cards', cardId, subdir);

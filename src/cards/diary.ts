@@ -27,6 +27,18 @@ interface ReviewsByGoalIndex {
   }>;
 }
 
+export class DiaryReadError extends Error {
+  constructor(readonly goalCardId: string, readonly missingEntryId: string, readonly missingFilename: string) {
+    super(`Diary entry ${missingEntryId} (${missingFilename}) missing for goal ${goalCardId}`);
+  }
+}
+
+export class DiaryIntegrityError extends Error {
+  constructor(readonly goalCardId: string, readonly entryId: string, readonly reason: string) {
+    super(`Diary integrity error for goal ${goalCardId}: ${reason} (entry ${entryId})`);
+  }
+}
+
 // ── Path Helpers ──────────────────────────────────────────────
 
 function diaryDir(saivageDir: string, goalCardId: string): string {
@@ -193,12 +205,13 @@ export function getDiaryEntries(saivageDir: string, goalCardId: string): DiaryEn
 
   for (const idxEntry of index.entries) {
     const path = join(diaryDir(saivageDir, goalCardId), idxEntry.filename);
-    if (existsSync(path)) {
-      const raw = readFileSync(path, 'utf-8');
-      const parsed = JSON.parse(raw) as DiaryEntry;
-      // Validate on read
-      entries.push(diaryEntrySchema.parse(parsed));
+    if (!existsSync(path)) {
+      throw new DiaryReadError(goalCardId, idxEntry.id, idxEntry.filename);
     }
+    const raw = readFileSync(path, 'utf-8');
+    const parsed = JSON.parse(raw) as DiaryEntry;
+    // Validate on read
+    entries.push(diaryEntrySchema.parse(parsed));
   }
 
   return entries;
@@ -222,7 +235,7 @@ export function getDiaryEntry(
 
   const path = join(diaryDir(saivageDir, goalCardId), idxEntry.filename);
   if (!existsSync(path)) {
-    return null;
+    throw new DiaryReadError(goalCardId, idxEntry.id, idxEntry.filename);
   }
 
   const raw = readFileSync(path, 'utf-8');
@@ -300,23 +313,13 @@ export function getReviewAssessments(saivageDir: string, goalCardId: string): Re
 
   for (const rev of reviewIndex.reviews) {
     const diaryEntry = getDiaryEntry(saivageDir, goalCardId, rev.diary_entry_id);
-    if (diaryEntry?.assessment) {
-      assessments.push(diaryEntry.assessment);
-    } else {
-      assessments.push({
-        id: rev.id,
-        goal_card_id: goalCardId,
-        reviewer_session_id: '',
-        result: rev.result,
-        summary: '',
-        achieved: [],
-        evidence_card_ids: [],
-        created_at: rev.timestamp,
-        assessment_id: rev.id,
-        at: rev.timestamp,
-        issues: [],
-      });
+    if (diaryEntry === null) {
+      throw new DiaryIntegrityError(goalCardId, rev.diary_entry_id, 'review index references missing diary entry');
     }
+    if (!diaryEntry.assessment) {
+      throw new DiaryIntegrityError(goalCardId, rev.diary_entry_id, 'review index references diary entry with no assessment');
+    }
+    assessments.push(diaryEntry.assessment);
   }
 
   return assessments;

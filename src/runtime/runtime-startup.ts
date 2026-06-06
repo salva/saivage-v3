@@ -23,10 +23,7 @@ import type { StuckAgentSupervisor } from '../runtime/stuck-agent-supervisor.js'
 import type { RuntimeEventPublisher } from './runtime-event-publisher.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
 import type { LifecycleFlags } from './runtime-lifecycle-state.js';
-
-function now(): string {
-  return new Date().toISOString();
-}
+import { now } from '../utils/clock.js';
 
 export async function performRuntimeStartup(input: {
   projectRoot: string;

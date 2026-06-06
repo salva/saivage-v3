@@ -5,6 +5,8 @@ import {
   rmSync,
   mkdtempSync,
   mkdirSync,
+  unlinkSync,
+  writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -16,6 +18,8 @@ import {
   getDiaryEntry,
   appendReviewAssessment,
   getReviewAssessments,
+  DiaryIntegrityError,
+  DiaryReadError,
 } from '../../src/cards/diary.js';
 import type { DiaryEntry, ReviewAssessment } from '../../src/schemas/types.js';
 
@@ -234,6 +238,14 @@ describe('getDiaryEntries', () => {
     expect(entries[0].rationale).toBe('Because Y');
     expect(entries[0].reviewed_cards).toEqual(['c1']);
   });
+
+  it('throws when an indexed diary file is missing', () => {
+    initDiary(saivageDir, 'plan-1');
+    appendDiaryEntry(saivageDir, baseEntry('plan-1', 'planner_invocation'));
+    unlinkSync(join(saivageDir, 'diaries', 'plan-1', '000001.planner_invocation.json'));
+
+    expect(() => getDiaryEntries(saivageDir, 'plan-1')).toThrow(DiaryReadError);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -265,6 +277,14 @@ describe('getDiaryEntry', () => {
   it('returns null for missing diary', () => {
     const entry = getDiaryEntry(saivageDir, 'nonexistent', 'entry-1');
     expect(entry).toBeNull();
+  });
+
+  it('throws when requested entry is indexed but its file is missing', () => {
+    initDiary(saivageDir, 'plan-1');
+    appendDiaryEntry(saivageDir, baseEntry('plan-1', 'planner_invocation'));
+    unlinkSync(join(saivageDir, 'diaries', 'plan-1', '000001.planner_invocation.json'));
+
+    expect(() => getDiaryEntry(saivageDir, 'plan-1', 'entry-1')).toThrow(DiaryReadError);
   });
 });
 
@@ -499,6 +519,27 @@ describe('getReviewAssessments', () => {
     expect(assessments.length).toBe(2);
     expect(assessments[0].goal_card_id).toBe('goal-1');
     expect(assessments[1].goal_card_id).toBe('goal-1');
+  });
+
+  it('throws when review index references a missing diary entry', () => {
+    writeFileSync(
+      join(saivageDir, 'reviews', 'by-goal', 'goal-1.json'),
+      JSON.stringify({ reviews: [{ id: 'rev-1', result: 'pass', timestamp: '2025-01-01T00:00:00.000Z', diary_entry_id: 'entry-missing' }] }) + '\n',
+      'utf-8',
+    );
+
+    expect(() => getReviewAssessments(saivageDir, 'goal-1')).toThrow(DiaryIntegrityError);
+  });
+
+  it('throws when review index references a diary entry without assessment', () => {
+    appendDiaryEntry(saivageDir, baseEntry('goal-1', 'planner_invocation'));
+    writeFileSync(
+      join(saivageDir, 'reviews', 'by-goal', 'goal-1.json'),
+      JSON.stringify({ reviews: [{ id: 'rev-1', result: 'pass', timestamp: '2025-01-01T00:00:00.000Z', diary_entry_id: 'entry-1' }] }) + '\n',
+      'utf-8',
+    );
+
+    expect(() => getReviewAssessments(saivageDir, 'goal-1')).toThrow(DiaryIntegrityError);
   });
 });
 

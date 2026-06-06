@@ -19,6 +19,7 @@ import { constants as fsConstants } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
+import { fsyncDirAsync } from '../persistence/durable-write.js';
 
 export interface AuthProfile {
   type: string;
@@ -201,18 +202,6 @@ function tempSuffix(): string {
   return `${process.pid}.${Date.now()}.${randomBytes(8).toString('hex')}`;
 }
 
-async function fsyncDirectory(path: string): Promise<void> {
-  let handle: Awaited<ReturnType<typeof open>> | undefined;
-  try {
-    handle = await open(path, fsConstants.O_RDONLY);
-    await handle.sync();
-  } catch {
-    // Some platforms/filesystems do not allow directory fsync; best effort only.
-  } finally {
-    await handle?.close().catch(() => undefined);
-  }
-}
-
 export async function writeAuthProfilesAtomic(
   filePath: string,
   content: string,
@@ -241,7 +230,7 @@ export async function writeAuthProfilesAtomic(
     shouldCleanup = false;
     if (options.simulateFailureAt === 'chmod') throw new Error('simulated chmod failure');
     await chmod(filePath, AUTH_PROFILE_FILE_MODE);
-    await fsyncDirectory(parent);
+    await fsyncDirAsync(parent);
   } catch (error) {
     await handle?.close().catch(() => undefined);
     if (shouldCleanup) {

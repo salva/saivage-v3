@@ -6,10 +6,7 @@
 // the lock, and emits a `card_history_appended` event AFTER the lock drops.
 
 import {
-  closeSync,
-  fsyncSync,
   mkdirSync,
-  openSync,
   renameSync,
   unlinkSync,
   writeFileSync,
@@ -26,6 +23,7 @@ import type {
 import { cardHistoryEntrySchema, cardRecordSchema } from '../schemas/index.js';
 import { ProjectLock, appendSyncIdempotent } from '../persistence/index.js';
 import type { LockHandle } from '../persistence/index.js';
+import { fsyncDir, fsyncFile } from '../persistence/durable-write.js';
 import {
   CardStoreState,
   cardByIdPath,
@@ -77,28 +75,6 @@ export interface ApplyMutationResult {
   historyEntry: CardHistoryEntry | null;
 }
 
-function fsyncFileAtPath(path: string): void {
-  const fd = openSync(path, 'r+');
-  try {
-    fsyncSync(fd);
-  } finally {
-    closeSync(fd);
-  }
-}
-
-function fsyncDir(dirPath: string): void {
-  try {
-    const fd = openSync(dirPath, 'r');
-    try {
-      fsyncSync(fd);
-    } finally {
-      closeSync(fd);
-    }
-  } catch {
-    // Best-effort.
-  }
-}
-
 function newToken(): string {
   return randomBytes(8).toString('hex');
 }
@@ -132,7 +108,7 @@ function stageByIdTmp(finalPath: string, card: CardRecord, token: string): strin
   mkdirSync(dirname(finalPath), { recursive: true });
   const data = JSON.stringify(cardRecordSchema.parse(card), null, 2) + '\n';
   writeFileSync(tmpPath, data, 'utf-8');
-  fsyncFileAtPath(tmpPath);
+  fsyncFile(tmpPath);
   return tmpPath;
 }
 

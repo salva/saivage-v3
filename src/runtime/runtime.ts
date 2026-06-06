@@ -20,10 +20,8 @@ import { createRuntimeLifecycleController, type RuntimeLifecycleController } fro
 import { createLifecycleFlags } from './runtime-lifecycle-state.js';
 import { createRuntimeDispatchCollaborators, type RuntimeDispatchCollaborators } from './runtime-dispatch-composition.js';
 import { createFileRuntimeSessionPersistencePort } from './session-persistence-port.js';
+import { now } from '../utils/clock.js';
 
-function now(): string {
-  return new Date().toISOString();
-}
 export function initializeRuntimeImplementation(
   config: RuntimeConfig,
   agentRuntime?: AgentExecutionPort,

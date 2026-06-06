@@ -5,6 +5,7 @@ import { appendMessage, findPlannerSessionForCard, getSession, listSessions } fr
 import type { RoundStamp } from '../contracts/session-stamper.js';
 import type { AgentSession, CardRecord } from '../schemas/index.js';
 import type { CardStore } from '../cards/store-api.js';
+import { now } from '../utils/clock.js';
 
 export interface SyntheticPlannerNote {
   id: string;
@@ -21,7 +22,6 @@ interface SyntheticQueue { notes: SyntheticPlannerNote[]; }
 
 function saivageDir(projectRoot: string): string { return join(projectRoot, '.saivage'); }
 function syntheticQueuePath(projectRoot: string): string { return join(saivageDir(projectRoot), 'runtime', 'synthetic-notes.json'); }
-function now(): string { return new Date().toISOString(); }
 function readJson<T>(path: string, fallback: T): T { if (!existsSync(path)) return fallback; try { return JSON.parse(readFileSync(path, 'utf-8')) as T; } catch { return fallback; } }
 function readSyntheticQueue(projectRoot: string): SyntheticQueue { return readJson<SyntheticQueue>(syntheticQueuePath(projectRoot), { notes: [] }); }
 function writeSyntheticQueue(projectRoot: string, queue: SyntheticQueue): void { writeFileSyncDurable(syntheticQueuePath(projectRoot), JSON.stringify(queue, null, 2) + '\n'); }

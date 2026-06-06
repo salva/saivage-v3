@@ -2,17 +2,15 @@
 // shape, paths, and atomic I/O. Markers live at .saivage/cards/.commit/<token>.json.
 
 import {
-  closeSync,
   existsSync,
-  fsyncSync,
   mkdirSync,
-  openSync,
   readFileSync,
   readdirSync,
   unlinkSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { writeFileSyncDurable } from '../persistence/index.js';
+import { fsyncDir } from '../persistence/durable-write.js';
 import type { CardHistoryEntry } from '../schemas/index.js';
 
 export type CommitMarkerByIdPlan =
@@ -62,31 +60,16 @@ export function groupCommitMarkerPath(projectRoot: string, groupToken: string): 
   return join(commitMarkerDir(projectRoot), `group-${groupToken}.json`);
 }
 
-function fsyncDir(dirPath: string): void {
-  try {
-    const fd = openSync(dirPath, 'r');
-    try {
-      fsyncSync(fd);
-    } finally {
-      closeSync(fd);
-    }
-  } catch {
-    // Best-effort directory fsync; not all platforms permit opening a directory.
-  }
-}
-
 export function writeCommitMarker(projectRoot: string, marker: CommitMarker): void {
   const path = commitMarkerPath(projectRoot, marker.token);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSyncDurable(path, JSON.stringify(marker, null, 2) + '\n');
-  fsyncDir(commitMarkerDir(projectRoot));
 }
 
 export function writeGroupCommitMarker(projectRoot: string, marker: GroupCommitMarker): void {
   const path = groupCommitMarkerPath(projectRoot, marker.group_token);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSyncDurable(path, JSON.stringify(marker, null, 2) + '\n');
-  fsyncDir(commitMarkerDir(projectRoot));
 }
 
 export function readCommitMarkerFile(path: string): CommitMarker | GroupCommitMarker {

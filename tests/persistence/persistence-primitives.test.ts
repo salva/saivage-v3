@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { hostname, tmpdir } from 'node:os';
 import { z } from 'zod';
 import {
   AtomicJsonFile,
@@ -11,6 +11,7 @@ import {
   PersistenceVersionMismatch,
   PersistentQueue,
   ProjectLock,
+  StaleLockError,
 } from '../../src/persistence/index.js';
 
 let root: string;
@@ -30,6 +31,11 @@ afterEach(() => {
 
 
 describe('ProjectLock', () => {
+  function writeLockMetadata(metadata: { pid: number; acquired_at: string; hostname: string }): void {
+    mkdirSync(dirname(lock.lockPath), { recursive: true });
+    writeFileSync(lock.lockPath, JSON.stringify(metadata) + '\n', 'utf-8');
+  }
+
   it('serializes overlapping async callers on the same instance', async () => {
     const events: string[] = [];
     let releaseFirst!: () => void;
@@ -72,6 +78,60 @@ describe('ProjectLock', () => {
     });
 
     expect(() => lock.assertOwns(staleHandle as Parameters<typeof lock.assertOwns>[0])).toThrow(LockOwnershipError);
+  });
+
+  it('errors on stale same-host dead-pid locks by default', async () => {
+    writeLockMetadata({ pid: 999_999_999, acquired_at: '2026-01-01T00:00:00.000Z', hostname: hostname() });
+
+    await expect(lock.withLock(async () => undefined)).rejects.toThrow(StaleLockError);
+  });
+
+  it('removes stale same-host dead-pid locks when configured', async () => {
+    writeLockMetadata({ pid: 999_999_999, acquired_at: '2026-01-01T00:00:00.000Z', hostname: hostname() });
+    const recoveringLock = new ProjectLock(lock.lockPath, { timeoutMs: 100, staleLockAction: 'remove' });
+
+    await expect(recoveringLock.withLock(async () => 'ok')).resolves.toBe('ok');
+    expect(existsSync(lock.lockPath)).toBe(false);
+  });
+
+  it('rejects invalid and different-host lock metadata conservatively', async () => {
+    mkdirSync(dirname(lock.lockPath), { recursive: true });
+    writeFileSync(lock.lockPath, '{bad', 'utf-8');
+    await expect(lock.withLock(async () => undefined)).rejects.toThrow(StaleLockError);
+
+    writeLockMetadata({ pid: 999_999_999, acquired_at: '2026-01-01T00:00:00.000Z', hostname: 'different-host' });
+    await expect(lock.withLock(async () => undefined)).rejects.toThrow(StaleLockError);
+  });
+
+  it('retries live locks asynchronously until timeout and fails sync immediately', async () => {
+    writeLockMetadata({ pid: process.pid, acquired_at: new Date().toISOString(), hostname: hostname() });
+    const shortLock = new ProjectLock(lock.lockPath, { timeoutMs: 10, retryDelayMs: 1 });
+
+    await expect(shortLock.withLock(async () => undefined)).rejects.toThrow(/Timed out waiting 10ms/);
+    expect(() => shortLock.withLockSync(() => undefined)).toThrow(/Timed out waiting 0ms/);
+  });
+
+  it('keeps sync acquisition fail-fast when an async lock is queued in-process', async () => {
+    let releaseFirst!: () => void;
+    const firstMayFinish = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let firstEntered!: () => void;
+    const firstHasEntered = new Promise<void>((resolve) => {
+      firstEntered = resolve;
+    });
+    const first = lock.withLock(async () => {
+      firstEntered();
+      await firstMayFinish;
+    });
+
+    await firstHasEntered;
+    const second = lock.withLock(async () => undefined);
+
+    expect(() => lock.withLockSync(() => undefined)).toThrow(/Timed out waiting 0ms/);
+
+    releaseFirst();
+    await Promise.all([first, second]);
   });
 });
 

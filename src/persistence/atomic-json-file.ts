@@ -5,6 +5,7 @@ import type { ZodType } from 'zod';
 import { PersistenceReadError, PersistenceValidationError, PersistenceVersionMismatch, PersistenceWriteError } from './errors.js';
 import type { LockHandle } from './project-lock.js';
 import { ProjectLock } from './project-lock.js';
+import { fsyncDir } from './durable-write.js';
 
 export interface AtomicJsonFileOptions {
   version?: number | null;
@@ -14,18 +15,6 @@ type VersionedEnvelope<T> = { version: number; data: T };
 
 function isVersionedEnvelope(value: unknown): value is VersionedEnvelope<unknown> {
   return Boolean(value && typeof value === 'object' && 'version' in value && 'data' in value);
-}
-
-function fsyncDirectory(path: string): void {
-  let fd: number | null = null;
-  try {
-    fd = openSync(path, 'r');
-    fsyncSync(fd);
-  } catch {
-    // Some platforms/filesystems do not allow directory fsync; file fsync + rename still preserves atomicity.
-  } finally {
-    if (fd !== null) closeSync(fd);
-  }
 }
 
 export class AtomicJsonFile<T> {
@@ -107,7 +96,7 @@ export class AtomicJsonFile<T> {
       closeSync(fd);
       fd = null;
       renameSync(tmpPath, this.path);
-      fsyncDirectory(dir);
+      fsyncDir(dir);
     } catch (error) {
       if (fd !== null) closeSync(fd);
       try {

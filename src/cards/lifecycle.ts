@@ -1,6 +1,7 @@
 import type { CardRecord, CardStatus, CardType } from '../schemas/index.js';
 import type { CardLifecycleState } from '../schemas/index.js';
 import { PROJECT_CARD_ID } from './project-card.js';
+import { valuesEqual } from './value-equality.js';
 
 export interface CardMutationContext {
   actor: import('../schemas/index.js').NoteAuthor;
@@ -101,10 +102,6 @@ const TRACKED_FIELDS = [
   'attachments',
   'position',
 ] as const satisfies ReadonlyArray<keyof CardRecord>;
-
-function valuesEqual(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
-}
 
 export function isTerminalType(type: CardType): boolean {
   return TERMINAL_TYPES.has(type);

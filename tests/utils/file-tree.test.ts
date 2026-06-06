@@ -14,8 +14,8 @@ import {
   initProjectTree,
   isInitialized,
   listDiscardedSaivageDirs,
-  writeFileAtomic,
 } from '../../src/persistence/file-tree.js';
+import { writeFileAtomic } from '../../src/persistence/durable-write.js';
 
 let tmpDir: string;
 

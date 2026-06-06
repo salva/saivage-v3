@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { initProjectTree, writeFileAtomic } from '../../src/persistence/file-tree.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
+import { writeFileAtomic } from '../../src/persistence/durable-write.js';
 import {
   initRuntimeState,
   readRuntimeState,

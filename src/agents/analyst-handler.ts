@@ -20,6 +20,7 @@ import { generateRoundId } from '../schemas/round-id-server.js';
 import { ANALYST_PARTIAL_SUCCESS_TEMPLATE, ANALYST_UNKNOWN_CAPABILITY_TEMPLATE } from './analyst-tool-runner.js';
 import { parseToolCallMessage, serializeToolCallMessage } from '../contracts/persisted-tool-call.js';
 import { toolFailure, toolFailureFromError } from '../tools/analyst-tool-helpers.js';
+import { now } from '../utils/clock.js';
 
 
 export interface WorkspaceContext {
@@ -78,7 +79,6 @@ export interface AnalystRuntimeDeps {
   mcpManager?: McpManager;
 }
 
-function now(): string { return new Date().toISOString(); }
 function saivageDir(projectRoot: string): string { return join(projectRoot, '.saivage'); }
 function sessionsDir(projectRoot: string): string { return join(saivageDir(projectRoot), 'agents', 'sessions'); }
 function sessionFilePath(projectRoot: string, sessionId: string): string { return join(sessionsDir(projectRoot), `${sessionId}.json`); }

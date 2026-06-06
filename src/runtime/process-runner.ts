@@ -17,6 +17,7 @@ import { redactCommandForPolicy, sanitizedCommandEnv } from './command-policy.js
 import { EventLogger } from '../observability/index.js';
 import { queueNotification } from '../notifications/index.js';
 import type { ProcessRecord, ProcessStatus } from '../schemas/index.js';
+import { now } from '../utils/clock.js';
 
 export interface ProcessStartOptions {
   cardId: string;
@@ -174,10 +175,6 @@ function unregisterAllProcessResources(service: ProcessRunnerService, procId: st
 
 function generateId(): string {
   return `proc-${randomBytes(6).toString('hex')}`;
-}
-
-function now(): string {
-  return new Date().toISOString();
 }
 
 function nowMonotonic(): number {

@@ -28,7 +28,9 @@ import type {
 } from '../schemas/index.js';
 import { EventBus } from '../events/index.js';
 import { queueNotification } from '../notifications/index.js';
+import { now } from '../utils/clock.js';
 import { repairSiblingPositions } from './position-repair.js';
+import { valuesEqual } from './value-equality.js';
 import {
   CardStoreInvariantError,
   CardStoreState,
@@ -93,16 +95,8 @@ export interface AppendEvidenceRefsResult {
   attachments: AttachmentRef[];
 }
 
-function now(): string {
-  return new Date().toISOString();
-}
-
 function deepClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
-}
-
-function valuesEqual(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
 }
 
 function generateId(existingIds: string[]): string {
