@@ -8,13 +8,9 @@ import {
   MemoryCandidateAvailability,
 } from './candidate-availability.js';
 import {
-  createSession,
-  completeSession,
   appendMessage as appendPersistentMessage,
   getSession,
   getSessionMessages,
-  markSessionWaiting,
-  setSessionStatus,
   updateSessionModel,
   assertNoActiveAgentSession,
 } from './session-persistence.js';
@@ -87,6 +83,7 @@ import { SessionStampCounter } from '../runtime/session-stamp-counter.js';
 import { AttemptRecorder } from './attempt-recorder.js';
 import { PlannerEnvelopeTracker } from './planner-envelope-tracker.js';
 import { SessionMessageLog } from './session-message-log.js';
+import { AgentSessionLifecycle } from './session-lifecycle.js';
 
 export type AgentRole = OperationalAgentRole;
 export type InvokableAgentRole = AgentInvocationRole;
@@ -148,6 +145,7 @@ export class AgentAdapter implements AgentExecutionPort {
   private readonly plannerControlExecutor: PlannerControlExecutor;
   private readonly toolRuntime: ToolRuntime<typeof AGENT_TOOL_DEFINITIONS>;
   private readonly sessionCoordinator: AgentSessionCoordinator;
+  private readonly sessionLifecycle: AgentSessionLifecycle;
   private readonly messageLog: SessionMessageLog;
   private readonly toolExecutor: AgentToolExecutor;
   private readonly invocationService: InvocationService;
@@ -194,7 +192,7 @@ export class AgentAdapter implements AgentExecutionPort {
         upsertActivation: (input) => this.activationLedger!.upsertActivation(input),
       },
       reviewer: async (goalId, assessmentId, reviewerSessionId, report, parentSessionId) => {
-        if (parentSessionId) markSessionWaiting(this.saivageDir, parentSessionId);
+        if (parentSessionId) this.sessionLifecycle.markWaiting(parentSessionId);
         try {
           const reviewerContract = createReviewerContract({ goalId, assessmentId });
           return (
@@ -220,7 +218,7 @@ export class AgentAdapter implements AgentExecutionPort {
             })
           ).assessment;
         } finally {
-          if (parentSessionId) setSessionStatus(this.saivageDir, parentSessionId, 'active');
+          if (parentSessionId) this.sessionLifecycle.markActive(parentSessionId);
         }
       },
       maxReviewRetries: this.runtimeConfig?.maxReviewRetries ?? 3,
@@ -234,6 +232,7 @@ export class AgentAdapter implements AgentExecutionPort {
       eventBus: this.eventBus,
       eventLogger: this.eventLogger,
     });
+    this.sessionLifecycle = new AgentSessionLifecycle(this.saivageDir, this.sessionCoordinator);
     this.messageLog = new SessionMessageLog(this.saivageDir);
     this.toolExecutor = new AgentToolExecutor({
       projectRoot: this.projectRoot,
@@ -258,7 +257,7 @@ export class AgentAdapter implements AgentExecutionPort {
 
   setEventBus(eventBus: EventEmitter): void {
     this.eventBus = eventBus;
-    this.sessionCoordinator.setEventBus(eventBus);
+    this.sessionLifecycle.setEventBus(eventBus);
   }
   setRuntimeLedgerEventBus(eventBus: TypedEventEmitter): void {
     this.runtimeLedgerEventBus = eventBus;
@@ -285,7 +284,7 @@ export class AgentAdapter implements AgentExecutionPort {
     return this._skillsEngine;
   }
   setAfterSessionCreatedHook(hook: SessionCreatedHook | null): void {
-    this.sessionCoordinator.setAfterSessionCreatedHook(hook);
+    this.sessionLifecycle.setAfterSessionCreatedHook(hook);
   }
 
   public getToolNamesForRole(role: AgentRole): string[] {
@@ -314,16 +313,16 @@ export class AgentAdapter implements AgentExecutionPort {
     return redactTextForOutbound(message, 'model.issue', { source: 'agent-adapter' });
   }
   cancelSession(sessionId: string): boolean {
-    return this.sessionCoordinator.cancelSession(sessionId);
+    return this.sessionLifecycle.cancel(sessionId);
   }
   forceCancelSession(sessionId: string): boolean {
-    return this.sessionCoordinator.forceCancelSession(sessionId);
+    return this.sessionLifecycle.forceCancel(sessionId);
   }
   getHandoffSummary(sessionId: string): HandoffSummary | null {
-    return this.sessionCoordinator.getHandoffSummary(sessionId);
+    return this.sessionLifecycle.getHandoffSummary(sessionId);
   }
   getActiveSessionHandoffs(): HandoffSummary[] {
-    return this.sessionCoordinator.getActiveSessionHandoffs();
+    return this.sessionLifecycle.getActiveSessionHandoffs();
   }
   async invokePlanner(request: PlannerInvocationRequest): Promise<PlannerResult>;
   async invokePlanner(
@@ -589,21 +588,9 @@ export class AgentAdapter implements AgentExecutionPort {
       throw new Error(noCandidateDecision.message);
     }
     assertNoActiveAgentSession(this.saivageDir, role as import('../schemas/types.js').AgentRole);
-    const session = createSession(
-      this.saivageDir,
-      role as import('../schemas/types.js').AgentRole,
-      goalId,
-      cardId,
-      undefined,
-      requestedSessionId,
-    );
-    await this.sessionCoordinator.notifySessionCreated(session.id);
-    this.sessionCoordinator.publishSessionStarted({
-      sessionId: session.id,
-      role: role as unknown as import('../schemas/types.js').AgentRole,
-      goalId,
-      cardId,
-    });
+    const session = this.sessionLifecycle.create(role as import('../schemas/types.js').AgentRole, goalId, cardId, requestedSessionId);
+    await this.sessionLifecycle.notifyCreated(session.id);
+    this.sessionLifecycle.publishStarted(session.id, role as import('../schemas/types.js').AgentRole, goalId, cardId);
     for (const msg of contextMessages)
       appendPersistentMessage(
         this.saivageDir,
@@ -648,7 +635,7 @@ export class AgentAdapter implements AgentExecutionPort {
         for (const candidate of candidateChain) {
           let sameCandidateRecoveryAttempt = 1;
           for (;;) {
-            if (this.sessionCoordinator.isCancelled(session.id))
+            if (this.sessionLifecycle.isCancelled(session.id))
               throw new Error(
                 `Agent invocation cancelled for session ${session.id}. Role: ${role}, goal: ${goalId}, card: ${cardId}`,
               );
@@ -669,7 +656,7 @@ export class AgentAdapter implements AgentExecutionPort {
                   content: recoveryDirective,
                 });
               const abortController = new AbortController();
-              this.sessionCoordinator.trackAbortController(session.id, abortController);
+              this.sessionLifecycle.trackAbortController(session.id, abortController);
               callStart = Date.now();
               startedAtIso = new Date(callStart).toISOString();
               try {
@@ -753,7 +740,7 @@ export class AgentAdapter implements AgentExecutionPort {
                         }
                         if (activation && typeof activation === 'object' && 'activation_id' in activation) {
                           try {
-                            markSessionWaiting(this.saivageDir, session.id);
+                            this.sessionLifecycle.markWaiting(session.id);
                             await activationBarrier.dispatch({ activation: activation as RuntimeActivationRecord });
                           } catch (err) {
                             this.compensateActivationBarrierThrow(session.id, tc.id, activation as RuntimeActivationRecord, err);
@@ -815,7 +802,7 @@ export class AgentAdapter implements AgentExecutionPort {
                       content: message,
                     });
                   },
-                  isCancelled: () => this.sessionCoordinator.isCancelled(session.id),
+                  isCancelled: () => this.sessionLifecycle.isCancelled(session.id),
                   emitVerifierRejection: (event) => {
                     if (this.eventLogger)
                       this.eventLogger.appendEvent({
@@ -891,7 +878,7 @@ export class AgentAdapter implements AgentExecutionPort {
                           }))
                         : undefined,
                   });
-                  this.sessionCoordinator.clearCancellation(session.id);
+                  this.sessionLifecycle.clearCancellation(session.id);
                   return outcome.result;
                 }
                 if (outcome.kind === 'cancelled') {
@@ -925,7 +912,7 @@ export class AgentAdapter implements AgentExecutionPort {
                   message: `Role '${role}' transport failure: ${outcome.failure.kind}.`,
                 });
               } finally {
-                this.sessionCoordinator.clearAbortController(session.id);
+                this.sessionLifecycle.clearAbortController(session.id);
               }
             } catch (err) {
               lastError = err instanceof Error ? err : new Error(String(err));
@@ -988,14 +975,14 @@ export class AgentAdapter implements AgentExecutionPort {
                       }))
                     : undefined,
               });
-              if (decision.abort || this.sessionCoordinator.isCancelled(session.id)) {
-                this.sessionCoordinator.publishCancelledRetryStop(
+              if (decision.abort || this.sessionLifecycle.isCancelled(session.id)) {
+                this.sessionLifecycle.publishCancelledRetryStop(
                   session.id,
                   role as unknown as import('../schemas/types.js').AgentRole,
                 );
                 if (
                   decision.failure?.kind === 'cancelled' ||
-                  this.sessionCoordinator.isCancelled(session.id)
+                  this.sessionLifecycle.isCancelled(session.id)
                 )
                   throw new Error(
                     `Agent invocation cancelled for session ${session.id}. Role: ${role}, goal: ${goalId}, card: ${cardId}`,
@@ -1013,7 +1000,7 @@ export class AgentAdapter implements AgentExecutionPort {
         }
         throw lastError ?? new Error(`All candidates exhausted for role '${role}'.`);
       } finally {
-        this.sessionCoordinator.clearCancellation(session.id);
+        this.sessionLifecycle.clearCancellation(session.id);
       }
     };
     const attempts: AgentInvocationAttempt<R>[] = [];
@@ -1066,7 +1053,7 @@ export class AgentAdapter implements AgentExecutionPort {
     }
     const summaryLast = attempts[attempts.length - 1];
     const summaryCancelled =
-      this.sessionCoordinator.isCancelled(session.id) ||
+      this.sessionLifecycle.isCancelled(session.id) ||
       (typeof summaryLast?.error?.message === 'string' &&
         /cancelled/i.test(summaryLast.error.message));
     const verdict: 'succeeded' | 'exhausted' | 'cancelled' = summaryLast?.success
@@ -1116,15 +1103,15 @@ export class AgentAdapter implements AgentExecutionPort {
           ? (statusBearer as Record<string, unknown>).status
           : null;
       if (role === 'planner' && resultStatus === 'continue')
-        markSessionWaiting(this.saivageDir, session.id);
+        this.sessionLifecycle.markWaiting(session.id);
       else if (role === 'planner' && resultStatus === 'blocked')
-        completeSession(this.saivageDir, session.id, 'blocked');
+        this.sessionLifecycle.complete(session.id, 'blocked');
       else if (role === 'executor' && resultStatus === 'failed')
-        completeSession(this.saivageDir, session.id, 'failed');
-      else completeSession(this.saivageDir, session.id, 'done');
+        this.sessionLifecycle.complete(session.id, 'failed');
+      else this.sessionLifecycle.complete(session.id, 'done');
       return resultValue;
     }
-    completeSession(this.saivageDir, session.id, 'failed');
+    this.sessionLifecycle.complete(session.id, 'failed');
     throw (
       lastAttempt.error ??
       new Error(`Agent '${role}' invocation failed after ${attempts.length} attempts.`)
