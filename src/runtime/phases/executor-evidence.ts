@@ -1,4 +1,5 @@
 import { isAbsolute, relative, resolve } from 'node:path';
+import { existsSync, statSync } from 'node:fs';
 import { registerEvidenceRefs, registerEvidenceRefsBestEffort } from '../../cards/artifact-api.js';
 import type { CardStore } from '../../cards/store-api.js';
 import type { ExecutorResult } from '../../contracts/index.js';
@@ -61,6 +62,9 @@ export function resolveRegisterableProcessMetadataSource(projectRoot: string, fi
   if (!pathIsInside(saivageWorkDir(projectRoot), sourceFile)) {
     return { ignored: `Project files are not registered as artifacts or attachments: '${filePath}'. Record project changes in result/status_text; register only Saivage process metadata under .saivage-work.` };
   }
+  if (existsSync(sourceFile) && !statSync(sourceFile).isFile()) {
+    throw new Error(`Evidence source path must be a file, not a directory: ${filePath}`);
+  }
   return { sourceFile };
 }
 
@@ -74,7 +78,15 @@ export function registerExecutorEvidence(deps: ExecutorEvidenceRegistrarDeps, ex
 
   for (const artDef of execResult.artifacts ?? []) {
     const sourcePath = artDef.sourceFile ?? artDef.path ?? '';
-    const resolved = resolveRegisterableProcessMetadataSource(deps.projectRoot, sourcePath);
+    let resolved: ReturnType<typeof resolveRegisterableProcessMetadataSource>;
+    try {
+      resolved = resolveRegisterableProcessMetadataSource(deps.projectRoot, sourcePath);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      artifactRegistrationErrors.push(errorMessage);
+      deps.onRegistrationError({ phase: 'artifact_registration', error: err, errorMessage });
+      continue;
+    }
     if ('ignored' in resolved) {
       ignoredArtifactRegistrations.push(resolved.ignored);
       continue;
@@ -84,7 +96,15 @@ export function registerExecutorEvidence(deps: ExecutorEvidenceRegistrarDeps, ex
 
   for (const attDef of execResult.attachments ?? []) {
     const sourcePath = attDef.sourceFile ?? attDef.path ?? '';
-    const resolved = resolveRegisterableProcessMetadataSource(deps.projectRoot, sourcePath);
+    let resolved: ReturnType<typeof resolveRegisterableProcessMetadataSource>;
+    try {
+      resolved = resolveRegisterableProcessMetadataSource(deps.projectRoot, sourcePath);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      attachmentRegistrationErrors.push(errorMessage);
+      deps.onRegistrationError({ phase: 'attachment_registration', error: err, errorMessage });
+      continue;
+    }
     if ('ignored' in resolved) {
       ignoredAttachmentRegistrations.push(resolved.ignored);
       continue;

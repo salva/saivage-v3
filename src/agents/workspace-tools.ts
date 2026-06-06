@@ -47,6 +47,15 @@ function truncateOutput(value: string): string {
   return truncateCommandOutput(value, DEFAULT_MAX_OUTPUT_BYTES);
 }
 
+function processLogFiles(processId: string): { combined: string; stdout: string; stderr: string } {
+  const base = `.saivage-work/processes/${processId}`;
+  return {
+    combined: `${base}/combined.log`,
+    stdout: `${base}/stdout.log`,
+    stderr: `${base}/stderr.log`,
+  };
+}
+
 function parseArgs(raw: string): unknown {
   try {
     return JSON.parse(raw) as unknown;
@@ -173,6 +182,7 @@ export async function processWorkspaceToolCall(
       status: waitResult.status,
       exitCode: waitResult.exitCode,
       timedOut: waitResult.timedOut,
+      logFiles: processLogFiles(waitResult.id),
       output: truncateOutput(tailOutput(context.projectRoot, waitResult.id, 200)),
     };
   }
@@ -190,6 +200,7 @@ export async function processWorkspaceToolCall(
       exitCode: record.exit_code ?? null,
       signal: record.signal ?? null,
       noOp: record.status !== 'running' && !getProcess(context.projectRoot, processId)?.pid,
+      logFiles: processLogFiles(record.id),
       output: truncateOutput(tailOutput(context.projectRoot, record.id, 200)),
     };
   }
@@ -220,6 +231,7 @@ export async function processWorkspaceToolCall(
       status: waitResult.status,
       exitCode: waitResult.exitCode,
       timedOut: waitResult.timedOut,
+      logFiles: processLogFiles(waitResult.id),
       output: truncateOutput(tailOutput(context.projectRoot, waitResult.id, 200)),
     };
   }

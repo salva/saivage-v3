@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -100,8 +100,9 @@ describe('workspace tools', () => {
       'run_project_command',
       JSON.stringify({ command: 'printf terminal', timeoutMs: 30000 }),
       context(),
-    ) as { id: string; status: string };
+    ) as { id: string; status: string; logFiles: { combined: string; stdout: string; stderr: string } };
     expect(started.status).toBe('exited');
+    expect(started.logFiles.combined).toBe(`.saivage-work/processes/${started.id}/combined.log`);
 
     await expect(processWorkspaceToolCall(
       'wait_for_process',
@@ -121,11 +122,19 @@ describe('workspace tools', () => {
       'run_project_command',
       JSON.stringify({ command: 'pwd && printf hello', timeoutMs: 30000 }),
       context(),
-    ) as { status: string; exitCode: number | null; output: string };
+    ) as { id: string; status: string; exitCode: number | null; output: string; logFiles: { combined: string; stdout: string; stderr: string } };
 
     expect(result.status).toBe('exited');
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain(root);
     expect(result.output).toContain('hello');
+    expect(result.logFiles).toEqual({
+      combined: `.saivage-work/processes/${result.id}/combined.log`,
+      stdout: `.saivage-work/processes/${result.id}/stdout.log`,
+      stderr: `.saivage-work/processes/${result.id}/stderr.log`,
+    });
+    expect(existsSync(join(root, result.logFiles.combined))).toBe(true);
+    expect(existsSync(join(root, result.logFiles.stdout))).toBe(true);
+    expect(existsSync(join(root, result.logFiles.stderr))).toBe(true);
   });
 });

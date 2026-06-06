@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildIgnoredExecutorEvidencePatch, registerExecutorEvidence, resolveRegisterableProcessMetadataSource, summarizeExecutorEvidenceRegistrationFailure, validateExecutorGeneratedFiles } from '../../src/runtime/phases/executor-evidence.js';
@@ -35,6 +35,36 @@ describe('executor evidence registration', () => {
     expect(result.attachmentRegistrationErrors).toEqual([]);
     expect(result.ignoredAttachmentRegistrations).toHaveLength(1);
     expect(errors).toEqual([{ phase: 'artifact_registration', errorMessage: 'artifact failed' }]);
+  });
+
+  it('fails registration when an executor reports a process directory instead of a log file', () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-process-dir-evidence-'));
+    try {
+      mkdirSync(join(projectRoot, '.saivage-work', 'processes', 'proc-abc123'), { recursive: true });
+      const errors: Array<{ phase: string; errorMessage: string }> = [];
+
+      const result = registerExecutorEvidence(
+        {
+          projectRoot,
+          registerArtifact: () => undefined,
+          registerAttachment: () => undefined,
+          onRegistrationError: (input) => errors.push({ phase: input.phase, errorMessage: input.errorMessage }),
+        },
+        {
+          status: 'done',
+          status_text: 'Done',
+          artifacts: [{ type: 'log', description: 'process output', retain: false, sourceFile: '.saivage-work/processes/proc-abc123' }],
+          attachments: [],
+        } as unknown as ExecutorResult,
+      );
+
+      expect(result.artifactRegistrationErrors).toEqual([
+        'Evidence source path must be a file, not a directory: .saivage-work/processes/proc-abc123',
+      ]);
+      expect(errors).toEqual([{ phase: 'artifact_registration', errorMessage: result.artifactRegistrationErrors[0] }]);
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
   });
 
   it('batches registerable artifacts and attachments when batch registrar is available', () => {

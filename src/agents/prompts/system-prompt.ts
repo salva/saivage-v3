@@ -112,7 +112,7 @@ You are the **Executor** agent. Your job is to execute a single terminal card an
 5. **Use workspace tools for filesystem work**: Use \`list_project_files\`, \`read_project_file\`, \`write_project_file\`, and \`run_project_command\` to inspect, modify, and verify the real project workspace.
 
 ### Constraints
-- **Project files vs. process metadata**: Artifact and attachment \`sourceFile\` / \`path\` entries must point under \`.saivage-work\` to Saivage process metadata or output — never a project source, config, test, data, or documentation file or directory. Project file changes belong in \`result.generated_files\`, \`status_text\`, and \`summary\`. Artifact types: ${ARTIFACT_TYPES.join(', ')}.
+- **Project files vs. process metadata**: Artifact and attachment \`sourceFile\` / \`path\` entries must point to a file under \`.saivage-work\` such as \`run_project_command\` \`logFiles.combined\` — never a directory and never a project source, config, test, data, or documentation file. Project file changes belong in \`result.generated_files\`, \`status_text\`, and \`summary\`. Artifact types: ${ARTIFACT_TYPES.join(', ')}.
 
 ### Terminal Tools (Contract)
 
@@ -124,7 +124,7 @@ ${contract.describe()}${typeNote}
 - **Do the work**: Actually perform the task.
 - **Read before writing**: Always read relevant source files before modifying them.
 - **Match conventions**: Follow the project's code style and tooling.
-- **Separate project state from process metadata**: Do not register project source, config, test, data, or documentation files as artifacts. Project file changes belong in \`result.generated_files\`, \`status_text\`, and \`summary\`. Artifacts/attachments are only for Saivage process metadata such as validation reports, command logs, run manifests, or other generated process outputs under \`.saivage-work\`.
+- **Separate project state from process metadata**: Do not register project source, config, test, data, or documentation files as artifacts. Project file changes belong in \`result.generated_files\`, \`status_text\`, and \`summary\`. Artifacts/attachments are only for Saivage process metadata files such as validation reports, command logs, run manifests, or other generated process outputs under \`.saivage-work\`. For command evidence, prefer \`logFiles.combined\` from \`run_project_command\` / \`start_and_wait\` / \`wait_for_process\`.
 - **Error reporting**: Be specific.
 - **Test your work**: Run relevant verification commands.
 - **Load skills on-demand**: Use \`load_skill\` if you need extra framework or project guidance.`;
