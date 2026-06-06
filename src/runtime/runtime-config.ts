@@ -21,7 +21,7 @@ export interface RuntimeSkillsPort {
   }): Promise<string>;
 }
 
-export type RuntimeControlHooks = Pick<RuntimeApi, 'start' | 'shutdown' | 'pause' | 'resume' | 'startProject' | 'stopProject'>;
+export type RuntimeControls = Pick<RuntimeApi, 'start' | 'shutdown' | 'pause' | 'resume' | 'startProject' | 'stopProject'>;
 
 export interface RuntimeCoreParts {
   subscribe: RuntimeApi['subscribe'];
@@ -38,36 +38,23 @@ export interface RuntimeTestParts {
   supervisor: StuckAgentSupervisor;
 }
 
-export interface RuntimeCompositionHooks {
-  agentEventSink?: {
-    setEmitAgentEvent(emitAgentEvent: (name: string, data: Record<string, unknown>) => void): void;
-  };
-  corePartsSink?: {
-    setRuntimeCoreParts(parts: RuntimeCoreParts): void;
-  };
-  controlSink?: {
-    setRuntimeControls(controls: RuntimeControlHooks): void;
-  };
+export interface RuntimeDiagnosticsObserver {
+  setBackgroundDispatchCount(count: number): void;
+  setLastLifecycleDisposeReport(report: RuntimeDisposeReportEntry[]): void;
 }
 
-export interface RuntimeTestHooks {
-  diagnosticsSink?: {
-    setBackgroundDispatchCount(count: number): void;
-    setLastLifecycleDisposeReport(report: RuntimeDisposeReportEntry[]): void;
-  };
-  lifecycleTestToolsSink?: {
-    setPerformCrashRecovery(performCrashRecovery: () => Promise<void>): void;
-    setRequestImmediateTick(requestImmediateTick: () => Promise<void>): void;
-  };
-  testPartsSink?: {
-    setRuntimeTestParts(parts: RuntimeTestParts): void;
-  };
-  schedulerSink?: {
-    setDispatchGoal(dispatchGoal: (goalId: string) => Promise<void>): void;
-  };
-  eventListenerSink?: {
-    setRuntimeEventListener(on: (eventName: string | symbol, listener: (...args: unknown[]) => void) => void): void;
-  };
+export interface RuntimeTestAssemblyParts extends RuntimeTestParts {
+  dispatchGoal(goalId: string): Promise<void>;
+  onRuntimeEvent(eventName: string | symbol, listener: (...args: unknown[]) => void): void;
+  performCrashRecovery(): Promise<void>;
+  requestImmediateTick(): Promise<void>;
+}
+
+export interface RuntimeAssembly {
+  controls: RuntimeControls;
+  coreParts: RuntimeCoreParts;
+  emitAgentEvent(name: string, data: Record<string, unknown>): void;
+  testParts?: RuntimeTestAssemblyParts;
 }
 
 export interface RuntimeConfig {

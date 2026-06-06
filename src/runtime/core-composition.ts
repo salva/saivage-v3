@@ -5,7 +5,7 @@ import type { EventPayload } from '../events/index.js';
 import type { LoggedEvent } from '../schemas/index.js';
 import type { RuntimeApi } from './runtime-api.js';
 import { initializeRuntimeImplementation } from './runtime.js';
-import type { RuntimeCompositionHooks, RuntimeConfig, RuntimeControlHooks, RuntimeCoreParts, RuntimeTestHooks, RuntimeTestParts } from './runtime-config.js';
+import type { RuntimeConfig, RuntimeCoreParts } from './runtime-config.js';
 import type { RuntimeDisposeReportEntry } from './lifecycle.js';
 import { readRuntimeState } from './state.js';
 import type { RuntimeState } from '../schemas/index.js';
@@ -105,39 +105,17 @@ export function createRuntimeCoreContainer(input: {
   wireRuntimeLedgerEvents?: (runtimeLedgerEvents: { emit(event: LoggedEvent): void }) => void;
   wireAnalystToolInvokedEmitter?: (emitAnalystToolInvoked: (payload: EventPayload<'analyst_tool_invoked'>) => void) => void;
 }): RuntimeCoreContainer {
-  let emitAgentEvent: EmitAgentEvent | null = null;
-  let runtimeControls: RuntimeControlHooks | null = null;
-  let runtimeCoreParts: RuntimeCoreParts | undefined;
-  const agentEventBus = createAgentEventBus(() => emitAgentEvent);
-  const productionHooks: RuntimeCompositionHooks = {
-    agentEventSink: {
-      setEmitAgentEvent: (nextEmitAgentEvent) => {
-        emitAgentEvent = nextEmitAgentEvent;
-      },
-    },
-    corePartsSink: {
-      setRuntimeCoreParts: (nextCoreParts) => {
-        runtimeCoreParts = nextCoreParts;
-      },
-    },
-    controlSink: {
-      setRuntimeControls: (nextRuntimeControls) => {
-        runtimeControls = nextRuntimeControls;
-      },
-    },
-  };
-  initializeRuntimeImplementation(
+  const agentEventEmitterHolder: { emit: EmitAgentEvent | null } = { emit: null };
+  const agentEventBus = createAgentEventBus(() => agentEventEmitterHolder.emit);
+  const assembly = initializeRuntimeImplementation(
     {
       ...input.config,
       ...(input.goalDispatcher ? { goalDispatcher: input.goalDispatcher } : {}),
     },
     input.agentRuntime,
-    productionHooks,
   );
-  if (!runtimeCoreParts) throw new Error('Runtime core parts were not provided during core composition.');
-  const controls = runtimeControls as RuntimeControlHooks | null;
-  if (!controls) throw new Error('Runtime controls were not provided during core composition.');
-  const coreParts = runtimeCoreParts;
+  agentEventEmitterHolder.emit = assembly.emitAgentEvent;
+  const { controls, coreParts } = assembly;
   const api: RuntimeApi = {
     start: () => controls.start(),
     shutdown: () => controls.shutdown(),
@@ -171,81 +149,29 @@ export function createRuntimeCoreTestContainer(input: {
 }): RuntimeCoreTestContainer {
   let backgroundDispatchCount = 0;
   let lastLifecycleDisposeReport: RuntimeDisposeReportEntry[] = [];
-  let performCrashRecovery: (() => Promise<void>) | null = null;
-  let requestImmediateTick: (() => Promise<void>) | null = null;
-  let emitAgentEvent: EmitAgentEvent | null = null;
-  let dispatchGoal: ((goalId: string) => Promise<void>) | null = null;
-  let runtimeControls: RuntimeControlHooks | null = null;
-  let onRuntimeEvent: ((eventName: string | symbol, listener: (...args: unknown[]) => void) => void) | null = null;
-  let runtimeCoreParts: RuntimeCoreParts | undefined;
-  let runtimeTestParts: RuntimeTestParts | undefined;
-  const agentEventBus = createAgentEventBus(() => emitAgentEvent);
-  const productionHooks: RuntimeCompositionHooks = {
-    agentEventSink: {
-      setEmitAgentEvent: (nextEmitAgentEvent) => {
-        emitAgentEvent = nextEmitAgentEvent;
-      },
-    },
-    corePartsSink: {
-      setRuntimeCoreParts: (nextCoreParts) => {
-        runtimeCoreParts = nextCoreParts;
-      },
-    },
-    controlSink: {
-      setRuntimeControls: (nextRuntimeControls) => {
-        runtimeControls = nextRuntimeControls;
-      },
-    },
-  };
-  const testHooks: RuntimeTestHooks = {
-    diagnosticsSink: {
-      setBackgroundDispatchCount: (count) => {
-        backgroundDispatchCount = count;
-      },
-      setLastLifecycleDisposeReport: (report) => {
-        lastLifecycleDisposeReport = [...report];
-      },
-    },
-    lifecycleTestToolsSink: {
-      setPerformCrashRecovery: (nextPerformCrashRecovery) => {
-        performCrashRecovery = nextPerformCrashRecovery;
-      },
-      setRequestImmediateTick: (nextRequestImmediateTick) => {
-        requestImmediateTick = nextRequestImmediateTick;
-      },
-    },
-    testPartsSink: {
-      setRuntimeTestParts: (nextTestParts) => {
-        runtimeTestParts = nextTestParts;
-      },
-    },
-    schedulerSink: {
-      setDispatchGoal: (nextDispatchGoal) => {
-        dispatchGoal = nextDispatchGoal;
-      },
-    },
-    eventListenerSink: {
-      setRuntimeEventListener: (nextOnRuntimeEvent) => {
-        onRuntimeEvent = nextOnRuntimeEvent;
-      },
-    },
-  };
-  initializeRuntimeImplementation(
+  const agentEventEmitterHolder: { emit: EmitAgentEvent | null } = { emit: null };
+  const agentEventBus = createAgentEventBus(() => agentEventEmitterHolder.emit);
+  const assembly = initializeRuntimeImplementation(
     {
       ...input.config,
       ...(input.goalDispatcher ? { goalDispatcher: input.goalDispatcher } : {}),
     },
     input.agentRuntime,
-    productionHooks,
-    testHooks,
+    {
+      includeTestParts: true,
+      diagnosticsObserver: {
+        setBackgroundDispatchCount: (count) => {
+          backgroundDispatchCount = count;
+        },
+        setLastLifecycleDisposeReport: (report) => {
+          lastLifecycleDisposeReport = [...report];
+        },
+      },
+    },
   );
-  if (!runtimeCoreParts) throw new Error('Runtime core parts were not provided during core composition.');
-  if (!runtimeTestParts) throw new Error('Runtime test parts were not provided during test core composition.');
-  const controls = runtimeControls as RuntimeControlHooks | null;
-  if (!controls) throw new Error('Runtime controls were not provided during core composition.');
-  const addRuntimeEventListener = onRuntimeEvent as ((eventName: string | symbol, listener: (...args: unknown[]) => void) => void) | null;
-  if (!addRuntimeEventListener) throw new Error('Runtime event listener hook was not provided during core composition.');
-  const runtimeParts = { ...runtimeCoreParts, ...runtimeTestParts };
+  agentEventEmitterHolder.emit = assembly.emitAgentEvent;
+  const { controls, coreParts } = assembly;
+  const runtimeParts = assembly.testParts!;
   const api: RuntimeApi = {
     start: () => controls.start(),
     shutdown: () => controls.shutdown(),
@@ -253,8 +179,8 @@ export function createRuntimeCoreTestContainer(input: {
     resume: () => controls.resume(),
     startProject: (source) => controls.startProject(source),
     stopProject: (source) => controls.stopProject(source),
-    subscribe: (options) => runtimeParts.subscribe(options),
-    getStatus: () => getRuntimeStatus(input.config.projectRoot, runtimeParts),
+    subscribe: (options) => coreParts.subscribe(options),
+    getStatus: () => getRuntimeStatus(input.config.projectRoot, coreParts),
     getActivityStatus: input.getActivityStatus ?? (() => ({ status: 'idle', pending_calls: [], updated_at: new Date(0).toISOString() })),
   };
   return {
@@ -262,8 +188,8 @@ export function createRuntimeCoreTestContainer(input: {
     projectRoot: input.config.projectRoot,
     agentEventBus,
     runtimeLedgerEvents: {
-      emit: (event) => runtimeParts.publishRuntimeLedgerEvent(event),
-      emitAnalystToolInvoked: (payload) => runtimeParts.emitAnalystToolInvoked(payload),
+      emit: (event) => coreParts.publishRuntimeLedgerEvent(event),
+      emitAnalystToolInvoked: (payload) => coreParts.emitAnalystToolInvoked(payload),
     },
     cardTestTools: runtimeParts.cards,
     agentRuntimeTestTools: {
@@ -293,33 +219,19 @@ export function createRuntimeCoreTestContainer(input: {
       read: () => readRuntimeState(input.config.projectRoot),
     },
     dispatchTestTools: {
-      dispatchGoal: (goalId) => {
-        if (!dispatchGoal) throw new Error('Runtime dispatchGoal hook is unavailable.');
-        return dispatchGoal(goalId);
-      },
+      dispatchGoal: (goalId) => runtimeParts.dispatchGoal(goalId),
     },
     eventTestTools: {
-      on: (eventName, listener) => {
-        addRuntimeEventListener(eventName, listener);
-      },
-      emitAgentEvent: (name, data) => {
-        if (!emitAgentEvent) throw new Error('Runtime agent event hook is unavailable.');
-        emitAgentEvent(name, data);
-      },
+      on: (eventName, listener) => runtimeParts.onRuntimeEvent(eventName, listener),
+      emitAgentEvent: (name, data) => assembly.emitAgentEvent(name, data),
     },
     diagnosticTestTools: {
       getBackgroundDispatchCount: () => backgroundDispatchCount,
       getLastLifecycleDisposeReport: () => [...lastLifecycleDisposeReport],
     },
     lifecycleTestTools: {
-      performCrashRecovery: () => {
-        if (!performCrashRecovery) throw new Error('Runtime crash recovery hook is unavailable.');
-        return performCrashRecovery();
-      },
-      requestImmediateTick: () => {
-        if (!requestImmediateTick) throw new Error('Runtime immediate tick hook is unavailable.');
-        return requestImmediateTick();
-      },
+      performCrashRecovery: () => runtimeParts.performCrashRecovery(),
+      requestImmediateTick: () => runtimeParts.requestImmediateTick(),
     },
   };
 }

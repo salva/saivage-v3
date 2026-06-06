@@ -8,7 +8,7 @@ import {
 } from '../runtime/stuck-agent-supervisor.js';
 import { ActivationUnwindRunner } from './activation-unwind.js';
 import { SessionStampCounter, type SessionStamper } from '../contracts/session-stamper.js';
-import type { RuntimeCompositionHooks, RuntimeConfig, RuntimeSkillsPort, RuntimeTestHooks } from './runtime-config.js';
+import type { RuntimeAssembly, RuntimeConfig, RuntimeControls, RuntimeCoreParts, RuntimeDiagnosticsObserver, RuntimeSkillsPort } from './runtime-config.js';
 import { createRuntimeGoalContextCoordinator, type RuntimeGoalContextCoordinator } from './runtime-goal-context.js';
 import { createRuntimeRunLedger, type RuntimeRunLedger } from './runtime-run-ledger.js';
 import { createRuntimeSupervisor } from './stuck-agent-supervisor.js';
@@ -27,10 +27,9 @@ function now(): string {
 export function initializeRuntimeImplementation(
   config: RuntimeConfig,
   agentRuntime?: AgentExecutionPort,
-  hooks: RuntimeCompositionHooks = {},
-  testHooks: RuntimeTestHooks = {},
-): void {
-  new Runtime(config, agentRuntime, hooks, testHooks);
+  options: { includeTestParts?: boolean; diagnosticsObserver?: RuntimeDiagnosticsObserver } = {},
+): RuntimeAssembly {
+  return new Runtime(config, agentRuntime, options).assembly;
 }
 
 class Runtime {
@@ -56,15 +55,15 @@ class Runtime {
   private readonly _sessionStamper: SessionStamper;
   private readonly lifecycle = createLifecycleFlags();
   private _lifecycleController!: RuntimeLifecycleController;
+  private readonly _assembly: RuntimeAssembly;
 
   constructor(
     config: RuntimeConfig,
     agentRuntime?: AgentExecutionPort,
-    hooks: RuntimeCompositionHooks = {},
-    testHooks: RuntimeTestHooks = {},
+    options: { includeTestParts?: boolean; diagnosticsObserver?: RuntimeDiagnosticsObserver } = {},
   ) {
     this.projectRoot = config.projectRoot;
-    this._diagnostics = createRuntimeDiagnostics(testHooks.diagnosticsSink);
+    this._diagnostics = createRuntimeDiagnostics(options.diagnosticsObserver);
     this._mutations = createRuntimeStateMutationPort(this.projectRoot);
     if (config.eventLogger) {
       this._eventLogger = config.eventLogger;
@@ -161,34 +160,44 @@ class Runtime {
       activationUnwind: this._activationUnwind,
       plannerDispatcher: this._plannerDispatcher,
     });
-    hooks.corePartsSink?.setRuntimeCoreParts({
+    const coreParts: RuntimeCoreParts = {
       subscribe: (options) => this._events.eventBus.subscribe(options),
       publishRuntimeLedgerEvent: (event) => this._events.eventBus.emit(event),
       emitAnalystToolInvoked: (payload) => this._events.eventBus.emit('analyst_tool_invoked', payload),
       countGoals: () => this.cardStore.list().filter((card) => card.type === 'goal').length,
-    });
-    testHooks.testPartsSink?.setRuntimeTestParts({
-      cards: this.cardStore,
-      agentRuntime: this.agentRuntime,
-      errorLogger: this._errorLogger,
-      eventLogger: this._eventLogger,
-      supervisor: this._supervisor,
-    });
-    testHooks.schedulerSink?.setDispatchGoal((goalId) => this._plannerDispatcher.dispatchGoal(goalId));
-    testHooks.eventListenerSink?.setRuntimeEventListener((eventName, listener) => {
-      this._events.on(eventName, listener);
-    });
-    hooks.controlSink?.setRuntimeControls({
+    };
+    const controls: RuntimeControls = {
       start: () => this._lifecycleController.start(),
       shutdown: () => this._lifecycleController.shutdown(),
       pause: () => this._pauseResume.pause(),
       resume: () => this._pauseResume.resume(),
       startProject: (source) => this._projectCommands.startProject(source),
       stopProject: (source) => this._projectCommands.stopProject(source),
-    });
+    };
     this._diagnostics.publish();
-    testHooks.lifecycleTestToolsSink?.setPerformCrashRecovery(() => this._lifecycleController.performCrashRecovery());
-    testHooks.lifecycleTestToolsSink?.setRequestImmediateTick(() => this._lifecycleController.requestImmediateTick());
-    hooks.agentEventSink?.setEmitAgentEvent((name, data) => this._events.emitAgentEvent(name, data));
+    this._assembly = {
+      controls,
+      coreParts,
+      emitAgentEvent: (name, data) => this._events.emitAgentEvent(name, data),
+      ...(options.includeTestParts
+        ? {
+            testParts: {
+              cards: this.cardStore,
+              agentRuntime: this.agentRuntime,
+              errorLogger: this._errorLogger,
+              eventLogger: this._eventLogger,
+              supervisor: this._supervisor,
+              dispatchGoal: (goalId) => this._plannerDispatcher.dispatchGoal(goalId),
+              onRuntimeEvent: (eventName, listener) => this._events.on(eventName, listener),
+              performCrashRecovery: () => this._lifecycleController.performCrashRecovery(),
+              requestImmediateTick: () => this._lifecycleController.requestImmediateTick(),
+            },
+          }
+        : {}),
+    };
+  }
+
+  get assembly(): RuntimeAssembly {
+    return this._assembly;
   }
 }

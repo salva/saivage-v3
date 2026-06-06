@@ -48,14 +48,19 @@ export function createRuntimeDispatchCollaborators(input: {
   runLedger: RuntimeRunLedger;
   now(): string;
 }): RuntimeDispatchCollaborators {
-  let plannerDispatcher!: RuntimePlannerDispatcher;
+  const plannerDispatcherHolder: { dispatcher: RuntimePlannerDispatcher | null } = { dispatcher: null };
+  const dispatchGoalThroughPlanner = (goalId: string): Promise<void> => {
+    const dispatcher = plannerDispatcherHolder.dispatcher;
+    if (!dispatcher) throw new Error('Runtime planner dispatcher was used before dispatch collaborators were fully assembled.');
+    return dispatcher.dispatchGoal(goalId);
+  };
   const stateMachine = createRuntimeStateMachine({
     projectRoot: input.projectRoot,
     cards: input.cards,
     errorLogger: input.errorLogger,
     mutations: input.mutations,
     dispatchGoalThroughScheduler: (cardId) => {
-      void plannerDispatcher.dispatchGoal(cardId);
+      void dispatchGoalThroughPlanner(cardId);
     },
   });
   const services: RuntimeServices = {
@@ -85,7 +90,7 @@ export function createRuntimeDispatchCollaborators(input: {
     publishActionableError: (error) =>
       input.events.publishRuntimeLedgerEvent('runtime_actionable_error', { actionable_error: error }),
     trackBackgroundDispatch: (dispatch) => input.diagnostics.trackBackgroundDispatch(dispatch),
-    dispatchGoalThroughScheduler: (goalId) => plannerDispatcher.dispatchGoal(goalId),
+    dispatchGoalThroughScheduler: dispatchGoalThroughPlanner,
   });
   const pauseResume = createRuntimePauseResumeController({
     projectRoot: services.projectRoot,
@@ -116,7 +121,7 @@ export function createRuntimeDispatchCollaborators(input: {
     cards: services.cards,
     activationUnwind: input.activationUnwind,
     lifecycle: services.lifecycle,
-    dispatchGoalThroughScheduler: (goalId) => plannerDispatcher.dispatchGoal(goalId),
+    dispatchGoalThroughScheduler: dispatchGoalThroughPlanner,
     executorActivations,
   });
   const reviewerDispatcher = new RuntimeReviewerDispatcher({
@@ -133,7 +138,7 @@ export function createRuntimeDispatchCollaborators(input: {
     emitRuntimeDiagnostic: services.emitRuntimeDiagnostic,
     now: services.now,
   });
-  plannerDispatcher = new RuntimePlannerDispatcher({
+  const plannerDispatcher = new RuntimePlannerDispatcher({
     projectRoot: services.projectRoot,
     cards: services.cards,
     agentRuntime: input.agentRuntime,
@@ -164,6 +169,7 @@ export function createRuntimeDispatchCollaborators(input: {
     }),
     now: services.now,
   });
+  plannerDispatcherHolder.dispatcher = plannerDispatcher;
   return {
     stateMachine,
     projectCommands,

@@ -1,5 +1,5 @@
 import type { RuntimeDisposeReportEntry } from './lifecycle.js';
-import type { RuntimeTestHooks } from './runtime-config.js';
+import type { RuntimeDiagnosticsObserver } from './runtime-config.js';
 
 export interface RuntimeDiagnostics {
   publish(): void;
@@ -7,7 +7,7 @@ export interface RuntimeDiagnostics {
   setLastLifecycleDisposeReport(report: RuntimeDisposeReportEntry[]): void;
 }
 
-export function createRuntimeDiagnostics(diagnosticsSink: RuntimeTestHooks['diagnosticsSink']): RuntimeDiagnostics {
+export function createRuntimeDiagnostics(diagnosticsSink?: RuntimeDiagnosticsObserver): RuntimeDiagnostics {
   const backgroundDispatches = new Set<Promise<void>>();
   let lastLifecycleDisposeReport: RuntimeDisposeReportEntry[] = [];
 
