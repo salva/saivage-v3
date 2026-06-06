@@ -1,4 +1,4 @@
-import type { ConversationEntry, PendingCall } from '../../api/types';
+import type { AgentConversationEntry, PendingCall } from '../../api/types';
 import { presentToolCall, presentToolResult, type ToolCallPresentation, type ToolResultPresentation } from '../../utils/tool-presenters';
 
 export interface ToolChipPropsBag {
@@ -12,7 +12,7 @@ export interface ToolChipPropsBag {
   timestamp?: string;
 }
 
-export function adaptChatMessageToToolChip(call: ConversationEntry, result: ConversationEntry | null, expanded: boolean): ToolChipPropsBag {
+export function adaptChatMessageToToolChip(call: AgentConversationEntry, result: AgentConversationEntry | null, expanded: boolean): ToolChipPropsBag {
   if (call.kind !== 'tool_call') {
     throw new Error(`ToolChip adapter expected a tool_call message, received ${call.kind}.`);
   }

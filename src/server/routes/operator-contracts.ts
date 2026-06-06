@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { RuntimeApplication } from '../../application/runtime-composition.js';
 import type { CardStore } from '../../cards/store-api.js';
 import { operatorApiContracts } from '../../contracts/index.js';
+import { getAuthPolicy } from '../auth-policy.js';
 import { buildAgentOperatorContractHandlers } from './operator-agent-handlers.js';
 import { buildChatOperatorContractHandlers } from './operator-chat-handlers.js';
 import { buildConfigOperatorContractHandlers } from './operator-config-handlers.js';
@@ -39,6 +40,7 @@ export function registerOperatorContractRoutes(options: OperatorContractRouteReg
   const getRuntimeApplication = () => options.runtimeApplicationProvider?.() ?? options.runtimeApplication;
   const getCardStore = () => options.cardStore ?? getRuntimeApplication()?.cardStore;
   const handlers: OperatorContractHandlerMap = {
+    'auth.wsTicket': () => ({ body: getAuthPolicy().issueWebSocketTicket() }),
     ...buildRuntimeCardOperatorContractHandlers({ projectRoot, cardStoreProvider: getCardStore, runtimeApplicationProvider: getRuntimeApplication, serverAvailabilityProvider: options.serverAvailabilityProvider }),
     ...buildMcpOperatorContractHandlers({ mcpStatusProvider: options.mcpStatusProvider, mcpToolsProvider: options.mcpToolsProvider, serverAvailabilityProvider: options.serverAvailabilityProvider }),
     ...buildAgentOperatorContractHandlers({ projectRoot, runtimeApplication: getRuntimeApplication()?.runtimeApi }),

@@ -60,8 +60,6 @@ describe('GET /api/agents/:id/llm-exchange', () => {
 
     app = Fastify({ logger: false });
     await app.register(cors);
-    const { default: authPlugin } = await import('../../src/server/auth.js');
-    await app.register(authPlugin);
     const { registerOperatorContractRoutes } = await import('../../src/server/routes/operator-contracts.js');
     registerOperatorContractRoutes({ fastify: app, projectRoot });
     await app.ready();

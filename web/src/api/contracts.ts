@@ -11,7 +11,7 @@ export {
   ProcessNotFoundErrorSchema,
   ProcessViewSchema,
   processesOperatorApiContracts,
-} from '../../../src/contracts/operator-api';
+} from '@saivage/contracts/operator-api';
 
 export type {
   OperatorApiOperationId,
@@ -58,7 +58,7 @@ export type {
   RuntimeStatusResponse,
   WorkspaceFileContentResponse,
   WorkspaceFilesListResponse,
-} from '../../../src/contracts/operator-api';
+} from '@saivage/contracts/operator-api';
 
 export {
   AnalystActivityEventNames,
@@ -83,7 +83,7 @@ export {
   parseWsEnvelope,
   validateKnownWsEnvelope,
   wsContractFixtures,
-} from '../../../src/contracts/operator-events';
+} from '@saivage/contracts/operator-events';
 
 export type {
   AnalystActivityContent,
@@ -99,10 +99,10 @@ export type {
   WsEnvelope,
   WsEnvelopeContract,
   WsEventType,
-} from '../../../src/contracts/operator-events';
+} from '@saivage/contracts/operator-events';
 
-export { llmExchangeSchema } from '../../../src/contracts/llm-exchange';
-export type { LlmExchange } from '../../../src/contracts/llm-exchange';
+export { llmExchangeSchema } from '@saivage/contracts/llm-exchange';
+export type { LlmExchange } from '@saivage/contracts/llm-exchange';
 
 export type {
   ActionableErrorEnvelope,
@@ -146,4 +146,4 @@ export type {
   SourceKind,
   SupervisionResponse,
   Urgency,
-} from '../../../src/schemas';
+} from '@saivage/schemas';

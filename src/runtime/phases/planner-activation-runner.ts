@@ -1,5 +1,5 @@
 import type { CardRecord } from '../../schemas/index.js';
-import type { SessionStamper } from '../../contracts/session-stamper.js';
+import type { SessionStamper } from '../session-stamper.js';
 import type { RuntimeRunLedger } from '../runtime-run-ledger.js';
 import type { RuntimeServices } from '../runtime-services.js';
 import { consumeChangedCardActivation } from '../synthetic-planner-notes.js';

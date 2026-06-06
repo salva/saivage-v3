@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import type { ReviewAssessment, ArtifactRef, AgentMessage, HandoffSummary, AgentSession } from '../schemas/index.js';
 import type { AgentExecutionPort, PlannerInvocationRequest, ExecutorInvocationRequest, ReviewerInvocationRequest, SessionReinvokeRequest, RuntimeActivationLedgerPort } from '../contracts/index.js';
 import { completeSession, createSession, markSessionWaiting } from './session-persistence.js';
-import type { SessionStamper } from '../contracts/session-stamper.js';
+import type { SessionStamper } from './session-stamper.js';
 import type { PlannerResult, ExecutorResult, ReviewerResult, PlannerStatus, ExecutorFallbackReason } from '../contracts/index.js';
 
 export interface FakeArtifactDef {

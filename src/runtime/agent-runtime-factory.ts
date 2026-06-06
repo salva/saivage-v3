@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import type { AgentExecutionPort, RuntimeActivationLedgerPort } from '../contracts/index.js';
 import type { RuntimeConfig } from './runtime-config.js';
-import type { SessionStamper } from '../contracts/session-stamper.js';
+import type { SessionStamper } from './session-stamper.js';
 import { FakeAgentAdapter, type FakeAgentConfig } from './fake-agent.js';
 import { readRuntimeState } from './state.js';
 import type { RuntimeStateMutationPort } from './mutations.js';

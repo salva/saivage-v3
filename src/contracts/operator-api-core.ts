@@ -26,8 +26,8 @@ export const ForbiddenErrorSchema = ApiErrorSchema.extend({
   statusCode: z.literal(403).optional(),
 });
 
-export const operatorSessionContract = { auth: 'operator-session', requiresAuth: true } as const;
-export const publicContract = { auth: 'public', requiresAuth: false } as const;
+export const operatorSessionContract = { auth: 'operator-session' } as const;
+export const publicContract = { auth: 'public' } as const;
 
 export type OperatorRouteContract<
   TParams extends z.ZodTypeAny | undefined = z.ZodTypeAny | undefined,
@@ -45,10 +45,9 @@ export type OperatorRouteContract<
   success: TSuccess;
   error: TError;
   response?: Record<number, z.ZodTypeAny>;
-  auth?: ContractAuthClass;
+  auth: ContractAuthClass;
   permissions?: (context: { contract: OperatorRouteContract; params: unknown; query: unknown; body: unknown; request: unknown }) => boolean | { allowed: true } | { allowed: false; reason?: string } | Promise<boolean | { allowed: true } | { allowed: false; reason?: string }>;
   audit?: { kind: string; action?: string; targetKind?: string | null; targetId?: (context: { request: unknown; body: unknown }) => string | null };
   describe?: string;
-  requiresAuth: boolean;
   successSchemaName: string;
 };

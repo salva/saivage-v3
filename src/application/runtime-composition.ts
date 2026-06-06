@@ -12,7 +12,7 @@ import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from '../
 import type { RuntimeConfig } from '../runtime/runtime-config.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
 import { createRuntimeCoreContainer } from '../runtime/core-composition.js';
-import { SessionStampCounter } from '../contracts/session-stamper.js';
+import { SessionStampCounter } from '../runtime/session-stamp-counter.js';
 import { CardStore } from '../cards/card-store.js';
 
 export interface RuntimeApplication {

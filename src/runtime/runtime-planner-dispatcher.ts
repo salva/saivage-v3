@@ -1,5 +1,5 @@
 import type { AgentExecutionPort } from '../contracts/index.js';
-import type { SessionStamper } from '../contracts/session-stamper.js';
+import type { SessionStamper } from './session-stamper.js';
 import type { RuntimeConfig, RuntimeSkillsPort } from './runtime-config.js';
 import type { RuntimeGoalContextCoordinator } from './runtime-goal-context.js';
 import type { RuntimeRunLedger } from './runtime-run-ledger.js';

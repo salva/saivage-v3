@@ -2,7 +2,7 @@ import type { AgentMessage, AgentSession, ActivationCompletionOutcome, CardLifec
 import type { RuntimeState } from '../schemas/index.js';
 import { createActivationCompletionEnvelope, parseActivationCompletionEnvelope } from '../schemas/index.js';
 import { parseToolCallMessage } from '../contracts/persisted-tool-call.js';
-import type { RoundStamp, RuntimeAppendRecorder, SessionStamper } from '../contracts/session-stamper.js';
+import type { RoundStamp, RuntimeAppendRecorder, SessionStamper } from './session-stamper.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
 import { TERMINAL_STATUSES } from '../permissions/index.js';
 import { activeRunFromActivationState, plannerActivationStateFromGoal } from './activation-reducer.js';

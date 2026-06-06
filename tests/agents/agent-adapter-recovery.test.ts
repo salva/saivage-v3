@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import type { LlmCallFn } from '../../src/agents/llm-contracts.js';
 import type { SaivageConfig } from '../../src/agents/config-schema.js';
-import { LlmRequestError } from '../../src/agents/llm-failure.js';
+import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 import { getSession, getSessionMessages, listSessions } from '../../src/agents/session-persistence.js';
 import { CardStore } from '../../src/cards/card-store.js';
 

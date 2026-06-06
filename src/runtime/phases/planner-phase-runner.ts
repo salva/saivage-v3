@@ -1,6 +1,6 @@
 import type { AgentExecutionPort, PlannerActivationBarrier, PlannerResult } from '../../contracts/index.js';
 import { createPlannerContract } from '../../contracts/planner-contract.js';
-import { buildPlannerPrompt } from '../../contracts/system-prompt.js';
+import { buildPlannerPrompt } from '../../agents/prompts/system-prompt.js';
 import type { CardRecord } from '../../schemas/index.js';
 import type { GoalResumeReason } from '../goal-context.js';
 import type { RuntimeSkillsPort } from '../runtime-config.js';

@@ -6,6 +6,8 @@ export default defineConfig({
   plugins: [vue()],
   resolve: {
     alias: {
+      '@saivage/contracts': resolve(__dirname, '../src/contracts'),
+      '@saivage/schemas': resolve(__dirname, '../src/schemas'),
       '@': resolve(__dirname, 'src'),
     },
   },

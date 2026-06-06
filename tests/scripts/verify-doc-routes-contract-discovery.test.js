@@ -31,6 +31,7 @@ describe('verify-doc-routes operator contract discovery', () => {
 
     expect(routeSources).toEqual([
       'src/contracts/operator-api-agents.ts',
+      'src/contracts/operator-api-auth.ts',
       'src/contracts/operator-api-chats.ts',
       'src/contracts/operator-api-config.ts',
       'src/contracts/operator-api-events.ts',
@@ -50,6 +51,7 @@ describe('verify-doc-routes operator contract discovery', () => {
       'GET /api/processes',
       'GET /api/config',
       'GET /api/mcp/status',
+      'POST /api/auth/ws-ticket',
       'GET /health',
       'GET /health/ready',
     ]));

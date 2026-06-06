@@ -27,7 +27,7 @@ import { CardStore } from '../../src/cards/card-store.js';
 // ── Dynamic imports ────────────────────────────────────────────
 
 let LlmProviderGateway: typeof import('../../src/agents/llm-provider-gateway.js').LlmProviderGateway;
-let LlmRequestError: typeof import('../../src/agents/llm-failure.js').LlmRequestError;
+let LlmRequestError: typeof import('../../src/contracts/llm-failure.js').LlmRequestError;
 
 let AgentAdapter: typeof import('../../src/agents/agent-adapter.js').AgentAdapter;
 
@@ -39,7 +39,7 @@ let loadConfig: typeof import('../../src/agents/config-schema.js').loadConfig;
 
 beforeAll(async () => {
   const gatewayMod = await import('../../src/agents/llm-provider-gateway.js');
-  const failureMod = await import('../../src/agents/llm-failure.js');
+  const failureMod = await import('../../src/contracts/llm-failure.js');
   LlmProviderGateway = gatewayMod.LlmProviderGateway;
   LlmRequestError = failureMod.LlmRequestError;
 

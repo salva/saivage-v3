@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { writeFileSyncDurable } from '../persistence/index.js';
 import { appendMessage, findPlannerSessionForCard, getSession, listSessions } from './session-persistence.js';
-import type { RoundStamp } from '../contracts/session-stamper.js';
+import type { RoundStamp } from './session-stamper.js';
 import type { AgentSession, CardRecord } from '../schemas/index.js';
 import type { CardStore } from '../cards/store-api.js';
 import { now } from '../utils/clock.js';

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import type { AgentSession, AgentRole, AgentStatus, AgentConversationResponse, ActivityStatus, ConversationEntry, FreshnessState } from '../api/types';
+import type { AgentConversationEntry, AgentConversationResponse, AgentRole, AgentSession, ActivityStatus, FreshnessState, SessionStatus } from '../api/types';
 import { listAgentSessions, getAgentConversation, getAgentLlmExchange, ApiError } from '../api/client';
 import type { LlmExchange } from '../api/contracts';
 import { createLogger } from '../utils/logger';
@@ -9,7 +9,7 @@ const log = createLogger('store:agents');
 const STALE_AFTER_MS = 30_000;
 const idleActivity = (): ActivityStatus => ({ status: 'idle', pending_calls: [], updated_at: new Date(0).toISOString() });
 function nowIso(): string { return new Date().toISOString(); }
-function isLiveStatus(status: AgentStatus): boolean { return status === 'active' || status === 'waiting'; }
+function isLiveStatus(status: SessionStatus): boolean { return status === 'active' || status === 'waiting'; }
 function normalizeConversationEntries(items: AgentConversationResponse['entries']): AgentConversationResponse['entries'] {
   let lastToolCallId: string | null = null;
   return items.map((entry, index) => {
@@ -32,7 +32,7 @@ function normalizeConversationEntries(items: AgentConversationResponse['entries'
 
 export const useAgentStore = defineStore('agents', () => {
   const sessions = ref<AgentSession[]>([]);
-  const entries = ref<ConversationEntry[]>([]);
+  const entries = ref<AgentConversationEntry[]>([]);
   const activityStatus = ref<ActivityStatus>(idleActivity());
   const currentSession = ref<AgentSession | null>(null);
   const loading = ref(false);
@@ -81,8 +81,8 @@ export const useAgentStore = defineStore('agents', () => {
   const refreshConversation = fetchConversation;
 
   function addSession(session: AgentSession): void { const idx = sessions.value.findIndex((s) => s.id === session.id); if (idx !== -1) sessions.value[idx] = session; else sessions.value.push(session); sessions.value = [...sessions.value]; }
-  function updateSessionStatus(sessionId: string, status: AgentStatus): void { const session = sessions.value.find((s) => s.id === sessionId); if (session) { session.status = status; session.completed_at = isLiveStatus(status) ? null : new Date().toISOString(); sessions.value = [...sessions.value]; } if (currentSession.value?.id === sessionId) currentSession.value = { ...currentSession.value, status, completed_at: isLiveStatus(status) ? null : new Date().toISOString() }; }
-  function appendEntry(entry: ConversationEntry): void { if (currentSession.value && entry.session_id === currentSession.value.id) { entries.value = [...entries.value, entry]; markWsSync(); if (entry.kind === 'tool_error' || entry.kind === 'model_issue') conversationWarning.value = 'Conversation includes tool/model failures or repairs; inspect linked evidence carefully.'; } }
+  function updateSessionStatus(sessionId: string, status: SessionStatus): void { const session = sessions.value.find((s) => s.id === sessionId); if (session) { session.status = status; session.completed_at = isLiveStatus(status) ? null : new Date().toISOString(); sessions.value = [...sessions.value]; } if (currentSession.value?.id === sessionId) currentSession.value = { ...currentSession.value, status, completed_at: isLiveStatus(status) ? null : new Date().toISOString() }; }
+  function appendEntry(entry: AgentConversationEntry): void { if (currentSession.value && entry.session_id === currentSession.value.id) { entries.value = [...entries.value, entry]; markWsSync(); if (entry.kind === 'tool_error' || entry.kind === 'model_issue') conversationWarning.value = 'Conversation includes tool/model failures or repairs; inspect linked evidence carefully.'; } }
 
   async function fetchLlmExchange(sessionId: string): Promise<void> { llmExchangeSessionId.value = sessionId; llmExchangeLoading.value = true; llmExchangeError.value = null; try { const { exchange } = await getAgentLlmExchange(sessionId); if (llmExchangeSessionId.value === sessionId) currentLlmExchange.value = exchange; } catch (err) { if (llmExchangeSessionId.value !== sessionId) return; currentLlmExchange.value = null; llmExchangeError.value = err instanceof ApiError && err.isNotFound ? null : err instanceof Error ? err.message : String(err); } finally { if (llmExchangeSessionId.value === sessionId) llmExchangeLoading.value = false; } }
   function clearLlmExchange(): void { currentLlmExchange.value = null; llmExchangeLoading.value = false; llmExchangeError.value = null; llmExchangeSessionId.value = null; }

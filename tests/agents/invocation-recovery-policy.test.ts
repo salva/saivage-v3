@@ -4,7 +4,7 @@ import {
   InvocationRecoveryPolicy,
   sanitizeRecoveryMessage,
 } from '../../src/agents/invocation-recovery-policy.js';
-import { LlmRequestError } from '../../src/agents/llm-failure.js';
+import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 import type { Candidate } from '../../src/agents/provider.js';
 
 const candidate: Candidate = { provider: 'openai-compatible', account: 'primary', model: 'gpt-test' };

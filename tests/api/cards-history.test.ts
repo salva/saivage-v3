@@ -45,8 +45,6 @@ beforeAll(async () => {
   app = Fastify({ logger: false });
   await app.register(cors);
   await app.register(websocket);
-  const { default: authPlugin } = await import('../../src/server/auth.js');
-  await app.register(authPlugin);
   const { registerCardRoutes } = await import('../../src/server/routes/cards.js');
   const store = new CardStore(TEST_ROOT);
   registerCardRoutes(app, TEST_ROOT, undefined, store);

@@ -6,8 +6,6 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Environment } from '../../config/index.js';
-import authPlugin from '../auth.js';
-import { registerAuthRoutes } from '../routes/auth.js';
 
 export async function createFastifyApp(environment: Environment): Promise<FastifyInstance> {
   let transportOpt: { target: string; options: Record<string, unknown> } | undefined;
@@ -38,8 +36,6 @@ export async function createFastifyApp(environment: Environment): Promise<Fastif
 
   await fastify.register(cors);
   await fastify.register(websocket);
-  await fastify.register(authPlugin);
-  registerAuthRoutes(fastify);
   await registerStaticAssets(fastify);
   return fastify;
 }

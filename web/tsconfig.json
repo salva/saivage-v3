@@ -13,6 +13,10 @@
     "jsx": "preserve",
     "jsxImportSource": "vue",
     "paths": {
+      "@saivage/contracts": ["../src/contracts"],
+      "@saivage/contracts/*": ["../src/contracts/*"],
+      "@saivage/schemas": ["../src/schemas"],
+      "@saivage/schemas/*": ["../src/schemas/*"],
       "@/*": ["./src/*"]
     },
     "types": ["vite/client"]
@@ -21,9 +25,7 @@
     "src/**/*.ts",
     "src/**/*.vue",
     "vite.config.ts",
-    "env.d.ts",
-    "../src/contracts/**/*.ts",
-    "../src/schemas/**/*.ts"
+    "env.d.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }

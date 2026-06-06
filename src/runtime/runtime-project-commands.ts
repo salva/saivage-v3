@@ -7,7 +7,7 @@ import type {
   RuntimeState,
 } from '../schemas/index.js';
 import type { RuntimeApi } from './runtime-api.js';
-import type { SessionStamper } from '../contracts/session-stamper.js';
+import type { SessionStamper } from './session-stamper.js';
 import { initRuntimeState, readRuntimeState } from './state.js';
 import {
   planOpenRootRunStopUpdates,

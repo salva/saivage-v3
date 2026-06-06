@@ -3,6 +3,7 @@ import {
   type HttpMethod,
   type OperatorRouteContract,
 } from './operator-api-core.js';
+import { authOperatorApiContracts } from './operator-api-auth.js';
 import { agentOperatorApiContracts } from './operator-api-agents.js';
 import { chatOperatorApiContracts } from './operator-api-chats.js';
 import { configOperatorApiContracts } from './operator-api-config.js';
@@ -104,6 +105,11 @@ export {
 } from './operator-api-availability.js';
 export type { AvailabilityComponent, AvailabilityState, ServerAvailability } from './operator-api-availability.js';
 export {
+  authOperatorApiContracts,
+  WebSocketTicketResponseSchema,
+} from './operator-api-auth.js';
+export type { WebSocketTicketResponse } from './operator-api-auth.js';
+export {
   McpInvocationStatSchema,
   McpServerStatusSchema,
   McpStatusResponseSchema,
@@ -173,6 +179,7 @@ export {
 export type { ProcessDetailResponse, ProcessListResponse, ProcessView } from './operator-api-processes.js';
 
 export const operatorApiContracts = {
+  ...authOperatorApiContracts,
   ...runtimeCardsOperatorApiContracts,
   ...mcpOperatorApiContracts,
   ...agentOperatorApiContracts,
@@ -208,7 +215,7 @@ export function operatorRouteInventory(): Array<{
     operationId: contract.operationId as OperatorApiOperationId,
     method: contract.method,
     path: contract.path,
-    requiresAuth: contract.requiresAuth,
+    requiresAuth: contract.auth !== 'public',
     successSchemaName: contract.successSchemaName,
   }));
 }

@@ -7,7 +7,8 @@ import {
   StuckAgentSupervisor,
 } from '../runtime/stuck-agent-supervisor.js';
 import { ActivationUnwindRunner } from './activation-unwind.js';
-import { SessionStampCounter, type SessionStamper } from '../contracts/session-stamper.js';
+import { SessionStampCounter } from './session-stamp-counter.js';
+import type { SessionStamper } from './session-stamper.js';
 import type { RuntimeAssembly, RuntimeConfig, RuntimeControls, RuntimeCoreParts, RuntimeDiagnosticsObserver, RuntimeSkillsPort } from './runtime-config.js';
 import { createRuntimeGoalContextCoordinator, type RuntimeGoalContextCoordinator } from './runtime-goal-context.js';
 import { createRuntimeRunLedger, type RuntimeRunLedger } from './runtime-run-ledger.js';

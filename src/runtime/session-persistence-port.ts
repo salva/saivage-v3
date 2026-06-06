@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import type { AgentMessage, AgentSession } from '../schemas/index.js';
-import type { RoundStamp, RuntimeAppendRecorder } from '../contracts/session-stamper.js';
+import type { RoundStamp, RuntimeAppendRecorder } from './session-stamper.js';
 import {
   appendActivateCardToolResultOnce,
   findPlannerSessionForCard,

@@ -1,7 +1,7 @@
 import type { AgentExecutionPort, RuntimeActivationLedgerPort } from '../contracts/index.js';
 import type { CardStore } from '../cards/store-api.js';
 import type { EventLogger, ErrorLogger } from '../observability/index.js';
-import type { SessionStamper } from '../contracts/session-stamper.js';
+import type { SessionStamper } from './session-stamper.js';
 import type { RuntimeDisposeReportEntry } from './lifecycle.js';
 import type { StuckAgentSupervisor, SupervisorConfig } from './stuck-agent-supervisor.js';
 import type { RuntimeApi } from './runtime-api.js';

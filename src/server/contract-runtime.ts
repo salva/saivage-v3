@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest, RouteOptions } from
 import type { z } from 'zod';
 import { getAuthPolicy } from './auth-policy.js';
 import type { EventBus, EventKind } from '../events/index.js';
-import type { ContractAuthClass, OperatorRouteContract } from '../contracts/index.js';
+import type { OperatorRouteContract } from '../contracts/index.js';
 
 
 export interface ContractPermissionContext<TContract extends OperatorRouteContract = OperatorRouteContract> {
@@ -66,10 +66,6 @@ function schemaForStatus(contract: OperatorRouteContract, statusCode: number): z
   return contract.response?.[statusCode] ?? (statusCode >= 200 && statusCode < 300 ? contract.success : contract.error);
 }
 
-function authClassFor(contract: OperatorRouteContract): ContractAuthClass {
-  return contract.auth ?? (contract.requiresAuth ? 'operator-session' : 'public');
-}
-
 function isPermissionAllowed(result: Awaited<ReturnType<ContractPermissionPredicate>>): { allowed: boolean; reason?: string } {
   if (typeof result === 'boolean') return { allowed: result };
   return result.allowed ? { allowed: true } : { allowed: false, reason: result.reason };
@@ -131,7 +127,7 @@ export class ContractRuntime {
   }
 
   private validateAuth(contract: OperatorRouteContract, request: FastifyRequest): Record<string, unknown> | null {
-    const auth = authClassFor(contract);
+    const auth = contract.auth;
     if (auth === 'public') return null;
     if (auth !== 'operator-session') return { error: 'Unauthorized', statusCode: 401, message: `${auth} is not available for operator routes` };
     const result = getAuthPolicy().validateHttpRequest(request);

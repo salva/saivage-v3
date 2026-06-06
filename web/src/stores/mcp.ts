@@ -10,8 +10,8 @@ import { ref, computed, readonly } from 'vue';
 import type {
   McpToolsResponse,
   McpServerWithTools,
-  McpToolInvocationStats,
-  McpTool,
+  McpInvocationStat,
+  McpToolDefinition,
 } from '../api/types';
 import { getMcpTools, ApiError } from '../api/client';
 import { createLogger } from '../utils/logger';
@@ -22,9 +22,9 @@ export const useMcpStore = defineStore('mcp', () => {
   // ── State ──────────────────────────────────────────────────
 
   const servers = ref<McpServerWithTools[]>([]);
-  const allTools = ref<McpTool[]>([]);
+  const allTools = ref<McpToolDefinition[]>([]);
   const serverNames = ref<string[]>([]);
-  const invocationStats = ref<Record<string, McpToolInvocationStats>>({});
+  const invocationStats = ref<Record<string, McpInvocationStat>>({});
   const loading = ref(false);
   const error = ref<string | null>(null);
   const lastRefreshed = ref<string | null>(null);

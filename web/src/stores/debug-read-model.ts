@@ -2,7 +2,7 @@ import type { CardRecord, DebugError, DebugTimelineEvent, ProcessView, RuntimeSt
 import { redactObservabilityText, redactObservabilityValue } from '../utils/observabilityRedaction';
 import { selectChildrenOf } from './card-presentation';
 import { selectRuntimeStatusLabel as selectSharedRuntimeStatusLabel, selectRuntimeStatusTone as selectSharedRuntimeStatusTone } from './runtime-read-model';
-import { eventKindValues } from '../../../src/schemas/event-catalog';
+import { eventKindValues } from '@saivage/schemas/event-catalog';
 
 const CANONICAL_EVENT_KINDS = new Set<string>(eventKindValues as readonly string[]);
 export function isCanonicalEventKind(kind: string): boolean { return CANONICAL_EVENT_KINDS.has(kind); }

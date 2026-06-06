@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { useAnalystChat } from '../../stores/analystChat';
 import { useWorkspaceRouteStore } from '../../stores/workspaceRoute';
-import type { ConversationEntry } from '../../api/types';
+import type { AgentConversationEntry } from '../../api/types';
 
 const apiMocks = vi.hoisted(() => ({
   listChatSessions: vi.fn(),
@@ -26,7 +26,7 @@ describe('analyst chat workspace context', () => {
     apiMocks.getChatEntries.mockReset();
     apiMocks.sendChatMessage.mockReset();
     apiMocks.listChatSessions.mockResolvedValue({ sessions: [{ id: 'analyst', role: 'analyst', status: 'active', started_at: '2025-01-01T00:00:00Z' }] });
-    apiMocks.getChatEntries.mockResolvedValue({ sessionId: 'analyst', entries: [] as ConversationEntry[] });
+    apiMocks.getChatEntries.mockResolvedValue({ sessionId: 'analyst', entries: [] as AgentConversationEntry[] });
     apiMocks.sendChatMessage.mockResolvedValue({
       sessionId: 'analyst',
       message: { id: 'm1', role: 'assistant', kind: 'text', content: 'reply', timestamp: '2025-01-01T00:00:00Z' },

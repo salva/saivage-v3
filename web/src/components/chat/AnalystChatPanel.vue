@@ -66,7 +66,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
-import type { ActivityStatus, ConversationEntry } from '../../api/types';
+import type { ActivityStatus, AgentConversationEntry } from '../../api/types';
 import { useAnalystChat } from '../../stores/analystChat';
 import { useCardStore } from '../../stores/cards';
 import { selectChildrenOf } from '../../stores/card-presentation';
@@ -114,7 +114,7 @@ function handleScroll(): void {
   pinToBottom = isNearBottom(el);
 }
 
-const timelineEntries = computed<ConversationEntry[]>(() => messages.value);
+const timelineEntries = computed<AgentConversationEntry[]>(() => messages.value);
 const idleActivityStatus = computed<ActivityStatus | null>(() => null);
 const timelineControls = useAgentTimeline(timelineEntries, idleActivityStatus, () => activeSessionId.value);
 const childrenOnScreen = computed(() =>

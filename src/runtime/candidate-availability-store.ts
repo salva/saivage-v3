@@ -28,8 +28,8 @@ import {
   type AvailabilityDecision,
   type CandidateAvailabilityEntry,
   MemoryCandidateAvailability,
-} from '../contracts/index.js';
-import { type Candidate, candidateKey } from '../contracts/index.js';
+} from '../agents/candidate-availability.js';
+import { type Candidate, candidateKey } from '../agents/provider.js';
 
 export class CandidateAvailabilityLockedError extends Error {
   readonly holderPid: number | null;
@@ -198,5 +198,5 @@ export class FsCandidateAvailability extends MemoryCandidateAvailability {
 }
 
 /** Re-exported for callers that want a memory-backed availability store. */
-export { MemoryCandidateAvailability as MemoryCandidateAvailabilityStore } from '../contracts/index.js';
+export { MemoryCandidateAvailability as MemoryCandidateAvailabilityStore } from '../agents/candidate-availability.js';
 export type { AvailabilityDecision };

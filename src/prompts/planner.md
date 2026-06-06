@@ -1,6 +1,6 @@
 # Planner Prompt Asset
 
-This file is a deployable prompt asset for the Saivage Planner role. The runtime currently renders planner prompts from `src/agents/system-prompt.ts`; this asset is packaged into `dist/prompts/planner.md` so deployment layouts have a stable prompt asset directory.
+This file is a deployable prompt asset for the Saivage Planner role. The runtime currently renders planner prompts from `src/agents/prompts/system-prompt.ts`; this asset is packaged into `dist/prompts/planner.md` so deployment layouts have a stable prompt asset directory.
 
 Planner responsibilities:
 - Decompose goals into concrete cards.

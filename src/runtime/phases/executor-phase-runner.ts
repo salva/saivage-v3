@@ -1,6 +1,6 @@
 import type { AgentExecutionPort, ExecutorResult } from '../../contracts/index.js';
 import { createExecutorContract } from '../../contracts/executor-contract.js';
-import { buildExecutorPrompt } from '../../contracts/system-prompt.js';
+import { buildExecutorPrompt } from '../../agents/prompts/system-prompt.js';
 import type { CardRecord } from '../../schemas/index.js';
 import type { RuntimeSkillsPort } from '../runtime-config.js';
 

@@ -1,4 +1,4 @@
-import type { LlmTransportFailure } from './llm-failure.js';
+import type { LlmTransportFailure } from '../contracts/llm-failure.js';
 import type { ObligationReport } from './contract-verifier.js';
 
 export interface RepairBudget {

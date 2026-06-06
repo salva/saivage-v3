@@ -1,8 +1,8 @@
 import { computed, ref, type Ref } from 'vue';
-import type { ActivityStatus, ConversationEntry } from '../api/types';
+import type { ActivityStatus, AgentConversationEntry } from '../api/types';
 import { entriesToTimeline } from '../utils/agent-timeline';
 
-export function useAgentTimeline(entries: Ref<ConversationEntry[]>, activityStatus: Ref<ActivityStatus | null>, currentSessionId: () => string | null) {
+export function useAgentTimeline(entries: Ref<AgentConversationEntry[]>, activityStatus: Ref<ActivityStatus | null>, currentSessionId: () => string | null) {
   const expandedIds = ref(new Set<string>());
   const timeline = computed(() => entriesToTimeline(entries.value, activityStatus.value));
   function toggleExpanded(id: string): void { const next = new Set(expandedIds.value); next.has(id) ? next.delete(id) : next.add(id); expandedIds.value = next; }

@@ -11,7 +11,7 @@ import {
 } from './synthetic-planner-notes.js';
 import { appendMessage } from './session-persistence.js';
 import { readRuntimeState } from './state.js';
-import type { SessionStamper } from '../contracts/session-stamper.js';
+import type { SessionStamper } from './session-stamper.js';
 
 export interface RuntimeGoalContextCoordinator {
   inferResumeReason(goalId: string, fallback?: GoalResumeReason): GoalResumeReason;

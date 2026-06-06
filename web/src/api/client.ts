@@ -18,7 +18,7 @@ import type {
   ChatSessionsResponse,
   ChatEntriesResponse,
   ChatResponse,
-  WorkspaceContext,
+  ChatWorkspaceContext,
   FilesListResponse,
   FileContent,
   DebugStateResponse,
@@ -138,13 +138,8 @@ function operatorRequest<K extends OperatorApiOperationId>(
 }
 
 
-export interface WebSocketTicketResponse {
-  ticket: string;
-  expiresAt: string;
-}
-
-export function issueWebSocketTicket(): Promise<WebSocketTicketResponse> {
-  return request<WebSocketTicketResponse>('POST', '/api/auth/ws-ticket');
+export function issueWebSocketTicket(): Promise<OperatorApiSuccess<'auth.wsTicket'>> {
+  return operatorRequest('auth.wsTicket', 'POST', '/api/auth/ws-ticket');
 }
 
 export async function getHealth(): Promise<{ status: string; version: string; project: string; runtime: string }> {
@@ -229,7 +224,7 @@ export function getChatEntries(sessionId: string): Promise<ChatEntriesResponse> 
   return operatorRequest('chats.get', 'GET', `/api/chats/${encodeURIComponent(sessionId)}`) as Promise<ChatEntriesResponse>;
 }
 
-export function sendChatMessage(sessionId: string, content: string, workspaceContext?: WorkspaceContext): Promise<ChatResponse> {
+export function sendChatMessage(sessionId: string, content: string, workspaceContext?: ChatWorkspaceContext): Promise<ChatResponse> {
   const body = workspaceContext === undefined ? { content } : { content, workspaceContext };
   return operatorRequest('chats.send', 'POST', `/api/chats/${encodeURIComponent(sessionId)}`, undefined, body);
 }

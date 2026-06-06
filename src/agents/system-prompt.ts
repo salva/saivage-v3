@@ -3,4 +3,4 @@ export {
   buildExecutorPrompt,
   buildReviewerPrompt,
   systemPromptBuilder,
-} from '../contracts/system-prompt.js';
+} from './prompts/system-prompt.js';

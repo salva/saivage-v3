@@ -67,8 +67,6 @@ beforeEach(async () => {
   authToken = 'shuffled-subtree-token';
   process.env['SAIVAGE_API_TOKEN'] = authToken;
   app = Fastify({ logger: false });
-  const { default: authPlugin } = await import('../../src/server/auth.js');
-  await app.register(authPlugin);
   registerCardRoutes(app, tmpDir, undefined, routeStore);
   await app.listen({ port: 0, host: '127.0.0.1' });
   const port = (app.server.address() as { port: number }).port;

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { useAnalystChat } from '../stores/analystChat';
-import type { ConversationEntry } from '../api/types';
+import type { AgentConversationEntry } from '../api/types';
 
 const apiMocks = vi.hoisted(() => ({
   listChatSessions: vi.fn(),
@@ -26,7 +26,7 @@ describe('analyst chat store', () => {
     apiMocks.getChatEntries.mockReset();
     apiMocks.sendChatMessage.mockReset();
     apiMocks.listChatSessions.mockResolvedValue({ sessions: [{ id: 'analyst', role: 'analyst', status: 'active', started_at: '2025-01-01T00:00:00Z' }] });
-    apiMocks.getChatEntries.mockResolvedValue({ sessionId: 'analyst', entries: [] as ConversationEntry[] });
+    apiMocks.getChatEntries.mockResolvedValue({ sessionId: 'analyst', entries: [] as AgentConversationEntry[] });
     apiMocks.sendChatMessage.mockResolvedValue({ sessionId: 'analyst', message: { id: 'm1', role: 'assistant', kind: 'text', content: 'reply', timestamp: '2025-01-01T00:00:00Z' }, toolInvocations: [] });
   });
 
@@ -74,7 +74,7 @@ describe('analyst chat store', () => {
       sessionId: 'analyst',
       entries: [
         { id: 'assistant-1', session_id: 'analyst', role: 'assistant', kind: 'text', content: 'still thinking', round_id: 'r-assistant-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: '2025-01-01T00:00:01Z' },
-      ] satisfies ConversationEntry[],
+      ] satisfies AgentConversationEntry[],
     });
     await store.fetchMessages('analyst');
     expect(store.pendingToolInvocations).toHaveLength(1);
@@ -83,7 +83,7 @@ describe('analyst chat store', () => {
       sessionId: 'analyst',
       entries: [
         { id: 'tool-1', session_id: 'analyst', role: 'assistant', kind: 'tool_call', tool: 'read_file', tool_call_id: 'tool-1', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'tool-1', type: 'function', function: { name: 'read_file', arguments: JSON.stringify({ path: 'docs/analyst.md' }) } }] }), round_id: 'r-assistant-00000000000000000000000000000001', message_index: 1, block_index: 0, timestamp: '2025-01-01T00:00:02Z' },
-      ] satisfies ConversationEntry[],
+      ] satisfies AgentConversationEntry[],
     });
     await store.fetchMessages('analyst');
     expect(store.pendingToolInvocations).toEqual([]);
@@ -100,7 +100,7 @@ describe('analyst chat store', () => {
       entries: [
         { id: 'tc-1', session_id: 'analyst', role: 'assistant', kind: 'tool_call', tool: 'list_cards', tool_call_id: 'call-77', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-77', type: 'function', function: { name: 'list_cards', arguments: '{}' } }] }), round_id: 'r-assistant-00000000000000000000000000000002', message_index: 0, block_index: 0, timestamp: '2025-01-01T00:00:03Z' },
         { id: 'tr-1', session_id: 'analyst', role: 'tool', kind: 'tool_result', tool: 'list_cards', tool_call_id: 'call-77', content: '{}', round_id: 'r-assistant-00000000000000000000000000000002', message_index: 0, block_index: 1, timestamp: '2025-01-01T00:00:04Z' },
-      ] satisfies ConversationEntry[],
+      ] satisfies AgentConversationEntry[],
     });
     await store.fetchMessages('analyst');
     expect(store.pendingToolInvocations).toEqual([]);
@@ -111,7 +111,7 @@ describe('analyst chat store', () => {
 
     apiMocks.getChatEntries.mockResolvedValueOnce({
       sessionId: 'analyst',
-      entries: [] satisfies ConversationEntry[],
+      entries: [] satisfies AgentConversationEntry[],
     });
     await store.fetchMessages('chat-2');
 

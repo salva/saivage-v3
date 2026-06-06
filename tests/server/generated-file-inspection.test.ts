@@ -41,7 +41,6 @@ describe('generated file inspection api', () => {
     process.env['SAIVAGE_API_TOKEN'] = authToken;
     app = Fastify({ logger: false });
     await app.register(cors); await app.register(websocket);
-    const { default: authPlugin } = await import('../../src/server/auth.js'); await app.register(authPlugin);
     const { registerCardRoutes } = await import('../../src/server/routes/cards.js');
     const { registerChatsFilesDebugRoutes } = await import('../../src/server/routes/chats-files-debug.js');
     const cardStore = new CardStore(projectRoot);

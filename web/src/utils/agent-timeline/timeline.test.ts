@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { ConversationEntry } from '../../api/types';
+import type { AgentConversationEntry } from '../../api/types';
 import { entriesToTimeline } from './timeline';
 
-function entry(overrides: Partial<ConversationEntry>): ConversationEntry {
+function entry(overrides: Partial<AgentConversationEntry>): AgentConversationEntry {
   return {
     id: 'msg-x',
     session_id: 's1',

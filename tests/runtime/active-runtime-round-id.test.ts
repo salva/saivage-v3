@@ -1,5 +1,5 @@
 import { describe, it, expect } from '@jest/globals';
-import { SessionStampCounter } from '../../src/contracts/session-stamper.js';
+import { SessionStampCounter } from '../../src/runtime/session-stamp-counter.js';
 import { roundIdGrammar } from '../../src/schemas/round-id.js';
 
 describe('SessionStampCounter — collision-free round_id', () => {

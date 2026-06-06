@@ -1,6 +1,6 @@
 import type { AgentExecutionPort, ReviewerResult } from '../../contracts/index.js';
 import { createReviewerContract } from '../../contracts/reviewer-contract.js';
-import { buildReviewerPrompt } from '../../contracts/system-prompt.js';
+import { buildReviewerPrompt } from '../../agents/prompts/system-prompt.js';
 import type { CardRecord } from '../../schemas/index.js';
 import type { RuntimeSkillsPort } from '../runtime-config.js';
 

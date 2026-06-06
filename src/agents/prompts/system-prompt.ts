@@ -1,5 +1,5 @@
-import type { CardType } from '../schemas/index.js';
-import type { Contract } from './contract.js';
+import type { CardType } from '../../schemas/index.js';
+import type { Contract } from '../../contracts/contract.js';
 
 type AnyContract = Contract<unknown, unknown>;
 

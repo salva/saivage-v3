@@ -13,12 +13,12 @@ import type {
   EntityLink,
   SessionStatus,
 } from '../schemas/index.js';
-import type { RoundStamp, RuntimeAppendRecorder, SessionStamper } from '../contracts/session-stamper.js';
+import type { RoundStamp, RuntimeAppendRecorder, SessionStamper } from './session-stamper.js';
 
 const SESSIONS_DIR = 'sessions';
 const MESSAGES_DIR = 'messages';
 
-export type { RoundStamp, RuntimeAppendRecorder, SessionStamper } from '../contracts/session-stamper.js';
+export type { RoundStamp, RuntimeAppendRecorder, SessionStamper } from './session-stamper.js';
 
 function sessionsDir(saivageDir: string): string {
   return join(saivageDir, 'agents', SESSIONS_DIR);

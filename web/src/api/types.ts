@@ -10,17 +10,14 @@ import type {
   CardView as ContractCardView,
   CardStatus,
   CardType,
-  ChatSession as ContractChatSession,
+  ChatSession,
   ChatWorkspaceContext,
   ControlActionSurface,
-  CreatedBy as CardCreator,
   DoctorResponse,
-  DiaryKind,
   McpInvocationStat,
   McpStatusState,
   McpToolDefinition,
   McpToolsResponse as ContractMcpToolsResponse,
-  McpTransport,
   NoteAuthor,
   OperatorApiSuccess,
   ReviewAssessment,
@@ -33,14 +30,16 @@ import type {
   ServerAvailability,
   SessionStatus,
   SupervisionResponse,
-  Urgency as CardUrgency,
 } from './contracts';
 
 
 export type {
   ArtifactRef,
   AttachmentRef,
+  AgentConversationEntry,
   AgentRole,
+  ChatSession,
+  ChatWorkspaceContext,
   CardAction,
   CardHistoryEntry,
   CardHistoryHeader,
@@ -55,6 +54,9 @@ export type {
   ReviewAssessment,
   MessageKind,
   MessageRole,
+  McpInvocationStat,
+  McpStatusState,
+  McpToolDefinition,
   NoteAuthor,
   RuntimeActivationRecord,
   RuntimeActivationStatus,
@@ -73,6 +75,7 @@ export type {
   LiveSyncInvalidateTarget,
   LiveSyncUnscopedResource,
   ServerAvailability,
+  SessionStatus,
   SupervisionResponse,
 } from './contracts';
 
@@ -111,7 +114,6 @@ export interface CardDiffRow {
 export type ControlActionAuditEntry = OperatorApiSuccess<'controlActions.list'>['control_actions'][number];
 
 
-export type DiaryEntryKind = DiaryKind;
 export type DoctorCheck = DoctorResponse['checks'][number];
 export type DoctorIssue = DoctorResponse['issues'][number];
 export type ContentReview = SupervisionResponse['reviews'][number];
@@ -123,9 +125,7 @@ export type ProcessListResponse = OperatorApiSuccess<'processes.list'>;
 export type ProcessDetailResponse = OperatorApiSuccess<'processes.get'>;
 
 
-export type AgentStatus = SessionStatus;
-export type AgentSession = AgentSessionSummary & { role: AgentRole; status: AgentStatus };
-export type ConversationEntry = AgentConversationEntry;
+export type AgentSession = AgentSessionSummary & { role: AgentRole; status: SessionStatus };
 export type PendingCall = ContractActivityStatus['pending_calls'][number];
 export type ActivityStatusKind = ContractActivityStatus['status'];
 export type ActivityStatus = ContractActivityStatus;
@@ -210,17 +210,10 @@ export interface DebugTimelineEvent {
 }
 
 
-export type McpToolInvocationStats = McpInvocationStat;
 export type McpToolWithStats = ContractMcpToolsResponse['serverDetails'][number]['tools'][number];
 export type McpServerWithTools = ContractMcpToolsResponse['serverDetails'][number];
 export type McpToolsResponse = OperatorApiSuccess<'mcp.tools'>;
-export type McpTool = McpToolDefinition;
 export type McpStatusResponse = OperatorApiSuccess<'mcp.status'>;
-export type McpTransportKind = McpTransport;
-export type McpStatusKind = McpStatusState;
-
-export type ChatSession = ContractChatSession;
-export type WorkspaceContext = ChatWorkspaceContext;
 
 
 export type WsConnectionState = 'connected' | 'connecting' | 'offline' | 'unauthorized' | 'no-token';
@@ -250,12 +243,12 @@ export type ConfigResponse = OperatorApiSuccess<'config.get'>;
 export type ProvidersResponse = OperatorApiSuccess<'providers.list'>;
 export type AgentDetailSession = OperatorApiSuccess<'agents.detail'>['session'];
 export type AgentDetailResponse = Omit<OperatorApiSuccess<'agents.detail'>, 'session'> & { session: AgentDetailSession; };
-export type AgentConversationResponse = Omit<OperatorApiSuccess<'agents.conversation'>, 'session' | 'entries' | 'activity_status'> & { session: AgentSession; entries: ConversationEntry[]; activity_status: ActivityStatus; };
+export type AgentConversationResponse = Omit<OperatorApiSuccess<'agents.conversation'>, 'session' | 'entries' | 'activity_status'> & { session: AgentSession; entries: AgentConversationEntry[]; activity_status: ActivityStatus; };
 export type AgentLlmExchangeResponse = OperatorApiSuccess<'agents.llmExchange'>;
 export type AgentSessionsResponse = Omit<OperatorApiSuccess<'agents.list'>, 'sessions'> & { sessions: AgentSession[]; };
 export type ControlActionsListResponse = OperatorApiSuccess<'controlActions.list'>;
 export type ChatSessionsResponse = OperatorApiSuccess<'chats.list'>;
-export type ChatEntriesResponse = OperatorApiSuccess<'chats.get'> & { entries: ConversationEntry[]; };
+export type ChatEntriesResponse = OperatorApiSuccess<'chats.get'> & { entries: AgentConversationEntry[]; };
 export type ChatResponse = OperatorApiSuccess<'chats.send'>;
 export type FilesListResponse = OperatorApiSuccess<'files.list'>;
 export type DebugStateResponse = OperatorApiSuccess<'debug.state'> & { runtime: RuntimeState | null; cards: Array<{ id: string; type: CardType; parent: string | null; status: CardStatus; title: string; priority: number; depends_on: string[] }>; };

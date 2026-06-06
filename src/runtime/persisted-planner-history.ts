@@ -6,7 +6,7 @@ import {
   getSessionMessages,
   replaceSessionMessages,
 } from './session-persistence.js';
-import type { SessionStamper } from '../contracts/session-stamper.js';
+import type { SessionStamper } from './session-stamper.js';
 
 const PLANNER_PERSISTED_HISTORY_COMPACTION_LIMIT_TOKENS = 24000;
 const PLANNER_PERSISTED_HISTORY_RECENT_MESSAGE_LIMIT = 24;

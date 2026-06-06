@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
-import type { CardRecord, ChatSession, ConversationEntry, DetailErrorState } from '../api/types';
+import type { AgentConversationEntry, CardRecord, ChatSession, DetailErrorState } from '../api/types';
 import {
   ApiError,
   getChatEntries,
@@ -98,7 +98,7 @@ function buildPendingInvocationId(invocation: Omit<PendingToolInvocation, 'id'>)
   ].join(':');
 }
 
-function toolInvocationMatchesMessage(invocation: PendingToolInvocation, message: ConversationEntry): boolean {
+function toolInvocationMatchesMessage(invocation: PendingToolInvocation, message: AgentConversationEntry): boolean {
   if (message.tool !== invocation.tool) return false;
   if (message.kind === 'tool_call' && message.role === 'assistant') {
     try {
@@ -117,7 +117,7 @@ function toolInvocationMatchesMessage(invocation: PendingToolInvocation, message
 function dedupePendingToolInvocations(
   pending: PendingToolInvocation[],
   sessionId: string,
-  fetchedMessages: ConversationEntry[],
+  fetchedMessages: AgentConversationEntry[],
 ): PendingToolInvocation[] {
   return pending.filter((invocation) => {
     if (invocation.sessionId !== sessionId) {
@@ -143,7 +143,7 @@ function pushPendingToolInvocation(
 export const useAnalystChat = defineStore('analyst-chat', () => {
   const sessions = ref<ChatSession[]>([]);
   const activeSessionId = ref<string | null>(ANALYST_SESSION_ID);
-  const messages = ref<ConversationEntry[]>([]);
+  const messages = ref<AgentConversationEntry[]>([]);
   const draft = ref('');
   const sessionsLoading = ref(false);
   const sessionsError = ref<DetailErrorState | null>(null);
@@ -322,7 +322,7 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
         links: Array.isArray(responseMessage.links)
           ? responseMessage.links
           : undefined,
-      } satisfies ConversationEntry;
+      } satisfies AgentConversationEntry;
       messages.value = [...messages.value, optimistic];
 
       for (const rawInvocation of response.toolInvocations) {

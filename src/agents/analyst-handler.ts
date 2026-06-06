@@ -8,7 +8,7 @@ import { AnalystOfflineError, LlmIntentResolver, TOOL_REGISTRY } from './analyst
 import { CardStore } from '../cards/store-api.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
 import type { EventPayload } from '../events/index.js';
-import type { SessionActivity, SessionStamper } from '../contracts/session-stamper.js';
+import type { SessionActivity, SessionStamper } from '../runtime/session-stamper.js';
 import type { CandidateAvailability } from './candidate-availability.js';
 import type { EventLogger } from '../observability/index.js';
 import type { McpManager } from '../mcp/manager-api.js';

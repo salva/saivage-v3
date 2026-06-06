@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';
 import { useAgentStore } from '../../stores/agents';
-import type { ActivityStatus, AgentSession, ConversationEntry } from '../../api/types';
+import type { ActivityStatus, AgentConversationEntry, AgentSession } from '../../api/types';
 
 vi.mock('../../api/client', () => ({
   listAgentSessions: vi.fn(),
@@ -12,7 +12,7 @@ vi.mock('../../api/client', () => ({
 import { getAgentConversation, listAgentSessions } from '../../api/client';
 
 const session: AgentSession = { id: 's1', role: 'planner', status: 'active', started_at: '2026-01-01T00:00:00.000Z' };
-const entry: ConversationEntry = { id: 'm1', session_id: 's1', role: 'assistant', kind: 'text', content: 'hello', round_id: 'r-assistant-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: '2026-01-01T00:00:01.000Z' };
+const entry: AgentConversationEntry = { id: 'm1', session_id: 's1', role: 'assistant', kind: 'text', content: 'hello', round_id: 'r-assistant-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: '2026-01-01T00:00:01.000Z' };
 const activity_status: ActivityStatus = { status: 'idle', pending_calls: [], updated_at: '2026-01-01T00:00:02.000Z' };
 
 describe('useAgentStore conversation entries', () => {

@@ -108,20 +108,6 @@ export type {
 } from './llm-exchange.js';
 
 export type {
-  ActivityStatus,
-  PendingCall,
-  RoundStamp,
-  RuntimeAppendRecorder,
-  SessionActivity,
-  SessionRoundState,
-  SessionStamper,
-} from './session-stamper.js';
-
-export {
-  MemoryCandidateAvailability,
-} from './candidate-availability.js';
-
-export type {
   AvailabilityDecision,
   CandidateAvailability,
   CandidateAvailabilityEntry,

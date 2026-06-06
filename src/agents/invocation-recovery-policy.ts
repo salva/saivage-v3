@@ -1,6 +1,6 @@
 import type { AgentRole } from '../schemas/index.js';
 import { unwrapFailure } from './llm-errors.js';
-import type { LlmTransportFailure } from './llm-failure.js';
+import type { LlmTransportFailure } from '../contracts/llm-failure.js';
 import type { Candidate } from './provider.js';
 import type { AvailabilityDecision } from './candidate-availability.js';
 import type { CapabilityRequest, CapabilitySkipDiagnostic } from './provider-capabilities.js';

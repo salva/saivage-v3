@@ -1,5 +1,5 @@
 import type { Subscription, SubscriptionOptions } from '../events/index.js';
-import type { SessionActivity } from '../contracts/session-stamper.js';
+import type { SessionActivity } from './session-stamper.js';
 import type { ActionableErrorEnvelope, RuntimeCommandRecord, RuntimeRunRecord, RuntimeState, RuntimeStatus } from '../schemas/index.js';
 
 export type RuntimeCommandSource = 'operator' | 'tool' | 'runtime' | 'analyst';

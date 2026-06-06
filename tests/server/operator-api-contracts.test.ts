@@ -98,6 +98,7 @@ const card = {
 describe('operator API contract registry', () => {
   it('contains the bounded first-batch operation inventory', () => {
     expect(Object.keys(operatorApiContracts)).toEqual([
+      'auth.wsTicket',
       'health.liveness',
       'health.readiness',
       'runtime.getState',
@@ -142,6 +143,7 @@ describe('operator API contract registry', () => {
       'runtime.cardRuns',
     ]);
     expect(operatorRouteInventory()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ operationId: 'auth.wsTicket', method: 'POST', path: '/api/auth/ws-ticket', requiresAuth: true, successSchemaName: 'WebSocketTicketResponse' }),
       expect.objectContaining({ operationId: 'health.liveness', method: 'GET', path: '/health', successSchemaName: 'HealthLivenessResponse' }),
       expect.objectContaining({ operationId: 'health.readiness', method: 'GET', path: '/health/ready', successSchemaName: 'HealthReadinessResponse' }),
       expect.objectContaining({ operationId: 'runtime.status', method: 'GET', path: '/api/runtime/status', successSchemaName: 'RuntimeStatusResponse' }),

@@ -381,9 +381,6 @@ describe('Security — Auth, Path Traversal, and Redaction', () => {
     await app.register(cors);
     await app.register(websocket);
 
-    const { default: authPlugin } = await import('../../src/server/auth.js');
-    await app.register(authPlugin);
-
     const { registerCardRoutes } = await import('../../src/server/routes/cards.js');
     const { registerChatsFilesDebugRoutes } = await import('../../src/server/routes/chats-files-debug.js');
     const { registerWebSocket } = await import('../../src/server/websocket.js');

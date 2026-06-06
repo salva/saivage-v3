@@ -1,6 +1,6 @@
 import type { CardStore } from '../cards/store-api.js';
 import type { AgentExecutionPort } from '../contracts/index.js';
-import type { SessionStamper } from '../contracts/session-stamper.js';
+import type { SessionStamper } from './session-stamper.js';
 import type { ErrorLogger, EventLogger } from '../observability/index.js';
 import type { ActivationUnwindRunner } from './activation-unwind.js';
 import { ExecutorActivationDispatcher } from './executor-activation-dispatcher.js';
