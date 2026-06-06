@@ -3,7 +3,7 @@ import type { RuntimeApplication } from '../../src/application/runtime-compositi
 import type { AnalystRuntimeDeps } from '../../src/agents/analyst-api.js';
 import type { RuntimeApi } from '../../src/runtime/runtime-api.js';
 import type { RoundStamp } from '../../src/agents/session-persistence.js';
-import { generateRoundId } from '../../src/agents/round-id-server.js';
+import { generateRoundId } from '../../src/schemas/round-id-server.js';
 
 interface TestRoundState { currentRoundId: string | null; nextMessageIndex: number; nextBlockIndex: number; }
 

@@ -5,7 +5,7 @@ import type { CardRecord } from '../../src/schemas/types.js';
 import type { MatchParams } from '../../src/agents/skills-engine.js';
 
 describe('PlannerPhaseRunner', () => {
-  it('builds planner prompt with skills, goal context, and handoff before invocation', async () => {
+  it('builds planner prompt with skills and goal context before invocation', async () => {
     let request: PlannerInvocationRequest | null = null;
     let skillMatchParams: MatchParams | null = null;
     let injected = false;
@@ -38,7 +38,6 @@ describe('PlannerPhaseRunner', () => {
       buildGoalEvidenceContext: () => '{"children":[]}',
       buildGoalContextBlock: () => '## Goal Context\ncontext',
       inferResumeReason: () => 'initial',
-      consumeResumeHandoffContext: () => 'handoff',
       injectSyntheticPlannerNotes: () => {
         injected = true;
       },

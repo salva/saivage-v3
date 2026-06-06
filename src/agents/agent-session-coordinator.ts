@@ -3,7 +3,7 @@ import type { AgentRole, HandoffSummary } from '../schemas/index.js';
 import type { NotificationCenter, NotificationQueueEntry } from '../notifications/index.js';
 import type { EventLogger } from '../observability/index.js';
 import { getSession, getSessionMessages, listSessions } from './session-persistence.js';
-import { generateRoundId } from './round-id-server.js';
+import { generateRoundId } from '../schemas/round-id-server.js';
 
 export type SessionCreatedHook = (sessionId: string) => void | Promise<void>;
 

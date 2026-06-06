@@ -1,4 +1,4 @@
-export { buildRuntimeStatusReadModel, buildRuntimeStateSnapshotContent } from './runtime-status-read-model.js';
+export { buildRuntimeStatusReadModel } from './runtime-status-read-model.js';
 export type { RuntimeStatusInputs, RuntimeStatusReadModel } from './runtime-status-read-model.js';
 export { buildCardRunsResponse } from './runtime-card-runs-read-model.js';
 export type { CardBreadcrumbNode, CardRunsResponse, DormantPlannerRow, PendingCorrectionRow } from './runtime-card-runs-read-model.js';

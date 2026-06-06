@@ -1,6 +1,7 @@
 import type { ActionableErrorEnvelope, CardLifecycleState, CardRecord, CardStatus, FreezeManifest, HandoffSummary, RuntimeCommandRecord, RuntimeLedgerActivationOutcome, RuntimeLedgerRunOutcome, RuntimeRunRecord, RuntimeState } from '../schemas/index.js';
 import type { ActivationCompletionOutcome } from '../schemas/index.js';
 import { TERMINAL_STATUSES } from '../permissions/index.js';
+import { isUnresolvedRuntimeActivationStatus } from './state.js';
 
 // Pause field groups:
 // Full pause: { status: 'paused', paused: true, paused_at }
@@ -28,7 +29,7 @@ export function makeRuntimePreconditionError(input: {
     message: input.message,
     currentState: input.currentState,
     nextAction: input.nextAction,
-    docsRef: 'docs/operator-runbook.md',
+    docsRef: 'docs/runbook/index.md',
   };
 }
 
@@ -710,7 +711,7 @@ export function reduceActivationCompletion(
   const transitioningActivations = currentState.runtime_activations.filter(
     (activation) =>
       activation.child_card_id === childCardId &&
-      ['pending', 'claimed', 'running'].includes(activation.status),
+      isUnresolvedRuntimeActivationStatus(activation.status),
   );
   const completedActivationIds = new Set(transitioningActivations.map((activation) => activation.activation_id));
   const completedRunIds = new Set(transitioningActivations.map((activation) => activation.runtime_run_id).filter((runId): runId is string => typeof runId === 'string'));

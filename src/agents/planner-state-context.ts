@@ -1,7 +1,7 @@
 import type { AgentMessage, CardRecord, RuntimeState } from '../schemas/index.js';
 import { CardStore } from '../cards/store-api.js';
-import { readRuntimeState } from '../runtime/state.js';
-import { generateRoundId } from './round-id-server.js';
+import { isUnresolvedRuntimeActivationStatus, readRuntimeState } from '../runtime/state.js';
+import { generateRoundId } from '../schemas/round-id-server.js';
 
 export interface PlannerStateContextInput {
   projectRoot: string;
@@ -118,7 +118,7 @@ export function buildPlannerStateContextMessage(input: PlannerStateContextInput)
   const unresolvedActivations = (runtimeState?.runtime_activations ?? [])
     .filter(
       (activation) =>
-        activation.parent_card_id === input.goalId && ['pending', 'running'].includes(activation.status),
+        activation.parent_card_id === input.goalId && isUnresolvedRuntimeActivationStatus(activation.status),
     )
     .map((activation) => ({
       card_id: activation.child_card_id,

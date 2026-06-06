@@ -61,9 +61,7 @@ export async function performRuntimeStartup(input: {
     transitionCard: (cardId, event) => input.stateMachine.transitionCard(cardId, event),
   });
   reconcileProcessRecords(input.projectRoot);
-  input.lifecycle.startupRepairPending = true;
   const repairedState = await input.repairStartupActiveCardRun(state);
-  input.lifecycle.startupRepairPending = false;
   if (!repairedState) state = initRuntimeState(input.projectRoot);
   else state = repairedState;
   const swept = reconcileOrphanedAgentSessions(join(input.projectRoot, '.saivage'));

@@ -65,7 +65,7 @@ describe('runtime core reducers', () => {
       message: 'Runtime is stopped.',
       nextAction: 'Start runtime.',
       currentState: { status: 'idle' },
-      docsRef: 'docs/operator-runbook.md',
+      docsRef: 'docs/runbook/index.md',
     });
   });
 

@@ -1,13 +1,10 @@
 import type {
   ActionableErrorEnvelope,
-  CardIndex,
   RuntimeActivationRecord,
   RuntimeCommandRecord,
   RuntimeIntent,
-  RuntimeRunRecord,
   RuntimeState,
   RuntimeStatus,
-  ServerAvailability,
   WsConnectionState,
 } from '../api/types';
 
@@ -18,18 +15,6 @@ export interface RuntimeSummaryProjection {
   activations: RuntimeActivationRecord[];
   lastCommand: RuntimeCommandRecord | null;
   lastActionableError: ActionableErrorEnvelope | null;
-}
-
-export interface RuntimeWsSummaryState extends RuntimeSummaryProjection {
-  runtime: RuntimeState | null;
-  cardIndex: CardIndex;
-  serverAvailability: ServerAvailability | null;
-  statusBeforePause: RuntimeStatus | null;
-}
-
-export interface RuntimeWsReduction {
-  state: RuntimeWsSummaryState;
-  shouldRefreshState: boolean;
 }
 
 export type LiveUpdateState = 'live' | 'connecting' | 'offline' | 'unauthorized' | 'no-token' | 'stale';
@@ -147,88 +132,4 @@ export function selectLiveUpdateDetail(state: LiveUpdateState): string {
     case 'no-token': return 'Using the last REST snapshot only until live updates reconnect.';
     case 'stale': return 'Live updates have gone quiet; refresh to confirm current runtime truth.';
   }
-}
-
-export function upsertRuntimeRun(activeChildRuns: RuntimeRunRecord[], currentRun: RuntimeRunRecord | null, run: RuntimeRunRecord): Pick<RuntimeSummaryProjection, 'currentRun' | 'activeChildRuns'> {
-  if (run.kind === 'root') {
-    return {
-      currentRun: run.finished_at ? (currentRun?.run_id === run.run_id ? run : currentRun) : run,
-      activeChildRuns,
-    };
-  }
-  const others = activeChildRuns.filter((existing) => existing.run_id !== run.run_id);
-  return {
-    currentRun,
-    activeChildRuns: run.finished_at ? others : [...others, run],
-  };
-}
-
-export function upsertRuntimeActivation(activations: RuntimeActivationRecord[], activation: RuntimeActivationRecord): RuntimeActivationRecord[] {
-  return [
-    ...activations.filter((existing) => existing.activation_id !== activation.activation_id),
-    activation,
-  ];
-}
-
-export function reduceRuntimeWsEvent(
-  state: RuntimeWsSummaryState,
-  content: Record<string, unknown>,
-  knownContent: Record<string, unknown> | null | undefined,
-): RuntimeWsReduction {
-  const event = typeof content.event === 'string' ? content.event : '';
-  let next: RuntimeWsSummaryState = { ...state };
-  let shouldRefreshState = false;
-
-  if (event === 'runtime-state') {
-    if (content.runtime) {
-      const runtime = content.runtime as RuntimeState;
-      next = { ...next, runtime, ...selectRuntimeSummary(runtime) };
-    }
-    if (content.cardIndex) next.cardIndex = content.cardIndex as CardIndex;
-    if ('serverAvailability' in content) next.serverAvailability = (content.serverAvailability ?? null) as ServerAvailability | null;
-  }
-
-  if ((event === 'runtime-paused' || event === 'runtime-resumed') && next.runtime) {
-    const statusBeforePause = event === 'runtime-paused' && !next.runtime.paused
-      ? next.runtime.status
-      : next.statusBeforePause;
-    const restoredStatus = event === 'runtime-resumed'
-      ? (statusBeforePause ?? next.runtime.status)
-      : 'paused';
-    next = {
-      ...next,
-      statusBeforePause: event === 'runtime-resumed' ? null : statusBeforePause,
-      runtime: {
-        ...next.runtime,
-        paused: event === 'runtime-paused',
-        status: restoredStatus,
-        paused_at: event === 'runtime-paused' ? new Date().toISOString() : null,
-      },
-    };
-  }
-
-  if (event === 'runtime.run' && content.run) {
-    const updated = upsertRuntimeRun(next.activeChildRuns, next.currentRun, content.run as RuntimeRunRecord);
-    next = { ...next, ...updated };
-  }
-
-  if (knownContent?.event === 'runtime.command') {
-    const lastCommand = knownContent.command as RuntimeCommandRecord;
-    next = { ...next, lastCommand, lastActionableError: lastCommand.error ?? next.lastActionableError };
-  }
-  if (knownContent?.event === 'runtime.activation') {
-    const activation = knownContent.activation as RuntimeActivationRecord;
-    next = {
-      ...next,
-      activations: upsertRuntimeActivation(next.activations, activation),
-      lastActionableError: activation.error ?? next.lastActionableError,
-    };
-  }
-  if (knownContent?.event === 'runtime.actionable_error') {
-    next = { ...next, lastActionableError: knownContent.actionable_error as ActionableErrorEnvelope };
-  }
-
-  if (event === 'card-status-changed' && content.card) shouldRefreshState = true;
-
-  return { state: next, shouldRefreshState };
 }

@@ -8,9 +8,9 @@ import {
   agentRoleValues,
 } from './types.js';
 import { buildLoggedEventSchema } from './event-catalog.js';
-import { roundIdGrammar } from '../agents/round-id.js';
+import { roundIdGrammar } from './round-id.js';
 import { cardLifecycleStateSchema } from './lifecycle.js';
-export { roundIdGrammar, assertRoundId, type RoundKind } from '../agents/round-id.js';
+export { roundIdGrammar, assertRoundId, type RoundKind } from './round-id.js';
 
 
 export const cardTypeSchema = z.enum(['project','goal','architecture','code','test','doc','data','research','ops']);

@@ -7,6 +7,7 @@ import type { RuntimeStateMutationPort } from './mutations.js';
 import type { RuntimeSessionPersistencePort } from './session-persistence-port.js';
 import { TERMINAL_STATUSES } from '../permissions/index.js';
 import { activeRunFromActivationState, plannerActivationStateFromGoal } from './activation-reducer.js';
+import { isUnresolvedRuntimeActivationStatus } from './state.js';
 
 export interface UnresolvedActivateCardCall {
   session_id: string;
@@ -121,7 +122,7 @@ export function selectPendingActivationChildCardIds(state: RuntimeState | null, 
     .filter(
       (activation) =>
         activation.parent_card_id === parentCardId &&
-        ['pending', 'claimed', 'running'].includes(activation.status),
+        isUnresolvedRuntimeActivationStatus(activation.status),
     )
     .sort((a, b) => a.requested_at.localeCompare(b.requested_at))
     .map((activation) => activation.child_card_id);

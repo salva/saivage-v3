@@ -13,7 +13,6 @@ export interface PlannerPhaseRunnerDeps {
   buildGoalEvidenceContext(goalId: string): string;
   buildGoalContextBlock(goalId: string, resumeReason: GoalResumeReason): string;
   inferResumeReason(goalId: string, fallback: GoalResumeReason): GoalResumeReason;
-  consumeResumeHandoffContext(): string | null;
   injectSyntheticPlannerNotes(goalId: string): void;
   activationBarrier?: PlannerActivationBarrier;
 }
@@ -30,8 +29,6 @@ export class PlannerPhaseRunner {
     const goalContext = this.deps.buildGoalContextBlock(input.goalId, resumeReason);
     let plannerPrompt = buildPlannerPrompt(plannerContract, undefined, currentDepth, this.deps.maxDepth);
     plannerPrompt += `\n\n${goalContext}\n\n## Parent Resume Context\n${resumeContext}`;
-    const handoff = this.deps.consumeResumeHandoffContext();
-    if (handoff) plannerPrompt += `\n\n## Resume Handoff\n${handoff}`;
     try {
       if (goalCard && this.deps.skillsEngine) {
         const plannerInstr =

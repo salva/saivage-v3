@@ -7,6 +7,7 @@ import type { LoggedEvent } from '../schemas/index.js';
 import { resolveRecipient } from '../notifications/index.js';
 import type { EventLogger } from '../observability/index.js';
 import type { CardRecord } from '../schemas/index.js';
+import { isUnresolvedRuntimeActivationStatus } from '../runtime/state.js';
 export interface AgentToolMessage { role: 'tool'; kind: 'tool_result' | 'tool_error'; content: string; tool: string; tool_call_id: string; }
 
 export interface PlannerControlExecutionContext {
@@ -49,7 +50,6 @@ function toolMessage(kind: 'tool_result' | 'tool_error', content: string, tool: 
   return { role: 'tool', kind, content, tool, tool_call_id: toolCallId };
 }
 
-const UNRESOLVED_ACTIVATION_STATUSES = new Set(['pending', 'claimed', 'running']);
 const PLANNER_EDITABLE_FIELDS = new Set(['title', 'description', 'status', 'tags', 'priority', 'urgency', 'acceptance', 'depends_on', 'related']);
 
 export class PlannerControlExecutor {
@@ -144,7 +144,7 @@ export class PlannerControlExecutor {
           }
           const idempotencyKey = `${parentRun.run_id}:${sessionId}:${invocation.toolCallId}:${targetId}`;
           const existingActivation = (this.context.activationLedger?.readState()?.runtime_activations ?? this.context.runtimeStateProvider?.()?.runtime_activations ?? [])
-            .find((activation) => activation.idempotency_key === idempotencyKey && UNRESOLVED_ACTIVATION_STATUSES.has(activation.status));
+            .find((activation) => activation.idempotency_key === idempotencyKey && isUnresolvedRuntimeActivationStatus(activation.status));
           if (existingActivation) {
             result = { success: true, activation: existingActivation };
             break;

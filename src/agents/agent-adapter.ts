@@ -56,7 +56,7 @@ import { buildLlmOptions } from './llm-options-factory.js';
 import { serializeToolCallMessage } from '../contracts/persisted-tool-call.js';
 import { LlmRequestError } from './llm-failure.js';
 import { capabilityRequestForLlmOptions } from './provider-capabilities.js';
-import { generateRoundId } from './round-id-server.js';
+import { generateRoundId } from '../schemas/round-id-server.js';
 import {
   defaultInvocationRecoveryPolicy,
   type InvocationRecoveryContext,

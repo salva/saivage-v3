@@ -44,7 +44,3 @@ export function buildRuntimeStatusReadModel(inputs: RuntimeStatusInputs): Runtim
     ...(inputs.serverAvailability ? { serverAvailability: inputs.serverAvailability } : {}),
   };
 }
-
-export function buildRuntimeStateSnapshotContent(inputs: RuntimeStatusInputs): Record<string, unknown> {
-  return { event: 'runtime-state', ...buildRuntimeStatusReadModel(inputs) };
-}

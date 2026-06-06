@@ -77,10 +77,6 @@ export async function performRuntimeShutdown(input: {
   try {
     const disposeReport = await disposeProcessRuntimeScope(input.projectRoot);
     input.diagnostics.setLastLifecycleDisposeReport(disposeReport);
-    for (const id of disposeReport
-      .filter((entry) => entry.kind === 'child_process')
-      .map((entry) => entry.id.replace(/^child:/, '')))
-      input.lifecycle.runningProcesses.delete(id);
   } catch (error) {
     input.diagnostics.setLastLifecycleDisposeReport(processDisposeFailureReport(error));
   }

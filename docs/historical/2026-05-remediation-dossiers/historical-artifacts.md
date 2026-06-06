@@ -14,7 +14,7 @@ For current behavior and supported procedures, use:
 - [Configuration](/configuration)
 - [Operation](/operation)
 - [Goal Planning Runtime](/goal-planning-runtime)
-- [Operator Runbook](/operator-runbook)
+- [Operator Runbook](/runbook/)
 - [Troubleshooting](/troubleshooting)
 - [Release Checklist](/release-checklist)
 

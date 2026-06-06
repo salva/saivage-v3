@@ -73,7 +73,7 @@ Possible classes:
 Examples of `read_only` inspection commands include:
 
 - `ls -la`
-- `cat docs/operator-runbook.md`
+- `cat docs/runbook/index.md`
 - `grep -r analyst docs/`
 - `git status`
 - `git diff --stat`
@@ -234,7 +234,7 @@ Do **not** try to run these Vue/Pinia suites through root `npm test`; the root J
 
 ## Related operator docs
 
-- [Operator Runbook](/operator-runbook)
+- [Operator Runbook](/runbook/)
 - [Troubleshooting](/troubleshooting)
 
 ## Source anchors

@@ -16,7 +16,7 @@ import type { ActorRole } from './authz.js';
 import { sanitizeAnalystText } from '../agents/analyst-sanitization.js';
 import { compactSession } from './compaction.js';
 import { appendMessage, getSessionMessages } from './session-persistence.js';
-import { generateRoundId } from './round-id-server.js';
+import { generateRoundId } from '../schemas/round-id-server.js';
 import { ANALYST_PARTIAL_SUCCESS_TEMPLATE, ANALYST_UNKNOWN_CAPABILITY_TEMPLATE } from './analyst-tool-runner.js';
 import { parseToolCallMessage, serializeToolCallMessage } from '../contracts/persisted-tool-call.js';
 

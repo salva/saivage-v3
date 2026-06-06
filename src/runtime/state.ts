@@ -4,12 +4,22 @@ import { runtimeStateSchema } from '../schemas/index.js';
 import type { ZodType } from 'zod';
 import { explainLegacyStateRejection } from '../persistence/index.js';
 import { AtomicJsonFile, ProjectLock, PersistenceReadError, PersistenceValidationError } from '../persistence/index.js';
-import type { ActiveCardRun, RuntimeActivationRecord, RuntimeCommandName, RuntimeCommandRecord, RuntimeRunRecord, RuntimeState } from '../schemas/index.js';
+import type { ActiveCardRun, RuntimeActivationRecord, RuntimeActivationStatus, RuntimeCommandName, RuntimeCommandRecord, RuntimeRunRecord, RuntimeState } from '../schemas/index.js';
 
 const LEGACY_STATE_FILE = 'state.json';
 const AUTHORITATIVE_STATE_FILE = 'runtime.json';
 const TERMINAL_IDLE_ACTIVE_RUN_STATUSES = new Set(['stopped', 'cancelled']);
 const runtimeStatePersistenceSchema = runtimeStateSchema as ZodType<RuntimeState>;
+
+export const UNRESOLVED_RUNTIME_ACTIVATION_STATUSES = new Set<RuntimeActivationStatus>([
+  'pending',
+  'running',
+  'needs_verification',
+]);
+
+export function isUnresolvedRuntimeActivationStatus(status: RuntimeActivationStatus): boolean {
+  return UNRESOLVED_RUNTIME_ACTIVATION_STATUSES.has(status);
+}
 
 export class RuntimeStateInvariantError extends Error {
   constructor(message: string) {

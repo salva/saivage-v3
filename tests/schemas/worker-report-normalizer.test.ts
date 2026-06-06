@@ -2,14 +2,12 @@ import { describe, expect, it } from '@jest/globals';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { normalizeRunManagerArtifacts } from '../../src/schemas/manager-envelope-normalizer.js';
 import { normalizeWorkerDispatchTaskReport } from '../../src/schemas/worker-dispatch-envelope-normalizer.js';
 import { normalizeStageSummary, normalizeTaskReport } from '../../src/schemas/worker-report-normalizer.js';
 
 const fixtureRoot = join(process.cwd(), 'tests', 'fixtures', 'worker-report-normalizer');
 const promptRepairFixtureId = 'fixture-prompt-repair';
 const clearanceGateFixtureId = 'fixture-clearance-gate';
-const runManagerFixtureId = 'fixture-run-manager';
 const reviewerAliasFixtureId = 'fixture-reviewer-alias';
 
 function readFixtureJson(fixtureId: string, relativePath: string): unknown {
@@ -186,51 +184,6 @@ describe('worker report compatibility normalization', () => {
       'failure_reason null removed from successful report',
     ]));
   });
-
-  it('normalizes synthetic run_manager-facing summary task arrays into numeric counts', () => {
-    const normalized = normalizeRunManagerArtifacts({ stageDirectory: join(fixtureRoot, runManagerFixtureId) });
-
-    expect(normalized.ok).toBe(true);
-    expect(normalized.data?.stage_summary).toEqual(expect.objectContaining({
-      stage_id: runManagerFixtureId,
-      result: 'completed',
-      tasks_completed: 2,
-      tasks_failed: 0,
-      total_tasks: 2,
-      completed_task_ids: ['t1-sanitized-clearance-gate', 't2-stage-review'],
-      failed_task_ids: [],
-    }));
-    expect(typeof normalized.data?.stage_summary.tasks_completed).toBe('number');
-    expect(typeof normalized.data?.stage_summary.tasks_failed).toBe('number');
-    expect(normalized.diagnostics).toEqual(expect.arrayContaining([
-      'summary: tasks_completed array normalized to count 2',
-      'summary: tasks_failed array normalized to count 0',
-    ]));
-  });
-
-  it('normalizes synthetic run_manager-facing worker reports before schema validation/return', () => {
-    const normalized = normalizeRunManagerArtifacts({ stageDirectory: join(fixtureRoot, runManagerFixtureId) });
-
-    expect(normalized.ok).toBe(true);
-    expect(normalized.data?.task_reports.map((report) => report.task_id)).toEqual([
-      't1-sanitized-clearance-gate',
-      't2-stage-review',
-    ]);
-    for (const report of normalized.data?.task_reports ?? []) {
-      expect(report.status).toBe('completed');
-      expect(report.failure_reason).toBeUndefined();
-      expect(report.checklist_results.length).toBeGreaterThan(0);
-      expect(report.checklist_results.every((entry) => typeof entry.description === 'string' && entry.description.length > 0)).toBe(true);
-      expect(JSON.stringify(report)).not.toContain('"failure_reason":null');
-    }
-    expect(normalized.diagnostics).toEqual(expect.arrayContaining([
-      'reports/t1-sanitized-clearance-gate.json: checklist_results[0].required defaulted to true',
-      'reports/t1-sanitized-clearance-gate.json: failure_reason null removed from successful report',
-      'reports/t2-stage-review.json: checklist_results[0].required defaulted to true',
-      'reports/t2-stage-review.json: failure_reason null removed from successful report',
-    ]));
-  });
-
 
   it('normalizes a synthetic Coder dispatch return report before strict schema validation', () => {
     const normalized = normalizeWorkerDispatchTaskReport(

@@ -191,36 +191,6 @@ export class RuntimeLifecycleScope {
     }
   }
 
-  private registeredHandle(id: string): RuntimeResourceHandle {
-    const resource = this.resources.get(id);
-    if (!resource) {
-      return {
-        id,
-        kind: 'disposable',
-        unregister: () => {},
-        dispose: async () => ({ id, kind: 'disposable', status: 'noop' }),
-      };
-    }
-    return {
-      id,
-      kind: resource.kind,
-      label: resource.label,
-      unregister: () => {
-        this.resources.delete(id);
-      },
-      dispose: async () => {
-        if (!this.resources.has(id)) return { id, kind: resource.kind, label: resource.label, status: 'noop' };
-        this.resources.delete(id);
-        try {
-          const result = await resource.dispose();
-          if (typeof result === 'string') return { id, kind: resource.kind, label: resource.label, status: result };
-          return { ...result, id: result.id || id, kind: result.kind || resource.kind, label: result.label ?? resource.label };
-        } catch (error) {
-          return { id, kind: resource.kind, label: resource.label, status: 'failed', error: errorMessage(error) };
-        }
-      },
-    };
-  }
 }
 
 export function createRuntimeLifecycleScope(scopeId: string): RuntimeLifecycleScope {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from '@jest/globals';
 import { SessionStampCounter } from '../../src/contracts/session-stamper.js';
-import { roundIdGrammar } from '../../src/agents/round-id.js';
+import { roundIdGrammar } from '../../src/schemas/round-id.js';
 
 describe('SessionStampCounter — collision-free round_id', () => {
   it('emits a unique 32-hex round_id for each stampUserMessage call within one session', () => {

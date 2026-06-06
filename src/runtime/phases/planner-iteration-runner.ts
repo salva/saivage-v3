@@ -7,7 +7,6 @@ import type { RuntimeGoalContextCoordinator } from '../runtime-goal-context.js';
 import type { PendingActivationDispatcher } from '../pending-activation-dispatcher.js';
 import type { RuntimeRunLedger } from '../runtime-run-ledger.js';
 import type { RuntimeServices } from '../runtime-services.js';
-import { consumeResumeHandoffContext } from '../runtime-lifecycle-state.js';
 import { buildGoalEvidenceContext } from '../context-builder.js';
 import { buildCurrentAgentSessionPatch } from '../runtime-core.js';
 import { decidePlannerPostDispatch, summarizePlannerPostDispatch } from './planner-phase.js';
@@ -53,7 +52,6 @@ export class PlannerIterationRunner {
         buildGoalEvidenceContext: (cardId) => buildGoalEvidenceContext({ goalId: cardId, cards: this.deps.cards }),
         buildGoalContextBlock: (cardId, resumeReason) => this.deps.goalContext.buildGoalContextBlock(cardId, resumeReason),
         inferResumeReason: (cardId, fallback) => this.deps.goalContext.inferResumeReason(cardId, fallback),
-        consumeResumeHandoffContext: () => consumeResumeHandoffContext(this.deps.lifecycle),
         injectSyntheticPlannerNotes: (cardId) => {
           this.deps.goalContext.injectQueuedPlannerNotes(`planner:${cardId}`);
         },
