@@ -122,6 +122,7 @@ export function createTestAnalystRuntime(opts: { eventBus?: EventBus; cardStore?
     stamper: analystRuntime,
     candidateAvailability: analystRuntime.candidateAvailability,
     eventLogger: analystRuntime.eventLogger,
+    eventBus: opts.eventBus,
     emitAnalystToolInvoked: (payload) => analystRuntime.emitAnalystToolInvoked(payload),
     mcpManager: analystRuntime.mcpManager,
   };
@@ -151,6 +152,7 @@ export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardSt
         stamper: analystRuntime,
         candidateAvailability: analystRuntime.candidateAvailability,
         eventLogger: analystRuntime.eventLogger,
+        eventBus: opts.eventBus,
         emitAnalystToolInvoked: (payload: Parameters<typeof analystRuntime.emitAnalystToolInvoked>[0]) => analystRuntime.emitAnalystToolInvoked(payload),
         mcpManager: analystRuntime.mcpManager,
       };

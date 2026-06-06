@@ -7,6 +7,7 @@ import { SkillsEngine } from '../agents/skills-engine.js';
 import { ContextCompactor } from '../agents/context-compactor.js';
 import type { AnalystRuntimeDeps } from '../agents/analyst-api.js';
 import type { EventPayload } from '../events/index.js';
+import { EventBus } from '../events/index.js';
 import type { McpManager } from '../mcp/manager-api.js';
 import { EventLogger, ErrorLogger } from '../observability/index.js';
 import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from '../runtime/state.js';
@@ -29,6 +30,7 @@ function buildAnalystDeps(input: {
   stamper: SessionStampCounter;
   candidateAvailability: CandidateAvailability;
   eventLogger: EventLogger;
+  eventBus: EventBus;
   contextCompactor: ContextCompactor;
   emitAnalystToolInvoked(payload: EventPayload<'analyst_tool_invoked'>): void;
   mcpManager?: McpManager;
@@ -39,6 +41,7 @@ function buildAnalystDeps(input: {
     stamper: input.stamper,
     candidateAvailability: input.candidateAvailability,
     eventLogger: input.eventLogger,
+    eventBus: input.eventBus,
     contextCompactor: input.contextCompactor,
     emitAnalystToolInvoked: input.emitAnalystToolInvoked,
     mcpManager: input.mcpManager,
@@ -49,11 +52,11 @@ export function createRuntimeApplication(projectRoot: string, config: SaivageCon
   const saivageDir = join(projectRoot, '.saivage');
   const eventLogger = new EventLogger(saivageDir);
   const errorLogger = new ErrorLogger(saivageDir);
+  const eventBus = new EventBus();
   const skillsEngine = new SkillsEngine({ projectRoot });
   const stamper = new SessionStampCounter();
   const contextCompactor = new ContextCompactor({ saivageDir, sessionStamper: stamper });
-  // Application-level CardStore backs operator/API/read-model surfaces outside dispatch.
-  const cardStore = new CardStore(projectRoot);
+  const cardStore = new CardStore(projectRoot, undefined, eventBus);
   const candidateAvailability = new FsCandidateAvailability(projectRoot, {
     compactBytes: config.runtime.candidateAvailabilityCompactBytes,
   });
@@ -83,6 +86,8 @@ export function createRuntimeApplication(projectRoot: string, config: SaivageCon
     continuousImprovement: config.runtime.continuousImprovement,
     eventLogger,
     errorLogger,
+    eventBus,
+    cardStore,
     sessionStamper: stamper,
     supervisorConfig: config.supervisor
       ? {
@@ -131,6 +136,7 @@ export function createRuntimeApplication(projectRoot: string, config: SaivageCon
       stamper,
       candidateAvailability,
       eventLogger,
+      eventBus,
       contextCompactor,
       emitAnalystToolInvoked: emitAnalystToolInvokedFromRuntime,
       mcpManager,

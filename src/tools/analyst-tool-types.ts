@@ -3,6 +3,7 @@ import type { McpManager } from '../mcp/manager-api.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
 import type { ControlActionSurface } from '../schemas/index.js';
 import type { ActorRole } from '../agents/authz.js';
+import type { EventBus } from '../events/index.js';
 
 export interface ActionPreview {
   type: string;
@@ -45,4 +46,5 @@ export interface ToolContext {
   requestServerRestart?: () => Promise<void>;
   actor: ActorRole;
   surface: ControlActionSurface;
+  eventBus?: EventBus;
 }

@@ -48,10 +48,24 @@ function targetKey(target: LiveSyncInvalidateTarget): string {
 }
 
 function sessionIdFrom(event: DomainEvent<LiveSyncEventKind>): string | null {
-  const direct = (event as unknown as Record<string, unknown>)['session_id'];
+  const source = {
+    ...(event.payload as Record<string, unknown>),
+    ...(event as unknown as Record<string, unknown>),
+  };
+  const direct = source['session_id'];
   if (typeof direct === 'string' && direct) return direct;
-  const camel = (event as unknown as Record<string, unknown>)['sessionId'];
+  const camel = source['sessionId'];
   return typeof camel === 'string' && camel ? camel : null;
+}
+
+function isCardControlAction(event: DomainEvent<LiveSyncEventKind>): boolean {
+  const action = (event.payload as Record<string, unknown>)['action'];
+  return typeof action === 'string' && action.startsWith('card.');
+}
+
+function isCardAnalystTool(event: DomainEvent<LiveSyncEventKind>): boolean {
+  const tool = (event.payload as Record<string, unknown>)['tool'];
+  return typeof tool === 'string' && ['create_card', 'edit_card', 'delete_card', 'reorder_child'].includes(tool);
 }
 
 export function mapLiveSyncEvent(event: DomainEvent<LiveSyncEventKind>): LiveSyncInvalidateTarget[] {
@@ -112,7 +126,12 @@ export function mapLiveSyncEvent(event: DomainEvent<LiveSyncEventKind>): LiveSyn
     case 'dispatch_blocked':
     case 'notification_added':
     case 'control_action_recorded':
+      if (isCardControlAction(event)) add({ resource: 'cards' });
+      add({ resource: 'timeline' });
+      break;
+
     case 'analyst_tool_invoked':
+      if (isCardAnalystTool(event)) add({ resource: 'cards' });
       add({ resource: 'timeline' });
       break;
 

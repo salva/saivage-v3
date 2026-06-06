@@ -6,6 +6,7 @@ import type { RuntimeDisposeReportEntry } from './lifecycle.js';
 import type { StuckAgentSupervisor, SupervisorConfig } from './stuck-agent-supervisor.js';
 import type { RuntimeApi } from './runtime-api.js';
 import type { EventKind, EventPayload } from '../events/index.js';
+import type { EventBus } from '../events/index.js';
 
 export interface RuntimeSkillsPort {
   loadPlannerInstructions(filePath?: string): Promise<string>;
@@ -73,6 +74,8 @@ export interface RuntimeConfig {
   skillsEngine?: RuntimeSkillsPort;
   eventLogger?: EventLogger;
   errorLogger?: ErrorLogger;
+  eventBus?: EventBus;
+  cardStore?: CardStore;
   sessionStamper?: SessionStamper;
   maxGoalDepth?: number;
   supervisorConfig?: Partial<SupervisorConfig>;

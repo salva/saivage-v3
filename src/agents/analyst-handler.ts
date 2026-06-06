@@ -10,7 +10,7 @@ import {
 } from './analyst-prompt.js';
 import { CardStore } from '../cards/store-api.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
-import type { EventPayload } from '../events/index.js';
+import type { EventBus, EventPayload } from '../events/index.js';
 import { buildRuntimeDiagnosticEvent } from '../runtime/runtime-event-publisher.js';
 import type { SessionActivity, SessionStamper } from '../runtime/session-stamper.js';
 import type { CandidateAvailability } from './candidate-availability.js';
@@ -88,6 +88,7 @@ export interface AnalystRuntimeDeps {
   candidateAvailability?: CandidateAvailability;
   eventLogger?: EventLogger;
   emitAnalystToolInvoked(payload: EventPayload<'analyst_tool_invoked'>): void;
+  eventBus?: EventBus;
   mcpManager?: McpManager;
   contextCompactor?: ContextCompactor;
   invocationService?: InvocationService;
@@ -260,7 +261,7 @@ export class AnalystHandler {
     this.runtimeDeps.stamper.openAssistantRound(sessionId);
     const toolInvocations: NonNullable<AnalystResponse['toolInvocations']> = [];
     const projectContext = this.buildProjectContext();
-    const ctx: ToolContext = { projectRoot: this.projectRoot, store: this.runtimeDeps.cardStore, sessionId, runtime: this.runtimeDeps.runtime, mcpManager: this.runtimeDeps.mcpManager, requestServerRestart: this.requestServerRestart, actor: this.actor, surface: this.surface };
+    const ctx: ToolContext = { projectRoot: this.projectRoot, store: this.runtimeDeps.cardStore, sessionId, runtime: this.runtimeDeps.runtime, mcpManager: this.runtimeDeps.mcpManager, requestServerRestart: this.requestServerRestart, actor: this.actor, surface: this.surface, eventBus: this.runtimeDeps.eventBus };
     const previousToolCallFingerprints = new Set<string>();
 
     for (;;) {

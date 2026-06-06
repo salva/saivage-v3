@@ -33,12 +33,12 @@ export async function run_shell_command(ctx: ToolContext, params: ShellCommandPa
     const verdict = evaluateAuthz({ actor: ctx.actor, surface: ctx.surface, safety_class: classifiedAs });
     const auditBase = { actor: ctx.actor, surface: ctx.surface, action: 'shell.exec', target_kind: null, target_id: null, params_summary: `shell.exec [classified=${classifiedAs}] ${summarizeShellCommand(normalized.command)}` };
     if (verdict === 'deny') {
-      recordControlAction(ctx.projectRoot, { ...auditBase, outcome: 'denied', outcome_summary: `shell denied [classified=${classifiedAs}]` });
+      recordControlAction(ctx.projectRoot, { ...auditBase, outcome: 'denied', outcome_summary: `shell denied [classified=${classifiedAs}]` }, ctx.eventBus);
       return { ...toolFailure('permission', `Denied by authorization policy for ${ctx.actor}/${ctx.surface}/${classifiedAs}.`, { classified_as: classifiedAs }), data: { classified_as: classifiedAs } };
     }
     const result = await runShellCommandWithCapture(normalized.command, normalized.cwd, normalized.timeoutMs, normalized.maxOutputBytes);
     const payload = { classified_as: classifiedAs, exit_code: result.exitCode, duration_ms: result.durationMs, stdout: result.stdout, stderr: result.stderr, truncated: result.truncated, cwd: normalized.cwd, command: redactShellText(normalized.command) };
-    if (classifiedAs !== 'read_only') recordControlAction(ctx.projectRoot, { ...auditBase, outcome: result.exitCode === 0 && !result.timedOut ? 'ok' : 'error', outcome_summary: `${summarizeShellOutcome(result.exitCode, result.truncated, result.timedOut)} stdout=${result.stdout} stderr=${result.stderr}`.slice(0, 2000), ...(result.exitCode === 0 && !result.timedOut ? {} : { error: result.stderr || `shell command failed: ${summarizeShellOutcome(result.exitCode, result.truncated, result.timedOut)}` }) });
+    if (classifiedAs !== 'read_only') recordControlAction(ctx.projectRoot, { ...auditBase, outcome: result.exitCode === 0 && !result.timedOut ? 'ok' : 'error', outcome_summary: `${summarizeShellOutcome(result.exitCode, result.truncated, result.timedOut)} stdout=${result.stdout} stderr=${result.stderr}`.slice(0, 2000), ...(result.exitCode === 0 && !result.timedOut ? {} : { error: result.stderr || `shell command failed: ${summarizeShellOutcome(result.exitCode, result.truncated, result.timedOut)}` }) }, ctx.eventBus);
     if (result.timedOut) return { ...toolFailure('io', `Command timed out after ${normalized.timeoutMs}ms.`, { classified_as: classifiedAs }, true), data: payload };
     return { success: result.exitCode === 0, ...(result.exitCode === 0 ? { data: payload } : { ...toolFailure('io', result.stderr || `Command exited with code ${result.exitCode}`, { classified_as: classifiedAs, exit_code: result.exitCode }), data: payload }) };
   } catch (err) {

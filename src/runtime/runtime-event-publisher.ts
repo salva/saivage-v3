@@ -34,11 +34,14 @@ export function buildRuntimeDiagnosticEvent(input: RuntimeDiagnosticInput): Runt
 }
 
 export class RuntimeEventPublisher {
-  readonly eventBus = new EventBus();
+  readonly eventBus: EventBus;
 
   constructor(
     private readonly eventLogger: EventLogger,
-  ) {}
+    eventBus?: EventBus,
+  ) {
+    this.eventBus = eventBus ?? new EventBus();
+  }
 
   on(eventName: string | symbol, listener: (...args: unknown[]) => void): void {
     if (typeof eventName !== 'string' || !EVENT_KINDS.has(eventName as EventKind)) {

@@ -19,7 +19,7 @@ export async function runAuditedAnalystTool<P extends Record<string, unknown>>(c
   const verdict = evaluateAuthz({ actor: ctx.actor, surface: ctx.surface, safety_class: spec.safety_class });
   const auditBase = { actor: ctx.actor, surface: ctx.surface, action: spec.action, target_kind: spec.target_kind, target_id: spec.getTargetId(params), params_summary: paramsSummary(params), safety_class: spec.safety_class };
   if (verdict === 'deny') {
-    recordControlAction(ctx.projectRoot, { ...auditBase, outcome: 'denied', outcome_summary: 'authz denied' });
+    recordControlAction(ctx.projectRoot, { ...auditBase, outcome: 'denied', outcome_summary: 'authz denied' }, ctx.eventBus);
     return toolFailure('permission', `Denied by authorization policy for ${ctx.actor}/${ctx.surface}/${spec.safety_class}.`, { action: spec.action, safety_class: spec.safety_class });
   }
   const result = await spec.run(ctx, params);
@@ -28,7 +28,7 @@ export async function runAuditedAnalystTool<P extends Record<string, unknown>>(c
     outcome: result.success ? 'ok' : 'error',
     outcome_summary: result.success ? 'mutation applied' : (result.error ?? 'mutation failed'),
     ...(result.success ? {} : { error: result.error ?? 'mutation failed' }),
-  });
+  }, ctx.eventBus);
   return result;
 }
 

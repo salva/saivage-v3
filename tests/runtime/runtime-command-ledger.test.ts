@@ -12,6 +12,7 @@ import {
 } from '../../src/runtime/state.js';
 import { PlannerControlExecutor } from '../../src/agents/planner-control-executor.js';
 import { CardStore } from '../../src/cards/card-store.js';
+import { EventBus } from '../../src/events/bus.js';
 import type { AgentExecutionPort as AgentRuntime } from '../../src/contracts/index.js';
 import {
   createRuntimeCoreTestContainer,
@@ -128,6 +129,64 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         ]),
       );
       expect(calls).toEqual(['project']);
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('start_project observes project cards created through the shared application store after runtime assembly', async () => {
+    const projectRoot = root();
+    try {
+      initProjectTree(projectRoot);
+      const sharedEventBus = new EventBus();
+      const sharedStore = new CardStore(projectRoot, undefined, sharedEventBus);
+      const calls: string[] = [];
+      const harness = createRuntimeCoreTestContainer({
+        config: {
+          projectRoot,
+          fakeAgentConfig: { mapping: {}, fixtureDir: '' },
+          autoDispatchBacklog: false,
+          eventBus: sharedEventBus,
+          cardStore: sharedStore,
+        },
+        goalDispatcher: async (goalId: string) => {
+          calls.push(goalId);
+        },
+      });
+
+      sharedStore.create({
+        type: 'project',
+        parent: null,
+        depth: 0,
+        title: 'project',
+        description: '',
+        status: 'backlog',
+        tags: [],
+        priority: 0,
+        urgency: 'normal',
+        created_by: 'analyst',
+        acceptance: '',
+        depends_on: [],
+        related: [],
+        artifacts: [],
+        attachments: [],
+        retries: 0,
+      });
+
+      const result = await harness.api.startProject('analyst');
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(result.success).toBe(true);
+      expect(calls).toEqual(['project']);
+      const state = readRuntimeState(projectRoot)!;
+      expect(state.runtime_runs).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: 'root',
+            card_id: 'project',
+          }),
+        ]),
+      );
     } finally {
       rmSync(projectRoot, { recursive: true, force: true });
     }
