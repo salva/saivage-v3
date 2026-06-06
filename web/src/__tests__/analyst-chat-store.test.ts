@@ -32,7 +32,7 @@ describe('analyst chat store', () => {
 
   it('seedCardContext reuses the canonical analyst session and seeds get_card context', () => {
     const store = useAnalystChat();
-    const card = { id: 'card-7', title: 'Investigate', description: 'Find the regression', status: 'active', version_seq: 4, blocks: ['child-1'], depends_on: ['dep-1'], lifecycle: { error: null } } as any;
+    const card = { id: 'card-7', title: 'Investigate', description: 'Find the regression', status: 'active', version_seq: 4, depends_on: ['dep-1'], lifecycle: { error: null } } as any;
     const first = store.seedCardContext(card);
     const firstHint = store.syntheticHint.content;
     const second = store.seedCardContext(card);
@@ -42,7 +42,7 @@ describe('analyst chat store', () => {
     expect(firstHint).toContain('Card title: Investigate');
     expect(firstHint).toContain('Card description: Find the regression');
     expect(firstHint).toContain('Card status: active');
-    expect(firstHint).toContain('blocks:child-1');
+    expect(firstHint).toContain('depends_on:dep-1');
     expect(firstHint).toContain('Tool result get_card:');
     expect(firstHint).toContain('\"tool\":\"get_card\"');
   });

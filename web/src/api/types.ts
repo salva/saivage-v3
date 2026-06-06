@@ -186,7 +186,6 @@ export interface DebugState {
     title: string;
     priority: number;
     depends_on: string[];
-    blocks: string[];
   }>;
   totalCards: number;
 }
@@ -259,6 +258,6 @@ export type ChatSessionsResponse = OperatorApiSuccess<'chats.list'>;
 export type ChatEntriesResponse = OperatorApiSuccess<'chats.get'> & { entries: ConversationEntry[]; };
 export type ChatResponse = OperatorApiSuccess<'chats.send'>;
 export type FilesListResponse = OperatorApiSuccess<'files.list'>;
-export type DebugStateResponse = OperatorApiSuccess<'debug.state'> & { runtime: RuntimeState | null; cards: Array<{ id: string; type: CardType; parent: string | null; status: CardStatus; title: string; priority: number; depends_on: string[]; blocks: string[] }>; };
+export type DebugStateResponse = OperatorApiSuccess<'debug.state'> & { runtime: RuntimeState | null; cards: Array<{ id: string; type: CardType; parent: string | null; status: CardStatus; title: string; priority: number; depends_on: string[] }>; };
 export type DebugErrorsResponse = Omit<OperatorApiSuccess<'debug.errors'>, 'errors'> & { errors: DebugError[]; };
 export type DebugTimelineResponse = Omit<OperatorApiSuccess<'debug.timeline'>, 'events'> & { events: DebugTimelineEvent[]; };

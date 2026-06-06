@@ -101,7 +101,7 @@ describe('F23 — dispatchGoal acceptance', () => {
 
   it('F23 — dispatchGoal with non-goal card type fails loudly via activate error', async () => {
     const store = new CardStore(projectRoot);
-    const code = store.create({ type: 'code', parent: 'project', title: 't', description: 'd', status: 'backlog', depth: 1, tags: [], priority: 1, urgency: 'normal', created_by: 'planner', acceptance: '', depends_on: [], blocks: [], related: [], artifacts: [], attachments: [], retries: 0 });
+    const code = store.create({ type: 'code', parent: 'project', title: 't', description: 'd', status: 'backlog', depth: 1, tags: [], priority: 1, urgency: 'normal', created_by: 'planner', acceptance: '', depends_on: [], related: [], artifacts: [], attachments: [], retries: 0 });
 
     const plannerResult: PlannerResult = { status: 'done' };
     const executorResult: ExecutorResult = { card_id: 'x', status: 'done', status_text: 'noop', artifacts: [], attachments: [], fallback_with_evidence: null };

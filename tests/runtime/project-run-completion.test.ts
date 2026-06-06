@@ -17,7 +17,6 @@ function card(overrides: Partial<CardRecord> = {}): CardRecord {
     created_by: 'operator',
     depends_on: [],
     related: [],
-    blocks: [],
     artifacts: [],
     attachments: [],
     acceptance: '',

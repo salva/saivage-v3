@@ -459,7 +459,6 @@ describe('Runtime Integration', () => {
       urgency: 'normal',
       created_by: 'analyst',
       depends_on: [],
-      blocks: [],
       related: [],
       acceptance: `Acceptance for ${title}`,
       artifacts: [],
@@ -486,7 +485,6 @@ describe('Runtime Integration', () => {
       urgency: 'normal',
       created_by: 'planner',
       depends_on: [],
-      blocks: [],
       related: [],
       acceptance: '',
       artifacts: [],
@@ -552,6 +550,7 @@ describe('Runtime Integration', () => {
       await harness.api.start();
       await dispatchTools.dispatchGoal(goalCard.id);
 
+      store.invalidate();
       const goal = store.read(goalCard.id);
       expect(goal!.status).toBe('blocked');
       expect(goal!.lifecycle.result).toMatchObject({
@@ -579,6 +578,7 @@ describe('Runtime Integration', () => {
 
       await dispatchTools.dispatchGoal(goal.id);
 
+      store.invalidate();
       expect(store.read(goal.id)!.status).toBe('done');
       expect(completedEvents).toContain('goal_completed');
       expect(readRuntimeState(tmpDir)).toMatchObject({
@@ -695,6 +695,7 @@ describe('Runtime Integration', () => {
       makeRuntime();
       await harness.lifecycleTestTools.performCrashRecovery();
 
+      store.invalidate();
       const goal = store.read(goalCard.id);
       expect(goal!.status).toBe('backlog');
 

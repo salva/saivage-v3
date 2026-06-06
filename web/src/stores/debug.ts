@@ -83,7 +83,6 @@ export const useDebugStore = defineStore('debug', () => {
     title: string;
     priority: number;
     depends_on: string[];
-    blocks: string[];
   }>>([]);
   const debugTotalCards = ref(0);
 

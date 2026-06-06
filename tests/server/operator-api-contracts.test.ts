@@ -83,7 +83,6 @@ const card = {
   version_seq: 1,
   assigned_to: null,
   depends_on: [],
-  blocks: [],
   related: [],
   acceptance: '',
   lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },

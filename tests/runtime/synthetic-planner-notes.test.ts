@@ -30,7 +30,6 @@ function makeCard(
     created_by: 'analyst',
     assigned_to: null,
     depends_on: [],
-    blocks: [],
     related: [],
     acceptance: '',
     lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },

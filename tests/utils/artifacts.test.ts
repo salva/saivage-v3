@@ -48,7 +48,6 @@ function makeCard(
     urgency: 'normal',
     created_by: 'analyst',
     depends_on: [],
-    blocks: [],
     related: [],
     acceptance: '',
     artifacts: [],
@@ -237,7 +236,7 @@ describe('registerEvidenceRefs', () => {
     expect(store.listCardHistory(card.id)).toHaveLength(1);
   });
 
-  it('derives ids from locked current card state when another store has a stale snapshot', () => {
+  it('derives ids from explicitly invalidated current card state when another store started stale', () => {
     const card = makeCard(store, 'goal', 'Test Goal');
     const staleStore = new CardStore(tmpDir);
     expect(staleStore.read(card.id)!.artifacts).toHaveLength(0);
@@ -247,12 +246,14 @@ describe('registerEvidenceRefs', () => {
     const first = registerEvidenceRefs(saivageWorkDir, store, card.id, {
       artifacts: [{ type: 'data', description: 'Fresh', retain: true, sourceFile: src1 }],
     });
+    staleStore.invalidate();
     const second = registerEvidenceRefs(saivageWorkDir, staleStore, card.id, {
       artifacts: [{ type: 'log', description: 'Stale', retain: false, sourceFile: src2 }],
     });
 
     expect(first.artifacts[0].id).toBe(`art-${card.id}-1`);
     expect(second.artifacts[0].id).toBe(`art-${card.id}-2`);
+    store.invalidate();
     expect(store.read(card.id)!.artifacts.map((artifact) => artifact.id)).toEqual([
       `art-${card.id}-1`,
       `art-${card.id}-2`,

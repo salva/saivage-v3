@@ -35,7 +35,6 @@ const card = {
   created_at: now,
   updated_at: now,
   depends_on: [],
-  blocks: [],
   related: [],
   acceptance: 'Synthetic acceptance only.',
   artifacts: [],

@@ -77,7 +77,6 @@ function makeCard(
     created_by: 'planner',
     assigned_to: null,
     depends_on: [],
-    blocks: [],
     related: [],
     acceptance: '',
     lifecycle: {

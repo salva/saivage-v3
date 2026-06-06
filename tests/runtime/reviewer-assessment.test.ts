@@ -22,7 +22,6 @@ function card(overrides: Partial<CardRecord> = {}): CardRecord {
     created_by: 'planner',
     depends_on: [],
     related: [],
-    blocks: [],
     artifacts: [],
     attachments: [],
     acceptance: '',

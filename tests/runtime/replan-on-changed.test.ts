@@ -28,7 +28,6 @@ function makeGoal(overrides: Partial<CardRecord> = {}): CardRecord {
     version_seq: 1,
     assigned_to: null,
     depends_on: [],
-    blocks: [],
     related: [],
     acceptance: '',
     metrics: null,

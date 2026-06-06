@@ -135,7 +135,6 @@ describe('planner context-length failures', () => {
       created_by: 'planner',
       depends_on: [],
       related: [],
-      blocks: [],
       artifacts: [],
       attachments: [],
       acceptance: '',

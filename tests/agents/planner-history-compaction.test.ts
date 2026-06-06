@@ -38,7 +38,6 @@ function card(input: Partial<CardRecord> & Pick<CardRecord, 'id' | 'type' | 'tit
     updated_at: input.updated_at ?? '2026-06-01T00:00:00.000Z',
     version_seq: input.version_seq ?? 1,
     depends_on: input.depends_on ?? [],
-    blocks: input.blocks ?? [],
     related: input.related ?? [],
     acceptance: input.acceptance ?? '',
     lifecycle: input.lifecycle ?? ({ status: input.status ?? 'backlog', result: null, error: null, completed_at: null } as CardRecord['lifecycle']),

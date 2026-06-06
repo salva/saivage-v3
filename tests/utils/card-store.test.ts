@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
+import fsModule from 'node:fs';
 import {
   existsSync,
   mkdtempSync,
@@ -12,6 +13,9 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { CardStore } from '../../src/cards/card-store.js';
+import { CardStoreState } from '../../src/cards/state.js';
+import { validateParsedCards } from '../../src/cards/validator.js';
+import { parseCard, readHistoryEntriesStrict } from '../../src/persistence/card-loader.js';
 import type { CardRecord } from '../../src/schemas/types.js';
 
 function makeCard(
@@ -28,7 +32,6 @@ function makeCard(
     urgency: 'normal',
     created_by: 'analyst',
     depends_on: [],
-    blocks: [],
     related: [],
     acceptance: '',
     artifacts: [],
@@ -257,6 +260,104 @@ describe('CardStore CRUD still works with validated indexes', () => {
     const reloaded = new CardStore(tmpDir);
     const next = reloaded.create(makeCard({ type: 'goal', title: 'After Reload' }));
     expect(next.id).toBe('card-2');
+  });
+
+  it('creates unique sequential ids across stores without read-time invalidation', () => {
+    const other = new CardStore(tmpDir);
+    const first = store.create(makeCard({ type: 'goal', title: 'First' }));
+    const second = other.create(makeCard({ type: 'goal', title: 'Second' }));
+
+    expect(first.id).toBe('card-1');
+    expect(second.id).toBe('card-2');
+  });
+
+  it('keeps a second store stale until explicit invalidate reloads state', () => {
+    const other = new CardStore(tmpDir);
+    const created = store.create(makeCard({ type: 'goal', title: 'External' }));
+
+    expect(other.read(created.id)).toBeNull();
+    expect(other.list().map((card) => card.id)).toEqual(['project']);
+
+    other.invalidate();
+
+    expect(other.read(created.id)?.title).toBe('External');
+  });
+
+  it('invalidates a fresh store without error', () => {
+    expect(() => store.invalidate()).not.toThrow();
+    expect(store.read('project')?.id).toBe('project');
+  });
+
+  it('does not perform filesystem reads on ordinary read methods', () => {
+    const created = store.create(makeCard({ type: 'goal', title: 'No read I/O' }));
+    const readdirSpy = jest.spyOn(fsModule, 'readdirSync');
+    const readFileSpy = jest.spyOn(fsModule, 'readFileSync');
+
+    store.read(created.id);
+    store.list();
+    store.listChildren('project');
+    store.getParent(created.id);
+    store.getAncestors(created.id);
+    store.getDescendantIds('project');
+    store.detectCycles(created.id, []);
+
+    expect(readdirSpy).not.toHaveBeenCalled();
+    expect(readFileSpy).not.toHaveBeenCalled();
+
+    readdirSpy.mockRestore();
+    readFileSpy.mockRestore();
+  });
+
+  it('derives blocks from depends_on inverse adjacency', () => {
+    const dependency = store.create(makeCard({ type: 'goal', title: 'Dependency' }));
+    const blocked = store.create(makeCard({ type: 'goal', title: 'Blocked', depends_on: [dependency.id] }));
+
+    expect(store.blocksFor(dependency.id)).toEqual([blocked.id]);
+    expect(store.read(dependency.id)).not.toHaveProperty('blocks');
+  });
+
+  it('normalizes legacy persisted blocks in card and history rows', () => {
+    const created = store.create(makeCard({ type: 'goal', title: 'Legacy Blocks' }));
+    store.mutateCard(created.id, { title: 'Legacy Blocks Updated' }, { actor: 'analyst', surface: 'web-chat', reason: 'test' });
+    const cardPath = join(tmpDir, '.saivage', 'cards', 'by-id', `${created.id}.json`);
+    const rawCard = { ...JSON.parse(readFileSync(cardPath, 'utf-8')), blocks: ['legacy-blocker'] };
+
+    const parsedCard = parseCard(rawCard, cardPath);
+    expect(parsedCard).not.toHaveProperty('blocks');
+
+    const historyPath = join(tmpDir, '.saivage', 'cards', 'history', `${created.id}.history.jsonl`);
+    const rawHistory = readFileSync(historyPath, 'utf-8')
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => {
+        const entry = JSON.parse(line) as { snapshot: Record<string, unknown> };
+        return JSON.stringify({ ...entry, snapshot: { ...entry.snapshot, blocks: ['legacy-blocker'] } });
+      })
+      .join('\n') + '\n';
+    writeFileSync(historyPath, rawHistory);
+
+    const entries = readHistoryEntriesStrict(historyPath);
+    expect(entries[0]!.snapshot).not.toHaveProperty('blocks');
+  });
+
+  it('validates parsed cards before CardStoreState construction', () => {
+    const invalid = { ...store.read('project')!, id: 'child', type: 'goal' as const, parent: 'missing', depth: 1 };
+
+    expect(() => validateParsedCards({ cards: [invalid], maxDepth: 5 })).toThrow(/missing parent 'missing'/);
+  });
+
+  it('instantiates CardStoreState without filesystem access', () => {
+    const readdirSpy = jest.spyOn(fsModule, 'readdirSync');
+    const readFileSpy = jest.spyOn(fsModule, 'readFileSync');
+
+    const state = new CardStoreState(5);
+
+    expect(state.list()).toEqual([]);
+    expect(readdirSpy).not.toHaveBeenCalled();
+    expect(readFileSpy).not.toHaveBeenCalled();
+
+    readdirSpy.mockRestore();
+    readFileSpy.mockRestore();
   });
 
   it('leaves no group commit marker after a successful reorder', () => {

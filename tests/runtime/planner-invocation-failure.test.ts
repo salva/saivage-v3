@@ -98,7 +98,6 @@ function baseCard(overrides: Partial<CardRecord> = {}): CardRecord {
     updated_at: overrides.updated_at ?? '2026-01-01T00:00:00.000Z',
     version_seq: overrides.version_seq ?? 1,
     depends_on: overrides.depends_on ?? [],
-    blocks: overrides.blocks ?? [],
     related: overrides.related ?? [],
     acceptance: overrides.acceptance ?? '',
     lifecycle,

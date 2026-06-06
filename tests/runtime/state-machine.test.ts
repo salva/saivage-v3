@@ -184,7 +184,6 @@ describe('RuntimeStateMachine.transitionCard (Step 5 decomposition)', () => {
       attachments: [],
       retries: 0,
       depth: 0,
-      blocks: [],
     });
     return card.id;
   }

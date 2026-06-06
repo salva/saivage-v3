@@ -15,7 +15,6 @@ export function materializeProjectCard(projectRoot: string): void {
     tags: [],
     urgency: 'normal',
     created_by: 'analyst',
-    blocks: [],
     related: [],
     acceptance: '',
     artifacts: [],

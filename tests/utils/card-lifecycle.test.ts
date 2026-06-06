@@ -40,7 +40,6 @@ function baseCard(overrides: Partial<CardRecord> = {}): CardRecord {
     updated_at: '2026-01-01T00:00:00.000Z',
     assigned_to: null,
     depends_on: [],
-    blocks: [],
     related: [],
     acceptance: '',
     lifecycle,

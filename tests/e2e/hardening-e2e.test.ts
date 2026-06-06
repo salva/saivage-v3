@@ -149,7 +149,6 @@ function makeGoalCard(store: CardStore, title: string): CardRecord {
     urgency: 'normal',
     created_by: 'analyst',
     depends_on: [],
-    blocks: [],
     related: [],
     acceptance: `Acceptance for ${title}`,
     artifacts: [],
@@ -175,7 +174,6 @@ function makeTerminalCard(
     urgency: 'normal',
     created_by: 'planner',
     depends_on: [],
-    blocks: [],
     related: [],
     acceptance: '',
     artifacts: [],
@@ -322,6 +320,7 @@ describe('E2E — Full Project Lifecycle', () => {
     await harness.dispatchTestTools.dispatchGoal(artifactGoal.id);
     await waitForBackgroundDispatchesToDrain(harness);
 
+    store.invalidate();
     const card = store.read(artifactCard.id);
     expect(card).not.toBeNull();
     expect(card!.artifacts.length).toBeGreaterThan(0);

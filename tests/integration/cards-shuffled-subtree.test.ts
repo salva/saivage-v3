@@ -23,7 +23,6 @@ function makeCard(overrides: Partial<CardRecord> & { type?: CardRecord['type']; 
     urgency: 'normal' as const,
     created_by: 'analyst' as const,
     depends_on: [],
-    blocks: [],
     related: [],
     acceptance: '',
     artifacts: [],
@@ -45,17 +44,18 @@ let baseUrl: string;
 let authToken: string;
 let parentId: string;
 let expectedChildOrder: string[];
+let routeStore: CardStore;
 
 beforeEach(async () => {
   tmpDir = mkdtempSync(join(tmpdir(), 'saivage-shuffled-subtree-'));
   initProjectTree(tmpDir);
-  const store = new CardStore(tmpDir);
-  const parent = store.create(makeCard({ type: 'goal', title: 'Parent' }));
-  const alpha = store.create(makeCard({ type: 'goal', title: 'Alpha', parent: parent.id }));
-  const beta = store.create(makeCard({ type: 'goal', title: 'Beta', parent: parent.id }));
-  const gamma = store.create(makeCard({ type: 'goal', title: 'Gamma', parent: parent.id }));
-  store.create(makeCard({ title: 'Alpha child', parent: alpha.id }));
-  store.create(makeCard({ title: 'Beta child', parent: beta.id }));
+  routeStore = new CardStore(tmpDir);
+  const parent = routeStore.create(makeCard({ type: 'goal', title: 'Parent' }));
+  const alpha = routeStore.create(makeCard({ type: 'goal', title: 'Alpha', parent: parent.id }));
+  const beta = routeStore.create(makeCard({ type: 'goal', title: 'Beta', parent: parent.id }));
+  const gamma = routeStore.create(makeCard({ type: 'goal', title: 'Gamma', parent: parent.id }));
+  routeStore.create(makeCard({ title: 'Alpha child', parent: alpha.id }));
+  routeStore.create(makeCard({ title: 'Beta child', parent: beta.id }));
   void gamma;
   parentId = parent.id;
   expectedChildOrder = [beta.id, gamma.id, alpha.id];
@@ -69,7 +69,7 @@ beforeEach(async () => {
   app = Fastify({ logger: false });
   const { default: authPlugin } = await import('../../src/server/auth.js');
   await app.register(authPlugin);
-  registerCardRoutes(app, tmpDir, undefined, store);
+  registerCardRoutes(app, tmpDir, undefined, routeStore);
   await app.listen({ port: 0, host: '127.0.0.1' });
   const port = (app.server.address() as { port: number }).port;
   baseUrl = `http://127.0.0.1:${port}`;
@@ -85,6 +85,7 @@ describe('shuffled persisted subtree ordering', () => {
     const reloaded = new CardStore(tmpDir);
     expect(reloaded.listChildren(parentId)).toEqual(expectedChildOrder);
 
+    routeStore.invalidate();
     const response = await fetch(`${baseUrl}/api/cards/${parentId}`, { headers: { authorization: `Bearer ${authToken}` } });
     expect(response.status).toBe(200);
     const body = await response.json() as { children: Array<{ id: string }> };

@@ -21,7 +21,7 @@ export class DebugReadModelService {
       if (manifest) state.frozen_reason = manifest.reason;
     }
     const cards = this.store.list();
-    const cardIndex = cards.map((c) => ({ id: c.id, type: c.type, parent: c.parent, status: c.status, title: c.title, priority: c.priority, depends_on: c.depends_on, blocks: c.blocks }));
+    const cardIndex = cards.map((c) => ({ id: c.id, type: c.type, parent: c.parent, status: c.status, title: c.title, priority: c.priority, depends_on: c.depends_on }));
     return { runtime: state ? runtimeStateSchema.extend({ pid: runtimeStateSchema.shape.pid }).parse({ ...state, pid }) : null, cards: cardIndex, totalCards: cards.length };
   }
 

@@ -69,12 +69,6 @@
             <button v-for="depId in currentCard.depends_on" :key="depId" type="button" class="pill card-ref-button" @click="navigateCard(depId)">{{ depId }}</button>
           </div>
         </div>
-        <div v-if="currentCard.blocks.length" class="link-list-row">
-          <span class="meta-key">Cards blocked by this card</span>
-          <div class="pill-list">
-            <button v-for="blockId in currentCard.blocks" :key="blockId" type="button" class="pill card-ref-button" @click="navigateCard(blockId)">{{ blockId }}</button>
-          </div>
-        </div>
         <div v-if="planning" class="planning-summary">
           <strong>Planning</strong>
           <div>Status: {{ planning.status || 'unknown' }}</div>

@@ -101,7 +101,7 @@ export async function create_card(ctx: ToolContext, params: { type: CardType; pa
       if (parent === null && params.type !== 'project') return toolFailure('validation', `Cannot create ${params.type} card without a parent. Inspect the card tree and provide an existing parent ID.`, { field: 'parent' });
       if (parent === undefined) return toolFailure('validation', `Cannot create ${params.type} card without a parent. Inspect the card tree and provide an existing parent ID.`, { field: 'parent' });
       if (parent !== null && parent !== PROJECT_CARD_ID && !store.read(parent)) return toolFailure('not_found', `Parent card '${parent}' does not exist.`, { parent });
-      const card = store.create({ type: params.type, parent, depth: 0, title: params.title, description: params.description, status: params.status ?? 'drafting', tags: params.tags ?? [], priority: params.priority ?? 0, urgency: params.urgency ?? 'normal', created_by: 'analyst', acceptance: params.acceptance ?? '', depends_on: params.depends_on ?? [], related: params.related ?? [], blocks: [], artifacts: [], attachments: [], retries: 0 });
+      const card = store.create({ type: params.type, parent, depth: 0, title: params.title, description: params.description, status: params.status ?? 'drafting', tags: params.tags ?? [], priority: params.priority ?? 0, urgency: params.urgency ?? 'normal', created_by: 'analyst', acceptance: params.acceptance ?? '', depends_on: params.depends_on ?? [], related: params.related ?? [], artifacts: [], attachments: [], retries: 0 });
       return { success: true, data: toCardView(store, card) };
     } catch (err) { return toolFailureFromError(err, 'validation', humanizeToolError('create_card', err instanceof Error ? err.message : String(err))); }
   } });

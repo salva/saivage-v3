@@ -31,14 +31,9 @@ import { queueNotification } from '../notifications/index.js';
 import { now } from '../utils/clock.js';
 import { repairSiblingPositions } from './position-repair.js';
 import { valuesEqual } from './value-equality.js';
-import {
-  CardStoreInvariantError,
-  CardStoreState,
-  ReorderSetMismatchError,
-  cardHistoryPath,
-  loadCardStoreState,
-  readHistoryEntriesStrict,
-} from './state.js';
+import { CardStoreInvariantError, ReorderSetMismatchError } from './errors.js';
+import { CardStoreState } from './state.js';
+import { cardHistoryPath, loadCardStoreState, readHistoryEntriesStrict } from '../persistence/card-loader.js';
 import {
   applyMutationWithOwnedLockSync,
   applyMutationSync,
@@ -204,12 +199,7 @@ export class CardStore {
     this.state = loadCardStoreState(projectRoot, { maxDepth: this.maxDepth });
   }
 
-  /**
-   * Reload in-memory state from disk. Public read methods call this so that
-   * a CardStore instance reflects writes made by other CardStore instances
-   * pointing at the same project root.
-   */
-  private refreshState(): void {
+  invalidate(): void {
     this.state = loadCardStoreState(this.projectRoot, { maxDepth: this.maxDepth });
   }
 
@@ -233,28 +223,23 @@ export class CardStore {
   // ── Reads ────────────────────────────────────────────────────
 
   read(id: string): CardRecord | null {
-    this.refreshState();
     const card = this.state.get(id);
     return card ? deepClone(card) : null;
   }
 
   list(): CardRecord[] {
-    this.refreshState();
     return this.state.list().map((c) => deepClone(c));
   }
 
   listChildren(parentId: string): string[] {
-    this.refreshState();
     return this.state.childrenOf(parentId);
   }
 
   getParent(id: string): string | null {
-    this.refreshState();
     return this.state.parentOf(id);
   }
 
   getAncestors(id: string): string[] {
-    this.refreshState();
     return this.state.ancestorsOf(id);
   }
 
@@ -263,13 +248,15 @@ export class CardStore {
   }
 
   getDescendantIds(id: string): string[] {
-    this.refreshState();
     return this.state.descendantsOf(id);
   }
 
   detectCycles(id: string, newDependsOn: string[]): string[] {
-    this.refreshState();
     return this.state.detectDependsOnCycle(id, newDependsOn);
+  }
+
+  blocksFor(id: string): string[] {
+    return this.state.blocksFor(id);
   }
 
   validateTransition(from: CardStatus, to: CardStatus): void {
@@ -320,59 +307,63 @@ export class CardStore {
 
   create(input: NewCardInput): CardRecord {
     assertCanCreateCard(input);
-    this.refreshState();
-    const nowStamp = now();
-    const allKnownIds = this.state.allKnownIds();
-    const id = newCardId(input.type, () => generateId(allKnownIds));
+    let created: CardRecord | null = null;
+    this.projectLock.withLockSync((handle) => {
+      this.projectLock.assertOwns(handle);
+      this.state = loadCardStoreState(this.projectRoot, { maxDepth: this.maxDepth });
+      const nowStamp = now();
+      const id = newCardId(input.type, () => generateId(this.state.allKnownIds()));
 
-    if (this.state.isReservedId(id)) {
-      throw new Error(
-        `Cannot create card '${id}': card ids are durable and this id is already reserved by history or archive state.`,
-      );
-    }
-
-    if (input.type === 'project') {
-      const existing = this.state.list().find((c) => c.type === 'project');
-      if (existing) {
+      if (this.state.isReservedId(id)) {
         throw new Error(
-          `Cannot create duplicate project card. A project card already exists with id '${existing.id}'.`,
+          `Cannot create card '${id}': card ids are durable and this id is already reserved by history or archive state.`,
         );
       }
-    }
-    if (input.parent !== null) {
-      const parentCard = this.read(input.parent);
-      if (!parentCard) {
-        if (input.parent !== PROJECT_CARD_ID) throw new Error(`Parent card '${input.parent}' does not exist.`);
-      } else {
-        if (isTerminalType(parentCard.type)) {
+
+      if (input.type === 'project') {
+        const existing = this.state.list().find((c) => c.type === 'project');
+        if (existing) {
           throw new Error(
-            `Cannot create child under terminal card '${input.parent}' (type: ${parentCard.type}). Terminal cards cannot have children.`,
-          );
-        }
-        if (isTerminalState(parentCard.status)) {
-          throw new Error(
-            `Cannot create child under card '${input.parent}' because it is in status '${parentCard.status}'. Children cannot be created under cards in ${parentCard.status} status.`,
+            `Cannot create duplicate project card. A project card already exists with id '${existing.id}'.`,
           );
         }
       }
-    }
-    const parentForDepth = input.parent === null ? null : this.read(input.parent);
-    const depth = input.parent === null ? 0 : parentForDepth ? parentForDepth.depth + 1 : 1;
-    const position = input.parent === null ? 0 : this.state.childrenOf(input.parent).length;
-    if (depth > this.maxDepth) {
-      throw new Error(
-        `Cannot create card at depth ${depth}. Maximum allowed depth is ${this.maxDepth}. Reduce nesting depth by reorganizing the card hierarchy.`,
-      );
-    }
-    const card = buildNewCard({ input, id, depth, position, timestamp: nowStamp });
-    const parsed = cardRecordSchema.safeParse(card);
-    if (!parsed.success) throw new Error(`Card validation failed: ${parsed.error.message}`);
-    if (card.depends_on.length > 0) {
-      const cycle = this.detectCycles(card.id, card.depends_on);
-      if (cycle.length > 0) throw new Error(`Dependency cycle detected: ${cycle.join(' -> ')}`);
-    }
-    const result = applyMutationSync(this.deps(), { kind: 'create', card: parsed.data });
-    return deepClone(result.card!);
+      if (input.parent !== null) {
+        const parentCard = this.state.get(input.parent);
+        if (!parentCard) {
+          if (input.parent !== PROJECT_CARD_ID) throw new Error(`Parent card '${input.parent}' does not exist.`);
+        } else {
+          if (isTerminalType(parentCard.type)) {
+            throw new Error(
+              `Cannot create child under terminal card '${input.parent}' (type: ${parentCard.type}). Terminal cards cannot have children.`,
+            );
+          }
+          if (isTerminalState(parentCard.status)) {
+            throw new Error(
+              `Cannot create child under card '${input.parent}' because it is in status '${parentCard.status}'. Children cannot be created under cards in ${parentCard.status} status.`,
+            );
+          }
+        }
+      }
+      const parentForDepth = input.parent === null ? null : this.state.get(input.parent);
+      const depth = input.parent === null ? 0 : parentForDepth ? parentForDepth.depth + 1 : 1;
+      const position = input.parent === null ? 0 : this.state.childrenOf(input.parent).length;
+      if (depth > this.maxDepth) {
+        throw new Error(
+          `Cannot create card at depth ${depth}. Maximum allowed depth is ${this.maxDepth}. Reduce nesting depth by reorganizing the card hierarchy.`,
+        );
+      }
+      const card = buildNewCard({ input, id, depth, position, timestamp: nowStamp });
+      const parsed = cardRecordSchema.safeParse(card);
+      if (!parsed.success) throw new Error(`Card validation failed: ${parsed.error.message}`);
+      if (card.depends_on.length > 0) {
+        const cycle = this.state.detectDependsOnCycle(card.id, card.depends_on);
+        if (cycle.length > 0) throw new Error(`Dependency cycle detected: ${cycle.join(' -> ')}`);
+      }
+      const result = applyMutationWithOwnedLockSync(this.deps(), handle, { kind: 'create', card: parsed.data });
+      created = result.card;
+    });
+    return deepClone(created!);
   }
 
   update(id: string, changes: Partial<CardRecord>): CardRecord {
@@ -400,7 +391,6 @@ export class CardStore {
     let result: AppendEvidenceRefsResult | null = null;
     this.projectLock.withLockSync((handle) => {
       this.projectLock.assertOwns(handle);
-      this.refreshState();
       const existing = this.state.get(id);
       if (!existing) throw new Error(`Card '${id}' not found.`);
 
@@ -479,7 +469,6 @@ export class CardStore {
   }
 
   reorderChildren(parentId: string, orderedChildIds: string[], ctx: CardMutationContext): ReorderChildrenResult {
-    this.refreshState();
     if (parentId !== PROJECT_CARD_ID && !this.state.get(parentId)) {
       throw new Error(`Parent card '${parentId}' does not exist.`);
     }
@@ -614,7 +603,6 @@ export class CardStore {
   }
 
   archiveAndDeleteSubtree(ids: string[]): void {
-    this.refreshState();
     const idSet = new Set(ids);
     const cards: CardRecord[] = [];
     for (const id of ids) {
@@ -735,7 +723,7 @@ export class CardStore {
   }
 }
 
-export { CardStoreInvariantError } from './state.js';
+export { CardStoreInvariantError } from './errors.js';
 export const validateHistoryEntry = (entry: unknown) => cardHistoryEntrySchema.parse(entry);
 export function loadCardHistoryEntries(projectRoot: string, id: string): CardHistoryEntry[] {
   const hp = cardHistoryPath(projectRoot, id);

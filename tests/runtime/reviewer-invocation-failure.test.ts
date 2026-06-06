@@ -58,7 +58,6 @@ function goalCard(id: string): CardRecord {
     tags: [],
     urgency: 'normal',
     created_by: 'planner',
-    blocks: [],
     related: [],
     acceptance: '',
     artifacts: [],

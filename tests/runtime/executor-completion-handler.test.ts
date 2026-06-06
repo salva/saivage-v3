@@ -131,7 +131,6 @@ function cardRecord(overrides: Partial<CardRecord> = {}): CardRecord {
     version_seq: overrides.version_seq ?? 1,
     assigned_to: overrides.assigned_to ?? null,
     depends_on: overrides.depends_on ?? [],
-    blocks: overrides.blocks ?? [],
     related: overrides.related ?? [],
     acceptance: overrides.acceptance ?? '',
     lifecycle,

@@ -46,7 +46,6 @@ function makeGoalCard(store: CardStore, title: string): CardRecord {
     urgency: 'normal',
     created_by: 'analyst',
     depends_on: [],
-    blocks: [],
     related: [],
     acceptance: `Acceptance for ${title}`,
     artifacts: [],

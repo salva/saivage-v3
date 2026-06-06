@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { CardStore } from '../../src/cards/card-store.js';
-import { CardStoreInvariantError } from '../../src/cards/state.js';
+import { CardStoreInvariantError } from '../../src/cards/errors.js';
 import {
   cardRecordSchema,
   cardResultSchema,
@@ -48,7 +48,6 @@ function card(overrides: Partial<CardRecord> = {}): CardRecord {
     version_seq: overrides.version_seq ?? 1,
     assigned_to: overrides.assigned_to ?? null,
     depends_on: overrides.depends_on ?? [],
-    blocks: overrides.blocks ?? [],
     related: overrides.related ?? [],
     acceptance: overrides.acceptance ?? '',
     lifecycle,

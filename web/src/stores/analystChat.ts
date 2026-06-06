@@ -232,7 +232,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
 
   function buildCardContextSeed(card: CardRecord): string {
     const blockers = [
-      ...(Array.isArray(card.blocks) ? card.blocks.map((id) => `blocks:${id}`) : []),
       ...(Array.isArray(card.depends_on) ? card.depends_on.map((id) => `depends_on:${id}`) : []),
       ...(card.lifecycle.error ? [`error:${card.lifecycle.error}`] : []),
     ];

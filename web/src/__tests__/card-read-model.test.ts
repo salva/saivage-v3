@@ -20,7 +20,6 @@ function card(overrides: Partial<CardRecord>): CardRecord {
     updated_at: '2025-01-01T00:00:00Z',
     version_seq: 1,
     depends_on: [],
-    blocks: [],
     related: [],
     acceptance: '',
     artifacts: [],

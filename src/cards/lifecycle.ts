@@ -95,7 +95,6 @@ const TRACKED_FIELDS = [
   'urgency',
   'estimate',
   'depends_on',
-  'blocks',
   'related',
   'assigned_to',
   'artifacts',
@@ -241,7 +240,6 @@ export function buildUpdatedCard(
     updated_at: stamp,
     depth: newDepth,
     depends_on: newDependsOn,
-    blocks: existing.blocks,
     version_seq: existing.version_seq + 1,
   };
 }
@@ -307,7 +305,6 @@ export function buildNewCard({ input, id, depth, position, timestamp }: BuildNew
     updated_at: timestamp,
     assigned_to: input.assigned_to ?? null,
     depends_on: input.depends_on,
-    blocks: [],
     related: input.related,
     acceptance: input.acceptance,
     lifecycle,

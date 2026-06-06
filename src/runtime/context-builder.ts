@@ -15,6 +15,7 @@ export type GoalContextResumeReason =
 export interface RuntimeContextCardReader {
   read(cardId: string): CardRecord | null | undefined;
   listChildren(cardId: string): string[];
+  blocksFor(cardId: string): string[];
 }
 
 export function truncatePlannerContextString(value: string): string {
@@ -134,7 +135,7 @@ export function buildGoalContextPayload(input: {
     tags: goal.tags,
     priority: goal.priority,
     depends_on: goal.depends_on,
-    blocks: goal.blocks,
+    blocks: input.cards.blocksFor(goal.id),
     status_text: goal.status_text ?? null,
     child_card_tree: buildGoalContextCardTree({ cardId: goal.id, cards: input.cards }),
     notes: input.notes,

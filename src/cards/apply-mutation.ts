@@ -24,12 +24,9 @@ import { cardHistoryEntrySchema, cardRecordSchema } from '../schemas/index.js';
 import { ProjectLock, appendSyncIdempotent } from '../persistence/index.js';
 import type { LockHandle } from '../persistence/index.js';
 import { fsyncDir, fsyncFile } from '../persistence/durable-write.js';
-import {
-  CardStoreState,
-  cardByIdPath,
-  cardHistoryPath,
-  CardStoreInvariantError,
-} from './state.js';
+import { CardStoreState } from './state.js';
+import { CardStoreInvariantError } from './errors.js';
+import { cardByIdPath, cardHistoryPath } from '../persistence/card-loader.js';
 import {
   unlinkCommitMarker,
   unlinkGroupCommitMarker,

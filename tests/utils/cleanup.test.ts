@@ -165,7 +165,6 @@ describe('Cleanup Utility Smoke Tests', () => {
       tags: [],
       urgency: 'normal',
       created_by: 'planner',
-      blocks: [],
       related: [],
       acceptance: '',
       artifacts: [{
@@ -221,7 +220,6 @@ describe('Cleanup Utility Smoke Tests', () => {
       tags: [],
       urgency: 'normal',
       created_by: 'planner',
-      blocks: [],
       related: [],
       acceptance: '',
       artifacts: [],

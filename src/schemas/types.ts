@@ -48,7 +48,7 @@ import type { CardLifecycleState } from './lifecycle.js';
 export interface CardRecord {
   id: string; type: CardType; parent: string | null; depth: number; position: number; title: string; description: string; status: CardStatus; planner_state?: PlannerState; plannerState?: PlannerState;
   subtype?: string | null; instructions_file?: string | null; tags: string[]; priority: number; urgency: Urgency; created_by: CreatedBy;
-  created_at: string; updated_at: string; version_seq: number; assigned_to?: string | null; depends_on: string[]; blocks: string[]; related: string[];
+  created_at: string; updated_at: string; version_seq: number; assigned_to?: string | null; depends_on: string[]; related: string[];
   acceptance: string; lifecycle: CardLifecycleState; metrics?: Record<string, number | string | boolean | null> | null;
   artifacts: ArtifactRef[]; attachments: AttachmentRef[]; estimate?: string | null; started_at?: string | null;
   duration_ms?: number | null; status_text?: string | null; status_text_updated_at?: string | null;

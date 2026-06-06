@@ -8,7 +8,7 @@ vi.mock('../api/client', () => ({ getRuntimeState: vi.fn(async () => ({ runtime:
 vi.mock('vue-router', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 function card(overrides: Partial<CardRecord>): CardRecord {
-  return { id: 'card', type: 'goal', parent: null, position: 0, depth: 0, title: 'Card', description: '', status: 'active', tags: [], priority: 1, urgency: 'normal', created_by: 'user', created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z', version_seq: 1, depends_on: [], blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0, ...overrides, display_path: overrides.display_path ?? null, lifecycle: overrides.lifecycle ?? { status: overrides.status ?? 'active', result: null, error: null, completed_at: null } as CardRecord['lifecycle'] };
+  return { id: 'card', type: 'goal', parent: null, position: 0, depth: 0, title: 'Card', description: '', status: 'active', tags: [], priority: 1, urgency: 'normal', created_by: 'user', created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z', version_seq: 1, depends_on: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0, ...overrides, display_path: overrides.display_path ?? null, lifecycle: overrides.lifecycle ?? { status: overrides.status ?? 'active', result: null, error: null, completed_at: null } as CardRecord['lifecycle'] };
 }
 
 describe('scenario-dashboard-child-order', () => {

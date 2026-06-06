@@ -74,7 +74,6 @@ describe('planner prompt context compaction', () => {
       created_by: 'planner',
       depends_on: [],
       related: [],
-      blocks: [],
       artifacts: Array.from({ length: 12 }, (_, index) => ({ id: `artifact-${index}`, card_id: 'card-1', type: 'report', description: `${index}:${longBlob}`, path: `.saivage-work/artifacts/${index}.txt`, retain: true, created_at: '2026-06-01T00:00:00.000Z' })),
       attachments: Array.from({ length: 12 }, (_, index) => ({ id: `attachment-${index}`, card_id: 'child-heavy', mime: 'text/plain', title: `${index}:${longBlob}`, path: `.saivage-work/attachments/${index}.txt`, created_at: '2026-06-01T00:00:00.000Z' })),
       acceptance: '',

@@ -20,7 +20,7 @@ afterEach(() => {
 });
 
 function createCard() {
-  return store.create({ type: 'goal', parent: 'project', depth: 1, title: 'Goal', description: 'desc', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], blocks: [], related: [], acceptance: 'a', artifacts: [], attachments: [], retries: 0, instructions_file: null, subtype: null, assigned_to: null, lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, metrics: null, estimate: null, started_at: null, duration_ms: null });
+  return store.create({ type: 'goal', parent: 'project', depth: 1, title: 'Goal', description: 'desc', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], acceptance: 'a', artifacts: [], attachments: [], retries: 0, instructions_file: null, subtype: null, assigned_to: null, lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, metrics: null, estimate: null, started_at: null, duration_ms: null });
 }
 
 describe('card history substrate', () => {

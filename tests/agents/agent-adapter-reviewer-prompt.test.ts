@@ -64,7 +64,6 @@ function makeCard(overrides: Partial<CardRecord> & { type: CardRecord['type']; t
     created_by: 'planner',
     assigned_to: null,
     depends_on: [],
-    blocks: [],
     related: [],
     acceptance: '',
     lifecycle,

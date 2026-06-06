@@ -57,7 +57,7 @@ describe('Runtime executor fallback evidence persistence', () => {
       summary: 'done',
     };
     const store = new (await import('../../src/cards/card-store.js')).CardStore(projectRoot);
-    const createdCard = store.create({ type: 'code', parent: 'project', depth: 1, title: 'Generate output', description: 'Create output file and verify it', status: 'backlog', depends_on: [], priority: 1, tags: [], urgency: 'normal', created_by: 'planner', blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 });
+    const createdCard = store.create({ type: 'code', parent: 'project', depth: 1, title: 'Generate output', description: 'Create output file and verify it', status: 'backlog', depends_on: [], priority: 1, tags: [], urgency: 'normal', created_by: 'planner', related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 });
     const executorResult: ExecutorResult = {
       card_id: createdCard.id,
       status: 'failed',
@@ -135,7 +135,7 @@ describe('Runtime executor fallback evidence persistence', () => {
       summary: 'done',
     };
     const store = new (await import('../../src/cards/card-store.js')).CardStore(projectRoot);
-    const createdCard = store.create({ type: 'code', parent: 'project', depth: 1, title: 'Generate output', description: 'Create output file and verify it', status: 'backlog', depends_on: [], priority: 1, tags: [], urgency: 'normal', created_by: 'planner', blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 });
+    const createdCard = store.create({ type: 'code', parent: 'project', depth: 1, title: 'Generate output', description: 'Create output file and verify it', status: 'backlog', depends_on: [], priority: 1, tags: [], urgency: 'normal', created_by: 'planner', related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 });
     const executorResult: ExecutorResult = {
       card_id: createdCard.id,
       status: 'done',
@@ -206,7 +206,7 @@ describe('Runtime executor fallback evidence persistence', () => {
       summary: 'done',
     };
     const store = new (await import('../../src/cards/card-store.js')).CardStore(projectRoot);
-    const createdCard = store.create({ type: 'code', parent: 'project', depth: 1, title: 'Already active terminal card', description: 'Complete an already-active pending activation', status: 'backlog', depends_on: [], priority: 1, tags: [], urgency: 'normal', created_by: 'planner', blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 });
+    const createdCard = store.create({ type: 'code', parent: 'project', depth: 1, title: 'Already active terminal card', description: 'Complete an already-active pending activation', status: 'backlog', depends_on: [], priority: 1, tags: [], urgency: 'normal', created_by: 'planner', related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 });
     const executorResult: ExecutorResult = {
       card_id: createdCard.id,
       status: 'done',

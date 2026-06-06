@@ -34,7 +34,6 @@ function card(id: string, parent: string | null, position: number, title: string
     created_by: 'analyst',
     version_seq: 1,
     depends_on: [],
-    blocks: [],
     related: [],
     acceptance: '',
     artifacts: [],

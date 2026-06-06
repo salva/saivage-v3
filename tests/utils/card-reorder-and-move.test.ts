@@ -19,7 +19,6 @@ function makeCard(overrides: Partial<CardRecord> & { type?: CardRecord['type']; 
     urgency: 'normal' as const,
     created_by: 'analyst' as const,
     depends_on: [],
-    blocks: [],
     related: [],
     acceptance: '',
     artifacts: [],
