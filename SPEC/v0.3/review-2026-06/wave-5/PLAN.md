@@ -1,64 +1,10 @@
 # Wave 5: Decomposition — Implementation Plan and Design
 
-## Second Review Corrections
-
-This section supersedes both the Reviewed Corrections and any conflicting text below.
-
-1. **HIGH — `messageBadges` initialized as array `[]` but type is `Record<string, TimelineBadge[]>`**: The code block in 5D-2 shows `ref<Record<string, TimelineBadge[]>>([])`. Reviewed Correction #17 says `({})`. Change to `ref<Record<string, TimelineBadge[]>>({})`.
-2. **HIGH — `runtimeApplication` must remain optional**: Plan line ~1179 shows `runtimeApplication: RuntimeApplication` (required). Reviewed Correction #23 says "stays optional unless callers change together." Current code has `runtimeApplication?: RuntimeApplication`. Keep optional.
-3. **HIGH — `applyPatch` is shared across all command objects, not lifecycle-specific**: Step 5B-3 says "The private `applyPatch` helper moves with it" (to `CardLifecycleCommands`). Actually `applyPatch` is called from `create`, `update`, `mutateCard`, `reorderChildren`, `updateDependsOn`, `appendEvidenceRefs`, `commitTerminalLifecyclePatch`, `repairTerminalLifecycle`, and `setStatus`. It must stay on `CardStore` (or become a shared module function) accessible to all command objects via `deps`. Moving it only to `CardLifecycleCommands` breaks `EvidenceRefService`, `CardHierarchyCommands`, and `CardArchiveService`.
-4. **HIGH — `CardStore` 150-line target is optimistic**: After extracting all command objects, `CardStore` still has constructor, `deps()`, `open()`, read methods, mutation delegations, history reads, shared `applyPatch`, and helper methods. Realistic target: ~200-250 lines.
-5. **MEDIUM — MCP extraction naming should say SSE, not HTTP**: Plan says `http-lifecycle.ts` with `startHttpServer`. Actual method names and config use `_startSse` and `cfg.transport === 'sse'`. Call the module `sse-lifecycle.ts` or `streamable-http-lifecycle.ts` and use names consistent with the transport module.
-6. **MEDIUM — `buildModelMessages` contradicts Reviewed Correction #5**: Step 5A-2 says "`buildModelMessages` becomes `SessionMessageLog.buildModelMessages()`." Correction #5 says "SessionMessageLog extracts round stamping and appends only. Model-message construction stays in an invocation-context service." No standalone `buildModelMessages` exists in current code. Remove this claim; `SessionMessageLog` owns `append()` and round-stamping only.
-7. **MEDIUM — `executeActionToolCalls` is a callback, not a method**: Step 5A-4 references "In `executeActionToolCalls`." It's a callback property on `AgentLoopDriverIO` (created inline at line 907 within `invokeAgent`), not a class method. Reference it as "the `executeActionToolCalls` callback in `AgentLoopDriverIO`."
-8. **MEDIUM — `discoverTools()` must be called from `start()` in `McpServerRuntime`**: Current `McpManager.startServer()` (lines 113-156) calls `_discoverTools()` automatically. `McpServerRuntime.start()` must include tool discovery, not defer it to a separate call. Make `start()` call `this.discoverTools()` internally.
-9. **MEDIUM — `queueNotification` dependency for command objects**: Plan data flow shows `EvidenceRefService` uses `ApplyMutationWithOwnedLockSync + queueNotification`, but `LifecycleCommandDeps` only includes `{ projectRoot, state, projectLock, eventBus }`. Either add `queueNotification` to deps or note it's imported directly by service modules.
-10. **MEDIUM — `stores/index.ts` barrel not mentioned in migration**: Step 5D-7 says "find all component files that import from old stores" but doesn't mention `web/src/stores/index.ts`. This barrel re-exports all stores and must be updated to re-export from new store files.
-11. **MEDIUM — Debug `fetchState()` comes from single `/api/state` endpoint**: Plan implies separate API calls per store. `debugRuntime`, `debugCards`, `debugTotalCards` all come from one endpoint. `DebugStateStore.fetchState()` should call `/api/state` once and set all three fields.
-12. **MEDIUM — `SessionMessageLog.append()` must document `appendPersistentMessage` dependency**: The plan doesn't show how `SessionMessageLog.append()` calls `appendPersistentMessage` (from `session-persistence.ts`). Document this as an import or injected function for testability.
-13. **MEDIUM — AgentAdapter facade ~200 lines is optimistic**: Beyond explicit pass-throughs, the facade needs `cancelSession`, `forceCancelSession`, `getHandoffSummary`, `getActiveSessionHandoffs`, `setEventBus`, `setRuntimeLedgerEventBus`, `setActivationLedger`, `getContentSupervisor`, `getMcpManager`, `getToolNamesForRole`, `callMcpTool`, `getSafeFileContent`. Realistic target: ~300-350 lines.
-14. **MEDIUM — `PATTERNS_BY_CATEGORY` also needs lazy init (Wave 6 F29)**: Not a Wave 5 issue per se, but if Wave 6 makes `COMPILED_PATTERNS` lazy, `PATTERNS_BY_CATEGORY` (also eagerly built) must also become lazy or be derived from `PATTERN_DEFS`.
-15. **LOW — F13 "seven Map/Set fields" is actually eight**: `handles`, `statusOverrides`, `startedAt`, `toolsCache`, `argumentValidatorCache`, `toolsCacheInitialized` (Set), `discoveryErrors`, `_invocationQueues`. Plan Step 5C-2 correctly lists 8; the F13 issue description undercounts.
-
-## Reviewed Corrections
-
-This section supersedes any conflicting text below.
-
-1. This plan is valid only after Waves 2 and 4 have landed. Verify actual seams before starting; otherwise stop and finish missing waves.
-2. 5A requires Wave 4 seams. 5B, 5C, 5D, and 5E may proceed first or in parallel.
-3. `InvocationRunnerConfig` uses `attemptRecorderFactory`, not a singleton. It must receive every behavior still needed by invocation after Wave 4.
-4. Keep `AgentSessionCoordinator` owner of cancellation, notification injection, handoff summaries, and session-start publication. New lifecycle wrapper covers persistence only.
-5. `SessionMessageLog` extracts round stamping and appends only. Model-message construction stays in an invocation-context service and preserves `model_spec`/`requested_model_spec`.
-6. `AttemptRecorder` is per-invocation and records attempts plus contract outcome (`repairAttempts`, `verdict`).
-7. `PlannerEnvelopeTracker` parses accepted tool results and preserves pending envelope on parse failure/unsupported status.
-8. Do not add JSDoc noise to facades.
-9. Extract `CardPatchService` before card command objects; lifecycle/hierarchy/evidence services call it.
-10. Use one `CardStoreDeps` with project root, max depth, state, lock, event bus, and helper ports; avoid stale snapshots.
-11. `EvidenceRefService.appendEvidenceRefs()` preserves owned-lock flow and emits history events after lock release.
-12. Leave history reads on `CardStore` in Wave 5.
-13. `McpServerRuntime` uses `currentPhase` field plus `phase` getter.
-14. MCP migration starts with a working wrapper, then moves one transport, then the other, then removes old maps.
-15. Do not add transport lifecycle wrapper modules; call existing transport functions.
-16. Preserve `McpManager.setEventLogger()`, `next()`, shared message ID source, and stats shape.
-17. Frontend `messageBadges` initializes as `{}`.
-18. Avoid cyclic analyst store dependencies; WebSocket ingest is an orchestrator/root store.
-19. No long-lived compatibility facades; update imports in same commit or keep old file canonical.
-20. Debug split needs composed read model for combined errors and sorted timeline.
-21. Card split needs one freshness/stale-notification owner.
-22. Do not extract `LiveSyncHandler` as a class; keep inline or a plain helper.
-23. `runtimeApplication` stays optional in analyst WS handler unless callers change together.
-24. Inject outbound sinks into analyst WS handler.
-25. Specify `parseRawMessage(raw: Buffer | ArrayBuffer | Buffer[]): string`.
-26. Tool activity projection preserves primitive/array data as sanitized unknown.
-27. Validation: focused tests first, then routine; store decomposition runs `npm run validate:ui` before smoke.
-
-Generated: 2026-06-06
-
 ## Prerequisites (Completed in Earlier Waves)
 
-This wave assumes Waves 2 and 4 are complete:
+This wave assumes Waves 2 and 4 are complete. Verify actual seams before starting; otherwise stop and finish missing waves.
 
-- **Wave 2 (Card Data Model):** `CardStoreState` is the authoritative in-memory read model. Read methods no longer call `refreshState()`. Mutations update state after durable writes. `deepClone` on reads is removed; card records are immutable at the type level. ID generation is inside the locked mutation (ULID/random source), no scan.
+- **Wave 2 (Card Data Model):** `CardStoreState` is the authoritative in-memory read model. Read methods no longer call `refreshState()`. Mutations update state after durable writes. `deepClone` on reads is removed; card records are immutable at the type level. ID generation is inside the locked mutation (ULID/random source), not scan.
 - **Wave 4 (Path Unification):**
   - F02: A shared `AgentInvocationService` owns candidate iteration, recovery, recording, and turn loop. The analyst LLM resolver is deleted. Analyst session handling uses shared session persistence.
   - F10: A `ToolDispatcher` owns parsing, policy check, result envelope, truncation, persistence hooks, and error formatting. Tool call dispatch in `invokeAgent` delegates to the `ToolDispatcher`.
@@ -67,6 +13,8 @@ This wave assumes Waves 2 and 4 are complete:
   - F20: One `RuntimeControlCommand` handler computes patches for pause/resume. The runtime calls a single command handler.
 
 These changes mean `invokeAgent` is already shorter and simpler than the current 610-line method. The seams below refer to the post-Wave-4 method, noting which parts are already gone.
+
+Sub-wave 5A requires Wave 4 seams. Sub-waves 5B, 5C, 5D, and 5E may proceed first or in parallel.
 
 ---
 
@@ -138,7 +86,7 @@ export interface InvocationRunnerConfig {
   router: ModelRouter;
   candidateAvailability: CandidateAvailability;
   sessionLifecycle: AgentSessionLifecycle;
-  attemptRecorder: AttemptRecorder;
+  attemptRecorderFactory: () => AttemptRecorder;
   messageLog: SessionMessageLog;
   envelopeTracker?: PlannerEnvelopeTracker;
   toolDispatcher: ToolDispatcher;       // from Wave 4
@@ -177,9 +125,11 @@ The `invoke` method contains:
 10. Session finalization via `AgentSessionLifecycle`
 11. Verdict computation and event emission
 
+Each invocation creates a fresh `AttemptRecorder` via `attemptRecorderFactory`; no cross-invocation state leakage.
+
 #### `src/agents/session-lifecycle.ts` — `AgentSessionLifecycle`
 
-Owns session creation, status transitions, cancellation, and abort tracking.
+Owns session creation, status transitions, and session-start notification. Delegates to `AgentSessionCoordinator` for cancellation, notification injection, handoff summaries, and session-start publication. The coordinator remains a distinct class.
 
 ```typescript
 export class AgentSessionLifecycle {
@@ -202,7 +152,7 @@ export class AgentSessionLifecycle {
 }
 ```
 
-Absorbs the current `AgentSessionCoordinator` methods that are called from invokeAgent. The coordinator itself may become an implementation detail of the lifecycle.
+`AgentSessionCoordinator` remains as a distinct class owning cancellation, notification injection, handoff summaries, and session-start publication. `AgentSessionLifecycle` wraps it for session lifecycle management.
 
 #### `src/agents/attempt-recorder.ts` — `AttemptRecorder`
 
@@ -231,11 +181,11 @@ export class AttemptRecorder {
 }
 ```
 
-Each invocation creates a fresh `AttemptRecorder` instance (no cross-invocation state leakage).
+Each invocation creates a fresh `AttemptRecorder` instance via `attemptRecorderFactory` (no cross-invocation state leakage).
 
 #### `src/agents/session-message-log.ts` — `SessionMessageLog`
 
-Owns message persistence and round tracking for a session.
+Owns message persistence and round tracking for a session. Extracts round stamping and appends only; model-message construction stays in an invocation-context service.
 
 ```typescript
 export class SessionMessageLog {
@@ -247,16 +197,15 @@ export class SessionMessageLog {
   ) {}
 
   append(sessionId: string, message: MessageAppendInput): void;
-  buildModelMessages(sessionId: string, role?: AgentRole, goalId?: string): AgentMessage[];
   nextFallbackRound(sessionId: string, prefix: 'pre' | 'user' | 'assistant' | 'diagnostic'): RoundStamp;
 }
 ```
 
-`MessageAppendInput` is a simplified type for the `{ role, kind, content, tool?, tool_call_id?, links? }` shape currently passed to `appendPersistentMessage` inline. `SessionMessageLog` handles round-id generation and block counting internally.
+`MessageAppendInput` is a simplified type for the `{ role, kind, content, tool?, tool_call_id?, links? }` shape currently passed to `appendPersistentMessage` inline. `SessionMessageLog.append()` calls `appendPersistentMessage` under the hood and handles round-id generation and block counting internally. Model-message construction stays in an invocation-context service and preserves `model_spec`/`requested_model_spec`.
 
 #### `src/agents/planner-envelope-tracker.ts` — `PlannerEnvelopeTracker`
 
-Owns the planner-specific terminal envelope synthesis and state tracking for one invocation.
+Owns the planner-specific terminal envelope synthesis and state tracking for one invocation. Parses accepted tool results and preserves pending envelope on parse failure/unsupported status.
 
 ```typescript
 export class PlannerEnvelopeTracker {
@@ -327,6 +276,20 @@ export class AgentAdapter implements AgentExecutionPort {
   async flushRecorders(): Promise<void> { ... }
   createLlmCallFn(): LlmCallFn { ... }
 
+  // Other delegation methods (not all listed):
+  cancelSession(sessionId: string): boolean { ... }
+  forceCancelSession(sessionId: string): void { ... }
+  getHandoffSummary(sessionId: string): HandoffSummary | undefined { ... }
+  getActiveSessionHandoffs(): HandoffSummary[] { ... }
+  setEventBus(eventBus: EventEmitter): void { ... }
+  setRuntimeLedgerEventBus(eventBus: EventEmitter): void { ... }
+  setActivationLedger(ledger: ActivationLedger): void { ... }
+  getContentSupervisor(): ContentSupervisor { ... }
+  getMcpManager(): McpToolInvocationPort { ... }
+  getToolNamesForRole(role: string): string[] { ... }
+  callMcpTool(serverName: string, toolName: string, args: Record<string, unknown>): Promise<unknown> { ... }
+  getSafeFileContent(path: string): Promise<string | null> { ... }
+
   // Setter injection (until F26 in Wave 6):
   setLlmCallFn(fn: LlmCallFn): void { ... }
   setContentSupervisor(supervisor: ContentSupervisor): void { ... }
@@ -336,7 +299,7 @@ export class AgentAdapter implements AgentExecutionPort {
 }
 ```
 
-Target final size: ~200 lines.
+Target final size: ~300-350 lines.
 
 ### Data Flow
 
@@ -360,7 +323,7 @@ AgentAdapter (facade)
   ├── AttemptRecorder
   │     └── records outcomes, emits to event bus + event logger
   ├── SessionMessageLog
-  │     └── appends messages, manages round IDs, builds model messages
+  │     └── appends messages, manages round IDs
   └── PlannerEnvelopeTracker (planner-role only)
         └── synthesizeReportGoalEnvelope → takeEnvelope
 ```
@@ -382,14 +345,14 @@ Each step is a minimal compilable commit.
 - Create `src/agents/session-message-log.ts` with the `SessionMessageLog` class.
 - Move `appendSessionMessage`, `nextFallbackRound`, `stampInCurrentFallbackRound`, `fallbackCurrentRoundId`, `fallbackBlockCounters` from `AgentAdapter` to `SessionMessageLog`.
 - `AgentAdapter` holds a `messageLog` field and delegates.
-- `buildModelMessages` becomes `SessionMessageLog.buildModelMessages()`, which calls `ContextCompactor` (from Wave 4) internally.
+- `SessionMessageLog` owns `append()` and round-stamping only. `Append()` calls `appendPersistentMessage` under the hood. Model-message construction stays in an invocation-context service and is not part of `SessionMessageLog`.
 - **Validation:** `npm run validate:routine`, `npm test`.
 
 #### Step 5A-3: Extract `AgentSessionLifecycle`
 
 - Create `src/agents/session-lifecycle.ts` with the `AgentSessionLifecycle` class.
-- Move `createSession`/`completeSession`/`markSessionWaiting`/`setSessionStatus`/`updateSessionModel` calls, cancellation tracking (`cancelSession`, `forceCancelSession`, `isCancelled`, `trackAbortController`, `clearAbortController`, `clearCancellation`), and session notification (`notifySessionCreated`, `publishSessionStarted`, `publishCancelledRetryStop`) into the lifecycle class.
-- The lifecycle wraps `AgentSessionCoordinator` (which remains as a low-level coordinator for cancellation/abort-tracking), or absorbs it entirely if the coordinator is thin enough.
+- Move `createSession`/`completeSession`/`markSessionWaiting`/`setSessionStatus`/`updateSessionModel` calls into the lifecycle class.
+- Keep `AgentSessionCoordinator` as the distinct owner of cancellation, notification injection, handoff summaries, and session-start publication. `AgentSessionLifecycle` delegates to the coordinator for these concerns.
 - **Validation:** `npm run validate:routine`, `npm test`. Integration: verify planner, executor, and reviewer invocations still create and complete sessions correctly.
 
 #### Step 5A-4: Extract `PlannerEnvelopeTracker`
@@ -397,7 +360,7 @@ Each step is a minimal compilable commit.
 - Create `src/agents/planner-envelope-tracker.ts` with `PlannerEnvelopeTracker` class and move `synthesizeReportGoalEnvelope` into it.
 - In `invokeAgent`, replace the `pendingPlannerRuntimeEnvelope` mutable closure variable with a tracker instance scoped to the invocation.
 - The `takeRuntimeDoneEnvelope` callback becomes `() => tracker.takeEnvelope()`.
-- In `executeActionToolCalls`, when `role === 'planner'` and a terminal tool is detected, call `tracker.trackTerminalToolResult(toolName, goalId, msg.content)`.
+- In the `executeActionToolCalls` callback in `AgentLoopDriverIO`, when `role === 'planner'` and a terminal tool is detected, call `tracker.trackTerminalToolResult(toolName, goalId, msg.content)`.
 - **Validation:** `npm run validate:routine`, `npm test`. Planner invocations must still create terminal envelopes correctly.
 
 #### Step 5A-5: Extract `AgentInvocationRunner`
@@ -412,9 +375,8 @@ Each step is a minimal compilable commit.
 #### Step 5A-6: Clean up `AgentAdapter` facade
 
 - Remove all extracted methods from `AgentAdapter`.
-- Verify `AgentAdapter` is now < 250 lines: config, construction, setter injection, thin invoke* delegations, pass-through accessors.
+- Verify `AgentAdapter` is now ~300-350 lines: config, construction, setter injection, thin invoke* delegations, pass-through accessors, and other delegation methods.
 - Remove unused imports.
-- Add JSDoc to facade pointing to new modules.
 - **Validation:** `npm run validate:routine`, `npm test`, line count check on `agent-adapter.ts`.
 
 ---
@@ -455,20 +417,40 @@ export class CardReader {
 
 History queries (`listCardHistory`, `getCardAt`, `diffCard`) remain on `CardStore` because they read from disk (JSONL files) and don't depend on in-memory state.
 
+#### `src/cards/card-patch-service.ts` — `CardPatchService`
+
+Shared patch application logic used by all command objects. Extracted before card command objects so lifecycle, hierarchy, evidence, and archive services can call it.
+
+```typescript
+export interface CardPatchService {
+  applyPatch(
+    state: CardStoreState,
+    id: string,
+    changes: Partial<CardRecord>,
+    ctx?: CardMutationContext,
+  ): CardRecord;
+}
+```
+
+`CardPatchService` is accessible to all command objects via their shared `deps`. It preserves the mutation-with-notification flow: apply patch to state, then queue notification for affected cards.
+
 #### `src/cards/lifecycle-commands.ts` — `CardLifecycleCommands`
 
 Status transitions and creation.
 
 ```typescript
-export interface LifecycleCommandDeps {
+export interface CardStoreDeps {
   projectRoot: string;
+  maxDepth: number;
   state: CardStoreState;
   projectLock: ProjectLock;
   eventBus: EventBus;
+  applyPatch: CardPatchService['applyPatch'];
+  queueNotification: QueueNotificationFn;
 }
 
 export class CardLifecycleCommands {
-  constructor(private readonly deps: LifecycleCommandDeps) {}
+  constructor(private readonly deps: CardStoreDeps) {}
 
   create(input: NewCardInput): CardRecord;
   setStatus(id: string, newStatus: CardStatus): CardRecord;
@@ -479,6 +461,8 @@ export class CardLifecycleCommands {
 }
 ```
 
+`queueNotification` is either included in `CardStoreDeps` or imported directly by service modules that need it. The single `CardStoreDeps` interface avoids stale snapshots by including `maxDepth`, `state`, `projectLock`, and `eventBus` together.
+
 `setStatus` currently constructs lifecycle objects inline (lines 525–588). Move the lifecycle construction cases to `lifecycle.ts` as `buildSetStatusLifecycle(card, newStatus)` or discriminated-union helpers.
 
 #### `src/cards/hierarchy-commands.ts` — `CardHierarchyCommands`
@@ -487,7 +471,7 @@ Hierarchy operations that modify parent/child relationships.
 
 ```typescript
 export class CardHierarchyCommands {
-  constructor(private readonly deps: LifecycleCommandDeps) {}
+  constructor(private readonly deps: CardStoreDeps) {}
 
   reorderChildren(parentId: string, orderedChildIds: string[], ctx: CardMutationContext): ReorderChildrenResult;
   updateDependsOn(id: string, newDependsOn: string[], ctx?: CardMutationContext): CardRecord;
@@ -500,7 +484,7 @@ Archive, deletion, and subtree operations.
 
 ```typescript
 export class CardArchiveService {
-  constructor(private readonly deps: LifecycleCommandDeps) {}
+  constructor(private readonly deps: CardStoreDeps) {}
 
   delete(id: string): void;
   archiveAndDeleteSubtree(ids: string[]): void;
@@ -515,7 +499,7 @@ Evidence ref attachment and notification.
 
 ```typescript
 export class EvidenceRefService {
-  constructor(private readonly deps: LifecycleCommandDeps) {}
+  constructor(private readonly deps: CardStoreDeps) {}
 
   appendEvidenceRefs(
     id: string,
@@ -525,7 +509,7 @@ export class EvidenceRefService {
 }
 ```
 
-Notification queuing (`queueNotification`) is called from within `appendEvidenceRefs` and `applyPatch`. The `EvidenceRefService` owns notification for evidence ref operations. The general `applyPatch` notification queuing stays on `CardStore`.
+`EvidenceRefService.appendEvidenceRefs()` preserves the owned-lock flow and emits history events after lock release. Notification queuing is called from within `appendEvidenceRefs`.
 
 #### What Remains in `CardStore` (Facade)
 
@@ -552,6 +536,9 @@ export class CardStore {
   setStatus(id: string, newStatus: CardStatus): CardRecord { return this.lifecycle.setStatus(id, newStatus); }
   // ... etc.
 
+  // Shared patch application (used by all command objects via deps):
+  applyPatch(id: string, changes: Partial<CardRecord>, ctx?: CardMutationContext): CardRecord;
+
   // History reads (disk I/O, not in-memory state):
   listCardHistory(id: string): CardHistoryEntry[];
   getCardAt(id: string, versionSeq: number): CardRecord;
@@ -562,25 +549,28 @@ export class CardStore {
 }
 ```
 
-Target final size: ~150 lines (constructor, read delegation, mutation delegation, history reads).
+Target final size: ~200-250 lines. Still needs constructor, `deps()`, `open()`, read methods, mutation delegations, history reads, shared `applyPatch`, and helper methods.
+
+Card detail freshness and stale-notification need a single owner. `CardDetailStore` (in 5D) owns the freshness/stale-notification concern for cards.
 
 ### Data Flow
 
 ```
 CardStore (facade)
   ├── CardReader (reads from CardStoreState)
+  ├── CardPatchService (shared applyPatch used by all command objects via deps)
   ├── CardLifecycleCommands (create/status transitions/updates)
-  │     └── uses ApplyMutationSync + ApplyMutationDeps
+  │     └── uses CardStoreDeps + applyPatch via deps
   ├── CardHierarchyCommands (reorder/depends_on)
-  │     └── uses ApplyMutationGroupSync
+  │     └── uses CardStoreDeps + applyPatch via deps
   ├── CardArchiveService (delete/subtree archive)
-  │     └── uses ApplyMutationGroupSync + writeFileSyncDurable
+  │     └── uses CardStoreDeps + applyPatch via deps
   ├── EvidenceRefService (evidence ref append)
-  │     └── uses ApplyMutationWithOwnedLockSync + queueNotification
+  │     └── uses CardStoreDeps + owned-lock flow, emits history events after lock release
   └── CardStoreState (in-memory read model)
 ```
 
-`ApplyMutationDeps` is the shared dependency struct that provides `projectRoot`, `state`, `projectLock`, and `eventBus` — currently `CardStore.deps()`. Each command object receives this struct.
+`CardStoreDeps` is the shared dependency struct: `projectRoot`, `maxDepth`, `state`, `projectLock`, `eventBus`, `applyPatch`, and `queueNotification`. Each command object receives this struct. Avoid stale snapshots by keeping all deps in one object.
 
 ### Step-by-Step Implementation Sequence (5B)
 
@@ -599,42 +589,53 @@ CardStore (facade)
 - `CardLifecycleCommands.setStatus` calls `buildSetStatusLifecycle` then delegates to the shared `applyPatch`.
 - **Validation:** `npm run validate:routine`, `npm test`.
 
-#### Step 5B-3: Extract `CardLifecycleCommands`
+#### Step 5B-3: Extract `CardPatchService`
+
+- Create `src/cards/card-patch-service.ts` with `CardPatchService`.
+- Move the shared `applyPatch` logic to this service. `applyPatch` is called from `create`, `update`, `mutateCard`, `reorderChildren`, `updateDependsOn`, `appendEvidenceRefs`, `commitTerminalLifecyclePatch`, `repairTerminalLifecycle`, and `setStatus`. It must stay accessible to all command objects via `deps`.
+- `CardStore` holds a `CardPatchService` instance and exposes `applyPatch` on the facade for command objects that receive it via `deps`.
+- Define `CardStoreDeps` with `projectRoot`, `maxDepth`, `state`, `projectLock`, `eventBus`, `applyPatch`, and `queueNotification`.
+- **Validation:** `npm run validate:routine`, `npm test`.
+
+#### Step 5B-4: Extract `CardLifecycleCommands`
 
 - Create `src/cards/lifecycle-commands.ts`.
 - Move `create`, `update`, `mutateCard`, `commitTerminalLifecyclePatch`, `repairTerminalLifecycle`, `setStatus` into this class.
-- The private `applyPatch` helper moves with it.
+- `CardLifecycleCommands` receives `CardStoreDeps` and uses `deps.applyPatch` for patch application.
 - `CardStore` holds a `lifecycle: CardLifecycleCommands` and delegates.
 - **Validation:** `npm run validate:routine`, `npm test`.
 
-#### Step 5B-4: Extract `CardHierarchyCommands`
+#### Step 5B-5: Extract `CardHierarchyCommands`
 
 - Create `src/cards/hierarchy-commands.ts`.
 - Move `reorderChildren`, `updateDependsOn` into this class.
 - `detectCycles` is called from `updateDependsOn` and `create`; it stays on `CardReader` and is passed as a dependency.
+- `CardHierarchyCommands` receives `CardStoreDeps` and uses `deps.applyPatch`.
 - **Validation:** `npm run validate:routine`, `npm test`.
 
-#### Step 5B-5: Extract `CardArchiveService`
+#### Step 5B-6: Extract `CardArchiveService`
 
 - Create `src/cards/archive-service.ts`.
 - Move `delete`, `archiveAndDeleteSubtree`, `projectedCompactionOps`, `archiveCardPath`.
 - `CardStore` holds an `archive: CardArchiveService` and delegates.
+- `CardArchiveService` receives `CardStoreDeps` and uses `deps.applyPatch`.
 - **Validation:** `npm run validate:routine`, `npm test`. Manual: card deletion, subtree archive.
 
-#### Step 5B-6: Extract `EvidenceRefService`
+#### Step 5B-7: Extract `EvidenceRefService`
 
 - Create `src/cards/evidence-ref-service.ts`.
 - Move `appendEvidenceRefs`, `nextEvidenceSeq`.
 - `CardStore` holds an `evidence: EvidenceRefService` and delegates.
+- `EvidenceRefService` receives `CardStoreDeps` and preserves the owned-lock flow, emitting history events after lock release.
 - **Validation:** `npm run validate:routine`, `npm test`.
 
-#### Step 5B-7: Clean up `CardStore` facade
+#### Step 5B-8: Clean up `CardStore` facade
 
-- Verify `CardStore` is now ~150 lines: constructor, delegation methods, history reads, `open()`.
+- Verify `CardStore` is now ~200-250 lines: constructor, delegation methods, history reads, `open()`, shared `applyPatch`, and helper methods.
 - Move history reads (`listCardHistory`, `getCardAt`, `diffCard`) to a `CardHistoryReader` if history complexity warrants, or leave on `CardStore` if simple.
 - Remove `refreshState()` (already gone after Wave 2, verify it's not lingering).
 - Remove unused imports and private helpers.
-- **Validation:** `npm run validate:routine`, `npm test`, line count < 200.
+- **Validation:** `npm run validate:routine`, `npm test`, line count within target range.
 
 ---
 
@@ -642,7 +643,7 @@ CardStore (facade)
 
 ### Current State
 
-`McpManager` (626 lines) manages: server lifecycle (start/stop/restart), process management, HTTP connection management, tool discovery, invocation queuing, argument validation, caching, status building, and health checking. State is distributed across seven Map/Set fields with no formal state model.
+`McpManager` (626 lines) manages: server lifecycle (start/stop/restart), process management, HTTP connection management, tool discovery, invocation queuing, argument validation, caching, status building, and health checking. State is distributed across eight Map/Set fields (`handles`, `statusOverrides`, `startedAt`, `toolsCache`, `argumentValidatorCache`, `toolsCacheInitialized` (Set), `discoveryErrors`, `_invocationQueues`) with no formal state model.
 
 ### New Module Structure
 
@@ -658,7 +659,7 @@ export type McpServerPhase =
   | { phase: 'error'; error: string };
 
 export class McpServerRuntime {
-  private phase: McpServerPhase = { phase: 'stopped' };
+  private currentPhase: McpServerPhase = { phase: 'stopped' };
   private toolsCache: McpToolDefinition[] = [];
   private toolsInitialized = false;
   private discoveryError: string | null = null;
@@ -678,11 +679,11 @@ export class McpServerRuntime {
   get hasInitializedTools(): boolean;
 
   // Lifecycle
-  async start(): Promise<void>;
+  async start(): Promise<void>;   // calls this.discoverTools() internally after transport start
   async stop(): Promise<void>;
   async healthCheck(): Promise<boolean>;
 
-  // Discovery
+  // Discovery (called internally by start; also callable for re-discovery)
   async discoverTools(): Promise<void>;
 
   // Invocation
@@ -694,45 +695,11 @@ export class McpServerRuntime {
 }
 ```
 
-Each `McpServerRuntime` dispatches to the existing transport modules (`stdio-transport.ts`, `streamable-http-transport.ts`) for the actual process/HTTP management. The runtime owns the per-server state machine transitions.
+`McpServerRuntime.start()` calls `this.discoverTools()` internally after transport start, matching current behavior. Discovery is not a separate required call but is available for re-discovery.
 
-#### `src/mcp/stdio-lifecycle.ts` — `StdioServerLifecycle`
+`McpServerRuntime` calls existing transport functions from `stdio-transport.ts` and `streamable-http-transport.ts` directly — no separate lifecycle wrapper modules. Exit/error handlers from stdio become callbacks (`onExit`, `onError`) that `McpServerRuntime` uses to transition its own phase.
 
-Extracts the stdio-specific start/stop/discover/health/invoke logic from `McpManager._startStdio`, `_stopStdio`, `_discoverToolsStdio`, and the stdio branch of `invokeTool`.
-
-```typescript
-export interface StdioLifecycleResult {
-  process: import('node:child_process').ChildProcess;
-}
-
-export async function startStdioServer(
-  name: string,
-  config: McpServerConfig,
-  scope: ResourceScope,
-  onExit: (name: string, result: { code: number | null; signal: string | null }) => void,
-  onError: (name: string, error: Error) => void,
-): Promise<StdioLifecycleResult>;
-
-export async function stopStdioServer(proc: import('node:child_process').ChildProcess): Promise<void>;
-export async function discoverStdioServerTools(name: string, handle: McpServerHandle, ids: { next(): number }): Promise<McpToolDefinition[]>;
-export async function invokeStdioServerTool(params: InvokeStdioToolParams): Promise<unknown>;
-export function healthCheckStdioServer(handle?: McpServerHandle): boolean;
-```
-
-These currently exist as `discoverStdioTools`, `healthStdioProcess`, `invokeStdioTool`, `stopStdioProcess` in `stdio-transport.ts`. The change is: exit/error handlers that Currently mutate `McpManager` state become callbacks (`onExit`, `onError`) that `McpServerRuntime` uses to transition its own phase.
-
-#### `src/mcp/http-lifecycle.ts` — `HttpServerLifecycle`
-
-Similar extraction for HTTP/SSE lifecycle.
-
-```typescript
-export async function startHttpServer(name: string, config: McpServerConfig): Promise<{ abortController: AbortController }>;
-export async function discoverHttpServerTools(params: DiscoverHttpToolsParams): Promise<McpToolDefinition[]>;
-export async function invokeHttpServerTool(params: InvokeHttpToolParams): Promise<unknown>;
-export function healthCheckHttpServer(params: HealthHttpParams): Promise<boolean>;
-```
-
-These already exist in `streamable-http-transport.ts`. The change is: startup results feed back to `McpServerRuntime` phase transitions rather than mutating `McpManager` maps.
+`McpManager.setEventLogger()`, `next()`, the shared message ID source, and the stats shape are preserved on the `McpManager` facade.
 
 #### What Remains in `McpManager` (Registry/Facade)
 
@@ -767,6 +734,10 @@ export class McpManager {
 
   // Stats
   getInvocationStats(): Record<string, { total: number; success: number; error: number; lastInvokedAt?: string }>;
+
+  // Preserved from original
+  setEventLogger(logger: EventLogger): void;
+  next(): number;   // shared message ID source
 }
 ```
 
@@ -777,14 +748,15 @@ Target final size: ~120 lines.
 ```
 McpManager (facade/registry)
   ├── Map<string, McpServerRuntime>
-  │     ├── McpServerRuntime (per-server state machine)
-  │     │     ├── phase transitions: stopped → starting → running → stopped/error
-  │     │     ├── StdioServerLifecycle (start/stop/discover/health/invoke)
-  │     │     ├── HttpServerLifecycle (start/discover/invoke/health)
-  │     │     ├── tools cache + argument validator cache
-  │     │     ├── invocation queue (stdio serialization)
-  │     │     └── McpInvocationStatsRecorder
-  │     └── ...
+  │     └── McpServerRuntime (per-server state machine)
+  │           ├── currentPhase: stopped → starting → running → stopped/error
+  │           ├── start() calls discoverTools() internally, then transitions to running
+  │           ├── Calls stdio-transport functions directly (startStdioServer, discoverStdioTools, etc.)
+  │           ├── Calls streamable-http-transport functions directly (startSseServer, discoverSseTools, etc.)
+  │           ├── tools cache + argument validator cache
+  │           ├── invocation queue (stdio serialization)
+  │           └── McpInvocationStatsRecorder
+  ├── setEventLogger() / next() / shared message ID source / stats shape (preserved)
   └── buildMcpServerStatus / buildMcpToolsReadModel (projection)
 ```
 
@@ -792,34 +764,44 @@ McpManager (facade/registry)
 
 #### Step 5C-1: Define `McpServerPhase` type and `McpServerRuntime` skeleton
 
-- Create `src/mcp/server-runtime.ts` with the `McpServerPhase` discriminated union and `McpServerRuntime` class skeleton.
-- Initially, `McpServerRuntime` holds phase, config, and scope. Methods throw "not implemented".
+- Create `src/mcp/server-runtime.ts` with the `McpServerPhase` discriminated union and `McpServerRuntime` class skeleton using `currentPhase` field plus `phase` getter.
+- Initially, `McpServerRuntime` holds currentPhase, config, and scope. Methods throw "not implemented".
 - **Validation:** `npm run validate:routine`, `npm test` (all existing tests still use `McpManager` directly).
 
 #### Step 5C-2: Move per-server state into `McpServerRuntime`
 
 - Move `handles`, `statusOverrides`, `startedAt`, `toolsCache`, `argumentValidatorCache`, `toolsCacheInitialized`, `discoveryErrors`, `invocationQueues` from `McpManager` into per-server `McpServerRuntime` instances.
-- `McpManager` holds `Map<string, McpServerRuntime>` instead of seven separate Maps/Sets.
+- `McpManager` holds `Map<string, McpServerRuntime>` instead of eight separate Maps/Sets.
 - `McpManager.startServer()` delegates to `runtime.start()`, etc.
 - Remaining `McpManager` methods become thin routing over `this.runtimes.get(name)?.method()`.
 - **Validation:** `npm run validate:routine`, `npm test`. All MCP tests pass.
 
-#### Step 5C-3: Implement lifecycle methods on `McpServerRuntime`
+#### Step 5C-3: Implement stdio lifecycle on `McpServerRuntime`
 
-- Move `startServer`, `stopServer`, `healthCheck`, `discoverTools` logic from `McpManager` into `McpServerRuntime` methods.
+- Move stdio start/stop/health logic from `McpManager` into `McpServerRuntime.start()`, `stop()`, `healthCheck()`, and `discoverTools()` for stdio-configured servers.
+- Call existing transport functions from `stdio-transport.ts` directly (e.g., `startStdioServer`, `stopStdioServer`, `discoverStdioTools`, `invokeStdioTool`, `healthCheckStdio`). No separate `stdio-lifecycle.ts` wrapper module.
 - Exit/error callbacks from stdio process become `onExit`/`onError` callbacks that `McpServerRuntime` uses to transition its own phase.
-- **Validation:** `npm run validate:routine`, `npm test`. Integration: start/stop MCP servers, invoke tools.
+- Verify `McpServerRuntime.start()` calls `this.discoverTools()` internally.
+- **Validation:** `npm run validate:routine`, `npm test`. Integration: start/stop/invoke MCP stdio servers.
 
-#### Step 5C-4: Move invocation into `McpServerRuntime`
+#### Step 5C-4: Implement streamable-HTTP lifecycle on `McpServerRuntime`
+
+- Move HTTP/SSE start/stop/health logic from `McpManager` into `McpServerRuntime` for HTTP/SSE-configured servers.
+- Call existing transport functions from `streamable-http-transport.ts` directly (e.g., `startSseServer`, `discoverSseTools`, `invokeSseTool`, `healthCheckSse`). No separate `streamable-http-lifecycle.ts` wrapper module.
+- Startup results feed back to `McpServerRuntime` phase transitions rather than mutating `McpManager` maps.
+- **Validation:** `npm run validate:routine`, `npm test`. Integration: start/stop/invoke MCP HTTP/SSE servers.
+
+#### Step 5C-5: Move invocation into `McpServerRuntime`
 
 - Move `invokeTool` logic (validation, dispatch, stats) into `McpServerRuntime.invokeTool()`.
 - The `_enqueueStdioInvocation` becomes a method on `McpServerRuntime`.
 - Argument validation calls `this._validateToolArguments(...)` using the runtime's own `argumentValidators` cache.
 - **Validation:** `npm run validate:routine`, `npm test`. Tool invocation works for both stdio and HTTP servers.
 
-#### Step 5C-5: Clean up `McpManager`
+#### Step 5C-6: Clean up `McpManager`
 
 - Remove all per-server state Maps/Sets from `McpManager`.
+- Preserve `McpManager.setEventLogger()`, `next()`, shared message ID source, and stats shape.
 - `McpManager` is now a registry: holds `servers` config and `runtimes` map, delegates all operations.
 - Target size: ~120 lines.
 - **Validation:** `npm run validate:routine`, `npm test`, `npm run validate:ui-smoke`.
@@ -883,7 +865,7 @@ export const useAnalystWorkspaceActions = defineStore('analyst-workspace-actions
   const pendingToolInvocations = ref<PendingToolInvocation[]>([]);
 
   // Badges
-  const messageBadges = ref<Record<string, TimelineBadge[]>>([]);
+  const messageBadges = ref<Record<string, TimelineBadge[]>>({});
 
   // Card seeding
   const syntheticHint = ref<SyntheticHintState>({ sessionId: null, content: null });
@@ -929,6 +911,8 @@ export const useDebugStateStore = defineStore('debug-state', () => {
 });
 ```
 
+`DebugStateStore.fetchState()` calls `/api/state` once, which returns `{ runtime, cards, totalCards }`. The split stores share this single endpoint response — `fetchState()` sets all three fields from the one API call.
+
 #### `web/src/stores/debug-errors.ts` — `DebugErrorsStore`
 
 ```typescript
@@ -956,6 +940,8 @@ export const useDebugTimelineStore = defineStore('debug-timeline', () => {
   return { timelineEvents, timelineTotal, loading, error, fetchTimeline };
 });
 ```
+
+The debug store split needs a composed read model for combined errors and sorted timeline (e.g., an `allDebugEvents` computed that merges errors + timeline entries sorted by timestamp). This can live in `useDebugStore` facade or a small composable.
 
 #### `web/src/stores/debug-process.ts` — `DebugProcessStore`
 
@@ -1073,6 +1059,8 @@ export const useCardDetailStore = defineStore('card-detail', () => {
 });
 ```
 
+`CardDetailStore` is the single owner of card freshness/stale-notification state.
+
 #### `web/src/stores/card-history.ts` — `CardHistoryStore`
 
 ```typescript
@@ -1109,7 +1097,7 @@ export const useCardHistoryStore = defineStore('card-history', () => {
 
 Cross-store calls use direct Pinia store composition (`useOtherStore()`). This is explicit and is the standard Pinia pattern. No event bus or provide/inject is needed.
 
-The existing `useDebugStore` and `useCardStore` are kept as **re-exporting facades** for a transition period, composing the new stores and delegating. This avoids breaking all component imports at once.
+The existing `useDebugStore` and `useCardStore` are kept as **re-exporting facades** for a transition period, composing the new stores and delegating. No long-lived compatibility facades — update imports in the same commit or keep the old file canonical.
 
 ### Step-by-Step Implementation Sequence (5D)
 
@@ -1125,6 +1113,7 @@ The existing `useDebugStore` and `useCardStore` are kept as **re-exporting facad
 - Create `web/src/stores/analyst-workspace-actions.ts`.
 - Move `PendingToolInvocation`, `SyntheticHintState`, `TimelineBadge` types, and `pendingToolInvocations`, `messageBadges`, `syntheticHint`, `pendingCardSeed` state.
 - Move `addBadgeForActiveSession`, `seedCardContext`, `consumeSyntheticHint`, `ingestWsEvent`, `normalizePendingSummary`, `normalizeToolName`, helper functions.
+- `messageBadges` initializes as `ref<Record<string, TimelineBadge[]>>({})` (empty object, not array).
 - `ingestWsEvent` gets conversation updates via `useAnalystConversation().fetchMessages()`.
 - **Validation:** `npm run validate:ui-smoke`.
 
@@ -1140,7 +1129,9 @@ The existing `useDebugStore` and `useCardStore` are kept as **re-exporting facad
 - Create the three store files.
 - Move state and actions for each domain.
 - Create `fetchAll` as an async function that calls all three stores.
-- Keep `useDebugStore` as a facade that composes the three stores for backward compatibility.
+- `DebugStateStore.fetchState()` calls `/api/state` once and sets `debugRuntime`, `debugCards`, and `debugTotalCards` from the single response.
+- Provide a composed read model (e.g., `allDebugEvents` computed) that merges errors + timeline entries sorted by timestamp for components that need combined debug data.
+- Keep `useDebugStore` as a facade that composes the three stores for backward compatibility until all imports are updated.
 - **Validation:** `npm run validate:ui-smoke`.
 
 #### Step 5D-5: Extract `DebugProcessStore` and `DebugOperatorStore`
@@ -1156,12 +1147,14 @@ The existing `useDebugStore` and `useCardStore` are kept as **re-exporting facad
 - Move browse, detail, and history state/actions respectively.
 - Keep `useCardStore` as a facade that composes the three stores.
 - Cross-store refresh: `refetch()` in the facade calls all three stores.
+- `CardDetailStore` is the single owner of card freshness/stale-notification state.
 - **Validation:** `npm run validate:ui-smoke`, manual card browse/detail/history.
 
-#### Step 5D-7: Update component imports
+#### Step 5D-7: Update component imports and barrel file
 
 - Find all component files that import from the old stores.
 - Replace with imports from the new domain-specific stores.
+- Update `web/src/stores/index.ts` barrel to re-export from new store files.
 - Remove the old facades once all imports are updated.
 - **Validation:** `npm run validate:ui`, `npm run validate:ui-smoke`.
 
@@ -1177,17 +1170,7 @@ The existing `useDebugStore` and `useCardStore` are kept as **re-exporting facad
 
 #### `src/server/live-sync-handler.ts` — `LiveSyncHandler`
 
-Handles LiveSync frames. Extracted from the `if (liveSyncSocket.handleClientFrame(ws, rawParsed)) return;` branch.
-
-```typescript
-export class LiveSyncHandler {
-  constructor(private readonly liveSyncSocket: LiveSyncSocket) {}
-
-  handleFrame(ws: WebSocket, rawParsed: unknown): boolean;
-}
-```
-
-This is a thin wrapper: `handleFrame` calls `liveSyncSocket.handleClientFrame(ws, rawParsed)` and returns whether it was handled. If LiveSync grows more complex, this is the natural extension point.
+Not extracted as a class. The LiveSync frame dispatch stays inline in `registerWebSocket` (it is already a single `if (liveSyncSocket.handleClientFrame(ws, rawParsed)) return;` branch). If extraction becomes necessary, a plain helper function is preferred over a class.
 
 #### `src/server/analyst-ws-handler.ts` — `AnalystWsHandler`
 
@@ -1196,8 +1179,9 @@ Handles analyst inbound messages.
 ```typescript
 export interface AnalystWsHandlerConfig {
   projectRoot: string;
-  runtimeApplication: RuntimeApplication;
+  runtimeApplication?: RuntimeApplication;
   requestServerRestart?: () => Promise<void>;
+  outboundSinks?: OutboundSinks;
 }
 
 export class AnalystWsHandler {
@@ -1211,6 +1195,8 @@ export class AnalystWsHandler {
   ): Promise<void>;
 }
 ```
+
+`runtimeApplication` stays optional. `AnalystHandler` checks for null at runtime. Outbound sinks are injected via `config.outboundSinks`.
 
 `handleMessage` contains:
 1. Get or create analyst session
@@ -1239,20 +1225,7 @@ export interface ToolActivityProjection {
       warnings?: string[];
       classified_as?: string;
     };
-    data?: {
-      classified_as?: string;
-      exit_code?: number;
-      duration_ms?: number;
-      truncated?: boolean;
-      stdout?: string;
-      stderr?: string;
-      command?: string;
-      cwd?: string;
-      path?: string;
-      binary?: boolean;
-      size?: number;
-      modified_at?: string;
-    };
+    data?: unknown;
   };
 }
 
@@ -1263,7 +1236,7 @@ export function projectToolActivityResult(inv: {
 }): ToolActivityProjection;
 ```
 
-The projection uses explicit field access with type narrowing instead of `as unknown as Record<string, unknown>` casts. The `sanitizeAnalystPayload` call is applied to the projected result.
+The projection uses explicit field access with type narrowing instead of `as unknown as Record<string, unknown>` casts. Primitive and array data values are preserved as sanitized `unknown`. The `sanitizeAnalystPayload` call is applied to the projected result.
 
 #### What Remains in `registerWebSocket`
 
@@ -1290,7 +1263,7 @@ export function registerWebSocket(
     ws.on('message', (raw) => queueAnalystTurn(ws, async () => {
       const data = parseRawMessage(raw);
       const rawParsed = JSON.parse(data);
-      if (liveSyncHandler.handleFrame(ws, rawParsed)) return;
+      if (liveSyncSocket.handleClientFrame(ws, rawParsed)) return;
       const parsed = InboundAnalystMessageEnvelopeSchema.safeParse(rawParsed);
       if (!parsed.success) throw new Error('Invalid analyst websocket message');
       const currentSessionId = ensureSession(ws);
@@ -1303,6 +1276,8 @@ export function registerWebSocket(
 }
 ```
 
+The `parseRawMessage` function signature: `parseRawMessage(raw: Buffer | ArrayBuffer | Buffer[]): string`.
+
 Target size: ~50 lines.
 
 ### Data Flow
@@ -1314,7 +1289,7 @@ registerWebSocket (thin connect function)
   ├── Creates analyst session
   ├── ws.on('message')
   │     ├── queueAnalystTurn(ws, ...)
-  │     │     ├── LiveSyncHandler.handleFrame() → if handled, return
+  │     │     ├── LiveSync frame dispatch (inline, not extracted as class)
   │     │     └── AnalystWsHandler.handleMessage()
   │     │           ├── Gets/creates analyst handler
   │     │           ├── Calls handler.handleMessage()
@@ -1332,23 +1307,20 @@ registerWebSocket (thin connect function)
 - Create `src/server/tool-activity-projection.ts`.
 - Move the ad-hoc casting block (lines 173–199) into `projectToolActivityResult`.
 - Replace `as unknown as Record<string, unknown>` casts with explicit field access and type narrowing.
+- Preserve primitive/array data as sanitized `unknown` in the `data` field.
 - **Validation:** `npm run validate:routine`, `npm test`.
 
-#### Step 5E-2: Extract `LiveSyncHandler`
-
-- Create `src/server/live-sync-handler.ts`.
-- Move `handleClientFrame` delegation.
-- **Validation:** `npm run validate:routine`, `npm test`.
-
-#### Step 5E-3: Extract `AnalystWsHandler`
+#### Step 5E-2: Extract `AnalystWsHandler`
 
 - Create `src/server/analyst-ws-handler.ts`.
 - Move the analyst message handling block (lines 138–205) into `AnalystWsHandler.handleMessage()`.
 - This includes session creation, handler retrieval, message sending, and tool activity projection.
+- `runtimeApplication` stays optional (`runtimeApplication?: RuntimeApplication`). `AnalystHandler` checks for null at runtime.
+- Inject outbound sinks via `config.outboundSinks`.
 - Update `registerWebSocket` to instantiate `AnalystWsHandler` and delegate.
 - **Validation:** `npm run validate:routine`, `npm test`, `npm run validate:ui-smoke`. Manual: analyst chat via WebSocket.
 
-#### Step 5E-4: Extract `queueAnalystTurn` and session management
+#### Step 5E-3: Extract `queueAnalystTurn` and session management
 
 - Move `queueAnalystTurn`, `wsSessions` WeakMap, and `getOrCreateAnalystSession` / `ensureSession` helpers into a small `src/server/ws-session-manager.ts` or inline in `registerWebSocket` if small enough.
 - `registerWebSocket` is now ~50 lines.
@@ -1387,36 +1359,52 @@ Manual end-to-end: full planner loop with invocation, compaction, and tool calls
 
 **Rationale:** `AgentAdapter` is the primary entry point for the runtime composition layer. `invokePlanner`, `invokeExecutor`, `invokeReviewer`, and `reinvokeSession` are the stable public API. The facade preserves this API while delegating to focused modules. Eliminating `AgentAdapter` would force all callers to wire `AgentInvocationRunner`, `SessionLifecycle`, `AttemptRecorder`, etc. individually, which is worse coupling.
 
-**Tradeoff:** One extra thin class vs. direct dependency injection. The facade is ~200 lines, which is acceptable. Wave 6 (F26) converts setter injection to constructor injection, which simplifies the facade further.
+**Tradeoff:** One extra thin class vs. direct dependency injection. The facade is ~300-350 lines, which is acceptable given the many delegation methods required beyond the explicitly listed ones. Wave 6 (F26) converts setter injection to constructor injection, which simplifies the facade further.
 
 ### CardStore: Command Objects vs. Module Functions
 
 **Decision:** Use class-based command objects (`CardLifecycleCommands`, `CardHierarchyCommands`, etc.) rather than standalone module functions.
 
-**Rationale:** The command objects need shared state (`ApplyMutationDeps`: projectRoot, state, projectLock, eventBus). A class holds this as a field, avoiding thread-locals or repeated parameter passing. Standalone functions would need a `deps` parameter on every call or a module-level singleton, both worse patterns.
+**Rationale:** The command objects need shared state (`CardStoreDeps`: projectRoot, maxDepth, state, projectLock, eventBus, applyPatch, queueNotification). A class holds this as a field, avoiding thread-locals or repeated parameter passing. Standalone functions would need a `deps` parameter on every call or a module-level singleton, both worse patterns.
 
 **Tradeoff:** More classes vs. fewer. But each class is ~30–80 lines and focused on one domain.
+
+### CardPatchService: Shared Patch Application
+
+**Decision:** Extract `CardPatchService` before card command objects. `applyPatch` is shared across all command objects, not lifecycle-specific.
+
+**Rationale:** `applyPatch` is called from `create`, `update`, `mutateCard`, `reorderChildren`, `updateDependsOn`, `appendEvidenceRefs`, `commitTerminalLifecyclePatch`, `repairTerminalLifecycle`, and `setStatus`. Moving it only to `CardLifecycleCommands` would break `EvidenceRefService`, `CardHierarchyCommands`, and `CardArchiveService`. It must stay on `CardStore` or become a shared module function accessible to all command objects via `deps`.
+
+**Tradeoff:** One extra small service class vs. duplicating patch logic.
 
 ### MCP Manager: Per-Server Runtime vs. Flat Methods
 
 **Decision:** `McpServerRuntime` as a per-server state machine class rather than keeping flat Maps in `McpManager`.
 
-**Rationale:** The seven Map/Set fields in `McpManager` represent per-server state that belongs together. A state machine makes invalid states unrepresentable (you can't have a `toolsCache` entry for a stopped server). It also makes exit/error handlers local to each server rather than scattered closures that mutate global Maps.
+**Rationale:** The eight Map/Set fields in `McpManager` represent per-server state that belongs together. A state machine makes invalid states unrepresentable (you can't have a `toolsCache` entry for a stopped server). It also makes exit/error handlers local to each server rather than scattered closures that mutate global Maps.
 
 **Tradeoff:** One new class per server. But each `McpServerRuntime` is ~100 lines vs. the current 626-line monolith with scattered state updates.
 
+### MCP Manager: No Lifecycle Wrapper Modules
+
+**Decision:** `McpServerRuntime` calls existing transport functions directly from `stdio-transport.ts` and `streamable-http-transport.ts`. No separate `stdio-lifecycle.ts` or `streamable-http-lifecycle.ts` wrapper modules.
+
+**Rationale:** The existing transport modules already provide `startStdioServer`/`discoverStdioTools` and `startSseServer`/`discoverSseTools` (matching `_startSse` and `cfg.transport === 'sse'` config). Creating wrapper modules adds indirection without benefit. `McpServerRuntime` can call these functions directly and manage phase transitions.
+
+**Tradeoff:** `McpServerRuntime` imports from two transport modules instead of one lifecycle module. This is acceptable since the transport modules are stable and the calls are straightforward.
+
 ### Frontend Stores: Facade Compatibility vs. Clean Break
 
-**Decision:** Keep `useDebugStore` and `useCardStore` as re-exporting facades during the transition, remove them once all component imports are updated.
+**Decision:** Keep `useDebugStore` and `useCardStore` as re-exporting facades during the transition, remove them once all component imports are updated. No long-lived compatibility facades — update imports in the same commit or keep the old file canonical.
 
 **Rationale:** The frontend has many components importing `useDebugStore` and `useCardStore`. A single-step rename would break too many files at once. The facade approach lets sub-waves 5D-1 through 5D-6 land independently.
 
 **Tradeoff:** Temporary dual imports. The facades are thin and removed in 5D-7.
 
-### WebSocket: Handler Classes vs. Functions
+### WebSocket: Handler Class vs. Plain Helper
 
-**Decision:** `AnalystWsHandler` is a class, `LiveSyncHandler` is a class, `projectToolActivityResult` is a function.
+**Decision:** `AnalystWsHandler` is a class, `LiveSyncHandler` stays inline (not extracted as a class), `projectToolActivityResult` is a function.
 
-**Rationale:** `AnalystWsHandler` holds config (projectRoot, runtimeApplication, requestServerRestart) across calls — natural for a class. `LiveSyncHandler` holds a `LiveSyncSocket` reference. The projection function is pure and stateless — a function is simpler.
+**Rationale:** `AnalystWsHandler` holds config (projectRoot, runtimeApplication, requestServerRestart) across calls — natural for a class. LiveSync dispatch is a single `if` check that doesn't warrant a separate class module. The projection function is pure and stateless — a function is simpler.
 
-**Tradeoff:** More classes for what could be simple functions. But the handlers will grow (error handling, reconnection, session resumption) and the class pattern provides a natural extension point.
+**Tradeoff:** More structure for `AnalystWsHandler` but less indirection for LiveSync. The handler will grow (error handling, reconnection, session resumption) and the class pattern provides a natural extension point.

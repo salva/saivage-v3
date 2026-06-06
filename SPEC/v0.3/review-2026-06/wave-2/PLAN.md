@@ -1,52 +1,5 @@
 # Wave 2: Card Data Model — Plan & Design
 
-## Second Review Corrections
-
-This section supersedes both the Reviewed Corrections and any conflicting text below.
-
-1. **CRITICAL — Remove Step 1 entirely**: Step 1 creates `src/cards/shared.ts` and moves `now()`/`valuesEqual()`. Reviewed Correction #17 says "Drop shared utility extraction from this wave. Wave 1 owns utilities." The metaplan assigns F17 to Wave 1. Delete Step 1.
-2. **CRITICAL — Design section still shows stale flag / `ensureFresh()` pattern**: The F03 Design section describes `private stale = true` and `ensureFresh()`. Reviewed Correction #1 says "Do not use a stale flag with conditional read reloads. Reads do no I/O. `invalidate()` immediately reloads synchronously." Remove the stale-flag/ensureFresh design entirely. Reads return `this.state.get(id)` directly. `invalidate()` unconditionally reloads: `this.state = loadCardStoreState(this.projectRoot, { maxDepth: this.maxDepth })`.
-3. **CRITICAL — Keep defensive cloning**: The design says "Remove deepClone." Reviewed Correction #3 says "Do not remove deepClone in this wave unless records are deeply frozen on write and public reads return `DeepReadonly<CardRecord>`. The corrected plan keeps defensive cloning." Do NOT remove Step 6 (deepClone removal) or replace it with "freeze on write, return `Readonly<CardRecord>` while keeping the clone."
-4. **CRITICAL — Do not add `ulid`**: Step 7 says "Add `ulid` as a dependency." Reviewed Correction #14 says "Do not add `ulid`. Keep `card-N`, move ID generation inside the project lock." Move `generateId` call inside `applyMutationLocked`/the locked body of `create()`. Preserve `PROJECT_CARD_ID` special-casing.
-5. **CRITICAL — Correct step sequence**: Reviewed Correction #15 says "locked create validation/id/depth/position first, remove read refresh second, split loader/validator third, remove denormalized blocks fourth." Current order is: shared utils → validator → loader → blocks → refreshState → deepClone → ULID → depthCache. Correct order: (1) move ID generation inside lock (F30), (2) remove refreshState from reads + add invalidate(), (3) split state/loader/validator, (4) remove denormalized blocks. Drop shared-utils (Wave 1), deepClone (correction #3), and depthCache (correction #16).
-6. **HIGH — Error classes go in `src/cards/errors.ts` not `validator.ts`**: Reviewed Correction #5. `CardStoreInvariantError` and `ReorderSetMismatchError` must be in a separate `errors.ts` to avoid cycles between `state.ts`, `validator.ts`, and loader modules.
-7. **HIGH — Loader goes in `src/persistence/card-loader.ts` not `src/cards/loader.ts`**: Reviewed Correction #7. The metaplan lists `new src/persistence/card-loader.ts` for F24. Use `persistence/card-loader.ts`.
-8. **HIGH — No optional transition field for `blocks`**: Reviewed Correction #9. Remove `blocks` from `CardRecord` type in `src/schemas/types.ts` AND `cardRecordSchema` in `src/schemas/validators.ts` in one step. Do NOT use `.optional()`. The loader's `parseCard()` must strip `blocks` from raw input before schema validation.
-9. **HIGH — Add `CardStore.blocksFor(id)` public method**: Reviewed Correction #10. External callers (web, API routes, runtime) use `store.blocksFor(id)`, not `state.blocksFor()`. Add `blocksFor(id: string): string[] { return this.state.blocksFor(id); }` to `CardStore`.
-10. **HIGH — Card history migration needs normalization**: `cardHistoryEntrySchema.snapshot` uses `cardRecordSchema`. After removing `blocks` from the schema, existing JSONL history files containing `blocks` would fail validation. `parseCard()` must normalize (strip `blocks`) before schema validation. Add this as an explicit substep.
-11. **HIGH — No temporary barrel re-exports from `state.ts`**: Reviewed Correction #6. Move symbols and update all importers in the same step. Do not add re-exports from `state.ts`.
-12. **HIGH — All `refreshState()` calls must be enumerated**: Read methods (7) AND mutation methods (4) call `refreshState()`: `create()` (line 329), `appendEvidenceRefs()` (line 409), `reorderChildren()` (line 488), `archiveAndDeleteSubtree()` (line 623). All 12 must be removed.
-13. **HIGH — Explicit `blocks` caller enumeration**: The plan says "search for all references." Explicit callers: `src/cards/lifecycle.ts` (TRACKED_FIELDS, buildUpdatedCard, buildNewCard), `src/agents/planner-control-executor.ts:182`, `src/tools/analyst-card-tools.ts:104`, `src/runtime/context-builder.ts:137`, `src/application/read-models/debug-read-model.ts:24`, `src/cards/state.ts` (upsert, refreshBlocksField, dependents spread), `web/src/stores/analystChat.ts:235`, `web/src/api/types.ts` (lines 189, 262), `web/src/components/cards/CardDetailView.vue` (lines 72, 75), `web/src/stores/debug.ts:86`, plus test fixtures.
-14. **HIGH — NewCardInput/buildNewCard updates**: Remove `blocks: []` from `buildNewCard()`, `planner-control-executor.ts`, and `analyst-card-tools.ts` create inputs. Remove `'blocks'` from `TRACKED_FIELDS` in lifecycle.ts.
-15. **HIGH — Missing test updates**: Every step needs explicit test-update substeps: remove `blocks` from mock CardRecord fixtures, add two-store invalidate tests, add `blocksFor()` tests, update `web/src/api/types.ts` and `DebugStateResponse`.
-16. **MEDIUM — `valuesEqual` also in `lifecycle.ts`**: `src/cards/lifecycle.ts:105` defines its own `valuesEqual`. If Wave 1 extracts it, `lifecycle.ts` must also be updated.
-17. **MEDIUM — Schema files are `types.ts` and `validators.ts`, not `index.ts`**: Step 4 says "`src/schemas/index.ts` (or wherever CardRecord Zod schema is)." Use `src/schemas/types.ts` (type) and `src/schemas/validators.ts` (Zod schema).
-18. **MEDIUM — Delete `_depthCache` and `depthOf()` entirely**: Reviewed Correction #16. `_depthCache` has zero external consumers. Remove `_depthCache` property, `depthOf()` method, and `_depthCache.clear()` calls in `upsert()`/`remove()`. Do NOT add `invalidateDepths()`.
-19. **MEDIUM — Reorder steps per correction #15**: 1. Move ID generation inside lock (no ulid), 2. Remove all refreshState calls + add invalidate(), 3. Split state/loader/validator/errors, 4. Remove denormalized blocks. Drop shared-utils, deepClone-removal, depthCache-targeting steps.
-
-## Reviewed Corrections
-
-This section supersedes any conflicting text below.
-
-1. Do not use a stale flag with conditional read reloads. Reads do no I/O. `invalidate()` or `reloadFromDisk()` immediately reloads synchronously from disk.
-2. A `CardStore` instance is authoritative only for its own mutation path. External writers require explicit `store.invalidate()` before reads. Add two-store tests: stale-before-invalidate and fresh-after-invalidate.
-3. Do not remove `deepClone` in this wave unless records are deeply frozen on write and public reads return `DeepReadonly<CardRecord>`. The corrected plan keeps defensive cloning.
-4. Validator boundary: validate parsed raw cards before state seeding. Use `validateParsedCards({ cards, maxDepth }): { depthById; cardsInDepthOrder }`; do not validate through `CardStoreState`.
-5. Create `src/cards/errors.ts` for `CardStoreInvariantError` and `ReorderSetMismatchError` to avoid cycles between `state.ts`, `validator.ts`, and loader modules.
-6. Do not keep temporary compatibility re-exports from `state.ts`. Move symbols and update imports in the same step. After splitting, `state.ts` exports only `CardStoreState`.
-7. Prefer `src/persistence/card-loader.ts` for filesystem loading, matching the metaplan. If kept under cards, update the metaplan and justify it.
-8. Remove `blocks` from persisted `CardRecord`, not necessarily from operator views. Persisted cards have `depends_on`; `CardStoreState` owns reverse dependency adjacency; `CardStore.blocksFor(id)` exposes derived blockers.
-9. `blocks` removal changes `src/schemas/types.ts` first, then `src/schemas/validators.ts`. Do not use an optional transition field unless introducing a separate persisted compatibility type.
-10. Add `CardStore.blocksFor(id: string): string[]`; production consumers use the store/read-model, not `state.blocksFor(...)` directly.
-11. Keep `_blocksInverse` cleanup. Remove only denormalized `blocks` writes: `computeBlocksArrayFor`, `refreshBlocksField`, and `{ ...card, blocks: ... }`.
-12. Update `NewCardInput`, `buildNewCard`, create callers, fixtures, web API types, debug store, analyst chat context, `CardDetailView`, and current docs referencing `blocks`.
-13. `CardHistoryEntry.snapshot` uses `CardRecord`; update history validation and fixtures consistently when removing persisted `blocks`.
-14. Do not add `ulid`. Keep `card-N`, but move ID generation inside the project lock. Preserve project-card exception and reserved IDs while sequential IDs exist.
-15. Correct sequence: locked create validation/id/depth/position first, remove read refresh second, split loader/validator third, remove denormalized `blocks` fourth.
-16. Delete targeted `_depthCache` invalidation. `_depthCache` is not populated/useful; either remove it and `depthOf()` or leave current clearing until a real cache user exists.
-17. Drop shared utility extraction from this wave. Wave 1 owns utilities.
-18. Validation must not use manual logging. Add focused two-store invalidate tests and web checks if outbound `blocks` changes.
-
 **Issues:** F03, F24, F30  
 **Risk:** HIGHEST — touches every card read/write path  
 **Prerequisite:** Wave 1 (persistence primitives) should be complete  
@@ -77,20 +30,18 @@ class CardStore {
   // ...
 
   // Explicit invalidation for external writers (rare)
-  invalidate(): void { this.stale = true; }
-  
-  // Private: reload only when stale
-  private ensureFresh(): void {
-    if (this.stale) { this.state = loadCardStoreState(this.projectRoot, { maxDepth: this.maxDepth }); this.stale = false; }
+  invalidate(): void {
+    this.state = loadCardStoreState(this.projectRoot, { maxDepth: this.maxDepth });
   }
 }
 ```
 
 The constructor calls `loadCardStoreState` once. After that:
 - Every mutation method (`create`, `setStatus`, `archiveAndDeleteSubtree`, etc.) already calls `applyMutationSync` which writes to disk, then calls `this.state.upsert(updatedCard)` to update the in-memory model.
-- The only reason `refreshState()` existed was to pick up external writes. Replace this with an explicit `invalidate()` that callers use when they know an external process may have written.
-
-**Remove `deepClone`:** Make `CardRecord` deeply readonly at the type level (`Readonly<...>` with recursive mapped type). Return the record directly from the map. Callers who need mutation make their own copy.
+- The only reason `refreshState()` existed was to pick up external writes. Replace this with an explicit `invalidate()` that immediately reloads from disk. Callers use it when they know an external process may have written.
+- **No stale flag, no `ensureFresh()`.** Reads perform zero I/O and return directly from the in-memory model. `invalidate()` unconditionally reloads synchronously from disk.
+- A `CardStore` instance is authoritative only for its own mutation path. External writers require explicit `store.invalidate()` before reads. Add two-store tests: stale-before-invalidate and fresh-after-invalidate.
+- **Keep defensive cloning (`deepClone`).** Do not remove `deepClone` in this wave. `CardRecord` remains mutable at the type level; reads return cloned records to prevent accidental mutation of store state.
 
 ### F24: Split state.ts into read model, loader, and validator
 
@@ -104,182 +55,182 @@ The constructor calls `loadCardStoreState` once. After that:
 ```
 src/cards/
   state.ts          → CardStoreState class only (adjacency read model, upsert, remove, queries)
-  loader.ts          → loadCardStoreState() + parseCard + readJsonFile + byIdDir/historyDir helpers
   validator.ts       → validateCardStoreInvariants() + validateCardHistoryInvariant()
-  shared.ts          → valuesEqual(), now() (removed from card-store.ts)
+  errors.ts          → CardStoreInvariantError, ReorderSetMismatchError
+src/persistence/
+  card-loader.ts     → loadCardStoreState() + parseCard + readJsonFile + byIdDir/historyDir helpers
 ```
 
 **`state.ts` (pure read model):**
 - `CardStoreState` class with `upsert()`, `remove()`, query methods, adjacency caches
 - No filesystem imports. No `loadCardStoreState`.
-- `_blocksInverse` becomes the canonical blocks source; `blocks` field on `CardRecord` is computed from it (or removed from the schema entirely, with callers using `blocksFor()`)
-- `_depthCache` is invalidated only for ancestors of the mutated card, not all cards
+- `_blocksInverse` is the canonical blocks source; `blocks` field on `CardRecord` is removed entirely, with callers using `blocksFor()`
+- `_depthCache` and `depthOf()` are deleted entirely. No `invalidateDepths()`.
 
-**`loader.ts`:**
+**`src/persistence/card-loader.ts`:**
 - `loadCardStoreState(projectRoot, options)` — reads filesystem, calls validator, returns `CardStoreState`
 - `parseCard()`, `readJsonFile()`, `cardByIdPath()`, `cardHistoryPath()`, `byIdDir()`, `historyDir()`
 - `readHistoryEntriesStrict()`
+- `parseCard()` strips `blocks` from raw input before schema validation
 
-**`validator.ts`:**
-- `validateCardStoreInvariants(state, projectRoot)` — the 9 invariant checks currently in `loadCardStoreState`
+**`src/cards/validator.ts`:**
+- `validateParsedCards({ cards, maxDepth }): { depthById; cardsInDepthOrder }` — validates parsed raw cards before state seeding. Do not validate through `CardStoreState`.
 - `validateCardHistoryInvariant()` — extracted as-is
 
+**`src/cards/errors.ts`:**
+- `CardStoreInvariantError`
+- `ReorderSetMismatchError`
+
 **Denormalized `blocks` field:**
-Remove `blocks` from `CardRecord` schema. It is redundant with `_blocksInverse`. Callers that need "which cards block this one" use `state.blocksFor(cardId)` or `state.blocksFor(id)` from the inverse map. This eliminates `refreshBlocksField()` and the O(degree) write propagation on every upsert.
+Remove `blocks` from `CardRecord` schema entirely. It is redundant with `_blocksInverse`. Callers that need "which cards block this one" use `store.blocksFor(cardId)` from `CardStore`. Keep `_blocksInverse` cleanup logic. Remove only the denormalized `blocks` writes: `computeBlocksArrayFor`, `refreshBlocksField`, and `{ ...card, blocks: ... }`.
 
 ### F30: Generate card IDs inside locked mutations
 
 **Current:** `generateId()` (line 108-118) scans all existing IDs for the highest numeric suffix, then increments. Called before the lock, so concurrent creation can select the same ID.
 
-**Target:** Use ULID-style IDs. Generate the ID inside `applyMutationSync` after acquiring the lock.
+**Target:** Keep `card-N` format. Move `generateId` call inside `applyMutationLocked` / the locked body of `create()`. Preserve `PROJECT_CARD_ID` special-casing and reserved IDs while sequential IDs exist.
 
 ```typescript
-// src/cards/card-store.ts
-import { ulid } from 'ulid';
-
-// In create():
-const id = ulid();
-// Remove generateId function
-// Remove __RESERVED_IDS from CardStoreState (no longer needed for collision avoidance)
+// Inside applyMutationLocked (or the locked body of create()):
+const nextId = generateId(Array.from(state._cards.keys()));
+// generateId now runs inside the lock, eliminating race conditions
 ```
 
-If adding a dependency is undesirable, use a monotonic counter stored in the same locked transaction:
-
-```typescript
-// Inside applyMutationLocked:
-const nextId = `card-${state.nextCardId()}`;
-// where nextCardId() returns max(existing numeric IDs) + 1
-```
-
-This is safe because it runs inside the project lock. The `__RESERVED_IDS` set can be removed since ULIDs don't collide.
+Do not add `ulid` or any new dependency. The `generateId` function signature stays the same; it just moves into the locked body.
 
 ---
 
 ## Step-by-Step Implementation
 
-### Step 1: Extract shared utilities from card-store.ts
+### Step 1: Move ID generation inside the project lock
 
-**Files:** `src/cards/shared.ts` (new), `src/cards/card-store.ts`
+**Files:** `src/cards/card-store.ts`, `src/cards/state.ts`
 
-Create `src/cards/shared.ts`:
-```typescript
-export function now(): string { return new Date().toISOString(); }
-export function valuesEqual(a: unknown, b: unknown): boolean { return JSON.stringify(a) === JSON.stringify(b); }
-```
+Move the `generateId()` call from before `applyMutationSync` into the locked body of `create()`. This eliminates the race condition where concurrent creation could select the same ID.
 
-Remove `now()` and `valuesEqual()` from `card-store.ts`. Add imports from `./shared.js`.
+1. Move the `generateId(existingIds)` call into `applyMutationLocked` (or the locked body of `create()`), after the lock is acquired.
+2. Preserve `PROJECT_CARD_ID` special-casing and `__RESERVED_IDS` handling while sequential IDs exist.
+3. `CardStoreState` still needs `nextCardId()` (or equivalent) that returns `max(existing numeric IDs) + 1`.
 
-Update all callers of `now()` in cards/ to import from `./shared.js`:
-- `src/cards/artifacts.ts` — remove local `now()`, import from shared
-- `src/cards/card-store.ts` — remove local `now()` and `valuesEqual()`, import from shared
+**Test updates:**
+- Add test: concurrent `create()` calls produce unique IDs.
+- Add test: `PROJECT_CARD_ID` creation still works.
+- Add test: reserved IDs are not assigned.
 
 **Verify:** `npm run typecheck && npm test`
 
-### Step 2: Extract validator from state.ts
+### Step 2: Remove refreshState() on all reads, add invalidate()
 
-**Files:** `src/cards/validator.ts` (new), `src/cards/state.ts`
+**Files:** `src/cards/card-store.ts`
 
-Create `src/cards/validator.ts`:
-- Move `CardStoreInvariantError`, `ReorderSetMismatchError` from `state.ts`
+All 12 call sites for `refreshState()` must be removed:
+
+**Read methods (7):** `read()`, `list()`, `listChildren()`, `getParent()`, `getAncestors()`, `getDescendantIds()`, `detectCycles()`
+
+**Mutation methods (4):** `create()` (line 329), `appendEvidenceRefs()` (line 409), `reorderChildren()` (line 488), `archiveAndDeleteSubtree()` (line 623)
+
+(The 12th call is likely in `refreshState` itself or a helper.)
+
+1. Remove every `this.refreshState()` call from all 12 sites listed above.
+2. Remove the `refreshState()` method entirely.
+3. Add `invalidate(): void` that immediately reloads: `this.state = loadCardStoreState(this.projectRoot, { maxDepth: this.maxDepth });` — no stale flag, no conditional. Invalidating unconditionally reloads from disk.
+4. Verify each mutation method already calls `this.state.upsert(updatedCard)` after durable writes, so the in-memory model stays current.
+
+**Test updates:**
+- Add two-store invalidate test: two `CardStore` instances sharing a project root; store A creates a card; store B reads and gets stale data; store B calls `invalidate()`; store B reads and gets the new card.
+- Add two-store stale-before-invalidate test: store B does NOT call `invalidate()` and therefore does NOT see store A's creation.
+- Add test: `invalidate()` on a fresh store reloads without error.
+- Add test: normal read path performs zero filesystem I/O (verified by mocking `loadCardStoreState` and confirming it is not called during reads).
+
+**Verify:** `npm run typecheck && npm test`. Manual: create card, read card, update card status, read again — must reflect mutation without reload.
+
+### Step 3: Split state.ts into read model, loader, validator, and errors
+
+**Files:** `src/cards/state.ts`, `src/cards/validator.ts` (new), `src/cards/errors.ts` (new), `src/persistence/card-loader.ts` (new), all importers
+
+This is the largest refactoring step. All symbol moves and importer updates happen in one step — no temporary barrel re-exports from `state.ts`.
+
+**`src/cards/errors.ts`:**
+- Move `CardStoreInvariantError` and `ReorderSetMismatchError` from `state.ts`
+- Both `state.ts` and `validator.ts` import from `./errors.js`
+
+**`src/cards/validator.ts`:**
 - Move `validateCardHistoryInvariant()` and `parseHistoryLine()` from `state.ts`
-- Add `validateCardStoreInvariants(state: CardStoreState, projectRoot: string): void` that performs the 9 invariant checks currently in `loadCardStoreState` lines 424-522
+- Add `validateParsedCards({ cards, maxDepth }): { depthById; cardsInDepthOrder }` — validates parsed raw cards before state seeding. Do not validate through `CardStoreState`.
+- Import error classes from `./errors.js`
 
-Update `state.ts` to import `CardStoreInvariantError` and `ReorderSetMismatchError` from `./validator.js`.
-
-Update `loadCardStoreState` to call `validateCardStoreInvariants(state, projectRoot)` instead of inline checks.
-
-**Verify:** `npm run typecheck && npm test`
-
-### Step 3: Extract loader from state.ts
-
-**Files:** `src/cards/loader.ts` (new), `src/cards/state.ts`
-
-Create `src/cards/loader.ts`:
+**`src/persistence/card-loader.ts`:**
 - Move `loadCardStoreState()`, `readJsonFile()`, `parseCard()`, `byIdDir()`, `historyDir()`, `cardByIdPath()`, `cardHistoryPath()`, `readHistoryEntriesStrict()` from `state.ts`
-- Import `validateCardStoreInvariants` and `validateCardHistoryInvariant` from `./validator.js`
-- Import `CardStoreState` from `./state.js`
+- Import `validateParsedCards` and `validateCardHistoryInvariant` from `../cards/validator.js`
+- Import `CardStoreState` from `../cards/state.js`
+- `parseCard()` strips `blocks` from raw input before schema validation
 
-Update `state.ts` to re-export `loadCardStoreState`, `cardByIdPath`, `cardHistoryPath`, `readHistoryEntriesStrict` from `./loader.js` (temporary barrel to keep imports working).
+**`src/cards/state.ts`:**
+- Retains only `CardStoreState` class: `upsert()`, `remove()`, query methods, adjacency caches
+- No filesystem imports. No `loadCardStoreState`.
+- Delete `_depthCache` property, `depthOf()` method, and all `_depthCache.clear()` calls in `upsert()`/`remove()`. Do NOT add `invalidateDepths()`.
 
-Update all external importers to import from `./loader.js` or `./validator.js` as appropriate. Remove the barrel re-exports after all importers are updated.
+Update all importers in the same step:
+- Every file that imported `loadCardStoreState`, `cardByIdPath`, `cardHistoryPath`, `readHistoryEntriesStrict`, etc. from `state.ts` now imports from `persistence/card-loader.ts`
+- Every file that imported `CardStoreInvariantError` or `ReorderSetMismatchError` from `state.ts` now imports from `cards/errors.ts`
+- Every file that imported `validateCardHistoryInvariant` from `state.ts` now imports from `cards/validator.ts`
+- Remove all barrel re-exports from `state.ts`. After this step, `state.ts` exports only `CardStoreState`.
+
+**Test updates:**
+- Update all test imports to use new module paths.
+- Add test: `validateParsedCards` rejects invalid cards before `CardStoreState` construction.
+- Add test: `CardStoreState` can be instantiated without filesystem imports.
+
+**Note:** `valuesEqual` is also defined in `src/cards/lifecycle.ts:105`. When Wave 1 extracts the shared utility, `lifecycle.ts` must also be updated. That is not this wave's concern.
 
 **Verify:** `npm run typecheck && npm test`
 
 ### Step 4: Remove denormalized `blocks` field from CardRecord
 
-**Files:** `src/schemas/index.ts` (or wherever `CardRecord` Zod schema is), `src/cards/state.ts`, `src/cards/card-store.ts`, all callers of `card.blocks`
+**Files:** `src/schemas/types.ts`, `src/schemas/validators.ts`, `src/cards/state.ts`, `src/cards/card-store.ts`, `src/cards/lifecycle.ts`, `src/agents/planner-control-executor.ts`, `src/tools/analyst-card-tools.ts`, `src/runtime/context-builder.ts`, `src/application/read-models/debug-read-model.ts`, and all other callers of `card.blocks`
 
-This is the most impactful step. The `blocks` field on `CardRecord` is denormalized — it's always derivable from `_blocksInverse`.
+Remove `blocks` from the persisted `CardRecord` type and schema in one step — no optional transition field.
 
-1. Remove `blocks` from the `CardRecord` Zod schema (make it optional during transition with `.optional()`).
-2. In `CardStoreState.upsert()`, remove the `refreshBlocksField()` call and the `blocks` assignment in the spread.
-3. In `CardStoreState.remove()`, remove the `blocksInverse` cleanup already present.
-4. Update all callers of `card.blocks` to use `state.blocksFor(card.id)` instead.
-5. Once all callers are updated, remove the `blocks` field from the Zod schema entirely.
+1. In `src/schemas/types.ts`: remove `blocks` from the `CardRecord` type.
+2. In `src/schemas/validators.ts`: remove `blocks` from `cardRecordSchema`.
+3. In `src/persistence/card-loader.ts`: `parseCard()` must strip `blocks` from raw input before schema validation. This handles existing card files on disk that still contain `blocks`.
+4. **Card history migration:** `CardHistoryEntry.snapshot` uses `cardRecordSchema`. After removing `blocks` from the schema, existing JSONL history files containing `blocks` would fail validation. `parseCard()` must normalize (strip `blocks`) before schema validation. This applies to both card files and history snapshots.
+5. In `CardStoreState.upsert()`: remove `refreshBlocksField()` call and the `blocks` assignment in the spread. Remove `refreshBlocksField()` and `computeBlocksArrayFor` methods entirely.
+6. In `CardStoreState.remove()`: keep `_blocksInverse` cleanup logic.
+7. Add `CardStore.blocksFor(id: string): string[]` public method that delegates to `this.state.blocksFor(id)`.
 
-Search for all `card.blocks` and `.blocks` references across the codebase and update them.
+**Explicit `blocks` caller removal — all of these must be updated:**
 
-**Verify:** `npm run typecheck && npm test`
+Runtime callers:
+- `src/cards/lifecycle.ts`: Remove `'blocks'` from `TRACKED_FIELDS`. Remove `blocks` from `buildUpdatedCard` and `buildNewCard`.
+- `src/cards/state.ts`: Remove `blocks` from `upsert()` spread and `refreshBlocksField()`. Remove `_blocksInverse` from the `dependents` spread if it references `blocks`.
+- `src/agents/planner-control-executor.ts:182`: Remove `blocks: []` from card creation input.
+- `src/tools/analyst-card-tools.ts:104`: Remove `blocks: []` from card creation input.
+- `src/runtime/context-builder.ts:137`: Remove `blocks` references.
+- `src/application/read-models/debug-read-model.ts:24`: Remove `blocks` references.
 
-### Step 5: Remove refreshState() on reads, add invalidate()
+Web callers:
+- `web/src/stores/analystChat.ts:235`: Remove `blocks` references.
+- `web/src/stores/debug.ts:86`: Remove `blocks` references.
+- `web/src/api/types.ts` (lines 189, 262): Remove `blocks` from web API type definitions.
+- `web/src/components/cards/CardDetailView.vue` (lines 72, 75): Remove `blocks` references.
 
-**Files:** `src/cards/card-store.ts`
+Test fixtures: Remove `blocks` from all mock `CardRecord` fixtures.
 
-1. Remove the `refreshState()` call from `read()`, `list()`, `listChildren()`, `getParent()`, `getAncestors()`, `getDescendantIds()`, `detectCycles()`.
-2. Add a `private stale = true` flag. Set it to `true` in the constructor.
-3. Add a `private ensureFresh()` method that calls `loadCardStoreState` and sets `stale = false`.
-4. Call `ensureFresh()` in the constructor only.
-5. Add `invalidate()` method that sets `stale = true`.
-6. All mutation methods already update `this.state` after durable writes (via `upsert`). Verify each mutation does this correctly.
+**NewCardInput / buildNewCard updates:**
+- Remove `blocks: []` from `buildNewCard()`.
+- Remove `blocks: []` from `planner-control-executor.ts` create inputs.
+- Remove `blocks: []` from `analyst-card-tools.ts` create inputs.
+- Remove `'blocks'` from `TRACKED_FIELDS` in `lifecycle.ts`.
 
-The `state` field becomes an authoritative in-memory model. The only time it reloads from disk is on construction or after explicit `invalidate()`.
-
-**Verify:** `npm run typecheck && npm test`. Manual: create card, read card, update card status, read again — must reflect mutation without reload.
-
-### Step 6: Remove deepClone from reads
-
-**Files:** `src/cards/card-store.ts`, `src/cards/state.ts`, callers
-
-1. In `state.ts`, make `CardRecord` return type `Readonly<CardRecord>` (or use a mapped type to make all fields readonly).
-2. Remove `deepClone` function from `card-store.ts`.
-3. `read()` returns `CardRecord | null` directly from the map — callers cannot mutate.
-4. `list()` returns `Array.from(this.state.list())` — no deep clone needed since CardRecord fields are primitive or readonly arrays.
-
-Update any callers that mutate returned card records (they should use the store's mutation methods).
-
-**Verify:** `npm run typecheck && npm test`
-
-### Step 7: Replace generateId with ULID
-
-**Files:** `src/cards/card-store.ts`
-
-1. Add `ulid` as a dependency (or implement a simple monotonic counter).
-2. Replace `generateId(existingIds)` with `ulid()` in `create()`.
-3. Remove `generateId` function and `__RESERVED_IDS` set from `CardStoreState`.
-4. Remove `addReservedId()` and `isReservedId()` from `CardStoreState` (ULIDs don't collide).
-5. Remove reserved ID scanning from `loadCardStoreState` (the history/archive directory scans).
-
-**Verify:** `npm run typecheck && npm test`. Manual: create multiple cards, verify IDs are unique and monotonically sortable.
-
-### Step 8: Optimize _depthCache invalidation
-
-**Files:** `src/cards/state.ts`
-
-Replace `this._depthCache.clear()` (which invalidates all depths) with targeted invalidation:
-
-```typescript
-private invalidateDepths(changedId: string): void {
-  this._depthCache.delete(changedId);
-  // Invalidate all ancestors
-  let current = this._cards.get(changedId);
-  while (current && current.parent !== null) {
-    this._depthCache.delete(current.parent);
-    current = this._cards.get(current.parent);
-  }
-}
-```
-
-Call `this.invalidateDepths(card.id)` in `upsert()` and `remove()` instead of `this._depthCache.clear()`.
+**Test updates:**
+- Remove `blocks` from all mock `CardRecord` test fixtures.
+- Add test: `CardStore.blocksFor(id)` returns correct blockers from `_blocksInverse`.
+- Add test: `parseCard()` strips `blocks` from raw input before schema validation.
+- Add test: history entry parsing strips `blocks` from snapshots.
+- Add test: creating a card with `depends_on` correctly populates `_blocksInverse`; `store.blocksFor()` returns correct blockers.
+- Add web check: outbound API responses no longer include `blocks` field (or it is empty/derived).
+- Update `web/src/api/types.ts` and `DebugStateResponse` type.
 
 **Verify:** `npm run typecheck && npm test`
 
@@ -296,6 +247,7 @@ After all steps:
    - Create a card, read it, update its status, read again — must reflect mutation
    - Create child cards, verify parent/child queries work
    - Archive and delete a subtree
-   - Verify card IDs are ULID-style (not `card-N`)
-   - Verify no filesystem reads during normal card reads (add a `console.log` to `loadCardStoreState` — it should only be called once on startup)
+   - Verify card IDs are sequential `card-N` format (not ULID) and unique under concurrency
+   - Verify no filesystem reads during normal card reads (add a `console.log` to `loadCardStoreState` — it should only be called on construction and after explicit `invalidate()`)
    - Verify `invalidate()` works: modify card file externally, call `invalidate()`, read card — must reflect external change
+   - Verify two-store scenario: store A creates a card, store B calls `invalidate()` and reads it correctly
