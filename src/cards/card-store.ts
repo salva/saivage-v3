@@ -15,7 +15,6 @@ import { join } from 'node:path';
 import { ProjectLock, appendSyncIdempotent } from '../persistence/index.js';
 import {
   cardHistoryEntrySchema,
-  cardRecordSchema,
 } from '../schemas/index.js';
 import type {
   CardHistoryEntry,
@@ -23,7 +22,6 @@ import type {
   CardStatus,
 } from '../schemas/index.js';
 import { EventBus } from '../events/index.js';
-import { now } from '../utils/clock.js';
 import { repairSiblingPositions } from './position-repair.js';
 import { CardStoreInvariantError } from './errors.js';
 import { CardStoreState } from './state.js';
@@ -38,9 +36,9 @@ import {
   type NewArtifactRef,
   type NewAttachmentRef,
 } from './evidence-ref-service.js';
+import { CardLifecycleCommands } from './lifecycle-commands.js';
 import { cardHistoryPath, loadCardStoreState, readHistoryEntriesStrict } from '../persistence/card-loader.js';
 import {
-  applyMutationWithOwnedLockSync,
   applyMutationSync,
   type ApplyMutationDeps,
 } from './apply-mutation.js';
@@ -54,14 +52,7 @@ import {
   type CommitMarker,
   type GroupCommitMarker,
 } from './commit-marker.js';
-import { PROJECT_CARD_ID } from './project-card.js';
 import {
-  assertCanCreateCard,
-  buildSetStatusLifecycle,
-  buildNewCard,
-  isTerminalState,
-  isTerminalType,
-  newCardId,
   validateTransition as validateLifecycleTransition,
   type CardMutationContext,
   type NewCardInput,
@@ -74,22 +65,6 @@ export type { CardDiffEntry } from './history-reader.js';
 export type { ReorderChildrenResult } from './hierarchy-commands.js';
 
 export type { AppendEvidenceRefsResult, NewArtifactRef, NewAttachmentRef } from './evidence-ref-service.js';
-
-function deepClone<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
-}
-
-function generateId(existingIds: string[]): string {
-  const prefix = 'card';
-  const maxNum = existingIds
-    .filter((id) => id.startsWith(prefix + '-'))
-    .map((id) => {
-      const num = parseInt(id.slice(prefix.length + 1), 10);
-      return Number.isNaN(num) ? 0 : num;
-    })
-    .reduce((max, n) => Math.max(max, n), 0);
-  return `${prefix}-${maxNum + 1}`;
-}
 
 function recoverCommitMarkers(projectRoot: string): void {
   const files = listCommitMarkerFiles(projectRoot);
@@ -160,6 +135,7 @@ export class CardStore {
   private readonly archiveService: CardArchiveService;
   private readonly historyReader: CardHistoryReader;
   private readonly evidenceRefService: EvidenceRefService;
+  private readonly lifecycleCommands: CardLifecycleCommands;
   private readonly eventBus: EventBus;
 
   constructor(projectRoot: string, maxGoalDepth?: number, eventBus?: EventBus) {
@@ -203,6 +179,17 @@ export class CardStore {
       childCount: (id) => this.state.childrenOf(id).length,
       emitHistoryAppended: (event) => this.eventBus.emit('card_history_appended', event),
       notificationStore: this,
+    });
+    this.lifecycleCommands = new CardLifecycleCommands({
+      projectRoot: this.projectRoot,
+      maxDepth: this.maxDepth,
+      projectLock: this.projectLock,
+      state: () => this.state,
+      setState: (state) => { this.state = state; },
+      deps: () => this.deps(),
+      read: (id) => this.read(id),
+      validateTransition: (from, to) => this.validateTransition(from, to),
+      applyPatch: (id, changes, historyKind, ctx) => this.applyPatch(id, changes, historyKind, ctx),
     });
   }
 
@@ -294,72 +281,11 @@ export class CardStore {
   // ── Mutations ────────────────────────────────────────────────
 
   create(input: NewCardInput): CardRecord {
-    assertCanCreateCard(input);
-    let created: CardRecord | null = null;
-    this.projectLock.withLockSync((handle) => {
-      this.projectLock.assertOwns(handle);
-      this.state = loadCardStoreState(this.projectRoot, { maxDepth: this.maxDepth });
-      const nowStamp = now();
-      const id = newCardId(input.type, () => generateId(this.state.allKnownIds()));
-
-      if (this.state.isReservedId(id)) {
-        throw new Error(
-          `Cannot create card '${id}': card ids are durable and this id is already reserved by history or archive state.`,
-        );
-      }
-
-      if (input.type === 'project') {
-        const existing = this.state.list().find((c) => c.type === 'project');
-        if (existing) {
-          throw new Error(
-            `Cannot create duplicate project card. A project card already exists with id '${existing.id}'.`,
-          );
-        }
-      }
-      if (input.parent !== null) {
-        const parentCard = this.state.get(input.parent);
-        if (!parentCard) {
-          if (input.parent !== PROJECT_CARD_ID) throw new Error(`Parent card '${input.parent}' does not exist.`);
-        } else {
-          if (isTerminalType(parentCard.type)) {
-            throw new Error(
-              `Cannot create child under terminal card '${input.parent}' (type: ${parentCard.type}). Terminal cards cannot have children.`,
-            );
-          }
-          if (isTerminalState(parentCard.status)) {
-            throw new Error(
-              `Cannot create child under card '${input.parent}' because it is in status '${parentCard.status}'. Children cannot be created under cards in ${parentCard.status} status.`,
-            );
-          }
-        }
-      }
-      const parentForDepth = input.parent === null ? null : this.state.get(input.parent);
-      const depth = input.parent === null ? 0 : parentForDepth ? parentForDepth.depth + 1 : 1;
-      const position = input.parent === null ? 0 : this.state.childrenOf(input.parent).length;
-      if (depth > this.maxDepth) {
-        throw new Error(
-          `Cannot create card at depth ${depth}. Maximum allowed depth is ${this.maxDepth}. Reduce nesting depth by reorganizing the card hierarchy.`,
-        );
-      }
-      const card = buildNewCard({ input, id, depth, position, timestamp: nowStamp });
-      const parsed = cardRecordSchema.safeParse(card);
-      if (!parsed.success) throw new Error(`Card validation failed: ${parsed.error.message}`);
-      if (card.depends_on.length > 0) {
-        const cycle = this.state.detectDependsOnCycle(card.id, card.depends_on);
-        if (cycle.length > 0) throw new Error(`Dependency cycle detected: ${cycle.join(' -> ')}`);
-      }
-      const result = applyMutationWithOwnedLockSync(this.deps(), handle, { kind: 'create', card: parsed.data });
-      created = result.card;
-    });
-    return deepClone(created!);
+    return this.lifecycleCommands.create(input);
   }
 
   update(id: string, changes: Partial<CardRecord>): CardRecord {
-    return this.applyPatch(id, changes, 'update', {
-      actor: 'runtime',
-      surface: 'runtime',
-      reason: 'update',
-    });
+    return this.lifecycleCommands.update(id, changes);
   }
 
   appendEvidenceRefs(
@@ -375,15 +301,11 @@ export class CardStore {
     changes: Partial<CardRecord>,
     ctx: CardMutationContext,
   ): CardRecord {
-    return this.applyPatch(id, changes, 'mutate', ctx);
+    return this.lifecycleCommands.mutateCard(id, changes, ctx);
   }
 
   commitTerminalLifecyclePatch(id: string, changes: Partial<CardRecord>): CardRecord {
-    return this.applyPatch(id, changes, 'mutate', {
-      actor: 'runtime',
-      surface: 'runtime',
-      reason: 'terminal lifecycle commit',
-    });
+    return this.lifecycleCommands.commitTerminalLifecyclePatch(id, changes);
   }
 
   /**
@@ -391,11 +313,7 @@ export class CardStore {
    * and operator/analyst correction flows that intentionally invalidate terminal state.
    */
   repairTerminalLifecycle(id: string, changes: Partial<CardRecord>): CardRecord {
-    return this.applyPatch(id, changes, 'mutate', {
-      actor: 'runtime',
-      surface: 'runtime',
-      reason: 'terminal lifecycle repair',
-    });
+    return this.lifecycleCommands.repairTerminalLifecycle(id, changes);
   }
 
   reorderChildren(parentId: string, orderedChildIds: string[], ctx: CardMutationContext): ReorderChildrenResult {
@@ -415,22 +333,7 @@ export class CardStore {
   }
 
   setStatus(id: string, newStatus: CardStatus): CardRecord {
-    const card = this.read(id);
-    if (!card) throw new Error(`Card '${id}' not found.`);
-    if (newStatus === 'done' || newStatus === 'failed') {
-      throw new Error(
-        `setStatus does not support '${newStatus}'; use the terminal lifecycle commit path instead.`,
-      );
-    }
-    this.validateTransition(card.status, newStatus);
-    if (card.status === newStatus) return card;
-    const stamp = now();
-    const lifecycle = buildSetStatusLifecycle(card, newStatus, stamp);
-    return this.applyPatch(id, { status: newStatus, lifecycle }, 'status', {
-      actor: 'runtime',
-      surface: 'runtime',
-      reason: `status -> ${newStatus}`,
-    });
+    return this.lifecycleCommands.setStatus(id, newStatus);
   }
 
   delete(id: string): void {
