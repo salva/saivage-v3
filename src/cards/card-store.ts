@@ -31,10 +31,11 @@ import { queueNotification } from '../notifications/index.js';
 import { now } from '../utils/clock.js';
 import { repairSiblingPositions } from './position-repair.js';
 import { valuesEqual } from './value-equality.js';
-import { CardStoreInvariantError, ReorderSetMismatchError } from './errors.js';
+import { CardStoreInvariantError } from './errors.js';
 import { CardStoreState } from './state.js';
 import { CardReader } from './reader.js';
 import { CardPatchService } from './card-patch-service.js';
+import { CardHierarchyCommands, type ReorderChildrenResult } from './hierarchy-commands.js';
 import { cardHistoryPath, loadCardStoreState, readHistoryEntriesStrict } from '../persistence/card-loader.js';
 import {
   applyMutationWithOwnedLockSync,
@@ -78,9 +79,7 @@ export interface CardDiffEntry {
   after: unknown;
 }
 
-export type ReorderChildrenResult =
-  | { ok: true; changed: number }
-  | { ok: false; reason: 'reorder_set_mismatch'; missing: string[]; extra: string[] };
+export type { ReorderChildrenResult } from './hierarchy-commands.js';
 
 export type NewArtifactRef = Omit<ArtifactRef, 'id' | 'card_id' | 'created_at'> & { created_at?: string };
 export type NewAttachmentRef = Omit<AttachmentRef, 'id' | 'card_id' | 'created_at'> & { created_at?: string };
@@ -190,6 +189,7 @@ export class CardStore {
   private state: CardStoreState;
   private readonly reader: CardReader;
   private readonly patchService: CardPatchService;
+  private readonly hierarchyCommands: CardHierarchyCommands;
   private readonly eventBus: EventBus;
 
   constructor(projectRoot: string, maxGoalDepth?: number, eventBus?: EventBus) {
@@ -208,6 +208,11 @@ export class CardStore {
       childCount: (id) => this.state.childrenOf(id).length,
       detectCycles: (id, newDependsOn) => this.detectCycles(id, newDependsOn),
       notificationStore: this,
+    });
+    this.hierarchyCommands = new CardHierarchyCommands({
+      state: () => this.state,
+      deps: () => this.deps(),
+      applyPatch: (id, changes, historyKind, ctx) => this.applyPatch(id, changes, historyKind, ctx),
     });
   }
 
@@ -480,28 +485,7 @@ export class CardStore {
   }
 
   reorderChildren(parentId: string, orderedChildIds: string[], ctx: CardMutationContext): ReorderChildrenResult {
-    if (parentId !== PROJECT_CARD_ID && !this.state.get(parentId)) {
-      throw new Error(`Parent card '${parentId}' does not exist.`);
-    }
-    let plan: { changed: string[]; nextPositions: Map<string, number> };
-    try {
-      plan = this.state.reorderChildren(parentId, orderedChildIds);
-    } catch (err) {
-      if (err instanceof ReorderSetMismatchError) return { ok: false, reason: 'reorder_set_mismatch', missing: err.missing, extra: err.extra };
-      throw err;
-    }
-    if (plan.changed.length === 0) return { ok: true, changed: 0 };
-    const stamp = now();
-    const ops: ApplyMutationOp[] = [];
-    for (const childId of plan.changed) {
-      const child = this.state.get(childId);
-      const position = plan.nextPositions.get(childId);
-      if (!child || position === undefined) continue;
-      const next = { ...child, position, updated_at: stamp, version_seq: child.version_seq + 1 };
-      ops.push(persistOp(next, ctx, ['position'], 'reorder_child'));
-    }
-    applyMutationGroupSync(this.deps(), ops);
-    return { ok: true, changed: ops.length };
+    return this.hierarchyCommands.reorderChildren(parentId, orderedChildIds, ctx);
   }
 
   updateDependsOn(
@@ -513,7 +497,7 @@ export class CardStore {
       reason: 'dependency update',
     },
   ): CardRecord {
-    return this.applyPatch(id, { depends_on: newDependsOn }, 'depends', ctx);
+    return this.hierarchyCommands.updateDependsOn(id, newDependsOn, ctx);
   }
 
   setStatus(id: string, newStatus: CardStatus): CardRecord {
