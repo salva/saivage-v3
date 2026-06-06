@@ -25,7 +25,7 @@ function activationLedger(projectRoot: string) {
   };
 }
 
-function createMinimalAdapter(tmpDir: string): AgentAdapter {
+function createMinimalAdapter(tmpDir: string, cardStore: CardStore): AgentAdapter {
   const minimalConfig = {
     providers: {},
     models: { routes: [] },
@@ -47,6 +47,7 @@ function createMinimalAdapter(tmpDir: string): AgentAdapter {
     saivageDir: join(tmpDir, '.saivage'),
     config: minimalConfig,
     activationLedger: activationLedger(tmpDir),
+    cardStore,
   });
 }
 
@@ -124,8 +125,8 @@ describe('AgentAdapter planner tool surface', () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-planner-surface-'));
     mkdirSync(join(tmpDir, '.saivage'), { recursive: true });
     initProjectTree(tmpDir);
-    adapter = createMinimalAdapter(tmpDir);
     store = new CardStore(tmpDir);
+    adapter = createMinimalAdapter(tmpDir, store);
     store.create(makeCard({ type: 'project', parent: null, depth: 0, title: 'project' }));
   });
 

@@ -1,8 +1,11 @@
-import { describe, expect, it } from '@jest/globals';
-import { readFileSync } from 'node:fs';
+import { afterEach, describe, expect, it } from '@jest/globals';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { AgentAdapter, type AgentRole } from '../../src/agents/agent-adapter.js';
+import { CardStore } from '../../src/cards/card-store.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { ANALYST_TOOL_DEFINITIONS } from '../../src/tools/definitions/index.js';
 import { TOOL_REGISTRY } from '../../src/agents/analyst-llm-resolver.js';
 import type { SaivageConfig } from '../../src/agents/config-schema.js';
@@ -12,8 +15,14 @@ const NON_PLANNER_AGENT_ROLES: AgentRole[] = ['analyst', 'executor', 'reviewer']
 const MATRIX_DOC = join(process.cwd(), 'docs', 'agents.md');
 
 const RETIRED_NOTE_TOOLS = ['add_note', '\x6cist_notes', 'get_note', '\x6dark_note_handled'];
+const tmpDirs: string[] = [];
 
 function createMinimalAdapter(): AgentAdapter {
+  const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-non-planner-surface-'));
+  tmpDirs.push(projectRoot);
+  mkdirSync(join(projectRoot, '.saivage'), { recursive: true });
+  initProjectTree(projectRoot);
+  const cardStore = new CardStore(projectRoot);
   const minimalConfig = {
     providers: {},
     models: { routes: [] },
@@ -31,11 +40,16 @@ function createMinimalAdapter(): AgentAdapter {
   } as unknown as SaivageConfig;
 
   return new AgentAdapter({
-    projectRoot: process.cwd(),
-    saivageDir: join(process.cwd(), '.saivage'),
+    projectRoot,
+    saivageDir: join(projectRoot, '.saivage'),
     config: minimalConfig,
+    cardStore,
   });
 }
+
+afterEach(() => {
+  for (const dir of tmpDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
 
 function uniqueSorted(values: string[]): string[] {
   return [...new Set(values)].sort((a, b) => a.localeCompare(b));
