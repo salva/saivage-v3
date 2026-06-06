@@ -56,7 +56,6 @@ export type {
   ServerAvailability,
 } from './contracts';
 
-export type SafeFileSensitivity = 'normal' | 'sensitive-blocked' | 'sensitive-redacted';
 export interface NoteRecord {
   id: string;
   card_id: string;
@@ -70,58 +69,6 @@ export interface NoteRecord {
 
 export type NoteKind = 'comment' | 'progress' | 'directive' | 'escalation';
 
-export interface GeneratedFileRef {
-  path: string;
-  source: 'artifact' | 'attachment' | 'result.generated_files' | 'result.artifact_paths';
-  artifactId?: string;
-  attachmentId?: string;
-  artifactType?: ArtifactRef['type'];
-  description?: string;
-  retain?: boolean;
-  exists?: boolean;
-  size?: number;
-  modifiedAt?: string;
-  previewable?: boolean;
-  downloadable?: boolean;
-  blocked?: boolean;
-  redactedOnly?: boolean;
-  sensitivity?: SafeFileSensitivity;
-  availabilityReason?: string;
-}
-
-export interface VerificationCommandRef {
-  command: string;
-  process_id: string | null;
-  status: string | null;
-  exit_code: number | null;
-  timed_out: boolean | null;
-}
-
-export type CardEvidenceState = 'none-recorded' | 'partial' | 'present' | 'missing-files' | 'blocked' | 'redacted' | 'incomplete';
-
-export interface CardEvidenceSummary {
-  state: CardEvidenceState;
-  summary: string;
-  hasRecordedEvidence: boolean;
-  hasDurableEvidence: boolean;
-  missingCount: number;
-  blockedCount: number;
-  redactedCount: number;
-  fileCount: number;
-  verificationCount: number;
-  toolErrorCount: number;
-  parseRecovered: boolean;
-}
-
-export interface CardEvidence {
-  generatedFiles: GeneratedFileRef[];
-  verificationCommands: VerificationCommandRef[];
-  artifactPaths: string[];
-  toolErrors: string[];
-  parseFailure?: Record<string, unknown>;
-  summary: CardEvidenceSummary;
-}
-
 export interface ReviewAssessment {
   id: string;
   goal_card_id: string;
@@ -132,61 +79,6 @@ export interface ReviewAssessment {
   missing: string[];
   evidence_card_ids: string[];
   created_at: string;
-}
-
-export interface CardLifecycleSummary {
-  status: CardStatus;
-  terminal: boolean;
-  phase: 'drafting' | 'planned' | 'ready' | 'running' | 'blocked' | 'completed' | 'failed' | 'cancelled';
-  explanation: string;
-  completionState: 'not-started' | 'in-progress' | 'blocked' | 'failed' | 'cancelled' | 'marked-done';
-  error: string | null;
-  startedAt: string | null;
-  completedAt: string | null;
-  durationMs: number | null;
-  retries: number;
-  childCounts: Record<CardStatus, number>;
-  hasActiveChildren: boolean;
-  hasBlockingChildren: boolean;
-  dependencyIds: string[];
-  blockedByDependencyIds: string[];
-}
-
-export interface CardReviewSummary {
-  status: 'not-run' | 'passed' | 'failed' | 'incomplete';
-  review: ReviewAssessment | null;
-  evidenceStatus: 'none' | 'partial' | 'recorded';
-  summary: string;
-}
-
-export interface CardPlanningSummary {
-  status: string | null;
-  summary: string | null;
-  blockedReason: string | null;
-  createdCardIds: string[];
-  updatedCardIds: string[];
-  reviewSummary: string | null;
-  hasUnfinishedChildWork: boolean;
-  plannerDeclaredDone: boolean;
-}
-
-export interface DispatchSummaryItem {
-  dispatchId: string;
-  direction: 'outgoing' | 'incoming';
-  parentCardId: string;
-  targetCardId: string;
-  targetKind: 'goal' | 'terminal_card';
-  status: 'queued' | 'running' | 'completed' | 'failed' | 'blocked' | 'cancelled' | 'timed_out';
-  outcome: 'done' | 'failed' | 'blocked' | 'cancelled' | 'timed_out' | null;
-  summary: string | null;
-  error: string | null;
-  evidenceCardIds: string[];
-  completedAt: string | null;
-}
-
-export interface DispatchSummary {
-  outgoing: DispatchSummaryItem[];
-  incoming: DispatchSummaryItem[];
 }
 
 export interface DetailErrorState {
@@ -465,13 +357,7 @@ export interface FreshnessState {
 
 export type CardRecord = ContractCardView & { notes?: NoteRecord[]; children?: CardRecord[] };
 export type CardListResponse = OperatorApiSuccess<'cards.list'>;
-export type CardDetailResponse = OperatorApiSuccess<'cards.get'> & {
-  evidence?: CardEvidence;
-  lifecycle: CardLifecycleSummary;
-  review: CardReviewSummary;
-  planning: CardPlanningSummary | null;
-  dispatches: DispatchSummary;
-};
+export type CardDetailResponse = OperatorApiSuccess<'cards.get'>;
 export type CardHistoryListResponse = OperatorApiSuccess<'cards.history.list'>;
 export type CardHistoryEntryResponse = OperatorApiSuccess<'cards.history.get'>;
 export type CardDiffResponse = OperatorApiSuccess<'cards.diff'> & { diff: CardDiffRow[]; };

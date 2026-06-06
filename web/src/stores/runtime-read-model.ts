@@ -3,8 +3,10 @@ import type {
   RuntimeActivationRecord,
   RuntimeCommandRecord,
   RuntimeIntent,
+  RuntimeRunRecord,
   RuntimeState,
   RuntimeStatus,
+  ServerAvailability,
   WsConnectionState,
 } from '../api/types';
 

@@ -10,11 +10,6 @@ import type {
   CardStatus,
   CardListResponse,
   CardDetailResponse,
-  CardEvidence,
-  CardLifecycleSummary,
-  CardReviewSummary,
-  CardPlanningSummary,
-  DispatchSummary,
   DetailErrorState,
   DetailFreshnessState,
   CardHistoryHeader,
@@ -42,6 +37,14 @@ import {
   selectFilteredCards,
   selectOrderedFilteredCards,
 } from './card-presentation';
+import type {
+  CardEvidence,
+  CardLifecycleSummary,
+  CardReviewSummary,
+  CardPlanningSummary,
+  DispatchSummary,
+} from './card-detail-view-model';
+import { toCardDetailViewModel } from './card-detail-view-model';
 
 const log = createLogger('store:cards');
 
@@ -180,14 +183,15 @@ export const useCardStore = defineStore('cards', () => {
     currentDetailError.value = null;
     try {
       const response: CardDetailResponse = await getCard(id);
-      currentCard.value = response.card;
-      currentChildren.value = response.children;
-      currentAncestorIds.value = response.ancestorIds;
-      currentEvidence.value = response.evidence ?? null;
-      currentLifecycle.value = response.lifecycle;
-      currentReview.value = response.review;
-      currentPlanning.value = response.planning;
-      currentDispatches.value = response.dispatches;
+      const viewModel = toCardDetailViewModel(response);
+      currentCard.value = viewModel.card;
+      currentChildren.value = viewModel.children;
+      currentAncestorIds.value = viewModel.ancestorIds;
+      currentEvidence.value = viewModel.evidence ?? null;
+      currentLifecycle.value = viewModel.lifecycle ?? null;
+      currentReview.value = viewModel.review ?? null;
+      currentPlanning.value = viewModel.planning ?? null;
+      currentDispatches.value = viewModel.dispatches ?? null;
       resetDetailFreshness();
       clearCurrentCardStaleNotification(response.card.id);
     } catch (err) {

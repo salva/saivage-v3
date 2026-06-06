@@ -17,7 +17,7 @@
         <div class="detail-id">ID: {{ currentCard.id }}<span v-if="currentCard.display_path"> · Path: {{ currentCard.display_path }}</span></div>
         <div class="detail-callout" role="status">{{ lifecycle?.explanation || statusExplainer(currentCard.status) }}</div>
         <div v-if="detailFreshness.isStale" class="detail-callout warning" role="status">
-          This card detail may be stale. Refresh to reload canonical card and evidence data from the server.
+          This card detail may be stale. Refresh to reload canonical card data from the server.
           <button type="button" class="retry-btn" @click="reloadDetail">Refresh card</button>
         </div>
         <StaleWarningRibbon :card-id="currentCard.id" />
@@ -197,7 +197,7 @@
         <h3 class="section-heading">Review result</h3>
         <div class="detail-callout" :class="reviewCalloutClass">
           <strong>{{ reviewTitle }}</strong>
-          <div>{{ review?.summary || 'No review result was returned by the card detail API.' }}</div>
+          <div>{{ review?.summary || 'No review result is available for this card.' }}</div>
         </div>
         <template v-if="review?.review">
           <div v-if="review.review.achieved.length" class="list-block">
@@ -268,7 +268,8 @@ import { useAnalystChat } from '../../stores/analystChat';
 import { useCardStore } from '../../stores/cards';
 import { storeToRefs } from 'pinia';
 import { getFileContent, ApiError } from '../../api/client';
-import type { GeneratedFileRef, VerificationCommandRef, DetailErrorState, CardStatus } from '../../api/types';
+import type { DetailErrorState, CardStatus } from '../../api/types';
+import type { GeneratedFileRef, VerificationCommandRef } from '../../stores/card-detail-view-model';
 import { createLogger } from '../../utils/logger';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../../utils/timestamp';
 import CardHistoryPanel from './CardHistoryPanel.vue';

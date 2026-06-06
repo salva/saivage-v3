@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';
-import type { CardRecord, CardListResponse, CardDetailResponse, CardEvidence, CardLifecycleSummary, CardReviewSummary, DispatchSummary, CardPlanningSummary } from '../api/types';
+import type { CardRecord, CardListResponse, CardDetailResponse } from '../api/types';
 
 vi.mock('../api/client', () => ({
   listCards: vi.fn(), getCard: vi.fn(),
@@ -14,7 +14,7 @@ import { selectChildrenOf } from '../stores/card-presentation';
 function setupStore() { setActivePinia(createPinia()); vi.clearAllMocks(); return useCardStore(); }
 function makeCard(overrides: Partial<CardRecord> = {}): CardRecord { const id = overrides.id || 'c1'; return { id, type: 'code', parent: null, depth: 0, position: 0, title: `Card ${id}`, description: 'test', status: 'active', tags: [], priority: 5, urgency: 'normal', created_by: 'user', created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z', version_seq: 1, depends_on: [], blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0, ...overrides, display_path: overrides.display_path ?? null, lifecycle: overrides.lifecycle ?? { status: overrides.status ?? 'active', result: null, error: null, completed_at: null } as CardRecord['lifecycle'] }; }
 function mlr(cards: CardRecord[], total?: number): CardListResponse { return { cards, total: total ?? cards.length }; }
-function mdr(card: CardRecord, children: CardRecord[] = [], ancestorIds: string[] = [], evidence?: CardEvidence, lifecycle?: CardLifecycleSummary, review?: CardReviewSummary, dispatches?: DispatchSummary, planning: CardPlanningSummary | null = null): CardDetailResponse { return { card, children, ancestorIds, evidence, lifecycle: lifecycle || { status: card.status, terminal: false, phase: 'ready', explanation: 'test', completionState: 'in-progress', error: null, startedAt: null, completedAt: null, durationMs: null, retries: 0, childCounts: { drafting: 0, backlog: 0, active: 0, running: 0, blocked: 0, changed: 0, done: 0, failed: 0, cancelled: 0, needs_verification: 0 }, hasActiveChildren: false, hasBlockingChildren: false, dependencyIds: [], blockedByDependencyIds: [] }, review: review || { status: 'not-run', review: null, evidenceStatus: 'none', summary: 'No reviewer assessment is recorded for this card.' }, planning, dispatches: dispatches || { outgoing: [], incoming: [] } }; }
+function mdr(card: CardRecord, children: CardRecord[] = [], ancestorIds: string[] = []): CardDetailResponse { return { card, children, ancestorIds }; }
 
 const A = makeCard({ id: 'card-a', title: 'Alpha' });
 
@@ -22,25 +22,19 @@ describe('useCardStore evidence support', () => {
   beforeEach(() => { vi.clearAllMocks(); });
   afterEach(() => { vi.restoreAllMocks(); });
 
-  it('stores evidence and typed detail fields from fetchCardDetail', async () => {
+  it('stores backend card detail and derives local lifecycle view state', async () => {
     const s = setupStore();
-    const evidence: CardEvidence = {
-      generatedFiles: [{ path: 'reports/out.txt', source: 'result.generated_files', exists: true, availabilityReason: 'ok' }],
-      verificationCommands: [{ command: 'npm test', process_id: 'p1', status: 'completed', exit_code: 0, timed_out: false }],
-      artifactPaths: ['reports/out.txt'],
-      toolErrors: [],
-      summary: { state: 'present', summary: 'Evidence was recorded for this card.', hasRecordedEvidence: true, hasDurableEvidence: true, missingCount: 0, blockedCount: 0, redactedCount: 0, fileCount: 1, verificationCount: 1, toolErrorCount: 0, parseRecovered: false },
-    };
-    const review: CardReviewSummary = { status: 'passed', review: { id: 'rev-1', goal_card_id: 'card-a', reviewer_session_id: 'sess-1', result: 'pass', summary: 'ok', achieved: ['done'], missing: [], evidence_card_ids: ['card-a'], created_at: '2025-01-01T00:00:00Z' }, evidenceStatus: 'recorded', summary: 'ok' };
-    const planning: CardPlanningSummary = { status: 'continue', summary: null, blockedReason: null, createdCardIds: [], updatedCardIds: [], reviewSummary: 'misleading review summary', plannerDeclaredDone: true, hasUnfinishedChildWork: true };
-    vi.mocked(getCard).mockResolvedValue(mdr(A, [], [], evidence, undefined, review, undefined, planning));
+    const child = makeCard({ id: 'child-a', parent: 'card-a', status: 'running' });
+    vi.mocked(getCard).mockResolvedValue(mdr(A, [child], []));
     await s.fetchCardDetail('card-a');
-    expect(s.currentEvidence).toEqual(evidence);
-    expect(s.currentReview?.status).toBe('passed');
+    expect(s.currentCard?.id).toBe('card-a');
+    expect(s.currentChildren.map((card) => card.id)).toEqual(['child-a']);
+    expect(s.currentEvidence).toBeNull();
+    expect(s.currentReview).toBeNull();
     expect(s.currentLifecycle?.status).toBe('active');
-    expect(s.currentPlanning).toEqual(planning);
-    expect(s.currentPlanning?.hasUnfinishedChildWork).toBe(true);
-    expect(s.currentPlanning?.plannerDeclaredDone).toBe(true);
+    expect(s.currentLifecycle?.childCounts.running).toBe(1);
+    expect(s.currentPlanning).toBeNull();
+    expect(s.currentDispatches).toBeNull();
     expect(s.currentDetailFreshness.isStale).toBe(false);
   });
 
