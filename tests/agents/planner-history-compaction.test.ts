@@ -1,9 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 import type { AgentMessage, CardRecord } from '../../src/schemas/index.js';
-import {
-  buildPlannerHistoryCompactionMessage,
-  compactPlannerModelMessagesForContext,
-} from '../../src/agents/agent-adapter.js';
+import { ContextCompactor } from '../../src/agents/context-compactor.js';
 import { buildPlannerStateContextMessage } from '../../src/agents/planner-state-context.js';
 
 function message(index: number, content: string, kind: AgentMessage['kind'] = 'text'): AgentMessage {
@@ -48,6 +45,22 @@ function card(input: Partial<CardRecord> & Pick<CardRecord, 'id' | 'type' | 'tit
   };
 }
 
+function compactor(): ContextCompactor {
+  return new ContextCompactor({
+    saivageDir: '/no-such-saivage-dir',
+    sessionStamper: {
+      stampPre: () => ({ round_id: 'r-pre-00000000000000000000000000000000', message_index: 0, block_index: 0 }),
+      stampUserMessage: () => ({ round_id: 'r-user-00000000000000000000000000000000', message_index: 0, block_index: 0 }),
+      openAssistantRound: () => ({ round_id: 'r-assistant-00000000000000000000000000000000', message_index: 0, block_index: 0 }),
+      stampInRound: () => ({ round_id: 'r-assistant-00000000000000000000000000000000', message_index: 0, block_index: 0 }),
+      stampDiagnosticInCurrentRound: () => ({ round_id: 'r-diagnostic-00000000000000000000000000000000', message_index: 0, block_index: 0 }),
+      stampCompacted: () => ({ round_id: 'r-compacted-00000000000000000000000000000000', message_index: 0, block_index: 0 }),
+      closeRound: () => undefined,
+      recordAppend: () => undefined,
+    },
+  });
+}
+
 describe('planner persisted history context compaction', () => {
   it('replaces oversized planner history with a bounded metadata summary for model input', () => {
     const cards = new Map([
@@ -60,10 +73,11 @@ describe('planner persisted history context compaction', () => {
     );
     bulkyMessages.push(message(81, JSON.stringify({ cardId: 'child-a', long: 'x'.repeat(5000) }), 'tool_call'));
 
-    const compacted = compactPlannerModelMessagesForContext(
+    const compacted = compactor().compactPlannerInMemory(
       'planner:project',
       bulkyMessages,
       'planner',
+      { contextLimit: 24000, threshold: 1 },
       {
         projectRoot: '/no-such-project',
         goalId: 'goal-1',
@@ -99,8 +113,18 @@ describe('planner persisted history context compaction', () => {
   it('leaves non-planner and already-small histories unchanged', () => {
     const small = [message(1, 'small scheduler signal')];
 
-    expect(compactPlannerModelMessagesForContext('executor-1', small, 'executor')).toBe(small);
-    expect(compactPlannerModelMessagesForContext('planner:project', small, 'planner')).toBe(small);
+    expect(compactor().compactPlannerInMemory('executor-1', small, 'executor', { contextLimit: 24000, threshold: 1 }, {
+      projectRoot: '/no-such-project',
+      goalId: 'goal-1',
+      cardStore: { read: () => null, listChildren: () => [] },
+      runtimeStateProvider: () => null,
+    })).toBe(small);
+    expect(compactor().compactPlannerInMemory('planner:project', small, 'planner', { contextLimit: 24000, threshold: 1 }, {
+      projectRoot: '/no-such-project',
+      goalId: 'goal-1',
+      cardStore: { read: () => null, listChildren: () => [] },
+      runtimeStateProvider: () => null,
+    })).toBe(small);
   });
 
   it('summarizes role/kind counts and recent message snippets without full bodies', () => {
@@ -109,7 +133,12 @@ describe('planner persisted history context compaction', () => {
       message(2, 'second actionable scheduler signal'),
     ];
 
-    const summary = buildPlannerHistoryCompactionMessage('planner:project', messages);
+    const summary = compactor().compactPlannerInMemory('planner:project', messages, 'planner', { contextLimit: 1, threshold: 1 }, {
+      projectRoot: '/no-such-project',
+      goalId: 'goal-1',
+      cardStore: { read: () => null, listChildren: () => [] },
+      runtimeStateProvider: () => null,
+    })[0];
 
     expect(summary.content).toContain('user/text');
     expect(summary.content).toContain('second actionable scheduler signal');

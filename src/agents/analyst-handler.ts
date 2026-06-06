@@ -15,11 +15,11 @@ import type { EventLogger } from '../observability/index.js';
 import type { McpManager } from '../mcp/manager-api.js';
 import type { ActorRole } from './authz.js';
 import { sanitizeAnalystText } from '../agents/analyst-sanitization.js';
-import { compactSession } from './compaction.js';
+import { ContextCompactor } from './context-compactor.js';
 import { appendMessage, getSessionMessages } from './session-persistence.js';
 import { generateRoundId } from '../schemas/round-id-server.js';
 import { ANALYST_PARTIAL_SUCCESS_TEMPLATE, ANALYST_UNKNOWN_CAPABILITY_TEMPLATE } from './analyst-tool-runner.js';
-import { parseToolCallMessage, serializeToolCallMessage } from '../contracts/persisted-tool-call.js';
+import { serializeToolCallMessage } from '../contracts/persisted-tool-call.js';
 import { toolFailure, toolFailureFromError } from '../tools/analyst-tool-helpers.js';
 import { now } from '../utils/clock.js';
 
@@ -78,6 +78,7 @@ export interface AnalystRuntimeDeps {
   eventLogger?: EventLogger;
   emitAnalystToolInvoked(payload: EventPayload<'analyst_tool_invoked'>): void;
   mcpManager?: McpManager;
+  contextCompactor?: ContextCompactor;
 }
 
 function saivageDir(projectRoot: string): string { return join(projectRoot, '.saivage'); }
@@ -85,37 +86,6 @@ function sessionsDir(projectRoot: string): string { return join(saivageDir(proje
 function sessionFilePath(projectRoot: string, sessionId: string): string { return join(sessionsDir(projectRoot), `${sessionId}.json`); }
 
 const ANALYST_CONTEXT_LIMIT_TOKENS = 128_000;
-
-export function trimToCleanToolBoundary(messages: AgentMessage[]): AgentMessage[] {
-  const callIdsInSlice = new Set<string>();
-  for (const m of messages) {
-    if (m.role === 'assistant' && m.kind === 'tool_call') {
-      const parsed = parseToolCallMessage(JSON.parse(m.content));
-      callIdsInSlice.add(parsed.id);
-    }
-  }
-  const cleaned: AgentMessage[] = [];
-  for (const m of messages) {
-    if (m.role === 'tool' && m.kind === 'tool_result') {
-      const id = m.tool_call_id;
-      if (!id || !callIdsInSlice.has(id)) continue;
-    }
-    cleaned.push(m);
-  }
-  const resultIds = new Set<string>();
-  for (const m of cleaned) {
-    if (m.role === 'tool' && m.kind === 'tool_result' && m.tool_call_id) resultIds.add(m.tool_call_id);
-  }
-  const finalMessages: AgentMessage[] = [];
-  for (const m of cleaned) {
-    if (m.role === 'assistant' && m.kind === 'tool_call') {
-      const parsed = parseToolCallMessage(JSON.parse(m.content));
-      if (!resultIds.has(parsed.id)) continue;
-    }
-    finalMessages.push(m);
-  }
-  return finalMessages;
-}
 
 function readSession(projectRoot: string, sessionId: string): AgentSession | null {
   const sp = sessionFilePath(projectRoot, sessionId);
@@ -195,6 +165,7 @@ export class AnalystHandler {
   private actor: ActorRole;
   private surface: ControlActionSurface;
   private requestServerRestart?: () => Promise<void>;
+  private readonly contextCompactor: ContextCompactor;
 
   constructor(projectRoot: string, runtimeDeps: AnalystRuntimeDeps, onActivity?: ActivityCallback, actor: ActorRole = 'analyst', surface: ControlActionSurface = 'web-chat', requestServerRestart?: () => Promise<void>) {
     this.projectRoot = projectRoot;
@@ -203,6 +174,10 @@ export class AnalystHandler {
     this.actor = actor;
     this.surface = surface;
     this.requestServerRestart = requestServerRestart;
+    this.contextCompactor = runtimeDeps.contextCompactor ?? new ContextCompactor({
+      saivageDir: saivageDir(projectRoot),
+      sessionStamper: runtimeDeps.stamper,
+    });
     this.llmResolver = new LlmIntentResolver(projectRoot, this.runtimeDeps.candidateAvailability);
     this.llmResolver.setEventLogger(this.runtimeDeps.eventLogger);
   }
@@ -279,22 +254,22 @@ export class AnalystHandler {
       // Auto-compact when the conversation approaches the model context
       // window. Falls back to truncation (last 20% of messages) when no
       // summarizer is wired in. After compaction we still apply
-      // trimToCleanToolBoundary so any orphan tool_call ↔ tool_result
+      // shared boundary pruning so any orphan tool_call ↔ tool_result
       // pair produced by truncation can't reach the LLM and trigger an
       // HTTP 400 "No tool call found for function call output" error.
       // No max-compaction cap: the operator cannot start a fresh
       // analyst session from the chat, so compaction must always
       // succeed in shrinking the working set.
       try {
-        await compactSession(saivageDir(this.projectRoot), sessionId, {
+        await this.contextCompactor.compactSession(sessionId, {
           contextLimit: ANALYST_CONTEXT_LIMIT_TOKENS,
           threshold: 0.8,
           maxCompactions: Number.MAX_SAFE_INTEGER,
-        }, this.runtimeDeps.stamper);
+        });
       } catch (err) { this.logBoundaryDiagnostic('analyst_history_compaction_failed', err); }
 
       const history = getSessionMessages(saivageDir(this.projectRoot), sessionId);
-      const bounded = trimToCleanToolBoundary(history);
+      const bounded = this.contextCompactor.pruneToolBoundary(history);
       const modelInput: AgentMessage[] = [
         { id: `workspace-context-${sessionId}`, session_id: sessionId, role: 'system', kind: 'text', content: buildWorkspaceContextNote(workspaceContext), round_id: generateRoundId('pre'), message_index: 0, block_index: 0, timestamp: now() },
         ...bounded,

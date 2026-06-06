@@ -1,5 +1,5 @@
 /**
- * Tests for compaction.ts — context compaction mechanism
+ * Tests for context-compactor.ts — context compaction mechanism
  */
 
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from '@jest/globals';
@@ -12,13 +12,20 @@ const TEST_ROOT = join(tmpdir(), `saivage-compaction-test-${Date.now()}`);
 const SAIVAGE_DIR = join(TEST_ROOT, '.saivage');
 const TEST_STAMP = { round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0 };
 
-let compaction: typeof import('../../src/agents/compaction.js');
+let compactionMod: typeof import('../../src/agents/context-compactor.js');
 let sessionMod: typeof import('../../src/agents/session-persistence.js');
 
 beforeAll(async () => {
-  compaction = await import('../../src/agents/compaction.js');
+  compactionMod = await import('../../src/agents/context-compactor.js');
   sessionMod = await import('../../src/agents/session-persistence.js');
 });
+
+function compactor() {
+  return new compactionMod.ContextCompactor({
+    saivageDir: SAIVAGE_DIR,
+    sessionStamper: createTestAnalystRuntime().stamper,
+  });
+}
 
 function setup() {
   mkdirSync(SAIVAGE_DIR, { recursive: true });
@@ -28,8 +35,6 @@ function cleanup() {
   if (existsSync(TEST_ROOT)) {
     rmSync(TEST_ROOT, { recursive: true, force: true });
   }
-  // Reset compaction state between tests
-  compaction.resetCompactionState('planner-user-1');
 }
 
 beforeEach(() => {
@@ -48,20 +53,20 @@ function appendLargeTextMessage(sessionId: string, index: number) {
 
 describe('needsCompaction', () => {
   it('should return true when tokens exceed threshold', () => {
-    expect(compaction.needsCompaction(850, 1000, 0.8)).toBe(true);
+    expect(compactor().needsCompaction(850, { contextLimit: 1000, threshold: 0.8 })).toBe(true);
   });
 
   it('should return false when tokens are below threshold', () => {
-    expect(compaction.needsCompaction(500, 1000, 0.8)).toBe(false);
+    expect(compactor().needsCompaction(500, { contextLimit: 1000, threshold: 0.8 })).toBe(false);
   });
 
   it('should return false when context limit is 0', () => {
-    expect(compaction.needsCompaction(100, 0)).toBe(false);
+    expect(compactor().needsCompaction(100, { contextLimit: 0 })).toBe(false);
   });
 
   it('should use default threshold of 0.8', () => {
-    expect(compaction.needsCompaction(800, 1000)).toBe(true);
-    expect(compaction.needsCompaction(799, 1000)).toBe(false);
+    expect(compactor().needsCompaction(800, { contextLimit: 1000 })).toBe(true);
+    expect(compactor().needsCompaction(799, { contextLimit: 1000 })).toBe(false);
   });
 });
 
@@ -75,11 +80,11 @@ describe('compactSession', () => {
       content: 'Hello',
     }, { round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0 });
 
-    const result = await compaction.compactSession(SAIVAGE_DIR, session.id, {
+    const result = await compactor().compactSession(session.id, {
       contextLimit: 100000,
       threshold: 0.8,
       maxCompactions: 3,
-    }, createTestAnalystRuntime().stamper);
+    });
 
     expect(result.compacted).toBe(false);
     expect(result.maxReached).toBe(false);
@@ -97,11 +102,11 @@ describe('compactSession', () => {
       }, { round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0 });
     }
 
-    const result = await compaction.compactSession(SAIVAGE_DIR, session.id, {
+    const result = await compactor().compactSession(session.id, {
       contextLimit: 1000, // very small to trigger compaction
       threshold: 0.01, // almost always triggers
       maxCompactions: 3,
-    }, createTestAnalystRuntime().stamper);
+    });
 
     expect(result.compacted).toBe(true);
     expect(result.usedFallback).toBe(true);
@@ -111,6 +116,7 @@ describe('compactSession', () => {
 
   it('should reach max compactions after limit', async () => {
     const session = sessionMod.createSession(SAIVAGE_DIR, 'planner', 'goal-1');
+    const testCompactor = compactor();
 
     // Set compaction count to 3 (max)
     for (let i = 0; i < 3; i++) {
@@ -122,11 +128,11 @@ describe('compactSession', () => {
           content: 'x'.repeat(200),
         }, { round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0 });
       }
-      await compaction.compactSession(SAIVAGE_DIR, session.id, {
+      await testCompactor.compactSession(session.id, {
         contextLimit: 1000,
         threshold: 0.01,
         maxCompactions: 3,
-      }, createTestAnalystRuntime().stamper);
+      });
     }
 
     // This should be the 4th attempt — max reached
@@ -137,11 +143,11 @@ describe('compactSession', () => {
         content: 'x'.repeat(200),
       }, { round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0 });
     }
-    const result = await compaction.compactSession(SAIVAGE_DIR, session.id, {
+    const result = await testCompactor.compactSession(session.id, {
       contextLimit: 1000,
       threshold: 0.01,
       maxCompactions: 3,
-    }, createTestAnalystRuntime().stamper);
+    });
 
     expect(result.maxReached).toBe(true);
     expect(result.compactionCount).toBe(3);
@@ -159,7 +165,7 @@ describe('compactSession', () => {
     }
 
     let summarizerCalled = false;
-    const result = await compaction.compactSession(SAIVAGE_DIR, session.id, {
+    const result = await compactor().compactSession(session.id, {
       contextLimit: 1000,
       threshold: 0.01,
       maxCompactions: 3,
@@ -167,7 +173,7 @@ describe('compactSession', () => {
         summarizerCalled = true;
         return `Summarized ${messages.length} messages.`;
       },
-    }, createTestAnalystRuntime().stamper);
+    });
 
     expect(summarizerCalled).toBe(true);
     expect(result.usedFallback).toBe(false);
@@ -190,14 +196,14 @@ describe('compactSession', () => {
       }, { round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0 });
     }
 
-    const result = await compaction.compactSession(SAIVAGE_DIR, session.id, {
+    const result = await compactor().compactSession(session.id, {
       contextLimit: 1000,
       threshold: 0.01,
       maxCompactions: 3,
       summarizeFn: async () => {
         throw new Error('Summarization failed');
       },
-    }, createTestAnalystRuntime().stamper);
+    });
 
     expect(result.usedFallback).toBe(true);
     expect(result.compacted).toBe(true);
@@ -220,11 +226,11 @@ describe('compactSession', () => {
       content: 'final retained text ' + 'x'.repeat(200),
     }, TEST_STAMP);
 
-    const result = await compaction.compactSession(SAIVAGE_DIR, session.id, {
+    const result = await compactor().compactSession(session.id, {
       contextLimit: 1000,
       threshold: 0.01,
       maxCompactions: 3,
-    }, createTestAnalystRuntime().stamper);
+    });
 
     const messages = sessionMod.getSessionMessages(SAIVAGE_DIR, session.id);
     expect(result.usedFallback).toBe(true);
@@ -251,11 +257,11 @@ describe('compactSession', () => {
       content: 'result retained ' + 'x'.repeat(200),
     }, TEST_STAMP);
 
-    const result = await compaction.compactSession(SAIVAGE_DIR, session.id, {
+    const result = await compactor().compactSession(session.id, {
       contextLimit: 1000,
       threshold: 0.01,
       maxCompactions: 3,
-    }, createTestAnalystRuntime().stamper);
+    });
 
     const messages = sessionMod.getSessionMessages(SAIVAGE_DIR, session.id);
     expect(result.usedFallback).toBe(true);
@@ -284,11 +290,11 @@ describe('compactSession', () => {
       content: 'orphan error ' + 'x'.repeat(200),
     }, TEST_STAMP);
 
-    const result = await compaction.compactSession(SAIVAGE_DIR, session.id, {
+    const result = await compactor().compactSession(session.id, {
       contextLimit: 1000,
       threshold: 0.01,
       maxCompactions: 3,
-    }, createTestAnalystRuntime().stamper);
+    });
 
     const messages = sessionMod.getSessionMessages(SAIVAGE_DIR, session.id);
     expect(result.usedFallback).toBe(true);
@@ -297,11 +303,12 @@ describe('compactSession', () => {
   });
 });
 
-describe('getCompactionCount / resetCompactionState', () => {
+describe('getCompactionCount / resetState', () => {
   it('should track compaction count', async () => {
     const session = sessionMod.createSession(SAIVAGE_DIR, 'planner', 'goal-1');
 
-    expect(compaction.getCompactionCount(session.id)).toBe(0);
+    const testCompactor = compactor();
+    expect(testCompactor.getCompactionCount(session.id)).toBe(0);
 
     for (let i = 0; i < 50; i++) {
       sessionMod.appendMessage(SAIVAGE_DIR, session.id, {
@@ -310,15 +317,15 @@ describe('getCompactionCount / resetCompactionState', () => {
         content: 'x'.repeat(200),
       }, { round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0 });
     }
-    await compaction.compactSession(SAIVAGE_DIR, session.id, {
+    await testCompactor.compactSession(session.id, {
       contextLimit: 1000,
       threshold: 0.01,
       maxCompactions: 5,
-    }, createTestAnalystRuntime().stamper);
+    });
 
-    expect(compaction.getCompactionCount(session.id)).toBe(1);
+    expect(testCompactor.getCompactionCount(session.id)).toBe(1);
 
-    compaction.resetCompactionState(session.id);
-    expect(compaction.getCompactionCount(session.id)).toBe(0);
+    testCompactor.resetState(session.id);
+    expect(testCompactor.getCompactionCount(session.id)).toBe(0);
   });
 });

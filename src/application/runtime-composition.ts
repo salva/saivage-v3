@@ -4,6 +4,7 @@ import { AgentAdapter } from '../agents/agent-adapter.js';
 import { FsCandidateAvailability } from '../agents/candidate-availability-store.js';
 import type { CandidateAvailability } from '../agents/candidate-availability.js';
 import { SkillsEngine } from '../agents/skills-engine.js';
+import { ContextCompactor } from '../agents/context-compactor.js';
 import type { AnalystRuntimeDeps } from '../agents/analyst-api.js';
 import type { EventPayload } from '../events/index.js';
 import type { McpManager } from '../mcp/manager-api.js';
@@ -28,6 +29,7 @@ function buildAnalystDeps(input: {
   stamper: SessionStampCounter;
   candidateAvailability: CandidateAvailability;
   eventLogger: EventLogger;
+  contextCompactor: ContextCompactor;
   emitAnalystToolInvoked(payload: EventPayload<'analyst_tool_invoked'>): void;
   mcpManager?: McpManager;
 }): AnalystRuntimeDeps {
@@ -37,6 +39,7 @@ function buildAnalystDeps(input: {
     stamper: input.stamper,
     candidateAvailability: input.candidateAvailability,
     eventLogger: input.eventLogger,
+    contextCompactor: input.contextCompactor,
     emitAnalystToolInvoked: input.emitAnalystToolInvoked,
     mcpManager: input.mcpManager,
   };
@@ -48,6 +51,7 @@ export function createRuntimeApplication(projectRoot: string, config: SaivageCon
   const errorLogger = new ErrorLogger(saivageDir);
   const skillsEngine = new SkillsEngine({ projectRoot });
   const stamper = new SessionStampCounter();
+  const contextCompactor = new ContextCompactor({ saivageDir, sessionStamper: stamper });
   // Application-level CardStore backs operator/API/read-model surfaces outside dispatch.
   const cardStore = new CardStore(projectRoot);
   const candidateAvailability = new FsCandidateAvailability(projectRoot, {
@@ -62,6 +66,7 @@ export function createRuntimeApplication(projectRoot: string, config: SaivageCon
     eventLogger,
     candidateAvailability,
     cardStore,
+    contextCompactor,
     activationLedger: {
       readState: () => readRuntimeState(projectRoot),
       appendRun: (input) => appendRuntimeRun(projectRoot, input),
@@ -124,7 +129,7 @@ export function createRuntimeApplication(projectRoot: string, config: SaivageCon
     runtimeApi,
     cardStore,
     get analystDeps() {
-      return buildAnalystDeps({ runtimeApi, cardStore, stamper, candidateAvailability, eventLogger, emitAnalystToolInvoked: emitAnalystToolInvokedFromRuntime, mcpManager });
+      return buildAnalystDeps({ runtimeApi, cardStore, stamper, candidateAvailability, eventLogger, contextCompactor, emitAnalystToolInvoked: emitAnalystToolInvokedFromRuntime, mcpManager });
     },
     setMcpManager(nextMcpManager) {
       mcpManager = nextMcpManager;

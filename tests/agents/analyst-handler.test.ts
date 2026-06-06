@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTestAnalystRuntime } from '../helpers/test-runtime-application.js';
-import { trimToCleanToolBoundary } from '../../src/agents/analyst-handler.js';
+import { pruneToolBoundary } from '../../src/agents/context-compactor.js';
 import { serializeToolCallMessage, PersistedRowCorruptError } from '../../src/contracts/persisted-tool-call.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
 
@@ -125,7 +125,7 @@ describe('AnalystHandler F05 contract', () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('trimToCleanToolBoundary pairs each persisted single-call row with its tool_result', () => {
+  it('pruneToolBoundary pairs each persisted single-call row with its tool_result', () => {
     const baseRound = 'r-assistant-00000000000000000000000000000001';
     const rowX = serializeToolCallMessage({ id: 'call-x', name: 'list_cards', args: { types: ['goal'] } });
     const rowY = serializeToolCallMessage({ id: 'call-y', name: 'list_cards', args: { types: ['code'] } });
@@ -136,7 +136,7 @@ describe('AnalystHandler F05 contract', () => {
       syntheticMessage({ id: 't1', role: 'tool', kind: 'tool_result', content: '{}', tool: 'list_cards', tool_call_id: 'call-x', round_id: baseRound, message_index: 3 }),
       syntheticMessage({ id: 't2', role: 'tool', kind: 'tool_result', content: '{}', tool: 'list_cards', tool_call_id: 'call-y', round_id: baseRound, message_index: 4 }),
     ];
-    const trimmed = trimToCleanToolBoundary(messages);
+    const trimmed = pruneToolBoundary(messages);
     expect(trimmed).toHaveLength(5);
     const assistantIds = trimmed.filter((m) => m.role === 'assistant' && m.kind === 'tool_call').map((m) => (JSON.parse(m.content) as { tool_calls: Array<{ id: string }> }).tool_calls[0].id);
     expect(assistantIds.sort()).toEqual(['call-x', 'call-y']);
@@ -148,11 +148,11 @@ describe('AnalystHandler F05 contract', () => {
       ...messages,
       syntheticMessage({ id: 't3', role: 'tool', kind: 'tool_result', content: '{}', tool: 'list_cards', tool_call_id: 'call-z', round_id: baseRound, message_index: 5 }),
     ];
-    const trimmedOrphan = trimToCleanToolBoundary(orphan);
+    const trimmedOrphan = pruneToolBoundary(orphan);
     expect(trimmedOrphan.filter((m) => m.role === 'tool').map((m) => m.tool_call_id).sort()).toEqual(['call-x', 'call-y']);
   });
 
-  it('legacy {toolCalls:[...]} persisted row makes trimToCleanToolBoundary throw PersistedRowCorruptError(legacy_tool_calls_wrapper)', () => {
+  it('legacy {toolCalls:[...]} persisted row makes pruneToolBoundary throw PersistedRowCorruptError(legacy_tool_calls_wrapper)', () => {
     const baseRound = 'r-assistant-00000000000000000000000000000002';
     const legacyContent = JSON.stringify({ toolCalls: [{ id: 'old-1', name: 'list_cards', args: {} }] });
     const messages: AgentMessage[] = [
@@ -160,7 +160,7 @@ describe('AnalystHandler F05 contract', () => {
       syntheticMessage({ id: 'a1', role: 'assistant', kind: 'tool_call', content: legacyContent, tool: 'list_cards', round_id: baseRound, message_index: 1 }),
     ];
     let caught: unknown;
-    try { trimToCleanToolBoundary(messages); } catch (err) { caught = err; }
+    try { pruneToolBoundary(messages); } catch (err) { caught = err; }
     expect(caught).toBeInstanceOf(PersistedRowCorruptError);
     expect((caught as PersistedRowCorruptError).code).toBe('legacy_tool_calls_wrapper');
   });

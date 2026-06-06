@@ -13,7 +13,6 @@ import {
   appendMessage as appendPersistentMessage,
   getSession,
   getSessionMessages,
-  estimateMessageTokens,
   markSessionWaiting,
   setSessionStatus,
   updateSessionModel,
@@ -67,8 +66,8 @@ import { SkillsEngine } from './skills-engine.js';
 import { getProjectNotificationCenter } from '../notifications/notification-delivery.js';
 import type { CardStore } from '../cards/store-api.js';
 import { injectQueuedSyntheticPlannerNotes } from '../runtime/synthetic-planner-notes.js';
-import { buildPlannerStateContextMessage, type PlannerStateCardStore } from './planner-state-context.js';
 import { PlannerControlExecutor } from './planner-control-executor.js';
+import { ContextCompactor } from './context-compactor.js';
 import type { Contract } from '../contracts/contract.js';
 import {
   createPlannerContract,
@@ -90,6 +89,7 @@ import { AgentLlmInvocationGateway } from './agent-llm-gateway.js';
 import { applyRuntimeMutation } from '../runtime/mutations.js';
 import { planClearActiveCardRunPatch } from '../runtime/runtime-core.js';
 import { readRuntimeState } from '../runtime/state.js';
+import { SessionStampCounter } from '../runtime/session-stamp-counter.js';
 
 export type AgentRole = OperationalAgentRole;
 export type InvokableAgentRole = AgentInvocationRole;
@@ -119,6 +119,7 @@ export interface AgentAdapterConfig {
   candidateAvailability?: CandidateAvailability;
   cardStore?: CardStore;
   runtimeStateProvider?: () => RuntimeState | null;
+  contextCompactor?: ContextCompactor;
 }
 
 export function synthesizeReportGoalEnvelope(
@@ -162,101 +163,6 @@ function buildRecoveryDirective(previousError: Error | undefined): string {
   return `RECOVERY DIRECTIVE: Your previous invocation failed. Please re-read authoritative state from disk (cards, notes, plan diary) to understand the current state before proceeding. Previous error: ${previousError?.message ?? 'Unknown error'}`;
 }
 
-const PLANNER_HISTORY_CONTEXT_LIMIT_TOKENS = 24000;
-const PLANNER_HISTORY_RECENT_MESSAGE_LIMIT = 16;
-const PLANNER_HISTORY_SNIPPET_LIMIT = 240;
-
-function truncatePlannerHistorySnippet(content: string): string {
-  if (content.length <= PLANNER_HISTORY_SNIPPET_LIMIT) return content;
-  return `${content.slice(0, PLANNER_HISTORY_SNIPPET_LIMIT)}…[truncated ${content.length - PLANNER_HISTORY_SNIPPET_LIMIT} chars]`;
-}
-
-export function buildPlannerHistoryCompactionMessage(
-  sessionId: string,
-  messages: AgentMessage[],
-): AgentMessage {
-  const roleKindCounts = new Map<string, number>();
-  for (const message of messages) {
-    const key = `${message.role}/${message.kind}${message.tool ? `/${message.tool}` : ''}`;
-    roleKindCounts.set(key, (roleKindCounts.get(key) ?? 0) + 1);
-  }
-  const recent = messages.slice(-PLANNER_HISTORY_RECENT_MESSAGE_LIMIT).map((message) => ({
-    role: message.role,
-    kind: message.kind,
-    tool: message.tool ?? null,
-    timestamp: message.timestamp,
-    content:
-      message.kind === 'tool_call' ||
-      message.kind === 'tool_result' ||
-      message.kind === 'tool_error'
-        ? `[${message.kind} content omitted from compacted planner history; current card state and unresolved activations are authoritative]`
-        : truncatePlannerHistorySnippet(message.content),
-  }));
-  return {
-    id: `msg-${sessionId}-planner-history-compact-in-memory`,
-    session_id: sessionId,
-    role: 'system',
-    kind: 'context_compaction',
-    content:
-      '[PLANNER SESSION HISTORY COMPACTED IN MEMORY]\n' +
-      'Planner session history was compacted. Continue from the reconstructed context below. The structured state message is authoritative for current card/runtime state. Do not rely on earlier transcript content for current child state. The last real messages follow for immediate continuity.\n\n' +
-      JSON.stringify(
-        {
-          original_message_count: messages.length,
-          original_estimated_tokens: estimateMessageTokens(messages),
-          role_kind_counts: Object.fromEntries(roleKindCounts),
-          recent_message_tail_preview: recent,
-        },
-        null,
-        2,
-      ),
-    round_id: generateRoundId('diagnostic'),
-    message_index: 0,
-    block_index: 0,
-    timestamp: new Date().toISOString(),
-  };
-}
-
-function buildPlannerRecentMessageTail(messages: AgentMessage[]): AgentMessage[] {
-  return messages
-    .filter((message) => message.kind !== 'context_compaction')
-    .slice(-PLANNER_HISTORY_RECENT_MESSAGE_LIMIT)
-    .map((message, index) => ({
-      ...message,
-      id: `${message.id}-planner-tail-in-memory`,
-      content: truncatePlannerHistorySnippet(message.content),
-      message_index: index + 2,
-    }));
-}
-
-export function compactPlannerModelMessagesForContext(
-  sessionId: string,
-  messages: AgentMessage[],
-  role?: AgentRole,
-  options: {
-    projectRoot?: string;
-    goalId?: string;
-    cardStore?: PlannerStateCardStore;
-    runtimeStateProvider?: () => RuntimeState | null;
-  } = {},
-): AgentMessage[] {
-  if (role !== 'planner') return messages;
-  if (estimateMessageTokens(messages) < PLANNER_HISTORY_CONTEXT_LIMIT_TOKENS) return messages;
-  if (!options.cardStore) throw new Error('CardStore is required to compact planner model messages.');
-  const goalId = options.goalId ?? sessionId.replace(/^planner:/, '');
-  return [
-    buildPlannerHistoryCompactionMessage(sessionId, messages),
-    buildPlannerStateContextMessage({
-      projectRoot: options.projectRoot ?? process.cwd(),
-      sessionId,
-      goalId,
-      cardStore: options.cardStore,
-      runtimeStateProvider: options.runtimeStateProvider,
-    }),
-    ...buildPlannerRecentMessageTail(messages),
-  ];
-}
-
 export class AgentAdapter implements AgentExecutionPort {
   readonly projectRoot: string;
   readonly saivageDir: string;
@@ -283,6 +189,7 @@ export class AgentAdapter implements AgentExecutionPort {
   private readonly fallbackBlockCounters = new Map<string, number>();
   private readonly cardStore: CardStore;
   private readonly runtimeStateProvider?: () => RuntimeState | null;
+  private readonly contextCompactor: ContextCompactor;
 
   constructor(cfg: AgentAdapterConfig) {
     this.projectRoot = cfg.projectRoot;
@@ -304,6 +211,10 @@ export class AgentAdapter implements AgentExecutionPort {
     if (!cfg.cardStore) throw new Error('AgentAdapter requires a composition-owned CardStore.');
     this.cardStore = cfg.cardStore;
     this.runtimeStateProvider = cfg.runtimeStateProvider;
+    this.contextCompactor = cfg.contextCompactor ?? new ContextCompactor({
+      saivageDir: this.saivageDir,
+      sessionStamper: new SessionStampCounter(),
+    });
     this.toolRuntime = new ToolRuntime(
       { cardStore: this.cardStore, bus: cfg.eventBus },
       AGENT_TOOL_DEFINITIONS,
@@ -610,13 +521,14 @@ export class AgentAdapter implements AgentExecutionPort {
   }
 
   private buildModelMessages(sessionId: string, role?: AgentRole, goalId?: string): AgentMessage[] {
-    return compactPlannerModelMessagesForContext(
+    return this.contextCompactor.compactPlannerInMemory(
       sessionId,
       this.sessionCoordinator.buildModelMessages(sessionId),
       role,
+      { contextLimit: 24000, threshold: 1 },
       {
         projectRoot: this.projectRoot,
-        goalId,
+        goalId: goalId ?? sessionId.replace(/^planner:/, ''),
         cardStore: this.cardStore,
         runtimeStateProvider: this.runtimeStateProvider,
       },
