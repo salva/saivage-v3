@@ -78,11 +78,11 @@ class ActivatingFakeAgentAdapter implements AgentExecutionPort {
     const activation = await exec.execute({
       toolName: 'activate_card',
       toolCallId: `activate-${childId}`,
-      argumentsJson: JSON.stringify({ cardId: childId }),
+      args: { cardId: childId },
       parentCardId: goalId,
       sessionId: parentRun?.session_id ?? '',
     });
-    const body = JSON.parse(activation.content) as { success?: boolean; activation?: Parameters<NonNullable<PlannerInvocationRequest['activationBarrier']>['dispatch']>[0]['activation']; actionable_error?: { message?: string } };
+    const body = activation.data as { success?: boolean; activation?: Parameters<NonNullable<PlannerInvocationRequest['activationBarrier']>['dispatch']>[0]['activation']; actionable_error?: { message?: string } };
     if (body.success !== true) throw new Error(body.actionable_error?.message ?? 'activate_card failed');
     if (body.activation && typeof requestOrGoalId !== 'string') await requestOrGoalId.activationBarrier?.dispatch({ activation: body.activation });
     return result;

@@ -138,16 +138,11 @@ describe('PlannerControlExecutor', () => {
       sessionId: `planner:${goal.id}`,
       toolCallId: 'call-cancel',
       toolName: 'cancel_card',
-      argumentsJson: JSON.stringify({ cardId: child.id }),
+      args: { cardId: child.id },
     });
 
-    expect(result).toMatchObject({
-      role: 'tool',
-      kind: 'tool_error',
-      tool: 'cancel_card',
-      tool_call_id: 'call-cancel',
-    });
-    expect(JSON.parse(result.content)).toEqual({
+    expect(result.success).toBe(false);
+    expect(result.data).toEqual({
       success: false,
       tool_error: expect.objectContaining({
         kind: 'card_already_active',
@@ -195,13 +190,13 @@ describe('PlannerControlExecutor', () => {
       sessionId: `planner:${goal.id}`,
       toolCallId: 'call-report',
       toolName: 'report_goal_done',
-      argumentsJson: JSON.stringify({
+      args: {
         status_text: 'complete',
         evidence_card_ids: [evidence.id],
-      }),
+      },
     });
 
-    expect(result.kind).toBe('tool_result');
+    expect(result.success).toBe(true);
     expect(calls).toEqual([
       {
         goalId: goal.id,
@@ -213,7 +208,7 @@ describe('PlannerControlExecutor', () => {
         }),
       },
     ]);
-    expect(JSON.parse(result.content)).toEqual(
+    expect(result.data).toEqual(
       expect.objectContaining({
         accepted: true,
         assessment: expect.objectContaining({
@@ -251,19 +246,14 @@ describe('PlannerControlExecutor', () => {
       sessionId: `planner:${goal.id}`,
       toolCallId: 'call-report',
       toolName: 'report_goal_done',
-      argumentsJson: JSON.stringify({
+      args: {
         status_text: 'complete',
         evidence_card_ids: [evidence.id],
-      }),
+      },
     });
 
-    expect(result).toMatchObject({
-      role: 'tool',
-      kind: 'tool_error',
-      tool: 'report_goal_done',
-      tool_call_id: 'call-report',
-    });
-    const body = JSON.parse(result.content);
+    expect(result.success).toBe(false);
+    const body = result.data;
     expect(body).toEqual({
       success: false,
       tool_error: expect.objectContaining({
@@ -312,10 +302,10 @@ describe('PlannerControlExecutor', () => {
       sessionId: `planner:${goal.id}`,
       toolCallId: 'call-report',
       toolName: 'report_goal_done',
-      argumentsJson: JSON.stringify({ status_text: 'complete' }),
+      args: { status_text: 'complete' },
     });
 
-    expect(result.kind).toBe('tool_result');
+    expect(result.success).toBe(true);
     expect(store.read(goal.id)?.status).toBe('changed');
     expect(existsSync(join(tmpDir, '.saivage', 'notes'))).toBe(false);
   });
@@ -344,10 +334,10 @@ describe('PlannerControlExecutor', () => {
       sessionId: `planner:${goal.id}`,
       toolCallId: 'call-report',
       toolName: 'report_goal_done',
-      argumentsJson: JSON.stringify({ status_text: 'complete' }),
+      args: { status_text: 'complete' },
     });
 
-    expect(result.kind).toBe('tool_result');
+    expect(result.success).toBe(true);
     const queue = JSON.parse(
       readFileSync(join(tmpDir, '.saivage', 'runtime', 'synthetic-notes.json'), 'utf-8'),
     ) as { notes: Array<{ kind: string; affected_card_id: string; summary: string }> };
@@ -372,20 +362,15 @@ describe('PlannerControlExecutor', () => {
       sessionId: `planner:${goal.id}`,
       toolCallId: 'call-notify',
       toolName: 'queue_notification',
-      argumentsJson: JSON.stringify({
+      args: {
         recipient: goal.id,
         kind: 'heads_up',
         body: 'planner body must not audit',
-      }),
+      },
     });
 
-    expect(result).toMatchObject({
-      role: 'tool',
-      kind: 'tool_result',
-      tool: 'queue_notification',
-      tool_call_id: 'call-notify',
-    });
-    expect(JSON.parse(result.content)).toEqual({
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual({
       success: true,
       data: { queued: true, recipient: goal.id },
     });
@@ -417,16 +402,11 @@ describe('PlannerControlExecutor', () => {
       toolCallId: 'call-activate',
       toolName: 'activate_card',
       parentCardId: goal.id,
-      argumentsJson: JSON.stringify({ cardId: child.id }),
+      args: { cardId: child.id },
     });
 
-    expect(result).toMatchObject({
-      role: 'tool',
-      kind: 'tool_result',
-      tool: 'activate_card',
-      tool_call_id: 'call-activate',
-    });
-    const body = JSON.parse(result.content);
+    expect(result.success).toBe(true);
+    const body = result.data as Record<string, unknown>;
     expect(body.success).toBe(true);
     expect(body.deferred).toBeUndefined();
     expect(body.activation).toEqual(expect.objectContaining({
@@ -455,11 +435,11 @@ describe('PlannerControlExecutor', () => {
       toolCallId: 'call-grandchild',
       toolName: 'activate_card',
       parentCardId: goal.id,
-      argumentsJson: JSON.stringify({ cardId: grandchild.id }),
+      args: { cardId: grandchild.id },
     });
 
-    expect(result.kind).toBe('tool_error');
-    expect(JSON.parse(result.content)).toEqual(expect.objectContaining({
+    expect(result.success).toBe(false);
+    expect(result.data).toEqual(expect.objectContaining({
       success: false,
       actionable_error: expect.objectContaining({
         code: 'activate_card_not_direct_child',
@@ -497,10 +477,10 @@ describe('PlannerControlExecutor', () => {
       sessionId: `planner:${goal.id}`,
       toolCallId: 'call-cancel',
       toolName: 'cancel_card',
-      argumentsJson: JSON.stringify({ cardId: child.id }),
+      args: { cardId: child.id },
     });
-    expect(cancel.kind).toBe('tool_result');
-    expect(JSON.parse(cancel.content)).toEqual(
+    expect(cancel.success).toBe(true);
+    expect(cancel.data).toEqual(
       expect.objectContaining({
         success: true,
         card: expect.objectContaining({ id: child.id, status: 'cancelled' }),
@@ -512,10 +492,10 @@ describe('PlannerControlExecutor', () => {
       toolCallId: 'call-activate',
       toolName: 'activate_card',
       parentCardId: goal.id,
-      argumentsJson: JSON.stringify({ cardId: blockedTarget.id }),
+      args: { cardId: blockedTarget.id },
     });
-    expect(activate.kind).toBe('tool_error');
-    expect(JSON.parse(activate.content)).toEqual(
+    expect(activate.success).toBe(false);
+    expect(activate.data).toEqual(
       expect.objectContaining({
         success: false,
         actionable_error: expect.objectContaining({ code: 'activate_card_dependencies_blocked' }),

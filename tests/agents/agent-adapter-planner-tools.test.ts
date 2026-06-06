@@ -408,7 +408,7 @@ describe('AgentAdapter planner tool surface', () => {
       { goalId: 'project', cardId: 'project' },
     );
     expect(result.kind).toBe('tool_error');
-    expect(result.content).toContain("Unknown planner tool 'set_status_text'");
+    expect(JSON.parse(result.content)).toEqual({ success: false, error: "Unknown tool 'set_status_text'." });
   });
 });
 

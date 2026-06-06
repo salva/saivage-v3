@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import type { AgentMessage } from '../schemas/index.js';
+import type { AgentMessage, ControlActionSurface } from '../schemas/index.js';
 import type { ToolDefinition, LlmInvocationClient, LlmCompleteResult } from './llm-contracts.js';
 import { LlmProviderGateway } from './llm-provider-gateway.js';
 import { ANALYST_TOOL_DEFINITIONS } from '../tools/definitions/index.js';
@@ -118,7 +118,11 @@ export class LlmIntentResolver {
     this.recorderLogger = eventLogger ? toRecorderLogger(eventLogger) : undefined;
   }
 
-  async chat(messages: AgentMessage[], projectContext: string): Promise<LlmCompleteResult> {
+  getAvailableToolNames(surface: ControlActionSurface): string[] {
+    return Object.keys(TOOL_REGISTRY).filter((name) => RoleToolPolicy.assertAnalystSurfaceTool(name, surface).allowed);
+  }
+
+  async chat(messages: AgentMessage[], projectContext: string, surface: ControlActionSurface): Promise<LlmCompleteResult> {
     const tools = getAnalystToolDefinitions();
     const capabilityRequest = this.capabilityRequest();
     const chain = await this.router.resolve('analyst', capabilityRequest);
@@ -161,10 +165,10 @@ export class LlmIntentResolver {
           return result;
         }
         for (const toolCall of result.tool_calls) {
-          const decision = RoleToolPolicy.assertAnalystSurfaceTool(toolCall.function.name, 'web');
+          const decision = RoleToolPolicy.assertAnalystSurfaceTool(toolCall.function.name, surface);
           if (!decision.allowed) {
             await this.availability.markSucceeded(candidate);
-            return { kind: 'message', content: ANALYST_UNSUPPORTED_ACTION_TEMPLATE('Analyst', Object.keys(TOOL_REGISTRY)) };
+            return { kind: 'message', content: ANALYST_UNSUPPORTED_ACTION_TEMPLATE('Analyst', this.getAvailableToolNames(surface)) };
           }
         }
         await this.availability.markSucceeded(candidate);

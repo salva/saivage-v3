@@ -211,7 +211,7 @@ describe('AgentAdapter load_skill tool', () => {
 
       const result = await callProcessToolCall(tc, 'planner');
       expect(result.kind).toBe('tool_error');
-      expect(result.content).toContain("Unknown planner tool 'load_skill'");
+      expect(result.content).toContain("Role 'planner' is not permitted");
     });
 
     it('returns error for unknown tool name', async () => {
@@ -223,7 +223,7 @@ describe('AgentAdapter load_skill tool', () => {
 
       const result = await callProcessToolCall(tc, 'planner');
       expect(result.kind).toBe('tool_error');
-      expect(result.content).toContain('Unknown planner tool');
+      expect(result.content).toContain('Unknown tool');
       expect(result.content).toContain('unknown_fancy_tool');
     });
 
@@ -236,7 +236,7 @@ describe('AgentAdapter load_skill tool', () => {
 
       const result = await callProcessToolCall(tc, 'planner');
       expect(result.kind).toBe('tool_error');
-      expect(result.content).toContain("Unknown planner tool 'load_skill'");
+      expect(result.content).toContain("Invalid JSON arguments for 'load_skill'");
     });
 
     it('returns error for load_skill with empty arguments object', async () => {
@@ -248,7 +248,7 @@ describe('AgentAdapter load_skill tool', () => {
 
       const result = await callProcessToolCall(tc, 'planner');
       expect(result.kind).toBe('tool_error');
-      expect(result.content).toContain("Unknown planner tool 'load_skill'");
+      expect(result.content).toContain("Role 'planner' is not permitted");
     });
   });
 
@@ -363,7 +363,7 @@ describe('AgentAdapter load_skill tool', () => {
 
       expect(result.role).toBe('tool');
       expect(result.kind).toBe('tool_error');
-      expect(result.content).toContain("Unknown planner tool 'load_skill'");
+      expect(result.content).toContain("Role 'planner' is not permitted");
       expect(result.tool).toBe('load_skill');
     });
 
@@ -378,7 +378,7 @@ describe('AgentAdapter load_skill tool', () => {
 
       expect(result.role).toBe('tool');
       expect(result.kind).toBe('tool_error');
-      expect(result.content).toContain("Unknown planner tool 'load_skill'");
+      expect(result.content).toContain("Role 'planner' is not permitted");
     });
 
     it('returns tool_error for analyst role with real SkillsEngine', async () => {
@@ -406,7 +406,7 @@ describe('AgentAdapter load_skill tool', () => {
       const result = await callProcessToolCall(tc, 'planner');
 
       expect(result.kind).toBe('tool_error');
-      expect(result.content).toContain("Unknown planner tool 'load_skill'");
+      expect(result.content).toContain("Role 'planner' is not permitted");
     });
   });
 });

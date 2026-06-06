@@ -8,7 +8,9 @@ import type { EventLogger } from '../observability/index.js';
 import type { CardRecord } from '../schemas/index.js';
 import { isUnresolvedRuntimeActivationStatus } from '../runtime/state.js';
 import { emitLoggedEvent, type TypedEventEmitter } from '../events/index.js';
-export interface AgentToolMessage { role: 'tool'; kind: 'tool_result' | 'tool_error'; content: string; tool: string; tool_call_id: string; }
+import { PLANNER_CONTROL_TOOL_NAMES } from './agent-tool-catalog.js';
+
+export interface PlannerControlResult { success: boolean; data?: unknown; error?: string; }
 
 export interface PlannerControlExecutionContext {
   cardStore: CardStore;
@@ -28,7 +30,7 @@ export interface PlannerControlInvocation {
   sessionId?: string;
   toolCallId: string;
   toolName: string;
-  argumentsJson: string;
+  args: Record<string, unknown>;
   parentCardId?: string;
 }
 
@@ -37,23 +39,12 @@ function buildPlannerToolErrorResponse(error: unknown): { success: false; tool_e
   return { success: false, error: error instanceof Error ? error.message : String(error) };
 }
 
-function parseArguments(argumentsJson: string): Record<string, unknown> {
-  try {
-    const parsed = JSON.parse(argumentsJson);
-    return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : {};
-  } catch {
-    return {};
-  }
-}
-
-function toolMessage(kind: 'tool_result' | 'tool_error', content: string, tool: string, toolCallId: string): AgentToolMessage {
-  return { role: 'tool', kind, content, tool, tool_call_id: toolCallId };
-}
-
 const PLANNER_EDITABLE_FIELDS = new Set(['title', 'description', 'status', 'tags', 'priority', 'urgency', 'acceptance', 'depends_on', 'related']);
 
 export class PlannerControlExecutor {
   constructor(private readonly context: PlannerControlExecutionContext) {}
+
+  static handles(toolName: string): boolean { return PLANNER_CONTROL_TOOL_NAMES.has(toolName); }
 
   private createService(): PlannerToolsService {
     return new PlannerToolsService(this.context.cardStore, {
@@ -74,8 +65,8 @@ export class PlannerControlExecutor {
         : null;
   }
 
-  private directChildError(toolName: string, toolCallId: string, sessionId: string | undefined, parentCardId: string | null, target: CardRecord | null, targetId: string): AgentToolMessage | null {
-    if (!target) return toolMessage('tool_error', JSON.stringify({ success: false, error: `Card '${targetId}' not found.` }), toolName, toolCallId);
+  private directChildError(toolName: string, sessionId: string | undefined, parentCardId: string | null, target: CardRecord | null, targetId: string): PlannerControlResult | null {
+    if (!target) return { success: false, data: { success: false, error: `Card '${targetId}' not found.` } };
     if (!parentCardId || target.parent !== parentCardId) {
       const error = createActionableErrorEnvelope({
         code: 'planner_direct_child_required',
@@ -87,13 +78,13 @@ export class PlannerControlExecutor {
         childCardId: targetId,
         sessionId,
       });
-      return toolMessage('tool_error', JSON.stringify({ success: false, error: error.message, actionable_error: error }), toolName, toolCallId);
+      return { success: false, data: { success: false, error: error.message, actionable_error: error } };
     }
     return null;
   }
 
-  async execute(invocation: PlannerControlInvocation): Promise<AgentToolMessage> {
-    const args = parseArguments(invocation.argumentsJson);
+  async execute(invocation: PlannerControlInvocation): Promise<PlannerControlResult> {
+    const args = invocation.args;
     const plannerTools = this.createService();
     try {
       let result: unknown;
@@ -122,15 +113,15 @@ export class PlannerControlExecutor {
           const actionable = (code: string, message: string, nextAction: string, extra: Record<string, unknown> = {}) => createActionableErrorEnvelope({ code, message, currentState: { parentCardId, childCardId: targetId, sessionId, parentRunId: parentRun?.run_id ?? null, parentRunCandidates, ...extra }, nextAction, docsRef: 'docs/v3-planner-control-mcp-contract.md', parentCardId: parentCardId ?? null, childCardId: targetId || null, sessionId });
           if (!target) {
             const error = actionable('activate_card_child_missing', `activate_card target '${targetId}' not found.`, 'Inspect the planning tree and retry activate_card with an existing child card id.');
-            return toolMessage('tool_error', JSON.stringify({ success: false, error: error.message, actionable_error: error }), invocation.toolName, invocation.toolCallId);
+            return { success: false, data: { success: false, error: error.message, actionable_error: error } };
           }
           if (!parentCardId || !parentRun) {
             const error = actionable('activate_card_parent_not_active', `Cannot activate '${targetId}': no active parent planner runtime run owns this tool call.`, 'Only call activate_card from the currently running parent planner turn after the runtime has started that parent run.');
-            return toolMessage('tool_error', JSON.stringify({ success: false, error: error.message, actionable_error: error }), invocation.toolName, invocation.toolCallId);
+            return { success: false, data: { success: false, error: error.message, actionable_error: error } };
           }
           if (target.parent !== parentCardId) {
             const error = actionable('activate_card_not_direct_child', `Cannot activate '${targetId}': it is not a direct child of active parent planner '${parentCardId}'.`, 'Only call activate_card for immediate child cards of the currently running parent planner card.', { actualParentId: target.parent ?? null });
-            return toolMessage('tool_error', JSON.stringify({ success: false, error: error.message, actionable_error: error }), invocation.toolName, invocation.toolCallId);
+            return { success: false, data: { success: false, error: error.message, actionable_error: error } };
           }
           const depFailures: Array<{ dep_id: string; planner_state: string }> = [];
           for (const depId of (target.depends_on ?? [])) {
@@ -140,7 +131,7 @@ export class PlannerControlExecutor {
           }
           if (depFailures.length > 0) {
             const error = actionable('activate_card_dependencies_blocked', `Cannot activate '${targetId}': dependencies are not complete.`, 'Complete or explicitly resolve blocked dependencies before retrying activate_card.', { dependencyFailures: depFailures });
-            return toolMessage('tool_error', JSON.stringify({ success: false, error: error.message, actionable_error: error, dep_failures: depFailures }), invocation.toolName, invocation.toolCallId);
+            return { success: false, data: { success: false, error: error.message, actionable_error: error, dep_failures: depFailures } };
           }
           const idempotencyKey = `${parentRun.run_id}:${sessionId}:${invocation.toolCallId}:${targetId}`;
           const existingActivation = (this.context.activationLedger?.readState()?.runtime_activations ?? this.context.runtimeStateProvider?.()?.runtime_activations ?? [])
@@ -188,7 +179,7 @@ export class PlannerControlExecutor {
         }
         case 'edit_card': {
           const targetId = String(args.id ?? '');
-          const error = this.directChildError(invocation.toolName, invocation.toolCallId, invocation.sessionId, this.parentCardId(invocation), this.context.cardStore.read(targetId), targetId);
+          const error = this.directChildError(invocation.toolName, invocation.sessionId, this.parentCardId(invocation), this.context.cardStore.read(targetId), targetId);
           if (error) return error;
           const changes: Partial<CardRecord> = {};
           const rejected: string[] = [];
@@ -203,14 +194,14 @@ export class PlannerControlExecutor {
         }
         case 'cancel_card': {
           const targetId = String(args.cardId ?? '');
-          const error = this.directChildError(invocation.toolName, invocation.toolCallId, invocation.sessionId, this.parentCardId(invocation), this.context.cardStore.read(targetId), targetId);
+          const error = this.directChildError(invocation.toolName, invocation.sessionId, this.parentCardId(invocation), this.context.cardStore.read(targetId), targetId);
           if (error) return error;
           result = { success: true, card: plannerTools.cancelCard(targetId) };
           break;
         }
         case 'delete_card': {
           const targetId = String(args.cardId ?? '');
-          const error = this.directChildError(invocation.toolName, invocation.toolCallId, invocation.sessionId, this.parentCardId(invocation), this.context.cardStore.read(targetId), targetId);
+          const error = this.directChildError(invocation.toolName, invocation.sessionId, this.parentCardId(invocation), this.context.cardStore.read(targetId), targetId);
           if (error) return error;
           plannerTools.deleteCard(targetId);
           result = { success: true, deleted: true, cardId: targetId };
@@ -218,7 +209,7 @@ export class PlannerControlExecutor {
         }
         case 'restart_card': {
           const targetId = String(args.cardId ?? '');
-          const error = this.directChildError(invocation.toolName, invocation.toolCallId, invocation.sessionId, this.parentCardId(invocation), this.context.cardStore.read(targetId), targetId);
+          const error = this.directChildError(invocation.toolName, invocation.sessionId, this.parentCardId(invocation), this.context.cardStore.read(targetId), targetId);
           if (error) return error;
           result = { success: true, card: plannerTools.restartCard(targetId) };
           break;
@@ -253,9 +244,9 @@ export class PlannerControlExecutor {
         default:
           result = null;
       }
-      return toolMessage('tool_result', typeof result === 'string' ? result : JSON.stringify(result), invocation.toolName, invocation.toolCallId);
+      return { success: true, data: result };
     } catch (err) {
-      return toolMessage('tool_error', JSON.stringify(buildPlannerToolErrorResponse(err)), invocation.toolName, invocation.toolCallId);
+      return { success: false, data: buildPlannerToolErrorResponse(err) };
     }
   }
 }

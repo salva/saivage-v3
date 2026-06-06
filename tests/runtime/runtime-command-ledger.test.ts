@@ -436,11 +436,11 @@ describe('runtime command ledger target contract (Wave 1)', () => {
           const msg = await exec.execute({
             toolName: 'activate_card',
             toolCallId: 'call-child-a',
-            argumentsJson: JSON.stringify({ cardId: childId }),
+            args: { cardId: childId },
             parentCardId: goalId,
             sessionId: 'planner:project',
           });
-          activationResults.push(JSON.parse(msg.content));
+          activationResults.push(msg.data);
           return {
             status: 'blocked',
             blocked_reason: 'stop after observing parent run ownership',
@@ -576,11 +576,11 @@ describe('runtime command ledger target contract (Wave 1)', () => {
           const msg = await exec.execute({
             toolName: 'activate_card',
             toolCallId: 'call-grandchild-a',
-            argumentsJson: JSON.stringify({ cardId: grandchildId }),
+            args: { cardId: grandchildId },
             parentCardId: currentGoalId,
             sessionId: `planner:${goalId}`,
           });
-          activationResults.push(JSON.parse(msg.content));
+          activationResults.push(msg.data);
           return {
             status: 'blocked',
             blocked_reason: 'stop after observing child run ownership',

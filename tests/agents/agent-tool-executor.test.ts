@@ -35,6 +35,6 @@ describe('AgentToolExecutor', () => {
     const result = await executor().processToolCall({ id: 'tc-unknown', type: 'function', function: { name: 'not_a_planner_tool', arguments: '{}' } }, 'planner', 'planner:goal', { goalId: 'goal' });
 
     expect(result.kind).toBe('tool_error');
-    expect(result.content).toBe("Unknown planner tool 'not_a_planner_tool'.");
+    expect(JSON.parse(result.content)).toEqual({ success: false, error: "Unknown tool 'not_a_planner_tool'." });
   });
 });

@@ -110,7 +110,7 @@ describe('AgentAdapter role tool + MCP policy', () => {
     };
     const result = await callProcessToolCall(tc, 'planner');
     expect(result.kind).toBe('tool_error');
-    expect(result.content).toContain("Unknown planner tool 'mcp_tool_call'");
+    expect(result.content).toContain("Role 'planner' is not permitted");
     expect(mockMcpManager.invokeTool).not.toHaveBeenCalled();
   });
 
@@ -137,7 +137,7 @@ describe('AgentAdapter role tool + MCP policy', () => {
     };
     const result = await callProcessToolCall(tc, 'planner');
     expect(result.kind).toBe('tool_error');
-    expect(result.content).toContain("Unknown planner tool 'mcp_tool_call'");
+    expect(result.content).toContain("Role 'planner' is not permitted");
     expect(mockMcpManager.invokeTool).not.toHaveBeenCalled();
   });
 
@@ -154,7 +154,7 @@ describe('AgentAdapter role tool + MCP policy', () => {
     expect(mockMcpManager.invokeTool).toHaveBeenCalledWith('svc', 'mutate', { q: 1 });
   });
 
-  it('typed MCP errors still surface as tool_error content', async () => {
+  it('typed MCP errors are not invoked for denied planner MCP calls', async () => {
     mockMcpManager.getServerTools.mockReturnValue([{ name: 'query', annotations: { readOnlyHint: true, destructiveHint: false } }]);
     mockMcpManager.invokeTool.mockRejectedValueOnce(new InvalidArgumentsError('svc', 'query', { bad: true }));
     const tc = {
@@ -164,10 +164,10 @@ describe('AgentAdapter role tool + MCP policy', () => {
     };
     const result = await callProcessToolCall(tc, 'planner');
     expect(result.kind).toBe('tool_error');
-    expect(result.content).toContain("Unknown planner tool 'mcp_tool_call'");
+    expect(result.content).toContain("Role 'planner' is not permitted");
   });
 
-  it('other typed MCP failures still surface as tool_error content', async () => {
+  it('other typed MCP failures are not invoked for denied planner MCP calls', async () => {
     mockMcpManager.getServerTools.mockReturnValue([{ name: 'query', annotations: { readOnlyHint: true, destructiveHint: false } }]);
     mockMcpManager.invokeTool.mockRejectedValueOnce(new ServerNotRunningError('svc'));
     const tc = {
@@ -177,7 +177,7 @@ describe('AgentAdapter role tool + MCP policy', () => {
     };
     const result = await callProcessToolCall(tc, 'planner');
     expect(result.kind).toBe('tool_error');
-    expect(result.content).toContain("Unknown planner tool 'mcp_tool_call'");
+    expect(result.content).toContain("Role 'planner' is not permitted");
   });
 
   it('preserves coverage for other typed MCP errors', async () => {

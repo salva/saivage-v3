@@ -4,7 +4,7 @@ import { writeFileAtomic } from '../persistence/index.js';
 import { agentSessionSchema } from '../schemas/index.js';
 import type { AgentSession, AgentMessage, ControlActionSurface, ControlActionAuditEntry } from '../schemas/index.js';
 import type { ToolResult, ToolContext } from '../tools/analyst-tool-types.js';
-import { AnalystOfflineError, LlmIntentResolver, TOOL_REGISTRY } from './analyst-llm-resolver.js';
+import { AnalystOfflineError, LlmIntentResolver } from './analyst-llm-resolver.js';
 import { CardStore } from '../cards/store-api.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
 import type { EventPayload } from '../events/index.js';
@@ -18,10 +18,10 @@ import { sanitizeAnalystText } from '../agents/analyst-sanitization.js';
 import { ContextCompactor } from './context-compactor.js';
 import { appendMessage, getSessionMessages } from './session-persistence.js';
 import { generateRoundId } from '../schemas/round-id-server.js';
-import { ANALYST_PARTIAL_SUCCESS_TEMPLATE, ANALYST_UNKNOWN_CAPABILITY_TEMPLATE } from './analyst-tool-runner.js';
+import { ANALYST_PARTIAL_SUCCESS_TEMPLATE } from './analyst-tool-runner.js';
 import { serializeToolCallMessage } from '../contracts/persisted-tool-call.js';
-import { toolFailure, toolFailureFromError } from '../tools/analyst-tool-helpers.js';
 import { now } from '../utils/clock.js';
+import { AnalystAdapter, ToolDispatcher } from './tool-dispatcher.js';
 
 
 export interface WorkspaceContext {
@@ -166,6 +166,7 @@ export class AnalystHandler {
   private surface: ControlActionSurface;
   private requestServerRestart?: () => Promise<void>;
   private readonly contextCompactor: ContextCompactor;
+  private readonly toolDispatcher: ToolDispatcher;
 
   constructor(projectRoot: string, runtimeDeps: AnalystRuntimeDeps, onActivity?: ActivityCallback, actor: ActorRole = 'analyst', surface: ControlActionSurface = 'web-chat', requestServerRestart?: () => Promise<void>) {
     this.projectRoot = projectRoot;
@@ -180,10 +181,11 @@ export class AnalystHandler {
     });
     this.llmResolver = new LlmIntentResolver(projectRoot, this.runtimeDeps.candidateAvailability);
     this.llmResolver.setEventLogger(this.runtimeDeps.eventLogger);
+    this.toolDispatcher = new ToolDispatcher([new AnalystAdapter()]);
   }
 
   getAvailableToolNames(): string[] {
-    return Object.keys(TOOL_REGISTRY).filter((name) => !(this.surface === 'telegram' && name === 'run_shell_command'));
+    return this.llmResolver.getAvailableToolNames(this.surface);
   }
 
   async handleMessage(sessionId: string, userContent: string, workspaceContext?: WorkspaceContext): Promise<AnalystResponse> {
@@ -277,7 +279,7 @@ export class AnalystHandler {
 
       let llmResult;
       try {
-        llmResult = await this.llmResolver.chat(modelInput, projectContext);
+        llmResult = await this.llmResolver.chat(modelInput, projectContext, this.surface);
       } catch (err) {
         const errMsg = err instanceof AnalystOfflineError
           ? err.message
@@ -314,25 +316,27 @@ export class AnalystHandler {
 
         this.emitActivity({ type: 'tool_call', content: { tool: tc.function.name, params } });
 
-        const toolFn = TOOL_REGISTRY[tc.function.name];
-        let result: ToolResult;
-        if (!toolFn) {
-          result = toolFailure('not_found', ANALYST_UNKNOWN_CAPABILITY_TEMPLATE(tc.function.name), { tool: tc.function.name });
-        } else {
-          try { result = await toolFn(ctx, params); }
-          catch (err) { this.logBoundaryDiagnostic('analyst_tool_handler_failed', err); result = toolFailureFromError(err); }
-        }
+        const dispatched = await this.toolDispatcher.dispatch({ id: tc.id, name: tc.function.name, arguments: tc.function.arguments }, {
+          role: 'analyst',
+          sessionId,
+          analystSurface: this.surface,
+          toolContext: ctx,
+          knownRuntimeTool: (name) => this.llmResolver.getAvailableToolNames(this.surface).includes(name),
+        });
+        const result = dispatched.adapterResult?.data as ToolResult | undefined ?? {
+          success: false,
+          error: dispatched.content,
+          errorEnvelope: { kind: 'internal', message: dispatched.content },
+        };
 
 
         this.emitActivity({ type: 'tool_result', content: { tool: tc.function.name, success: result.success, hasPreview: !!result.preview, errorKind: result.errorEnvelope?.kind } });
 
         toolInvocations.push({ tool: tc.function.name, params, result });
 
-        const resultJson = JSON.stringify(result);
-        const truncated = resultJson.length > 16_000 ? resultJson.slice(0, 16_000) + '…[truncated]' : resultJson;
-        appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'tool', kind: 'tool_result', content: truncated, tool: tc.function.name, tool_call_id: tc.id }, this.runtimeDeps.stamper.stampInRound(sessionId), this.runtimeDeps.stamper);
+        appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'tool', kind: dispatched.kind, content: dispatched.content, tool: dispatched.tool, tool_call_id: dispatched.tool_call_id }, this.runtimeDeps.stamper.stampInRound(sessionId), this.runtimeDeps.stamper);
         broadcastToolInvocation(this.runtimeDeps, sessionId, tc.function.name, result);
-        const contractText = !toolFn ? result.errorEnvelope?.message ?? result.error : this.responseTextForResult(result);
+        const contractText = result.errorEnvelope?.kind === 'not_found' ? result.errorEnvelope.message : this.responseTextForResult(result);
         if (contractText) {
           const persisted = appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'text', content: contractText }, this.runtimeDeps.stamper.stampInRound(sessionId), this.runtimeDeps.stamper);
           return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: contractText, timestamp: persisted.timestamp }, toolInvocations };

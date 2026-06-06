@@ -64,15 +64,15 @@ describe('runtime redesign final golden behavior', () => {
       expect(readRuntimeState(ctx.projectRoot)?.runtime_runs ?? []).toHaveLength(0);
 
       const exec = new PlannerControlExecutor({ projectRoot: ctx.projectRoot, cardStore: ctx.cardStore, activationLedger: activationLedger(ctx.projectRoot) });
-      const rejected = await exec.execute({ toolName: 'activate_card', toolCallId: 'call-a', argumentsJson: JSON.stringify({ cardId: ctx.codeId }), parentCardId: ctx.goalId, sessionId: `planner:${ctx.goalId}` });
-      expect(rejected.kind).toBe('tool_error');
-      expect(JSON.parse(rejected.content).actionable_error.code).toBe('activate_card_parent_not_active');
+      const rejected = await exec.execute({ toolName: 'activate_card', toolCallId: 'call-a', args: { cardId: ctx.codeId }, parentCardId: ctx.goalId, sessionId: `planner:${ctx.goalId}` });
+      expect(rejected.success).toBe(false);
+      expect((rejected.data as any).actionable_error.code).toBe('activate_card_parent_not_active');
       expect(readRuntimeState(ctx.projectRoot)?.runtime_runs ?? []).toHaveLength(0);
 
       appendRuntimeRun(ctx.projectRoot, { run_id: 'run-parent', kind: 'root', card_id: ctx.goalId, parent_run_id: null, command_id: 'cmd-a', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: `planner:${ctx.goalId}` });
-      const accepted = await exec.execute({ toolName: 'activate_card', toolCallId: 'call-a', argumentsJson: JSON.stringify({ cardId: ctx.codeId }), parentCardId: ctx.goalId, sessionId: `planner:${ctx.goalId}` });
-      expect(accepted.kind).toBe('tool_result');
-      const body = JSON.parse(accepted.content);
+      const accepted = await exec.execute({ toolName: 'activate_card', toolCallId: 'call-a', args: { cardId: ctx.codeId }, parentCardId: ctx.goalId, sessionId: `planner:${ctx.goalId}` });
+      expect(accepted.success).toBe(true);
+      const body = accepted.data as any;
       expect(body.success).toBe(true);
       const state = readRuntimeState(ctx.projectRoot)!;
       expect(state.runtime_activations).toEqual(expect.arrayContaining([expect.objectContaining({ child_card_id: ctx.codeId, parent_run_id: 'run-parent' })]));
