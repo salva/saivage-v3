@@ -34,6 +34,7 @@ import { valuesEqual } from './value-equality.js';
 import { CardStoreInvariantError, ReorderSetMismatchError } from './errors.js';
 import { CardStoreState } from './state.js';
 import { CardReader } from './reader.js';
+import { CardPatchService } from './card-patch-service.js';
 import { cardHistoryPath, loadCardStoreState, readHistoryEntriesStrict } from '../persistence/card-loader.js';
 import {
   applyMutationWithOwnedLockSync,
@@ -63,7 +64,6 @@ import {
   isTerminalState,
   isTerminalType,
   newCardId,
-  prunePartialPatch,
   summarizeChangedFields,
   validateTransition as validateLifecycleTransition,
   type CardMutationContext,
@@ -189,6 +189,7 @@ export class CardStore {
   private readonly projectLock: ProjectLock;
   private state: CardStoreState;
   private readonly reader: CardReader;
+  private readonly patchService: CardPatchService;
   private readonly eventBus: EventBus;
 
   constructor(projectRoot: string, maxGoalDepth?: number, eventBus?: EventBus) {
@@ -200,6 +201,14 @@ export class CardStore {
     repairSiblingPositions(projectRoot, this.maxDepth, this.projectLock, this.eventBus);
     this.state = loadCardStoreState(projectRoot, { maxDepth: this.maxDepth });
     this.reader = new CardReader(() => this.state);
+    this.patchService = new CardPatchService({
+      projectRoot: this.projectRoot,
+      deps: () => this.deps(),
+      read: (id) => this.read(id),
+      childCount: (id) => this.state.childrenOf(id).length,
+      detectCycles: (id, newDependsOn) => this.detectCycles(id, newDependsOn),
+      notificationStore: this,
+    });
   }
 
   invalidate(): void {
@@ -639,36 +648,7 @@ export class CardStore {
     historyKind: 'update' | 'status' | 'mutate' | 'depends',
     ctx: CardMutationContext,
   ): CardRecord {
-    const existing = this.read(id);
-    if (!existing) throw new Error(`Card '${id}' not found.`);
-    const realChanges = prunePartialPatch(existing, changes);
-    if (Object.keys(realChanges).length === 0) return existing;
-    const stamp = now();
-    const candidate = buildUpdatedCard(existing, realChanges, stamp, {
-      childCount: this.state.childrenOf(existing.id).length,
-    }, ctx);
-    if (realChanges.depends_on !== undefined) {
-      const cycle = this.detectCycles(existing.id, candidate.depends_on);
-      if (cycle.length > 0) throw new Error(`Dependency cycle detected: ${cycle.join(' -> ')}`);
-    }
-    const parsed = cardRecordSchema.safeParse(candidate);
-    if (!parsed.success) throw new Error(`Card validation failed: ${parsed.error.message}`);
-    const changedFields = collectChangedFields(existing, candidate, realChanges);
-    const result = applyMutationSync(this.deps(), {
-      kind: 'persist',
-      next: parsed.data,
-      historyKind,
-      ctx,
-      changedFields,
-      changeSummary: summarizeChangedFields(changedFields),
-    });
-    const persisted = deepClone(result.card!);
-    try {
-      queueNotification(this.projectRoot, { kind: 'card', cardId: persisted.id }, 'card_changed', `${persisted.id} updated (${changedFields.join(', ')}) at v${persisted.version_seq}`, { actor: ctx.actor, surface: ctx.surface }, this);
-    } catch {
-      // Notification enqueue is best-effort; never break the mutation.
-    }
-    return persisted;
+    return this.patchService.applyPatch(id, changes, historyKind, ctx);
   }
 
   // ── Test helpers ────────────────────────────────────────────
