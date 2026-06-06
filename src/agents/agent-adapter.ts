@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import type { SaivageConfig, RuntimeSection } from './config-schema.js';
-import { getRuntimeConfig, getModelParamsForRole } from './config-schema.js';
+import { getRuntimeConfig } from './config-schema.js';
 import { ProviderRegistry } from './provider.js';
 import { ModelRouter } from './model-router.js';
 import {
@@ -8,19 +8,14 @@ import {
   MemoryCandidateAvailability,
 } from './candidate-availability.js';
 import {
-  appendMessage as appendPersistentMessage,
   getSession,
   getSessionMessages,
-  updateSessionModel,
-  assertNoActiveAgentSession,
 } from './session-persistence.js';
 import type {
   AgentInvocationRole,
   AgentMessage,
   HandoffSummary,
   OperationalAgentRole,
-  LlmAttemptOutcome,
-  LlmFailureClass,
   RuntimeState,
   RuntimeActivationRecord,
 } from '../schemas/index.js';
@@ -41,14 +36,7 @@ import type {
   ReviewerResult,
 } from '../contracts/index.js';
 import type { LlmCallFn } from './llm-contracts.js';
-import { serializeToolCallMessage } from '../contracts/persisted-tool-call.js';
-import { LlmRequestError } from '../contracts/llm-failure.js';
-import { capabilityRequestForLlmOptions } from './provider-capabilities.js';
 import { generateRoundId } from '../schemas/round-id-server.js';
-import {
-  defaultInvocationRecoveryPolicy,
-  type InvocationRecoveryContext,
-} from './invocation-recovery-policy.js';
 import { EventLogger } from '../observability/index.js';
 import { buildReviewerPrompt } from './system-prompt.js';
 import type { McpToolInvocationPort } from '../mcp/manager-api.js';
@@ -68,9 +56,6 @@ import { createExecutorContract } from '../contracts/executor-contract.js';
 import { createReviewerContract } from '../contracts/reviewer-contract.js';
 import type { ExecutorResultEnvelope } from '../contracts/executor-envelope.js';
 import type { ReviewerResultEnvelope } from '../contracts/reviewer-envelope.js';
-import { createContractVerifier } from './contract-verifier.js';
-import { createAgentLoopDriver, type AgentLoopDriverIO } from './agent-loop-driver.js';
-import { createRepairBudget } from './invocation-outcome.js';
 import { redactTextForOutbound } from '../redaction/index.js';
 import { ToolRuntime, AGENT_TOOL_DEFINITIONS } from '../tools/index.js';
 import { AgentSessionCoordinator, type SessionCreatedHook } from './agent-session-coordinator.js';
@@ -80,29 +65,13 @@ import { applyRuntimeMutation } from '../runtime/mutations.js';
 import { planClearActiveCardRunPatch } from '../runtime/runtime-core.js';
 import { readRuntimeState } from '../runtime/state.js';
 import { SessionStampCounter } from '../runtime/session-stamp-counter.js';
-import { AttemptRecorder } from './attempt-recorder.js';
-import { PlannerEnvelopeTracker } from './planner-envelope-tracker.js';
 import { SessionMessageLog } from './session-message-log.js';
 import { AgentSessionLifecycle } from './session-lifecycle.js';
 import { InvocationModelContext } from './invocation-model-context.js';
+import { AgentInvocationRunner } from './invocation-runner.js';
 
 export type AgentRole = OperationalAgentRole;
 export type InvokableAgentRole = AgentInvocationRole;
-
-interface AgentRecoveryContext {
-  attempt: number;
-  maxAttempts: number;
-  isRecovery: boolean;
-  previousError?: Error;
-  directive: string;
-}
-
-interface AgentInvocationAttempt<R> {
-  attempt: number;
-  success: boolean;
-  result?: R;
-  error?: Error;
-}
 
 export interface AgentAdapterConfig {
   projectRoot: string;
@@ -117,14 +86,6 @@ export interface AgentAdapterConfig {
   contextCompactor?: ContextCompactor;
   invocationService?: InvocationService;
   llmCallFn?: LlmCallFn;
-}
-
-function delayInvocationRecovery(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
-}
-
-function buildRecoveryDirective(previousError: Error | undefined): string {
-  return `RECOVERY DIRECTIVE: Your previous invocation failed. Please re-read authoritative state from disk (cards, notes, plan diary) to understand the current state before proceeding. Previous error: ${previousError?.message ?? 'Unknown error'}`;
 }
 
 export class AgentAdapter implements AgentExecutionPort {
@@ -151,6 +112,7 @@ export class AgentAdapter implements AgentExecutionPort {
   private readonly modelContext: InvocationModelContext;
   private readonly toolExecutor: AgentToolExecutor;
   private readonly invocationService: InvocationService;
+  private readonly invocationRunner: AgentInvocationRunner;
   private readonly cardStore: CardStore;
   private readonly runtimeStateProvider?: () => RuntimeState | null;
   private readonly contextCompactor: ContextCompactor;
@@ -262,6 +224,25 @@ export class AgentAdapter implements AgentExecutionPort {
       maxRecoveryRetries: this.runtimeConfig?.maxRecoveryRetries,
       llmCallFn: cfg.llmCallFn,
     });
+    this.invocationRunner = new AgentInvocationRunner({
+      projectRoot: this.projectRoot,
+      saivageDir: this.saivageDir,
+      config: this.config,
+      runtimeConfig: this.runtimeConfig,
+      router: this.router,
+      candidateAvailability: this.candidateAvailability,
+      sessionLifecycle: this.sessionLifecycle,
+      messageLog: this.messageLog,
+      modelContext: this.modelContext,
+      toolExecutor: this.toolExecutor,
+      invocationService: this.invocationService,
+      eventBusProvider: () => this.eventBus,
+      eventLogger: this.eventLogger,
+      redactModelIssueText: (message) => this.redactModelIssueText(message),
+      redactProviderErrorMessage: (message) => this.redactProviderErrorMessage(message),
+      compensateActivationBarrierThrow: (sessionId, toolCallId, activation, error) =>
+        this.compensateActivationBarrierThrow(sessionId, toolCallId, activation, error),
+    });
   }
 
   setEventBus(eventBus: EventEmitter): void {
@@ -302,7 +283,6 @@ export class AgentAdapter implements AgentExecutionPort {
   private buildToolsForRole(role: AgentRole) {
     return this.toolExecutor.buildToolsForRole(role);
   }
-
   async callMcpTool(
     role: AgentRole,
     serverName: string,
@@ -505,9 +485,6 @@ export class AgentAdapter implements AgentExecutionPort {
   ) {
     return this.messageLog.nextFallbackRound(sessionId, prefix);
   }
-  private stampInCurrentFallbackRound(sessionId: string) {
-    return this.messageLog.stampInCurrentFallbackRound(sessionId);
-  }
   private appendSessionMessage(sessionId: string, message: Parameters<SessionMessageLog['append']>[1]) {
     return this.messageLog.append(sessionId, message);
   }
@@ -564,555 +541,15 @@ export class AgentAdapter implements AgentExecutionPort {
     requestedSessionId?: string,
     activationBarrier?: PlannerActivationBarrier,
   ): Promise<R> {
-    const modelParams = getModelParamsForRole(this.config, role);
-    const tools = this.buildToolsForRole(role);
-    const capabilityRequest = capabilityRequestForLlmOptions({
-      tools,
-      stream: false,
-    });
-    const candidates = await this.invocationService.resolveCandidates(role, capabilityRequest);
-    if (candidates.length === 0) {
-      const noCandidateDecision = defaultInvocationRecoveryPolicy.decideNoCandidates({
-        role,
-        attempt: 1,
-        maxAttempts: (this.runtimeConfig.maxRecoveryRetries ?? 3) + 1,
-        recoveryDelayMs: this.runtimeConfig.recoveryDelayMs ?? 60000,
-        maxRecoveryRetries: this.runtimeConfig.maxRecoveryRetries ?? 3,
-        capabilityRequest,
-        capabilitySkips: this.router.getLastCapabilitySkips(),
-        goalId,
-        cardId,
-      });
-      throw new Error(noCandidateDecision.message);
-    }
-    assertNoActiveAgentSession(this.saivageDir, role as import('../schemas/types.js').AgentRole);
-    const session = this.sessionLifecycle.create(role as import('../schemas/types.js').AgentRole, goalId, cardId, requestedSessionId);
-    await this.sessionLifecycle.notifyCreated(session.id);
-    this.sessionLifecycle.publishStarted(session.id, role as import('../schemas/types.js').AgentRole, goalId, cardId);
-    for (const msg of contextMessages)
-      appendPersistentMessage(
-        this.saivageDir,
-        session.id,
-        {
-          role: msg.role,
-          kind: msg.kind,
-          content: msg.content,
-          tool: msg.tool,
-          links: msg.links,
-          model_spec: msg.model_spec,
-          requested_model_spec: msg.requested_model_spec,
-        },
-        { round_id: msg.round_id, message_index: msg.message_index, block_index: msg.block_index },
-      );
-    const recoveryDelayMs = this.runtimeConfig.recoveryDelayMs ?? 60000;
-    const maxRecoveryRetries = this.runtimeConfig.maxRecoveryRetries ?? 3;
-    const maxOuterAttempts = maxRecoveryRetries + 1;
-    const invocationStart = Date.now();
-    const attemptRecorder = new AttemptRecorder(this.eventBus, this.eventLogger);
-    const plannerEnvelopeTracker = new PlannerEnvelopeTracker();
-    const agentFn = async (recoveryCtx: AgentRecoveryContext) => {
-      const candidateChain = await this.invocationService.resolveCandidates(role, capabilityRequest);
-      const capabilitySkips = this.router.getLastCapabilitySkips();
-      if (candidateChain.length === 0) {
-        const noCandidateDecision = defaultInvocationRecoveryPolicy.decideNoCandidates({
-          role,
-          attempt: recoveryCtx.attempt,
-          maxAttempts: recoveryCtx.maxAttempts,
-          recoveryDelayMs: this.runtimeConfig.recoveryDelayMs ?? 60000,
-          maxRecoveryRetries: this.runtimeConfig.maxRecoveryRetries ?? 3,
-          capabilityRequest,
-          capabilitySkips,
-          sessionId: session.id,
-          goalId,
-          cardId,
-        });
-        throw new Error(noCandidateDecision.message);
-      }
-      let lastError: Error | null = null;
-      try {
-        for (const candidate of candidateChain) {
-          let sameCandidateRecoveryAttempt = 1;
-          for (;;) {
-            if (this.sessionLifecycle.isCancelled(session.id))
-              throw new Error(
-                `Agent invocation cancelled for session ${session.id}. Role: ${role}, goal: ${goalId}, card: ${cardId}`,
-              );
-            if (!this.candidateAvailability.isAvailable(candidate)) break;
-            let callStart = 0;
-            let startedAtIso = '';
-            try {
-              updateSessionModel(this.saivageDir, session.id, candidate.model);
-              const recoveryDirective = recoveryCtx.isRecovery
-                ? recoveryCtx.directive
-                : sameCandidateRecoveryAttempt > 1
-                  ? buildRecoveryDirective(lastError ?? undefined)
-                  : '';
-              if (recoveryDirective)
-                this.appendSessionMessage(session.id, {
-                  role: 'system',
-                  kind: 'model_recovered',
-                  content: recoveryDirective,
-                });
-              const abortController = new AbortController();
-              this.sessionLifecycle.trackAbortController(session.id, abortController);
-              callStart = Date.now();
-              startedAtIso = new Date(callStart).toISOString();
-              try {
-                const turnTools = [...tools, ...contract.terminals.map((t) => t.toolDefinition)];
-                const maxToolTurns = this.runtimeConfig.maxToolTurns ?? 16;
-                const verifier = createContractVerifier();
-                const io: AgentLoopDriverIO<E, R> = {
-                  contract,
-                  verifier,
-                  sessionId: session.id,
-                  role,
-                  attempt: recoveryCtx.attempt,
-                  budget: createRepairBudget(1),
-                  maxToolTurns,
-                  invokeTurn: async () => {
-                    const turnMessages = this.buildModelMessages(session.id, role, goalId);
-                    return this.invocationService.invokeCall({
-                      role,
-                      sessionId: session.id,
-                      systemPrompt,
-                      contextMessages: turnMessages,
-                      tools: turnTools,
-                      terminalToolNames: contract.terminals.map((t) => t.name),
-                      modelParams: { temperature: modelParams.temperature, maxTokens: modelParams.maxTokens },
-                      capabilityRequest,
-                      abortSignal: abortController.signal,
-                    }, candidate);
-                  },
-                  persistAssistantToolCalls: (result) => {
-                    if (result.kind !== 'tool_calls') return;
-                    for (const tc of result.tool_calls) {
-                      let parsedArgs: Record<string, unknown>;
-                      try {
-                        parsedArgs = JSON.parse(tc.function.arguments) as Record<string, unknown>;
-                        if (
-                          !parsedArgs ||
-                          typeof parsedArgs !== 'object' ||
-                          Array.isArray(parsedArgs)
-                        )
-                          parsedArgs = {};
-                      } catch {
-                        parsedArgs = {};
-                      }
-                      this.appendSessionMessage(session.id, {
-                        role: 'assistant',
-                        kind: 'tool_call',
-                        content: JSON.stringify(
-                          serializeToolCallMessage({
-                            id: tc.id,
-                            name: tc.function.name,
-                            args: parsedArgs,
-                          }),
-                        ),
-                        tool: tc.function.name,
-                        tool_call_id: tc.id,
-                      });
-                    }
-                  },
-                  persistAssistantText: (content) => {
-                    this.appendSessionMessage(session.id, {
-                      role: 'assistant',
-                      kind: 'text',
-                      content,
-                    });
-                  },
-                  executeActionToolCalls: async (result) => {
-                    if (result.kind !== 'tool_calls') return { runtimeSignalledDone: false };
-                    for (const tc of result.tool_calls) {
-                      if (contract.isTerminalToolName(tc.function.name)) continue;
-                      const msg = await this.processToolCall(tc, role, session.id, {
-                        goalId,
-                        cardId,
-                      });
-                      if (role === 'planner' && tc.function.name === 'activate_card' && msg.kind === 'tool_result' && activationBarrier) {
-                        let activation: unknown;
-                        try {
-                          const body = JSON.parse(msg.content) as { activation?: unknown };
-                          activation = body.activation;
-                        } catch {
-                          activation = null;
-                        }
-                        if (activation && typeof activation === 'object' && 'activation_id' in activation) {
-                          try {
-                            this.sessionLifecycle.markWaiting(session.id);
-                            await activationBarrier.dispatch({ activation: activation as RuntimeActivationRecord });
-                          } catch (err) {
-                            this.compensateActivationBarrierThrow(session.id, tc.id, activation as RuntimeActivationRecord, err);
-                            throw err;
-                          }
-                          continue;
-                        }
-                      }
-                      this.appendSessionMessage(session.id, {
-                        role: msg.role,
-                        kind: msg.kind,
-                        content: msg.content,
-                        tool: msg.tool,
-                        tool_call_id: msg.tool_call_id,
-                      });
-                      if (
-                        role === 'planner' &&
-                        msg.kind === 'tool_result' &&
-                        (tc.function.name === 'report_goal_done' ||
-                          tc.function.name === 'report_goal_failed' ||
-                          tc.function.name === 'report_goal_blocked')
-                      ) {
-                        plannerEnvelopeTracker.trackTerminalToolResult(tc.function.name, goalId, msg.content);
-                      }
-                    }
-                    return { runtimeSignalledDone: plannerEnvelopeTracker.hasEnvelope() };
-                  },
-                  persistDuplicateDoneIgnored: (toolCallId, toolName) => {
-                    this.appendSessionMessage(session.id, {
-                      role: 'tool',
-                      kind: 'tool_result',
-                      content: 'duplicate terminal call ignored',
-                      tool: toolName,
-                      tool_call_id: toolCallId,
-                    });
-                  },
-                  persistVerifiedDone: (toolCallId, toolName) => {
-                    this.appendSessionMessage(session.id, {
-                      role: 'tool',
-                      kind: 'tool_result',
-                      content: 'verified',
-                      tool: toolName,
-                      tool_call_id: toolCallId,
-                    });
-                  },
-                  persistViolatedDone: (toolCallId, toolName, content) => {
-                    this.appendSessionMessage(session.id, {
-                      role: 'tool',
-                      kind: 'tool_result',
-                      content,
-                      tool: toolName,
-                      tool_call_id: toolCallId,
-                    });
-                  },
-                  appendRepairMessage: (message) => {
-                    this.appendSessionMessage(session.id, {
-                      role: 'system',
-                      kind: 'model_repair',
-                      content: message,
-                    });
-                  },
-                  isCancelled: () => this.sessionLifecycle.isCancelled(session.id),
-                  emitVerifierRejection: (event) => {
-                    if (this.eventLogger)
-                      this.eventLogger.appendEvent({
-                        kind: 'llm_verifier_rejection',
-                        session_id: event.session_id,
-                        role: event.role as import('../schemas/types.js').AgentRole,
-                        contract_id: event.contract_id,
-                        attempt: event.attempt,
-                        repair_round: event.repair_round,
-                        obligation_codes: event.obligation_codes,
-                        proposed_present: event.proposed_present,
-                      });
-                    if (this.eventBus) this.eventBus.emit('llm_verifier_rejection', event);
-                  },
-                  takeRuntimeDoneEnvelope:
-                    role === 'planner'
-                      ? () => plannerEnvelopeTracker.takeEnvelope<E>()
-                      : undefined,
-                };
-                const driver = createAgentLoopDriver<E, R>(io);
-                const outcome = await driver.run();
-                const callDuration = Date.now() - callStart;
-                if (outcome.kind === 'succeeded') {
-                  attemptRecorder.recordContractVerdict('satisfied', outcome.repairAttempts);
-                  const finalResponse = JSON.stringify(outcome.envelope);
-                  this.appendSessionMessage(session.id, {
-                    role: 'assistant',
-                    kind: 'text',
-                    content: finalResponse,
-                  });
-                  const successDecision = defaultInvocationRecoveryPolicy.decideSuccess({
-                    role,
-                    candidate,
-                    attempt: recoveryCtx.attempt,
-                    maxAttempts: recoveryCtx.maxAttempts,
-                    recoveryDelayMs: this.runtimeConfig.recoveryDelayMs ?? 60000,
-                    maxRecoveryRetries: this.runtimeConfig.maxRecoveryRetries ?? 3,
-                    capabilityRequest,
-                    capabilitySkips,
-                    sessionId: session.id,
-                    goalId,
-                    cardId,
-                  });
-                  if (successDecision.markSucceeded)
-                    await this.candidateAvailability.markSucceeded(candidate);
-                  const succeededOutcome: LlmAttemptOutcome = {
-                    kind: 'succeeded',
-                    terminal_tool: outcome.terminalName as LlmAttemptOutcome extends {
-                      kind: 'succeeded';
-                      terminal_tool: infer X;
-                    }
-                      ? X
-                      : never,
-                  };
-                  const succeededCapSkips = this.router.getLastCapabilitySkips();
-                  attemptRecorder.recordOutcome({
-                    session_id: session.id,
-                    role: role as unknown as import('../schemas/types.js').AgentRole,
-                    attempt: recoveryCtx.attempt,
-                    same_candidate_attempt: sameCandidateRecoveryAttempt,
-                    provider: candidate.provider,
-                    model: candidate.model,
-                    account: candidate.account ?? '_',
-                    started_at: startedAtIso,
-                    duration_ms: callDuration,
-                    outcome: succeededOutcome,
-                    capability_skip_reasons:
-                      succeededCapSkips && succeededCapSkips.length > 0
-                        ? succeededCapSkips.map((d) => ({
-                            provider: d.candidate.provider,
-                            model: d.candidate.model,
-                            reasons: d.reasons.slice(),
-                          }))
-                        : undefined,
-                  });
-                  this.sessionLifecycle.clearCancellation(session.id);
-                  return outcome.result;
-                }
-                if (outcome.kind === 'cancelled') {
-                  throw new Error(
-                    `Agent invocation cancelled for session ${session.id}. Role: ${role}, goal: ${goalId}, card: ${cardId}`,
-                  );
-                }
-                if (outcome.kind === 'repair_exhausted') {
-                  attemptRecorder.recordContractVerdict('repair_exhausted', outcome.repairAttempts);
-                  const codes = outcome.lastReport.obligations.map((o) => o.code).join(',');
-                  throw new LlmRequestError({
-                    kind: 'provider_protocol_error',
-                    provider: candidate.provider,
-                    status: 0,
-                    message: `Role '${role}' contract verification exhausted after ${outcome.repairAttempts} repair attempt(s): ${codes}.`,
-                  });
-                }
-                if (outcome.kind === 'no_progress') {
-                  attemptRecorder.recordContractVerdict('no_progress', outcome.repairAttempts);
-                  throw new LlmRequestError({
-                    kind: 'provider_protocol_error',
-                    provider: candidate.provider,
-                    status: 0,
-                    message: `Role '${role}' did not emit terminal tool within ${outcome.turnsConsumed} turns.`,
-                  });
-                }
-                throw new LlmRequestError({
-                  kind: 'provider_protocol_error',
-                  provider: candidate.provider,
-                  status: 0,
-                  message: `Role '${role}' transport failure: ${outcome.failure.kind}.`,
-                });
-              } finally {
-                this.sessionLifecycle.clearAbortController(session.id);
-              }
-            } catch (err) {
-              lastError = err instanceof Error ? err : new Error(String(err));
-              const failureDurationMs = Date.now() - callStart;
-              const policyContext: InvocationRecoveryContext = {
-                role,
-                candidate,
-                attempt: sameCandidateRecoveryAttempt,
-                maxAttempts: recoveryCtx.maxAttempts,
-                recoveryDelayMs: this.runtimeConfig.recoveryDelayMs ?? 60000,
-                maxRecoveryRetries: this.runtimeConfig.maxRecoveryRetries ?? 3,
-                capabilityRequest,
-                capabilitySkips,
-                sessionId: session.id,
-                goalId,
-                cardId,
-              };
-              const decision = defaultInvocationRecoveryPolicy.decideFailure(
-                lastError,
-                policyContext,
-              );
-              if (decision.markFailed && decision.availability)
-                await this.candidateAvailability.markFailed(candidate, decision.availability);
-              if (decision.appendModelIssue)
-                this.appendSessionMessage(session.id, {
-                  role: 'system',
-                  kind: 'model_issue',
-                  content: this.redactModelIssueText(decision.message),
-                });
-              const failedOutcome: LlmAttemptOutcome = {
-                kind: 'failed',
-                failure_class: (decision.failure?.kind ?? 'unknown') as LlmFailureClass,
-                recovery_action: decision.action,
-                error_name: lastError.name,
-                error_message: this.redactModelIssueText(decision.message),
-                error_preview: this.redactProviderErrorMessage(lastError.message.slice(0, 240)),
-                cooldown_ms: decision.availability
-                  ? Math.max(0, decision.availability.untilMs - Date.now())
-                  : undefined,
-                retry_delay_ms: decision.retryDelayMs,
-              };
-              const failedCapSkips = this.router.getLastCapabilitySkips();
-              attemptRecorder.recordOutcome({
-                session_id: session.id,
-                role: role as unknown as import('../schemas/types.js').AgentRole,
-                attempt: recoveryCtx.attempt,
-                same_candidate_attempt: sameCandidateRecoveryAttempt,
-                provider: candidate.provider,
-                model: candidate.model,
-                account: candidate.account ?? '_',
-                started_at: startedAtIso,
-                duration_ms: failureDurationMs,
-                outcome: failedOutcome,
-                capability_skip_reasons:
-                  failedCapSkips && failedCapSkips.length > 0
-                    ? failedCapSkips.map((d) => ({
-                        provider: d.candidate.provider,
-                        model: d.candidate.model,
-                        reasons: d.reasons.slice(),
-                      }))
-                    : undefined,
-              });
-              if (decision.abort || this.sessionLifecycle.isCancelled(session.id)) {
-                this.sessionLifecycle.publishCancelledRetryStop(
-                  session.id,
-                  role as unknown as import('../schemas/types.js').AgentRole,
-                );
-                if (
-                  decision.failure?.kind === 'cancelled' ||
-                  this.sessionLifecycle.isCancelled(session.id)
-                )
-                  throw new Error(
-                    `Agent invocation cancelled for session ${session.id}. Role: ${role}, goal: ${goalId}, card: ${cardId}`,
-                  );
-                throw lastError;
-              }
-              if (decision.action === 'retry_same_after_delay') {
-                await delayInvocationRecovery(decision.retryDelayMs ?? 0);
-                sameCandidateRecoveryAttempt += 1;
-                continue;
-              }
-              break;
-            }
-          }
-        }
-        throw lastError ?? new Error(`All candidates exhausted for role '${role}'.`);
-      } finally {
-        this.sessionLifecycle.clearCancellation(session.id);
-      }
-    };
-    const attempts: AgentInvocationAttempt<R>[] = [];
-    for (let attempt = 1; attempt <= maxOuterAttempts; attempt += 1) {
-      const previousError = attempts[attempt - 2]?.error;
-      const recoveryCtx: AgentRecoveryContext = {
-        attempt,
-        maxAttempts: maxOuterAttempts,
-        isRecovery: attempt > 1,
-        previousError,
-        directive: attempt > 1 ? buildRecoveryDirective(previousError) : '',
-      };
-      try {
-        const result = await agentFn(recoveryCtx);
-        attempts.push({ attempt, success: true, result });
-        if (this.eventBus)
-          this.eventBus.emit('agent_recovered', {
-            role,
-            attempt,
-            sessionId: session.id,
-            cardId,
-            goalId,
-          });
-        break;
-      } catch (err) {
-        const error = err instanceof Error ? err : new Error(String(err));
-        attempts.push({ attempt, success: false, error });
-        try {
-          this.appendSessionMessage(session.id, {
-            role: 'system',
-            kind: 'model_issue',
-            content: `Agent invocation failed (attempt ${attempt}): ${this.redactProviderErrorMessage(error.message)}`,
-          });
-        } catch {
-          void 0;
-        }
-        if (this.eventBus)
-          this.eventBus.emit('agent_invocation_failed', {
-            role,
-            attempt,
-            error: error.message,
-            sessionId: session.id,
-            cardId,
-            goalId,
-            recoverable: attempt < maxOuterAttempts,
-          });
-        if (attempt >= maxOuterAttempts) break;
-        await delayInvocationRecovery(recoveryDelayMs);
-      }
-    }
-    const summaryLast = attempts[attempts.length - 1];
-    const summaryCancelled =
-      this.sessionLifecycle.isCancelled(session.id) ||
-      (typeof summaryLast?.error?.message === 'string' &&
-        /cancelled/i.test(summaryLast.error.message));
-    const verdict: 'succeeded' | 'exhausted' | 'cancelled' = summaryLast?.success
-      ? 'succeeded'
-      : summaryCancelled
-        ? 'cancelled'
-        : 'exhausted';
-    const summaryPayload = {
-      session_id: session.id,
-      role: role as unknown as import('../schemas/types.js').AgentRole,
-      goal_id: goalId,
-      card_id: cardId,
-      contract_id: contract.name + '.v1',
-      attempts_count: attemptRecorder.getOutcomeCount(),
-      total_duration_ms: Date.now() - invocationStart,
-      verdict,
-      repair_attempts: attemptRecorder.getRepairAttempts(),
-      contract_verdict: attemptRecorder.getContractVerdict(),
-      final_provider: verdict === 'succeeded' ? attemptRecorder.getLastSucceeded()?.provider : undefined,
-      final_model: verdict === 'succeeded' ? attemptRecorder.getLastSucceeded()?.model : undefined,
-      final_account: verdict === 'succeeded' ? attemptRecorder.getLastSucceeded()?.account : undefined,
-      final_terminal_tool: (() => {
-        const succeeded = attemptRecorder.getLastSucceeded();
-        return verdict === 'succeeded' && succeeded?.outcome.kind === 'succeeded'
-          ? succeeded.outcome.terminal_tool
-          : undefined;
-      })(),
-      last_failure_class: verdict === 'succeeded' ? undefined : attemptRecorder.getLastFailedClass(),
-    };
-    if (this.eventLogger)
-      this.eventLogger.appendEvent({ kind: 'llm_invocation_summary', ...summaryPayload });
-    if (this.eventBus) this.eventBus.emit('llm_invocation_summary', summaryPayload);
-    const lastAttempt = attempts[attempts.length - 1];
-    if (lastAttempt.success && lastAttempt.result !== undefined) {
-      const resultValue = lastAttempt.result as R;
-      const statusBearer =
-        role === 'planner' &&
-        typeof resultValue === 'object' &&
-        resultValue !== null &&
-        'result' in (resultValue as Record<string, unknown>)
-          ? (resultValue as unknown as { result: unknown }).result
-          : resultValue;
-      const resultStatus =
-        typeof statusBearer === 'object' &&
-        statusBearer !== null &&
-        'status' in (statusBearer as Record<string, unknown>)
-          ? (statusBearer as Record<string, unknown>).status
-          : null;
-      if (role === 'planner' && resultStatus === 'continue')
-        this.sessionLifecycle.markWaiting(session.id);
-      else if (role === 'planner' && resultStatus === 'blocked')
-        this.sessionLifecycle.complete(session.id, 'blocked');
-      else if (role === 'executor' && resultStatus === 'failed')
-        this.sessionLifecycle.complete(session.id, 'failed');
-      else this.sessionLifecycle.complete(session.id, 'done');
-      return resultValue;
-    }
-    this.sessionLifecycle.complete(session.id, 'failed');
-    throw (
-      lastAttempt.error ??
-      new Error(`Agent '${role}' invocation failed after ${attempts.length} attempts.`)
+    return this.invocationRunner.invoke(
+      role,
+      goalId,
+      cardId,
+      systemPrompt,
+      contextMessages,
+      contract,
+      requestedSessionId,
+      activationBarrier,
     );
   }
 
