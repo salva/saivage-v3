@@ -84,6 +84,7 @@ import { AttemptRecorder } from './attempt-recorder.js';
 import { PlannerEnvelopeTracker } from './planner-envelope-tracker.js';
 import { SessionMessageLog } from './session-message-log.js';
 import { AgentSessionLifecycle } from './session-lifecycle.js';
+import { InvocationModelContext } from './invocation-model-context.js';
 
 export type AgentRole = OperationalAgentRole;
 export type InvokableAgentRole = AgentInvocationRole;
@@ -147,6 +148,7 @@ export class AgentAdapter implements AgentExecutionPort {
   private readonly sessionCoordinator: AgentSessionCoordinator;
   private readonly sessionLifecycle: AgentSessionLifecycle;
   private readonly messageLog: SessionMessageLog;
+  private readonly modelContext: InvocationModelContext;
   private readonly toolExecutor: AgentToolExecutor;
   private readonly invocationService: InvocationService;
   private readonly cardStore: CardStore;
@@ -234,6 +236,13 @@ export class AgentAdapter implements AgentExecutionPort {
     });
     this.sessionLifecycle = new AgentSessionLifecycle(this.saivageDir, this.sessionCoordinator);
     this.messageLog = new SessionMessageLog(this.saivageDir);
+    this.modelContext = new InvocationModelContext({
+      projectRoot: this.projectRoot,
+      sessionCoordinator: this.sessionCoordinator,
+      contextCompactor: this.contextCompactor,
+      cardStore: this.cardStore,
+      runtimeStateProvider: this.runtimeStateProvider,
+    });
     this.toolExecutor = new AgentToolExecutor({
       projectRoot: this.projectRoot,
       toolRuntime: this.toolRuntime,
@@ -487,18 +496,7 @@ export class AgentAdapter implements AgentExecutionPort {
   }
 
   private buildModelMessages(sessionId: string, role?: AgentRole, goalId?: string): AgentMessage[] {
-    return this.contextCompactor.compactPlannerInMemory(
-      sessionId,
-      this.sessionCoordinator.buildModelMessages(sessionId),
-      role,
-      { contextLimit: 24000, threshold: 1 },
-      {
-        projectRoot: this.projectRoot,
-        goalId: goalId ?? sessionId.replace(/^planner:/, ''),
-        cardStore: this.cardStore,
-        runtimeStateProvider: this.runtimeStateProvider,
-      },
-    );
+    return this.modelContext.buildModelMessages(sessionId, role, goalId);
   }
 
   private nextFallbackRound(
