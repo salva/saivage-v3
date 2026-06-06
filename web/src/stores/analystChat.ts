@@ -8,27 +8,16 @@ import {
   sendChatMessage,
 } from '../api/client';
 import { useWorkspaceRouteStore } from './workspaceRoute';
-import { parseToolCallMessage } from '../utils/persistedToolCall';
+import { ANALYST_SESSION_ID, buildCardContextSeed, type SyntheticHintState } from './analyst-chat-context';
+import {
+  dedupePendingToolInvocations,
+  normalizePendingSummary,
+  normalizeToolName,
+  pushPendingToolInvocation,
+  type PendingToolInvocation,
+} from './analyst-chat-pending-tools';
 
-export const ANALYST_SESSION_ID = 'analyst';
-const MAX_PENDING_TOOL_INVOCATIONS = 12;
-const MAX_PENDING_SUMMARY_LENGTH = 200;
-const FALLBACK_PENDING_SUMMARY = 'tool invoked';
-
-interface PendingToolInvocation {
-  id: string;
-  sessionId: string;
-  tool: string;
-  classifiedAs?: string | null;
-  success: boolean;
-  summary: string;
-  relatedCardId?: string | null;
-}
-
-interface SyntheticHintState {
-  sessionId: string | null;
-  content: string | null;
-}
+export { ANALYST_SESSION_ID } from './analyst-chat-context';
 
 interface TimelineBadge {
   kind: 'card-history' | 'notification' | 'control-action' | 'tool-invoked';
@@ -66,78 +55,6 @@ function buildErrorState(err: unknown, fallback: string): DetailErrorState {
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
-}
-
-function normalizePendingSummary(summary: unknown): string {
-  if (typeof summary !== 'string') {
-    return FALLBACK_PENDING_SUMMARY;
-  }
-  const normalized = summary.replace(/\s+/g, ' ').trim();
-  if (!normalized) {
-    return FALLBACK_PENDING_SUMMARY;
-  }
-  return normalized.slice(0, MAX_PENDING_SUMMARY_LENGTH);
-}
-
-function normalizeToolName(tool: unknown): string {
-  if (typeof tool !== 'string') {
-    return 'tool';
-  }
-  const normalized = tool.trim();
-  return normalized || 'tool';
-}
-
-function buildPendingInvocationId(invocation: Omit<PendingToolInvocation, 'id'>): string {
-  return [
-    invocation.sessionId,
-    invocation.tool,
-    invocation.summary,
-    invocation.success ? 'ok' : 'error',
-    invocation.classifiedAs ?? '',
-    invocation.relatedCardId ?? '',
-  ].join(':');
-}
-
-function toolInvocationMatchesMessage(invocation: PendingToolInvocation, message: AgentConversationEntry): boolean {
-  if (message.tool !== invocation.tool) return false;
-  if (message.kind === 'tool_call' && message.role === 'assistant') {
-    try {
-      const call = parseToolCallMessage(JSON.parse(message.content));
-      return call.name === invocation.tool;
-    } catch {
-      return false;
-    }
-  }
-  if ((message.kind === 'tool_result' || message.kind === 'tool_error') && message.role === 'tool') {
-    return true;
-  }
-  return false;
-}
-
-function dedupePendingToolInvocations(
-  pending: PendingToolInvocation[],
-  sessionId: string,
-  fetchedMessages: AgentConversationEntry[],
-): PendingToolInvocation[] {
-  return pending.filter((invocation) => {
-    if (invocation.sessionId !== sessionId) {
-      return true;
-    }
-    return !fetchedMessages.some((message) => toolInvocationMatchesMessage(invocation, message));
-  });
-}
-
-function pushPendingToolInvocation(
-  pending: PendingToolInvocation[],
-  invocation: Omit<PendingToolInvocation, 'id'>,
-): PendingToolInvocation[] {
-  const normalizedInvocation = {
-    ...invocation,
-    id: buildPendingInvocationId(invocation),
-  } satisfies PendingToolInvocation;
-  const next = pending.filter((item) => item.id !== normalizedInvocation.id);
-  next.push(normalizedInvocation);
-  return next.slice(-MAX_PENDING_TOOL_INVOCATIONS);
 }
 
 export const useAnalystChat = defineStore('analyst-chat', () => {
@@ -228,34 +145,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     messagesError.value = null;
     ensureSessionInList();
     return ANALYST_SESSION_ID;
-  }
-
-  function buildCardContextSeed(card: CardRecord): string {
-    const blockers = [
-      ...(Array.isArray(card.depends_on) ? card.depends_on.map((id) => `depends_on:${id}`) : []),
-      ...(card.lifecycle.error ? [`error:${card.lifecycle.error}`] : []),
-    ];
-    const toolResult = {
-      tool: 'get_card',
-      ok: true,
-      card: {
-        id: card.id,
-        title: card.title,
-        description: card.description ?? '',
-        status: card.status,
-        blockers,
-        version_seq: card.version_seq ?? null,
-      },
-    };
-    return [
-      'System context: this per-card analyst discussion was opened from the card detail view.',
-      `Card title: ${card.title}`,
-      `Card description: ${card.description ?? ''}`,
-      `Card status: ${card.status}`,
-      `Card blockers: ${blockers.length ? blockers.join(', ') : 'none'}`,
-      `Tool result get_card: ${JSON.stringify(toolResult)}`,
-      'Use this seeded card context as the default subject unless the operator asks otherwise.',
-    ].join('\n');
   }
 
   function seedCardContext(card: CardRecord): string {
