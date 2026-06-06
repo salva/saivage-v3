@@ -56,10 +56,6 @@ function severityToNumber(severity: SeverityLevel): number {
   return idx >= 0 ? idx : 0;
 }
 
-function isLegacyEvent(value: unknown): value is { kind: EventKind; id?: string; timestamp?: string; correlationId?: string } & Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && 'kind' in value && typeof (value as { kind?: unknown }).kind === 'string');
-}
-
 function eventToLegacyRecord(event: DomainEvent): Record<string, unknown> {
   return {
     id: event.id,
@@ -87,13 +83,10 @@ export class EventBus {
     this.defaultDeliveryTimeoutMs = options?.defaultDeliveryTimeoutMs ?? 5000;
   }
 
-  emit(event: { kind: EventKind; id?: string; timestamp?: string; correlationId?: string } & object): void;
   emit<K extends EventKind>(kind: K, payload: EventPayload<K>, options?: { correlationId?: string }): void;
-  emit<K extends EventKind>(kindOrEvent: K | ({ kind: EventKind; id?: string; timestamp?: string; correlationId?: string } & object), payload?: EventPayload<K>, options?: { correlationId?: string }): void {
+  emit<K extends EventKind>(kind: K, payload: EventPayload<K>, options?: { correlationId?: string }): void {
     if (this.disposed) throw new BusDisposed();
-    const event = isLegacyEvent(kindOrEvent)
-      ? this.fromLegacyRecord(kindOrEvent)
-      : this.createEvent(kindOrEvent as K, payload as EventPayload<K>, options);
+    const event = this.createEvent(kind, payload, options);
     const eventSeverityIdx = severityToNumber(getEventSeverity(event.kind));
     for (const sub of [...this.subscriptions]) {
       if (!sub.active) continue;
@@ -139,13 +132,6 @@ export class EventBus {
     payloadSchemaByKind[kind].parse(payload);
     const ts = Date.now();
     return { ...(payload as Record<string, unknown>), id: `evt-${ts}-${eventIdSuffix()}`, kind, payload, ts, timestamp: new Date(ts).toISOString(), correlationId: options?.correlationId } as DomainEvent<K>;
-  }
-
-  private fromLegacyRecord(record: { kind: EventKind; id?: string; timestamp?: string; correlationId?: string } & object): DomainEvent {
-    const { kind, id, timestamp, correlationId, ...payload } = record as { kind: EventKind; id?: string; timestamp?: string; correlationId?: string } & Record<string, unknown>;
-    payloadSchemaByKind[kind].parse(payload);
-    const ts = timestamp ? Date.parse(timestamp) : Date.now();
-    return { ...payload, id: id ?? `evt-${Date.now()}-${eventIdSuffix()}`, kind, payload: payload as EventPayload<EventKind>, ts: Number.isFinite(ts) ? ts : Date.now(), timestamp: timestamp ?? new Date().toISOString(), correlationId } as DomainEvent;
   }
 
   private addSubscription(allowedKinds: Set<EventKind> | null, handler: EventHandler, options?: Omit<SubscriptionOptions, 'handler'>): Subscription {

@@ -3,11 +3,11 @@ import { consumeChangedCardActivation } from '../runtime/synthetic-planner-notes
 import { PlannerToolError, PlannerToolsService, type PlannerToolsServiceOptions } from '../tools/index.js';
 import { createActionableErrorEnvelope } from '../schemas/index.js';
 import type { RuntimeActivationLedgerPort } from '../contracts/index.js';
-import type { LoggedEvent } from '../schemas/index.js';
 import { resolveRecipient } from '../notifications/index.js';
 import type { EventLogger } from '../observability/index.js';
 import type { CardRecord } from '../schemas/index.js';
 import { isUnresolvedRuntimeActivationStatus } from '../runtime/state.js';
+import { emitLoggedEvent, type TypedEventEmitter } from '../events/index.js';
 export interface AgentToolMessage { role: 'tool'; kind: 'tool_result' | 'tool_error'; content: string; tool: string; tool_call_id: string; }
 
 export interface PlannerControlExecutionContext {
@@ -19,8 +19,8 @@ export interface PlannerControlExecutionContext {
   reviewer?: PlannerToolsServiceOptions['reviewer'];
   maxReviewRetries?: number;
   assessmentIdFactory?: PlannerToolsServiceOptions['assessmentIdFactory'];
-  eventBus?: { emit(event: LoggedEvent): void };
-  eventBusProvider?: () => { emit(event: LoggedEvent): void } | undefined;
+  eventBus?: TypedEventEmitter;
+  eventBusProvider?: () => TypedEventEmitter | undefined;
   eventLogger?: EventLogger;
 }
 
@@ -152,10 +152,11 @@ export class PlannerControlExecutor {
           if (!this.context.activationLedger) throw new Error('runtime_activation_ledger_missing: activate_card requires RuntimeActivationLedgerPort.');
           const run = this.context.activationLedger!.appendRun({ kind: 'child', card_id: targetId, parent_run_id: parentRun.run_id, command_id: null, activation_id: null, phase: 'pending', runtime_status: 'running', session_id: null });
           const runEvent = this.context.eventLogger?.appendEvent({ kind: 'runtime_run', run });
-          if (runEvent) (this.context.eventBus ?? this.context.eventBusProvider?.())?.emit(runEvent);
+          const eventBus = this.context.eventBus ?? this.context.eventBusProvider?.();
+          if (runEvent && eventBus) emitLoggedEvent(eventBus, runEvent);
           const activation = this.context.activationLedger!.upsertActivation({ idempotency_key: idempotencyKey, parent_card_id: parentCardId, parent_run_id: parentRun.run_id, parent_session_id: sessionId || parentRun.session_id || `planner:${parentCardId}`, parent_tool_call_id: invocation.toolCallId, child_card_id: targetId, status: 'pending', precondition: 'accepted', runtime_run_id: run.run_id, error: null });
           const activationEvent = this.context.eventLogger?.appendEvent({ kind: 'runtime_activation', activation });
-          if (activationEvent) (this.context.eventBus ?? this.context.eventBusProvider?.())?.emit(activationEvent);
+          if (activationEvent && eventBus) emitLoggedEvent(eventBus, activationEvent);
           consumeChangedCardActivation(this.context.projectRoot, targetId);
           result = { success: true, activation };
           break;

@@ -23,7 +23,6 @@ import type {
   AgentInvocationRole,
   AgentMessage,
   HandoffSummary,
-  LoggedEvent,
   OperationalAgentRole,
   MessageKind,
   MessageRole,
@@ -34,6 +33,7 @@ import type {
   RuntimeState,
   RuntimeActivationRecord,
 } from '../schemas/index.js';
+import type { TypedEventEmitter } from '../events/index.js';
 import type { NotificationCenter } from '../notifications/index.js';
 import type { ContentSupervisor } from '../workspace/index.js';
 import { getSafeFileForAgent, type SafeFileResult } from '../workspace/index.js';
@@ -267,7 +267,7 @@ export class AgentAdapter implements AgentExecutionPort {
   readonly candidateAvailability: CandidateAvailability;
   readonly notificationCenter: NotificationCenter;
   eventBus?: EventEmitter;
-  private runtimeLedgerEventBus?: { emit(event: LoggedEvent): void };
+  private runtimeLedgerEventBus?: TypedEventEmitter;
   readonly eventLogger?: EventLogger;
   private llmCallFn: LlmCallFn | null = null;
   private contentSupervisor?: ContentSupervisor;
@@ -379,7 +379,7 @@ export class AgentAdapter implements AgentExecutionPort {
     this.eventBus = eventBus;
     this.sessionCoordinator.setEventBus(eventBus);
   }
-  setRuntimeLedgerEventBus(eventBus: { emit(event: LoggedEvent): void }): void {
+  setRuntimeLedgerEventBus(eventBus: TypedEventEmitter): void {
     this.runtimeLedgerEventBus = eventBus;
   }
   setActivationLedger(activationLedger: RuntimeActivationLedgerPort): void {

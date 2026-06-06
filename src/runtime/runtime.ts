@@ -162,7 +162,7 @@ class Runtime {
     });
     const coreParts: RuntimeCoreParts = {
       subscribe: (options) => this._events.eventBus.subscribe(options),
-      publishRuntimeLedgerEvent: (event) => this._events.eventBus.emit(event),
+      publishRuntimeLedgerEvent: (kind, payload) => this._events.eventBus.emit(kind, payload),
       emitAnalystToolInvoked: (payload) => this._events.eventBus.emit('analyst_tool_invoked', payload),
       countGoals: () => this.cardStore.list().filter((card) => card.type === 'goal').length,
     };

@@ -4,7 +4,7 @@ import type {
   RuntimeCommandRecord,
   RuntimeRunRecord,
 } from '../schemas/index.js';
-import { EventBus, eventKindValues, trackedEventKindValues, type EventPayload } from '../events/index.js';
+import { EventBus, emitLoggedEvent, eventKindValues, trackedEventKindValues, type EventPayload } from '../events/index.js';
 import type { EventKind } from '../events/index.js';
 import type { EventLogger } from '../observability/index.js';
 
@@ -75,6 +75,6 @@ export class RuntimeEventPublisher {
     payload: Record<string, unknown>,
   ): void {
     const logged = this.eventLogger.appendEvent({ kind, ...payload });
-    this.eventBus.emit(logged);
+    emitLoggedEvent(this.eventBus, logged);
   }
 }

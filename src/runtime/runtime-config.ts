@@ -5,8 +5,7 @@ import type { SessionStamper } from '../contracts/session-stamper.js';
 import type { RuntimeDisposeReportEntry } from './lifecycle.js';
 import type { StuckAgentSupervisor, SupervisorConfig } from './stuck-agent-supervisor.js';
 import type { RuntimeApi } from './runtime-api.js';
-import type { EventPayload } from '../events/index.js';
-import type { LoggedEvent } from '../schemas/index.js';
+import type { EventKind, EventPayload } from '../events/index.js';
 
 export interface RuntimeSkillsPort {
   loadPlannerInstructions(filePath?: string): Promise<string>;
@@ -25,7 +24,7 @@ export type RuntimeControls = Pick<RuntimeApi, 'start' | 'shutdown' | 'pause' | 
 
 export interface RuntimeCoreParts {
   subscribe: RuntimeApi['subscribe'];
-  publishRuntimeLedgerEvent(event: LoggedEvent): void;
+  publishRuntimeLedgerEvent<K extends EventKind>(kind: K, payload: EventPayload<K>): void;
   emitAnalystToolInvoked(payload: EventPayload<'analyst_tool_invoked'>): void;
   countGoals(): number;
 }

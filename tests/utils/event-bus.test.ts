@@ -1,5 +1,5 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { EventBus, EventRegistry, agentEventKindValues, eventKindValues, getEventSeverity, runtimeEventKindValues, toLoggedEvent } from '../../src/events/index.js';
+import { EventBus, EventRegistry, agentEventKindValues, emitLoggedEvent, eventKindValues, getEventSeverity, runtimeEventKindValues, toLoggedEvent } from '../../src/events/index.js';
 
 describe('typed EventBus', () => {
   it('derives severity and known event metadata from the registry', () => {
@@ -29,6 +29,11 @@ describe('typed EventBus', () => {
     bus.emit('started', { project_root: '/tmp/project' });
     bus.emit('goal_completed', { goal_id: 'goal-1' });
     expect(seen).toEqual(['goal_completed']);
+  });
+
+  it('validates typed emit payloads against the event registry schema', () => {
+    const bus = new EventBus();
+    expect(() => bus.emit('goal_completed', {} as never)).toThrow();
   });
 
   it('preserves pause/resume buffering with drop-oldest overflow', () => {
@@ -75,6 +80,16 @@ describe('typed EventBus', () => {
     bus.subscribe('goal_completed', (event) => { logged = toLoggedEvent(event); });
     bus.emit('goal_completed', { goal_id: 'goal-1' });
     expect(logged).toMatchObject({ kind: 'goal_completed', goal_id: 'goal-1' });
+  });
+
+  it('re-emits logged-event records through the typed event bridge', () => {
+    const bus = new EventBus();
+    const seen: string[] = [];
+    bus.subscribe('goal_completed', (event) => { seen.push(event.payload.goal_id); });
+
+    emitLoggedEvent(bus, { id: 'evt-1', kind: 'goal_completed', timestamp: new Date(0).toISOString(), goal_id: 'goal-1' });
+
+    expect(seen).toEqual(['goal-1']);
   });
 
   it('dispose unsubscribes and rejects later emits', () => {

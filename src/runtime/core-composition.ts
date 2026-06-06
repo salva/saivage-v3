@@ -1,8 +1,7 @@
 import { EventEmitter as NodeEventEmitter } from 'node:events';
 import type { AgentExecutionPort } from '../contracts/index.js';
 import { EventBus } from '../events/bus.js';
-import type { EventPayload } from '../events/index.js';
-import type { LoggedEvent } from '../schemas/index.js';
+import type { EventKind, EventPayload, TypedEventEmitter } from '../events/index.js';
 import type { RuntimeApi } from './runtime-api.js';
 import { initializeRuntimeImplementation } from './runtime.js';
 import type { RuntimeCardTestStore, RuntimeConfig, RuntimeCoreParts } from './runtime-config.js';
@@ -47,10 +46,7 @@ export interface RuntimeCoreContainer {
 
 export interface RuntimeCoreTestContainer extends RuntimeCoreContainer {
   agentEventBus: NodeEventEmitter;
-  runtimeLedgerEvents: {
-    emit(event: LoggedEvent): void;
-    emitAnalystToolInvoked(payload: EventPayload<'analyst_tool_invoked'>): void;
-  };
+  runtimeLedgerEvents: TypedEventEmitter & { emitAnalystToolInvoked(payload: EventPayload<'analyst_tool_invoked'>): void };
   cardTestTools: RuntimeCardTestStore;
   loggerTestTools: {
     isSameErrorLogger(errorLogger: ErrorLogger): boolean;
@@ -101,7 +97,7 @@ export function createRuntimeCoreContainer(input: {
   getActivityStatus?: RuntimeApi['getActivityStatus'];
   goalDispatcher?: RuntimeConfig['goalDispatcher'];
   wireAgentEventBus?: (agentEventBus: NodeEventEmitter) => void;
-  wireRuntimeLedgerEvents?: (runtimeLedgerEvents: { emit(event: LoggedEvent): void }) => void;
+  wireRuntimeLedgerEvents?: (runtimeLedgerEvents: TypedEventEmitter) => void;
   wireAnalystToolInvokedEmitter?: (emitAnalystToolInvoked: (payload: EventPayload<'analyst_tool_invoked'>) => void) => void;
 }): RuntimeCoreContainer {
   const agentEventEmitterHolder: { emit: EmitAgentEvent | null } = { emit: null };
@@ -127,7 +123,7 @@ export function createRuntimeCoreContainer(input: {
     getActivityStatus: input.getActivityStatus ?? (() => ({ status: 'idle', pending_calls: [], updated_at: new Date(0).toISOString() })),
   };
   const runtimeLedgerEvents = {
-    emit: (event: LoggedEvent) => coreParts.publishRuntimeLedgerEvent(event),
+    emit: <K extends EventKind>(kind: K, payload: EventPayload<K>) => coreParts.publishRuntimeLedgerEvent(kind, payload),
   };
   const emitAnalystToolInvoked = (payload: EventPayload<'analyst_tool_invoked'>) =>
     coreParts.emitAnalystToolInvoked(payload);
@@ -187,7 +183,7 @@ export function createRuntimeCoreTestContainer(input: {
     projectRoot: input.config.projectRoot,
     agentEventBus,
     runtimeLedgerEvents: {
-      emit: (event) => coreParts.publishRuntimeLedgerEvent(event),
+      emit: <K extends EventKind>(kind: K, payload: EventPayload<K>) => coreParts.publishRuntimeLedgerEvent(kind, payload),
       emitAnalystToolInvoked: (payload) => coreParts.emitAnalystToolInvoked(payload),
     },
     cardTestTools: runtimeParts.cards,
