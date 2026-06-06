@@ -144,7 +144,12 @@ describe('Reconfigure MCP live manager refresh', () => {
       const config = loadConfig(root).config;
       const runtimeApplication = createRuntimeApplication(root, config);
       const mcpManager = new McpManager(root);
+      const depsBeforeMcp = runtimeApplication.analystDeps;
+      expect(runtimeApplication.analystDeps).toBe(depsBeforeMcp);
       runtimeApplication.setMcpManager(mcpManager);
+      expect(runtimeApplication.analystDeps).not.toBe(depsBeforeMcp);
+      expect(runtimeApplication.analystDeps).toBe(runtimeApplication.analystDeps);
+      expect(runtimeApplication.analystDeps.mcpManager).toBe(mcpManager);
       const ctx: ToolContext = { projectRoot: root, store: runtimeApplication.analystDeps.cardStore, actor: 'analyst', surface: 'web-chat', runtime: runtimeApplication.analystDeps.runtime, mcpManager };
 
       const added = await reconfigure(ctx, { action: 'mcp_add', name: 'test-server', command: '/bin/true', args: [] });

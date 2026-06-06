@@ -123,15 +123,30 @@ export function createRuntimeApplication(projectRoot: string, config: SaivageCon
       errorLogger.close();
     },
   };
+  let analystDepsCache: AnalystRuntimeDeps | null = null;
+  const getAnalystDeps = (): AnalystRuntimeDeps => {
+    analystDepsCache ??= buildAnalystDeps({
+      runtimeApi,
+      cardStore,
+      stamper,
+      candidateAvailability,
+      eventLogger,
+      contextCompactor,
+      emitAnalystToolInvoked: emitAnalystToolInvokedFromRuntime,
+      mcpManager,
+    });
+    return analystDepsCache;
+  };
 
   return {
     runtimeApi,
     cardStore,
     get analystDeps() {
-      return buildAnalystDeps({ runtimeApi, cardStore, stamper, candidateAvailability, eventLogger, contextCompactor, emitAnalystToolInvoked: emitAnalystToolInvokedFromRuntime, mcpManager });
+      return getAnalystDeps();
     },
     setMcpManager(nextMcpManager) {
       mcpManager = nextMcpManager;
+      analystDepsCache = null;
       agentAdapter.setMcpManager(nextMcpManager);
       nextMcpManager.setEventLogger(eventLogger);
     },
