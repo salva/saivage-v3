@@ -20,11 +20,13 @@ import { randomBytes } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { CardStore } from '../../src/cards/card-store.js';
 
-let createAgentAdapter: typeof import('../../src/agents/agent-adapter.js').createAgentAdapter;
+let AgentAdapter: typeof import('../../src/agents/agent-adapter.js').AgentAdapter;
+let loadConfig: typeof import('../../src/agents/config-schema.js').loadConfig;
 
 beforeAll(async () => {
   const adapterMod = await import('../../src/agents/agent-adapter.js');
-  createAgentAdapter = adapterMod.createAgentAdapter;
+  AgentAdapter = adapterMod.AgentAdapter;
+  loadConfig = (await import('../../src/agents/config-schema.js')).loadConfig;
 });
 
 interface ServerHandle { server: Server; port: number; calls: { count: number } }
@@ -64,6 +66,13 @@ function writeSaivageJson(projectRoot: string, json: Record<string, unknown>): v
 
 function cleanupDir(dir: string): void {
   if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
+}
+
+function createTestAgentAdapter(projectRoot: string, eventBus?: EventEmitter, cardStore = new CardStore(projectRoot)): InstanceType<typeof AgentAdapter> {
+  const saivageDir = join(projectRoot, '.saivage');
+  const { config, warnings } = loadConfig(projectRoot);
+  if (eventBus) for (const warning of warnings) eventBus.emit('config_warning', { warning });
+  return new AgentAdapter({ projectRoot, saivageDir, config, eventBus, cardStore });
 }
 
 function okPlannerToolCall(model: string) {
@@ -135,7 +144,7 @@ describe('AgentAdapter F04 llm_attempt + llm_invocation_summary emission', () =>
     events.on('llm_attempt', (e: AttemptEvent) => attempts.push(e));
     events.on('llm_invocation_summary', (e: SummaryEvent) => summaries.push(e));
 
-    const adapter = createAgentAdapter(tempDir, events, new CardStore(tempDir));
+    const adapter = createTestAgentAdapter(tempDir, events, new CardStore(tempDir));
     adapter.setLlmCallFn(adapter.createLlmCallFn());
 
     const result = await adapter.invokePlanner('goal-f04-failover', spText(), userMsgs());
@@ -172,7 +181,7 @@ describe('AgentAdapter F04 llm_attempt + llm_invocation_summary emission', () =>
     const summaries: SummaryEvent[] = [];
     events.on('llm_attempt', (e: AttemptEvent) => attempts.push(e));
     events.on('llm_invocation_summary', (e: SummaryEvent) => summaries.push(e));
-    const adapter = createAgentAdapter(tempDir, events, new CardStore(tempDir));
+    const adapter = createTestAgentAdapter(tempDir, events, new CardStore(tempDir));
     adapter.setLlmCallFn(adapter.createLlmCallFn());
 
     await expect(adapter.invokePlanner('goal-f04-exhausted', spText(), userMsgs())).rejects.toBeDefined();

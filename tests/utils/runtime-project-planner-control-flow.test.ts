@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { releaseLock } from '../../src/runtime/lock.js';
-import { AgentAdapter, createAgentAdapter } from '../../src/agents/agent-adapter.js';
+import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import { createRuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
 import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 
@@ -22,6 +22,5 @@ describe('Runtime caller-edge reconstruction from unresolved activate_card calls
     });
     expect(typeof harness.eventTestTools.emitAgentEvent).toBe('function');
     expect(typeof AgentAdapter.prototype.getSafeFileContent).toBe('function');
-    expect(typeof createAgentAdapter).toBe('function');
   });
 });

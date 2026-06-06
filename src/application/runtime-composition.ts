@@ -48,6 +48,7 @@ export function createRuntimeApplication(projectRoot: string, config: SaivageCon
   const errorLogger = new ErrorLogger(saivageDir);
   const skillsEngine = new SkillsEngine({ projectRoot });
   const stamper = new SessionStampCounter();
+  // Application-level CardStore backs operator/API/read-model surfaces outside dispatch.
   const cardStore = new CardStore(projectRoot);
   const candidateAvailability = new FsCandidateAvailability(projectRoot, {
     compactBytes: config.runtime.candidateAvailabilityCompactBytes,

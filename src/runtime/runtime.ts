@@ -80,6 +80,7 @@ class Runtime {
       this._ownsErrorLogger = true;
     }
     this._events = new RuntimeEventPublisher(this._eventLogger);
+    // Runtime-owned CardStore is the dispatch/write path for card state mutations.
     this.cardStore = new CardStore(
       config.projectRoot,
       config.maxGoalDepth,

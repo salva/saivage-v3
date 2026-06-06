@@ -10,15 +10,20 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { LlmExchangeRecorder, ExchangeHandle } from '../../src/agents/llm-exchange-recorder.js';
+import { CardStore } from '../../src/cards/card-store.js';
 
 let LlmProviderGateway: typeof import('../../src/agents/llm-provider-gateway.js').LlmProviderGateway;
 let LlmRequestError: typeof import('../../src/agents/llm-failure.js').LlmRequestError;
+let AgentAdapter: typeof import('../../src/agents/agent-adapter.js').AgentAdapter;
+let loadConfig: typeof import('../../src/agents/config-schema.js').loadConfig;
 
 beforeAll(async () => {
   const gatewayMod = await import('../../src/agents/llm-provider-gateway.js');
   const failureMod = await import('../../src/agents/llm-failure.js');
   LlmProviderGateway = gatewayMod.LlmProviderGateway;
   LlmRequestError = failureMod.LlmRequestError;
+  AgentAdapter = (await import('../../src/agents/agent-adapter.js')).AgentAdapter;
+  loadConfig = (await import('../../src/agents/config-schema.js')).loadConfig;
 });
 
 
@@ -80,6 +85,12 @@ function makeMockRecorder(): {
     async flush() { /* noop */ },
   };
   return { recorder, begins, responses, errors };
+}
+
+function createTestAgentAdapter(projectRoot: string, cardStore = new CardStore(projectRoot)): InstanceType<typeof AgentAdapter> {
+  const saivageDir = join(projectRoot, '.saivage');
+  const { config } = loadConfig(projectRoot);
+  return new AgentAdapter({ projectRoot, saivageDir, config, cardStore });
 }
 
 const candidate = { provider: 'test-provider', account: null as string | null, model: 'test-model' };
@@ -304,9 +315,7 @@ describe('AgentAdapter recorder wiring', () => {
           runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
         }),
       );
-      const { createAgentAdapter } = await import('../../src/agents/agent-adapter.js');
-      const { CardStore } = await import('../../src/cards/card-store.js');
-      const adapter = createAgentAdapter(root, undefined, new CardStore(root));
+      const adapter = createTestAgentAdapter(root, new CardStore(root));
       const fn = adapter.createLlmCallFn();
       const out = await fn(candidate, sys, msgs, 'sess-adapter-1', toolsOpts());
       expect(asMessage(out).content).toBe('adapter-ok');

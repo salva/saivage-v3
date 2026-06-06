@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import type { SaivageConfig, RuntimeSection } from './config-schema.js';
-import { loadConfig, getRuntimeConfig, getModelParamsForRole } from './config-schema.js';
+import { getRuntimeConfig, getModelParamsForRole } from './config-schema.js';
 import { ProviderRegistry } from './provider.js';
 import { ModelRouter } from './model-router.js';
 import {
@@ -1337,12 +1337,4 @@ export class AgentAdapter implements AgentExecutionPort {
   createLlmCallFn(): LlmCallFn {
     return this.llmGateway.createLlmCallFn();
   }
-}
-
-export function createAgentAdapter(projectRoot: string, eventBus?: EventEmitter, cardStore?: CardStore): AgentAdapter {
-  const saivageDir = `${projectRoot}/.saivage`;
-  const { config, warnings } = loadConfig(projectRoot);
-  if (warnings.length > 0 && eventBus)
-    for (const warning of warnings) eventBus.emit('config_warning', { warning });
-  return new AgentAdapter({ projectRoot, saivageDir, config, eventBus, cardStore });
 }

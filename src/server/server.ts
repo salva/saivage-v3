@@ -73,6 +73,7 @@ export async function createServer(optionsOrProjectRoot: CreateServerOptions | s
   const runtimeStartup = await startRuntimeApplication({ createRuntime, projectRoot, saivageConfig, fastify, syncHub });
   const runtimeApplication = runtimeStartup.runtimeApplication;
   const runtimeStartupFailure = runtimeStartup.startupFailure;
+  // Routes still need a project-local CardStore when runtime startup is disabled or failed.
   const cardStore = runtimeApplication?.cardStore ?? new CardStore(projectRoot);
 
   const mcpStartup = await startMcpManager({ projectRoot, scope, fastify });
