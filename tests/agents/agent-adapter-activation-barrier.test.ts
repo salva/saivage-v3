@@ -149,8 +149,8 @@ describe('AgentAdapter activation barrier compensation', () => {
       config: config(),
       activationLedger: activationLedger(root),
       cardStore: store,
+      llmCallFn: jest.fn<LlmCallFn>().mockResolvedValue(activateCardCall(child.id)),
     });
-    adapter.setLlmCallFn(jest.fn<LlmCallFn>().mockResolvedValue(activateCardCall(child.id)));
 
     await expect(
       adapter.invokePlanner({

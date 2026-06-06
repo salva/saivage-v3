@@ -1,27 +1,38 @@
 import { join } from 'node:path';
-import { existsSync, readFileSync } from 'node:fs';
-import { writeFileAtomic } from '../persistence/index.js';
-import { agentSessionSchema } from '../schemas/index.js';
 import type { AgentSession, AgentMessage, ControlActionSurface, ControlActionAuditEntry } from '../schemas/index.js';
 import type { ToolResult, ToolContext } from '../tools/analyst-tool-types.js';
-import { AnalystOfflineError, LlmIntentResolver } from './analyst-llm-resolver.js';
+import {
+  ANALYST_NO_MODEL_REPLY,
+  AnalystOfflineError,
+  getAnalystSystemPrompt,
+  getAnalystToolDefinitions,
+  getAvailableAnalystToolNames,
+} from './analyst-prompt.js';
 import { CardStore } from '../cards/store-api.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
 import type { EventPayload } from '../events/index.js';
 import { buildRuntimeDiagnosticEvent } from '../runtime/runtime-event-publisher.js';
 import type { SessionActivity, SessionStamper } from '../runtime/session-stamper.js';
 import type { CandidateAvailability } from './candidate-availability.js';
+import { MemoryCandidateAvailability } from './candidate-availability.js';
 import type { EventLogger } from '../observability/index.js';
 import type { McpManager } from '../mcp/manager-api.js';
 import type { ActorRole } from './authz.js';
 import { sanitizeAnalystText } from '../agents/analyst-sanitization.js';
 import { ContextCompactor } from './context-compactor.js';
-import { appendMessage, getSessionMessages } from './session-persistence.js';
+import { appendMessage, createSession, getSession, getSessionMessages } from './session-persistence.js';
 import { generateRoundId } from '../schemas/round-id-server.js';
-import { ANALYST_PARTIAL_SUCCESS_TEMPLATE } from './analyst-tool-runner.js';
+import { ANALYST_PARTIAL_SUCCESS_TEMPLATE, ANALYST_UNSUPPORTED_ACTION_TEMPLATE } from './analyst-tool-runner.js';
 import { serializeToolCallMessage } from '../contracts/persisted-tool-call.js';
 import { now } from '../utils/clock.js';
 import { AnalystAdapter, ToolDispatcher } from './tool-dispatcher.js';
+import { InvocationService } from './invocation-service.js';
+import { loadConfig, getModelParamsForRole, getRuntimeConfig } from './config-schema.js';
+import type { RuntimeSection, SaivageConfig } from './config-schema.js';
+import { ProviderRegistry } from './provider.js';
+import { ModelRouter } from './model-router.js';
+import { capabilityRequestForLlmOptions } from './provider-capabilities.js';
+import { RoleToolPolicy } from './role-tool-policy.js';
 
 
 export interface WorkspaceContext {
@@ -79,35 +90,20 @@ export interface AnalystRuntimeDeps {
   emitAnalystToolInvoked(payload: EventPayload<'analyst_tool_invoked'>): void;
   mcpManager?: McpManager;
   contextCompactor?: ContextCompactor;
+  invocationService?: InvocationService;
 }
 
 function saivageDir(projectRoot: string): string { return join(projectRoot, '.saivage'); }
-function sessionsDir(projectRoot: string): string { return join(saivageDir(projectRoot), 'agents', 'sessions'); }
-function sessionFilePath(projectRoot: string, sessionId: string): string { return join(sessionsDir(projectRoot), `${sessionId}.json`); }
 
 const ANALYST_CONTEXT_LIMIT_TOKENS = 128_000;
-
-function readSession(projectRoot: string, sessionId: string): AgentSession | null {
-  const sp = sessionFilePath(projectRoot, sessionId);
-  if (!existsSync(sp)) return null;
-  const raw = readFileSync(sp, 'utf-8');
-  const parsed = agentSessionSchema.safeParse(JSON.parse(raw));
-  if (!parsed.success) throw new Error(`AgentSession validation failed for ${sessionId}: ${parsed.error.message}`);
-  return parsed.data;
-}
-
-function writeSession(projectRoot: string, session: AgentSession): void {
-  agentSessionSchema.parse(session);
-  writeFileAtomic(sessionFilePath(projectRoot, session.id), JSON.stringify(session, null, 2) + '\n');
-}
 
 export const GLOBAL_ANALYST_SESSION_ID = 'analyst';
 export function getOrCreateAnalystSession(projectRoot: string, sessionId?: string): { session: AgentSession; sessionId: string } {
   const resolvedSessionId = sessionId || GLOBAL_ANALYST_SESSION_ID;
-  const existing = readSession(projectRoot, resolvedSessionId);
+  const dir = saivageDir(projectRoot);
+  const existing = getSession(dir, resolvedSessionId);
   if (existing) return { session: existing, sessionId: existing.id };
-  const session: AgentSession = { id: resolvedSessionId, role: 'analyst', status: 'active', started_at: now() };
-  writeSession(projectRoot, session);
+  const session = createSession(dir, 'analyst', null, null, undefined, resolvedSessionId);
   return { session, sessionId: session.id };
 }
 
@@ -159,7 +155,7 @@ function broadcastToolInvocation(deps: AnalystRuntimeDeps, sessionId: string, to
 export class AnalystHandler {
   private projectRoot: string;
   private onActivity?: ActivityCallback;
-  private llmResolver: LlmIntentResolver;
+  private invocationService: InvocationService;
   private sessionQueues: Map<string, Promise<AnalystResponse>> = new Map();
   private readonly runtimeDeps: AnalystRuntimeDeps;
   private actor: ActorRole;
@@ -167,11 +163,15 @@ export class AnalystHandler {
   private requestServerRestart?: () => Promise<void>;
   private readonly contextCompactor: ContextCompactor;
   private readonly toolDispatcher: ToolDispatcher;
+  private readonly config: SaivageConfig;
+  private readonly runtimeConfig: RuntimeSection;
 
   constructor(projectRoot: string, runtimeDeps: AnalystRuntimeDeps, onActivity?: ActivityCallback, actor: ActorRole = 'analyst', surface: ControlActionSurface = 'web-chat', requestServerRestart?: () => Promise<void>) {
     this.projectRoot = projectRoot;
     this.onActivity = onActivity;
     this.runtimeDeps = runtimeDeps;
+    this.config = loadConfig(projectRoot).config;
+    this.runtimeConfig = getRuntimeConfig(this.config);
     this.actor = actor;
     this.surface = surface;
     this.requestServerRestart = requestServerRestart;
@@ -179,13 +179,24 @@ export class AnalystHandler {
       saivageDir: saivageDir(projectRoot),
       sessionStamper: runtimeDeps.stamper,
     });
-    this.llmResolver = new LlmIntentResolver(projectRoot, this.runtimeDeps.candidateAvailability);
-    this.llmResolver.setEventLogger(this.runtimeDeps.eventLogger);
+    const availability = this.runtimeDeps.candidateAvailability ?? new MemoryCandidateAvailability();
+    const registry = new ProviderRegistry(this.config);
+    const router = new ModelRouter(this.config, registry, projectRoot, availability);
+    this.invocationService = runtimeDeps.invocationService ?? new InvocationService({
+      projectRoot,
+      saivageDir: saivageDir(projectRoot),
+      registry,
+      router,
+      eventLogger: runtimeDeps.eventLogger,
+      candidateAvailability: availability,
+      recoveryDelayMs: this.runtimeConfig.recoveryDelayMs,
+      maxRecoveryRetries: this.runtimeConfig.maxRecoveryRetries,
+    });
     this.toolDispatcher = new ToolDispatcher([new AnalystAdapter()]);
   }
 
   getAvailableToolNames(): string[] {
-    return this.llmResolver.getAvailableToolNames(this.surface);
+    return getAvailableAnalystToolNames(this.surface);
   }
 
   async handleMessage(sessionId: string, userContent: string, workspaceContext?: WorkspaceContext): Promise<AnalystResponse> {
@@ -222,7 +233,7 @@ export class AnalystHandler {
   }
 
   private async handleMessageSerial(sessionId: string, userContent: string, workspaceContext?: WorkspaceContext): Promise<AnalystResponse> {
-    let session = readSession(this.projectRoot, sessionId);
+    let session = getSession(saivageDir(this.projectRoot), sessionId);
     if (!session) { const created = getOrCreateAnalystSession(this.projectRoot, sessionId); session = created.session; sessionId = created.sessionId; }
     const priorMessages = getSessionMessages(saivageDir(this.projectRoot), sessionId);
     const duplicateResponse = this.findRecentDuplicateResponse(priorMessages, userContent);
@@ -279,10 +290,24 @@ export class AnalystHandler {
 
       let llmResult;
       try {
-        llmResult = await this.llmResolver.chat(modelInput, projectContext, this.surface);
+        const modelParams = getModelParamsForRole(this.config, 'analyst');
+        const tools = getAnalystToolDefinitions();
+        llmResult = await this.invocationService.invokeWithRecovery({
+          role: 'analyst',
+          sessionId,
+          systemPrompt: `${getAnalystSystemPrompt()}\n\n${projectContext}`,
+          contextMessages: modelInput,
+          tools,
+          terminalToolNames: [],
+          modelParams: { temperature: modelParams.temperature, maxTokens: modelParams.maxTokens },
+          capabilityRequest: capabilityRequestForLlmOptions({ tools, stream: false }),
+        });
       } catch (err) {
+        const noHealthyMessage = `No healthy candidates available for role 'analyst'.`;
         const errMsg = err instanceof AnalystOfflineError
           ? err.message
+          : err instanceof Error && err.message === noHealthyMessage
+            ? ANALYST_NO_MODEL_REPLY
           : `Analyst LLM unavailable: ${err instanceof Error ? err.message : String(err)}`;
         const persisted = appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'text', content: errMsg }, this.runtimeDeps.stamper.stampInRound(sessionId), this.runtimeDeps.stamper);
         return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: errMsg, timestamp: persisted.timestamp }, toolInvocations: toolInvocations.length > 0 ? toolInvocations : undefined };
@@ -295,6 +320,12 @@ export class AnalystHandler {
       }
 
       const toolCalls = llmResult.tool_calls;
+      const unavailableTool = toolCalls.find((tc) => !RoleToolPolicy.assertAnalystSurfaceTool(tc.function.name, this.surface).allowed);
+      if (unavailableTool) {
+        const content = ANALYST_UNSUPPORTED_ACTION_TEMPLATE('Analyst', getAvailableAnalystToolNames(this.surface));
+        const persisted = appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'text', content }, this.runtimeDeps.stamper.stampInRound(sessionId), this.runtimeDeps.stamper);
+        return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content, timestamp: persisted.timestamp }, toolInvocations: toolInvocations.length > 0 ? toolInvocations : undefined };
+      }
       const fingerprint = toolCalls.map((tc) => `${tc.function.name}:${tc.function.arguments}`).sort().join('||');
       if (previousToolCallFingerprints.has(fingerprint)) {
         const noProgressText = 'I repeated the same tool calls without making progress. Please refine the request or inspect the latest tool results.';
@@ -321,7 +352,7 @@ export class AnalystHandler {
           sessionId,
           analystSurface: this.surface,
           toolContext: ctx,
-          knownRuntimeTool: (name) => this.llmResolver.getAvailableToolNames(this.surface).includes(name),
+          knownRuntimeTool: (name) => getAvailableAnalystToolNames(this.surface).includes(name),
         });
         const result = dispatched.adapterResult?.data as ToolResult | undefined ?? {
           success: false,

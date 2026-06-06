@@ -1,5 +1,5 @@
 /**
- * Integration tests for LlmClient → AgentAdapter.createLlmCallFn() →
+ * Integration tests for LlmClient → AgentAdapter invocation service →
  * config → router → mock HTTP server round-trip.
  *
  * Uses node:http mock servers to verify:
@@ -583,7 +583,6 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       const failures: unknown[] = [];
       events.on('llm_attempt', (event: { outcome?: { kind?: string } }) => { if (event?.outcome?.kind === 'failed') failures.push(event); });
       const adapter = createTestAgentAdapter(adapterTempDir, events, new CardStore(adapterTempDir));
-      adapter.setLlmCallFn(adapter.createLlmCallFn());
 
       await expect(
         adapter.invokePlanner('goal-1', sp(), msgs()),
@@ -815,7 +814,6 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
       expect(candidates[0].model).toBe('test-model');
 
       // Wire and invoke
-      adapter.setLlmCallFn(adapter.createLlmCallFn());
       const result = await adapter.invokePlanner(
         'goal-1', sp(), msgs(),
       );
@@ -870,7 +868,6 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
       });
 
       const adapter = createTestAgentAdapter(tempDir, events, new CardStore(tempDir));
-      adapter.setLlmCallFn(adapter.createLlmCallFn());
 
       const result = await adapter.invokePlanner('goal-codex-retry', sp(), msgs());
 
@@ -913,7 +910,6 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
       });
 
       const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
-      adapter.setLlmCallFn(adapter.createLlmCallFn());
       const result = await adapter.invokeExecutor(
         'code-1', 'goal-1', sp(), msgs(),
       );
@@ -949,7 +945,6 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
       });
 
       const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
-      adapter.setLlmCallFn(adapter.createLlmCallFn());
 
       await expect(
         adapter.invokePlanner('goal-1', sp(), msgs()),
@@ -1089,7 +1084,6 @@ describe('Account-level Provider Config Overrides', () => {
       });
 
       const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
-      adapter.setLlmCallFn(adapter.createLlmCallFn());
 
       const result = await adapter.invokePlanner(
         'goal-1', sp(), msgs(),
@@ -1132,7 +1126,6 @@ describe('Account-level Provider Config Overrides', () => {
       });
 
       const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
-      adapter.setLlmCallFn(adapter.createLlmCallFn());
 
       await adapter.invokePlanner(
         'goal-1', sp(), msgs(),
@@ -1183,7 +1176,6 @@ describe('Account-level Provider Config Overrides', () => {
       );
 
       const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
-      adapter.setLlmCallFn(adapter.createLlmCallFn());
 
       await adapter.invokePlanner(
         'goal-1', sp(), msgs(),
@@ -1274,7 +1266,6 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
       });
 
       const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
-      adapter.setLlmCallFn(adapter.createLlmCallFn());
       await adapter.invokePlanner('goal-tc1', sp(), msgs());
 
       const body = JSON.parse(cap.body);
@@ -1314,7 +1305,6 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
       });
 
       const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
-      adapter.setLlmCallFn(adapter.createLlmCallFn());
       await adapter.invokePlanner('goal-tc2', sp(), msgs());
 
       const body = JSON.parse(cap.body);
@@ -1354,7 +1344,6 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
       });
 
       const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
-      adapter.setLlmCallFn(adapter.createLlmCallFn());
       await adapter.invokePlanner('goal-tc3', sp(), msgs());
 
       const body = JSON.parse(cap.body);
@@ -1394,7 +1383,6 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
       });
 
       const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
-      adapter.setLlmCallFn(adapter.createLlmCallFn());
       await adapter.invokePlanner('goal-tc4', sp(), msgs());
 
       const body = JSON.parse(cap.body);
@@ -1434,7 +1422,6 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
       });
 
       const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
-      adapter.setLlmCallFn(adapter.createLlmCallFn());
       await adapter.invokePlanner('goal-tc5', sp(), msgs());
 
       const body = JSON.parse(cap.body);

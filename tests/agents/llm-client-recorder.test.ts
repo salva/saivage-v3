@@ -10,20 +10,21 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { LlmExchangeRecorder, ExchangeHandle } from '../../src/agents/llm-exchange-recorder.js';
-import { CardStore } from '../../src/cards/card-store.js';
 
 let LlmProviderGateway: typeof import('../../src/agents/llm-provider-gateway.js').LlmProviderGateway;
 let LlmRequestError: typeof import('../../src/contracts/llm-failure.js').LlmRequestError;
-let AgentAdapter: typeof import('../../src/agents/agent-adapter.js').AgentAdapter;
 let loadConfig: typeof import('../../src/agents/config-schema.js').loadConfig;
+let ProviderRegistry: typeof import('../../src/agents/provider.js').ProviderRegistry;
+let AgentLlmInvocationGateway: typeof import('../../src/agents/agent-llm-gateway.js').AgentLlmInvocationGateway;
 
 beforeAll(async () => {
   const gatewayMod = await import('../../src/agents/llm-provider-gateway.js');
   const failureMod = await import('../../src/contracts/llm-failure.js');
   LlmProviderGateway = gatewayMod.LlmProviderGateway;
   LlmRequestError = failureMod.LlmRequestError;
-  AgentAdapter = (await import('../../src/agents/agent-adapter.js')).AgentAdapter;
   loadConfig = (await import('../../src/agents/config-schema.js')).loadConfig;
+  ProviderRegistry = (await import('../../src/agents/provider.js')).ProviderRegistry;
+  AgentLlmInvocationGateway = (await import('../../src/agents/agent-llm-gateway.js')).AgentLlmInvocationGateway;
 });
 
 
@@ -85,12 +86,6 @@ function makeMockRecorder(): {
     async flush() { /* noop */ },
   };
   return { recorder, begins, responses, errors };
-}
-
-function createTestAgentAdapter(projectRoot: string, cardStore = new CardStore(projectRoot)): InstanceType<typeof AgentAdapter> {
-  const saivageDir = join(projectRoot, '.saivage');
-  const { config } = loadConfig(projectRoot);
-  return new AgentAdapter({ projectRoot, saivageDir, config, cardStore });
 }
 
 const candidate = { provider: 'test-provider', account: null as string | null, model: 'test-model' };
@@ -289,7 +284,7 @@ describe('LlmClient + LlmExchangeRecorder integration', () => {
   });
 });
 
-describe('AgentAdapter recorder wiring', () => {
+describe('AgentLlmInvocationGateway recorder wiring', () => {
   it('exposes flushRecorders and creates a recorder per session via createLlmCallFn', async () => {
     const { server, port } = await startServer((_req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -315,11 +310,16 @@ describe('AgentAdapter recorder wiring', () => {
           runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
         }),
       );
-      const adapter = createTestAgentAdapter(root, new CardStore(root));
-      const fn = adapter.createLlmCallFn();
+      const { config } = loadConfig(root);
+      const gateway = new AgentLlmInvocationGateway({
+        projectRoot: root,
+        saivageDir: join(root, '.saivage'),
+        registry: new ProviderRegistry(config),
+      });
+      const fn = gateway.createLlmCallFn();
       const out = await fn(candidate, sys, msgs, 'sess-adapter-1', toolsOpts());
       expect(asMessage(out).content).toBe('adapter-ok');
-      await adapter.flushRecorders();
+      await gateway.flushRecorders();
       const { readLatestLlmExchange } = await import('../../src/agents/llm-exchange-log.js');
       const got = await readLatestLlmExchange(join(root, '.saivage'), 'sess-adapter-1');
       expect(got).not.toBeNull();

@@ -13,6 +13,7 @@ import { releaseLock } from '../../src/runtime/lock.js';
 import { getSession } from '../../src/agents/session-persistence.js';
 import { createRuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
 import { CardStore } from '../../src/cards/card-store.js';
+import type { LlmCallFn } from '../../src/agents/llm-contracts.js';
 
 type CancellationTracker = {
   abortCalls: Array<{ sessionId: string }>;
@@ -54,7 +55,7 @@ function createMinimalAdapter(
 
 function createConfiguredAdapter(
   tmpDir: string,
-  opts?: { eventBus?: EventEmitter; eventLogger?: EventLogger },
+  opts?: { eventBus?: EventEmitter; eventLogger?: EventLogger; llmCallFn?: LlmCallFn },
 ): AgentAdapter {
   const configuredConfig = {
     providers: {
@@ -90,6 +91,7 @@ function createConfiguredAdapter(
     eventBus: opts?.eventBus,
     eventLogger: opts?.eventLogger,
     cardStore: new CardStore(tmpDir),
+    llmCallFn: opts?.llmCallFn,
   });
 }
 
@@ -730,7 +732,7 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
 
   it('invokePlanner rejects when cancelSession is called mid-flight', async () => {
     const { llmCallFn, startedPromise } = makeHangingLlmCallFn();
-    adapter.setLlmCallFn(llmCallFn);
+    adapter = createConfiguredAdapter(tmpDir, { eventBus, llmCallFn });
 
     const invokePromise = adapter.invokePlanner(
       'goal-integration-1', 'You are a planner',
@@ -783,15 +785,8 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
       supervisor: {},
     } as unknown as import('../../src/agents/config-schema.js').SaivageConfig;
 
-    const multiAdapter = new AgentAdapter({
-      projectRoot: tmpDir,
-      saivageDir: join(tmpDir, '.saivage'),
-      config: multiConfig,
-      eventBus,
-      cardStore: new CardStore(tmpDir),
-    });
-
     const attemptedCandidates: string[] = [];
+    let multiAdapter!: AgentAdapter;
 
     const llmCallFn: import('../../src/agents/llm-contracts.js').LlmCallFn = (
       candidate,
@@ -813,7 +808,14 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
       } as import('../../src/agents/llm-contracts.js').LlmCompleteResult);
     };
 
-    multiAdapter.setLlmCallFn(llmCallFn);
+    multiAdapter = new AgentAdapter({
+      projectRoot: tmpDir,
+      saivageDir: join(tmpDir, '.saivage'),
+      config: multiConfig,
+      eventBus,
+      cardStore: new CardStore(tmpDir),
+      llmCallFn,
+    });
 
     const invokePromise = multiAdapter.invokeExecutor(
       'card-1',
@@ -853,15 +855,8 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
       supervisor: {},
     } as unknown as import('../../src/agents/config-schema.js').SaivageConfig;
 
-    const multiAdapter = new AgentAdapter({
-      projectRoot: tmpDir,
-      saivageDir: join(tmpDir, '.saivage'),
-      config: multiConfig,
-      eventBus,
-      cardStore: new CardStore(tmpDir),
-    });
-
     const attemptedCandidates: string[] = [];
+    let multiAdapter!: AgentAdapter;
 
     const llmCallFn: import('../../src/agents/llm-contracts.js').LlmCallFn = (
       candidate,
@@ -883,7 +878,14 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
       } as import('../../src/agents/llm-contracts.js').LlmCompleteResult);
     };
 
-    multiAdapter.setLlmCallFn(llmCallFn);
+    multiAdapter = new AgentAdapter({
+      projectRoot: tmpDir,
+      saivageDir: join(tmpDir, '.saivage'),
+      config: multiConfig,
+      eventBus,
+      cardStore: new CardStore(tmpDir),
+      llmCallFn,
+    });
 
     const invokePromise = multiAdapter.invokeExecutor(
       'card-force',
@@ -902,7 +904,7 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
     const { llmCallFn: successFn } = makeSuccessLlmCallFn(
       '{"card_id":"card-ok","status":"done","status_text":"Completed successfully","artifacts":[],"attachments":[]}',
     );
-    adapter.setLlmCallFn(successFn);
+    adapter = createConfiguredAdapter(tmpDir, { eventBus, llmCallFn: successFn });
 
     const result = await adapter.invokeExecutor(
       'card-success',

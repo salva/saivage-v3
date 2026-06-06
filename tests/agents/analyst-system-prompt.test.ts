@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 
 import { buildWorkspaceContextNote } from '../../src/agents/analyst-handler.js';
-import { getAnalystSystemPrompt } from '../../src/agents/analyst-llm-resolver.js';
+import { getAnalystSystemPrompt } from '../../src/agents/analyst-prompt.js';
 
 describe('analyst workspace-context prompt contract', () => {
   it('includes the deictic-resolution paragraph in the rendered system prompt', () => {

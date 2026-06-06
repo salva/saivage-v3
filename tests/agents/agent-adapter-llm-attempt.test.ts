@@ -145,7 +145,6 @@ describe('AgentAdapter F04 llm_attempt + llm_invocation_summary emission', () =>
     events.on('llm_invocation_summary', (e: SummaryEvent) => summaries.push(e));
 
     const adapter = createTestAgentAdapter(tempDir, events, new CardStore(tempDir));
-    adapter.setLlmCallFn(adapter.createLlmCallFn());
 
     const result = await adapter.invokePlanner('goal-f04-failover', spText(), userMsgs());
 
@@ -182,7 +181,6 @@ describe('AgentAdapter F04 llm_attempt + llm_invocation_summary emission', () =>
     events.on('llm_attempt', (e: AttemptEvent) => attempts.push(e));
     events.on('llm_invocation_summary', (e: SummaryEvent) => summaries.push(e));
     const adapter = createTestAgentAdapter(tempDir, events, new CardStore(tempDir));
-    adapter.setLlmCallFn(adapter.createLlmCallFn());
 
     await expect(adapter.invokePlanner('goal-f04-exhausted', spText(), userMsgs())).rejects.toBeDefined();
 

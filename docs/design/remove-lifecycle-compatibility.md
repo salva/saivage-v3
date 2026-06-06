@@ -218,7 +218,7 @@ Files:
 - `src/runtime/reviewer-assessment.ts`
 - `src/runtime/phases/reviewer-phase.ts`
 - `src/runtime/phases/reviewer-invocation-failure.ts`
-- `src/contracts/system-prompt.ts`
+- `src/agents/system-prompt.ts`
 
 Changes:
 - Replace untyped `card.result` reads with typed `card.lifecycle.result` discriminant checks.

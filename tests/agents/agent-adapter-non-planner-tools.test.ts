@@ -7,7 +7,7 @@ import { AgentAdapter, type AgentRole } from '../../src/agents/agent-adapter.js'
 import { CardStore } from '../../src/cards/card-store.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { ANALYST_TOOL_DEFINITIONS } from '../../src/tools/definitions/index.js';
-import { TOOL_REGISTRY } from '../../src/agents/analyst-llm-resolver.js';
+import { TOOL_REGISTRY } from '../../src/agents/analyst-prompt.js';
 import type { SaivageConfig } from '../../src/agents/config-schema.js';
 import { MCP_WRAPPER_TOOL_NAMES, SKILL_TOOL_NAMES, WORKSPACE_TOOL_NAMES } from '../../src/tools/definitions/index.js';
 

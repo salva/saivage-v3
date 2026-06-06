@@ -115,9 +115,9 @@ Multiple non-commit sites write lifecycle fields on cards undergoing repair or s
 
 **Recommendation**: Enumerate `startup-blocked-planning.ts`, `startup-repair.ts`, and `activation-repair.ts` in the stage that tightens card mutation rules, and specify that they must write `{ lifecycle }` patches with the explicit repair reason rather than `{ result, error }` patches.
 
-### M4. `system-prompt.ts` references `result.planning` in prompt text
+### M4. `system-prompt.ts` must reference canonical lifecycle state
 
-`src/contracts/system-prompt.ts:56` contains the string `"goal.result.planning"` inside a prompt template that tells the planner how to read planning state from a goal card. When `result` is removed from `CardRecord` (Stage 4), this prompt text becomes wrong — the planner will look for `goal.result.planning` but the data will be at `goal.lifecycle.result.planning` or `goal.result.kind === 'planner_blocked'`.
+`src/agents/prompts/system-prompt.ts:56` tells the planner that planning state lives in canonical `lifecycle.result`. Earlier drafts referenced `goal.result.planning`; after lifecycle compatibility removal, prompt text must continue to point at canonical lifecycle state rather than flat result fields.
 
 **Recommendation**: Add `system-prompt.ts` to the Stage 4 file list and update the prompt to reference the new result shape.
 

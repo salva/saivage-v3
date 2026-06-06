@@ -150,9 +150,17 @@ describe('AgentAdapter planner-control reviewer prompt contract', () => {
       }
       throw new Error(`unexpected LLM call for session ${sessionId}`);
     };
-    adapter.setLlmCallFn(llmCallFn);
+    const adapterWithLlm = new AgentAdapter({
+      projectRoot: tmpDir,
+      saivageDir: join(tmpDir, '.saivage'),
+      config: minimalConfig(),
+      cardStore: store,
+      llmCallFn,
+    });
+    jest.spyOn(adapterWithLlm.router, 'resolve').mockResolvedValue([{ provider: 'test-provider', model: 'test-model', account: 'default' }]);
+    jest.spyOn(adapterWithLlm.candidateAvailability, 'isAvailable').mockReturnValue(true);
 
-    const result = await adapter.invokePlanner(goal.id, 'planner-system-prompt');
+    const result = await adapterWithLlm.invokePlanner(goal.id, 'planner-system-prompt');
 
     expect(result).toEqual(expect.objectContaining({
       status: 'done',

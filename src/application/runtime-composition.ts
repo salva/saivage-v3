@@ -73,7 +73,6 @@ export function createRuntimeApplication(projectRoot: string, config: SaivageCon
       upsertActivation: (input) => upsertRuntimeActivation(projectRoot, input),
     },
   });
-  agentAdapter.setLlmCallFn(agentAdapter.createLlmCallFn());
   agentAdapter.setSkillsEngine(skillsEngine);
 
   const runtimeConfig: RuntimeConfig = {

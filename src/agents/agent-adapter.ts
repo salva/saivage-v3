@@ -50,7 +50,6 @@ import type {
 } from '../contracts/index.js';
 import type { PlannerResultEnvelope } from '../contracts/planner-envelope.js';
 import type { LlmCallFn } from './llm-contracts.js';
-import { buildLlmOptions } from './llm-options-factory.js';
 import { serializeToolCallMessage } from '../contracts/persisted-tool-call.js';
 import { LlmRequestError } from '../contracts/llm-failure.js';
 import { capabilityRequestForLlmOptions } from './provider-capabilities.js';
@@ -85,7 +84,7 @@ import { redactTextForOutbound } from '../redaction/index.js';
 import { ToolRuntime, AGENT_TOOL_DEFINITIONS } from '../tools/index.js';
 import { AgentSessionCoordinator, type SessionCreatedHook } from './agent-session-coordinator.js';
 import { AgentToolExecutor } from './agent-tool-executor.js';
-import { AgentLlmInvocationGateway } from './agent-llm-gateway.js';
+import { InvocationService } from './invocation-service.js';
 import { applyRuntimeMutation } from '../runtime/mutations.js';
 import { planClearActiveCardRunPatch } from '../runtime/runtime-core.js';
 import { readRuntimeState } from '../runtime/state.js';
@@ -120,6 +119,8 @@ export interface AgentAdapterConfig {
   cardStore?: CardStore;
   runtimeStateProvider?: () => RuntimeState | null;
   contextCompactor?: ContextCompactor;
+  invocationService?: InvocationService;
+  llmCallFn?: LlmCallFn;
 }
 
 export function synthesizeReportGoalEnvelope(
@@ -175,7 +176,6 @@ export class AgentAdapter implements AgentExecutionPort {
   eventBus?: EventEmitter;
   private runtimeLedgerEventBus?: TypedEventEmitter;
   readonly eventLogger?: EventLogger;
-  private llmCallFn: LlmCallFn | null = null;
   private contentSupervisor?: ContentSupervisor;
   private _mcpManager: McpToolInvocationPort | undefined;
   private _skillsEngine: SkillsEngine | undefined;
@@ -184,7 +184,7 @@ export class AgentAdapter implements AgentExecutionPort {
   private readonly toolRuntime: ToolRuntime<typeof AGENT_TOOL_DEFINITIONS>;
   private readonly sessionCoordinator: AgentSessionCoordinator;
   private readonly toolExecutor: AgentToolExecutor;
-  private readonly llmGateway: AgentLlmInvocationGateway;
+  private readonly invocationService: InvocationService;
   private readonly fallbackCurrentRoundId = new Map<string, string>();
   private readonly fallbackBlockCounters = new Map<string, number>();
   private readonly cardStore: CardStore;
@@ -278,11 +278,16 @@ export class AgentAdapter implements AgentExecutionPort {
       getSkillsEngine: () => this._skillsEngine,
       getContentSupervisor: () => this.contentSupervisor,
     });
-    this.llmGateway = new AgentLlmInvocationGateway({
+    this.invocationService = cfg.invocationService ?? new InvocationService({
       projectRoot: this.projectRoot,
       saivageDir: this.saivageDir,
       registry: this.registry,
+      router: this.router,
       eventLogger: this.eventLogger,
+      candidateAvailability: this.candidateAvailability,
+      recoveryDelayMs: this.runtimeConfig?.recoveryDelayMs,
+      maxRecoveryRetries: this.runtimeConfig?.maxRecoveryRetries,
+      llmCallFn: cfg.llmCallFn,
     });
   }
 
@@ -295,9 +300,6 @@ export class AgentAdapter implements AgentExecutionPort {
   }
   setActivationLedger(activationLedger: RuntimeActivationLedgerPort): void {
     this.activationLedger = activationLedger;
-  }
-  setLlmCallFn(fn: LlmCallFn): void {
-    this.llmCallFn = fn;
   }
   setContentSupervisor(supervisor: ContentSupervisor): void {
     this.contentSupervisor = supervisor;
@@ -631,15 +633,13 @@ export class AgentAdapter implements AgentExecutionPort {
     requestedSessionId?: string,
     activationBarrier?: PlannerActivationBarrier,
   ): Promise<R> {
-    if (!this.llmCallFn)
-      throw new Error('No LLM call function registered. Call setLlmCallFn() first.');
     const modelParams = getModelParamsForRole(this.config, role);
     const tools = this.buildToolsForRole(role);
     const capabilityRequest = capabilityRequestForLlmOptions({
       tools,
       stream: false,
     });
-    const candidates = await this.router.resolve(role, capabilityRequest);
+    const candidates = await this.invocationService.resolveCandidates(role, capabilityRequest);
     if (candidates.length === 0) {
       const noCandidateDecision = defaultInvocationRecoveryPolicy.decideNoCandidates({
         role,
@@ -703,7 +703,7 @@ export class AgentAdapter implements AgentExecutionPort {
       if (this.eventBus) this.eventBus.emit('llm_attempt', payload);
     };
     const agentFn = async (recoveryCtx: AgentRecoveryContext) => {
-      const candidateChain = await this.router.resolve(role, capabilityRequest);
+      const candidateChain = await this.invocationService.resolveCandidates(role, capabilityRequest);
       const capabilitySkips = this.router.getLastCapabilitySkips();
       if (candidateChain.length === 0) {
         const noCandidateDecision = defaultInvocationRecoveryPolicy.decideNoCandidates({
@@ -762,22 +762,18 @@ export class AgentAdapter implements AgentExecutionPort {
                   budget: createRepairBudget(1),
                   maxToolTurns,
                   invokeTurn: async () => {
-                    const llmOpts = buildLlmOptions(
-                      role,
-                      turnTools,
-                      contract.terminals.map((t) => t.name),
-                      { temperature: modelParams.temperature, max_tokens: modelParams.maxTokens },
-                      abortController.signal,
-                      undefined,
-                    );
                     const turnMessages = this.buildModelMessages(session.id, role, goalId);
-                    return this.llmCallFn!(
-                      candidate,
+                    return this.invocationService.invokeCall({
+                      role,
+                      sessionId: session.id,
                       systemPrompt,
-                      turnMessages,
-                      session.id,
-                      llmOpts,
-                    );
+                      contextMessages: turnMessages,
+                      tools: turnTools,
+                      terminalToolNames: contract.terminals.map((t) => t.name),
+                      modelParams: { temperature: modelParams.temperature, maxTokens: modelParams.maxTokens },
+                      capabilityRequest,
+                      abortSignal: abortController.signal,
+                    }, candidate);
                   },
                   persistAssistantToolCalls: (result) => {
                     if (result.kind !== 'tool_calls') return;
@@ -1243,10 +1239,6 @@ export class AgentAdapter implements AgentExecutionPort {
   }
 
   async flushRecorders(): Promise<void> {
-    await this.llmGateway.flushRecorders();
-  }
-
-  createLlmCallFn(): LlmCallFn {
-    return this.llmGateway.createLlmCallFn();
+    await this.invocationService.flushRecorders();
   }
 }

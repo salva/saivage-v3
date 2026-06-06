@@ -8,7 +8,7 @@ import type { LlmCallFn } from '../../src/agents/llm-contracts.js';
 import { createSession, ConcurrentAgentSessionError, getSession, listSessions, markSessionWaiting } from '../../src/agents/session-persistence.js';
 import { CardStore } from '../../src/cards/card-store.js';
 
-function createMinimalAdapter(tmpDir: string): AgentAdapter {
+function createMinimalAdapter(tmpDir: string, llmCallFn?: LlmCallFn): AgentAdapter {
   const minimalConfig = {
     providers: {},
     models: { routes: [] },
@@ -24,7 +24,7 @@ function createMinimalAdapter(tmpDir: string): AgentAdapter {
     supervisor: {},
   } as unknown as import('../../src/agents/config-schema.js').SaivageConfig;
 
-  return new AgentAdapter({ projectRoot: tmpDir, saivageDir: join(tmpDir, '.saivage'), config: minimalConfig, cardStore: new CardStore(tmpDir) });
+  return new AgentAdapter({ projectRoot: tmpDir, saivageDir: join(tmpDir, '.saivage'), config: minimalConfig, cardStore: new CardStore(tmpDir), llmCallFn });
 }
 
 describe('AgentAdapter dispatch precondition', () => {
@@ -35,8 +35,6 @@ describe('AgentAdapter dispatch precondition', () => {
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-agent-precondition-'));
     mkdirSync(join(tmpDir, '.saivage'), { recursive: true });
-    adapter = createMinimalAdapter(tmpDir);
-    jest.spyOn(adapter.router, 'resolve').mockResolvedValue([{ provider: 'test', account: 'default', model: 'fake-model' }]);
     llmCallFn = jest.fn<LlmCallFn>().mockImplementation(async (_candidate, _systemPrompt, _messages, sessionId) => {
       if (sessionId.startsWith('planner:')) {
         return {
@@ -49,7 +47,8 @@ describe('AgentAdapter dispatch precondition', () => {
         tool_calls: [{ id: 'c2', type: 'function', function: { name: 'emit_executor_result', arguments: JSON.stringify({ card_id: 'card-X', status: 'done', status_text: 'completed', artifacts: [], attachments: [] }) } }],
       };
     });
-    adapter.setLlmCallFn(llmCallFn);
+    adapter = createMinimalAdapter(tmpDir, llmCallFn);
+    jest.spyOn(adapter.router, 'resolve').mockResolvedValue([{ provider: 'test', account: 'default', model: 'fake-model' }]);
   });
 
   afterEach(() => {

@@ -75,7 +75,7 @@ function readPersistedAssistant(root: string, sessionId: string): string[] {
     .map((message) => message.content);
 }
 
-describe('LlmIntentResolver analyst integration', () => {
+describe('AnalystHandler invocation service integration', () => {
   afterEach(() => {
     jest.restoreAllMocks();
   });

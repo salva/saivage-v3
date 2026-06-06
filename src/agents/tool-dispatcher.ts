@@ -12,7 +12,7 @@ import { processWorkspaceToolCall } from './workspace-tools.js';
 import { PlannerControlExecutor } from './planner-control-executor.js';
 import { RoleToolPolicy, type RoleToolPolicyDecision, type RoleToolPolicySurface } from './role-tool-policy.js';
 import type { AgentRole } from './agent-adapter.js';
-import { TOOL_REGISTRY } from './analyst-llm-resolver.js';
+import { TOOL_REGISTRY } from './analyst-prompt.js';
 
 export interface ToolCallEnvelope {
   id: string;
