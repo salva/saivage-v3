@@ -124,6 +124,58 @@ export function validateTransition(from: CardStatus, to: CardStatus): void {
   );
 }
 
+export function buildSetStatusLifecycle(
+  card: CardRecord,
+  newStatus: CardStatus,
+  stamp: string,
+): CardRecord['lifecycle'] {
+  switch (newStatus) {
+    case 'drafting':
+    case 'backlog':
+    case 'active':
+    case 'running':
+    case 'changed':
+    case 'cancelled':
+      return { status: newStatus, result: null, error: null, completed_at: null };
+    case 'blocked': {
+      const blockedReason = `Card '${card.id}' was marked blocked via setStatus.`;
+      return {
+        status: 'blocked',
+        result: {
+          kind: 'planner_blocked',
+          blocked_reason: blockedReason,
+          resume_reason: 'planner_blocked',
+        },
+        error: blockedReason,
+        completed_at: null,
+      };
+    }
+    case 'needs_verification': {
+      const reason = `Card '${card.id}' was marked as needing verification via setStatus.`;
+      return {
+        status: 'needs_verification',
+        result: {
+          kind: 'executor_needs_verification',
+          reason,
+          preserved_result: {},
+          fallback_reason: null,
+          latest_self_report: {
+            result: 'needs_verification',
+            outcome: 'needs_verification',
+            summary: reason,
+            status_text: reason,
+            at: stamp,
+          },
+        },
+        error: null,
+        completed_at: null,
+      };
+    }
+    default:
+      return card.lifecycle;
+  }
+}
+
 export function summarizeChangedFields(changedFields: string[]): string {
   if (changedFields.length === 0) return 'card updated';
   return `${changedFields.join(', ')} updated`;

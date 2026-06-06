@@ -56,6 +56,7 @@ import {
 import { PROJECT_CARD_ID } from './project-card.js';
 import {
   assertCanCreateCard,
+  buildSetStatusLifecycle,
   buildNewCard,
   buildUpdatedCard,
   collectChangedFields,
@@ -517,53 +518,7 @@ export class CardStore {
     this.validateTransition(card.status, newStatus);
     if (card.status === newStatus) return card;
     const stamp = now();
-    const lifecycle = (() => {
-      switch (newStatus) {
-        case 'drafting':
-        case 'backlog':
-        case 'active':
-        case 'running':
-        case 'changed':
-        case 'cancelled':
-          return { status: newStatus, result: null, error: null, completed_at: null } as CardRecord['lifecycle'];
-        case 'blocked': {
-          const blockedReason = `Card '${id}' was marked blocked via setStatus.`;
-          return {
-            status: 'blocked',
-            result: {
-              kind: 'planner_blocked',
-              blocked_reason: blockedReason,
-              resume_reason: 'planner_blocked',
-            },
-            error: blockedReason,
-            completed_at: null,
-          } as CardRecord['lifecycle'];
-        }
-        case 'needs_verification': {
-          const reason = `Card '${id}' was marked as needing verification via setStatus.`;
-          return {
-            status: 'needs_verification',
-            result: {
-              kind: 'executor_needs_verification',
-              reason,
-              preserved_result: {},
-              fallback_reason: null,
-              latest_self_report: {
-                result: 'needs_verification',
-                outcome: 'needs_verification',
-                summary: reason,
-                status_text: reason,
-                at: stamp,
-              },
-            },
-            error: null,
-            completed_at: null,
-          } as CardRecord['lifecycle'];
-        }
-        default:
-          return card.lifecycle;
-      }
-    })();
+    const lifecycle = buildSetStatusLifecycle(card, newStatus, stamp);
     return this.applyPatch(id, { status: newStatus, lifecycle }, 'status', {
       actor: 'runtime',
       surface: 'runtime',
