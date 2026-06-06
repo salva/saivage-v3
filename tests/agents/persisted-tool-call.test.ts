@@ -3,7 +3,7 @@ import {
   parseToolCallMessage,
   serializeToolCallMessage,
   PersistedRowCorruptError,
-} from '../../src/agents/persisted-tool-call.js';
+} from '../../src/contracts/persisted-tool-call.js';
 
 describe('parseToolCallMessage', () => {
   it('rejects legacy {toolCalls:[...]} wrapper as PersistedRowCorruptError(legacy_tool_calls_wrapper)', () => {

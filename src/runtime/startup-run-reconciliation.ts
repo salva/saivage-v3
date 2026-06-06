@@ -4,8 +4,7 @@ import { PROJECT_CARD_ID } from '../cards/store-api.js';
 import { planIdleRunningRootRunReconciliation } from './runtime-core.js';
 import { readRuntimeState } from './state.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
-
-const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'cancelled']);
+import { TERMINAL_STATUSES } from '../permissions/index.js';
 
 export function reconcileIdleRunningRootRuns(input: {
   projectRoot: string;

@@ -38,6 +38,30 @@ export async function commitReviewerCorrection(input: {
   return { result, transitioned: transitioned !== false };
 }
 
+export async function commitReviewerInvocationFailure(input: {
+  card: CardRecord;
+  blockedReason: string;
+  effects: TerminalCommitEffects;
+}): Promise<TerminalCommitReceipt<Extract<CardLifecycleState, { status: 'blocked' }>, PlannerBlockedResult>> {
+  const result: PlannerBlockedResult = {
+    kind: 'planner_blocked',
+    blocked_reason: input.blockedReason,
+    resume_reason: 'reviewer_unavailable',
+  };
+  const lifecycle = {
+    status: 'blocked',
+    error: input.blockedReason,
+    completed_at: null,
+    result,
+  } satisfies Extract<CardLifecycleState, { status: 'blocked' }>;
+  assertNoTerminalOverlayErrors(input.card, lifecycle);
+  const transitioned = await input.effects.transitionCard(input.card.id, 'block', { blocked_reason: input.blockedReason });
+  const patch: Partial<CardRecord> = { ...lifecycleCardPatch(lifecycle), status_text: input.blockedReason };
+  if (transitioned === false) return { lifecycle, result, patch, transitioned: false };
+  await input.effects.updateCard(input.card.id, patch);
+  return { lifecycle, result, patch, transitioned: transitioned !== false };
+}
+
 function assertNoTerminalOverlayErrors(card: CardRecord, lifecycle: CardLifecycleState): void {
   const diagnostics = validateTerminalOverlay(card, lifecycle);
   if (diagnostics.length > 0) throw new Error(`Invalid terminal lifecycle overlay: ${diagnostics.join(' ')}`);

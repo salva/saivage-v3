@@ -2,7 +2,7 @@ import { computed, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import type { CardStatus, CardType } from '../api/types';
 import type { useCardStore } from '../stores/cards';
-import { selectAvailableTags } from '../stores/card-read-model';
+import { selectAvailableTags } from '../stores/card-presentation';
 
 export type CardBrowserView = 'tree' | 'board' | 'leaderboard' | 'timeline';
 

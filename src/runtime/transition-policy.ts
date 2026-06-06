@@ -1,8 +1,33 @@
 import type { CardStatus } from '../schemas/index.js';
-import { STARTABLE_STATES, RESTARTABLE_STATES } from '../permissions/index.js';
+import { STARTABLE_STATES, RESTARTABLE_STATES, TERMINAL_STATUSES } from '../permissions/index.js';
 import type { RuntimeCardAction } from './state-machine.js';
 
-const TERMINAL_STATUSES: ReadonlySet<CardStatus> = new Set<CardStatus>(['done', 'failed', 'cancelled']);
+export type ActivationAction =
+  | { action: 'start'; reason: string }
+  | { action: 'restart'; reason: string }
+  | { action: 'reviewer_repair_resume'; reason: string }
+  | { action: 'none'; reason: string }
+  | { action: 'reject'; reason: string };
+
+export function selectActivationStartAction(
+  fromStatus: CardStatus,
+  role: 'planner' | 'executor',
+): ActivationAction {
+  if ((STARTABLE_STATES as readonly CardStatus[]).includes(fromStatus)) {
+    return { action: 'start', reason: 'startable_status' };
+  }
+  if ((RESTARTABLE_STATES as readonly CardStatus[]).includes(fromStatus)) {
+    return { action: 'restart', reason: 'restartable_status' };
+  }
+  if (role === 'executor') {
+    if (fromStatus === 'active') return { action: 'reviewer_repair_resume', reason: 'active_reviewer_repair_resume' };
+    if (fromStatus === 'running') return { action: 'none', reason: 'already_running' };
+  }
+  if (role === 'planner' && (fromStatus === 'active' || fromStatus === 'running')) {
+    return { action: 'none', reason: 'already_active' };
+  }
+  return { action: 'reject', reason: 'invalid_activation_status' };
+}
 
 export interface PlanCardTransitionInput {
   action: RuntimeCardAction;

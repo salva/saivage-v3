@@ -1,7 +1,9 @@
+<!-- Role: sole procedural authority for day-to-day Saivage operations. Keep route inventory and API contract details in docs/operation.md. -->
+
 # Operations
 
 
-Use this page for day-to-day Saivage operation. Incident recovery lives in [Incidents](./incidents.md); release validation lives in [Release](./release.md).
+Use this page as the sole procedural authority for day-to-day Saivage operation. Route inventory and API contract details live in [Route Inventory](/operation); incident recovery lives in [Incidents](./incidents.md); release validation lives in [Release](./release.md).
 
 ## Supported local runtime
 

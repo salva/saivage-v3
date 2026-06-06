@@ -41,7 +41,7 @@ import {
   selectBoardColumns,
   selectFilteredCards,
   selectOrderedFilteredCards,
-} from './card-read-model';
+} from './card-presentation';
 
 const log = createLogger('store:cards');
 
@@ -153,15 +153,15 @@ export const useCardStore = defineStore('cards', () => {
     return staleNotificationByCard.value[cardId] === true;
   }
 
-  async function fetchCardsInternal(params?: { status?: string; type?: string; parent?: string; tag?: string }): Promise<CardListResponse> {
-    return listCards(params);
+  async function fetchCardsInternal(): Promise<CardListResponse> {
+    return listCards();
   }
 
-  async function fetchCards(params?: { status?: string; type?: string; parent?: string; tag?: string }): Promise<void> {
+  async function fetchCards(): Promise<void> {
     loading.value = true;
     error.value = null;
     try {
-      const response = await fetchCardsInternal(params);
+      const response = await fetchCardsInternal();
       cards.value = response.cards;
       total.value = response.total;
     } catch (err) {
@@ -262,12 +262,7 @@ export const useCardStore = defineStore('cards', () => {
 
 
   async function applyFilters(): Promise<void> {
-    await fetchCards({
-      status: filterStatus.value || undefined,
-      type: filterType.value || undefined,
-      parent: filterParent.value || undefined,
-      tag: filterTag.value || undefined,
-    });
+    await fetchCards();
   }
 
   function clearFilters(): void {
@@ -279,12 +274,7 @@ export const useCardStore = defineStore('cards', () => {
   }
 
   async function refetch(): Promise<void> {
-    const params: { status?: string; type?: string; parent?: string; tag?: string } = {};
-    if (filterStatus.value) params.status = filterStatus.value;
-    if (filterType.value) params.type = filterType.value;
-    if (filterParent.value) params.parent = filterParent.value;
-    if (filterTag.value) params.tag = filterTag.value;
-    await fetchCards(Object.keys(params).length > 0 ? params : undefined);
+    await fetchCards();
     const currentId = currentCard.value?.id;
     if (currentId) {
       await fetchCardDetail(currentId);

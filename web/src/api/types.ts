@@ -234,66 +234,9 @@ export interface DiaryEntry {
   raw?: Record<string, unknown>;
 }
 
-export type ProcessStatus = 'running' | 'exited' | 'failed' | 'killed';
-
-export interface ProcessRecord {
-  id: string;
-  card_id: string;
-  command: string;
-  cwd: string;
-  status: ProcessStatus;
-  pid?: number | null;
-  started_at: string;
-  completed_at?: string | null;
-  exit_code?: number | null;
-  required_for_card_completion: boolean;
-  output_dir: string;
-  stdout_path: string;
-  stderr_path: string;
-  combined_log_path: string;
-  agent_session_id?: string | null;
-  goal_id?: string | null;
-  launch_reason?: string | null;
-  owner_kind?: 'agent' | 'operator' | 'runtime' | null;
-  background_policy?: 'foreground' | 'background_required' | 'background_optional' | 'detach' | 'kill_on_freeze' | null;
-  process_group_id?: number | null;
-}
-
-export interface ProcessLogRefs {
-  stdout: string | null;
-  stderr: string | null;
-  combined: string | null;
-}
-
-export type ProcessControlAvailabilityStatus =
-  | 'live-attached'
-  | 'stale-not-attached'
-  | 'already-ended'
-  | 'unknown';
-
-export interface ProcessControlAvailability {
-  can_view_logs: boolean;
-  can_terminate: boolean;
-  terminate_status: ProcessControlAvailabilityStatus;
-  terminate_degraded: boolean;
-  terminate_reason: string;
-}
-
-export interface ProcessView {
-  id: string;
-  status: ProcessStatus | string;
-  started_at: string;
-  ended_at: string | null;
-  exit_code: number | null;
-  timed_out: boolean;
-  owner: 'agent' | 'operator' | 'runtime' | string | null;
-  session_id: string | null;
-  card_id: string;
-  command: string;
-  cwd: string | null;
-  logs: ProcessLogRefs;
-  control: ProcessControlAvailability;
-}
+export type ProcessView = OperatorApiSuccess<'processes.get'>['process'];
+export type ProcessListResponse = OperatorApiSuccess<'processes.list'>;
+export type ProcessDetailResponse = OperatorApiSuccess<'processes.get'>;
 
 
 export type AgentRole = 'analyst' | 'planner' | 'executor' | 'reviewer' | 'content_supervisor';
@@ -551,6 +494,3 @@ export type FilesListResponse = OperatorApiSuccess<'files.list'>;
 export type DebugStateResponse = OperatorApiSuccess<'debug.state'> & { runtime: RuntimeState | null; cards: Array<{ id: string; type: CardType; parent: string | null; status: CardStatus; title: string; priority: number; depends_on: string[]; blocks: string[] }>; };
 export type DebugErrorsResponse = Omit<OperatorApiSuccess<'debug.errors'>, 'errors'> & { errors: DebugError[]; };
 export type DebugTimelineResponse = Omit<OperatorApiSuccess<'debug.timeline'>, 'events'> & { events: DebugTimelineEvent[]; };
-export interface ProcessListResponse { processes: ProcessView[]; }
-export interface ProcessDetailResponse { process: ProcessView; }
-

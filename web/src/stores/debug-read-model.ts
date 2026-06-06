@@ -1,6 +1,6 @@
 import type { CardRecord, DebugError, DebugTimelineEvent, ProcessView, RuntimeState } from '../api/types';
 import { redactObservabilityText, redactObservabilityValue } from '../utils/observabilityRedaction';
-import { selectChildrenOf } from './card-read-model';
+import { selectChildrenOf } from './card-presentation';
 import { eventKindValues } from '../../../src/schemas/event-catalog';
 
 const CANONICAL_EVENT_KINDS = new Set<string>(eventKindValues as readonly string[]);

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTestAnalystRuntime } from '../helpers/test-runtime-application.js';
 import { trimToCleanToolBoundary } from '../../src/agents/analyst-handler.js';
-import { serializeToolCallMessage, PersistedRowCorruptError } from '../../src/agents/persisted-tool-call.js';
+import { serializeToolCallMessage, PersistedRowCorruptError } from '../../src/contracts/persisted-tool-call.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
 
 const { AnalystHandler } = await import('../../src/agents/analyst-handler.js');

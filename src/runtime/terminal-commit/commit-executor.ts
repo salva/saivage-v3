@@ -74,6 +74,37 @@ export async function commitExecutorFailure(input: {
   return { lifecycle, result, patch, transitioned: transitioned !== false };
 }
 
+export async function commitExecutorInvocationFailure(input: {
+  card: CardRecord;
+  goalId: string;
+  reason: string;
+  error: string;
+  at: string;
+  effects: TerminalCommitEffects;
+}): Promise<TerminalCommitReceipt<Extract<CardLifecycleState, { status: 'failed' }>, ExecutorFailureResult>> {
+  if (!input.error.trim()) throw new Error('Cannot commit executor invocation failure without a non-empty error.');
+  const latestSelfReport = selfReport('failed', input.error, input.error, input.at);
+  const result: ExecutorFailureResult = {
+    kind: 'executor_failure',
+    error: input.error,
+    partial_result: { failure_kind: input.reason },
+    latest_self_report: latestSelfReport,
+  };
+  const lifecycle = { status: 'failed', result, error: input.error, completed_at: input.at } satisfies Extract<CardLifecycleState, { status: 'failed' }>;
+  assertNoTerminalOverlayErrors(input.card, lifecycle);
+  const transitioned = await input.effects.transitionCard(input.card.id, 'fail', { reason: input.reason, error: input.error, goalId: input.goalId });
+  const patch: Partial<CardRecord> = {
+    ...lifecycleCardPatch(lifecycle),
+    status_text: input.error,
+    status_text_updated_at: input.at,
+    status_text_author_session_id: null,
+    latest_self_report: latestSelfReport as unknown as Record<string, unknown>,
+  };
+  if (transitioned === false) return { lifecycle, result, patch, transitioned: false };
+  await input.effects.updateCard(input.card.id, patch);
+  return { lifecycle, result, patch, transitioned: transitioned !== false };
+}
+
 export async function commitExecutorParkedVerification(input: {
   card: CardRecord;
   goalId: string;

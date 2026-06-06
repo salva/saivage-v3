@@ -1,5 +1,5 @@
 import type { ZodTypeAny } from 'zod';
-import type { PersistedToolCall } from '../agents/persisted-tool-call.js';
+import type { PersistedToolCall } from './persisted-tool-call.js';
 
 export interface ContractToolDefinition {
   type: 'function';

@@ -4,7 +4,7 @@
  * Fast, pure-regex scanner that detects common prompt injection
  * techniques before content enters an agent context.
  *
- * See docs/design/security.md § "Layer 1: Heuristic patterns" for the spec.
+ * See current security behavior in this module and its tests.
  */
 
 // ── Types ─────────────────────────────────────────────────────
@@ -28,7 +28,7 @@ export interface ScanResult {
   risk: 'low' | 'medium' | 'high';
 }
 
-/** The six injection categories from the spec. */
+/** The six injection categories implemented by this scanner. */
 export type InjectionCategory =
   | 'instruction_override'
   | 'role_hijacking'
@@ -67,7 +67,7 @@ interface PatternDef {
 // ── Pattern Definitions ───────────────────────────────────────
 
 /**
- * All heuristic patterns categorised by the six spec categories.
+ * All heuristic patterns categorised by the scanner categories.
  *
  * Every pattern is tagged with:
  *  - `sensitivity`: the minimum SensitivityLevel that enables it

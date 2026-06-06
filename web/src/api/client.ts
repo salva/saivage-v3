@@ -156,13 +156,8 @@ export async function getHealth(): Promise<{ status: string; version: string; pr
   return response.json() as Promise<{ status: string; version: string; project: string; runtime: string }>;
 }
 
-export function listCards(query?: {
-  status?: string;
-  type?: string;
-  parent?: string;
-  tag?: string;
-}): Promise<CardListResponse> {
-  return operatorRequest('cards.list', 'GET', '/api/cards', query as Record<string, string>);
+export function listCards(): Promise<CardListResponse> {
+  return operatorRequest('cards.list', 'GET', '/api/cards');
 }
 
 export function getCard(id: string): Promise<CardDetailResponse> {
@@ -248,11 +243,11 @@ export function getFileContent(path: string): Promise<FileContent> {
 }
 
 export function listProcesses(): Promise<ProcessListResponse> {
-  return request<ProcessListResponse>('GET', '/api/processes');
+  return operatorRequest('processes.list', 'GET', '/api/processes');
 }
 
 export function getProcess(processId: string): Promise<ProcessDetailResponse> {
-  return request<ProcessDetailResponse>('GET', `/api/processes/${encodeURIComponent(processId)}`);
+  return operatorRequest('processes.get', 'GET', `/api/processes/${encodeURIComponent(processId)}`);
 }
 
 

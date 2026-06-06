@@ -1,5 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 import { handleReviewerInvocationFailure, type ReviewerInvocationFailureEffects } from '../../src/runtime/phases/reviewer-invocation-failure.js';
+import type { CardRecord } from '../../src/schemas/index.js';
 
 describe('reviewer invocation failure handler', () => {
   it('blocks the goal with reviewer-unavailable planning metadata', async () => {
@@ -16,8 +17,8 @@ describe('reviewer invocation failure handler', () => {
 
     await handleReviewerInvocationFailure({
       goalId: 'goal-a',
+      card: goalCard('goal-a'),
       error: new Error('reviewer offline'),
-      existingLifecycle: { status: 'running', result: null, error: null, completed_at: null },
       effects,
     });
 
@@ -41,4 +42,28 @@ function testEffects(overrides: Partial<ReviewerInvocationFailureEffects> = {}):
     transitionRuntime: async () => undefined,
     ...overrides,
   };
+}
+
+function goalCard(id: string): CardRecord {
+  return {
+    id,
+    type: 'goal',
+    parent: 'project',
+    depth: 1,
+    title: 'Goal A',
+    description: 'Do goal work',
+    status: 'running',
+    depends_on: [],
+    priority: 1,
+    tags: [],
+    urgency: 'normal',
+    created_by: 'planner',
+    blocks: [],
+    related: [],
+    acceptance: '',
+    artifacts: [],
+    attachments: [],
+    retries: 0,
+    lifecycle: { status: 'running', result: null, error: null, completed_at: null },
+  } as unknown as CardRecord;
 }

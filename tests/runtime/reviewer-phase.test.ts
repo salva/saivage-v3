@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { buildReviewerActiveRun, buildReviewerInvocationFailurePatch, decideReviewerPhase } from '../../src/runtime/phases/reviewer-phase.js';
+import { buildReviewerActiveRun, decideReviewerPhase } from '../../src/runtime/phases/reviewer-phase.js';
 import type { ReviewerResult } from '../../src/contracts/index.js';
 
 function assessment(result: ReviewerResult['assessment']['result']): ReviewerResult['assessment'] {
@@ -13,29 +13,11 @@ describe('reviewer phase decisions', () => {
     expect(decideReviewerPhase({ assessment: assessment('needs_corrections'), validation: { valid: true } })).toEqual({ kind: 'needs_corrections' });
   });
 
-  it('builds reviewer invocation failure card patch', () => {
-    expect(buildReviewerInvocationFailurePatch({
-      existingLifecycle: { status: 'running', result: null, error: null, completed_at: null },
-      blockedReason: 'reviewer failed',
-    })).toEqual({
-      status: 'blocked',
-      status_text: 'reviewer failed',
-      lifecycle: expect.objectContaining({
-        status: 'blocked',
-        error: 'reviewer failed',
-        result: expect.objectContaining({
-          kind: 'planner_blocked',
-          blocked_reason: 'reviewer failed',
-          resume_reason: 'reviewer_unavailable',
-        }),
-      }),
-    });
-  });
-
   it('builds reviewer active-run state', () => {
     expect(buildReviewerActiveRun({
       goalId: 'goal-a',
       reviewerSessionId: 'reviewer:goal-a:assessment-1',
+      assessmentId: 'assessment-1',
       goalCard: { type: 'goal' } as any,
       at: 'now',
     })).toEqual(expect.objectContaining({

@@ -6,6 +6,7 @@ import { AgentAdapter, type AgentRole } from '../../src/agents/agent-adapter.js'
 import { ANALYST_TOOL_DEFINITIONS } from '../../src/agents/analyst-tool-schemas.js';
 import { TOOL_REGISTRY } from '../../src/agents/analyst-llm-resolver.js';
 import type { SaivageConfig } from '../../src/agents/config-schema.js';
+import { MCP_WRAPPER_TOOL_NAMES, SKILL_TOOL_NAMES, WORKSPACE_TOOL_NAMES } from '../../src/tools/definitions/index.js';
 
 const NON_PLANNER_AGENT_ROLES: AgentRole[] = ['analyst', 'executor', 'reviewer'];
 const MATRIX_DOC = join(process.cwd(), 'docs', 'agents.md');
@@ -66,46 +67,12 @@ function extractAgentToolMatrix(): Map<string, string[]> {
   return rows;
 }
 
-function toolRuntimeDefinitionNames(): string[] {
-  const source = readFileSync(join(process.cwd(), 'src', 'tools', 'agent-tools.ts'), 'utf-8');
-  return uniqueSorted([...source.matchAll(/name: '([a-z_]+)'/g)].map((entry) => entry[1]));
-}
-
-function functionToolDefinitions(source: string, exportedConstantName: string): string[] {
-  const match = source.match(
-    new RegExp(`export const ${exportedConstantName}[^=]*= \\[([\\s\\S]*?)\\n\\];`),
-  );
-  if (!match) throw new Error(`Unable to find ${exportedConstantName} in source.`);
-  return uniqueSorted([...match[1].matchAll(/tool\(\s*'([a-z_]+)'/g)].map((entry) => entry[1]));
-}
-
 function processToolCallRoutedToolNames(): string[] {
-  const adapterSource = readFileSync(
-    join(process.cwd(), 'src', 'agents', 'agent-adapter.ts'),
-    'utf-8',
-  );
-  const workspaceSource = readFileSync(
-    join(process.cwd(), 'src', 'agents', 'workspace-tools.ts'),
-    'utf-8',
-  );
-  const skillSource = readFileSync(join(process.cwd(), 'src', 'agents', 'skill-tools.ts'), 'utf-8');
-
-  const runtimeAgentTools = toolRuntimeDefinitionNames();
-  const workspaceTools = [...workspaceSource.matchAll(/name: '([a-z_]+)'/g)].map(
-    (match) => match[1],
-  );
-  const explicitlyHandled = [
-    ...adapterSource.matchAll(/tc\.function\.name (?:===|!==) '([a-z_]+)'/g),
-  ].map((match) => match[1]);
-  const switchCases = [...adapterSource.matchAll(/case '([a-z_]+)':/g)].map((match) => match[1]);
-  const skillTools = [...skillSource.matchAll(/name:\s*'([a-z_]+)'/g)].map((match) => match[1]);
-
   return uniqueSorted([
-    ...runtimeAgentTools,
-    ...workspaceTools.filter((name) => explicitlyHandled.includes(name)),
-    ...switchCases,
-    ...skillTools,
-    'mcp_tool_call',
+    ...Object.keys(TOOL_REGISTRY),
+    ...WORKSPACE_TOOL_NAMES,
+    ...SKILL_TOOL_NAMES,
+    ...MCP_WRAPPER_TOOL_NAMES,
   ]);
 }
 
@@ -152,11 +119,8 @@ describe('AgentAdapter non-planner tool surface parity', () => {
   });
 
   it('keeps analyst schema definitions routed by the card-scoped analyst handler', () => {
-    const schemaSource = readFileSync(
-      join(process.cwd(), 'src', 'agents', 'analyst-tool-schemas.ts'),
-      'utf-8',
+    expect(uniqueSorted(Object.keys(TOOL_REGISTRY))).toEqual(
+      uniqueSorted(ANALYST_TOOL_DEFINITIONS.map((tool) => tool.function.name)),
     );
-    const sourceDefinitions = functionToolDefinitions(schemaSource, 'ANALYST_TOOL_DEFINITIONS');
-    expect(uniqueSorted(Object.keys(TOOL_REGISTRY))).toEqual(sourceDefinitions);
   });
 });

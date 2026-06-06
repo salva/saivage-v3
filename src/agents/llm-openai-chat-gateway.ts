@@ -7,7 +7,7 @@ import type {
   ToolDefinition,
   LlmUsage,
 } from './llm-contracts.js';
-import { parseToolCallMessage } from './persisted-tool-call.js';
+import { parseToolCallMessage } from '../contracts/persisted-tool-call.js';
 import { LlmRequestError } from './llm-errors.js';
 import {
   classifierFor,

@@ -210,15 +210,25 @@ function extractToolDefinitionNames(content, _constName) {
   return Array.from(content.matchAll(/tool\(\s*['"]([^'"]+)['"]/g)).map((m) => m[1]);
 }
 
+function extractUnifiedToolRoleNames(content, role) {
+  const names = [];
+  for (const match of content.matchAll(/\{\s*name:\s*'([^']+)'[\s\S]*?roles:\s*\[([^\]]*)\]/g)) {
+    const roles = Array.from(match[2].matchAll(/'([^']+)'/g)).map((roleMatch) => roleMatch[1]);
+    if (roles.includes(role)) names.push(match[1]);
+  }
+  return names;
+}
+
 function extractImplementedAgentTools(projectRoot) {
   const catalog = readSource(projectRoot, 'src/agents/agent-tool-catalog.ts');
   const analystSchemas = readSource(projectRoot, 'src/agents/analyst-tool-schemas.ts');
+  const toolDefinitions = readSource(projectRoot, 'src/tools/definitions/index.ts');
   const catalogAnalystTools = extractObjectArray(catalog, 'analyst');
   return new Map([
-    ['planner', uniqueSorted(extractObjectArray(catalog, 'planner'))],
-    ['executor', uniqueSorted(extractObjectArray(catalog, 'executor'))],
-    ['reviewer', uniqueSorted(extractObjectArray(catalog, 'reviewer'))],
-    ['analyst', uniqueSorted(catalogAnalystTools.length > 0 ? catalogAnalystTools : extractToolDefinitionNames(analystSchemas, 'ANALYST_TOOL_DEFINITIONS'))],
+    ['planner', uniqueSorted(extractObjectArray(catalog, 'planner').length > 0 ? extractObjectArray(catalog, 'planner') : extractUnifiedToolRoleNames(toolDefinitions, 'planner'))],
+    ['executor', uniqueSorted(extractObjectArray(catalog, 'executor').length > 0 ? extractObjectArray(catalog, 'executor') : extractUnifiedToolRoleNames(toolDefinitions, 'executor'))],
+    ['reviewer', uniqueSorted(extractObjectArray(catalog, 'reviewer').length > 0 ? extractObjectArray(catalog, 'reviewer') : extractUnifiedToolRoleNames(toolDefinitions, 'reviewer'))],
+    ['analyst', uniqueSorted(catalogAnalystTools.length > 0 ? catalogAnalystTools : extractUnifiedToolRoleNames(toolDefinitions, 'analyst').length > 0 ? extractUnifiedToolRoleNames(toolDefinitions, 'analyst') : extractToolDefinitionNames(analystSchemas, 'ANALYST_TOOL_DEFINITIONS'))],
   ]);
 }
 

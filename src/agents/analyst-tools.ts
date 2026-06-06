@@ -16,10 +16,17 @@ import type { McpManager } from '../mcp/manager-api.js';
 import type { ActorRole } from './authz.js';
 import { evaluateAuthz } from './authz.js';
 import { listControlActions, recordControlAction } from '../persistence/index.js';
-import { redactTextForOutbound } from '../redaction/index.js';
 import { SecretPathError, assertSafeShellCwd } from '../workspace/index.js';
-import { classifyShellCommand, sanitizedEnv } from '../workspace/index.js';
+import { classifyShellCommand } from '../workspace/index.js';
 import { looksLikeSecretPath } from '../workspace/secret-paths.js';
+import {
+  DEFAULT_COMMAND_TIMEOUT_MS,
+  DEFAULT_MAX_OUTPUT_BYTES,
+  MAX_ANALYST_OUTPUT_BYTES,
+  MAX_COMMAND_TIMEOUT_MS,
+  redactCommandForPolicy,
+  sanitizedCommandEnv,
+} from '../runtime/command-policy.js';
 import {
   markGoalNeedsCorrections,
   normalizeAnalystIssues,
@@ -36,7 +43,7 @@ import {
   assertAnalystInspectionTarget,
   isAnalystSecretPath,
   redactAnalystSecretValue,
-} from './analyst-secret-classifier.js';
+} from '../workspace/file-access-security.js';
 import { runAuditedAnalystTool } from './analyst-tool-runner.js';
 import { queueNotification, resolveRecipient } from '../notifications/index.js';
 import { toCardView, computeCardDisplayPath } from '../application/read-models/card-view.js';
@@ -134,10 +141,6 @@ type NormalizedShellCommandParams = {
   maxOutputBytes: number;
 };
 
-const SHELL_TIMEOUT_DEFAULT_MS = 15_000;
-const SHELL_TIMEOUT_MAX_MS = 60_000;
-const SHELL_OUTPUT_DEFAULT_BYTES = 65_536;
-const SHELL_OUTPUT_MAX_BYTES = 1_048_576;
 const GLOBAL_ANALYST_SESSION_ID = 'analyst';
 
 function saivageDir(projectRoot: string): string {
@@ -291,7 +294,7 @@ function buildRestartGoalPreview(
 }
 
 function redactShellText(value: string): string {
-  return redactTextForOutbound(value, 'model.issue', { source: 'analyst-tools.shell' });
+  return redactCommandForPolicy(value);
 }
 function summarizeShellOutcome(
   exitCode: number | null,
@@ -333,7 +336,7 @@ async function runShellCommandWithCapture(
     const startedAt = Date.now();
     const child = spawn('bash', ['-lc', command], {
       cwd,
-      env: sanitizedEnv(),
+      env: sanitizedCommandEnv(),
       timeout: timeoutMs,
       killSignal: 'SIGKILL',
     });
@@ -427,14 +430,14 @@ function normalizeShellParams(
     cwd: normalizeShellCwd(ctx.projectRoot, params.cwd),
     timeoutMs: normalizeShellNumeric(
       params.timeoutMs,
-      SHELL_TIMEOUT_DEFAULT_MS,
-      SHELL_TIMEOUT_MAX_MS,
+      DEFAULT_COMMAND_TIMEOUT_MS,
+      MAX_COMMAND_TIMEOUT_MS,
       'timeoutMs',
     ),
     maxOutputBytes: normalizeShellNumeric(
       params.maxOutputBytes,
-      SHELL_OUTPUT_DEFAULT_BYTES,
-      SHELL_OUTPUT_MAX_BYTES,
+      DEFAULT_MAX_OUTPUT_BYTES,
+      MAX_ANALYST_OUTPUT_BYTES,
       'maxOutputBytes',
     ),
   };

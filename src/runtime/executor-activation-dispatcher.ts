@@ -5,7 +5,6 @@ import type { ActivationCallerEdge, ActivationUnwindRunner } from './activation-
 import {
   buildExecutorActiveRunPatch,
   resolveExecutorLastSessionId,
-  selectExecutorStartAction,
 } from './phases/executor-phase.js';
 import { ExecutorPhaseRunner } from './phases/executor-phase-runner.js';
 import {
@@ -20,6 +19,7 @@ import { buildCardContextBlock } from './context-builder.js';
 import { readRuntimeState } from './state.js';
 import type { RuntimeServices } from './runtime-services.js';
 import { planClearActiveCardRunPatch } from './runtime-core.js';
+import { selectActivationStartAction } from './transition-policy.js';
 
 export interface ExecutorActivationDispatcherDeps extends Pick<RuntimeServices,
   | 'projectRoot'
@@ -47,11 +47,12 @@ export class ExecutorActivationDispatcher {
     callerEdge: ActivationCallerEdge | null;
   }): Promise<{ executedTerminal: boolean; failed: boolean }> {
     const { goalId, goalCard, card, callerEdge } = input;
-    const startAction = selectExecutorStartAction(card.status);
+    const startAction = selectActivationStartAction(card.status, 'executor');
+    if (startAction.action === 'reject') return { executedTerminal: false, failed: true };
     const transitioned =
-      startAction === null
+      startAction.action === 'none'
         ? true
-        : await this.deps.stateMachine.transitionCard(card.id, startAction, {
+        : await this.deps.stateMachine.transitionCard(card.id, startAction.action, {
             goalId,
             reason: 'pending_activation_dispatch',
           });
@@ -76,6 +77,7 @@ export class ExecutorActivationDispatcher {
       }).run({ card, goalId, goalCard });
     } catch (err) {
       await handleExecutorInvocationFailure({
+        card,
         cardId: card.id,
         goalId,
         error: err,
@@ -84,12 +86,14 @@ export class ExecutorActivationDispatcher {
           appendRuntimeDiagnostic: (effectInput) => this.deps.eventLogger.appendEvent({ kind: 'runtime_diagnostic', ...effectInput }),
           appendError: (effectInput) => this.deps.errorLogger.appendError(effectInput),
           transitionCard: (cardId, event, details) => this.deps.stateMachine.transitionCard(cardId, event, details),
+          updateCard: (cardId, patch) => this.deps.cards.repairTerminalLifecycle(cardId, patch),
           appendChildUnwindToolResult: (cardId, outcome, summary) => this.deps.activationUnwind.appendChildUnwindToolResult(cardId, outcome, summary),
           clearActiveCardRun: (cardId) => {
             const patch = planClearActiveCardRunPatch({ state: readRuntimeState(this.deps.projectRoot), cardId });
             if (patch) this.deps.mutations.apply({ kind: 'patchRuntimeState', patch });
           },
           emitCardFailed: (cardId, parentGoalId) => this.emitCardFailed(cardId, parentGoalId),
+          now: this.deps.now,
         },
       });
       return { executedTerminal: false, failed: true };

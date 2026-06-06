@@ -5,7 +5,7 @@ Use this index as the current entry point for operator procedures, design refere
 ## Runbook
 
 - [Runbook index](/runbook/) — current authority: single operator entry point.
-- [Operations](/runbook/operations) — current authority: startup, auth, health, state, runtime controls, WebSocket chat, backups, and LXC/systemd notes.
+- [Operations](/runbook/operations) — current procedural authority: startup, auth workflow, health/state checks, runtime controls, WebSocket chat, backups, and LXC/systemd notes.
 - [Incidents](/runbook/incidents) — current authority: unauthorized access, stale UI, frozen/error runtime recovery, preview limitations, and degraded-agent workflows.
 - [Release](/runbook/release) — current authority: release-candidate validation gates.
 - [LXC operations](/runbook/lxc-operations) — current authority: deployment-oriented service checks and safe restart flow.
@@ -20,7 +20,7 @@ Use this index as the current entry point for operator procedures, design refere
 | [Agents](/design/agents) | stale context | Useful design-era context; prefer [Agents and runtime architecture](/agents). |
 | [Runtime](/design/runtime) | stale context | Useful design-era context; prefer [Agents and runtime architecture](/agents). |
 | [Terminal commit layer](/design/terminal-commit-layer) | current authority | Proposed current runtime architecture for semantic terminal commits across cards, runtime runs, activations, reviewer state, and events. |
-| [Security](/design/security) | stale context | Useful design-era context; prefer [Operation route inventory](/operation). |
+| [Security](/design/security) | historical provenance | Historical design-era context; prefer current workspace security modules and tests plus [Operation route inventory](/operation) for API/auth contracts. |
 | [Configuration](/design/configuration) | stale context | Useful design-era context; prefer [Configuration reference](/configuration). |
 | [Skills](/design/skills) | stale context | Useful design-era context; prefer [Agents and runtime architecture](/agents). |
 | [Server API](/design/server-api) | stale context | Useful design-era context; prefer [Operation route inventory](/operation). |
@@ -34,7 +34,7 @@ Use this index as the current entry point for operator procedures, design refere
 - [Agents and runtime architecture](/agents) — current authority: authoritative planner/runtime contract.
 - [Analyst guide](/analyst) — current authority: analyst-facing tools and WebSocket behavior.
 - [Configuration reference](/configuration) — current authority: schema-aligned configuration details.
-- [Operation route inventory](/operation) — current authority: documented operator-facing HTTP and WebSocket routes.
+- [Operation route inventory](/operation) — current route/API authority: documented operator-facing HTTP and WebSocket routes, auth transport, and response-contract notes; not procedural guidance.
 - [Goal planning runtime](/goal-planning-runtime) — stale context: legacy runtime summary retained for context; prefer [Agents and runtime architecture](/agents).
 
 ## Provenance

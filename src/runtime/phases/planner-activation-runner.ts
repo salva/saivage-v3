@@ -6,10 +6,10 @@ import { consumeChangedCardActivation } from '../synthetic-planner-notes.js';
 import {
   buildPlannerActivationPlanningPatch,
   buildPlannerActiveRunPatch,
-  decideGoalActivationTransition,
   planPlannerActivationSetup,
 } from './planner-phase.js';
 import { compactPersistedPlannerHistoryForRetry } from '../persisted-planner-history.js';
+import { selectActivationStartAction } from '../transition-policy.js';
 
 export interface PlannerActivationRunnerDeps extends Pick<RuntimeServices,
   | 'projectRoot'
@@ -34,11 +34,11 @@ export class PlannerActivationRunner {
       throw new Error(`dispatchGoal requires a project or goal card, got type '${goalCard.type}'.`);
     }
     const currentStatus = goalCard.status;
-    const activationTransition = decideGoalActivationTransition(currentStatus);
-    if (activationTransition.kind === 'invalid_status') {
+    const activationTransition = selectActivationStartAction(currentStatus, 'planner');
+    if (activationTransition.action === 'reject') {
       throw new Error(`Goal '${goalId}' is in status '${currentStatus}' which is neither startable nor restartable.`);
     }
-    if (activationTransition.kind === 'transition') {
+    if (activationTransition.action === 'start' || activationTransition.action === 'restart') {
       const transitioned = await this.deps.stateMachine.transitionCard(goalId, activationTransition.action, { goalId });
       if (!transitioned) {
         throw new Error(`Goal '${goalId}' could not be transitioned via ${activationTransition.action} from status '${currentStatus}'.`);

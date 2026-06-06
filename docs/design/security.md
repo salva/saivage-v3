@@ -1,6 +1,8 @@
 # Security & Content Supervision
 
 
+> **Historical authority banner:** This page is historical design-era context. Current security behavior is defined by `src/workspace/content-supervisor.ts`, `src/workspace/write-territories.ts`, `src/workspace/quarantine.ts`, `src/workspace/secret-paths.ts`, `src/workspace/file-access-security.ts`, their sibling scanner modules, and tests.
+
 > **Authority status: stale.** This page is retained for context only and is not current operator guidance. Prefer `docs/operation.md` for current authority where applicable.
 
 > Canonical design document consolidated from `docs/design/security.md` during Stage 22. Stage 23 will reconcile detailed source anchors where needed.

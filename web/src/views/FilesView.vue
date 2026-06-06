@@ -102,7 +102,7 @@ import { storeToRefs } from 'pinia';
 import { useFileStore } from '../stores/files';
 import { useSyncStore } from '../stores/sync';
 import { useCardStore } from '../stores/cards';
-import { selectChildrenOf } from '../stores/card-read-model';
+import { selectChildrenOf } from '../stores/card-presentation';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../utils/timestamp';
 import { formatJson } from '../utils/format-json';
 import CodeBlock from '../components/content/CodeBlock.vue';

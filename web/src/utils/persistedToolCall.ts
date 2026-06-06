@@ -1,4 +1,4 @@
-// Web mirror of src/agents/persisted-tool-call.ts. Read-only; web has no F08
+// Web mirror of src/contracts/persisted-tool-call.ts. Read-only; web has no F08
 // LlmFailure union, so malformed input raises a plain Error.
 
 export interface PersistedToolCall {

@@ -10,8 +10,8 @@ import type { ActivationCompletionOutcome, CardRecord, RuntimeState } from '../s
  */
 export type ActivationState =
   | { phase: 'planner'; cardId: string; plannerSessionId: string; correctionAttempts: number; cardType?: CardRecord['type']; activeRun?: NonNullable<RuntimeState['active_card_run']> }
-  | { phase: 'executor'; cardId: string; goalId: string; executorSessionId: string; activeRun?: NonNullable<RuntimeState['active_card_run']> }
-  | { phase: 'reviewer'; cardId: string; reviewerSessionId: string; assessmentId: string; activeRun?: NonNullable<RuntimeState['active_card_run']> }
+  | { phase: 'executor'; cardId: string; goalId: string; executorSessionId: string; cardType?: CardRecord['type']; callerSessionId?: string | null; callerToolCallId?: string | null; activeRun?: NonNullable<RuntimeState['active_card_run']> }
+  | { phase: 'reviewer'; cardId: string; reviewerSessionId: string; assessmentId: string; cardType?: CardRecord['type']; activeRun?: NonNullable<RuntimeState['active_card_run']> }
   | { phase: 'completed'; cardId: string; outcome: ActivationCompletionOutcome }
   | { phase: 'repairing'; cardId: string; previous: NonNullable<RuntimeState['active_card_run']> };
 
@@ -37,11 +37,11 @@ export function activeRunFromActivationState(state: ActivationState, nowIso: str
     return {
       ...state.activeRun,
       card_id: state.cardId,
-      card_type: state.activeRun?.card_type ?? 'code',
+      card_type: state.activeRun?.card_type ?? state.cardType ?? 'code',
       runtime_status: state.activeRun?.runtime_status ?? 'running',
       phase: 'executor',
-      caller_session_id: state.activeRun?.caller_session_id ?? null,
-      caller_tool_call_id: state.activeRun?.caller_tool_call_id ?? null,
+      caller_session_id: state.activeRun?.caller_session_id ?? state.callerSessionId ?? `planner:${state.goalId}`,
+      caller_tool_call_id: state.activeRun?.caller_tool_call_id ?? state.callerToolCallId ?? null,
       planner_session_id: state.activeRun?.planner_session_id ?? `planner:${state.goalId}`,
       executor_session_id: state.executorSessionId,
       correction_attempts: state.activeRun?.correction_attempts ?? 0,
@@ -52,7 +52,7 @@ export function activeRunFromActivationState(state: ActivationState, nowIso: str
   return {
     ...state.activeRun,
     card_id: state.cardId,
-    card_type: state.activeRun?.card_type ?? 'goal',
+    card_type: state.activeRun?.card_type ?? state.cardType ?? 'goal',
     runtime_status: state.activeRun?.runtime_status ?? 'running',
     phase: 'reviewer',
     caller_session_id: state.activeRun?.caller_session_id ?? null,
@@ -75,5 +75,41 @@ export function plannerActivationStateFromGoal(input: {
     cardType: input.goal.type,
     plannerSessionId: input.plannerSessionId,
     correctionAttempts: 0,
+  };
+}
+
+export function executorActivationStateFromCard(input: {
+  card: Pick<CardRecord, 'id' | 'type'>;
+  goalId: string;
+  executorSessionId: string;
+  callerEdge?: { callerSessionId: string; callerToolCallId: string } | null;
+  activeRun?: NonNullable<RuntimeState['active_card_run']>;
+}): Extract<ActivationState, { phase: 'executor' }> {
+  return {
+    phase: 'executor',
+    cardId: input.card.id,
+    cardType: input.card.type,
+    goalId: input.goalId,
+    executorSessionId: input.executorSessionId,
+    callerSessionId: input.callerEdge?.callerSessionId ?? null,
+    callerToolCallId: input.callerEdge?.callerToolCallId ?? null,
+    activeRun: input.activeRun,
+  };
+}
+
+export function reviewerActivationStateFromCard(input: {
+  goalId: string;
+  reviewerSessionId: string;
+  assessmentId: string;
+  goalCard?: Pick<CardRecord, 'type'> | null;
+  activeRun?: NonNullable<RuntimeState['active_card_run']>;
+}): Extract<ActivationState, { phase: 'reviewer' }> {
+  return {
+    phase: 'reviewer',
+    cardId: input.goalId,
+    cardType: input.goalCard?.type ?? 'goal',
+    reviewerSessionId: input.reviewerSessionId,
+    assessmentId: input.assessmentId,
+    activeRun: input.activeRun,
   };
 }

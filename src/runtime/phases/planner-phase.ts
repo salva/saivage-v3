@@ -1,6 +1,5 @@
 import type { CardRecord, PlannerBlockedResult, RuntimeState } from '../../schemas/index.js';
 import type { PlannerResult } from '../../contracts/index.js';
-import { STARTABLE_STATES, RESTARTABLE_STATES } from '../../permissions/index.js';
 import { blockedPlanningReason, getBlockedPlanning, isReviewerCapacityPlannerBlocker, shouldPreservePrecisePlanningBlocker } from '../planning-blockers.js';
 import { activeRunFromActivationState, plannerActivationStateFromGoal } from '../activation-reducer.js';
 import { lifecycleCardPatch } from '../terminal-commit/lifecycle-patch.js';
@@ -9,13 +8,6 @@ export type GoalActivationTransitionDecision =
   | { kind: 'none' }
   | { kind: 'transition'; action: 'start' | 'restart' }
   | { kind: 'invalid_status' };
-
-export function decideGoalActivationTransition(status: CardRecord['status']): GoalActivationTransitionDecision {
-  if (status === 'active' || status === 'running') return { kind: 'none' };
-  if ((STARTABLE_STATES as readonly CardRecord['status'][]).includes(status)) return { kind: 'transition', action: 'start' };
-  if ((RESTARTABLE_STATES as readonly CardRecord['status'][]).includes(status)) return { kind: 'transition', action: 'restart' };
-  return { kind: 'invalid_status' };
-}
 
 export function hasPlannerAction(input: {
   hasGoalDispatch: boolean;

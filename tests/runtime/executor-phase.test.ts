@@ -1,5 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
-import { buildExecutorActiveRunPatch, decideExecutorOutcome, resolveExecutorLastSessionId, selectExecutorStartAction } from '../../src/runtime/phases/executor-phase.js';
+import { buildExecutorActiveRunPatch, decideExecutorOutcome, resolveExecutorLastSessionId } from '../../src/runtime/phases/executor-phase.js';
+import { selectActivationStartAction } from '../../src/runtime/transition-policy.js';
 import type { ExecutorResult } from '../../src/contracts/index.js';
 
 function execResult(overrides: Partial<ExecutorResult> = {}): ExecutorResult {
@@ -17,10 +18,11 @@ function execResult(overrides: Partial<ExecutorResult> = {}): ExecutorResult {
 
 describe('executor phase decisions', () => {
   it('selects start actions from card status', () => {
-    expect(selectExecutorStartAction('backlog')).toBe('start');
-    expect(selectExecutorStartAction('done')).toBe('restart');
-    expect(selectExecutorStartAction('active')).toBe('reviewer_repair_resume');
-    expect(selectExecutorStartAction('running')).toBeNull();
+    expect(selectActivationStartAction('backlog', 'executor').action).toBe('start');
+    expect(selectActivationStartAction('done', 'executor').action).toBe('restart');
+    expect(selectActivationStartAction('active', 'executor').action).toBe('reviewer_repair_resume');
+    expect(selectActivationStartAction('running', 'executor').action).toBe('none');
+    expect(selectActivationStartAction('needs_verification', 'executor').action).toBe('reject');
   });
 
   it('decides terminal, registration-failed, and verification outcomes', () => {

@@ -18,12 +18,15 @@ export {
   redactOperatorErrorMessage,
   resolveContainedProjectPath,
   toContainedRelativePath,
+  assertAnalystInspectionTarget,
+  isAnalystSecretPath,
+  isSecretLikeKey,
+  redactAnalystSecretValue,
   type SafeFileResult,
   type SafeProjectPathResult,
 } from './file-access-security.js';
 export {
   classifyShellCommand,
-  sanitizedEnv,
   type ShellSafetyClass,
 } from './shell-classifier.js';
 export {

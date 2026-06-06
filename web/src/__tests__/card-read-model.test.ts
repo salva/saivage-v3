@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CardRecord } from '../api/types';
-import { buildTree, selectAvailableTags, selectBoardColumns, selectChildrenOf, selectFilteredCards } from '../stores/card-read-model';
+import { buildTree, selectAvailableTags, selectBoardColumns, selectChildrenOf, selectFilteredCards } from '../stores/card-presentation';
 
 function card(overrides: Partial<CardRecord>): CardRecord {
   return {
@@ -31,7 +31,7 @@ function card(overrides: Partial<CardRecord>): CardRecord {
   } as CardRecord;
 }
 
-describe('card-read-model', () => {
+describe('card-presentation', () => {
   it('filters and priority-sorts cards without owning fetch state', () => {
     const cards = [
       card({ id: 'low', title: 'Alpha', priority: 1, tags: ['ui'] }),

@@ -1,7 +1,11 @@
 import type { ActionableErrorEnvelope, CardLifecycleState, CardRecord, CardStatus, FreezeManifest, HandoffSummary, RuntimeCommandRecord, RuntimeLedgerActivationOutcome, RuntimeLedgerRunOutcome, RuntimeRunRecord, RuntimeState } from '../schemas/index.js';
 import type { ActivationCompletionOutcome } from '../schemas/index.js';
+import { TERMINAL_STATUSES } from '../permissions/index.js';
 
-const TERMINAL_STATUSES: ReadonlySet<CardStatus> = new Set<CardStatus>(['done', 'failed', 'cancelled']);
+// Pause field groups:
+// Full pause: { status: 'paused', paused: true, paused_at }
+// Full resume: { status: 'idle'|'running', paused: false, paused_at: null }
+// Dispatch-paused signal: { status: 'paused' }; the full pause controller applies the rest.
 
 export type RuntimeStateMachineEvent =
   | 'tick'
@@ -141,10 +145,12 @@ export function planOpenRootRunStopUpdates(input: {
     }));
 }
 
+/** Sets the full pause field group: status, paused, and paused_at. */
 export function buildPauseRuntimeStatePatch(pausedAt: string): Partial<RuntimeState> {
   return { status: 'paused', paused: true, paused_at: pausedAt };
 }
 
+/** Sets the full resume field group: status, paused, and paused_at. */
 export function buildResumeRuntimeStatePatch(state: RuntimeState | null): Partial<RuntimeState> {
   return {
     status: state?.active_card_run ? 'running' : 'idle',
@@ -256,6 +262,7 @@ export function buildCurrentAgentSessionPatch(sessionId: string | null): Partial
   return { current_agent_session_id: sessionId };
 }
 
+/** Sets only the dispatch-paused signal; the pause controller applies paused metadata separately. */
 export function buildDispatchPausedRuntimeStatePatch(): Partial<RuntimeState> {
   return { status: 'paused' };
 }

@@ -1,4 +1,4 @@
-import type { PersistedToolCall } from '../agents/persisted-tool-call.js';
+import type { PersistedToolCall } from './persisted-tool-call.js';
 import type {
   ContractTerminalDescriptor,
   ContractVerifyResult,

@@ -3,6 +3,14 @@ export {
   operatorRouteInventory,
   parseOperatorResponse,
   safeParseOperatorResponse,
+  ProcessControlAvailabilitySchema,
+  ProcessDetailResponseSchema,
+  ProcessIdParamsSchema,
+  ProcessListResponseSchema,
+  ProcessLogRefsSchema,
+  ProcessNotFoundErrorSchema,
+  ProcessViewSchema,
+  processesOperatorApiContracts,
 } from '../../../src/contracts/operator-api';
 
 export type {
@@ -36,6 +44,9 @@ export type {
   McpToolDefinition,
   McpToolsResponse,
   McpTransport,
+  ProcessDetailResponse,
+  ProcessListResponse,
+  ProcessView,
   RuntimeCardRunsResponse,
   RuntimeGetStateResponse,
   RuntimeStatusResponse,

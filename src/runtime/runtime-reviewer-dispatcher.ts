@@ -79,6 +79,7 @@ export class RuntimeReviewerDispatcher {
             activeCardRun: buildReviewerActiveRun({
               goalId: startedGoalId,
               reviewerSessionId: startedReviewerSessionId,
+              assessmentId,
               goalCard,
               at: this.deps.now(),
             }),
@@ -92,10 +93,12 @@ export class RuntimeReviewerDispatcher {
         assessment: reviewResult.assessment,
       });
     } catch (err) {
+      const failedGoalCard = this.deps.cards.read(goalId);
+      if (!failedGoalCard) throw err;
       await handleReviewerInvocationFailure({
         goalId,
+        card: failedGoalCard,
         error: err,
-          existingLifecycle: this.deps.cards.read(goalId)?.lifecycle ?? { status: 'active', result: null, error: null, completed_at: null },
         effects: {
           emitRuntimeDiagnostic: (input) => this.deps.emitRuntimeDiagnostic(input),
           appendRuntimeDiagnostic: (input) => this.deps.eventLogger.appendEvent({ kind: 'runtime_diagnostic', ...input }),

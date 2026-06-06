@@ -1,27 +1,11 @@
-# Saivage v3 — Operation Guide
+<!-- Role: route inventory and API/auth/contract reference only. Procedural operator workflows belong in docs/runbook/operations.md. -->
+
+# Saivage v3 — Route Inventory
 
 
-This guide covers current runtime behavior, health and control endpoints, docs and web serving, evidence inspection, process views, and operator verification commands.
+This page is the route inventory and API/auth/contract reference for operator-facing HTTP and WebSocket surfaces. Use [Runbook Operations](/runbook/operations) for startup, runtime control, maintenance, backup, incident procedure, and validation walkthroughs.
 
-## Server startup modes
-
-### API/server only
-
-```bash
-SAIVAGE_API_TOKEN=your-token node dist/src/server/server.js
-```
-
-This starts the Fastify server, public docs/SPA serving, auth-protected API routes, WebSocket support, MCP startup, and optional Telegram startup, but **does not** create a live runtime dispatch loop.
-
-### Server with runtime creation
-
-```bash
-SAIVAGE_API_TOKEN=your-token node dist/src/server/server.js --create-runtime
-```
-
-With runtime creation enabled, Saivage initializes the live runtime authority, reads or creates runtime state, repairs restart-visible runtime ledgers, and then runs only work authorized by explicit runtime intent or parent-planner activation records. Runtime creation does not scan status buckets or backlog queues to discover new work.
-
-## Public vs protected surfaces
+## Public vs protected route surfaces
 
 Public when the server is up:
 
@@ -87,7 +71,7 @@ Returns runtime-focused status data:
 
 If no live runtime authority is attached, the server falls back to runtime state on disk.
 
-## Runtime control surfaces
+## Runtime control route status
 
 The current mounted operator HTTP surface exposes runtime observation routes rather than mutating runtime-control POST routes:
 
@@ -95,28 +79,9 @@ The current mounted operator HTTP surface exposes runtime observation routes rat
 - `GET /api/runtime/card-runs` returns persisted runtime card-run records.
 - `GET /api/state` returns the broader runtime/card-index state snapshot.
 
-CLI `pause` and `resume` remain supported local/runtime-backed controls. They propagate through the live server when a runtime lock is present and a bearer token is available, otherwise they update persisted runtime state directly. The unsupported CLI `freeze` command and in-process runtime freeze/resume control surface have been deleted; freeze manifests remain schema/persistence helpers only.
-
-Accepted shared pause/resume validation applies to local runtime controls and analyst tools:
-
-- **live runtime available**: pause/resume propagates through the live runtime authority and updates in-memory dispatch state;
-- **no injected runtime**: pause/resume operates on persisted runtime state only, which is valid for server-only inspection/control setups and direct utility contexts;
-- **frozen**: generic resume is rejected with actionable recovery guidance; no current operator HTTP route resumes frozen runtime state;
-- **runtime state unavailable**: pause/resume returns an actionable error instead of creating replacement state implicitly.
-
 Legacy explicit dispatch endpoints and stale mutating REST runtime-control routes are not part of the current operator HTTP route inventory. Root execution and goal corrections are runtime-owned commands surfaced through the current runtime/control-room architecture, not through directive-file scanning or obsolete compatibility endpoints.
 
-## Planner control and completion semantics
-
-Current accepted behavior after Stage 07 is:
-
-- goal cards own planning state;
-- planner-control frames and dispatch records persist under `.saivage/runtime/`;
-- parent planners suspend while child work runs and resume when child dispatches complete;
-- terminal dispatches are expected to produce completion evidence;
-- operators must not treat an empty status-derived dispatch queue alone as proof of strategic project completion.
-
-See [Goal Planning Runtime](/goal-planning-runtime) for the model-level explanation.
+Card status is never an execution trigger. Runtime execution starts from explicit runtime controls and planner activations, not from status edits.
 
 ## Evidence and generated-file inspection
 
@@ -130,10 +95,9 @@ See [Goal Planning Runtime](/goal-planning-runtime) for the model-level explanat
 
 Project source, config, test, data, and documentation files remain project state. Saivage does not register or copy them as artifacts; agents should list those paths in generated-file/result metadata and pair them with verification commands. Registered artifacts and attachments are reserved for Saivage process metadata such as validation reports, command logs, run manifests, and similar generated process outputs.
 
-Important operational constraints:
+Contract constraints:
 
 - generated-file evidence enrichment is a **detail-route** behavior, not a list-route behavior;
-- the Web Control Room card detail view is the supported operator surface for inspecting this evidence;
 - file preview is text-only and subject to containment, secret blocking/redaction, size limits, and binary rejection.
 
 Examples from the current safety model:
@@ -153,8 +117,6 @@ Examples from the current safety model:
 - not oversized,
 - not binary.
 
-Operators should prefer the Files view and card-detail evidence links over manual `.saivage` file spelunking during normal operation.
-
 ## Safe process views
 
 `GET /api/processes` and `GET /api/processes/:id` expose operator-safe `ProcessView` responses rather than raw process-registry records.
@@ -171,7 +133,7 @@ It intentionally does **not** expose arbitrary absolute paths or raw secret-bear
 
 ## Debug and inspection endpoints
 
-Useful operator endpoints:
+Diagnostic endpoints:
 
 - `GET /api/debug/state`
 - `GET /api/debug/errors`
@@ -182,8 +144,6 @@ Useful operator endpoints:
 - `GET /api/mcp/tools`
 
 `GET /api/mcp/status` preserves the historical `{ servers: [] }` response when no MCP manager is attached, and now may include optional `serverAvailability.components.mcp` so operators can distinguish startup failure, unknown/not-attempted state, an informational empty manager (state `idle`, no servers configured), and a configured-but-impaired manager (state `degraded`). `GET /api/state` likewise accepts optional `serverAvailability` beside `runtime`, `cardIndex`, and `cardStoreHealth`; older clients can ignore the field. `GET /api/state` also includes top-level `projectRoot` (absolute resolved path of the active project) and `projectId` (basename of the project root) for operator tooling that needs to identify the project without parsing the runtime payload.
-
-Use these before editing runtime files manually.
 
 ## Web Control Room freshness model
 
@@ -208,49 +168,6 @@ The operator WebSocket emits live observational projections of runtime ledger an
 | `runtime.actionable_error` | `error` | `actionable_error` | A runtime-control or activation precondition failure was recorded with a stable code and next action. |
 
 These events are not execution authority. They do not start root work, stop root work, activate child cards, or confirm mutations by themselves; they only let operators and the Runtime Console observe persisted command/run/activation/actionable-error changes sooner. For authoritative freshness, clients must still reconcile through `GET /api/state` after page load, reconnect, stale live updates, or command completion, and command callers should trust the REST command response for the just-submitted mutation.
-
-## Verification commands
-
-### Documentation
-
-```bash
-npm run docs:verify
-npm run docs:build
-```
-
-`npm run docs:verify` runs the VitePress build, checks expected output pages, and semantically verifies operator-facing HTTP routes mentioned in active docs against the Fastify route table. Removed legacy dispatch guidance fails verification if it reappears in current operator instructions.
-
-### Web Control Room
-
-```bash
-npm run web:typecheck
-npm run web:test:control-room
-npm run web:test:stores
-npm run web:test:sweep
-```
-
-The canonical web test namespace is `web:test*`. Ergonomic `test:web` and `test:web:*` aliases are accepted only when they delegate to the matching canonical `web:test*` package script; docs verification fails if a documented alias is missing or drifts from that target.
-
-### Core project checks
-
-```bash
-npm run typecheck
-npm test
-```
-
-## Backup and recovery guidance
-
-Persistent state lives primarily in `.saivage/`. Generated and temporary work outputs live in `.saivage-work/`.
-
-Recommended operator sequence for maintenance or backup:
-
-1. Pause the runtime.
-2. Confirm current runtime health and queue state.
-3. Back up `.saivage/`.
-4. Back up `.saivage-work/` if you need process logs or generated artifacts.
-5. Resume when the maintenance window ends.
-
-For recovery and incident workflows, use the [Operator Runbook](/operator-runbook) and [Troubleshooting](/troubleshooting).
 
 <!-- saivage:operator-routes:start -->
 ## Operator-facing HTTP route inventory

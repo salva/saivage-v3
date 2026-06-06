@@ -5,6 +5,14 @@ import {
   assertNotSecretPath,
 } from './secret-paths.js';
 import { redactTextForOutbound } from '../redaction/index.js';
+import { redactCommandForPolicy } from '../runtime/command-policy.js';
+
+export {
+  assertAnalystInspectionTarget,
+  isAnalystSecretPath,
+  isSecretLikeKey,
+  redactAnalystSecretValue,
+} from './secret-redaction.js';
 
 const NON_SECRET_SENSITIVE_PATHS: ReadonlySet<string> = new Set([
   '.saivage/saivage.json',
@@ -97,7 +105,7 @@ export function redactOperatorErrorMessage(message: string, projectRoot?: string
 }
 
 export function redactCommandForOperator(command: string): string {
-  return redactTextForOutbound(command, 'operator.api', { source: 'file-access-security.command' });
+  return redactCommandForPolicy(command);
 }
 
 export interface SafeProjectPathResult {

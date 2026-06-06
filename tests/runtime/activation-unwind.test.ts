@@ -1,7 +1,7 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { buildParentPlannerActiveRun, completeChildActivationForParent, findActivationCallerEdge, findUnresolvedActivateCardCalls, repairOrphanActivateCardToolCalls, selectChildGoalActivationOutcome, selectPendingActivationChildCardIds, selectTerminalActivationSynthesis } from '../../src/runtime/activation-unwind.js';
+import { completeChildActivationForParent, findActivationCallerEdge, findUnresolvedActivateCardCalls, repairOrphanActivateCardToolCalls, selectChildGoalActivationOutcome, selectPendingActivationChildCardIds, selectTerminalActivationSynthesis } from '../../src/runtime/activation-unwind.js';
 import { createActivationCompletionEnvelope } from '../../src/schemas/index.js';
-import { serializeToolCallMessage } from '../../src/agents/persisted-tool-call.js';
+import { serializeToolCallMessage } from '../../src/contracts/persisted-tool-call.js';
 import type { AgentMessage } from '../../src/schemas/types.js';
 
 function message(overrides: Partial<AgentMessage>): AgentMessage {
@@ -231,24 +231,5 @@ describe('activation unwind helpers', () => {
     });
     expect(selectTerminalActivationSynthesis({ childCardId: 'child-a', card: { status: 'blocked' } as any })).toBeNull();
     expect(selectTerminalActivationSynthesis({ childCardId: 'child-a', card: null })).toBeNull();
-  });
-
-  it('builds parent planner active runs from explicit inputs', () => {
-    expect(buildParentPlannerActiveRun({
-      parentCardId: 'goal-a',
-      parent: { type: 'goal' } as any,
-      at: '2026-01-01T00:00:00.000Z',
-    })).toEqual({
-      card_id: 'goal-a',
-      card_type: 'goal',
-      runtime_status: 'running',
-      phase: 'planner',
-      caller_session_id: null,
-      caller_tool_call_id: null,
-      planner_session_id: 'planner:goal-a',
-      correction_attempts: 0,
-      started_at: '2026-01-01T00:00:00.000Z',
-      last_turn_at: '2026-01-01T00:00:00.000Z',
-    });
   });
 });

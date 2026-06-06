@@ -2,7 +2,7 @@ import type {
   Contract,
   ContractVerifyResult,
 } from '../contracts/contract.js';
-import type { PersistedToolCall } from './persisted-tool-call.js';
+import type { PersistedToolCall } from '../contracts/persisted-tool-call.js';
 import { sanitizeRecoveryMessage } from './invocation-recovery-policy.js';
 
 export interface Obligation {

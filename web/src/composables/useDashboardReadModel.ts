@@ -1,7 +1,7 @@
 import { computed, type ComputedRef, type Ref } from 'vue';
 import type { CardIndex, CardRecord } from '../api/types';
 import type { useCardStore } from '../stores/cards';
-import { selectChildrenOf } from '../stores/card-read-model';
+import { selectChildrenOf } from '../stores/card-presentation';
 
 export interface DashboardReadModel {
   goalChildren: ComputedRef<CardRecord[]>;

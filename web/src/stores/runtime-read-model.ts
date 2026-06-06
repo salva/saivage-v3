@@ -20,15 +20,6 @@ export interface RuntimeSummaryProjection {
   lastActionableError: ActionableErrorEnvelope | null;
 }
 
-export interface RuntimeSummaryMergePatch {
-  intent?: RuntimeIntent | null;
-  currentRun?: RuntimeRunRecord | null;
-  activeChildRuns?: RuntimeRunRecord[];
-  activations?: RuntimeActivationRecord[];
-  lastCommand?: RuntimeCommandRecord | null;
-  lastActionableError?: ActionableErrorEnvelope | null;
-}
-
 export interface RuntimeWsSummaryState extends RuntimeSummaryProjection {
   runtime: RuntimeState | null;
   cardIndex: CardIndex;
@@ -43,6 +34,7 @@ export interface RuntimeWsReduction {
 
 export type LiveUpdateState = 'live' | 'connecting' | 'offline' | 'unauthorized' | 'no-token' | 'stale';
 
+/** Selects raw runtime summary state; presentation labels are derived by selectRuntimeStatusLabel/selectRuntimeModeLabel. */
 export function selectRuntimeSummary(runtime: RuntimeState | null): RuntimeSummaryProjection {
   if (!runtime) {
     return {
@@ -157,33 +149,6 @@ export function selectLiveUpdateDetail(state: LiveUpdateState): string {
   }
 }
 
-function isObjectLike(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-export function mergeRuntimeSummaryPatch(content: unknown): RuntimeSummaryMergePatch {
-  const patch: RuntimeSummaryMergePatch = {};
-  if (!isObjectLike(content)) return patch;
-  if ('summary' in content || 'runtimeSummary' in content) {
-    const summary = content.runtimeSummary ?? content.summary;
-    if (isObjectLike(summary)) {
-      if ('intent' in summary) patch.intent = (summary.intent ?? null) as RuntimeIntent | null;
-      if ('currentRun' in summary) patch.currentRun = (summary.currentRun ?? null) as RuntimeRunRecord | null;
-      if ('activeChildRuns' in summary) patch.activeChildRuns = (summary.activeChildRuns ?? []) as RuntimeRunRecord[];
-      if ('activations' in summary) patch.activations = (summary.activations ?? []) as RuntimeActivationRecord[];
-      if ('lastCommand' in summary) patch.lastCommand = (summary.lastCommand ?? null) as RuntimeCommandRecord | null;
-      if (summary.actionable_error) patch.lastActionableError = summary.actionable_error as ActionableErrorEnvelope;
-    }
-  }
-  if ('intent' in content) patch.intent = (content.intent ?? null) as RuntimeIntent | null;
-  if ('currentRun' in content) patch.currentRun = (content.currentRun ?? null) as RuntimeRunRecord | null;
-  if ('activeChildRuns' in content) patch.activeChildRuns = (content.activeChildRuns ?? []) as RuntimeRunRecord[];
-  if ('activations' in content) patch.activations = (content.activations ?? []) as RuntimeActivationRecord[];
-  if ('lastCommand' in content) patch.lastCommand = (content.lastCommand ?? null) as RuntimeCommandRecord | null;
-  if ('actionable_error' in content) patch.lastActionableError = (content.actionable_error ?? null) as ActionableErrorEnvelope | null;
-  return patch;
-}
-
 export function upsertRuntimeRun(activeChildRuns: RuntimeRunRecord[], currentRun: RuntimeRunRecord | null, run: RuntimeRunRecord): Pick<RuntimeSummaryProjection, 'currentRun' | 'activeChildRuns'> {
   if (run.kind === 'root') {
     return {
@@ -241,8 +206,6 @@ export function reduceRuntimeWsEvent(
       },
     };
   }
-
-  next = { ...next, ...mergeRuntimeSummaryPatch(content) };
 
   if (event === 'runtime.run' && content.run) {
     const updated = upsertRuntimeRun(next.activeChildRuns, next.currentRun, content.run as RuntimeRunRecord);

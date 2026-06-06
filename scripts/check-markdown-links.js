@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -62,6 +63,16 @@ function isIgnoredDirectory(relativePath) {
 }
 
 function markdownFiles(root) {
+  try {
+    return execFileSync('git', ['ls-files', '*.md'], { cwd: root, encoding: 'utf8' })
+      .split('\n')
+      .filter(Boolean)
+      .filter((file) => !isIgnoredDirectory(path.dirname(file)))
+      .sort((a, b) => a.localeCompare(b));
+  } catch {
+    // Fixture/self-test roots are not git worktrees; fall back to walking them.
+  }
+
   const files = [];
 
   function walk(dir, prefix = '') {

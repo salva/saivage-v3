@@ -1,5 +1,6 @@
 import type { CardRecord, RuntimeState } from '../schemas/index.js';
-import { lifecycleCardPatch } from './terminal-commit/lifecycle-patch.js';
+import { activeRunFromActivationState } from './activation-reducer.js';
+import { commitExecutorInvocationFailure } from './terminal-commit/index.js';
 
 export interface StartupActivationSnapshot {
   run: NonNullable<RuntimeState['active_card_run']>;
@@ -79,13 +80,14 @@ export function buildReviewerInterruptedStartupState(input: {
     status: 'running',
     current_card_id: input.run.card_id,
     current_agent_session_id: input.plannerSessionId,
-    active_card_run: {
-      ...input.run,
+    active_card_run: activeRunFromActivationState({
       phase: 'planner',
-      runtime_status: 'running',
-      reviewer_session_id: null,
-      last_turn_at: input.at,
-    },
+      cardId: input.run.card_id,
+      cardType: input.run.card_type,
+      plannerSessionId: input.plannerSessionId,
+      correctionAttempts: input.run.correction_attempts ?? 0,
+      activeRun: { ...input.run, runtime_status: 'running', reviewer_session_id: null },
+    }, input.at),
     updated_at: input.at,
     paused: false,
     paused_at: null,
@@ -97,12 +99,22 @@ export function buildChildRunStartupState(input: {
   parentRun: RuntimeState['active_card_run'];
   at: string;
 }): RuntimeState {
+  const activeCardRun = input.parentRun
+    ? activeRunFromActivationState({
+        phase: 'planner',
+        cardId: input.parentRun.card_id,
+        cardType: input.parentRun.card_type,
+        plannerSessionId: input.parentRun.planner_session_id ?? `planner:${input.parentRun.card_id}`,
+        correctionAttempts: input.parentRun.correction_attempts ?? 0,
+        activeRun: input.parentRun,
+      }, input.at)
+    : null;
   return {
     ...input.previousState,
-    status: input.parentRun ? 'running' : 'idle',
-    current_card_id: input.parentRun?.card_id ?? null,
-    current_agent_session_id: input.parentRun?.planner_session_id ?? null,
-    active_card_run: input.parentRun,
+    status: activeCardRun ? 'running' : 'idle',
+    current_card_id: activeCardRun?.card_id ?? null,
+    current_agent_session_id: activeCardRun?.planner_session_id ?? null,
+    active_card_run: activeCardRun,
     updated_at: input.at,
     paused: false,
     paused_at: null,
@@ -135,7 +147,14 @@ export function buildResumePlannerStartupState(input: {
     status: 'running',
     current_card_id: input.run.card_id,
     current_agent_session_id: input.run.planner_session_id ?? `planner:${input.run.card_id}`,
-    active_card_run: { ...input.run, runtime_status: 'running', last_turn_at: input.at },
+    active_card_run: activeRunFromActivationState({
+      phase: 'planner',
+      cardId: input.run.card_id,
+      cardType: input.run.card_type,
+      plannerSessionId: input.run.planner_session_id ?? `planner:${input.run.card_id}`,
+      correctionAttempts: input.run.correction_attempts ?? 0,
+      activeRun: { ...input.run, runtime_status: 'running' },
+    }, input.at),
     updated_at: input.at,
     paused: false,
     paused_at: null,
@@ -200,29 +219,16 @@ export async function executeStartupActiveRunRepairDecision(input: {
     case 'executor_interrupted': {
       const { run } = decision;
       if (decision.shouldFailCard) {
-        await effects.transitionCard(run.card_id, 'fail', {
+        await commitExecutorInvocationFailure({
+          card: decision.card,
+          goalId: run.planner_session_id?.replace(/^planner:/, '') ?? run.card_id,
           reason: 'service_restart',
           error: 'Execution interrupted by service restart.',
-        });
-        await effects.repairTerminalLifecycle(run.card_id, {
-          ...lifecycleCardPatch({
-            status: 'failed',
-            result: {
-              kind: 'executor_failure',
-              error: 'Execution interrupted by service restart.',
-              partial_result: { failure_kind: 'service_restart' },
-              latest_self_report: {
-                result: 'failed',
-                outcome: 'failed',
-                summary: 'Execution interrupted by service restart.',
-                status_text: 'Execution interrupted by service restart.',
-                at: effects.now(),
-              },
-            },
-            error: 'Execution interrupted by service restart.',
-            completed_at: effects.now(),
-          }),
-          status_text: 'Execution interrupted by service restart.',
+          at: effects.now(),
+          effects: {
+            transitionCard: (cardId, event, details) => effects.transitionCard(cardId, event as 'fail', details),
+            updateCard: (cardId, patch) => effects.repairTerminalLifecycle(cardId, patch),
+          },
         });
       }
       effects.appendChildUnwindToolResult(

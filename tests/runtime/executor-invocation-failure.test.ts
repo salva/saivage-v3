@@ -17,6 +17,7 @@ describe('executor invocation failure handler', () => {
   it('fails the card, appends unwind result, clears active run, and emits card_failed', async () => {
     const calls: string[] = [];
     await handleExecutorInvocationFailure({
+      card: executorCard('code-a'),
       cardId: 'code-a',
       goalId: 'goal-a',
       error: new Error('executor exploded'),
@@ -160,11 +161,37 @@ function testEffects(overrides: Partial<ExecutorInvocationFailureEffects> = {}):
     appendRuntimeDiagnostic: () => undefined,
     appendError: () => undefined,
     transitionCard: async () => undefined,
+    updateCard: () => undefined,
     appendChildUnwindToolResult: () => undefined,
     clearActiveCardRun: () => undefined,
     emitCardFailed: () => undefined,
+    now: () => '2026-01-01T00:00:00.000Z',
     ...overrides,
   };
+}
+
+function executorCard(id: string): CardRecord {
+  return {
+    id,
+    type: 'code',
+    parent: 'goal-a',
+    depth: 1,
+    title: 'Code A',
+    description: 'Do code work',
+    status: 'running',
+    depends_on: [],
+    priority: 1,
+    tags: [],
+    urgency: 'normal',
+    created_by: 'planner',
+    blocks: [],
+    related: [],
+    acceptance: '',
+    artifacts: [],
+    attachments: [],
+    retries: 0,
+    lifecycle: { status: 'running', result: null, error: null, completed_at: null },
+  } as unknown as CardRecord;
 }
 
 function failingAgentRuntime(): AgentExecutionPort {

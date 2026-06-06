@@ -4,7 +4,7 @@ import type { ZodIssue } from 'zod';
 import { writeFileAtomic } from '../persistence/index.js';
 import { saivageConfigSchema } from './config-schema.js';
 import type { SaivageConfig } from './config-schema.js';
-import { redactAnalystSecretValue } from './analyst-secret-classifier.js';
+import { redactAnalystSecretValue } from '../workspace/file-access-security.js';
 
 export type ConfigWriteResult = { success: true; config: SaivageConfig; requires_restart?: boolean } | { success: false; fieldPath: string; message: string };
 

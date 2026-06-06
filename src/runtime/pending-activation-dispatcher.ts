@@ -40,6 +40,12 @@ interface PendingActivationDispatcherDeps extends Pick<RuntimeServices, 'project
   executorActivations: ExecutorActivationDispatcher;
 }
 
+interface DispatchOneActivationResult {
+  dispatchedGoal: boolean;
+  executedTerminal: boolean;
+  failed: boolean;
+}
+
 export class PendingActivationDispatcher {
   constructor(private readonly deps: PendingActivationDispatcherDeps) {}
 
@@ -50,20 +56,7 @@ export class PendingActivationDispatcher {
     if (!card) return { dispatchedGoal: false, executedTerminal: false, failed: true };
     const goalCard = this.deps.cards.read(activation.parent_card_id);
     const callerEdge = this.deps.activationUnwind.findCallerEdge(card.id);
-    if (card.type === 'goal') {
-      const handoff = await deliverChildGoalActivationHandoff({
-        childCardId: card.id,
-        effects: {
-          dispatchGoal: (childCardId) => this.deps.dispatchGoalThroughScheduler(childCardId),
-          readCard: (childCardId) => this.deps.cards.read(childCardId),
-          appendChildUnwindToolResult: (childCardId, outcome, summary) =>
-            this.deps.activationUnwind.appendChildUnwindToolResult(childCardId, outcome, summary),
-        },
-      });
-      return { dispatchedGoal: true, executedTerminal: false, failed: !handoff.completedSuccessfully };
-    }
-    const terminalDispatch = await this.deps.executorActivations.dispatch({ goalId: activation.parent_card_id, goalCard, card, callerEdge });
-    return { dispatchedGoal: false, executedTerminal: terminalDispatch.executedTerminal, failed: terminalDispatch.failed };
+    return this.dispatchOneActivation({ activation, card, goalCard, callerEdge });
   }
 
   async dispatch(goalId: string): Promise<{ dispatchedGoal: boolean; executedTerminal: boolean; failed: boolean }> {
@@ -77,23 +70,14 @@ export class PendingActivationDispatcher {
       for (const card of activationCards) {
         if (this.deps.lifecycle.shuttingDown || this.deps.lifecycle.paused) return { dispatchedGoal, executedTerminal, failed };
         const callerEdge = this.deps.activationUnwind.findCallerEdge(card.id);
-        if (card.type === 'goal') {
-          const handoff = await deliverChildGoalActivationHandoff({
-            childCardId: card.id,
-            effects: {
-              dispatchGoal: (childCardId) => this.deps.dispatchGoalThroughScheduler(childCardId),
-              readCard: (childCardId) => this.deps.cards.read(childCardId),
-              appendChildUnwindToolResult: (childCardId, outcome, summary) =>
-                this.deps.activationUnwind.appendChildUnwindToolResult(childCardId, outcome, summary),
-            },
-          });
-          dispatchedGoal = true;
-          if (!handoff.completedSuccessfully) return { dispatchedGoal, executedTerminal, failed };
-          continue;
-        }
-        const terminalDispatch = await this.deps.executorActivations.dispatch({ goalId, goalCard, card, callerEdge });
-        executedTerminal = executedTerminal || terminalDispatch.executedTerminal;
-        if (terminalDispatch.failed) {
+        const activation = {
+          parent_card_id: goalId,
+          child_card_id: card.id,
+        } as RuntimeActivationRecord;
+        const result = await this.dispatchOneActivation({ activation, card, goalCard, callerEdge });
+        dispatchedGoal = dispatchedGoal || result.dispatchedGoal;
+        executedTerminal = executedTerminal || result.executedTerminal;
+        if (result.failed) {
           failed = true;
           return { dispatchedGoal, executedTerminal, failed };
         }
@@ -107,6 +91,33 @@ export class PendingActivationDispatcher {
     return selectPendingActivationChildCardIds(readRuntimeState(this.deps.projectRoot), goalId)
       .map((childCardId) => this.deps.cards.read(childCardId))
       .filter((card): card is CardRecord => Boolean(card));
+  }
+
+  private async dispatchOneActivation(input: {
+    activation: Pick<RuntimeActivationRecord, 'parent_card_id' | 'child_card_id'>;
+    card: CardRecord;
+    goalCard: CardRecord | null;
+    callerEdge: ReturnType<ActivationUnwindRunner['findCallerEdge']>;
+  }): Promise<DispatchOneActivationResult> {
+    if (input.card.type === 'goal') {
+      const handoff = await deliverChildGoalActivationHandoff({
+        childCardId: input.card.id,
+        effects: {
+          dispatchGoal: (childCardId) => this.deps.dispatchGoalThroughScheduler(childCardId),
+          readCard: (childCardId) => this.deps.cards.read(childCardId),
+          appendChildUnwindToolResult: (childCardId, outcome, summary) =>
+            this.deps.activationUnwind.appendChildUnwindToolResult(childCardId, outcome, summary),
+        },
+      });
+      return { dispatchedGoal: true, executedTerminal: false, failed: !handoff.completedSuccessfully };
+    }
+    const terminalDispatch = await this.deps.executorActivations.dispatch({
+      goalId: input.activation.parent_card_id,
+      goalCard: input.goalCard,
+      card: input.card,
+      callerEdge: input.callerEdge,
+    });
+    return { dispatchedGoal: false, executedTerminal: terminalDispatch.executedTerminal, failed: terminalDispatch.failed };
   }
 
 }

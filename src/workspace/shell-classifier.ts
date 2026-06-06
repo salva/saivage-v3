@@ -22,20 +22,6 @@ export const DESTRUCTIVE_HEADS = new Set([
 const SYSTEM_PATHS = ['/etc', '/usr', '/var', '/boot', '/lib', '/root'];
 const ENV_PREFIX_RE = /^[A-Za-z_][A-Za-z0-9_]*=.*/;
 const VERSION_ARG_RE = /^--version$|^-V$|^-v$/;
-const SAFE_ENV_ALLOWLIST = new Set(['PATH', 'HOME', 'USER', 'LANG', 'TERM']);
-const SAFE_ENV_PREFIXES = ['LC_'];
-const SECRET_ENV_PATTERNS = [
-  /^SAIVAGE_/,
-  /^OPENAI_/,
-  /^ANTHROPIC_/,
-  /^GOOGLE_/,
-  /^AZURE_/,
-  /^TELEGRAM_/,
-  /_TOKEN$/,
-  /_KEY$/,
-  /_SECRET$/,
-  /_PASSWORD$/,
-];
 
 function tokenizeShell(input: string): string[] {
   const tokens: string[] = [];
@@ -245,18 +231,4 @@ export function classifyShellCommand(command: string, cwd: string): ShellSafetyC
   }
 
   return sawLow ? 'low' : 'read_only';
-}
-
-export function sanitizedEnv(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {};
-  for (const [key, value] of Object.entries(process.env)) {
-    if (value === undefined) continue;
-    const allowed = SAFE_ENV_ALLOWLIST.has(key) || SAFE_ENV_PREFIXES.some((prefix) => key.startsWith(prefix));
-    if (allowed) {
-      env[key] = value;
-      continue;
-    }
-    if (SECRET_ENV_PATTERNS.some((pattern) => pattern.test(key))) continue;
-  }
-  return env;
 }

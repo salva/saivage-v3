@@ -69,7 +69,7 @@ import { storeToRefs } from 'pinia';
 import type { ActivityStatus, ConversationEntry } from '../../api/types';
 import { useAnalystChat } from '../../stores/analystChat';
 import { useCardStore } from '../../stores/cards';
-import { selectChildrenOf } from '../../stores/card-read-model';
+import { selectChildrenOf } from '../../stores/card-presentation';
 import { useWorkspaceRouteStore } from '../../stores/workspaceRoute';
 import { useAgentTimeline } from '../../composables/useAgentTimeline';
 import RoundCard from '../conversation/RoundCard.vue';

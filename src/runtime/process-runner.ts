@@ -12,7 +12,8 @@ import {
 import { join, resolve } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
 import { writeFileAtomic, explainLegacyStateRejection } from '../persistence/index.js';
-import { redactCommandForOperator, redactOperatorErrorMessage } from '../workspace/index.js';
+import { redactOperatorErrorMessage } from '../workspace/index.js';
+import { redactCommandForPolicy, sanitizedCommandEnv } from './command-policy.js';
 import { EventLogger } from '../observability/index.js';
 import { queueNotification } from '../notifications/index.js';
 import type { ProcessRecord, ProcessStatus } from '../schemas/index.js';
@@ -435,7 +436,7 @@ export function startProcess(
   pendingStreamCloses.set(id, 2);
 
   const childEnv = {
-    ...process.env,
+    ...sanitizedCommandEnv(),
     PROJECT_ROOT: projectRoot,
     SAIVAGE_ROOT: projectRoot,
     ...options.env,
@@ -475,7 +476,7 @@ export function startProcess(
   const record: ProcessRecord = {
     id,
     card_id: options.cardId,
-    command: redactCommandForOperator(command),
+    command: redactCommandForPolicy(command),
     command_hash: commandHash(projectRoot, command),
     cwd,
     cwd_canonical: resolve(cwd),

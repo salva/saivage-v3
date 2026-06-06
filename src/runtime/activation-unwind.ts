@@ -5,8 +5,8 @@ import { parseToolCallMessage } from '../contracts/persisted-tool-call.js';
 import type { SessionStamper } from '../contracts/session-stamper.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
 import type { RuntimeSessionPersistencePort } from './session-persistence-port.js';
-
-const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'cancelled']);
+import { TERMINAL_STATUSES } from '../permissions/index.js';
+import { activeRunFromActivationState, plannerActivationStateFromGoal } from './activation-reducer.js';
 
 export interface UnresolvedActivateCardCall {
   session_id: string;
@@ -164,25 +164,6 @@ export function selectTerminalActivationSynthesis(input: {
   };
 }
 
-export function buildParentPlannerActiveRun(input: {
-  parentCardId: string;
-  parent: Pick<CardRecord, 'type'>;
-  at: string;
-}): NonNullable<RuntimeState['active_card_run']> {
-  return {
-    card_id: input.parentCardId,
-    card_type: input.parent.type,
-    runtime_status: 'running',
-    phase: 'planner',
-    caller_session_id: null,
-    caller_tool_call_id: null,
-    planner_session_id: `planner:${input.parentCardId}`,
-    correction_attempts: 0,
-    started_at: input.at,
-    last_turn_at: input.at,
-  };
-}
-
 export interface ActivationUnwindRunnerCards {
   read(cardId: string): CardRecord | null;
   getDescendantIds(cardId: string): string[];
@@ -274,7 +255,10 @@ export class ActivationUnwindRunner {
     if (!parentCardId) return null;
     const parent = this.deps.cards.read(parentCardId);
     if (!parent) return null;
-    return buildParentPlannerActiveRun({ parentCardId, parent, at: this.deps.now() });
+    return activeRunFromActivationState(
+      plannerActivationStateFromGoal({ goal: { id: parentCardId, type: parent.type }, plannerSessionId: `planner:${parentCardId}` }),
+      this.deps.now(),
+    );
   }
 
   private markActivationComplete(childCardId: string, outcome: ActivationCompletionOutcome, lifecycle?: CardLifecycleState | null): void {

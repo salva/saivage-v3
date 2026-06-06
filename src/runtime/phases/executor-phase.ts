@@ -1,15 +1,6 @@
 import type { ActivationCompletionOutcome, CardRecord, CardStatus, RuntimeState } from '../../schemas/index.js';
 import type { ExecutorResult } from '../../contracts/index.js';
-import type { RuntimeCardAction } from '../state-machine.js';
-import { RESTARTABLE_STATES, STARTABLE_STATES } from '../../permissions/index.js';
-
-export function selectExecutorStartAction(status: CardStatus): RuntimeCardAction | null {
-  if ((STARTABLE_STATES as readonly CardStatus[]).includes(status)) return 'start';
-  if ((RESTARTABLE_STATES as readonly CardStatus[]).includes(status)) return 'restart';
-  if (status === 'active') return 'reviewer_repair_resume';
-  if (status === 'running') return null;
-  return 'restart';
-}
+import { activeRunFromActivationState, executorActivationStateFromCard } from '../activation-reducer.js';
 
 export interface ExecutorOutcomeDecision {
   parkedForVerification: boolean;
@@ -55,18 +46,7 @@ export function buildExecutorActiveRunPatch(input: {
     status: 'running',
     current_card_id: input.card.id,
     current_agent_session_id: executorSessionId,
-    active_card_run: {
-      card_id: input.card.id,
-      card_type: input.card.type,
-      runtime_status: 'running',
-      phase: 'executor',
-      caller_session_id: input.callerEdge?.callerSessionId ?? `planner:${input.goalId}`,
-      caller_tool_call_id: input.callerEdge?.callerToolCallId ?? null,
-      executor_session_id: executorSessionId,
-      correction_attempts: 0,
-      started_at: input.at,
-      last_turn_at: input.at,
-    },
+    active_card_run: activeRunFromActivationState(executorActivationStateFromCard({ ...input, executorSessionId }), input.at),
   };
 }
 

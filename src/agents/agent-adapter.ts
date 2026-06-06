@@ -53,7 +53,7 @@ import type {
 import type { PlannerResultEnvelope } from '../contracts/planner-envelope.js';
 import type { LlmCallFn } from './llm-contracts.js';
 import { buildLlmOptions } from './llm-options-factory.js';
-import { serializeToolCallMessage } from './persisted-tool-call.js';
+import { serializeToolCallMessage } from '../contracts/persisted-tool-call.js';
 import { LlmRequestError } from './llm-failure.js';
 import { capabilityRequestForLlmOptions } from './provider-capabilities.js';
 import { generateRoundId } from './round-id-server.js';

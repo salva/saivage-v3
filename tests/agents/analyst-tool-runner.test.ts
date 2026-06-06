@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { assertAnalystInspectionTarget } from '../../src/agents/analyst-secret-classifier.js';
+import { assertAnalystInspectionTarget } from '../../src/workspace/file-access-security.js';
 import { runAuditedAnalystTool } from '../../src/agents/analyst-tool-runner.js';
 import type { ToolContext } from '../../src/agents/analyst-tools.js';
 

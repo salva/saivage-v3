@@ -2,7 +2,7 @@ import { Buffer } from 'node:buffer';
 import type { AgentMessage } from '../schemas/index.js';
 import type { Candidate } from './provider.js';
 import type { LlmCompleteOptions, LlmCompleteResult, ToolDefinition } from './llm-contracts.js';
-import { parseToolCallMessage } from './persisted-tool-call.js';
+import { parseToolCallMessage } from '../contracts/persisted-tool-call.js';
 import { LlmRequestError } from './llm-errors.js';
 import { classifierFor, classifyTransportFailure, defaultHttpClassifier } from './llm-failure-classifiers.js';
 import { readOpenAICodexStream } from './llm-codex-parser.js';

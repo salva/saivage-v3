@@ -1,16 +1,16 @@
 import { z } from 'zod';
 
 export type JsonSchema =
-  | { type: 'string'; enum?: string[]; minLength?: number }
-  | { type: 'number' }
-  | { type: 'integer' }
-  | { type: 'boolean' }
-  | { type: 'null' }
-  | { type: 'array'; items: JsonSchema }
-  | { type: 'object'; properties?: Record<string, JsonSchema>; required?: string[]; additionalProperties?: boolean | JsonSchema }
+  | { type: 'string'; enum?: string[]; minLength?: number; description?: string }
+  | { type: 'number'; description?: string }
+  | { type: 'integer'; description?: string }
+  | { type: 'boolean'; description?: string }
+  | { type: 'null'; description?: string }
+  | { type: 'array'; items: JsonSchema; description?: string }
+  | { type: 'object'; properties?: Record<string, JsonSchema>; required?: string[]; additionalProperties?: boolean | JsonSchema; description?: string }
   | { const: unknown }
-  | { anyOf: JsonSchema[] }
-  | Record<string, never>;
+  | { anyOf: JsonSchema[]; description?: string }
+  | { description?: string };
 
 function unwrap(schema: z.ZodTypeAny): { node: z.ZodTypeAny; optional: boolean; nullable: boolean } {
   let node: z.ZodTypeAny = schema;
@@ -47,6 +47,7 @@ function unwrap(schema: z.ZodTypeAny): { node: z.ZodTypeAny; optional: boolean; 
 }
 
 function convertNode(schema: z.ZodTypeAny): JsonSchema {
+  const outerDescription = schema.description;
   const { node, nullable } = unwrap(schema);
   const def = (node as { _def?: Record<string, unknown> })._def;
   const typeName = def?.typeName as string | undefined;
@@ -103,7 +104,7 @@ function convertNode(schema: z.ZodTypeAny): JsonSchema {
       const unknownKeys = def?.unknownKeys as string | undefined;
       const additional: boolean = unknownKeys !== 'strict';
       const obj: JsonSchema = { type: 'object', properties, additionalProperties: additional };
-      if (required.length > 0) (obj as { required: string[] }).required = required;
+      (obj as { required: string[] }).required = required;
       out = obj;
       break;
     }
@@ -128,8 +129,11 @@ function convertNode(schema: z.ZodTypeAny): JsonSchema {
   }
 
   if (nullable) {
-    return { anyOf: [out, { type: 'null' }] };
+    const nullableOut: JsonSchema = { anyOf: [out, { type: 'null' }] };
+    if (outerDescription ?? node.description) nullableOut.description = outerDescription ?? node.description;
+    return nullableOut;
   }
+  if (outerDescription ?? node.description) (out as { description?: string }).description = outerDescription ?? node.description;
   return out;
 }
 

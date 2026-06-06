@@ -1,5 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
-import { classifyShellCommand, sanitizedEnv } from '../../src/workspace/shell-classifier.js';
+import { sanitizedCommandEnv } from '../../src/runtime/command-policy.js';
+import { classifyShellCommand } from '../../src/workspace/shell-classifier.js';
 
 describe('shell classifier', () => {
   const cases: Array<[string, string, 'read_only' | 'low' | 'destructive']> = [
@@ -67,7 +68,7 @@ describe('shell classifier', () => {
     process.env.LC_ALL = process.env.LC_ALL ?? 'C.UTF-8';
     process.env.NOT_SECRET = 'value';
 
-    const env = sanitizedEnv();
+    const env = sanitizedCommandEnv();
 
     expect(env.OPENAI_API_KEY).toBeUndefined();
     expect(env.SAIVAGE_API_TOKEN).toBeUndefined();

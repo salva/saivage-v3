@@ -10,8 +10,7 @@ import {
 import type { RuntimeStateMachine } from './state-machine.js';
 import type { RuntimeRunLedger } from './runtime-run-ledger.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
-
-const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'cancelled']);
+import { TERMINAL_STATUSES } from '../permissions/index.js';
 
 function now(): string {
   return new Date().toISOString();

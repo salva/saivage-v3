@@ -23,6 +23,7 @@ export interface RuntimePauseResumeController {
 
 export function createRuntimePauseResumeController(deps: RuntimePauseResumeControllerDeps): RuntimePauseResumeController {
   return {
+    /** Applies the full pause field group and enables process-output buffering. */
     pause(): void {
     deps.lifecycle.paused = true;
     setProcessTerminalBuffering(deps.projectRoot, true);
@@ -35,6 +36,7 @@ export function createRuntimePauseResumeController(deps: RuntimePauseResumeContr
     deps.eventLogger.appendEvent({ kind: 'paused' });
     },
 
+    /** Applies the full resume field group after injecting planner resume context. */
     resume(): void {
     deps.lifecycle.paused = false;
     setProcessTerminalBuffering(deps.projectRoot, false);

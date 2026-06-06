@@ -1,14 +1,20 @@
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
-import type { ToolDefinition } from './llm-contracts.js';
 import { readProjectFileAtomic, writeFileAtomic } from '../persistence/index.js';
 import { isWriteBlocked } from '../workspace/index.js';
+export {
+  READ_ONLY_WORKSPACE_TOOL_DEFINITIONS,
+  WORKSPACE_TOOL_DEFINITIONS,
+} from '../tools/definitions/index.js';
+import {
+  DEFAULT_COMMAND_TIMEOUT_MS,
+  DEFAULT_MAX_OUTPUT_BYTES,
+  MAX_COMMAND_TIMEOUT_MS,
+  MAX_LIST_RESULTS,
+  truncateCommandOutput,
+} from '../runtime/command-policy.js';
 
 const DEFAULT_MAX_RESULTS = 200;
-const MAX_LIST_RESULTS = 1000;
-const DEFAULT_COMMAND_TIMEOUT_MS = 120000;
-const MAX_COMMAND_TIMEOUT_MS = 600000;
-const MAX_TOOL_OUTPUT_CHARS = 20000;
 
 const SKIPPED_DIRS = new Set([
   '.git',
@@ -19,127 +25,6 @@ const SKIPPED_DIRS = new Set([
   'build',
   '__pycache__',
 ]);
-
-export const READ_ONLY_WORKSPACE_TOOL_DEFINITIONS: ToolDefinition[] = [
-  {
-    type: 'function',
-    function: {
-      name: 'list_project_files',
-      description: 'List files under the Saivage project root. Paths are project-relative; Saivage internal state directories are omitted.',
-      parameters: {
-        type: 'object',
-        properties: {
-          path: { type: 'string', description: 'Project-relative directory to list. Defaults to the project root.' },
-          maxResults: { type: 'integer', description: 'Maximum file paths to return. Defaults to 200; capped at 1000.' },
-        },
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'read_project_file',
-      description: 'Read a project file safely. Paths must resolve inside the project root; blocked Saivage credential files cannot be read and secrets are redacted where appropriate.',
-      parameters: {
-        type: 'object',
-        properties: {
-          path: { type: 'string', description: 'Project-relative file path to read.' },
-        },
-        required: ['path'],
-        additionalProperties: false,
-      },
-    },
-  },
-];
-
-export const WORKSPACE_TOOL_DEFINITIONS: ToolDefinition[] = [
-  ...READ_ONLY_WORKSPACE_TOOL_DEFINITIONS,
-  {
-    type: 'function',
-    function: {
-      name: 'write_project_file',
-      description: 'Create or replace a project file. Paths must resolve inside the project root and may not write Saivage internal state or blocked credential/runtime files.',
-      parameters: {
-        type: 'object',
-        properties: {
-          path: { type: 'string', description: 'Project-relative file path to write.' },
-          content: { type: 'string', description: 'Full file content to write.' },
-        },
-        required: ['path', 'content'],
-        additionalProperties: false,
-      },
-    },
-  },
-
-  {
-    type: 'function',
-    function: {
-      name: 'wait_for_process',
-      description: 'Wait for a previously-started Saivage process by id. Already-terminal processes return their cached terminal status.',
-      parameters: {
-        type: 'object',
-        properties: {
-          processId: { type: 'string', description: 'Process id returned by run_project_command or start_and_wait.' },
-          timeoutMs: { type: 'integer', description: 'Optional wait timeout in milliseconds; capped at 600000.' },
-        },
-        required: ['processId'],
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'kill_process',
-      description: 'Request termination of a Saivage process by id. Already-terminal processes are returned unchanged.',
-      parameters: {
-        type: 'object',
-        properties: {
-          processId: { type: 'string', description: 'Process id to terminate.' },
-          signal: { type: 'string', description: 'Signal to send; defaults to SIGTERM.' },
-        },
-        required: ['processId'],
-        additionalProperties: false,
-      },
-    },
-  },
-
-  {
-    type: 'function',
-    function: {
-      name: 'start_and_wait',
-      description: 'Run a shell command and wait for completion using the durable Saivage process runner.',
-      parameters: {
-        type: 'object',
-        properties: {
-          command: { type: 'string', description: 'Shell command to run.' },
-          cwd: { type: 'string', description: 'Optional project-relative working directory. Defaults to the project root.' },
-          timeoutMs: { type: 'integer', description: 'Timeout in milliseconds. Defaults to 120000 and is capped at 600000.' },
-        },
-        required: ['command'],
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'run_project_command',
-      description: 'Run a shell command from the project root or a project-relative working directory. Output is captured through the Saivage process runner.',
-      parameters: {
-        type: 'object',
-        properties: {
-          command: { type: 'string', description: 'Shell command to run.' },
-          cwd: { type: 'string', description: 'Optional project-relative working directory. Defaults to the project root.' },
-          timeoutMs: { type: 'integer', description: 'Timeout in milliseconds. Defaults to 120000 and is capped at 600000.' },
-        },
-        required: ['command'],
-        additionalProperties: false,
-      },
-    },
-  },
-];
 
 type ProcessRunnerModule = typeof import('../runtime/process-runner.js');
 
@@ -158,8 +43,7 @@ export interface WorkspaceToolContext {
 }
 
 function truncateOutput(value: string): string {
-  if (value.length <= MAX_TOOL_OUTPUT_CHARS) return value;
-  return `${value.slice(0, MAX_TOOL_OUTPUT_CHARS)}\n[truncated]`;
+  return truncateCommandOutput(value, DEFAULT_MAX_OUTPUT_BYTES);
 }
 
 function parseArgs(raw: string): Record<string, unknown> {

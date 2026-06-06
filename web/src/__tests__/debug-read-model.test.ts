@@ -16,7 +16,7 @@ function process(overrides: Partial<ProcessView>): ProcessView {
     command: 'echo ok',
     cwd: null,
     logs: { stdout: null, stderr: null, combined: null },
-    control: { can_view_logs: false, can_terminate: false, terminate_status: 'already-ended', terminate_degraded: false, terminate_reason: 'ended' },
+    control: { can_view_logs: false, termination_available: false, unavailable_reason: 'ended' },
     ...overrides,
   };
 }

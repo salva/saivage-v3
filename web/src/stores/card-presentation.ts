@@ -1,6 +1,7 @@
 import type { CardRecord, CardStatus, CardType, DetailErrorState, DetailFreshnessState } from '../api/types';
 import { ApiError } from '../api/client';
 
+/** Presentation selectors for filtering, ordering, grouping, and UI detail-state projection of cards. */
 export interface CardFilterState {
   status: CardStatus | '';
   type: CardType | '';

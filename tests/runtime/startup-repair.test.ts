@@ -11,6 +11,7 @@ function run(phase: NonNullable<RuntimeState['active_card_run']>['phase']): NonN
 }
 
 const card = { id: 'card-a', status: 'running' } as unknown as CardRecord;
+const nowIso = '2026-01-01T00:00:00.000Z';
 
 describe('startup active run repair decisions', () => {
   it('rehydrates startup activation snapshots from persisted active runs', () => {
@@ -57,7 +58,7 @@ describe('startup active run repair decisions', () => {
       status: 'running',
       current_card_id: 'parent-a',
       current_agent_session_id: 'planner:parent-a',
-      active_card_run: parentRun,
+      active_card_run: expect.objectContaining(parentRun),
       paused: false,
       paused_at: null,
     }));
@@ -157,7 +158,7 @@ describe('startup active run repair decisions', () => {
 
 function testEffects(overrides: Partial<StartupActiveRunRepairEffects> = {}): StartupActiveRunRepairEffects {
   return {
-    now: () => 'now',
+    now: () => nowIso,
     repairOrphanActivateCardToolCalls: () => undefined,
     transitionCard: async () => undefined,
     repairTerminalLifecycle: async () => undefined,

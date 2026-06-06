@@ -1,5 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
-import { buildPlannerActivationPlanningPatch, buildPlannerActiveRunPatch, buildPlannerBlockedDecision, buildPlannerContinuePatch, buildPlannerInvocationFailureBlocker, buildProjectPlannerRetryPatch, decideGoalActivationTransition, decidePlannerPostDispatch, describeProjectPlannerRetry, getActiveTokenBudgetPlanningBlocker, hasPlannerAction, planPlannerActivationSetup, shouldBlockNonActionableContinue, summarizePlannerPostDispatch } from '../../src/runtime/phases/planner-phase.js';
+import { buildPlannerActivationPlanningPatch, buildPlannerActiveRunPatch, buildPlannerBlockedDecision, buildPlannerContinuePatch, buildPlannerInvocationFailureBlocker, buildProjectPlannerRetryPatch, decidePlannerPostDispatch, describeProjectPlannerRetry, getActiveTokenBudgetPlanningBlocker, hasPlannerAction, planPlannerActivationSetup, shouldBlockNonActionableContinue, summarizePlannerPostDispatch } from '../../src/runtime/phases/planner-phase.js';
+import { selectActivationStartAction } from '../../src/runtime/transition-policy.js';
 import type { CardRecord, PlannerBlockedResult } from '../../src/schemas/index.js';
 import type { PlannerResult } from '../../src/contracts/index.js';
 
@@ -11,11 +12,11 @@ function plannerResult(status: PlannerResult['status']): PlannerResult {
 
 describe('planner phase decisions', () => {
   it('decides goal activation transition action by card status', () => {
-    expect(decideGoalActivationTransition('active')).toEqual({ kind: 'none' });
-    expect(decideGoalActivationTransition('backlog')).toEqual({ kind: 'transition', action: 'start' });
-    expect(decideGoalActivationTransition('failed')).toEqual({ kind: 'transition', action: 'restart' });
-    expect(decideGoalActivationTransition('cancelled')).toEqual({ kind: 'transition', action: 'restart' });
-    expect(decideGoalActivationTransition('needs_verification')).toEqual({ kind: 'invalid_status' });
+    expect(selectActivationStartAction('active', 'planner').action).toBe('none');
+    expect(selectActivationStartAction('backlog', 'planner').action).toBe('start');
+    expect(selectActivationStartAction('failed', 'planner').action).toBe('restart');
+    expect(selectActivationStartAction('cancelled', 'planner').action).toBe('restart');
+    expect(selectActivationStartAction('needs_verification', 'planner').action).toBe('reject');
   });
 
   it('detects whether a planner result had durable action', () => {

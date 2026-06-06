@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { SecretPathError, assertNotSecretPath, looksLikeSecretPath } from '../workspace/secret-paths.js';
+import { SecretPathError, assertNotSecretPath, looksLikeSecretPath } from './secret-paths.js';
 
 const SECRET_KEY_RE = /(api[_-]?key|token|secret|password|passwd|credential|cookie|bearer|auth)/i;
 
