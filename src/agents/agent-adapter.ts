@@ -23,9 +23,6 @@ import type {
   AgentMessage,
   HandoffSummary,
   OperationalAgentRole,
-  MessageKind,
-  MessageRole,
-  EntityLink,
   LlmAttemptOutcome,
   LlmFailureClass,
   RuntimeState,
@@ -89,6 +86,7 @@ import { readRuntimeState } from '../runtime/state.js';
 import { SessionStampCounter } from '../runtime/session-stamp-counter.js';
 import { AttemptRecorder } from './attempt-recorder.js';
 import { PlannerEnvelopeTracker } from './planner-envelope-tracker.js';
+import { SessionMessageLog } from './session-message-log.js';
 
 export type AgentRole = OperationalAgentRole;
 export type InvokableAgentRole = AgentInvocationRole;
@@ -150,10 +148,9 @@ export class AgentAdapter implements AgentExecutionPort {
   private readonly plannerControlExecutor: PlannerControlExecutor;
   private readonly toolRuntime: ToolRuntime<typeof AGENT_TOOL_DEFINITIONS>;
   private readonly sessionCoordinator: AgentSessionCoordinator;
+  private readonly messageLog: SessionMessageLog;
   private readonly toolExecutor: AgentToolExecutor;
   private readonly invocationService: InvocationService;
-  private readonly fallbackCurrentRoundId = new Map<string, string>();
-  private readonly fallbackBlockCounters = new Map<string, number>();
   private readonly cardStore: CardStore;
   private readonly runtimeStateProvider?: () => RuntimeState | null;
   private readonly contextCompactor: ContextCompactor;
@@ -237,6 +234,7 @@ export class AgentAdapter implements AgentExecutionPort {
       eventBus: this.eventBus,
       eventLogger: this.eventLogger,
     });
+    this.messageLog = new SessionMessageLog(this.saivageDir);
     this.toolExecutor = new AgentToolExecutor({
       projectRoot: this.projectRoot,
       toolRuntime: this.toolRuntime,
@@ -508,44 +506,13 @@ export class AgentAdapter implements AgentExecutionPort {
     sessionId: string,
     prefix: 'pre' | 'user' | 'assistant' | 'diagnostic' = 'assistant',
   ) {
-    const id = generateRoundId(prefix);
-    this.fallbackCurrentRoundId.set(sessionId, id);
-    if (prefix !== 'assistant') this.fallbackBlockCounters.set(sessionId, 0);
-    return { round_id: id, message_index: 0, block_index: 0 };
+    return this.messageLog.nextFallbackRound(sessionId, prefix);
   }
   private stampInCurrentFallbackRound(sessionId: string) {
-    let current = this.fallbackCurrentRoundId.get(sessionId);
-    if (!current) {
-      current = generateRoundId('assistant');
-      this.fallbackCurrentRoundId.set(sessionId, current);
-    }
-    const block = this.fallbackBlockCounters.get(sessionId) ?? 0;
-    this.fallbackBlockCounters.set(sessionId, block + 1);
-    return { round_id: current, message_index: block, block_index: block };
+    return this.messageLog.stampInCurrentFallbackRound(sessionId);
   }
-  private appendSessionMessage(
-    sessionId: string,
-    message: {
-      role: MessageRole;
-      kind: MessageKind;
-      content: string;
-      tool?: string;
-      tool_call_id?: string;
-      links?: EntityLink[];
-    },
-  ) {
-    const stamp =
-      message.role === 'user'
-        ? this.nextFallbackRound(sessionId, 'user')
-        : message.kind === 'model_issue' ||
-            message.kind === 'model_repair' ||
-            message.kind === 'context_compaction' ||
-            message.kind === 'model_recovered'
-          ? this.nextFallbackRound(sessionId, 'diagnostic')
-          : message.role === 'assistant' && message.kind === 'text'
-            ? this.nextFallbackRound(sessionId, 'assistant')
-            : this.stampInCurrentFallbackRound(sessionId);
-    return appendPersistentMessage(this.saivageDir, sessionId, message, stamp);
+  private appendSessionMessage(sessionId: string, message: Parameters<SessionMessageLog['append']>[1]) {
+    return this.messageLog.append(sessionId, message);
   }
 
   private compensateActivationBarrierThrow(
