@@ -14,6 +14,8 @@ import { deriveCurrentCardId } from './current-run.js';
 
 type EmitAgentEvent = (name: string, data: Record<string, unknown>) => void;
 
+// This module keeps application wiring and test fixture assembly at the runtime boundary.
+// Avoid inlining it into application composition unless that boundary is replaced.
 function createAgentEventBus(getEmitAgentEvent: () => EmitAgentEvent | null): NodeEventEmitter {
   const agentEventBus = new NodeEventEmitter();
   const emitOnAgentEventBus = agentEventBus.emit.bind(agentEventBus);

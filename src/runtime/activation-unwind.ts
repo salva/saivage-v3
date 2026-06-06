@@ -1,10 +1,9 @@
-import type { AgentMessage, ActivationCompletionOutcome, CardLifecycleState, CardRecord, ReviewAssessment } from '../schemas/index.js';
+import type { AgentMessage, AgentSession, ActivationCompletionOutcome, CardLifecycleState, CardRecord, ReviewAssessment } from '../schemas/index.js';
 import type { RuntimeState } from '../schemas/index.js';
 import { createActivationCompletionEnvelope, parseActivationCompletionEnvelope } from '../schemas/index.js';
 import { parseToolCallMessage } from '../contracts/persisted-tool-call.js';
-import type { SessionStamper } from '../contracts/session-stamper.js';
+import type { RoundStamp, RuntimeAppendRecorder, SessionStamper } from '../contracts/session-stamper.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
-import type { RuntimeSessionPersistencePort } from './session-persistence-port.js';
 import { TERMINAL_STATUSES } from '../permissions/index.js';
 import { activeRunFromActivationState, plannerActivationStateFromGoal } from './activation-reducer.js';
 import { isUnresolvedRuntimeActivationStatus } from './state.js';
@@ -20,7 +19,20 @@ export interface ActivationUnwindCallerSessionPort {
   findUniqueUnresolvedActivateCardToolCall(sessionId: string, childCardId: string): { tool_call_id: string } | null | undefined;
 }
 
-export type ActivationUnwindSessionPort = RuntimeSessionPersistencePort;
+export interface ActivationUnwindSessionPort {
+  findPlannerSessionForCard(parentCardId: string): Pick<AgentSession, 'id'> | null | undefined;
+  findUniqueUnresolvedActivateCardToolCall(sessionId: string, childCardId: string): { tool_call_id: string } | null | undefined;
+  appendActivateCardToolResultOnce(
+    sessionId: string,
+    toolCallId: string,
+    content: string,
+    stamp: RoundStamp,
+    appendRecorder?: RuntimeAppendRecorder,
+  ): AgentMessage;
+  listSessions(): string[];
+  getSession(sessionId: string): Pick<AgentSession, 'role'> | null;
+  getSessionMessages(sessionId: string): AgentMessage[];
+}
 
 export interface ActivationUnwindCardPort {
   getParent(childCardId: string): string | null | undefined;

@@ -20,6 +20,8 @@ import { createRuntimeStateMachine, type RuntimeStateMachine } from './state-mac
 import type { RuntimeStateMutationPort } from './mutations.js';
 import type { RuntimeServices } from './runtime-services.js';
 
+// Keep runtime collaborator construction outside Runtime so the class remains
+// focused on lifecycle ownership rather than dispatcher wiring order.
 export interface RuntimeDispatchCollaborators {
   stateMachine: RuntimeStateMachine;
   projectCommands: RuntimeProjectCommandRunner;
