@@ -12,22 +12,15 @@ import type {
   CardDetailResponse,
   DetailErrorState,
   DetailFreshnessState,
-  CardHistoryHeader,
-  CardHistoryEntry,
-  CardDiffRow,
 } from '../api/types';
 import {
   listCards,
   getCard,
-  listCardHistory,
-  getCardHistoryEntry,
-  getCardDiff,
   ApiError,
 } from '../api/client';
 import { createLogger } from '../utils/logger';
 import {
   buildDetailError,
-  buildDetailError as buildPanelError,
   buildTree,
   createEmptyDetailState,
   createFreshDetailState,
@@ -45,6 +38,7 @@ import type {
   DispatchSummary,
 } from './card-detail-view-model';
 import { toCardDetailViewModel } from './card-detail-view-model';
+import { createCardHistoryState } from './card-history-state';
 
 const log = createLogger('store:cards');
 
@@ -65,16 +59,6 @@ export const useCardStore = defineStore('cards', () => {
   const currentDetailError = ref<DetailErrorState | null>(null);
   const currentDetailFreshness = ref<DetailFreshnessState>(createEmptyDetailState());
 
-  const cardHistory = ref<CardHistoryHeader[]>([]);
-  const cardHistoryLoading = ref(false);
-  const cardHistoryError = ref<DetailErrorState | null>(null);
-  const cardHistorySelectedSeq = ref<number | null>(null);
-  const cardHistoryEntry = ref<CardHistoryEntry | null>(null);
-  const cardHistoryEntryLoading = ref(false);
-  const cardHistoryEntryError = ref<DetailErrorState | null>(null);
-  const cardHistoryDiff = ref<CardDiffRow[]>([]);
-  const cardHistoryDiffLoading = ref(false);
-  const cardHistoryDiffError = ref<DetailErrorState | null>(null);
   const staleNotificationByCard = ref<Record<string, boolean>>({});
 
   const filterStatus = ref<CardStatus | ''>('');
@@ -128,19 +112,6 @@ export const useCardStore = defineStore('cards', () => {
     clearCardHistoryState();
   }
 
-  function clearCardHistoryState(): void {
-    cardHistory.value = [];
-    cardHistoryLoading.value = false;
-    cardHistoryError.value = null;
-    cardHistorySelectedSeq.value = null;
-    cardHistoryEntry.value = null;
-    cardHistoryEntryLoading.value = false;
-    cardHistoryEntryError.value = null;
-    cardHistoryDiff.value = [];
-    cardHistoryDiffLoading.value = false;
-    cardHistoryDiffError.value = null;
-  }
-
   function setCardStaleNotification(cardId: string | null | undefined, stale: boolean): void {
     if (!cardId) return;
     staleNotificationByCard.value = { ...staleNotificationByCard.value, [cardId]: stale };
@@ -150,6 +121,12 @@ export const useCardStore = defineStore('cards', () => {
     if (!cardId) return;
     setCardStaleNotification(cardId, false);
   }
+
+  const historyState = createCardHistoryState({
+    currentVersionSeq: () => currentCard.value?.version_seq,
+    clearCurrentCardStaleNotification,
+  });
+  const { clearCardHistoryState, fetchCardHistoryForCard, selectCardHistoryVersion } = historyState;
 
 
   function isStale(cardId: string): boolean {
@@ -211,57 +188,8 @@ export const useCardStore = defineStore('cards', () => {
     }
   }
 
-  async function fetchCardHistoryForCard(cardId: string): Promise<void> {
-    cardHistoryLoading.value = true;
-    cardHistoryError.value = null;
-    try {
-      const response = await listCardHistory(cardId);
-      cardHistory.value = response.history;
-      clearCurrentCardStaleNotification(cardId);
-      if (response.history.length === 0) {
-        cardHistorySelectedSeq.value = null;
-        cardHistoryEntry.value = null;
-        cardHistoryDiff.value = [];
-      }
-    } catch (err) {
-      cardHistoryError.value = buildPanelError(err, 'Failed to load card history');
-      throw err;
-    } finally {
-      cardHistoryLoading.value = false;
-    }
-  }
-
-  async function selectCardHistoryVersion(cardId: string, seq: number): Promise<void> {
-    cardHistorySelectedSeq.value = seq;
-    cardHistoryEntryLoading.value = true;
-    cardHistoryEntryError.value = null;
-    cardHistoryDiffLoading.value = true;
-    cardHistoryDiffError.value = null;
-    try {
-      const [entryResponse, diffResponse] = await Promise.all([
-        getCardHistoryEntry(cardId, seq),
-        getCardDiff(cardId, seq, currentCard.value?.version_seq ?? seq + 1),
-      ]);
-      cardHistoryEntry.value = entryResponse.entry;
-      cardHistoryDiff.value = diffResponse.diff;
-    } catch (err) {
-      const panelError = buildPanelError(err, 'Failed to load card history details');
-      cardHistoryEntryError.value = panelError;
-      cardHistoryDiffError.value = panelError;
-      throw err;
-    } finally {
-      cardHistoryEntryLoading.value = false;
-      cardHistoryDiffLoading.value = false;
-    }
-  }
-
   async function refreshCardHistory(cardId?: string): Promise<void> {
-    const id = cardId ?? currentCard.value?.id;
-    if (!id) return;
-    await fetchCardHistoryForCard(id);
-    if (cardHistorySelectedSeq.value != null) {
-      await selectCardHistoryVersion(id, cardHistorySelectedSeq.value);
-    }
+    await historyState.refreshCardHistory(cardId ?? currentCard.value?.id);
   }
 
 
@@ -301,16 +229,16 @@ export const useCardStore = defineStore('cards', () => {
     currentDispatches,
     currentDetailError,
     currentDetailFreshness,
-    cardHistory,
-    cardHistoryLoading,
-    cardHistoryError,
-    cardHistorySelectedSeq,
-    cardHistoryEntry,
-    cardHistoryEntryLoading,
-    cardHistoryEntryError,
-    cardHistoryDiff,
-    cardHistoryDiffLoading,
-    cardHistoryDiffError,
+    cardHistory: historyState.cardHistory,
+    cardHistoryLoading: historyState.cardHistoryLoading,
+    cardHistoryError: historyState.cardHistoryError,
+    cardHistorySelectedSeq: historyState.cardHistorySelectedSeq,
+    cardHistoryEntry: historyState.cardHistoryEntry,
+    cardHistoryEntryLoading: historyState.cardHistoryEntryLoading,
+    cardHistoryEntryError: historyState.cardHistoryEntryError,
+    cardHistoryDiff: historyState.cardHistoryDiff,
+    cardHistoryDiffLoading: historyState.cardHistoryDiffLoading,
+    cardHistoryDiffError: historyState.cardHistoryDiffError,
     staleNotificationByCard,
     currentCardHasStaleWarning,
     filterStatus,
