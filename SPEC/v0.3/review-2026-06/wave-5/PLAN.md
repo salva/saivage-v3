@@ -12,7 +12,7 @@ This wave assumes Waves 2 and 4 are complete. Verify actual seams before startin
   - F35: A unified `publishRuntimeDiagnostic` owns both event-bus emission and durable logging. Callers provide one diagnostic object once; no separate `emit` + `appendEvent` pairs.
   - F20: One `RuntimeControlCommand` handler computes patches for pause/resume. The runtime calls a single command handler.
 
-These changes mean `invokeAgent` is already shorter and simpler than the current 610-line method. The seams below refer to the post-Wave-4 method, noting which parts are already gone.
+These changes mean `invokeAgent` is already shorter and simpler than the original 610-line method. After the first Wave 5A slices, `AttemptRecorder`, `SessionMessageLog`, `AgentSessionLifecycle`, `PlannerEnvelopeTracker`, and `InvocationModelContext` already exist. The remaining 5A implementation target is the `AgentInvocationRunner` extraction plus final facade cleanup.
 
 Sub-wave 5A requires Wave 4 seams. Sub-waves 5B, 5C, 5D, and 5E may proceed first or in parallel.
 
@@ -34,15 +34,15 @@ Sub-wave 5A requires Wave 4 seams. Sub-waves 5B–5E have no hard dependency on 
 
 ## 5A: AgentAdapter Decomposition (F01)
 
-### Current State (Pre-Wave 5)
+### Current State (After Initial 5A Slices)
 
-`AgentAdapter` (1340 lines) holds:
+`AgentAdapter` (1132 lines after the helper extractions) holds:
 - Constructor with extensive wiring, including `InvocationService`, `ToolDispatcher`, `ContextCompactor`, session coordination, and planner-control wiring
 - Setter injection: `setContentSupervisor`, `setMcpManager`, `setSkillsEngine`, `setAfterSessionCreatedHook`, plus runtime/event-bus setters. `setLlmCallFn` is already removed; fake LLM injection is constructor-based.
 - Planner-specific compaction functions (lines 124–258) — **already extracted to `ContextCompactor` in Wave 4**
-- `synthesizeReportGoalEnvelope` (lines 124–155) — planner-specific terminal envelope synthesis
+- `PlannerEnvelopeTracker` — **already extracted in Wave 5A**; `invokeAgent` still constructs it inline until the runner owns invocation state
 - `invokePlanner`, `invokeExecutor`, `invokeReviewer`, `reinvokeSession` — thin wrappers delegating to `invokeAgent`
-- Private helpers: `processToolCall` delegation, `buildModelMessages`, `nextFallbackRound`, `stampInCurrentFallbackRound`, `appendSessionMessage`, `compensateActivationBarrierThrow`
+- Private helpers: `processToolCall` delegation, `nextFallbackRound`, `stampInCurrentFallbackRound`, `appendSessionMessage`, `compensateActivationBarrierThrow`; model-message construction delegates to `InvocationModelContext`
 - `invokeAgent` core — the method to decompose
 
 ### Post-Wave-4 State (What invokeAgent Looks Like)
@@ -53,21 +53,21 @@ After Wave 4 extractions:
 - Diagnostic publishing → unified `publishRuntimeDiagnostic`
 - Analyst LLM resolution → deleted (merged into shared `InvocationService`)
 
-The remaining `invokeAgent` will be roughly 400–500 lines. It still handles: candidate resolution, session creation, outer recovery loop, inner candidate iteration, message persistence, contract verification loop coordination, planner envelope tracking, activation barrier, attempt recording, session finalization, and the summary verdict.
+The remaining `invokeAgent` is still roughly 560 lines because the outer recovery loop, inner candidate iteration, contract verification loop coordination, activation barrier handling, summary verdict, and failure policy handling are still inline. Helper responsibilities already delegate to extracted modules; the next step is moving orchestration into `AgentInvocationRunner`.
 
 ### Seams in invokeAgent (Post-Wave-4)
 
 | Seam | Lines (approximate) | Responsibility | Extracted to |
 |------|---------------------|----------------|-------------|
-| S1: Session creation & notification | 746–760 | `createSession`, `notifySessionCreated`, `publishSessionStarted` | `AgentSessionLifecycle` |
-| S2: Context message persistence | 761–775 | Append context messages to session | `SessionMessageLog` |
+| S1: Session creation & notification | 588–591 | `createSession`, `notifySessionCreated`, `publishSessionStarted` | `AgentSessionLifecycle` (landed) |
+| S2: Context message persistence | 592–606 | Append pre-stamped context messages to session | `AgentInvocationRunner` using direct persistence or `SessionMessageLog` where stamps are generated |
 | S3: Recovery config & counters | 776–792 | `recoveryDelayMs`, `maxRecoveryRetries`, `maxOuterAttempts`, `invocationStart`, attempt counters | `InvocationContext` (data) |
-| S4: Attempt recording | 786–792 + 1063–1082 + 1162–1181 | `recordAttemptOutcome`, event emission | `AttemptRecorder` |
-| S5: Outer recovery loop | 1211–1257 | `for (let attempt...)` + catch/retry + event emission | `AgentInvocationRunner.run()` |
-| S6: Inner candidate iteration | 813–1208 | `for (candidate of candidateChain)` + same-candidate retry | `AgentInvocationRunner.run()` inner loop |
+| S4: Attempt recording | 611 + 827–879 + 956–975 + 1062–1086 | `recordAttemptOutcome`, summary event data | `AttemptRecorder` (landed; runner will own lifetime) |
+| S5: Outer recovery loop | 1004–1051 | `for (let attempt...)` + catch/retry + event emission | `AgentInvocationRunner.invoke()` |
+| S6: Inner candidate iteration | 613–1003 | `for (candidate of candidateChain)` + same-candidate retry | `AgentInvocationRunner.invoke()` inner loop |
 | S7: LLM call & contract verification | 841–1027 | `AgentLoopDriver` instantiation + `driver.run()` | Stays in `AgentInvocationRunner` (delegation to `AgentLoopDriver`) |
-| S8: Session message persistence | 831–899 + 968–1001 | `appendSessionMessage` calls inside loop | `SessionMessageLog` |
-| S9: Planner envelope tracking | 915–966 | `pendingPlannerRuntimeEnvelope`, `synthesizeReportGoalEnvelope` | `PlannerEnvelopeTracker` |
+| S8: Session message persistence | many loop callbacks | Generated session-message appends | `SessionMessageLog` (landed; runner will call it directly) |
+| S9: Planner envelope tracking | 612 + 757–767 + 818–821 | pending planner runtime envelope | `PlannerEnvelopeTracker` (landed; runner will own per-invocation tracker) |
 | S10: Activation barrier | 915–933 | `markSessionWaiting`, `activationBarrier.dispatch`, `compensateActivationBarrierThrow` | Stays inline (activation-specific) |
 | S11: Post-invocation summary | 1258–1321 | Verdict computation, session completion, event emission | `AgentInvocationRunner` finalization |
 | S12: Getter pass-throughs | approximate tail | `getRouter`, `getRegistry`, `getCandidateAvailability`, `flushRecorders` | `AgentAdapter` facade |
@@ -89,8 +89,9 @@ export interface InvocationRunnerConfig {
   attemptRecorderFactory: () => AttemptRecorder;
   messageLog: SessionMessageLog;
   envelopeTracker?: PlannerEnvelopeTracker;
-  toolDispatcher: ToolDispatcher;       // from Wave 4
-  contextCompactor: ContextCompactor;   // from Wave 4
+  toolExecutor: AgentToolExecutor;
+  modelContext: InvocationModelContext;
+  invocationService: InvocationService;
   contractVerifierFactory: () => ContractVerifier;
   loopDriverFactory: typeof createAgentLoopDriver;
   recoveryPolicy: InvocationRecoveryPolicy;
@@ -119,13 +120,13 @@ The `invoke` method contains:
 4. Outer `for (attempt...)` loop
 5. Inner `for (candidate of candidateChain)` loop with same-candidate retry
 6. LLM call delegation to `AgentLoopDriver`
-7. Planner envelope tracking via `PlannerEnvelopeTracker` (planner role only)
+7. Planner envelope tracking via a fresh `PlannerEnvelopeTracker` (planner role only)
 8. Activation barrier handling (inline, activation-specific, small)
 9. Attempt recording via `AttemptRecorder`
 10. Session finalization via `AgentSessionLifecycle`
 11. Verdict computation and event emission
 
-Each invocation creates a fresh `AttemptRecorder` via `attemptRecorderFactory`; no cross-invocation state leakage.
+Each invocation creates a fresh `AttemptRecorder` via `attemptRecorderFactory` and a fresh `PlannerEnvelopeTracker`; no cross-invocation state leakage.
 
 #### `src/agents/session-lifecycle.ts` — `AgentSessionLifecycle`
 
@@ -330,7 +331,7 @@ AgentAdapter (facade)
 
 Each step is a minimal compilable commit.
 
-#### Step 5A-1: Extract `AttemptRecorder`
+#### Step 5A-1: Extract `AttemptRecorder` — complete
 
 - Create `src/agents/attempt-recorder.ts` with the `AttemptRecorder` class.
 - Replace the inline `recordAttemptOutcome` closure in `invokeAgent` with an `AttemptRecorder` instance.
@@ -338,7 +339,7 @@ Each step is a minimal compilable commit.
 - Update attemptOutcome/lastSucceeded/lastFailed references to use `recorder.getLastSucceeded()` etc.
 - **Validation:** `npm run validate:routine`, `npm test`. All existing tests pass; no behavior change.
 
-#### Step 5A-2: Extract `SessionMessageLog`
+#### Step 5A-2: Extract `SessionMessageLog` — complete
 
 - Create `src/agents/session-message-log.ts` with the `SessionMessageLog` class.
 - Move `appendSessionMessage`, `nextFallbackRound`, `stampInCurrentFallbackRound`, `fallbackCurrentRoundId`, `fallbackBlockCounters` from `AgentAdapter` to `SessionMessageLog`.
@@ -346,14 +347,14 @@ Each step is a minimal compilable commit.
 - `SessionMessageLog` owns `append()` and round-stamping only. `append()` calls `appendPersistentMessage` under the hood. Model-message construction stays in an invocation-context service and is not part of `SessionMessageLog`.
 - **Validation:** `npm run validate:routine`, `npm test`.
 
-#### Step 5A-3: Extract `AgentSessionLifecycle`
+#### Step 5A-3: Extract `AgentSessionLifecycle` — complete
 
 - Create `src/agents/session-lifecycle.ts` with the `AgentSessionLifecycle` class.
 - Move `createSession`/`completeSession`/`markSessionWaiting`/`setSessionStatus`/`updateSessionModel` calls into the lifecycle class.
 - Keep `AgentSessionCoordinator` as the distinct owner of cancellation, notification injection, handoff summaries, and session-start publication. `AgentSessionLifecycle` delegates to the coordinator for these concerns.
 - **Validation:** `npm run validate:routine`, `npm test`. Integration: verify planner, executor, and reviewer invocations still create and complete sessions correctly.
 
-#### Step 5A-4: Extract `PlannerEnvelopeTracker`
+#### Step 5A-4: Extract `PlannerEnvelopeTracker` — complete
 
 - Create `src/agents/planner-envelope-tracker.ts` with `PlannerEnvelopeTracker` class and move `synthesizeReportGoalEnvelope` into it.
 - In `invokeAgent`, replace the `pendingPlannerRuntimeEnvelope` mutable closure variable with a tracker instance scoped to the invocation.
@@ -361,12 +362,18 @@ Each step is a minimal compilable commit.
 - In the `executeActionToolCalls` callback in `AgentLoopDriverIO`, when `role === 'planner'` and a terminal tool is detected, call `tracker.trackTerminalToolResult(toolName, goalId, msg.content)`.
 - **Validation:** `npm run validate:routine`, `npm test`. Planner invocations must still create terminal envelopes correctly.
 
+#### Step 5A-4b: Extract `InvocationModelContext` — complete
+
+- Create `src/agents/invocation-model-context.ts` to own model-message construction from `AgentSessionCoordinator` plus `ContextCompactor`.
+- `AgentAdapter` delegates `buildModelMessages()` to this service. After `AgentInvocationRunner` lands, the runner receives `InvocationModelContext` and calls it directly.
+- **Validation:** `npm run validate:routine`, focused planner/context tests, `npm test`.
+
 #### Step 5A-5: Extract `AgentInvocationRunner`
 
 - Create `src/agents/invocation-runner.ts` with `AgentInvocationRunner`.
 - Move the core of `invokeAgent` (the outer recovery loop, inner candidate iteration, and finalization) into `AgentInvocationRunner.invoke()`.
-- The runner takes `InvocationRunnerConfig` containing all dependencies: router, candidateAvailability, sessionLifecycle, attemptRecorderFactory, messageLog, toolDispatcher, contextCompactor, contractVerifier factory, loopDriver factory, recoveryPolicy, and config.
-- `AgentAdapter.invokeAgent` becomes `return this.invocationRunner.invoke(...)` plus `PlannerEnvelopeTracker` creation for planner role.
+- The runner takes `InvocationRunnerConfig` containing all dependencies: runtime config, router, candidateAvailability, sessionLifecycle, attemptRecorderFactory, messageLog, modelContext, toolExecutor, invocationService, contract verifier factory, loop driver factory, recovery policy, and redaction callbacks.
+- `AgentAdapter.invokeAgent` becomes a thin `return this.invocationRunner.invoke(...)`. The runner creates the per-invocation `PlannerEnvelopeTracker` and `AttemptRecorder`.
 - Thin delegation wrappers `invokePlanner`, `invokeExecutor`, `invokeReviewer` remain on `AgentAdapter` for API compatibility.
 - **Validation:** `npm run validate:routine`, `npm test`. Full integration test: planner loop, executor tool calls, reviewer assessment. Manual: invoke each role end-to-end.
 
