@@ -12,7 +12,7 @@ This wave assumes Waves 2 and 4 are complete. Verify actual seams before startin
   - F35: A unified `publishRuntimeDiagnostic` owns both event-bus emission and durable logging. Callers provide one diagnostic object once; no separate `emit` + `appendEvent` pairs.
   - F20: One `RuntimeControlCommand` handler computes patches for pause/resume. The runtime calls a single command handler.
 
-These changes mean `invokeAgent` is already shorter and simpler than the original 610-line method. After the first Wave 5A slices, `AttemptRecorder`, `SessionMessageLog`, `AgentSessionLifecycle`, `PlannerEnvelopeTracker`, and `InvocationModelContext` already exist. The remaining 5A implementation target is the `AgentInvocationRunner` extraction plus final facade cleanup.
+These changes mean `AgentAdapter` no longer owns the invocation loop. After the Wave 5A slices, `AttemptRecorder`, `SessionMessageLog`, `AgentSessionLifecycle`, `PlannerEnvelopeTracker`, `InvocationModelContext`, and `AgentInvocationRunner` exist. The remaining 5A implementation target is final facade cleanup and any test seam cleanup that can be done without losing coverage intent.
 
 Sub-wave 5A requires Wave 4 seams. Sub-waves 5B, 5C, 5D, and 5E may proceed first or in parallel.
 
@@ -36,14 +36,14 @@ Sub-wave 5A requires Wave 4 seams. Sub-waves 5B–5E have no hard dependency on 
 
 ### Current State (After Initial 5A Slices)
 
-`AgentAdapter` (1132 lines after the helper extractions) holds:
+`AgentAdapter` (569 lines after the runner extraction) holds:
 - Constructor with extensive wiring, including `InvocationService`, `ToolDispatcher`, `ContextCompactor`, session coordination, and planner-control wiring
 - Setter injection: `setContentSupervisor`, `setMcpManager`, `setSkillsEngine`, `setAfterSessionCreatedHook`, plus runtime/event-bus setters. `setLlmCallFn` is already removed; fake LLM injection is constructor-based.
 - Planner-specific compaction functions (lines 124–258) — **already extracted to `ContextCompactor` in Wave 4**
 - `PlannerEnvelopeTracker` — **already extracted in Wave 5A**; `invokeAgent` still constructs it inline until the runner owns invocation state
-- `invokePlanner`, `invokeExecutor`, `invokeReviewer`, `reinvokeSession` — thin wrappers delegating to `invokeAgent`
-- Private helpers: `processToolCall` delegation, `nextFallbackRound`, `stampInCurrentFallbackRound`, `appendSessionMessage`, `compensateActivationBarrierThrow`; model-message construction delegates to `InvocationModelContext`
-- `invokeAgent` core — the method to decompose
+- `invokePlanner`, `invokeExecutor`, `invokeReviewer`, `reinvokeSession` — thin wrappers delegating to a now-thin `invokeAgent`
+- Private helpers: `buildToolsForRole`, `processToolCall`, and `buildModelMessages` remain as test-facing/tool-parity seams; `nextFallbackRound`, `appendSessionMessage`, and `compensateActivationBarrierThrow` remain runtime-support helpers
+- `invokeAgent` is now a thin delegation to `AgentInvocationRunner.invoke()`
 
 ### Post-Wave-4 State (What invokeAgent Looks Like)
 
@@ -53,7 +53,7 @@ After Wave 4 extractions:
 - Diagnostic publishing → unified `publishRuntimeDiagnostic`
 - Analyst LLM resolution → deleted (merged into shared `InvocationService`)
 
-The remaining `invokeAgent` is still roughly 560 lines because the outer recovery loop, inner candidate iteration, contract verification loop coordination, activation barrier handling, summary verdict, and failure policy handling are still inline. Helper responsibilities already delegate to extracted modules; the next step is moving orchestration into `AgentInvocationRunner`.
+The invocation orchestration now lives in `src/agents/invocation-runner.ts`. Remaining 5A cleanup is about shrinking facade wiring, removing or relocating test-only private seams where useful, and making sure the next Wave 6 cleanup targets the runner rather than the old adapter-owned loop.
 
 ### Seams in invokeAgent (Post-Wave-4)
 
@@ -63,8 +63,8 @@ The remaining `invokeAgent` is still roughly 560 lines because the outer recover
 | S2: Context message persistence | 592–606 | Append pre-stamped context messages to session | `AgentInvocationRunner` using direct persistence or `SessionMessageLog` where stamps are generated |
 | S3: Recovery config & counters | 776–792 | `recoveryDelayMs`, `maxRecoveryRetries`, `maxOuterAttempts`, `invocationStart`, attempt counters | `InvocationContext` (data) |
 | S4: Attempt recording | 611 + 827–879 + 956–975 + 1062–1086 | `recordAttemptOutcome`, summary event data | `AttemptRecorder` (landed; runner will own lifetime) |
-| S5: Outer recovery loop | 1004–1051 | `for (let attempt...)` + catch/retry + event emission | `AgentInvocationRunner.invoke()` |
-| S6: Inner candidate iteration | 613–1003 | `for (candidate of candidateChain)` + same-candidate retry | `AgentInvocationRunner.invoke()` inner loop |
+| S5: Outer recovery loop | moved | `for (let attempt...)` + catch/retry + event emission | `AgentInvocationRunner.invoke()` (landed) |
+| S6: Inner candidate iteration | moved | `for (candidate of candidateChain)` + same-candidate retry | `AgentInvocationRunner.invoke()` inner loop (landed) |
 | S7: LLM call & contract verification | 841–1027 | `AgentLoopDriver` instantiation + `driver.run()` | Stays in `AgentInvocationRunner` (delegation to `AgentLoopDriver`) |
 | S8: Session message persistence | many loop callbacks | Generated session-message appends | `SessionMessageLog` (landed; runner will call it directly) |
 | S9: Planner envelope tracking | 612 + 757–767 + 818–821 | pending planner runtime envelope | `PlannerEnvelopeTracker` (landed; runner will own per-invocation tracker) |
@@ -368,7 +368,7 @@ Each step is a minimal compilable commit.
 - `AgentAdapter` delegates `buildModelMessages()` to this service. After `AgentInvocationRunner` lands, the runner receives `InvocationModelContext` and calls it directly.
 - **Validation:** `npm run validate:routine`, focused planner/context tests, `npm test`.
 
-#### Step 5A-5: Extract `AgentInvocationRunner`
+#### Step 5A-5: Extract `AgentInvocationRunner` — complete
 
 - Create `src/agents/invocation-runner.ts` with `AgentInvocationRunner`.
 - Move the core of `invokeAgent` (the outer recovery loop, inner candidate iteration, and finalization) into `AgentInvocationRunner.invoke()`.
@@ -377,10 +377,10 @@ Each step is a minimal compilable commit.
 - Thin delegation wrappers `invokePlanner`, `invokeExecutor`, `invokeReviewer` remain on `AgentAdapter` for API compatibility.
 - **Validation:** `npm run validate:routine`, `npm test`. Full integration test: planner loop, executor tool calls, reviewer assessment. Manual: invoke each role end-to-end.
 
-#### Step 5A-6: Clean up `AgentAdapter` facade
+#### Step 5A-6: Clean up `AgentAdapter` facade — remaining
 
 - Remove all extracted methods from `AgentAdapter`.
-- Verify `AgentAdapter` is now ~300-350 lines: config, construction, setter injection, thin invoke* delegations, pass-through accessors, and other delegation methods.
+- Verify whether `AgentAdapter` can shrink further from its post-runner 569 lines toward ~300-350 lines. Constructor wiring, planner-control reviewer callback, and test-facing private pass-throughs are the current main remaining size drivers.
 - Remove unused imports.
 - **Validation:** `npm run validate:routine`, `npm test`, line count check on `agent-adapter.ts`.
 
