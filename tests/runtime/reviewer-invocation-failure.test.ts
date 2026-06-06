@@ -33,8 +33,7 @@ describe('reviewer invocation failure handler', () => {
 
 function testEffects(overrides: Partial<ReviewerInvocationFailureEffects> = {}): ReviewerInvocationFailureEffects {
   return {
-    emitRuntimeDiagnostic: () => undefined,
-    appendRuntimeDiagnostic: () => undefined,
+    publishRuntimeDiagnostic: () => undefined,
     appendError: () => undefined,
     transitionCard: async () => undefined,
     updateCard: async () => undefined,

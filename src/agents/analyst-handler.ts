@@ -8,6 +8,7 @@ import { AnalystOfflineError, LlmIntentResolver, TOOL_REGISTRY } from './analyst
 import { CardStore } from '../cards/store-api.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
 import type { EventPayload } from '../events/index.js';
+import { buildRuntimeDiagnosticEvent } from '../runtime/runtime-event-publisher.js';
 import type { SessionActivity, SessionStamper } from '../runtime/session-stamper.js';
 import type { CandidateAvailability } from './candidate-availability.js';
 import type { EventLogger } from '../observability/index.js';
@@ -224,12 +225,10 @@ export class AnalystHandler {
 
   private logBoundaryDiagnostic(phase: string, err: unknown): void {
     try {
-      this.runtimeDeps.eventLogger?.appendEvent({
-        kind: 'runtime_diagnostic',
+      this.runtimeDeps.eventLogger?.appendEvent(buildRuntimeDiagnosticEvent({
         phase,
-        error_message: err instanceof Error ? err.message : String(err),
-        ...(err instanceof Error ? { error_name: err.name } : {}),
-      });
+        error: err,
+      }));
     } catch {
       /* best-effort diagnostics; never fail the analyst response path */
     }

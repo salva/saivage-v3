@@ -74,7 +74,7 @@ export function createRuntimeDispatchCollaborators(input: {
     mutations: input.mutations,
     lifecycle: input.lifecycle,
     emit: (eventName, data) => input.events.emit(eventName, data),
-    emitRuntimeDiagnostic: (diagnostic) => input.events.emitRuntimeDiagnostic(diagnostic),
+    publishRuntimeDiagnostic: (diagnostic) => input.events.publishRuntimeDiagnostic(diagnostic),
     now: input.now,
   };
   const projectCommands = new RuntimeProjectCommandRunner({
@@ -89,6 +89,7 @@ export function createRuntimeDispatchCollaborators(input: {
     now: services.now,
     publishRuntimeCommand: (command) => input.events.publishRuntimeLedgerEvent('runtime_command', { command }),
     publishRuntimeRun: (run) => input.events.publishRuntimeLedgerEvent('runtime_run', { run }),
+    publishRuntimeDiagnostic: services.publishRuntimeDiagnostic,
     publishActionableError: (error) =>
       input.events.publishRuntimeLedgerEvent('runtime_actionable_error', { actionable_error: error }),
     trackBackgroundDispatch: (dispatch) => input.diagnostics.trackBackgroundDispatch(dispatch),
@@ -115,7 +116,7 @@ export function createRuntimeDispatchCollaborators(input: {
     eventLogger: services.eventLogger,
     errorLogger: services.errorLogger,
     emit: services.emit,
-    emitRuntimeDiagnostic: services.emitRuntimeDiagnostic,
+    publishRuntimeDiagnostic: services.publishRuntimeDiagnostic,
     now: services.now,
   });
   const pendingActivations = new PendingActivationDispatcher({
@@ -137,7 +138,7 @@ export function createRuntimeDispatchCollaborators(input: {
     activationUnwind: input.activationUnwind,
     runLedger: input.runLedger,
     emit: services.emit,
-    emitRuntimeDiagnostic: services.emitRuntimeDiagnostic,
+    publishRuntimeDiagnostic: services.publishRuntimeDiagnostic,
     now: services.now,
   });
   const plannerDispatcher = new RuntimePlannerDispatcher({
@@ -157,15 +158,14 @@ export function createRuntimeDispatchCollaborators(input: {
     goalDispatcher: input.config.goalDispatcher,
     lifecycle: services.lifecycle,
     emit: services.emit,
-    emitRuntimeDiagnostic: services.emitRuntimeDiagnostic,
+    publishRuntimeDiagnostic: services.publishRuntimeDiagnostic,
     plannerFailureHandler: new PlannerFailureHandler({
       projectRoot: services.projectRoot,
       cards: services.cards,
-      eventLogger: services.eventLogger,
       errorLogger: services.errorLogger,
       stateMachine: services.stateMachine,
       mutations: services.mutations,
-      emitRuntimeDiagnostic: services.emitRuntimeDiagnostic,
+      publishRuntimeDiagnostic: services.publishRuntimeDiagnostic,
       publishRuntimeRun: (run) => input.events.publishRuntimeLedgerEvent('runtime_run', { run }),
       now: services.now,
     }),

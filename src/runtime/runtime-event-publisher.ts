@@ -1,5 +1,6 @@
 import type {
   ActionableErrorEnvelope,
+  RuntimeDiagnosticEvent,
   RuntimeActivationRecord,
   RuntimeCommandRecord,
   RuntimeRunRecord,
@@ -10,6 +11,27 @@ import type { EventLogger } from '../observability/index.js';
 
 const TRACKED_EVENT_KINDS: ReadonlySet<EventKind> = new Set(trackedEventKindValues);
 const EVENT_KINDS: ReadonlySet<EventKind> = new Set(eventKindValues);
+
+export interface RuntimeDiagnosticInput {
+  goal_id?: string;
+  card_id?: string;
+  phase?: string;
+  error: unknown;
+}
+
+export type RuntimeDiagnosticEventInput = Pick<RuntimeDiagnosticEvent, 'kind' | 'goal_id' | 'card_id' | 'phase' | 'error_message' | 'error_name'>;
+
+export function buildRuntimeDiagnosticEvent(input: RuntimeDiagnosticInput): RuntimeDiagnosticEventInput {
+  const error = input.error instanceof Error ? input.error : new Error(String(input.error));
+  return {
+    kind: 'runtime_diagnostic',
+    error_message: error.message,
+    error_name: error.name,
+    ...(input.goal_id !== undefined ? { goal_id: input.goal_id } : {}),
+    ...(input.card_id !== undefined ? { card_id: input.card_id } : {}),
+    ...(input.phase !== undefined ? { phase: input.phase } : {}),
+  };
+}
 
 export class RuntimeEventPublisher {
   readonly eventBus = new EventBus();
@@ -44,20 +66,20 @@ export class RuntimeEventPublisher {
     this.emit(name, data);
   }
 
-  emitRuntimeDiagnostic(input: {
-    goal_id?: string;
-    card_id?: string;
-    phase?: string;
-    error: unknown;
-  }): void {
-    const error = input.error instanceof Error ? input.error : new Error(String(input.error));
+  publishRuntimeDiagnostic(input: RuntimeDiagnosticInput): void {
+    const event = buildRuntimeDiagnosticEvent(input);
     this.emit('runtime_diagnostic', {
-      goal_id: input.goal_id,
-      card_id: input.card_id,
-      phase: input.phase,
-      error_message: error.message,
-      error_name: error.name,
+      goal_id: event.goal_id,
+      card_id: event.card_id,
+      phase: event.phase,
+      error_message: event.error_message,
+      error_name: event.error_name,
     });
+    try {
+      this.eventLogger.appendEvent(event);
+    } catch (err) {
+      console.warn('Failed to append runtime diagnostic event:', err);
+    }
   }
 
   publishRuntimeLedgerEvent(kind: 'runtime_command', payload: { command: RuntimeCommandRecord }): void;

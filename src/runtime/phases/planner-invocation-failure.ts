@@ -1,6 +1,7 @@
 import type { CardRecord, RuntimeRunRecord, RuntimeState } from '../../schemas/index.js';
 import { defaultInvocationRecoveryPolicy } from '../../agents/invocation-recovery-policy.js';
 import type { LlmTransportFailure } from '../../contracts/llm-failure.js';
+import type { RuntimeDiagnosticInput } from '../runtime-event-publisher.js';
 import { buildPlannerInvocationFailureBlocker } from './planner-phase.js';
 import { commitPlannerBlocked, commitPlannerFailed } from '../terminal-commit/index.js';
 
@@ -30,8 +31,7 @@ export function classifyPlannerInvocationFailure(
 
 export interface PlannerInvocationFailureEffects {
   now(): string;
-  emitRuntimeDiagnostic(input: { goal_id: string; phase: 'planner'; error: unknown }): void;
-  appendRuntimeDiagnostic(input: { goal_id: string; phase: 'planner'; error_message: string }): void;
+  publishRuntimeDiagnostic(input: RuntimeDiagnosticInput): void;
   appendError(input: { message: string; goalId: string; phase: 'planner' }): void;
   transitionCard(cardId: string, event: 'block' | 'fail', details: Record<string, unknown>): Promise<unknown>;
   updateCard(cardId: string, patch: Partial<CardRecord>): Promise<unknown> | unknown;
@@ -67,8 +67,7 @@ export async function handlePlannerInvocationFailure(input: {
   effects: PlannerInvocationFailureEffects;
 }): Promise<{ kind: 'handled' } | { kind: 'rethrow'; error: unknown }> {
   const errorMessage = input.error instanceof Error ? input.error.message : String(input.error);
-  input.effects.emitRuntimeDiagnostic({ goal_id: input.goalId, phase: 'planner', error: input.error });
-  input.effects.appendRuntimeDiagnostic({ goal_id: input.goalId, phase: 'planner', error_message: errorMessage });
+  input.effects.publishRuntimeDiagnostic({ goal_id: input.goalId, phase: 'planner', error: input.error });
   input.effects.appendError({ message: errorMessage, goalId: input.goalId, phase: 'planner' });
 
   if (input.failureKind === 'token_budget' || input.failureKind === 'terminal_tool') {

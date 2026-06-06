@@ -1,9 +1,9 @@
 import type { CardRecord } from '../../schemas/index.js';
+import type { RuntimeDiagnosticInput } from '../runtime-event-publisher.js';
 import { commitExecutorInvocationFailure } from '../terminal-commit/index.js';
 
 export interface ExecutorInvocationFailureEffects {
-  emitRuntimeDiagnostic(input: { card_id: string; goal_id: string; phase: 'executor'; error: unknown }): void;
-  appendRuntimeDiagnostic(input: { card_id: string; goal_id: string; phase: 'executor'; error_message: string }): void;
+  publishRuntimeDiagnostic(input: RuntimeDiagnosticInput): void;
   appendError(input: { message: string; cardId: string; goalId: string; phase: 'executor' }): void;
   transitionCard(cardId: string, event: 'fail', details: Record<string, unknown>): Promise<unknown>;
   updateCard(cardId: string, patch: Partial<CardRecord>): Promise<unknown> | unknown;
@@ -21,8 +21,7 @@ export async function handleExecutorInvocationFailure(input: {
   effects: ExecutorInvocationFailureEffects;
 }): Promise<void> {
   const errorMessage = input.error instanceof Error ? input.error.message : String(input.error);
-  input.effects.emitRuntimeDiagnostic({ card_id: input.cardId, goal_id: input.goalId, phase: 'executor', error: input.error });
-  input.effects.appendRuntimeDiagnostic({ card_id: input.cardId, goal_id: input.goalId, phase: 'executor', error_message: errorMessage });
+  input.effects.publishRuntimeDiagnostic({ card_id: input.cardId, goal_id: input.goalId, phase: 'executor', error: input.error });
   input.effects.appendError({ message: errorMessage, cardId: input.cardId, goalId: input.goalId, phase: 'executor' });
   await commitExecutorInvocationFailure({
     card: input.card,

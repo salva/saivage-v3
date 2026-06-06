@@ -7,6 +7,7 @@ import {
   replaceSessionMessages,
 } from './session-persistence.js';
 import type { SessionStamper } from './session-stamper.js';
+import { buildRuntimeDiagnosticEvent } from './runtime-event-publisher.js';
 
 const PLANNER_PERSISTED_HISTORY_COMPACTION_LIMIT_TOKENS = 24000;
 const PLANNER_PERSISTED_HISTORY_RECENT_MESSAGE_LIMIT = 24;
@@ -79,10 +80,9 @@ export function compactPersistedPlannerHistoryForRetry(input: {
     input.sessionStamper.stampDiagnosticInCurrentRound(input.plannerSessionId),
   );
   replaceSessionMessages(join(input.projectRoot, '.saivage'), input.plannerSessionId, [compacted]);
-  input.eventLogger.appendEvent({
-    kind: 'runtime_diagnostic',
+  input.eventLogger.appendEvent(buildRuntimeDiagnosticEvent({
     phase: 'planner_history_compaction',
-    error_message: `Compacted oversized persisted planner history for ${input.plannerSessionId}; original_message_count=${messages.length}; original_estimated_tokens=${estimateMessageTokens(messages)}.`,
-  });
+    error: new Error(`Compacted oversized persisted planner history for ${input.plannerSessionId}; original_message_count=${messages.length}; original_estimated_tokens=${estimateMessageTokens(messages)}.`),
+  }));
   return true;
 }

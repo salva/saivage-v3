@@ -108,7 +108,7 @@ describe('executor invocation failure handler', () => {
         mutations,
         now,
         emit: () => undefined,
-        emitRuntimeDiagnostic: () => undefined,
+        publishRuntimeDiagnostic: () => undefined,
         eventLogger: { appendEvent: () => undefined },
         errorLogger: { appendError: () => undefined },
         stateMachine: {
@@ -152,8 +152,7 @@ describe('executor invocation failure handler', () => {
 
 function testEffects(overrides: Partial<ExecutorInvocationFailureEffects> = {}): ExecutorInvocationFailureEffects {
   return {
-    emitRuntimeDiagnostic: () => undefined,
-    appendRuntimeDiagnostic: () => undefined,
+    publishRuntimeDiagnostic: () => undefined,
     appendError: () => undefined,
     transitionCard: async () => undefined,
     updateCard: () => undefined,

@@ -11,11 +11,10 @@ import {
 export interface PlannerFailureHandlerDeps extends Pick<RuntimeServices,
   | 'projectRoot'
   | 'cards'
-  | 'eventLogger'
   | 'errorLogger'
   | 'stateMachine'
   | 'mutations'
-  | 'emitRuntimeDiagnostic'
+  | 'publishRuntimeDiagnostic'
   | 'now'
 > {
   publishRuntimeRun(run: RuntimeRunRecord): void;
@@ -36,8 +35,7 @@ export class PlannerFailureHandler {
       failedRun,
       effects: {
         now: this.deps.now,
-        emitRuntimeDiagnostic: (input) => this.deps.emitRuntimeDiagnostic(input),
-        appendRuntimeDiagnostic: (input) => this.deps.eventLogger.appendEvent({ kind: 'runtime_diagnostic', ...input }),
+        publishRuntimeDiagnostic: (input) => this.deps.publishRuntimeDiagnostic(input),
         appendError: (input) => this.deps.errorLogger.appendError(input),
         transitionCard: (cardId, event, details) => this.deps.stateMachine.transitionCard(cardId, event, details),
         updateCard: (cardId, patch) => this.deps.cards.repairTerminalLifecycle(cardId, patch),

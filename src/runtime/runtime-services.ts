@@ -3,6 +3,7 @@ import type { ErrorLogger, EventLogger } from '../observability/index.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
 import type { LifecycleFlags } from './runtime-lifecycle-state.js';
 import type { RuntimeStateMachine } from './state-machine.js';
+import type { RuntimeDiagnosticInput } from './runtime-event-publisher.js';
 
 export interface RuntimeServices {
   projectRoot: string;
@@ -13,6 +14,6 @@ export interface RuntimeServices {
   mutations: RuntimeStateMutationPort;
   lifecycle: LifecycleFlags;
   emit(eventName: string, data?: Record<string, unknown>): void;
-  emitRuntimeDiagnostic(input: { goal_id?: string; card_id?: string; phase?: string; error: unknown }): void;
+  publishRuntimeDiagnostic(input: RuntimeDiagnosticInput): void;
   now(): string;
 }

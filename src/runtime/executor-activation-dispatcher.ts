@@ -30,7 +30,7 @@ export interface ExecutorActivationDispatcherDeps extends Pick<RuntimeServices,
   | 'stateMachine'
   | 'mutations'
   | 'emit'
-  | 'emitRuntimeDiagnostic'
+  | 'publishRuntimeDiagnostic'
   | 'now'
 > {
   agentRuntime: AgentExecutionPort;
@@ -83,8 +83,7 @@ export class ExecutorActivationDispatcher {
         goalId,
         error: err,
         effects: {
-          emitRuntimeDiagnostic: (effectInput) => this.deps.emitRuntimeDiagnostic(effectInput),
-          appendRuntimeDiagnostic: (effectInput) => this.deps.eventLogger.appendEvent({ kind: 'runtime_diagnostic', ...effectInput }),
+          publishRuntimeDiagnostic: (effectInput) => this.deps.publishRuntimeDiagnostic(effectInput),
           appendError: (effectInput) => this.deps.errorLogger.appendError(effectInput),
           transitionCard: (cardId, event, details) => this.deps.stateMachine.transitionCard(cardId, event, details),
           updateCard: (cardId, patch) => this.deps.cards.repairTerminalLifecycle(cardId, patch),
@@ -122,8 +121,7 @@ export class ExecutorActivationDispatcher {
         cards: this.deps.cards,
         cardId: card.id,
         onRegistrationError: ({ phase, error, errorMessage }) => {
-          this.deps.emitRuntimeDiagnostic({ card_id: card.id, goal_id: goalId, phase, error });
-          this.deps.eventLogger.appendEvent({ kind: 'runtime_diagnostic', card_id: card.id, phase, error_message: errorMessage });
+          this.deps.publishRuntimeDiagnostic({ card_id: card.id, goal_id: goalId, phase, error });
           this.deps.errorLogger.appendError({ message: errorMessage, cardId: card.id, goalId, phase });
         },
       }),

@@ -48,7 +48,7 @@ export interface RuntimeReviewerDispatcherDeps extends Pick<RuntimeServices,
   | 'errorLogger'
   | 'stateMachine'
   | 'emit'
-  | 'emitRuntimeDiagnostic'
+  | 'publishRuntimeDiagnostic'
   | 'now'
 > {
   agentRuntime: AgentExecutionPort;
@@ -100,8 +100,7 @@ export class RuntimeReviewerDispatcher {
         card: failedGoalCard,
         error: err,
         effects: {
-          emitRuntimeDiagnostic: (input) => this.deps.emitRuntimeDiagnostic(input),
-          appendRuntimeDiagnostic: (input) => this.deps.eventLogger.appendEvent({ kind: 'runtime_diagnostic', ...input }),
+          publishRuntimeDiagnostic: (input) => this.deps.publishRuntimeDiagnostic(input),
           appendError: (input) => this.deps.errorLogger.appendError(input),
           transitionCard: (cardId, event, details) => this.deps.stateMachine.transitionCard(cardId, event, details),
           updateCard: (cardId, patch) => this.deps.cards.repairTerminalLifecycle(cardId, patch),

@@ -23,7 +23,7 @@ export interface RuntimePlannerDispatcherDeps extends Pick<RuntimeServices,
   | 'mutations'
   | 'lifecycle'
   | 'emit'
-  | 'emitRuntimeDiagnostic'
+  | 'publishRuntimeDiagnostic'
   | 'now'
 > {
   agentRuntime: AgentExecutionPort;
@@ -65,13 +65,7 @@ export class RuntimePlannerDispatcher {
       await this.plannerActivationRunner().activate(goalId);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
-      this.deps.emitRuntimeDiagnostic({ goal_id: goalId, phase: 'activate', error: err });
-      this.deps.eventLogger.appendEvent({
-        kind: 'runtime_diagnostic',
-        goal_id: goalId,
-        phase: 'activate',
-        error_message: errorMessage,
-      });
+      this.deps.publishRuntimeDiagnostic({ goal_id: goalId, phase: 'activate', error: err });
       this.deps.errorLogger.appendError({ message: errorMessage, goalId, phase: 'activate' });
       return;
     }
@@ -97,13 +91,7 @@ export class RuntimePlannerDispatcher {
           await this.plannerActivationRunner().activate(goalId);
         } catch (err) {
           const errorMessage = err instanceof Error ? err.message : String(err);
-          this.deps.emitRuntimeDiagnostic({ goal_id: goalId, phase: 'activate', error: err });
-          this.deps.eventLogger.appendEvent({
-            kind: 'runtime_diagnostic',
-            goal_id: goalId,
-            phase: 'activate',
-            error_message: errorMessage,
-          });
+          this.deps.publishRuntimeDiagnostic({ goal_id: goalId, phase: 'activate', error: err });
           this.deps.errorLogger.appendError({ message: errorMessage, goalId, phase: 'activate' });
           return;
         }
@@ -168,13 +156,7 @@ export class RuntimePlannerDispatcher {
 
   private emitReplan(goalId: string, iter: number): void {
     const message = `replanning changed goal at planner iteration ${iter}`;
-    this.deps.emitRuntimeDiagnostic({ goal_id: goalId, phase: 'replan', error: new Error(message) });
-    this.deps.eventLogger.appendEvent({
-      kind: 'runtime_diagnostic',
-      goal_id: goalId,
-      phase: 'replan',
-      error_message: message,
-    });
+    this.deps.publishRuntimeDiagnostic({ goal_id: goalId, phase: 'replan', error: new Error(message) });
   }
 
   private async terminateIfNonTerminal(goalId: string): Promise<void> {

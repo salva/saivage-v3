@@ -67,8 +67,7 @@ describe('planner invocation failure handler', () => {
 function testEffects(overrides: Partial<PlannerInvocationFailureEffects> = {}): PlannerInvocationFailureEffects {
   return {
     now: () => '2026-01-01T00:00:00.000Z',
-    emitRuntimeDiagnostic: () => undefined,
-    appendRuntimeDiagnostic: () => undefined,
+    publishRuntimeDiagnostic: () => undefined,
     appendError: () => undefined,
     transitionCard: async () => undefined,
     updateCard: async () => undefined,

@@ -21,7 +21,7 @@ function makeDeps(overrides: Partial<RuntimePlannerDispatcherDeps> = {}): Runtim
     sessionStamper: {} as RuntimePlannerDispatcherDeps['sessionStamper'],
     lifecycle,
     emit: jest.fn(),
-    emitRuntimeDiagnostic: jest.fn(),
+    publishRuntimeDiagnostic: jest.fn(),
     goalDispatcher: undefined,
     plannerFailureHandler: {} as RuntimePlannerDispatcherDeps['plannerFailureHandler'],
     now: () => '2026-06-04T00:00:00.000Z',

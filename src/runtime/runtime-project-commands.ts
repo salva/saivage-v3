@@ -34,6 +34,7 @@ export class RuntimeProjectCommandRunner {
       | 'stateMachine'
       | 'mutations'
       | 'lifecycle'
+      | 'publishRuntimeDiagnostic'
       | 'now'
     > & {
       agentRuntime: AgentExecutionPort;
@@ -96,11 +97,10 @@ export class RuntimeProjectCommandRunner {
             : false,
         }),
       );
-      this.deps.eventLogger.appendEvent({
-        kind: 'runtime_diagnostic',
+      this.deps.publishRuntimeDiagnostic({
         goal_id: PROJECT_CARD_ID,
         phase: 'planner_blocked_retry',
-        error_message: retryDescription.diagnosticMessage,
+        error: new Error(retryDescription.diagnosticMessage),
       });
     }
     const retryDescription = retryingPlanningBlocker
@@ -155,20 +155,16 @@ export class RuntimeProjectCommandRunner {
                 reason: 'dispatch_failed',
               });
             } catch (transitionError) {
-              this.deps.eventLogger.appendEvent({
-                kind: 'runtime_diagnostic',
+              this.deps.publishRuntimeDiagnostic({
                 goal_id: PROJECT_CARD_ID,
                 phase: 'project_command_dispatch_failure_transition_failed',
-                error_message: transitionError instanceof Error ? transitionError.message : String(transitionError),
-                ...(transitionError instanceof Error ? { error_name: transitionError.name } : {}),
+                error: transitionError,
               });
             }
-            this.deps.eventLogger.appendEvent({
-              kind: 'runtime_diagnostic',
+            this.deps.publishRuntimeDiagnostic({
               goal_id: PROJECT_CARD_ID,
               phase: 'project_command_dispatch_failed',
-              error_message: dispatchError instanceof Error ? dispatchError.message : String(dispatchError),
-              ...(dispatchError instanceof Error ? { error_name: dispatchError.name } : {}),
+              error: dispatchError,
             });
             const plan = planRootRunDispatchFailureUpdate({ state: readRuntimeState(this.deps.projectRoot), runId: run.run_id, nowIso: this.deps.now() });
             if (!plan) return;

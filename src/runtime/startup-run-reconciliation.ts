@@ -5,6 +5,7 @@ import { planIdleRunningRootRunReconciliation } from './runtime-core.js';
 import { readRuntimeState } from './state.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
 import { TERMINAL_STATUSES } from '../permissions/index.js';
+import { buildRuntimeDiagnosticEvent } from './runtime-event-publisher.js';
 
 export function reconcileIdleRunningRootRuns(input: {
   projectRoot: string;
@@ -37,10 +38,9 @@ export function reconcileIdleRunningRootRuns(input: {
     input.mutations.apply({ kind: 'patchRuntimeState', patch: plan.statePatch });
     reconciled = readRuntimeState(input.projectRoot) ?? reconciled;
   }
-  input.eventLogger.appendEvent({
-    kind: 'runtime_diagnostic',
+  input.eventLogger.appendEvent(buildRuntimeDiagnosticEvent({
     phase: 'startup',
-    error_message: plan.diagnosticMessage,
-  });
+    error: new Error(plan.diagnosticMessage),
+  }));
   return readRuntimeState(input.projectRoot) ?? reconciled;
 }
