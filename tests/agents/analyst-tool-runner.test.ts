@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { assertAnalystInspectionTarget } from '../../src/workspace/file-access-security.js';
 import { runAuditedAnalystTool } from '../../src/agents/analyst-tool-runner.js';
-import type { ToolContext } from '../../src/agents/analyst-tools.js';
+import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { CardStore } from '../../src/cards/card-store.js';
 
 function setupRoot(): string {

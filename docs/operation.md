@@ -217,8 +217,8 @@ These routes are mounted by `registerInternalDebugRoutes` for operator diagnosti
 
 | Route | Purpose | Code anchor |
 |---|---|---|
-| `GET /api/debug/doctor` | Run persisted-card consistency checks. | `src/server/routes/chats-files-debug.ts:26 "fastify.get('/api/debug/doctor'"` |
-| `GET /api/debug/supervision` | Read content-supervision review/quarantine summary. | `src/server/routes/chats-files-debug.ts:80 "fastify.get('/api/debug/supervision'"` |
+| `GET /api/debug/doctor` | Run persisted-card consistency checks. | `src/server/routes/chats-files-debug.ts:17 "fastify.get('/api/debug/doctor'"` |
+| `GET /api/debug/supervision` | Read content-supervision review/quarantine summary. | `src/server/routes/chats-files-debug.ts:71 "fastify.get('/api/debug/supervision'"` |
 <!-- saivage:internal-debug-routes:end -->
 
 <!-- saivage:runtime-controls:start -->

@@ -3,7 +3,8 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { navigate_back, navigate_workspace, type ToolContext } from '../../src/agents/analyst-tools.js';
+import { navigate_back, navigate_workspace } from '../../src/tools/analyst-workspace-tools.js';
+import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { CardStore } from '../../src/cards/card-store.js';
 
 function setupRoot(): string {

@@ -239,4 +239,4 @@ Do **not** try to run these Vue/Pinia suites through root `npm test`; the root J
 
 ## Source anchors
 
-Current analyst behavior is implemented by `src/agents/analyst-handler.ts:1`, exposed tool schemas by `src/agents/analyst-tool-schemas.ts:1`, tool authorization/execution by `src/agents/analyst-tools.ts:1`, and analyst session HTTP routes by `src/server/routes/chats-files-debug.ts:74`. The denylist/redaction rules cited above are centralized in `src/workspace/file-access-security.ts:1`.
+Current analyst behavior is implemented by `src/agents/analyst-handler.ts:1`, exposed tool schemas by `src/tools/definitions/index.ts:42`, tool authorization/execution by the grouped `src/tools/analyst-card-tools.ts:1` family modules, and analyst session HTTP routes by `src/server/routes/chats-files-debug.ts:71`. The denylist/redaction rules cited above are centralized in `src/workspace/file-access-security.ts:1`.

@@ -28,8 +28,8 @@ import {
   resume_runtime,
   reorder_child,
   abort_goal_subtree,
-} from '../src/agents/analyst-tools.js';
-import type { ToolContext } from '../src/agents/analyst-tools.js';
+} from '../src/agents/tool-api.js';
+import type { ToolContext } from '../src/tools/analyst-tool-types.js';
 
 import { AnalystHandler, getOrCreateAnalystSession } from '../src/agents/analyst-handler.js';
 import {
@@ -40,7 +40,7 @@ import {
   CREATE_CARD_TYPE_VALUES,
   NOTE_KIND_VALUES,
   URGENCY_VALUES,
-} from '../src/agents/analyst-tool-schemas.js';
+} from '../src/tools/definitions/index.js';
 import { cardStatusSchema, cardTypeSchema, urgencySchema } from '../src/schemas/validators.js';
 import {
   createTestAnalystRuntime,

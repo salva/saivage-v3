@@ -2,7 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ANALYST_TOOL_NAMES } from '../../src/agents/analyst-tool-schemas.js';
+import { ANALYST_TOOL_NAMES } from '../../src/tools/definitions/index.js';
 import { TOOL_REGISTRY } from '../../src/agents/analyst-llm-resolver.js';
 import { PlannerControlExecutor } from '../../src/agents/planner-control-executor.js';
 import { operatorApiContracts } from '../../src/contracts/operator-api.js';
@@ -108,7 +108,7 @@ describe('runtime redesign final golden behavior', () => {
       'docs/runbook/operations.md',
       'src/agents/system-prompt.ts',
       'src/agents/analyst-llm-resolver.ts',
-      'src/agents/analyst-tool-schemas.ts',
+      'src/tools/definitions/index.ts',
     ];
     const combined = activeFiles.map((file) => readFileSync(file, 'utf-8')).join('\n');
     expect(combined).toContain('start_project');

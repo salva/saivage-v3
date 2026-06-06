@@ -221,14 +221,23 @@ function extractUnifiedToolRoleNames(content, role) {
 
 function extractImplementedAgentTools(projectRoot) {
   const catalog = readSource(projectRoot, 'src/agents/agent-tool-catalog.ts');
-  const analystSchemas = readSource(projectRoot, 'src/agents/analyst-tool-schemas.ts');
-  const toolDefinitions = readSource(projectRoot, 'src/tools/definitions/index.ts');
+  const toolDefinitions = [
+    'src/tools/definitions/index.ts',
+    'src/tools/analyst-card-tools.ts',
+    'src/tools/analyst-subtree-tools.ts',
+    'src/tools/analyst-runtime-tools.ts',
+    'src/tools/analyst-workspace-tools.ts',
+    'src/tools/analyst-misc-tools.ts',
+    'src/tools/workspace-tools.ts',
+    'src/tools/planner-control-tools.ts',
+    'src/tools/mcp-skill-tools.ts',
+  ].map((file) => readSource(projectRoot, file)).join('\n');
   const catalogAnalystTools = extractObjectArray(catalog, 'analyst');
   return new Map([
     ['planner', uniqueSorted(extractObjectArray(catalog, 'planner').length > 0 ? extractObjectArray(catalog, 'planner') : extractUnifiedToolRoleNames(toolDefinitions, 'planner'))],
     ['executor', uniqueSorted(extractObjectArray(catalog, 'executor').length > 0 ? extractObjectArray(catalog, 'executor') : extractUnifiedToolRoleNames(toolDefinitions, 'executor'))],
     ['reviewer', uniqueSorted(extractObjectArray(catalog, 'reviewer').length > 0 ? extractObjectArray(catalog, 'reviewer') : extractUnifiedToolRoleNames(toolDefinitions, 'reviewer'))],
-    ['analyst', uniqueSorted(catalogAnalystTools.length > 0 ? catalogAnalystTools : extractUnifiedToolRoleNames(toolDefinitions, 'analyst').length > 0 ? extractUnifiedToolRoleNames(toolDefinitions, 'analyst') : extractToolDefinitionNames(analystSchemas, 'ANALYST_TOOL_DEFINITIONS'))],
+    ['analyst', uniqueSorted(catalogAnalystTools.length > 0 ? catalogAnalystTools : extractUnifiedToolRoleNames(toolDefinitions, 'analyst'))],
   ]);
 }
 

@@ -5,10 +5,11 @@ import { join } from 'node:path';
 
 import { CardStore } from '../../src/cards/card-store.js';
 import { AnalystHandler } from '../../src/agents/analyst-handler.js';
-import { ANALYST_TOOL_DEFINITIONS } from '../../src/agents/analyst-tool-schemas.js';
+import { ANALYST_TOOL_DEFINITIONS } from '../../src/tools/definitions/index.js';
 import { TOOL_REGISTRY, getAnalystSystemPrompt } from '../../src/agents/analyst-llm-resolver.js';
-import { delete_card, reconfigure } from '../../src/agents/analyst-tools.js';
-import type { ToolContext } from '../../src/agents/analyst-tools.js';
+import { delete_card } from '../../src/tools/analyst-card-tools.js';
+import { reconfigure } from '../../src/tools/analyst-misc-tools.js';
+import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { initRuntimeState } from '../../src/runtime/state.js';
 import { startProcess, killProcess } from '../../src/runtime/process-runner.js';
 import { loadConfig } from '../../src/agents/config-schema.js';

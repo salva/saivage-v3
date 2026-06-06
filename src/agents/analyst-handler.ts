@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { writeFileAtomic } from '../persistence/index.js';
 import { agentSessionSchema } from '../schemas/index.js';
 import type { AgentSession, AgentMessage, ControlActionSurface, ControlActionAuditEntry } from '../schemas/index.js';
-import type { ToolResult, ToolContext } from './analyst-tools.js';
+import type { ToolResult, ToolContext } from '../tools/analyst-tool-types.js';
 import { AnalystOfflineError, LlmIntentResolver, TOOL_REGISTRY } from './analyst-llm-resolver.js';
 import { CardStore } from '../cards/store-api.js';
 import type { RuntimeApi } from '../runtime/control-api.js';

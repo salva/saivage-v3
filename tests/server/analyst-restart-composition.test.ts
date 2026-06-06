@@ -1,5 +1,6 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { restart_server, type ToolContext } from '../../src/agents/analyst-tools.js';
+import { restart_server } from '../../src/tools/analyst-runtime-tools.js';
+import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { CardStore } from '../../src/cards/card-store.js';
 
 describe('analyst server restart composition', () => {

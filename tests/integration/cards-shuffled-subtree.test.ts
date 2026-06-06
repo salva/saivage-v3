@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { writeFileAtomic } from '../../src/persistence/index.js';
 import { CardStore } from '../../src/cards/card-store.js';
-import { get_card, get_tree } from '../../src/agents/analyst-tools.js';
+import { get_card, get_tree } from '../../src/tools/analyst-card-tools.js';
 import { registerCardRoutes } from '../../src/server/routes/cards.js';
 import type { CardRecord } from '../../src/schemas/types.js';
 

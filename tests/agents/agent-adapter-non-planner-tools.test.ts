@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { AgentAdapter, type AgentRole } from '../../src/agents/agent-adapter.js';
-import { ANALYST_TOOL_DEFINITIONS } from '../../src/agents/analyst-tool-schemas.js';
+import { ANALYST_TOOL_DEFINITIONS } from '../../src/tools/definitions/index.js';
 import { TOOL_REGISTRY } from '../../src/agents/analyst-llm-resolver.js';
 import type { SaivageConfig } from '../../src/agents/config-schema.js';
 import { MCP_WRAPPER_TOOL_NAMES, SKILL_TOOL_NAMES, WORKSPACE_TOOL_NAMES } from '../../src/tools/definitions/index.js';

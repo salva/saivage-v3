@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ANALYST_TOOL_NAMES } from '../../src/agents/analyst-tool-schemas.js';
+import { ANALYST_TOOL_NAMES } from '../../src/tools/definitions/index.js';
 import { TOOL_REGISTRY } from '../../src/agents/analyst-llm-resolver.js';
 import { operatorApiContracts } from '../../src/contracts/operator-api.js';
 

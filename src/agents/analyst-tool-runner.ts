@@ -1,7 +1,7 @@
 import { evaluateAuthz } from './authz.js';
 import type { SafetyClass } from './authz.js';
 import { recordControlAction, stableStringify } from '../persistence/index.js';
-import type { ToolContext, ToolResult, ActionPreview } from './analyst-tools.js';
+import type { ToolContext, ToolResult, ActionPreview } from '../tools/analyst-tool-types.js';
 
 export interface MutatingSpec<P> {
   action: string;

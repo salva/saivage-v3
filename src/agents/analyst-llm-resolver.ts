@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import type { AgentMessage } from '../schemas/index.js';
 import type { ToolDefinition, LlmInvocationClient, LlmCompleteResult } from './llm-contracts.js';
 import { LlmProviderGateway } from './llm-provider-gateway.js';
-import { ANALYST_TOOL_DEFINITIONS } from './analyst-tool-schemas.js';
+import { ANALYST_TOOL_DEFINITIONS } from '../tools/definitions/index.js';
 import { RoleToolPolicy } from './role-tool-policy.js';
 import { ANALYST_UNSUPPORTED_ACTION_TEMPLATE } from './analyst-tool-runner.js';
 import { loadConfig, getModelParamsForRole, getRuntimeConfig } from './config-schema.js';
@@ -24,7 +24,7 @@ import {
   URGENCY_VALUES,
   type UnifiedToolDefinition,
 } from '../tools/definitions/index.js';
-import type { ToolResult, ToolContext } from './analyst-tools.js';
+import type { ToolResult, ToolContext } from '../tools/analyst-tool-types.js';
 
 export const ANALYST_NO_MODEL_REPLY = "Analyst LLM unavailable: no model candidate is configured for role 'analyst'. Configure a provider/model for role 'analyst' in the project configuration and try again.";
 

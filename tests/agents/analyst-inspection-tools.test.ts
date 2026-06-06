@@ -2,7 +2,8 @@ import { describe, expect, it } from '@jest/globals';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { list_directory, read_file, run_shell_command, type ToolContext } from '../../src/agents/analyst-tools.js';
+import { list_directory, read_file, run_shell_command } from '../../src/tools/analyst-workspace-tools.js';
+import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { CardStore } from '../../src/cards/card-store.js';
 
 function ctx(root: string, surface: ToolContext['surface'] = 'web-chat'): ToolContext {

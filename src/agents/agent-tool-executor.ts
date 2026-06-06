@@ -2,7 +2,7 @@ import type { ContentSupervisor } from '../workspace/index.js';
 import type { McpToolInvocationPort } from '../mcp/manager-api.js';
 import { McpInvokeError, type McpToolDefinition } from '../mcp/protocol-api.js';
 import type { ToolRuntime, AGENT_TOOL_DEFINITIONS } from '../tools/index.js';
-import * as analystTools from './analyst-tools.js';
+import type { ToolResult } from '../tools/analyst-tool-types.js';
 import { loadSkill, LoadSkillError } from './skill-tools.js';
 import type { SkillsEngine } from './skills-engine.js';
 import { processWorkspaceToolCall } from './workspace-tools.js';
@@ -104,7 +104,7 @@ export class AgentToolExecutor {
       if (!result.ok) {
         return { role: 'tool', kind: 'tool_error', content: JSON.stringify({ success: false, error: result.error.message, tool_error: result.error }), tool: tc.function.name, tool_call_id: tc.id };
       }
-      const output = result.output as analystTools.ToolResult;
+      const output = result.output as ToolResult;
       return { role: 'tool', kind: output.success ? 'tool_result' : 'tool_error', content: JSON.stringify(output), tool: tc.function.name, tool_call_id: tc.id };
     }
     if (role === 'planner' && AgentToolCatalog.isPlannerControlTool(tc.function.name)) {

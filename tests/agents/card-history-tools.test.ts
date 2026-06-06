@@ -3,7 +3,8 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'node:
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { CardStore } from '../../src/cards/card-store.js';
-import { list_card_history, get_card_history_entry, diff_card, type ToolContext } from '../../src/agents/analyst-tools.js';
+import { list_card_history, get_card_history_entry, diff_card } from '../../src/tools/analyst-card-tools.js';
+import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 
 function setup(root: string): CardStore {
   const sd = join(root, '.saivage');
