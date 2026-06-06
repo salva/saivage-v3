@@ -39,6 +39,7 @@ import { checkWriteTerritory, getTerritoryWarning } from '../../src/workspace/wr
 import { redactTextForOutbound } from '../../src/redaction/index.js';
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import { loadConfig } from '../../src/agents/config-schema.js';
+import { CardStore } from '../../src/cards/card-store.js';
 
 // ── Helpers ───────────────────────────────────────────────────
 
@@ -197,6 +198,7 @@ describe('ContentSupervisor in AgentAdapter', () => {
       projectRoot: root,
       saivageDir,
       config,
+      cardStore: new CardStore(root),
     });
 
     expect(adapter.getContentSupervisor()).toBeUndefined();
@@ -220,6 +222,7 @@ describe('ContentSupervisor in AgentAdapter', () => {
       projectRoot: root,
       saivageDir,
       config,
+      cardStore: new CardStore(root),
     });
 
     const supervisor = createSupervisor();
@@ -241,6 +244,7 @@ describe('ContentSupervisor in AgentAdapter', () => {
       projectRoot: root,
       saivageDir,
       config,
+      cardStore: new CardStore(root),
     });
 
     const result = adapter.getSafeFileContent(
@@ -267,6 +271,7 @@ describe('ContentSupervisor in AgentAdapter', () => {
       projectRoot: root,
       saivageDir,
       config,
+      cardStore: new CardStore(root),
     });
 
     const rawJson = JSON.stringify({
@@ -296,6 +301,7 @@ describe('ContentSupervisor in AgentAdapter', () => {
       projectRoot: root,
       saivageDir,
       config,
+      cardStore: new CardStore(root),
     });
 
     const result = adapter.getSafeFileContent('src/app.ts', 'export const x = 1;');

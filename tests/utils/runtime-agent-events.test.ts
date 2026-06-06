@@ -11,6 +11,7 @@ import { EventLogger } from '../../src/observability/event-logger.js';
 import { saivageConfigSchema } from '../../src/agents/config-schema.js';
 import type { FakeAgentFixture } from '../../src/agents/fake-agent.js';
 import { createRuntimeCoreTestContainer, type RuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
+import { CardStore } from '../../src/cards/card-store.js';
 
 function makeFixtureDir(tmpDir: string): string {
   const dir = join(tmpDir, 'fixtures');
@@ -220,6 +221,7 @@ describe('AgentAdapter eventBus wiring', () => {
       saivageDir,
       config,
       eventLogger,
+      cardStore: new CardStore(tmpDir),
     });
 
     // Initially no eventBus
@@ -241,6 +243,7 @@ describe('AgentAdapter eventBus wiring', () => {
       saivageDir,
       config,
       eventLogger,
+      cardStore: new CardStore(tmpDir),
     });
 
     adapter.setEventBus(bus);
@@ -287,6 +290,7 @@ describe('AgentAdapter eventBus wiring', () => {
       saivageDir,
       config,
       eventLogger,
+      cardStore: new CardStore(tmpDir),
     });
 
     adapter.setEventBus(eventBus);

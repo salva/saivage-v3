@@ -10,6 +10,7 @@ import { writeFileSync, mkdirSync, rmSync, mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawn as realSpawn } from 'node:child_process';
+import { CardStore } from '../../src/cards/card-store.js';
 
 let nextPid = 12345;
 
@@ -754,14 +755,16 @@ describe('AgentAdapter callMcpTool + ContentSupervisor', () => {
 
   function makeAdapter(root: string) {
     const sd = join(root, '.saivage');
+    const cardStore = new CardStore(root);
     return new AgentAdapter({
       projectRoot: root,
       saivageDir: sd,
       config: {
         server: { port: 8080 },
-        models: { default: ['m'] },
-        providers: { p: { priority: 1, models: ['m'], apiKey: 'k' } },
-      },
+          models: { default: ['m'] },
+          providers: { p: { priority: 1, models: ['m'], apiKey: 'k' } },
+        },
+      cardStore,
     });
   }
 

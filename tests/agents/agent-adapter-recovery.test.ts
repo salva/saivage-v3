@@ -8,6 +8,7 @@ import type { LlmCallFn } from '../../src/agents/llm-contracts.js';
 import type { SaivageConfig } from '../../src/agents/config-schema.js';
 import { LlmRequestError } from '../../src/agents/llm-failure.js';
 import { getSession, getSessionMessages, listSessions } from '../../src/agents/session-persistence.js';
+import { CardStore } from '../../src/cards/card-store.js';
 
 function config(): SaivageConfig {
   return ({
@@ -42,7 +43,7 @@ function config(): SaivageConfig {
 }
 
 function makeAdapter(root: string, cfg = config()): AgentAdapter {
-  return new AgentAdapter({ projectRoot: root, saivageDir: join(root, '.saivage'), config: cfg });
+  return new AgentAdapter({ projectRoot: root, saivageDir: join(root, '.saivage'), config: cfg, cardStore: new CardStore(root) });
 }
 
 import type { LlmCompleteResult } from '../../src/agents/llm-contracts.js';

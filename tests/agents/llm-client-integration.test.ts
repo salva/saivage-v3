@@ -22,6 +22,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { EventEmitter } from 'node:events';
+import { CardStore } from '../../src/cards/card-store.js';
 
 // ── Dynamic imports ────────────────────────────────────────────
 
@@ -576,7 +577,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       const events = new EventEmitter();
       const failures: unknown[] = [];
       events.on('llm_attempt', (event: { outcome?: { kind?: string } }) => { if (event?.outcome?.kind === 'failed') failures.push(event); });
-      const adapter = createAgentAdapter(adapterTempDir, events);
+      const adapter = createAgentAdapter(adapterTempDir, events, new CardStore(adapterTempDir));
       adapter.setLlmCallFn(adapter.createLlmCallFn());
 
       await expect(
@@ -798,7 +799,7 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
 
       const { config } = loadConfig(tempDir);
       const saivageDir = join(tempDir, '.saivage');
-      const adapter = new AgentAdapter({ projectRoot: tempDir, saivageDir, config });
+      const adapter = new AgentAdapter({ projectRoot: tempDir, saivageDir, config, cardStore: new CardStore(tempDir) });
 
       // Verify router resolves candidates
       const registry = new ProviderRegistry(config);
@@ -863,7 +864,7 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
         else if (event?.outcome?.kind === 'failed') failures.push(event);
       });
 
-      const adapter = createAgentAdapter(tempDir, events);
+      const adapter = createAgentAdapter(tempDir, events, new CardStore(tempDir));
       adapter.setLlmCallFn(adapter.createLlmCallFn());
 
       const result = await adapter.invokePlanner('goal-codex-retry', sp(), msgs());
@@ -906,7 +907,7 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
         runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
       });
 
-      const adapter = createAgentAdapter(tempDir);
+      const adapter = createAgentAdapter(tempDir, undefined, new CardStore(tempDir));
       adapter.setLlmCallFn(adapter.createLlmCallFn());
       const result = await adapter.invokeExecutor(
         'code-1', 'goal-1', sp(), msgs(),
@@ -942,7 +943,7 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
         runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
       });
 
-      const adapter = createAgentAdapter(tempDir);
+      const adapter = createAgentAdapter(tempDir, undefined, new CardStore(tempDir));
       adapter.setLlmCallFn(adapter.createLlmCallFn());
 
       await expect(
@@ -1082,7 +1083,7 @@ describe('Account-level Provider Config Overrides', () => {
         runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
       });
 
-      const adapter = createAgentAdapter(tempDir);
+      const adapter = createAgentAdapter(tempDir, undefined, new CardStore(tempDir));
       adapter.setLlmCallFn(adapter.createLlmCallFn());
 
       const result = await adapter.invokePlanner(
@@ -1125,7 +1126,7 @@ describe('Account-level Provider Config Overrides', () => {
         runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
       });
 
-      const adapter = createAgentAdapter(tempDir);
+      const adapter = createAgentAdapter(tempDir, undefined, new CardStore(tempDir));
       adapter.setLlmCallFn(adapter.createLlmCallFn());
 
       await adapter.invokePlanner(
@@ -1176,7 +1177,7 @@ describe('Account-level Provider Config Overrides', () => {
         'utf-8',
       );
 
-      const adapter = createAgentAdapter(tempDir);
+      const adapter = createAgentAdapter(tempDir, undefined, new CardStore(tempDir));
       adapter.setLlmCallFn(adapter.createLlmCallFn());
 
       await adapter.invokePlanner(
@@ -1205,7 +1206,7 @@ describe('Account-level Provider Config Overrides', () => {
         runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
       });
 
-      const adapter = createAgentAdapter(tempDir);
+      const adapter = createAgentAdapter(tempDir, undefined, new CardStore(tempDir));
       const candidates = await adapter.router.resolve('planner');
       const candidate = candidates[0];
       expect(candidate.provider).toBe('opencode-go');
@@ -1267,7 +1268,7 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
         runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
       });
 
-      const adapter = createAgentAdapter(tempDir);
+      const adapter = createAgentAdapter(tempDir, undefined, new CardStore(tempDir));
       adapter.setLlmCallFn(adapter.createLlmCallFn());
       await adapter.invokePlanner('goal-tc1', sp(), msgs());
 
@@ -1307,7 +1308,7 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
         runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
       });
 
-      const adapter = createAgentAdapter(tempDir);
+      const adapter = createAgentAdapter(tempDir, undefined, new CardStore(tempDir));
       adapter.setLlmCallFn(adapter.createLlmCallFn());
       await adapter.invokePlanner('goal-tc2', sp(), msgs());
 
@@ -1347,7 +1348,7 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
         runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
       });
 
-      const adapter = createAgentAdapter(tempDir);
+      const adapter = createAgentAdapter(tempDir, undefined, new CardStore(tempDir));
       adapter.setLlmCallFn(adapter.createLlmCallFn());
       await adapter.invokePlanner('goal-tc3', sp(), msgs());
 
@@ -1387,7 +1388,7 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
         runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
       });
 
-      const adapter = createAgentAdapter(tempDir);
+      const adapter = createAgentAdapter(tempDir, undefined, new CardStore(tempDir));
       adapter.setLlmCallFn(adapter.createLlmCallFn());
       await adapter.invokePlanner('goal-tc4', sp(), msgs());
 
@@ -1427,7 +1428,7 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
         runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
       });
 
-      const adapter = createAgentAdapter(tempDir);
+      const adapter = createAgentAdapter(tempDir, undefined, new CardStore(tempDir));
       adapter.setLlmCallFn(adapter.createLlmCallFn());
       await adapter.invokePlanner('goal-tc5', sp(), msgs());
 

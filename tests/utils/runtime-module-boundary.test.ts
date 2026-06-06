@@ -177,7 +177,7 @@ describe('runtime module ownership boundary', () => {
   it('keeps production runtime core parts free of concrete card mutation authority', () => {
     const source = readFileSync(join(process.cwd(), 'src/runtime/runtime-config.ts'), 'utf8');
     const start = source.indexOf('export interface RuntimeCoreParts');
-    const end = source.indexOf('export interface RuntimeTestParts');
+    const end = source.indexOf('export type RuntimeCardTestStore');
     expect(start).toBeGreaterThanOrEqual(0);
     expect(end).toBeGreaterThan(start);
     const coreParts = source.slice(start, end);

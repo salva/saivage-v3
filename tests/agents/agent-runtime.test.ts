@@ -9,6 +9,7 @@ import type { AgentExecutionPort as AgentRuntime } from '../../src/contracts/ind
 import type { SaivageConfig } from '../../src/agents/config-schema.js';
 import type { PlannerResult } from '../../src/contracts/index.js';
 import { getSessionMessages, listSessions } from '../../src/agents/session-persistence.js';
+import { CardStore } from '../../src/cards/card-store.js';
 
 function assertAgentRuntime(rt: AgentRuntime): AgentRuntime { return rt; }
 function makeFixtureDir(tmpDir: string): string { const dir = join(tmpDir, 'fixtures'); mkdirSync(dir, { recursive: true }); return dir; }
@@ -38,7 +39,7 @@ function createMinimalAdapter(tmpDir: string): AgentAdapter {
   writeMinimalConfig(tmpDir);
   const configRaw = readFileSync(join(tmpDir, '.saivage', 'saivage.json'), 'utf-8');
   const config = JSON.parse(configRaw) as SaivageConfig;
-  return new AgentAdapter({ projectRoot: tmpDir, saivageDir: join(tmpDir, '.saivage'), config });
+  return new AgentAdapter({ projectRoot: tmpDir, saivageDir: join(tmpDir, '.saivage'), config, cardStore: new CardStore(tmpDir) });
 }
 
 describe('AgentRuntime Interface', () => {

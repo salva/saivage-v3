@@ -12,6 +12,7 @@ import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { releaseLock } from '../../src/runtime/lock.js';
 import { getSession } from '../../src/agents/session-persistence.js';
 import { createRuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
+import { CardStore } from '../../src/cards/card-store.js';
 
 type CancellationTracker = {
   abortCalls: Array<{ sessionId: string }>;
@@ -47,6 +48,7 @@ function createMinimalAdapter(
     config: minimalConfig,
     eventBus: opts?.eventBus,
     eventLogger: opts?.eventLogger,
+    cardStore: new CardStore(tmpDir),
   });
 }
 
@@ -87,6 +89,7 @@ function createConfiguredAdapter(
     config: configuredConfig,
     eventBus: opts?.eventBus,
     eventLogger: opts?.eventLogger,
+    cardStore: new CardStore(tmpDir),
   });
 }
 
@@ -785,6 +788,7 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
       saivageDir: join(tmpDir, '.saivage'),
       config: multiConfig,
       eventBus,
+      cardStore: new CardStore(tmpDir),
     });
 
     const attemptedCandidates: string[] = [];
@@ -854,6 +858,7 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
       saivageDir: join(tmpDir, '.saivage'),
       config: multiConfig,
       eventBus,
+      cardStore: new CardStore(tmpDir),
     });
 
     const attemptedCandidates: string[] = [];

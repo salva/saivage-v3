@@ -14,6 +14,7 @@ import {
   TransportError,
   TimeoutError,
 } from '../../src/mcp/protocol-api.js';
+import { CardStore } from '../../src/cards/card-store.js';
 
 function createMinimalAdapter(tmpDir: string): AgentAdapter {
   const minimalConfig = {
@@ -35,6 +36,7 @@ function createMinimalAdapter(tmpDir: string): AgentAdapter {
     projectRoot: tmpDir,
     saivageDir: join(tmpDir, '.saivage'),
     config: minimalConfig,
+    cardStore: new CardStore(tmpDir),
   });
 }
 

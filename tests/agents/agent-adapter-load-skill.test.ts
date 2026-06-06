@@ -15,6 +15,7 @@ import {
 import type { ToolDefinition } from '../../src/agents/llm-contracts.js';
 import { SkillsEngine } from '../../src/agents/skills-engine.js';
 import type { SkillIndexEntry, AgentRole as SchemaAgentRole } from '../../src/schemas/types.js';
+import { CardStore } from '../../src/cards/card-store.js';
 
 function makeEntry(overrides: Partial<SkillIndexEntry> = {}): SkillIndexEntry {
   return {
@@ -51,6 +52,7 @@ function createMinimalAdapter(tmpDir: string): AgentAdapter {
     projectRoot: tmpDir,
     saivageDir: join(tmpDir, '.saivage'),
     config: minimalConfig,
+    cardStore: new CardStore(tmpDir),
   });
 }
 

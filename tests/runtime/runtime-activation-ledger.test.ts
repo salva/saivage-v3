@@ -153,6 +153,7 @@ describe('runtime activation ledger target contract (Wave 1)', () => {
         config,
         eventLogger: logger,
         activationLedger: activationLedger(ctx.projectRoot),
+        cardStore: ctx.cardStore,
       });
       agentAdapter.setRuntimeLedgerEventBus(eventBus);
       const events: Array<{ kind: string; run?: unknown; activation?: unknown; id?: string; timestamp?: string }> = [];

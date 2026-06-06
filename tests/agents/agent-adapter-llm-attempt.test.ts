@@ -18,6 +18,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { EventEmitter } from 'node:events';
+import { CardStore } from '../../src/cards/card-store.js';
 
 let createAgentAdapter: typeof import('../../src/agents/agent-adapter.js').createAgentAdapter;
 
@@ -134,7 +135,7 @@ describe('AgentAdapter F04 llm_attempt + llm_invocation_summary emission', () =>
     events.on('llm_attempt', (e: AttemptEvent) => attempts.push(e));
     events.on('llm_invocation_summary', (e: SummaryEvent) => summaries.push(e));
 
-    const adapter = createAgentAdapter(tempDir, events);
+    const adapter = createAgentAdapter(tempDir, events, new CardStore(tempDir));
     adapter.setLlmCallFn(adapter.createLlmCallFn());
 
     const result = await adapter.invokePlanner('goal-f04-failover', spText(), userMsgs());
@@ -171,7 +172,7 @@ describe('AgentAdapter F04 llm_attempt + llm_invocation_summary emission', () =>
     const summaries: SummaryEvent[] = [];
     events.on('llm_attempt', (e: AttemptEvent) => attempts.push(e));
     events.on('llm_invocation_summary', (e: SummaryEvent) => summaries.push(e));
-    const adapter = createAgentAdapter(tempDir, events);
+    const adapter = createAgentAdapter(tempDir, events, new CardStore(tempDir));
     adapter.setLlmCallFn(adapter.createLlmCallFn());
 
     await expect(adapter.invokePlanner('goal-f04-exhausted', spText(), userMsgs())).rejects.toBeDefined();

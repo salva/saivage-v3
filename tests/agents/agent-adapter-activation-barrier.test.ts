@@ -149,6 +149,7 @@ describe('AgentAdapter activation barrier compensation', () => {
       saivageDir: join(root, '.saivage'),
       config: config(),
       activationLedger: activationLedger(root),
+      cardStore: store,
     });
     adapter.setLlmCallFn(jest.fn<LlmCallFn>().mockResolvedValue(activateCardCall(child.id)));
 

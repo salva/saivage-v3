@@ -100,7 +100,11 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
     try {
       const response = await fastify.inject({ method: 'POST', url: '/api/chats/analyst', payload: { content: 'hi', workspaceContext: { view: 42, entityId: null, refinement: null } } });
       expect(response.statusCode).toBe(400);
-      expect(response.json()).toEqual({ error: 'workspaceContext.view must be a string or null.' });
+      expect(response.json()).toMatchObject({
+        error: 'ValidationError',
+        message: 'chats.send body did not match the operator API contract',
+        issues: expect.any(Array),
+      });
       expect(handleMessage).not.toHaveBeenCalled();
     } finally { await fastify.close(); }
   });

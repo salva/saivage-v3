@@ -94,7 +94,7 @@ describe('AgentAdapter planner-control reviewer prompt contract', () => {
     const config = minimalConfig();
     writeFileSync(join(tmpDir, '.saivage', 'saivage.json'), JSON.stringify(config, null, 2), 'utf-8');
     store = new CardStore(tmpDir);
-    adapter = new AgentAdapter({ projectRoot: tmpDir, saivageDir: join(tmpDir, '.saivage'), config });
+    adapter = new AgentAdapter({ projectRoot: tmpDir, saivageDir: join(tmpDir, '.saivage'), config, cardStore: store });
     jest.spyOn(adapter.router, 'resolve').mockResolvedValue([{ provider: 'test-provider', model: 'test-model', account: 'default' }]);
     jest.spyOn(adapter.candidateAvailability, 'isAvailable').mockReturnValue(true);
   });

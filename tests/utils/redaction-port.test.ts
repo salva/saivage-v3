@@ -26,6 +26,7 @@ import {
 import { TelegramBot } from '../../src/telegram/bot.js';
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import { createTestRuntimeApplication } from '../helpers/test-runtime-application.js';
+import { CardStore } from '../../src/cards/card-store.js';
 
 const RAW_TOKEN = 'SYNTHETIC_PROVIDER_TOKEN';
 const RAW_ACCESS = 'SYNTHETIC_ACCESS';
@@ -212,10 +213,12 @@ describe('redacted outbound sinks', () => {
 
     const root = mkdtempSync(join(tmpdir(), 'saivage-agent-redaction-'));
     try {
+      mkdirSync(join(root, '.saivage'), { recursive: true });
       const adapter = new AgentAdapter({
         projectRoot: root,
         saivageDir: join(root, '.saivage'),
         config: { models: { default: ['model'] }, providers: {} },
+        cardStore: new CardStore(root),
       } as never);
       const redacted = (adapter as unknown as { redactProviderErrorMessage(message: unknown): string }).redactProviderErrorMessage(
         `Provider failed with Bearer ${RAW_TOKEN} {"access_token":"${RAW_ACCESS}"}`,

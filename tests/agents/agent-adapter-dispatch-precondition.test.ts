@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import type { LlmCallFn } from '../../src/agents/llm-contracts.js';
 import { createSession, ConcurrentAgentSessionError, getSession, listSessions, markSessionWaiting } from '../../src/agents/session-persistence.js';
+import { CardStore } from '../../src/cards/card-store.js';
 
 function createMinimalAdapter(tmpDir: string): AgentAdapter {
   const minimalConfig = {
@@ -23,7 +24,7 @@ function createMinimalAdapter(tmpDir: string): AgentAdapter {
     supervisor: {},
   } as unknown as import('../../src/agents/config-schema.js').SaivageConfig;
 
-  return new AgentAdapter({ projectRoot: tmpDir, saivageDir: join(tmpDir, '.saivage'), config: minimalConfig });
+  return new AgentAdapter({ projectRoot: tmpDir, saivageDir: join(tmpDir, '.saivage'), config: minimalConfig, cardStore: new CardStore(tmpDir) });
 }
 
 describe('AgentAdapter dispatch precondition', () => {

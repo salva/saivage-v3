@@ -305,7 +305,8 @@ describe('AgentAdapter recorder wiring', () => {
         }),
       );
       const { createAgentAdapter } = await import('../../src/agents/agent-adapter.js');
-      const adapter = createAgentAdapter(root);
+      const { CardStore } = await import('../../src/cards/card-store.js');
+      const adapter = createAgentAdapter(root, undefined, new CardStore(root));
       const fn = adapter.createLlmCallFn();
       const out = await fn(candidate, sys, msgs, 'sess-adapter-1', toolsOpts());
       expect(asMessage(out).content).toBe('adapter-ok');
