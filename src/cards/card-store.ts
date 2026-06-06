@@ -18,29 +18,31 @@ import {
   cardRecordSchema,
 } from '../schemas/index.js';
 import type {
-  ArtifactRef,
-  AttachmentRef,
   CardHistoryEntry,
   CardRecord,
   CardStatus,
 } from '../schemas/index.js';
 import { EventBus } from '../events/index.js';
-import { queueNotification } from '../notifications/index.js';
 import { now } from '../utils/clock.js';
 import { repairSiblingPositions } from './position-repair.js';
-import { valuesEqual } from './value-equality.js';
 import { CardStoreInvariantError } from './errors.js';
 import { CardStoreState } from './state.js';
 import { CardReader } from './reader.js';
 import { CardPatchService } from './card-patch-service.js';
 import { CardHierarchyCommands, type ReorderChildrenResult } from './hierarchy-commands.js';
 import { CardArchiveService } from './archive-service.js';
+import { CardHistoryReader, type CardDiffEntry } from './history-reader.js';
+import {
+  EvidenceRefService,
+  type AppendEvidenceRefsResult,
+  type NewArtifactRef,
+  type NewAttachmentRef,
+} from './evidence-ref-service.js';
 import { cardHistoryPath, loadCardStoreState, readHistoryEntriesStrict } from '../persistence/card-loader.js';
 import {
   applyMutationWithOwnedLockSync,
   applyMutationSync,
   type ApplyMutationDeps,
-  type CardHistoryAppendedPayload,
 } from './apply-mutation.js';
 import {
   commitMarkerDir,
@@ -57,12 +59,9 @@ import {
   assertCanCreateCard,
   buildSetStatusLifecycle,
   buildNewCard,
-  buildUpdatedCard,
-  collectChangedFields,
   isTerminalState,
   isTerminalType,
   newCardId,
-  summarizeChangedFields,
   validateTransition as validateLifecycleTransition,
   type CardMutationContext,
   type NewCardInput,
@@ -70,22 +69,11 @@ import {
 
 export type { CardMutationContext };
 
-export interface CardDiffEntry {
-  field: string;
-  before: unknown;
-  after: unknown;
-}
+export type { CardDiffEntry } from './history-reader.js';
 
 export type { ReorderChildrenResult } from './hierarchy-commands.js';
 
-export type NewArtifactRef = Omit<ArtifactRef, 'id' | 'card_id' | 'created_at'> & { created_at?: string };
-export type NewAttachmentRef = Omit<AttachmentRef, 'id' | 'card_id' | 'created_at'> & { created_at?: string };
-
-export interface AppendEvidenceRefsResult {
-  card: CardRecord;
-  artifacts: ArtifactRef[];
-  attachments: AttachmentRef[];
-}
+export type { AppendEvidenceRefsResult, NewArtifactRef, NewAttachmentRef } from './evidence-ref-service.js';
 
 function deepClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -101,16 +89,6 @@ function generateId(existingIds: string[]): string {
     })
     .reduce((max, n) => Math.max(max, n), 0);
   return `${prefix}-${maxNum + 1}`;
-}
-
-function nextEvidenceSeq(cardId: string, prefix: 'art' | 'att', existingIds: string[]): number {
-  const pattern = new RegExp(`^${prefix}-${cardId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-(\\d+)$`);
-  return existingIds
-    .map((id) => {
-      const match = id.match(pattern);
-      return match ? parseInt(match[1], 10) : 0;
-    })
-    .reduce((max, seq) => Math.max(max, seq), 0) + 1;
 }
 
 function recoverCommitMarkers(projectRoot: string): void {
@@ -180,6 +158,8 @@ export class CardStore {
   private readonly patchService: CardPatchService;
   private readonly hierarchyCommands: CardHierarchyCommands;
   private readonly archiveService: CardArchiveService;
+  private readonly historyReader: CardHistoryReader;
+  private readonly evidenceRefService: EvidenceRefService;
   private readonly eventBus: EventBus;
 
   constructor(projectRoot: string, maxGoalDepth?: number, eventBus?: EventBus) {
@@ -209,6 +189,20 @@ export class CardStore {
       state: () => this.state,
       deps: () => this.deps(),
       read: (id) => this.read(id),
+    });
+    this.historyReader = new CardHistoryReader({
+      projectRoot: this.projectRoot,
+      read: (id) => this.read(id),
+    });
+    this.evidenceRefService = new EvidenceRefService({
+      projectRoot: this.projectRoot,
+      projectLock: this.projectLock,
+      deps: () => this.deps(),
+      read: (id) => this.read(id),
+      get: (id) => this.state.get(id) ?? null,
+      childCount: (id) => this.state.childrenOf(id).length,
+      emitHistoryAppended: (event) => this.eventBus.emit('card_history_appended', event),
+      notificationStore: this,
     });
   }
 
@@ -286,33 +280,15 @@ export class CardStore {
   }
 
   listCardHistory(id: string): CardHistoryEntry[] {
-    const hp = cardHistoryPath(this.projectRoot, id);
-    if (!existsSync(hp)) return [];
-    return readHistoryEntriesStrict(hp).slice().reverse();
+    return this.historyReader.listCardHistory(id);
   }
 
   getCardAt(id: string, versionSeq: number): CardRecord {
-    const current = this.read(id);
-    if (!current) throw new Error(`Card '${id}' not found.`);
-    if (versionSeq === current.version_seq) return current;
-    const hp = cardHistoryPath(this.projectRoot, id);
-    if (!existsSync(hp)) throw new Error(`Card '${id}' has no version ${versionSeq}.`);
-    const entries = readHistoryEntriesStrict(hp);
-    const entry = entries.find((e) => e.version_seq === versionSeq);
-    if (!entry) throw new Error(`Card '${id}' has no version ${versionSeq}.`);
-    return deepClone(entry.snapshot);
+    return this.historyReader.getCardAt(id, versionSeq);
   }
 
   diffCard(id: string, fromSeq: number, toSeq: number): CardDiffEntry[] {
-    const from = this.getCardAt(id, fromSeq);
-    const to = this.getCardAt(id, toSeq);
-    const fields = new Set<keyof CardRecord>([
-      ...(Object.keys(from) as Array<keyof CardRecord>),
-      ...(Object.keys(to) as Array<keyof CardRecord>),
-    ]);
-    return Array.from(fields)
-      .filter((f) => !valuesEqual(from[f], to[f]))
-      .map((f) => ({ field: f as string, before: from[f], after: to[f] }));
+    return this.historyReader.diffCard(id, fromSeq, toSeq);
   }
 
   // ── Mutations ────────────────────────────────────────────────
@@ -391,65 +367,7 @@ export class CardStore {
     refs: { artifacts?: NewArtifactRef[]; attachments?: NewAttachmentRef[] },
     ctx: CardMutationContext = { actor: 'runtime', surface: 'runtime', reason: 'append evidence refs' },
   ): AppendEvidenceRefsResult {
-    const artifactInputs = refs.artifacts ?? [];
-    const attachmentInputs = refs.attachments ?? [];
-    if (artifactInputs.length === 0 && attachmentInputs.length === 0) {
-      const card = this.read(id);
-      if (!card) throw new Error(`Card '${id}' not found.`);
-      return { card, artifacts: [], attachments: [] };
-    }
-
-    const events: CardHistoryAppendedPayload[] = [];
-    let result: AppendEvidenceRefsResult | null = null;
-    this.projectLock.withLockSync((handle) => {
-      this.projectLock.assertOwns(handle);
-      const existing = this.state.get(id);
-      if (!existing) throw new Error(`Card '${id}' not found.`);
-
-      const stamp = now();
-      let artifactSeq = nextEvidenceSeq(id, 'art', existing.artifacts.map((artifact) => artifact.id));
-      let attachmentSeq = nextEvidenceSeq(id, 'att', existing.attachments.map((attachment) => attachment.id));
-      const artifacts = artifactInputs.map((artifact): ArtifactRef => ({
-        ...artifact,
-        id: `art-${id}-${artifactSeq++}`,
-        card_id: id,
-        created_at: artifact.created_at ?? stamp,
-      }));
-      const attachments = attachmentInputs.map((attachment): AttachmentRef => ({
-        ...attachment,
-        id: `att-${id}-${attachmentSeq++}`,
-        card_id: id,
-        created_at: attachment.created_at ?? stamp,
-      }));
-      const changes: Partial<CardRecord> = {
-        ...(artifacts.length > 0 ? { artifacts: [...existing.artifacts, ...artifacts] } : {}),
-        ...(attachments.length > 0 ? { attachments: [...existing.attachments, ...attachments] } : {}),
-      };
-      const candidate = buildUpdatedCard(existing, changes, stamp, {
-        childCount: this.state.childrenOf(existing.id).length,
-      }, ctx);
-      const parsed = cardRecordSchema.safeParse(candidate);
-      if (!parsed.success) throw new Error(`Card validation failed: ${parsed.error.message}`);
-      const changedFields = collectChangedFields(existing, candidate, changes);
-      const outcome = applyMutationWithOwnedLockSync(this.deps(), handle, {
-        kind: 'persist',
-        next: parsed.data,
-        historyKind: 'mutate',
-        ctx,
-        changedFields,
-        changeSummary: summarizeChangedFields(changedFields),
-      });
-      if (outcome.event !== null) events.push(outcome.event);
-      result = { card: deepClone(outcome.card!), artifacts, attachments };
-    });
-    for (const evt of events) this.eventBus.emit('card_history_appended', evt);
-    const persisted = result!;
-    try {
-      queueNotification(this.projectRoot, { kind: 'card', cardId: persisted.card.id }, 'card_changed', `${persisted.card.id} updated (evidence refs) at v${persisted.card.version_seq}`, { actor: ctx.actor, surface: ctx.surface }, this);
-    } catch {
-      // Notification enqueue is best-effort; never break the mutation.
-    }
-    return persisted;
+    return this.evidenceRefService.appendEvidenceRefs(id, refs, ctx);
   }
 
   mutateCard(
