@@ -298,23 +298,30 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
       draft.value = '';
       const response = await sendChatMessage(sessionId, payload, workspaceContext);
       const baseTimestamp = nowIso();
+      const responseMessage = response.message as { id?: unknown; content?: unknown; round_id?: unknown; message_index?: unknown; block_index?: unknown; tool?: unknown; timestamp?: unknown; links?: unknown };
       const optimistic = {
-        id: String((response.message as { id?: string }).id ?? `${sessionId}-assistant-${Date.now()}`),
+        id: String(responseMessage.id ?? `${sessionId}-assistant-${Date.now()}`),
         session_id: sessionId,
         role: 'assistant' as const,
         kind: 'text' as const,
-        content: String((response.message as { content?: string }).content ?? ''),
-        round_id: String((response.message as { round_id?: string }).round_id),
-        message_index: Number((response.message as { message_index?: number }).message_index),
-        block_index: Number((response.message as { block_index?: number }).block_index),
-        tool: typeof (response.message as { tool?: string }).tool === 'string'
-          ? String((response.message as { tool?: string }).tool)
+        content: String(responseMessage.content ?? ''),
+        round_id: typeof responseMessage.round_id === 'string'
+          ? responseMessage.round_id
+          : `r-assistant-${Date.now().toString(16).padStart(32, '0').slice(-32)}`,
+        message_index: typeof responseMessage.message_index === 'number' && Number.isFinite(responseMessage.message_index)
+          ? responseMessage.message_index
+          : messages.value.length,
+        block_index: typeof responseMessage.block_index === 'number' && Number.isFinite(responseMessage.block_index)
+          ? responseMessage.block_index
+          : 0,
+        tool: typeof responseMessage.tool === 'string'
+          ? responseMessage.tool
           : undefined,
-        timestamp: typeof (response.message as { timestamp?: string }).timestamp === 'string'
-          ? String((response.message as { timestamp?: string }).timestamp)
+        timestamp: typeof responseMessage.timestamp === 'string'
+          ? responseMessage.timestamp
           : baseTimestamp,
-        links: Array.isArray((response.message as { links?: unknown[] }).links)
-          ? (response.message as { links?: [] }).links
+        links: Array.isArray(responseMessage.links)
+          ? responseMessage.links
           : undefined,
       } satisfies ConversationEntry;
       messages.value = [...messages.value, optimistic];

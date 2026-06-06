@@ -3,7 +3,9 @@ import { parseToolCallMessage } from '../persistedToolCall';
 import { isRoundId, parseRoundId } from './round-id';
 import type { AgentTimeline, TimelineRound, TimelineRoundKind, ToolPair } from './types';
 
-function compareEntry(a: ConversationEntry, b: ConversationEntry): number {
+type TimelineEntry = ConversationEntry & { round_id: string; message_index: number; block_index: number };
+
+function compareEntry(a: TimelineEntry, b: TimelineEntry): number {
   return a.message_index - b.message_index || a.block_index - b.block_index || a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id);
 }
 
@@ -12,7 +14,7 @@ function callIdOf(entry: ConversationEntry): string | undefined {
   try { return parseToolCallMessage(JSON.parse(entry.content)).id; } catch { return undefined; }
 }
 
-function buildToolPairs(entries: ConversationEntry[]): ToolPair[] {
+function buildToolPairs(entries: TimelineEntry[]): ToolPair[] {
   const calls = entries.filter((entry) => entry.kind === 'tool_call');
   const results = entries.filter((entry) => entry.kind === 'tool_result' || entry.kind === 'tool_error');
   return calls.map((call) => {
@@ -33,14 +35,14 @@ function fallbackRoundId(entry: ConversationEntry, index: number): string {
   return `r-${fallbackRoundKind(entry)}-${suffix}`;
 }
 
-function normalizeEntry(entry: ConversationEntry, index: number): ConversationEntry {
+function normalizeEntry(entry: ConversationEntry, index: number): TimelineEntry {
   const round_id = isRoundId(entry.round_id) ? entry.round_id : fallbackRoundId(entry, index);
   const message_index = Number.isFinite(entry.message_index) ? entry.message_index : index;
   const block_index = Number.isFinite(entry.block_index) ? entry.block_index : 0;
   return { ...entry, round_id, message_index, block_index };
 }
 
-function roundOrderKey(entries: ConversationEntry[]): [number, string, string] {
+function roundOrderKey(entries: TimelineEntry[]): [number, string, string] {
   let minMsg = Number.POSITIVE_INFINITY;
   let minTs = '';
   let minId = '';
@@ -57,7 +59,7 @@ function roundOrderKey(entries: ConversationEntry[]): [number, string, string] {
 }
 
 export function entriesToTimeline(entries: readonly ConversationEntry[], activityStatus: ActivityStatus | null): AgentTimeline {
-  const grouped = new Map<string, ConversationEntry[]>();
+  const grouped = new Map<string, TimelineEntry[]>();
   for (const [index, entry] of entries.entries()) {
     const normalized = normalizeEntry(entry, index);
     const bucket = grouped.get(normalized.round_id) ?? [];

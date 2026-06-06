@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { llmExchangeSchema } from './llm-exchange.js';
+import { agentMessageSchema, agentSessionSchema } from '../schemas/index.js';
 import {
   ApiErrorSchema,
   ForbiddenErrorSchema,
@@ -12,36 +13,8 @@ import {
 export const AgentSessionParamsSchema = z.object({ id: z.string().min(1) });
 export const AgentConversationParamsSchema = AgentSessionParamsSchema;
 export const AgentLlmExchangeParamsSchema = AgentSessionParamsSchema;
-export const AgentSessionSummarySchema = z.object({
-  id: z.string(),
-  role: z.string(),
-  goal_card_id: z.string().nullable().optional(),
-  card_id: z.string().nullable().optional(),
-  status: z.string(),
-  started_at: z.string(),
-  completed_at: z.string().nullable().optional(),
-  model: z.string().optional(),
-}).catchall(z.unknown());
-export const AgentConversationEntrySchema = z.object({
-  id: z.string(),
-  session_id: z.string(),
-  role: z.string(),
-  kind: z.string(),
-  content: z.string(),
-  round_id: z.string().optional(),
-  message_index: z.number().int().nonnegative().optional(),
-  block_index: z.number().int().nonnegative().optional(),
-  tool: z.string().optional(),
-  tool_call_id: z.string().optional(),
-  timestamp: z.string(),
-  links: z.array(z.object({
-    entity_type: z.string(),
-    entity_id: z.string(),
-    label: z.string().optional(),
-  }).catchall(z.unknown())).optional(),
-  model_spec: z.string().optional(),
-  requested_model_spec: z.string().optional(),
-}).catchall(z.unknown());
+export const AgentSessionSummarySchema = agentSessionSchema;
+export const AgentConversationEntrySchema = agentMessageSchema;
 export const AgentActivityStatusSchema = z.object({
   status: z.enum(['idle', 'thinking', 'tool_calling', 'responding', 'compacting']),
   pending_calls: z.array(z.object({ id: z.string(), tool: z.string(), started_at: z.string() }).catchall(z.unknown())),
@@ -68,6 +41,10 @@ export const AgentLlmExchangeResponseSchema = z.object({
 
 
 export type AgentListResponse = z.infer<typeof AgentListResponseSchema>;
+export type AgentSessionSummary = z.infer<typeof AgentSessionSummarySchema>;
+export type AgentSessionDetail = z.infer<typeof AgentSessionDetailSchema>;
+export type AgentConversationEntry = z.infer<typeof AgentConversationEntrySchema>;
+export type AgentActivityStatus = z.infer<typeof AgentActivityStatusSchema>;
 export type AgentDetailResponse = z.infer<typeof AgentDetailResponseSchema>;
 export type AgentConversationResponse = z.infer<typeof AgentConversationResponseSchema>;
 export type AgentLlmExchangeResponse = z.infer<typeof AgentLlmExchangeResponseSchema>;

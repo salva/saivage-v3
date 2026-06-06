@@ -1,13 +1,21 @@
 import type {
   ArtifactRef,
   AttachmentRef,
+  AgentActivityStatus as ContractActivityStatus,
+  AgentConversationEntry,
+  AgentRole,
+  AgentSessionSummary,
   CardHistoryEntry,
   CardHistoryHeader,
   CardView as ContractCardView,
   CardStatus,
   CardType,
+  ChatSession as ContractChatSession,
+  ChatWorkspaceContext,
   ControlActionSurface,
   CreatedBy as CardCreator,
+  DoctorResponse,
+  DiaryKind,
   McpInvocationStat,
   McpStatusState,
   McpToolDefinition,
@@ -15,6 +23,7 @@ import type {
   McpTransport,
   NoteAuthor,
   OperatorApiSuccess,
+  ReviewAssessment,
   RuntimeActivationRecord,
   RuntimeCommandRecord,
   RuntimeIntent,
@@ -22,6 +31,8 @@ import type {
   RuntimeState,
   RuntimeStatus,
   ServerAvailability,
+  SessionStatus,
+  SupervisionResponse,
   Urgency as CardUrgency,
 } from './contracts';
 
@@ -29,13 +40,21 @@ import type {
 export type {
   ArtifactRef,
   AttachmentRef,
+  AgentRole,
   CardAction,
   CardHistoryEntry,
   CardHistoryHeader,
   CardHistoryKind,
   CardStatus,
   CardType,
+  DiaryEntry,
+  DiaryKind,
+  DoctorResponse,
   ControlActionSurface,
+  EntityLink,
+  ReviewAssessment,
+  MessageKind,
+  MessageRole,
   NoteAuthor,
   RuntimeActivationRecord,
   RuntimeActivationStatus,
@@ -54,6 +73,7 @@ export type {
   LiveSyncInvalidateTarget,
   LiveSyncUnscopedResource,
   ServerAvailability,
+  SupervisionResponse,
 } from './contracts';
 
 export interface NoteRecord {
@@ -68,18 +88,6 @@ export interface NoteRecord {
 }
 
 export type NoteKind = 'comment' | 'progress' | 'directive' | 'escalation';
-
-export interface ReviewAssessment {
-  id: string;
-  goal_card_id: string;
-  reviewer_session_id: string;
-  result: 'pass' | 'fail';
-  summary: string;
-  achieved: string[];
-  missing: string[];
-  evidence_card_ids: string[];
-  created_at: string;
-}
 
 export interface DetailErrorState {
   kind: 'unauthorized' | 'not-found' | 'server' | 'network' | 'unknown';
@@ -103,85 +111,24 @@ export interface CardDiffRow {
 export type ControlActionAuditEntry = OperatorApiSuccess<'controlActions.list'>['control_actions'][number];
 
 
-export type DiaryEntryKind =
-  | 'planner_invocation'
-  | 'planner_decision'
-  | 'card_mutation'
-  | 'review_assessment'
-  | 'failure_handling';
-
-export interface DiaryEntry {
-  id: string;
-  goal_card_id: string;
-  invocation_id: string;
-  kind: DiaryEntryKind;
-  timestamp: string;
-  input_summary?: string;
-  decision?: string;
-  rationale?: string;
-  created_cards?: string[];
-  updated_cards?: string[];
-  reviewed_cards?: string[];
-  assessment?: ReviewAssessment;
-  raw?: Record<string, unknown>;
-}
+export type DiaryEntryKind = DiaryKind;
+export type DoctorCheck = DoctorResponse['checks'][number];
+export type DoctorIssue = DoctorResponse['issues'][number];
+export type ContentReview = SupervisionResponse['reviews'][number];
+export type QuarantineSummaryEntry = SupervisionResponse['quarantine'][number];
+export type SupervisionStats = SupervisionResponse['stats'];
 
 export type ProcessView = OperatorApiSuccess<'processes.get'>['process'];
 export type ProcessListResponse = OperatorApiSuccess<'processes.list'>;
 export type ProcessDetailResponse = OperatorApiSuccess<'processes.get'>;
 
 
-export type AgentRole = 'analyst' | 'planner' | 'executor' | 'reviewer' | 'content_supervisor';
-export type AgentStatus = 'active' | 'waiting' | 'inactive' | 'done' | 'blocked' | 'failed';
-export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
-export type MessageKind =
-  | 'text'
-  | 'activity'
-  | 'tool_call'
-  | 'tool_result'
-  | 'tool_error'
-  | 'model_issue'
-  | 'model_repair'
-  | 'context_compaction'
-  | 'model_recovered';
-
-export interface AgentSession {
-  id: string;
-  role: AgentRole;
-  goal_card_id?: string | null;
-  card_id?: string | null;
-  status: AgentStatus;
-  started_at: string;
-  completed_at?: string | null;
-  model?: string;
-}
-
-export interface EntityLink {
-  entity_type: 'card' | 'process' | 'artifact' | 'attachment' | 'quarantine';
-  entity_id: string;
-  label?: string;
-}
-
-export interface ConversationEntry {
-  id: string;
-  session_id: string;
-  role: MessageRole;
-  kind: MessageKind;
-  content: string;
-  round_id: string;
-  message_index: number;
-  block_index: number;
-  tool?: string;
-  tool_call_id?: string;
-  timestamp: string;
-  links?: EntityLink[];
-  model_spec?: string;
-  requested_model_spec?: string;
-}
-
-export interface PendingCall { id: string; tool: string; started_at: string; }
-export type ActivityStatusKind = 'idle' | 'thinking' | 'tool_calling' | 'responding' | 'compacting';
-export interface ActivityStatus { status: ActivityStatusKind; pending_calls: PendingCall[]; updated_at: string; }
+export type AgentStatus = SessionStatus;
+export type AgentSession = AgentSessionSummary & { role: AgentRole; status: AgentStatus };
+export type ConversationEntry = AgentConversationEntry;
+export type PendingCall = ContractActivityStatus['pending_calls'][number];
+export type ActivityStatusKind = ContractActivityStatus['status'];
+export type ActivityStatus = ContractActivityStatus;
 
 
 export interface ActionableErrorEnvelope {
@@ -263,60 +210,6 @@ export interface DebugTimelineEvent {
   [key: string]: unknown;
 }
 
-export interface DoctorCheck {
-  name: string;
-  passed: boolean;
-  details?: string;
-}
-
-export interface DoctorIssue {
-  severity: 'error' | 'warning';
-  message: string;
-}
-
-export interface DoctorResponse {
-  status: 'ok' | 'issues_found';
-  checks: DoctorCheck[];
-  issues: DoctorIssue[];
-}
-
-export type SourceKind = 'command_output' | 'file' | 'download' | 'web' | 'api' | 'tool';
-export type ReviewStatus = 'passed' | 'blocked' | 'sanitized';
-export type RiskLevel = 'low' | 'medium' | 'high';
-
-export interface ContentReview {
-  id: string;
-  source_kind: SourceKind;
-  source_ref: string;
-  status: ReviewStatus;
-  summary: string;
-  risk: RiskLevel;
-  quarantine_id?: string | null;
-  created_at: string;
-}
-
-export interface QuarantineSummaryEntry {
-  quarantine_id: string;
-  review_id: string;
-  source_ref: string;
-  risk: RiskLevel;
-  created_at: string;
-}
-
-export interface SupervisionStats {
-  total: number;
-  blocked: number;
-  passed: number;
-  sanitized: number;
-  byRisk: Record<string, number>;
-  bySourceKind: Record<string, number>;
-}
-
-export interface SupervisionResponse {
-  reviews: ContentReview[];
-  quarantine: QuarantineSummaryEntry[];
-  stats: SupervisionStats;
-}
 
 export type McpToolInvocationStats = McpInvocationStat;
 export type McpToolWithStats = ContractMcpToolsResponse['serverDetails'][number]['tools'][number];
@@ -327,19 +220,8 @@ export type McpStatusResponse = OperatorApiSuccess<'mcp.status'>;
 export type McpTransportKind = McpTransport;
 export type McpStatusKind = McpStatusState;
 
-export interface ChatSession {
-  id: string;
-  role: string;
-  status: string;
-  started_at: string;
-}
-
-
-export interface WorkspaceContext {
-  view: string | null;
-  entityId: string | null;
-  refinement: Record<string, string> | null;
-}
+export type ChatSession = ContractChatSession;
+export type WorkspaceContext = ChatWorkspaceContext;
 
 
 export type WsConnectionState = 'connected' | 'connecting' | 'offline' | 'unauthorized' | 'no-token';

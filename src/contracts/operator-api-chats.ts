@@ -7,6 +7,7 @@ import {
   ValidationErrorSchema,
   type OperatorRouteContract,
 } from './operator-api-core.js';
+import { AgentConversationEntrySchema } from './operator-api-agents.js';
 
 export const ChatSessionParamsSchema = z.object({ sessionId: z.string().min(1) });
 export const ChatWorkspaceContextSchema = z.object({
@@ -16,7 +17,7 @@ export const ChatWorkspaceContextSchema = z.object({
 });
 export const ChatSendRequestSchema = z.object({
   content: z.string().optional(),
-  workspaceContext: z.unknown().optional(),
+  workspaceContext: ChatWorkspaceContextSchema.optional(),
 });
 export const ChatListResponseSchema = z.object({
   sessions: z.array(z.object({
@@ -28,7 +29,7 @@ export const ChatListResponseSchema = z.object({
 });
 export const ChatEntriesResponseSchema = z.object({
   sessionId: z.string(),
-  entries: z.array(z.unknown()),
+  entries: z.array(AgentConversationEntrySchema),
 });
 export const ChatSendResponseSchema = z.object({
   sessionId: z.string(),
@@ -43,6 +44,9 @@ export const ChatSendResponseSchema = z.object({
 });
 
 export type ChatListResponse = z.infer<typeof ChatListResponseSchema>;
+export type ChatSession = z.infer<typeof ChatListResponseSchema>['sessions'][number];
+export type ChatWorkspaceContext = z.infer<typeof ChatWorkspaceContextSchema>;
+export type ChatSendRequest = z.infer<typeof ChatSendRequestSchema>;
 export type ChatEntriesResponse = z.infer<typeof ChatEntriesResponseSchema>;
 export type ChatSendResponse = z.infer<typeof ChatSendResponseSchema>;
 

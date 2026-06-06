@@ -26,10 +26,14 @@ export {
   AgentSessionSummarySchema,
 } from './operator-api-agents.js';
 export type {
+  AgentActivityStatus,
+  AgentConversationEntry,
   AgentConversationResponse,
   AgentDetailResponse,
   AgentListResponse,
   AgentLlmExchangeResponse,
+  AgentSessionDetail,
+  AgentSessionSummary,
 } from './operator-api-agents.js';
 export {
   ChatEntriesResponseSchema,
@@ -39,7 +43,7 @@ export {
   ChatSessionParamsSchema,
   ChatWorkspaceContextSchema,
 } from './operator-api-chats.js';
-export type { ChatEntriesResponse, ChatListResponse, ChatSendResponse } from './operator-api-chats.js';
+export type { ChatEntriesResponse, ChatListResponse, ChatSendRequest, ChatSendResponse, ChatSession, ChatWorkspaceContext } from './operator-api-chats.js';
 export {
   DebugErrorsResponseSchema,
   DebugRuntimeStateSchema,

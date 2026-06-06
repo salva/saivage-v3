@@ -205,9 +205,9 @@
             <ul><li v-for="item in review.review.achieved" :key="item">{{ item }}</li></ul>
           </div>
           <div class="list-block">
-            <div class="meta-key">Missing</div>
-            <ul v-if="review.review.missing.length"><li v-for="item in review.review.missing" :key="item">{{ item }}</li></ul>
-            <div v-else class="empty-evidence">No missing items recorded.</div>
+            <div class="meta-key">Issues</div>
+            <ul v-if="review.review.issues.length"><li v-for="item in review.review.issues" :key="item.summary">{{ item.summary }}</li></ul>
+            <div v-else class="empty-evidence">No correction issues recorded.</div>
           </div>
           <div v-if="review.review.evidence_card_ids.length" class="link-list-row">
             <span class="meta-key">Evidence cards</span>
