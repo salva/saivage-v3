@@ -85,7 +85,7 @@ const listCardsInput = z.object({
 
 export async function mark_goal_needs_corrections(ctx: ToolContext, params: { goalId: string; issues: unknown[]; note?: string }): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, params, { action: 'goal.needs_corrections', safety_class: 'destructive', target_kind: 'card', getTargetId: (p) => p.goalId, run: async () => {
-    try { const issues = normalizeAnalystIssues(params.issues); return { success: true, data: markGoalNeedsCorrections(ctx.projectRoot, params.goalId, issues, params.note) }; }
+    try { const issues = normalizeAnalystIssues(params.issues); return { success: true, data: markGoalNeedsCorrections(ctx.projectRoot, ctx.store, params.goalId, issues, params.note) }; }
     catch (err) { return toolFailureFromError(err); }
   } });
 }
@@ -120,7 +120,7 @@ export async function edit_card(ctx: ToolContext, params: { id: string } & Recor
       for (const [key, value] of Object.entries(params)) { if (key === 'id') continue; if (ALLOWED_EDIT_FIELDS.has(key)) changes[key] = value; else rejected.push(key); }
       if (Object.keys(changes).length === 0) return toolFailure('validation', `edit_card failed: no allowed fields to update. Rejected fields: ${rejected.join(', ') || '(none)'}. Allowed fields include: ${Array.from(ALLOWED_EDIT_FIELDS).join(', ')}. See the 'edit_card' tool's parameter schema.`, { rejected });
       const updated = store.mutateCard(params.id, changes as Partial<CardRecord>, { actor: ctx.actor, surface: ctx.surface, reason: 'analyst edit' });
-      try { notifyPlannerOfAnalystAction(ctx.projectRoot, params.id, `analyst edited card fields: ${Object.keys(changes).join(', ')}`); } catch { /* best-effort planner notification; edit result remains authoritative */ }
+      try { notifyPlannerOfAnalystAction(ctx.projectRoot, store, params.id, `analyst edited card fields: ${Object.keys(changes).join(', ')}`); } catch { /* best-effort planner notification; edit result remains authoritative */ }
       return { success: true, data: updated };
     } catch (err) { return toolFailureFromError(err, 'validation', humanizeToolError('edit_card', err instanceof Error ? err.message : String(err))); }
   } });

@@ -132,6 +132,7 @@ export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardSt
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-test-runtime-app-'));
   const cardStore = opts.cardStore ?? new CardStore(projectRoot);
   return {
+    cardStore,
     runtimeApi: {
       start: () => analystRuntime.start(),
       shutdown: () => analystRuntime.shutdown(),

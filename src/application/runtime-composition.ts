@@ -17,6 +17,7 @@ import { CardStore } from '../cards/card-store.js';
 
 export interface RuntimeApplication {
   readonly runtimeApi: RuntimeApi;
+  readonly cardStore: CardStore;
   readonly analystDeps: AnalystRuntimeDeps;
   setMcpManager(mcpManager: McpManager): void;
 }
@@ -59,6 +60,7 @@ export function createRuntimeApplication(projectRoot: string, config: SaivageCon
     config,
     eventLogger,
     candidateAvailability,
+    cardStore,
     activationLedger: {
       readState: () => readRuntimeState(projectRoot),
       appendRun: (input) => appendRuntimeRun(projectRoot, input),
@@ -119,6 +121,7 @@ export function createRuntimeApplication(projectRoot: string, config: SaivageCon
 
   return {
     runtimeApi,
+    cardStore,
     get analystDeps() {
       return buildAnalystDeps({ runtimeApi, cardStore, stamper, candidateAvailability, eventLogger, emitAnalystToolInvoked: emitAnalystToolInvokedFromRuntime, mcpManager });
     },

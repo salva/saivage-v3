@@ -65,9 +65,9 @@ import { buildReviewerPrompt } from './system-prompt.js';
 import type { McpToolInvocationPort } from '../mcp/manager-api.js';
 import { SkillsEngine } from './skills-engine.js';
 import { getProjectNotificationCenter } from '../notifications/notification-delivery.js';
-import { CardStore } from '../cards/store-api.js';
+import type { CardStore } from '../cards/store-api.js';
 import { injectQueuedSyntheticPlannerNotes } from '../runtime/synthetic-planner-notes.js';
-import { buildPlannerStateContextMessage } from './planner-state-context.js';
+import { buildPlannerStateContextMessage, type PlannerStateCardStore } from './planner-state-context.js';
 import { PlannerControlExecutor } from './planner-control-executor.js';
 import type { Contract } from '../contracts/contract.js';
 import {
@@ -117,7 +117,7 @@ export interface AgentAdapterConfig {
   eventLogger?: EventLogger;
   activationLedger?: RuntimeActivationLedgerPort;
   candidateAvailability?: CandidateAvailability;
-  cardStore?: Pick<CardStore, 'read' | 'listChildren'>;
+  cardStore?: CardStore;
   runtimeStateProvider?: () => RuntimeState | null;
 }
 
@@ -236,12 +236,13 @@ export function compactPlannerModelMessagesForContext(
   options: {
     projectRoot?: string;
     goalId?: string;
-    cardStore?: Pick<CardStore, 'read' | 'listChildren'>;
+    cardStore?: PlannerStateCardStore;
     runtimeStateProvider?: () => RuntimeState | null;
   } = {},
 ): AgentMessage[] {
   if (role !== 'planner') return messages;
   if (estimateMessageTokens(messages) < PLANNER_HISTORY_CONTEXT_LIMIT_TOKENS) return messages;
+  if (!options.cardStore) throw new Error('CardStore is required to compact planner model messages.');
   const goalId = options.goalId ?? sessionId.replace(/^planner:/, '');
   return [
     buildPlannerHistoryCompactionMessage(sessionId, messages),
@@ -280,7 +281,7 @@ export class AgentAdapter implements AgentExecutionPort {
   private readonly llmGateway: AgentLlmInvocationGateway;
   private readonly fallbackCurrentRoundId = new Map<string, string>();
   private readonly fallbackBlockCounters = new Map<string, number>();
-  private readonly cardStore: Pick<CardStore, 'read' | 'listChildren'>;
+  private readonly cardStore: CardStore;
   private readonly runtimeStateProvider?: () => RuntimeState | null;
 
   constructor(cfg: AgentAdapterConfig) {
@@ -300,14 +301,15 @@ export class AgentAdapter implements AgentExecutionPort {
     this.eventBus = cfg.eventBus;
     this.eventLogger = cfg.eventLogger;
     this.activationLedger = cfg.activationLedger;
-    this.cardStore = cfg.cardStore ?? new CardStore(this.projectRoot);
+    if (!cfg.cardStore) throw new Error('AgentAdapter requires a composition-owned CardStore.');
+    this.cardStore = cfg.cardStore;
     this.runtimeStateProvider = cfg.runtimeStateProvider;
     this.toolRuntime = new ToolRuntime(
-      { cardStore: new CardStore(this.projectRoot), bus: cfg.eventBus },
+      { cardStore: this.cardStore, bus: cfg.eventBus },
       AGENT_TOOL_DEFINITIONS,
     );
     this.plannerControlExecutor = new PlannerControlExecutor({
-      cardStore: new CardStore(this.projectRoot),
+      cardStore: this.cardStore,
       projectRoot: this.projectRoot,
       saivageDir: this.saivageDir,
       runtimeStateProvider: () => this.activationLedger?.readState() ?? null,
@@ -1337,10 +1339,10 @@ export class AgentAdapter implements AgentExecutionPort {
   }
 }
 
-export function createAgentAdapter(projectRoot: string, eventBus?: EventEmitter): AgentAdapter {
+export function createAgentAdapter(projectRoot: string, eventBus?: EventEmitter, cardStore?: CardStore): AgentAdapter {
   const saivageDir = `${projectRoot}/.saivage`;
   const { config, warnings } = loadConfig(projectRoot);
   if (warnings.length > 0 && eventBus)
     for (const warning of warnings) eventBus.emit('config_warning', { warning });
-  return new AgentAdapter({ projectRoot, saivageDir, config, eventBus });
+  return new AgentAdapter({ projectRoot, saivageDir, config, eventBus, cardStore });
 }

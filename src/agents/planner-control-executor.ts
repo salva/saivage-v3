@@ -232,7 +232,7 @@ export class PlannerControlExecutor {
         }
         case 'queue_notification': {
           const recipient = String(args.recipient ?? '');
-          const resolved = resolveRecipient(this.context.projectRoot, recipient);
+          const resolved = resolveRecipient(this.context.projectRoot, this.context.cardStore, recipient);
           if (resolved === null) {
             result = { success: false, data: { reason: 'unknown_recipient', recipient } };
             break;

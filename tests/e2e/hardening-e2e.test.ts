@@ -342,6 +342,7 @@ describe('Security — Auth, Path Traversal, and Redaction', () => {
   beforeAll(async () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-e2e-security-'));
     initProjectTree(tmpDir);
+    const cardStore = new CardStore(tmpDir);
 
     writeFileSync(
       join(tmpDir, '.saivage', 'saivage.json'),
@@ -388,8 +389,8 @@ describe('Security — Auth, Path Traversal, and Redaction', () => {
     const { registerChatsFilesDebugRoutes } = await import('../../src/server/routes/chats-files-debug.js');
     const { registerWebSocket } = await import('../../src/server/websocket.js');
 
-    registerCardRoutes(app, tmpDir);
-    registerChatsFilesDebugRoutes(app, tmpDir);
+    registerCardRoutes(app, tmpDir, undefined, cardStore);
+    registerChatsFilesDebugRoutes(app, tmpDir, cardStore);
     registerWebSocket(app, tmpDir);
 
     await app.listen({ port: 0, host: '127.0.0.1' });

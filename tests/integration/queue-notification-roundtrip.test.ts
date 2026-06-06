@@ -34,7 +34,7 @@ describe('queue notification roundtrip', () => {
     const goal = store.create(makeCard({ id: 'goal-1', type: 'goal', title: 'Goal', status: 'active' }));
     const child = store.create(makeCard({ id: 'code-1', type: 'code', title: 'Child', parent: goal.id, depth: 2, status: 'active' }));
     createSession(join(projectRoot, '.saivage'), 'executor', goal.id, child.id, undefined, 'executor-session');
-    const adapter = new AgentAdapter({ projectRoot, saivageDir: join(projectRoot, '.saivage'), config: loadConfig(projectRoot).config });
+    const adapter = new AgentAdapter({ projectRoot, saivageDir: join(projectRoot, '.saivage'), config: loadConfig(projectRoot).config, cardStore: store });
 
     queueNotification(projectRoot, { kind: 'session', sessionId: 'executor-session' }, 'card_changed', 'refresh the implementation plan', { actor: 'planner', surface: 'runtime' });
 

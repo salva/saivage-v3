@@ -449,7 +449,7 @@ export class CardStore {
     for (const evt of events) this.eventBus.emit('card_history_appended', evt);
     const persisted = result!;
     try {
-      queueNotification(this.projectRoot, { kind: 'card', cardId: persisted.card.id }, 'card_changed', `${persisted.card.id} updated (evidence refs) at v${persisted.card.version_seq}`, { actor: ctx.actor, surface: ctx.surface });
+      queueNotification(this.projectRoot, { kind: 'card', cardId: persisted.card.id }, 'card_changed', `${persisted.card.id} updated (evidence refs) at v${persisted.card.version_seq}`, { actor: ctx.actor, surface: ctx.surface }, this);
     } catch {
       // Notification enqueue is best-effort; never break the mutation.
     }
@@ -726,7 +726,7 @@ export class CardStore {
     });
     const persisted = deepClone(result.card!);
     try {
-      queueNotification(this.projectRoot, { kind: 'card', cardId: persisted.id }, 'card_changed', `${persisted.id} updated (${changedFields.join(', ')}) at v${persisted.version_seq}`, { actor: ctx.actor, surface: ctx.surface });
+      queueNotification(this.projectRoot, { kind: 'card', cardId: persisted.id }, 'card_changed', `${persisted.id} updated (${changedFields.join(', ')}) at v${persisted.version_seq}`, { actor: ctx.actor, surface: ctx.surface }, this);
     } catch {
       // Notification enqueue is best-effort; never break the mutation.
     }

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { CardStatus, RuntimeStatus } from '../schemas/index.js';
-import { CardStore } from '../cards/store-api.js';
+import type { CardStore } from '../cards/store-api.js';
 import { sanitizeAnalystPayload, sanitizeAnalystText } from './analyst-sanitization.js';
 import { readRuntimeState } from '../runtime/state-api.js';
 import { consumeChangedCardActivation, discardSubtreeChangedSyntheticNotes, drainSyntheticPlannerNotes, findDeepestContainingPlanner, injectQueuedSyntheticPlannerNotes, queueSyntheticPlannerNote, type SyntheticPlannerNote } from '../runtime/synthetic-planner-notes.js';
@@ -29,8 +29,7 @@ export function runtimeStatusForApi(projectRoot: string): 'idle' | 'running' | '
 
 export { consumeChangedCardActivation, discardSubtreeChangedSyntheticNotes, drainSyntheticPlannerNotes, findDeepestContainingPlanner, injectQueuedSyntheticPlannerNotes, queueSyntheticPlannerNote };
 
-export function markGoalNeedsCorrections(projectRoot: string, originGoalId: string, issues: AnalystIssue[], note?: string): { origin_goal_id: string; notes_recorded_on_goal_ids: string[]; status_transition: { from: CardStatus; to: CardStatus } | null } {
-  const store = new CardStore(projectRoot);
+export function markGoalNeedsCorrections(projectRoot: string, store: CardStore, originGoalId: string, issues: AnalystIssue[], note?: string): { origin_goal_id: string; notes_recorded_on_goal_ids: string[]; status_transition: { from: CardStatus; to: CardStatus } | null } {
   const origin = store.read(originGoalId);
   if (!origin || (origin.type !== 'goal' && origin.type !== 'project')) throw new Error(`Goal '${originGoalId}' not found.`);
   const summary = issues.map((issue) => issue.summary).join('; ');
@@ -44,8 +43,7 @@ ${sanitizeAnalystText(note, 1000)}` : ''}` });
   return { origin_goal_id: originGoalId, notes_recorded_on_goal_ids: [], status_transition };
 }
 
-export function markDescendantChanged(projectRoot: string, affectedCardId: string, summary: string): void {
-  const store = new CardStore(projectRoot);
+export function markDescendantChanged(projectRoot: string, store: CardStore, affectedCardId: string, summary: string): void {
   const card = store.read(affectedCardId);
   if (!card) throw new Error(`Card '${affectedCardId}' not found.`);
   markCardChangedForAnalystCorrection(store, affectedCardId, card.status);
@@ -83,11 +81,11 @@ function markCardChangedForAnalystCorrection(store: CardStore, cardId: string, s
  */
 export function notifyPlannerOfAnalystAction(
   projectRoot: string,
+  store: CardStore,
   affectedCardId: string,
   summary: string,
   opts: { kind?: SyntheticPlannerNote['kind'] } = {},
 ): void {
-  const store = new CardStore(projectRoot);
   const card = store.read(affectedCardId);
   if (!card) return;
   const routed = findDeepestContainingPlanner(projectRoot, store, affectedCardId);

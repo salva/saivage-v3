@@ -1,7 +1,7 @@
 import { readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { CardStore } from '../../cards/store-api.js';
+import type { CardStore } from '../../cards/store-api.js';
 import { redactOperatorErrorMessage } from '../../workspace/index.js';
 import { listRecentReviews, listQuarantineIndex } from '../../workspace/index.js';
 import type { DoctorCheck, DoctorIssue, DoctorResponse } from '../../schemas/index.js';
@@ -11,7 +11,7 @@ export const internalDebugRoutes = [
   { method: 'GET', path: '/api/debug/supervision' },
 ] as const;
 
-export function registerInternalDebugRoutes(fastify: FastifyInstance, projectRoot: string): void {
+export function registerInternalDebugRoutes(fastify: FastifyInstance, projectRoot: string, store: CardStore): void {
   const saivageDir = join(projectRoot, '.saivage');
 
   fastify.get('/api/debug/doctor', async (_request: FastifyRequest, reply: FastifyReply) => {
@@ -30,9 +30,8 @@ export function registerInternalDebugRoutes(fastify: FastifyInstance, projectRoo
         } catch { void 0; }
       }
 
-      let store: CardStore | null = null;
       try {
-        store = new CardStore(projectRoot);
+        store.list();
       } catch (err) {
         checks.push({ name: 'cardstore_loadable', passed: false, details: 'CardStore failed to load.' });
         issues.push({ severity: 'error', message: `CardStore failed to load: ${err instanceof Error ? err.message : String(err)}` });

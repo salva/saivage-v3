@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { SaivageConfig } from '../../agents/config-api.js';
 import type { RuntimeApplication } from '../../application/runtime-composition.js';
+import type { CardStore } from '../../cards/store-api.js';
 import type { McpManager } from '../../mcp/manager-api.js';
 import type { ServerAvailabilityInputs } from '../availability.js';
 import type { LiveSyncSocket } from '../live-sync-socket.js';
@@ -12,6 +13,7 @@ import { registerWebSocket } from '../websocket.js';
 export function registerServerRoutes(options: {
   fastify: FastifyInstance;
   projectRoot: string;
+  cardStore: CardStore;
   runtimeApplicationProvider: () => RuntimeApplication | undefined;
   mcpManagerProvider: () => McpManager | undefined;
   availabilityInputs: ServerAvailabilityInputs;
@@ -25,6 +27,7 @@ export function registerServerRoutes(options: {
   registerOperatorContractRoutes({
     fastify: options.fastify,
     projectRoot: options.projectRoot,
+    cardStore: options.cardStore,
     runtimeApplicationProvider: options.runtimeApplicationProvider,
     mcpStatusProvider: options.mcpManagerProvider,
     mcpToolsProvider: options.mcpManagerProvider,
@@ -33,6 +36,6 @@ export function registerServerRoutes(options: {
     saivageConfig: options.saivageConfig,
     configWarnings: options.configWarnings,
   });
-  registerInternalDebugRoutes(options.fastify, options.projectRoot);
+  registerInternalDebugRoutes(options.fastify, options.projectRoot, options.cardStore);
   registerWebSocket(options.fastify, options.projectRoot, options.liveSyncSocket, options.runtimeApplicationProvider(), options.requestServerRestart);
 }

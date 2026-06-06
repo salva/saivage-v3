@@ -30,8 +30,10 @@ export interface RuntimeCoreParts {
   countGoals(): number;
 }
 
+export type RuntimeCardTestStore = Pick<CardStore, 'read' | 'update' | 'create' | 'setStatus' | 'repairTerminalLifecycle'>;
+
 export interface RuntimeTestParts {
-  cards: Pick<CardStore, 'read' | 'update' | 'create' | 'setStatus' | 'repairTerminalLifecycle'>;
+  cards: RuntimeCardTestStore;
   agentRuntime: AgentExecutionPort;
   errorLogger: ErrorLogger;
   eventLogger: EventLogger;

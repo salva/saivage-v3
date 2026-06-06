@@ -48,11 +48,10 @@ beforeAll(async () => {
   const { default: authPlugin } = await import('../../src/server/auth.js');
   await app.register(authPlugin);
   const { registerCardRoutes } = await import('../../src/server/routes/cards.js');
-  registerCardRoutes(app, TEST_ROOT);
+  const store = new CardStore(TEST_ROOT);
+  registerCardRoutes(app, TEST_ROOT, undefined, store);
   await app.listen({ port: 0, host: '127.0.0.1' });
   port = (app.server.address() as { port: number }).port;
-
-  const store = new CardStore(TEST_ROOT);
   const created = store.create({
     title: 'Tracked card',
     type: 'code',

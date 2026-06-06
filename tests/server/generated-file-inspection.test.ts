@@ -5,6 +5,7 @@ import websocket from '@fastify/websocket';
 import { mkdirSync, rmSync, writeFileSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { CardStore } from '../../src/cards/card-store.js';
 
 function uniqueDir(): string { return join(tmpdir(), `saivage-gfi-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`); }
 function setupProject(projectRoot: string): void {
@@ -43,7 +44,8 @@ describe('generated file inspection api', () => {
     const { default: authPlugin } = await import('../../src/server/auth.js'); await app.register(authPlugin);
     const { registerCardRoutes } = await import('../../src/server/routes/cards.js');
     const { registerChatsFilesDebugRoutes } = await import('../../src/server/routes/chats-files-debug.js');
-    registerCardRoutes(app, projectRoot); registerChatsFilesDebugRoutes(app, projectRoot);
+    const cardStore = new CardStore(projectRoot);
+    registerCardRoutes(app, projectRoot, undefined, cardStore); registerChatsFilesDebugRoutes(app, projectRoot, cardStore);
     await app.listen({ port: 0, host: '127.0.0.1' }); port = (app.server.address() as { port: number }).port;
   }, 30000);
   afterAll(async () => { if (app) await app.close(); try { rmSync(projectRoot, { recursive: true, force: true }); } catch {} }, 10000);

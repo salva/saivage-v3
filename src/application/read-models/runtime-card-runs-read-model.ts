@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import type { ActiveCardRun, AgentSession, CardRecord, CardStatus } from '../../schemas/index.js';
-import { CardStore } from '../../cards/store-api.js';
+import type { CardStore } from '../../cards/store-api.js';
 import { getSession, listSessions } from '../../agents/session-api.js';
 import { readRuntimeState } from '../../runtime/state-api.js';
 
@@ -11,8 +11,7 @@ export interface CardRunsResponse { active_card_run: ActiveCardRun | null; activ
 
 function saivageDir(projectRoot: string): string { return join(projectRoot, '.saivage'); }
 
-export function buildCardRunsResponse(projectRoot: string): CardRunsResponse {
-  const store = new CardStore(projectRoot);
+export function buildCardRunsResponse(projectRoot: string, store: CardStore): CardRunsResponse {
   const state = readRuntimeState(projectRoot);
   const active = state?.active_card_run ?? null;
   const active_breadcrumb = active ? [active.card_id, ...store.getAncestors(active.card_id)].reverse().flatMap((id) => {

@@ -69,7 +69,7 @@ beforeEach(async () => {
   app = Fastify({ logger: false });
   const { default: authPlugin } = await import('../../src/server/auth.js');
   await app.register(authPlugin);
-  registerCardRoutes(app, tmpDir);
+  registerCardRoutes(app, tmpDir, undefined, store);
   await app.listen({ port: 0, host: '127.0.0.1' });
   const port = (app.server.address() as { port: number }).port;
   baseUrl = `http://127.0.0.1:${port}`;

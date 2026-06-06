@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { CardStore } from '../../cards/store-api.js';
+import type { CardStore } from '../../cards/store-api.js';
 import { readFreezeManifest } from '../../runtime/control-api.js';
 import { readRuntimeState } from '../../runtime/state-api.js';
 import { runtimeStateSchema } from '../../schemas/index.js';
@@ -12,8 +12,7 @@ export interface DebugStateReadModel { runtime: DebugRuntimeReadModel | null; ca
 export interface DebugJsonlReadModel { errors?: unknown[]; events?: unknown[]; total: number; }
 
 export class DebugReadModelService {
-  private readonly store: CardStore;
-  constructor(private readonly projectRoot: string) { this.store = new CardStore(projectRoot); }
+  constructor(private readonly projectRoot: string, private readonly store: CardStore) {}
 
   getState(pid = process.pid): DebugStateReadModel {
     const state = readRuntimeState(this.projectRoot);

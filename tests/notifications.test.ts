@@ -75,8 +75,8 @@ describe('queueNotification recipient resolution', () => {
     const child = store.create(makeCard({ id: 'code-1', type: 'code', title: 'Child', parent: goal.id, depth: 2 }));
     createSession(join(projectRoot, '.saivage'), 'executor', goal.id, child.id, undefined, 'executor-session');
 
-    expect(resolveRecipient(projectRoot, child.id)).toEqual({ kind: 'card', cardId: child.id });
-    queueNotification(projectRoot, { kind: 'card', cardId: child.id }, 'card_changed', 'card body', { actor: 'runtime', surface: 'runtime' });
+    expect(resolveRecipient(projectRoot, store, child.id)).toEqual({ kind: 'card', cardId: child.id });
+    queueNotification(projectRoot, { kind: 'card', cardId: child.id }, 'card_changed', 'card body', { actor: 'runtime', surface: 'runtime' }, store);
 
     const center = getProjectNotificationCenter(projectRoot);
     expect(center.drainPendingForSession('executor-session')).toEqual([expect.objectContaining({ kind: 'card_changed', body: 'card body' })]);
@@ -86,7 +86,7 @@ describe('queueNotification recipient resolution', () => {
     createSession(join(projectRoot, '.saivage'), 'planner', 'project', 'project', undefined, 'planner-session');
     createSession(join(projectRoot, '.saivage'), 'executor', 'project', 'project', undefined, 'executor-session');
 
-    expect(resolveRecipient(projectRoot, 'planner')).toEqual({ kind: 'role', role: 'planner' });
+    expect(resolveRecipient(projectRoot, store, 'planner')).toEqual({ kind: 'role', role: 'planner' });
     queueNotification(projectRoot, { kind: 'role', role: 'planner' }, 'runtime_state', 'paused', { actor: 'runtime', surface: 'runtime' });
 
     const center = getProjectNotificationCenter(projectRoot);
@@ -97,13 +97,13 @@ describe('queueNotification recipient resolution', () => {
   it('resolves and queues explicit session recipients to exactly that session', () => {
     createSession(join(projectRoot, '.saivage'), 'reviewer', 'project', 'project', undefined, 'reviewer-session');
 
-    expect(resolveRecipient(projectRoot, 'reviewer-session')).toEqual({ kind: 'session', sessionId: 'reviewer-session' });
+    expect(resolveRecipient(projectRoot, store, 'reviewer-session')).toEqual({ kind: 'session', sessionId: 'reviewer-session' });
     queueNotification(projectRoot, { kind: 'session', sessionId: 'reviewer-session' }, 'review', 'please review', { actor: 'planner', surface: 'runtime' });
 
     expect(getProjectNotificationCenter(projectRoot).drainPendingForSession('reviewer-session')).toEqual([expect.objectContaining({ kind: 'review', body: 'please review' })]);
   });
 
   it('returns null for an unknown recipient literal', () => {
-    expect(resolveRecipient(projectRoot, 'missing-recipient')).toBeNull();
+    expect(resolveRecipient(projectRoot, store, 'missing-recipient')).toBeNull();
   });
 });

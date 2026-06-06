@@ -316,7 +316,7 @@ describe('Analyst Tools', () => {
       },
     });
 
-    const result = markGoalNeedsCorrections(projectRoot, 'card-1', [
+    const result = markGoalNeedsCorrections(projectRoot, store, 'card-1', [
       { summary: 'needs follow-up' },
     ]);
 
@@ -499,10 +499,11 @@ describe('Analyst Tools', () => {
       body: 'body that must not audit',
     });
 
-    expect(result).toEqual({
+    expect(result).toEqual(expect.objectContaining({
       success: false,
       data: { reason: 'unknown_recipient', recipient: 'missing-target' },
-    });
+      errorEnvelope: expect.objectContaining({ kind: 'not_found' }),
+    }));
     const audits = listControlActions(projectRoot);
     const audit = audits.find(
       (entry) => entry.action === 'notification.queue' && entry.target_id === 'missing-target',
@@ -677,8 +678,9 @@ describe('API Chat and WebSocket Integration', () => {
       await import('../src/server/routes/chats-files-debug.js');
     const { registerWebSocket } = await import('../src/server/websocket.js');
 
-    registerCardRoutes(app, projectRoot, createTestRuntimeApplication({ cardStore: new CardStore(projectRoot) }));
-    registerChatsFilesDebugRoutes(app, projectRoot);
+    const routeStore = new CardStore(projectRoot);
+    registerCardRoutes(app, projectRoot, createTestRuntimeApplication({ cardStore: routeStore }), routeStore);
+    registerChatsFilesDebugRoutes(app, projectRoot, routeStore);
     registerWebSocket(app, projectRoot, createTestRuntimeApplication({ cardStore: new CardStore(projectRoot) }));
 
     await app.listen({ port: 0, host: '127.0.0.1' });

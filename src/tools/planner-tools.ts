@@ -342,7 +342,7 @@ export class PlannerToolsService {
     ctx: CardMutationContext & { toolCallId?: string; sessionId?: string },
   ): Record<string, unknown> {
     const projectRoot = this.projectRoot ?? this.store.projectRoot;
-    queueNotification(projectRoot, recipient, kind, body, { actor: 'planner', surface: 'runtime' });
+    queueNotification(projectRoot, recipient, kind, body, { actor: 'planner', surface: 'runtime' }, this.store);
     const targetId =
       recipient.kind === 'card'
         ? recipient.cardId

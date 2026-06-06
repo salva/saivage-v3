@@ -5,11 +5,10 @@ import type { EventPayload } from '../events/index.js';
 import type { LoggedEvent } from '../schemas/index.js';
 import type { RuntimeApi } from './runtime-api.js';
 import { initializeRuntimeImplementation } from './runtime.js';
-import type { RuntimeConfig, RuntimeCoreParts } from './runtime-config.js';
+import type { RuntimeCardTestStore, RuntimeConfig, RuntimeCoreParts } from './runtime-config.js';
 import type { RuntimeDisposeReportEntry } from './lifecycle.js';
 import { readRuntimeState } from './state.js';
 import type { RuntimeState } from '../schemas/index.js';
-import type { CardStore } from '../cards/store-api.js';
 import type { ErrorLogger, EventLogger } from '../observability/index.js';
 import type { StuckAgentSupervisor, StuckVerdict } from './stuck-agent-supervisor.js';
 import { deriveCurrentCardId } from './current-run.js';
@@ -52,7 +51,7 @@ export interface RuntimeCoreTestContainer extends RuntimeCoreContainer {
     emit(event: LoggedEvent): void;
     emitAnalystToolInvoked(payload: EventPayload<'analyst_tool_invoked'>): void;
   };
-  cardTestTools: Pick<CardStore, 'read' | 'update' | 'create' | 'setStatus' | 'repairTerminalLifecycle'>;
+  cardTestTools: RuntimeCardTestStore;
   loggerTestTools: {
     isSameErrorLogger(errorLogger: ErrorLogger): boolean;
     appendError(input: Parameters<ErrorLogger['appendError']>[0]): void;

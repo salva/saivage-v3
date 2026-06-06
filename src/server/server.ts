@@ -15,6 +15,7 @@ import { stopServerResources } from './composition/server-shutdown.js';
 import type { ServerAvailabilityInputs } from './availability.js';
 import { LiveSyncSocket } from './live-sync-socket.js';
 import { SyncHub } from './sync-hub.js';
+import { CardStore } from '../cards/store-api.js';
 
 export interface ServerConfig { host: string; port: number; projectRoot: string; }
 export interface CreateServerOptions { environment: Environment; createRuntime?: boolean; scope?: ResourceScope; }
@@ -72,6 +73,7 @@ export async function createServer(optionsOrProjectRoot: CreateServerOptions | s
   const runtimeStartup = await startRuntimeApplication({ createRuntime, projectRoot, saivageConfig, fastify, syncHub });
   const runtimeApplication = runtimeStartup.runtimeApplication;
   const runtimeStartupFailure = runtimeStartup.startupFailure;
+  const cardStore = runtimeApplication?.cardStore ?? new CardStore(projectRoot);
 
   const mcpStartup = await startMcpManager({ projectRoot, scope, fastify });
   const mcpManager = mcpStartup.mcpManager;
@@ -83,6 +85,7 @@ export async function createServer(optionsOrProjectRoot: CreateServerOptions | s
   registerServerRoutes({
     fastify,
     projectRoot,
+    cardStore,
     runtimeApplicationProvider: () => runtimeApplication,
     mcpManagerProvider: () => mcpManager,
     availabilityInputs,

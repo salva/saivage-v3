@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { CardStore } from '../../cards/store-api.js';
+import type { CardStore } from '../../cards/store-api.js';
 import type { CardHistoryEntry, CardLifecycleState, CardRecord, CardView } from '../../schemas/index.js';
 import { allowedActions } from '../../permissions/index.js';
 import { readRuntimeState } from '../../runtime/state-api.js';
@@ -35,8 +35,7 @@ function historyHeader(entry: CardHistoryEntry) {
 }
 
 export class CardsReadModelService {
-  private readonly store: CardStore;
-  constructor(private readonly projectRoot: string) { this.store = new CardStore(projectRoot); }
+  constructor(private readonly projectRoot: string, private readonly store: CardStore) {}
 
   getRuntimeState(serverAvailability?: ServerAvailability) {
     const projectId = basename(this.projectRoot);

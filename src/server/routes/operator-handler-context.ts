@@ -3,6 +3,7 @@ import type { operatorApiContracts } from '../../contracts/index.js';
 import type { McpStatusProvider, McpToolsReadModelProvider } from '../../mcp/manager-api.js';
 import type { RuntimeApplication } from '../../application/runtime-composition.js';
 import type { RuntimeApi } from '../../runtime/control-api.js';
+import type { CardStore } from '../../cards/store-api.js';
 import type { buildServerAvailability } from '../availability.js';
 import type { ContractHandler } from '../contract-runtime.js';
 
@@ -13,6 +14,10 @@ export type OperatorRestartRequester = () => Promise<void>;
 
 export interface OperatorProjectContext {
   projectRoot: string;
+}
+
+export interface OperatorCardStoreContext {
+  cardStore?: CardStore;
 }
 
 export interface OperatorRuntimeProviderContext {

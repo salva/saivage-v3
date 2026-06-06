@@ -1,13 +1,15 @@
 import type { AgentMessage, CardRecord, RuntimeState } from '../schemas/index.js';
-import { CardStore } from '../cards/store-api.js';
+import type { CardStore } from '../cards/store-api.js';
 import { isUnresolvedRuntimeActivationStatus, readRuntimeState } from '../runtime/state.js';
 import { generateRoundId } from '../schemas/round-id-server.js';
+
+export type PlannerStateCardStore = Pick<CardStore, 'read' | 'listChildren'>;
 
 export interface PlannerStateContextInput {
   projectRoot: string;
   sessionId: string;
   goalId: string;
-  cardStore?: Pick<CardStore, 'read' | 'listChildren'>;
+  cardStore: PlannerStateCardStore;
   runtimeStateProvider?: () => RuntimeState | null;
 }
 
@@ -92,7 +94,7 @@ function inferNextAction(children: CardRecord[], runtimeState: RuntimeState | nu
 }
 
 export function buildPlannerStateContextMessage(input: PlannerStateContextInput): AgentMessage {
-  const store = input.cardStore ?? new CardStore(input.projectRoot);
+  const store = input.cardStore;
   const goal = store.read(input.goalId);
   const children = store
     .listChildren(input.goalId)
