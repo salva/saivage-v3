@@ -17,13 +17,9 @@ import { createLlmExchangeRecorder, toRecorderLogger } from './llm-exchange-reco
 import type { LlmExchangeRecorder, LlmExchangeRecorderLogger } from './llm-exchange-recorder.js';
 import { buildLlmOptions } from './llm-options-factory.js';
 import {
-  mark_goal_needs_corrections,
-  create_card, edit_card, delete_card, list_cards, get_card, get_tree, get_plan_diary, get_card_output, get_status,
-  list_card_history, get_card_history_entry, diff_card,
-  start_project, stop_project, terminate_process, pause_runtime, resume_runtime, abort_goal_subtree, restart_card_or_subtree, restart_goal,
-  read_file, list_directory, run_shell_command, read_runtime_events, read_runtime_errors, read_control_actions,
-  list_processes_tool, list_agent_sessions, read_agent_session, queue_notification, reorder_child, navigate_workspace, navigate_back, show_config, restart_server, reconfigure,
-} from './analyst-tools.js';
+  TOOL_DEFINITIONS,
+  type UnifiedToolDefinition,
+} from '../tools/definitions/index.js';
 import type { ToolResult, ToolContext } from './analyst-tools.js';
 
 export const ANALYST_NO_MODEL_REPLY = "Analyst LLM unavailable: no model candidate is configured for role 'analyst'. Configure a provider/model for role 'analyst' in the project configuration and try again.";
@@ -36,46 +32,18 @@ export class AnalystOfflineError extends Error {
 }
 
 type ToolFn = (ctx: ToolContext, params: Record<string, unknown>) => Promise<ToolResult>;
+type CanonicalToolExecutor = NonNullable<UnifiedToolDefinition['executor']>;
 
-export const TOOL_REGISTRY: Record<string, ToolFn> = {
-  mark_goal_needs_corrections: mark_goal_needs_corrections as unknown as ToolFn,
-  create_card: create_card as unknown as ToolFn,
-  edit_card: edit_card as unknown as ToolFn,
-  delete_card: delete_card as unknown as ToolFn,
-  list_cards: list_cards as unknown as ToolFn,
-  get_card: get_card as unknown as ToolFn,
-  get_tree: get_tree as unknown as ToolFn,
-  get_plan_diary: get_plan_diary as unknown as ToolFn,
-  get_card_output: get_card_output as unknown as ToolFn,
-  get_status: get_status as unknown as ToolFn,
-  list_card_history: list_card_history as unknown as ToolFn,
-  get_card_history_entry: get_card_history_entry as unknown as ToolFn,
-  diff_card: diff_card as unknown as ToolFn,
-  start_project: start_project as unknown as ToolFn,
-  stop_project: stop_project as unknown as ToolFn,
-  terminate_process: terminate_process as unknown as ToolFn,
-  pause_runtime: pause_runtime as unknown as ToolFn,
-  resume_runtime: resume_runtime as unknown as ToolFn,
-  abort_goal_subtree: abort_goal_subtree as unknown as ToolFn,
-  restart_card_or_subtree: restart_card_or_subtree as unknown as ToolFn,
-  restart_goal: restart_goal as unknown as ToolFn,
-  read_file: read_file as unknown as ToolFn,
-  list_directory: list_directory as unknown as ToolFn,
-  run_shell_command: run_shell_command as unknown as ToolFn,
-  read_runtime_events: read_runtime_events as unknown as ToolFn,
-  read_runtime_errors: read_runtime_errors as unknown as ToolFn,
-  read_control_actions: read_control_actions as unknown as ToolFn,
-  list_processes_tool: list_processes_tool as unknown as ToolFn,
-  list_agent_sessions: list_agent_sessions as unknown as ToolFn,
-  read_agent_session: read_agent_session as unknown as ToolFn,
-  queue_notification: queue_notification as unknown as ToolFn,
-  reorder_child: reorder_child as unknown as ToolFn,
-  navigate_workspace: navigate_workspace as unknown as ToolFn,
-  navigate_back: navigate_back as unknown as ToolFn,
-  show_config: show_config as unknown as ToolFn,
-  restart_server: restart_server as unknown as ToolFn,
-  reconfigure: reconfigure as unknown as ToolFn,
-};
+function adaptAnalystToolExecutor(executor: CanonicalToolExecutor): ToolFn {
+  return (ctx, params) => executor(ctx, params);
+}
+
+export const TOOL_REGISTRY: Record<string, ToolFn> = Object.fromEntries(
+  TOOL_DEFINITIONS
+    .flatMap((tool) => tool.roles.includes('analyst') && !tool.workspace && tool.executor
+      ? [[tool.name, adaptAnalystToolExecutor(tool.executor)] as const]
+      : []),
+);
 
 function formatToolList(tools: ToolDefinition[]): string {
   return tools.map((tool) => `- ${tool.function.name}: ${tool.function.description}`).join('\n');

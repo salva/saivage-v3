@@ -61,6 +61,26 @@ describe('workspace tools', () => {
     expect(result.content).toBe('print("ok")\n');
   });
 
+  it('validates workspace inputs with canonical schemas before dispatch', async () => {
+    await expect(processWorkspaceToolCall(
+      'read_project_file',
+      JSON.stringify({ path: 123 }),
+      context(),
+    )).rejects.toThrow();
+
+    await expect(processWorkspaceToolCall(
+      'write_project_file',
+      JSON.stringify({ path: 'src/app.py', content: 'ok', extra: true }),
+      context(),
+    )).rejects.toThrow();
+
+    await expect(processWorkspaceToolCall(
+      'write_project_file',
+      '{not json',
+      context(),
+    )).rejects.toThrow(/valid JSON/);
+  });
+
   it('rejects writes outside the project root and to Saivage internals', async () => {
     await expect(processWorkspaceToolCall(
       'write_project_file',

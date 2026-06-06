@@ -2,6 +2,7 @@ import { existsSync, readdirSync, statSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { readProjectFileAtomic, writeFileAtomic } from '../persistence/index.js';
 import { isWriteBlocked } from '../workspace/index.js';
+import { toolDefinitionByName } from '../tools/definitions/index.js';
 export {
   READ_ONLY_WORKSPACE_TOOL_DEFINITIONS,
   WORKSPACE_TOOL_DEFINITIONS,
@@ -46,15 +47,21 @@ function truncateOutput(value: string): string {
   return truncateCommandOutput(value, DEFAULT_MAX_OUTPUT_BYTES);
 }
 
-function parseArgs(raw: string): Record<string, unknown> {
+function parseArgs(raw: string): unknown {
   try {
-    const parsed = JSON.parse(raw) as unknown;
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? parsed as Record<string, unknown>
-      : {};
+    return JSON.parse(raw) as unknown;
   } catch {
-    return {};
+    throw new Error('Workspace tool arguments must be valid JSON.');
   }
+}
+
+function parseWorkspaceArgs(name: string, raw: string): Record<string, unknown> {
+  const definition = toolDefinitionByName(name);
+  if (!definition?.workspace) throw new Error(`Unknown workspace tool '${name}'.`);
+  const parsed = definition.input.parse(parseArgs(raw));
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+    ? parsed as Record<string, unknown>
+    : {};
 }
 
 function projectRelativePath(projectRoot: string, requested: string | undefined, label: string): string {
@@ -127,7 +134,7 @@ export async function processWorkspaceToolCall(
   rawArguments: string,
   context: WorkspaceToolContext,
 ): Promise<unknown> {
-  const args = parseArgs(rawArguments);
+  const args = parseWorkspaceArgs(name, rawArguments);
 
   if (name === 'list_project_files') {
     const files = listProjectFiles(
