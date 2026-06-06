@@ -9,7 +9,6 @@ import {
 } from './candidate-availability.js';
 import {
   getSession,
-  getSessionMessages,
 } from './session-persistence.js';
 import type {
   AgentInvocationRole,
@@ -36,15 +35,14 @@ import type {
   ReviewerResult,
 } from '../contracts/index.js';
 import type { LlmCallFn } from './llm-contracts.js';
-import { generateRoundId } from '../schemas/round-id-server.js';
 import { EventLogger } from '../observability/index.js';
-import { buildReviewerPrompt } from './system-prompt.js';
 import type { McpToolInvocationPort } from '../mcp/manager-api.js';
 import { SkillsEngine } from './skills-engine.js';
 import { getProjectNotificationCenter } from '../notifications/notification-delivery.js';
 import type { CardStore } from '../cards/store-api.js';
 import { injectQueuedSyntheticPlannerNotes } from '../runtime/synthetic-planner-notes.js';
 import { PlannerControlExecutor } from './planner-control-executor.js';
+import { createPlannerControlExecutor } from './planner-control-factory.js';
 import { ContextCompactor } from './context-compactor.js';
 import type { Contract } from '../contracts/contract.js';
 import {
@@ -61,14 +59,12 @@ import { ToolRuntime, AGENT_TOOL_DEFINITIONS } from '../tools/index.js';
 import { AgentSessionCoordinator, type SessionCreatedHook } from './agent-session-coordinator.js';
 import { AgentToolExecutor } from './agent-tool-executor.js';
 import { InvocationService } from './invocation-service.js';
-import { applyRuntimeMutation } from '../runtime/mutations.js';
-import { planClearActiveCardRunPatch } from '../runtime/runtime-core.js';
-import { readRuntimeState } from '../runtime/state.js';
 import { SessionStampCounter } from '../runtime/session-stamp-counter.js';
 import { SessionMessageLog } from './session-message-log.js';
 import { AgentSessionLifecycle } from './session-lifecycle.js';
 import { InvocationModelContext } from './invocation-model-context.js';
 import { AgentInvocationRunner } from './invocation-runner.js';
+import { compensateActivationBarrierThrow } from './activation-barrier-compensation.js';
 
 export type AgentRole = OperationalAgentRole;
 export type InvokableAgentRole = AgentInvocationRole;
@@ -145,51 +141,6 @@ export class AgentAdapter implements AgentExecutionPort {
       { cardStore: this.cardStore, bus: cfg.eventBus },
       AGENT_TOOL_DEFINITIONS,
     );
-    this.plannerControlExecutor = new PlannerControlExecutor({
-      cardStore: this.cardStore,
-      projectRoot: this.projectRoot,
-      saivageDir: this.saivageDir,
-      runtimeStateProvider: () => this.activationLedger?.readState() ?? null,
-      activationLedger: {
-        readState: () => this.activationLedger?.readState() ?? null,
-        appendRun: (input) => this.activationLedger!.appendRun(input),
-        upsertActivation: (input) => this.activationLedger!.upsertActivation(input),
-      },
-      reviewer: async (goalId, assessmentId, reviewerSessionId, report, parentSessionId) => {
-        if (parentSessionId) this.sessionLifecycle.markWaiting(parentSessionId);
-        try {
-          const reviewerContract = createReviewerContract({ goalId, assessmentId });
-          return (
-            await this.invokeReviewer({
-              goalId,
-              systemPrompt: buildReviewerPrompt(reviewerContract),
-              contextMessages: [
-                {
-                  id: `review-report:${assessmentId}`,
-                  session_id: reviewerSessionId,
-                  role: 'user',
-                  kind: 'text',
-                  content: `The planner reports the following terminal outcome for goal '${goalId}'. Evaluate against the goal's acceptance criteria and respond with the canonical ReviewerResult JSON envelope.\n\n${JSON.stringify(report, null, 2)}`,
-                  round_id: generateRoundId('user'),
-                  message_index: 0,
-                  block_index: 0,
-                  timestamp: new Date().toISOString(),
-                },
-              ],
-              assessmentId,
-              reviewerSessionId,
-              contract: reviewerContract,
-            })
-          ).assessment;
-        } finally {
-          if (parentSessionId) this.sessionLifecycle.markActive(parentSessionId);
-        }
-      },
-      maxReviewRetries: this.runtimeConfig?.maxReviewRetries ?? 3,
-      assessmentIdFactory: undefined,
-      eventBusProvider: () => this.runtimeLedgerEventBus,
-      eventLogger: this.eventLogger,
-    });
     this.sessionCoordinator = new AgentSessionCoordinator({
       saivageDir: this.saivageDir,
       notificationCenter: this.notificationCenter,
@@ -197,6 +148,19 @@ export class AgentAdapter implements AgentExecutionPort {
       eventLogger: this.eventLogger,
     });
     this.sessionLifecycle = new AgentSessionLifecycle(this.saivageDir, this.sessionCoordinator);
+    this.plannerControlExecutor = createPlannerControlExecutor({
+      cardStore: this.cardStore,
+      projectRoot: this.projectRoot,
+      saivageDir: this.saivageDir,
+      runtimeStateProvider: () => this.activationLedger?.readState() ?? null,
+      activationLedgerProvider: () => this.activationLedger,
+      markSessionWaiting: (sessionId) => this.sessionLifecycle.markWaiting(sessionId),
+      markSessionActive: (sessionId) => this.sessionLifecycle.markActive(sessionId),
+      invokeReviewer: (request) => this.invokeReviewer(request),
+      maxReviewRetries: this.runtimeConfig?.maxReviewRetries ?? 3,
+      eventBusProvider: () => this.runtimeLedgerEventBus,
+      eventLogger: this.eventLogger,
+    });
     this.messageLog = new SessionMessageLog(this.saivageDir);
     this.modelContext = new InvocationModelContext({
       projectRoot: this.projectRoot,
@@ -241,7 +205,18 @@ export class AgentAdapter implements AgentExecutionPort {
       redactModelIssueText: (message) => this.redactModelIssueText(message),
       redactProviderErrorMessage: (message) => this.redactProviderErrorMessage(message),
       compensateActivationBarrierThrow: (sessionId, toolCallId, activation, error) =>
-        this.compensateActivationBarrierThrow(sessionId, toolCallId, activation, error),
+        compensateActivationBarrierThrow(
+          {
+            projectRoot: this.projectRoot,
+            saivageDir: this.saivageDir,
+            messageLog: this.messageLog,
+            redactProviderErrorMessage: (message) => this.redactProviderErrorMessage(message),
+          },
+          sessionId,
+          toolCallId,
+          activation,
+          error,
+        ),
     });
   }
 
@@ -485,9 +460,6 @@ export class AgentAdapter implements AgentExecutionPort {
   ) {
     return this.messageLog.nextFallbackRound(sessionId, prefix);
   }
-  private appendSessionMessage(sessionId: string, message: Parameters<SessionMessageLog['append']>[1]) {
-    return this.messageLog.append(sessionId, message);
-  }
 
   private compensateActivationBarrierThrow(
     sessionId: string,
@@ -495,40 +467,18 @@ export class AgentAdapter implements AgentExecutionPort {
     activation: RuntimeActivationRecord,
     error: unknown,
   ): void {
-    const messages = getSessionMessages(this.saivageDir, sessionId);
-    const alreadyResolved = messages.some(
-      (message) =>
-        (message.kind === 'tool_result' || message.kind === 'tool_error') &&
-        message.tool_call_id === toolCallId,
+    compensateActivationBarrierThrow(
+      {
+        projectRoot: this.projectRoot,
+        saivageDir: this.saivageDir,
+        messageLog: this.messageLog,
+        redactProviderErrorMessage: (message) => this.redactProviderErrorMessage(message),
+      },
+      sessionId,
+      toolCallId,
+      activation,
+      error,
     );
-    if (!alreadyResolved) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.appendSessionMessage(sessionId, {
-        role: 'tool',
-        kind: 'tool_error',
-        content: JSON.stringify({
-          error: 'activation_barrier_dispatch_failed',
-          message: this.redactProviderErrorMessage(errorMessage),
-          child_card_id: activation.child_card_id,
-          activation_id: activation.activation_id,
-        }),
-        tool: 'activate_card',
-        tool_call_id: toolCallId,
-      });
-    }
-
-    const now = new Date().toISOString();
-    applyRuntimeMutation(this.projectRoot, {
-      kind: 'completeActivation',
-      childCardId: activation.child_card_id,
-      outcome: 'failed',
-      completedAt: now,
-    });
-    const clearPatch = planClearActiveCardRunPatch({
-      state: readRuntimeState(this.projectRoot),
-      cardId: activation.child_card_id,
-    });
-    if (clearPatch) applyRuntimeMutation(this.projectRoot, { kind: 'patchRuntimeState', patch: clearPatch });
   }
 
   private async invokeAgent<E, R>(
