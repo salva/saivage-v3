@@ -33,6 +33,7 @@ import { repairSiblingPositions } from './position-repair.js';
 import { valuesEqual } from './value-equality.js';
 import { CardStoreInvariantError, ReorderSetMismatchError } from './errors.js';
 import { CardStoreState } from './state.js';
+import { CardReader } from './reader.js';
 import { cardHistoryPath, loadCardStoreState, readHistoryEntriesStrict } from '../persistence/card-loader.js';
 import {
   applyMutationWithOwnedLockSync,
@@ -57,7 +58,6 @@ import {
   assertCanCreateCard,
   buildNewCard,
   buildUpdatedCard,
-  canTransition as canLifecycleTransition,
   collectChangedFields,
   isTerminalState,
   isTerminalType,
@@ -187,6 +187,7 @@ export class CardStore {
   readonly projectRoot: string;
   private readonly projectLock: ProjectLock;
   private state: CardStoreState;
+  private readonly reader: CardReader;
   private readonly eventBus: EventBus;
 
   constructor(projectRoot: string, maxGoalDepth?: number, eventBus?: EventBus) {
@@ -197,6 +198,7 @@ export class CardStore {
     this.projectLock = new ProjectLock(join(projectRoot, '.saivage', 'project.lock'));
     repairSiblingPositions(projectRoot, this.maxDepth, this.projectLock, this.eventBus);
     this.state = loadCardStoreState(projectRoot, { maxDepth: this.maxDepth });
+    this.reader = new CardReader(() => this.state);
   }
 
   invalidate(): void {
@@ -223,40 +225,39 @@ export class CardStore {
   // ── Reads ────────────────────────────────────────────────────
 
   read(id: string): CardRecord | null {
-    const card = this.state.get(id);
-    return card ? deepClone(card) : null;
+    return this.reader.read(id);
   }
 
   list(): CardRecord[] {
-    return this.state.list().map((c) => deepClone(c));
+    return this.reader.list();
   }
 
   listChildren(parentId: string): string[] {
-    return this.state.childrenOf(parentId);
+    return this.reader.listChildren(parentId);
   }
 
   getParent(id: string): string | null {
-    return this.state.parentOf(id);
+    return this.reader.getParent(id);
   }
 
   getAncestors(id: string): string[] {
-    return this.state.ancestorsOf(id);
+    return this.reader.getAncestors(id);
   }
 
   isDescendantOf(id: string, ancestorId: string): boolean {
-    return this.getAncestors(id).includes(ancestorId);
+    return this.reader.isDescendantOf(id, ancestorId);
   }
 
   getDescendantIds(id: string): string[] {
-    return this.state.descendantsOf(id);
+    return this.reader.getDescendantIds(id);
   }
 
   detectCycles(id: string, newDependsOn: string[]): string[] {
-    return this.state.detectDependsOnCycle(id, newDependsOn);
+    return this.reader.detectCycles(id, newDependsOn);
   }
 
   blocksFor(id: string): string[] {
-    return this.state.blocksFor(id);
+    return this.reader.blocksFor(id);
   }
 
   validateTransition(from: CardStatus, to: CardStatus): void {
@@ -270,7 +271,7 @@ export class CardStore {
    * without raising.
    */
   canTransition(from: CardStatus, to: CardStatus): boolean {
-    return canLifecycleTransition(from, to);
+    return this.reader.canTransition(from, to);
   }
 
   listCardHistory(id: string): CardHistoryEntry[] {
