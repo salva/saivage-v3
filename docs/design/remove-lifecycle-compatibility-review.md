@@ -142,8 +142,8 @@ Key sites that read `card.result` as an untyped record:
 
 The plan's Stage 5 mentions "server route tests and web client consumers" generically but does not list the specific files. The audit found:
 
-- `web/src/stores/cards.ts:207` — reads `response.lifecycle`
-- `web/src/stores/cards.ts:310, 319` — receives flat `CardRecord` from WebSocket
+- `web/src/stores/cards.ts:168` — reads the card detail lifecycle view model
+- `web/src/stores/cards.ts:226, 235` — exposes current detail and stale-notification card state to WebSocket-driven UI consumers
 - `web/src/api/types.ts` — extends `CardRecord` with optional fields
 - `web/src/api/contracts.ts:100` — imports `CardRecord`
 
