@@ -674,7 +674,9 @@ describe('API Chat and WebSocket Integration', () => {
     const routeStore = new CardStore(projectRoot);
     registerCardRoutes(app, projectRoot, createTestRuntimeApplication({ cardStore: routeStore }), routeStore);
     registerChatsFilesDebugRoutes(app, projectRoot, routeStore);
-    registerWebSocket(app, projectRoot, createTestRuntimeApplication({ cardStore: new CardStore(projectRoot) }));
+    registerWebSocket(app, projectRoot, {
+      runtimeApplication: createTestRuntimeApplication({ cardStore: new CardStore(projectRoot) }),
+    });
 
     await app.listen({ port: 0, host: '127.0.0.1' });
     port = (app.server.address() as { port: number }).port;

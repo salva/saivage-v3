@@ -59,7 +59,10 @@ describe('websocket analyst safety and live-sync control', () => {
   it('accepts a valid one-use websocket ticket and sends only connected status on connect', () => {
     configureAuthPolicy({ apiToken: 'arch004-test-token' });
     const { route, fastify } = createRoute();
-    registerWebSocket(fastify, '/tmp/project', new LiveSyncSocket(), createTestRuntimeApplication());
+    registerWebSocket(fastify, '/tmp/project', {
+      liveSyncSocket: new LiveSyncSocket(),
+      runtimeApplication: createTestRuntimeApplication(),
+    });
     const ticket = getAuthPolicy().issueWebSocketTicket().ticket;
     const { ws } = createSocket();
 
@@ -74,7 +77,10 @@ describe('websocket analyst safety and live-sync control', () => {
   it('handles conversation subscribe/unsubscribe frames without invoking the analyst handler', async () => {
     const liveSyncSocket = new LiveSyncSocket();
     const { route, fastify } = createRoute();
-    registerWebSocket(fastify, '/tmp/project', liveSyncSocket, createTestRuntimeApplication());
+    registerWebSocket(fastify, '/tmp/project', {
+      liveSyncSocket,
+      runtimeApplication: createTestRuntimeApplication(),
+    });
     const { ws, handlers } = createSocket();
     route.handler(ws, { headers: {}, query: {} });
 
@@ -93,7 +99,10 @@ describe('websocket analyst safety and live-sync control', () => {
 
   it('keeps analyst chat request/response behavior on the shared socket', async () => {
     const { route, fastify } = createRoute();
-    registerWebSocket(fastify, '/tmp/project', new LiveSyncSocket(), createTestRuntimeApplication());
+    registerWebSocket(fastify, '/tmp/project', {
+      liveSyncSocket: new LiveSyncSocket(),
+      runtimeApplication: createTestRuntimeApplication(),
+    });
     const { ws, handlers } = createSocket();
     route.handler(ws, { headers: {}, query: {} });
 

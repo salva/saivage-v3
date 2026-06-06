@@ -37,5 +37,9 @@ export function registerServerRoutes(options: {
     configWarnings: options.configWarnings,
   });
   registerInternalDebugRoutes(options.fastify, options.projectRoot, options.cardStore);
-  registerWebSocket(options.fastify, options.projectRoot, options.liveSyncSocket, options.runtimeApplicationProvider(), options.requestServerRestart);
+  registerWebSocket(options.fastify, options.projectRoot, {
+    liveSyncSocket: options.liveSyncSocket,
+    runtimeApplication: options.runtimeApplicationProvider(),
+    requestServerRestart: options.requestServerRestart,
+  });
 }
