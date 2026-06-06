@@ -43,7 +43,7 @@ import {
   type ToolContext as AnalystToolContext,
   type ToolResult,
 } from '../../agents/analyst-tools.js';
-import type { CardAction, CardState, PermissionRole } from '../../permissions/index.js';
+import type { PermissionRole } from '../../permissions/index.js';
 import { defineTool, type JsonSchemaObject, type ToolDefinition as RuntimeToolDefinition } from '../runtime.js';
 
 export const CARD_STATUS_VALUES = [
@@ -85,8 +85,6 @@ export interface UnifiedToolDefinition<Name extends string = string, Input = unk
   readonly input: z.ZodType<Input>;
   readonly roles: readonly AgentRole[];
   readonly executor?: ToolExecutor<Input>;
-  readonly action?: CardAction;
-  readonly targetState?: (input: Input, projectRoot: string) => CardState | undefined;
   readonly plannerControl?: boolean;
   readonly plannerInput?: z.ZodTypeAny;
   readonly plannerDescription?: string;
@@ -284,8 +282,6 @@ export const AGENT_TOOL_DEFINITIONS = TOOL_DEFINITIONS.filter((tool) => tool.exe
   output: toolResultSchema,
   parameters: schemaFor(tool),
   roles: tool.roles,
-  action: tool.action,
-  targetState: (input, invocation) => tool.targetState?.(input, invocation.projectRoot),
   execute: async (ctx, input) => tool.executor!({ projectRoot: ctx.projectRoot, actor: actorForRole(ctx.role, tool.name), surface: ctx.surface, sessionId: ctx.sessionId }, input),
 })) as readonly RuntimeToolDefinition<string, unknown, ToolResult>[];
 

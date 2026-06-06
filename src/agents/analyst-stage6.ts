@@ -38,8 +38,7 @@ export function markGoalNeedsCorrections(projectRoot: string, originGoalId: stri
   if (routed) queueSyntheticPlannerNote(projectRoot, { target_planner_session_id: routed.session.id, target_goal_card_id: routed.goalId, kind: 'pending_subtree_correction', affected_card_id: originGoalId, descendant_card_ids: [], summary: `${summary}${note ? `
 ${sanitizeAnalystText(note, 1000)}` : ''}` });
   let status_transition: { from: CardStatus; to: CardStatus } | null = null;
-  if (['done', 'running', 'blocked'].includes(origin.status)) {
-    store.setStatus(originGoalId, 'changed');
+  if (markCardChangedForAnalystCorrection(store, originGoalId, origin.status)) {
     status_transition = { from: origin.status, to: 'changed' };
   }
   return { origin_goal_id: originGoalId, notes_recorded_on_goal_ids: [], status_transition };
@@ -49,9 +48,26 @@ export function markDescendantChanged(projectRoot: string, affectedCardId: strin
   const store = new CardStore(projectRoot);
   const card = store.read(affectedCardId);
   if (!card) throw new Error(`Card '${affectedCardId}' not found.`);
-  if (card.status !== 'changed') store.setStatus(affectedCardId, 'changed');
+  markCardChangedForAnalystCorrection(store, affectedCardId, card.status);
   const routed = findDeepestContainingPlanner(projectRoot, store, affectedCardId);
   if (routed) queueSyntheticPlannerNote(projectRoot, { target_planner_session_id: routed.session.id, target_goal_card_id: routed.goalId, kind: 'subtree_changed', affected_card_id: affectedCardId, descendant_card_ids: [affectedCardId], summary: sanitizeAnalystText(summary, 1000) });
+}
+
+function markCardChangedForAnalystCorrection(store: CardStore, cardId: string, status: CardStatus): boolean {
+  if (status === 'changed') return false;
+  if (status === 'running' || status === 'blocked') {
+    store.setStatus(cardId, 'changed');
+    return true;
+  }
+  if (status === 'done') {
+    // Analyst correction invalidates an accepted terminal result; this is an explicit repair escape hatch.
+    store.repairTerminalLifecycle(cardId, {
+      status: 'changed',
+      lifecycle: { status: 'changed', result: null, error: null, completed_at: null },
+    });
+    return true;
+  }
+  return false;
 }
 
 /**

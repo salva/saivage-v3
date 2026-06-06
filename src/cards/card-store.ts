@@ -472,6 +472,10 @@ export class CardStore {
     });
   }
 
+  /**
+   * Explicit runtime-owned lifecycle escape hatch for startup repair, terminal-result commits,
+   * and operator/analyst correction flows that intentionally invalidate terminal state.
+   */
   repairTerminalLifecycle(id: string, changes: Partial<CardRecord>): CardRecord {
     return this.applyPatch(id, changes, 'mutate', {
       actor: 'runtime',

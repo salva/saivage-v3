@@ -13,6 +13,7 @@ import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import type { CardRecord } from '../../src/schemas/types.js';
 import { AgentToolCatalog } from '../../src/agents/agent-tool-catalog.js';
+import { PlannerToolsService } from '../../src/tools/planner-tools.js';
 
 function activationLedger(projectRoot: string) {
   return {
@@ -257,6 +258,16 @@ describe('AgentAdapter planner tool surface', () => {
       ]),
     );
     expect(store.read(child.id)?.status).toBe('backlog');
+  });
+
+  it('activates drafting cards through the legal backlog step', () => {
+    const drafting = store.create(makeCard({ type: 'code', title: 'Draft', status: 'drafting' }));
+    const service = new PlannerToolsService(store);
+
+    const activated = service.activateCard(drafting.id);
+
+    expect(activated.status).toBe('active');
+    expect(store.read(drafting.id)?.status).toBe('active');
   });
 
   it('advertises cancel_card as destructive cleanup/recovery rather than scheduling', () => {

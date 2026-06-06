@@ -91,28 +91,3 @@ export function decide(input: { role: PermissionRole; action: CardAction; target
 export function allowedActions(role: PermissionRole, state: CardState): CardAction[] {
   return CARD_ACTIONS.filter((action) => decide({ role, action, targetState: state }).allowed);
 }
-
-export function matchingMatrixEntries(input: { role: PermissionRole; action: CardAction; targetState: CardState }): MatrixEntry[] {
-  return matrixEntries.filter((candidate) => entryMatches(candidate, input.role, input.action, input.targetState));
-}
-
-export function matrixCompletenessTriples(): Array<{ role: PermissionRole; action: CardAction; state: CardState; decision: Decision; entries: MatrixEntry[] }> {
-  return PERMISSION_ROLES.flatMap((role) => CARD_ACTIONS.flatMap((action) => CARD_STATES.map((state) => ({
-    role,
-    action,
-    state,
-    decision: decide({ role, action, targetState: state }),
-    entries: matchingMatrixEntries({ role, action, targetState: state }),
-  }))));
-}
-
-export const TOOL_TO_CARD_ACTION = {
-  activate_card: 'card.start',
-  cancel_card: 'card.cancel',
-  delete_card: 'card.delete',
-  restart_card: 'card.restart',
-} as const satisfies Record<string, CardAction>;
-
-export function cardActionForPlannerTool(toolName: string): CardAction | undefined {
-  return TOOL_TO_CARD_ACTION[toolName as keyof typeof TOOL_TO_CARD_ACTION];
-}

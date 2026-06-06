@@ -1124,12 +1124,17 @@ export async function abort_goal_subtree(
         if (!goal) return { success: false, error: `Goal '${params.goalId}' not found.` };
         const cancelled: string[] = [];
         for (const id of [params.goalId, ...store.getDescendantIds(params.goalId)]) {
-          try {
-            store.setStatus(id, 'cancelled');
-            cancelled.push(id);
-          } catch {
-            void 0;
+          const card = store.read(id);
+          if (!card) continue;
+          const decision = decide({ role: 'analyst', action: 'card.cancel', targetState: card.status });
+          if (!decision.allowed) {
+            return {
+              success: false,
+              error: `Card '${id}' in status '${card.status}' cannot be cancelled by analyst (${decision.reason}).`,
+            };
           }
+          store.setStatus(id, 'cancelled');
+          cancelled.push(id);
         }
         return { success: true, data: { cancelled } };
       } catch (err) {
@@ -1206,14 +1211,22 @@ export async function restart_goal(
       try {
         const goal = store.read(params.goalId);
         if (!goal) return { success: false, error: `Goal '${params.goalId}' not found.` };
+        const restartDecision = decide({ role: 'analyst', action: 'card.restart', targetState: goal.status });
+        if (!restartDecision.allowed)
+          return {
+            success: false,
+            error: `Goal '${params.goalId}' has status '${goal.status}' and cannot be restarted by analyst (${restartDecision.reason}).`,
+          };
         for (const id of store.getDescendantIds(params.goalId)) {
-          try {
-            const child = store.read(id);
-            if (child && (child.status === 'running' || child.status === 'active'))
-              store.setStatus(id, 'cancelled');
-          } catch {
-            void 0;
-          }
+          const child = store.read(id);
+          if (!child || (child.status !== 'running' && child.status !== 'active')) continue;
+          const cancelDecision = decide({ role: 'analyst', action: 'card.cancel', targetState: child.status });
+          if (!cancelDecision.allowed)
+            return {
+              success: false,
+              error: `Descendant card '${id}' in status '${child.status}' cannot be cancelled by analyst (${cancelDecision.reason}).`,
+            };
+          store.setStatus(id, 'cancelled');
         }
         try {
           deleteDiary(saivageDir(ctx.projectRoot), params.goalId);

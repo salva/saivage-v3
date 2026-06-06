@@ -1,7 +1,7 @@
 import type { z } from 'zod';
 import type { EventEmitter } from 'node:events';
 
-import type { CardAction, CardState, Decision, PermissionRole } from '../permissions/index.js';
+import type { PermissionRole } from '../permissions/index.js';
 import type { ResourceScope } from '../lifecycle/index.js';
 
 export type JsonSchemaObject = { type: 'object'; properties?: { [key: string]: unknown }; required?: string[]; additionalProperties?: boolean };
@@ -23,16 +23,14 @@ export interface ToolRegistrySchemaEntry<Name extends string = string> {
     parameters: JsonSchemaObject;
   };
   roles: readonly PermissionRole[];
-  action?: CardAction;
 }
 
 export interface ToolRuntimeDependencies {
-  matrix: { decide(input: { role: PermissionRole; action: CardAction; targetState: CardState }): Decision };
   scope?: ResourceScope;
   bus?: EventEmitter;
 }
 
-export type ToolRuntimeErrorKind = 'ToolInputRejected' | 'ToolRoleRejected' | 'ToolStateRejected' | 'ToolContractViolation' | 'ToolExecutionError' | 'ToolUnknown';
+export type ToolRuntimeErrorKind = 'ToolInputRejected' | 'ToolRoleRejected' | 'ToolContractViolation' | 'ToolExecutionError' | 'ToolUnknown';
 
 export interface ToolRuntimeError {
   kind: ToolRuntimeErrorKind;
@@ -51,7 +49,6 @@ export interface ToolInvocation<Name extends string = string> {
   correlationId: string;
   projectRoot: string;
   sessionId?: string;
-  targetState?: CardState;
 }
 
 export interface ToolDefinition<Name extends string, Input, Output> {
@@ -61,8 +58,6 @@ export interface ToolDefinition<Name extends string, Input, Output> {
   readonly output: z.ZodType<Output>;
   readonly parameters: JsonSchemaObject;
   readonly roles: readonly PermissionRole[];
-  readonly action?: CardAction;
-  readonly targetState: (input: Input, invocation: ToolInvocation) => CardState | undefined;
   execute(ctx: ToolContext, input: Input): Promise<Output>;
 }
 
@@ -77,8 +72,6 @@ interface RuntimeToolDefinition<Name extends string = string> {
   readonly output: z.ZodType<unknown>;
   readonly parameters: JsonSchemaObject;
   readonly roles: readonly PermissionRole[];
-  readonly action?: CardAction;
-  targetState(input: unknown, invocation: ToolInvocation): CardState | undefined;
   execute(ctx: ToolContext, input: unknown): Promise<unknown>;
 }
 
@@ -102,7 +95,6 @@ export class ToolRuntime<Definitions extends readonly RuntimeToolDefinition[]> {
         parameters: definition.parameters,
       },
       roles: definition.roles,
-      action: definition.action,
     }));
   }
 
@@ -121,15 +113,6 @@ export class ToolRuntime<Definitions extends readonly RuntimeToolDefinition[]> {
 
     if (!definition.roles.includes(invocation.role)) {
       return this.reject('ToolRoleRejected', `Role '${invocation.role}' is not permitted to invoke '${definition.name}'.`);
-    }
-
-    const targetState = invocation.targetState ?? definition.targetState(parsedInput.data, invocation);
-    if (definition.action) {
-      if (!targetState) return this.reject('ToolStateRejected', `Tool '${definition.name}' requires a target card state for '${definition.action}'.`);
-      const decision = this.deps.matrix.decide({ role: invocation.role, action: definition.action, targetState });
-      if (!decision.allowed) {
-        return this.reject('ToolStateRejected', `Tool '${definition.name}' denied by permission matrix for state '${targetState}' (${decision.reason}).`, { action: definition.action, targetState, reason: decision.reason });
-      }
     }
 
     this.deps.bus?.emit('tool_invoked', { tool: definition.name, role: invocation.role, correlation_id: invocation.correlationId });

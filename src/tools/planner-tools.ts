@@ -246,12 +246,13 @@ export class PlannerToolsService {
       action: 'card.start',
       targetState: card.status,
     });
-    if (!startDecision.allowed && !isGoalLike(card)) {
+    if (!startDecision.allowed) {
       throw new PlannerToolError(
         'terminal_card_requires_restart',
-        `Card '${cardId}' is terminal and must be restarted before activation.`,
+        `Card '${cardId}' in status '${card.status}' must be restarted before activation.`,
       );
     }
+    if (card.status === 'drafting') this.store.setStatus(cardId, 'backlog');
     return this.store.setStatus(cardId, 'active');
   }
 
@@ -318,6 +319,7 @@ export class PlannerToolsService {
         `Card '${cardId}' in status '${card.status}' cannot be restarted.`,
       );
     }
+    // Planner restart is an explicit lifecycle repair from terminal/blocked/changed states back to schedulable work.
     this.store.repairTerminalLifecycle(cardId, {
       status: 'backlog',
       lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
@@ -519,6 +521,7 @@ export class PlannerToolsService {
     if (err instanceof PlannerToolError) return err;
     const message = reviewerInvocationFailedMessage(goalId);
     requireCard(this.store, goalId);
+    // Reviewer/provider failure commits a blocked lifecycle result even when the goal is not on a normal transition path.
     this.store.repairTerminalLifecycle(goalId, {
       ...lifecycleCardPatch({
         status: 'blocked',
@@ -570,7 +573,10 @@ export class PlannerToolsService {
     this.store.update(goal.id, { retries: attempts });
     if (attempts > this.maxReviewRetries) {
       this.writePendingSubtreeCorrectionNotes(goal.id, assessment.issues, sessionId);
-      const changed = this.store.setStatus(goal.id, 'changed');
+      const changed = this.store.repairTerminalLifecycle(goal.id, {
+        status: 'changed',
+        lifecycle: { status: 'changed', result: null, error: null, completed_at: null },
+      });
       return { card: changed, accepted: true, assessment };
     }
     return { card: requireCard(this.store, goal.id), accepted: true, assessment };
@@ -588,6 +594,7 @@ export class PlannerToolsService {
     const status = REPORTABLE_OUTCOMES[toolName];
     const lifecycle = reportLifecycle(status, report, statusText, completedAt);
     void assessment;
+    // Planner terminal reports commit done/failed/blocked lifecycle state with result evidence.
     return this.store.repairTerminalLifecycle(goal.id, {
       ...lifecycleCardPatch(lifecycle),
       retries: 0,

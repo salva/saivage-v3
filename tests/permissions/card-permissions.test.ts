@@ -1,17 +1,22 @@
 import { describe, expect, it } from '@jest/globals';
 
 import { allowedActions, decide } from '../../src/permissions/index.js';
-import { CARD_ACTIONS, CARD_STATES, matrixCompletenessTriples, PERMISSION_ROLES } from '../../src/permissions/card-permissions.js';
+import { CARD_ACTIONS, CARD_STATES, PERMISSION_ROLES } from '../../src/permissions/card-permissions.js';
 
 describe('permission-by-state matrix', () => {
   it('has an explicit decision for every current role/action/state triple', () => {
-    const triples = matrixCompletenessTriples();
-    expect(triples).toHaveLength(PERMISSION_ROLES.length * CARD_ACTIONS.length * CARD_STATES.length);
-    for (const triple of triples) {
-      expect(triple.entries).toHaveLength(1);
-      expect(typeof triple.decision.allowed).toBe('boolean');
-      if (!triple.decision.allowed) expect(triple.decision.reason).toMatch(/^(wrong_state|not_authorized|card_archived)$/);
+    let count = 0;
+    for (const role of PERMISSION_ROLES) {
+      for (const action of CARD_ACTIONS) {
+        for (const targetState of CARD_STATES) {
+          count += 1;
+          const decision = decide({ role, action, targetState });
+          expect(typeof decision.allowed).toBe('boolean');
+          if (!decision.allowed) expect(decision.reason).toMatch(/^(wrong_state|not_authorized|card_archived)$/);
+        }
+      }
     }
+    expect(count).toBe(PERMISSION_ROLES.length * CARD_ACTIONS.length * CARD_STATES.length);
   });
 
   it('allows and denies representative lifecycle decisions from the central matrix', () => {

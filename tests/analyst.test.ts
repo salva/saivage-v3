@@ -27,6 +27,7 @@ import {
   pause_runtime,
   resume_runtime,
   reorder_child,
+  abort_goal_subtree,
 } from '../src/agents/analyst-tools.js';
 import type { ToolContext } from '../src/agents/analyst-tools.js';
 
@@ -45,6 +46,7 @@ import {
   createTestAnalystRuntime,
   createTestRuntimeApplication,
 } from './helpers/test-runtime-application.js';
+import { markGoalNeedsCorrections } from '../src/agents/analyst-stage6.js';
 
 function uniqueDir(): string {
   return join(
@@ -301,6 +303,33 @@ describe('Analyst Tools', () => {
     expect(c.type).toBe('code');
     expect(c.id).toMatch(/^card-/);
     expect(c.display_path).toBe('1.2');
+  });
+
+  it('marks a done goal changed through the analyst correction repair path', () => {
+    store.repairTerminalLifecycle('card-1', {
+      status: 'done',
+      lifecycle: {
+        status: 'done',
+        result: { kind: 'planner_done', summary: 'accepted' },
+        error: null,
+        completed_at: new Date().toISOString(),
+      },
+    });
+
+    const result = markGoalNeedsCorrections(projectRoot, 'card-1', [
+      { summary: 'needs follow-up' },
+    ]);
+
+    expect(result.status_transition).toEqual({ from: 'done', to: 'changed' });
+    expect(store.read('card-1')?.status).toBe('changed');
+  });
+
+  it('denies analyst subtree abort through explicit card.cancel permission checks', async () => {
+    const result = await abort_goal_subtree(ctx(projectRoot, store), { goalId: 'card-1' });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('cannot be cancelled by analyst');
+    expect(store.read('card-1')?.status).toBe('active');
   });
 
   it('includes display paths in analyst card projections', async () => {

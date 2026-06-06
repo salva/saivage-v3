@@ -88,7 +88,6 @@ import { ToolRuntime, AGENT_TOOL_DEFINITIONS } from '../tools/index.js';
 import { AgentSessionCoordinator, type SessionCreatedHook } from './agent-session-coordinator.js';
 import { AgentToolExecutor } from './agent-tool-executor.js';
 import { AgentLlmInvocationGateway } from './agent-llm-gateway.js';
-import { decide as decideCardPermission } from '../permissions/index.js';
 import { applyRuntimeMutation } from '../runtime/mutations.js';
 import { planClearActiveCardRunPatch } from '../runtime/runtime-core.js';
 import { readRuntimeState } from '../runtime/state.js';
@@ -285,7 +284,7 @@ export class AgentAdapter implements AgentExecutionPort {
     this.cardStore = cfg.cardStore ?? new CardStore(this.projectRoot);
     this.runtimeStateProvider = cfg.runtimeStateProvider;
     this.toolRuntime = new ToolRuntime(
-      { matrix: { decide: decideCardPermission }, bus: cfg.eventBus },
+      { bus: cfg.eventBus },
       AGENT_TOOL_DEFINITIONS,
     );
     this.plannerControlExecutor = new PlannerControlExecutor({

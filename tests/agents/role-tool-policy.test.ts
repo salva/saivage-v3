@@ -2,7 +2,6 @@ import { describe, expect, it } from '@jest/globals';
 
 import { RoleToolPolicy } from '../../src/agents/role-tool-policy.js';
 import { TOOL_REGISTRY } from '../../src/agents/analyst-llm-resolver.js';
-import { TOOL_TO_CARD_ACTION } from '../../src/permissions/index.js';
 import type { RoleToolPolicyRole } from '../../src/agents/role-tool-policy.js';
 
 const roles: RoleToolPolicyRole[] = ['planner', 'executor', 'reviewer', 'analyst'];
@@ -81,8 +80,7 @@ describe('RoleToolPolicy', () => {
     expect(RoleToolPolicy.decide({ role: 'reviewer', action: 'invoke', surface: 'workspace', toolName: 'write_project_file' }).allowed).toBe(false);
   });
 
-  it('derives planner-control lifecycle tool names from the permission matrix mapping', () => {
-    expect(Object.keys(TOOL_TO_CARD_ACTION)).toEqual(['activate_card', 'cancel_card', 'delete_card', 'restart_card']);
+  it('allows known planner-control lifecycle tools at the planner-control boundary', () => {
     expect(RoleToolPolicy.decide({ role: 'planner', action: 'invoke', surface: 'planner-control', toolName: 'restart_card', knownPlannerTool: true }).allowed).toBe(true);
   });
 
