@@ -1,7 +1,7 @@
 import { setProcessTerminalBuffering } from './process-runner.js';
 import { deriveCurrentAgentSessionId } from './current-run.js';
-import { buildPauseRuntimeStatePatch, buildResumeRuntimeStatePatch } from './runtime-core.js';
 import { readRuntimeState } from './state.js';
+import { pauseRuntimeCommand, resumeRuntimeCommand, type PauseResumeEffects } from './runtime-control-commands.js';
 import type { RuntimeGoalContextCoordinator } from './runtime-goal-context.js';
 import type { RuntimeServices } from './runtime-services.js';
 
@@ -23,42 +23,40 @@ export interface RuntimePauseResumeController {
 }
 
 export function createRuntimePauseResumeController(deps: RuntimePauseResumeControllerDeps): RuntimePauseResumeController {
+  const effects: PauseResumeEffects = {
+    readState: () => readRuntimeState(deps.projectRoot),
+    now: deps.now,
+    setLifecyclePaused: (paused) => { deps.lifecycle.paused = paused; },
+    setProcessBuffering: (enabled) => {
+      try { setProcessTerminalBuffering(deps.projectRoot, enabled); } catch { void 0; }
+    },
+    beforeResumeStatePatch: (state) => {
+      try {
+        const plannerSessionId = state?.active_card_run?.phase === 'planner' ? deriveCurrentAgentSessionId(state) : null;
+        if (plannerSessionId && state?.active_card_run?.card_id) {
+          deps.goalContext.appendPlannerResumeContext(
+            state.active_card_run.card_id,
+            plannerSessionId,
+            deps.goalContext.inferResumeReason(state.active_card_run.card_id),
+          );
+          deps.goalContext.injectQueuedPlannerNotes(plannerSessionId);
+        }
+      } catch { void 0; }
+    },
+    applyStatePatch: (patch) => {
+      try { deps.mutations.apply({ kind: 'patchRuntimeState', patch }); } catch { void 0; }
+    },
+    emitRuntimeEvent: (kind) => deps.emit(kind),
+    logEvent: (kind) => deps.eventLogger.appendEvent({ kind }),
+    requestImmediateTick: () => { void deps.stateMachine.requestImmediateTick(); },
+  };
   return {
-    /** Applies the full pause field group and enables process-output buffering. */
     pause(): void {
-    deps.lifecycle.paused = true;
-    setProcessTerminalBuffering(deps.projectRoot, true);
-    try {
-      deps.mutations.apply({ kind: 'patchRuntimeState', patch: buildPauseRuntimeStatePatch(deps.now()) });
-    } catch {
-      void 0;
-    }
-    deps.emit('paused');
-    deps.eventLogger.appendEvent({ kind: 'paused' });
+      pauseRuntimeCommand(deps.projectRoot, effects);
     },
 
-    /** Applies the full resume field group after injecting planner resume context. */
     resume(): void {
-    deps.lifecycle.paused = false;
-    setProcessTerminalBuffering(deps.projectRoot, false);
-    try {
-      const state = readRuntimeState(deps.projectRoot);
-      const plannerSessionId = state?.active_card_run?.phase === 'planner' ? deriveCurrentAgentSessionId(state) : null;
-      if (plannerSessionId && state?.active_card_run?.card_id) {
-        deps.goalContext.appendPlannerResumeContext(
-          state.active_card_run.card_id,
-          plannerSessionId,
-          deps.goalContext.inferResumeReason(state.active_card_run.card_id),
-        );
-        deps.goalContext.injectQueuedPlannerNotes(plannerSessionId);
-      }
-      deps.mutations.apply({ kind: 'patchRuntimeState', patch: buildResumeRuntimeStatePatch(state) });
-    } catch {
-      void 0;
-    }
-    deps.emit('resumed');
-    deps.eventLogger.appendEvent({ kind: 'resumed' });
-    void deps.stateMachine.requestImmediateTick();
+      resumeRuntimeCommand(deps.projectRoot, effects);
     },
   };
 }

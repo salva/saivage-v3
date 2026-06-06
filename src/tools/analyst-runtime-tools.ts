@@ -37,7 +37,7 @@ export async function terminate_process(ctx: ToolContext, params: { processId: s
 
 export async function pause_runtime(ctx: ToolContext, params: Record<string, never> = {}): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, params, { action: 'runtime.pause', safety_class: 'low', target_kind: 'runtime', getTargetId: () => 'project', run: async () => {
-    const result = pauseRuntimeControl({ projectRoot: ctx.projectRoot, runtimeApi: ctx.runtime });
+    const result = pauseRuntimeControl({ projectRoot: ctx.projectRoot });
     if (!result.ok) return toolFailure('conflict', result.message ?? result.error ?? 'Failed to pause runtime');
     return { success: true, data: { status: result.status, paused: result.paused } };
   } });
@@ -47,7 +47,7 @@ export async function resume_runtime(ctx: ToolContext, params: Record<string, ne
   return runAuditedAnalystTool(ctx, params, { action: 'runtime.resume', safety_class: 'low', target_kind: 'runtime', getTargetId: () => 'project', run: async () => {
     const state = readRuntimeState(ctx.projectRoot);
     if (state?.status === 'frozen' || state?.status === 'error') return toolFailure('conflict', `${state.status === 'frozen' ? FROZEN_RUNTIME_RECOVERY_MESSAGE : 'Runtime is in error state. Inspect Debug errors/timeline and fix the underlying failure before attempting recovery.'}`, { runtime_status: state.status });
-    const result = resumeRuntimeControl({ projectRoot: ctx.projectRoot, runtimeApi: ctx.runtime });
+    const result = resumeRuntimeControl({ projectRoot: ctx.projectRoot });
     if (!result.ok) return toolFailure('conflict', result.message ?? result.error ?? 'Failed to resume runtime');
     return { success: true, data: { status: result.status, paused: result.paused } };
   } });

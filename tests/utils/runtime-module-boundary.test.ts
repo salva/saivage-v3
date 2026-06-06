@@ -18,7 +18,8 @@ import {
 import { initRuntimeState, runtimeStatePath } from '../../src/runtime/state.js';
 import { readRuntimeState as directReadRuntimeState, updateRuntimeState as directUpdateRuntimeState, appendRuntimeRun as directAppendRuntimeRun, upsertRuntimeActivation as directUpsertRuntimeActivation } from '../../src/runtime/state.js';
 import { listProcesses as directListProcesses, tailOutput as directTailOutput, getProcess as directGetProcess } from '../../src/runtime/process-runner.js';
-import { pauseRuntimeControl as directPauseRuntimeControl, resumeRuntimeControl as directResumeRuntimeControl, FROZEN_RUNTIME_RECOVERY_MESSAGE as directFrozenRuntimeRecoveryMessage } from '../../src/runtime/control.js';
+import { pauseRuntimeControl as directPauseRuntimeControl, resumeRuntimeControl as directResumeRuntimeControl } from '../../src/runtime/control.js';
+import { FROZEN_RUNTIME_RECOVERY_MESSAGE as directFrozenRuntimeRecoveryMessage } from '../../src/runtime/runtime-control-commands.js';
 import { readFreezeManifest as directReadFreezeManifest, clearFreezeManifest as directClearFreezeManifest } from '../../src/runtime/freeze-manifest.js';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
