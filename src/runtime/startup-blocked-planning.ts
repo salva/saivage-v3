@@ -1,6 +1,6 @@
 import type { CardRecord } from '../schemas/index.js';
 import { lifecycleCardPatch } from './terminal-commit/lifecycle-patch.js';
-import { planClearActiveCardRunPatch } from './runtime-core.js';
+import { planClearActiveCardRunForRepair } from './runtime-core.js';
 import { readRuntimeState } from './state.js';
 import { getBlockedPlanning } from './planning-blockers.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
@@ -37,7 +37,7 @@ export async function alignBlockedPlanningCardStatuses(input: {
       }),
       status_text: card.status_text ?? blockedReason,
     });
-    const patch = planClearActiveCardRunPatch({ state: readRuntimeState(input.projectRoot), cardId: card.id });
+    const patch = planClearActiveCardRunForRepair({ state: readRuntimeState(input.projectRoot), cardId: card.id });
     if (patch) input.mutations.apply({ kind: 'patchRuntimeState', patch });
   }
 }

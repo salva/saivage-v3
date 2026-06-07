@@ -220,7 +220,8 @@ export function buildResumeHandoffContext(manifest: FreezeManifest): string | nu
     .join('\n');
 }
 
-export function planClearActiveCardRunPatch(input: {
+/** Repair-only helper for startup/session-sweep paths that must drop an invalid current run. */
+export function planClearActiveCardRunForRepair(input: {
   state: RuntimeState | null;
   cardId: string;
 }): Partial<RuntimeState> | null {
@@ -538,6 +539,7 @@ export interface IdleRunningRootRunReconciliationPlan {
   diagnosticMessage: string;
 }
 
+/** Startup-recovery reconciler; normal live child completion must restore its parent directly. */
 export function planIdleRunningRootRunReconciliation(input: {
   state: RuntimeState;
   projectTerminal: boolean;

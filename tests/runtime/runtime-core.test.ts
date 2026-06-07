@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { buildCompletedRuntimeCommandState, buildDispatchPausedRuntimeStatePatch, buildFreezeManifest, buildFreezeRuntimeStatePatch, buildPauseRuntimeStatePatch, buildRejectedRuntimeCommandState, buildResumeFromFreezeRuntimeStatePatch, buildResumeHandoffContext, buildResumeRuntimeStatePatch, buildShutdownRuntimeStatePatch, makeRuntimePreconditionError, observeRuntimeStateInvariants, planClearActiveCardRunPatch, planIdleRunningRootRunReconciliation, planOpenPlannerRunTerminalUpdate, planOpenRootRunStopUpdates, planPlannerRunSessionBinding, planProjectRootRedispatch, planRootRunDispatchFailureUpdate, planRootRunDispatchSuccessUpdate, planStartProjectPrecondition, planSweptCurrentAgentSessionPatch, reduceActivationCompletion, reduceRuntimeEvent } from '../../src/runtime/runtime-core.js';
+import { buildCompletedRuntimeCommandState, buildDispatchPausedRuntimeStatePatch, buildFreezeManifest, buildFreezeRuntimeStatePatch, buildPauseRuntimeStatePatch, buildRejectedRuntimeCommandState, buildResumeFromFreezeRuntimeStatePatch, buildResumeHandoffContext, buildResumeRuntimeStatePatch, buildShutdownRuntimeStatePatch, makeRuntimePreconditionError, observeRuntimeStateInvariants, planClearActiveCardRunForRepair, planIdleRunningRootRunReconciliation, planOpenPlannerRunTerminalUpdate, planOpenRootRunStopUpdates, planPlannerRunSessionBinding, planProjectRootRedispatch, planRootRunDispatchFailureUpdate, planRootRunDispatchSuccessUpdate, planStartProjectPrecondition, planSweptCurrentAgentSessionPatch, reduceActivationCompletion, reduceRuntimeEvent } from '../../src/runtime/runtime-core.js';
 import type { PlannerDoneResult } from '../../src/schemas/index.js';
 import type { RuntimeState } from '../../src/schemas/types.js';
 
@@ -143,8 +143,8 @@ describe('runtime core reducers', () => {
       status: 'running',
       active_card_run: { card_id: 'goal-a', card_type: 'goal', runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:goal-a', correction_attempts: 0, started_at: 'started', last_turn_at: 'turn' },
     });
-    expect(planClearActiveCardRunPatch({ state: activeState, cardId: 'goal-a' })).toEqual({ status: 'idle', active_card_run: null });
-    expect(planClearActiveCardRunPatch({ state: activeState, cardId: 'other' })).toBeNull();
+    expect(planClearActiveCardRunForRepair({ state: activeState, cardId: 'goal-a' })).toEqual({ status: 'idle', active_card_run: null });
+    expect(planClearActiveCardRunForRepair({ state: activeState, cardId: 'other' })).toBeNull();
     expect(planSweptCurrentAgentSessionPatch({ state: activeState, sweptSessionIds: ['planner:goal-a'] })).toEqual({ status: 'idle', active_card_run: null });
     expect(planSweptCurrentAgentSessionPatch({ state: activeState, sweptSessionIds: ['other'] })).toBeNull();
     expect(buildShutdownRuntimeStatePatch()).toEqual({ status: 'idle', active_card_run: null, paused: false, paused_at: null });
