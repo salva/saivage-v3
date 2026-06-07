@@ -700,6 +700,7 @@ export function reduceActivationCompletion(
   );
   return {
     ...currentState,
+    ...(currentState.active_card_run?.card_id === childCardId ? { status: 'idle' as const, active_card_run: null } : {}),
     runtime_activations: activations,
     runtime_runs: runs,
     updated_at: nowIso,
