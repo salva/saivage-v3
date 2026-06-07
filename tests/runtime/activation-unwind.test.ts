@@ -41,9 +41,9 @@ describe('activation unwind helpers', () => {
     })).toBeNull();
   });
 
-  it('completes activation state before appending the parent tool result once', () => {
+  it('finds the parent edge before completing activation state and appending the parent tool result once', () => {
     const calls: string[] = [];
-    completeChildActivationForParent({
+    const completed = completeChildActivationForParent({
       childCardId: 'child-a',
       outcome: 'done',
       summary: 'child done',
@@ -61,23 +61,27 @@ describe('activation unwind helpers', () => {
       },
     });
 
+    expect(completed).toBe(true);
     expect(calls).toEqual([
-      'complete:child-a:done',
       'edge:child-a',
+      'complete:child-a:done',
       'outcome:child-a:done:child done',
       'append:planner:parent-a:call-a:payload',
     ]);
   });
 
-  it('still completes activation state when no parent caller edge is found', () => {
+  it('does not complete activation state when no parent caller edge is found', () => {
     const calls: string[] = [];
-    completeChildActivationForParent({
+    const completed = completeChildActivationForParent({
       childCardId: 'child-a',
       outcome: 'failed',
       summary: 'missing edge',
       effects: {
         markActivationComplete: (childCardId, outcome) => calls.push(`complete:${childCardId}:${outcome}`),
-        findCallerEdge: () => null,
+        findCallerEdge: (childCardId) => {
+          calls.push(`edge:${childCardId}`);
+          return null;
+        },
         buildActivationOutcome: () => {
           calls.push('unexpected-build');
           return 'payload';
@@ -86,7 +90,8 @@ describe('activation unwind helpers', () => {
       },
     });
 
-    expect(calls).toEqual(['complete:child-a:failed']);
+    expect(completed).toBe(false);
+    expect(calls).toEqual(['edge:child-a']);
   });
 
   it('finds unresolved activate_card tool calls', () => {
