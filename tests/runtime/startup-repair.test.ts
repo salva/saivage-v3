@@ -23,7 +23,7 @@ function run(phase: NonNullable<RuntimeState['active_card_run']>['phase']): NonN
   } as NonNullable<RuntimeState['active_card_run']>;
 }
 
-const card = { id: 'card-a', status: 'running' } as unknown as CardRecord;
+const card = { id: 'card-a', status: 'running', lifecycle: { status: 'running', result: null, error: null, completed_at: null } } as unknown as CardRecord;
 const nowIso = '2026-01-01T00:00:00.000Z';
 
 describe('startup active run repair decisions', () => {
@@ -45,9 +45,15 @@ describe('startup active run repair decisions', () => {
   });
 
   it('classifies terminal, blocked planner, and resumable planner runs', () => {
-    expect(decideStartupActiveRunRepair({ previousState: state(run('planner')), card, hasPersistedReview: false, cardHasBlockedPlanning: false, isTerminalCardStatus: true }).kind).toBe('terminal_active_card');
+    const doneCard = { ...card, status: 'done', lifecycle: { status: 'done', result: { kind: 'executor_success', executor: {}, generated_files: [], verified_at: nowIso, latest_self_report: { result: 'done', outcome: 'done', summary: 'done', status_text: 'done', at: nowIso }, warnings: [] }, error: null, completed_at: nowIso } } as unknown as CardRecord;
+    expect(decideStartupActiveRunRepair({ previousState: state(run('executor')), card: doneCard, hasPersistedReview: false, cardHasBlockedPlanning: false, isTerminalCardStatus: true }).kind).toBe('terminal_active_card');
     expect(decideStartupActiveRunRepair({ previousState: state(run('planner')), card, hasPersistedReview: false, cardHasBlockedPlanning: true, isTerminalCardStatus: false }).kind).toBe('blocked_planner');
     expect(decideStartupActiveRunRepair({ previousState: state(run('planner')), card, hasPersistedReview: false, cardHasBlockedPlanning: false, isTerminalCardStatus: false }).kind).toBe('resume_planner');
+  });
+
+  it('fails startup repair when terminal status contradicts lifecycle status', () => {
+    const contradictory = { ...card, status: 'done', lifecycle: { status: 'running', result: null, error: null, completed_at: null } } as unknown as CardRecord;
+    expect(() => decideStartupActiveRunRepair({ previousState: state(run('executor')), card: contradictory, hasPersistedReview: false, cardHasBlockedPlanning: false, isTerminalCardStatus: true })).toThrow("terminal card 'card-a' status 'done' contradicts lifecycle status 'running'");
   });
 
   it('builds reviewer-interrupted startup repair state', () => {
@@ -157,6 +163,26 @@ describe('startup active run repair decisions', () => {
     ]);
     expect(deriveCurrentCardId(repaired)).toBe('parent-a');
     expect(deriveCurrentAgentSessionId(repaired)).toBe('planner:parent-a');
+  });
+
+  it('trusts terminal card truth over interrupted executor phase during startup', async () => {
+    const calls: string[] = [];
+    const previousState = { ...state(run('executor')), paused: true, paused_at: 'paused' } as RuntimeState;
+    const parentRun = { ...run('planner'), card_id: 'parent-a', planner_session_id: 'planner:parent-a' };
+    const effects = testEffects({
+      findCallerEdge: () => ({ callerSessionId: 'planner:parent-a', callerToolCallId: 'call-a' }),
+      synthesizeTerminalActivationResult: (sessionId, toolCallId, cardId) => { calls.push(`synthesize:${sessionId}:${toolCallId}:${cardId}`); return true; },
+      parentPlannerRunFor: () => parentRun,
+    });
+
+    const repaired = await executeStartupActiveRunRepairDecision({
+      decision: { kind: 'terminal_active_card', run: run('executor') },
+      previousState,
+      effects,
+    });
+
+    expect(calls).toEqual(['synthesize:planner:parent-a:call-a:card-a']);
+    expect(deriveCurrentCardId(repaired)).toBe('parent-a');
   });
 });
 

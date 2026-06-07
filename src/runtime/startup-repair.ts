@@ -1,4 +1,4 @@
-import type { CardRecord, RuntimeState } from '../schemas/index.js';
+import type { ActivationCompletionOutcome, CardRecord, RuntimeState } from '../schemas/index.js';
 import { activeRunFromActivationState } from './activation-reducer.js';
 import { commitExecutorInvocationFailure } from './terminal-commit/index.js';
 
@@ -30,6 +30,10 @@ export function decideStartupActiveRunRepair(input: {
   const run = input.previousState?.active_card_run ?? null;
   if (!run) return { kind: 'repair_orphan_tool_calls', state: input.previousState };
   if (!input.card) return { kind: 'repair_orphan_tool_calls', state: input.previousState };
+  if (input.isTerminalCardStatus) {
+    assertTerminalLifecycleMatchesStatus(input.card);
+    return { kind: 'terminal_active_card', run };
+  }
   if (run.phase === 'reviewer' && !input.hasPersistedReview) return { kind: 'reviewer_interrupted', run };
   if (run.phase === 'executor') {
     return {
@@ -39,7 +43,6 @@ export function decideStartupActiveRunRepair(input: {
       shouldFailCard: !input.isTerminalCardStatus,
     };
   }
-  if (input.isTerminalCardStatus) return { kind: 'terminal_active_card', run };
   if (run.phase === 'planner') {
     return input.cardHasBlockedPlanning ? { kind: 'blocked_planner', run } : { kind: 'resume_planner', run };
   }
@@ -173,7 +176,7 @@ export interface StartupActiveRunRepairEffects {
   repairOrphanActivateCardToolCalls(): void;
   transitionCard(cardId: string, event: 'reviewer_repair_resume' | 'fail', details: Record<string, unknown>): Promise<unknown>;
   repairTerminalLifecycle(cardId: string, patch: Partial<CardRecord>): Promise<unknown> | unknown;
-  appendChildUnwindToolResult(cardId: string, outcome: 'done' | 'failed' | 'cancelled', summary: string): void;
+  appendChildUnwindToolResult(cardId: string, outcome: ActivationCompletionOutcome, summary: string): void;
   parentPlannerRunFor(cardId: string): RuntimeState['active_card_run'];
   findCallerEdge(cardId: string): { callerSessionId: string; callerToolCallId: string } | null;
   synthesizeTerminalActivationResult(sessionId: string, toolCallId: string, cardId: string): boolean;
@@ -238,11 +241,11 @@ export async function executeStartupActiveRunRepairDecision(input: {
           },
         });
       }
-      effects.appendChildUnwindToolResult(
-        run.card_id,
-        'failed',
-        `Terminal card ${run.card_id} failed because the service restarted before executor completion.`,
-      );
+      const outcome = decision.shouldFailCard ? 'failed' : startupTerminalActivationOutcome(decision.card);
+      const summary = decision.shouldFailCard
+        ? `Terminal card ${run.card_id} failed because the service restarted before executor completion.`
+        : `Terminal card ${run.card_id} was already ${decision.card.status} when startup repaired interrupted executor state.`;
+      effects.appendChildUnwindToolResult(run.card_id, outcome, summary);
       return effects.saveState(
         buildChildRunStartupState({
           previousState: previousState!,
@@ -284,5 +287,21 @@ export async function executeStartupActiveRunRepairDecision(input: {
     case 'clear_active_run':
       effects.repairOrphanActivateCardToolCalls();
       return null;
+  }
+}
+
+function assertTerminalLifecycleMatchesStatus(card: CardRecord): void {
+  if (card.lifecycle.status !== card.status) {
+    throw new Error(`Startup repair invariant violation: terminal card '${card.id}' status '${card.status}' contradicts lifecycle status '${card.lifecycle.status}'.`);
+  }
+}
+
+function startupTerminalActivationOutcome(card: CardRecord): ActivationCompletionOutcome {
+  switch (card.status) {
+    case 'done': return 'done';
+    case 'failed': return 'failed';
+    case 'cancelled': return 'cancelled';
+    case 'needs_verification': return 'needs_verification';
+    default: throw new Error(`Startup repair invariant violation: card '${card.id}' is not terminal: ${card.status}.`);
   }
 }

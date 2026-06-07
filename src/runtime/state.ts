@@ -35,6 +35,13 @@ export class RuntimeActivationInvariantError extends RuntimeStateInvariantError 
   }
 }
 
+export class RuntimeDispatchInvariantError extends RuntimeStateInvariantError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RuntimeDispatchInvariantError';
+  }
+}
+
 export class RuntimeStateLayoutError extends Error {
   constructor(message: string) {
     super(message);

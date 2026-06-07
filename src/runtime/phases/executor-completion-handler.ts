@@ -2,6 +2,7 @@ import type { ActivationCompletionOutcome, CardLifecycleState, CardRecord } from
 import type { ExecutorResult } from '../../contracts/index.js';
 import { commitExecutorFailure, commitExecutorParkedVerification, commitExecutorSuccess } from '../terminal-commit/index.js';
 import { decideExecutorOutcome } from './executor-phase.js';
+import { RuntimeDispatchInvariantError } from '../state.js';
 
 export interface ExecutorCompletionEffects {
   now(): string;
@@ -31,7 +32,8 @@ export async function handleExecutorCompletion(input: {
 }): Promise<{ transitioned: boolean; executedTerminal: boolean; failed: boolean; outcome: ActivationCompletionOutcome | null }> {
   const outcomeDecision = decideExecutorOutcome({ execResult: input.execResult, registrationFailed: input.registrationFailed });
   const outcome = outcomeDecision.outcome;
-  const latestCard = input.effects.readCard(input.cardId) ?? input.card;
+  const latestCard = input.effects.readCard(input.cardId);
+  if (!latestCard) throw new RuntimeDispatchInvariantError(`Runtime dispatch invariant violation: executor completion for '${input.cardId}' cannot read current card state.`);
   const commonEffects = {
     transitionCard: (cardId: string, event: string, details: Record<string, unknown>) => input.effects.transitionCard(cardId, event as 'executor_finish' | 'executor_partial_finish', details),
     updateCard: (cardId: string, patch: Partial<CardRecord>) => input.effects.updateCard(cardId, patch),
@@ -75,7 +77,6 @@ export async function handleExecutorCompletion(input: {
           sessionId: input.lastSessionId,
           effects: commonEffects,
         });
-  if (!receipt.transitioned) return { transitioned: false, executedTerminal: false, failed: true, outcome: null };
   input.effects.recordChildActivationLifecycle?.(input.cardId, receipt.lifecycle);
 
   if (outcome === 'needs_verification') {

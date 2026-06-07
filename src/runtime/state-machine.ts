@@ -5,7 +5,7 @@ import { assertRuntimeStateInvariantsForNormalRuntime, planProjectRootRedispatch
 import { deriveCurrentCardId } from './current-run.js';
 import { planCardTransition } from './transition-policy.js';
 import { cardHasBlockedPlanning } from './planning-blockers.js';
-import { readRuntimeState, RuntimeStateInvariantError } from './state.js';
+import { readRuntimeState, RuntimeDispatchInvariantError, RuntimeStateInvariantError } from './state.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
 
 export type RuntimeCardAction =
@@ -190,7 +190,7 @@ export class RuntimeStateMachine {
         cardId,
         action,
       });
-      return false;
+      throw new RuntimeDispatchInvariantError(`Runtime dispatch invariant violation: card '${cardId}' cannot transition via '${action}' because it cannot be read.`);
     }
 
     const plan = planCardTransition({
@@ -208,7 +208,7 @@ export class RuntimeStateMachine {
         fromStatus: from,
         payload,
       });
-      return false;
+      throw new RuntimeDispatchInvariantError(`Runtime dispatch invariant violation: card '${cardId}' cannot transition via '${action}' from '${from}'.`);
     }
 
     const lifecycleOwnedActions: RuntimeCardAction[] = ['block', 'complete', 'fail', 'executor_finish', 'executor_partial_finish'];

@@ -146,6 +146,26 @@ describe('terminal commit functions', () => {
     expect(fx.transitions[0]).toEqual(expect.objectContaining({ event: 'executor_partial_finish' }));
   });
 
+  it('throws and does not write when a terminal transition is rejected', async () => {
+    const fx = effects();
+    fx.transitionCard = async () => false;
+
+    await expect(commitExecutorSuccess({
+      projectRoot: process.cwd(),
+      card: card(),
+      goalId: 'goal-a',
+      executor: {},
+      generatedFiles: [],
+      acceptedAt: now,
+      completedAt: now,
+      summary: 'done',
+      statusText: 'done',
+      sessionId: 'executor-card-a',
+      effects: fx,
+    })).rejects.toThrow('Terminal commit transition was rejected.');
+    expect(fx.patches).toEqual([]);
+  });
+
   it('commits reviewer pass and clears stale card error', async () => {
     const fx = effects();
     const receipt = await commitReviewerPass({

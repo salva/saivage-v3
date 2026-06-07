@@ -374,8 +374,7 @@ describe('RuntimeStateMachine.transitionCard (Step 5 decomposition)', () => {
       initRuntimeState(projectRoot);
       const { cardStore, machine, setStatusCalls, errorLogger } = build(projectRoot);
       const cardId = seed(cardStore, 'done');
-      const ok = await machine.transitionCard(cardId, 'fail');
-      expect(ok).toBe(false);
+      await expect(machine.transitionCard(cardId, 'fail')).rejects.toThrow("Runtime dispatch invariant violation: card 'card-1' cannot transition via 'fail' from 'done'.");
       expect(setStatusCalls.length).toBe(0);
       const errs = errorLogger.getErrors().filter((e) => e.code === 'state_machine_invalid_source_state');
       expect(errs.length).toBe(1);
@@ -388,8 +387,7 @@ describe('RuntimeStateMachine.transitionCard (Step 5 decomposition)', () => {
       initRuntimeState(projectRoot);
       const { cardStore, machine, setStatusCalls, errorLogger } = build(projectRoot);
       const cardId = seed(cardStore, 'done');
-      const ok = await machine.transitionCard(cardId, 'planner_set_status', { requestedStatus: 'running' });
-      expect(ok).toBe(false);
+      await expect(machine.transitionCard(cardId, 'planner_set_status', { requestedStatus: 'running' })).rejects.toThrow("Runtime dispatch invariant violation: card 'card-1' cannot transition via 'planner_set_status' from 'done'.");
       expect(setStatusCalls.length).toBe(0);
       const errs = errorLogger.getErrors().filter((e) => e.code === 'state_machine_planner_status_rejected');
       expect(errs.length).toBe(1);

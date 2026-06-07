@@ -15,10 +15,10 @@ export async function commitPlannerDone(input: {
   const result: PlannerDoneResult = { kind: 'planner_done', summary: input.summary };
   const lifecycle = { status: 'done', result, error: null, completed_at: input.completedAt } satisfies Extract<CardLifecycleState, { status: 'done' }>;
   assertNoTerminalOverlayErrors(input.card, lifecycle);
-  const transitioned = await input.effects.transitionCard(input.card.id, 'complete', { summary: input.summary });
+  await transitionOrThrow(input.effects.transitionCard(input.card.id, 'complete', { summary: input.summary }));
   const patch = { ...lifecycleCardPatch(lifecycle), status_text: input.summary };
   await input.effects.updateCard(input.card.id, patch);
-  return { lifecycle, result, patch, transitioned: transitioned !== false };
+  return { lifecycle, result, patch };
 }
 
 export async function commitPlannerBlocked(input: {
@@ -44,10 +44,10 @@ export async function commitPlannerBlocked(input: {
   };
   const lifecycle = { status: 'blocked', result, error: input.blockedReason, completed_at: null } satisfies Extract<CardLifecycleState, { status: 'blocked' }>;
   assertNoTerminalOverlayErrors(input.card, lifecycle);
-  const transitioned = await input.effects.transitionCard(input.card.id, 'block', { blocked_reason: input.blockedReason });
+  await transitionOrThrow(input.effects.transitionCard(input.card.id, 'block', { blocked_reason: input.blockedReason }));
   const patch = { ...lifecycleCardPatch(lifecycle), status_text: input.blockedReason };
   await input.effects.updateCard(input.card.id, patch);
-  return { lifecycle, result, patch, transitioned: transitioned !== false };
+  return { lifecycle, result, patch };
 }
 
 export async function commitPlannerFailed(input: {
@@ -60,10 +60,14 @@ export async function commitPlannerFailed(input: {
   const result: PlannerFailureResult = { kind: 'planner_failure', error: input.error };
   const lifecycle = { status: 'failed', result, error: input.error, completed_at: input.completedAt } satisfies Extract<CardLifecycleState, { status: 'failed' }>;
   assertNoTerminalOverlayErrors(input.card, lifecycle);
-  const transitioned = await input.effects.transitionCard(input.card.id, 'fail', { reason: 'planner_error', error: input.error });
+  await transitionOrThrow(input.effects.transitionCard(input.card.id, 'fail', { reason: 'planner_error', error: input.error }));
   const patch = { ...lifecycleCardPatch(lifecycle), status_text: `Planner failed: ${input.error}` };
   await input.effects.updateCard(input.card.id, patch);
-  return { lifecycle, result, patch, transitioned: transitioned !== false };
+  return { lifecycle, result, patch };
+}
+
+async function transitionOrThrow(result: Promise<boolean | unknown> | boolean | unknown): Promise<void> {
+  if (await result === false) throw new Error('Terminal commit transition was rejected.');
 }
 
 function assertNoTerminalOverlayErrors(card: CardRecord, lifecycle: CardLifecycleState): void {

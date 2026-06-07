@@ -55,6 +55,7 @@ describe('executor completion handler', () => {
       effects: testEffects({
         transitionCard: async (cardId, event, details) => { calls.push(`${event}:${cardId}:${details.finalStatus}:${details.reason}`); return true; },
         now: () => completedAt,
+        readCard: () => cardRecord({ id: 'code-a', lifecycle: { status: 'running', result: null, error: null, completed_at: null } }),
         updateCard: async (_cardId, patch) => { calls.push(`update:${patch.lifecycle?.error}`); expect(patch.lifecycle?.result).toMatchObject({ kind: 'executor_failure', partial_result: { evidence_registration_failures: { artifacts: ['artifact failed'] } } }); },
         appendChildUnwindToolResult: (cardId, outcome) => { calls.push(`unwind:${cardId}:${outcome}`); },
         emitCardFailed: (cardId, goalId) => { calls.push(`failed:${cardId}:${goalId}`); },
@@ -68,6 +69,23 @@ describe('executor completion handler', () => {
       'unwind:code-a:failed',
       'failed:code-a:goal-a',
     ]);
+  });
+
+  it('throws when executor completion cannot read current card state', async () => {
+    await expect(handleExecutorCompletion({
+      projectRoot: process.cwd(),
+      card: cardRecord({ id: 'code-a' }),
+      cardId: 'code-a',
+      goalId: 'goal-a',
+      execResult: execResult('done'),
+      acceptedAt,
+      lastSessionId: null,
+      registrationFailed: false,
+      registrationError: null,
+      artifactRegistrationErrors: [],
+      attachmentRegistrationErrors: [],
+      effects: testEffects({ readCard: () => null }),
+    })).rejects.toThrow("executor completion for 'code-a' cannot read current card state");
   });
 
   it('parks fallback evidence without terminal unwind or parent success', async () => {
