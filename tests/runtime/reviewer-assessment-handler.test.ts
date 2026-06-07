@@ -133,6 +133,27 @@ describe('reviewer assessment handler', () => {
     ]);
   });
 
+  it('throws on reviewer pass when the goal card is missing', async () => {
+    const calls: string[] = [];
+    await expect(handleReviewerAssessmentDecision({
+      goalId: 'goal-a',
+      projectCardId: 'project',
+      assessmentId: 'assessment-goal-a-1',
+      reviewerSessionId: 'reviewer:goal-a:assessment-goal-a-1',
+      reviewResult: reviewResult('pass'),
+      decision: { kind: 'pass' },
+      effects: testEffects({
+        readCard: () => null,
+        updateCard: async () => { calls.push('update'); },
+        appendChildUnwindToolResult: () => { calls.push('unwind'); return true; },
+        transitionRuntime: async () => { calls.push('runtime'); },
+        emitGoalCompleted: () => { calls.push('completed'); },
+      }),
+    })).rejects.toThrow(/goal card cannot be read/);
+
+    expect(calls).toEqual([]);
+  });
+
   it('emits correction assessment without committing correction as lifecycle result', async () => {
     const failed: ReviewAssessment[] = [];
     const patches: Partial<CardRecord>[] = [];

@@ -4,6 +4,7 @@ import { agentSessionSchema, agentMessageSchema } from '../schemas/index.js';
 import { generateRoundId } from '../schemas/round-id-server.js';
 import { appendSyncIdempotentByKey, explainLegacyStateRejection, PersistenceReadError, writeFileSyncDurable } from '../persistence/index.js';
 import { parseToolCallMessage } from '../contracts/persisted-tool-call.js';
+import { RuntimeActivationInvariantError } from './state.js';
 import type {
   AgentSession,
   AgentMessage,
@@ -425,12 +426,12 @@ export function findUniqueUnresolvedActivateCardToolCall(
     }
   }
   if (matches.length === 0) return null;
-  // If the planner emitted more than one unresolved activate_card(childCardId) call
-  // in the same session (e.g. after a model retry that re-emitted the same intent),
-  // prefer the most recent one rather than crashing the safeTick loop. The older
-  // duplicate(s) will remain unresolved, which is harmless — they will be ignored
-  // by subsequent tool-result lookups keyed on the chosen tool_call_id.
-  return matches[matches.length - 1];
+  if (matches.length > 1) {
+    throw new RuntimeActivationInvariantError(
+      `Runtime activation invariant violation: duplicate unresolved activate_card('${childCardId}') calls in session '${sessionId}'.`,
+    );
+  }
+  return matches[0]!;
 }
 
 export function findPlannerSessionForCard(saivageDir: string, cardId: string): AgentSession | null {

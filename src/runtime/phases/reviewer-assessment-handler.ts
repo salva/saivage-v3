@@ -2,6 +2,7 @@ import type { CardRecord, PlannerBlockedResult, PlannerDoneResult, ReviewAssessm
 import type { ReviewerResult } from '../../contracts/index.js';
 import { commitReviewerPass } from '../terminal-commit/index.js';
 import { buildReviewAssessment } from '../reviewer-assessment.js';
+import { RuntimeActivationInvariantError } from '../state.js';
 import type { ReviewerPhaseDecision } from './reviewer-phase.js';
 
 export interface ReviewerAssessmentEffects {
@@ -58,17 +59,20 @@ export async function handleReviewerAssessmentDecision(input: {
       nowIso: input.effects.now(),
     });
     const latestGoalCard = input.effects.readCard(input.goalId);
-    if (latestGoalCard) {
-      await commitReviewerPass({
-        card: latestGoalCard,
-        planning: typedPlannerContext(latestGoalCard) ?? input.planningContext,
-        reviewSummary: input.reviewResult.assessment.summary,
-        assessmentId: input.assessmentId,
-        completedAt: latestGoalCard.lifecycle.completed_at ?? input.effects.now(),
-        transitionDetails: { assessment: input.reviewResult.assessment },
-        effects: input.effects,
-      });
+    if (!latestGoalCard) {
+      throw new RuntimeActivationInvariantError(
+        `Runtime activation invariant violation: reviewer pass for '${input.goalId}' cannot commit because the goal card cannot be read.`,
+      );
     }
+    await commitReviewerPass({
+      card: latestGoalCard,
+      planning: typedPlannerContext(latestGoalCard) ?? input.planningContext,
+      reviewSummary: input.reviewResult.assessment.summary,
+      assessmentId: input.assessmentId,
+      completedAt: latestGoalCard.lifecycle.completed_at ?? input.effects.now(),
+      transitionDetails: { assessment: input.reviewResult.assessment },
+      effects: input.effects,
+    });
     if (input.goalId === input.projectCardId) {
       await input.effects.transitionRuntime('reviewer_finished', {
         goalId: input.goalId,

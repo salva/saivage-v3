@@ -371,7 +371,7 @@ describe('session-persistence', () => {
   });
 
   describe('findUniqueUnresolvedActivateCardToolCall', () => {
-    it('returns the most recent unresolved activate_card call when duplicate intents exist', () => {
+    it('throws when duplicate unresolved activate_card calls exist for one child', () => {
       const session = mod.createSession(SAIVAGE_DIR, 'planner', 'goal-1', 'goal-1');
       mod.appendMessage(SAIVAGE_DIR, session.id, {
         role: 'assistant',
@@ -394,11 +394,7 @@ describe('session-persistence', () => {
         }),
       }, { round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0 });
 
-      expect(mod.findUniqueUnresolvedActivateCardToolCall(SAIVAGE_DIR, session.id, 'child-1')).toEqual({
-        session_id: session.id,
-        tool_call_id: 'call-newer',
-        card_id: 'child-1',
-      });
+      expect(() => mod.findUniqueUnresolvedActivateCardToolCall(SAIVAGE_DIR, session.id, 'child-1')).toThrow(/duplicate unresolved activate_card/);
     });
   });
 

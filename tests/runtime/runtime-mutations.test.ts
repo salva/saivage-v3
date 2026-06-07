@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { createRuntimeStateMutationPort } from '../../src/runtime/mutations.js';
-import { initRuntimeState, readRuntimeState, updateRuntimeState } from '../../src/runtime/state.js';
+import { initRuntimeState, readRuntimeState, RuntimeActivationInvariantError, updateRuntimeState } from '../../src/runtime/state.js';
 import type { PlannerDoneResult } from '../../src/schemas/index.js';
 
 const plannerDone: PlannerDoneResult = { kind: 'planner_done', summary: 'done' };
@@ -76,6 +76,24 @@ describe('runtime mutations', () => {
           outcome: { kind: 'completed', outcome: 'done', card_id: 'child', completed_at: '2026-01-01T00:01:00.000Z' },
         }),
       ]);
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('throws when activation completion has no matching unresolved activation', () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'runtime-mutations-missing-activation-'));
+    try {
+      initProjectTree(projectRoot);
+      initRuntimeState(projectRoot);
+
+      expect(() => createRuntimeStateMutationPort(projectRoot).apply({
+        kind: 'completeActivation',
+        childCardId: 'missing-child',
+        outcome: 'done',
+        completedAt: '2026-01-01T00:01:00.000Z',
+        lifecycle: { status: 'done', result: plannerDone, error: null, completed_at: '2026-01-01T00:01:00.000Z' },
+      })).toThrow(RuntimeActivationInvariantError);
     } finally {
       rmSync(projectRoot, { recursive: true, force: true });
     }

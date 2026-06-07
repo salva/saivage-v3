@@ -14,6 +14,7 @@ import {
   updateRuntimeStateLockedDeriving,
   upsertRuntimeIntent,
   upsertRuntimeActivation,
+  RuntimeActivationInvariantError,
 } from './state.js';
 
 type AppendRuntimeCommandArgs = Parameters<typeof appendRuntimeCommand>;
@@ -87,16 +88,21 @@ export function applyRuntimeMutation(projectRoot: string, mutation: RuntimeMutat
       updateRuntimeStateLockedDeriving(projectRoot, () => ({ state: mutation.state, result: undefined }));
       return;
     case 'completeActivation': {
-      updateRuntimeStateLockedDeriving(projectRoot, (current) => ({
-        state: reduceActivationCompletion(
+      updateRuntimeStateLockedDeriving(projectRoot, (current) => {
+        const next = reduceActivationCompletion(
           current,
           mutation.childCardId,
           mutation.outcome,
           mutation.completedAt,
           mutation.lifecycle ?? null,
-        ) ?? current,
-        result: undefined,
-      }));
+        );
+        if (!next) {
+          throw new RuntimeActivationInvariantError(
+            `Runtime activation invariant violation: completeActivation for '${mutation.childCardId}' had no matching unresolved activation.`,
+          );
+        }
+        return { state: next, result: undefined };
+      });
       return;
     }
     case 'appendRuntimeRun':
