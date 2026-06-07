@@ -346,6 +346,32 @@ describe('CardStore CRUD still works with validated indexes', () => {
     expect(() => validateParsedCards({ cards: [invalid], maxDepth: 5 })).toThrow(/missing parent 'missing'/);
   });
 
+  it('allows completed goal cards to retain child evidence on reload', () => {
+    const goal = store.create(makeCard({ type: 'goal', title: 'Completed goal', parent: 'project' }));
+    const child = store.create(makeCard({ type: 'code', title: 'Evidence child', parent: goal.id, depth: 2 }));
+    const completedAt = '2026-01-01T00:00:00.000Z';
+
+    store.commitTerminalLifecyclePatch(goal.id, {
+      status: 'done',
+      lifecycle: {
+        status: 'done',
+        result: {
+          kind: 'reviewer_pass',
+          planning: { kind: 'planner_done', summary: 'complete' },
+          review_summary: 'passed',
+          assessment_id: 'assessment-1',
+        },
+        error: null,
+        completed_at: completedAt,
+      },
+    });
+
+    const reloaded = new CardStore(tmpDir);
+
+    expect(reloaded.read(goal.id)?.status).toBe('done');
+    expect(reloaded.listChildren(goal.id)).toEqual([child.id]);
+  });
+
   it('instantiates CardStoreState without filesystem access', () => {
     const readdirSpy = jest.spyOn(fsModule, 'readdirSync');
     const readFileSpy = jest.spyOn(fsModule, 'readFileSync');

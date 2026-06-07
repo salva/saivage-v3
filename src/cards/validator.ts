@@ -1,6 +1,6 @@
 import type { CardHistoryEntry, CardRecord } from '../schemas/index.js';
 import { PROJECT_CARD_ID } from './project-card.js';
-import { isTerminalState, isTerminalType } from './lifecycle.js';
+import { isTerminalType } from './lifecycle.js';
 import { CardStoreInvariantError } from './errors.js';
 
 export interface ValidateParsedCardsInput {
@@ -46,11 +46,6 @@ export function validateParsedCards({ cards, maxDepth }: ValidateParsedCardsInpu
       if (isTerminalType(parent.type)) {
         throw new CardStoreInvariantError(
           `Terminal card '${parent.id}' (type=${parent.type}) cannot be parent of '${card.id}'.`,
-        );
-      }
-      if (isTerminalState(parent.status)) {
-        throw new CardStoreInvariantError(
-          `Terminal card '${parent.id}' (status=${parent.status}) cannot be parent of '${card.id}'.`,
         );
       }
     }
