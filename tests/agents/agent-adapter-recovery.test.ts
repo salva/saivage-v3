@@ -4,11 +4,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
+import { SessionInvariantError } from '../../src/agents/agent-adapter.js';
 import type { LlmCallFn } from '../../src/agents/llm-contracts.js';
 import type { SaivageConfig } from '../../src/agents/config-schema.js';
 import { LlmRequestError } from '../../src/contracts/llm-failure.js';
-import { getSession, getSessionMessages, listSessions } from '../../src/agents/session-persistence.js';
+import { createSession, getSession, getSessionMessages, listSessions } from '../../src/agents/session-persistence.js';
 import { CardStore } from '../../src/cards/card-store.js';
+import { createPlannerContract } from '../../src/contracts/planner-contract.js';
 
 function config(): SaivageConfig {
   return ({
@@ -43,6 +45,15 @@ function config(): SaivageConfig {
 
 function makeAdapter(root: string, cfg = config(), llmCallFn?: LlmCallFn): AgentAdapter {
   return new AgentAdapter({ projectRoot: root, saivageDir: join(root, '.saivage'), config: cfg, cardStore: new CardStore(root), llmCallFn });
+}
+
+function plannerRequest(goalId: string, systemPrompt = 'prompt') {
+  return {
+    goalId,
+    systemPrompt,
+    contextMessages: [],
+    contract: createPlannerContract({ goalId, parentSessionId: `planner:${goalId}` }),
+  };
 }
 
 import type { LlmCompleteResult } from '../../src/agents/llm-contracts.js';
@@ -88,7 +99,7 @@ describe('AgentAdapter invocation recovery policy integration', () => {
     const adapter = makeAdapter(root, config(), llmCall);
     const markFailed = jest.spyOn(adapter.candidateAvailability, 'markFailed');
 
-    const result = await adapter.invokePlanner('goal-1', 'prompt');
+    const result = await adapter.invokePlanner(plannerRequest('goal-1'));
 
     expect(result.status).toBe('done');
     expect(markFailed).toHaveBeenCalledWith({ provider: 'p1', account: null, model: 'm1' }, expect.objectContaining({ state: 'BLOCKED_UNTIL', reason: 'auth_permanent' }));
@@ -114,7 +125,7 @@ describe('AgentAdapter invocation recovery policy integration', () => {
     const adapter = makeAdapter(root, cfg, llmCall);
     const markFailed = jest.spyOn(adapter.candidateAvailability, 'markFailed');
 
-    const result = await adapter.invokePlanner('goal-1', 'prompt');
+    const result = await adapter.invokePlanner(plannerRequest('goal-1'));
 
     expect(result.status).toBe('done');
     expect(seen).toEqual(['p1', 'p1']);
@@ -132,7 +143,7 @@ describe('AgentAdapter invocation recovery policy integration', () => {
       .mockResolvedValueOnce(plannerDone()));
     const markFailed = jest.spyOn(adapter.candidateAvailability, 'markFailed');
 
-    await expect(adapter.invokePlanner('goal-1', 'prompt')).resolves.toMatchObject({ status: 'done' });
+    await expect(adapter.invokePlanner(plannerRequest('goal-1'))).resolves.toMatchObject({ status: 'done' });
 
     expect(markFailed).toHaveBeenCalledWith({ provider: 'p1', account: null, model: 'm1' }, expect.objectContaining({ state: 'COOLING', reason: 'server_transient' }));
     expect(adapter.candidateAvailability.isAvailable({ provider: 'p1', account: null, model: 'm1' })).toBe(false);
@@ -141,7 +152,7 @@ describe('AgentAdapter invocation recovery policy integration', () => {
   it('marks planner continue results as waiting rather than done', async () => {
     const adapter = makeAdapter(root, config(), jest.fn<LlmCallFn>().mockResolvedValue(plannerDone('continue')));
 
-    await expect(adapter.invokePlanner('goal-1', 'prompt')).resolves.toMatchObject({ status: 'continue' });
+    await expect(adapter.invokePlanner(plannerRequest('goal-1'))).resolves.toMatchObject({ status: 'continue' });
 
     const sessionId = listSessions(join(root, '.saivage'))[0];
     expect(getSession(join(root, '.saivage'), sessionId)).toMatchObject({ status: 'waiting', completed_at: null });
@@ -154,7 +165,7 @@ describe('AgentAdapter invocation recovery policy integration', () => {
     const adapter = makeAdapter(root, cfg, jest.fn<LlmCallFn>().mockResolvedValue(plannerDone()));
     const markFailed = jest.spyOn(adapter.candidateAvailability, 'markFailed');
 
-    await expect(adapter.invokePlanner('goal-1', 'prompt')).rejects.toThrow('No capability-compatible candidates');
+    await expect(adapter.invokePlanner(plannerRequest('goal-1'))).rejects.toThrow('No capability-compatible candidates');
 
     expect(markFailed).not.toHaveBeenCalled();
     expect(adapter.candidateAvailability.isAvailable({ provider: 'p1', account: null, model: 'm1' })).toBe(true);
@@ -168,10 +179,46 @@ describe('AgentAdapter invocation recovery policy integration', () => {
       return plannerDone();
     }));
 
-    const result = await adapter.invokePlanner('goal-1', 'prompt');
+    const result = await adapter.invokePlanner(plannerRequest('goal-1'));
 
     expect(result.status).toBe('done');
     expect(seen).toEqual(['p1', 'p2']);
     expect(adapter.candidateAvailability.isAvailable({ provider: 'p1', account: null, model: 'm1' })).toBe(false);
+  });
+
+  it('throws SessionInvariantError when executor reinvocation is missing card identity', async () => {
+    const saivageDir = join(root, '.saivage');
+    const session = createSession(saivageDir, 'executor', 'goal-1', null);
+    const adapter = makeAdapter(root);
+
+    await expect(adapter.reinvokeSession({ sessionId: session.id })).rejects.toThrow(SessionInvariantError);
+    await expect(adapter.reinvokeSession({ sessionId: session.id })).rejects.toThrow(/missing card_id/);
+  });
+
+  it('throws SessionInvariantError when executor reinvocation is missing goal identity', async () => {
+    const saivageDir = join(root, '.saivage');
+    const session = createSession(saivageDir, 'executor', null, 'card-1');
+    const adapter = makeAdapter(root);
+
+    await expect(adapter.reinvokeSession({ sessionId: session.id })).rejects.toThrow(SessionInvariantError);
+    await expect(adapter.reinvokeSession({ sessionId: session.id })).rejects.toThrow(/missing goal_card_id/);
+  });
+
+  it('throws SessionInvariantError when reviewer reinvocation is missing goal identity', async () => {
+    const saivageDir = join(root, '.saivage');
+    const session = createSession(saivageDir, 'reviewer', null, 'goal-1', undefined, 'reviewer:goal-1:assessment-1', 'assessment-1');
+    const adapter = makeAdapter(root);
+
+    await expect(adapter.reinvokeSession({ sessionId: session.id })).rejects.toThrow(SessionInvariantError);
+    await expect(adapter.reinvokeSession({ sessionId: session.id })).rejects.toThrow(/missing goal_card_id/);
+  });
+
+  it('throws SessionInvariantError when reviewer reinvocation is missing assessment identity', async () => {
+    const saivageDir = join(root, '.saivage');
+    const session = createSession(saivageDir, 'reviewer', 'goal-1', 'goal-1');
+    const adapter = makeAdapter(root);
+
+    await expect(adapter.reinvokeSession({ sessionId: session.id })).rejects.toThrow(SessionInvariantError);
+    await expect(adapter.reinvokeSession({ sessionId: session.id })).rejects.toThrow(/missing assessment_id/);
   });
 });

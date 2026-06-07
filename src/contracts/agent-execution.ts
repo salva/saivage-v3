@@ -93,7 +93,7 @@ export interface ReviewerInvocationRequest {
   goalId: string;
   systemPrompt?: string;
   contextMessages?: AgentMessage[];
-  assessmentId?: string;
+  assessmentId: string;
   reviewerSessionId?: string;
   contract: Contract<ReviewerResultEnvelope, ReviewerResult>;
 }

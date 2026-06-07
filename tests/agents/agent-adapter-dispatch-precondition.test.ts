@@ -7,6 +7,9 @@ import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import type { LlmCallFn } from '../../src/agents/llm-contracts.js';
 import { createSession, ConcurrentAgentSessionError, getSession, listSessions, markSessionWaiting } from '../../src/agents/session-persistence.js';
 import { CardStore } from '../../src/cards/card-store.js';
+import { createExecutorContract } from '../../src/contracts/executor-contract.js';
+import { createPlannerContract } from '../../src/contracts/planner-contract.js';
+import { createReviewerContract } from '../../src/contracts/reviewer-contract.js';
 
 function createMinimalAdapter(tmpDir: string, llmCallFn?: LlmCallFn): AgentAdapter {
   const minimalConfig = {
@@ -25,6 +28,19 @@ function createMinimalAdapter(tmpDir: string, llmCallFn?: LlmCallFn): AgentAdapt
   } as unknown as import('../../src/agents/config-schema.js').SaivageConfig;
 
   return new AgentAdapter({ projectRoot: tmpDir, saivageDir: join(tmpDir, '.saivage'), config: minimalConfig, cardStore: new CardStore(tmpDir), llmCallFn });
+}
+
+function plannerRequest(goalId: string, systemPrompt = 'prompt') {
+  return { goalId, systemPrompt, contextMessages: [], contract: createPlannerContract({ goalId, parentSessionId: `planner:${goalId}` }) };
+}
+
+function executorRequest(cardId: string, goalId: string, systemPrompt = 'prompt') {
+  return { cardId, goalId, systemPrompt, contextMessages: [], contract: createExecutorContract({ cardId, goalId }) };
+}
+
+function reviewerRequest(goalId: string, systemPrompt = 'prompt') {
+  const assessmentId = `assessment-${goalId}`;
+  return { goalId, systemPrompt, contextMessages: [], assessmentId, contract: createReviewerContract({ goalId, assessmentId }) };
 }
 
 describe('AgentAdapter dispatch precondition', () => {
@@ -61,7 +77,7 @@ describe('AgentAdapter dispatch precondition', () => {
     createSession(saivageDir, 'executor', 'goal-1', 'card-A');
     const before = listSessions(saivageDir);
 
-    await expect(adapter.invokeExecutor('card-B', 'goal-1', 'prompt')).rejects.toThrow(ConcurrentAgentSessionError);
+    await expect(adapter.invokeExecutor(executorRequest('card-B', 'goal-1'))).rejects.toThrow(ConcurrentAgentSessionError);
 
     expect(llmCallFn).not.toHaveBeenCalled();
     expect(listSessions(saivageDir).sort()).toEqual(before.sort());
@@ -72,7 +88,7 @@ describe('AgentAdapter dispatch precondition', () => {
     createSession(saivageDir, 'planner', 'goal-1', 'goal-1');
     const before = listSessions(saivageDir);
 
-    await expect(adapter.invokeExecutor('card-B', 'goal-1', 'prompt')).rejects.toThrow(ConcurrentAgentSessionError);
+    await expect(adapter.invokeExecutor(executorRequest('card-B', 'goal-1'))).rejects.toThrow(ConcurrentAgentSessionError);
 
     expect(llmCallFn).not.toHaveBeenCalled();
     expect(listSessions(saivageDir).sort()).toEqual(before.sort());
@@ -83,7 +99,7 @@ describe('AgentAdapter dispatch precondition', () => {
     createSession(saivageDir, 'executor', 'goal-1', 'card-A');
     const before = listSessions(saivageDir);
 
-    await expect(adapter.invokeReviewer('goal-1', 'prompt')).rejects.toThrow(ConcurrentAgentSessionError);
+    await expect(adapter.invokeReviewer(reviewerRequest('goal-1'))).rejects.toThrow(ConcurrentAgentSessionError);
 
     expect(llmCallFn).not.toHaveBeenCalled();
     expect(listSessions(saivageDir).sort()).toEqual(before.sort());
@@ -94,7 +110,7 @@ describe('AgentAdapter dispatch precondition', () => {
     createSession(saivageDir, 'planner', 'goal-1', 'goal-1');
     markSessionWaiting(saivageDir, 'planner:goal-1');
 
-    const result = await adapter.invokePlanner('goal-1', 'systemPrompt', []);
+    const result = await adapter.invokePlanner(plannerRequest('goal-1', 'systemPrompt'));
 
     expect(result.status).toBe('done');
     expect(getSession(saivageDir, 'planner:goal-1')?.status).toBe('done');
@@ -105,7 +121,7 @@ describe('AgentAdapter dispatch precondition', () => {
     const saivageDir = join(tmpDir, '.saivage');
     createSession(saivageDir, 'analyst');
 
-    const result = await adapter.invokeExecutor('card-X', 'goal-1', 'prompt');
+    const result = await adapter.invokeExecutor(executorRequest('card-X', 'goal-1'));
 
     expect(result.status).toBe('done');
     expect(llmCallFn).toHaveBeenCalledTimes(1);
@@ -113,7 +129,7 @@ describe('AgentAdapter dispatch precondition', () => {
   });
 
   it('allows non-conflicting executor dispatch and creates one session', async () => {
-    const result = await adapter.invokeExecutor('card-X', 'goal-1', 'prompt');
+    const result = await adapter.invokeExecutor(executorRequest('card-X', 'goal-1'));
 
     expect(result.status).toBe('done');
     expect(llmCallFn).toHaveBeenCalledTimes(1);

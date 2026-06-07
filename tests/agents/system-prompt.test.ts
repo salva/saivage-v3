@@ -9,7 +9,7 @@ import { createPlannerContract } from '../../src/contracts/planner-contract.js';
 import { createExecutorContract } from '../../src/contracts/executor-contract.js';
 import { createReviewerContract } from '../../src/contracts/reviewer-contract.js';
 
-const plannerContract = createPlannerContract({ goalId: 'g', parentSessionId: '' });
+const plannerContract = createPlannerContract({ goalId: 'g', parentSessionId: 'planner:g' });
 const executorContract = createExecutorContract({ cardId: 'c', goalId: 'g' });
 const reviewerContract = createReviewerContract({ goalId: 'g', assessmentId: 'a' });
 

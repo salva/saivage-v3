@@ -10,6 +10,9 @@ import type { SaivageConfig } from '../../src/agents/config-schema.js';
 import type { PlannerResult } from '../../src/contracts/index.js';
 import { getSessionMessages, listSessions } from '../../src/agents/session-persistence.js';
 import { CardStore } from '../../src/cards/card-store.js';
+import { createExecutorContract } from '../../src/contracts/executor-contract.js';
+import { createPlannerContract } from '../../src/contracts/planner-contract.js';
+import { createReviewerContract } from '../../src/contracts/reviewer-contract.js';
 
 function assertAgentRuntime(rt: AgentRuntime): AgentRuntime { return rt; }
 function makeFixtureDir(tmpDir: string): string { const dir = join(tmpDir, 'fixtures'); mkdirSync(dir, { recursive: true }); return dir; }
@@ -42,6 +45,19 @@ function createMinimalAdapter(tmpDir: string): AgentAdapter {
   return new AgentAdapter({ projectRoot: tmpDir, saivageDir: join(tmpDir, '.saivage'), config, cardStore: new CardStore(tmpDir) });
 }
 
+function plannerRequest(goalId: string, systemPrompt = 'system prompt') {
+  return { goalId, systemPrompt, contextMessages: [], contract: createPlannerContract({ goalId, parentSessionId: `planner:${goalId}` }) };
+}
+
+function executorRequest(cardId: string, goalId: string, systemPrompt = 'system prompt') {
+  return { cardId, goalId, systemPrompt, contextMessages: [], contract: createExecutorContract({ cardId, goalId }) };
+}
+
+function reviewerRequest(goalId: string, systemPrompt = 'system prompt') {
+  const assessmentId = `assessment-${goalId}`;
+  return { goalId, systemPrompt, contextMessages: [], assessmentId, contract: createReviewerContract({ goalId, assessmentId }) };
+}
+
 describe('AgentRuntime Interface', () => {
   let tmpDir: string;
   let fixtureDir: string;
@@ -62,7 +78,7 @@ describe('AgentRuntime Interface', () => {
       const fixture: FakeAgentFixture = { name: 'test-goal', planner: [{ status: 'continue', summary: 'planned next step' }], executor: {}, reviewer: [] };
       writeFixture(fixtureDir, 'test-goal', fixture);
       const adapter = new FakeAgentAdapter({ mapping: { 'goal-1': 'test-goal', '*': 'test-goal' }, fixtureDir });
-      const result = adapter.invokePlanner('goal-1', 'system prompt', []);
+      const result = adapter.invokePlanner(plannerRequest('goal-1'));
       const pr: PlannerResult = result;
       expect(pr.summary).toBe('planned next step');
       expect(pr.status).toBe('continue');
@@ -72,7 +88,7 @@ describe('AgentRuntime Interface', () => {
       const fixture: FakeAgentFixture = { name: 'test-goal', planner: [], executor: { 'code-test-1': { card_id: 'code-test-1', status: 'done', status_text: 'Completed test work', artifacts: [{ sourceFile: 'src/test.ts', type: 'data', description: 'Test source file', retain: true }] } }, reviewer: [] };
       writeFixture(fixtureDir, 'test-goal', fixture);
       const adapter = new FakeAgentAdapter({ mapping: { 'goal-1': 'test-goal', '*': 'test-goal' }, fixtureDir });
-      const result = adapter.invokeExecutor('code-test-1', 'goal-1', 'system prompt', []);
+      const result = adapter.invokeExecutor(executorRequest('code-test-1', 'goal-1'));
       expect(result.card_id).toBe('code-test-1');
       expect(result.status).toBe('done');
       expect(result.status_text).toBe('Completed test work');
@@ -86,7 +102,7 @@ describe('AgentRuntime Interface', () => {
       const fixture: FakeAgentFixture = { name: 'test-goal', planner: [], executor: {}, reviewer: [{ assessment: { id: 'review-test-1', goal_card_id: 'goal-1', reviewer_session_id: 'rev-session', assessment_id: 'assessment-test', at: '2025-01-01T00:00:00.000Z', result: 'pass', summary: 'All good.', achieved: ['All criteria met'], issues: [], evidence_card_ids: ['code-test-1'], created_at: new Date().toISOString() } }] };
       writeFixture(fixtureDir, 'test-goal', fixture);
       const adapter = new FakeAgentAdapter({ mapping: { 'goal-1': 'test-goal', '*': 'test-goal' }, fixtureDir });
-      const result = adapter.invokeReviewer('goal-1', 'system prompt', []);
+      const result = adapter.invokeReviewer(reviewerRequest('goal-1'));
       expect(result.assessment.result).toBe('pass');
       expect(result.assessment.summary).toBe('All good.');
       expect(result.assessment.achieved).toEqual(['All criteria met']);
@@ -98,10 +114,25 @@ describe('AgentRuntime Interface', () => {
       const fixture: FakeAgentFixture = { name: 'test-goal', planner: [{ status: 'done' }, { status: 'continue' }], executor: {}, reviewer: [] };
       writeFixture(fixtureDir, 'test-goal', fixture);
       const adapter = new FakeAgentAdapter({ mapping: { 'goal-1': 'test-goal', '*': 'test-goal' }, fixtureDir });
-      const rawResult = adapter.invokePlanner('goal-1');
+      const rawResult = adapter.invokePlanner(plannerRequest('goal-1'));
       expect(rawResult.status).toBe('done');
-      const interfaceResult = adapter.invokePlanner('goal-1', 'prompt', []);
+      const interfaceResult = adapter.invokePlanner(plannerRequest('goal-1', 'prompt'));
       expect(interfaceResult.status).toBe('continue');
+    });
+
+    it('does not expose string invocation overloads at the type level', () => {
+      const fixture: FakeAgentFixture = { name: 'test-goal', planner: [{ status: 'continue' }], executor: {}, reviewer: [] };
+      writeFixture(fixtureDir, 'test-goal', fixture);
+      const adapter = new FakeAgentAdapter({ mapping: { 'goal-1': 'test-goal', '*': 'test-goal' }, fixtureDir });
+      if (false) {
+        // @ts-expect-error Wave 4 deleted the planner string overload.
+        adapter.invokePlanner('goal-1');
+        // @ts-expect-error Wave 4 deleted the executor string overload.
+        adapter.invokeExecutor('code-test-1', 'goal-1');
+        // @ts-expect-error Wave 4 deleted the reviewer string overload.
+        adapter.invokeReviewer('goal-1');
+      }
+      expect(adapter).toBeDefined();
     });
   });
 

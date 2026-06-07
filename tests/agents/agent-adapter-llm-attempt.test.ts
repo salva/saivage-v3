@@ -19,6 +19,7 @@ import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { CardStore } from '../../src/cards/card-store.js';
+import { createPlannerContract } from '../../src/contracts/planner-contract.js';
 
 let AgentAdapter: typeof import('../../src/agents/agent-adapter.js').AgentAdapter;
 let loadConfig: typeof import('../../src/agents/config-schema.js').loadConfig;
@@ -66,6 +67,10 @@ function writeSaivageJson(projectRoot: string, json: Record<string, unknown>): v
 
 function cleanupDir(dir: string): void {
   if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
+}
+
+function plannerRequest(goalId: string) {
+  return { goalId, systemPrompt: spText(), contextMessages: userMsgs(), contract: createPlannerContract({ goalId, parentSessionId: `planner:${goalId}` }) };
 }
 
 function createTestAgentAdapter(projectRoot: string, eventBus?: EventEmitter, cardStore = new CardStore(projectRoot)): InstanceType<typeof AgentAdapter> {
@@ -146,7 +151,7 @@ describe('AgentAdapter F04 llm_attempt + llm_invocation_summary emission', () =>
 
     const adapter = createTestAgentAdapter(tempDir, events, new CardStore(tempDir));
 
-    const result = await adapter.invokePlanner('goal-f04-failover', spText(), userMsgs());
+    const result = await adapter.invokePlanner(plannerRequest('goal-f04-failover'));
 
     expect(result.status).toBe('continue');
     expect(handle.calls.count).toBe(3);
@@ -182,7 +187,7 @@ describe('AgentAdapter F04 llm_attempt + llm_invocation_summary emission', () =>
     events.on('llm_invocation_summary', (e: SummaryEvent) => summaries.push(e));
     const adapter = createTestAgentAdapter(tempDir, events, new CardStore(tempDir));
 
-    await expect(adapter.invokePlanner('goal-f04-exhausted', spText(), userMsgs())).rejects.toBeDefined();
+    await expect(adapter.invokePlanner(plannerRequest('goal-f04-exhausted'))).rejects.toBeDefined();
 
     expect(attempts.length).toBeGreaterThanOrEqual(2);
     expect(attempts.every((a) => a.outcome.kind === 'failed')).toBe(true);

@@ -14,11 +14,21 @@ import { getSession } from '../../src/agents/session-persistence.js';
 import { createRuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import type { LlmCallFn } from '../../src/agents/llm-contracts.js';
+import { createExecutorContract } from '../../src/contracts/executor-contract.js';
+import { createPlannerContract } from '../../src/contracts/planner-contract.js';
 
 type CancellationTracker = {
   abortCalls: Array<{ sessionId: string }>;
   forceCancelCalls: Array<{ sessionId: string }>;
 };
+
+function plannerRequest(goalId: string, systemPrompt: string, contextMessages: import('../../src/schemas/index.js').AgentMessage[]) {
+  return { goalId, systemPrompt, contextMessages, contract: createPlannerContract({ goalId, parentSessionId: `planner:${goalId}` }) };
+}
+
+function executorRequest(cardId: string, goalId: string, systemPrompt: string, contextMessages: import('../../src/schemas/index.js').AgentMessage[]) {
+  return { cardId, goalId, systemPrompt, contextMessages, contract: createExecutorContract({ cardId, goalId }) };
+}
 
 function makeCancellationTracker(): CancellationTracker {
   return { abortCalls: [], forceCancelCalls: [] };
@@ -734,10 +744,10 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
     const { llmCallFn, startedPromise } = makeHangingLlmCallFn();
     adapter = createConfiguredAdapter(tmpDir, { eventBus, llmCallFn });
 
-    const invokePromise = adapter.invokePlanner(
+    const invokePromise = adapter.invokePlanner(plannerRequest(
       'goal-integration-1', 'You are a planner',
       [{ id: 'msg-1', session_id: '', role: 'user', kind: 'text', content: 'Plan a task', round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: new Date().toISOString() }],
-    );
+    ));
 
     await startedPromise;
     await wait(50);
@@ -817,12 +827,12 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
       llmCallFn,
     });
 
-    const invokePromise = multiAdapter.invokeExecutor(
+    const invokePromise = multiAdapter.invokeExecutor(executorRequest(
       'card-1',
       'goal-1',
       'You are an executor',
       [{ id: 'msg-1', session_id: '', role: 'user', kind: 'text', content: 'Execute a task', round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: new Date().toISOString() }],
-    );
+    ));
 
     await expect(invokePromise).rejects.toThrow(/cancelled/i);
     expect(attemptedCandidates).toHaveLength(1);
@@ -887,12 +897,12 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
       llmCallFn,
     });
 
-    const invokePromise = multiAdapter.invokeExecutor(
+    const invokePromise = multiAdapter.invokeExecutor(executorRequest(
       'card-force',
       'goal-force',
       'You are an executor',
       [{ id: 'msg-2', session_id: '', role: 'user', kind: 'text', content: 'Execute', round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: new Date().toISOString() }],
-    );
+    ));
 
     await expect(invokePromise).rejects.toThrow(/cancelled/i);
 
@@ -906,12 +916,12 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
     );
     adapter = createConfiguredAdapter(tmpDir, { eventBus, llmCallFn: successFn });
 
-    const result = await adapter.invokeExecutor(
+    const result = await adapter.invokeExecutor(executorRequest(
       'card-success',
       'goal-success',
       'You are an executor',
       [{ id: 'msg-3', session_id: '', role: 'user', kind: 'text', content: 'Do it', round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: new Date().toISOString() }],
-    );
+    ));
 
     expect(result.card_id).toBe('card-ok');
     expect(result.status).toBe('done');

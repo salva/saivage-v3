@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import type { LlmCallFn } from '../../src/agents/llm-contracts.js';
 import { buildReviewerPrompt } from '../../src/agents/system-prompt.js';
+import { createPlannerContract } from '../../src/contracts/planner-contract.js';
 import { createReviewerContract } from '../../src/contracts/reviewer-contract.js';
 import type { SaivageConfig } from '../../src/agents/config-schema.js';
 import type { AgentMessage, CardRecord } from '../../src/schemas/types.js';
@@ -160,7 +161,12 @@ describe('AgentAdapter planner-control reviewer prompt contract', () => {
     jest.spyOn(adapterWithLlm.router, 'resolve').mockResolvedValue([{ provider: 'test-provider', model: 'test-model', account: 'default' }]);
     jest.spyOn(adapterWithLlm.candidateAvailability, 'isAvailable').mockReturnValue(true);
 
-    const result = await adapterWithLlm.invokePlanner(goal.id, 'planner-system-prompt');
+    const result = await adapterWithLlm.invokePlanner({
+      goalId: goal.id,
+      systemPrompt: 'planner-system-prompt',
+      contextMessages: [],
+      contract: createPlannerContract({ goalId: goal.id, parentSessionId: `planner:${goal.id}` }),
+    });
 
     expect(result).toEqual(expect.objectContaining({
       status: 'done',

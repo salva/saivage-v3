@@ -28,8 +28,8 @@ export class AgentSessionRepository {
     this.saivageDir = join(projectRoot, '.saivage');
   }
 
-  createSession(role: AgentRole, goalCardId?: string | null, cardId?: string | null, model?: string, sessionId?: string): AgentSession {
-    return createSession(this.saivageDir, role, goalCardId ?? null, cardId ?? null, model, sessionId);
+  createSession(role: AgentRole, goalCardId?: string | null, cardId?: string | null, model?: string, sessionId?: string, assessmentId?: string | null): AgentSession {
+    return createSession(this.saivageDir, role, goalCardId ?? null, cardId ?? null, model, sessionId, assessmentId);
   }
 
   ensureAnalystSession(sessionId = GLOBAL_ANALYST_SESSION_ID): AgentSession {

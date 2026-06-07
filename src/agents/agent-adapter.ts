@@ -46,7 +46,6 @@ import { createPlannerControlExecutor } from './planner-control-factory.js';
 import { ContextCompactor } from './context-compactor.js';
 import type { Contract } from '../contracts/contract.js';
 import {
-  createPlannerContract,
   type PlannerEnvelope,
   type PlannerTypedResult,
 } from '../contracts/planner-contract.js';
@@ -68,6 +67,13 @@ import { compensateActivationBarrierThrow } from './activation-barrier-compensat
 
 export type AgentRole = OperationalAgentRole;
 export type InvokableAgentRole = AgentInvocationRole;
+
+export class SessionInvariantError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SessionInvariantError';
+  }
+}
 
 export interface AgentAdapterConfig {
   projectRoot: string;
@@ -288,26 +294,7 @@ export class AgentAdapter implements AgentExecutionPort {
   getActiveSessionHandoffs(): HandoffSummary[] {
     return this.sessionLifecycle.getActiveSessionHandoffs();
   }
-  async invokePlanner(request: PlannerInvocationRequest): Promise<PlannerResult>;
-  async invokePlanner(
-    goalId: string,
-    systemPrompt?: string,
-    contextMessages?: AgentMessage[],
-  ): Promise<PlannerResult>;
-  async invokePlanner(
-    requestOrGoalId: PlannerInvocationRequest | string,
-    systemPrompt: string = '',
-    contextMessages: AgentMessage[] = [],
-  ): Promise<PlannerResult> {
-    const goalId = typeof requestOrGoalId === 'string' ? requestOrGoalId : requestOrGoalId.goalId;
-    const contract =
-      typeof requestOrGoalId === 'string'
-        ? createPlannerContract({ goalId, parentSessionId: '' })
-        : requestOrGoalId.contract;
-    const request: PlannerInvocationRequest =
-      typeof requestOrGoalId === 'string'
-        ? { goalId, systemPrompt, contextMessages, contract }
-        : requestOrGoalId;
+  async invokePlanner(request: PlannerInvocationRequest): Promise<PlannerResult> {
     const plannerSessionId = `planner:${request.goalId}`;
     const existing = getSession(this.saivageDir, plannerSessionId);
     if (existing)
@@ -320,122 +307,59 @@ export class AgentAdapter implements AgentExecutionPort {
       request.goalId,
       request.systemPrompt ?? '',
       request.contextMessages ?? [],
-      contract,
+      request.contract,
       undefined,
       request.activationBarrier,
     );
     return typedResult.result;
   }
-  async invokeExecutor(request: ExecutorInvocationRequest): Promise<ExecutorResult>;
-  async invokeExecutor(
-    cardId: string,
-    goalId: string,
-    systemPrompt?: string,
-    contextMessages?: AgentMessage[],
-  ): Promise<ExecutorResult>;
-  async invokeExecutor(
-    requestOrCardId: ExecutorInvocationRequest | string,
-    goalId?: string,
-    systemPrompt: string = '',
-    contextMessages: AgentMessage[] = [],
-  ): Promise<ExecutorResult> {
-    const cardId = typeof requestOrCardId === 'string' ? requestOrCardId : requestOrCardId.cardId;
-    const resolvedGoalId =
-      typeof requestOrCardId === 'string' ? (goalId ?? '') : requestOrCardId.goalId;
-    const contract =
-      typeof requestOrCardId === 'string'
-        ? createExecutorContract({ cardId, goalId: resolvedGoalId })
-        : requestOrCardId.contract;
-    const request: ExecutorInvocationRequest =
-      typeof requestOrCardId === 'string'
-        ? { cardId, goalId: resolvedGoalId, systemPrompt, contextMessages, contract }
-        : requestOrCardId;
+  async invokeExecutor(request: ExecutorInvocationRequest): Promise<ExecutorResult> {
     return this.invokeAgent<ExecutorResultEnvelope, ExecutorResult>(
       'executor',
       request.goalId,
       request.cardId,
       request.systemPrompt ?? '',
       request.contextMessages ?? [],
-      contract,
+      request.contract,
     );
   }
-  async invokeReviewer(request: ReviewerInvocationRequest): Promise<ReviewerResult>;
-  async invokeReviewer(
-    goalId: string,
-    systemPrompt?: string,
-    contextMessages?: AgentMessage[],
-    options?: { assessmentId?: string; reviewerSessionId?: string },
-  ): Promise<ReviewerResult>;
-  async invokeReviewer(
-    requestOrGoalId: ReviewerInvocationRequest | string,
-    systemPrompt: string = '',
-    contextMessages: AgentMessage[] = [],
-    options: { assessmentId?: string; reviewerSessionId?: string } = {},
-  ): Promise<ReviewerResult> {
-    const goalId = typeof requestOrGoalId === 'string' ? requestOrGoalId : requestOrGoalId.goalId;
-    const assessmentId =
-      typeof requestOrGoalId === 'string' ? options.assessmentId : requestOrGoalId.assessmentId;
-    const contract =
-      typeof requestOrGoalId === 'string'
-        ? createReviewerContract({ goalId, assessmentId: assessmentId ?? '' })
-        : requestOrGoalId.contract;
-    const request: ReviewerInvocationRequest =
-      typeof requestOrGoalId === 'string'
-        ? {
-            goalId,
-            systemPrompt,
-            contextMessages,
-            assessmentId: options.assessmentId,
-            reviewerSessionId: options.reviewerSessionId,
-            contract,
-          }
-        : requestOrGoalId;
+  async invokeReviewer(request: ReviewerInvocationRequest): Promise<ReviewerResult> {
     return this.invokeAgent<ReviewerResultEnvelope, ReviewerResult>(
       'reviewer',
       request.goalId,
       request.goalId,
       request.systemPrompt ?? '',
       request.contextMessages ?? [],
-      contract,
+      request.contract,
       request.reviewerSessionId,
+      undefined,
+      request.assessmentId,
     );
   }
-  async reinvokeSession(request: SessionReinvokeRequest): Promise<ExecutorResult | ReviewerResult>;
-  async reinvokeSession(
-    sessionId: string,
-    systemPrompt?: string,
-    contextMessages?: AgentMessage[],
-  ): Promise<ExecutorResult | ReviewerResult>;
-  async reinvokeSession(
-    requestOrSessionId: SessionReinvokeRequest | string,
-    systemPrompt: string = '',
-    contextMessages: AgentMessage[] = [],
-  ): Promise<ExecutorResult | ReviewerResult> {
-    const request: SessionReinvokeRequest =
-      typeof requestOrSessionId === 'string'
-        ? { sessionId: requestOrSessionId, systemPrompt, contextMessages }
-        : requestOrSessionId;
+  async reinvokeSession(request: SessionReinvokeRequest): Promise<ExecutorResult | ReviewerResult> {
     const session = getSession(this.saivageDir, request.sessionId);
     if (!session) throw new Error(`Session not found: ${request.sessionId}`);
     if (session.role === 'executor') {
-      const cardId = session.card_id ?? session.goal_card_id ?? '';
-      const reGoalId = session.goal_card_id ?? '';
+      if (!session.card_id) throw new SessionInvariantError(`Executor session '${session.id}' is missing card_id.`);
+      if (!session.goal_card_id) throw new SessionInvariantError(`Executor session '${session.id}' is missing goal_card_id.`);
       return this.invokeExecutor({
-        cardId,
-        goalId: reGoalId,
+        cardId: session.card_id,
+        goalId: session.goal_card_id,
         systemPrompt: request.systemPrompt,
         contextMessages: request.contextMessages,
-        contract: createExecutorContract({ cardId, goalId: reGoalId }),
+        contract: createExecutorContract({ cardId: session.card_id, goalId: session.goal_card_id }),
       });
     }
     if (session.role === 'reviewer') {
-      const reGoalId = session.goal_card_id ?? '';
+      if (!session.goal_card_id) throw new SessionInvariantError(`Reviewer session '${session.id}' is missing goal_card_id.`);
+      if (!session.assessment_id) throw new SessionInvariantError(`Reviewer session '${session.id}' is missing assessment_id.`);
       return this.invokeReviewer({
-        goalId: reGoalId,
+        goalId: session.goal_card_id,
         systemPrompt: request.systemPrompt,
         contextMessages: request.contextMessages,
         reviewerSessionId: session.id,
-        contract: createReviewerContract({ goalId: reGoalId, assessmentId: '' }),
+        assessmentId: session.assessment_id,
+        contract: createReviewerContract({ goalId: session.goal_card_id, assessmentId: session.assessment_id }),
       });
     }
     throw new Error(`Session '${request.sessionId}' is not reinvokable.`);
@@ -490,6 +414,7 @@ export class AgentAdapter implements AgentExecutionPort {
     contract: Contract<E, R>,
     requestedSessionId?: string,
     activationBarrier?: PlannerActivationBarrier,
+    assessmentId?: string | null,
   ): Promise<R> {
     return this.invocationRunner.invoke(
       role,
@@ -500,6 +425,7 @@ export class AgentAdapter implements AgentExecutionPort {
       contract,
       requestedSessionId,
       activationBarrier,
+      assessmentId,
     );
   }
 

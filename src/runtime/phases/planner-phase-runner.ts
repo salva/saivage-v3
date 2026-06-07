@@ -23,7 +23,7 @@ export class PlannerPhaseRunner {
   async run(input: { goalId: string; iteration: number }): Promise<PlannerResult> {
     const goalCard = this.deps.readGoalCard(input.goalId);
     const currentDepth = goalCard?.depth;
-    const plannerContract = createPlannerContract({ goalId: input.goalId, parentSessionId: '' });
+    const plannerContract = createPlannerContract({ goalId: input.goalId, parentSessionId: `planner:${input.goalId}` });
     const resumeContext = this.deps.buildGoalEvidenceContext(input.goalId);
     const resumeReason = this.deps.inferResumeReason(input.goalId, input.iteration === 0 ? 'initial' : 'reviewer_correction');
     const goalContext = this.deps.buildGoalContextBlock(input.goalId, resumeReason);

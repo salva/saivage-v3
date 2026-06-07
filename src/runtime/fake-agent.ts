@@ -1,6 +1,6 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { ReviewAssessment, ArtifactRef, AgentMessage, HandoffSummary, AgentSession } from '../schemas/index.js';
+import type { ReviewAssessment, ArtifactRef, HandoffSummary, AgentSession } from '../schemas/index.js';
 import type { AgentExecutionPort, PlannerInvocationRequest, ExecutorInvocationRequest, ReviewerInvocationRequest, SessionReinvokeRequest, RuntimeActivationLedgerPort } from '../contracts/index.js';
 import { completeSession, createSession, markSessionWaiting } from './session-persistence.js';
 import type { SessionStamper } from './session-stamper.js';
@@ -78,9 +78,7 @@ export class FakeAgentAdapter implements AgentExecutionPort {
   forceCancelSession(sessionId: string): boolean { const existed = this.activeSessions.has(sessionId); this.cancelledSessions.add(sessionId); this.activeSessions.delete(sessionId); return existed; }
   getHandoffSummary(sessionId: string): HandoffSummary | null { const session = this.activeSessions.get(sessionId); if (!session) return null; return { session_id: session.sessionId, role: session.role, last_action: session.lastAction, next_action: session.nextAction, context_summary: session.contextSummary }; }
   getActiveSessionHandoffs(): HandoffSummary[] { return Array.from(this.activeSessions.values()).map((session) => ({ session_id: session.sessionId, role: session.role, last_action: session.lastAction, next_action: session.nextAction, context_summary: session.contextSummary })); }
-  invokePlanner(request: PlannerInvocationRequest): PlannerResult;
-  invokePlanner(goalId: string, systemPrompt?: string, contextMessages?: AgentMessage[]): PlannerResult;
-  invokePlanner(requestOrGoalId: PlannerInvocationRequest | string): PlannerResult { return this.invokePlannerForGoal(typeof requestOrGoalId === 'string' ? requestOrGoalId : requestOrGoalId.goalId); }
+  invokePlanner(request: PlannerInvocationRequest): PlannerResult { return this.invokePlannerForGoal(request.goalId); }
   private invokePlannerForGoal(goalId: string): PlannerResult {
     const fixture = this.resolveFixture(goalId);
     if (!fixture.planner || fixture.planner.length === 0) throw new Error(`FakeAgent fixture '${fixture.name}' has no planner results.`);
@@ -110,17 +108,11 @@ export class FakeAgentAdapter implements AgentExecutionPort {
     }
   }
 
-  invokeExecutor(request: ExecutorInvocationRequest): ExecutorResult;
-  invokeExecutor(cardId: string, goalId: string, systemPrompt?: string, contextMessages?: AgentMessage[]): ExecutorResult;
-  invokeExecutor(requestOrCardId: ExecutorInvocationRequest | string, goalId?: string): ExecutorResult { return typeof requestOrCardId === 'string' ? this.invokeExecutorForCard(requestOrCardId, goalId ?? '') : this.invokeExecutorForCard(requestOrCardId.cardId, requestOrCardId.goalId); }
+  invokeExecutor(request: ExecutorInvocationRequest): ExecutorResult { return this.invokeExecutorForCard(request.cardId, request.goalId); }
   private invokeExecutorForCard(cardId: string, goalId: string): ExecutorResult { const fixture = this.resolveFixture(goalId); if (!fixture.executor) throw new Error(`FakeAgent fixture '${fixture.name}' has no executor results.`); const sessionId = this.registerSession('executor', goalId, cardId, `Executing card ${cardId}`, fixture.name); try { if (this.cancelledSessions.has(sessionId)) throw new Error(`Fake executor session cancelled: ${sessionId}`); const result = fixture.executor[cardId]; if (!result) throw new Error(`FakeAgent fixture '${fixture.name}' has no executor result for card '${cardId}'.`); return convertExecutorResult(result); } finally { this.completeSession(sessionId); } }
-  invokeReviewer(request: ReviewerInvocationRequest): ReviewerResult;
-  invokeReviewer(goalId: string, systemPrompt?: string, contextMessages?: AgentMessage[], options?: { assessmentId?: string; reviewerSessionId?: string }): ReviewerResult;
-  invokeReviewer(requestOrGoalId: ReviewerInvocationRequest | string, _systemPrompt?: string, _contextMessages?: AgentMessage[], options: { assessmentId?: string; reviewerSessionId?: string } = {}): ReviewerResult { return typeof requestOrGoalId === 'string' ? this.invokeReviewerForGoal(requestOrGoalId, options.reviewerSessionId) : this.invokeReviewerForGoal(requestOrGoalId.goalId, requestOrGoalId.reviewerSessionId); }
+  invokeReviewer(request: ReviewerInvocationRequest): ReviewerResult { return this.invokeReviewerForGoal(request.goalId, request.reviewerSessionId); }
   private invokeReviewerForGoal(goalId: string, reviewerSessionId?: string): ReviewerResult { const fixture = this.resolveFixture(goalId); if (!fixture.reviewer || fixture.reviewer.length === 0) throw new Error(`FakeAgent fixture '${fixture.name}' has no reviewer results.`); const count = this.reviewerCounters.get(fixture.name) ?? 0; if (count >= fixture.reviewer.length) throw new Error(`FakeAgent fixture '${fixture.name}' exhausted reviewer results (called ${count + 1} times, only ${fixture.reviewer.length} available).`); const sessionId = this.registerSession('reviewer', goalId, null, `Reviewing goal ${goalId}`, fixture.name, reviewerSessionId); try { if (this.cancelledSessions.has(sessionId)) throw new Error(`Fake reviewer session cancelled: ${sessionId}`); const result = fixture.reviewer[count]; this.reviewerCounters.set(fixture.name, count + 1); return convertReviewerResult(result); } finally { this.completeSession(sessionId); } }
-  reinvokeSession(request: SessionReinvokeRequest): ExecutorResult | ReviewerResult;
-  reinvokeSession(sessionId: string): ExecutorResult | ReviewerResult;
-  reinvokeSession(requestOrSessionId: SessionReinvokeRequest | string): ExecutorResult | ReviewerResult { const sessionId = typeof requestOrSessionId === 'string' ? requestOrSessionId : requestOrSessionId.sessionId; const session = this.sessionFixtures.get(sessionId); if (!session) throw new Error(`Unknown fake session '${sessionId}'.`); if (session.role === 'executor') return this.invokeExecutorForCard(session.cardId ?? '', session.goalId); if (session.role === 'reviewer') return this.invokeReviewerForGoal(session.goalId, sessionId); throw new Error(`Session '${sessionId}' is not reinvokable.`); }
+  reinvokeSession(request: SessionReinvokeRequest): ExecutorResult | ReviewerResult { const session = this.sessionFixtures.get(request.sessionId); if (!session) throw new Error(`Unknown fake session '${request.sessionId}'.`); if (session.role === 'executor') return this.invokeExecutorForCard(session.cardId ?? '', session.goalId); if (session.role === 'reviewer') return this.invokeReviewerForGoal(session.goalId, request.sessionId); throw new Error(`Session '${request.sessionId}' is not reinvokable.`); }
   toPlannerResult(raw: FakePlannerResult): PlannerResult { return convertPlannerResult(raw); }
   toExecutorResult(raw: FakeExecutorResult): ExecutorResult { return convertExecutorResult(raw); }
   toReviewerResult(raw: FakeReviewerResult): ReviewerResult { return convertReviewerResult(raw); }

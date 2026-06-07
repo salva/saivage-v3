@@ -23,6 +23,8 @@ import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { CardStore } from '../../src/cards/card-store.js';
+import { createExecutorContract } from '../../src/contracts/executor-contract.js';
+import { createPlannerContract } from '../../src/contracts/planner-contract.js';
 
 // ── Dynamic imports ────────────────────────────────────────────
 
@@ -104,6 +106,14 @@ function createMockServer(
       resolve({ server, port, cap });
     });
   });
+}
+
+function plannerRequest(goalId: string) {
+  return { goalId, systemPrompt: sp(), contextMessages: msgs(), contract: createPlannerContract({ goalId, parentSessionId: `planner:${goalId}` }) };
+}
+
+function executorRequest(cardId: string, goalId: string) {
+  return { cardId, goalId, systemPrompt: sp(), contextMessages: msgs(), contract: createExecutorContract({ cardId, goalId }) };
 }
 
 function createMultiCaptureMockServer(
@@ -588,7 +598,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       const adapter = createTestAgentAdapter(adapterTempDir, events, new CardStore(adapterTempDir));
 
       await expect(
-        adapter.invokePlanner('goal-1', sp(), msgs()),
+        adapter.invokePlanner(plannerRequest('goal-1')),
       ).rejects.toMatchObject({ failure: { kind: 'auth_permanent' } });
 
       const agentsDir = join(adapterTempDir, '.saivage', 'agents');
@@ -817,9 +827,7 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
       expect(candidates[0].model).toBe('test-model');
 
       // Wire and invoke
-      const result = await adapter.invokePlanner(
-        'goal-1', sp(), msgs(),
-      );
+      const result = await adapter.invokePlanner(plannerRequest('goal-1'));
 
       expect(result.status).toBe('continue');
       expect(result.summary).toBe('ready to continue');
@@ -872,7 +880,7 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
 
       const adapter = createTestAgentAdapter(tempDir, events, new CardStore(tempDir));
 
-      const result = await adapter.invokePlanner('goal-codex-retry', sp(), msgs());
+      const result = await adapter.invokePlanner(plannerRequest('goal-codex-retry'));
 
       expect(result.status).toBe('continue');
       expect(captures).toHaveLength(1);
@@ -913,9 +921,7 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
       });
 
       const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
-      const result = await adapter.invokeExecutor(
-        'code-1', 'goal-1', sp(), msgs(),
-      );
+      const result = await adapter.invokeExecutor(executorRequest('code-1', 'goal-1'));
 
       expect(result.status).toBe('done');
       expect(result.artifacts).toHaveLength(1);
@@ -950,7 +956,7 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
       const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
 
       await expect(
-        adapter.invokePlanner('goal-1', sp(), msgs()),
+        adapter.invokePlanner(plannerRequest('goal-1')),
       ).rejects.toThrow();
     } finally {
       await closeServer(server);
@@ -1088,9 +1094,7 @@ describe('Account-level Provider Config Overrides', () => {
 
       const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
 
-      const result = await adapter.invokePlanner(
-        'goal-1', sp(), msgs(),
-      );
+      const result = await adapter.invokePlanner(plannerRequest('goal-1'));
 
       expect(result.status).toBe('continue');
       expect(cap.headers['authorization']).toBe('Bearer sk-account-level');
@@ -1130,9 +1134,7 @@ describe('Account-level Provider Config Overrides', () => {
 
       const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
 
-      await adapter.invokePlanner(
-        'goal-1', sp(), msgs(),
-      );
+      await adapter.invokePlanner(plannerRequest('goal-1'));
 
       expect(cap.headers['authorization']).toBe('Bearer sk-provider-level');
     } finally {
@@ -1180,9 +1182,7 @@ describe('Account-level Provider Config Overrides', () => {
 
       const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
 
-      await adapter.invokePlanner(
-        'goal-1', sp(), msgs(),
-      );
+      await adapter.invokePlanner(plannerRequest('goal-1'));
 
       expect(cap.headers['authorization']).toBe('Bearer oauth-access-token');
     } finally {
@@ -1269,7 +1269,7 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
       });
 
       const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
-      await adapter.invokePlanner('goal-tc1', sp(), msgs());
+      await adapter.invokePlanner(plannerRequest('goal-tc1'));
 
       const body = JSON.parse(cap.body);
       expect(body.temperature).toBe(0.7);
@@ -1308,7 +1308,7 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
       });
 
       const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
-      await adapter.invokePlanner('goal-tc2', sp(), msgs());
+      await adapter.invokePlanner(plannerRequest('goal-tc2'));
 
       const body = JSON.parse(cap.body);
       expect(body.temperature).toBe(0.3);
@@ -1347,7 +1347,7 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
       });
 
       const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
-      await adapter.invokePlanner('goal-tc3', sp(), msgs());
+      await adapter.invokePlanner(plannerRequest('goal-tc3'));
 
       const body = JSON.parse(cap.body);
       expect(body.temperature).toBe(0.5);   // from models.default
@@ -1386,7 +1386,7 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
       });
 
       const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
-      await adapter.invokePlanner('goal-tc4', sp(), msgs());
+      await adapter.invokePlanner(plannerRequest('goal-tc4'));
 
       const body = JSON.parse(cap.body);
       expect(body.temperature).toBe(0.2);
@@ -1425,7 +1425,7 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
       });
 
       const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
-      await adapter.invokePlanner('goal-tc5', sp(), msgs());
+      await adapter.invokePlanner(plannerRequest('goal-tc5'));
 
       const body = JSON.parse(cap.body);
       expect(body.temperature).toBe(0.1);    // from per-role planner

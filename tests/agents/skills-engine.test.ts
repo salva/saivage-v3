@@ -623,7 +623,7 @@ describe('SkillsEngine', () => {
   // ═══════════════ System Prompt Integration ═══════════════
 
   describe('System Prompt Integration', () => {
-    const plannerContract = createPlannerContract({ goalId: 'g', parentSessionId: '' });
+    const plannerContract = createPlannerContract({ goalId: 'g', parentSessionId: 'planner:g' });
     const executorContract = createExecutorContract({ cardId: 'c', goalId: 'g' });
     const reviewerContract = createReviewerContract({ goalId: 'g', assessmentId: 'a' });
 

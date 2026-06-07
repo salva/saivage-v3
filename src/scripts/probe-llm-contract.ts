@@ -90,7 +90,7 @@ function buildOptionsForRole(role: OperationalAgentRole) {
   }
   const contract =
     role === 'planner'
-      ? createPlannerContract({ goalId: 'probe-goal', parentSessionId: '' })
+      ? createPlannerContract({ goalId: 'probe-goal', parentSessionId: 'planner:probe-goal' })
       : role === 'executor'
         ? createExecutorContract({ cardId: 'probe-card', goalId: 'probe-goal' })
         : createReviewerContract({ goalId: 'probe-goal', assessmentId: 'probe-assessment' });

@@ -93,6 +93,7 @@ export class AgentInvocationRunner {
     contract: Contract<E, R>,
     requestedSessionId?: string,
     activationBarrier?: PlannerActivationBarrier,
+    assessmentId?: string | null,
   ): Promise<R> {
     const modelParams = getModelParamsForRole(this.config.config, role);
     const tools = this.config.toolExecutor.buildToolsForRole(role);
@@ -116,7 +117,7 @@ export class AgentInvocationRunner {
       throw new Error(noCandidateDecision.message);
     }
     assertNoActiveAgentSession(this.config.saivageDir, role as import('../schemas/types.js').AgentRole);
-    const session = this.config.sessionLifecycle.create(role as import('../schemas/types.js').AgentRole, goalId, cardId, requestedSessionId);
+    const session = this.config.sessionLifecycle.create(role as import('../schemas/types.js').AgentRole, goalId, cardId, requestedSessionId, assessmentId);
     await this.config.sessionLifecycle.notifyCreated(session.id);
     this.config.sessionLifecycle.publishStarted(session.id, role as import('../schemas/types.js').AgentRole, goalId, cardId);
     for (const msg of contextMessages)

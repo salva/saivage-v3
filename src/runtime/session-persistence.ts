@@ -76,6 +76,7 @@ export function createSession(
   cardId?: string | null,
   model?: string,
   requestedSessionId?: string,
+  assessmentId?: string | null,
 ): AgentSession {
   const sessionId = requestedSessionId ?? (role === 'planner' && goalCardId && cardId === goalCardId ? `planner:${goalCardId}` : nextSessionId(role));
   const session: AgentSession = {
@@ -83,6 +84,7 @@ export function createSession(
     role,
     goal_card_id: goalCardId ?? null,
     card_id: cardId ?? null,
+    assessment_id: assessmentId ?? null,
     status: 'active',
     started_at: new Date().toISOString(),
     model,
@@ -435,14 +437,7 @@ export function findUniqueUnresolvedActivateCardToolCall(
 }
 
 export function findPlannerSessionForCard(saivageDir: string, cardId: string): AgentSession | null {
-  const deterministic = getSession(saivageDir, `planner:${cardId}`);
-  if (deterministic) return deterministic;
-  const sessions = listSessions(saivageDir)
-    .map((id) => getSession(saivageDir, id))
-    .filter((session): session is AgentSession => Boolean(session))
-    .filter((session) => session.role === 'planner' && session.goal_card_id === cardId && session.card_id === cardId)
-    .sort((a, b) => (b.started_at ?? '').localeCompare(a.started_at ?? ''));
-  return sessions[0] ?? null;
+  return getSession(saivageDir, `planner:${cardId}`);
 }
 
 export function appendActivateCardToolResultOnce(

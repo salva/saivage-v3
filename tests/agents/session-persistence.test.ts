@@ -57,6 +57,13 @@ describe('session-persistence', () => {
       expect(loaded!.role).toBe('executor');
       expect(loaded!.status).toBe('active');
     });
+
+    it('persists reviewer assessment identity', () => {
+      const session = mod.createSession(SAIVAGE_DIR, 'reviewer', 'goal-1', 'goal-1', undefined, 'reviewer:goal-1:assessment-1', 'assessment-1');
+
+      expect(session.assessment_id).toBe('assessment-1');
+      expect(mod.getSession(SAIVAGE_DIR, session.id)?.assessment_id).toBe('assessment-1');
+    });
   });
 
   describe('getSession', () => {
@@ -395,6 +402,17 @@ describe('session-persistence', () => {
       }, { round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0 });
 
       expect(() => mod.findUniqueUnresolvedActivateCardToolCall(SAIVAGE_DIR, session.id, 'child-1')).toThrow(/duplicate unresolved activate_card/);
+    });
+  });
+
+  describe('findPlannerSessionForCard', () => {
+    it('uses only the deterministic planner session id', () => {
+      mod.createSession(SAIVAGE_DIR, 'planner', 'goal-1', 'goal-1', undefined, 'legacy-planner-goal-1');
+
+      expect(mod.findPlannerSessionForCard(SAIVAGE_DIR, 'goal-1')).toBeNull();
+
+      const deterministic = mod.createSession(SAIVAGE_DIR, 'planner', 'goal-1', 'goal-1');
+      expect(mod.findPlannerSessionForCard(SAIVAGE_DIR, 'goal-1')?.id).toBe(deterministic.id);
     });
   });
 

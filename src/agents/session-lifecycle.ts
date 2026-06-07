@@ -23,8 +23,8 @@ export class AgentSessionLifecycle {
     this.coordinator.setAfterSessionCreatedHook(hook);
   }
 
-  create(role: AgentRole, goalId: string, cardId: string, requestedSessionId?: string): AgentSession {
-    return createSession(this.saivageDir, role, goalId, cardId, undefined, requestedSessionId);
+  create(role: AgentRole, goalId: string, cardId: string, requestedSessionId?: string, assessmentId?: string | null): AgentSession {
+    return createSession(this.saivageDir, role, goalId, cardId, undefined, requestedSessionId, assessmentId);
   }
 
   async notifyCreated(sessionId: string): Promise<void> {
