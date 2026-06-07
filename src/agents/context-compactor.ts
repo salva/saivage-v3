@@ -98,6 +98,34 @@ export function pruneToolBoundary(messages: AgentMessage[]): AgentMessage[] {
   });
 }
 
+function isPersistedPlannerTerminalEnvelope(message: AgentMessage): boolean {
+  if (message.role !== 'assistant' || message.kind !== 'text') return false;
+  try {
+    const parsed = JSON.parse(message.content) as unknown;
+    return (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      (parsed as { kind?: unknown }).kind === 'result' &&
+      typeof (parsed as { payload?: unknown }).payload === 'object' &&
+      (parsed as { payload?: unknown }).payload !== null
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function prunePlannerCompletedInvocationHistory(messages: AgentMessage[]): AgentMessage[] {
+  let lastTerminalEnvelopeIndex = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (isPersistedPlannerTerminalEnvelope(messages[index])) {
+      lastTerminalEnvelopeIndex = index;
+      break;
+    }
+  }
+  if (lastTerminalEnvelopeIndex < 0) return messages;
+  return messages.slice(lastTerminalEnvelopeIndex + 1);
+}
+
 export class ContextCompactor {
   private readonly stateMap = new Map<string, CompactionState>();
   private readonly sessionQueues = new Map<string, Promise<unknown>>();
@@ -126,9 +154,10 @@ export class ContextCompactor {
     params: PlannerCompactionParams,
   ): AgentMessage[] {
     if (role !== 'planner') return messages;
-    if (!this.needsCompaction(estimateMessageTokens(messages), { ...policy, threshold: policy.threshold ?? 1 })) return messages;
+    const reusableMessages = prunePlannerCompletedInvocationHistory(messages);
+    if (!this.needsCompaction(estimateMessageTokens(reusableMessages), { ...policy, threshold: policy.threshold ?? 1 })) return reusableMessages;
     return [
-      this.buildPlannerHistoryCompactionMessage(sessionId, messages),
+      this.buildPlannerHistoryCompactionMessage(sessionId, reusableMessages),
       buildPlannerStateContextMessage({
         projectRoot: params.projectRoot,
         sessionId,
@@ -136,7 +165,7 @@ export class ContextCompactor {
         cardStore: params.cardStore,
         runtimeStateProvider: params.runtimeStateProvider,
       }),
-      ...this.buildPlannerRecentMessageTail(messages),
+      ...this.buildPlannerRecentMessageTail(reusableMessages),
     ];
   }
 

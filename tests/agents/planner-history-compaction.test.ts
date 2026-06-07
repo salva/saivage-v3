@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 import type { AgentMessage, CardRecord } from '../../src/schemas/index.js';
-import { ContextCompactor } from '../../src/agents/context-compactor.js';
+import { ContextCompactor, prunePlannerCompletedInvocationHistory } from '../../src/agents/context-compactor.js';
 import { buildPlannerStateContextMessage } from '../../src/agents/planner-state-context.js';
 
 function message(index: number, content: string, kind: AgentMessage['kind'] = 'text'): AgentMessage {
@@ -62,6 +62,38 @@ function compactor(): ContextCompactor {
 }
 
 describe('planner persisted history context compaction', () => {
+  it('drops prior completed planner invocations from reusable model input', () => {
+    const previousUser = message(1, 'old planning prompt');
+    const previousTerminal = { ...message(2, JSON.stringify({ kind: 'result', payload: { status: 'blocked', summary: 'old blocked result' } })), role: 'assistant' as const };
+    const resumeNote = { ...message(3, 'resume from current runtime state'), role: 'user' as const };
+
+    const reusable = prunePlannerCompletedInvocationHistory([previousUser, previousTerminal, resumeNote]);
+
+    expect(reusable).toEqual([resumeNote]);
+  });
+
+  it('uses only post-terminal planner history before compaction', () => {
+    const previousTerminal = message(1, JSON.stringify({ kind: 'result', payload: { status: 'blocked', summary: 'old blocked result' } }));
+    const current = message(2, 'current resume note');
+
+    const compacted = compactor().compactPlannerInMemory(
+      'planner:project',
+      [message(0, 'old prompt'), previousTerminal, current],
+      'planner',
+      { contextLimit: 1, threshold: 1 },
+      {
+        projectRoot: '/no-such-project',
+        goalId: 'goal-1',
+        cardStore: { read: () => null, listChildren: () => [] },
+        runtimeStateProvider: () => null,
+      },
+    );
+
+    expect(compacted[0].content).toContain('original_message_count');
+    expect(compacted[0].content).toContain('current resume note');
+    expect(compacted[0].content).not.toContain('old blocked result');
+  });
+
   it('replaces oversized planner history with a bounded metadata summary for model input', () => {
     const cards = new Map([
       ['goal-1', card({ id: 'goal-1', type: 'goal', parent: 'project', title: 'Goal one', status: 'running' })],
