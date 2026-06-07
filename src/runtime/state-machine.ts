@@ -1,11 +1,11 @@
 import type { CardRecord, CardStatus, RuntimeState } from '../schemas/index.js';
 import { PROJECT_CARD_ID, type CardStore } from '../cards/store-api.js';
 import type { ErrorLogger } from '../observability/index.js';
-import { planProjectRootRedispatch, observeRuntimeStateInvariants, reduceRuntimeEvent, type RuntimeStateMachineEvent } from './runtime-core.js';
+import { assertRuntimeStateInvariantsForNormalRuntime, planProjectRootRedispatch, observeRuntimeStateInvariants, reduceRuntimeEvent, type RuntimeStateMachineEvent } from './runtime-core.js';
 import { deriveCurrentCardId } from './current-run.js';
 import { planCardTransition } from './transition-policy.js';
 import { cardHasBlockedPlanning } from './planning-blockers.js';
-import { readRuntimeState } from './state.js';
+import { readRuntimeState, RuntimeStateInvariantError } from './state.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
 
 export type RuntimeCardAction =
@@ -140,7 +140,9 @@ export class RuntimeStateMachine {
 
   start(): void {
     if (this._intervalHandle !== null) return;
-    this._intervalHandle = this.scheduler.setInterval(() => { void this.tick(); }, this.tickIntervalMs);
+    this._intervalHandle = this.scheduler.setInterval(() => {
+      void this.tick().catch((error) => this.logScheduledTickError(error));
+    }, this.tickIntervalMs);
   }
 
   stop(): void {
@@ -221,13 +223,19 @@ export class RuntimeStateMachine {
     const currentCardId = deriveCurrentCardId(state);
     let currentCardStatus: Parameters<typeof observeRuntimeStateInvariants>[0]['currentCardStatus'] = null;
     if (currentCardId !== null) {
-      try { currentCardStatus = this.cards.readStatus(currentCardId) ?? null; } catch { currentCardStatus = null; }
+      currentCardStatus = this.cards.readStatus(currentCardId) ?? null;
+      if (currentCardStatus === null) {
+        throw new RuntimeStateInvariantError(
+          `Runtime state invariant violation: active card '${currentCardId}' cannot be read while active_card_run is set.`,
+        );
+      }
     }
 
-    for (const observation of observeRuntimeStateInvariants({ state, currentCardStatus, readCard: (cardId) => this.cards.readCard?.(cardId) ?? null })) {
+    const observations = observeRuntimeStateInvariants({ state, currentCardStatus, readCard: (cardId) => this.cards.readCard?.(cardId) ?? null });
+    for (const observation of observations) {
       this.logInvariantOnce(observation.invariant, observation.key, observation.details);
-      if (observation.correction) this.state.patch(observation.correction as Partial<RuntimeState>);
     }
+    assertRuntimeStateInvariantsForNormalRuntime(observations);
   }
 
   private maybeRedispatchProjectRoot(): void {
@@ -235,7 +243,16 @@ export class RuntimeStateMachine {
     if (state === null) return;
     const decision = planProjectRootRedispatch({ state, projectCardId: this.projectCardId });
     if (!decision.shouldRedispatch || !decision.cardId) return;
-    try { this.redispatch.redispatch(decision.cardId); } catch { void 0; }
+    this.redispatch.redispatch(decision.cardId);
+  }
+
+  private logScheduledTickError(error: unknown): void {
+    this.errors.appendError({
+      message: error instanceof Error ? error.message : String(error),
+      code: 'state_machine_scheduled_tick_failed',
+      name: error instanceof Error ? error.name : undefined,
+      stack: error instanceof Error ? error.stack : undefined,
+    });
   }
 
   private logInvariantOnce(invariant: ReturnType<typeof observeRuntimeStateInvariants>[number]['invariant'], key: string, details: Record<string, unknown>): void {

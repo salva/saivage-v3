@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RuntimeStateMachine, type RuntimeScheduler, type RuntimeSchedulerHandle } from '../../src/runtime/state-machine.js';
-import { initRuntimeState, readRuntimeState, updateRuntimeState } from '../../src/runtime/state.js';
+import { initRuntimeState, readRuntimeState, RuntimeStateInvariantError, updateRuntimeState } from '../../src/runtime/state.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import { ErrorLogger } from '../../src/observability/error-logger.js';
 import type { RuntimeState } from '../../src/schemas/types.js';
@@ -32,7 +32,7 @@ class FakeScheduler implements RuntimeScheduler {
   }
 }
 
-function buildMachine(projectRoot: string, opts?: { clock?: () => Date }): { machine: RuntimeStateMachine; scheduler: FakeScheduler; errorLogger: ErrorLogger } {
+function buildMachine(projectRoot: string, opts?: { clock?: () => Date; redispatch?: (cardId: string) => void }): { machine: RuntimeStateMachine; scheduler: FakeScheduler; errorLogger: ErrorLogger } {
   const cardStore = new CardStore(projectRoot);
   const errorLogger = new ErrorLogger(join(projectRoot, '.saivage'));
   const scheduler = new FakeScheduler();
@@ -49,10 +49,25 @@ function buildMachine(projectRoot: string, opts?: { clock?: () => Date }): { mac
     errors: errorLogger,
     clock: { now: opts?.clock ?? (() => new Date()) },
     scheduler,
-    redispatch: { redispatch: () => { /* noop */ } },
+    redispatch: { redispatch: opts?.redispatch ?? (() => { /* noop */ }) },
     tickIntervalMs: 5000,
   });
   return { machine, scheduler, errorLogger };
+}
+
+function activeRun(cardId = 'goal-a'): NonNullable<RuntimeState['active_card_run']> {
+  return {
+    card_id: cardId,
+    card_type: 'goal',
+    runtime_status: 'running',
+    phase: 'planner',
+    caller_session_id: null,
+    caller_tool_call_id: null,
+    planner_session_id: `planner:${cardId}`,
+    correction_attempts: 0,
+    started_at: '2026-05-24T10:00:00.000Z',
+    last_turn_at: '2026-05-24T10:00:00.000Z',
+  };
 }
 
 describe('RuntimeStateMachine (Step 2 skeleton)', () => {
@@ -142,23 +157,116 @@ describe('RuntimeStateMachine (Step 2 skeleton)', () => {
     } finally { rmSync(projectRoot, { recursive: true, force: true }); }
   });
 
-  it('I1 auto-corrects status=running with active_card_run null to idle; logs once', async () => {
+  it('tick with running/no active run throws and does not patch to idle', async () => {
     const projectRoot = root();
     try {
       initRuntimeState(projectRoot);
-      // Force an I1 violation: status === 'running' with active_card_run null.
       updateRuntimeState(projectRoot, { status: 'running', active_card_run: null });
       const { machine, errorLogger } = buildMachine(projectRoot);
-      await machine.tick();
+      await expect(machine.tick()).rejects.toThrow(RuntimeStateInvariantError);
       const stateAfter = readRuntimeState(projectRoot)!;
-      // Always-enforce: status corrected to idle.
-      expect(stateAfter.status).toBe('idle');
+      expect(stateAfter.status).toBe('running');
+      expect(stateAfter.active_card_run).toBeNull();
       const i1 = errorLogger.getErrors().filter((e) => e.code === 'state_machine_invariant' && e.invariant === 'I1');
       expect(i1.length).toBe(1);
-      // A second tick must not produce another log line (dedup by tuple).
-      await machine.tick();
-      const i1Again = errorLogger.getErrors().filter((e) => e.code === 'state_machine_invariant' && e.invariant === 'I1');
-      expect(i1Again.length).toBe(1);
+    } finally { rmSync(projectRoot, { recursive: true, force: true }); }
+  });
+
+  it('tick with idle/non-null active run throws and does not patch to running', async () => {
+    const errors: Record<string, unknown>[] = [];
+    const current: RuntimeState = {
+      status: 'idle',
+      project_id: 'project',
+      pid: 1,
+      started_at: '2026-05-24T10:00:00.000Z',
+      active_card_run: activeRun(),
+      paused: false,
+      paused_at: null,
+      updated_at: '2026-05-24T10:00:00.000Z',
+      last_tick_at: null,
+      runtime_intent: { status: 'stopped', updated_at: '2026-05-24T10:00:00.000Z', source_command_id: null },
+      runtime_commands: [],
+      runtime_runs: [],
+      runtime_activations: [],
+    };
+    const machine = new RuntimeStateMachine({
+      cards: {
+        readStatus: () => 'running',
+        canTransition: () => true,
+        setStatus: () => undefined,
+      },
+      state: {
+        read: () => current,
+        patch: (changes) => Object.assign(current, changes),
+      },
+      errors: { appendError: (error) => { errors.push(error); } },
+      clock: { now: () => new Date('2026-05-24T10:00:00.000Z') },
+      scheduler: new FakeScheduler(),
+      redispatch: { redispatch: () => undefined },
+    });
+    await expect(machine.tick()).rejects.toThrow(RuntimeStateInvariantError);
+    expect(current.status).toBe('idle');
+    expect(current.active_card_run).toEqual(expect.objectContaining({ card_id: 'goal-a' }));
+    expect(errors.filter((e) => e.code === 'state_machine_invariant' && e.invariant === 'I1')).toHaveLength(1);
+  });
+
+  it('active card read failure propagates during tick', async () => {
+    const current: RuntimeState = {
+      status: 'running',
+      project_id: 'project',
+      pid: 1,
+      started_at: '2026-05-24T10:00:00.000Z',
+      active_card_run: activeRun(),
+      paused: false,
+      paused_at: null,
+      updated_at: '2026-05-24T10:00:00.000Z',
+      last_tick_at: null,
+      runtime_intent: { status: 'stopped', updated_at: '2026-05-24T10:00:00.000Z', source_command_id: null },
+      runtime_commands: [],
+      runtime_runs: [],
+      runtime_activations: [],
+    };
+    const machine = new RuntimeStateMachine({
+      cards: {
+        readStatus: () => { throw new Error('read status boom'); },
+        canTransition: () => true,
+        setStatus: () => undefined,
+      },
+      state: { read: () => current, patch: (changes) => Object.assign(current, changes) },
+      errors: { appendError: () => undefined },
+      clock: { now: () => new Date('2026-05-24T10:00:00.000Z') },
+      scheduler: new FakeScheduler(),
+      redispatch: { redispatch: () => undefined },
+    });
+    await expect(machine.tick()).rejects.toThrow('read status boom');
+  });
+
+  it('redispatch failure propagates during tick', async () => {
+    const projectRoot = root();
+    try {
+      initRuntimeState(projectRoot);
+      updateRuntimeState(projectRoot, {
+        runtime_intent: { status: 'running', source_command_id: 'cmd-1', updated_at: '2026-05-24T10:00:00.000Z' },
+        runtime_runs: [{ run_id: 'root', kind: 'root', card_id: 'project', parent_run_id: null, command_id: 'cmd-1', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: null, started_at: '2026-05-24T10:00:00.000Z', updated_at: '2026-05-24T10:00:00.000Z' }],
+      });
+      const { machine } = buildMachine(projectRoot, { redispatch: () => { throw new Error('redispatch boom'); } });
+      await expect(machine.tick()).rejects.toThrow('redispatch boom');
+    } finally { rmSync(projectRoot, { recursive: true, force: true }); }
+  });
+
+  it('scheduled tick rejection is recorded at the scheduler boundary', async () => {
+    const projectRoot = root();
+    try {
+      initRuntimeState(projectRoot);
+      updateRuntimeState(projectRoot, {
+        runtime_intent: { status: 'running', source_command_id: 'cmd-1', updated_at: '2026-05-24T10:00:00.000Z' },
+        runtime_runs: [{ run_id: 'root', kind: 'root', card_id: 'project', parent_run_id: null, command_id: 'cmd-1', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: null, started_at: '2026-05-24T10:00:00.000Z', updated_at: '2026-05-24T10:00:00.000Z' }],
+      });
+      const { machine, scheduler, errorLogger } = buildMachine(projectRoot, { redispatch: () => { throw new Error('redispatch boom'); } });
+      machine.start();
+      await scheduler.fire(scheduler.handlers[0]!.handle);
+      const errs = errorLogger.getErrors().filter((e) => e.code === 'state_machine_scheduled_tick_failed');
+      expect(errs).toEqual([expect.objectContaining({ message: 'redispatch boom' })]);
     } finally { rmSync(projectRoot, { recursive: true, force: true }); }
   });
 });

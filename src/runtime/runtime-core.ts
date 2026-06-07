@@ -1,5 +1,6 @@
 import type { ActionableErrorEnvelope, CardLifecycleState, CardRecord, CardStatus, FreezeManifest, HandoffSummary, RuntimeActivationRecord, RuntimeCommandRecord, RuntimeLedgerActivationOutcome, RuntimeLedgerRunOutcome, RuntimeRunRecord, RuntimeState } from '../schemas/index.js';
 import type { ActivationCompletionOutcome } from '../schemas/index.js';
+import { activeCardRunSchema } from '../schemas/index.js';
 import { TERMINAL_STATUSES } from '../permissions/index.js';
 import { deriveCurrentAgentSessionId, deriveCurrentCardId } from './current-run.js';
 import { isUnresolvedRuntimeActivationStatus, RuntimeStateInvariantError } from './state.js';
@@ -344,12 +345,22 @@ export function reduceRuntimeEvent(
     case 'goal_completed':
       return { status: 'idle', active_card_run: null };
     case 'reviewer_started': {
-      const activeCardRun = (payload.activeCardRun ?? null) as RuntimeState['active_card_run'];
+      const activeCardRun = parseReviewerStartedActiveRun(payload);
       return { status: 'running', active_card_run: activeCardRun };
     }
     case 'reviewer_finished':
       return { status: 'idle', active_card_run: null };
   }
+}
+
+function parseReviewerStartedActiveRun(payload: Record<string, unknown>): NonNullable<RuntimeState['active_card_run']> {
+  const parsed = activeCardRunSchema.safeParse(payload.activeCardRun);
+  if (!parsed.success) {
+    throw new RuntimeStateInvariantError(
+      `Runtime state invariant violation: reviewer_started requires valid activeCardRun (${parsed.error.message})`,
+    );
+  }
+  return parsed.data;
 }
 
 export type InvariantId = 'I1' | 'I2' | 'I4' | 'I5' | 'I6' | 'I7' | 'I8';
@@ -358,7 +369,14 @@ export interface RuntimeInvariantObservation {
   invariant: InvariantId;
   key: string;
   details: Record<string, unknown>;
-  correction?: Partial<RuntimeState>;
+}
+
+export function assertRuntimeStateInvariantsForNormalRuntime(observations: RuntimeInvariantObservation[]): void {
+  const fatal = observations.find((observation) => observation.invariant === 'I1' || observation.invariant === 'I2');
+  if (!fatal) return;
+  throw new RuntimeStateInvariantError(
+    `Runtime state invariant violation: ${fatal.invariant} (${fatal.key}) ${JSON.stringify(fatal.details)}`,
+  );
 }
 
 export function observeRuntimeStateInvariants(input: {
@@ -374,7 +392,6 @@ export function observeRuntimeStateInvariants(input: {
       invariant: 'I1',
       key: 'global',
       details: { status: state.status },
-      correction: { status: 'idle' },
     });
   }
 
@@ -383,7 +400,6 @@ export function observeRuntimeStateInvariants(input: {
       invariant: 'I1',
       key: 'global',
       details: { status: state.status, activeRunCardId: state.active_card_run?.card_id ?? null, activeRunStatus: state.active_card_run?.runtime_status ?? null },
-      correction: { status: 'running' },
     });
   }
 
@@ -393,7 +409,6 @@ export function observeRuntimeStateInvariants(input: {
       invariant: 'I2',
       key: currentCardId,
       details: { cardId: currentCardId, cardStatus: currentCardStatus },
-      correction: { status: 'idle', active_card_run: null },
     });
   }
 
