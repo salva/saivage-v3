@@ -41,7 +41,7 @@ defineEmits<{ (event: 'toggle'): void }>();
 const classes = computed(() => ({ 'tool-chip-pending': props.status === 'pending', 'tool-chip-ok': props.status === 'ok', 'tool-chip-error': props.status === 'error', 'tool-call': true, 'tool-result': props.result !== null }));
 const headline = computed(() => props.call.headline);
 const detail = computed(() => props.result?.headline ?? props.result?.detail ?? props.call.detail ?? []);
-const isInteractive = (part: ToolCallPresentation['headline'][number]) => part.kind === 'file' || part.kind === 'url';
+const isInteractive = (part: ToolCallPresentation['headline'][number]) => part.kind === 'file' || part.kind === 'url' || part.kind === 'card';
 const nonInteractiveHeadline = computed(() => headline.value.filter((part) => !isInteractive(part)));
 const nonInteractiveDetail = computed(() => detail.value.filter((part) => !isInteractive(part)));
 const interactiveParts = computed(() => [...headline.value, ...detail.value].filter(isInteractive));

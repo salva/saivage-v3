@@ -6,6 +6,7 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import type {
   CardRecord,
+  CardRefView,
   CardType,
   CardStatus,
   CardListResponse,
@@ -51,6 +52,7 @@ export const useCardStore = defineStore('cards', () => {
   const currentCard = ref<CardRecord | null>(null);
   const currentChildren = ref<CardRecord[]>([]);
   const currentAncestorIds = ref<string[]>([]);
+  const currentAncestorRefs = ref<CardRefView[]>([]);
   const currentEvidence = ref<CardEvidence | null>(null);
   const currentLifecycle = ref<CardLifecycleSummary | null>(null);
   const currentReview = ref<CardReviewSummary | null>(null);
@@ -102,6 +104,7 @@ export const useCardStore = defineStore('cards', () => {
     currentCard.value = null;
     currentChildren.value = [];
     currentAncestorIds.value = [];
+    currentAncestorRefs.value = [];
     currentEvidence.value = null;
     currentLifecycle.value = null;
     currentReview.value = null;
@@ -164,6 +167,7 @@ export const useCardStore = defineStore('cards', () => {
       currentCard.value = viewModel.card;
       currentChildren.value = viewModel.children;
       currentAncestorIds.value = viewModel.ancestorIds;
+      currentAncestorRefs.value = viewModel.ancestorRefs;
       currentEvidence.value = viewModel.evidence ?? null;
       currentLifecycle.value = viewModel.lifecycle ?? null;
       currentReview.value = viewModel.review ?? null;
@@ -222,6 +226,7 @@ export const useCardStore = defineStore('cards', () => {
     currentCard,
     currentChildren,
     currentAncestorIds,
+    currentAncestorRefs,
     currentEvidence,
     currentLifecycle,
     currentReview,

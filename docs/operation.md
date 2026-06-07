@@ -83,6 +83,8 @@ Legacy explicit dispatch endpoints and stale mutating REST runtime-control route
 
 Card status is never an execution trigger. Runtime execution starts from explicit runtime controls and planner activations, not from status edits.
 
+Card ids are durable identity and remain the only stable value for tool calls, persisted state, and canonical URLs such as `/cards/card-33`. Operator read models may also expose current friendly display paths such as `1.2.1`; those paths are derived from the current full card tree and can change after moves or reorders. Operator-facing Markdown should store durable refs as `[[card:&lt;id&gt;]]` and let the UI render the current friendly label.
+
 ## Evidence and generated-file inspection
 
 `GET /api/cards/:id` returns card detail plus an `evidence` object. Current evidence surfaces include:
@@ -181,11 +183,11 @@ Every current operator-facing Fastify or contract-mounted route is listed exactl
 | `GET /api/agents/:id` | Read one persisted agent-session summary. | `src/contracts/operator-api-agents.ts:66 "path: '/api/agents/:id'"` |
 | `GET /api/agents` | List persisted agent sessions. | `src/contracts/operator-api-agents.ts:56 "path: '/api/agents'"` |
 | `POST /api/auth/ws-ticket` | Issue a short-lived one-use browser WebSocket ticket after bearer REST auth. | `src/contracts/operator-api-auth.ts:22 "path: '/api/auth/ws-ticket'"` |
-| `GET /api/cards/:id/diff` | Diff card versions. | `src/contracts/operator-api-runtime-cards.ts:216 "path: '/api/cards/:id/diff'"` |
-| `GET /api/cards/:id/history/:seq` | Read one card-history snapshot. | `src/contracts/operator-api-runtime-cards.ts:205 "path: '/api/cards/:id/history/:seq'"` |
-| `GET /api/cards/:id/history` | List card-history headers. | `src/contracts/operator-api-runtime-cards.ts:194 "path: '/api/cards/:id/history'"` |
-| `GET /api/cards/:id` | Read card detail with children and ancestors. | `src/contracts/operator-api-runtime-cards.ts:182 "path: '/api/cards/:id'"` |
-| `GET /api/cards` | List cards. | `src/contracts/operator-api-runtime-cards.ts:172 "path: '/api/cards'"` |
+| `GET /api/cards/:id/diff` | Diff card versions. | `src/contracts/operator-api-runtime-cards.ts:222 "path: '/api/cards/:id/diff'"` |
+| `GET /api/cards/:id/history/:seq` | Read one card-history snapshot. | `src/contracts/operator-api-runtime-cards.ts:211 "path: '/api/cards/:id/history/:seq'"` |
+| `GET /api/cards/:id/history` | List card-history headers. | `src/contracts/operator-api-runtime-cards.ts:200 "path: '/api/cards/:id/history'"` |
+| `GET /api/cards/:id` | Read card detail with children and ancestors. | `src/contracts/operator-api-runtime-cards.ts:188 "path: '/api/cards/:id'"` |
+| `GET /api/cards` | List cards. | `src/contracts/operator-api-runtime-cards.ts:178 "path: '/api/cards'"` |
 | `GET /api/chats/:sessionId` | Read an analyst chat transcript. | `src/contracts/operator-api-chats.ts:64 "path: '/api/chats/:sessionId'"` |
 | `POST /api/chats/:sessionId` | Send an analyst chat message. | `src/contracts/operator-api-chats.ts:75 "path: '/api/chats/:sessionId'"` |
 | `GET /api/chats` | List analyst chat sessions. | `src/contracts/operator-api-chats.ts:54 "path: '/api/chats'"` |
@@ -202,11 +204,11 @@ Every current operator-facing Fastify or contract-mounted route is listed exactl
 | `GET /api/processes/:id` | Read one safe process view. | `src/contracts/operator-api-processes.ts:64 "path: '/api/processes/:id'"` |
 | `GET /api/processes` | List safe process views. | `src/contracts/operator-api-processes.ts:54 "path: '/api/processes'"` |
 | `GET /api/providers` | Return provider summaries. | `src/contracts/operator-api-config.ts:75 "operationId: 'providers.list'"` |
-| `GET /api/runtime/card-runs` | List runtime card-run records. | `src/contracts/operator-api-runtime-cards.ts:238 "path: '/api/runtime/card-runs'"` |
-| `GET /api/runtime/status` | Read compact runtime status plus optional serverAvailability. | `src/contracts/operator-api-runtime-cards.ts:228 "path: '/api/runtime/status'"` |
-| `GET /api/state` | Read RuntimeState plus card-index summary and optional availability. | `src/contracts/operator-api-runtime-cards.ts:162 "path: '/api/state'"` |
-| `GET /health` | Public liveness probe. | `src/contracts/operator-api-runtime-cards.ts:140 "path: '/health'"` |
-| `GET /health/ready` | Public readiness probe with optional availability summary. | `src/contracts/operator-api-runtime-cards.ts:151 "path: '/health/ready'"` |
+| `GET /api/runtime/card-runs` | List runtime card-run records. | `src/contracts/operator-api-runtime-cards.ts:244 "path: '/api/runtime/card-runs'"` |
+| `GET /api/runtime/status` | Read compact runtime status plus optional serverAvailability. | `src/contracts/operator-api-runtime-cards.ts:234 "path: '/api/runtime/status'"` |
+| `GET /api/state` | Read RuntimeState plus card-index summary and optional availability. | `src/contracts/operator-api-runtime-cards.ts:168 "path: '/api/state'"` |
+| `GET /health` | Public liveness probe. | `src/contracts/operator-api-runtime-cards.ts:146 "path: '/health'"` |
+| `GET /health/ready` | Public readiness probe with optional availability summary. | `src/contracts/operator-api-runtime-cards.ts:157 "path: '/health/ready'"` |
 <!-- saivage:operator-routes:end -->
 
 

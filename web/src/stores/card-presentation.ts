@@ -93,7 +93,20 @@ export function selectFilteredCards(source: CardRecord[], filters: CardFilterSta
 }
 
 export function selectOrderedFilteredCards(source: CardRecord[], filters: CardFilterState): CardRecord[] {
-  return applyCardFilters(source, filters);
+  const matched = applyCardFilters(source, filters);
+  if (matched.length === source.length) return matched;
+  const byId = new Map(source.map((card) => [card.id, card]));
+  const included = new Set(matched.map((card) => card.id));
+  for (const card of matched) {
+    let parentId = card.parent;
+    while (parentId) {
+      const parent = byId.get(parentId);
+      if (!parent) break;
+      included.add(parent.id);
+      parentId = parent.parent;
+    }
+  }
+  return source.filter((card) => included.has(card.id));
 }
 
 export function selectBoardColumns(cards: CardRecord[]): Map<CardStatus, CardRecord[]> {

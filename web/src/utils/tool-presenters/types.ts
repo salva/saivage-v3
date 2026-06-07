@@ -2,7 +2,8 @@ export type InlinePart =
   | { kind: 'text'; text: string }
   | { kind: 'file'; root: 'meta' | 'output'; path: string; label?: string }
   | { kind: 'url'; href: string; label?: string }
-  | { kind: 'code'; code: string; language?: string };
+  | { kind: 'code'; code: string; language?: string }
+  | { kind: 'card'; id: string; fallbackLabel?: string };
 
 export type ToolStatus = 'ok' | 'error';
 

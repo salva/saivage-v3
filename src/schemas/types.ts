@@ -69,6 +69,7 @@ export interface CardOperatorSummary {
   actionCount: number;
 }
 export interface CardView extends CardRecord { display_path: string | null; operator_summary: CardOperatorSummary; }
+export interface CardRefView { id: string; display_path: string | null; title: string | null; missing?: boolean; }
 export type CardHistoryKind = 'update' | 'status' | 'mutate' | 'depends' | 'delete' | 'archive';
 export interface CardHistoryEntry { entry_id: string; kind: CardHistoryKind; card_id: string; version_seq: number; snapshot: CardRecord; changed_at: string; changed_by_actor: NoteAuthor; changed_by_surface: ControlActionSurface; change_reason: string | null; changed_fields: string[]; change_summary: string; }
 export type CardHistoryHeader = Omit<CardHistoryEntry, 'snapshot'>;

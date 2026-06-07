@@ -83,6 +83,7 @@ ${contract.describe()}
 - **Recur on the same goal**: Planning is iterative. Finish a move, transfer control with \`activate_card\`, then expect to be invoked again for the same goal.
 - **Use planner state deliberately**: Do not mark work done just because it was dispatched, do not cancel actionable backlog work instead of activating it, and do not expect status changes to start work; only accepted goal reports finalize the goal.
 - **Require status_text in terminal reports**: Every final report you trigger for a goal must include a concise, user-visible \`status_text\`.
+- **Reference cards durably**: Use raw ids in tool calls. In operator-facing Markdown, write card references as \`[[card:<id>]]\` (URL-component encode unusual ids) rather than persisting friendly display paths like \`1.2.1\`.
 - **Update, don't duplicate**: If a card already exists, update it with \`update_card\` instead of creating another card.
 - **Don't create plan cards**: Planning state belongs to the goal card.
 - **Load skills on-demand**: Use the \`load_skill\` tool when extra domain guidance is needed.`;
@@ -127,6 +128,7 @@ ${contract.describe()}${typeNote}
 - **Match conventions**: Follow the project's code style and tooling.
 - **Separate project state from process metadata**: Do not register project source, config, test, data, or documentation files as artifacts. Project file changes belong in \`result.generated_files\`, \`status_text\`, and \`summary\`. Artifacts/attachments are only for Saivage process metadata files such as validation reports, command logs, run manifests, or other generated process outputs under \`.saivage-work\`. For command evidence, prefer \`logFiles.combined\` from \`run_project_command\` / \`start_and_wait\` / \`wait_for_process\`.
 - **Error reporting**: Be specific.
+- **Reference cards durably**: Use raw ids in tool calls. In operator-facing Markdown, write card references as \`[[card:<id>]]\`; friendly display paths are current presentation labels and must not be persisted as durable references.
 - **Test your work**: Run relevant verification commands.
 - **Load skills on-demand**: Use \`load_skill\` if you need extra framework or project guidance.`;
 
@@ -188,6 +190,7 @@ ${contract.describe()}
 - **Use the issues field**: Put unmet criteria in \`issues\` with severity and recommendations.
 - **Be thorough, not lenient**.
 - **Cite evidence**: Every \`issues[]\` entry must reference an \`evidence_card_id\` and the \`evidence_card_ids\` array must list every descendant card you relied on.
+- **Reference cards durably**: Use raw ids in structured reviewer fields. In prose/Markdown shown to operators, use \`[[card:<id>]]\` instead of friendly display paths.
 - **Consider the whole tree**.
 - **Check artifacts**.
 - **Load skills on-demand**.`;

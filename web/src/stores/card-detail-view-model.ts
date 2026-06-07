@@ -1,4 +1,4 @@
-import type { CardRecord, CardStatus, ReviewAssessment } from '../api/types';
+import type { CardRecord, CardRefView, CardStatus, ReviewAssessment } from '../api/types';
 
 export type SafeFileSensitivity = 'normal' | 'sensitive-blocked' | 'sensitive-redacted';
 
@@ -113,6 +113,7 @@ export interface CardDetailViewModel {
   card: CardRecord;
   children: CardRecord[];
   ancestorIds: string[];
+  ancestorRefs: CardRefView[];
   evidence?: CardEvidence | null;
   lifecycle?: CardLifecycleSummary | null;
   review?: CardReviewSummary | null;
@@ -180,11 +181,12 @@ export function deriveCardLifecycleSummary(card: CardRecord, children: CardRecor
   };
 }
 
-export function toCardDetailViewModel(response: { card: CardRecord; children: CardRecord[]; ancestorIds: string[] }): CardDetailViewModel {
+export function toCardDetailViewModel(response: { card: CardRecord; children: CardRecord[]; ancestorIds: string[]; ancestorRefs?: CardRefView[] }): CardDetailViewModel {
   return {
     card: response.card,
     children: response.children,
     ancestorIds: response.ancestorIds,
+    ancestorRefs: response.ancestorRefs ?? response.ancestorIds.map((id) => ({ id, display_path: null, title: null })),
     lifecycle: deriveCardLifecycleSummary(response.card, response.children),
     evidence: null,
     review: null,

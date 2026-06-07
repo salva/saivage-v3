@@ -1,15 +1,16 @@
 import { basename } from 'node:path';
 import type { CardStore } from '../../cards/store-api.js';
-import type { CardHistoryEntry, CardLifecycleState, CardRecord, CardView } from '../../schemas/index.js';
+import type { CardHistoryEntry, CardLifecycleState, CardRecord, CardRefView, CardView } from '../../schemas/index.js';
 import { allowedActions } from '../../permissions/index.js';
 import { readRuntimeState } from '../../runtime/state-api.js';
 import { redactForOutbound } from '../../redaction/index.js';
 import type { ServerAvailability } from '../../contracts/index.js';
-import { toCardView } from './card-view.js';
+import { orderedCardsForTree, toCardRefView, toCardView } from './card-view.js';
 
 export type ReadModelResult<T> = { statusCode?: number; body: T };
 
 type CardReadModel = CardView & { lifecycle: CardLifecycleState };
+type CardDetailReadModel = CardReadModel & { dependencyRefs: CardRefView[]; relatedRefs: CardRefView[] };
 
 function withOperatorAllowedActions(store: CardStore, card: CardRecord): CardReadModel {
   return toCardView(store, { ...card, allowedActions: allowedActions('operator', card.lifecycle.status) });
@@ -50,14 +51,18 @@ export class CardsReadModelService {
   }
 
   listCards() {
-    const cards = this.store.list().map((card) => withOperatorAllowedActions(this.store, card));
+    const cards = orderedCardsForTree(this.store).map((card) => withOperatorAllowedActions(this.store, card));
     return { body: { cards, total: cards.length } };
   }
 
   getCard(id: string): ReadModelResult<unknown> {
     const card = this.store.read(id);
     if (!card) return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
-    return { body: { card: withOperatorAllowedActions(this.store, card), children: this.store.listChildren(id).map((childId) => this.store.read(childId)).filter((c): c is CardRecord => c !== null).map((child) => withOperatorAllowedActions(this.store, child)), ancestorIds: this.store.getAncestors(id) } };
+    const cardView = withOperatorAllowedActions(this.store, card) as CardDetailReadModel;
+    cardView.dependencyRefs = card.depends_on.map((depId) => toCardRefView(this.store, depId));
+    cardView.relatedRefs = card.related.map((relatedId) => toCardRefView(this.store, relatedId));
+    const ancestorIds = this.store.getAncestors(id);
+    return { body: { card: cardView, children: this.store.listChildren(id).map((childId) => this.store.read(childId)).filter((c): c is CardRecord => c !== null).map((child) => withOperatorAllowedActions(this.store, child)), ancestorIds, ancestorRefs: ancestorIds.map((ancestorId) => toCardRefView(this.store, ancestorId)) } };
   }
 
   listHistory(id: string): ReadModelResult<unknown> {

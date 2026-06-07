@@ -42,6 +42,11 @@ export function textPart(text: unknown, max?: number): InlinePart[] {
   return value ? [{ kind: 'text', text: value }] : [];
 }
 
+export function cardPart(idValue: unknown, fallbackLabel?: string): InlinePart[] {
+  const id = str(idValue);
+  return id ? [{ kind: 'card', id, fallbackLabel: fallbackLabel ?? `card ${id}` }] : [];
+}
+
 export function appendText(parts: InlinePart[], text: unknown): InlinePart[] {
   const value = str(text);
   return value ? [...parts, { kind: 'text', text: value }] : parts;
@@ -73,8 +78,8 @@ export function describeCardOutcome(ctx: ResultPresenterContext, defaultVerb: st
   const id = str(card?.id ?? record?.cardId ?? record?.id);
   const status = str(card?.status ?? record?.status);
   const summary = str(record?.summary ?? record?.message);
-  if (summary) return { headline: textPart(summary, 96), detail: status || id ? textPart(status || `card ${id}`) : undefined };
-  if (id) return { headline: textPart(`${defaultVerb} ${id}`), detail: status ? textPart(status) : undefined };
+  if (summary) return { headline: textPart(summary, 96), detail: status || id ? (status ? textPart(status) : cardPart(id)) : undefined };
+  if (id) return { headline: [{ kind: 'text', text: `${defaultVerb} ` }, ...cardPart(id)], detail: status ? textPart(status) : undefined };
   return { headline: textPart(defaultVerb) };
 }
 

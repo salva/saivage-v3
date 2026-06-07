@@ -9,6 +9,7 @@ export function inlineText(parts: InlinePart[] | undefined): string {
     if (part.kind === 'text') return part.text;
     if (part.kind === 'file') return part.label ?? part.path;
     if (part.kind === 'url') return part.label ?? part.href;
+    if (part.kind === 'card') return part.fallbackLabel ?? part.id;
     return part.code;
   }).join('');
 }

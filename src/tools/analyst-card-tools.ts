@@ -8,7 +8,7 @@ import { readRuntimeState } from '../runtime/state-api.js';
 import { processApi } from '../runtime/process-api.js';
 import { decide } from '../permissions/index.js';
 import { markGoalNeedsCorrections, normalizeAnalystIssues, notifyPlannerOfAnalystAction } from '../agents/analyst-stage6.js';
-import { toCardView, computeCardDisplayPath } from '../application/read-models/card-view.js';
+import { orderedCardsForTree, toCardView, computeCardDisplayPath } from '../application/read-models/card-view.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import {
   CARD_STATUS_VALUES,
@@ -162,7 +162,7 @@ export async function delete_card(ctx: ToolContext, params: { ids: string[] }): 
 }
 
 export async function list_cards(ctx: ToolContext, params: { status?: CardStatus | CardStatus[]; type?: CardType | CardType[]; parent?: string; tag?: string }): Promise<ToolResult> {
-  try { const store = getStore(ctx); let cards = store.list();
+  try { const store = getStore(ctx); let cards = orderedCardsForTree(store);
     if (params.status) { const statuses = Array.isArray(params.status) ? params.status : [params.status]; cards = cards.filter((c) => statuses.includes(c.status)); }
     if (params.type) { const types = Array.isArray(params.type) ? params.type : [params.type]; cards = cards.filter((c) => types.includes(c.type)); }
     if (params.parent !== undefined) cards = params.parent === null ? cards.filter((c) => c.parent === null) : cards.filter((c) => store.listChildren(params.parent!).includes(c.id));

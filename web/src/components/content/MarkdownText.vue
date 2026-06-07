@@ -6,15 +6,57 @@
 import { computed } from 'vue';
 import { Marked } from 'marked';
 import DOMPurify from 'dompurify';
+import { useCardStore } from '../../stores/cards';
 
 const props = defineProps<{ source: string }>();
 
 const marked = new Marked({ gfm: true, breaks: false });
+const cardStore = useCardStore();
+
+function escapeMarkdownLinkText(text: string): string {
+  return text.replace(/\\/g, '\\\\').replace(/]/g, '\\]');
+}
+
+function labelForCard(id: string, fallback?: string): string {
+  const card = cardStore.cards.find((candidate) => candidate.id === id);
+  return card?.display_path ?? fallback ?? id;
+}
+
+function replaceCardRefsOutsideInlineCode(segment: string): string {
+  const parts = segment.split(/(`+)/);
+  let inCode = false;
+  return parts.map((part) => {
+    if (/^`+$/.test(part)) {
+      inCode = !inCode;
+      return part;
+    }
+    if (inCode) return part;
+    return part.replace(/\[\[card:([^\]|\s]+)(?:\|([^\]]*))?\]\]/g, (_match, encodedId: string, fallback: string | undefined) => {
+      let id: string;
+      try { id = decodeURIComponent(encodedId); } catch { return _match; }
+      if (!id) return _match;
+      const label = escapeMarkdownLinkText(labelForCard(id, fallback));
+      const href = `/cards/${encodeURIComponent(id)}`;
+      return `[${label}](${href})`;
+    });
+  }).join('');
+}
+
+function transformCardRefs(source: string): string {
+  let inFence = false;
+  return source.split('\n').map((line) => {
+    if (/^\s*```/.test(line)) {
+      inFence = !inFence;
+      return line;
+    }
+    return inFence ? line : replaceCardRefsOutsideInlineCode(line);
+  }).join('\n');
+}
 
 const rendered = computed(() => {
   const source = props.source ?? '';
   if (source.length === 0) return '';
-  const html = marked.parse(source, { async: false }) as string;
+  const html = marked.parse(transformCardRefs(source), { async: false }) as string;
   return DOMPurify.sanitize(html);
 });
 </script>

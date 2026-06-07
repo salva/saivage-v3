@@ -43,6 +43,10 @@ let app: FastifyInstance;
 let baseUrl: string;
 let authToken: string;
 let parentId: string;
+let alphaId: string;
+let betaId: string;
+let alphaChildId: string;
+let betaChildId: string;
 let expectedChildOrder: string[];
 let routeStore: CardStore;
 
@@ -54,10 +58,14 @@ beforeEach(async () => {
   const alpha = routeStore.create(makeCard({ type: 'goal', title: 'Alpha', parent: parent.id }));
   const beta = routeStore.create(makeCard({ type: 'goal', title: 'Beta', parent: parent.id }));
   const gamma = routeStore.create(makeCard({ type: 'goal', title: 'Gamma', parent: parent.id }));
-  routeStore.create(makeCard({ title: 'Alpha child', parent: alpha.id }));
-  routeStore.create(makeCard({ title: 'Beta child', parent: beta.id }));
+  const alphaChild = routeStore.create(makeCard({ title: 'Alpha child', parent: alpha.id }));
+  const betaChild = routeStore.create(makeCard({ title: 'Beta child', parent: beta.id }));
   void gamma;
   parentId = parent.id;
+  alphaId = alpha.id;
+  betaId = beta.id;
+  alphaChildId = alphaChild.id;
+  betaChildId = betaChild.id;
   expectedChildOrder = [beta.id, gamma.id, alpha.id];
 
   rewritePosition(tmpDir, alpha.id, 2);
@@ -84,10 +92,24 @@ describe('shuffled persisted subtree ordering', () => {
     expect(reloaded.listChildren(parentId)).toEqual(expectedChildOrder);
 
     routeStore.invalidate();
+    const listResponse = await fetch(`${baseUrl}/api/cards`, { headers: { authorization: `Bearer ${authToken}` } });
+    expect(listResponse.status).toBe(200);
+    const listBody = await listResponse.json() as { cards: Array<{ id: string; display_path: string | null }> };
+    const listedIds = listBody.cards.map((card) => card.id);
+    expect(listedIds.indexOf(parentId)).toBeLessThan(listedIds.indexOf(betaId));
+    expect(listedIds.indexOf(betaId)).toBeLessThan(listedIds.indexOf(betaChildId));
+    expect(listedIds.indexOf(betaChildId)).toBeLessThan(listedIds.indexOf(alphaId));
+    expect(listedIds.indexOf(alphaId)).toBeLessThan(listedIds.indexOf(alphaChildId));
+    expect(listBody.cards.find((card) => card.id === betaId)?.display_path).toBe('1.1');
+    expect(listBody.cards.find((card) => card.id === alphaId)?.display_path).toBe('1.3');
+
     const response = await fetch(`${baseUrl}/api/cards/${parentId}`, { headers: { authorization: `Bearer ${authToken}` } });
     expect(response.status).toBe(200);
-    const body = await response.json() as { children: Array<{ id: string }> };
+    const body = await response.json() as { children: Array<{ id: string }>; ancestorRefs: unknown[]; card: { dependencyRefs: unknown[]; relatedRefs: unknown[] } };
     expect(body.children.map((child) => child.id)).toEqual(expectedChildOrder);
+    expect(body.ancestorRefs).toEqual([{ id: 'project', display_path: null, title: null, missing: true }]);
+    expect(body.card.dependencyRefs).toEqual([]);
+    expect(body.card.relatedRefs).toEqual([]);
 
     const cardResult = await get_card({ projectRoot: tmpDir, store: reloaded, actor: 'analyst', surface: 'web-chat' }, { id: parentId });
     expect(cardResult.success).toBe(true);

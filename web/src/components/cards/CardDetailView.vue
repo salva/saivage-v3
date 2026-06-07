@@ -66,7 +66,7 @@
         <div v-if="currentCard.depends_on.length" class="link-list-row">
           <span class="meta-key">Blocking dependencies</span>
           <div class="pill-list">
-            <button v-for="depId in currentCard.depends_on" :key="depId" type="button" class="pill card-ref-button" @click="navigateCard(depId)">{{ depId }}</button>
+            <CardRefLink v-for="depRef in dependencyRefs" :key="depRef.id" :ref-view="depRef" @navigate="navigateCard" />
           </div>
         </div>
         <div v-if="planning" class="planning-summary">
@@ -81,10 +81,10 @@
 
       <section class="detail-section">
         <h3 class="section-heading">Hierarchy</h3>
-        <div v-if="currentAncestorIds.length" class="link-list-row">
+        <div v-if="currentAncestorRefs.length" class="link-list-row">
           <span class="meta-key">Ancestors</span>
           <div class="pill-list">
-            <button v-for="ancestorId in currentAncestorIds" :key="ancestorId" type="button" class="pill card-ref-button" @click="navigateCard(ancestorId)">{{ ancestorId }}</button>
+            <CardRefLink v-for="ancestorRef in currentAncestorRefs" :key="ancestorRef.id" :ref-view="ancestorRef" @navigate="navigateCard" />
           </div>
         </div>
         <div v-if="currentChildren.length" class="children-list">
@@ -267,6 +267,7 @@ import type { GeneratedFileRef, VerificationCommandRef } from '../../stores/card
 import { createLogger } from '../../utils/logger';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../../utils/timestamp';
 import CardHistoryPanel from './CardHistoryPanel.vue';
+import CardRefLink from './CardRefLink.vue';
 import StaleWarningRibbon from './StaleWarningRibbon.vue';
 import CodeBlock from '../content/CodeBlock.vue';
 import { formatJson } from '../../utils/format-json';
@@ -279,7 +280,7 @@ const analystChat = useAnalystChat();
 const {
   currentCard,
   currentChildren,
-  currentAncestorIds,
+  currentAncestorRefs,
   currentEvidence: evidence,
   currentLifecycle: lifecycle,
   currentReview: review,
@@ -342,6 +343,7 @@ const childWorkSummary = computed(() => {
   return `${total} children: ${counts.active + counts.running} active/running, ${counts.blocked + counts.failed} blocked/failed, ${counts.done} done`;
 });
 const evidenceSummaryLine = computed(() => evidence.value?.summary.summary || 'Evidence has been recorded for this card.');
+const dependencyRefs = computed(() => currentCard.value?.dependencyRefs ?? currentCard.value?.depends_on.map((id) => ({ id, display_path: null, title: null })) ?? []);
 const detailErrorTitle = computed(() => {
   switch (detailError.value?.kind) {
     case 'unauthorized': return 'Unauthorized';
