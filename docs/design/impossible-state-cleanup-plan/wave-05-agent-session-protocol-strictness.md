@@ -6,6 +6,8 @@ Findings covered: C10, C11, C12, C17, C18, P01, P02, P03.
 
 Make agent/session code strict about internal state while treating malformed model/provider output as explicit protocol failure rather than normalizing it to `{}`.
 
+C11 is independent of most protocol cleanup and may be implemented earlier if convenient. It remains listed here because it touches the agent-loop strictness surface.
+
 ## Architecture Decision
 
 Internal agent loop state is authoritative and must fail fast. External model output is untrusted and should be converted into protocol/verifier errors with preserved evidence. Session message ordering is owned by one authoritative stamper.
@@ -46,7 +48,12 @@ New behavior:
 
 Current path: `src/agents/invocation-runner.ts#L253-L270`.
 
-Since `activate_card` is an internal tool result, malformed JSON should throw, not become a model repair attempt.
+Since `activate_card` is an internal runtime tool result, malformed JSON should throw, not become a model repair attempt. This is not an external provider-output case.
+
+At this wave, classify malformed payload handling explicitly:
+- assistant/provider tool-call arguments: protocol violation, no normal tool execution with fabricated args
+- analyst tool-call arguments: protocol/tool error, no normal analyst tool execution with fabricated args
+- internal runtime tool results such as `activate_card`: invariant error and throw
 
 ### Step 4: Make Agent Loop Unexpected State Throw
 
@@ -77,7 +84,7 @@ Create two APIs:
 - `pruneToolBoundaryAfterTruncation(messages)` for known truncation fallout
 - `assertToolBoundaryIntegrity(messages)` for full untruncated history
 
-Use pruning only after compaction fallback truncation. Use assertion/diagnostic for analyst full history before model input.
+Use pruning only after compaction fallback truncation. Use assertion for analyst full history before model input. `assertToolBoundaryIntegrity()` should throw `SessionInvariantError` with orphan call/result details when full history is corrupt; do not silently strip full-history corruption.
 
 ### Step 8: Refactor SessionMessageLog To Require A Stamper
 
@@ -89,7 +96,7 @@ Make `SessionMessageLog` depend on `SessionStamper`. Remove internal fallback ro
 
 Current path: `src/agents/agent-session-coordinator.ts#L77-L104`.
 
-Instead of returning `null` or `[]` for read failures, return an explicit operator-visible error state or emit a diagnostic event. Do not hide corrupted persistence as absence of handoff.
+Instead of returning `null` or `[]` for read failures, throw `SessionInvariantError` and let the operator API/server boundary surface the failure. Do not hide corrupted persistence as absence of handoff.
 
 ## Tests
 

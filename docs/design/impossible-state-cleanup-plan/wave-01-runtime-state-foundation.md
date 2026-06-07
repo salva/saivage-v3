@@ -8,7 +8,7 @@ Make the runtime state machine fail fast instead of self-healing during normal t
 
 ## Current Problem
 
-The normal tick path currently observes invariants and applies corrections. Source references: `src/runtime/state-machine.ts#L217-L230`, `src/runtime/runtime-core.ts#L372-L397`.
+The normal tick path currently observes invariants and applies corrections. Source references: `src/runtime/state-machine.ts#L217-L231`, `src/runtime/runtime-core.ts#L372-L397`.
 
 The specific repairs are:
 - running without active run becomes idle
@@ -49,7 +49,7 @@ Move correction-producing logic to explicitly named repair functions if any star
 
 ### Step 2: Make `observeInvariants()` Throw Or Record Without Patching
 
-Update `src/runtime/state-machine.ts#L217-L230` so it never calls `this.state.patch(observation.correction)`.
+Update `src/runtime/state-machine.ts#L217-L231` so it never calls `this.state.patch(observation.correction)`.
 
 Preferred design:
 
@@ -65,20 +65,20 @@ Avoid a broad “fatal vs nonfatal” compatibility matrix. In normal runtime, a
 
 ### Step 3: Remove Active-Card Read Normalization
 
-Current code catches card status read errors and maps them to `null`: `src/runtime/state-machine.ts#L221-L225`.
+Current code catches card status read errors and maps them to `null`: `src/runtime/state-machine.ts#L223-L224`.
 
 Replace with direct read. If card read fails, propagate. If `readStatus()` returns null for an active card, throw `RuntimeStateInvariantError` with active run details.
 
 ### Step 4: Stop Swallowing Project Root Redispatch Errors
 
-Current code catches redispatch errors and discards them: `src/runtime/state-machine.ts#L233-L239`.
+Current code catches redispatch errors and discards them: `src/runtime/state-machine.ts#L233-L238`.
 
 Preferred implementation:
 - call redispatch directly
 - if redispatch throws, let the tick fail
 - ensure the runtime application logs the error through existing error logger boundaries
 
-If throwing from tick creates unhandled scheduler promises, fix the scheduler boundary to record and surface errors. Do not swallow inside `maybeRedispatchProjectRoot()`.
+If throwing from tick creates unhandled scheduler promises, fix the scheduler boundary to record and surface errors. Do not swallow inside `maybeRedispatchProjectRoot()`. The interval scheduler should catch tick promise rejection at the boundary and report it through the runtime error logger before the next tick attempt.
 
 ### Step 5: Require Non-Null Active Run For `reviewer_started`
 
@@ -93,7 +93,7 @@ case 'reviewer_started': {
 }
 ```
 
-The parser must throw if `activeCardRun` is missing or malformed.
+The parser must validate the payload with the `ActiveCardRun` schema or equivalent structural checks and throw `RuntimeStateInvariantError` if `activeCardRun` is missing or malformed. A plain TypeScript cast is not sufficient.
 
 ## Tests
 
@@ -103,6 +103,7 @@ Add or update focused tests:
 - `tests/runtime/state-machine.test.ts`: tick with idle/non-null active run throws and does not patch to running.
 - `tests/runtime/state-machine.test.ts`: active card read failure propagates.
 - `tests/runtime/state-machine.test.ts`: redispatch failure propagates.
+- `tests/runtime/state-machine.test.ts`: scheduled tick rejection is caught at the scheduler boundary and recorded, not emitted as an unhandled promise rejection.
 - `tests/runtime/runtime-core.test.ts`: `reviewer_started` without `activeCardRun` throws.
 
 ## Validation

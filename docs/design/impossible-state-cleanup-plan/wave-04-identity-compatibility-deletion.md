@@ -53,6 +53,8 @@ Required behavior:
 
 If reviewer assessment id is not persisted today, add it to session metadata at reviewer session creation. Do not keep `assessmentId: ''`.
 
+Use an explicit `assessment_id` field on `AgentSession` for reviewer sessions. It is required for reviewer reinvocation and null/absent for roles that do not use assessments. Update the session schema and reviewer session creation in the same commit.
+
 ### Step 4: Remove Planner Session Scan Fallback
 
 Current fallback: `src/runtime/session-persistence.ts#L436-L444`.

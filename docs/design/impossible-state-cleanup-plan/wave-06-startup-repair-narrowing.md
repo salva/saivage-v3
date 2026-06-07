@@ -6,6 +6,8 @@ Findings covered: C19, R02, R03.
 
 Keep startup repair explicit and narrow. Startup may repair persisted process-death fallout, but it must fail on contradictory card/runtime truth and must not leak stale repair metadata into normal planning.
 
+This wave depends on the Wave 2 dispatch ownership model. Startup repair decisions must use ownership metadata when deciding whether an open run can be reconciled.
+
 ## Architecture Decision
 
 Startup repair is allowed only for known persisted states left by interrupted runtime ownership. Repair decisions must name the exact contradiction they handle. Anything outside those shapes is a startup invariant failure.
@@ -50,6 +52,8 @@ Unexpected shape:
 
 Unexpected shapes should fail startup unless a specific repair function is written for that exact case.
 
+If an open run lacks ownership metadata after Wave 2, startup may reconstruct ownership only from matching runtime activations, runtime runs, card parentage, and persisted session metadata. If the relation cannot be proven, startup fails.
+
 ### Step 4: Keep Repair Code Out Of Normal Planner Phase
 
 Audit any calls from normal runtime phases into startup/repair helpers. Move repair-only interpretation into startup modules.
@@ -63,6 +67,7 @@ Add/update:
 - normal planner phase throws on stale blocked metadata/status mismatch
 - idle runtime with open child run fails startup
 - idle runtime with terminal project/open root run reconciles narrowly
+- idle runtime with open child run or run lacking provable ownership fails startup
 
 Focused command:
 

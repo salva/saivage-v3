@@ -35,11 +35,11 @@ Wave 2 depends on Wave 1 because activation/reviewer ownership failures must sur
 
 Wave 3 depends on Waves 1 and 2 because terminal transition failure and executor completion need strict active-run and activation ownership semantics.
 
-Wave 4 can run after Wave 2 because activation/session identity must be explicit before compatibility lookup and overload removal is safe.
+Wave 4 can run after Wave 1. It deletes old invocation and lookup shapes and does not depend on the Wave 2 ownership schema.
 
 Wave 5 can run after Wave 4 because session/protocol strictness should use the simplified invocation and identity API.
 
-Wave 6 should run after Waves 1-3 so startup repair can use the final normal-path invariants.
+Wave 6 should run after Waves 1-3 and Wave 2's ownership model so startup repair can use the final normal-path invariants and explicit run ownership.
 
 Wave 7 should run last because it changes the semantic contract of `active_card_run` and should be based on the cleaned-up runtime run ledger.
 
@@ -61,9 +61,11 @@ Rejected repair locations:
 - runtime mutation application
 - agent/session message construction
 
-### Rule B: No Synthesized Identity
+### Rule B: No Synthesized Identity In Normal Runtime
 
-Do not synthesize `planner:${cardId}`, caller tool ids, empty goal/card ids, or placeholder assessment ids in paths that should already know these values. Identity must come from the card, runtime activation ledger, runtime run ledger, or structured invocation request.
+Do not synthesize `planner:${cardId}`, caller tool ids, empty goal/card ids, placeholder assessment ids, or dispatch ownership in normal runtime paths. Identity must come from the card, runtime activation ledger, runtime run ledger, persisted session metadata, or structured invocation request.
+
+Startup repair may reconstruct identity only from authoritative persisted facts and only inside explicitly named repair helpers. If the persisted facts are missing or contradictory, startup fails. Repair helpers must not invent placeholder identities to keep old state running.
 
 ### Rule C: Errors Should Be Typed And Operator-Visible
 
@@ -101,7 +103,7 @@ npm run validate:routine
 npm run build
 ```
 
-For deployment-impacting runtime changes, rebuild and restart the GetRich v2 deployment, then probe:
+For deployment-impacting runtime changes, first run a strict local startup/read of the target runtime state. If invalid state is found, stop and perform an explicit reset or repair; do not add log-only flags, compatibility shims, or degraded-mode runtime behavior. Then rebuild and restart the GetRich v2 deployment, and probe:
 
 ```bash
 ssh root@10.0.3.170 'systemctl restart saivage-v3-getrich.service && systemctl is-active saivage-v3-getrich.service'

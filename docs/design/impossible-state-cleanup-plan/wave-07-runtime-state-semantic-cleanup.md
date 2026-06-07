@@ -40,9 +40,21 @@ Audit all reducers/transitions that set `status: 'idle'`:
 
 Every idle transition must set `active_card_run: null` and ensure terminal details are copied into `runtime_runs` before clearing.
 
+Known sites to include in the audit:
+- `src/runtime/runtime-core.ts#L342-L351` (`reduceRuntimeEvent` terminal events)
+- `src/runtime/runtime-core.ts#L247-L254` (`buildShutdownRuntimeStatePatch`)
+- `src/runtime/runtime-core.ts#L224-L235` (`planClearActiveCardRunForRepair`)
+- `src/runtime/runtime-core.ts#L237-L245` (`planSweptCurrentAgentSessionPatch`)
+- `src/runtime/runtime-core.ts#L542-L597` (`planIdleRunningRootRunReconciliation`)
+- `src/runtime/startup-repair.ts#L119-L131` (`buildBlockedPlannerStartupState`)
+
+Before implementing this wave, verify no path sets `status: 'idle'` in one mutation and clears `active_card_run` in a later mutation. The status and active-run change must be atomic.
+
 ### Step 3: Align Runtime Status Read Models
 
 Operator state, health/ready state, and debug state should treat non-null `active_card_run` as active current work. They should not need to special-case terminal active runs.
+
+Freeze/resume must follow the same semantics. `buildResumeFromFreezeRuntimeStatePatch()` must not restore a terminal active run as current work. If a freeze manifest contains a terminal active run, startup/resume should either clear it after preserving run history or fail with a runtime-state invariant error.
 
 ### Step 4: Remove Remaining Compatibility Tests
 
@@ -56,6 +68,8 @@ Add/update:
 - all normal idle transitions clear `active_card_run`
 - runtime read models do not special-case terminal active run snapshots
 - startup reconciliation preserves terminal details in `runtime_runs` before clearing active snapshot
+- freeze/resume does not restore terminal `active_card_run` as current work
+- persisted idle plus terminal `active_card_run` fails startup or is cleared by an explicit startup repair path
 
 Focused command:
 

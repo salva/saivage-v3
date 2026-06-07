@@ -20,20 +20,22 @@ Startup repair must trust terminal card lifecycle over stale active-run phase.
 
 ### Step 1: Create Strict Transition Helper
 
-Add a helper such as:
+Make `RuntimeStateMachine.transitionCard()` throw `RuntimeDispatchInvariantError` for missing cards or illegal runtime transitions. Normal runtime commit paths should have one strict transition API.
+
+If a future operator preview needs non-throwing transition planning, expose it through the existing planning policy (`planCardTransition`) or a separately named preview helper. Do not keep a lenient runtime transition method for normal commits.
+
+The strict method has this shape:
 
 ```typescript
 async function transitionCardStrict(input: {
   cardId: string;
   event: RuntimeCardAction;
   details: Record<string, unknown>;
-  transitionCard(...): Promise<boolean>;
+  transitionCard(...): Promise<void>;
 }): Promise<void>
 ```
 
-It throws `RuntimeDispatchInvariantError` when the transition returns false.
-
-Prefer updating `RuntimeStateMachine.transitionCard()` itself to throw for impossible runtime transitions if no legitimate caller needs boolean results. Simpler architecture is one strict API, not strict and lenient variants. If a lenient variant is still needed for operator previews, name it separately and keep it out of runtime commit paths.
+Callers that still need to know whether a transition occurred should infer success from the absence of an exception.
 
 ### Step 2: Update Terminal Commit Helpers
 
@@ -62,15 +64,18 @@ Do not keep `input.card` as fallback. It may remain useful only as caller contex
 Current startup repair classifies executor active run before terminal-active-card handling: `src/runtime/startup-repair.ts#L33-L42`, `src/runtime/startup-repair.ts#L210-L229`.
 
 Preferred behavior:
-- if the card is terminal, synthesize unwind outcome from card lifecycle/status
+- if the card is terminal, record child activation lifecycle from the card lifecycle and synthesize the parent unwind outcome from card lifecycle/status
 - if the card is non-terminal and executor was interrupted, fail the card and append failed unwind
 - if lifecycle/status contradict, fail startup with an invariant error
+
+For terminal executor cards during startup, do not append the hard-coded failed unwind. Use `recordChildActivationLifecycle(cardId, card.lifecycle)` or the terminal activation synthesis helper so the parent receives `done`, `failed`, `cancelled`, or `needs_verification` according to authoritative card truth.
 
 ## Tests
 
 Add or update:
 
 - terminal commit throws when `transitionCard` rejects
+- `transitionCard()` itself throws for missing cards and illegal runtime transitions in runtime commit contexts
 - executor completion throws if latest card is missing
 - executor completion does not use stale snapshot
 - startup repair with terminal done card appends done unwind, not failed unwind
