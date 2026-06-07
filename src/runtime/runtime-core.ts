@@ -1,4 +1,4 @@
-import type { ActionableErrorEnvelope, CardLifecycleState, CardRecord, CardStatus, FreezeManifest, HandoffSummary, RuntimeCommandRecord, RuntimeLedgerActivationOutcome, RuntimeLedgerRunOutcome, RuntimeRunRecord, RuntimeState } from '../schemas/index.js';
+import type { ActionableErrorEnvelope, CardLifecycleState, CardRecord, CardStatus, FreezeManifest, HandoffSummary, RuntimeActivationRecord, RuntimeCommandRecord, RuntimeLedgerActivationOutcome, RuntimeLedgerRunOutcome, RuntimeRunRecord, RuntimeState } from '../schemas/index.js';
 import type { ActivationCompletionOutcome } from '../schemas/index.js';
 import { TERMINAL_STATUSES } from '../permissions/index.js';
 import { deriveCurrentAgentSessionId, deriveCurrentCardId } from './current-run.js';
@@ -698,12 +698,57 @@ export function reduceActivationCompletion(
         }
       : run,
   );
+  let activeCardRunPatch: Partial<Pick<RuntimeState, 'status' | 'active_card_run'>> = {};
+  if (currentState.active_card_run?.card_id === childCardId) {
+    const completedActivation = transitioningActivations.find((a) => a.child_card_id === childCardId);
+    const parentPlannerRun = findParentPlannerRunForResumption(currentState, completedActivation);
+    if (parentPlannerRun) {
+      activeCardRunPatch = { status: 'running', active_card_run: parentPlannerRun };
+    } else {
+      activeCardRunPatch = { status: 'idle', active_card_run: null };
+    }
+  }
+
   return {
     ...currentState,
-    ...(currentState.active_card_run?.card_id === childCardId ? { status: 'idle' as const, active_card_run: null } : {}),
+    ...activeCardRunPatch,
     runtime_activations: activations,
     runtime_runs: runs,
     updated_at: nowIso,
+  };
+}
+
+function findParentPlannerRunForResumption(
+  state: RuntimeState,
+  completedActivation: RuntimeActivationRecord | undefined,
+): NonNullable<RuntimeState['active_card_run']> | null {
+  if (!completedActivation) return null;
+  const parentCardId = completedActivation.parent_card_id;
+  if (!parentCardId) return null;
+  const parentSessionId = completedActivation.parent_session_id;
+  const parentRunId = completedActivation.parent_run_id;
+  const candidates = (state.runtime_runs ?? []).filter(
+    (run) =>
+      run.card_id === parentCardId &&
+      run.phase === 'planner' &&
+      run.runtime_status === 'running' &&
+      !run.finished_at &&
+      (parentRunId ? run.run_id === parentRunId : (!run.session_id || run.session_id === parentSessionId)),
+  );
+  const parentRun = candidates.sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0];
+  if (!parentRun) return null;
+  const plannerSessionId = parentRun.session_id ?? parentSessionId ?? `planner:${parentCardId}`;
+  return {
+    card_id: parentCardId,
+    card_type: 'goal',
+    runtime_status: 'running',
+    phase: 'planner',
+    caller_session_id: null,
+    caller_tool_call_id: null,
+    planner_session_id: parentRunId ? plannerSessionId : null,
+    correction_attempts: 0,
+    started_at: parentRun.started_at,
+    last_turn_at: parentRun.updated_at,
   };
 }
 

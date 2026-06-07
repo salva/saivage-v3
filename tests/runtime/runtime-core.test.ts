@@ -346,6 +346,42 @@ describe('runtime core reducers', () => {
     expect(next?.updated_at).toBe('2026-05-26T01:00:00.000Z');
   });
 
+  it('restores parent planner as active run when child activation completes under a waiting parent planner', () => {
+    const parentRun = { run_id: 'parent-run', kind: 'root' as const, card_id: 'parent', parent_run_id: null, command_id: null, activation_id: null, phase: 'planner' as const, runtime_status: 'running' as const, session_id: 'planner:parent', started_at: 't0', updated_at: 't0' };
+    const current = state({
+      status: 'running',
+      active_card_run: { card_id: 'child', card_type: 'code', runtime_status: 'running', phase: 'executor', caller_session_id: 'planner:parent', caller_tool_call_id: 'call-1', executor_session_id: 'exec-1', correction_attempts: 0, started_at: 't0', last_turn_at: 't0' },
+      runtime_activations: [
+        activation({ parent_card_id: 'parent', parent_session_id: 'planner:parent', parent_run_id: 'parent-run' }),
+      ],
+      runtime_runs: [
+        parentRun,
+        run(),
+      ],
+    });
+    const next = reduceActivationCompletion(current, 'child', 'done', '2026-05-26T01:00:00.000Z', { status: 'done', result: plannerDone, error: null, completed_at: '2026-05-26T01:00:00.000Z' });
+    expect(next).toEqual(expect.objectContaining({ status: 'running' }));
+    expect(next?.active_card_run).not.toBeNull();
+    expect(next?.active_card_run?.card_id).toBe('parent');
+    expect(next?.active_card_run?.phase).toBe('planner');
+    expect(next?.active_card_run?.planner_session_id).toBe('planner:parent');
+  });
+
+  it('falls back to idle when child activation completes but parent has no open planner run', () => {
+    const current = state({
+      status: 'running',
+      active_card_run: { card_id: 'child', card_type: 'code', runtime_status: 'running', phase: 'executor', caller_session_id: 'planner:parent', caller_tool_call_id: 'call-1', executor_session_id: 'exec-1', correction_attempts: 0, started_at: 't0', last_turn_at: 't0' },
+      runtime_activations: [
+        activation({ parent_card_id: 'parent', parent_session_id: 'planner:parent', parent_run_id: 'parent-run' }),
+      ],
+      runtime_runs: [
+        run(),
+      ],
+    });
+    const next = reduceActivationCompletion(current, 'child', 'done', '2026-05-26T01:00:00.000Z', { status: 'done', result: plannerDone, error: null, completed_at: '2026-05-26T01:00:00.000Z' });
+    expect(next).toEqual(expect.objectContaining({ status: 'idle', active_card_run: null }));
+  });
+
   it('maps needs_verification activation completion to paused outcome snapshots', () => {
     const next = reduceActivationCompletion(state({
       runtime_activations: [activation({ status: 'pending' })],
