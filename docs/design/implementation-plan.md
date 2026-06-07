@@ -401,6 +401,11 @@ These gates apply before moving to the next stage:
   must remain enforced.
 - **Recovery**: Interrupted work must leave enough persisted state for
   the runtime to resume or report a precise failure.
+- **Agent context visibility**: Model inputs must contain only
+  agent-actionable transcript rows. Provider/account/protocol diagnostics
+  and retry bookkeeping stay in audit/debug surfaces; sanitized retry
+  directives, tool feedback, contract repair messages, and compaction
+  summaries remain agent-visible.
 - **Security**: Sensitive files remain blocked and secrets remain
   redacted in all user-facing and agent-facing surfaces.
 - **Tests**: New behavior must include automated coverage at the

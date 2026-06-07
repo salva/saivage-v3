@@ -47,6 +47,45 @@ flowchart TD
 The Runtime is the only dispatcher. The AgentAdapter runs LLM sessions
 and hands runtime tools back to Runtime for authoritative execution.
 
+## 2.1 Agent-Visible Message Policy
+
+Agent session logs are not a dumping ground for runtime diagnostics. The
+model context assembled for a planner, executor, reviewer, or analyst must
+contain only messages the agent can act on through its role and tools.
+
+Model-visible messages:
+
+- User/operator text and analyst replies.
+- Agent assistant text and tool calls.
+- Tool results and tool errors that answer a tool call or report a runtime
+  tool barrier the agent must handle.
+- Contract repair instructions (`model_repair`) emitted by the contract
+  verifier after an invalid terminal signal.
+- Sanitized retry directives (`model_recovered`) that say a prior
+  invocation did not complete and instruct the agent to inspect current
+  state using its available tools. These directives must not include raw
+  provider, account, protocol, or retry-infrastructure errors.
+- Context compaction summaries that explain transcript truncation and tell
+  the agent to use available state/file tools if more context is needed.
+
+Not model-visible:
+
+- Provider/account diagnostics such as rate limits, authentication
+  failures, candidate exhaustion, protocol errors, or retry bookkeeping.
+- Runtime lifecycle diagnostics such as orphaned session reconciliation or
+  startup repair notes, except when represented as a tool result/error the
+  current agent must act on.
+- Operator/audit/debug events that are useful for observability but cannot
+  be corrected by the agent.
+
+`model_issue` is an audit/debug message kind. It may be persisted for
+operator visibility, but `buildModelMessages()` must filter it from all
+agent model inputs. `model_recovered` remains model-visible only as a
+sanitized, tool-oriented retry directive. Agent-facing recovery and
+compaction text must not tell an agent to "read from disk"; it must name
+the tool-oriented behavior instead, such as reviewing cards or project
+files with available tools.
+
 ## 3. Primary Sequence
 
 ```mermaid
@@ -337,11 +376,12 @@ continue running; terminal process results are buffered during pause
 and delivered once on resume.
 
 **Planner no-progress recovery.** If a planner LLM turn cannot make
-progress because it repeats the same tool-call fingerprint or exhausts
-the bounded tool-call loop, the adapter records a `model_issue`, adds a
-final-answer prompt that forbids further tool calls, and requires the
-next assistant payload to be the normal planner result envelope. The
-runtime parses only that coerced envelope (`status`, `summary`, and
+progress because it repeats the same tool-call fingerprint, the adapter
+adds an agent-visible final-answer prompt that forbids further tool calls
+and requires the next assistant payload to be the normal planner result
+envelope. Provider/runtime diagnostics for the failed attempt are recorded
+for audit/debug only and are excluded from future model context. The
+runtime parses only the coerced envelope (`status`, `summary`, and
 optional `blocked_reason`); raw
 `toolCalls` objects are never a runtime state transition. `activate_card`
 is a synchronous barrier from the planner perspective: runtime persists

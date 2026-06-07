@@ -375,7 +375,8 @@ interface AgentMessage {
     | "tool_error"
     | "model_issue"
     | "model_repair"
-    | "model_recovered";
+    | "model_recovered"
+    | "context_compaction";
   content: string;
   tool?: string;
   timestamp: string;
@@ -388,6 +389,28 @@ interface EntityLink {
   label?: string;
 }
 ```
+
+`AgentMessage.kind` describes transcript semantics; it does not imply that
+every persisted row is safe to send back to a model. Model context assembly
+must apply an explicit visibility policy:
+
+- `text`, `tool_call`, `tool_result`, and `tool_error` are model-visible
+  when they are part of the current agent conversation or answer one of the
+  agent's tool calls.
+- `model_repair` is model-visible only for contract-verifier repair
+  instructions that tell the agent how to correct its terminal signal.
+- `model_recovered` is model-visible only as a sanitized retry directive.
+  It must not include provider/account/protocol diagnostics or raw retry
+  infrastructure errors.
+- `context_compaction` is model-visible when it summarizes omitted context
+  and points the agent at available tools for current state.
+- `model_issue` is audit/debug-only and must be filtered out of model input
+  for every agent role.
+
+Runtime/provider diagnostics, startup reconciliation notes, candidate
+availability failures, rate limits, authentication failures, and protocol
+errors belong in operator/audit/debug surfaces unless they are transformed
+into a concrete tool result or tool error that the current agent can act on.
 
 ---
 
