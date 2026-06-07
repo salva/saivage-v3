@@ -155,6 +155,11 @@ export function decidePlannerPostDispatch(input: {
 
   const blockedPlanning = getBlockedPlanning(input.currentCard ?? null);
   if (blockedPlanning) {
+    if (input.currentCard?.status !== 'blocked' || input.currentCard.lifecycle.status !== 'blocked') {
+      throw new Error(
+        `Planner phase invariant violation: card '${input.currentCard?.id ?? 'unknown'}' has blocked-planning metadata while status/lifecycle are '${input.currentCard?.status ?? 'missing'}'/'${input.currentCard?.lifecycle.status ?? 'missing'}'.`,
+      );
+    }
     return {
       kind: 'block',
       blockedReason: blockedPlanningReason(input.currentCard ?? null, blockedPlanning),

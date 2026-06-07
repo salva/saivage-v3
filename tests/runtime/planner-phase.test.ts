@@ -98,6 +98,26 @@ describe('planner phase decisions', () => {
     });
   });
 
+  it('throws when normal planning sees stale blocked-planning metadata on an unblocked card', () => {
+    expect(() => decidePlannerPostDispatch({
+      plannerResult: plannerResult('continue'),
+      currentCard: {
+        id: 'goal-a',
+        status: 'active',
+        lifecycle: {
+          status: 'active',
+          result: { kind: 'planner_blocked', blocked_reason: 'old blocker', resume_reason: 'planner_blocked' },
+          error: null,
+          completed_at: null,
+        },
+      } as CardRecord,
+      hasGoalDispatch: true,
+      hasUnfinishedChildWork: false,
+      executedTerminal: false,
+      isProjectCard: false,
+    })).toThrow("Planner phase invariant violation: card 'goal-a' has blocked-planning metadata");
+  });
+
   it('decides non-actionable continue and project done blockers', () => {
     const continueDecision = decidePlannerPostDispatch({
       plannerResult: plannerResult('continue'),

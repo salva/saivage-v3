@@ -465,6 +465,22 @@ describe('planner context-length failures', () => {
     harness.cardTestTools.repairTerminalLifecycle('project', {
       ...plannerBlockedPatch('active', blockedReason, 'planner_context_length_exceeded'),
     });
+    updateRuntimeState(tmpDir, {
+      runtime_runs: [{
+        run_id: 'run-interrupted-project-planner',
+        kind: 'root',
+        card_id: 'project',
+        ownership: { kind: 'direct', source: 'project_root' },
+        parent_run_id: null,
+        command_id: null,
+        activation_id: null,
+        phase: 'planner',
+        runtime_status: 'running',
+        session_id: 'planner:project',
+        started_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }],
+    });
 
     await harness.api.start();
     await harness.dispatchTestTools.dispatchGoal('project');

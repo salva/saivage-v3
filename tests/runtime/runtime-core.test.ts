@@ -261,36 +261,52 @@ describe('runtime core reducers', () => {
     expect(planProjectRootRedispatch({ state: state({ paused: true }), projectCardId: 'project' })).toEqual({ shouldRedispatch: false });
   });
 
-  it('plans idle/running root run reconciliation without stopping open-run scheduling intent', () => {
+  it('plans idle/running reconciliation only for one open root run on a terminal project', () => {
     const current = state({
       runtime_intent: { status: 'running', source_command_id: 'cmd-1', updated_at: 't0' },
       runtime_runs: [
         run({ run_id: 'root', kind: 'root', ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project', parent_run_id: null, activation_id: null, phase: 'planner', session_id: 'planner:project' }),
-        run({ run_id: 'child', kind: 'child', ownership: { kind: 'activation', activation_id: 'act-test', parent_run_id: 'run-parent', parent_card_id: 'project', parent_session_id: 'planner:project', parent_tool_call_id: 'call-test' }, card_id: 'goal-a', parent_run_id: 'root', activation_id: 'act-a', phase: 'planner', session_id: 'planner:goal-a' }),
       ],
     });
     expect(planIdleRunningRootRunReconciliation({ state: current, projectTerminal: true, nowIso: 't1' })).toEqual({
       runUpdates: [
         { runId: 'root', updates: { phase: 'completed', runtime_status: 'idle', finished_at: 't1', updated_at: 't1', outcome: { kind: 'completed', result: 'done', finished_at: 't1' } } },
-        { runId: 'child', updates: { phase: 'failed', runtime_status: 'error', finished_at: 't1', updated_at: 't1', outcome: { kind: 'completed', result: 'failed', error: 'Runtime was idle with an open runtime run.', finished_at: 't1' } } },
       ],
       diagnosticMessage: 'Reconciled running runtime intent to expected idle because the project card is terminal and no active card run exists.',
     });
-    expect(planIdleRunningRootRunReconciliation({ state: current, projectTerminal: false, nowIso: 't1' })?.runUpdates.map((update) => update.updates)).toEqual([
-      expect.objectContaining({ phase: 'failed', runtime_status: 'error', outcome: { kind: 'completed', result: 'failed', error: 'Runtime was idle with an open runtime run.', finished_at: 't1' } }),
-      expect.objectContaining({ phase: 'failed', runtime_status: 'error', outcome: { kind: 'completed', result: 'failed', error: 'Runtime was idle with an open runtime run.', finished_at: 't1' } }),
-    ]);
-    expect(planIdleRunningRootRunReconciliation({
+    expect(() => planIdleRunningRootRunReconciliation({ state: current, projectTerminal: false, nowIso: 't1' })).toThrow('runtime is idle with open runtime runs but project card is not terminal');
+    expect(() => planIdleRunningRootRunReconciliation({
       state: state({
         runtime_intent: { status: 'running', source_command_id: 'cmd-1', updated_at: 't0' },
         runtime_runs: [run({ run_id: 'child', kind: 'child', ownership: { kind: 'activation', activation_id: 'act-test', parent_run_id: 'run-parent', parent_card_id: 'project', parent_session_id: 'planner:project', parent_tool_call_id: 'call-test' }, card_id: 'goal-a', parent_run_id: 'root', activation_id: 'act-a', phase: 'planner', session_id: 'planner:goal-a' })],
       }),
       projectTerminal: false,
       nowIso: 't1',
-    })?.runUpdates).toEqual([
-      { runId: 'child', updates: { phase: 'failed', runtime_status: 'error', finished_at: 't1', updated_at: 't1', outcome: { kind: 'completed', result: 'failed', error: 'Runtime was idle with an open runtime run.', finished_at: 't1' } } },
-    ]);
+    })).toThrow("runtime is idle with open runtime runs but project card is not terminal");
     expect(planIdleRunningRootRunReconciliation({ state: state({ runtime_intent: { status: 'stopped', source_command_id: null, updated_at: 't0' } }), projectTerminal: true, nowIso: 't1' })).toBeNull();
+  });
+
+  it('fails idle/running reconciliation for child, multiple, or unowned open runs', () => {
+    const childOnly = state({
+      runtime_intent: { status: 'running', source_command_id: 'cmd-1', updated_at: 't0' },
+      runtime_runs: [run({ run_id: 'child', kind: 'child', ownership: { kind: 'activation', activation_id: 'act-test', parent_run_id: 'run-parent', parent_card_id: 'project', parent_session_id: 'planner:project', parent_tool_call_id: 'call-test' }, card_id: 'goal-a', parent_run_id: 'root', activation_id: 'act-a', phase: 'planner', session_id: 'planner:goal-a' })],
+    });
+    expect(() => planIdleRunningRootRunReconciliation({ state: childOnly, projectTerminal: true, nowIso: 't1' })).toThrow("open non-root run 'child'");
+
+    const multiple = state({
+      runtime_intent: { status: 'running', source_command_id: 'cmd-1', updated_at: 't0' },
+      runtime_runs: [
+        run({ run_id: 'root-a', kind: 'root', ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project', parent_run_id: null, activation_id: null }),
+        run({ run_id: 'root-b', kind: 'root', ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project', parent_run_id: null, activation_id: null }),
+      ],
+    });
+    expect(() => planIdleRunningRootRunReconciliation({ state: multiple, projectTerminal: true, nowIso: 't1' })).toThrow('only one open root run can be repaired');
+
+    const unowned = state({
+      runtime_intent: { status: 'running', source_command_id: 'cmd-1', updated_at: 't0' },
+      runtime_runs: [run({ run_id: 'root', kind: 'root', ownership: undefined as any, card_id: 'project', parent_run_id: null, activation_id: null })],
+    });
+    expect(() => planIdleRunningRootRunReconciliation({ state: unowned, projectTerminal: true, nowIso: 't1' })).toThrow("lacks provable direct ownership");
   });
 
   it('stops terminal running intent even when all root runs are already closed', () => {

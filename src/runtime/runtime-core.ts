@@ -571,7 +571,6 @@ export function planIdleRunningRootRunReconciliation(input: {
     return null;
   }
   const openRuns = (state.runtime_runs ?? []).filter((run) => run.runtime_status === 'running' && !run.finished_at);
-  const openRootRuns = openRuns.filter((run) => run.kind === 'root');
   if (openRuns.length === 0) {
     if (!projectTerminal) return null;
     return {
@@ -590,25 +589,33 @@ export function planIdleRunningRootRunReconciliation(input: {
       diagnosticMessage: 'Reconciled running runtime intent to expected idle because the project card is terminal and no active card run exists.',
     };
   }
+  if (!projectTerminal) {
+    throw new Error('Startup run reconciliation invariant violation: runtime is idle with open runtime runs but project card is not terminal.');
+  }
+  if (openRuns.length !== 1) {
+    throw new Error(`Startup run reconciliation invariant violation: runtime is idle with ${openRuns.length} open runtime runs; only one open root run can be repaired.`);
+  }
+  const [openRun] = openRuns;
+  if (openRun.kind !== 'root') {
+    throw new Error(`Startup run reconciliation invariant violation: runtime is idle with open non-root run '${openRun.run_id}'.`);
+  }
+  if (!openRun.ownership || openRun.ownership.kind !== 'direct') {
+    throw new Error(`Startup run reconciliation invariant violation: open root run '${openRun.run_id}' lacks provable direct ownership.`);
+  }
   return {
-    runUpdates: openRuns.map((run) => {
-      const isTerminalRootRun = run.kind === 'root' && projectTerminal;
-      return {
-        runId: run.run_id,
+    runUpdates: [
+      {
+        runId: openRun.run_id,
         updates: {
-          phase: isTerminalRootRun ? 'completed' : 'failed',
-          runtime_status: isTerminalRootRun ? 'idle' : 'error',
+          phase: 'completed',
+          runtime_status: 'idle',
           finished_at: nowIso,
           updated_at: nowIso,
-          outcome: isTerminalRootRun
-            ? outcome ?? { kind: 'completed', result: 'done', finished_at: nowIso }
-            : { kind: 'completed', result: 'failed', error: 'Runtime was idle with an open runtime run.', finished_at: nowIso },
+          outcome: outcome ?? { kind: 'completed', result: 'done', finished_at: nowIso },
         },
-      };
-    }),
-    diagnosticMessage: projectTerminal
-      ? 'Reconciled running runtime intent to expected idle because the project card is terminal and no active card run exists.'
-      : 'Reconciled running runtime intent with open runtime run while runtime was idle and had no active card run.',
+      },
+    ],
+    diagnosticMessage: 'Reconciled running runtime intent to expected idle because the project card is terminal and no active card run exists.',
   };
 }
 
