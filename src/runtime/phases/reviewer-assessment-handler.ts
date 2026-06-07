@@ -11,7 +11,7 @@ export interface ReviewerAssessmentEffects {
   updateCard(cardId: string, patch: Partial<CardRecord>): Promise<unknown> | unknown;
   emitReviewFailed(goalId: string, assessment: ReviewAssessment): void;
   emitGoalCompleted(goalId: string, assessment: ReviewAssessment): void;
-  appendChildUnwindToolResult(goalId: string, outcome: 'done', summary: string): void;
+  appendChildUnwindToolResult(goalId: string, outcome: 'done', summary: string): boolean;
   transitionRuntime(event: 'reviewer_finished', details: Record<string, unknown>): Promise<unknown>;
   emitProjectRunCompleted(goalId: string, assessment: ReviewAssessment): void;
 }
@@ -75,7 +75,13 @@ export async function handleReviewerAssessmentDecision(input: {
         reason: 'review_pass',
       });
     } else {
-      input.effects.appendChildUnwindToolResult(input.goalId, 'done', input.reviewResult.assessment.summary);
+      const unwoundToParent = input.effects.appendChildUnwindToolResult(input.goalId, 'done', input.reviewResult.assessment.summary);
+      if (!unwoundToParent) {
+        await input.effects.transitionRuntime('reviewer_finished', {
+          goalId: input.goalId,
+          reason: 'review_pass',
+        });
+      }
     }
     input.effects.emitGoalCompleted(input.goalId, assessment);
     if (input.goalId === input.projectCardId) input.effects.emitProjectRunCompleted(input.goalId, assessment);

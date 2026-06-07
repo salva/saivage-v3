@@ -56,14 +56,15 @@ export function completeChildActivationForParent(input: {
   outcome: ActivationCompletionOutcome;
   summary: string;
   effects: ChildActivationCompletionEffectsPort;
-}): void {
-  input.effects.markActivationComplete(input.childCardId, input.outcome);
+}): boolean {
   const edge = input.effects.findCallerEdge(input.childCardId);
-  if (!edge) return;
+  if (!edge) return false;
+  input.effects.markActivationComplete(input.childCardId, input.outcome);
   input.effects.appendParentToolResultOnce(
     edge,
     input.effects.buildActivationOutcome(input.childCardId, input.outcome, input.summary),
   );
+  return true;
 }
 
 export function findActivationCallerEdge(input: {
@@ -206,8 +207,8 @@ export class ActivationUnwindRunner {
     childCardId: string,
     outcome: ActivationCompletionOutcome,
     summary: string,
-  ): void {
-    completeChildActivationForParent({
+  ): boolean {
+    return completeChildActivationForParent({
       childCardId,
       outcome,
       summary,
