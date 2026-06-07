@@ -2,13 +2,20 @@
 
 Date: 2026-06-07
 
-Status: revised implementation plan
+Status: implemented
+
+Implementation commits:
+
+- `9fc88cae fix(runtime): fail closed on orphan active activation`
+- `6dd39f46 fix(runtime): unwind failed activations to parent planner`
+- `5128cd3a refactor(runtime): mark active-run clearing repair-only`
+- `a69cb3fd docs(agents): describe activation ledger unwinding`
 
 ## Purpose
 
 Tighten Saivage v3 runtime activation handling around a simpler premise: the runtime does not support parallel agent execution. A child activation cannot legitimately complete after its parent planner run has closed in normal runtime flow. If that state appears, it is corrupted ledger state, crash-recovery fallout, a lifecycle interruption, or a bug.
 
-The current interim fix restores a parent planner active run when a child activation completes and falls back to `idle` if no parent planner run is found. That fallback prevented false I2 invariant errors, but it is architecturally too permissive for normal execution. This plan replaces permissive fallback with fail-closed ledger invariants and confines repair behavior to startup/crash/operator recovery paths.
+This plan replaced the earlier interim fix, which restored a parent planner active run when a child activation completed but fell back to `idle` if no parent planner run was found. That fallback prevented false I2 invariant errors, but it was architecturally too permissive for normal execution. The implemented design replaces permissive fallback with fail-closed ledger invariants and confines repair behavior to startup/crash/operator recovery paths.
 
 ## Current Model
 
@@ -44,7 +51,7 @@ then A.parent_run_id must reference an open planner runtime run for A.parent_car
 
 If that invariant fails during normal runtime mutation, the mutation should throw rather than silently falling back to idle.
 
-## Code Audit: What Handles Impossible States Today
+## Code Audit: What Handled Impossible States Before Implementation
 
 ### Normal-path idle fallback in `reduceActivationCompletion`
 
