@@ -51,7 +51,7 @@ function createFlatTestAnalystRuntime(opts: { eventBus?: EventBus } = {}): TestA
         success: true,
         command,
         intent: { status: 'running', updated_at: timestamp, source_command_id: command.command_id, reason: 'test runtime start' },
-        run: { run_id: 'test-root-run', kind: 'root', card_id: 'project', command_id: command.command_id, phase: 'planner', runtime_status: 'running', started_at: timestamp, updated_at: timestamp },
+        run: { run_id: 'test-root-run', kind: 'root', ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project', command_id: command.command_id, phase: 'planner', runtime_status: 'running', started_at: timestamp, updated_at: timestamp },
       };
     },
     async stopProject(): ReturnType<RuntimeApi['stopProject']> {

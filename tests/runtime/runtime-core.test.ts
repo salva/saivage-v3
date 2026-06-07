@@ -44,7 +44,7 @@ function run(overrides: Partial<NonNullable<RuntimeState['runtime_runs']>[number
   return {
     run_id: 'run-1',
     kind: 'child',
-    card_id: 'child',
+    ownership: { kind: 'activation', activation_id: 'act-test', parent_run_id: 'run-parent', parent_card_id: 'project', parent_session_id: 'planner:project', parent_tool_call_id: 'call-test' }, card_id: 'child',
     parent_run_id: 'parent-run',
     command_id: null,
     activation_id: 'act-1',
@@ -89,7 +89,7 @@ describe('runtime core reducers', () => {
   it('plans root-run terminal updates after background dispatch', () => {
     const runningState = state({
       runtime_intent: { status: 'running', source_command_id: 'cmd-1', updated_at: 't0' },
-      runtime_runs: [run({ run_id: 'root', kind: 'root', card_id: 'project', parent_run_id: null, activation_id: null })],
+      runtime_runs: [run({ run_id: 'root', kind: 'root', ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project', parent_run_id: null, activation_id: null })],
     });
     expect(planRootRunDispatchSuccessUpdate({ state: runningState, runId: 'root', nowIso: 't1' })).toEqual({
       runId: 'root',
@@ -107,8 +107,8 @@ describe('runtime core reducers', () => {
     expect(planOpenRootRunStopUpdates({
       state: state({
         runtime_runs: [
-          run({ run_id: 'root-open', kind: 'root', card_id: 'project', parent_run_id: null, activation_id: null }),
-          run({ run_id: 'root-closed', kind: 'root', card_id: 'project', parent_run_id: null, activation_id: null, finished_at: 'done' }),
+          run({ run_id: 'root-open', kind: 'root', ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project', parent_run_id: null, activation_id: null }),
+          run({ run_id: 'root-closed', kind: 'root', ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project', parent_run_id: null, activation_id: null, finished_at: 'done' }),
           run({ run_id: 'child-open' }),
         ],
       }),
@@ -121,7 +121,8 @@ describe('runtime core reducers', () => {
   it('builds pause, resume, and freeze-manifest state helper shapes', () => {
     const activeState = state({
       started_at: 'started',
-      active_card_run: { card_id: 'goal-a', card_type: 'goal', runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:goal-a', correction_attempts: 0, started_at: 'started', last_turn_at: 'turn' },
+      active_card_run: { card_id: 'goal-a', card_type: 'goal', ownership: { kind: 'direct', source: 'project_root' },
+  runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:goal-a', correction_attempts: 0, started_at: 'started', last_turn_at: 'turn' },
     });
     expect(buildPauseRuntimeStatePatch('paused')).toEqual({ status: 'paused', paused: true, paused_at: 'paused' });
     expect(buildResumeRuntimeStatePatch(activeState)).toEqual({ status: 'running', paused: false, paused_at: null });
@@ -142,7 +143,8 @@ describe('runtime core reducers', () => {
   it('plans startup and shutdown cleanup patches', () => {
     const activeState = state({
       status: 'running',
-      active_card_run: { card_id: 'goal-a', card_type: 'goal', runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:goal-a', correction_attempts: 0, started_at: 'started', last_turn_at: 'turn' },
+      active_card_run: { card_id: 'goal-a', card_type: 'goal', ownership: { kind: 'direct', source: 'project_root' },
+  runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:goal-a', correction_attempts: 0, started_at: 'started', last_turn_at: 'turn' },
     });
     expect(planClearActiveCardRunForRepair({ state: activeState, cardId: 'goal-a' })).toEqual({ status: 'idle', active_card_run: null });
     expect(planClearActiveCardRunForRepair({ state: activeState, cardId: 'other' })).toBeNull();
@@ -165,7 +167,7 @@ describe('runtime core reducers', () => {
     }).error).toBeNull();
 
     expect(planStartProjectPrecondition({
-      state: state({ runtime_intent: { status: 'running', source_command_id: 'cmd-1', updated_at: 't0' }, runtime_runs: [run({ run_id: 'root', kind: 'root', card_id: 'project', parent_run_id: null, activation_id: null })] }),
+      state: state({ runtime_intent: { status: 'running', source_command_id: 'cmd-1', updated_at: 't0' }, runtime_runs: [run({ run_id: 'root', kind: 'root', ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project', parent_run_id: null, activation_id: null })] }),
       projectCardId: 'project',
       projectCardExists: true,
       projectCardStatus: 'active',
@@ -192,12 +194,14 @@ describe('runtime core reducers', () => {
 
   it('reduces lifecycle events to patches without persisting them', () => {
     expect(reduceRuntimeEvent(state(), 'paused', {}, '2026-05-26T01:00:00.000Z')).toEqual({ status: 'paused', paused: true, paused_at: '2026-05-26T01:00:00.000Z' });
-    expect(reduceRuntimeEvent(state({ active_card_run: { card_id: 'c1', card_type: 'goal', runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:c1', correction_attempts: 0, started_at: 't', last_turn_at: 't' } }), 'resumed', {}, 'now')).toEqual({ status: 'running', paused: false, paused_at: null });
+    expect(reduceRuntimeEvent(state({ active_card_run: { card_id: 'c1', card_type: 'goal', ownership: { kind: 'direct', source: 'project_root' },
+  runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:c1', correction_attempts: 0, started_at: 't', last_turn_at: 't' } }), 'resumed', {}, 'now')).toEqual({ status: 'running', paused: false, paused_at: null });
     expect(reduceRuntimeEvent(state(), 'goal_exit', {}, 'now')).toEqual({ status: 'idle', active_card_run: null });
     expect(reduceRuntimeEvent(state(), 'reviewer_started', {
       goalId: 'goal-a',
       reviewerSessionId: 'reviewer:goal-a',
-      activeCardRun: { card_id: 'goal-a', card_type: 'goal', runtime_status: 'running', phase: 'reviewer', caller_session_id: null, caller_tool_call_id: null, reviewer_session_id: 'reviewer:goal-a', correction_attempts: 0, started_at: '2026-05-26T01:00:00.000Z', last_turn_at: '2026-05-26T01:00:00.000Z' },
+      activeCardRun: { card_id: 'goal-a', card_type: 'goal', ownership: { kind: 'direct', source: 'project_root' },
+  runtime_status: 'running', phase: 'reviewer', caller_session_id: null, caller_tool_call_id: null, reviewer_session_id: 'reviewer:goal-a', correction_attempts: 0, started_at: '2026-05-26T01:00:00.000Z', last_turn_at: '2026-05-26T01:00:00.000Z' },
     }, 'now')).toEqual(expect.objectContaining({ status: 'running', active_card_run: expect.objectContaining({ card_id: 'goal-a', reviewer_session_id: 'reviewer:goal-a' }) }));
   });
 
@@ -211,14 +215,16 @@ describe('runtime core reducers', () => {
       { invariant: 'I1', key: 'global', details: { status: 'running' } },
     ]);
     const idleActiveObservations = observeRuntimeStateInvariants({
-      state: state({ status: 'idle', active_card_run: { card_id: 'code-a', card_type: 'code', runtime_status: 'running', phase: 'executor', caller_session_id: 'planner:goal-a', caller_tool_call_id: null, executor_session_id: 'executor-code-a', correction_attempts: 0, started_at: 't', last_turn_at: 't' } }),
+      state: state({ status: 'idle', active_card_run: { card_id: 'code-a', card_type: 'code', ownership: { kind: 'direct', source: 'project_root' },
+  runtime_status: 'running', phase: 'executor', caller_session_id: 'planner:goal-a', caller_tool_call_id: null, executor_session_id: 'executor-code-a', correction_attempts: 0, started_at: 't', last_turn_at: 't' } }),
       currentCardStatus: 'running',
     });
     expect(idleActiveObservations).toEqual(expect.arrayContaining([
       expect.objectContaining({ invariant: 'I1', key: 'global' }),
     ]));
     expect(idleActiveObservations[0]).not.toHaveProperty('correction');
-    const terminalObservations = observeRuntimeStateInvariants({ state: state({ active_card_run: { card_id: 'c1', card_type: 'goal', runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:c1', correction_attempts: 0, started_at: 't', last_turn_at: 't' } }), currentCardStatus: 'done' });
+    const terminalObservations = observeRuntimeStateInvariants({ state: state({ active_card_run: { card_id: 'c1', card_type: 'goal', ownership: { kind: 'direct', source: 'project_root' },
+  runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:c1', correction_attempts: 0, started_at: 't', last_turn_at: 't' } }), currentCardStatus: 'done' });
     expect(terminalObservations).toEqual(expect.arrayContaining([
       expect.objectContaining({ invariant: 'I2', key: 'c1' }),
     ]));
@@ -243,13 +249,13 @@ describe('runtime core reducers', () => {
   it('plans canonical project-root redispatch for a running intent with an open or failed root run', () => {
     const runningRoot = state({
       runtime_intent: { status: 'running', source_command_id: 'cmd-1', updated_at: '2026-05-26T00:00:00.000Z' },
-      runtime_runs: [{ run_id: 'run-1', kind: 'root', card_id: 'project', parent_run_id: null, command_id: 'cmd-1', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: null, started_at: 't', updated_at: 't' }],
+      runtime_runs: [{ run_id: 'run-1', kind: 'root', ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project', parent_run_id: null, command_id: 'cmd-1', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: null, started_at: 't', updated_at: 't' }],
     });
     expect(planProjectRootRedispatch({ state: runningRoot, projectCardId: 'project' })).toEqual({ shouldRedispatch: true, cardId: 'project', reason: 'open_root_run' });
 
     const failedRoot = state({
       runtime_intent: { status: 'running', source_command_id: 'cmd-1', updated_at: '2026-05-26T00:00:00.000Z' },
-      runtime_runs: [{ run_id: 'run-1', kind: 'root', card_id: 'project', parent_run_id: null, command_id: 'cmd-1', activation_id: null, phase: 'failed', runtime_status: 'error', session_id: 'planner:project', outcome: { kind: 'completed', result: 'failed', error: 'failed', finished_at: '2026-05-26T01:00:00.000Z' }, started_at: 't', updated_at: '2026-05-26T01:00:00.000Z', finished_at: '2026-05-26T01:00:00.000Z' }],
+      runtime_runs: [{ run_id: 'run-1', kind: 'root', ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project', parent_run_id: null, command_id: 'cmd-1', activation_id: null, phase: 'failed', runtime_status: 'error', session_id: 'planner:project', outcome: { kind: 'completed', result: 'failed', error: 'failed', finished_at: '2026-05-26T01:00:00.000Z' }, started_at: 't', updated_at: '2026-05-26T01:00:00.000Z', finished_at: '2026-05-26T01:00:00.000Z' }],
     });
     expect(planProjectRootRedispatch({ state: failedRoot, projectCardId: 'project' })).toEqual({ shouldRedispatch: true, cardId: 'project', reason: 'failed_root_run_with_running_intent' });
     expect(planProjectRootRedispatch({ state: state({ paused: true }), projectCardId: 'project' })).toEqual({ shouldRedispatch: false });
@@ -259,8 +265,8 @@ describe('runtime core reducers', () => {
     const current = state({
       runtime_intent: { status: 'running', source_command_id: 'cmd-1', updated_at: 't0' },
       runtime_runs: [
-        run({ run_id: 'root', kind: 'root', card_id: 'project', parent_run_id: null, activation_id: null, phase: 'planner', session_id: 'planner:project' }),
-        run({ run_id: 'child', kind: 'child', card_id: 'goal-a', parent_run_id: 'root', activation_id: 'act-a', phase: 'planner', session_id: 'planner:goal-a' }),
+        run({ run_id: 'root', kind: 'root', ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project', parent_run_id: null, activation_id: null, phase: 'planner', session_id: 'planner:project' }),
+        run({ run_id: 'child', kind: 'child', ownership: { kind: 'activation', activation_id: 'act-test', parent_run_id: 'run-parent', parent_card_id: 'project', parent_session_id: 'planner:project', parent_tool_call_id: 'call-test' }, card_id: 'goal-a', parent_run_id: 'root', activation_id: 'act-a', phase: 'planner', session_id: 'planner:goal-a' }),
       ],
     });
     expect(planIdleRunningRootRunReconciliation({ state: current, projectTerminal: true, nowIso: 't1' })).toEqual({
@@ -277,7 +283,7 @@ describe('runtime core reducers', () => {
     expect(planIdleRunningRootRunReconciliation({
       state: state({
         runtime_intent: { status: 'running', source_command_id: 'cmd-1', updated_at: 't0' },
-        runtime_runs: [run({ run_id: 'child', kind: 'child', card_id: 'goal-a', parent_run_id: 'root', activation_id: 'act-a', phase: 'planner', session_id: 'planner:goal-a' })],
+        runtime_runs: [run({ run_id: 'child', kind: 'child', ownership: { kind: 'activation', activation_id: 'act-test', parent_run_id: 'run-parent', parent_card_id: 'project', parent_session_id: 'planner:project', parent_tool_call_id: 'call-test' }, card_id: 'goal-a', parent_run_id: 'root', activation_id: 'act-a', phase: 'planner', session_id: 'planner:goal-a' })],
       }),
       projectTerminal: false,
       nowIso: 't1',
@@ -291,7 +297,7 @@ describe('runtime core reducers', () => {
     expect(planIdleRunningRootRunReconciliation({
       state: state({
         runtime_intent: { status: 'running', source_command_id: 'cmd-1', updated_at: 't0' },
-        runtime_runs: [run({ run_id: 'root', kind: 'root', card_id: 'project', parent_run_id: null, activation_id: null, phase: 'completed', runtime_status: 'idle', session_id: 'planner:project', finished_at: 't0', outcome: { kind: 'completed', result: 'done', finished_at: 't0' } })],
+        runtime_runs: [run({ run_id: 'root', kind: 'root', ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project', parent_run_id: null, activation_id: null, phase: 'completed', runtime_status: 'idle', session_id: 'planner:project', finished_at: 't0', outcome: { kind: 'completed', result: 'done', finished_at: 't0' } })],
       }),
       projectTerminal: true,
       nowIso: 't1',
@@ -328,7 +334,7 @@ describe('runtime core reducers', () => {
     expect(planOpenPlannerRunTerminalUpdate({ state: current, goalId: 'goal-a', result: 'blocked', nowIso: 't1' })).toBeNull();
 
     expect(planOpenPlannerRunTerminalUpdate({
-      state: state({ runtime_runs: [run({ run_id: 'root-run', kind: 'root', card_id: 'project', parent_run_id: null, activation_id: null, phase: 'planner', session_id: 'planner:project' })] }),
+      state: state({ runtime_runs: [run({ run_id: 'root-run', kind: 'root', ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project', parent_run_id: null, activation_id: null, phase: 'planner', session_id: 'planner:project' })] }),
       goalId: 'project',
       result: 'failed',
       nowIso: 't1',
@@ -355,10 +361,11 @@ describe('runtime core reducers', () => {
   });
 
   it('restores parent planner as active run when child activation completes under a waiting parent planner', () => {
-    const parentRun = { run_id: 'parent-run', kind: 'root' as const, card_id: 'parent', parent_run_id: null, command_id: null, activation_id: null, phase: 'planner' as const, runtime_status: 'running' as const, session_id: 'planner:parent', started_at: 't0', updated_at: 't0' };
+    const parentRun = { run_id: 'parent-run', kind: 'root' as const, card_id: 'parent', ownership: { kind: 'direct', source: 'project_root' } as const, parent_run_id: null, command_id: null, activation_id: null, phase: 'planner' as const, runtime_status: 'running' as const, session_id: 'planner:parent', started_at: 't0', updated_at: 't0' };
     const current = state({
       status: 'running',
-      active_card_run: { card_id: 'child', card_type: 'code', runtime_status: 'running', phase: 'executor', caller_session_id: 'planner:parent', caller_tool_call_id: 'call-1', executor_session_id: 'exec-1', correction_attempts: 0, started_at: 't0', last_turn_at: 't0' },
+      active_card_run: { card_id: 'child', card_type: 'code', ownership: { kind: 'direct', source: 'project_root' },
+  runtime_status: 'running', phase: 'executor', caller_session_id: 'planner:parent', caller_tool_call_id: 'call-1', executor_session_id: 'exec-1', correction_attempts: 0, started_at: 't0', last_turn_at: 't0' },
       runtime_activations: [
         activation({ parent_card_id: 'parent', parent_session_id: 'planner:parent', parent_run_id: 'parent-run' }),
       ],
@@ -378,7 +385,8 @@ describe('runtime core reducers', () => {
   it('fails closed when active child activation completes but parent has no open planner run', () => {
     const current = state({
       status: 'running',
-      active_card_run: { card_id: 'child', card_type: 'code', runtime_status: 'running', phase: 'executor', caller_session_id: 'planner:parent', caller_tool_call_id: 'call-1', executor_session_id: 'exec-1', correction_attempts: 0, started_at: 't0', last_turn_at: 't0' },
+      active_card_run: { card_id: 'child', card_type: 'code', ownership: { kind: 'direct', source: 'project_root' },
+  runtime_status: 'running', phase: 'executor', caller_session_id: 'planner:parent', caller_tool_call_id: 'call-1', executor_session_id: 'exec-1', correction_attempts: 0, started_at: 't0', last_turn_at: 't0' },
       runtime_activations: [
         activation({ parent_card_id: 'parent', parent_session_id: 'planner:parent', parent_run_id: 'parent-run' }),
       ],
@@ -392,7 +400,8 @@ describe('runtime core reducers', () => {
   it('fails closed when active child completion has no unresolved activation', () => {
     const current = state({
       status: 'running',
-      active_card_run: { card_id: 'child', card_type: 'code', runtime_status: 'running', phase: 'executor', caller_session_id: 'planner:parent', caller_tool_call_id: 'call-1', executor_session_id: 'exec-1', correction_attempts: 0, started_at: 't0', last_turn_at: 't0' },
+      active_card_run: { card_id: 'child', card_type: 'code', ownership: { kind: 'direct', source: 'project_root' },
+  runtime_status: 'running', phase: 'executor', caller_session_id: 'planner:parent', caller_tool_call_id: 'call-1', executor_session_id: 'exec-1', correction_attempts: 0, started_at: 't0', last_turn_at: 't0' },
       runtime_activations: [
         activation({ status: 'completed' }),
       ],
@@ -406,7 +415,8 @@ describe('runtime core reducers', () => {
   it('fails closed when active child completion has duplicate unresolved activations', () => {
     const current = state({
       status: 'running',
-      active_card_run: { card_id: 'child', card_type: 'code', runtime_status: 'running', phase: 'executor', caller_session_id: 'planner:parent', caller_tool_call_id: 'call-1', executor_session_id: 'exec-1', correction_attempts: 0, started_at: 't0', last_turn_at: 't0' },
+      active_card_run: { card_id: 'child', card_type: 'code', ownership: { kind: 'direct', source: 'project_root' },
+  runtime_status: 'running', phase: 'executor', caller_session_id: 'planner:parent', caller_tool_call_id: 'call-1', executor_session_id: 'exec-1', correction_attempts: 0, started_at: 't0', last_turn_at: 't0' },
       runtime_activations: [
         activation({ activation_id: 'act-1' }),
         activation({ activation_id: 'act-2', idempotency_key: 'parent-run:call-2:child' }),

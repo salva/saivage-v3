@@ -33,7 +33,8 @@ afterEach(() => {
 
 describe('application read models', () => {
   it('builds runtime status from disk fallback with live pid', () => {
-    updateRuntimeState(root, { status: 'paused', paused: true, active_card_run: { card_id: 'card-1', card_type: 'goal', runtime_status: 'paused', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:card-1', correction_attempts: 0, started_at: '2026-01-01T00:00:00.000Z', last_turn_at: '2026-01-01T00:00:00.000Z' }, last_tick_at: '2026-01-01T00:00:00.000Z' });
+    updateRuntimeState(root, { status: 'paused', paused: true, active_card_run: { card_id: 'card-1', card_type: 'goal', ownership: { kind: 'direct', source: 'project_root' },
+  runtime_status: 'paused', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:card-1', correction_attempts: 0, started_at: '2026-01-01T00:00:00.000Z', last_turn_at: '2026-01-01T00:00:00.000Z' }, last_tick_at: '2026-01-01T00:00:00.000Z' });
 
     expect(buildRuntimeStatusReadModel({ projectRoot: root })).toEqual(expect.objectContaining({
       runtime: 'paused',
@@ -48,7 +49,8 @@ describe('application read models', () => {
   it('owns card-runs breadcrumb projection outside the agents package', () => {
     const store = new CardStore(root);
     const goal = store.create({ type: 'goal', parent: 'project', depth: 1, title: 'Goal', description: '', status: 'running', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 });
-    updateRuntimeState(root, { status: 'running', active_card_run: { card_id: goal.id, card_type: 'goal', runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner-1', executor_session_id: null, correction_attempts: 0, started_at: '2026-01-01T00:00:00.000Z', last_turn_at: '2026-01-01T00:00:00.000Z' } });
+    updateRuntimeState(root, { status: 'running', active_card_run: { card_id: goal.id, card_type: 'goal', ownership: { kind: 'direct', source: 'project_root' },
+  runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner-1', executor_session_id: null, correction_attempts: 0, started_at: '2026-01-01T00:00:00.000Z', last_turn_at: '2026-01-01T00:00:00.000Z' } });
 
     const response = buildCardRunsResponse(root, store);
 

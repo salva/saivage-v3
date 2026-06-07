@@ -67,6 +67,7 @@ class Runtime {
     this.cardStore = config.cardStore;
     this._sessionStamper = config.sessionStamper ?? new SessionStampCounter();
     this._activationUnwind = new ActivationUnwindRunner({
+      projectRoot: this.projectRoot,
       cards: this.cardStore,
       sessionPort: createFileRuntimeSessionPersistencePort(this.projectRoot),
       sessionStamper: this._sessionStamper,

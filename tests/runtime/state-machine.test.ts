@@ -59,7 +59,8 @@ function activeRun(cardId = 'goal-a'): NonNullable<RuntimeState['active_card_run
   return {
     card_id: cardId,
     card_type: 'goal',
-    runtime_status: 'running',
+    ownership: { kind: 'direct', source: 'project_root' },
+  runtime_status: 'running',
     phase: 'planner',
     caller_session_id: null,
     caller_tool_call_id: null,
@@ -247,7 +248,7 @@ describe('RuntimeStateMachine (Step 2 skeleton)', () => {
       initRuntimeState(projectRoot);
       updateRuntimeState(projectRoot, {
         runtime_intent: { status: 'running', source_command_id: 'cmd-1', updated_at: '2026-05-24T10:00:00.000Z' },
-        runtime_runs: [{ run_id: 'root', kind: 'root', card_id: 'project', parent_run_id: null, command_id: 'cmd-1', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: null, started_at: '2026-05-24T10:00:00.000Z', updated_at: '2026-05-24T10:00:00.000Z' }],
+        runtime_runs: [{ run_id: 'root', kind: 'root', ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project', parent_run_id: null, command_id: 'cmd-1', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: null, started_at: '2026-05-24T10:00:00.000Z', updated_at: '2026-05-24T10:00:00.000Z' }],
       });
       const { machine } = buildMachine(projectRoot, { redispatch: () => { throw new Error('redispatch boom'); } });
       await expect(machine.tick()).rejects.toThrow('redispatch boom');
@@ -260,7 +261,7 @@ describe('RuntimeStateMachine (Step 2 skeleton)', () => {
       initRuntimeState(projectRoot);
       updateRuntimeState(projectRoot, {
         runtime_intent: { status: 'running', source_command_id: 'cmd-1', updated_at: '2026-05-24T10:00:00.000Z' },
-        runtime_runs: [{ run_id: 'root', kind: 'root', card_id: 'project', parent_run_id: null, command_id: 'cmd-1', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: null, started_at: '2026-05-24T10:00:00.000Z', updated_at: '2026-05-24T10:00:00.000Z' }],
+        runtime_runs: [{ run_id: 'root', kind: 'root', ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project', parent_run_id: null, command_id: 'cmd-1', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: null, started_at: '2026-05-24T10:00:00.000Z', updated_at: '2026-05-24T10:00:00.000Z' }],
       });
       const { machine, scheduler, errorLogger } = buildMachine(projectRoot, { redispatch: () => { throw new Error('redispatch boom'); } });
       machine.start();

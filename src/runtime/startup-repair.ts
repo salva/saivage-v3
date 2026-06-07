@@ -74,6 +74,7 @@ export function buildReviewerInterruptedStartupState(input: {
   plannerSessionId: string;
   at: string;
 }): RuntimeState {
+  if (!input.run.ownership || !input.run.planner_session_id) throw new Error(`startup repair cannot reconstruct planner run for '${input.run.card_id}' without persisted ownership and planner session.`);
   return {
     ...input.previousState,
     status: 'running',
@@ -81,8 +82,11 @@ export function buildReviewerInterruptedStartupState(input: {
       phase: 'planner',
       cardId: input.run.card_id,
       cardType: input.run.card_type,
+      ownership: input.run.ownership,
       plannerSessionId: input.plannerSessionId,
       correctionAttempts: input.run.correction_attempts ?? 0,
+      callerSessionId: input.run.caller_session_id,
+      callerToolCallId: input.run.caller_tool_call_id,
       activeRun: { ...input.run, runtime_status: 'running', reviewer_session_id: null },
     }, input.at),
     updated_at: input.at,
@@ -101,8 +105,11 @@ export function buildChildRunStartupState(input: {
         phase: 'planner',
         cardId: input.parentRun.card_id,
         cardType: input.parentRun.card_type,
-        plannerSessionId: input.parentRun.planner_session_id ?? `planner:${input.parentRun.card_id}`,
+        ownership: input.parentRun.ownership,
+        plannerSessionId: requiredPlannerSession(input.parentRun),
         correctionAttempts: input.parentRun.correction_attempts ?? 0,
+        callerSessionId: input.parentRun.caller_session_id,
+        callerToolCallId: input.parentRun.caller_tool_call_id,
         activeRun: input.parentRun,
       }, input.at)
     : null;
@@ -135,6 +142,7 @@ export function buildResumePlannerStartupState(input: {
   run: NonNullable<RuntimeState['active_card_run']>;
   at: string;
 }): RuntimeState {
+  if (!input.run.ownership) throw new Error(`startup repair cannot resume planner run for '${input.run.card_id}' without persisted ownership.`);
   return {
     ...input.previousState,
     status: 'running',
@@ -142,14 +150,22 @@ export function buildResumePlannerStartupState(input: {
       phase: 'planner',
       cardId: input.run.card_id,
       cardType: input.run.card_type,
-      plannerSessionId: input.run.planner_session_id ?? `planner:${input.run.card_id}`,
+      ownership: input.run.ownership,
+      plannerSessionId: requiredPlannerSession(input.run),
       correctionAttempts: input.run.correction_attempts ?? 0,
+      callerSessionId: input.run.caller_session_id,
+      callerToolCallId: input.run.caller_tool_call_id,
       activeRun: { ...input.run, runtime_status: 'running' },
     }, input.at),
     updated_at: input.at,
     paused: false,
     paused_at: null,
   };
+}
+
+function requiredPlannerSession(run: NonNullable<RuntimeState['active_card_run']>): string {
+  if (!run.planner_session_id) throw new Error(`startup repair cannot reconstruct planner run for '${run.card_id}' without persisted planner session.`);
+  return run.planner_session_id;
 }
 
 export interface StartupActiveRunRepairEffects {
@@ -188,7 +204,7 @@ export async function executeStartupActiveRunRepairDecision(input: {
       await effects.transitionCard(run.card_id, 'reviewer_repair_resume', {
         reason: 'reviewer_interrupted',
       });
-      const plannerSessionId = run.planner_session_id ?? `planner:${run.card_id}`;
+      const plannerSessionId = requiredPlannerSession(run);
       const summary = `reviewer_interrupted: reviewer output for ${run.card_id} was discarded after service restart; interrupted_reviewer_session_id=${run.reviewer_session_id ?? 'unknown'}; resume_reason: reviewer_interrupted.`;
       effects.queueSyntheticPlannerNote({
         target_planner_session_id: plannerSessionId,

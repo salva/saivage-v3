@@ -37,7 +37,7 @@ function activationLedger(projectRoot: string) {
 function seedPlannerRun(projectRoot: string, goalId: string): void {
   appendRuntimeRun(projectRoot, {
     kind: 'root',
-    card_id: goalId,
+    ownership: { kind: 'direct', source: 'project_root' }, card_id: goalId,
     parent_run_id: null,
     command_id: null,
     activation_id: null,

@@ -1,6 +1,5 @@
 import type { AgentExecutionPort, ReviewerResult } from '../contracts/index.js';
-import type { CardRecord, PlannerDoneResult, ProjectRunCompletedPayload, ReviewAssessment } from '../schemas/index.js';
-import { PROJECT_CARD_ID } from '../cards/store-api.js';
+import type { CardRecord, PlannerDoneResult, ProjectRunCompletedPayload, ReviewAssessment, RuntimeDispatchOwnership } from '../schemas/index.js';
 import type { RuntimeSkillsPort } from './runtime-config.js';
 import type { RuntimeGoalContextCoordinator } from './runtime-goal-context.js';
 import type { RuntimeRunLedger } from './runtime-run-ledger.js';
@@ -16,6 +15,7 @@ import {
   reviewerSessionId as makeReviewerSessionId,
   validateReviewerAssessment,
 } from './reviewer-assessment.js';
+import { readRuntimeState } from './state.js';
 
 export function buildProjectRunCompletedPayload(
   card: CardRecord,
@@ -43,6 +43,7 @@ export function buildProjectRunCompletedPayload(
 }
 
 export interface RuntimeReviewerDispatcherDeps extends Pick<RuntimeServices,
+  | 'projectRoot'
   | 'cards'
   | 'eventLogger'
   | 'errorLogger'
@@ -73,14 +74,19 @@ export class RuntimeReviewerDispatcher {
         buildGoalContextBlock: (cardId) => this.deps.goalContext.buildGoalContextBlock(cardId),
         buildGoalEvidenceContext: (cardId) => buildGoalEvidenceContext({ goalId: cardId, cards: this.deps.cards }),
         markReviewerStarted: async ({ goalId: startedGoalId, reviewerSessionId: startedReviewerSessionId, goalCard }) => {
+          if (!goalCard) throw new Error(`Reviewer '${startedReviewerSessionId}' cannot start because goal card '${startedGoalId}' is missing.`);
+          const activeRun = readRuntimeState(this.deps.projectRoot)?.active_card_run;
+          if (!activeRun || activeRun.card_id !== startedGoalId) throw new Error(`Reviewer '${startedReviewerSessionId}' cannot start because active run ownership for '${startedGoalId}' is missing.`);
           await this.deps.stateMachine.transition('reviewer_started', {
             goalId: startedGoalId,
             reviewerSessionId: startedReviewerSessionId,
             activeCardRun: buildReviewerActiveRun({
               goalId: startedGoalId,
+              ownership: activeRun.ownership,
               reviewerSessionId: startedReviewerSessionId,
               assessmentId,
               goalCard,
+              activeRun,
               at: this.deps.now(),
             }),
           });
@@ -114,7 +120,7 @@ export class RuntimeReviewerDispatcher {
     const reviewerDecision = decideReviewerPhase({ assessment: reviewResult.assessment, validation });
     const reviewerOutcome = await handleReviewerAssessmentDecision({
       goalId,
-      projectCardId: PROJECT_CARD_ID,
+      ownership: readRequiredReviewerOwnership(this.deps.projectRoot, goalId),
       assessmentId,
       reviewerSessionId,
       reviewResult,
@@ -148,4 +154,10 @@ export class RuntimeReviewerDispatcher {
     this.deps.emit('project_run_completed', { ...payload });
     this.deps.eventLogger.appendEvent({ kind: 'project_run_completed', ...payload });
   }
+}
+
+function readRequiredReviewerOwnership(projectRoot: string, goalId: string): RuntimeDispatchOwnership {
+  const activeRun = readRuntimeState(projectRoot)?.active_card_run;
+  if (!activeRun || activeRun.card_id !== goalId) throw new Error(`Reviewer assessment for '${goalId}' has no active run ownership.`);
+  return activeRun.ownership;
 }

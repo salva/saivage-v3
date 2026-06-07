@@ -9,6 +9,7 @@ import {
   planPlannerActivationSetup,
 } from './planner-phase.js';
 import { compactPersistedPlannerHistoryForRetry } from '../persisted-planner-history.js';
+import { readRuntimeState } from '../state.js';
 import { selectActivationStartAction } from '../transition-policy.js';
 
 export interface PlannerActivationRunnerDeps extends Pick<RuntimeServices,
@@ -72,9 +73,19 @@ export class PlannerActivationRunner {
     }
     const planCard = this.deps.cards.read(goalId);
     if (!planCard) throw new Error(`Card '${goalId}' disappeared after activation update.`);
+    const openRun = (readRuntimeState(this.deps.projectRoot)?.runtime_runs ?? []).find((run) => run.card_id === goalId && ['pending', 'planner'].includes(run.phase) && run.runtime_status === 'running' && !run.finished_at);
+    if (!openRun) throw new Error(`Planner activation for '${goalId}' has no open runtime run ownership.`);
+    if (openRun.session_id && openRun.session_id !== setup.plannerSessionId) throw new Error(`Planner activation for '${goalId}' has contradictory runtime run session identity.`);
     this.deps.mutations.apply({
       kind: 'patchRuntimeState',
-      patch: buildPlannerActiveRunPatch({ goal: planCard, plannerSessionId: setup.plannerSessionId, at: this.deps.now() }),
+      patch: buildPlannerActiveRunPatch({
+        goal: planCard,
+        ownership: openRun.ownership,
+        plannerSessionId: setup.plannerSessionId,
+        callerSessionId: openRun.ownership.kind === 'activation' ? openRun.ownership.parent_session_id : null,
+        callerToolCallId: openRun.ownership.kind === 'activation' ? openRun.ownership.parent_tool_call_id : null,
+        at: this.deps.now(),
+      }),
     });
     this.deps.runLedger.bindPlannerSessionToOpenRun(goalId, setup.plannerSessionId);
     return planCard;

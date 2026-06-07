@@ -168,7 +168,10 @@ describe('planner phase decisions', () => {
   it('builds planner active-run runtime state patches', () => {
     expect(buildPlannerActiveRunPatch({
       goal: { id: 'goal-a', type: 'goal' } as any,
+      ownership: { kind: 'direct', source: 'project_root' },
       plannerSessionId: 'planner:goal-a',
+      callerSessionId: null,
+      callerToolCallId: null,
       at: 'now',
     })).toEqual({
       status: 'running',

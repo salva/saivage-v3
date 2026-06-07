@@ -117,6 +117,7 @@ export class RuntimeProjectCommandRunner {
       run: {
         kind: 'root',
         card_id: PROJECT_CARD_ID,
+        ownership: { kind: 'direct', source: 'project_root' },
         parent_run_id: null,
         command_id: command.command_id,
         activation_id: null,

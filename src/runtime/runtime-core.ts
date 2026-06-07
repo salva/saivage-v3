@@ -761,20 +761,29 @@ function findParentPlannerRunForResumption(
       run.phase === 'planner' &&
       run.runtime_status === 'running' &&
       !run.finished_at &&
-      run.run_id === parentRunId &&
-      (!run.session_id || run.session_id === parentSessionId),
+      run.run_id === parentRunId,
   );
   const parentRun = candidates.sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0];
   if (!parentRun) return null;
-  const plannerSessionId = parentRun.session_id ?? parentSessionId ?? `planner:${parentCardId}`;
+  if (!parentRun.session_id) {
+    throw new RuntimeStateInvariantError(
+      `Runtime activation invariant violation: parent planner run '${parentRun.run_id}' for '${parentCardId}' has no session identity to resume after child activation '${completedActivation.activation_id}'.`,
+    );
+  }
+  if (parentRun.session_id !== parentSessionId) {
+    throw new RuntimeStateInvariantError(
+      `Runtime activation invariant violation: parent planner run '${parentRun.run_id}' session '${parentRun.session_id}' contradicts activation parent session '${parentSessionId}'.`,
+    );
+  }
   return {
     card_id: parentCardId,
-    card_type: 'goal',
+    card_type: parentCardId === 'project' ? 'project' : 'goal',
+    ownership: parentRun.ownership,
     runtime_status: 'running',
     phase: 'planner',
-    caller_session_id: null,
-    caller_tool_call_id: null,
-    planner_session_id: parentRunId ? plannerSessionId : null,
+    caller_session_id: parentRun.ownership.kind === 'activation' ? parentRun.ownership.parent_session_id : null,
+    caller_tool_call_id: parentRun.ownership.kind === 'activation' ? parentRun.ownership.parent_tool_call_id : null,
+    planner_session_id: parentRun.session_id,
     correction_attempts: 0,
     started_at: parentRun.started_at,
     last_turn_at: parentRun.updated_at,

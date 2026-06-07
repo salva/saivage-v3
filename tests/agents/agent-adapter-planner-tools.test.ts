@@ -218,7 +218,7 @@ describe('AgentAdapter planner tool surface', () => {
     appendRuntimeRun(tmpDir, {
       run_id: 'run-parent',
       kind: 'root',
-      card_id: goal.id,
+      ownership: { kind: 'direct', source: 'project_root' }, card_id: goal.id,
       parent_run_id: null,
       command_id: 'cmd-parent',
       activation_id: null,

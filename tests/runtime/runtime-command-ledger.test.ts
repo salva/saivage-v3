@@ -123,7 +123,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         expect.arrayContaining([
           expect.objectContaining({
             kind: 'root',
-            card_id: 'project',
+            ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project',
             command_id: result.command.command_id,
           }),
         ]),
@@ -183,7 +183,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         expect.arrayContaining([
           expect.objectContaining({
             kind: 'root',
-            card_id: 'project',
+            ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project',
           }),
         ]),
       );
@@ -224,7 +224,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       appendRuntimeRun(projectRoot, {
         run_id: 'run-stale-open-root',
         kind: 'root',
-        card_id: 'project',
+        ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project',
         parent_run_id: null,
         command_id: 'cmd-old',
         activation_id: null,
@@ -273,7 +273,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
           expect.objectContaining({
             run_id: 'run-stale-open-root',
             kind: 'root',
-            card_id: 'project',
+            ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project',
             phase: 'completed',
             runtime_status: 'idle',
             outcome: expect.objectContaining({ kind: 'completed', result: 'done' }),
@@ -281,7 +281,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
           }),
           expect.objectContaining({
             kind: 'root',
-            card_id: 'project',
+            ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project',
             phase: 'completed',
             runtime_status: 'idle',
             outcome: expect.objectContaining({ kind: 'completed', result: 'done' }),
@@ -329,7 +329,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
           expect.objectContaining({
             run_id: result.run.run_id,
             kind: 'root',
-            card_id: 'project',
+            ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project',
             command_id: result.command.command_id,
           }),
         ]),
@@ -362,7 +362,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       appendRuntimeRun(projectRoot, {
         run_id: 'run-open-root',
         kind: 'root',
-        card_id: 'project',
+        ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project',
         parent_run_id: null,
         command_id: 'cmd-open',
         activation_id: null,
@@ -425,7 +425,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         expect.arrayContaining([
           expect.objectContaining({
             kind: 'root',
-            card_id: 'project',
+            ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project',
             runtime_status: 'idle',
             phase: 'completed',
           }),
@@ -452,7 +452,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       appendRuntimeRun(projectRoot, {
         run_id: 'run-root-sessionless',
         kind: 'root',
-        card_id: 'project',
+        ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project',
         parent_run_id: null,
         command_id: 'cmd-start',
         activation_id: null,
@@ -463,7 +463,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       appendRuntimeRun(projectRoot, {
         run_id: 'run-child-pending-same-card',
         kind: 'child',
-        card_id: 'project',
+        ownership: { kind: 'activation', activation_id: 'act-test', parent_run_id: 'run-parent', parent_card_id: 'project', parent_session_id: 'planner:project', parent_tool_call_id: 'call-test' }, card_id: 'project',
         parent_run_id: 'run-parent-unrelated',
         command_id: null,
         activation_id: 'activation-unrelated',
@@ -706,7 +706,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       appendRuntimeRun(projectRoot, {
         run_id: 'run-child-pending',
         kind: 'child',
-        card_id: goal.id,
+        ownership: { kind: 'activation', activation_id: 'act-test', parent_run_id: 'run-parent', parent_card_id: 'project', parent_session_id: 'planner:project', parent_tool_call_id: 'call-test' }, card_id: goal.id,
         parent_run_id: 'run-root',
         command_id: null,
         activation_id: 'activation-goal-a',
@@ -717,7 +717,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       appendRuntimeRun(projectRoot, {
         run_id: 'run-child-other-bound',
         kind: 'child',
-        card_id: goal.id,
+        ownership: { kind: 'activation', activation_id: 'act-test', parent_run_id: 'run-parent', parent_card_id: 'project', parent_session_id: 'planner:project', parent_tool_call_id: 'call-test' }, card_id: goal.id,
         parent_run_id: 'run-other-parent',
         command_id: null,
         activation_id: 'activation-other-goal-a',
@@ -765,7 +765,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       appendRuntimeRun(projectRoot, {
         run_id: 'run-root-failure',
         kind: 'root',
-        card_id: 'project',
+        ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project',
         parent_run_id: null,
         command_id: 'cmd-start',
         activation_id: null,
@@ -899,7 +899,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       expect(rootRun).toEqual(
         expect.objectContaining({
           kind: 'root',
-          card_id: 'project',
+          ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project',
           command_id: result.command.command_id,
           phase: 'failed',
           runtime_status: 'error',
@@ -1023,7 +1023,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
           expect.objectContaining({
             run_id: result.run.run_id,
             kind: 'root',
-            card_id: 'project',
+            ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project',
             phase: 'blocked',
             runtime_status: 'error',
             outcome: expect.objectContaining({ kind: 'blocked' }),
@@ -1051,7 +1051,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       expect(result.run).toMatchObject({
         run_id: startResult.run.run_id,
         kind: 'root',
-        card_id: 'project',
+        ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project',
         command_id: startResult.command.command_id,
         phase: 'stopped',
         runtime_status: 'stopped',
@@ -1275,7 +1275,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         expect.objectContaining({
           run_id: startResult.run.run_id,
           kind: 'root',
-          card_id: 'project',
+          ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project',
           command_id: startResult.command.command_id,
           phase: 'stopped',
           runtime_status: 'stopped',
@@ -1358,7 +1358,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       const parentRun = result.run;
       const childRun = appendRuntimeRun(projectRoot, {
         kind: 'child',
-        card_id: 'child-a',
+        ownership: { kind: 'activation', activation_id: 'act-test', parent_run_id: 'run-parent', parent_card_id: 'project', parent_session_id: 'planner:project', parent_tool_call_id: 'call-test' }, card_id: 'child-a',
         parent_run_id: parentRun.run_id,
         command_id: null,
         activation_id: 'activation-a',
@@ -1442,7 +1442,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         expect.objectContaining({
           run_id: parentRun.run_id,
           kind: 'root',
-          card_id: 'project',
+          ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project',
           command_id: result.command.command_id,
         }),
       );

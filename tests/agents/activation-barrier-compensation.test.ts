@@ -13,8 +13,8 @@ describe('activation barrier compensation', () => {
     try {
       initProjectTree(root);
       initRuntimeState(root);
-      const parentRun = appendRuntimeRun(root, { run_id: 'run-parent', kind: 'root', card_id: 'project', parent_run_id: null, command_id: null, activation_id: null, phase: 'planner', runtime_status: 'running', session_id: 'planner:project' });
-      const childRun = appendRuntimeRun(root, { run_id: 'run-child', kind: 'child', card_id: 'card-1', parent_run_id: parentRun.run_id, command_id: null, activation_id: null, phase: 'executor', runtime_status: 'running', session_id: 'executor-card-1' });
+      const parentRun = appendRuntimeRun(root, { run_id: 'run-parent', kind: 'root', ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project', parent_run_id: null, command_id: null, activation_id: null, phase: 'planner', runtime_status: 'running', session_id: 'planner:project' });
+      const childRun = appendRuntimeRun(root, { run_id: 'run-child', kind: 'child', ownership: { kind: 'activation', activation_id: 'act-test', parent_run_id: 'run-parent', parent_card_id: 'project', parent_session_id: 'planner:project', parent_tool_call_id: 'call-test' }, card_id: 'card-1', parent_run_id: parentRun.run_id, command_id: null, activation_id: null, phase: 'executor', runtime_status: 'running', session_id: 'executor-card-1' });
       const activation = upsertRuntimeActivation(root, {
         idempotency_key: 'run-parent:call-a:card-1',
         parent_card_id: 'project',
@@ -33,7 +33,7 @@ describe('activation barrier compensation', () => {
           card_id: 'card-1',
           card_type: 'code',
           phase: 'executor',
-          runtime_status: 'running',
+          ownership: { kind: 'direct', source: 'project_root' }, runtime_status: 'running',
           caller_session_id: 'planner:project',
           caller_tool_call_id: 'call-a',
           executor_session_id: 'executor-card-1',

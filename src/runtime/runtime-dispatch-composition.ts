@@ -128,6 +128,7 @@ export function createRuntimeDispatchCollaborators(input: {
     executorActivations,
   });
   const reviewerDispatcher = new RuntimeReviewerDispatcher({
+    projectRoot: input.projectRoot,
     cards: services.cards,
     agentRuntime: input.agentRuntime,
     skillsEngine: () => input.getSkillsEngine(),

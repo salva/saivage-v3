@@ -65,7 +65,8 @@ function runtimeWithActive(cardId: string): RuntimeState {
     active_card_run: {
       card_id: cardId,
       card_type: 'code',
-      runtime_status: 'running',
+      ownership: { kind: 'direct', source: 'project_root' },
+  runtime_status: 'running',
       phase: 'executor',
       caller_session_id: 'planner:goal',
       caller_tool_call_id: 'call-activate',
@@ -97,7 +98,7 @@ function appendActivePlannerRun(projectRoot: string, cardId = 'goal'): void {
   appendRuntimeRun(projectRoot, {
     run_id: `run-${cardId}`,
     kind: 'root',
-    card_id: cardId,
+    ownership: { kind: 'direct', source: 'project_root' }, card_id: cardId,
     parent_run_id: null,
     command_id: 'cmd-test',
     activation_id: null,

@@ -54,7 +54,7 @@ describe('Runtime stale running-intent reconciliation', () => {
     const rootRun = appendRuntimeRun(root, {
       run_id: 'root-run-open-after-terminal-project',
       kind: 'root',
-      card_id: 'project',
+      ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project',
       parent_run_id: null,
       command_id: 'cmd-start-project',
       activation_id: null,
@@ -122,7 +122,7 @@ describe('Runtime stale running-intent reconciliation', () => {
     appendRuntimeRun(root, {
       run_id: 'root-run-already-completed',
       kind: 'root',
-      card_id: 'project',
+      ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project',
       parent_run_id: null,
       command_id: 'cmd-start-project',
       activation_id: null,

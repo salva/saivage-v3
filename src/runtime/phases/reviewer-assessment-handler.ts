@@ -1,4 +1,4 @@
-import type { CardRecord, PlannerBlockedResult, PlannerDoneResult, ReviewAssessment } from '../../schemas/index.js';
+import type { CardRecord, PlannerBlockedResult, PlannerDoneResult, ReviewAssessment, RuntimeDispatchOwnership } from '../../schemas/index.js';
 import type { ReviewerResult } from '../../contracts/index.js';
 import { commitReviewerPass } from '../terminal-commit/index.js';
 import { buildReviewAssessment } from '../reviewer-assessment.js';
@@ -19,7 +19,7 @@ export interface ReviewerAssessmentEffects {
 
 export async function handleReviewerAssessmentDecision(input: {
   goalId: string;
-  projectCardId: string;
+  ownership: RuntimeDispatchOwnership;
   assessmentId: string;
   reviewerSessionId: string;
   reviewResult: ReviewerResult;
@@ -73,7 +73,7 @@ export async function handleReviewerAssessmentDecision(input: {
       transitionDetails: { assessment: input.reviewResult.assessment },
       effects: input.effects,
     });
-    if (input.goalId === input.projectCardId) {
+    if (input.ownership.kind === 'direct') {
       await input.effects.transitionRuntime('reviewer_finished', {
         goalId: input.goalId,
         reason: 'review_pass',
@@ -81,14 +81,13 @@ export async function handleReviewerAssessmentDecision(input: {
     } else {
       const unwoundToParent = input.effects.appendChildUnwindToolResult(input.goalId, 'done', input.reviewResult.assessment.summary);
       if (!unwoundToParent) {
-        await input.effects.transitionRuntime('reviewer_finished', {
-          goalId: input.goalId,
-          reason: 'review_pass',
-        });
+        throw new RuntimeActivationInvariantError(
+          `Runtime activation invariant violation: reviewer pass for activation-owned card '${input.goalId}' could not unwind to parent activation '${input.ownership.activation_id}'.`,
+        );
       }
     }
     input.effects.emitGoalCompleted(input.goalId, assessment);
-    if (input.goalId === input.projectCardId) input.effects.emitProjectRunCompleted(input.goalId, assessment);
+    if (input.ownership.kind === 'direct' && input.ownership.source === 'project_root') input.effects.emitProjectRunCompleted(input.goalId, assessment);
     return { kind: 'completed' };
   }
 

@@ -48,7 +48,8 @@ function legacyRuntimeState(overrides: Partial<RuntimeState> = {}): RuntimeState
 
 function activeRun(cardId: string): ActiveCardRun {
   const now = new Date().toISOString();
-  return { card_id: cardId, card_type: 'goal', runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: `planner:${cardId}`, correction_attempts: 0, started_at: now, last_turn_at: now };
+  return { card_id: cardId, card_type: 'goal', ownership: { kind: 'direct', source: 'project_root' },
+  runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: `planner:${cardId}`, correction_attempts: 0, started_at: now, last_turn_at: now };
 }
 
 beforeEach(() => {

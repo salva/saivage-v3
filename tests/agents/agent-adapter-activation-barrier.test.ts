@@ -137,7 +137,7 @@ describe('AgentAdapter activation barrier compensation', () => {
     appendRuntimeRun(root, {
       run_id: 'run-parent',
       kind: 'root',
-      card_id: goal.id,
+      ownership: { kind: 'direct', source: 'project_root' }, card_id: goal.id,
       parent_run_id: null,
       command_id: 'cmd-parent',
       activation_id: null,
@@ -167,7 +167,8 @@ describe('AgentAdapter activation barrier compensation', () => {
               active_card_run: {
                 card_id: child.id,
                 card_type: child.type,
-                runtime_status: 'running',
+                ownership: { kind: 'direct', source: 'project_root' },
+  runtime_status: 'running',
                 phase: 'executor',
                 caller_session_id: `planner:${goal.id}`,
                 caller_tool_call_id: 'call-activate-child',

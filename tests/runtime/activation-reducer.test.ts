@@ -5,6 +5,7 @@ import type { RuntimeState } from '../../src/schemas/types.js';
 const plannerRun: NonNullable<RuntimeState['active_card_run']> = {
   card_id: 'goal-a',
   card_type: 'goal',
+  ownership: { kind: 'direct', source: 'project_root' },
   runtime_status: 'running',
   phase: 'planner',
   caller_session_id: null,
@@ -19,7 +20,10 @@ describe('activation planner shapers', () => {
   it('builds planner activation state from goal identity without losing card type', () => {
     const state = plannerActivationStateFromGoal({
       goal: { id: 'project', type: 'project' } as any,
+      ownership: { kind: 'direct', source: 'project_root' },
       plannerSessionId: 'planner:project',
+      callerSessionId: null,
+      callerToolCallId: null,
     });
 
     expect(activeRunFromActivationState(state, 't1')).toEqual(expect.objectContaining({
@@ -36,8 +40,12 @@ describe('activation planner shapers', () => {
     expect(activeRunFromActivationState({
       phase: 'planner',
       cardId: 'goal-a',
+      cardType: 'goal',
+      ownership: plannerRun.ownership,
       plannerSessionId: 'planner:goal-a',
       correctionAttempts: 2,
+      callerSessionId: null,
+      callerToolCallId: null,
       activeRun: plannerRun,
     }, 't1')).toEqual(plannerRun);
   });

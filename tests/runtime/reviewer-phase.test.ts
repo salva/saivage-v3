@@ -16,9 +16,23 @@ describe('reviewer phase decisions', () => {
   it('builds reviewer active-run state', () => {
     expect(buildReviewerActiveRun({
       goalId: 'goal-a',
+      ownership: { kind: 'direct', source: 'project_root' },
       reviewerSessionId: 'reviewer:goal-a:assessment-1',
       assessmentId: 'assessment-1',
       goalCard: { type: 'goal' } as any,
+      activeRun: {
+        card_id: 'goal-a',
+        card_type: 'goal',
+        ownership: { kind: 'direct', source: 'project_root' },
+        runtime_status: 'running',
+        phase: 'planner',
+        caller_session_id: null,
+        caller_tool_call_id: null,
+        planner_session_id: 'planner:goal-a',
+        correction_attempts: 0,
+        started_at: 'before',
+        last_turn_at: 'before',
+      },
       at: 'now',
     })).toEqual(expect.objectContaining({
       card_id: 'goal-a',
@@ -26,8 +40,8 @@ describe('reviewer phase decisions', () => {
       phase: 'reviewer',
       planner_session_id: 'planner:goal-a',
       reviewer_session_id: 'reviewer:goal-a:assessment-1',
-      started_at: 'now',
-      last_turn_at: 'now',
+      started_at: 'before',
+      last_turn_at: 'before',
     }));
   });
 });

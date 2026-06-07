@@ -3,6 +3,7 @@ export interface LifecycleFlags {
   running: boolean;
   shuttingDown: boolean;
   dispatchInFlight: Set<string>;
+  dispatchPromises: Map<string, Promise<void>>;
 }
 
 export function createLifecycleFlags(): LifecycleFlags {
@@ -11,5 +12,6 @@ export function createLifecycleFlags(): LifecycleFlags {
     running: false,
     shuttingDown: false,
     dispatchInFlight: new Set(),
+    dispatchPromises: new Map(),
   };
 }

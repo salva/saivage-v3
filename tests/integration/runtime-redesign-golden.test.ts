@@ -52,7 +52,7 @@ describe('runtime redesign final golden behavior', () => {
       const state = readRuntimeState(projectRoot)!;
       expect(state.runtime_intent?.status).toBe('running');
       expect(state.runtime_commands).toEqual(expect.arrayContaining([expect.objectContaining({ command: 'start_project', status: 'completed' })]));
-      expect(state.runtime_runs).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'root', card_id: 'project' })]));
+      expect(state.runtime_runs).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'root', ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project' })]));
       expect(dispatched).toEqual([]);
     } finally { rmSync(projectRoot, { recursive: true, force: true }); }
   });
@@ -69,14 +69,15 @@ describe('runtime redesign final golden behavior', () => {
       expect((rejected.data as any).actionable_error.code).toBe('activate_card_parent_not_active');
       expect(readRuntimeState(ctx.projectRoot)?.runtime_runs ?? []).toHaveLength(0);
 
-      appendRuntimeRun(ctx.projectRoot, { run_id: 'run-parent', kind: 'root', card_id: ctx.goalId, parent_run_id: null, command_id: 'cmd-a', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: `planner:${ctx.goalId}` });
+      appendRuntimeRun(ctx.projectRoot, { run_id: 'run-parent', kind: 'root', ownership: { kind: 'direct', source: 'operator' }, card_id: ctx.goalId, parent_run_id: null, command_id: 'cmd-a', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: `planner:${ctx.goalId}` });
       const accepted = await exec.execute({ toolName: 'activate_card', toolCallId: 'call-a', args: { cardId: ctx.codeId }, parentCardId: ctx.goalId, sessionId: `planner:${ctx.goalId}` });
       expect(accepted.success).toBe(true);
       const body = accepted.data as any;
       expect(body.success).toBe(true);
       const state = readRuntimeState(ctx.projectRoot)!;
       expect(state.runtime_activations).toEqual(expect.arrayContaining([expect.objectContaining({ child_card_id: ctx.codeId, parent_run_id: 'run-parent' })]));
-      expect(state.runtime_runs).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'child', card_id: ctx.codeId, parent_run_id: 'run-parent' })]));
+      const activation = (state.runtime_activations ?? []).find((item) => item.child_card_id === ctx.codeId)!;
+      expect(state.runtime_runs).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'child', ownership: { kind: 'activation', activation_id: activation.activation_id, parent_run_id: 'run-parent', parent_card_id: ctx.goalId, parent_session_id: `planner:${ctx.goalId}`, parent_tool_call_id: 'call-a' }, card_id: ctx.codeId, parent_run_id: 'run-parent' })]));
     } finally { rmSync(ctx.projectRoot, { recursive: true, force: true }); }
   });
 

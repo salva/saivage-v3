@@ -197,7 +197,8 @@ describe('planner context-length failures', () => {
       active_card_run: {
         card_id: 'project',
         card_type: 'project',
-        runtime_status: 'running',
+        ownership: { kind: 'direct', source: 'project_root' },
+  runtime_status: 'running',
         phase: 'planner',
         caller_session_id: null,
         caller_tool_call_id: null,
@@ -240,7 +241,8 @@ describe('planner context-length failures', () => {
       active_card_run: {
         card_id: 'project',
         card_type: 'project',
-        runtime_status: 'running',
+        ownership: { kind: 'direct', source: 'project_root' },
+  runtime_status: 'running',
         phase: 'planner',
         caller_session_id: null,
         caller_tool_call_id: null,

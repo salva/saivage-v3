@@ -141,15 +141,18 @@ export class PlannerControlExecutor {
             break;
           }
           if (!this.context.activationLedger) throw new Error('runtime_activation_ledger_missing: activate_card requires RuntimeActivationLedgerPort.');
-          const run = this.context.activationLedger!.appendRun({ kind: 'child', card_id: targetId, parent_run_id: parentRun.run_id, command_id: null, activation_id: null, phase: 'pending', runtime_status: 'running', session_id: null });
+          const parentSessionId = sessionId || parentRun.session_id;
+          if (!parentSessionId) throw new Error(`activate_card parent planner run '${parentRun.run_id}' has no session identity.`);
+          const activation = this.context.activationLedger!.upsertActivation({ idempotency_key: idempotencyKey, parent_card_id: parentCardId, parent_run_id: parentRun.run_id, parent_session_id: parentSessionId, parent_tool_call_id: invocation.toolCallId, child_card_id: targetId, status: 'pending', precondition: 'accepted', runtime_run_id: null, error: null });
+          const run = this.context.activationLedger!.appendRun({ kind: 'child', card_id: targetId, ownership: { kind: 'activation', activation_id: activation.activation_id, parent_run_id: parentRun.run_id, parent_card_id: parentCardId, parent_session_id: parentSessionId, parent_tool_call_id: invocation.toolCallId }, parent_run_id: parentRun.run_id, command_id: null, activation_id: activation.activation_id, phase: 'pending', runtime_status: 'running', session_id: null });
+          const linkedActivation = this.context.activationLedger!.upsertActivation({ ...activation, runtime_run_id: run.run_id });
           const runEvent = this.context.eventLogger?.appendEvent({ kind: 'runtime_run', run });
           const eventBus = this.context.eventBus ?? this.context.eventBusProvider?.();
           if (runEvent && eventBus) emitLoggedEvent(eventBus, runEvent);
-          const activation = this.context.activationLedger!.upsertActivation({ idempotency_key: idempotencyKey, parent_card_id: parentCardId, parent_run_id: parentRun.run_id, parent_session_id: sessionId || parentRun.session_id || `planner:${parentCardId}`, parent_tool_call_id: invocation.toolCallId, child_card_id: targetId, status: 'pending', precondition: 'accepted', runtime_run_id: run.run_id, error: null });
-          const activationEvent = this.context.eventLogger?.appendEvent({ kind: 'runtime_activation', activation });
+          const activationEvent = this.context.eventLogger?.appendEvent({ kind: 'runtime_activation', activation: linkedActivation });
           if (activationEvent && eventBus) emitLoggedEvent(eventBus, activationEvent);
           consumeChangedCardActivation(this.context.projectRoot, targetId);
-          result = { success: true, activation };
+          result = { success: true, activation: linkedActivation };
           break;
         }
         case 'create_card': {

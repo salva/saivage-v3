@@ -40,7 +40,8 @@ describe('freeze manifest helpers', () => {
   }
 
   it('validates, saves, reads, and clears manifests', () => {
-    const saved = saveFreezeManifest(projectRoot, manifest({ active_card_run: { card_id: 'card-a', card_type: 'goal', runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:card-a', correction_attempts: 0, started_at: new Date(0).toISOString(), last_turn_at: new Date(0).toISOString() } }));
+    const saved = saveFreezeManifest(projectRoot, manifest({ active_card_run: { card_id: 'card-a', card_type: 'goal', ownership: { kind: 'direct', source: 'project_root' },
+  runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:card-a', correction_attempts: 0, started_at: new Date(0).toISOString(), last_turn_at: new Date(0).toISOString() } }));
 
     expect(saved.active_card_run?.card_id).toBe('card-a');
     expect(readFreezeManifest(projectRoot)).toEqual(saved);
@@ -64,7 +65,8 @@ describe('freeze manifest helpers', () => {
       project_id: 'project',
       pid: process.pid,
       started_at: 'started',
-      active_card_run: { card_id: 'goal-a', card_type: 'goal', runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:goal-a', correction_attempts: 0, started_at: '2026-01-01T00:00:00.000Z', last_turn_at: '2026-01-01T00:00:00.000Z' },
+      active_card_run: { card_id: 'goal-a', card_type: 'goal', ownership: { kind: 'direct', source: 'project_root' },
+  runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:goal-a', correction_attempts: 0, started_at: '2026-01-01T00:00:00.000Z', last_turn_at: '2026-01-01T00:00:00.000Z' },
       paused: false,
       updated_at: 'updated',
       runtime_intent: { status: 'running', updated_at: 'updated', source_command_id: null },
@@ -98,7 +100,8 @@ describe('freeze manifest helpers', () => {
   it('builds active-session handoff context from manifest summaries', () => {
     const handoffContext = buildResumeHandoffContext(
       manifest({
-        active_card_run: { card_id: 'card-1', card_type: 'code', runtime_status: 'running', phase: 'executor', caller_session_id: 'planner:project', caller_tool_call_id: 'call-1', executor_session_id: 'executor-card-1', correction_attempts: 0, started_at: new Date(0).toISOString(), last_turn_at: new Date(0).toISOString() },
+        active_card_run: { card_id: 'card-1', card_type: 'code', ownership: { kind: 'direct', source: 'project_root' },
+  runtime_status: 'running', phase: 'executor', caller_session_id: 'planner:project', caller_tool_call_id: 'call-1', executor_session_id: 'executor-card-1', correction_attempts: 0, started_at: new Date(0).toISOString(), last_turn_at: new Date(0).toISOString() },
         handoff_summaries: [
           {
             session_id: 'executor-card-1',

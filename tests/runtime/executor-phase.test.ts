@@ -35,7 +35,9 @@ describe('executor phase decisions', () => {
     expect(buildExecutorActiveRunPatch({
       card: { id: 'code-a', type: 'code' } as any,
       goalId: 'goal-a',
+      ownership: { kind: 'activation', activation_id: 'act-a', parent_run_id: 'run-parent', parent_card_id: 'goal-a', parent_session_id: 'planner:goal-a', parent_tool_call_id: 'call-a' },
       callerEdge: { callerSessionId: 'planner:goal-a', callerToolCallId: 'call-a' },
+      plannerSessionId: 'planner:goal-a',
       at: 'now',
     })).toEqual({
       status: 'running',

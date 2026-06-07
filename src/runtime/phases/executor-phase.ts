@@ -1,4 +1,4 @@
-import type { ActivationCompletionOutcome, CardRecord, CardStatus, RuntimeState } from '../../schemas/index.js';
+import type { ActivationCompletionOutcome, CardRecord, CardStatus, RuntimeDispatchOwnership, RuntimeState } from '../../schemas/index.js';
 import type { ExecutorResult } from '../../contracts/index.js';
 import { activeRunFromActivationState, executorActivationStateFromCard } from '../activation-reducer.js';
 
@@ -38,7 +38,9 @@ export function decideExecutorOutcome(input: {
 export function buildExecutorActiveRunPatch(input: {
   card: Pick<CardRecord, 'id' | 'type'>;
   goalId: string;
-  callerEdge: { callerSessionId: string; callerToolCallId: string } | null | undefined;
+  ownership: RuntimeDispatchOwnership;
+  callerEdge: { callerSessionId: string; callerToolCallId: string };
+  plannerSessionId: string | null;
   at: string;
 }): Partial<RuntimeState> {
   const executorSessionId = `executor-${input.card.id}`;

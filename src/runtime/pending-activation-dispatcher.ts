@@ -1,4 +1,5 @@
 import type { ActivationCompletionOutcome, CardRecord, RuntimeActivationRecord } from '../schemas/index.js';
+import type { ActivationCallerEdge } from './activation-unwind.js';
 import type { ActivationUnwindRunner } from './activation-unwind.js';
 import {
   selectChildGoalActivationOutcome,
@@ -55,25 +56,23 @@ export class PendingActivationDispatcher {
     const card = this.deps.cards.read(activation.child_card_id);
     if (!card) return { dispatchedGoal: false, executedTerminal: false, failed: true };
     const goalCard = this.deps.cards.read(activation.parent_card_id);
-    const callerEdge = this.deps.activationUnwind.findCallerEdge(card.id);
+    const callerEdge = callerEdgeFromActivation(activation);
     return this.dispatchOneActivation({ activation, card, goalCard, callerEdge });
   }
 
   async dispatch(goalId: string): Promise<{ dispatchedGoal: boolean; executedTerminal: boolean; failed: boolean }> {
-    let activationCards = this.getPendingActivationCards(goalId);
+    let activations = this.getPendingActivations(goalId);
     const goalCard = this.deps.cards.read(goalId);
     let dispatchedGoal = false;
     let executedTerminal = false;
     let failed = false;
-    while (activationCards.length > 0 && !this.deps.lifecycle.shuttingDown) {
+    while (activations.length > 0 && !this.deps.lifecycle.shuttingDown) {
       if (this.deps.lifecycle.paused) return { dispatchedGoal, executedTerminal, failed };
-      for (const card of activationCards) {
+      for (const activation of activations) {
         if (this.deps.lifecycle.shuttingDown || this.deps.lifecycle.paused) return { dispatchedGoal, executedTerminal, failed };
-        const callerEdge = this.deps.activationUnwind.findCallerEdge(card.id);
-        const activation = {
-          parent_card_id: goalId,
-          child_card_id: card.id,
-        } as RuntimeActivationRecord;
+        const card = this.deps.cards.read(activation.child_card_id);
+        if (!card) return { dispatchedGoal, executedTerminal, failed: true };
+        const callerEdge = callerEdgeFromActivation(activation);
         const result = await this.dispatchOneActivation({ activation, card, goalCard, callerEdge });
         dispatchedGoal = dispatchedGoal || result.dispatchedGoal;
         executedTerminal = executedTerminal || result.executedTerminal;
@@ -82,19 +81,19 @@ export class PendingActivationDispatcher {
           return { dispatchedGoal, executedTerminal, failed };
         }
       }
-      activationCards = this.getPendingActivationCards(goalId);
+      activations = this.getPendingActivations(goalId);
     }
     return { dispatchedGoal, executedTerminal, failed };
   }
 
-  private getPendingActivationCards(goalId: string): CardRecord[] {
-    return selectPendingActivationChildCardIds(readRuntimeState(this.deps.projectRoot), goalId)
-      .map((childCardId) => this.deps.cards.read(childCardId))
-      .filter((card): card is CardRecord => Boolean(card));
+  private getPendingActivations(goalId: string): RuntimeActivationRecord[] {
+    const state = readRuntimeState(this.deps.projectRoot);
+    const childIds = new Set(selectPendingActivationChildCardIds(state, goalId));
+    return (state?.runtime_activations ?? []).filter((activation) => activation.parent_card_id === goalId && childIds.has(activation.child_card_id));
   }
 
   private async dispatchOneActivation(input: {
-    activation: Pick<RuntimeActivationRecord, 'parent_card_id' | 'child_card_id'>;
+    activation: RuntimeActivationRecord;
     card: CardRecord;
     goalCard: CardRecord | null;
     callerEdge: ReturnType<ActivationUnwindRunner['findCallerEdge']>;
@@ -116,8 +115,17 @@ export class PendingActivationDispatcher {
       goalCard: input.goalCard,
       card: input.card,
       callerEdge: input.callerEdge,
+      activation: input.activation,
     });
     return { dispatchedGoal: false, executedTerminal: terminalDispatch.executedTerminal, failed: terminalDispatch.failed };
   }
 
+}
+
+function callerEdgeFromActivation(activation: RuntimeActivationRecord): ActivationCallerEdge {
+  return {
+    parentCardId: activation.parent_card_id,
+    callerSessionId: activation.parent_session_id,
+    callerToolCallId: activation.parent_tool_call_id,
+  };
 }

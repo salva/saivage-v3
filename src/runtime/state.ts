@@ -240,8 +240,16 @@ export function upsertRuntimeActivation(projectRoot: string, input: Omit<Runtime
   const at = new Date().toISOString();
   const record: RuntimeActivationRecord = { ...input, activation_id: input.activation_id ?? runtimeRecordId('act'), requested_at: input.requested_at ?? at, updated_at: input.updated_at ?? at };
   return updateRuntimeStateLockedDeriving(projectRoot, (state) => {
-    const existing = (state.runtime_activations ?? []).find((activation) => activation.idempotency_key === input.idempotency_key && !['completed', 'failed', 'blocked', 'cancelled'].includes(activation.status));
-    if (existing) return { state, result: existing };
+    const existing = input.activation_id
+      ? (state.runtime_activations ?? []).find((activation) => activation.activation_id === input.activation_id)
+      : (state.runtime_activations ?? []).find((activation) => activation.idempotency_key === input.idempotency_key && !['completed', 'failed', 'blocked', 'cancelled'].includes(activation.status));
+    if (existing) {
+      const updated = { ...existing, ...input, activation_id: existing.activation_id, requested_at: existing.requested_at, updated_at: at };
+      return {
+        state: { ...state, runtime_activations: (state.runtime_activations ?? []).map((activation) => activation.activation_id === existing.activation_id ? updated : activation), updated_at: at },
+        result: updated,
+      };
+    }
     return {
       state: { ...state, runtime_activations: [...(state.runtime_activations ?? []), record], updated_at: at },
       result: record,

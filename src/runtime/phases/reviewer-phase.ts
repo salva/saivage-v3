@@ -1,5 +1,5 @@
 import type { ReviewerResult } from '../../contracts/index.js';
-import type { CardRecord, RuntimeState } from '../../schemas/index.js';
+import type { CardRecord, RuntimeDispatchOwnership, RuntimeState } from '../../schemas/index.js';
 import { activeRunFromActivationState, reviewerActivationStateFromCard } from '../activation-reducer.js';
 
 export type ReviewerPhaseDecision =
@@ -20,10 +20,18 @@ export function decideReviewerPhase(input: {
 
 export function buildReviewerActiveRun(input: {
   goalId: string;
+  ownership: RuntimeDispatchOwnership;
   reviewerSessionId: string;
   assessmentId: string;
-  goalCard: Pick<CardRecord, 'type'> | null | undefined;
+  goalCard: Pick<CardRecord, 'type'>;
+  activeRun: NonNullable<RuntimeState['active_card_run']>;
   at: string;
 }): NonNullable<RuntimeState['active_card_run']> {
-  return activeRunFromActivationState(reviewerActivationStateFromCard(input), input.at)!;
+  return activeRunFromActivationState(reviewerActivationStateFromCard({
+    ...input,
+    plannerSessionId: input.activeRun.planner_session_id ?? null,
+    callerSessionId: input.activeRun.caller_session_id,
+    callerToolCallId: input.activeRun.caller_tool_call_id,
+    correctionAttempts: input.activeRun.correction_attempts,
+  }), input.at)!;
 }

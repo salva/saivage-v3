@@ -1,8 +1,10 @@
 import type { AgentExecutionPort } from '../contracts/index.js';
+import { PROJECT_CARD_ID } from '../cards/store-api.js';
 import type { SessionStamper } from './session-stamper.js';
 import type { RuntimeConfig, RuntimeSkillsPort } from './runtime-config.js';
 import type { RuntimeGoalContextCoordinator } from './runtime-goal-context.js';
 import type { RuntimeRunLedger } from './runtime-run-ledger.js';
+import { readRuntimeState } from './state.js';
 import type { PendingActivationDispatcher } from './pending-activation-dispatcher.js';
 import type { RuntimeReviewerDispatcher } from './runtime-reviewer-dispatcher.js';
 import { buildDispatchPausedRuntimeStatePatch } from './runtime-core.js';
@@ -47,13 +49,15 @@ export class RuntimePlannerDispatcher {
   }
 
   private async dispatchGoalInternal(goalId: string): Promise<void> {
-    if (this.deps.lifecycle.dispatchInFlight.has(goalId)) return;
-    this.deps.lifecycle.dispatchInFlight.add(goalId);
-    try {
-      await this.runPlannerLoop(goalId);
-    } finally {
+    const existing = this.deps.lifecycle.dispatchPromises.get(goalId);
+    if (existing) return existing;
+    const dispatch = this.runPlannerLoop(goalId).finally(() => {
       this.deps.lifecycle.dispatchInFlight.delete(goalId);
-    }
+      this.deps.lifecycle.dispatchPromises.delete(goalId);
+    });
+    this.deps.lifecycle.dispatchInFlight.add(goalId);
+    this.deps.lifecycle.dispatchPromises.set(goalId, dispatch);
+    return dispatch;
   }
 
   private async runPlannerLoop(goalId: string): Promise<void> {
@@ -61,6 +65,7 @@ export class RuntimePlannerDispatcher {
       this.emitDispatchBlocked(goalId);
       return;
     }
+    this.ensureDirectPlannerRun(goalId);
     try {
       await this.plannerActivationRunner().activate(goalId);
     } catch (err) {
@@ -114,6 +119,29 @@ export class RuntimePlannerDispatcher {
       return;
     }
     if (sawReplan) await this.terminateIfNonTerminal(goalId);
+  }
+
+  private ensureDirectPlannerRun(goalId: string): void {
+    const card = this.deps.cards.read(goalId);
+    if (!card || (card.type !== 'project' && card.type !== 'goal')) return;
+    const hasOpenRun = (readRuntimeState(this.deps.projectRoot)?.runtime_runs ?? []).some(
+      (run) => run.card_id === goalId && ['pending', 'planner'].includes(run.phase) && run.runtime_status === 'running' && !run.finished_at,
+    );
+    if (hasOpenRun) return;
+    this.deps.mutations.apply({
+      kind: 'appendRuntimeRun',
+      run: {
+        kind: 'root',
+        card_id: goalId,
+        ownership: { kind: 'direct', source: goalId === PROJECT_CARD_ID ? 'project_root' : 'operator' },
+        parent_run_id: null,
+        command_id: null,
+        activation_id: null,
+        phase: 'planner',
+        runtime_status: 'running',
+        session_id: null,
+      },
+    });
   }
 
   private plannerActivationRunner(): PlannerActivationRunner {

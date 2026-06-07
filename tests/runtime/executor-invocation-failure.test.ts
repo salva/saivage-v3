@@ -60,9 +60,9 @@ describe('executor invocation failure handler', () => {
         attachments: [],
         retries: 0,
       });
-      const parentRun = appendRuntimeRun(projectRoot, { run_id: 'run-parent', kind: 'root', card_id: 'project', parent_run_id: null, command_id: null, activation_id: null, phase: 'planner', runtime_status: 'running', session_id: 'planner:project' });
+      const parentRun = appendRuntimeRun(projectRoot, { run_id: 'run-parent', kind: 'root', ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project', parent_run_id: null, command_id: null, activation_id: null, phase: 'planner', runtime_status: 'running', session_id: 'planner:project' });
       const codeCardId = codeCard.id;
-      const childRun = appendRuntimeRun(projectRoot, { run_id: 'run-child', kind: 'child', card_id: codeCardId, parent_run_id: parentRun.run_id, command_id: null, activation_id: null, phase: 'executor', runtime_status: 'running', session_id: `executor-${codeCardId}` });
+      const childRun = appendRuntimeRun(projectRoot, { run_id: 'run-child', kind: 'child', ownership: { kind: 'activation', activation_id: 'act-test', parent_run_id: 'run-parent', parent_card_id: 'project', parent_session_id: 'planner:project', parent_tool_call_id: 'call-test' }, card_id: codeCardId, parent_run_id: parentRun.run_id, command_id: null, activation_id: null, phase: 'executor', runtime_status: 'running', session_id: `executor-${codeCardId}` });
       upsertRuntimeActivation(projectRoot, {
         idempotency_key: `run-parent:call-a:${codeCardId}`,
         parent_card_id: 'project',
@@ -81,7 +81,7 @@ describe('executor invocation failure handler', () => {
           card_id: codeCardId,
           card_type: 'code',
           phase: 'executor',
-          runtime_status: 'running',
+          ownership: { kind: 'direct', source: 'project_root' }, runtime_status: 'running',
           caller_session_id: 'planner:project',
           caller_tool_call_id: 'call-a',
           executor_session_id: `executor-${codeCardId}`,
@@ -135,7 +135,13 @@ describe('executor invocation failure handler', () => {
         },
       } as never);
 
-      await expect(dispatcher.dispatch({ goalId: 'project', goalCard: cards.read('project'), card: codeCard, callerEdge: { parentCardId: 'project', callerSessionId: 'planner:project', callerToolCallId: 'call-a' } })).resolves.toEqual({ executedTerminal: false, failed: true });
+      await expect(dispatcher.dispatch({
+        goalId: 'project',
+        goalCard: cards.read('project'),
+        card: codeCard,
+        callerEdge: { parentCardId: 'project', callerSessionId: 'planner:project', callerToolCallId: 'call-a' },
+        activation: { activation_id: 'act-a', idempotency_key: 'key-a', parent_card_id: 'project', parent_run_id: 'run-parent', parent_session_id: 'planner:project', parent_tool_call_id: 'call-a', child_card_id: codeCard.id, status: 'pending', requested_at: now(), updated_at: now(), precondition: 'accepted', runtime_run_id: 'run-child' },
+      })).resolves.toEqual({ executedTerminal: false, failed: true });
 
       const state = readRuntimeState(projectRoot);
       expect(state?.active_card_run).toEqual(expect.objectContaining({ card_id: 'project', phase: 'planner', planner_session_id: 'planner:project' }));

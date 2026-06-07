@@ -6,7 +6,8 @@ describe('goal context helpers', () => {
     expect(inferGoalResumeReason({
       goalId: 'goal-a',
       fallback: 'service_restart',
-      activeRun: { card_id: 'goal-a', card_type: 'goal', runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:goal-a', correction_attempts: 0, started_at: 't0', last_turn_at: 't0' },
+      activeRun: { card_id: 'goal-a', card_type: 'goal', ownership: { kind: 'direct', source: 'project_root' },
+  runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:goal-a', correction_attempts: 0, started_at: 't0', last_turn_at: 't0' },
       notes: [],
     })).toBe('service_restart');
   });

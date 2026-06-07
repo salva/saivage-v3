@@ -205,7 +205,7 @@ describe('planner persisted history context compaction', () => {
         runtime_runs: [{
           run_id: 'run-1',
           kind: 'child',
-          card_id: 'code-1',
+          ownership: { kind: 'activation', activation_id: 'act-test', parent_run_id: 'run-parent', parent_card_id: 'project', parent_session_id: 'planner:project', parent_tool_call_id: 'call-test' }, card_id: 'code-1',
           phase: 'executor',
           runtime_status: 'running',
           started_at: '2026-06-01T00:01:00.000Z',

@@ -4,6 +4,8 @@ import type { CardRecord, ReviewAssessment } from '../../src/schemas/types.js';
 import type { ReviewerResult } from '../../src/contracts/index.js';
 
 const now = '2026-01-01T00:00:00.000Z';
+const directOwnership = { kind: 'direct', source: 'project_root' } as const;
+const activationOwnership = { kind: 'activation', activation_id: 'act-goal-a', parent_run_id: 'run-parent', parent_card_id: 'project', parent_session_id: 'planner:project', parent_tool_call_id: 'call-goal-a' } as const;
 
 function reviewResult(result: ReviewerResult['assessment']['result']): ReviewerResult {
   return {
@@ -22,7 +24,7 @@ describe('reviewer assessment handler', () => {
     const failed: ReviewAssessment[] = [];
     const outcome = await handleReviewerAssessmentDecision({
       goalId: 'goal-a',
-      projectCardId: 'project',
+      ownership: directOwnership,
       assessmentId: 'assessment-goal-a-1',
       reviewerSessionId: 'reviewer:goal-a:assessment-goal-a-1',
       reviewResult: reviewResult('pass'),
@@ -39,7 +41,7 @@ describe('reviewer assessment handler', () => {
     const patches: Partial<CardRecord>[] = [];
     const outcome = await handleReviewerAssessmentDecision({
       goalId: 'goal-a',
-      projectCardId: 'goal-a',
+      ownership: directOwnership,
       assessmentId: 'assessment-goal-a-1',
       reviewerSessionId: 'reviewer:goal-a:assessment-goal-a-1',
       reviewResult: reviewResult('pass'),
@@ -83,7 +85,7 @@ describe('reviewer assessment handler', () => {
     const calls: string[] = [];
     const outcome = await handleReviewerAssessmentDecision({
       goalId: 'goal-a',
-      projectCardId: 'project',
+      ownership: activationOwnership,
       assessmentId: 'assessment-goal-a-1',
       reviewerSessionId: 'reviewer:goal-a:assessment-goal-a-1',
       reviewResult: reviewResult('pass'),
@@ -108,11 +110,11 @@ describe('reviewer assessment handler', () => {
     ]);
   });
 
-  it('idles direct child-goal dispatch when no parent activation edge exists', async () => {
+  it('throws when activation-owned reviewer pass cannot unwind to parent', async () => {
     const calls: string[] = [];
-    const outcome = await handleReviewerAssessmentDecision({
+    await expect(handleReviewerAssessmentDecision({
       goalId: 'goal-a',
-      projectCardId: 'project',
+      ownership: activationOwnership,
       assessmentId: 'assessment-goal-a-1',
       reviewerSessionId: 'reviewer:goal-a:assessment-goal-a-1',
       reviewResult: reviewResult('pass'),
@@ -123,13 +125,10 @@ describe('reviewer assessment handler', () => {
         transitionRuntime: async (event, details) => { calls.push(`${event}:${details.reason}`); },
         emitGoalCompleted: (cardId) => { calls.push(`completed:${cardId}`); },
       }),
-    });
+    })).rejects.toThrow(/could not unwind to parent activation/);
 
-    expect(outcome).toEqual({ kind: 'completed' });
     expect(calls).toEqual([
       'unwind:goal-a:done',
-      'reviewer_finished:review_pass',
-      'completed:goal-a',
     ]);
   });
 
@@ -137,7 +136,7 @@ describe('reviewer assessment handler', () => {
     const calls: string[] = [];
     await expect(handleReviewerAssessmentDecision({
       goalId: 'goal-a',
-      projectCardId: 'project',
+      ownership: activationOwnership,
       assessmentId: 'assessment-goal-a-1',
       reviewerSessionId: 'reviewer:goal-a:assessment-goal-a-1',
       reviewResult: reviewResult('pass'),
@@ -159,7 +158,7 @@ describe('reviewer assessment handler', () => {
     const patches: Partial<CardRecord>[] = [];
     const outcome = await handleReviewerAssessmentDecision({
       goalId: 'goal-a',
-      projectCardId: 'project',
+      ownership: activationOwnership,
       assessmentId: 'assessment-goal-a-1',
       reviewerSessionId: 'reviewer:goal-a:assessment-goal-a-1',
       reviewResult: reviewResult('needs_corrections'),

@@ -1,5 +1,5 @@
 import type { AgentExecutionPort } from '../contracts/index.js';
-import type { CardRecord } from '../schemas/index.js';
+import type { CardRecord, RuntimeActivationRecord } from '../schemas/index.js';
 import type { RuntimeSkillsPort } from './runtime-config.js';
 import type { ActivationCallerEdge, ActivationUnwindRunner } from './activation-unwind.js';
 import {
@@ -45,8 +45,10 @@ export class ExecutorActivationDispatcher {
     goalCard: CardRecord | null;
     card: CardRecord;
     callerEdge: ActivationCallerEdge | null;
+    activation: RuntimeActivationRecord;
   }): Promise<{ executedTerminal: boolean; failed: boolean }> {
-    const { goalId, goalCard, card, callerEdge } = input;
+    const { goalId, goalCard, card, callerEdge, activation } = input;
+    if (!callerEdge) throw new Error(`Activation '${activation.activation_id}' for '${card.id}' has no caller edge.`);
     const startAction = selectActivationStartAction(card.status, 'executor');
     if (startAction.action === 'reject') return { executedTerminal: false, failed: true };
     const transitioned =
@@ -63,7 +65,9 @@ export class ExecutorActivationDispatcher {
       patch: buildExecutorActiveRunPatch({
         card,
         goalId,
+        ownership: { kind: 'activation', activation_id: activation.activation_id, parent_run_id: activation.parent_run_id, parent_card_id: activation.parent_card_id, parent_session_id: activation.parent_session_id, parent_tool_call_id: activation.parent_tool_call_id },
         callerEdge,
+        plannerSessionId: activation.parent_session_id,
         at: this.deps.now(),
       }),
     });

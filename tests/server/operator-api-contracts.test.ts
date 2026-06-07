@@ -49,7 +49,7 @@ const runtimeIntent = {
 const runtimeRun = {
   run_id: 'run-1',
   kind: 'root',
-  card_id: 'project',
+  ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project',
   command_id: 'cmd-1',
   activation_id: null,
   parent_run_id: null,

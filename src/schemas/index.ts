@@ -70,6 +70,7 @@ export type {
   RuntimeRunKind,
   RuntimeRunPhase,
   RuntimeActivationStatus,
+  RuntimeDispatchOwnership,
   ActionableErrorEnvelope,
   RuntimeIntent,
   RuntimeCommandRecord,

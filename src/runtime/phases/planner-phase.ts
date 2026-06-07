@@ -1,4 +1,4 @@
-import type { CardRecord, PlannerBlockedResult, RuntimeState } from '../../schemas/index.js';
+import type { CardRecord, PlannerBlockedResult, RuntimeDispatchOwnership, RuntimeState } from '../../schemas/index.js';
 import type { PlannerResult } from '../../contracts/index.js';
 import { blockedPlanningReason, getBlockedPlanning, isReviewerCapacityPlanningBlocker, shouldPreservePrecisePlanningBlocker } from '../planning-blockers.js';
 import { activeRunFromActivationState, plannerActivationStateFromGoal } from '../activation-reducer.js';
@@ -235,11 +235,14 @@ export function summarizePlannerPostDispatch(input: {
 
 export function buildPlannerActiveRunPatch(input: {
   goal: Pick<CardRecord, 'id' | 'type'>;
+  ownership: RuntimeDispatchOwnership;
   plannerSessionId: string;
+  callerSessionId: string | null;
+  callerToolCallId: string | null;
   at: string;
 }): Partial<RuntimeState> {
   const activeRun = activeRunFromActivationState(
-    plannerActivationStateFromGoal({ goal: input.goal, plannerSessionId: input.plannerSessionId }),
+    plannerActivationStateFromGoal({ goal: input.goal, ownership: input.ownership, plannerSessionId: input.plannerSessionId, callerSessionId: input.callerSessionId, callerToolCallId: input.callerToolCallId }),
     input.at,
   );
   return {

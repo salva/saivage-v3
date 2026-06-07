@@ -26,7 +26,8 @@ function runningRun(overrides: Partial<ActiveCardRun> = {}): ActiveCardRun {
   return {
     card_id: 'goal-a',
     card_type: 'goal',
-    runtime_status: 'running',
+    ownership: { kind: 'direct', source: 'project_root' },
+  runtime_status: 'running',
     phase: 'planner',
     caller_session_id: null,
     caller_tool_call_id: null,

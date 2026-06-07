@@ -10,7 +10,7 @@ describe('planner invocation failure handler', () => {
       runtime_runs: [
         { ...failedRun, run_id: 'activation-owned', card_id: 'goal-a', phase: 'planner', runtime_status: 'running', session_id: 'planner:goal-a', activation_id: 'act-1' },
         { ...failedRun, run_id: 'other-session', card_id: 'goal-a', phase: 'planner', runtime_status: 'running', session_id: 'planner:other', activation_id: null },
-        { ...failedRun, run_id: 'root-run', kind: 'root', card_id: 'goal-a', phase: 'planner', runtime_status: 'running', session_id: 'planner:goal-a', activation_id: null },
+        { ...failedRun, run_id: 'root-run', kind: 'root', ownership: { kind: 'direct', source: 'project_root' }, card_id: 'goal-a', phase: 'planner', runtime_status: 'running', session_id: 'planner:goal-a', activation_id: null },
       ],
     } as RuntimeState;
     expect(selectPlannerInvocationFailureRun({ state, goalId: 'goal-a' })?.run_id).toBe('root-run');

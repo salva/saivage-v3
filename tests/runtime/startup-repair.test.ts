@@ -8,7 +8,19 @@ function state(run: NonNullable<RuntimeState['active_card_run']> | null): Runtim
 }
 
 function run(phase: NonNullable<RuntimeState['active_card_run']>['phase']): NonNullable<RuntimeState['active_card_run']> {
-  return { phase, card_id: 'card-a' } as NonNullable<RuntimeState['active_card_run']>;
+  return {
+    phase,
+    card_id: 'card-a',
+    card_type: 'goal',
+    ownership: { kind: 'direct', source: 'project_root' },
+    runtime_status: 'running',
+    caller_session_id: null,
+    caller_tool_call_id: null,
+    planner_session_id: 'planner:card-a',
+    correction_attempts: 0,
+    started_at: 'before',
+    last_turn_at: 'before',
+  } as NonNullable<RuntimeState['active_card_run']>;
 }
 
 const card = { id: 'card-a', status: 'running' } as unknown as CardRecord;
@@ -45,7 +57,7 @@ describe('startup active run repair decisions', () => {
       paused: false,
       paused_at: null,
       updated_at: 'now',
-      active_card_run: expect.objectContaining({ phase: 'planner', runtime_status: 'running', reviewer_session_id: null, last_turn_at: 'now' }),
+      active_card_run: expect.objectContaining({ phase: 'planner', runtime_status: 'running', reviewer_session_id: null, last_turn_at: 'before' }),
     }));
   });
 
@@ -71,7 +83,7 @@ describe('startup active run repair decisions', () => {
     }));
     expect(buildResumePlannerStartupState({ previousState, run: run('planner'), at: 'now' })).toEqual(expect.objectContaining({
       status: 'running',
-      active_card_run: expect.objectContaining({ runtime_status: 'running', last_turn_at: 'now' }),
+      active_card_run: expect.objectContaining({ runtime_status: 'running', last_turn_at: 'before' }),
     }));
   });
 

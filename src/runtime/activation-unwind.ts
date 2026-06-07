@@ -5,7 +5,7 @@ import { parseToolCallMessage } from '../contracts/persisted-tool-call.js';
 import type { RoundStamp, RuntimeAppendRecorder, SessionStamper } from './session-stamper.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
 import { TERMINAL_STATUSES } from '../permissions/index.js';
-import { activeRunFromActivationState, plannerActivationStateFromGoal } from './activation-reducer.js';
+import { readRuntimeState, RuntimeActivationInvariantError } from './state.js';
 import { isUnresolvedRuntimeActivationStatus } from './state.js';
 
 export interface UnresolvedActivateCardCall {
@@ -75,7 +75,8 @@ export function findActivationCallerEdge(input: {
   const parentCardId = input.cardPort.getParent(input.childCardId);
   if (!parentCardId) return null;
   const parentSession = input.sessionPort.findPlannerSessionForCard(parentCardId);
-  const callerSessionId = parentSession?.id ?? `planner:${parentCardId}`;
+  if (!parentSession?.id) return null;
+  const callerSessionId = parentSession.id;
   const call = input.sessionPort.findUniqueUnresolvedActivateCardToolCall(callerSessionId, input.childCardId);
   if (!call) return null;
   return { parentCardId, callerSessionId, callerToolCallId: call.tool_call_id };
@@ -187,6 +188,7 @@ export interface ActivationUnwindRunnerCards {
 export class ActivationUnwindRunner {
   constructor(
     private readonly deps: {
+      projectRoot: string;
       cards: ActivationUnwindRunnerCards;
       sessionPort: ActivationUnwindSessionPort;
       sessionStamper: SessionStamper;
@@ -269,10 +271,22 @@ export class ActivationUnwindRunner {
     if (!parentCardId) return null;
     const parent = this.deps.cards.read(parentCardId);
     if (!parent) return null;
-    return activeRunFromActivationState(
-      plannerActivationStateFromGoal({ goal: { id: parentCardId, type: parent.type }, plannerSessionId: `planner:${parentCardId}` }),
-      this.deps.now(),
-    );
+    const parentRun = (readRuntimeState(this.deps.projectRoot)?.runtime_runs ?? []).find((run) => run.card_id === parentCardId && run.phase === 'planner' && run.runtime_status === 'running' && !run.finished_at);
+    if (!parentRun) return null;
+    if (!parentRun.session_id) throw new RuntimeActivationInvariantError(`Runtime activation invariant violation: parent planner run '${parentRun.run_id}' for '${parentCardId}' has no session identity.`);
+    return {
+      card_id: parentCardId,
+      card_type: parent.type,
+      ownership: parentRun.ownership,
+      runtime_status: 'running',
+      phase: 'planner',
+      caller_session_id: parentRun.ownership.kind === 'activation' ? parentRun.ownership.parent_session_id : null,
+      caller_tool_call_id: parentRun.ownership.kind === 'activation' ? parentRun.ownership.parent_tool_call_id : null,
+      planner_session_id: parentRun.session_id,
+      correction_attempts: 0,
+      started_at: parentRun.started_at,
+      last_turn_at: this.deps.now(),
+    };
   }
 
   private markActivationComplete(childCardId: string, outcome: ActivationCompletionOutcome, lifecycle?: CardLifecycleState | null): void {
