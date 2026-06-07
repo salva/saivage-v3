@@ -64,16 +64,12 @@ import { AgentSessionLifecycle } from './session-lifecycle.js';
 import { InvocationModelContext } from './invocation-model-context.js';
 import { AgentInvocationRunner } from './invocation-runner.js';
 import { compensateActivationBarrierThrow } from './activation-barrier-compensation.js';
+import { SessionInvariantError } from './session-invariant-error.js';
 
 export type AgentRole = OperationalAgentRole;
 export type InvokableAgentRole = AgentInvocationRole;
 
-export class SessionInvariantError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'SessionInvariantError';
-  }
-}
+export { SessionInvariantError } from './session-invariant-error.js';
 
 export interface AgentAdapterConfig {
   projectRoot: string;
@@ -118,6 +114,7 @@ export class AgentAdapter implements AgentExecutionPort {
   private readonly cardStore: CardStore;
   private readonly runtimeStateProvider?: () => RuntimeState | null;
   private readonly contextCompactor: ContextCompactor;
+  private readonly sessionStamper: SessionStampCounter;
 
   constructor(cfg: AgentAdapterConfig) {
     this.projectRoot = cfg.projectRoot;
@@ -139,9 +136,10 @@ export class AgentAdapter implements AgentExecutionPort {
     if (!cfg.cardStore) throw new Error('AgentAdapter requires a composition-owned CardStore.');
     this.cardStore = cfg.cardStore;
     this.runtimeStateProvider = cfg.runtimeStateProvider;
+    this.sessionStamper = new SessionStampCounter();
     this.contextCompactor = cfg.contextCompactor ?? new ContextCompactor({
       saivageDir: this.saivageDir,
-      sessionStamper: new SessionStampCounter(),
+      sessionStamper: this.sessionStamper,
     });
     this.toolRuntime = new ToolRuntime(
       { cardStore: this.cardStore, bus: cfg.eventBus },
@@ -167,7 +165,7 @@ export class AgentAdapter implements AgentExecutionPort {
       eventBusProvider: () => this.runtimeLedgerEventBus,
       eventLogger: this.eventLogger,
     });
-    this.messageLog = new SessionMessageLog(this.saivageDir);
+    this.messageLog = new SessionMessageLog(this.saivageDir, this.sessionStamper);
     this.modelContext = new InvocationModelContext({
       projectRoot: this.projectRoot,
       sessionCoordinator: this.sessionCoordinator,
@@ -299,7 +297,7 @@ export class AgentAdapter implements AgentExecutionPort {
     const existing = getSession(this.saivageDir, plannerSessionId);
     if (existing)
       injectQueuedSyntheticPlannerNotes(this.projectRoot, plannerSessionId, {
-        stampUserMessage: (id: string) => this.nextFallbackRound(id, 'user'),
+        stampUserMessage: (id: string) => this.sessionStamper.stampUserMessage(id),
       });
     const typedResult = await this.invokeAgent<PlannerEnvelope, PlannerTypedResult>(
       'planner',
@@ -376,13 +374,6 @@ export class AgentAdapter implements AgentExecutionPort {
 
   private buildModelMessages(sessionId: string, role?: AgentRole, goalId?: string): AgentMessage[] {
     return this.modelContext.buildModelMessages(sessionId, role, goalId);
-  }
-
-  private nextFallbackRound(
-    sessionId: string,
-    prefix: 'pre' | 'user' | 'assistant' | 'diagnostic' = 'assistant',
-  ) {
-    return this.messageLog.nextFallbackRound(sessionId, prefix);
   }
 
   private compensateActivationBarrierThrow(

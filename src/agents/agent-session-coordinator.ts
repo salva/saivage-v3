@@ -5,6 +5,7 @@ import type { EventLogger } from '../observability/index.js';
 import { getSession, getSessionMessages, listSessions } from './session-persistence.js';
 import { generateRoundId } from '../schemas/round-id-server.js';
 import { filterAgentMessagesForModel } from './agent-message-visibility.js';
+import { SessionInvariantError } from './session-invariant-error.js';
 
 export type SessionCreatedHook = (sessionId: string) => void | Promise<void>;
 
@@ -89,7 +90,9 @@ export class AgentSessionCoordinator {
         next_action: lastUserMsg ? `Processing: ${lastUserMsg.content.substring(0, 200)}` : 'Awaiting user input',
         context_summary: `Goal: ${session.goal_card_id ?? 'N/A'}, Card: ${session.card_id ?? 'N/A'}`,
       };
-    } catch { return null; }
+    } catch (err) {
+      throw new SessionInvariantError(`Failed to read handoff summary for session '${sessionId}': ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   getActiveSessionHandoffs(): HandoffSummary[] {
@@ -101,7 +104,9 @@ export class AgentSessionCoordinator {
         if (summary) summaries.push(summary);
       }
       return summaries;
-    } catch { return []; }
+    } catch (err) {
+      throw new SessionInvariantError(`Failed to read active session handoffs: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   formatNotificationGuidance(notification: NotificationQueueEntry): string { return `- [${notification.kind}] ${notification.body}`; }

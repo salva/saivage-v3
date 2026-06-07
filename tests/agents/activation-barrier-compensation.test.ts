@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { compensateActivationBarrierThrow } from '../../src/agents/activation-barrier-compensation.js';
 import { SessionMessageLog } from '../../src/agents/session-message-log.js';
+import { SessionStampCounter } from '../../src/runtime/session-stamp-counter.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { appendRuntimeRun, initRuntimeState, readRuntimeState, updateRuntimeState, upsertRuntimeActivation } from '../../src/runtime/state.js';
 
@@ -43,7 +44,7 @@ describe('activation barrier compensation', () => {
         },
       });
 
-      compensateActivationBarrierThrow({ projectRoot: root, saivageDir: join(root, '.saivage'), messageLog: new SessionMessageLog(join(root, '.saivage')), redactProviderErrorMessage: String }, 'planner:project', 'call-a', activation, new Error('dispatch failed'));
+      compensateActivationBarrierThrow({ projectRoot: root, saivageDir: join(root, '.saivage'), messageLog: new SessionMessageLog(join(root, '.saivage'), new SessionStampCounter()), redactProviderErrorMessage: String }, 'planner:project', 'call-a', activation, new Error('dispatch failed'));
 
       const state = readRuntimeState(root);
       expect(state?.runtime_activations?.find((candidate) => candidate.activation_id === activation.activation_id)).toEqual(expect.objectContaining({ status: 'failed' }));

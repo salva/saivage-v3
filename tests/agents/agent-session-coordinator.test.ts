@@ -1,11 +1,12 @@
 import { describe, expect, it } from '@jest/globals';
 import { EventEmitter } from 'node:events';
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { AgentSessionCoordinator } from '../../src/agents/agent-session-coordinator.js';
 import { appendMessage, createSession } from '../../src/agents/session-persistence.js';
+import { SessionInvariantError } from '../../src/agents/session-invariant-error.js';
 
 function notificationCenter() {
   return {
@@ -73,6 +74,23 @@ describe('AgentSessionCoordinator', () => {
         'context_compaction',
         'text',
       ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('surfaces handoff read corruption instead of treating it as absent handoff', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-session-coordinator-'));
+    const saivageDir = join(root, '.saivage');
+    mkdirSync(join(saivageDir, 'agents', 'sessions'), { recursive: true });
+    mkdirSync(join(saivageDir, 'agents', 'messages'), { recursive: true });
+    try {
+      const session = createSession(saivageDir, 'planner', 'goal-1', 'goal-1', undefined, 'planner:goal-1');
+      writeFileSync(join(saivageDir, 'agents', 'messages', `${session.id}.jsonl`), '{not-json');
+      const coordinator = new AgentSessionCoordinator({ saivageDir, notificationCenter: notificationCenter() });
+
+      expect(() => coordinator.getHandoffSummary(session.id)).toThrow(SessionInvariantError);
+      expect(() => coordinator.getActiveSessionHandoffs()).toThrow(SessionInvariantError);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

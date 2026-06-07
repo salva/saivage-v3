@@ -35,6 +35,7 @@ import { ModelRouter } from './model-router.js';
 import { capabilityRequestForLlmOptions } from './provider-capabilities.js';
 import { RoleToolPolicy } from './role-tool-policy.js';
 import { filterAgentMessagesForModel } from './agent-message-visibility.js';
+import { buildAgentProtocolViolation, parseProtocolToolArgs } from './agent-protocol-violation.js';
 
 
 export interface WorkspaceContext {
@@ -221,16 +222,6 @@ export class AnalystHandler {
     }
   }
 
-  private parseToolArgs(raw: string, phase: string): Record<string, unknown> {
-    try {
-      const candidate = JSON.parse(raw) as unknown;
-      return candidate && typeof candidate === 'object' && !Array.isArray(candidate) ? candidate as Record<string, unknown> : {};
-    } catch (err) {
-      this.logBoundaryDiagnostic(phase, err);
-      return {};
-    }
-  }
-
   private async handleMessageSerial(sessionId: string, userContent: string, workspaceContext?: WorkspaceContext): Promise<AnalystResponse> {
     const repository = new AgentSessionRepository(this.projectRoot);
     let session = repository.getSession(sessionId);
@@ -282,10 +273,10 @@ export class AnalystHandler {
       } catch (err) { this.logBoundaryDiagnostic('analyst_history_compaction_failed', err); }
 
       const history = filterAgentMessagesForModel(new AgentSessionRepository(this.projectRoot).getMessages(sessionId));
-      const bounded = this.contextCompactor.pruneToolBoundary(history);
+      this.contextCompactor.assertToolBoundaryIntegrity(history);
       const modelInput: AgentMessage[] = [
         { id: `workspace-context-${sessionId}`, session_id: sessionId, role: 'system', kind: 'text', content: buildWorkspaceContextNote(workspaceContext), round_id: generateRoundId('pre'), message_index: 0, block_index: 0, timestamp: now() },
-        ...bounded,
+        ...history,
       ];
 
       let llmResult;
@@ -334,15 +325,27 @@ export class AnalystHandler {
       }
       previousToolCallFingerprints.add(fingerprint);
       for (const tc of toolCalls) {
-        let parsedArgs: Record<string, unknown>;
-        parsedArgs = this.parseToolArgs(tc.function.arguments, 'analyst_tool_call_arguments_parse_failed');
+        const parsed = parseProtocolToolArgs(tc.function.arguments);
+        const parsedArgs = parsed.kind === 'ok'
+          ? parsed.args
+          : { protocol_violation: buildAgentProtocolViolation({ session_id: sessionId, role: 'analyst', tool_call_id: tc.id, tool_name: tc.function.name, violation: parsed.violation, raw: tc.function.arguments }) };
         const row = serializeToolCallMessage({ id: tc.id, name: tc.function.name, args: parsedArgs });
         appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'tool_call', content: JSON.stringify(row), tool: tc.function.name, tool_call_id: tc.id }, this.runtimeDeps.stamper.stampInRound(sessionId), this.runtimeDeps.stamper);
       }
 
       for (const tc of toolCalls) {
-        let params: Record<string, unknown> = {};
-        params = this.parseToolArgs(tc.function.arguments, 'analyst_tool_execution_arguments_parse_failed');
+        const parsed = parseProtocolToolArgs(tc.function.arguments);
+        if (parsed.kind === 'violation') {
+          const violation = buildAgentProtocolViolation({ session_id: sessionId, role: 'analyst', tool_call_id: tc.id, tool_name: tc.function.name, violation: parsed.violation, raw: tc.function.arguments });
+          this.logBoundaryDiagnostic('analyst_tool_arguments_protocol_violation', new Error(`${parsed.violation}: ${parsed.detail}`));
+          const content = JSON.stringify(violation);
+          const result: ToolResult = { success: false, error: content, errorEnvelope: { kind: 'internal', message: content } };
+          this.emitActivity({ type: 'tool_result', content: { tool: tc.function.name, success: false, errorKind: 'agent_protocol_violation' } });
+          appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'tool', kind: 'tool_error', content, tool: tc.function.name, tool_call_id: tc.id }, this.runtimeDeps.stamper.stampInRound(sessionId), this.runtimeDeps.stamper);
+          toolInvocations.push({ tool: tc.function.name, params: {}, result });
+          continue;
+        }
+        const params = parsed.args;
 
 
         this.emitActivity({ type: 'tool_call', content: { tool: tc.function.name, params } });

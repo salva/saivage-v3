@@ -31,6 +31,8 @@ import { AgentSessionLifecycle } from './session-lifecycle.js';
 import { InvocationModelContext } from './invocation-model-context.js';
 import { AgentToolExecutor } from './agent-tool-executor.js';
 import { InvocationService } from './invocation-service.js';
+import { buildAgentProtocolViolation, parseProtocolToolArgs } from './agent-protocol-violation.js';
+import { SessionInvariantError } from './session-invariant-error.js';
 
 type AgentRole = OperationalAgentRole;
 
@@ -213,13 +215,32 @@ export class AgentInvocationRunner {
                   persistAssistantToolCalls: (result) => {
                     if (result.kind !== 'tool_calls') return;
                     for (const tc of result.tool_calls) {
-                      let parsedArgs: Record<string, unknown>;
-                      try {
-                        parsedArgs = JSON.parse(tc.function.arguments) as Record<string, unknown>;
-                        if (!parsedArgs || typeof parsedArgs !== 'object' || Array.isArray(parsedArgs))
-                          parsedArgs = {};
-                      } catch {
-                        parsedArgs = {};
+                      const parsed = parseProtocolToolArgs(tc.function.arguments);
+                      if (parsed.kind === 'violation') {
+                        const violation = buildAgentProtocolViolation({
+                          session_id: session.id,
+                          role,
+                          provider: candidate.provider,
+                          model: candidate.model,
+                          tool_call_id: tc.id,
+                          tool_name: tc.function.name,
+                          violation: parsed.violation,
+                          raw: tc.function.arguments,
+                        });
+                        this.config.messageLog.append(session.id, {
+                          role: 'assistant',
+                          kind: 'tool_call',
+                          content: JSON.stringify(
+                            serializeToolCallMessage({
+                              id: tc.id,
+                              name: tc.function.name,
+                              args: { protocol_violation: violation },
+                            }),
+                          ),
+                          tool: tc.function.name,
+                          tool_call_id: tc.id,
+                        });
+                        continue;
                       }
                       this.config.messageLog.append(session.id, {
                         role: 'assistant',
@@ -228,7 +249,7 @@ export class AgentInvocationRunner {
                           serializeToolCallMessage({
                             id: tc.id,
                             name: tc.function.name,
-                            args: parsedArgs,
+                            args: parsed.args,
                           }),
                         ),
                         tool: tc.function.name,
@@ -247,6 +268,27 @@ export class AgentInvocationRunner {
                     if (result.kind !== 'tool_calls') return { runtimeSignalledDone: false };
                     for (const tc of result.tool_calls) {
                       if (contract.isTerminalToolName(tc.function.name)) continue;
+                      const parsedArgs = parseProtocolToolArgs(tc.function.arguments);
+                      if (parsedArgs.kind === 'violation') {
+                        const violation = buildAgentProtocolViolation({
+                          session_id: session.id,
+                          role,
+                          provider: candidate.provider,
+                          model: candidate.model,
+                          tool_call_id: tc.id,
+                          tool_name: tc.function.name,
+                          violation: parsedArgs.violation,
+                          raw: tc.function.arguments,
+                        });
+                        this.config.messageLog.append(session.id, {
+                          role: 'tool',
+                          kind: 'tool_error',
+                          content: JSON.stringify(violation),
+                          tool: tc.function.name,
+                          tool_call_id: tc.id,
+                        });
+                        continue;
+                      }
                       const msg = await this.config.toolExecutor.processToolCall(tc, role, session.id, {
                         goalId,
                         cardId,
@@ -256,19 +298,20 @@ export class AgentInvocationRunner {
                         try {
                           const body = JSON.parse(msg.content) as { activation?: unknown };
                           activation = body.activation;
-                        } catch {
-                          activation = null;
+                        } catch (err) {
+                          throw new SessionInvariantError(`Malformed activate_card tool_result JSON for session ${session.id}, tool_call_id ${tc.id}: ${err instanceof Error ? err.message : String(err)}`);
                         }
-                        if (activation && typeof activation === 'object' && 'activation_id' in activation) {
-                          try {
-                            this.config.sessionLifecycle.markWaiting(session.id);
-                            await activationBarrier.dispatch({ activation: activation as RuntimeActivationRecord });
-                          } catch (err) {
-                            this.config.compensateActivationBarrierThrow(session.id, tc.id, activation as RuntimeActivationRecord, err);
-                            throw err;
-                          }
-                          continue;
+                        if (!activation || typeof activation !== 'object' || !('activation_id' in activation)) {
+                          throw new SessionInvariantError(`Malformed activate_card tool_result payload for session ${session.id}, tool_call_id ${tc.id}: missing activation.activation_id`);
                         }
+                        try {
+                          this.config.sessionLifecycle.markWaiting(session.id);
+                          await activationBarrier.dispatch({ activation: activation as RuntimeActivationRecord });
+                        } catch (err) {
+                          this.config.compensateActivationBarrierThrow(session.id, tc.id, activation as RuntimeActivationRecord, err);
+                          throw err;
+                        }
+                        continue;
                       }
                       this.config.messageLog.append(session.id, {
                         role: msg.role,

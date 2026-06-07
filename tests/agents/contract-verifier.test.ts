@@ -18,11 +18,11 @@ describe('contract verifier', () => {
       expect(parse.args).toEqual({ status: 'completed' });
     });
 
-    it('coerces non-object JSON (e.g. array, primitive) to empty args object', () => {
+    it('rejects non-object JSON terminal args instead of coercing to empty args object', () => {
       const arr = verifier.parseDoneArgs('tc-2', 'emit_executor_result', '[1,2,3]');
-      expect(arr.kind).toBe('ok');
-      if (arr.kind !== 'ok') return;
-      expect(arr.args).toEqual({});
+      expect(arr.kind).toBe('not_object');
+      if (arr.kind !== 'not_object') return;
+      expect(arr.detail).toMatch(/JSON object/);
     });
 
     it('reports invalid_json when arguments are malformed', () => {
@@ -70,6 +70,17 @@ describe('contract verifier', () => {
       if (verdict.kind !== 'violated') return;
       expect(verdict.report.proposed).toBeNull();
       expect(verdict.report.obligations[0].code).toBe('envelope_invalid_json');
+    });
+
+    it('returns violated with terminal_args_not_object when terminal args are arrays/null/primitives', () => {
+      for (const raw of ['[1,2,3]', 'null', 'true', '42', '"text"']) {
+        const parse = verifier.parseDoneArgs('tc-1', 'emit_executor_result', raw);
+        const verdict = verifier.check(exec, parse);
+        expect(verdict.kind).toBe('violated');
+        if (verdict.kind !== 'violated') continue;
+        expect(verdict.report.proposed).toBeNull();
+        expect(verdict.report.obligations[0].code).toBe('terminal_args_not_object');
+      }
     });
 
     it('returns violated with envelope_field_invalid when tool name is not a contract terminal', () => {

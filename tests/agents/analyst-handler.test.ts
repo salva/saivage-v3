@@ -3,10 +3,11 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTestAnalystRuntime } from '../helpers/test-runtime-application.js';
-import { pruneToolBoundary } from '../../src/agents/context-compactor.js';
+import { assertToolBoundaryIntegrity, pruneToolBoundaryAfterTruncation } from '../../src/agents/context-compactor.js';
 import { appendMessage } from '../../src/agents/session-persistence.js';
 import { serializeToolCallMessage, PersistedRowCorruptError } from '../../src/contracts/persisted-tool-call.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
+import { SessionInvariantError } from '../../src/agents/session-invariant-error.js';
 
 const { AnalystHandler } = await import('../../src/agents/analyst-handler.js');
 
@@ -126,7 +127,7 @@ describe('AnalystHandler F05 contract', () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('pruneToolBoundary pairs each persisted single-call row with its tool_result', () => {
+  it('pruneToolBoundaryAfterTruncation pairs each persisted single-call row with its tool_result', () => {
     const baseRound = 'r-assistant-00000000000000000000000000000001';
     const rowX = serializeToolCallMessage({ id: 'call-x', name: 'list_cards', args: { types: ['goal'] } });
     const rowY = serializeToolCallMessage({ id: 'call-y', name: 'list_cards', args: { types: ['code'] } });
@@ -137,7 +138,7 @@ describe('AnalystHandler F05 contract', () => {
       syntheticMessage({ id: 't1', role: 'tool', kind: 'tool_result', content: '{}', tool: 'list_cards', tool_call_id: 'call-x', round_id: baseRound, message_index: 3 }),
       syntheticMessage({ id: 't2', role: 'tool', kind: 'tool_result', content: '{}', tool: 'list_cards', tool_call_id: 'call-y', round_id: baseRound, message_index: 4 }),
     ];
-    const trimmed = pruneToolBoundary(messages);
+    const trimmed = pruneToolBoundaryAfterTruncation(messages);
     expect(trimmed).toHaveLength(5);
     const assistantIds = trimmed.filter((m) => m.role === 'assistant' && m.kind === 'tool_call').map((m) => (JSON.parse(m.content) as { tool_calls: Array<{ id: string }> }).tool_calls[0].id);
     expect(assistantIds.sort()).toEqual(['call-x', 'call-y']);
@@ -149,11 +150,20 @@ describe('AnalystHandler F05 contract', () => {
       ...messages,
       syntheticMessage({ id: 't3', role: 'tool', kind: 'tool_result', content: '{}', tool: 'list_cards', tool_call_id: 'call-z', round_id: baseRound, message_index: 5 }),
     ];
-    const trimmedOrphan = pruneToolBoundary(orphan);
+    const trimmedOrphan = pruneToolBoundaryAfterTruncation(orphan);
     expect(trimmedOrphan.filter((m) => m.role === 'tool').map((m) => m.tool_call_id).sort()).toEqual(['call-x', 'call-y']);
   });
 
-  it('legacy {toolCalls:[...]} persisted row makes pruneToolBoundary throw PersistedRowCorruptError(legacy_tool_calls_wrapper)', () => {
+  it('assertToolBoundaryIntegrity throws on full-history orphan tool rows', () => {
+    const orphan: AgentMessage[] = [
+      syntheticMessage({ id: 't3', role: 'tool', kind: 'tool_result', content: '{}', tool: 'list_cards', tool_call_id: 'call-z' }),
+    ];
+
+    expect(() => assertToolBoundaryIntegrity(orphan)).toThrow(SessionInvariantError);
+    expect(() => assertToolBoundaryIntegrity(orphan)).toThrow(/orphan_tool_result/);
+  });
+
+  it('legacy {toolCalls:[...]} persisted row makes pruneToolBoundaryAfterTruncation throw PersistedRowCorruptError(legacy_tool_calls_wrapper)', () => {
     const baseRound = 'r-assistant-00000000000000000000000000000002';
     const legacyContent = JSON.stringify({ toolCalls: [{ id: 'old-1', name: 'list_cards', args: {} }] });
     const messages: AgentMessage[] = [
@@ -161,12 +171,12 @@ describe('AnalystHandler F05 contract', () => {
       syntheticMessage({ id: 'a1', role: 'assistant', kind: 'tool_call', content: legacyContent, tool: 'list_cards', round_id: baseRound, message_index: 1 }),
     ];
     let caught: unknown;
-    try { pruneToolBoundary(messages); } catch (err) { caught = err; }
+    try { pruneToolBoundaryAfterTruncation(messages); } catch (err) { caught = err; }
     expect(caught).toBeInstanceOf(PersistedRowCorruptError);
     expect((caught as PersistedRowCorruptError).code).toBe('legacy_tool_calls_wrapper');
   });
 
-  it('records diagnostics for malformed tool argument JSON instead of swallowing parse failures', async () => {
+  it('turns malformed tool argument JSON into protocol tool errors without executing tools', async () => {
     const root = setupRoot();
     try {
       const diagnostics: Array<Record<string, unknown>> = [];
@@ -184,9 +194,11 @@ describe('AnalystHandler F05 contract', () => {
 
       expect(response.message.content).toBe('Done.');
       expect(diagnostics).toEqual(expect.arrayContaining([
-        expect.objectContaining({ kind: 'runtime_diagnostic', phase: 'analyst_tool_call_arguments_parse_failed' }),
-        expect.objectContaining({ kind: 'runtime_diagnostic', phase: 'analyst_tool_execution_arguments_parse_failed' }),
+        expect.objectContaining({ kind: 'runtime_diagnostic', phase: 'analyst_tool_arguments_protocol_violation' }),
       ]));
+      const rows = readPersistedRows(root, 's-bad-json');
+      expect(rows.some((row) => row.role === 'tool' && row.kind === 'tool_error' && row.content.includes('agent_protocol_violation'))).toBe(true);
+      expect(rows.some((row) => row.role === 'tool' && row.kind === 'tool_result')).toBe(false);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 

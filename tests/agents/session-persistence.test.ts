@@ -7,6 +7,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
+import { SessionMessageLog } from '../../src/agents/session-message-log.js';
 
 const TEST_ROOT = join(tmpdir(), `saivage-session-test-${Date.now()}`);
 const SAIVAGE_DIR = join(TEST_ROOT, '.saivage');
@@ -318,6 +319,32 @@ describe('session-persistence', () => {
       expect(() => mod.getSessionMessages(SAIVAGE_DIR, session.id)).toThrow(/malformed session message JSONL at line 2/);
       expect(() => mod.appendMessage(SAIVAGE_DIR, session.id, { role: 'assistant', kind: 'text', content: 'Second' }, { round_id: 'r-user-00000000000000000000000000000001', message_index: 1, block_index: 0 })).toThrow(/malformed session message JSONL at line 2/);
       expect(readFileSync(mp, 'utf8')).toBe(corruptContent);
+    });
+  });
+
+  describe('SessionMessageLog', () => {
+    it('requires and uses the injected stamper for append ordering', () => {
+      const session = mod.createSession(SAIVAGE_DIR, 'planner');
+      const stamps: Array<{ round_id: string; message_index: number; block_index: number }> = [];
+      const stamper = {
+        stampUserMessage: () => ({ round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0 }),
+        stampDiagnosticInCurrentRound: () => ({ round_id: 'r-diagnostic-00000000000000000000000000000001', message_index: 1, block_index: 1 }),
+        openAssistantRound: () => ({ round_id: 'r-assistant-00000000000000000000000000000001', message_index: 0, block_index: 0 }),
+        stampInRound: () => ({ round_id: 'r-assistant-00000000000000000000000000000001', message_index: 1, block_index: 1 }),
+        stampPre: () => ({ round_id: 'r-pre-00000000000000000000000000000001', message_index: 0, block_index: 0 }),
+        stampCompacted: () => ({ round_id: 'r-compacted-00000000000000000000000000000001', message_index: 0, block_index: 0 }),
+        closeRound: () => undefined,
+        recordAppend: (message: { round_id: string; message_index: number; block_index: number }) => { stamps.push({ round_id: message.round_id, message_index: message.message_index, block_index: message.block_index }); },
+      };
+
+      const log = new SessionMessageLog(SAIVAGE_DIR, stamper);
+      log.append(session.id, { role: 'assistant', kind: 'text', content: 'hello' });
+      log.append(session.id, { role: 'tool', kind: 'tool_result', content: '{}', tool: 'read_file', tool_call_id: 'call-1' });
+
+      expect(stamps).toEqual([
+        { round_id: 'r-assistant-00000000000000000000000000000001', message_index: 0, block_index: 0 },
+        { round_id: 'r-assistant-00000000000000000000000000000001', message_index: 1, block_index: 1 },
+      ]);
     });
   });
 

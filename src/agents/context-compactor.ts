@@ -4,6 +4,7 @@ import { generateRoundId } from '../schemas/round-id-server.js';
 import { parseToolCallMessage } from '../contracts/persisted-tool-call.js';
 import { buildPlannerStateContextMessage, type PlannerStateCardStore } from './planner-state-context.js';
 import type { RoundStamp, SessionStamper } from './session-persistence.js';
+import { SessionInvariantError } from './session-invariant-error.js';
 import {
   getSessionMessages,
   replaceSessionMessages,
@@ -68,7 +69,45 @@ function toolCallId(message: AgentMessage): string | null {
   return null;
 }
 
-export function pruneToolBoundary(messages: AgentMessage[]): AgentMessage[] {
+interface ToolBoundaryIssue {
+  kind: 'orphan_tool_call' | 'orphan_tool_result';
+  message_id: string;
+  tool_call_id: string | null;
+  tool?: string;
+}
+
+function findToolBoundaryIssues(messages: AgentMessage[]): ToolBoundaryIssue[] {
+  const callIds = new Set<string>();
+  for (const message of messages) {
+    if (message.role === 'assistant' && message.kind === 'tool_call') {
+      const id = toolCallId(message);
+      if (id) callIds.add(id);
+    }
+  }
+
+  const resultIds = new Set<string>();
+  for (const message of messages) {
+    if (message.role === 'tool' && (message.kind === 'tool_result' || message.kind === 'tool_error')) {
+      const id = toolCallId(message);
+      if (id && callIds.has(id)) resultIds.add(id);
+    }
+  }
+
+  const issues: ToolBoundaryIssue[] = [];
+  for (const message of messages) {
+    if (message.role === 'tool' && (message.kind === 'tool_result' || message.kind === 'tool_error')) {
+      const id = toolCallId(message);
+      if (!id || !callIds.has(id)) issues.push({ kind: 'orphan_tool_result', message_id: message.id, tool_call_id: id, tool: message.tool });
+    }
+    if (message.role === 'assistant' && message.kind === 'tool_call') {
+      const id = toolCallId(message);
+      if (!id || !resultIds.has(id)) issues.push({ kind: 'orphan_tool_call', message_id: message.id, tool_call_id: id, tool: message.tool });
+    }
+  }
+  return issues;
+}
+
+export function pruneToolBoundaryAfterTruncation(messages: AgentMessage[]): AgentMessage[] {
   const callIds = new Set<string>();
   for (const message of messages) {
     if (message.role === 'assistant' && message.kind === 'tool_call') {
@@ -96,6 +135,13 @@ export function pruneToolBoundary(messages: AgentMessage[]): AgentMessage[] {
     }
     return true;
   });
+}
+
+export function assertToolBoundaryIntegrity(messages: AgentMessage[]): void {
+  const issues = findToolBoundaryIssues(messages);
+  if (issues.length > 0) {
+    throw new SessionInvariantError(`Session tool boundary invariant violation: ${JSON.stringify(issues)}`);
+  }
 }
 
 function isPersistedPlannerTerminalEnvelope(message: AgentMessage): boolean {
@@ -169,8 +215,12 @@ export class ContextCompactor {
     ];
   }
 
-  pruneToolBoundary(messages: AgentMessage[]): AgentMessage[] {
-    return pruneToolBoundary(messages);
+  pruneToolBoundaryAfterTruncation(messages: AgentMessage[]): AgentMessage[] {
+    return pruneToolBoundaryAfterTruncation(messages);
+  }
+
+  assertToolBoundaryIntegrity(messages: AgentMessage[]): void {
+    assertToolBoundaryIntegrity(messages);
   }
 
   resetState(sessionId: string): void {
@@ -311,7 +361,7 @@ ${summary}`,
   ): AgentMessage[] {
     const keepCount = Math.max(1, Math.floor(messages.length * keepFraction));
     const initialTail = messages.slice(-keepCount);
-    const keptMessages = pruneToolBoundary(initialTail);
+    const keptMessages = pruneToolBoundaryAfterTruncation(initialTail);
 
     return [this.createCompactionMessage(
       sessionId,

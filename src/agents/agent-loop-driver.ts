@@ -1,6 +1,7 @@
 import type { Contract } from '../contracts/contract.js';
 import type { ContractVerifier } from './contract-verifier.js';
 import type { LlmCompleteResult } from './llm-contracts.js';
+import { SessionInvariantError } from './session-invariant-error.js';
 import {
   type AgentLoopState,
   extractDoneSignal,
@@ -63,6 +64,10 @@ export interface AgentLoopDriver<Envelope, TypedResult> {
   signalDoneFromRuntime(envelope: Envelope): void;
 }
 
+function assertNeverState(state: never): never {
+  throw new SessionInvariantError(`Agent loop reached unexpected state: ${JSON.stringify(state)}`);
+}
+
 export function createAgentLoopDriver<Envelope, TypedResult>(
   io: AgentLoopDriverIO<Envelope, TypedResult>,
 ): AgentLoopDriver<Envelope, TypedResult> {
@@ -85,7 +90,7 @@ export function createAgentLoopDriver<Envelope, TypedResult>(
         state = onCancellation(state, 'abort');
         break;
       }
-      if (state.kind !== 'agent_turn') break;
+      if (state.kind !== 'agent_turn') assertNeverState(state as never);
 
       const result = await io.invokeTurn(state.turn);
 
@@ -189,7 +194,7 @@ export function createAgentLoopDriver<Envelope, TypedResult>(
       case 'cancelled':
         return { kind: 'cancelled', reason: state.reason };
       default:
-        return { kind: 'cancelled', reason: 'abort' };
+        return assertNeverState(state as never);
     }
   }
 

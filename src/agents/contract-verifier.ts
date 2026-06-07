@@ -4,6 +4,7 @@ import type {
 } from '../contracts/contract.js';
 import type { PersistedToolCall } from '../contracts/persisted-tool-call.js';
 import { sanitizeRecoveryMessage } from './invocation-recovery-policy.js';
+import { rawProtocolPreview } from './agent-protocol-violation.js';
 
 export interface Obligation {
   code:
@@ -12,7 +13,8 @@ export interface Obligation {
     | 'envelope_schema_violation'
     | 'envelope_field_missing'
     | 'envelope_field_invalid'
-    | 'envelope_cross_field';
+    | 'envelope_cross_field'
+    | 'terminal_args_not_object';
   locator: string;
   description: string;
   expected?: string;
@@ -27,7 +29,8 @@ export interface ObligationReport {
 
 export type DoneArgsParse =
   | { kind: 'ok'; toolName: string; toolCallId: string; args: Record<string, unknown> }
-  | { kind: 'invalid_json'; toolName: string; toolCallId: string; detail: string };
+  | { kind: 'invalid_json'; toolName: string; toolCallId: string; detail: string }
+  | { kind: 'not_object'; toolName: string; toolCallId: string; detail: string; rawPreview: string };
 
 export type ContractCheckResult<Envelope> =
   | { kind: 'satisfied'; envelope: Envelope; terminalName: string }
@@ -81,7 +84,16 @@ export function createContractVerifier(): ContractVerifier {
           detail: err instanceof Error ? err.message : String(err),
         };
       }
-      const args = isPlainObject(parsed) ? parsed : {};
+      if (!isPlainObject(parsed)) {
+        return {
+          kind: 'not_object',
+          toolName,
+          toolCallId,
+          detail: `terminal tool arguments must be a JSON object, got ${parsed === null ? 'null' : Array.isArray(parsed) ? 'array' : typeof parsed}`,
+          rawPreview: rawProtocolPreview(rawArguments),
+        };
+      }
+      const args = parsed;
       return { kind: 'ok', toolName, toolCallId, args };
     },
     check(contract, parse) {
@@ -97,6 +109,23 @@ export function createContractVerifier(): ContractVerifier {
                 code: 'envelope_invalid_json',
                 locator: '',
                 description: `tool '${parse.toolName}' arguments are not valid JSON: ${parse.detail}`,
+              },
+            ],
+          },
+        };
+      }
+      if (parse.kind === 'not_object') {
+        return {
+          kind: 'violated',
+          report: {
+            contractId: contract.name,
+            toolName: parse.toolName,
+            proposed: null,
+            obligations: [
+              {
+                code: 'terminal_args_not_object',
+                locator: '',
+                description: `${parse.detail}; raw_preview=${parse.rawPreview}`,
               },
             ],
           },
