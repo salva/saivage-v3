@@ -5,23 +5,23 @@
 
 :root {
   /* Surfaces */
-  --bg:        var(--c-gray-950);
-  --surface-1: var(--c-gray-900);
-  --surface-2: var(--c-gray-850);
-  --surface-3: var(--c-gray-800);
+  --bg:        var(--c-white);
+  --surface-1: var(--c-gray-50);
+  --surface-2: var(--c-gray-100);
+  --surface-3: var(--c-gray-150);
 
   /* Borders */
-  --border:        var(--c-gray-700);
-  --border-strong: var(--c-gray-600);
-  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border:        var(--c-gray-200);
+  --border-strong: var(--c-gray-400);
+  --border-subtle: rgba(0, 0, 0, 0.08);
 
   /* Text */
-  --text:       var(--c-gray-300);
-  --text-muted: var(--c-gray-400);
+  --text:       var(--c-gray-800);
+  --text-muted: var(--c-gray-600);
   --text-faint: var(--c-gray-500);
 
   /* Accents (semantic) */
-  --accent:   var(--c-green-light);
+  --accent:   var(--c-green);
   --accent-2: var(--c-blue);
   --warn:     var(--c-yellow);
   --danger:   var(--c-red);
@@ -30,40 +30,40 @@
   --teal:     var(--c-teal);
 
   /* Entry / message state colors */
-  --entry-user-border:   color-mix(in srgb, var(--c-blue)        35%, transparent);
-  --entry-user-bg:       color-mix(in srgb, var(--c-blue)        14%, var(--bg));
-  --entry-accent-border: color-mix(in srgb, var(--c-green-light) 35%, transparent);
-  --entry-accent-bg:     color-mix(in srgb, var(--c-green-light) 12%, var(--bg));
-  --entry-warn-border:   color-mix(in srgb, var(--c-yellow)      40%, transparent);
-  --entry-warn-bg:       color-mix(in srgb, var(--c-yellow)      12%, var(--bg));
-  --entry-danger-border: color-mix(in srgb, var(--c-red)         45%, transparent);
-  --entry-danger-bg:     color-mix(in srgb, var(--c-red)         12%, var(--bg));
-  --entry-purple-border: color-mix(in srgb, var(--c-purple)      35%, transparent);
-  --entry-purple-bg:     color-mix(in srgb, var(--c-purple)      14%, var(--bg));
+  --entry-user-border:   rgba(24, 121, 78, 0.25);
+  --entry-user-bg:       rgba(24, 121, 78, 0.06);
+  --entry-accent-border: rgba(24, 121, 78, 0.35);
+  --entry-accent-bg:     rgba(24, 121, 78, 0.06);
+  --entry-warn-border:   rgba(145, 89, 48, 0.25);
+  --entry-warn-bg:       rgba(145, 89, 48, 0.06);
+  --entry-danger-border: rgba(184, 39, 44, 0.25);
+  --entry-danger-bg:     rgba(184, 39, 44, 0.05);
+  --entry-purple-border: rgba(111, 66, 193, 0.25);
+  --entry-purple-bg:     rgba(111, 66, 193, 0.05);
 
   /* Code / syntax theme */
-  --code-bg:           var(--c-gray-800);
+  --code-bg:           var(--c-gray-150);
   --code-color:        var(--c-blue);
-  --code-block-bg:     var(--c-gray-900);
-  --code-block-border: var(--c-gray-700);
-  --code-block-text:   var(--c-gray-300);
+  --code-block-bg:     var(--c-gray-50);
+  --code-block-border: var(--c-gray-200);
+  --code-block-text:   var(--c-gray-800);
 
-  --syn-key:         var(--c-green-light);
+  --syn-key:         var(--c-green);
   --syn-string:      var(--c-blue);
-  --syn-number:      var(--c-purple);
+  --syn-number:      var(--c-blue-light);
   --syn-boolean:     var(--c-red);
   --syn-null:        var(--c-red);
   --syn-punctuation: var(--c-gray-500);
 
   /* Interactive / button */
-  --btn-primary-bg:       var(--c-green);
-  --btn-primary-bg-hover: var(--c-green-light);
-  --btn-primary-border:   color-mix(in srgb, var(--c-green) 45%, transparent);
-  --btn-primary-text:     var(--c-gray-950);
+  --btn-primary-bg:       var(--c-green-light);
+  --btn-primary-bg-hover: var(--c-green);
+  --btn-primary-border:   rgba(24, 121, 78, 0.4);
+  --btn-primary-text:     var(--c-white);
 
   /* Overlay / hover */
-  --overlay-bg: rgba(0, 0, 0, 0.55);
-  --hover-bg:   rgba(255, 255, 255, 0.04);
+  --overlay-bg: rgba(0, 0, 0, 0.25);
+  --hover-bg:   rgba(0, 0, 0, 0.02);
 
   /* Shorthand */
   --mono: var(--font-mono);

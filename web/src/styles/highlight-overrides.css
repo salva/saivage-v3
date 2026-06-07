@@ -1,5 +1,5 @@
 /* Override only the code-block shell. Token colors (.hljs-keyword etc.)
-   are intentionally left to highlight.js/styles/github-dark.css. */
+   are intentionally left to highlight.js/styles/github.css. */
 pre.hljs {
   background: var(--code-block-bg);
   border: 1px solid var(--code-block-border);

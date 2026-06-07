@@ -1,5 +1,5 @@
 import './styles/index.css';
-import 'highlight.js/styles/github-dark.css';
+import 'highlight.js/styles/github.css';
 import './styles/highlight-overrides.css';
 import { createApp } from 'vue';
 import { createPinia } from 'pinia';

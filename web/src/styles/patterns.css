@@ -2,7 +2,7 @@
    Primitive global classes that compose semantic variables. Components keep
    layout-local rules in scoped CSS; reusable color/surface primitives live here.
    Syntax classes (.syn-*) intentionally do not override highlight.js .hljs-*;
-   github-dark.css is imported after index.css and wins if a future element has
+   github.css is imported after index.css and wins if a future element has
    both class families.
    ────────────────────────────────────────────────────────────────────────── */
 
