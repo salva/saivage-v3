@@ -60,7 +60,7 @@ This **throws** when `status === 'idle'` and `active_card_run` has a non-termina
 
 ### F10. Function returns boolean; callers must handle it
 
-`completeChildActivationForParent()` returns `false` when no caller edge exists. This is a valid pattern: the function signals failure, and callers decide what to do. The issue is that some callers (like `reviewer-assessment-handler.ts:78-84`) fall back to global `reviewer_finished` instead of failing.
+`completeChildActivationForParent()` returns `false` when no caller edge exists. This is a valid pattern: the function signals failure, and callers decide what to do. The issue is that some callers, such as `src/runtime/phases/reviewer-assessment-handler.ts` around the reviewer-pass unwind branch, fall back to global `reviewer_finished` instead of failing.
 
 **Recommendation:** Reframe F10 to target the callers that mishandle `false`, not the function itself.
 
