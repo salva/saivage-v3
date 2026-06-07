@@ -34,7 +34,7 @@ export type RuntimeLedgerRunOutcome =
   | { kind: 'completed'; result: 'stopped'; finished_at: string }
   | { kind: 'blocked'; error: string }
   | { kind: 'paused'; reason: 'needs_verification'; detail: string };
-export interface RuntimeRunRecord { run_id: string; kind: RuntimeRunKind; card_id: string; ownership: RuntimeDispatchOwnership; parent_run_id?: string | null; command_id?: string | null; activation_id?: string | null; phase: RuntimeRunPhase; runtime_status: RuntimeStatus | 'stopped' | 'cancelled'; session_id?: string | null; started_at: string; updated_at: string; finished_at?: string | null; outcome?: RuntimeLedgerRunOutcome | null; }
+export interface RuntimeRunRecord { run_id: string; kind: RuntimeRunKind; card_id: string; ownership: RuntimeDispatchOwnership; parent_run_id?: string | null; command_id?: string | null; activation_id?: string | null; phase: RuntimeRunPhase; runtime_status: RuntimeRunStatus; session_id?: string | null; started_at: string; updated_at: string; finished_at?: string | null; outcome?: RuntimeLedgerRunOutcome | null; }
 export interface RuntimeActivationRecord { activation_id: string; idempotency_key: string; parent_card_id: string; parent_run_id: string; parent_session_id: string; parent_tool_call_id: string; child_card_id: string; status: RuntimeActivationStatus; requested_at: string; updated_at: string; precondition: 'accepted' | 'rejected'; runtime_run_id?: string | null; error?: ActionableErrorEnvelope | null; outcome?: RuntimeLedgerActivationOutcome | null; }
 
 export const urgencyValues = ['low', 'normal', 'high', 'critical'] as const;
@@ -103,7 +103,8 @@ export interface AgentMessage { id: string; session_id: string; role: MessageRol
 export type ActivationCompletionOutcome = 'done' | 'failed' | 'blocked' | 'cancelled' | 'timed_out' | 'needs_verification';
 export interface ActivationCompletionEnvelopeV1 { kind: 'activate_card_completion'; version: 1; child_card_id: string; outcome: ActivationCompletionOutcome; summary: string; result?: Record<string, unknown> | null; review?: ReviewAssessment | null; artifacts?: ArtifactRef[]; attachments?: AttachmentRef[]; evidence_card_ids?: string[]; error?: string | null; completed_by_session_id?: string | null; success: boolean; cardId: string; failure_kind?: string; }
 export type RuntimeStatus = 'idle' | 'running' | 'paused' | 'error' | 'frozen';
-export type ActiveCardRunRuntimeStatus = RuntimeStatus | 'stopped' | 'cancelled';
+export type RuntimeRunStatus = RuntimeStatus | 'stopped' | 'cancelled';
+export type ActiveCardRunRuntimeStatus = 'running';
 export type ActiveCardRunPhase = 'planner' | 'executor' | 'reviewer';
 export interface ActiveCardRun { card_id: string; card_type: CardType; ownership: RuntimeDispatchOwnership; runtime_status: ActiveCardRunRuntimeStatus; phase: ActiveCardRunPhase; caller_session_id: string | null; caller_tool_call_id: string | null; planner_session_id?: string | null; executor_session_id?: string | null; reviewer_session_id?: string | null; correction_attempts: number; started_at: string; last_turn_at: string; }
 export interface ProjectRunCompletedPayload { project_card_id: string; result: 'done' | 'failed' | 'blocked'; summary: string; failure_kind?: string; blocked_reason?: string; }

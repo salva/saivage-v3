@@ -34,7 +34,7 @@ afterEach(() => {
 describe('application read models', () => {
   it('builds runtime status from disk fallback with live pid', () => {
     updateRuntimeState(root, { status: 'paused', paused: true, active_card_run: { card_id: 'card-1', card_type: 'goal', ownership: { kind: 'direct', source: 'project_root' },
-  runtime_status: 'paused', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:card-1', correction_attempts: 0, started_at: '2026-01-01T00:00:00.000Z', last_turn_at: '2026-01-01T00:00:00.000Z' }, last_tick_at: '2026-01-01T00:00:00.000Z' });
+  runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:card-1', correction_attempts: 0, started_at: '2026-01-01T00:00:00.000Z', last_turn_at: '2026-01-01T00:00:00.000Z' }, last_tick_at: '2026-01-01T00:00:00.000Z' });
 
     expect(buildRuntimeStatusReadModel({ projectRoot: root })).toEqual(expect.objectContaining({
       runtime: 'paused',

@@ -77,7 +77,7 @@ describe('RuntimeState idle active_card_run invariant', () => {
     })).toThrow(RuntimeStateInvariantError);
   });
 
-  it('rejects stopped/cancelled as top-level RuntimeState.status while permitting them on active_card_run.runtime_status', () => {
+  it('rejects stopped/cancelled as top-level RuntimeState.status and active_card_run.runtime_status', () => {
     const base = initRuntimeState(root);
 
     for (const terminalStatus of ['stopped', 'cancelled'] as const) {
@@ -89,14 +89,13 @@ describe('RuntimeState idle active_card_run invariant', () => {
       const parsed = runtimeStateSchema.safeParse({
         ...base,
         status: 'idle',
-        active_card_run: runningRun({ runtime_status: terminalStatus }),
-      });
-      expect(parsed.success).toBe(true);
-      expect(parsed.success && parsed.data.active_card_run?.runtime_status).toBe(terminalStatus);
+        active_card_run: runningRun({ runtime_status: terminalStatus } as unknown as Partial<ActiveCardRun>),
+      } as unknown as RuntimeState);
+      expect(parsed.success).toBe(false);
     }
   });
 
-  it('allows idle transitions that clear active_card_run or retain only documented terminal stopped/cancelled records', () => {
+  it('allows idle transitions only when active_card_run is cleared', () => {
     initRuntimeState(root);
     updateRuntimeState(root, {
       status: 'running',
@@ -109,17 +108,16 @@ describe('RuntimeState idle active_card_run invariant', () => {
     });
     expect(cleared.active_card_run).toBeNull();
 
-    const stopped = updateRuntimeState(root, {
+    expect(() => updateRuntimeState(root, {
       status: 'idle',
-      active_card_run: runningRun({ runtime_status: 'stopped' }),
-    });
-    expect(stopped.active_card_run?.runtime_status).toBe('stopped');
+      active_card_run: runningRun(),
+    })).toThrow(RuntimeStateInvariantError);
 
-    const cancelled = updateRuntimeState(root, {
+    expect(() => saveRuntimeState(root, {
+      ...cleared,
       status: 'idle',
-      active_card_run: runningRun({ runtime_status: 'cancelled' }),
-    });
-    expect(cancelled.active_card_run?.runtime_status).toBe('cancelled');
+      active_card_run: runningRun({ runtime_status: 'cancelled' } as unknown as Partial<ActiveCardRun>),
+    })).toThrow(/validation failed/);
   });
 
   it('fails closed on corrupted persisted state in every environment instead of production self-heal', () => {

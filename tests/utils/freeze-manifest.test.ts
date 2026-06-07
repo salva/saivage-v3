@@ -82,6 +82,13 @@ describe('freeze manifest helpers', () => {
     );
   });
 
+  it('fails freeze resume when a manifest retains a terminal active run', () => {
+    expect(() => buildResumeFromFreezeRuntimeStatePatch(manifest({
+      active_card_run: { card_id: 'goal-a', card_type: 'goal', ownership: { kind: 'direct', source: 'project_root' },
+  runtime_status: 'stopped', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:goal-a', correction_attempts: 0, started_at: new Date(0).toISOString(), last_turn_at: new Date(0).toISOString() } as unknown as RuntimeState['active_card_run'],
+    }))).toThrow('freeze resume cannot restore non-running active_card_run');
+  });
+
   it('does not build handoff context without an active session', () => {
     const emptyContext = buildResumeHandoffContext(
       buildFreezeManifest({

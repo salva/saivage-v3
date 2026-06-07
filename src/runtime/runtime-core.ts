@@ -201,6 +201,12 @@ export function buildFreezeManifest(input: {
 }
 
 export function buildResumeFromFreezeRuntimeStatePatch(manifest: FreezeManifest): Partial<RuntimeState> {
+  const activeRunRuntimeStatus = (manifest.active_card_run as { runtime_status?: string } | null | undefined)?.runtime_status;
+  if (manifest.active_card_run && activeRunRuntimeStatus !== 'running') {
+    throw new RuntimeStateInvariantError(
+      `Runtime state invariant violation: freeze resume cannot restore non-running active_card_run (card_id=${manifest.active_card_run.card_id}, runtime_status=${activeRunRuntimeStatus ?? 'null'}).`,
+    );
+  }
   return {
     status: manifest.active_card_run ? 'running' : 'idle',
     started_at: manifest.started_at,

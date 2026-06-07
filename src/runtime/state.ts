@@ -4,11 +4,10 @@ import { runtimeStateSchema } from '../schemas/index.js';
 import type { ZodType } from 'zod';
 import { explainLegacyStateRejection } from '../persistence/index.js';
 import { AtomicJsonFile, ProjectLock, PersistenceReadError, PersistenceValidationError } from '../persistence/index.js';
-import type { ActiveCardRun, RuntimeActivationRecord, RuntimeActivationStatus, RuntimeCommandName, RuntimeCommandRecord, RuntimeRunRecord, RuntimeState } from '../schemas/index.js';
+import type { RuntimeActivationRecord, RuntimeActivationStatus, RuntimeCommandName, RuntimeCommandRecord, RuntimeRunRecord, RuntimeState } from '../schemas/index.js';
 
 const LEGACY_STATE_FILE = 'state.json';
 const AUTHORITATIVE_STATE_FILE = 'runtime.json';
-const TERMINAL_IDLE_ACTIVE_RUN_STATUSES = new Set(['stopped', 'cancelled']);
 const runtimeStatePersistenceSchema = runtimeStateSchema as ZodType<RuntimeState>;
 
 export const UNRESOLVED_RUNTIME_ACTIVATION_STATUSES = new Set<RuntimeActivationStatus>([
@@ -66,15 +65,10 @@ function runtimeStateFile(projectRoot: string): AtomicJsonFile<RuntimeState> {
   return new AtomicJsonFile(runtimeStatePath(projectRoot), runtimeStatePersistenceSchema, runtimeStateLock(projectRoot), { version: 1 });
 }
 
-function activeRunIsIdleTerminal(run: ActiveCardRun | null | undefined): boolean {
-  if (!run) return true;
-  return TERMINAL_IDLE_ACTIVE_RUN_STATUSES.has(run.runtime_status);
-}
-
 function describeInvariantViolation(state: RuntimeState): string {
   const status = state.active_card_run?.runtime_status ?? 'null';
   const cardId = state.active_card_run?.card_id ?? 'null';
-  return `RuntimeState invariant violation: idle runtime cannot retain non-terminal active_card_run (card_id=${cardId}, runtime_status=${status}). Reset .saivage runtime state and restart.`;
+  return `RuntimeState invariant violation: idle runtime cannot retain active_card_run (card_id=${cardId}, runtime_status=${status}). Reset .saivage runtime state and restart.`;
 }
 
 function describeMixedLayout(projectRoot: string): string {
@@ -88,7 +82,7 @@ function assertNoMixedRuntimeStateLayout(projectRoot: string): void {
 }
 
 function assertRuntimeStateInvariants(state: RuntimeState): RuntimeState {
-  if (state.status !== 'idle' || activeRunIsIdleTerminal(state.active_card_run)) {
+  if (state.status !== 'idle' || (state.active_card_run ?? null) === null) {
     return state;
   }
   throw new RuntimeStateInvariantError(describeInvariantViolation(state));

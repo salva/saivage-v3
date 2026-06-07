@@ -137,6 +137,10 @@ describe('runtime core reducers', () => {
     });
     expect(manifest).toEqual(expect.objectContaining({ freeze_id: 'freeze-1', reason: 'operator requested freeze', active_card_run: expect.objectContaining({ card_id: 'goal-a' }), schema_version: 1 }));
     expect(buildResumeFromFreezeRuntimeStatePatch(manifest)).toEqual(expect.objectContaining({ status: 'running', started_at: 'started', active_card_run: expect.objectContaining({ card_id: 'goal-a' }), paused: false, paused_at: null }));
+    expect(() => buildResumeFromFreezeRuntimeStatePatch({
+      ...manifest,
+      active_card_run: { ...manifest.active_card_run!, runtime_status: 'stopped' } as unknown as RuntimeState['active_card_run'],
+    })).toThrow('freeze resume cannot restore non-running active_card_run');
     expect(buildResumeHandoffContext(manifest)).toContain('[Handoff] Session: planner:goal-a');
   });
 
