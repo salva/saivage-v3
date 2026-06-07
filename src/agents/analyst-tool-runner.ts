@@ -3,12 +3,14 @@ import type { SafetyClass } from './authz.js';
 import { recordControlAction, stableStringify } from '../persistence/index.js';
 import type { ToolContext, ToolResult, ActionPreview } from '../tools/analyst-tool-types.js';
 import { toolFailure } from '../tools/analyst-tool-helpers.js';
+import type { Decision } from '../permissions/index.js';
 
 export interface MutatingSpec<P> {
   action: string;
   safety_class: SafetyClass;
   target_kind: 'card' | 'note' | 'process' | 'runtime' | 'config' | 'session' | null;
   getTargetId: (params: P) => string | null;
+  permissionCheck?: (ctx: ToolContext, params: P) => Decision;
   preview?: (ctx: ToolContext, params: P) => ActionPreview | null;
   run: (ctx: ToolContext, params: P) => Promise<ToolResult>;
 }
@@ -21,6 +23,11 @@ export async function runAuditedAnalystTool<P extends Record<string, unknown>>(c
   if (verdict === 'deny') {
     recordControlAction(ctx.projectRoot, { ...auditBase, outcome: 'denied', outcome_summary: 'authz denied' }, ctx.eventBus);
     return toolFailure('permission', `Denied by authorization policy for ${ctx.actor}/${ctx.surface}/${spec.safety_class}.`, { action: spec.action, safety_class: spec.safety_class });
+  }
+  const permission = spec.permissionCheck?.(ctx, params);
+  if (permission && !permission.allowed) {
+    recordControlAction(ctx.projectRoot, { ...auditBase, outcome: 'denied', outcome_summary: `permission denied: ${permission.reason}` }, ctx.eventBus);
+    return toolFailure('permission', `Denied by permission policy for ${spec.action}: ${permission.reason}.`, { action: spec.action, reason: permission.reason });
   }
   const result = await spec.run(ctx, params);
   recordControlAction(ctx.projectRoot, {

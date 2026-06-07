@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import type { SaivageConfig } from '../agents/config-api.js';
 import { AgentAdapter } from '../agents/agent-adapter.js';
+import { buildProviderRoutingReadModel, type ProviderRoutingReadModel } from '../agents/provider-routing-read-model.js';
 import { FsCandidateAvailability } from '../agents/candidate-availability-store.js';
 import type { CandidateAvailability } from '../agents/candidate-availability.js';
 import { SkillsEngine } from '../agents/skills-engine.js';
@@ -21,6 +22,7 @@ export interface RuntimeApplication {
   readonly runtimeApi: RuntimeApi;
   readonly cardStore: CardStore;
   readonly analystDeps: AnalystRuntimeDeps;
+  getProviderRoutingReadModel(): ProviderRoutingReadModel;
   setMcpManager(mcpManager: McpManager): void;
 }
 
@@ -155,6 +157,12 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     cardStore,
     get analystDeps() {
       return getAnalystDeps();
+    },
+    getProviderRoutingReadModel() {
+      return buildProviderRoutingReadModel({
+        registry: agentAdapter.getRegistry(),
+        availability: agentAdapter.getCandidateAvailability(),
+      });
     },
     setMcpManager(nextMcpManager) {
       mcpManager = nextMcpManager;

@@ -43,11 +43,12 @@ describe('planning blocker helpers', () => {
     expect(cardHasBlockedPlanning(card(null))).toBe(false);
   });
 
-  it('preserves precise reviewer-capacity blockers by creation-time cause only for generic planner blocks', () => {
+  it('preserves precise reviewer-capacity blockers by resume_reason or blocker_cause for generic planner blocks', () => {
     const blocked = card(planning({ resume_reason: 'reviewer_unavailable', blocker_cause: 'reviewer_unavailable' }));
     expect(shouldPreservePrecisePlanningBlocker(blocked, 'planner_blocked')).toBe(true);
     expect(shouldPreservePrecisePlanningBlocker(blocked, 'planner_context_length_exceeded')).toBe(false);
-    expect(shouldPreservePrecisePlanningBlocker(card(planning({ resume_reason: 'reviewer_unavailable' })), 'planner_blocked')).toBe(false);
+    expect(shouldPreservePrecisePlanningBlocker(card(planning({ resume_reason: 'reviewer_unavailable' })), 'planner_blocked')).toBe(true);
+    expect(shouldPreservePrecisePlanningBlocker(card(planning({ resume_reason: 'reviewer_invocation_failed' })), 'planner_blocked')).toBe(true);
   });
 
   it('sets token-budget blocker cause at planner invocation failure creation time', () => {

@@ -423,9 +423,7 @@ describe('Analyst Tools', () => {
     );
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain('delete_card denied by permission matrix');
-    expect(result.error).toContain("card 'card-1'");
-    expect(result.error).toContain("state 'running'");
+    expect(result.error).toContain('Denied by permission policy');
     expect(store.read('card-1')).not.toBeNull();
   });
 
@@ -440,9 +438,7 @@ describe('Analyst Tools', () => {
     );
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain('delete_card denied by permission matrix');
-    expect(result.error).toContain("card 'card-2'");
-    expect(result.error).toContain("state 'running'");
+    expect(result.error).toContain('Denied by permission policy');
     expect(store.read('card-1')).not.toBeNull();
     expect(store.read('card-2')).not.toBeNull();
   });
@@ -610,14 +606,14 @@ describe('Analyst Tools', () => {
     unlinkSync(runtimeStatePath(projectRoot));
     const result = await pause_runtime(ctx(projectRoot, store), {});
     expect(result.success).toBe(false);
-    expect(result.error).toContain('runtime state is not initialized');
+    expect(result.error).toContain('not available');
   });
 
   it('returns actionable error when analyst resume_runtime has no runtime state', async () => {
     unlinkSync(runtimeStatePath(projectRoot));
     const result = await resume_runtime(ctx(projectRoot, store), {});
     expect(result.success).toBe(false);
-    expect(result.error).toContain('runtime state is not initialized');
+    expect(result.error).toContain('not available');
   });
 });
 

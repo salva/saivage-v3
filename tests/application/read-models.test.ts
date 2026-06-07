@@ -127,7 +127,7 @@ describe('application read models', () => {
   it('reads canonical analyst entries and debug jsonl projections', () => {
     const messagesDir = join(root, '.saivage', 'agents', 'messages');
     mkdirSync(messagesDir, { recursive: true });
-    writeFileSync(join(messagesDir, 'analyst.jsonl'), '{"role":"assistant","content":"hi"}\nnot-json\n');
+    writeFileSync(join(messagesDir, 'analyst.jsonl'), '{"id":"msg-1","session_id":"analyst","role":"assistant","kind":"text","content":"hi","round_id":"r-assistant-00000000000000000000000000000001","message_index":0,"block_index":0,"timestamp":"2026-01-01T00:00:00.000Z"}\n');
     const runtimeDir = join(root, '.saivage', 'runtime');
     mkdirSync(runtimeDir, { recursive: true });
     writeFileSync(join(runtimeDir, 'errors.jsonl'), '{"message":"apiKey=secret"}\n');

@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue';
 import { storeToRefs } from 'pinia';
-import type { CardStatus, CardType } from '../api/types';
+import { cardStatusValues, cardTypeValues, type CardStatus, type CardType } from '../api/types';
 import type { useCardStore } from '../stores/cards';
 import { selectAvailableTags } from '../stores/card-presentation';
 
@@ -17,8 +17,8 @@ export function useCardBrowserReadModel(cardStore: ReturnType<typeof useCardStor
     { id: 'timeline' as const, label: 'Timeline' },
   ];
 
-  const statuses: CardStatus[] = ['drafting', 'backlog', 'active', 'running', 'blocked', 'changed', 'done', 'failed', 'cancelled', 'needs_verification'];
-  const cardTypes: CardType[] = ['project', 'goal', 'architecture', 'code', 'test', 'doc', 'data', 'research', 'ops'];
+  const statuses: CardStatus[] = [...cardStatusValues];
+  const cardTypes: CardType[] = [...cardTypeValues];
   const allTags = computed<string[]>(() => selectAvailableTags(refs.cards.value));
   const errorMsg = computed(() => refs.error.value);
 

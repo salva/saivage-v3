@@ -54,7 +54,18 @@ export interface CardRecord {
   duration_ms?: number | null; status_text?: string | null; status_text_updated_at?: string | null;
   status_text_author_session_id?: string | null; latest_self_report?: Record<string, unknown> | null; metadata?: CardMetadata | null; allowedActions?: CardAction[]; retries: number;
 }
-export interface CardView extends CardRecord { display_path: string | null; }
+export interface CardOperatorSummary {
+  lifecycleStatus: CardStatus;
+  terminal: boolean;
+  needsVerification: boolean;
+  blocked: boolean;
+  hasError: boolean;
+  error: string | null;
+  completedAt: string | null;
+  stale: boolean;
+  actionCount: number;
+}
+export interface CardView extends CardRecord { display_path: string | null; operator_summary: CardOperatorSummary; }
 export type CardHistoryKind = 'update' | 'status' | 'mutate' | 'depends' | 'delete' | 'archive';
 export interface CardHistoryEntry { entry_id: string; kind: CardHistoryKind; card_id: string; version_seq: number; snapshot: CardRecord; changed_at: string; changed_by_actor: NoteAuthor; changed_by_surface: ControlActionSurface; change_reason: string | null; changed_fields: string[]; change_summary: string; }
 export type CardHistoryHeader = Omit<CardHistoryEntry, 'snapshot'>;

@@ -15,8 +15,9 @@ export { MCP_INVOKE_TIMEOUT_MS } from './protocol.js';
 export { McpInvokeError, ServerNotRunningError, ToolNotFoundError, InvalidArgumentsError, TimeoutError, TransportError } from './errors.js';
 
 export interface McpStatusProvider { getStatus(): McpServerStatus[] }
-export interface McpToolInvocationPort { getServerTools(name: string): McpToolDefinition[] | undefined; invokeTool(serverName: string, toolName: string, args: Record<string, unknown>, options?: { timeoutMs?: number }): Promise<unknown> }
 export interface McpToolsReadModelProvider { getToolsReadModel(): ReturnType<typeof buildMcpToolsReadModel> }
+export type McpToolCapability = ReturnType<typeof buildMcpToolsReadModel>['serverDetails'][number]['tools'][number] & { serverName: string };
+export interface McpToolInvocationPort { getServerTools(name: string): McpToolDefinition[] | undefined; findToolCapability(serverName: string, toolName: string): McpToolCapability | null; invokeTool(serverName: string, toolName: string, args: Record<string, unknown>, options?: { timeoutMs?: number }): Promise<unknown> }
 
 export interface McpManagerOptions { scope?: ResourceScope; }
 
@@ -221,6 +222,13 @@ export class McpManager {
       getServerTools: (name) => this.getServerTools(name),
       invocationStats: this.getInvocationStats(),
     });
+  }
+
+  findToolCapability(serverName: string, toolName: string): McpToolCapability | null {
+    const projection = this.getToolsReadModel();
+    const server = projection.serverDetails.find((candidate) => candidate.name === serverName);
+    const tool = server?.tools.find((candidate) => candidate.name === toolName);
+    return tool ? { ...tool, serverName } : null;
   }
 
   private rebuildRuntimes(nextServers: Record<string, McpServerConfig>): void {

@@ -1,6 +1,6 @@
 import type { CardRecord, PlannerBlockedResult, RuntimeState } from '../../schemas/index.js';
 import type { PlannerResult } from '../../contracts/index.js';
-import { blockedPlanningReason, getBlockedPlanning, shouldPreservePrecisePlanningBlocker } from '../planning-blockers.js';
+import { blockedPlanningReason, getBlockedPlanning, isReviewerCapacityPlanningBlocker, shouldPreservePrecisePlanningBlocker } from '../planning-blockers.js';
 import { activeRunFromActivationState, plannerActivationStateFromGoal } from '../activation-reducer.js';
 import { lifecycleCardPatch } from '../terminal-commit/lifecycle-patch.js';
 
@@ -59,7 +59,19 @@ export function buildPlannerBlockedDecision(input: {
         ...preservedPlanning,
         kind: 'planner_blocked',
         blocked_reason: blockedReason ?? 'Planner blocked without a reason.',
-        resume_reason: 'reviewer_unavailable',
+        resume_reason: 'reviewer_invocation_failed',
+        blocker_cause: 'reviewer_unavailable',
+      },
+      terminalReason: 'reviewer_invocation_failed',
+    };
+  }
+  if (isReviewerCapacityPlanningBlocker(input.plannerBlockedReason)) {
+    return {
+      blockedReason: input.plannerBlockedReason,
+      planning: {
+        kind: 'planner_blocked',
+        blocked_reason: input.plannerBlockedReason ?? 'Reviewer/provider capacity is unavailable.',
+        resume_reason: 'reviewer_invocation_failed',
         blocker_cause: 'reviewer_unavailable',
       },
       terminalReason: 'reviewer_invocation_failed',

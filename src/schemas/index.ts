@@ -85,6 +85,7 @@ export type {
   AttachmentRef,
   CardMetadata,
   CardRecord,
+  CardOperatorSummary,
   CardView,
   CardHistoryEntry,
   CardHistoryKind,

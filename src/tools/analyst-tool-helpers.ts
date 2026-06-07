@@ -4,7 +4,7 @@ import { join, relative, resolve as resolvePath } from 'node:path';
 
 import { PROJECT_CARD_ID, type CardStore } from '../cards/store-api.js';
 import { computeCardDisplayPath } from '../application/read-models/card-view.js';
-import { listProcesses } from '../runtime/process-api.js';
+import { processApi } from '../runtime/process-api.js';
 import type { CardRecord, CardType } from '../schemas/index.js';
 import { assertSafeShellCwd } from '../workspace/index.js';
 import { isAnalystSecretPath } from '../workspace/file-access-security.js';
@@ -158,7 +158,7 @@ export function buildDeletePreview(projectRoot: string, store: CardStore, id: st
       const c = store.read(cid);
       return c ? cardSummary(c) : { id: cid, title: '(not found)', type: 'unknown', status: 'unknown' };
     }),
-    affectedProcesses: listProcesses(projectRoot).filter((p) => allAffectedIds.includes(p.card_id)).map((p) => ({ id: p.id, command: p.command, status: p.status })),
+    affectedProcesses: processApi(projectRoot).listForAgent().filter((p) => allAffectedIds.includes(p.card_id)).map((p) => ({ id: p.id, command: p.command, status: p.status })),
     warnings: descendantIds.length > 0 ? [`This will permanently delete ${descendantIds.length} descendant card(s).`] : [],
   };
 }
@@ -175,7 +175,7 @@ export function buildAbortPreview(projectRoot: string, store: CardStore, goalId:
       const c = store.read(cid);
       return c ? cardSummary(c) : { id: cid, title: '(not found)', type: 'unknown', status: 'unknown' };
     }),
-    affectedProcesses: listProcesses(projectRoot).filter((p) => allAffectedIds.includes(p.card_id)).map((p) => ({ id: p.id, command: p.command, status: p.status })),
+    affectedProcesses: processApi(projectRoot).listForAgent().filter((p) => allAffectedIds.includes(p.card_id)).map((p) => ({ id: p.id, command: p.command, status: p.status })),
     warnings: [],
   };
 }
@@ -192,7 +192,7 @@ export function buildRestartGoalPreview(projectRoot: string, store: CardStore, g
       const c = store.read(cid);
       return c ? cardSummary(c) : { id: cid, title: '(not found)', type: 'unknown', status: 'unknown' };
     }),
-    affectedProcesses: listProcesses(projectRoot).filter((p) => allAffectedIds.includes(p.card_id) && p.status === 'running').map((p) => ({ id: p.id, command: p.command, status: p.status })),
+    affectedProcesses: processApi(projectRoot).listForAgent().filter((p) => allAffectedIds.includes(p.card_id) && p.status === 'running').map((p) => ({ id: p.id, command: p.command, status: p.status })),
     warnings: ['The plan diary for this goal will be cleared.'],
   };
 }

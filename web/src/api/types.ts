@@ -31,6 +31,7 @@ import type {
   SessionStatus,
   SupervisionResponse,
 } from './contracts';
+export { cardStatusValues, cardTypeValues } from '@saivage/schemas';
 
 
 export type {

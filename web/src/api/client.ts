@@ -35,7 +35,14 @@ import type {
   ControlActionsListResponse,
 } from './types';
 import { getAuthToken } from './auth';
-import { parseOperatorResponse, type OperatorApiOperationId, type OperatorApiSuccess } from './contracts';
+import {
+  operatorApiContracts,
+  parseOperatorResponse,
+  type OperatorApiOperationId,
+  type OperatorApiParams,
+  type OperatorApiBody,
+  type OperatorApiSuccess,
+} from './contracts';
 import type { LlmExchange } from './contracts';
 import type { RuntimeState } from './types';
 import { dispatchApiAuthRequired } from '../utils/auth-events';
@@ -127,19 +134,47 @@ async function request<T>(
   return responseBody as T;
 }
 
+type OperatorRequestOptions<K extends OperatorApiOperationId> = {
+  params?: OperatorApiParams<K>;
+  query?: Record<string, string | undefined>;
+  body?: OperatorApiBody<K>;
+};
+
+function buildOperatorPath<K extends OperatorApiOperationId>(operationId: K, params?: OperatorApiParams<K>): string {
+  const contract = operatorApiContracts[operationId];
+  const values = (params ?? {}) as Record<string, unknown>;
+  return contract.path.replace(/:([A-Za-z0-9_]+)/g, (_match, key: string) => {
+    const value = values[key];
+    if (typeof value !== 'string' && typeof value !== 'number') {
+      throw new Error(`Missing path param '${key}' for operator API operation '${operationId}'.`);
+    }
+    return encodeURIComponent(String(value));
+  });
+}
+
+function normalizeQuery(query?: Record<string, string | undefined>): Record<string, string> | undefined {
+  if (!query) return undefined;
+  const entries = Object.entries(query).filter((entry): entry is [string, string] => entry[1] !== undefined);
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
 function operatorRequest<K extends OperatorApiOperationId>(
   operationId: K,
-  method: string,
-  path: string,
-  query?: Record<string, string>,
-  body?: unknown,
+  options: OperatorRequestOptions<K> = {},
 ): Promise<OperatorApiSuccess<K>> {
-  return request<OperatorApiSuccess<K>>(method, path, query, body, operationId);
+  const contract = operatorApiContracts[operationId];
+  return request<OperatorApiSuccess<K>>(
+    contract.method,
+    buildOperatorPath(operationId, options.params),
+    normalizeQuery(options.query),
+    options.body,
+    operationId,
+  );
 }
 
 
 export function issueWebSocketTicket(): Promise<OperatorApiSuccess<'auth.wsTicket'>> {
-  return operatorRequest('auth.wsTicket', 'POST', '/api/auth/ws-ticket');
+  return operatorRequest('auth.wsTicket');
 }
 
 export async function getHealth(): Promise<{ status: string; version: string; project: string; runtime: string }> {
@@ -152,33 +187,33 @@ export async function getHealth(): Promise<{ status: string; version: string; pr
 }
 
 export function listCards(): Promise<CardListResponse> {
-  return operatorRequest('cards.list', 'GET', '/api/cards');
+  return operatorRequest('cards.list');
 }
 
 export function getCard(id: string): Promise<CardDetailResponse> {
-  return operatorRequest('cards.get', 'GET', `/api/cards/${encodeURIComponent(id)}`) as Promise<CardDetailResponse>;
+  return operatorRequest('cards.get', { params: { id } }) as Promise<CardDetailResponse>;
 }
 
 export function listCardHistory(id: string): Promise<CardHistoryListResponse> {
-  return operatorRequest('cards.history.list', 'GET', `/api/cards/${encodeURIComponent(id)}/history`);
+  return operatorRequest('cards.history.list', { params: { id } });
 }
 
 export function getCardHistoryEntry(id: string, seq: number): Promise<CardHistoryEntryResponse> {
-  return operatorRequest('cards.history.get', 'GET', `/api/cards/${encodeURIComponent(id)}/history/${seq}`);
+  return operatorRequest('cards.history.get', { params: { id, seq: String(seq) } });
 }
 
 export function getCardDiff(id: string, from: number, to: number): Promise<CardDiffResponse> {
-  return operatorRequest('cards.diff', 'GET', `/api/cards/${encodeURIComponent(id)}/diff`, {
+  return operatorRequest('cards.diff', { params: { id }, query: {
     from: String(from),
     to: String(to),
-  }) as Promise<CardDiffResponse>;
+  } }) as Promise<CardDiffResponse>;
 }
 
 
 
 
 export function getRuntimeState(): Promise<RuntimeStateResponse> {
-  return operatorRequest('runtime.getState', 'GET', '/api/state');
+  return operatorRequest('runtime.getState');
 }
 
 
@@ -188,74 +223,74 @@ export function getRuntimeState(): Promise<RuntimeStateResponse> {
 
 
 export function listAgentSessions(): Promise<AgentSessionsResponse> {
-  return operatorRequest('agents.list', 'GET', '/api/agents') as Promise<AgentSessionsResponse>;
+  return operatorRequest('agents.list') as Promise<AgentSessionsResponse>;
 }
 
 export function getAgentSession(sessionId: string): Promise<AgentDetailResponse> {
-  return operatorRequest('agents.detail', 'GET', `/api/agents/${encodeURIComponent(sessionId)}`) as Promise<AgentDetailResponse>;
+  return operatorRequest('agents.detail', { params: { id: sessionId } }) as Promise<AgentDetailResponse>;
 }
 
 export function getAgentConversation(sessionId: string): Promise<AgentConversationResponse> {
-  return operatorRequest('agents.conversation', 'GET', `/api/agents/${encodeURIComponent(sessionId)}/conversation`) as Promise<AgentConversationResponse>;
+  return operatorRequest('agents.conversation', { params: { id: sessionId } }) as Promise<AgentConversationResponse>;
 }
 
 export function getAgentLlmExchange(sessionId: string): Promise<{ exchange: LlmExchange }> {
-  return operatorRequest('agents.llmExchange', 'GET', `/api/agents/${encodeURIComponent(sessionId)}/llm-exchange`) as Promise<{ exchange: LlmExchange }>;
+  return operatorRequest('agents.llmExchange', { params: { id: sessionId } }) as Promise<{ exchange: LlmExchange }>;
 }
 
 export function getConfig(): Promise<ConfigResponse> {
-  return operatorRequest('config.get', 'GET', '/api/config');
+  return operatorRequest('config.get');
 }
 
 export function getProviders(): Promise<ProvidersResponse> {
-  return operatorRequest('providers.list', 'GET', '/api/providers');
+  return operatorRequest('providers.list');
 }
 
 
 export function listControlActions(query?: { card_id?: string; since?: string }): Promise<ControlActionsListResponse> {
-  return operatorRequest('controlActions.list', 'GET', '/api/control-actions', query as Record<string, string> | undefined);
+  return operatorRequest('controlActions.list', { query });
 }
 
 export function listChatSessions(): Promise<ChatSessionsResponse> {
-  return operatorRequest('chats.list', 'GET', '/api/chats');
+  return operatorRequest('chats.list');
 }
 
 export function getChatEntries(sessionId: string): Promise<ChatEntriesResponse> {
-  return operatorRequest('chats.get', 'GET', `/api/chats/${encodeURIComponent(sessionId)}`) as Promise<ChatEntriesResponse>;
+  return operatorRequest('chats.get', { params: { sessionId } }) as Promise<ChatEntriesResponse>;
 }
 
 export function sendChatMessage(sessionId: string, content: string, workspaceContext?: ChatWorkspaceContext): Promise<ChatResponse> {
   const body = workspaceContext === undefined ? { content } : { content, workspaceContext };
-  return operatorRequest('chats.send', 'POST', `/api/chats/${encodeURIComponent(sessionId)}`, undefined, body);
+  return operatorRequest('chats.send', { params: { sessionId }, body });
 }
 
 export function listFiles(path?: string): Promise<FilesListResponse> {
-  return operatorRequest('files.list', 'GET', '/api/files', path ? { path } : undefined);
+  return operatorRequest('files.list', { query: path ? { path } : undefined });
 }
 
 export function getFileContent(path: string): Promise<FileContent> {
-  return operatorRequest('files.content', 'GET', '/api/files/content', { path }) as Promise<FileContent>;
+  return operatorRequest('files.content', { query: { path } }) as Promise<FileContent>;
 }
 
 export function listProcesses(): Promise<ProcessListResponse> {
-  return operatorRequest('processes.list', 'GET', '/api/processes');
+  return operatorRequest('processes.list');
 }
 
 export function getProcess(processId: string): Promise<ProcessDetailResponse> {
-  return operatorRequest('processes.get', 'GET', `/api/processes/${encodeURIComponent(processId)}`);
+  return operatorRequest('processes.get', { params: { id: processId } });
 }
 
 
 export function getDebugState(): Promise<DebugStateResponse> {
-  return operatorRequest('debug.state', 'GET', '/api/debug/state') as Promise<DebugStateResponse>;
+  return operatorRequest('debug.state') as Promise<DebugStateResponse>;
 }
 
 export function getDebugErrors(): Promise<DebugErrorsResponse> {
-  return operatorRequest('debug.errors', 'GET', '/api/debug/errors') as Promise<DebugErrorsResponse>;
+  return operatorRequest('debug.errors') as Promise<DebugErrorsResponse>;
 }
 
 export function getDebugTimeline(): Promise<DebugTimelineResponse> {
-  return operatorRequest('debug.timeline', 'GET', '/api/debug/timeline') as Promise<DebugTimelineResponse>;
+  return operatorRequest('debug.timeline') as Promise<DebugTimelineResponse>;
 }
 
 export function getDoctor(): Promise<DoctorResponse> {
@@ -267,7 +302,7 @@ export function getDebugSupervision(): Promise<SupervisionResponse> {
 }
 
 export function getMcpTools(): Promise<McpToolsResponse> {
-  return operatorRequest('mcp.tools', 'GET', '/api/mcp/tools');
+  return operatorRequest('mcp.tools');
 }
 
 export { ApiError };

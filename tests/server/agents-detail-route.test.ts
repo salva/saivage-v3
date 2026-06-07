@@ -27,7 +27,7 @@ function writeMessages(projectRoot: string, sessionId: string, messages: Array<R
 
 function writeManifest(projectRoot: string, sessionId: string, manifest: Record<string, unknown>): void {
   mkdirSync(join(projectRoot, '.saivage', 'agents', 'sessions'), { recursive: true });
-  writeFileSync(join(projectRoot, '.saivage', 'agents', 'sessions', `${sessionId}.json`), JSON.stringify(manifest, null, 2));
+  writeFileSync(join(projectRoot, '.saivage', 'agents', 'sessions', `${sessionId}.json`), JSON.stringify({ id: sessionId, status: 'inactive', started_at: '2026-01-01T00:00:00.000Z', ...manifest }, null, 2));
 }
 
 describe('GET /api/agents/:id', () => {

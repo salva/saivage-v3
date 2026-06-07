@@ -15,7 +15,8 @@ vi.mock('../utils/logger', () => ({ createLogger: () => ({ error: vi.fn() }) }))
 vi.mock('../components/cards/CardHistoryPanel.vue', () => ({ default: { template: '<section />', props: ['cardId'] } }));
 
 function card(overrides: Partial<CardRecord>): CardRecord {
-  return { id: 'card', type: 'code', parent: null, depth: 0, position: 0, title: 'Card', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z', version_seq: 1, depends_on: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0, ...overrides, display_path: overrides.display_path ?? null, lifecycle: overrides.lifecycle ?? { status: overrides.status ?? 'backlog', result: null, error: null, completed_at: null } as CardRecord['lifecycle'] };
+  const lifecycle = overrides.lifecycle ?? { status: overrides.status ?? 'backlog', result: null, error: null, completed_at: null } as CardRecord['lifecycle'];
+  return { id: 'card', type: 'code', parent: null, depth: 0, position: 0, title: 'Card', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z', version_seq: 1, depends_on: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0, ...overrides, display_path: overrides.display_path ?? null, lifecycle, operator_summary: overrides.operator_summary ?? { lifecycleStatus: lifecycle.status, terminal: false, needsVerification: lifecycle.status === 'needs_verification', blocked: lifecycle.status === 'blocked', hasError: Boolean(lifecycle.error), error: lifecycle.error ?? null, completedAt: lifecycle.completed_at ?? null, stale: lifecycle.status === 'changed', actionCount: 0 } };
 }
 
 describe('CardDetailView child order', () => {

@@ -1,6 +1,6 @@
 import type { AgentExecutionPort, PlannerResult } from '../../contracts/index.js';
 import type { PlannerActivationBarrierRequest } from '../../contracts/index.js';
-import type { PlannerDoneResult } from '../../schemas/index.js';
+import type { PlannerBlockedResult, PlannerDoneResult } from '../../schemas/index.js';
 import { PROJECT_CARD_ID } from '../../cards/store-api.js';
 import type { RuntimeSkillsPort } from '../runtime-config.js';
 import type { RuntimeGoalContextCoordinator } from '../runtime-goal-context.js';
@@ -109,6 +109,7 @@ export class PlannerIterationRunner {
       card,
       blockedReason: input.blockedReason,
       resumeReason: input.terminalReason,
+      planning: input.planning as PlannerBlockedResult | undefined,
       effects: {
         transitionCard: (cardId, event, details) => this.deps.stateMachine.transitionCard(cardId, event as 'block', details),
         updateCard: (cardId, patch) => this.deps.cards.commitTerminalLifecyclePatch(cardId, patch),

@@ -1,5 +1,11 @@
 import type { ActionableErrorEnvelope, ActivationCompletionOutcome, CardLifecycleState, RuntimeActivationRecord, RuntimeCommandRecord, RuntimeRunRecord, RuntimeState } from '../schemas/index.js';
-import { buildCompletedRuntimeCommandState, buildRejectedRuntimeCommandState, reduceActivationCompletion } from './runtime-core.js';
+import {
+  buildCompletedRuntimeCommandState,
+  buildRejectedRuntimeCommandState,
+  planOpenPlannerRunTerminalUpdate,
+  planPlannerRunSessionBinding,
+  reduceActivationCompletion,
+} from './runtime-core.js';
 import {
   appendRuntimeCommand,
   appendRuntimeRun,
@@ -22,6 +28,8 @@ type VoidRuntimeMutation =
 
 type AppendRuntimeRunMutation = { kind: 'appendRuntimeRun'; run: AppendRuntimeRunInput };
 type UpdateRuntimeRunMutation = { kind: 'updateRuntimeRun'; runId: string; updates: Partial<RuntimeRunRecord> };
+type FinishOpenPlannerRunMutation = { kind: 'finishOpenPlannerRun'; goalId: string; result: 'blocked' | 'failed'; at: string };
+type BindPlannerSessionToOpenRunMutation = { kind: 'bindPlannerSessionToOpenRun'; goalId: string; plannerSessionId: string };
 type AppendRuntimeCommandMutation = { kind: 'appendRuntimeCommand'; commandKind: AppendRuntimeCommandArgs[1]; source: AppendRuntimeCommandArgs[2] };
 type UpsertRuntimeIntentMutation = { kind: 'upsertRuntimeIntent'; status: UpsertRuntimeIntentArgs[1]; sourceCommandId: UpsertRuntimeIntentArgs[2]; reason?: UpsertRuntimeIntentArgs[3] };
 type UpsertRuntimeActivationMutation = { kind: 'upsertRuntimeActivation'; activation: UpsertRuntimeActivationInput };
@@ -33,6 +41,8 @@ export type RuntimeMutation =
   | VoidRuntimeMutation
   | AppendRuntimeRunMutation
   | UpdateRuntimeRunMutation
+  | FinishOpenPlannerRunMutation
+  | BindPlannerSessionToOpenRunMutation
   | AppendRuntimeCommandMutation
   | UpsertRuntimeIntentMutation
   | UpsertRuntimeActivationMutation
@@ -46,6 +56,8 @@ export interface RuntimeStateMutationPort {
   apply(mutation: VoidRuntimeMutation): void;
   apply(mutation: AppendRuntimeRunMutation): RuntimeRunRecord;
   apply(mutation: UpdateRuntimeRunMutation): RuntimeRunRecord | null;
+  apply(mutation: FinishOpenPlannerRunMutation): RuntimeRunRecord | null;
+  apply(mutation: BindPlannerSessionToOpenRunMutation): RuntimeRunRecord | null;
   apply(mutation: AppendRuntimeCommandMutation): RuntimeCommandRecord;
   apply(mutation: UpsertRuntimeIntentMutation): RuntimeState;
   apply(mutation: UpsertRuntimeActivationMutation): RuntimeActivationRecord;
@@ -57,6 +69,8 @@ export interface RuntimeStateMutationPort {
 export function applyRuntimeMutation(projectRoot: string, mutation: VoidRuntimeMutation): void;
 export function applyRuntimeMutation(projectRoot: string, mutation: AppendRuntimeRunMutation): RuntimeRunRecord;
 export function applyRuntimeMutation(projectRoot: string, mutation: UpdateRuntimeRunMutation): RuntimeRunRecord | null;
+export function applyRuntimeMutation(projectRoot: string, mutation: FinishOpenPlannerRunMutation): RuntimeRunRecord | null;
+export function applyRuntimeMutation(projectRoot: string, mutation: BindPlannerSessionToOpenRunMutation): RuntimeRunRecord | null;
 export function applyRuntimeMutation(projectRoot: string, mutation: AppendRuntimeCommandMutation): RuntimeCommandRecord;
 export function applyRuntimeMutation(projectRoot: string, mutation: UpsertRuntimeIntentMutation): RuntimeState;
 export function applyRuntimeMutation(projectRoot: string, mutation: UpsertRuntimeActivationMutation): RuntimeActivationRecord;
@@ -89,6 +103,20 @@ export function applyRuntimeMutation(projectRoot: string, mutation: RuntimeMutat
       return appendRuntimeRun(projectRoot, mutation.run);
     case 'updateRuntimeRun':
       return updateRuntimeRun(projectRoot, mutation.runId, mutation.updates);
+    case 'finishOpenPlannerRun':
+      return updateRuntimeStateLockedDeriving(projectRoot, (current) => {
+        const plan = planOpenPlannerRunTerminalUpdate({ state: current, goalId: mutation.goalId, result: mutation.result, nowIso: mutation.at });
+        if (!plan) return { state: current, result: null };
+        const runtime_runs = (current.runtime_runs ?? []).map((run) => run.run_id === plan.runId ? { ...run, ...plan.updates } : run);
+        return { state: { ...current, runtime_runs }, result: runtime_runs.find((run) => run.run_id === plan.runId) ?? null };
+      });
+    case 'bindPlannerSessionToOpenRun':
+      return updateRuntimeStateLockedDeriving(projectRoot, (current) => {
+        const plan = planPlannerRunSessionBinding({ state: current, goalId: mutation.goalId, plannerSessionId: mutation.plannerSessionId });
+        if (!plan) return { state: current, result: null };
+        const runtime_runs = (current.runtime_runs ?? []).map((run) => run.run_id === plan.runId ? { ...run, ...plan.updates } : run);
+        return { state: { ...current, runtime_runs }, result: runtime_runs.find((run) => run.run_id === plan.runId) ?? null };
+      });
     case 'appendRuntimeCommand':
       return appendRuntimeCommand(projectRoot, mutation.commandKind, mutation.source);
     case 'upsertRuntimeIntent':

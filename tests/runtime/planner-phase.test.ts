@@ -56,7 +56,7 @@ describe('planner phase decisions', () => {
     expect(preserved).toEqual(expect.objectContaining({
       blockedReason: 'reviewer unavailable',
       terminalReason: 'reviewer_invocation_failed',
-      planning: expect.objectContaining({ kind: 'planner_blocked', resume_reason: 'reviewer_unavailable', blocker_cause: 'reviewer_unavailable' }),
+      planning: expect.objectContaining({ kind: 'planner_blocked', resume_reason: 'reviewer_invocation_failed', blocker_cause: 'reviewer_unavailable' }),
     }));
   });
 

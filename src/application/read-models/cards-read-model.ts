@@ -12,7 +12,7 @@ export type ReadModelResult<T> = { statusCode?: number; body: T };
 type CardReadModel = CardView & { lifecycle: CardLifecycleState };
 
 function withOperatorAllowedActions(store: CardStore, card: CardRecord): CardReadModel {
-  return { ...toCardView(store, card), allowedActions: allowedActions('operator', card.lifecycle.status) };
+  return toCardView(store, { ...card, allowedActions: allowedActions('operator', card.lifecycle.status) });
 }
 
 function redactValue<T>(value: T, source = 'cards-read-model'): T {

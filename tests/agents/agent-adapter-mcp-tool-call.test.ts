@@ -46,6 +46,7 @@ describe('AgentAdapter role tool + MCP policy', () => {
   let mockMcpManager: {
     invokeTool: jest.Mock<(serverName: string, toolName: string, args: Record<string, unknown>) => Promise<unknown>>;
     getServerTools: jest.Mock<(serverName: string) => Array<{ name: string; annotations?: Record<string, unknown> }> | undefined>;
+    findToolCapability: jest.Mock<(serverName: string, toolName: string) => { serverName: string; name: string; annotations?: Record<string, unknown> } | null>;
   };
 
   beforeEach(() => {
@@ -55,6 +56,7 @@ describe('AgentAdapter role tool + MCP policy', () => {
     mockMcpManager = {
       invokeTool: jest.fn(),
       getServerTools: jest.fn(),
+      findToolCapability: jest.fn((serverName, toolName) => mockMcpManager.getServerTools(serverName)?.find((tool) => tool.name === toolName) ? { serverName, name: toolName, annotations: mockMcpManager.getServerTools(serverName)?.find((tool) => tool.name === toolName)?.annotations } : null),
     };
     adapter.setMcpManager(mockMcpManager as unknown as McpToolInvocationPort);
   });

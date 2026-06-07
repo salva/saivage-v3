@@ -1,9 +1,9 @@
 export {
   AnalystHandler,
-  GLOBAL_ANALYST_SESSION_ID,
   getAnalystHandler,
   getOrCreateAnalystSession,
 } from './analyst-handler.js';
+export { GLOBAL_ANALYST_SESSION_ID } from './agent-session-repository.js';
 export type { AnalystRuntimeDeps } from './analyst-handler.js';
 export { sanitizeAnalystPayload, sanitizeAnalystText } from './analyst-sanitization.js';
 export {

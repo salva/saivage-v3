@@ -471,7 +471,7 @@ describe('planner context-length failures', () => {
     expect(project?.status).toBe('blocked');
     expect(project?.lifecycle.result).toEqual(
       expect.objectContaining({
-        resume_reason: 'planner_non_actionable_project_done',
+        resume_reason: 'non_actionable_project_done',
       }),
     );
     expect(project?.lifecycle.result).not.toEqual(

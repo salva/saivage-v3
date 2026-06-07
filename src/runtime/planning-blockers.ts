@@ -20,5 +20,10 @@ export function blockedPlanningReason(card: CardRecord | null, planning: Planner
 export function shouldPreservePrecisePlanningBlocker(card: CardRecord | null, incomingResumeReason: string): boolean {
   if (incomingResumeReason !== 'planner_blocked') return false;
   const planning = getBlockedPlanning(card);
-  return planning?.blocker_cause === 'reviewer_unavailable';
+  return planning?.blocker_cause === 'reviewer_unavailable' || planning?.resume_reason === 'reviewer_unavailable' || planning?.resume_reason === 'reviewer_invocation_failed';
+}
+
+export function isReviewerCapacityPlanningBlocker(reason: string | null | undefined): boolean {
+  const normalized = (reason ?? '').toLowerCase();
+  return normalized.includes('reviewer/provider capacity') || normalized.includes('reviewer invocation failed');
 }

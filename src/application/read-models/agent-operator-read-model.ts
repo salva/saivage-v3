@@ -1,13 +1,11 @@
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
 import { readRuntimeState } from '../../runtime/state-api.js';
-import { agentMessageSchema } from '../../schemas/index.js';
-import type { RuntimeState } from '../../schemas/index.js';
+import type { AgentMessage, AgentSession, RuntimeState } from '../../schemas/index.js';
 import { deriveCurrentAgentSessionId } from '../../runtime/current-run.js';
 import type { RuntimeApi } from '../../runtime/control-api.js';
+import { AgentSessionRepository, GLOBAL_ANALYST_SESSION_ID, isSafeAgentSessionId, SAFE_AGENT_SESSION_ID_RE } from '../../agents/agent-session-repository.js';
 
-export const GLOBAL_OPERATOR_AGENT_SESSION_ID = 'analyst';
-export const SAFE_AGENT_ID_RE = /^[a-zA-Z0-9_:-]+$/;
+export const GLOBAL_OPERATOR_AGENT_SESSION_ID = GLOBAL_ANALYST_SESSION_ID;
+export const SAFE_AGENT_ID_RE = SAFE_AGENT_SESSION_ID_RE;
 
 export type ListedAgentStatus = 'active' | 'waiting' | 'inactive' | 'done' | 'blocked' | 'failed';
 export type AgentOperatorSessionSummary = Record<string, unknown> & {
@@ -24,16 +22,14 @@ export interface AgentOperatorConversationResponse {
 }
 
 export class AgentOperatorReadModelService {
-  constructor(private readonly projectRoot: string, private readonly runtimeApi?: Pick<RuntimeApi, 'getActivityStatus'>) {}
+  private readonly repository: AgentSessionRepository;
+
+  constructor(private readonly projectRoot: string, private readonly runtimeApi?: Pick<RuntimeApi, 'getActivityStatus'>) {
+    this.repository = new AgentSessionRepository(projectRoot);
+  }
 
   listSessions(): { sessions: AgentOperatorSessionSummary[] } {
-    const sessionsDir = join(this.projectRoot, '.saivage', 'agents', 'sessions');
-    const sessionIds = new Set<string>(this.listMessageSessionIds());
-    if (existsSync(sessionsDir)) {
-      for (const file of readdirSync(sessionsDir).filter((entry) => entry.endsWith('.json'))) {
-        sessionIds.add(file.slice(0, -'.json'.length));
-      }
-    }
+    const sessionIds = new Set<string>(this.repository.listKnownSessionIds());
     const state = readRuntimeState(this.projectRoot);
     const sessions = Array.from(sessionIds)
       .map((sessionId) => this.buildSessionSummary(sessionId, state))
@@ -55,7 +51,7 @@ export class AgentOperatorReadModelService {
       started_at: new Date(0).toISOString(),
     };
     const lastActivity = this.lastMessageTimestamp(sessionId)
-      ?? (typeof manifest?.['completed_at'] === 'string' ? manifest['completed_at'] : null)
+      ?? (typeof manifest?.completed_at === 'string' ? manifest.completed_at : null)
       ?? (typeof base.started_at === 'string' ? base.started_at : null);
     return { body: { session: { ...base, message_count: messages.length, last_activity_at: lastActivity } } };
   }
@@ -71,30 +67,12 @@ export class AgentOperatorReadModelService {
     return { body: { session, entries: messages, activity_status } };
   }
 
-  private readManifest(sessionId: string): Record<string, unknown> | null {
-    const sessionPath = join(this.projectRoot, '.saivage', 'agents', 'sessions', `${sessionId}.json`);
-    if (!existsSync(sessionPath)) return null;
-    try { return JSON.parse(readFileSync(sessionPath, 'utf-8')) as Record<string, unknown>; } catch { return null; }
+  private readManifest(sessionId: string): AgentSession | null {
+    return this.repository.getSession(sessionId);
   }
 
-  private readConversationEntries(sessionId: string): unknown[] {
-    const messagesPath = join(this.projectRoot, '.saivage', 'agents', 'messages', `${sessionId}.jsonl`);
-    if (!existsSync(messagesPath)) return [];
-    const entries: unknown[] = [];
-    for (const line of readFileSync(messagesPath, 'utf-8').split('\n')) {
-      if (!line.trim()) continue;
-      entries.push(agentMessageSchema.parse(JSON.parse(line)));
-    }
-    return entries;
-  }
-
-  private listMessageSessionIds(): string[] {
-    const messagesDir = join(this.projectRoot, '.saivage', 'agents', 'messages');
-    if (!existsSync(messagesDir)) return [];
-    return readdirSync(messagesDir)
-      .filter((file) => file.endsWith('.jsonl'))
-      .map((file) => file.slice(0, -'.jsonl'.length))
-      .filter((sessionId) => isSafeAgentSessionId(sessionId));
+  private readConversationEntries(sessionId: string): AgentMessage[] {
+    return this.repository.getMessages(sessionId);
   }
 
   private parseRole(sessionId: string): string {
@@ -106,25 +84,22 @@ export class AgentOperatorReadModelService {
     return 'analyst';
   }
 
-  private isNonCanonicalAnalystSession(sessionId: string, manifest?: Record<string, unknown> | null): boolean {
-    const role = typeof manifest?.['role'] === 'string' ? manifest['role'] : this.parseRole(sessionId);
+  private isNonCanonicalAnalystSession(sessionId: string, manifest?: AgentSession | null): boolean {
+    const role = typeof manifest?.role === 'string' ? manifest.role : this.parseRole(sessionId);
     return role === 'analyst' && sessionId !== GLOBAL_OPERATOR_AGENT_SESSION_ID;
   }
 
   private firstMessageTimestamp(sessionId: string): string | null {
     const messages = this.readConversationEntries(sessionId);
-    const first = messages.find((message): message is Record<string, unknown> => Boolean(message) && typeof message === 'object' && typeof (message as Record<string, unknown>)['timestamp'] === 'string');
-    return typeof first?.['timestamp'] === 'string' ? first['timestamp'] : null;
+    const first = messages.find((message) => typeof message.timestamp === 'string');
+    return first?.timestamp ?? null;
   }
 
   private lastMessageTimestamp(sessionId: string): string | null {
     const messages = this.readConversationEntries(sessionId);
     for (let i = messages.length - 1; i >= 0; i--) {
-      const message = messages[i];
-      if (message && typeof message === 'object') {
-        const timestamp = (message as Record<string, unknown>)['timestamp'];
-        if (typeof timestamp === 'string') return timestamp;
-      }
+      const timestamp = messages[i]?.timestamp;
+      if (typeof timestamp === 'string') return timestamp;
     }
     return null;
   }
@@ -138,11 +113,11 @@ export class AgentOperatorReadModelService {
     return activeRun?.phase === 'planner' && activeRun.planner_session_id === sessionId;
   }
 
-  private listedStatus(state: RuntimeState | null, session: Record<string, unknown> | null, sessionId: string, currentSessionId: string | null): ListedAgentStatus {
+  private listedStatus(state: RuntimeState | null, session: AgentSession | null, sessionId: string, currentSessionId: string | null): ListedAgentStatus {
     const openPlannerRun = this.hasOpenPlannerRun(state, sessionId);
     if (currentSessionId && sessionId === currentSessionId) return openPlannerRun && !this.isActivePlannerTurn(state, sessionId) ? 'waiting' : 'active';
     if (openPlannerRun) return 'waiting';
-    const manifestStatus = session?.['status'];
+    const manifestStatus = session?.status;
     if (manifestStatus === 'active') return 'active';
     if (manifestStatus === 'waiting' || manifestStatus === 'done' || manifestStatus === 'blocked' || manifestStatus === 'failed') return manifestStatus;
     return 'inactive';
@@ -152,17 +127,15 @@ export class AgentOperatorReadModelService {
     if (!isSafeAgentSessionId(sessionId)) return null;
     const manifest = this.readManifest(sessionId);
     if (this.isNonCanonicalAnalystSession(sessionId, manifest)) return null;
-    const startedAt = typeof manifest?.['started_at'] === 'string' ? manifest['started_at'] : this.firstMessageTimestamp(sessionId) ?? new Date(0).toISOString();
+    const startedAt = typeof manifest?.started_at === 'string' ? manifest.started_at : this.firstMessageTimestamp(sessionId) ?? new Date(0).toISOString();
     return {
       ...(manifest ?? {}),
       id: sessionId,
-      role: typeof manifest?.['role'] === 'string' ? manifest['role'] : this.parseRole(sessionId),
+      role: typeof manifest?.role === 'string' ? manifest.role : this.parseRole(sessionId),
       status: this.listedStatus(state, manifest, sessionId, deriveCurrentAgentSessionId(state)),
       started_at: startedAt,
     };
   }
 }
 
-export function isSafeAgentSessionId(sessionId: string): boolean {
-  return SAFE_AGENT_ID_RE.test(sessionId);
-}
+export { isSafeAgentSessionId };

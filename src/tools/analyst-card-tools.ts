@@ -5,7 +5,7 @@ import { PROJECT_CARD_ID } from '../cards/store-api.js';
 import type { CardRecord, CardStatus, CardType } from '../schemas/index.js';
 import { deriveCurrentCardId } from '../runtime/current-run.js';
 import { readRuntimeState } from '../runtime/state-api.js';
-import { getProcess, listProcesses, tailOutput } from '../runtime/process-api.js';
+import { processApi } from '../runtime/process-api.js';
 import { decide } from '../permissions/index.js';
 import { markGoalNeedsCorrections, normalizeAnalystIssues, notifyPlannerOfAnalystAction } from '../agents/analyst-stage6.js';
 import { toCardView, computeCardDisplayPath } from '../application/read-models/card-view.js';
@@ -130,14 +130,27 @@ export async function delete_card(ctx: ToolContext, params: { ids: string[] }): 
   return runAuditedAnalystTool(ctx, params, { action: 'card.delete', safety_class: 'destructive', target_kind: 'card', getTargetId: (p) => p.ids.join(','), preview: () => {
     const store = getStore(ctx); const previews = params.ids.map((id) => buildDeletePreview(ctx.projectRoot, store, id));
     return { type: 'delete_card', summary: `Delete ${params.ids.length} card target(s) and their descendants.`, affectedCards: previews.flatMap((preview) => preview.affectedCards), affectedProcesses: previews.flatMap((preview) => preview.affectedProcesses), warnings: previews.flatMap((preview) => preview.warnings) };
+  }, permissionCheck: () => {
+    if (params.ids.length > 1) return { allowed: true };
+    const store = getStore(ctx);
+    for (const targetId of params.ids) {
+      const root = store.read(targetId);
+      if (!root) continue;
+      const cards = [targetId, ...store.getDescendantIds(targetId)].map((id) => store.read(id)).filter((c): c is CardRecord => c !== null);
+      for (const card of cards) {
+        const decision = decide({ role: 'analyst', action: 'card.delete', targetState: card.status });
+        if (!decision.allowed) return decision;
+      }
+    }
+    return { allowed: true };
   }, run: async () => {
     const store = getStore(ctx); const deletedTopLevel: string[] = []; const deletedAll: string[] = []; const failures: Array<{ id: string; reason: string }> = [];
     for (const targetId of params.ids) {
       try {
         const card = store.read(targetId); if (!card) { failures.push({ id: targetId, reason: `Card '${targetId}' not found.` }); continue; }
         const cards = [targetId, ...store.getDescendantIds(targetId)].map((id) => store.read(id)).filter((c): c is CardRecord => c !== null).sort((a, b) => b.depth - a.depth);
-        const denied = cards.find((c) => !decide({ role: 'analyst', action: 'card.delete', targetState: c.status }).allowed);
-        if (denied) { const decision = decide({ role: 'analyst', action: 'card.delete', targetState: denied.status }); failures.push({ id: targetId, reason: `delete_card denied by permission matrix for card '${denied.id}' in state '${denied.status}' (${decision.allowed ? 'not_allowed' : decision.reason}).` }); continue; }
+        const denied = cards.map((c) => decide({ role: 'analyst', action: 'card.delete', targetState: c.status })).find((decision) => !decision.allowed);
+        if (denied) { failures.push({ id: targetId, reason: 'delete_card denied by permission matrix' }); continue; }
         for (const c of cards) { store.delete(c.id); deletedAll.push(c.id); }
         deletedTopLevel.push(targetId);
       } catch (err) { failures.push({ id: targetId, reason: err instanceof Error ? err.message : String(err) }); }
@@ -183,13 +196,14 @@ export async function get_plan_diary(ctx: ToolContext, params: { goalId: string 
 
 export async function get_card_output(ctx: ToolContext, params: { cardId: string; lines?: number; processId?: string }): Promise<ToolResult> {
   try { const store = getStore(ctx); if (!store.read(params.cardId)) return toolFailure('not_found', `Card '${params.cardId}' not found.`, { cardId: params.cardId }); const numLines = params.lines ?? 50;
-    if (params.processId) { const proc = getProcess(ctx.projectRoot, params.processId); if (!proc) return toolFailure('not_found', `Process '${params.processId}' not found.`, { processId: params.processId }); if (proc.card_id !== params.cardId) return toolFailure('conflict', `Process '${params.processId}' is not associated with card '${params.cardId}'.`, { processId: params.processId, cardId: params.cardId }); return { success: true, data: { process: { id: proc.id, command: proc.command, status: proc.status, pid: proc.pid }, output: tailOutput(ctx.projectRoot, params.processId, numLines) } }; }
-    return { success: true, data: listProcesses(ctx.projectRoot, { cardId: params.cardId }).map((proc) => ({ id: proc.id, command: proc.command, status: proc.status, pid: proc.pid, started_at: proc.started_at, completed_at: proc.completed_at, exit_code: proc.exit_code, output: tailOutput(ctx.projectRoot, proc.id, numLines) })) };
+    const processes = processApi(ctx.projectRoot);
+    if (params.processId) { const proc = processes.getForRuntime(params.processId); if (!proc) return toolFailure('not_found', `Process '${params.processId}' not found.`, { processId: params.processId }); if (proc.card_id !== params.cardId) return toolFailure('conflict', `Process '${params.processId}' is not associated with card '${params.cardId}'.`, { processId: params.processId, cardId: params.cardId }); return { success: true, data: { process: processes.getForAgent(proc.id), output: processes.tail(params.processId, numLines) } }; }
+    return { success: true, data: processes.listForAgent({ cardId: params.cardId }).map((proc) => ({ ...proc, output: processes.tail(proc.id, numLines) })) };
   } catch (err) { return toolFailureFromError(err, 'io'); }
 }
 
 export async function get_status(ctx: ToolContext, _params: Record<string, never>): Promise<ToolResult> {
-  try { const store = getStore(ctx); const runtimeState = readRuntimeState(ctx.projectRoot); const allCards = store.list(); const runningProcesses = listProcesses(ctx.projectRoot).filter((p) => p.status === 'running'); const plannerStateCounts = allCards.reduce<Record<string, number>>((counts, card) => { counts[card.status] = (counts[card.status] ?? 0) + 1; return counts; }, {}); const activeCardRun = runtimeState?.active_card_run ?? null; const runtimeIntent = runtimeState?.runtime_intent ?? null; const runtimeRuns = runtimeState?.runtime_runs ?? []; const activationRecords = runtimeState?.runtime_activations ?? [];
+  try { const store = getStore(ctx); const runtimeState = readRuntimeState(ctx.projectRoot); const allCards = store.list(); const runningProcesses = processApi(ctx.projectRoot).listForRuntime().filter((p) => p.status === 'running'); const plannerStateCounts = allCards.reduce<Record<string, number>>((counts, card) => { counts[card.status] = (counts[card.status] ?? 0) + 1; return counts; }, {}); const activeCardRun = runtimeState?.active_card_run ?? null; const runtimeIntent = runtimeState?.runtime_intent ?? null; const runtimeRuns = runtimeState?.runtime_runs ?? []; const activationRecords = runtimeState?.runtime_activations ?? [];
     return { success: true, data: { runtime: runtimeState, runtimeSummary: { status: runtimeState?.status ?? 'unknown', paused: runtimeState?.paused ?? false, currentCardId: deriveCurrentCardId(runtimeState), activeCardRun, runtimeIntent, projectRuns: runtimeRuns.map((run) => ({ run_id: run.run_id, kind: run.kind, card_id: run.card_id, phase: run.phase, runtime_status: run.runtime_status, started_at: run.started_at, finished_at: run.finished_at ?? null })), activations: activationRecords.map((activation) => ({ activation_id: activation.activation_id, parent_card_id: activation.parent_card_id, child_card_id: activation.child_card_id, status: activation.status, requested_at: activation.requested_at, runtime_run_id: activation.runtime_run_id ?? null })) }, runningProcesses: runningProcesses.length, plannerStateCounts, counts: { done: plannerStateCounts.done ?? 0, failed: plannerStateCounts.failed ?? 0, blocked: plannerStateCounts.blocked ?? 0, total: allCards.length } } };
   } catch (err) { return toolFailureFromError(err); }
 }

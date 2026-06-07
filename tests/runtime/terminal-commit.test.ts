@@ -201,10 +201,10 @@ describe('terminal commit functions', () => {
       effects: fx,
     });
 
-    expect(receipt.result).toEqual({ kind: 'planner_blocked', blocked_reason: 'token budget', resume_reason: 'planner_context_length_exceeded' });
+    expect(receipt.result).toEqual({ kind: 'planner_blocked', blocked_reason: 'token budget', resume_reason: 'planner_context_length_exceeded', blocker_cause: 'token_budget_exceeded' });
     expect(receipt.patch).toEqual(expect.objectContaining({
       status: 'blocked',
-      lifecycle: { status: 'blocked', error: 'token budget', completed_at: null, result: { kind: 'planner_blocked', blocked_reason: 'token budget', resume_reason: 'planner_context_length_exceeded' } },
+      lifecycle: { status: 'blocked', error: 'token budget', completed_at: null, result: { kind: 'planner_blocked', blocked_reason: 'token budget', resume_reason: 'planner_context_length_exceeded', blocker_cause: 'token_budget_exceeded' } },
     }));
     expect(fx.transitions[0]).toEqual(expect.objectContaining({ event: 'block' }));
   });

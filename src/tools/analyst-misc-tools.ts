@@ -1,18 +1,17 @@
 import { z } from 'zod';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { queueNotification, resolveRecipient } from '../notifications/index.js';
 import { assertAnalystInspectionTarget, redactAnalystSecretValue } from '../workspace/file-access-security.js';
 import { getRedactedConfig, mcpAdd, mcpEdit, mcpRemove, setFailoverChain, setRoleRouting, setRuntimeSetting, setServerSetting } from '../agents/analyst-config-writer.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
+import { AgentSessionRepository, GLOBAL_ANALYST_SESSION_ID, isSafeAgentSessionId } from '../agents/agent-session-repository.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
 import { describe, emptyInput, type UnifiedToolDefinition } from './tool-catalog.js';
-import { readJsonlTail, toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
+import { toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
 
 const JSONL_TAIL_DEFAULT = 50;
 const JSONL_TAIL_MAX = 1000;
-const GLOBAL_ANALYST_SESSION_ID = 'analyst';
 
 export async function queue_notification(ctx: ToolContext, params: { recipient: string; kind: string; body: string }): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, { recipient: params.recipient, kind: params.kind }, { action: 'notification.queue', safety_class: 'low', target_kind: 'session', getTargetId: () => params.recipient, run: async () => {
@@ -52,15 +51,29 @@ export async function reconfigure(ctx: ToolContext, params: ReconfigureParams): 
 }
 
 export async function list_agent_sessions(ctx: ToolContext, _params: Record<string, never>): Promise<ToolResult> {
-  try { const dir = join(ctx.projectRoot, '.saivage', 'agents', 'sessions'); if (!existsSync(dir)) return { success: true, data: [] }; const files = readdirSync(dir).filter((f) => f.endsWith('.json')).sort(); const sessions: Array<Record<string, unknown>> = files.flatMap((file): Array<Record<string, unknown>> => {
-    try { const data = JSON.parse(readFileSync(join(dir, file), 'utf-8')) as Record<string, unknown>; const id = (data['id'] as string) ?? file.replace('.json', ''); if (data['role'] === 'analyst' && id !== GLOBAL_ANALYST_SESSION_ID) return []; return [{ id, role: data['role'] ?? null, status: data['status'] ?? null, started_at: data['started_at'] ?? null, card_id: data['card_id'] ?? null }]; }
-    catch (err) { return [{ id: file.replace('.json', ''), error: err instanceof Error ? err.message : String(err) }]; }
-  }); return { success: true, data: sessions }; }
+  try {
+    const repository = new AgentSessionRepository(ctx.projectRoot);
+    const sessions = repository.listKnownSessionIds().sort().flatMap((id): Array<Record<string, unknown>> => {
+      const session = repository.getSession(id);
+      if (session?.role === 'analyst' && id !== GLOBAL_ANALYST_SESSION_ID) return [];
+      return [{ id, role: session?.role ?? null, status: session?.status ?? null, started_at: session?.started_at ?? null, card_id: session?.card_id ?? null }];
+    });
+    return { success: true, data: sessions };
+  }
   catch (err) { return toolFailureFromError(err, 'io'); }
 }
 
 export async function read_agent_session(ctx: ToolContext, params: { sessionId: string; lastN?: number }): Promise<ToolResult> {
-  try { if (typeof params.sessionId !== 'string' || params.sessionId.length === 0) return toolFailure('validation', 'sessionId is required.', { field: 'sessionId' }); if (!/^[a-zA-Z0-9_-]+$/.test(params.sessionId)) return toolFailure('validation', 'sessionId contains invalid characters.', { field: 'sessionId' }); const sessionPath = join(ctx.projectRoot, '.saivage', 'agents', 'sessions', `${params.sessionId}.json`); const messagesPath = join(ctx.projectRoot, '.saivage', 'agents', 'messages', `${params.sessionId}.jsonl`); const session = existsSync(sessionPath) ? JSON.parse(readFileSync(sessionPath, 'utf-8')) : null; const limit = Math.min(Math.max(1, params.lastN ?? JSONL_TAIL_DEFAULT), JSONL_TAIL_MAX); const { entries, total, parseErrors } = readJsonlTail(messagesPath, limit); return { success: true, data: { session, total_messages: total, returned: entries.length, parse_errors: parseErrors, messages: entries } }; }
+  try {
+    if (typeof params.sessionId !== 'string' || params.sessionId.length === 0) return toolFailure('validation', 'sessionId is required.', { field: 'sessionId' });
+    if (!isSafeAgentSessionId(params.sessionId)) return toolFailure('validation', 'sessionId contains invalid characters.', { field: 'sessionId' });
+    const repository = new AgentSessionRepository(ctx.projectRoot);
+    const session = repository.getSession(params.sessionId);
+    const limit = Math.min(Math.max(1, params.lastN ?? JSONL_TAIL_DEFAULT), JSONL_TAIL_MAX);
+    const messages = repository.getMessages(params.sessionId);
+    const entries = messages.slice(-limit);
+    return { success: true, data: { session, total_messages: messages.length, returned: entries.length, parse_errors: 0, messages: entries } };
+  }
   catch (err) { return toolFailureFromError(err, 'io'); }
 }
 

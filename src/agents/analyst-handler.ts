@@ -20,7 +20,8 @@ import type { McpManager } from '../mcp/manager-api.js';
 import type { ActorRole } from './authz.js';
 import { sanitizeAnalystText } from '../agents/analyst-sanitization.js';
 import { ContextCompactor } from './context-compactor.js';
-import { appendMessage, createSession, getSession, getSessionMessages } from './session-persistence.js';
+import { appendMessage } from './session-persistence.js';
+import { AgentSessionRepository, GLOBAL_ANALYST_SESSION_ID } from './agent-session-repository.js';
 import { generateRoundId } from '../schemas/round-id-server.js';
 import { ANALYST_PARTIAL_SUCCESS_TEMPLATE, ANALYST_UNSUPPORTED_ACTION_TEMPLATE } from './analyst-tool-runner.js';
 import { serializeToolCallMessage } from '../contracts/persisted-tool-call.js';
@@ -98,13 +99,9 @@ function saivageDir(projectRoot: string): string { return join(projectRoot, '.sa
 
 const ANALYST_CONTEXT_LIMIT_TOKENS = 128_000;
 
-export const GLOBAL_ANALYST_SESSION_ID = 'analyst';
 export function getOrCreateAnalystSession(projectRoot: string, sessionId?: string): { session: AgentSession; sessionId: string } {
   const resolvedSessionId = sessionId || GLOBAL_ANALYST_SESSION_ID;
-  const dir = saivageDir(projectRoot);
-  const existing = getSession(dir, resolvedSessionId);
-  if (existing) return { session: existing, sessionId: existing.id };
-  const session = createSession(dir, 'analyst', null, null, undefined, resolvedSessionId);
+  const session = new AgentSessionRepository(projectRoot).ensureAnalystSession(resolvedSessionId);
   return { session, sessionId: session.id };
 }
 
@@ -234,9 +231,10 @@ export class AnalystHandler {
   }
 
   private async handleMessageSerial(sessionId: string, userContent: string, workspaceContext?: WorkspaceContext): Promise<AnalystResponse> {
-    let session = getSession(saivageDir(this.projectRoot), sessionId);
+    const repository = new AgentSessionRepository(this.projectRoot);
+    let session = repository.getSession(sessionId);
     if (!session) { const created = getOrCreateAnalystSession(this.projectRoot, sessionId); session = created.session; sessionId = created.sessionId; }
-    const priorMessages = getSessionMessages(saivageDir(this.projectRoot), sessionId);
+    const priorMessages = repository.getMessages(sessionId);
     const duplicateResponse = this.findRecentDuplicateResponse(priorMessages, userContent);
     if (duplicateResponse) return duplicateResponse;
     appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'user', kind: 'text', content: userContent }, this.runtimeDeps.stamper.stampUserMessage(sessionId), this.runtimeDeps.stamper);
@@ -282,7 +280,7 @@ export class AnalystHandler {
         });
       } catch (err) { this.logBoundaryDiagnostic('analyst_history_compaction_failed', err); }
 
-      const history = getSessionMessages(saivageDir(this.projectRoot), sessionId);
+      const history = new AgentSessionRepository(this.projectRoot).getMessages(sessionId);
       const bounded = this.contextCompactor.pruneToolBoundary(history);
       const modelInput: AgentMessage[] = [
         { id: `workspace-context-${sessionId}`, session_id: sessionId, role: 'system', kind: 'text', content: buildWorkspaceContextNote(workspaceContext), round_id: generateRoundId('pre'), message_index: 0, block_index: 0, timestamp: now() },

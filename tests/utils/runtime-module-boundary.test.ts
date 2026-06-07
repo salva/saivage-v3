@@ -4,9 +4,7 @@ import {
   readRuntimeState,
 } from '../../src/runtime/state-api.js';
 import {
-  listProcesses,
-  tailOutput,
-  getProcess,
+  processApi,
 } from '../../src/runtime/process-api.js';
 import {
   pauseRuntimeControl,
@@ -17,7 +15,6 @@ import {
 } from '../../src/runtime/control-api.js';
 import { initRuntimeState, runtimeStatePath } from '../../src/runtime/state.js';
 import { readRuntimeState as directReadRuntimeState, updateRuntimeState as directUpdateRuntimeState, appendRuntimeRun as directAppendRuntimeRun, upsertRuntimeActivation as directUpsertRuntimeActivation } from '../../src/runtime/state.js';
-import { listProcesses as directListProcesses, tailOutput as directTailOutput, getProcess as directGetProcess } from '../../src/runtime/process-runner.js';
 import { pauseRuntimeControl as directPauseRuntimeControl, resumeRuntimeControl as directResumeRuntimeControl } from '../../src/runtime/control.js';
 import { FROZEN_RUNTIME_RECOVERY_MESSAGE as directFrozenRuntimeRecoveryMessage } from '../../src/runtime/runtime-control-commands.js';
 import { readFreezeManifest as directReadFreezeManifest, clearFreezeManifest as directClearFreezeManifest } from '../../src/runtime/freeze-manifest.js';
@@ -310,10 +307,12 @@ describe('runtime module ownership boundary', () => {
     }
   });
 
-  it('exports source-proven process inspection helpers through process-api', () => {
-    expect(listProcesses).toBe(directListProcesses);
-    expect(tailOutput).toBe(directTailOutput);
-    expect(getProcess).toBe(directGetProcess);
+  it('exports semantic process inspection through process-api', () => {
+    const api = processApi(process.cwd());
+    expect(typeof api.listForRuntime).toBe('function');
+    expect(typeof api.listForAgent).toBe('function');
+    expect(typeof api.listForOperator).toBe('function');
+    expect(typeof api.getForOperator).toBe('function');
   });
 
   it('exports runtime-owned pause/resume and freeze authority through control-api', () => {

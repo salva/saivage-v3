@@ -17,11 +17,18 @@ export const ConfigUnavailableErrorSchema = z.object({
 });
 
 export const ProviderSummarySchema = z.object({
-  priority: z.number().optional(),
-  models: z.array(z.string()).optional(),
+  priority: z.number(),
+  models: z.array(z.string()),
   baseUrl: z.string().optional(),
-  hasAccounts: z.number().int().nonnegative(),
-  status: z.literal('unknown'),
+  accounts: z.array(z.string()),
+  candidateCount: z.number().int().nonnegative(),
+  availableCandidateCount: z.number().int().nonnegative(),
+  capabilitiesByModel: z.record(z.string(), z.unknown()),
+  availability: z.record(z.string(), z.object({
+    state: z.string(),
+    reason: z.string().optional(),
+    untilMs: z.number().optional(),
+  })),
 });
 
 export const ProvidersListResponseSchema = z.object({

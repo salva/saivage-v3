@@ -2,8 +2,8 @@ import { z } from 'zod';
 import { join } from 'node:path';
 
 import { PROJECT_CARD_ID } from '../cards/store-api.js';
-import { pauseRuntimeControl, resumeRuntimeControl, FROZEN_RUNTIME_RECOVERY_MESSAGE } from '../runtime/control-api.js';
-import { killProcess, listProcesses } from '../runtime/process-api.js';
+import { FROZEN_RUNTIME_RECOVERY_MESSAGE } from '../runtime/control-api.js';
+import { processApi } from '../runtime/process-api.js';
 import { readRuntimeState } from '../runtime/state-api.js';
 import { listControlActions } from '../persistence/index.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
@@ -31,15 +31,16 @@ export async function stop_project(ctx: ToolContext, params: Record<string, neve
 
 export async function terminate_process(ctx: ToolContext, params: { processId: string }): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, params, { action: 'process.terminate', safety_class: 'destructive', target_kind: 'process', getTargetId: (p) => p.processId, run: async () => {
-    const proc = await killProcess(ctx.projectRoot, params.processId, 'SIGTERM'); if (!proc) return toolFailure('not_found', `Process '${params.processId}' not found.`, { processId: params.processId }); return { success: true, data: proc };
+    const proc = await processApi(ctx.projectRoot).terminate(params.processId); if (!proc) return toolFailure('not_found', `Process '${params.processId}' not found.`, { processId: params.processId }); return { success: true, data: proc };
   } });
 }
 
 export async function pause_runtime(ctx: ToolContext, params: Record<string, never> = {}): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, params, { action: 'runtime.pause', safety_class: 'low', target_kind: 'runtime', getTargetId: () => 'project', run: async () => {
-    const result = pauseRuntimeControl({ projectRoot: ctx.projectRoot });
-    if (!result.ok) return toolFailure('conflict', result.message ?? result.error ?? 'Failed to pause runtime');
-    return { success: true, data: { status: result.status, paused: result.paused } };
+    if (!ctx.runtime) return toolFailure('conflict', 'Active runtime is not available.');
+    ctx.runtime.pause();
+    const state = readRuntimeState(ctx.projectRoot);
+    return { success: true, data: { status: state?.status ?? 'unknown', paused: state?.paused ?? true } };
   } });
 }
 
@@ -47,9 +48,10 @@ export async function resume_runtime(ctx: ToolContext, params: Record<string, ne
   return runAuditedAnalystTool(ctx, params, { action: 'runtime.resume', safety_class: 'low', target_kind: 'runtime', getTargetId: () => 'project', run: async () => {
     const state = readRuntimeState(ctx.projectRoot);
     if (state?.status === 'frozen' || state?.status === 'error') return toolFailure('conflict', `${state.status === 'frozen' ? FROZEN_RUNTIME_RECOVERY_MESSAGE : 'Runtime is in error state. Inspect Debug errors/timeline and fix the underlying failure before attempting recovery.'}`, { runtime_status: state.status });
-    const result = resumeRuntimeControl({ projectRoot: ctx.projectRoot });
-    if (!result.ok) return toolFailure('conflict', result.message ?? result.error ?? 'Failed to resume runtime');
-    return { success: true, data: { status: result.status, paused: result.paused } };
+    if (!ctx.runtime) return toolFailure('conflict', 'Active runtime is not available.');
+    ctx.runtime.resume();
+    const updated = readRuntimeState(ctx.projectRoot);
+    return { success: true, data: { status: updated?.status ?? 'unknown', paused: updated?.paused ?? false } };
   } });
 }
 
@@ -76,7 +78,7 @@ export async function read_control_actions(ctx: ToolContext, params: { limit?: n
 }
 
 export async function list_processes_tool(ctx: ToolContext, params: { status?: string; cardId?: string }): Promise<ToolResult> {
-  try { const procs = listProcesses(ctx.projectRoot, params.cardId ? { cardId: params.cardId } : undefined); const filtered = params.status ? procs.filter((p) => p.status === params.status) : procs; return { success: true, data: filtered.map((p) => ({ id: p.id, command: p.command, card_id: p.card_id, status: p.status, pid: p.pid, started_at: p.started_at, completed_at: p.completed_at, exit_code: p.exit_code })) }; }
+  try { const procs = processApi(ctx.projectRoot).listForAgent(params.cardId ? { cardId: params.cardId } : undefined); const filtered = params.status ? procs.filter((p) => p.status === params.status) : procs; return { success: true, data: filtered }; }
   catch (err) { return toolFailureFromError(err, 'io'); }
 }
 

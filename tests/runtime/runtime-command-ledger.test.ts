@@ -1009,7 +1009,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       expect(project.lifecycle.result).toEqual(
         expect.objectContaining({
           kind: 'planner_blocked',
-          resume_reason: 'planner_non_actionable_project_done',
+          resume_reason: 'non_actionable_project_done',
         }),
       );
       expect(project.lifecycle.error).toContain(

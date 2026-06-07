@@ -39,7 +39,7 @@ export function buildMcpToolsReadModel(input: {
     const toolList = toolDefs.map((td) => {
       const statsKey = `${status.name}:${td.name}`;
       const stats = input.invocationStats[statsKey] ?? { total: 0, success: 0, error: 0 };
-      return { name: td.name, description: td.description, inputSchema: td.inputSchema, stats };
+      return { name: td.name, description: td.description, inputSchema: td.inputSchema, annotations: td.annotations, stats };
     });
     return { name: status.name, transport: status.transport, status: status.status, toolCount: toolDefs.length, tools: toolList };
   });

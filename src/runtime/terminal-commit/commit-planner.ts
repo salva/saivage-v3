@@ -25,17 +25,18 @@ export async function commitPlannerBlocked(input: {
   card: CardRecord;
   blockedReason: string;
   resumeReason: string;
+  planning?: PlannerBlockedResult;
   effects: TerminalCommitEffects;
 }): Promise<TerminalCommitReceipt<Extract<CardLifecycleState, { status: 'blocked' }>, PlannerBlockedResult>> {
   if (!input.blockedReason.trim()) throw new Error('Cannot commit planner blocked without a non-empty blocked reason.');
   if (!input.resumeReason.trim()) throw new Error('Cannot commit planner blocked without a non-empty resume reason.');
-  const result: PlannerBlockedResult = {
+  const result: PlannerBlockedResult = input.planning ?? {
     kind: 'planner_blocked',
     blocked_reason: input.blockedReason,
     resume_reason: input.resumeReason,
     blocker_cause: input.resumeReason === 'planner_context_length_exceeded'
       ? 'token_budget_exceeded'
-      : input.resumeReason === 'reviewer_unavailable'
+      : input.resumeReason === 'reviewer_invocation_failed' || input.resumeReason === 'reviewer_unavailable'
           ? 'reviewer_unavailable'
           : input.resumeReason === 'non_actionable_continue' || input.resumeReason === 'non_actionable_project_done'
             ? 'non_actionable_continue'

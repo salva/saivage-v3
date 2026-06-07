@@ -20,6 +20,11 @@ function requireCardStore(store: RuntimeCardOperatorHandlerOptions['cardStore'])
 
 export function buildRuntimeCardOperatorContractHandlers(options: RuntimeCardOperatorHandlerOptions): OperatorContractHandlerMap {
   const { projectRoot } = options;
+  let cardsReadModel: CardsReadModelService | null = null;
+  const getCardsReadModel = () => {
+    cardsReadModel ??= new CardsReadModelService(projectRoot, requireCardStore(options.cardStore));
+    return cardsReadModel;
+  };
 
   return {
     'health.liveness': () => ({ body: { status: 'ok', version: '0.1.0', project: 'saivage-v3' } }),
@@ -27,15 +32,15 @@ export function buildRuntimeCardOperatorContractHandlers(options: RuntimeCardOpe
       const serverAvailability = options.serverAvailabilityProvider?.();
       return { statusCode: 200, body: { status: 'ready', ...(serverAvailability ? { serverAvailability } : {}) } };
     },
-    'runtime.getState': () => new CardsReadModelService(projectRoot, requireCardStore(options.cardStore)).getRuntimeState(options.serverAvailabilityProvider?.()),
-    'cards.list': () => new CardsReadModelService(projectRoot, requireCardStore(options.cardStore)).listCards(),
-    'cards.get': ({ params }) => new CardsReadModelService(projectRoot, requireCardStore(options.cardStore)).getCard((params as unknown as { id: string }).id),
-    'cards.history.list': ({ params }) => new CardsReadModelService(projectRoot, requireCardStore(options.cardStore)).listHistory((params as unknown as { id: string }).id),
+    'runtime.getState': () => getCardsReadModel().getRuntimeState(options.serverAvailabilityProvider?.()),
+    'cards.list': () => getCardsReadModel().listCards(),
+    'cards.get': ({ params }) => getCardsReadModel().getCard((params as unknown as { id: string }).id),
+    'cards.history.list': ({ params }) => getCardsReadModel().listHistory((params as unknown as { id: string }).id),
     'cards.history.get': ({ params }) => {
       const { id, seq } = params as unknown as { id: string; seq: string };
-      return new CardsReadModelService(projectRoot, requireCardStore(options.cardStore)).getHistoryEntry(id, seq);
+      return getCardsReadModel().getHistoryEntry(id, seq);
     },
-    'cards.diff': ({ params, query }) => new CardsReadModelService(projectRoot, requireCardStore(options.cardStore)).diffCard((params as unknown as { id: string }).id, query as unknown as { from?: string; to?: string }),
+    'cards.diff': ({ params, query }) => getCardsReadModel().diffCard((params as unknown as { id: string }).id, query as unknown as { from?: string; to?: string }),
     'runtime.status': () => ({ body: buildRuntimeStatusReadModel({ projectRoot, runtimeApi: options.runtimeApplication?.runtimeApi, serverAvailability: options.serverAvailabilityProvider?.() }) }),
     'runtime.cardRuns': () => ({ body: buildCardRunsResponse(projectRoot, requireCardStore(options.cardStore)) }),
   };

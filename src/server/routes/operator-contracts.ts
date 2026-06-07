@@ -45,7 +45,12 @@ export function registerOperatorContractRoutes(options: OperatorContractRouteReg
     ...buildFilesDebugOperatorContractHandlers({ projectRoot, cardStoreProvider: () => options.cardStore }),
     ...buildProcessOperatorContractHandlers({ projectRoot }),
     ...buildEventsOperatorContractHandlers({ projectRoot }),
-    ...buildConfigOperatorContractHandlers({ projectRoot, saivageConfig: options.saivageConfig, configWarnings: options.configWarnings }),
+    ...buildConfigOperatorContractHandlers({
+      projectRoot,
+      saivageConfig: options.saivageConfig,
+      configWarnings: options.configWarnings,
+      providerRoutingReadModelProvider: () => options.runtimeApplication?.getProviderRoutingReadModel(),
+    }),
   };
 
   runtime.mount(fastify, operatorApiContracts, handlers);

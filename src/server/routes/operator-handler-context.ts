@@ -2,6 +2,7 @@ import type { SaivageConfig } from '../../agents/config-api.js';
 import type { operatorApiContracts } from '../../contracts/index.js';
 import type { McpStatusProvider, McpToolsReadModelProvider } from '../../mcp/manager-api.js';
 import type { RuntimeApplication } from '../../application/runtime-composition.js';
+import type { ProviderRoutingReadModel } from '../../agents/provider-routing-read-model.js';
 import type { RuntimeApi } from '../../runtime/control-api.js';
 import type { CardStore } from '../../cards/store-api.js';
 import type { buildServerAvailability } from '../availability.js';
@@ -43,4 +44,5 @@ export interface OperatorRestartContext {
 export interface OperatorConfigContext {
   saivageConfig?: SaivageConfig;
   configWarnings?: readonly string[];
+  providerRoutingReadModelProvider?: () => ProviderRoutingReadModel | undefined;
 }

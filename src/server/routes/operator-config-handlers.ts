@@ -1,5 +1,5 @@
-import type { ProviderEntry } from '../../agents/config-api.js';
 import type { ControlActionsQuery } from '../../contracts/index.js';
+import type { ProviderRoutingReadModel } from '../../agents/provider-routing-read-model.js';
 import { listControlActions } from '../../persistence/index.js';
 import { redactForOutbound } from '../../redaction/index.js';
 import type { OperatorConfigContext, OperatorContractHandlerMap, OperatorProjectContext } from './operator-handler-context.js';
@@ -8,6 +8,29 @@ const CONFIG_UNAVAILABLE_MESSAGE = 'Server was not started with a validated Envi
 
 function redactControlAction<T>(value: T): T {
   return redactForOutbound(value, 'operator.api', { source: 'runtime-config-notes.route' }) as T;
+}
+
+function configProviderProjection(config: unknown): ProviderRoutingReadModel | null {
+  const providers = (config as { providers?: Record<string, unknown> } | null)?.providers;
+  if (!providers) return null;
+  return {
+    providers: Object.fromEntries(Object.entries(providers).map(([name, raw]) => {
+      const provider = raw as { priority?: unknown; models?: unknown; baseUrl?: unknown; accounts?: unknown };
+      const models = Array.isArray(provider.models) ? provider.models.filter((model): model is string => typeof model === 'string') : [];
+      const accounts = provider.accounts && typeof provider.accounts === 'object' ? Object.keys(provider.accounts) : [];
+      const candidates = accounts.length > 0 ? accounts.flatMap((account) => models.map((model) => `${name}/${account}/${model}`)) : models.map((model) => `${name}/_/${model}`);
+      return [name, {
+        priority: typeof provider.priority === 'number' ? provider.priority : 0,
+        models,
+        ...(typeof provider.baseUrl === 'string' ? { baseUrl: provider.baseUrl } : {}),
+        accounts,
+        candidateCount: candidates.length,
+        availableCandidateCount: candidates.length,
+        capabilitiesByModel: Object.fromEntries(models.map((model) => [model, {}])),
+        availability: Object.fromEntries(candidates.map((candidate) => [candidate, { state: 'HEALTHY' }])),
+      }];
+    })),
+  };
 }
 
 export function buildConfigOperatorContractHandlers(options: OperatorProjectContext & OperatorConfigContext): OperatorContractHandlerMap {
@@ -23,24 +46,14 @@ export function buildConfigOperatorContractHandlers(options: OperatorProjectCont
       return { body: { config, warnings: [...(options.configWarnings ?? [])] } };
     },
     'providers.list': () => {
-      if (!options.saivageConfig) {
+      const readModel = options.providerRoutingReadModelProvider?.() ?? configProviderProjection(options.saivageConfig);
+      if (!readModel) {
         return {
           statusCode: 500,
           body: { error: 'Providers unavailable', message: CONFIG_UNAVAILABLE_MESSAGE },
         };
       }
-      const providers: Record<string, unknown> = {};
-      for (const [name, provider] of Object.entries(options.saivageConfig.providers)) {
-        const p = provider as ProviderEntry;
-        providers[name] = {
-          priority: p.priority,
-          models: p.models,
-          baseUrl: p.baseUrl,
-          hasAccounts: p.accounts ? Object.keys(p.accounts).length : 0,
-          status: 'unknown',
-        };
-      }
-      return { body: { providers } };
+      return { body: readModel };
     },
     'controlActions.list': ({ query }) => {
       try {

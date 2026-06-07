@@ -14,6 +14,7 @@ import {
   MAX_LIST_RESULTS,
   truncateCommandOutput,
 } from '../runtime/command-policy.js';
+import { processApi } from '../runtime/process-api.js';
 
 const DEFAULT_MAX_RESULTS = 200;
 
@@ -171,7 +172,7 @@ export async function processWorkspaceToolCall(
 
 
   if (name === 'wait_for_process') {
-    const { waitProcess, tailOutput } = await getProcessRunner();
+    const { waitProcess } = await getProcessRunner();
     const processId = typeof args.processId === 'string' ? args.processId.trim() : '';
     if (!processId) throw new Error('wait_for_process requires a processId.');
     const requestedTimeout = Number.isInteger(args.timeoutMs) ? Number(args.timeoutMs) : DEFAULT_COMMAND_TIMEOUT_MS;
@@ -183,30 +184,30 @@ export async function processWorkspaceToolCall(
       exitCode: waitResult.exitCode,
       timedOut: waitResult.timedOut,
       logFiles: processLogFiles(waitResult.id),
-      output: truncateOutput(tailOutput(context.projectRoot, waitResult.id, 200)),
+      output: truncateOutput(processApi(context.projectRoot).tail(waitResult.id, 200)),
     };
   }
 
   if (name === 'kill_process') {
-    const { killProcess, tailOutput, getProcess } = await getProcessRunner();
     const processId = typeof args.processId === 'string' ? args.processId.trim() : '';
     if (!processId) throw new Error('kill_process requires a processId.');
     const signal = typeof args.signal === 'string' && args.signal.trim() ? args.signal.trim() as NodeJS.Signals : 'SIGTERM';
-    const record = await killProcess(context.projectRoot, processId, signal);
+    const processes = processApi(context.projectRoot);
+    const record = await processes.terminate(processId, signal);
     if (!record) throw new Error(`Unknown process '${processId}'.`);
     return {
       id: record.id,
       status: record.status,
       exitCode: record.exit_code ?? null,
       signal: record.signal ?? null,
-      noOp: record.status !== 'running' && !getProcess(context.projectRoot, processId)?.pid,
+      noOp: record.status !== 'running' && !processes.getForRuntime(processId)?.pid,
       logFiles: processLogFiles(record.id),
-      output: truncateOutput(tailOutput(context.projectRoot, record.id, 200)),
+      output: truncateOutput(processes.tail(record.id, 200)),
     };
   }
 
   if (name === 'run_project_command' || name === 'start_and_wait') {
-    const { startAndWait, tailOutput } = await getProcessRunner();
+    const { startAndWait } = await getProcessRunner();
     const command = typeof args.command === 'string' ? args.command.trim() : '';
     if (!command) throw new Error('run_project_command requires a non-empty command.');
     const cwd = projectAbsolutePath(context.projectRoot, typeof args.cwd === 'string' ? args.cwd : undefined, 'cwd');
@@ -232,7 +233,7 @@ export async function processWorkspaceToolCall(
       exitCode: waitResult.exitCode,
       timedOut: waitResult.timedOut,
       logFiles: processLogFiles(waitResult.id),
-      output: truncateOutput(tailOutput(context.projectRoot, waitResult.id, 200)),
+      output: truncateOutput(processApi(context.projectRoot).tail(waitResult.id, 200)),
     };
   }
 

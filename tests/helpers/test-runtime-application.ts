@@ -159,6 +159,7 @@ export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardSt
         mcpManager: analystRuntime.mcpManager,
       };
     },
+    getProviderRoutingReadModel: () => ({ providers: {} }),
     setMcpManager: (mcpManager) => analystRuntime.setMcpManager(mcpManager),
   };
 }

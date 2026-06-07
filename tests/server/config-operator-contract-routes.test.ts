@@ -60,17 +60,14 @@ describe('contract-backed config/providers/control-actions routes', () => {
       const response = await fastify.inject({ method: 'GET', url: '/api/providers' });
 
       expect(response.statusCode).toBe(200);
-      expect(response.json()).toEqual({
-        providers: {
-          test: {
-            priority: 7,
-            models: ['test-model'],
-            baseUrl: 'https://provider.example.test',
-            hasAccounts: 2,
-            status: 'unknown',
-          },
-        },
-      });
+      expect(response.json()).toEqual({ providers: { test: expect.objectContaining({
+        priority: 7,
+        models: ['test-model'],
+        baseUrl: 'https://provider.example.test',
+        accounts: ['primary', 'secondary'],
+        candidateCount: 2,
+        availableCandidateCount: 2,
+      }) } });
     } finally {
       await fastify.close();
       rmSync(projectRoot, { recursive: true, force: true });

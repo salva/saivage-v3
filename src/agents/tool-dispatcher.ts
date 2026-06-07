@@ -1,6 +1,6 @@
 import type { ContentSupervisor } from '../workspace/index.js';
 import type { McpToolInvocationPort } from '../mcp/manager-api.js';
-import { McpInvokeError, type McpToolDefinition } from '../mcp/protocol-api.js';
+import { McpInvokeError } from '../mcp/protocol-api.js';
 import type { ControlActionSurface } from '../schemas/index.js';
 import type { ToolRuntime, AGENT_TOOL_DEFINITIONS } from '../tools/index.js';
 import type { ToolResult, ToolContext } from '../tools/analyst-tool-types.js';
@@ -192,8 +192,8 @@ export class McpAdapter implements ToolDispatchAdapter {
   policyInput(_envelope: ToolCallEnvelope, args: Record<string, unknown>): Partial<Parameters<typeof RoleToolPolicy.decide>[0]> {
     const serverName = typeof args.serverName === 'string' ? args.serverName : '';
     const toolName = typeof args.toolName === 'string' ? args.toolName : '';
-    const definition = this.getMcpToolDefinition(serverName, toolName);
-    return { serverName, hasMcpDefinition: Boolean(definition), mcpAnnotations: definition?.annotations };
+    const capability = this.getMcpManager()?.findToolCapability(serverName, toolName);
+    return { serverName, hasMcpDefinition: Boolean(capability), mcpAnnotations: capability?.annotations };
   }
 
   async dispatch(_envelope: ToolCallEnvelope, args: Record<string, unknown>): Promise<AdapterResult> {
@@ -218,12 +218,6 @@ export class McpAdapter implements ToolDispatchAdapter {
     }
   }
 
-  private getMcpToolDefinition(serverName: string, toolName: string): McpToolDefinition | null {
-    const mcpManager = this.getMcpManager();
-    if (!mcpManager) return null;
-    const tools = mcpManager.getServerTools(serverName);
-    return tools?.find((tool) => tool.name === toolName) ?? null;
-  }
 }
 
 export class SkillAdapter implements ToolDispatchAdapter {
