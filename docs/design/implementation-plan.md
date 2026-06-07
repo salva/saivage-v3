@@ -411,6 +411,13 @@ agent conversation messages share the same persistence path:
    turn. Non-planner roles receive the rows unchanged; planner compaction
    currently prunes by completed planner invocation history, not by
    visibility/audience.
+5. The analyst loop has a separate path: `analyst-handler.ts` reads session
+   history with `getSessionMessages()`, runs `pruneToolBoundary()`, prepends
+   workspace context, and passes that array to the analyst model. It does not
+   call `AgentSessionCoordinator.buildModelMessages()`.
+6. The outer recovery loop appends `model_issue` after a failed invocation
+   attempt, then retries on the same session. The next model-context assembly
+   reads that same row back unless the read boundary filters it.
 
 The result is that `model_issue` rows containing rate limits, candidate
 exhaustion, provider protocol failures, or orphan-session diagnostics become
@@ -425,33 +432,41 @@ runtime errors.
    an `AgentMessage` and returns whether it is safe for model input. The
    helper must exclude `kind: "model_issue"` for every role. It must include
    ordinary `text`, `tool_call`, `tool_result`, and `tool_error` rows;
-   include `model_repair`; include `context_compaction`; and include only
-   sanitized `model_recovered` rows.
+   include `model_repair`; include `context_compaction`; and include
+   `model_recovered` rows whose content matches the new sanitized retry
+   directive shape. Legacy `model_recovered` rows that still contain the old
+   raw-error directive text must be excluded.
 2. Apply the helper in `AgentSessionCoordinator.buildModelMessages()` after
    reading `getSessionMessages()` and before queued notification injection is
    returned. This is the lowest central boundary before stored transcript rows
-   become model input, and it covers planner, executor, reviewer, and analyst
-   model-context assembly.
+   become model input for planner, executor, and reviewer context assembly.
 3. Replace `buildRecoveryDirective(previousError)` with a sanitized directive
    builder that does not accept or interpolate provider/runtime errors. The
    text should say that the previous invocation did not complete and instruct
    the agent to inspect current state with available tools.
-4. Leave `model_issue` persistence available for operator/audit/debug
-   surfaces if those surfaces need it, but do not rely on persisted
-   `model_issue` rows for agent repair. Agent-actionable failures must be
-   represented as `tool_error`, `tool_result`, or `model_repair` instead.
-5. Replace agent-facing recovery and compaction text that says "read from
+4. Apply the same helper in the analyst model-input path after
+   `getSessionMessages()` and before `pruneToolBoundary()`, so analyst context
+   receives the same visibility policy as planner/executor/reviewer context.
+5. Keep existing `model_issue` append sites writing to session JSONL for
+   operator/audit/debug surfaces, including per-candidate failures, outer
+   invocation failures, and orphan-session reconciliation. Do not redirect or
+   duplicate them in this remediation. The enforcement point is model-context
+   assembly: every path that turns session JSONL into model input must filter
+   them out. Agent-actionable failures must be represented as `tool_error`,
+   `tool_result`, or `model_repair` instead.
+6. Replace agent-facing recovery and compaction text that says "read from
    disk" with tool-oriented language. The implementation targets are
    `invocation-runner.ts`, `context-compactor.ts`, and
    `persisted-planner-history.ts`.
-6. Fix queued notification formatting to join lines with actual newlines, not
-   escaped `\\n`, while keeping notification injection model-visible.
 7. Add regression tests that construct persisted session transcripts with
    provider diagnostics and verify `buildModelMessages()` excludes
-   `model_issue` rows for all roles.
+   `model_issue` rows for planner, executor, and reviewer roles.
 8. Add regression tests that verify `tool_error`, `tool_result`,
    `model_repair`, `context_compaction`, and sanitized `model_recovered`
    messages remain in model context.
+9. Add analyst regression coverage proving the analyst model-input path also
+   excludes `model_issue` rows while preserving ordinary text and tool-boundary
+   behavior.
 
 ### Acceptance Criteria
 
@@ -460,6 +475,8 @@ runtime errors.
 - A retry attempt still gives the agent an actionable recovery directive, but
   the directive does not include raw provider, account, protocol, or runtime
   exception text.
+- Existing unsanitized `model_recovered` rows that contain the old raw-error
+  directive text are not sent to models.
 - Contract verifier repair messages remain visible to the model.
 - Tool errors and tool results remain visible to the model.
 - Compaction text and retry text use tool-oriented phrasing rather than
