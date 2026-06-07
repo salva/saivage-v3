@@ -45,6 +45,7 @@ let authToken: string;
 let parentId: string;
 let alphaId: string;
 let betaId: string;
+let gammaId: string;
 let alphaChildId: string;
 let betaChildId: string;
 let expectedChildOrder: string[];
@@ -64,13 +65,14 @@ beforeEach(async () => {
   parentId = parent.id;
   alphaId = alpha.id;
   betaId = beta.id;
+  gammaId = gamma.id;
   alphaChildId = alphaChild.id;
   betaChildId = betaChild.id;
   expectedChildOrder = [beta.id, gamma.id, alpha.id];
 
-  rewritePosition(tmpDir, alpha.id, 2);
+  rewritePosition(tmpDir, alpha.id, 10);
   rewritePosition(tmpDir, beta.id, 0);
-  rewritePosition(tmpDir, gamma.id, 1);
+  rewritePosition(tmpDir, gamma.id, 5);
 
   authToken = 'shuffled-subtree-token';
   process.env['SAIVAGE_API_TOKEN'] = authToken;
@@ -101,6 +103,7 @@ describe('shuffled persisted subtree ordering', () => {
     expect(listedIds.indexOf(betaChildId)).toBeLessThan(listedIds.indexOf(alphaId));
     expect(listedIds.indexOf(alphaId)).toBeLessThan(listedIds.indexOf(alphaChildId));
     expect(listBody.cards.find((card) => card.id === betaId)?.display_path).toBe('1.1');
+    expect(listBody.cards.find((card) => card.id === gammaId)?.display_path).toBe('1.2');
     expect(listBody.cards.find((card) => card.id === alphaId)?.display_path).toBe('1.3');
 
     const response = await fetch(`${baseUrl}/api/cards/${parentId}`, { headers: { authorization: `Bearer ${authToken}` } });

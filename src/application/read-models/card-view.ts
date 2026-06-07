@@ -4,15 +4,23 @@ import type { CardOperatorSummary, CardRecord, CardRefView, CardView } from '../
 
 export function computeCardDisplayPath(store: CardStore, card: CardRecord): string | null {
   if (card.parent === null || card.id === PROJECT_CARD_ID) return null;
-  const segments = [String(card.position + 1)];
+  const segments = [String(siblingDisplayRank(store, card))];
   let parentId: string | null = card.parent;
   while (parentId && parentId !== PROJECT_CARD_ID) {
     const parent = store.read(parentId);
     if (!parent) throw new Error(`Card topology corruption: missing parent ${parentId} for card ${card.id}`);
-    segments.unshift(String(parent.position + 1));
+    segments.unshift(String(siblingDisplayRank(store, parent)));
     parentId = parent.parent;
   }
   return segments.join('.');
+}
+
+function siblingDisplayRank(store: CardStore, card: CardRecord): number {
+  if (!card.parent) throw new Error(`Card topology corruption: card ${card.id} has no parent display rank`);
+  const siblings = store.listChildren(card.parent);
+  const index = siblings.indexOf(card.id);
+  if (index === -1) throw new Error(`Card topology corruption: card ${card.id} is missing from parent ${card.parent} child index`);
+  return index + 1;
 }
 
 export function orderedCardsForTree(store: CardStore): CardRecord[] {
