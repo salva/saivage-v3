@@ -14,7 +14,7 @@ import type { CardRecord } from '../../src/schemas/index.js';
 import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 
 describe('executor invocation failure handler', () => {
-  it('fails the card, appends unwind result, clears active run, and emits card_failed', async () => {
+  it('fails the card, appends unwind result, and emits card_failed', async () => {
     const calls: string[] = [];
     await handleExecutorInvocationFailure({
       card: executorCard('code-a'),
@@ -24,7 +24,6 @@ describe('executor invocation failure handler', () => {
       effects: testEffects({
         transitionCard: async (cardId, event, details) => { calls.push(`${event}:${cardId}:${details.reason}`); },
         appendChildUnwindToolResult: (cardId, outcome, summary) => { calls.push(`unwind:${cardId}:${outcome}:${summary}`); },
-        clearActiveCardRun: (cardId) => { calls.push(`clear:${cardId}`); },
         emitCardFailed: (cardId, goalId) => { calls.push(`failed:${cardId}:${goalId}`); },
       }),
     });
@@ -32,12 +31,11 @@ describe('executor invocation failure handler', () => {
     expect(calls).toEqual([
       'fail:code-a:executor_exception',
       'unwind:code-a:failed:Terminal card code-a execution failed before producing a result.',
-      'clear:code-a',
       'failed:code-a:goal-a',
     ]);
   });
 
-  it('clears active executor run immediately after dispatcher catches invocation failure', async () => {
+  it('restores parent planner run after dispatcher catches invocation failure', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-executor-invocation-failure-'));
     try {
       initProjectTree(projectRoot);
@@ -103,6 +101,7 @@ describe('executor invocation failure handler', () => {
         activationUnwind: {
           appendChildUnwindToolResult: (cardId: string, outcome: 'failed', summary: string) => {
             failureToolResults.push({ cardId, outcome, summary });
+            mutations.apply({ kind: 'completeActivation', childCardId: cardId, outcome, completedAt: now(), lifecycle: cards.read(cardId)?.lifecycle ?? null });
           },
         },
         mutations,
@@ -139,7 +138,7 @@ describe('executor invocation failure handler', () => {
       await expect(dispatcher.dispatch({ goalId: 'project', goalCard: cards.read('project'), card: codeCard, callerEdge: { parentCardId: 'project', callerSessionId: 'planner:project', callerToolCallId: 'call-a' } })).resolves.toEqual({ executedTerminal: false, failed: true });
 
       const state = readRuntimeState(projectRoot);
-      expect(state?.active_card_run).toBeNull();
+      expect(state?.active_card_run).toEqual(expect.objectContaining({ card_id: 'project', phase: 'planner', planner_session_id: 'planner:project' }));
       expect((cards.read(codeCardId) as CardRecord).status).toBe('failed');
       expect(failureToolResults).toEqual([
         { cardId: codeCardId, outcome: 'failed', summary: `Terminal card ${codeCardId} execution failed before producing a result.` },
@@ -157,7 +156,6 @@ function testEffects(overrides: Partial<ExecutorInvocationFailureEffects> = {}):
     transitionCard: async () => undefined,
     updateCard: () => undefined,
     appendChildUnwindToolResult: () => undefined,
-    clearActiveCardRun: () => undefined,
     emitCardFailed: () => undefined,
     now: () => '2026-01-01T00:00:00.000Z',
     ...overrides,

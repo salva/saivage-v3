@@ -1,8 +1,6 @@
 import type { RuntimeActivationRecord } from '../schemas/index.js';
 import { getSessionMessages } from './session-persistence.js';
 import { applyRuntimeMutation } from '../runtime/mutations.js';
-import { planClearActiveCardRunPatch } from '../runtime/runtime-core.js';
-import { readRuntimeState } from '../runtime/state.js';
 import type { SessionMessageLog } from './session-message-log.js';
 
 export interface ActivationBarrierCompensationConfig {
@@ -48,9 +46,4 @@ export function compensateActivationBarrierThrow(
     outcome: 'failed',
     completedAt: now,
   });
-  const clearPatch = planClearActiveCardRunPatch({
-    state: readRuntimeState(config.projectRoot),
-    cardId: activation.child_card_id,
-  });
-  if (clearPatch) applyRuntimeMutation(config.projectRoot, { kind: 'patchRuntimeState', patch: clearPatch });
 }

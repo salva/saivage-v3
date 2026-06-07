@@ -18,7 +18,6 @@ import { handleExecutorCompletion } from './phases/executor-completion-handler.j
 import { buildCardContextBlock } from './context-builder.js';
 import { readRuntimeState } from './state.js';
 import type { RuntimeServices } from './runtime-services.js';
-import { planClearActiveCardRunPatch } from './runtime-core.js';
 import { deriveCurrentAgentSessionId } from './current-run.js';
 import { selectActivationStartAction } from './transition-policy.js';
 
@@ -88,10 +87,6 @@ export class ExecutorActivationDispatcher {
           transitionCard: (cardId, event, details) => this.deps.stateMachine.transitionCard(cardId, event, details),
           updateCard: (cardId, patch) => this.deps.cards.repairTerminalLifecycle(cardId, patch),
           appendChildUnwindToolResult: (cardId, outcome, summary) => this.deps.activationUnwind.appendChildUnwindToolResult(cardId, outcome, summary),
-          clearActiveCardRun: (cardId) => {
-            const patch = planClearActiveCardRunPatch({ state: readRuntimeState(this.deps.projectRoot), cardId });
-            if (patch) this.deps.mutations.apply({ kind: 'patchRuntimeState', patch });
-          },
           emitCardFailed: (cardId, parentGoalId) => this.emitCardFailed(cardId, parentGoalId),
           now: this.deps.now,
         },
