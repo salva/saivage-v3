@@ -390,6 +390,83 @@ The implementation target is the system defined by:
 
 ---
 
+## Agent Context Visibility Remediation
+
+### Current Failure Mechanism
+
+Provider/runtime diagnostics reach the agent because diagnostic messages and
+agent conversation messages share the same persistence path:
+
+1. `AgentInvocationRunner.invoke()` appends retry and failure diagnostics to
+   the active session through `messageLog.append(session.id, ...)`.
+2. `SessionMessageLog.append()` stamps `model_issue`, `model_recovered`,
+   `model_repair`, and `context_compaction` as diagnostic rounds, but still
+   writes them to the same session JSONL transcript as user, assistant, and
+   tool messages.
+3. `AgentSessionCoordinator.buildModelMessages()` reads the entire session
+   transcript with `getSessionMessages()` and returns all persisted rows,
+   optionally prepending queued notification text.
+4. `InvocationModelContext.buildModelMessages()` passes those rows to
+   `ContextCompactor.compactPlannerInMemory()` and then into the next model
+   turn. Non-planner roles receive the rows unchanged; planner compaction
+   currently prunes by completed planner invocation history, not by
+   visibility/audience.
+
+The result is that `model_issue` rows containing rate limits, candidate
+exhaustion, provider protocol failures, or orphan-session diagnostics become
+future `system` messages to the agent even though the agent cannot fix them.
+`model_recovered` rows also become model input; that is acceptable only when
+they are sanitized retry guidance, not when they interpolate raw provider or
+runtime errors.
+
+### Implementation Plan
+
+1. Add a small model-context visibility helper under `src/agents/` that takes
+   an `AgentMessage` and returns whether it is safe for model input. The
+   helper must exclude `kind: "model_issue"` for every role. It must include
+   ordinary `text`, `tool_call`, `tool_result`, and `tool_error` rows;
+   include `model_repair`; include `context_compaction`; and include only
+   sanitized `model_recovered` rows.
+2. Apply the helper in `AgentSessionCoordinator.buildModelMessages()` after
+   reading `getSessionMessages()` and before queued notification injection is
+   returned. This is the lowest central boundary before stored transcript rows
+   become model input, and it covers planner, executor, reviewer, and analyst
+   model-context assembly.
+3. Replace `buildRecoveryDirective(previousError)` with a sanitized directive
+   builder that does not accept or interpolate provider/runtime errors. The
+   text should say that the previous invocation did not complete and instruct
+   the agent to inspect current state with available tools.
+4. Leave `model_issue` persistence available for operator/audit/debug
+   surfaces if those surfaces need it, but do not rely on persisted
+   `model_issue` rows for agent repair. Agent-actionable failures must be
+   represented as `tool_error`, `tool_result`, or `model_repair` instead.
+5. Replace agent-facing recovery and compaction text that says "read from
+   disk" with tool-oriented language. The implementation targets are
+   `invocation-runner.ts`, `context-compactor.ts`, and
+   `persisted-planner-history.ts`.
+6. Fix queued notification formatting to join lines with actual newlines, not
+   escaped `\\n`, while keeping notification injection model-visible.
+7. Add regression tests that construct persisted session transcripts with
+   provider diagnostics and verify `buildModelMessages()` excludes
+   `model_issue` rows for all roles.
+8. Add regression tests that verify `tool_error`, `tool_result`,
+   `model_repair`, `context_compaction`, and sanitized `model_recovered`
+   messages remain in model context.
+
+### Acceptance Criteria
+
+- A persisted provider failure or candidate-exhaustion `model_issue` row never
+  appears in model input for planner, executor, reviewer, or analyst roles.
+- A retry attempt still gives the agent an actionable recovery directive, but
+  the directive does not include raw provider, account, protocol, or runtime
+  exception text.
+- Contract verifier repair messages remain visible to the model.
+- Tool errors and tool results remain visible to the model.
+- Compaction text and retry text use tool-oriented phrasing rather than
+  instructing agents to read from disk.
+
+---
+
 ## Cross-Stage Acceptance Gates
 
 These gates apply before moving to the next stage:
