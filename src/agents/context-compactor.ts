@@ -256,7 +256,7 @@ export class ContextCompactor {
           `msg-${sessionId}-compact-${compactionNum}`,
           `[CONTEXT COMPACTION #${compactionNum}]
 
-The conversation has been summarized to conserve context. Please re-read authoritative state from disk if needed.
+The conversation has been summarized to conserve context. Inspect authoritative cards, notes, runtime state, and files with tools as needed.
 
 Summary of previous conversation:
 ${summary}`,
@@ -319,7 +319,7 @@ ${summary}`,
       `msg-${sessionId}-compact-fallback-${compactionNum}`,
       `[CONTEXT COMPACTION #${compactionNum} — TRUNCATION FALLBACK]
 
-The conversation history has been truncated to conserve context. ${messages.length - keptMessages.length} older messages were removed. Only the most recent ${keptMessages.length} messages are preserved below. Please re-read authoritative state from disk if you need context from earlier in the conversation.`,
+The conversation history has been truncated to conserve context. ${messages.length - keptMessages.length} older messages were removed. Only the most recent ${keptMessages.length} messages are preserved below. Inspect authoritative cards, notes, runtime state, and files with tools if you need context from earlier in the conversation.`,
     ), ...keptMessages];
   }
 

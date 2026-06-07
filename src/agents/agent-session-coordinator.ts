@@ -4,6 +4,7 @@ import type { NotificationCenter, NotificationQueueEntry } from '../notification
 import type { EventLogger } from '../observability/index.js';
 import { getSession, getSessionMessages, listSessions } from './session-persistence.js';
 import { generateRoundId } from '../schemas/round-id-server.js';
+import { filterAgentMessagesForModel } from './agent-message-visibility.js';
 
 export type SessionCreatedHook = (sessionId: string) => void | Promise<void>;
 
@@ -112,7 +113,7 @@ export class AgentSessionCoordinator {
 
   buildModelMessages(sessionId: string) {
     const pending = this.notificationCenter.drainPendingForSession(sessionId);
-    const baseMessages = getSessionMessages(this.saivageDir, sessionId);
+    const baseMessages = filterAgentMessagesForModel(getSessionMessages(this.saivageDir, sessionId));
     if (pending.length === 0) return baseMessages;
     return [this.buildNotificationInjectionMessage(pending, sessionId), ...baseMessages];
   }

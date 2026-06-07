@@ -34,6 +34,7 @@ import { ProviderRegistry } from './provider.js';
 import { ModelRouter } from './model-router.js';
 import { capabilityRequestForLlmOptions } from './provider-capabilities.js';
 import { RoleToolPolicy } from './role-tool-policy.js';
+import { filterAgentMessagesForModel } from './agent-message-visibility.js';
 
 
 export interface WorkspaceContext {
@@ -280,7 +281,7 @@ export class AnalystHandler {
         });
       } catch (err) { this.logBoundaryDiagnostic('analyst_history_compaction_failed', err); }
 
-      const history = new AgentSessionRepository(this.projectRoot).getMessages(sessionId);
+      const history = filterAgentMessagesForModel(new AgentSessionRepository(this.projectRoot).getMessages(sessionId));
       const bounded = this.contextCompactor.pruneToolBoundary(history);
       const modelInput: AgentMessage[] = [
         { id: `workspace-context-${sessionId}`, session_id: sessionId, role: 'system', kind: 'text', content: buildWorkspaceContextNote(workspaceContext), round_id: generateRoundId('pre'), message_index: 0, block_index: 0, timestamp: now() },

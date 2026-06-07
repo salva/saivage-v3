@@ -77,8 +77,8 @@ function delayInvocationRecovery(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
 }
 
-function buildRecoveryDirective(previousError: Error | undefined): string {
-  return `RECOVERY DIRECTIVE: Your previous invocation failed. Please re-read authoritative state from disk (cards, notes, plan diary) to understand the current state before proceeding. Previous error: ${previousError?.message ?? 'Unknown error'}`;
+function buildRecoveryDirective(previousErrorMessage: string | undefined): string {
+  return `RECOVERY DIRECTIVE: Your previous invocation failed. Inspect authoritative cards, notes, plan diary, runtime state, and files with tools as needed before proceeding. Previous error: ${previousErrorMessage ?? 'Unknown error'}`;
 }
 
 export class AgentInvocationRunner {
@@ -174,7 +174,7 @@ export class AgentInvocationRunner {
               const recoveryDirective = recoveryCtx.isRecovery
                 ? recoveryCtx.directive
                 : sameCandidateRecoveryAttempt > 1
-                  ? buildRecoveryDirective(lastError ?? undefined)
+                  ? buildRecoveryDirective(lastError ? this.config.redactProviderErrorMessage(lastError.message) : undefined)
                   : '';
               if (recoveryDirective)
                 this.config.messageLog.append(session.id, {
@@ -507,7 +507,7 @@ export class AgentInvocationRunner {
         maxAttempts: maxOuterAttempts,
         isRecovery: attempt > 1,
         previousError,
-        directive: attempt > 1 ? buildRecoveryDirective(previousError) : '',
+        directive: attempt > 1 ? buildRecoveryDirective(previousError ? this.config.redactProviderErrorMessage(previousError.message) : undefined) : '',
       };
       try {
         const result = await agentFn(recoveryCtx);

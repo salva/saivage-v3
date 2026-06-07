@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTestAnalystRuntime } from '../helpers/test-runtime-application.js';
 import { pruneToolBoundary } from '../../src/agents/context-compactor.js';
+import { appendMessage } from '../../src/agents/session-persistence.js';
 import { serializeToolCallMessage, PersistedRowCorruptError } from '../../src/contracts/persisted-tool-call.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
 
@@ -209,6 +210,33 @@ describe('AnalystHandler F05 contract', () => {
       expect(diagnostics).toEqual(expect.arrayContaining([
         expect.objectContaining({ kind: 'runtime_diagnostic', phase: 'analyst_activity_callback_failed', error_message: 'activity boom' }),
       ]));
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('excludes persisted model_issue diagnostics from analyst model input', async () => {
+    const root = setupRoot();
+    try {
+      appendMessage(join(root, '.saivage'), 's-filter', {
+        role: 'system',
+        kind: 'model_issue',
+        content: 'provider debug diagnostic must not be resent',
+      }, {
+        round_id: 'r-diagnostic-00000000000000000000000000000000',
+        message_index: 0,
+        block_index: 0,
+      });
+      let modelInputContents: string[] = [];
+      jest.spyOn(globalThis, 'fetch').mockImplementation(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? '{}')) as { messages?: Array<{ content?: string }> };
+        modelInputContents = (body.messages ?? []).map((message) => String(message.content ?? ''));
+        return messageResponse('Done.');
+      });
+
+      const handler = new AnalystHandler(root, createTestAnalystRuntime());
+      await handler.handleMessage('s-filter', 'hi');
+
+      expect(modelInputContents.some((content) => content.includes('provider debug diagnostic'))).toBe(false);
+      expect(readPersistedRows(root, 's-filter').some((row) => row.kind === 'model_issue')).toBe(true);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });

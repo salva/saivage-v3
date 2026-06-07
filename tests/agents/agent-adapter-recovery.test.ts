@@ -120,6 +120,7 @@ describe('AgentAdapter invocation recovery policy integration', () => {
     expect(seen).toEqual(['p1', 'p1']);
     expect(llmCall).toHaveBeenCalledTimes(2);
     expect(secondAttemptMessages.some((content) => content.includes('RECOVERY DIRECTIVE'))).toBe(true);
+    expect(secondAttemptMessages.some((content) => content.includes('from disk'))).toBe(false);
     expect(markFailed).not.toHaveBeenCalled();
     expect(adapter.candidateAvailability.isAvailable({ provider: 'p1', account: null, model: 'm1' })).toBe(true);
     expect(adapter.candidateAvailability.isAvailable({ provider: 'p2', account: null, model: 'm2' })).toBe(true);
