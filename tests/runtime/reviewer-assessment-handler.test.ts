@@ -34,7 +34,7 @@ describe('reviewer assessment handler', () => {
     expect(failed).toEqual([expect.objectContaining({ result: 'needs_corrections', summary: 'Reviewer pass rejected: missing evidence' })]);
   });
 
-  it('persists pass completion and emits completion effects', async () => {
+  it('persists project pass completion through the system-caller path', async () => {
     const calls: string[] = [];
     const patches: Partial<CardRecord>[] = [];
     const outcome = await handleReviewerAssessmentDecision({
@@ -59,7 +59,6 @@ describe('reviewer assessment handler', () => {
     expect(calls).toEqual([
       'complete:goal-a:true',
       `update:${now}`,
-      'unwind:goal-a:done',
       'reviewer_finished:review_pass',
       'completed:goal-a',
       'project:goal-a',
@@ -78,6 +77,35 @@ describe('reviewer assessment handler', () => {
         },
       },
     });
+  });
+
+  it('persists child goal pass completion by unwinding to the parent planner', async () => {
+    const calls: string[] = [];
+    const outcome = await handleReviewerAssessmentDecision({
+      goalId: 'goal-a',
+      projectCardId: 'project',
+      assessmentId: 'assessment-goal-a-1',
+      reviewerSessionId: 'reviewer:goal-a:assessment-goal-a-1',
+      reviewResult: reviewResult('pass'),
+      decision: { kind: 'pass' },
+      effects: testEffects({
+        readCard: () => ({ id: 'goal-a', status: 'active', lifecycle: { status: 'active', result: { kind: 'planner_done', summary: 'review summary' }, completed_at: null, error: 'stale error' } } as unknown as CardRecord),
+        transitionCard: async (cardId, event, details) => { calls.push(`${event}:${cardId}:${'assessment' in details}`); },
+        updateCard: async (_cardId, patch) => { calls.push(`update:${patch.lifecycle?.completed_at}`); },
+        appendChildUnwindToolResult: (cardId, outcomeKind) => { calls.push(`unwind:${cardId}:${outcomeKind}`); },
+        transitionRuntime: async (event, details) => { calls.push(`${event}:${details.reason}`); },
+        emitGoalCompleted: (cardId) => { calls.push(`completed:${cardId}`); },
+        emitProjectRunCompleted: (cardId) => { calls.push(`project:${cardId}`); },
+      }),
+    });
+
+    expect(outcome).toEqual({ kind: 'completed' });
+    expect(calls).toEqual([
+      'complete:goal-a:true',
+      `update:${now}`,
+      'unwind:goal-a:done',
+      'completed:goal-a',
+    ]);
   });
 
   it('emits correction assessment without committing correction as lifecycle result', async () => {

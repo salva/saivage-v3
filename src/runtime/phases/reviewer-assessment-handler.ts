@@ -69,11 +69,14 @@ export async function handleReviewerAssessmentDecision(input: {
         effects: input.effects,
       });
     }
-    input.effects.appendChildUnwindToolResult(input.goalId, 'done', input.reviewResult.assessment.summary);
-    await input.effects.transitionRuntime('reviewer_finished', {
-      goalId: input.goalId,
-      reason: 'review_pass',
-    });
+    if (input.goalId === input.projectCardId) {
+      await input.effects.transitionRuntime('reviewer_finished', {
+        goalId: input.goalId,
+        reason: 'review_pass',
+      });
+    } else {
+      input.effects.appendChildUnwindToolResult(input.goalId, 'done', input.reviewResult.assessment.summary);
+    }
     input.effects.emitGoalCompleted(input.goalId, assessment);
     if (input.goalId === input.projectCardId) input.effects.emitProjectRunCompleted(input.goalId, assessment);
     return { kind: 'completed' };
