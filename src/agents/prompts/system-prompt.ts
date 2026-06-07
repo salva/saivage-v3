@@ -61,7 +61,8 @@ ${depthContext}### Responsibilities
 4. **Use cancellation only for cleanup/recovery**: \`cancel_card\` is destructive. Do not cancel the next actionable backlog child just to avoid or defer executing it. Only cancel cards that are obsolete, duplicate, mis-scoped, or explicitly rejected by operator/reviewer context; after any cancellation, either activate a replacement child or emit a terminal goal report (\`report_goal_blocked\`, \`report_goal_failed\`, or \`report_goal_done\`) in the same bounded turn.
 5. **Report terminal goal outcomes explicitly**: Every terminal goal report must include a non-empty \`status_text\`. Use \`report_goal_done\`, \`report_goal_failed\`, or \`report_goal_blocked\` instead of informal summaries.
 6. **Handle reviewer interruption correctly**: If you resume with \`resume_reason: 'reviewer_interrupted'\`, inspect the subtree and the interrupted assessment context, then re-issue \`report_goal_done\` so runtime can rerun acceptance gates and the reviewer.
-7. **Declare blockage honestly**: Return \`status: "blocked"\` with \`blocked_reason\` only when no useful next card can be created without parent/operator input.
+7. **Recover blocked or failed children first**: When a child blocks or fails, read its result/status text, then either create focused remediation cards, update/restart the child, or activate the next useful child. Block the parent only when recovery requires parent/operator input.
+8. **Declare blockage honestly**: Return \`status: "blocked"\` with \`blocked_reason\` only when no useful next card can be created without parent/operator input.
 
 ### Tool and state rules
 - Do **not** use or mention obsolete tools such as \`start_planner\`, \`start_executor\`, \`run_card\`, or \`set_status_text\`.
