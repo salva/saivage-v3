@@ -132,13 +132,14 @@ one tool call receives one tool result. The runtime can persist and
 resume the physical work across service restarts, but the caller sees a
 single terminal outcome per call.
 
-When the active leaf terminates, the runtime sets `active_card_run` to
-point at the parent card-run reconstructed from the parent's pending
-`activate_card` tool call (or to `null` if the leaf is the project
-card), and delivers the synthesized `CardActivationOutcome` to that
-parent. The parent planner transitions back to `Running` on its next
-turn. Unwinding is recursive: a chain of finished children produces a
-chain of `tool_result` deliveries, one per ancestor.
+When the active leaf terminates, the runtime uses the activation/run
+ledger edge (`runtime_activations.parent_run_id`) to restore
+`active_card_run` to the open parent planner run and delivers the
+synthesized `CardActivationOutcome` to that parent. Parentless
+activations are invalid; the project card exits through the separate
+system-caller path. The parent planner transitions back to `Running` on
+its next turn. Unwinding is recursive: a chain of finished children
+produces a chain of `tool_result` deliveries, one per ancestor.
 
 ## 4. Card Model
 
@@ -314,26 +315,28 @@ the runtime resumes. Acceptance-gate extensions remain future stages (§17).
 
 **Caller-edge reconstruction.** When the active leaf terminates, the
 runtime resolves which planner receives the synthesized `tool_result`
-purely from the card hierarchy and persisted session logs:
+from the activation ledger, not from card hierarchy alone:
 
-1. `parentCardId = CardStore.getParent(active_card_run.card_id)`.
-2. If `parentCardId === null` the leaf is the project card; see
-   the system-caller path below.
-3. `parentSessionId = "planner:" + parentCardId`. That session must be
-   `AwaitingChild`; its message log contains exactly one unresolved
-   `activate_card(active_card_run.card_id)` tool call.
-4. That call's `session_id` and `tool_call_id` become the caller edge.
-5. The runtime reconstructs `ActiveCardRun` for `parentCardId` with
+1. The unresolved activation for `active_card_run.card_id` must have
+   exactly one `parent_card_id`, `parent_run_id`, `parent_session_id`,
+   and `parent_tool_call_id`.
+2. `parent_run_id` must reference an open `runtime_runs` planner run
+   for `parent_card_id`.
+3. `parent_session_id` and `parent_tool_call_id` become the caller edge
+   for the synthesized `CardActivationOutcome`.
+4. The runtime restores `ActiveCardRun` for `parent_card_id` with
    `phase: 'planner'`, sets `active_card_run` to that record, and
-   delivers the synthesized `CardActivationOutcome` as the parent's
-   next `tool_result`. Unwinding repeats recursively when the parent
-   in turn reports `done`, `failed`, or `blocked`.
+   delivers the synthesized outcome as the parent's next `tool_result`.
+   Unwinding repeats recursively when the parent in turn reports `done`,
+   `failed`, or `blocked`.
 
 This works because each card has at most one activation in flight at
 any moment: a card may be activated multiple times sequentially, but
 never concurrently. There is therefore no ambiguity in which
-`activate_card` tool call to resolve. Restart repair uses the same
-algorithm; no persisted caller stack is required.
+`activate_card` tool call to resolve. Startup repair may reconstruct a
+parent planner from card hierarchy when the live ledger was interrupted,
+but normal runtime continuation uses the activation/run ledger as the
+authoritative call stack. No separate persisted caller stack is required.
 
 **System-caller path.** When the terminating leaf is the project card
 (`parentCardId === null`), there is no parent planner to receive a
