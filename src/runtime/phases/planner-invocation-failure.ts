@@ -5,7 +5,7 @@ import type { RuntimeDiagnosticInput } from '../runtime-event-publisher.js';
 import { buildPlannerInvocationFailureBlocker } from './planner-phase.js';
 import { commitPlannerBlocked, commitPlannerFailed } from '../terminal-commit/index.js';
 
-export type PlannerInvocationFailureKind = 'token_budget' | 'terminal_tool' | 'generic';
+export type PlannerInvocationFailureKind = 'token_budget' | 'generic';
 
 function isTokenBudgetFailure(error: unknown): boolean {
   if (error && typeof error === 'object' && (error as { failure?: unknown }).failure) {
@@ -20,11 +20,10 @@ function isTokenBudgetFailure(error: unknown): boolean {
 
 export function classifyPlannerInvocationFailure(
   error: unknown,
-  isTerminalToolExhaustion: (error: unknown) => boolean,
 ): { failureKind: PlannerInvocationFailureKind; providerStatus: number | null } {
   const tokenBudgetFailure = isTokenBudgetFailure(error);
   return {
-    failureKind: tokenBudgetFailure ? 'token_budget' : isTerminalToolExhaustion(error) ? 'terminal_tool' : 'generic',
+    failureKind: tokenBudgetFailure ? 'token_budget' : 'generic',
     providerStatus: tokenBudgetFailure ? ((error as { failure?: { status?: number } }).failure?.status ?? null) : null,
   };
 }
@@ -70,10 +69,9 @@ export async function handlePlannerInvocationFailure(input: {
   input.effects.publishRuntimeDiagnostic({ goal_id: input.goalId, phase: 'planner', error: input.error });
   input.effects.appendError({ message: errorMessage, goalId: input.goalId, phase: 'planner' });
 
-  if (input.failureKind === 'token_budget' || input.failureKind === 'terminal_tool') {
+  if (input.failureKind === 'token_budget') {
     if (!input.currentCard) throw new Error(`Cannot block missing planner goal '${input.goalId}'.`);
     const plannerFailureBlocker = buildPlannerInvocationFailureBlocker({
-      tokenBudgetFailure: input.failureKind === 'token_budget',
       providerStatus: input.providerStatus,
     });
     await commitPlannerBlocked({

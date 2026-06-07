@@ -50,8 +50,7 @@ describe('planning blocker helpers', () => {
     expect(shouldPreservePrecisePlanningBlocker(card(planning({ resume_reason: 'reviewer_unavailable' })), 'planner_blocked')).toBe(false);
   });
 
-  it('sets blocker cause at planner invocation failure creation time', () => {
-    expect(buildPlannerInvocationFailureBlocker({ tokenBudgetFailure: true, providerStatus: null }).planning.blocker_cause).toBe('token_budget_exceeded');
-    expect(buildPlannerInvocationFailureBlocker({ tokenBudgetFailure: false, providerStatus: null }).planning.blocker_cause).toBe('terminal_tool_exhaustion');
+  it('sets token-budget blocker cause at planner invocation failure creation time', () => {
+    expect(buildPlannerInvocationFailureBlocker({ providerStatus: null }).planning.blocker_cause).toBe('token_budget_exceeded');
   });
 });

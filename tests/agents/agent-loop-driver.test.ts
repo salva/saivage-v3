@@ -1,7 +1,6 @@
 import { describe, it, expect } from '@jest/globals';
 import { createAgentLoopDriver, type AgentLoopDriverIO, type VerifierRejectionEvent } from '../../src/agents/agent-loop-driver.js';
 import { createContractVerifier } from '../../src/agents/contract-verifier.js';
-import { createRepairBudget } from '../../src/agents/invocation-outcome.js';
 import { createExecutorContract } from '../../src/contracts/executor-contract.js';
 import type { ExecutorResultEnvelope } from '../../src/contracts/executor-envelope.js';
 import type { ExecutorResult } from '../../src/contracts/agent-execution.js';
@@ -22,8 +21,6 @@ function makeIO(overrides: Partial<AgentLoopDriverIO<ExecutorResultEnvelope, Exe
     sessionId: 'sess-1',
     role: 'executor',
     attempt: 1,
-    budget: createRepairBudget(1),
-    maxToolTurns: 8,
     invokeTurn: async () => ({ kind: 'message', content: '' }) as LlmCompleteResult,
     persistAssistantToolCalls: (r) => { log.push({ kind: 'persistAssistantToolCalls', payload: r }); },
     persistAssistantText: (c) => { log.push({ kind: 'persistAssistantText', payload: c }); },
@@ -58,7 +55,7 @@ describe('agent-loop-driver', () => {
     expect(log.some((e) => e.kind === 'appendRepairMessage')).toBe(false);
   });
 
-  it('verifies-then-repairs on first violation, then succeeds on second turn (budget consumed)', async () => {
+  it('verifies-then-repairs on first violation, then succeeds on second turn', async () => {
     let turn = 0;
     const { io, log, rejections } = makeIO({
       invokeTurn: async () => {
@@ -71,7 +68,6 @@ describe('agent-loop-driver', () => {
     expect(outcome.kind).toBe('succeeded');
     if (outcome.kind !== 'succeeded') return;
     expect(outcome.repairAttempts).toBe(1);
-    expect(io.budget.consumed).toBe(1);
     expect(rejections).toHaveLength(1);
     expect(rejections[0]).toEqual(expect.objectContaining({ contract_id: 'executor', repair_round: 1, proposed_present: true }));
     const repairOrder = log.map((e) => e.kind);
@@ -80,30 +76,34 @@ describe('agent-loop-driver', () => {
     expect(log.find((e) => e.kind === 'persistViolatedDone')?.payload).toEqual({ id: 'tc-1', name: 'emit_executor_result', content: 'violated' });
   });
 
-  it('returns repair_exhausted after budget is consumed and the second attempt is still invalid', async () => {
+  it('keeps repairing invalid terminal calls until cancellation', async () => {
+    let turns = 0;
     const { io, log, rejections } = makeIO({
-      invokeTurn: async () => toolCalls([{ id: 'tc-x', name: 'emit_executor_result', args: '{"status":"bogus"}' }]),
+      invokeTurn: async () => {
+        turns += 1;
+        return toolCalls([{ id: `tc-${turns}`, name: 'emit_executor_result', args: '{"status":"bogus"}' }]);
+      },
+      isCancelled: () => turns >= 3,
     });
     const outcome = await createAgentLoopDriver(io).run();
-    expect(outcome.kind).toBe('repair_exhausted');
-    if (outcome.kind !== 'repair_exhausted') return;
-    expect(outcome.repairAttempts).toBe(1);
-    expect(outcome.lastReport.contractId).toBe('executor');
-    expect(rejections.length).toBeGreaterThanOrEqual(1);
+    expect(outcome).toEqual({ kind: 'cancelled', reason: 'abort' });
+    expect(rejections).toHaveLength(3);
     const violated = log.filter((e) => e.kind === 'persistViolatedDone').map((e) => (e.payload as { content: string }).content);
-    expect(violated).toContain('violated');
-    expect(violated).toContain('violated_exhausted');
+    expect(violated).toEqual(['violated', 'violated', 'violated']);
   });
 
-  it('returns no_progress when the agent keeps emitting non-terminal messages until maxToolTurns', async () => {
+  it('keeps accepting non-terminal messages until cancellation', async () => {
+    let turns = 0;
     const { io } = makeIO({
-      maxToolTurns: 3,
-      invokeTurn: async () => ({ kind: 'message', content: 'thinking' }) as LlmCompleteResult,
+      invokeTurn: async () => {
+        turns += 1;
+        return { kind: 'message', content: 'thinking' } as LlmCompleteResult;
+      },
+      isCancelled: () => turns >= 3,
     });
     const outcome = await createAgentLoopDriver(io).run();
-    expect(outcome.kind).toBe('no_progress');
-    if (outcome.kind !== 'no_progress') return;
-    expect(outcome.turnsConsumed).toBe(3);
+    expect(outcome).toEqual({ kind: 'cancelled', reason: 'abort' });
+    expect(turns).toBe(3);
   });
 
   it('persists duplicate terminal calls as ignored and treats the first as canonical', async () => {

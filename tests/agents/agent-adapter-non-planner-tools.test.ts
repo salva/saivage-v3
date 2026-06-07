@@ -32,7 +32,6 @@ function createMinimalAdapter(): AgentAdapter {
       maxCompactions: 3,
       recoveryDelayMs: 60000,
       maxRecoveryRetries: 3,
-      maxToolTurns: 16,
       selfCheck: { planner: 0, executor: 0, reviewer: 0, analyst: 0 },
     },
     security: {},

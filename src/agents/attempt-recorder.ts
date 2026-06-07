@@ -5,7 +5,7 @@ import type {
   LlmFailureClass,
 } from '../schemas/index.js';
 
-export type ContractVerdict = 'satisfied' | 'repair_exhausted' | 'no_progress';
+export type ContractVerdict = 'satisfied';
 
 export class AttemptRecorder {
   private attemptOutcomeCount = 0;

@@ -64,7 +64,6 @@ export class PlannerActivationRunner {
           existingError: refreshed.lifecycle.error,
           existingStatusText: refreshed.status_text,
           retryingTokenBudgetBlocker: setup.retryingTokenBudgetBlocker,
-          retryingTerminalToolBlocker: setup.retryingTerminalToolBlocker,
           compactedPersistedPlannerHistory,
           }),
           ...(currentStatus === 'changed' ? { retries: 0 } : {}),

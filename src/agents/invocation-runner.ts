@@ -22,7 +22,6 @@ import {
 import type { EventLogger } from '../observability/index.js';
 import { createContractVerifier } from './contract-verifier.js';
 import { createAgentLoopDriver, type AgentLoopDriverIO } from './agent-loop-driver.js';
-import { createRepairBudget } from './invocation-outcome.js';
 import { appendMessage as appendPersistentMessage, assertNoActiveAgentSession } from './session-persistence.js';
 import { updateSessionModel } from './session-persistence.js';
 import { AttemptRecorder } from './attempt-recorder.js';
@@ -106,9 +105,9 @@ export class AgentInvocationRunner {
       const noCandidateDecision = defaultInvocationRecoveryPolicy.decideNoCandidates({
         role,
         attempt: 1,
-        maxAttempts: (this.config.runtimeConfig.maxRecoveryRetries ?? 3) + 1,
+        maxAttempts: Number.POSITIVE_INFINITY,
         recoveryDelayMs: this.config.runtimeConfig.recoveryDelayMs ?? 60000,
-        maxRecoveryRetries: this.config.runtimeConfig.maxRecoveryRetries ?? 3,
+        maxRecoveryRetries: Number.POSITIVE_INFINITY,
         capabilityRequest,
         capabilitySkips: this.config.router.getLastCapabilitySkips(),
         goalId,
@@ -136,8 +135,7 @@ export class AgentInvocationRunner {
         { round_id: msg.round_id, message_index: msg.message_index, block_index: msg.block_index },
       );
     const recoveryDelayMs = this.config.runtimeConfig.recoveryDelayMs ?? 60000;
-    const maxRecoveryRetries = this.config.runtimeConfig.maxRecoveryRetries ?? 3;
-    const maxOuterAttempts = maxRecoveryRetries + 1;
+    const maxOuterAttempts = Number.POSITIVE_INFINITY;
     const invocationStart = Date.now();
     const attemptRecorder = new AttemptRecorder(this.config.eventBusProvider(), this.config.eventLogger);
     const plannerEnvelopeTracker = new PlannerEnvelopeTracker();
@@ -150,7 +148,7 @@ export class AgentInvocationRunner {
           attempt: recoveryCtx.attempt,
           maxAttempts: recoveryCtx.maxAttempts,
           recoveryDelayMs: this.config.runtimeConfig.recoveryDelayMs ?? 60000,
-          maxRecoveryRetries: this.config.runtimeConfig.maxRecoveryRetries ?? 3,
+          maxRecoveryRetries: Number.POSITIVE_INFINITY,
           capabilityRequest,
           capabilitySkips,
           sessionId: session.id,
@@ -190,7 +188,6 @@ export class AgentInvocationRunner {
               startedAtIso = new Date(callStart).toISOString();
               try {
                 const turnTools = [...tools, ...contract.terminals.map((t) => t.toolDefinition)];
-                const maxToolTurns = this.config.runtimeConfig.maxToolTurns ?? 16;
                 const verifier = createContractVerifier();
                 const io: AgentLoopDriverIO<E, R> = {
                   contract,
@@ -198,8 +195,6 @@ export class AgentInvocationRunner {
                   sessionId: session.id,
                   role,
                   attempt: recoveryCtx.attempt,
-                  budget: createRepairBudget(1),
-                  maxToolTurns,
                   invokeTurn: async () => {
                     const turnMessages = this.config.modelContext.buildModelMessages(session.id, role, goalId);
                     return this.config.invocationService.invokeCall({
@@ -365,7 +360,7 @@ export class AgentInvocationRunner {
                     attempt: recoveryCtx.attempt,
                     maxAttempts: recoveryCtx.maxAttempts,
                     recoveryDelayMs: this.config.runtimeConfig.recoveryDelayMs ?? 60000,
-                    maxRecoveryRetries: this.config.runtimeConfig.maxRecoveryRetries ?? 3,
+                    maxRecoveryRetries: Number.POSITIVE_INFINITY,
                     capabilityRequest,
                     capabilitySkips,
                     sessionId: session.id,
@@ -412,25 +407,6 @@ export class AgentInvocationRunner {
                     `Agent invocation cancelled for session ${session.id}. Role: ${role}, goal: ${goalId}, card: ${cardId}`,
                   );
                 }
-                if (outcome.kind === 'repair_exhausted') {
-                  attemptRecorder.recordContractVerdict('repair_exhausted', outcome.repairAttempts);
-                  const codes = outcome.lastReport.obligations.map((o) => o.code).join(',');
-                  throw new LlmRequestError({
-                    kind: 'provider_protocol_error',
-                    provider: candidate.provider,
-                    status: 0,
-                    message: `Role '${role}' contract verification exhausted after ${outcome.repairAttempts} repair attempt(s): ${codes}.`,
-                  });
-                }
-                if (outcome.kind === 'no_progress') {
-                  attemptRecorder.recordContractVerdict('no_progress', outcome.repairAttempts);
-                  throw new LlmRequestError({
-                    kind: 'provider_protocol_error',
-                    provider: candidate.provider,
-                    status: 0,
-                    message: `Role '${role}' did not emit terminal tool within ${outcome.turnsConsumed} turns.`,
-                  });
-                }
                 throw new LlmRequestError({
                   kind: 'provider_protocol_error',
                   provider: candidate.provider,
@@ -449,7 +425,7 @@ export class AgentInvocationRunner {
                 attempt: sameCandidateRecoveryAttempt,
                 maxAttempts: recoveryCtx.maxAttempts,
                 recoveryDelayMs: this.config.runtimeConfig.recoveryDelayMs ?? 60000,
-                maxRecoveryRetries: this.config.runtimeConfig.maxRecoveryRetries ?? 3,
+                maxRecoveryRetries: Number.POSITIVE_INFINITY,
                 capabilityRequest,
                 capabilitySkips,
                 sessionId: session.id,
@@ -524,7 +500,7 @@ export class AgentInvocationRunner {
       }
     };
     const attempts: AgentInvocationAttempt<R>[] = [];
-    for (let attempt = 1; attempt <= maxOuterAttempts; attempt += 1) {
+    for (let attempt = 1; ; attempt += 1) {
       const previousError = attempts[attempt - 2]?.error;
       const recoveryCtx: AgentRecoveryContext = {
         attempt,
@@ -567,9 +543,13 @@ export class AgentInvocationRunner {
             sessionId: session.id,
             cardId,
             goalId,
-            recoverable: attempt < maxOuterAttempts,
+            recoverable: !this.config.sessionLifecycle.isCancelled(session.id),
           });
-        if (attempt >= maxOuterAttempts) break;
+        if (
+          this.config.sessionLifecycle.isCancelled(session.id) ||
+          /cancelled/i.test(error.message) ||
+          /No (healthy|capability-compatible) candidates available/.test(error.message)
+        ) break;
         await delayInvocationRecovery(recoveryDelayMs);
       }
     }

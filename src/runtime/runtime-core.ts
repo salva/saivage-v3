@@ -262,7 +262,6 @@ export interface StartProjectPreconditionDecision {
   openRootRun: RuntimeRunRecord | null;
   staleRunningIntentWithoutActiveRootRun: boolean;
   retryingTokenBudgetPlanningBlocker: boolean;
-  retryingTerminalToolPlanningBlocker: boolean;
   retryingPlanningBlocker: boolean;
 }
 
@@ -283,7 +282,6 @@ export function planStartProjectPrecondition(input: {
     openRootRun,
     staleRunningIntentWithoutActiveRootRun: false,
     retryingTokenBudgetPlanningBlocker: false,
-    retryingTerminalToolPlanningBlocker: false,
     retryingPlanningBlocker: false,
   };
   const retryingTokenBudgetPlanningBlocker =
@@ -292,13 +290,7 @@ export function planStartProjectPrecondition(input: {
     input.projectCardStatus === 'blocked' &&
     input.blockedPlanning?.resume_reason === 'planner_context_length_exceeded' &&
     input.blockedPlanning?.failure_kind === 'token_budget_exceeded';
-  const retryingTerminalToolPlanningBlocker =
-    input.projectCardExists &&
-    input.source !== 'runtime' &&
-    input.projectCardStatus === 'blocked' &&
-    input.blockedPlanning?.resume_reason === 'planner_terminal_tool_exhausted' &&
-    input.blockedPlanning?.failure_kind === 'planner_contract_terminal_tool_exhausted';
-  const retryingPlanningBlocker = retryingTokenBudgetPlanningBlocker || retryingTerminalToolPlanningBlocker;
+  const retryingPlanningBlocker = retryingTokenBudgetPlanningBlocker;
   const staleRunningIntentWithoutActiveRootRun =
     (input.state.runtime_intent?.status ?? 'stopped') === 'running' &&
     !openRootRun &&
@@ -309,7 +301,6 @@ export function planStartProjectPrecondition(input: {
     openRootRun,
     staleRunningIntentWithoutActiveRootRun,
     retryingTokenBudgetPlanningBlocker,
-    retryingTerminalToolPlanningBlocker,
     retryingPlanningBlocker,
   };
   if (

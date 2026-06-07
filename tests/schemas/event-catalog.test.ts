@@ -73,7 +73,7 @@ describe('llm_invocation_summary payload schema (refine rules)', () => {
     expect(() => schema.parse({ ...base, verdict: 'cancelled', last_failure_class: 'cancelled' })).not.toThrow();
   });
   it('accepts optional contract_verdict', () => {
-    expect(() => schema.parse({ ...base, verdict: 'exhausted', last_failure_class: 'rate_limit', contract_verdict: 'repair_exhausted' })).not.toThrow();
+    expect(() => schema.parse({ ...base, verdict: 'succeeded', final_provider: 'p', final_model: 'm', final_account: '_', final_terminal_tool: 'emit_planner_result', contract_verdict: 'satisfied' })).not.toThrow();
   });
   it('rejects unknown contract_verdict value', () => {
     expect(() => schema.parse({ ...base, verdict: 'exhausted', last_failure_class: 'rate_limit', contract_verdict: 'bogus' })).toThrow();

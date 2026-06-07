@@ -1,5 +1,5 @@
 import type { Contract } from '../contracts/contract.js';
-import type { ContractVerifier, ObligationReport } from './contract-verifier.js';
+import type { ContractVerifier } from './contract-verifier.js';
 import type { LlmCompleteResult } from './llm-contracts.js';
 import {
   type AgentLoopState,
@@ -10,8 +10,7 @@ import {
   onTurnEnd,
   onVerifierResult,
 } from './agent-loop-state.js';
-import type { InvocationOutcomeOf, RepairBudget } from './invocation-outcome.js';
-import { createRepairBudget } from './invocation-outcome.js';
+import type { InvocationOutcomeOf } from './invocation-outcome.js';
 
 /**
  * VerifierRejectionEvent payload emitted whenever the verifier rejects a
@@ -34,8 +33,6 @@ export interface AgentLoopDriverIO<Envelope, TypedResult> {
   sessionId: string;
   role: string;
   attempt: number;
-  budget: RepairBudget;
-  maxToolTurns: number;
   /** Perform one LLM turn (tool-call invocation). The driver decides what to do with the result. */
   invokeTurn: (turn: number) => Promise<LlmCompleteResult>;
   /** Persist all assistant tool_call rows from the result (one per row). */
@@ -48,8 +45,8 @@ export interface AgentLoopDriverIO<Envelope, TypedResult> {
   persistDuplicateDoneIgnored: (toolCallId: string, toolName: string) => Promise<void> | void;
   /** Persist a `tool_result` row for the verified terminal call. */
   persistVerifiedDone: (toolCallId: string, toolName: string) => Promise<void> | void;
-  /** Persist a `tool_result` row for a violated terminal call (single attempt). */
-  persistViolatedDone: (toolCallId: string, toolName: string, content: 'violated' | 'violated_exhausted') => Promise<void> | void;
+  /** Persist a `tool_result` row for a violated terminal call. */
+  persistViolatedDone: (toolCallId: string, toolName: string, content: 'violated') => Promise<void> | void;
   /** Append a `model_repair` system message rendered from the obligation report. */
   appendRepairMessage: (message: string) => Promise<void> | void;
   /** Return true if the session was cancelled externally. */
@@ -82,10 +79,6 @@ export function createAgentLoopDriver<Envelope, TypedResult>(
     return null;
   }
 
-  function lastReportFromState(s: AgentLoopState<Envelope>): ObligationReport | null {
-    return s.kind === 'repair_exhausted' ? s.lastReport : null;
-  }
-
   async function run(): Promise<InvocationOutcomeOf<Envelope, TypedResult>> {
     while (!isTerminalState(state)) {
       if (io.isCancelled()) {
@@ -114,7 +107,7 @@ export function createAgentLoopDriver<Envelope, TypedResult>(
         if (result.content && result.content.length > 0) {
           await io.persistAssistantText(result.content);
         }
-        state = onTurnEnd(state, null, io.maxToolTurns);
+        state = onTurnEnd(state, null);
         continue;
       }
 
@@ -137,7 +130,7 @@ export function createAgentLoopDriver<Envelope, TypedResult>(
           };
           break;
         }
-        state = onTurnEnd(state, null, io.maxToolTurns);
+        state = onTurnEnd(state, null);
         continue;
       }
 
@@ -153,7 +146,7 @@ export function createAgentLoopDriver<Envelope, TypedResult>(
       );
       state = { kind: 'verifying', proposed: parse, turn: state.turn, repairAttempts: state.repairAttempts };
       const verdict = io.verifier.check(io.contract, parse);
-      const nextState = onVerifierResult(state, verdict, io.budget, io.contract, io.maxToolTurns);
+      const nextState = onVerifierResult(state, verdict, io.contract);
 
       if (verdict.kind === 'satisfied') {
         await io.persistVerifiedDone(extraction.toolCallId!, extraction.toolName!);
@@ -162,11 +155,10 @@ export function createAgentLoopDriver<Envelope, TypedResult>(
       }
 
       // verdict.kind === 'violated'
-      const exhausted = nextState.kind === 'repair_exhausted' || nextState.kind === 'no_progress';
       await io.persistViolatedDone(
         extraction.toolCallId!,
         extraction.toolName!,
-        exhausted ? 'violated_exhausted' : 'violated',
+        'violated',
       );
       if (io.emitVerifierRejection) {
         io.emitVerifierRejection({
@@ -179,15 +171,10 @@ export function createAgentLoopDriver<Envelope, TypedResult>(
           contract_id: io.contract.name,
         });
       }
-      if (!exhausted) {
-        io.budget.consumed += 1;
-        const message = io.verifier.renderRepairMessage(verdict.report);
-        await io.appendRepairMessage(message);
-        state = onRepairAppended(nextState);
-        continue;
-      }
-      state = nextState;
-      break;
+      const message = io.verifier.renderRepairMessage(verdict.report);
+      await io.appendRepairMessage(message);
+      state = onRepairAppended(nextState);
+      continue;
     }
 
     switch (state.kind) {
@@ -199,31 +186,10 @@ export function createAgentLoopDriver<Envelope, TypedResult>(
           terminalName: state.terminalName,
           repairAttempts: state.repairAttempts,
         };
-      case 'repair_exhausted':
-        return {
-          kind: 'repair_exhausted',
-          lastReport: state.lastReport,
-          repairAttempts: state.repairAttempts,
-        };
-      case 'no_progress': {
-        const last = lastReportFromState(state);
-        if (last) {
-          return { kind: 'repair_exhausted', lastReport: last, repairAttempts: state.repairAttempts };
-        }
-        return {
-          kind: 'no_progress',
-          turnsConsumed: state.turnsConsumed,
-          repairAttempts: state.repairAttempts,
-        };
-      }
       case 'cancelled':
         return { kind: 'cancelled', reason: state.reason };
       default:
-        return {
-          kind: 'no_progress',
-          turnsConsumed: io.maxToolTurns,
-          repairAttempts: 0,
-        };
+        return { kind: 'cancelled', reason: 'abort' };
     }
   }
 
@@ -234,5 +200,3 @@ export function createAgentLoopDriver<Envelope, TypedResult>(
     },
   };
 }
-
-export { createRepairBudget };

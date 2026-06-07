@@ -52,7 +52,7 @@ const llmInvocationSummaryBaseShape = {
   total_duration_ms: z.number().nonnegative(),
   verdict: verdictSchema,
   repair_attempts: z.number().int().nonnegative(),
-  contract_verdict: z.enum(['satisfied', 'repair_exhausted', 'no_progress']).optional(),
+  contract_verdict: z.enum(['satisfied']).optional(),
   final_provider: z.string().optional(),
   final_model: z.string().optional(),
   final_account: z.string().optional(),

@@ -2,14 +2,8 @@ import type { CardRecord } from '../schemas/index.js';
 import { lifecycleCardPatch } from './terminal-commit/lifecycle-patch.js';
 import { planClearActiveCardRunPatch } from './runtime-core.js';
 import { readRuntimeState } from './state.js';
-import { buildPlannerInvocationFailureBlocker } from './phases/planner-phase.js';
 import { getBlockedPlanning } from './planning-blockers.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
-
-export function isPlannerTerminalToolExhaustion(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return /Role 'planner' did not emit terminal tool within \d+ turns\./.test(message);
-}
 
 export async function alignBlockedPlanningCardStatuses(input: {
   cards: {
@@ -23,30 +17,6 @@ export async function alignBlockedPlanningCardStatuses(input: {
 }): Promise<void> {
   for (const card of input.cards.list()) {
     if (card.type !== 'project' && card.type !== 'goal') continue;
-    if (card.status === 'failed' && isPlannerTerminalToolExhaustion(card.lifecycle.error ?? '')) {
-      const plannerFailureBlocker = buildPlannerInvocationFailureBlocker({
-        tokenBudgetFailure: false,
-        providerStatus: null,
-      });
-      await input.cards.repairTerminalLifecycle(card.id, {
-        ...lifecycleCardPatch({
-          status: 'blocked',
-          result: {
-            kind: 'planner_blocked',
-            blocked_reason: plannerFailureBlocker.blockedReason,
-            resume_reason: plannerFailureBlocker.resumeReason,
-            blocker_cause: plannerFailureBlocker.planning.blocker_cause,
-          },
-          error: plannerFailureBlocker.blockedReason,
-          completed_at: null,
-        }),
-        status_text: plannerFailureBlocker.blockedReason,
-      });
-      input.finishOpenPlannerRun(card.id, 'blocked');
-      const patch = planClearActiveCardRunPatch({ state: readRuntimeState(input.projectRoot), cardId: card.id });
-      if (patch) input.mutations.apply({ kind: 'patchRuntimeState', patch });
-      continue;
-    }
     if (card.status === 'blocked') continue;
     const blockedPlanning = getBlockedPlanning(card);
     if (!blockedPlanning) continue;

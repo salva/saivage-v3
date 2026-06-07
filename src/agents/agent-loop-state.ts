@@ -5,7 +5,6 @@ import type {
   DoneArgsParse,
   ObligationReport,
 } from './contract-verifier.js';
-import type { RepairBudget } from './invocation-outcome.js';
 
 /**
  * Explicit state machine for one agentFn invocation (per spec P-A2 §3.2).
@@ -28,8 +27,6 @@ export type AgentLoopState<Envelope> =
       repairAttempts: number;
     }
   | { kind: 'done'; envelope: Envelope; terminalName: string; repairAttempts: number }
-  | { kind: 'repair_exhausted'; lastReport: ObligationReport; repairAttempts: number }
-  | { kind: 'no_progress'; turnsConsumed: number; repairAttempts: number }
   | { kind: 'cancelled'; reason: 'abort' | 'timeout' };
 
 export interface DoneSignalExtraction {
@@ -69,16 +66,12 @@ export function extractDoneSignal<Envelope, TypedResult>(
 export function onTurnEnd<Envelope>(
   state: AgentLoopState<Envelope>,
   pending: DoneArgsParse | null,
-  maxToolTurns: number,
 ): AgentLoopState<Envelope> {
   if (state.kind !== 'agent_turn') return state;
   if (pending !== null) {
     return { kind: 'verifying', proposed: pending, turn: state.turn, repairAttempts: state.repairAttempts };
   }
   const nextTurn = state.turn + 1;
-  if (nextTurn >= maxToolTurns) {
-    return { kind: 'no_progress', turnsConsumed: maxToolTurns, repairAttempts: state.repairAttempts };
-  }
   return { kind: 'agent_turn', turn: nextTurn, repairAttempts: state.repairAttempts };
 }
 
@@ -86,9 +79,7 @@ export function onTurnEnd<Envelope>(
 export function onVerifierResult<Envelope, TypedResult>(
   state: AgentLoopState<Envelope>,
   check: ContractCheckResult<Envelope>,
-  budget: RepairBudget,
   _contract: Contract<Envelope, TypedResult>,
-  maxToolTurns: number,
 ): AgentLoopState<Envelope> {
   if (state.kind !== 'verifying') return state;
   if (check.kind === 'satisfied') {
@@ -97,21 +88,6 @@ export function onVerifierResult<Envelope, TypedResult>(
       envelope: check.envelope,
       terminalName: check.terminalName,
       repairAttempts: state.repairAttempts,
-    };
-  }
-  if (budget.consumed >= budget.max) {
-    return {
-      kind: 'repair_exhausted',
-      lastReport: check.report,
-      repairAttempts: state.repairAttempts,
-    };
-  }
-  const nextTurn = state.turn + 1;
-  if (nextTurn >= maxToolTurns) {
-    return {
-      kind: 'no_progress',
-      turnsConsumed: maxToolTurns,
-      repairAttempts: state.repairAttempts + 1,
     };
   }
   const toolCallId =
@@ -139,8 +115,6 @@ export function onCancellation<Envelope>(
 ): AgentLoopState<Envelope> {
   if (
     state.kind === 'done' ||
-    state.kind === 'repair_exhausted' ||
-    state.kind === 'no_progress' ||
     state.kind === 'cancelled'
   ) {
     return state;
@@ -151,8 +125,6 @@ export function onCancellation<Envelope>(
 export function isTerminalState<Envelope>(state: AgentLoopState<Envelope>): boolean {
   return (
     state.kind === 'done' ||
-    state.kind === 'repair_exhausted' ||
-    state.kind === 'no_progress' ||
     state.kind === 'cancelled'
   );
 }

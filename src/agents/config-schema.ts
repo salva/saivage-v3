@@ -211,7 +211,6 @@ export const runtimeSectionSchema = z.object({
   compactionTimeoutMs: 1200000,
   compactionKeepFraction: 0.2,
   maxRecoveryRetries: 3,
-  maxToolTurns: 16,
 }));
 
 // Security section

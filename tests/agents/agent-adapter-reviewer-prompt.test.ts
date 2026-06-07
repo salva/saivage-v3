@@ -42,7 +42,7 @@ function minimalConfig(): SaivageConfig {
       maxCompactions: 3,
       compactionTimeoutMs: 1200000,
       compactionKeepFraction: 0.2,
-      maxRecoveryRetries: 3, maxToolTurns: 16,
+      maxRecoveryRetries: 3,
     },
     security: { injectionScanner: true, maxScanLengthBytes: 102400 },
     supervisor: { enabled: true, intervalMs: 1200000, consecutiveStuckVerdicts: 3, logLines: 400 },

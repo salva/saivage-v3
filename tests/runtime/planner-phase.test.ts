@@ -60,15 +60,10 @@ describe('planner phase decisions', () => {
     }));
   });
 
-  it('builds planner invocation failure blockers', () => {
-    expect(buildPlannerInvocationFailureBlocker({ tokenBudgetFailure: true, providerStatus: 400 })).toEqual(expect.objectContaining({
+  it('builds token-budget planner invocation failure blockers', () => {
+    expect(buildPlannerInvocationFailureBlocker({ providerStatus: 400 })).toEqual(expect.objectContaining({
       resumeReason: 'planner_context_length_exceeded',
       failureKind: 'token_budget_exceeded',
-      planning: expect.objectContaining({ kind: 'planner_blocked' }),
-    }));
-    expect(buildPlannerInvocationFailureBlocker({ tokenBudgetFailure: false, providerStatus: 400 })).toEqual(expect.objectContaining({
-      resumeReason: 'planner_terminal_tool_exhausted',
-      failureKind: 'planner_contract_terminal_tool_exhausted',
       planning: expect.objectContaining({ kind: 'planner_blocked' }),
     }));
   });
@@ -224,7 +219,6 @@ describe('planner phase decisions', () => {
       existingError: 'old error',
       existingStatusText: 'old status',
       retryingTokenBudgetBlocker: true,
-      retryingTerminalToolBlocker: false,
       compactedPersistedPlannerHistory: true,
     });
     expect(patch).toEqual({ status_text: null });
@@ -238,6 +232,6 @@ describe('planner phase decisions', () => {
     });
     expect(patch).toEqual({ status: 'active', lifecycle: { status: 'active', result: null, error: null, completed_at: null }, status_text: null });
     expect(describeProjectPlannerRetry({ retryingTokenBudgetBlocker: true }).intentReason).toContain('token-budget blocker');
-    expect(describeProjectPlannerRetry({ retryingTokenBudgetBlocker: false }).diagnosticMessage).toContain('terminal-tool exhaustion');
+    expect(describeProjectPlannerRetry({ retryingTokenBudgetBlocker: false }).diagnosticMessage).toContain('planner retry');
   });
 });

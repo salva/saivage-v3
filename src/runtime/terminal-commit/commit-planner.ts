@@ -35,9 +35,7 @@ export async function commitPlannerBlocked(input: {
     resume_reason: input.resumeReason,
     blocker_cause: input.resumeReason === 'planner_context_length_exceeded'
       ? 'token_budget_exceeded'
-      : input.resumeReason === 'planner_terminal_tool_exhausted'
-        ? 'terminal_tool_exhaustion'
-        : input.resumeReason === 'reviewer_unavailable'
+      : input.resumeReason === 'reviewer_unavailable'
           ? 'reviewer_unavailable'
           : input.resumeReason === 'non_actionable_continue' || input.resumeReason === 'non_actionable_project_done'
             ? 'non_actionable_continue'

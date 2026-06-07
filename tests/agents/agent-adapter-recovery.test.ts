@@ -26,7 +26,6 @@ function config(): SaivageConfig {
       maxGoalDepth: 5,
       recoveryDelayMs: 1,
       maxRecoveryRetries: 0,
-      maxToolTurns: 16,
       autoDispatchBacklog: true,
       continuousImprovement: false,
       maxReviewRetries: 3,

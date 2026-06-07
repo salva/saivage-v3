@@ -8,7 +8,6 @@ import {
   onVerifierResult,
   type AgentLoopState,
 } from '../../src/agents/agent-loop-state.js';
-import { createRepairBudget } from '../../src/agents/invocation-outcome.js';
 import { createExecutorContract } from '../../src/contracts/executor-contract.js';
 import { createContractVerifier } from '../../src/agents/contract-verifier.js';
 import type { ExecutorResultEnvelope } from '../../src/contracts/executor-envelope.js';
@@ -58,7 +57,7 @@ describe('agent-loop-state', () => {
     it('transitions agent_turn → verifying when a pending done parse is supplied', () => {
       const start: AgentLoopState<ExecutorResultEnvelope> = { kind: 'agent_turn', turn: 0, repairAttempts: 0 };
       const pending = verifier.parseDoneArgs('tc-1', 'emit_executor_result', '{}');
-      const next = onTurnEnd(start, pending, 16);
+      const next = onTurnEnd(start, pending);
       expect(next.kind).toBe('verifying');
       if (next.kind !== 'verifying') return;
       expect(next.turn).toBe(0);
@@ -66,20 +65,18 @@ describe('agent-loop-state', () => {
     });
 
     it('increments turn when no pending parse and turn budget remains', () => {
-      const next = onTurnEnd<ExecutorResultEnvelope>({ kind: 'agent_turn', turn: 1, repairAttempts: 0 }, null, 16);
+      const next = onTurnEnd<ExecutorResultEnvelope>({ kind: 'agent_turn', turn: 1, repairAttempts: 0 }, null);
       expect(next).toEqual({ kind: 'agent_turn', turn: 2, repairAttempts: 0 });
     });
 
-    it('transitions to no_progress when the next turn would exceed maxToolTurns', () => {
-      const next = onTurnEnd<ExecutorResultEnvelope>({ kind: 'agent_turn', turn: 15, repairAttempts: 0 }, null, 16);
-      expect(next.kind).toBe('no_progress');
-      if (next.kind !== 'no_progress') return;
-      expect(next.turnsConsumed).toBe(16);
+    it('continues incrementing turns without a software exhaustion cap', () => {
+      const next = onTurnEnd<ExecutorResultEnvelope>({ kind: 'agent_turn', turn: 15, repairAttempts: 0 }, null);
+      expect(next).toEqual({ kind: 'agent_turn', turn: 16, repairAttempts: 0 });
     });
 
     it('is a no-op when called from a non agent_turn state', () => {
       const start: AgentLoopState<ExecutorResultEnvelope> = { kind: 'cancelled', reason: 'abort' };
-      expect(onTurnEnd(start, null, 16)).toBe(start);
+      expect(onTurnEnd(start, null)).toBe(start);
     });
   });
 
@@ -92,49 +89,21 @@ describe('agent-loop-state', () => {
     };
 
     it('transitions verifying → done on satisfied', () => {
-      const budget = createRepairBudget(1);
       const envelope = { status: 'done', artifacts: [], attachments: [], summary: 'ok' } as unknown as ExecutorResultEnvelope;
-      const next = onVerifierResult(startVerifying, { kind: 'satisfied', envelope, terminalName: 'emit_executor_result' }, budget, contract, 16);
+      const next = onVerifierResult(startVerifying, { kind: 'satisfied', envelope, terminalName: 'emit_executor_result' }, contract);
       expect(next.kind).toBe('done');
       if (next.kind !== 'done') return;
       expect(next.terminalName).toBe('emit_executor_result');
       expect(next.envelope).toBe(envelope);
     });
 
-    it('transitions verifying → repairing while budget remains', () => {
-      const budget = createRepairBudget(1);
+    it('transitions verifying → repairing for contract violations', () => {
       const report = { contractId: 'executor', toolName: 'emit_executor_result', proposed: {}, obligations: [{ code: 'envelope_schema_violation' as const, locator: 'status', description: 'bad' }] };
-      const next = onVerifierResult(startVerifying, { kind: 'violated', report }, budget, contract, 16);
+      const next = onVerifierResult(startVerifying, { kind: 'violated', report }, contract);
       expect(next.kind).toBe('repairing');
       if (next.kind !== 'repairing') return;
       expect(next.report).toBe(report);
       expect(next.toolCallId).toBe('tc-1');
-      expect(next.repairAttempts).toBe(1);
-    });
-
-    it('transitions verifying → repair_exhausted when budget is already consumed', () => {
-      const budget = createRepairBudget(1);
-      budget.consumed = 1;
-      const report = { contractId: 'executor', toolName: 'emit_executor_result', proposed: {}, obligations: [{ code: 'envelope_schema_violation' as const, locator: 'status', description: 'bad' }] };
-      const next = onVerifierResult(startVerifying, { kind: 'violated', report }, budget, contract, 16);
-      expect(next.kind).toBe('repair_exhausted');
-      if (next.kind !== 'repair_exhausted') return;
-      expect(next.lastReport).toBe(report);
-    });
-
-    it('transitions verifying → no_progress when repair would exceed maxToolTurns', () => {
-      const budget = createRepairBudget(1);
-      const report = { contractId: 'executor', toolName: 'emit_executor_result', proposed: {}, obligations: [] };
-      const stateAtLastTurn: AgentLoopState<ExecutorResultEnvelope> = {
-        kind: 'verifying',
-        proposed: { kind: 'ok', toolCallId: 'tc-1', toolName: 'emit_executor_result', args: {} },
-        turn: 15,
-        repairAttempts: 0,
-      };
-      const next = onVerifierResult(stateAtLastTurn, { kind: 'violated', report }, budget, contract, 16);
-      expect(next.kind).toBe('no_progress');
-      if (next.kind !== 'no_progress') return;
-      expect(next.turnsConsumed).toBe(16);
       expect(next.repairAttempts).toBe(1);
     });
   });
@@ -164,13 +133,11 @@ describe('agent-loop-state', () => {
   });
 
   describe('isTerminalState', () => {
-    it('returns true exactly for done/repair_exhausted/no_progress/cancelled', () => {
+    it('returns true exactly for done/cancelled', () => {
       expect(isTerminalState<ExecutorResultEnvelope>({ kind: 'agent_turn', turn: 0, repairAttempts: 0 })).toBe(false);
       expect(isTerminalState<ExecutorResultEnvelope>({ kind: 'verifying', proposed: { kind: 'ok', toolCallId: 'x', toolName: 'y', args: {} }, turn: 0, repairAttempts: 0 })).toBe(false);
       expect(isTerminalState<ExecutorResultEnvelope>({ kind: 'repairing', report: { contractId: 'c', toolName: 't', proposed: null, obligations: [] }, toolCallId: 'x', turn: 0, repairAttempts: 1 })).toBe(false);
       expect(isTerminalState<ExecutorResultEnvelope>({ kind: 'done', envelope: {} as ExecutorResultEnvelope, terminalName: 't', repairAttempts: 0 })).toBe(true);
-      expect(isTerminalState<ExecutorResultEnvelope>({ kind: 'repair_exhausted', lastReport: { contractId: 'c', toolName: 't', proposed: null, obligations: [] }, repairAttempts: 1 })).toBe(true);
-      expect(isTerminalState<ExecutorResultEnvelope>({ kind: 'no_progress', turnsConsumed: 16, repairAttempts: 0 })).toBe(true);
       expect(isTerminalState<ExecutorResultEnvelope>({ kind: 'cancelled', reason: 'abort' })).toBe(true);
     });
   });

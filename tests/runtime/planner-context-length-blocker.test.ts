@@ -52,14 +52,6 @@ class ContextLengthPlannerAdapter extends FakeAgentAdapter {
   }
 }
 
-class TerminalToolExhaustionPlannerAdapter extends FakeAgentAdapter {
-  invokePlanner(_request: PlannerInvocationRequest): PlannerResult;
-  invokePlanner(_goalId: string, _systemPrompt?: string): PlannerResult;
-  invokePlanner(): PlannerResult {
-    throw new Error("Role 'planner' did not emit terminal tool within 16 turns.");
-  }
-}
-
 class ContinuePlannerCapturingAdapter extends FakeAgentAdapter {
   capturedPrompt = '';
   private invoked = false;
@@ -186,61 +178,6 @@ describe('planner context-length failures', () => {
     );
     expect(harness.stateTestTools.read()?.active_card_run).toBeNull();
     expect(deriveCurrentCardId(harness.stateTestTools.read())).toBeNull();
-  });
-
-  it('persists planner terminal-tool exhaustion as a durable blocker instead of failing the project', async () => {
-    const fixtureDir = join(tmpDir, 'fixtures');
-    const fakeAgent = new TerminalToolExhaustionPlannerAdapter({
-      mapping: { project: 'unused' },
-      fixtureDir,
-    });
-    createRuntime(fakeAgent);
-
-    await harness.api.start();
-    await expect(harness.dispatchTestTools.dispatchGoal('project')).resolves.toBeUndefined();
-
-    const project = harness.cardTestTools.read('project');
-    expect(project?.status).toBe('blocked');
-    expect(project?.lifecycle.error).toContain('Planner did not emit a terminal scheduler tool');
-    expect(project?.lifecycle.result).toEqual(
-      expect.objectContaining({
-        resume_reason: 'planner_terminal_tool_exhausted',
-      }),
-    );
-    expect(harness.stateTestTools.read()?.status).toBe('idle');
-    expect(harness.stateTestTools.read()?.active_card_run).toBeNull();
-    expect(deriveCurrentCardId(harness.stateTestTools.read())).toBeNull();
-  });
-
-  it('aligns a persisted failed project from planner terminal-tool exhaustion to a precise blocker on startup', async () => {
-    const fixtureDir = join(tmpDir, 'fixtures');
-    const fakeAgent = new TerminalToolExhaustionPlannerAdapter({
-      mapping: { project: 'unused' },
-      fixtureDir,
-    });
-    createRuntime(fakeAgent);
-    harness.cardTestTools.repairTerminalLifecycle('project', {
-      ...plannerBlockedPatch('blocked', "Role 'planner' did not emit terminal tool within 16 turns.", 'planner_terminal_tool_exhausted'),
-    });
-    updateRuntimeState(tmpDir, {
-      status: 'idle',
-      active_card_run: null,
-    });
-
-    await harness.api.start();
-
-    const project = harness.cardTestTools.read('project');
-    expect(project?.status).toBe('blocked');
-    expect(project?.lifecycle.error).toContain("Role 'planner' did not emit terminal tool");
-    expect(project?.lifecycle.result).toEqual(
-      expect.objectContaining({
-        resume_reason: 'planner_terminal_tool_exhausted',
-      }),
-    );
-    expect(harness.stateTestTools.read()?.status).toBe('idle');
-    expect(deriveCurrentCardId(harness.stateTestTools.read())).toBeNull();
-    expect(harness.stateTestTools.read()?.active_card_run).toBeNull();
-    expect(harness.diagnosticTestTools.getBackgroundDispatchCount()).toBe(0);
   });
 
   it('aligns active/running card status with persisted context-length planning blockers on startup', async () => {
@@ -479,67 +416,6 @@ describe('planner context-length failures', () => {
     expect(project?.lifecycle.error).toBeNull();
     expect(project?.lifecycle.result).toBeNull();
     expect(harness.cardTestTools.read(nextSafeWork.id)?.parent).toBe('project');
-  });
-
-
-  it('explicit start_project retries a blocked terminal-tool project after clearing stale planning metadata', async () => {
-    const fixtureDir = join(tmpDir, 'fixtures');
-    const fakeAgent = new ContinuePlannerCapturingAdapter({
-      mapping: { project: 'unused' },
-      fixtureDir,
-    });
-    createRuntime(fakeAgent);
-    const nextSafeWork = createNextSafeWork();
-    const blockedReason =
-      'Planner did not emit a terminal scheduler tool within the allowed repair turns; operator or runtime repair must restore a contract-valid planner response before continuing backlog promotion.';
-    harness.cardTestTools.repairTerminalLifecycle('project', {
-      ...plannerBlockedPatch('blocked', blockedReason, 'planner_terminal_tool_exhausted'),
-    });
-
-    await harness.api.start();
-    const startResult = await harness.api.startProject('operator');
-    expect(startResult.success).toBe(true);
-    for (let attempt = 0; attempt < 20 && harness.diagnosticTestTools.getBackgroundDispatchCount() > 0; attempt += 1)
-      await new Promise((resolve) => setTimeout(resolve, 5));
-
-    const project = harness.cardTestTools.read('project');
-    expect(project?.status).not.toBe('blocked');
-    expect(project?.lifecycle.error).toBeNull();
-    expect(project?.lifecycle.result).toBeNull();
-    expect(harness.cardTestTools.read(nextSafeWork.id)?.parent).toBe('project');
-  });
-
-  it('runtime source start_project does not automatically retry a blocked terminal-tool project', async () => {
-    const fixtureDir = join(tmpDir, 'fixtures');
-    const fakeAgent = new ContinuePlannerCapturingAdapter({
-      mapping: { project: 'unused' },
-      fixtureDir,
-    });
-    createRuntime(fakeAgent);
-    const blockedReason =
-      'Planner did not emit a terminal scheduler tool within the allowed repair turns; operator or runtime repair must restore a contract-valid planner response before continuing backlog promotion.';
-    harness.cardTestTools.repairTerminalLifecycle('project', {
-      ...plannerBlockedPatch('blocked', blockedReason, 'planner_terminal_tool_exhausted'),
-    });
-    updateRuntimeState(tmpDir, {
-      status: 'idle',
-      active_card_run: null,
-      runtime_intent: {
-        status: 'running',
-        updated_at: new Date().toISOString(),
-        source_command_id: 'cmd-old',
-        reason: 'stale running intent should not automatically retry terminal-tool blocker',
-      },
-      runtime_runs: [],
-    });
-
-    await harness.api.start();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    const startResult = await harness.api.startProject('runtime');
-
-    expect(startResult.success).toBe(false);
-    expect(harness.cardTestTools.read('project')?.status).toBe('blocked');
-    expect(harness.diagnosticTestTools.getBackgroundDispatchCount()).toBe(0);
   });
 
   it('runtime source start_project still does not retry a blocked token-budget project automatically', async () => {

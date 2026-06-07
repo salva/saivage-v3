@@ -78,18 +78,11 @@ export function buildPlannerBlockedDecision(input: {
 }
 
 export function buildPlannerInvocationFailureBlocker(input: {
-  tokenBudgetFailure: boolean;
   providerStatus: number | null;
 }): { blockedReason: string; resumeReason: string; failureKind: string; planning: PlannerBlockedResult } {
-  const blockedReason = input.tokenBudgetFailure
-    ? 'Planner context exceeded the selected LLM token budget before scheduler output could be produced; compact/trim planner context before resuming.'
-    : 'Planner did not emit a terminal scheduler tool within the allowed repair turns; operator or runtime repair must restore a contract-valid planner response before continuing backlog promotion.';
-  const resumeReason = input.tokenBudgetFailure
-    ? 'planner_context_length_exceeded'
-    : 'planner_terminal_tool_exhausted';
-  const failureKind = input.tokenBudgetFailure
-    ? 'token_budget_exceeded'
-    : 'planner_contract_terminal_tool_exhausted';
+  const blockedReason = 'Planner context exceeded the selected LLM token budget before scheduler output could be produced; compact/trim planner context before resuming.';
+  const resumeReason = 'planner_context_length_exceeded';
+  const failureKind = 'token_budget_exceeded';
   return {
     blockedReason,
     resumeReason,
@@ -98,7 +91,7 @@ export function buildPlannerInvocationFailureBlocker(input: {
       kind: 'planner_blocked',
       blocked_reason: blockedReason,
       resume_reason: resumeReason,
-      blocker_cause: input.tokenBudgetFailure ? 'token_budget_exceeded' : 'terminal_tool_exhaustion',
+      blocker_cause: 'token_budget_exceeded',
     },
   };
 }
@@ -248,7 +241,6 @@ export interface PlannerActivationSetup {
   existingResult: CardRecord['lifecycle']['result'];
   existingPlanning: PlannerBlockedResult | null;
   retryingTokenBudgetBlocker: boolean;
-  retryingTerminalToolBlocker: boolean;
   retryingPlanningBlocker: boolean;
   shouldCompactPersistedPlannerHistory: boolean;
   shouldUpdatePlanning: boolean;
@@ -263,23 +255,16 @@ export function planPlannerActivationSetup(input: {
   const existingPlanning = getBlockedPlanning(input.refreshedCard);
   const hasTokenBudgetPlanningBlocker =
     existingPlanning?.resume_reason === 'planner_context_length_exceeded';
-  const hasTerminalToolPlanningBlocker =
-    existingPlanning?.resume_reason === 'planner_terminal_tool_exhausted';
   const retryingTokenBudgetBlocker =
     input.initialStatus !== 'active' &&
     input.initialStatus !== 'running' &&
     hasTokenBudgetPlanningBlocker;
-  const retryingTerminalToolBlocker =
-    input.initialStatus !== 'active' &&
-    input.initialStatus !== 'running' &&
-    hasTerminalToolPlanningBlocker;
-  const retryingPlanningBlocker = retryingTokenBudgetBlocker || retryingTerminalToolBlocker;
+  const retryingPlanningBlocker = retryingTokenBudgetBlocker;
   return {
     plannerSessionId: `planner:${input.goalId}`,
     existingResult,
     existingPlanning,
     retryingTokenBudgetBlocker,
-    retryingTerminalToolBlocker,
     retryingPlanningBlocker,
     shouldCompactPersistedPlannerHistory: retryingTokenBudgetBlocker || existingPlanning === null,
     shouldUpdatePlanning: existingPlanning === null || retryingPlanningBlocker,
@@ -291,10 +276,9 @@ export function buildPlannerActivationPlanningPatch(input: {
   existingError: string | null | undefined;
   existingStatusText: string | null | undefined;
   retryingTokenBudgetBlocker: boolean;
-  retryingTerminalToolBlocker: boolean;
   compactedPersistedPlannerHistory: boolean;
 }): Partial<CardRecord> {
-  const retryingPlanningBlocker = input.retryingTokenBudgetBlocker || input.retryingTerminalToolBlocker;
+  const retryingPlanningBlocker = input.retryingTokenBudgetBlocker;
   return {
     status_text: retryingPlanningBlocker ? null : input.existingStatusText,
   };
@@ -322,7 +306,7 @@ export function describeProjectPlannerRetry(input: { retryingTokenBudgetBlocker:
         intentReason: 'explicit start_project retry for compacted planner token-budget blocker',
       }
     : {
-        diagnosticMessage: 'Accepted explicit retry for project planner terminal-tool exhaustion blocker after clearing stale blocked planning metadata.',
-        intentReason: 'explicit start_project retry for planner terminal-tool exhaustion blocker',
+        diagnosticMessage: 'Accepted explicit project planner retry after clearing stale blocked planning metadata.',
+        intentReason: 'explicit start_project retry for planner blocker',
       };
 }

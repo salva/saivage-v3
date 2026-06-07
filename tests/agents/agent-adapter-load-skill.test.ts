@@ -41,7 +41,7 @@ function createMinimalAdapter(tmpDir: string): AgentAdapter {
       compactionThreshold: 0.8,
       maxCompactions: 3,
       recoveryDelayMs: 60000,
-      maxRecoveryRetries: 3, maxToolTurns: 16,
+      maxRecoveryRetries: 3,
       selfCheck: { planner: 0, executor: 0, reviewer: 0, analyst: 0 },
     },
     security: {},

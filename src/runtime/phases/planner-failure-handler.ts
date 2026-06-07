@@ -1,7 +1,6 @@
 import type { RuntimeRunRecord } from '../../schemas/index.js';
 import type { RuntimeServices } from '../runtime-services.js';
 import { readRuntimeState } from '../state.js';
-import { isPlannerTerminalToolExhaustion } from '../startup-blocked-planning.js';
 import {
   classifyPlannerInvocationFailure,
   handlePlannerInvocationFailure,
@@ -25,7 +24,7 @@ export class PlannerFailureHandler {
 
   async handle(goalId: string, error: unknown): Promise<{ kind: 'handled' } | { kind: 'rethrow'; error: unknown }> {
     const failedRun = selectPlannerInvocationFailureRun({ state: readRuntimeState(this.deps.projectRoot), goalId });
-    const failure = classifyPlannerInvocationFailure(error, isPlannerTerminalToolExhaustion);
+    const failure = classifyPlannerInvocationFailure(error);
     return handlePlannerInvocationFailure({
       goalId,
       error,
