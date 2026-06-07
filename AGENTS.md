@@ -26,6 +26,14 @@ npm run validate:release
 
 Use focused Jest/Vitest commands for small changes, then broaden according to risk.
 
+## Architecture Principles
+
+- Simple and clean architecture. No backward compatibility, no compatibility shims, no migration code.
+- Fail fast for impossible states. If a code path should be unreachable under correct operation, throw rather than silently recovering, normalizing, or returning fallback values.
+- No over-defensive code. Do not guard against states that cannot happen or that we do not know how to handle. If we cannot handle it, let it crash loudly.
+- Brave refactoring. When needed, tackle complex, large, or deep changes rather than patching around symptoms.
+- Remove dead code aggressively. Do not preserve unused paths, deprecated overloads, or legacy fallbacks.
+
 ## Safety
 
 - Do not print tokens, provider configs, `.saivage/auth-profiles.json`, `.saivage/saivage.json`, env files, or backups.
