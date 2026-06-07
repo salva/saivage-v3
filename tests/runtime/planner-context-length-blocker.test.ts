@@ -359,7 +359,7 @@ describe('planner context-length failures', () => {
         {
           role: index % 2 === 0 ? 'user' : 'assistant',
           kind: index % 5 === 0 ? 'tool_result' : 'text',
-          tool: index % 5 === 0 ? 'read_project_file' : undefined,
+          tool: index % 5 === 0 ? 'read' : undefined,
           content: `old persisted planner transcript ${index} ${'oversized-history-body '.repeat(3000)}`,
         },
         {

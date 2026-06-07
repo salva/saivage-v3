@@ -28,7 +28,7 @@ export class ReviewerPhaseRunner {
           cardDescription: goalCard?.description ?? '',
           tags: goalCard?.tags ?? [],
           filePaths: [],
-          availableTools: ['list_project_files', 'read_project_file', 'load_skill', 'mcp_tool_call'],
+          availableTools: ['glob', 'grep', 'read', 'skill', 'websearch', 'webfetch', 'mcp_tool_call'],
           targetRole: 'reviewer',
         });
         const combinedSkills = [instructionContent, skillsContent].filter(Boolean).join('\n\n');

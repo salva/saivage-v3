@@ -7,7 +7,7 @@ import { callEnvelope } from './_helpers';
 describe('tool presenter registry', () => {
   it('loads the default registration and resolves known tool names', () => {
     expect(() => presentToolCall(callEnvelope('unknown_tool'))).not.toThrow();
-    expect(registeredToolNamesForTest()).toContain('read_project_file');
+    expect(registeredToolNamesForTest()).toContain('read');
     expect(registeredCallToolNamesForTest()).toContain('run_project_command');
     expect(registeredResultToolNamesForTest()).toContain('read_file');
   });

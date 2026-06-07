@@ -229,6 +229,8 @@ function extractImplementedAgentTools(projectRoot) {
     'src/tools/analyst-workspace-tools.ts',
     'src/tools/analyst-misc-tools.ts',
     'src/tools/workspace-tools.ts',
+    'src/tools/project-file-tools.ts',
+    'src/tools/web-tools.ts',
     'src/tools/planner-control-tools.ts',
     'src/tools/mcp-skill-tools.ts',
   ].map((file) => readSource(projectRoot, file)).join('\n');

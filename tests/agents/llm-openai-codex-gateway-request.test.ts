@@ -36,8 +36,8 @@ const PLANNER_TERMINAL_TOOL: ToolDefinition = {
 const SAMPLE_TOOL: ToolDefinition = {
   type: 'function',
   function: {
-    name: 'list_project_files',
-    description: 'list files',
+    name: 'glob',
+    description: 'find files',
     parameters: { type: 'object', properties: {}, additionalProperties: false },
   },
 };

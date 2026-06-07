@@ -29,21 +29,25 @@ exports[`tool-definition-serializer snapshots Chat wire shape for sample catalog
 [
   {
     "function": {
-      "description": "List files under the Saivage project root. Paths are project-relative; Saivage internal state directories are omitted.",
-      "name": "list_project_files",
+      "description": "Search project files by glob pattern under a project directory.",
+      "name": "glob",
       "parameters": {
         "additionalProperties": false,
         "properties": {
-          "maxResults": {
-            "description": "Maximum file paths to return. Defaults to 200; capped at 1000.",
+          "directory": {
+            "type": "string",
+          },
+          "max_results": {
             "type": "integer",
           },
-          "path": {
-            "description": "Project-relative directory to list. Defaults to the project root.",
+          "pattern": {
             "type": "string",
           },
         },
-        "required": [],
+        "required": [
+          "directory",
+          "pattern",
+        ],
         "type": "object",
       },
     },
@@ -149,19 +153,17 @@ exports[`tool-definition-serializer snapshots Chat wire shape for sample catalog
   },
   {
     "function": {
-      "description": "Load a skill on-demand during an agent session. Skills provide domain-specific instructions, coding standards, or project conventions. Use this when you encounter a situation that requires a skill not already in your context. Provide the skill name to load its content.",
-      "name": "load_skill",
+      "description": "List available skills or load one skill on-demand during an agent session. Omit name to list compact skill metadata; provide name to load full skill content.",
+      "name": "skill",
       "parameters": {
         "additionalProperties": false,
         "properties": {
           "name": {
-            "description": "The name of the skill to load (must match an entry in the skills index)",
+            "description": "Optional skill name to load. Omit to list available skills.",
             "type": "string",
           },
         },
-        "required": [
-          "name",
-        ],
+        "required": [],
         "type": "object",
       },
     },
@@ -196,21 +198,25 @@ exports[`tool-definition-serializer snapshots Codex wire shape for a planner too
 exports[`tool-definition-serializer snapshots Codex wire shape for sample catalog tools 1`] = `
 [
   {
-    "description": "List files under the Saivage project root. Paths are project-relative; Saivage internal state directories are omitted.",
-    "name": "list_project_files",
+    "description": "Search project files by glob pattern under a project directory.",
+    "name": "glob",
     "parameters": {
       "additionalProperties": false,
       "properties": {
-        "maxResults": {
-          "description": "Maximum file paths to return. Defaults to 200; capped at 1000.",
+        "directory": {
+          "type": "string",
+        },
+        "max_results": {
           "type": "integer",
         },
-        "path": {
-          "description": "Project-relative directory to list. Defaults to the project root.",
+        "pattern": {
           "type": "string",
         },
       },
-      "required": [],
+      "required": [
+        "directory",
+        "pattern",
+      ],
       "type": "object",
     },
     "type": "function",
@@ -312,19 +318,17 @@ exports[`tool-definition-serializer snapshots Codex wire shape for sample catalo
     "type": "function",
   },
   {
-    "description": "Load a skill on-demand during an agent session. Skills provide domain-specific instructions, coding standards, or project conventions. Use this when you encounter a situation that requires a skill not already in your context. Provide the skill name to load its content.",
-    "name": "load_skill",
+    "description": "List available skills or load one skill on-demand during an agent session. Omit name to list compact skill metadata; provide name to load full skill content.",
+    "name": "skill",
     "parameters": {
       "additionalProperties": false,
       "properties": {
         "name": {
-          "description": "The name of the skill to load (must match an entry in the skills index)",
+          "description": "Optional skill name to load. Omit to list available skills.",
           "type": "string",
         },
       },
-      "required": [
-        "name",
-      ],
+      "required": [],
       "type": "object",
     },
     "type": "function",

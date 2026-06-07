@@ -11,6 +11,7 @@ import { analystMiscTools } from '../analyst-misc-tools.js';
 import { workspaceRuntimeTools } from '../workspace-tools.js';
 import { plannerControlTools } from '../planner-control-tools.js';
 import { mcpAndSkillTools } from '../mcp-skill-tools.js';
+import { webTools } from '../web-tools.js';
 import type { ToolContext, ToolResult } from '../analyst-tool-types.js';
 import type { AgentRole, UnifiedToolDefinition } from '../tool-catalog.js';
 
@@ -46,6 +47,7 @@ const aggregatedToolDefinitions = [
   ...analystWorkspaceTools,
   ...analystMiscTools,
   ...workspaceRuntimeTools,
+  ...webTools,
   ...plannerControlTools,
   ...mcpAndSkillTools,
 ] as const;
@@ -62,7 +64,7 @@ const stableToolOrder = [
   'get_plan_diary',
   'get_card_output',
   'get_status',
-  'load_skill',
+  'skill',
   'list_card_history',
   'get_card_history_entry',
   'diff_card',
@@ -88,13 +90,18 @@ const stableToolOrder = [
   'list_processes_tool',
   'list_agent_sessions',
   'read_agent_session',
-  'list_project_files',
-  'read_project_file',
-  'write_project_file',
+  'read',
+  'write',
+  'glob',
+  'grep',
+  'edit',
+  'apply_patch',
   'wait_for_process',
   'kill_process',
   'start_and_wait',
   'run_project_command',
+  'websearch',
+  'webfetch',
   'mcp_tool_call',
   'activate_card',
   'cancel_card',
@@ -129,7 +136,7 @@ export function toolDefinitionByName(name: string): UnifiedToolDefinition | unde
 
 export const ANALYST_TOOL_DEFINITIONS = TOOL_DEFINITIONS.filter((tool) => tool.roles.includes('analyst') && !tool.workspace).map(llmToolDefinition);
 export const ANALYST_TOOL_NAMES = ANALYST_TOOL_DEFINITIONS.map((tool) => tool.function.name);
-export const READ_ONLY_WORKSPACE_TOOL_DEFINITIONS = TOOL_DEFINITIONS.filter((tool) => tool.workspace && !['write_project_file', 'wait_for_process', 'kill_process', 'start_and_wait', 'run_project_command'].includes(tool.name)).map(llmToolDefinition);
+export const READ_ONLY_WORKSPACE_TOOL_DEFINITIONS = TOOL_DEFINITIONS.filter((tool) => tool.workspace && !['write', 'edit', 'apply_patch', 'wait_for_process', 'kill_process', 'start_and_wait', 'run_project_command'].includes(tool.name)).map(llmToolDefinition);
 export const WORKSPACE_TOOL_DEFINITIONS = TOOL_DEFINITIONS.filter((tool) => tool.workspace).map(llmToolDefinition);
 export const PLANNER_TOOL_DEFINITIONS = TOOL_DEFINITIONS.filter((tool) => tool.roles.includes('planner') && !tool.skill && !tool.mcpWrapper).map((tool) => {
   if (tool.plannerInput) return llmToolDefinition({ ...tool, description: tool.plannerDescription ?? tool.description, input: tool.plannerInput, roles: ['planner'] });

@@ -60,19 +60,19 @@ function getParamProps(def: ToolDefinition): Record<string, unknown> {
   return def.function.parameters as Record<string, unknown>;
 }
 
-describe('AgentAdapter load_skill tool', () => {
+describe('AgentAdapter skill tool', () => {
   describe('LOAD_SKILL_TOOL_DEFINITION', () => {
     it('has type === "function"', () => {
       expect(LOAD_SKILL_TOOL_DEFINITION.type).toBe('function');
     });
 
-    it('has function.name === "load_skill"', () => {
-      expect(LOAD_SKILL_TOOL_DEFINITION.function.name).toBe('load_skill');
+    it('has function.name === "skill"', () => {
+      expect(LOAD_SKILL_TOOL_DEFINITION.function.name).toBe('skill');
     });
 
-    it('has function.parameters with required: ["name"]', () => {
+    it('has function.parameters with optional name', () => {
       const props = getParamProps(LOAD_SKILL_TOOL_DEFINITION);
-      expect(props.required).toEqual(['name']);
+      expect(props.required).toEqual([]);
     });
 
     it('has function.parameters.properties.name.type === "string"', () => {
@@ -124,24 +124,24 @@ describe('AgentAdapter load_skill tool', () => {
       return (adapter as any).buildToolsForRole(role);
     }
 
-    it('returns authoritative §7 tools without load_skill for planner', () => {
+    it('returns authoritative §7 tools without skill for planner', () => {
       const tools = callBuildToolsForRole('planner');
       const names = tools.map((tool) => tool.function.name);
       expect(names).toContain('create_card');
       expect(names).toContain('activate_card');
-      expect(names).not.toContain('load_skill');
+      expect(names).not.toContain('skill');
     });
 
-    it('returns tools including load_skill for executor', () => {
+    it('returns tools including skill for executor', () => {
       const tools = callBuildToolsForRole('executor');
       expect(tools.length).toBeGreaterThanOrEqual(2);
-      expect(tools[0].function.name).toBe('load_skill');
+      expect(tools[0].function.name).toBe('skill');
     });
 
-    it('returns tools including load_skill for reviewer', () => {
+    it('returns tools including skill for reviewer', () => {
       const tools = callBuildToolsForRole('reviewer');
       expect(tools.length).toBeGreaterThanOrEqual(2);
-      expect(tools[0].function.name).toBe('load_skill');
+      expect(tools[0].function.name).toBe('skill');
     });
 
     it('returns analyst history/notification/correction tools without deleted root-start tools', () => {
@@ -206,7 +206,7 @@ describe('AgentAdapter load_skill tool', () => {
       const tc = {
         id: 'call_1',
         type: 'function' as const,
-        function: { name: 'load_skill', arguments: '{"name":"docs-guide"}' },
+        function: { name: 'skill', arguments: '{"name":"docs-guide"}' },
       };
 
       const result = await callProcessToolCall(tc, 'planner');
@@ -227,23 +227,23 @@ describe('AgentAdapter load_skill tool', () => {
       expect(result.content).toContain('unknown_fancy_tool');
     });
 
-    it('returns error for load_skill with invalid JSON args', async () => {
+    it('returns error for skill with invalid JSON args', async () => {
       const tc = {
         id: 'call_3',
         type: 'function' as const,
-        function: { name: 'load_skill', arguments: 'not-json' },
+        function: { name: 'skill', arguments: 'not-json' },
       };
 
       const result = await callProcessToolCall(tc, 'planner');
       expect(result.kind).toBe('tool_error');
-      expect(result.content).toContain("Invalid JSON arguments for 'load_skill'");
+      expect(result.content).toContain("Invalid JSON arguments for 'skill'");
     });
 
-    it('returns error for load_skill with empty arguments object', async () => {
+    it('returns error for planner skill with empty arguments object', async () => {
       const tc = {
         id: 'call_4',
         type: 'function' as const,
-        function: { name: 'load_skill', arguments: '{}' },
+        function: { name: 'skill', arguments: '{}' },
       };
 
       const result = await callProcessToolCall(tc, 'planner');
@@ -282,10 +282,8 @@ describe('AgentAdapter load_skill tool', () => {
       }
     });
 
-    it('works for planner role', async () => {
-      const result = await loadSkill('test-skill', 'planner', engine);
-      expect(result.loaded).toBe(true);
-      expect(result.skill_name).toBe('test-skill');
+    it('throws LoadSkillError for planner role', async () => {
+      await expect(loadSkill('test-skill', 'planner', engine)).rejects.toThrow(LoadSkillError);
     });
 
     it('works for executor role', async () => {
@@ -300,8 +298,8 @@ describe('AgentAdapter load_skill tool', () => {
       expect(result.skill_name).toBe('test-skill');
     });
 
-    it('PERMITTED_ROLES contains only the three expected roles', () => {
-      expect(PERMITTED_ROLES).toEqual(['planner', 'executor', 'reviewer']);
+    it('PERMITTED_ROLES contains only executor and reviewer', () => {
+      expect(PERMITTED_ROLES).toEqual(['executor', 'reviewer']);
     });
   });
 
@@ -345,18 +343,18 @@ describe('AgentAdapter load_skill tool', () => {
       return (adapter as any).processToolCall(tc, role, 'test-session-id');
     }
 
-    it('builds authoritative tools for planner without load_skill', () => {
+    it('builds authoritative tools for planner without skill', () => {
       const tools = callBuildToolsForRole('planner');
       const names = tools.map((tool) => tool.function.name);
       expect(names).toContain('create_card');
-      expect(names).not.toContain('load_skill');
+      expect(names).not.toContain('skill');
     });
 
-    it('rejects planner load_skill because it is not in authoritative §7', async () => {
+    it('rejects planner skill because it is not in authoritative §7', async () => {
       const tc = {
         id: 'call_int_2',
         type: 'function' as const,
-        function: { name: 'load_skill', arguments: '{"name":"docs-guide"}' },
+        function: { name: 'skill', arguments: '{"name":"docs-guide"}' },
       };
 
       const result = await callProcessToolCall(tc, 'planner');
@@ -364,28 +362,28 @@ describe('AgentAdapter load_skill tool', () => {
       expect(result.role).toBe('tool');
       expect(result.kind).toBe('tool_error');
       expect(result.content).toContain("Role 'planner' is not permitted");
-      expect(result.tool).toBe('load_skill');
+      expect(result.tool).toBe('skill');
     });
 
     it('returns tool_error for non-existent skill with real SkillsEngine', async () => {
       const tc = {
         id: 'call_int_3',
         type: 'function' as const,
-        function: { name: 'load_skill', arguments: '{"name":"nonexistent-skill"}' },
+        function: { name: 'skill', arguments: '{"name":"nonexistent-skill"}' },
       };
 
-      const result = await callProcessToolCall(tc, 'planner');
+      const result = await callProcessToolCall(tc, 'executor');
 
       expect(result.role).toBe('tool');
       expect(result.kind).toBe('tool_error');
-      expect(result.content).toContain("Role 'planner' is not permitted");
+      expect(result.content).toContain("Skill 'nonexistent-skill' not found");
     });
 
     it('returns tool_error for analyst role with real SkillsEngine', async () => {
       const tc = {
         id: 'call_int_4',
         type: 'function' as const,
-        function: { name: 'load_skill', arguments: '{"name":"docs-guide"}' },
+        function: { name: 'skill', arguments: '{"name":"docs-guide"}' },
       };
 
       const result = await callProcessToolCall(tc, 'analyst');
@@ -396,17 +394,17 @@ describe('AgentAdapter load_skill tool', () => {
       expect(result.content).toContain('analyst');
     });
 
-    it('rejects planner load_skill instead of returning delimited skill content', async () => {
+    it('lists available skills for executor when name is omitted', async () => {
       const tc = {
         id: 'call_int_5',
         type: 'function' as const,
-        function: { name: 'load_skill', arguments: '{"name":"docs-guide"}' },
+        function: { name: 'skill', arguments: '{}' },
       };
 
-      const result = await callProcessToolCall(tc, 'planner');
+      const result = await callProcessToolCall(tc, 'executor');
 
-      expect(result.kind).toBe('tool_error');
-      expect(result.content).toContain("Role 'planner' is not permitted");
+      expect(result.kind).toBe('tool_result');
+      expect(result.content).toContain('docs-guide');
     });
   });
 });

@@ -265,14 +265,19 @@ while executing those cards. The MCP layer provides:
 
 | Tool | Description |
 |---|---|
-| `list_project_files` | List project files visible to the agent workspace. |
-| `read_project_file` | Read a project file. |
-| `write_project_file` | Write a project file. |
+| `read` | Read a project file or directory. |
+| `write` | Write a project file. |
+| `glob` | Find project files by glob pattern. |
+| `grep` | Search project text files by regular expression. |
+| `edit` | Replace exact text in a project file. |
+| `apply_patch` | Apply a text-only unified patch after path validation. |
 | `run_project_command` | Start a bounded project command and persist output as a process record. |
 | `start_and_wait` | Start a project command and wait for completion or timeout. |
 | `wait_for_process` | Wait for an existing process without killing it on timeout. |
 | `kill_process` | Kill a running process by ID. |
-| `load_skill` | Load an allowed skill into the current executor/reviewer session. |
+| `skill` | List skills or load an allowed skill into the current executor/reviewer session. |
+| `websearch` | Search public web results through bounded web tooling. |
+| `webfetch` | Fetch bounded public HTTP(S) content through web egress policy. |
 | `mcp_tool_call` | Call an allowed MCP tool; executor may call writable MCP tools, reviewer is limited to read-only non-destructive tools. |
 
 Key properties:

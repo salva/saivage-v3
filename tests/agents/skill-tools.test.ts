@@ -49,12 +49,12 @@ describe('loadSkill', () => {
   // ═══════════════ Basic Success ═══════════════
 
   describe('Basic success', () => {
-    it('loads a valid skill for a permitted role (planner)', async () => {
+    it('loads a valid skill for a permitted role (executor)', async () => {
       const entry = makeEntry({ name: 'test-skill', file: 'test-skill.md' });
       writeFileSync(join(skillsDir, 'index.json'), indexJson([entry]), 'utf-8');
       writeFileSync(join(skillsDir, 'test-skill.md'), '# Test Skill\n\nSome content here.', 'utf-8');
 
-      const result: SkillToolsResult = await loadSkill('test-skill', 'planner', engine);
+      const result: SkillToolsResult = await loadSkill('test-skill', 'executor', engine);
 
       expect(result.skill_name).toBe('test-skill');
       expect(result.loaded).toBe(true);
@@ -96,6 +96,10 @@ describe('loadSkill', () => {
         expect((err as LoadSkillError).message).toContain('content_supervisor');
       }
     });
+
+    it('rejects planner role', async () => {
+      await expect(loadSkill('test-skill', 'planner', engine)).rejects.toThrow(LoadSkillError);
+    });
   });
 
   // ═══════════════ Unknown Skill Name ═══════════════
@@ -107,7 +111,7 @@ describe('loadSkill', () => {
       writeFileSync(join(skillsDir, 'known.md'), '# Known', 'utf-8');
 
       try {
-        await loadSkill('nonexistent', 'planner', engine);
+        await loadSkill('nonexistent', 'executor', engine);
         expect('should have thrown').toBe(false);
       } catch (err) {
         expect(err).toBeInstanceOf(LoadSkillError);
@@ -127,7 +131,7 @@ describe('loadSkill', () => {
       // Do NOT write ghost.md
 
       try {
-        await loadSkill('ghost', 'planner', engine);
+        await loadSkill('ghost', 'executor', engine);
         expect('should have thrown').toBe(false);
       } catch (err) {
         expect(err).toBeInstanceOf(Error);
@@ -145,12 +149,6 @@ describe('loadSkill', () => {
       writeFileSync(join(skillsDir, 'common.md'), '# Common Skill', 'utf-8');
     });
 
-    it('planner can load skill', async () => {
-      const result = await loadSkill('common', 'planner', engine);
-      expect(result.skill_name).toBe('common');
-      expect(result.loaded).toBe(true);
-    });
-
     it('executor can load skill', async () => {
       const result = await loadSkill('common', 'executor', engine);
       expect(result.skill_name).toBe('common');
@@ -163,8 +161,8 @@ describe('loadSkill', () => {
       expect(result.loaded).toBe(true);
     });
 
-    it('PERMITTED_ROLES contains exactly planner, executor, reviewer', () => {
-      expect(PERMITTED_ROLES).toEqual(['planner', 'executor', 'reviewer']);
+    it('PERMITTED_ROLES contains exactly executor and reviewer', () => {
+      expect(PERMITTED_ROLES).toEqual(['executor', 'reviewer']);
     });
   });
 
@@ -175,7 +173,7 @@ describe('loadSkill', () => {
       writeFileSync(join(skillsDir, 'index.json'), '[]', 'utf-8');
 
       try {
-        await loadSkill('anything', 'planner', engine);
+        await loadSkill('anything', 'executor', engine);
         expect('should have thrown').toBe(false);
       } catch (err) {
         expect(err).toBeInstanceOf(LoadSkillError);
@@ -192,7 +190,7 @@ describe('loadSkill', () => {
       writeFileSync(join(skillsDir, 'index.json'), indexJson([entry]), 'utf-8');
       writeFileSync(join(skillsDir, 'fmt-test.md'), 'Line 1\nLine 2', 'utf-8');
 
-      const result = await loadSkill('fmt-test', 'planner', engine);
+      const result = await loadSkill('fmt-test', 'executor', engine);
 
       // The format should be: --- SKILL: name ---\n<content>\n--- END SKILL ---
       const expected = '--- SKILL: fmt-test ---\nLine 1\nLine 2\n--- END SKILL ---';
@@ -204,7 +202,7 @@ describe('loadSkill', () => {
       writeFileSync(join(skillsDir, 'index.json'), indexJson([entry]), 'utf-8');
       writeFileSync(join(skillsDir, 'start.md'), 'Content', 'utf-8');
 
-      const result = await loadSkill('start', 'planner', engine);
+      const result = await loadSkill('start', 'executor', engine);
       expect(result.skill_content.startsWith('--- SKILL: start ---\n')).toBe(true);
     });
 
@@ -213,7 +211,7 @@ describe('loadSkill', () => {
       writeFileSync(join(skillsDir, 'index.json'), indexJson([entry]), 'utf-8');
       writeFileSync(join(skillsDir, 'end.md'), 'Content', 'utf-8');
 
-      const result = await loadSkill('end', 'planner', engine);
+      const result = await loadSkill('end', 'executor', engine);
       expect(result.skill_content.endsWith('\n--- END SKILL ---')).toBe(true);
     });
   });
@@ -232,7 +230,7 @@ describe('loadSkill', () => {
     });
 
     it('picks the correct skill by name when multiple exist', async () => {
-      const result = await loadSkill('beta', 'planner', engine);
+      const result = await loadSkill('beta', 'executor', engine);
 
       expect(result.skill_name).toBe('beta');
       expect(result.skill_content).toContain('--- SKILL: beta ---');
@@ -242,7 +240,7 @@ describe('loadSkill', () => {
     });
 
     it('can load the first skill instead of the second', async () => {
-      const result = await loadSkill('alpha', 'planner', engine);
+      const result = await loadSkill('alpha', 'executor', engine);
 
       expect(result.skill_name).toBe('alpha');
       expect(result.skill_content).toContain('--- SKILL: alpha ---');

@@ -453,8 +453,8 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
             id: 'fc_1',
             type: 'function_call',
             call_id: 'call_1',
-            name: 'list_project_files',
-            arguments: '{"path":"."}',
+            name: 'glob',
+            arguments: '{"directory":".","pattern":"**/*"}',
           },
         })}\n\n`,
         `data: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed' } })}\n\n`,
@@ -470,9 +470,9 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
           tools: [{
             type: 'function',
             function: {
-              name: 'list_project_files',
-              description: 'List files',
-              parameters: { type: 'object', properties: { path: { type: 'string' } } },
+              name: 'glob',
+              description: 'Find files',
+              parameters: { type: 'object', properties: { directory: { type: 'string' }, pattern: { type: 'string' } } },
             },
           }],
         }));
@@ -483,7 +483,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
         {
           id: 'call_1',
           type: 'function',
-          function: { name: 'list_project_files', arguments: '{"path":"."}' },
+          function: { name: 'glob', arguments: '{"directory":".","pattern":"**/*"}' },
         },
       ]);
       expect(JSON.parse(cap.body).tools).toHaveLength(1);

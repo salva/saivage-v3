@@ -1,7 +1,4 @@
-import { existsSync, readdirSync, statSync } from 'node:fs';
-import { isAbsolute, join, relative, resolve } from 'node:path';
-import { readProjectFileAtomic, writeFileAtomic } from '../persistence/index.js';
-import { isWriteBlocked } from '../workspace/index.js';
+import { isAbsolute, relative, resolve } from 'node:path';
 import { toolDefinitionByName } from '../tools/definitions/index.js';
 export {
   READ_ONLY_WORKSPACE_TOOL_DEFINITIONS,
@@ -11,22 +8,10 @@ import {
   DEFAULT_COMMAND_TIMEOUT_MS,
   DEFAULT_MAX_OUTPUT_BYTES,
   MAX_COMMAND_TIMEOUT_MS,
-  MAX_LIST_RESULTS,
   truncateCommandOutput,
 } from '../runtime/command-policy.js';
 import { processApi } from '../runtime/process-api.js';
-
-const DEFAULT_MAX_RESULTS = 200;
-
-const SKIPPED_DIRS = new Set([
-  '.git',
-  'node_modules',
-  '.saivage',
-  '.saivage-work',
-  'dist',
-  'build',
-  '__pycache__',
-]);
+import { applyProjectPatch, editProject, globProject, grepProject, readProject, writeProject } from '../tools/project-file-tools.js';
 
 type ProcessRunnerModule = typeof import('../runtime/process-runner.js');
 
@@ -92,53 +77,6 @@ function projectAbsolutePath(projectRoot: string, requested: string | undefined,
   return rel === '.' ? resolve(projectRoot) : resolve(projectRoot, rel);
 }
 
-function assertWritableProjectPath(relPath: string): void {
-  const normalized = relPath.replace(/\\/g, '/');
-  if (normalized === '.' || normalized.endsWith('/')) {
-    throw new Error('write_project_file requires a file path, not a directory.');
-  }
-  if (
-    normalized === '.saivage' ||
-    normalized === '.saivage-work' ||
-    normalized.startsWith('.saivage/') ||
-    normalized.startsWith('.saivage-work/')
-  ) {
-    throw new Error('write_project_file cannot modify Saivage internal state directories.');
-  }
-  if (isWriteBlocked(normalized)) {
-    throw new Error(`write_project_file is blocked for ${normalized}.`);
-  }
-}
-
-function listProjectFiles(projectRoot: string, requestedPath: string | undefined, maxResultsArg: unknown): string[] {
-  const root = resolve(projectRoot);
-  const start = projectAbsolutePath(root, requestedPath, 'list path');
-  const requestedLimit = Number.isInteger(maxResultsArg) ? Number(maxResultsArg) : DEFAULT_MAX_RESULTS;
-  const maxResults = Math.min(Math.max(requestedLimit, 1), MAX_LIST_RESULTS);
-  const results: string[] = [];
-
-  function visit(dir: string): void {
-    if (results.length >= maxResults) return;
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (results.length >= maxResults) return;
-      if (entry.isDirectory() && SKIPPED_DIRS.has(entry.name)) continue;
-      const abs = join(dir, entry.name);
-      const rel = relative(root, abs).replace(/\\/g, '/');
-      if (entry.isDirectory()) {
-        visit(abs);
-      } else if (entry.isFile()) {
-        results.push(rel);
-      }
-    }
-  }
-
-  if (!existsSync(start)) return [];
-  const stat = statSync(start);
-  if (stat.isFile()) return [relative(root, start).replace(/\\/g, '/')];
-  visit(start);
-  return results;
-}
-
 export async function processWorkspaceToolCall(
   name: string,
   rawArguments: string,
@@ -146,30 +84,29 @@ export async function processWorkspaceToolCall(
 ): Promise<unknown> {
   const args = parseWorkspaceArgs(name, rawArguments);
 
-  if (name === 'list_project_files') {
-    const files = listProjectFiles(
-      context.projectRoot,
-      typeof args.path === 'string' ? args.path : undefined,
-      args.maxResults,
-    );
-    return { projectRoot: context.projectRoot, files };
+  if (name === 'read') {
+    return readProject(context, args as { path: string; offset?: number; limit?: number; read_mode?: 'auto' | 'text' | 'multimodal' });
   }
 
-  if (name === 'read_project_file') {
-    const relPath = projectRelativePath(context.projectRoot, typeof args.path === 'string' ? args.path : '', 'read path');
-    if (!relPath || relPath === '.') throw new Error('read_project_file requires a file path.');
-    const content = readProjectFileAtomic(context.projectRoot, relPath, { redactSecrets: true });
-    return { path: relPath, content };
+  if (name === 'write') {
+    return writeProject(context, args as { path: string; content: string });
   }
 
-  if (name === 'write_project_file') {
-    const relPath = projectRelativePath(context.projectRoot, typeof args.path === 'string' ? args.path : '', 'write path');
-    assertWritableProjectPath(relPath);
-    const content = typeof args.content === 'string' ? args.content : '';
-    writeFileAtomic(resolve(context.projectRoot, relPath), content);
-    return { path: relPath, bytes: Buffer.byteLength(content, 'utf8'), written: true };
+  if (name === 'glob') {
+    return globProject(context, args as { directory: string; pattern: string; max_results?: number });
   }
 
+  if (name === 'grep') {
+    return grepProject(context, args as { pattern: string; path?: string; include?: string; max_results?: number });
+  }
+
+  if (name === 'edit') {
+    return editProject(context, args as { path: string; old_string: string; new_string: string; replace_all?: boolean });
+  }
+
+  if (name === 'apply_patch') {
+    return applyProjectPatch(context, args as { patch: string });
+  }
 
   if (name === 'wait_for_process') {
     const { waitProcess } = await getProcessRunner();

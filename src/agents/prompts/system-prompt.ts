@@ -86,7 +86,7 @@ ${contract.describe()}
 - **Reference cards durably**: Use raw ids in tool calls. In operator-facing Markdown, write card references as \`[[card:<id>]]\` (URL-component encode unusual ids) rather than persisting friendly display paths like \`1.2.1\`.
 - **Update, don't duplicate**: If a card already exists, update it with \`update_card\` instead of creating another card.
 - **Don't create plan cards**: Planning state belongs to the goal card.
-- **Load skills on-demand**: Use the \`load_skill\` tool when extra domain guidance is needed.`;
+- **Use loaded guidance**: Follow the skills and instructions already included in this prompt.`;
 
   if (skills && skills.length > 0) return prompt + '\n\n' + skills;
   return prompt;
@@ -111,7 +111,7 @@ You are the **Executor** agent. Your job is to execute a single terminal card an
 2. **Record evidence**: Summarize project files changed in \`result\`/\`summary\`, and register only Saivage process metadata outputs as artifacts or attachments.
 3. **Report honestly**: If the work succeeds, set \`status: "done"\`. If it fails, set \`status: "failed"\` and provide a clear \`error\` message.
 4. **Provide terminal status_text**: Every terminal executor result must include a non-empty \`status_text\` summarizing the outcome.
-5. **Use workspace tools for filesystem work**: Use \`list_project_files\`, \`read_project_file\`, \`write_project_file\`, and \`run_project_command\` to inspect, modify, and verify the real project workspace.
+5. **Use workspace tools for filesystem work**: Use \`glob\`, \`grep\`, \`read\`, \`write\`, \`edit\`, \`apply_patch\`, and \`run_project_command\` to inspect, modify, and verify the real project workspace.
 
 ### Constraints
 - **Project files vs. process metadata**: Artifact and attachment \`sourceFile\` / \`path\` entries must point to a file under \`.saivage-work\` such as \`run_project_command\` \`logFiles.combined\` — never a directory and never a project source, config, test, data, or documentation file. Project file changes belong in \`result.generated_files\`, \`status_text\`, and \`summary\`. Artifact types: ${ARTIFACT_TYPES.join(', ')}.
@@ -130,7 +130,7 @@ ${contract.describe()}${typeNote}
 - **Error reporting**: Be specific.
 - **Reference cards durably**: Use raw ids in tool calls. In operator-facing Markdown, write card references as \`[[card:<id>]]\`; friendly display paths are current presentation labels and must not be persisted as durable references.
 - **Test your work**: Run relevant verification commands.
-- **Load skills on-demand**: Use \`load_skill\` if you need extra framework or project guidance.`;
+- **Load skills on-demand**: Use \`skill\` if you need extra framework or project guidance; omit \`name\` to list available skills.`;
 
   if (skills && skills.length > 0) result += '\n\n' + skills;
   return result;

@@ -306,11 +306,11 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
     if (request.method() === 'GET' && url.pathname === '/api/mcp/tools') {
       return json(route, parseOperatorResponse('mcp.tools', {
         tools: [
-          { name: 'read_project_file', description: 'Read a synthetic project file.', inputSchema: { type: 'object' } },
+          { name: 'read', description: 'Read a synthetic project file.', inputSchema: { type: 'object' } },
         ],
         servers: ['filesystem'],
-        invocationStats: { 'filesystem:read_project_file': { total: 3, success: 2, error: 1, lastInvokedAt: now } },
-        serverDetails: [{ name: 'filesystem', status: 'running', transport: 'stdio', toolCount: 1, tools: [{ name: 'read_project_file', description: 'Read a synthetic project file.', inputSchema: { type: 'object' }, stats: { total: 3, success: 2, error: 1, lastInvokedAt: now } }] }],
+        invocationStats: { 'filesystem:read': { total: 3, success: 2, error: 1, lastInvokedAt: now } },
+        serverDetails: [{ name: 'filesystem', status: 'running', transport: 'stdio', toolCount: 1, tools: [{ name: 'read', description: 'Read a synthetic project file.', inputSchema: { type: 'object' }, stats: { total: 3, success: 2, error: 1, lastInvokedAt: now } }] }],
       }));
     }
     if (request.method() === 'GET' && url.pathname === '/api/processes') {

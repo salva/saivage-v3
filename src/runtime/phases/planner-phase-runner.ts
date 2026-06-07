@@ -49,7 +49,7 @@ export class PlannerPhaseRunner {
           cardDescription: currentCardContract,
           tags: goalCard.tags,
           filePaths: [],
-          availableTools: ['list_project_files', 'read_project_file', 'load_skill', 'mcp_tool_call'],
+          availableTools: ['glob', 'grep', 'read', 'write', 'edit', 'apply_patch', 'websearch', 'webfetch', 'mcp_tool_call'],
           targetRole: 'planner',
         });
         const combinedSkills = [plannerInstr, skillsContent].filter(Boolean).join('\n\n');

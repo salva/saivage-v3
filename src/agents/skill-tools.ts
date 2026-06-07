@@ -1,9 +1,9 @@
 /**
- * Skill Tools — Implements the load_skill MCP tool for on-demand skill loading
+ * Skill Tools — Implements the skill tool for on-demand skill listing/loading
  * per docs/design/skills.md §On-Demand Loading.
  *
  * When an agent determines it needs a skill that was not preloaded (e.g., it
- * encounters an unfamiliar framework mid-task), it can call load_skill(name)
+ * encounters an unfamiliar framework mid-task), it can call skill({ name })
  * to request that skill be loaded and injected into the conversation.
  */
 
@@ -24,7 +24,7 @@ export interface SkillToolsResult {
 // ── Error ─────────────────────────────────────────────────────
 
 /**
- * Error thrown when load_skill fails due to permission or lookup issues.
+  * Error thrown when skill fails due to permission or lookup issues.
  */
 export class LoadSkillError extends Error {
   public readonly name = 'LoadSkillError';
@@ -39,12 +39,10 @@ export class LoadSkillError extends Error {
 // ── Constants ─────────────────────────────────────────────────
 
 /**
- * Agent roles that are permitted to call load_skill.
- * Per docs/design/skills.md: the runtime exposes load_skill to planner, executor,
- * and reviewer agents. The analyst can request skills by other means.
+  * Agent roles that are permitted to call skill.
+  * This wave exposes skill only to executor and reviewer agents.
  */
 export const PERMITTED_ROLES: readonly string[] = [
-  'planner',
   'executor',
   'reviewer',
 ] as const;
@@ -52,7 +50,7 @@ export const PERMITTED_ROLES: readonly string[] = [
 // ── Tool Definitions ─────────────────────────────────────────
 
 /**
- * OpenAI function-calling tool definition for the load_skill tool.
+ * OpenAI function-calling tool definition for the skill tool.
  *
  * Agents (planner, executor, reviewer) can invoke this tool mid-session
  * to load a skill that was not preloaded via trigger matching.
@@ -63,9 +61,9 @@ export const PERMITTED_ROLES: readonly string[] = [
 export const LOAD_SKILL_TOOL_DEFINITION: ToolDefinition = {
   type: 'function',
   function: {
-    name: 'load_skill',
+    name: 'skill',
     description:
-      'Load a skill on-demand during an agent session. Skills provide domain-specific instructions, coding standards, or project conventions. Use this when you encounter a situation that requires a skill not already in your context. Provide the skill name to load its content.',
+      'List available skills or load one skill on-demand during an agent session. Omit name to list compact skill metadata; provide name to load full skill content.',
     parameters: {
       type: 'object',
       properties: {
@@ -75,14 +73,14 @@ export const LOAD_SKILL_TOOL_DEFINITION: ToolDefinition = {
             'The name of the skill to load (must match an entry in the skills index)',
         },
       },
-      required: ['name'],
+       required: [],
       additionalProperties: false,
     },
   },
 };
 
 /**
- * Convenience array containing the load_skill tool definition.
+ * Convenience array containing the skill tool definition.
  * Use this when constructing the tools list for an LLM call.
  */
 export const LOAD_SKILL_TOOL_DEFINITIONS: ToolDefinition[] = [
@@ -142,8 +140,8 @@ export const MCP_TOOL_CALL_TOOL_DEFINITIONS: ToolDefinition[] = [
 ];
 
 /**
- * Convenience array containing all available tool definitions.
- * Combines both load_skill and mcp_tool_call for use by buildToolsForRole.
+  * Convenience array containing all available tool definitions.
+  * Combines both skill and mcp_tool_call for use by buildToolsForRole.
  */
 export const ALL_TOOL_DEFINITIONS: ToolDefinition[] = [
   ...LOAD_SKILL_TOOL_DEFINITIONS,
@@ -171,7 +169,7 @@ function formatSkillBlock(name: string, content: string): string {
 /**
  * Load a skill on-demand during an agent session.
  *
- * This implements the `load_skill(name)` MCP tool described in
+  * This implements the `skill({ name })` tool described in
  * docs/design/skills.md §On-Demand Loading. Agents call it when they need a
  * skill that was not pre-loaded via trigger-based matching.
  *
@@ -190,7 +188,7 @@ export async function loadSkill(
   if (!PERMITTED_ROLES.includes(role)) {
     throw new LoadSkillError(
       `Role '${role}' is not permitted to load skills. ` +
-        `Only ${PERMITTED_ROLES.join(', ')} can call load_skill.`,
+        `Only ${PERMITTED_ROLES.join(', ')} can call skill.`,
     );
   }
 

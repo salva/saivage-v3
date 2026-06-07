@@ -435,13 +435,18 @@ Card mutation, inspection, and notifications:
 
 Workspace and process tools:
 
-- `list_project_files`
-- `read_project_file`
-- `write_project_file`
+- `read`
+- `write`
+- `glob`
+- `grep`
+- `edit`
+- `apply_patch`
 - `start_and_wait`
 - `run_project_command`
 - `wait_for_process`
 - `kill_process`
+- `websearch`
+- `webfetch`
 
 Durable async process handling is current scope. `ProcessRecord`s are
 persisted under `.saivage/runtime/`, include salted `command_hash`,
@@ -1059,7 +1064,7 @@ The planner role is bound by the same write policies as the executor
 role:
 
 - The write-block list (`.saivage/`, lockfiles, generated outputs) and
-  secret-path rules apply to `write_project_file` and
+  secret-path rules apply to `write`, `edit`, `apply_patch`, and
   `run_project_command` invoked from any agent role.
 - Territory rules from earlier designs (per-card writable subtrees) are
   advisory in this stage and do not block tool calls; they are
@@ -1154,7 +1159,7 @@ Jest coverage before broader test runs.
 |---|---|---|
 | `analyst` | `abort_goal_subtree,create_card,delete_card,diff_card,edit_card,get_card,get_card_history_entry,get_card_output,get_plan_diary,get_status,get_tree,list_agent_sessions,list_card_history,list_cards,list_directory,list_processes_tool,mark_goal_needs_corrections,navigate_back,navigate_workspace,pause_runtime,queue_notification,read_agent_session,read_control_actions,read_file,read_runtime_errors,read_runtime_events,reconfigure,reorder_child,restart_card_or_subtree,restart_goal,restart_server,resume_runtime,run_shell_command,show_config,start_project,stop_project,terminate_process` | `src/agents/role-tool-policy.ts:77` |
 | `card-scoped analyst` | `abort_goal,add_note,create_card,delete_card,diff_card,edit_card,get_card,get_card_history_entry,get_card_output,get_note,get_plan_diary,get_status,get_tree,list_agent_sessions,list_card_history,list_cards,list_directory,list_notes,list_processes_tool,mark_goal_needs_corrections,mark_note_handled,pause_runtime,read_agent_session,read_control_actions,read_file,read_runtime_errors,read_runtime_events,restart_card,restart_goal,resume_runtime,run_shell_command` | `src/tools/definitions/index.ts:42` |
-| `executor` | `diff_card,get_card_history_entry,kill_process,list_card_history,list_project_files,load_skill,mcp_tool_call,read_project_file,run_project_command,start_and_wait,wait_for_process,write_project_file` | `src/agents/role-tool-policy.ts:58` |
-| `planner` | `activate_card,cancel_card,create_card,delete_card,diff_card,edit_card,get_card,get_card_history_entry,get_tree,kill_process,list_card_history,list_cards,list_project_files,queue_notification,read_project_file,reorder_child,report_goal_blocked,report_goal_done,report_goal_failed,restart_card,run_project_command,start_and_wait,wait_for_process,write_project_file` | `src/agents/role-tool-policy.ts:37` |
-| `reviewer` | `diff_card,get_card_history_entry,list_card_history,list_project_files,load_skill,mcp_tool_call,read_project_file` | `src/agents/role-tool-policy.ts:72` |
+| `executor` | `apply_patch,diff_card,edit,get_card_history_entry,glob,grep,kill_process,list_card_history,mcp_tool_call,read,run_project_command,skill,start_and_wait,wait_for_process,webfetch,websearch,write` | `src/agents/role-tool-policy.ts:58` |
+| `planner` | `activate_card,apply_patch,cancel_card,create_card,delete_card,diff_card,edit,edit_card,get_card,get_card_history_entry,get_tree,glob,grep,kill_process,list_card_history,list_cards,queue_notification,read,reorder_child,report_goal_blocked,report_goal_done,report_goal_failed,restart_card,run_project_command,start_and_wait,wait_for_process,webfetch,websearch,write` | `src/agents/role-tool-policy.ts:37` |
+| `reviewer` | `diff_card,get_card_history_entry,glob,grep,list_card_history,mcp_tool_call,read,skill,webfetch,websearch` | `src/agents/role-tool-policy.ts:72` |
 <!-- saivage:agent-tools:end -->

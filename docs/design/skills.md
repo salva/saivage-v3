@@ -118,10 +118,12 @@ The support software handles loading — agents do not read
 
 ## On-Demand Loading
 
-If an agent determines it needs a skill that was not preloaded
-(e.g., it encounters an unfamiliar framework mid-task), it can
-request it via a `load_skill(name)` MCP tool call. The runtime
-looks up the skill, loads it, and injects it into the conversation.
+If an executor or reviewer determines it needs a skill that was not
+preloaded (e.g., it encounters an unfamiliar framework mid-task), it
+can request it via the `skill` tool. Calling `skill` without `name`
+lists available skills; calling `skill({ name })` loads the selected
+skill and injects it into the conversation. Planner receives preloaded
+instructions only in this wave.
 
 This is a fallback mechanism. The trigger-based preloading should
 handle most cases.

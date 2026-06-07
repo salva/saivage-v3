@@ -2,11 +2,19 @@ import { argKeys, asRecord, cardPart, describeCardOutcome, describeJsonlTail, fo
 import type { CallPresenter, ResultPresenter } from './types';
 
 export const callPresenters: Record<string, CallPresenter> = {
+  read: (a) => ({ icon: '📖', headline: pathParts(a.path) }),
   read_project_file: (a) => ({ icon: '📖', headline: pathParts(a.path) }),
   read_file: (a) => ({ icon: '📖', headline: pathParts(a.path) }),
+  glob: (a) => ({ icon: '📂', headline: pathParts(a.directory ?? '.'), detail: textPart(str(a.pattern ?? '*')) }),
+  grep: (a) => ({ icon: '🔎', headline: textPart(str(a.pattern), 80), detail: pathParts(a.path ?? '.') }),
   list_project_files: (a) => ({ icon: '📂', headline: pathParts(a.path ?? a.dir ?? '.') }),
   list_directory: (a) => ({ icon: '📂', headline: pathParts(a.path ?? '.') }),
+  write: (a) => ({ icon: '✏️', headline: pathParts(a.path), detail: str(a.content) ? textPart(`${str(a.content).length} chars`) : undefined }),
   write_project_file: (a) => ({ icon: '✏️', headline: pathParts(a.path), detail: str(a.content) ? textPart(`${str(a.content).length} chars`) : undefined }),
+  edit: (a) => ({ icon: '✎', headline: pathParts(a.path), detail: textPart('replace text') }),
+  apply_patch: () => ({ icon: '🩹', headline: textPart('apply patch') }),
+  websearch: (a) => ({ icon: '🌐', headline: textPart(str(a.query), 80) }),
+  webfetch: (a) => ({ icon: '🌐', headline: textPart(str(a.url), 80) }),
   run_project_command: (a) => ({ icon: '⚡', headline: textPart(a.command, 80) }),
   run_shell_command: (a) => ({ icon: '⚡', headline: textPart(a.command, 80) }),
   start_and_wait: (a) => ({ icon: '⚡', headline: textPart(a.command, 80) }),
@@ -55,6 +63,7 @@ export const callPresenters: Record<string, CallPresenter> = {
   start_project: () => ({ icon: '▶', headline: textPart('start project') }),
   stop_project: () => ({ icon: '⏹', headline: textPart('stop project') }),
   terminate_process: (a) => ({ icon: '🛑', headline: textPart(`process ${str(a.processId ?? a.id)}`) }),
+  skill: (a) => ({ icon: '🪄', headline: textPart(str(a.name ?? a.skill ?? 'list skills')) }),
   load_skill: (a) => ({ icon: '🪄', headline: textPart(str(a.name ?? a.skill ?? 'skill')) }),
   mcp_tool_call: (a) => ({ icon: '🔌', headline: textPart(str(a.tool ?? a.name ?? 'mcp')), detail: textPart(a.params ?? a.arguments ?? '', 72) }),
   list_card_history: (a) => ({ icon: '🕘', headline: cardPart(a.cardId) }),
@@ -63,9 +72,17 @@ export const callPresenters: Record<string, CallPresenter> = {
 };
 
 export const resultPresenters: Record<string, ResultPresenter> = {
+  read: (ctx) => { const r = ctx.record; if (!r) return { headline: textPart(ctx.rawContent, 96) }; const entries = Array.isArray(r.entries) ? r.entries.length : null; if (entries !== null) return { headline: textPart(`${entries} entr${entries === 1 ? 'y' : 'ies'}`) }; const content = typeof r.content === 'string' ? r.content : ''; const lines = typeof r.total_lines === 'number' ? r.total_lines : content ? content.split('\n').length : 0; return { headline: textPart(lines ? `${lines} lines` : ctx.rawContent, 96) }; },
   read_project_file: (ctx) => { const r = ctx.record; if (!r) return { headline: textPart(ctx.rawContent, 96) }; if (r.binary === true) return { headline: textPart('binary file') }; const content = typeof r.content === 'string' ? r.content : ''; const bytes = typeof r.bytes === 'number' ? r.bytes : content.length; const lines = content ? content.split('\n').length : (typeof r.lines === 'number' ? r.lines : 0); return { headline: textPart(lines ? `${lines} lines · ${formatBytes(bytes)}` : formatBytes(bytes)) }; },
   read_file: (ctx) => resultPresenters.read_project_file(ctx),
+  write: (ctx) => { const bytes = typeof ctx.record?.bytes === 'number' ? ctx.record.bytes : null; return { headline: textPart(bytes !== null ? `wrote ${formatBytes(bytes)}` : 'wrote file') }; },
   write_project_file: (ctx) => { const bytes = typeof ctx.record?.bytes === 'number' ? ctx.record.bytes : null; return { headline: textPart(bytes !== null ? `wrote ${formatBytes(bytes)}` : 'wrote file') }; },
+  glob: (ctx) => { const matches = Array.isArray(ctx.record?.matches) ? ctx.record!.matches.length : null; return { headline: matches !== null ? textPart(`${matches} match${matches === 1 ? '' : 'es'}`) : textPart(ctx.rawContent, 96) }; },
+  grep: (ctx) => resultPresenters.glob(ctx),
+  edit: (ctx) => ({ headline: textPart(`edited ${str(ctx.record?.path ?? 'file')}`) }),
+  apply_patch: (ctx) => { const changed = Array.isArray(ctx.record?.changed_files) ? ctx.record!.changed_files.length : null; return { headline: textPart(changed !== null ? `patched ${changed} file${changed === 1 ? '' : 's'}` : 'patch applied') }; },
+  websearch: (ctx) => { const results = Array.isArray(ctx.record?.results) ? ctx.record!.results.length : null; return { headline: textPart(results !== null ? `${results} result${results === 1 ? '' : 's'}` : ctx.rawContent, 96) }; },
+  webfetch: (ctx) => ({ headline: textPart(str(ctx.record?.saved_as ?? ctx.record?.stash_path ?? ctx.record?.url ?? 'fetched'), 96) }),
   list_project_files: (ctx) => { const entries = Array.isArray(ctx.record?.entries) ? ctx.record!.entries.length : Array.isArray(ctx.record?.files) ? ctx.record!.files.length : null; return { headline: entries !== null ? textPart(`${entries} entr${entries === 1 ? 'y' : 'ies'}`) : textPart(ctx.rawContent, 96) }; },
   list_directory: (ctx) => resultPresenters.list_project_files(ctx),
   run_project_command: (ctx) => { const r = ctx.record; const exit = typeof r?.exitCode === 'number' ? r.exitCode : typeof r?.exit_code === 'number' ? r.exit_code : null; const status = typeof r?.status === 'string' ? r.status : null; const timedOut = r?.timedOut === true || r?.timed_out === true; const procId = typeof r?.id === 'string' ? r.id : typeof r?.processId === 'string' ? r.processId : null; const parts = []; if (exit !== null) parts.push(`exit ${exit}`); if (status) parts.push(status); if (timedOut) parts.push('timed out'); return { headline: textPart(parts.length > 0 ? parts.join(' · ') : 'completed'), detail: procId ? textPart(`process ${procId}`) : undefined }; },
@@ -87,6 +104,7 @@ export const resultPresenters: Record<string, ResultPresenter> = {
   list_processes_tool: (ctx) => { const list = Array.isArray(ctx.record?.processes) ? ctx.record!.processes : Array.isArray(ctx.parsed) ? ctx.parsed as unknown[] : null; return { headline: list ? textPart(`${list.length} process${list.length === 1 ? '' : 'es'}`) : textPart(ctx.rawContent, 96) }; },
   list_agent_sessions: (ctx) => { const list = Array.isArray(ctx.record?.sessions) ? ctx.record!.sessions : Array.isArray(ctx.parsed) ? ctx.parsed as unknown[] : null; return { headline: list ? textPart(`${list.length} session${list.length === 1 ? '' : 's'}`) : textPart(ctx.rawContent, 96) }; },
   read_agent_session: (ctx) => { const messages = Array.isArray(ctx.record?.messages) ? ctx.record!.messages : null; return { headline: messages ? textPart(`${messages.length} message${messages.length === 1 ? '' : 's'}`) : textPart(ctx.rawContent, 96) }; },
+  skill: (ctx) => ({ headline: textPart(Array.isArray(ctx.record?.skills) ? `${ctx.record!.skills.length} skill${ctx.record!.skills.length === 1 ? '' : 's'}` : 'skill loaded') }),
   load_skill: (ctx) => ({ headline: textPart(str(ctx.record?.name ?? ctx.record?.skill) ? `loaded ${str(ctx.record?.name ?? ctx.record?.skill)}` : 'skill loaded') }),
   mcp_tool_call: (ctx) => ({ headline: textPart(ctx.record?.summary ?? ctx.record?.result ?? ctx.parsed ?? ctx.rawContent, 96) }),
 };

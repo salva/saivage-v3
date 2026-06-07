@@ -49,9 +49,9 @@ test('operator control room supports analyst chat send and migrated debug panels
 
   await page.getByRole('button', { name: 'MCP' }).click();
   await expect(page.getByText('Servers:')).toBeVisible();
-  await expect(page.getByText('read_project_file', { exact: true })).toBeVisible();
+  await expect(page.getByText('read', { exact: true })).toBeVisible();
   await expect(page.getByText('Read a synthetic project file.')).toBeVisible();
-  await expect(page.getByText('filesystem:read_project_file')).toBeVisible();
+  await expect(page.getByText('filesystem:read')).toBeVisible();
   expect(rest.counts.get('GET /api/mcp/tools')).toBeGreaterThanOrEqual(1);
 
   expect(rest.unknown).toEqual([]);

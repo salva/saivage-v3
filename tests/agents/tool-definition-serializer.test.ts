@@ -8,9 +8,9 @@ import {
 import { ALL_TOOL_DEFINITIONS_BY_NAME, PLANNER_TOOL_DEFINITIONS } from '../../src/agents/agent-tool-catalog.js';
 
 const SAMPLE: RuntimeToolEntry[] = [
-  ALL_TOOL_DEFINITIONS_BY_NAME.get('list_project_files')!,
+  ALL_TOOL_DEFINITIONS_BY_NAME.get('glob')!,
   ALL_TOOL_DEFINITIONS_BY_NAME.get('create_card')!,
-  ALL_TOOL_DEFINITIONS_BY_NAME.get('load_skill')!,
+  ALL_TOOL_DEFINITIONS_BY_NAME.get('skill')!,
 ];
 
 const RUNTIME_STYLE = {

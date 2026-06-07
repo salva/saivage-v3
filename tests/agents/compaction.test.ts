@@ -216,7 +216,7 @@ describe('compactSession', () => {
     sessionMod.appendMessage(SAIVAGE_DIR, session.id, {
       role: 'tool',
       kind: 'tool_result',
-      tool: 'read_project_file',
+      tool: 'read',
       tool_call_id: 'call-dropped',
       content: 'orphan result ' + 'x'.repeat(200),
     }, TEST_STAMP);
@@ -245,14 +245,14 @@ describe('compactSession', () => {
     sessionMod.appendMessage(SAIVAGE_DIR, session.id, {
       role: 'assistant',
       kind: 'tool_call',
-      tool: 'read_project_file',
+      tool: 'read',
       tool_call_id: 'call-retained',
       content: 'call retained ' + 'x'.repeat(200),
     }, TEST_STAMP);
     sessionMod.appendMessage(SAIVAGE_DIR, session.id, {
       role: 'tool',
       kind: 'tool_result',
-      tool: 'read_project_file',
+      tool: 'read',
       tool_call_id: 'call-retained',
       content: 'result retained ' + 'x'.repeat(200),
     }, TEST_STAMP);
@@ -278,14 +278,14 @@ describe('compactSession', () => {
     sessionMod.appendMessage(SAIVAGE_DIR, session.id, {
       role: 'tool',
       kind: 'tool_result',
-      tool: 'read_project_file',
+      tool: 'read',
       tool_call_id: 'call-dropped-1',
       content: 'orphan result ' + 'x'.repeat(200),
     }, TEST_STAMP);
     sessionMod.appendMessage(SAIVAGE_DIR, session.id, {
       role: 'tool',
       kind: 'tool_error',
-      tool: 'read_project_file',
+      tool: 'read',
       tool_call_id: 'call-dropped-2',
       content: 'orphan error ' + 'x'.repeat(200),
     }, TEST_STAMP);

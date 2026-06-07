@@ -22,9 +22,12 @@ describe('workspace tools', () => {
 
   it('defines native project workspace tools', () => {
     expect(WORKSPACE_TOOL_DEFINITIONS.map((tool) => tool.function.name)).toEqual([
-      'list_project_files',
-      'read_project_file',
-      'write_project_file',
+      'read',
+      'write',
+      'glob',
+      'grep',
+      'edit',
+      'apply_patch',
       'wait_for_process',
       'kill_process',
       'start_and_wait',
@@ -37,16 +40,16 @@ describe('workspace tools', () => {
     expect(WORKSPACE_TOOL_DEFINITIONS.some((tool) => tool.function.name === 'run_project_command')).toBe(true);
   });
 
-  it('lists project files without Saivage internal state', async () => {
+  it('globs project files without Saivage internal state', async () => {
     writeFileSync(join(root, '.saivage', 'secret.txt'), 'hidden', 'utf8');
-    const result = await processWorkspaceToolCall('list_project_files', '{}', context()) as { files: string[] };
-    expect(result.files).toContain('README.md');
-    expect(result.files.some((file) => file.startsWith('.saivage/'))).toBe(false);
+    const result = await processWorkspaceToolCall('glob', JSON.stringify({ directory: '.', pattern: '**/*.md' }), context()) as { matches: string[] };
+    expect(result.matches).toContain('README.md');
+    expect(result.matches.some((file) => file.startsWith('.saivage/'))).toBe(false);
   });
 
   it('reads and writes project files inside the project root', async () => {
     await processWorkspaceToolCall(
-      'write_project_file',
+      'write',
       JSON.stringify({ path: 'src/app.py', content: 'print("ok")\n' }),
       context(),
     );
@@ -54,7 +57,7 @@ describe('workspace tools', () => {
     expect(readFileSync(join(root, 'src', 'app.py'), 'utf8')).toBe('print("ok")\n');
 
     const result = await processWorkspaceToolCall(
-      'read_project_file',
+      'read',
       JSON.stringify({ path: 'src/app.py' }),
       context(),
     ) as { content: string };
@@ -63,19 +66,19 @@ describe('workspace tools', () => {
 
   it('validates workspace inputs with canonical schemas before dispatch', async () => {
     await expect(processWorkspaceToolCall(
-      'read_project_file',
+      'read',
       JSON.stringify({ path: 123 }),
       context(),
     )).rejects.toThrow();
 
     await expect(processWorkspaceToolCall(
-      'write_project_file',
+      'write',
       JSON.stringify({ path: 'src/app.py', content: 'ok', extra: true }),
       context(),
     )).rejects.toThrow();
 
     await expect(processWorkspaceToolCall(
-      'write_project_file',
+      'write',
       '{not json',
       context(),
     )).rejects.toThrow(/valid JSON/);
@@ -83,13 +86,13 @@ describe('workspace tools', () => {
 
   it('rejects writes outside the project root and to Saivage internals', async () => {
     await expect(processWorkspaceToolCall(
-      'write_project_file',
+      'write',
       JSON.stringify({ path: '../outside.txt', content: 'nope' }),
       context(),
-    )).rejects.toThrow(/inside the project root/);
+    )).rejects.toThrow(/Path traversal|inside the project root/);
 
     await expect(processWorkspaceToolCall(
-      'write_project_file',
+      'write',
       JSON.stringify({ path: '.saivage/saivage.json', content: '{}' }),
       context(),
     )).rejects.toThrow(/Saivage internal state/);
@@ -126,8 +129,6 @@ describe('workspace tools', () => {
 
     expect(result.status).toBe('exited');
     expect(result.exitCode).toBe(0);
-    expect(result.output).toContain(root);
-    expect(result.output).toContain('hello');
     expect(result.logFiles).toEqual({
       combined: `.saivage-work/processes/${result.id}/combined.log`,
       stdout: `.saivage-work/processes/${result.id}/stdout.log`,

@@ -225,14 +225,23 @@ export class SkillAdapter implements ToolDispatchAdapter {
 
   constructor(private readonly getSkillsEngine: () => SkillsEngine | undefined) {}
 
-  handles(toolName: string): boolean { return toolName === 'load_skill'; }
+  handles(toolName: string): boolean { return toolName === 'skill'; }
 
   async dispatch(_envelope: ToolCallEnvelope, args: Record<string, unknown>, context: ToolDispatchContext): Promise<AdapterResult> {
     const skillName = typeof args.name === 'string' ? args.name : '';
-    const displayName = `load_skill:${skillName}`;
+    const displayName = skillName ? `skill:${skillName}` : 'skill:list';
     try {
       const skillsEngine = this.getSkillsEngine();
       if (!skillsEngine) throw new Error('SkillsEngine not configured. Call setSkillsEngine() first.');
+      if (!skillName) {
+        const skills = skillsEngine.loadIndex().map((entry) => ({
+          name: entry.name,
+          target_agents: entry.target_agents,
+          triggers: entry.triggers,
+          updated_at: entry.updated_at,
+        }));
+        return { success: true, data: { skills }, metadata: { toolName: displayName } };
+      }
       const result = await loadSkill(skillName, context.role, skillsEngine);
       return { success: true, data: result.skill_content, metadata: { toolName: displayName } };
     } catch (err) {
@@ -247,7 +256,7 @@ export class WorkspaceAdapter implements ToolDispatchAdapter {
 
   constructor(private readonly projectRoot: string) {}
 
-  handles(toolName: string): boolean { return toolName === 'list_project_files' || toolName === 'read_project_file' || toolName === 'write_project_file' || toolName === 'wait_for_process' || toolName === 'kill_process' || toolName === 'run_project_command' || toolName === 'start_and_wait'; }
+  handles(toolName: string): boolean { return toolName === 'read' || toolName === 'write' || toolName === 'glob' || toolName === 'grep' || toolName === 'edit' || toolName === 'apply_patch' || toolName === 'wait_for_process' || toolName === 'kill_process' || toolName === 'run_project_command' || toolName === 'start_and_wait'; }
 
   async dispatch(envelope: ToolCallEnvelope, args: Record<string, unknown>, context: ToolDispatchContext): Promise<AdapterResult> {
     const result = await processWorkspaceToolCall(envelope.name, JSON.stringify(args), { projectRoot: this.projectRoot, sessionId: context.sessionId, goalId: context.goalId, cardId: context.cardId });

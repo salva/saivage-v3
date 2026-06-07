@@ -19,13 +19,18 @@ describe('RoleToolPolicy', () => {
       'list_card_history',
       'get_card_history_entry',
       'diff_card',
-      'list_project_files',
-      'read_project_file',
-      'write_project_file',
+      'read',
+      'write',
+      'glob',
+      'grep',
+      'edit',
+      'apply_patch',
       'wait_for_process',
       'kill_process',
       'start_and_wait',
       'run_project_command',
+      'websearch',
+      'webfetch',
       'activate_card',
       'cancel_card',
       'delete_card',
@@ -48,7 +53,7 @@ describe('RoleToolPolicy', () => {
     expect(unknownTool.message).toContain('nope');
     expect(unknownTool.message).not.toContain('synthetic-secret');
 
-    const unknownSurface = RoleToolPolicy.decide({ role: 'executor', action: 'invoke', surface: 'bogus' as never, toolName: 'read_project_file' });
+    const unknownSurface = RoleToolPolicy.decide({ role: 'executor', action: 'invoke', surface: 'bogus' as never, toolName: 'read' });
     expect(unknownSurface.allowed).toBe(false);
     expect(unknownSurface.reasonCode).toBe('surface_not_listed');
   });
@@ -76,8 +81,10 @@ describe('RoleToolPolicy', () => {
     expect(RoleToolPolicy.decide({ role: 'reviewer', action: 'invoke', surface: 'external-mcp', toolName: 'mcp_tool_call', serverName: 'svc', hasMcpDefinition: true, mcpAnnotations: { readOnlyHint: true, destructiveHint: false } }).allowed).toBe(true);
     expect(RoleToolPolicy.decide({ role: 'planner', action: 'invoke', surface: 'external-mcp', toolName: 'mcp_tool_call', serverName: 'svc', hasMcpDefinition: true, mcpAnnotations: { readOnlyHint: true, destructiveHint: false } }).allowed).toBe(false);
     expect(RoleToolPolicy.decide({ role: 'planner', action: 'invoke', surface: 'planner-control', toolName: 'activate_card', knownPlannerTool: true }).allowed).toBe(true);
-    expect(RoleToolPolicy.decide({ role: 'reviewer', action: 'invoke', surface: 'workspace', toolName: 'read_project_file' }).allowed).toBe(true);
-    expect(RoleToolPolicy.decide({ role: 'reviewer', action: 'invoke', surface: 'workspace', toolName: 'write_project_file' }).allowed).toBe(false);
+    expect(RoleToolPolicy.decide({ role: 'reviewer', action: 'invoke', surface: 'workspace', toolName: 'read' }).allowed).toBe(true);
+    expect(RoleToolPolicy.decide({ role: 'reviewer', action: 'invoke', surface: 'workspace', toolName: 'write' }).allowed).toBe(false);
+    expect(RoleToolPolicy.decide({ role: 'reviewer', action: 'invoke', surface: 'workspace', toolName: 'edit' }).allowed).toBe(false);
+    expect(RoleToolPolicy.decide({ role: 'reviewer', action: 'invoke', surface: 'workspace', toolName: 'apply_patch' }).allowed).toBe(false);
   });
 
   it('allows known planner-control lifecycle tools at the planner-control boundary', () => {

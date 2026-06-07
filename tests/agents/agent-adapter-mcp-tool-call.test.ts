@@ -79,25 +79,32 @@ describe('AgentAdapter role tool + MCP policy', () => {
 
   it('planner gets the authoritative §7 workspace tools and no MCP tool', () => {
     const tools = callBuildToolsForRole('planner').map((tool) => tool.function.name);
-    expect(tools).toEqual(expect.arrayContaining(['list_project_files', 'read_project_file', 'write_project_file', 'start_and_wait', 'run_project_command', 'wait_for_process', 'kill_process']));
-    expect(tools).not.toContain('load_skill');
+    expect(tools).toEqual(expect.arrayContaining(['read', 'write', 'glob', 'grep', 'edit', 'apply_patch', 'websearch', 'webfetch', 'start_and_wait', 'run_project_command', 'wait_for_process', 'kill_process']));
+    expect(tools).not.toContain('skill');
     expect(tools).not.toContain('mcp_tool_call');
   });
 
   it('reviewer gets read-only workspace tools but not write/run tools', () => {
     const tools = callBuildToolsForRole('reviewer').map((tool) => tool.function.name);
-    expect(tools).toEqual(expect.arrayContaining(['load_skill', 'list_project_files', 'read_project_file', 'mcp_tool_call']));
-    expect(tools).not.toContain('write_project_file');
+    expect(tools).toEqual(expect.arrayContaining(['skill', 'read', 'glob', 'grep', 'websearch', 'webfetch', 'mcp_tool_call']));
+    expect(tools).not.toContain('write');
+    expect(tools).not.toContain('edit');
+    expect(tools).not.toContain('apply_patch');
     expect(tools).not.toContain('run_project_command');
   });
 
   it('executor gets workspace mutation tools', () => {
     const tools = callBuildToolsForRole('executor').map((tool) => tool.function.name);
     expect(tools).toEqual(expect.arrayContaining([
-      'load_skill',
-      'list_project_files',
-      'read_project_file',
-      'write_project_file',
+      'skill',
+      'read',
+      'write',
+      'glob',
+      'grep',
+      'edit',
+      'apply_patch',
+      'websearch',
+      'webfetch',
       'run_project_command',
       'mcp_tool_call',
     ]));
