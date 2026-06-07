@@ -152,7 +152,7 @@ if (parentPlannerRun) {
 This ensures:
 - Normal path: parent is always found, restored as active run.
 - Missing parent runtime state: throws with a clear diagnostic message.
-- Root-level activations with no parent: still fall back to idle correctly.
+- Parentless activations are not supported. `RuntimeActivationRecord` requires `parent_card_id`, `parent_run_id`, `parent_session_id`, and `parent_tool_call_id` in both TypeScript and the Zod runtime schema, so `completeActivation` should not preserve a root-level fallback branch.
 - Startup repair paths do not use `reduceActivationCompletion`; they use `mergeRuntimeStateSnapshot` and direct state patching, so they are unaffected.
 
 ### 2. Remove `planClearActiveCardRunPatch` from activation barrier compensation
@@ -220,7 +220,7 @@ The plan originally proposed `mode: 'normal' | 'repair'` on `completeActivation`
 
 ### `reduceActivationCompletion()` fallback-to-idle
 
-**Removed.** When `active_card_run.card_id` matches the completed child and the activation has a `parent_card_id`, the parent run must be found. If not, throw. Root-level activations (no `parent_card_id`) still fall back to idle.
+**Removed.** When `active_card_run.card_id` matches the completed child, the completion must identify exactly one unresolved activation with a valid parent ledger edge and the parent run must be found. If not, throw. Root-level or parentless activations are invalid by schema and must not fall back to idle.
 
 ### `activation-barrier-compensation.ts` clear-after-complete
 
@@ -260,9 +260,9 @@ Keep for startup repair and session sweep callers only.
 
 ### Step 1: Make `reduceActivationCompletion` fail closed
 
-- Replace the fallback-to-idle with a throw when `completedActivation.parent_card_id` exists but no matching parent run is found.
-- Root-level activations (no `parent_card_id`) still fall back to idle.
-- Add tests: active child with parent restores parent; active child with missing parent throws; root-level activation without parent falls back to idle.
+- Replace the fallback-to-idle with a throw when no matching parent run is found.
+- Remove any parentless/root-level activation branch from the reducer.
+- Add tests: active child with parent restores parent; active child with missing parent throws; missing/duplicate transitioning activation throws.
 
 ### Step 2: Remove barrier compensation clear
 
@@ -300,8 +300,8 @@ Rebuild and redeploy if the GetRich v2 service is affected.
 ## Acceptance Criteria
 
 - Normal child activation completion never produces `idle` when an open parent planner run exists.
-- Normal child activation completion throws if the parent run is missing from the ledger when the activation references a parent card.
-- Root-level activations without a parent still produce idle correctly.
+- Normal child activation completion throws if the parent run is missing from the ledger.
+- Parentless/root-level activation completion is not supported and throws.
 - No normal-runtime path calls `planClearActiveCardRunForRepair`.
 - Repair paths (startup, session sweep) still clear `active_card_run` correctly.
 - Executor failure and activation barrier failure restore the parent planner instead of going idle.
