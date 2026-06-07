@@ -330,8 +330,6 @@ describe('runtime core reducers', () => {
 
   it('reduces child activation completion and matching runtime run updates', () => {
     const current = state({
-      status: 'running',
-      active_card_run: { card_id: 'child', card_type: 'code', runtime_status: 'running', phase: 'executor', caller_session_id: 'planner:parent', caller_tool_call_id: 'call-1', executor_session_id: 'exec-1', correction_attempts: 0, started_at: 't0', last_turn_at: 't0' },
       runtime_activations: [
         activation(),
       ],
@@ -342,7 +340,7 @@ describe('runtime core reducers', () => {
     const next = reduceActivationCompletion(current, 'child', 'done', '2026-05-26T01:00:00.000Z', { status: 'done', result: plannerDone, error: null, completed_at: '2026-05-26T01:00:00.000Z' });
     expect(next?.runtime_activations?.[0]).toEqual(expect.objectContaining({ status: 'completed', updated_at: '2026-05-26T01:00:00.000Z', outcome: { kind: 'completed', outcome: 'done', card_id: 'child', completed_at: '2026-05-26T01:00:00.000Z' } }));
     expect(next?.runtime_runs?.[0]).toEqual(expect.objectContaining({ phase: 'completed', runtime_status: 'idle', finished_at: '2026-05-26T01:00:00.000Z', updated_at: '2026-05-26T01:00:00.000Z', outcome: { kind: 'completed', result: 'done', finished_at: '2026-05-26T01:00:00.000Z' } }));
-    expect(next).toEqual(expect.objectContaining({ status: 'idle', active_card_run: null }));
+    expect(next).toEqual(expect.objectContaining({ status: 'idle' }));
     expect(next?.updated_at).toBe('2026-05-26T01:00:00.000Z');
   });
 
@@ -367,7 +365,7 @@ describe('runtime core reducers', () => {
     expect(next?.active_card_run?.planner_session_id).toBe('planner:parent');
   });
 
-  it('falls back to idle when child activation completes but parent has no open planner run', () => {
+  it('fails closed when active child activation completes but parent has no open planner run', () => {
     const current = state({
       status: 'running',
       active_card_run: { card_id: 'child', card_type: 'code', runtime_status: 'running', phase: 'executor', caller_session_id: 'planner:parent', caller_tool_call_id: 'call-1', executor_session_id: 'exec-1', correction_attempts: 0, started_at: 't0', last_turn_at: 't0' },
@@ -378,8 +376,36 @@ describe('runtime core reducers', () => {
         run(),
       ],
     });
-    const next = reduceActivationCompletion(current, 'child', 'done', '2026-05-26T01:00:00.000Z', { status: 'done', result: plannerDone, error: null, completed_at: '2026-05-26T01:00:00.000Z' });
-    expect(next).toEqual(expect.objectContaining({ status: 'idle', active_card_run: null }));
+    expect(() => reduceActivationCompletion(current, 'child', 'done', '2026-05-26T01:00:00.000Z', { status: 'done', result: plannerDone, error: null, completed_at: '2026-05-26T01:00:00.000Z' })).toThrow(/parent planner run/);
+  });
+
+  it('fails closed when active child completion has no unresolved activation', () => {
+    const current = state({
+      status: 'running',
+      active_card_run: { card_id: 'child', card_type: 'code', runtime_status: 'running', phase: 'executor', caller_session_id: 'planner:parent', caller_tool_call_id: 'call-1', executor_session_id: 'exec-1', correction_attempts: 0, started_at: 't0', last_turn_at: 't0' },
+      runtime_activations: [
+        activation({ status: 'completed' }),
+      ],
+      runtime_runs: [
+        run(),
+      ],
+    });
+    expect(() => reduceActivationCompletion(current, 'child', 'done', '2026-05-26T01:00:00.000Z', { status: 'done', result: plannerDone, error: null, completed_at: '2026-05-26T01:00:00.000Z' })).toThrow(/exactly one unresolved activation/);
+  });
+
+  it('fails closed when active child completion has duplicate unresolved activations', () => {
+    const current = state({
+      status: 'running',
+      active_card_run: { card_id: 'child', card_type: 'code', runtime_status: 'running', phase: 'executor', caller_session_id: 'planner:parent', caller_tool_call_id: 'call-1', executor_session_id: 'exec-1', correction_attempts: 0, started_at: 't0', last_turn_at: 't0' },
+      runtime_activations: [
+        activation({ activation_id: 'act-1' }),
+        activation({ activation_id: 'act-2', idempotency_key: 'parent-run:call-2:child' }),
+      ],
+      runtime_runs: [
+        run(),
+      ],
+    });
+    expect(() => reduceActivationCompletion(current, 'child', 'done', '2026-05-26T01:00:00.000Z', { status: 'done', result: plannerDone, error: null, completed_at: '2026-05-26T01:00:00.000Z' })).toThrow(/exactly one unresolved activation/);
   });
 
   it('maps needs_verification activation completion to paused outcome snapshots', () => {

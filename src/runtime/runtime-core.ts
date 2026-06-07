@@ -2,7 +2,7 @@ import type { ActionableErrorEnvelope, CardLifecycleState, CardRecord, CardStatu
 import type { ActivationCompletionOutcome } from '../schemas/index.js';
 import { TERMINAL_STATUSES } from '../permissions/index.js';
 import { deriveCurrentAgentSessionId, deriveCurrentCardId } from './current-run.js';
-import { isUnresolvedRuntimeActivationStatus } from './state.js';
+import { isUnresolvedRuntimeActivationStatus, RuntimeStateInvariantError } from './state.js';
 
 // Pause field groups:
 // Full pause: { status: 'paused', paused: true, paused_at }
@@ -700,12 +700,15 @@ export function reduceActivationCompletion(
   );
   let activeCardRunPatch: Partial<Pick<RuntimeState, 'status' | 'active_card_run'>> = {};
   if (currentState.active_card_run?.card_id === childCardId) {
-    const completedActivation = transitioningActivations.find((a) => a.child_card_id === childCardId);
+    assertSingleActiveChildActivation(childCardId, transitioningActivations);
+    const completedActivation = transitioningActivations[0];
     const parentPlannerRun = findParentPlannerRunForResumption(currentState, completedActivation);
     if (parentPlannerRun) {
       activeCardRunPatch = { status: 'running', active_card_run: parentPlannerRun };
     } else {
-      activeCardRunPatch = { status: 'idle', active_card_run: null };
+      throw new RuntimeStateInvariantError(
+        `Runtime activation invariant violation: child activation '${completedActivation.activation_id}' for '${childCardId}' completed without an open parent planner run '${completedActivation.parent_run_id}' for parent '${completedActivation.parent_card_id}'. Sequential runtime execution requires the parent planner run to remain open until the child activation completes.`,
+      );
     }
   }
 
@@ -718,13 +721,21 @@ export function reduceActivationCompletion(
   };
 }
 
+function assertSingleActiveChildActivation(
+  childCardId: string,
+  transitioningActivations: RuntimeActivationRecord[],
+): asserts transitioningActivations is [RuntimeActivationRecord] {
+  if (transitioningActivations.length === 1) return;
+  throw new RuntimeStateInvariantError(
+    `Runtime activation invariant violation: expected exactly one unresolved activation for active child '${childCardId}', found ${transitioningActivations.length}.`,
+  );
+}
+
 function findParentPlannerRunForResumption(
   state: RuntimeState,
-  completedActivation: RuntimeActivationRecord | undefined,
+  completedActivation: RuntimeActivationRecord,
 ): NonNullable<RuntimeState['active_card_run']> | null {
-  if (!completedActivation) return null;
   const parentCardId = completedActivation.parent_card_id;
-  if (!parentCardId) return null;
   const parentSessionId = completedActivation.parent_session_id;
   const parentRunId = completedActivation.parent_run_id;
   const candidates = (state.runtime_runs ?? []).filter(
@@ -733,7 +744,8 @@ function findParentPlannerRunForResumption(
       run.phase === 'planner' &&
       run.runtime_status === 'running' &&
       !run.finished_at &&
-      (parentRunId ? run.run_id === parentRunId : (!run.session_id || run.session_id === parentSessionId)),
+      run.run_id === parentRunId &&
+      (!run.session_id || run.session_id === parentSessionId),
   );
   const parentRun = candidates.sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0];
   if (!parentRun) return null;
