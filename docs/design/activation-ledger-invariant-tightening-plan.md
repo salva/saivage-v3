@@ -2,11 +2,11 @@
 
 Date: 2026-06-07
 
-Status: proposed implementation plan
+Status: revised implementation plan
 
 ## Purpose
 
-Tighten Saivage v3 runtime activation handling around a simpler premise: the runtime does not support parallel agent execution. A child activation cannot legitimately complete after its parent planner run has closed in normal runtime flow. If that state appears, it is not a race to tolerate; it is corrupted ledger state, crash-recovery fallout, a lifecycle interruption, or a bug.
+Tighten Saivage v3 runtime activation handling around a simpler premise: the runtime does not support parallel agent execution. A child activation cannot legitimately complete after its parent planner run has closed in normal runtime flow. If that state appears, it is corrupted ledger state, crash-recovery fallout, a lifecycle interruption, or a bug.
 
 The current interim fix restores a parent planner active run when a child activation completes and falls back to `idle` if no parent planner run is found. That fallback prevented false I2 invariant errors, but it is architecturally too permissive for normal execution. This plan replaces permissive fallback with fail-closed ledger invariants and confines repair behavior to startup/crash/operator recovery paths.
 
@@ -18,9 +18,9 @@ Saivage v3 persists three runtime concepts that together describe execution:
 - `RuntimeState.runtime_runs[]`: the runtime run ledger, including root, child, planner, executor, and reviewer phases.
 - `RuntimeState.runtime_activations[]`: the activation ledger, including `parent_run_id`, `parent_session_id`, `parent_tool_call_id`, and `child_card_id`.
 
-Although `active_card_run` is a flat pointer, `runtime_activations.parent_run_id` plus `runtime_runs.parent_run_id` already encode the active call chain. Because execution is sequential, the active leaf and its parent continuation have deterministic ownership.
+Although `active_card_run` is a flat pointer, `runtime_activations.parent_run_id` plus `runtime_runs` already encode the active call chain. Because execution is sequential, the active leaf and its parent continuation have deterministic ownership.
 
-Normal child activation completion should therefore be a stack pop over the existing ledger:
+Normal child activation completion is a stack pop:
 
 1. The completed child run becomes terminal in `runtime_runs`.
 2. The activation record becomes terminal in `runtime_activations`.
@@ -28,13 +28,11 @@ Normal child activation completion should therefore be a stack pop over the exis
 4. Runtime state switches directly from child active run to parent planner active run.
 5. The parent planner receives the activation completion tool result and continues.
 
-The runtime should not pass through a normal `idle` state between steps 3 and 4.
+The runtime should not pass through a normal idle state between steps 3 and 4.
 
 ## Architectural Conclusion
 
-Do not add a new explicit activation stack yet.
-
-The existing activation and run ledgers are already the stack. Adding a fourth persisted structure would create another source of divergence and would be harder to reconcile after interruption. The better architecture is to make the existing ledger relationships authoritative and reject impossible states.
+Do not add a new explicit activation stack. The existing activation and run ledgers are already the stack. Adding a fourth persisted structure would create another source of divergence and would be harder to reconcile after interruption. The better architecture is to make the existing ledger relationships authoritative and reject impossible states.
 
 The correct invariant is:
 
@@ -44,375 +42,251 @@ and active_card_run.card_id == childCardId,
 then A.parent_run_id must reference an open planner runtime run for A.parent_card_id.
 ```
 
-If that invariant fails during normal runtime mutation, the runtime should record a hard invariant violation and fail the mutation path rather than silently falling back to idle.
+If that invariant fails during normal runtime mutation, the mutation should throw rather than silently falling back to idle.
 
-## Normal Versus Repair Modes
+## Code Audit: What Handles Impossible States Today
 
-The implementation must distinguish two modes explicitly.
-
-### Normal Runtime Mode
-
-Used by executor completion, child-goal activation handoff, activation barrier completion, and any live agent-driven `completeActivation` mutation.
-
-Rules:
-
-- Missing parent planner run is impossible.
-- Closed parent planner run is impossible.
-- Parent run with non-planner phase is impossible.
-- Parent run with `runtime_status !== 'running'` is impossible.
-- Multiple matching parent planner runs are impossible.
-- Runtime must restore the parent active run, not clear to idle.
-- Failure should be loud: throw, record a state-machine invariant error, or both.
-
-### Repair Mode
-
-Used only by startup repair, crash recovery, operator stop/shutdown, session sweep, freeze/resume interruption handling, and explicitly named repair utilities.
-
-Rules:
-
-- Missing parent planner run may happen because the service was interrupted between ledger/card/session writes.
-- Repair may synthesize tool results, repair orphan activate-card calls, mark cards failed, or clear `active_card_run`.
-- Repair must annotate the event as recovery, not as normal scheduling.
-- Repair should not reuse normal `completeActivation` semantics unless it passes a mode flag or calls a repair-specific reducer.
-
-## Detailed Design
-
-### 1. Replace permissive parent lookup with strict planning
+### Normal-path idle fallback in `reduceActivationCompletion`
 
 File: `src/runtime/runtime-core.ts`
 
-Replace `findParentPlannerRunForResumption()` with a stricter planner such as:
+`findParentPlannerRunForResumption()` returns `null` when no matching ledger entry exists. `reduceActivationCompletion` then falls back to `{ status: 'idle', active_card_run: null }`.
 
-```ts
-export type ActivationCompletionActiveRunPlan =
-  | { kind: 'restore_parent'; activeRun: NonNullable<RuntimeState['active_card_run']> }
-  | { kind: 'unchanged' }
-  | { kind: 'violation'; invariant: 'I9'; message: string; details: Record<string, unknown> };
-```
+Under sequential execution this should be impossible: the parent planner run is open when the child activation was created and nothing closes it until the parent's own invocation completes. The null fallback masks a ledger inconsistency or a bug.
 
-Suggested function:
+**Verdict:** Remove the fallback. If `findParentPlannerRunForResumption` returns null for an active child, throw `RuntimeStateInvariantError`.
 
-```ts
-export function planActivationCompletionActiveRun(input: {
-  state: RuntimeState;
-  childCardId: string;
-  transitioningActivations: RuntimeActivationRecord[];
-  mode: 'normal' | 'repair';
-  nowIso: string;
-}): ActivationCompletionActiveRunPlan
-```
+### Executor invocation failure clears `active_card_run`
 
-Normal behavior:
+File: `src/runtime/executor-activation-dispatcher.ts`
 
-- Return `{ kind: 'unchanged' }` if `active_card_run?.card_id !== childCardId`.
-- Require exactly one transitioning activation for the child when the child is active.
-- Require that activation to have `parent_run_id`, `parent_card_id`, and `parent_session_id`.
-- Require exactly one matching parent runtime run by `run_id === parent_run_id`.
-- Require `parentRun.card_id === activation.parent_card_id`.
-- Require `parentRun.phase === 'planner'`.
-- Require `parentRun.runtime_status === 'running'`.
-- Require `!parentRun.finished_at`.
-- Build a planner `active_card_run` from the parent run and activation session.
-- Return `{ kind: 'restore_parent', activeRun }`.
+`handleExecutorInvocationFailure` calls `clearActiveCardRun(cardId)` which clears `active_card_run` to idle. This happens when an LLM invocation fails after the executor card has already been activated and `active_card_run` set.
 
-Repair behavior:
+Currently this clears to idle without restoring the parent planner, then relies on `maybeRedispatchProjectRoot` to eventually re-discover the goal. Under sequential execution, the parent planner should be directly restorable from the activation ledger.
 
-- Permit a missing parent and return a repair-specific result.
-- Do not silently share normal fallback behavior.
-- Prefer a separate return variant like `{ kind: 'repair_idle'; reason: string }` so callers must acknowledge the abnormal path.
+**Verdict:** Replace `clearActiveCardRun` in this path with activation completion unwinding to the parent planner, same as a successful completion. The executor still fails, but the parent planner should resume to decide what to do next.
 
-The current fallback to `{ status: 'idle', active_card_run: null }` inside normal `reduceActivationCompletion()` should be removed.
+### Activation barrier compensation clears `active_card_run`
 
-### 2. Add a new invariant ID for activation parent continuity
+File: `src/agents/activation-barrier-compensation.ts`
+
+When activation dispatch throws, this compensates by:
+1. Appending a tool error to the planner's `activate_card` call.
+2. Completing the activation as `failed`.
+3. Clearing `active_card_run`.
+
+Step 2 already triggers `reduceActivationCompletion` which (with the current fix) will attempt to restore the parent. Step 3 then immediately overwrites that restoration with idle, making step 2's parent restoration pointless.
+
+**Verdict:** Remove step 3. The `completeActivation` mutation in step 2 already handles `active_card_run`. The separate clear is redundant and harmful once `completeActivation` owns the parent restoration.
+
+### I1/I2 invariant auto-correction on tick
+
+File: `src/runtime/runtime-core.ts`, `observeRuntimeStateInvariants()`
+
+These soft-correct every 5 seconds. I1 corrects `running` + `active_card_run: null` to `idle`. I2 corrects a terminal `active_card_run.card_id` to `idle`.
+
+With strict activation completion, I1 and I2 should never fire during normal execution. They still serve as startup-recovery safety nets, but their corrections should be reviewed:
+
+- I1 correction `{ status: 'idle' }` when `running` + null active run: this can fire during the brief window between child completion (parent not yet restored) if there is a tick between the `reduceActivationCompletion` and the next state write. With atomic mutation, this window should not exist. Keep as a safety net but do not rely on it for normal flow.
+- I2 correction `{ status: 'idle', active_card_run: null }` when active card is terminal: this should never fire after the strict `reduceActivationCompletion` fix, because the parent is now restored instead of leaving a terminal card as active. Keep as a safety net.
+
+**Verdict:** Keep I1/I2 as tick-based safety nets. Do not add I9. If `reduceActivationCompletion` throws on missing parent, the state never reaches the tick observer in that impossible configuration.
+
+### `planIdleRunningRootRunReconciliation` 
 
 File: `src/runtime/runtime-core.ts`
 
-Extend `InvariantId` with `I9`:
+Only called from `startup-run-reconciliation.ts`. Properly scoped to startup. No change needed, but add a comment noting it is startup-recovery-only.
 
-```ts
-export type InvariantId = 'I1' | 'I2' | 'I4' | 'I5' | 'I6' | 'I7' | 'I8' | 'I9';
-```
-
-Definition:
-
-```text
-I9: An active child activation completion must restore exactly one open parent planner run.
-```
-
-This invariant is different from I2:
-
-- I2 detects active run pointing at a terminal card.
-- I9 prevents the state mutation that would otherwise create an orphaned parent continuation.
-
-Implementation options:
-
-- Throw `RuntimeStateInvariantError` or a new `RuntimeLedgerInvariantError` from the reducer/mutation path.
-- Also append an error log entry via the mutation caller if the reducer returns an invariant violation object rather than throwing.
-
-Preferred minimal implementation:
-
-- Keep `runtime-core.ts` pure by returning a violation plan.
-- Make `applyRuntimeMutation()` decide whether to throw or log based on mutation mode.
-- In normal mode, throw after appending an error if an error logger is available.
-
-### 3. Split normal completion and repair completion APIs
-
-File: `src/runtime/mutations.ts`
-
-Current mutation:
-
-```ts
-{ kind: 'completeActivation'; childCardId; outcome; completedAt; lifecycle? }
-```
-
-Replace or extend with explicit mode:
-
-```ts
-type CompleteActivationMutation = {
-  kind: 'completeActivation';
-  mode: 'normal' | 'repair';
-  childCardId: string;
-  outcome: ActivationCompletionOutcome;
-  completedAt: string;
-  lifecycle?: CardLifecycleState | null;
-};
-```
-
-Defaulting `mode` is not recommended. Every caller should declare intent.
-
-Normal callers must pass `mode: 'normal'`:
-
-- `ActivationUnwindRunner.markActivationComplete()` during live executor/child completion.
-- Activation barrier dispatch completion for planner tool calls.
-- Any runtime dispatch completion path used while the service is running.
-
-Repair callers must pass `mode: 'repair'`:
-
-- Startup active-run repair.
-- Orphan activate-card repair.
-- Crash-recovery synthesis.
-- Operator/tool compensation paths that are explicitly compensating for an interrupted activation.
-
-This split makes impossible states visible at call sites.
-
-### 4. Make `ActivationUnwindRunner.parentPlannerRunFor()` ledger-backed or repair-only
+### `parentPlannerRunFor` card-hierarchy reconstruction
 
 File: `src/runtime/activation-unwind.ts`
 
-Current behavior reconstructs a parent planner active run from `CardStore.getParent(childCardId)` and card type. That is too weak for normal execution because card hierarchy alone is not the runtime call stack. The activation ledger and run ledger are authoritative.
+Only called from `startup-repair.ts` via `ActivationRepairRunner`. Properly scoped to startup repair. No rename needed.
 
-Recommended change:
+**Verdict:** No change. The function is correctly not called from normal runtime paths.
 
-- Rename current method to `repairParentPlannerRunForCardHierarchy()` or make it private to startup repair.
-- Add a ledger-backed method for normal resumption that requires `RuntimeState` and `RuntimeActivationRecord`.
-- Do not derive normal parent continuation from only `CardStore.getParent()`.
+### `planProjectRootRedispatch`
 
-If startup repair still needs card-hierarchy fallback, keep it behind a repair-specific API name and document why it is less strict.
+File: `src/runtime/runtime-core.ts`
 
-### 5. Remove redundant active-run clearing after completion compensation
+Called on every tick from `state-machine.ts`. This is a legitimate recovery mechanism for cases where the runtime intent says running but no active card run exists (e.g., after crash recovery). It is not the normal continuation path. No change needed, but the existing parent restoration makes it less necessary for ordinary child completion.
+
+**Verdict:** Keep. It remains a useful safety net for true recovery scenarios. Normal child-to-parent continuation no longer depends on it.
+
+## Simplified Design
+
+### 1. Make `reduceActivationCompletion` fail closed on missing parent
+
+File: `src/runtime/runtime-core.ts`
+
+Current behavior:
+
+```ts
+const parentPlannerRun = findParentPlannerRunForResumption(currentState, completedActivation);
+if (parentPlannerRun) {
+  activeCardRunPatch = { status: 'running', active_card_run: parentPlannerRun };
+} else {
+  activeCardRunPatch = { status: 'idle', active_card_run: null };
+}
+```
+
+New behavior:
+
+```ts
+const parentPlannerRun = findParentPlannerRunForResumption(currentState, completedActivation);
+if (parentPlannerRun) {
+  activeCardRunPatch = { status: 'running', active_card_run: parentPlannerRun };
+} else if (completedActivation?.parent_card_id) {
+  throw new RuntimeStateInvariantError(
+    `Activation ${completedActivation.activation_id} for child ${childCardId} ` +
+    `completed but parent planner run for ${completedActivation.parent_card_id} ` +
+    `not found in runtime_runs. Under sequential execution the parent ` +
+    `planner run must be open when the child activation completes.`
+  );
+}
+// No parent_card_id means this is a root-level or orphan activation;
+// falling back to idle is correct.
+```
+
+This ensures:
+- Normal path: parent is always found, restored as active run.
+- Missing parent runtime state: throws with a clear diagnostic message.
+- Root-level activations with no parent: still fall back to idle correctly.
+- Startup repair paths do not use `reduceActivationCompletion`; they use `mergeRuntimeStateSnapshot` and direct state patching, so they are unaffected.
+
+### 2. Remove `planClearActiveCardRunPatch` from activation barrier compensation
 
 File: `src/agents/activation-barrier-compensation.ts`
 
 Current flow:
 
 ```ts
-completeActivation(... outcome: 'failed')
-planClearActiveCardRunPatch(... child_card_id ...)
+applyRuntimeMutation(config.projectRoot, { kind: 'completeActivation', ... });
+const clearPatch = planClearActiveCardRunPatch({ state: readRuntimeState(...), cardId });
+if (clearPatch) applyRuntimeMutation(config.projectRoot, { kind: 'patchRuntimeState', patch: clearPatch });
 ```
 
-This becomes suspicious once `completeActivation` owns active-run unwinding.
+New flow:
 
-Plan:
+```ts
+applyRuntimeMutation(config.projectRoot, { kind: 'completeActivation', ... });
+```
 
-- Decide whether activation barrier compensation is normal or repair.
-- If the barrier is compensating for a live failed dispatch, it is probably normal completion with outcome `failed`; parent planner restoration should still happen.
-- Remove the separate `planClearActiveCardRunPatch()` call in normal mode.
-- If this is truly repair mode, keep clearing only through the repair reducer or a clearly named repair helper.
+The `completeActivation` mutation already handles `active_card_run` restoration through `reduceActivationCompletion`. The separate clear is redundant and harmful because it overwrites the parent restoration with idle.
 
-This removes a second independent active-run mutation that can race conceptually with the completion reducer even though the runtime is sequential.
+### 3. Replace `clearActiveCardRun` with parent restoration in executor invocation failure
 
-### 6. Constrain `planClearActiveCardRunPatch()` usage
+File: `src/runtime/executor-activation-dispatcher.ts`
+File: `src/runtime/phases/executor-invocation-failure.ts`
+
+Current behavior: `clearActiveCardRun(cardId)` clears `active_card_run` to idle when executor invocation fails.
+
+New behavior: Instead of clearing to idle, complete the activation as `failed` (which already happens for terminal executor cards via `commitExecutorInvocationFailure`). The activation completion reducer will then restore the parent planner.
+
+If the executor card was never actually activated (activation dispatch itself failed), then there is no `active_card_run` to clear and no activation to complete. In that case, the barrier compensation path in step 2 handles the tool result for the planner.
+
+Implementation approach:
+- Remove `clearActiveCardRun` from the `handleExecutorInvocationFailure` effects port.
+- The executor failure already transitions the card to `failed` and may complete the activation. If the card was activated and `active_card_run` points at it, the activation completion path will restore the parent.
+- If the executor failed before activation, `active_card_run` still points at the child or was never set; either way, the planner will see the error through its tool result.
+
+### 4. Rename `planClearActiveCardRunPatch` to `planClearActiveCardRunForRepair`
 
 File: `src/runtime/runtime-core.ts`
 
-Current helper clears current active run by card ID and sets runtime to idle. That is too broad as a normal runtime primitive.
+Rename to signal that this helper is for repair/interruption paths only. Audit remaining callers:
 
-Audit current callers:
+- `src/runtime/startup-blocked-planning.ts` — startup repair. Keep.
+- Session sweep (`planSweptCurrentAgentSessionPatch`) — startup repair. Keep.
 
-- `src/runtime/executor-activation-dispatcher.ts`: executor invocation failure path.
-- `src/runtime/startup-blocked-planning.ts`: startup alignment path.
-- `src/agents/activation-barrier-compensation.ts`: compensation path.
-- Startup/session sweep paths via related helpers.
+All normal-runtime callers should be removed per steps 2 and 3. If any remain, they indicate an unfinished migration.
 
-Plan:
+### 5. Add a comment to `planIdleRunningRootRunReconciliation`
 
-- Rename the helper to `planRepairClearActiveCardRunPatch()` if all remaining uses are repair/interruption paths.
-- For executor invocation failure during live execution, prefer activation completion unwinding to the parent planner over clearing to idle.
-- Keep direct clearing only for shutdown, stop, pause/freeze interruption, session sweep, or startup repair.
-- Add tests asserting normal executor failure restores the parent planner active run when an activation parent exists.
+File: `src/runtime/runtime-core.ts`
 
-### 7. Narrow root redispatch to recovery, not normal child continuation
+Add a doc comment noting this function is startup-recovery-only and should not be called from normal live execution paths.
 
-Files:
+### 6. No new invariant ID needed
 
-- `src/runtime/state-machine.ts`
-- `src/runtime/runtime-core.ts`
-- `src/runtime/startup-run-reconciliation.ts`
+The plan originally proposed I9. After auditing, I9 is redundant: `reduceActivationCompletion` will throw before the state reaches the tick observer. I1 and I2 remain as tick-based safety nets for states that leak in through other paths or through crash recovery.
 
-`planProjectRootRedispatch()` is useful for stale startup/runtime intent reconciliation. It should not be the primary mechanism for normal parent continuation after a child finishes.
+### 7. No mutation mode flag needed
 
-Plan:
+The plan originally proposed `mode: 'normal' | 'repair'` on `completeActivation`. After auditing, repair paths do not call `reduceActivationCompletion` at all — they use `mergeRuntimeStateSnapshot` and direct state patching. There is no shared code path that needs to distinguish modes. Making `reduceActivationCompletion` throw on invalid state is sufficient.
 
-- Keep project root redispatch for startup and stale-state recovery.
-- Add a regression showing normal child completion does not require `status: idle` plus root redispatch to continue.
-- Consider renaming diagnostics from generic redispatch to recovery wording where appropriate.
-- If runtime ticks still invoke redispatch during normal active parent restoration, refine the predicate to ignore states with a restored parent active run.
+## Code Paths That No Longer Handle Impossible States
 
-### 8. Tighten idle/running reconciliation scope
+### `reduceActivationCompletion()` fallback-to-idle
 
-Files:
+**Removed.** When `active_card_run.card_id` matches the completed child and the activation has a `parent_card_id`, the parent run must be found. If not, throw. Root-level activations (no `parent_card_id`) still fall back to idle.
 
-- `src/runtime/runtime-core.ts`
-- `src/runtime/startup-run-reconciliation.ts`
+### `activation-barrier-compensation.ts` clear-after-complete
 
-`planIdleRunningRootRunReconciliation()` currently treats idle runtime with running intent and open runs as something to reconcile. That is valid for startup/crash recovery, but in live normal flow it should be rare.
+**Removed.** The separate `planClearActiveCardRunPatch` call after `completeActivation` is redundant. `completeActivation` owns active-run unwinding.
 
-Plan:
+### `executor-invocation-failure.ts` clear-to-idle
 
-- Confirm it is only called from startup reconciliation.
-- Keep it startup-scoped.
-- Rename if useful to `planStartupIdleRunningRootRunReconciliation()`.
-- Add comments that live normal activation completion must not rely on this reconciler.
+**Replaced.** Executor failure no longer clears `active_card_run` to idle. If the executor card was activated and has an activation, the activation completion path restores the parent planner. If it was never activated, there is nothing to clear.
 
-### 9. Update session/read-model semantics after strict parent restoration
+### `planClearActiveCardRunPatch` as generic utility
 
-Files:
+**Renamed** to `planClearActiveCardRunForRepair`. Only called from startup repair and session sweep. Normal runtime code no longer calls it.
 
-- `src/application/read-models/agent-operator-read-model.ts`
-- `src/agents/session-lifecycle.ts`
-- `src/runtime/session-persistence.ts`
+## What Stays
 
-The UI/read model currently distinguishes an active planner turn from a waiting parent planner by checking active run and run ledger. Once child completion restores the parent active run immediately, a parent planner may be active in runtime state while its session manifest is still `waiting` until the next model invocation resumes.
+### I1/I2 invariant observers
 
-Plan:
+Keep. They are tick-based safety nets. With strict `reduceActivationCompletion`, they should fire even less frequently, but they catch states that leak through crash recovery, manual state editing, or other code paths.
 
-- Decide whether restored parent active run should be displayed as `waiting` or `active` before the next model call begins.
-- Preferred semantics: runtime state is `running` with parent planner active, but session status may remain `waiting` until the invocation runner changes it to active. The operator read model can display this as `waiting` with `is_current_continuation: true`.
-- Avoid changing session lifecycle just to match `active_card_run`; session status and runtime continuation are related but not identical.
-- Add a read-model test for restored parent active run plus waiting planner session.
+### `parentPlannerRunFor()` card-hierarchy reconstruction
 
-### 10. Update docs to reflect ledger-as-stack, not fallback redispatch
+Keep as-is. Only called from startup repair. Already properly scoped.
 
-Files:
+### `planProjectRootRedispatch()`
 
-- `docs/agents.md`
-- `docs/design/runtime.md`
-- `docs/design/terminal-commit-layer.md`
-- This plan file once implemented.
+Keep. It remains a useful recovery mechanism. Normal child-to-parent continuation no longer depends on it.
 
-Required documentation changes:
+### `planIdleRunningRootRunReconciliation()`
 
-- State that normal child activation completion restores the parent planner from `runtime_activations.parent_run_id`.
-- State that missing parent run during normal completion is a hard invariant violation.
-- Clarify that idle/root redispatch is recovery behavior, not the normal continuation path.
-- Keep startup repair documented as separate from normal runtime mutation.
+Keep. Add doc comment noting it is startup-recovery-only.
+
+### `planClearActiveCardRunForRepair` (renamed from `planClearActiveCardRunPatch`)
+
+Keep for startup repair and session sweep callers only.
 
 ## Implementation Steps
 
-### Step 1: Introduce strict active-run completion planning
+### Step 1: Make `reduceActivationCompletion` fail closed
 
-Modify `runtime-core.ts`:
+- Replace the fallback-to-idle with a throw when `completedActivation.parent_card_id` exists but no matching parent run is found.
+- Root-level activations (no `parent_card_id`) still fall back to idle.
+- Add tests: active child with parent restores parent; active child with missing parent throws; root-level activation without parent falls back to idle.
 
-- Add `I9` to `InvariantId`.
-- Add `ActivationCompletionActiveRunPlan` type.
-- Add `planActivationCompletionActiveRun()`.
-- Refactor `reduceActivationCompletion()` to call the planner.
-- Remove normal fallback from missing parent planner run.
-- Return a structured violation or throw through a dedicated error path.
+### Step 2: Remove barrier compensation clear
 
-Focused tests:
+- Remove the `planClearActiveCardRunPatch` call from `activation-barrier-compensation.ts`.
+- Add test that barrier compensation does not override parent restoration.
 
-- Active child completion restores parent planner run.
-- Active child completion with missing parent run returns/throws I9 in normal mode.
-- Non-active child completion leaves `active_card_run` unchanged.
-- Repair mode can produce an explicit repair-idle plan.
+### Step 3: Replace executor failure clear with parent restoration
 
-### Step 2: Add explicit mutation mode
+- Remove `clearActiveCardRun` from `handleExecutorInvocationFailure` effects.
+- Ensure executor failure path completes the activation (which restores parent).
+- Add test that executor failure restores parent planner active run.
 
-Modify `mutations.ts`:
+### Step 4: Rename `planClearActiveCardRunPatch` to `planClearActiveCardRunForRepair`
 
-- Add `mode` to `completeActivation`.
-- Update all callers.
-- Reject missing mode at compile time.
-- Route I9 violation into fail-closed behavior in normal mode.
+- Rename the function.
+- Update all callers (should only be startup repair and session sweep at this point).
+- Add a deprecation-style comment if any normal-runtime callers remain.
 
-Focused tests:
+### Step 5: Add doc comments to startup-recovery functions
 
-- Normal mutation throws on missing parent run.
-- Repair mutation does not throw but produces documented repair state.
+- `planIdleRunningRootRunReconciliation`: note it is startup-recovery-only.
+- `planClearActiveCardRunForRepair`: note it is for repair/interruption paths only.
 
-### Step 3: Update activation unwind and compensation callers
-
-Modify:
-
-- `activation-unwind.ts`
-- `activation-barrier-compensation.ts`
-- `executor-activation-dispatcher.ts`
-- `executor-completion-handler.ts` if needed for clearer completion ownership.
-
-Expected changes:
-
-- Live child completion passes `mode: 'normal'`.
-- Compensation code no longer clears active run after normal completion.
-- Repair-only methods are renamed or moved.
-
-Focused tests:
-
-- Executor success completes child and restores parent without idle.
-- Executor failure completes child and restores parent without idle.
-- Activation barrier dispatch failure completes activation and restores parent or fails I9.
-
-### Step 4: Audit and rename clear/repair helpers
-
-Modify:
-
-- `planClearActiveCardRunPatch()` and callers.
-- Startup repair helper names.
-- Any tests expecting live normal clear-to-idle after child completion.
-
-Expected changes:
-
-- Normal child completion does not call a clear helper.
-- Clear helper names indicate repair/interruption semantics.
-- Startup repair remains allowed to clear state when active session is swept or invalid.
-
-### Step 5: Contract/integration tests
-
-Add or update tests:
-
-- `tests/runtime/runtime-core.test.ts` for strict reducer plans.
-- `tests/utils/runtime-integration.test.ts` or a new runtime activation continuation test for end-to-end parent restoration.
-- `tests/runtime/runtime-activation-ledger.test.ts` for ledger relationship validation.
-- `tests/application` or server read-model tests for restored parent plus waiting session status.
-
-Recommended integration scenario:
-
-1. Root/project planner activates goal A.
-2. Goal A planner activates terminal card B.
-3. Executor for B completes.
-4. Runtime state immediately points back to goal A planner.
-5. No I1/I2/I9 invariant errors are logged.
-6. Project root redispatch is not required for the continuation.
-
-### Step 6: Update docs and validation gates
-
-Modify active docs after implementation:
-
-- `docs/agents.md`
-- `docs/design/runtime.md`
-- `docs/design/terminal-commit-layer.md`
-
-Run validation:
+### Step 6: Validation
 
 ```bash
 NODE_OPTIONS=--experimental-vm-modules npx jest tests/runtime/runtime-core.test.ts --runInBand --forceExit
@@ -421,88 +295,26 @@ npm run validate:routine
 npm run build
 ```
 
-If behavior affects the deployed GetRich v2 service, rebuild and restart:
-
-```bash
-npm run build
-ssh root@10.0.3.170 'systemctl restart saivage-v3-getrich.service && systemctl is-active saivage-v3-getrich.service'
-curl -fsS http://10.0.3.170:8080/health
-```
-
-## Code Paths To Reconsider Because They Tolerate Impossible States
-
-### `reduceActivationCompletion()` fallback-to-idle
-
-This should be removed for normal mode. A child activation cannot complete without an open parent planner run if it was launched by a parent planner and no parallel execution exists.
-
-### `ActivationUnwindRunner.parentPlannerRunFor()` card-parent reconstruction
-
-This is not valid as a normal runtime continuation mechanism. Card hierarchy is not enough; the runtime ledger is authoritative. Keep this only for startup repair or replace it with ledger-backed lookup.
-
-### `activation-barrier-compensation.ts` clear-after-complete
-
-This performs a second active-run mutation after completion. Once completion owns unwinding, the extra clear is either redundant or wrong. It should be removed from normal mode.
-
-### `planClearActiveCardRunPatch()` as a generic utility
-
-Generic clear-to-idle hides whether a caller is handling shutdown/repair or normal completion. Rename or split it so normal runtime code cannot casually clear an active child instead of unwinding to parent.
-
-### `planProjectRootRedispatch()` as normal continuation safety net
-
-Root redispatch should remain a recovery/scheduling safety net, not the expected way to resume a parent after child completion. Tests should prove normal child completion restores parent state directly.
-
-### Startup idle/running reconciliation
-
-This remains valid, but it should be named and documented as startup recovery. If it is ever called in live normal flow, that should be treated as suspicious.
-
-### Session sweep active-run clearing
-
-If startup sweeps the session derived from `active_card_run`, clearing is acceptable because the runtime has lost the agent continuation. This is repair mode, not normal completion.
-
-## Failure Semantics
-
-Normal I9 failure should be loud because continuing could corrupt the planner tree.
-
-Recommended normal-mode error payload:
-
-```json
-{
-  "code": "runtime_activation_parent_missing",
-  "invariant": "I9",
-  "child_card_id": "card-21",
-  "activation_id": "act-...",
-  "parent_card_id": "card-8",
-  "parent_run_id": "run-...",
-  "parent_session_id": "planner:card-8",
-  "message": "Child activation completed but its parent planner run is not open. This is impossible during sequential runtime execution."
-}
-```
-
-Operator guidance:
-
-- Inspect `/api/debug/errors` and `/api/debug/timeline`.
-- Use startup/crash repair if the service was interrupted.
-- Do not silently resume from the project root unless repair explicitly chooses that path.
+Rebuild and redeploy if the GetRich v2 service is affected.
 
 ## Acceptance Criteria
 
-- Normal child activation completion never leaves runtime `idle` when an open parent planner run exists.
-- Normal child activation completion fails closed if the parent run is missing, closed, duplicated, or not a running planner run.
-- Repair paths remain available but are explicitly named and tested as repair paths.
-- No normal live path calls a generic clear-active-run helper after child activation completion.
-- Existing root redispatch remains useful for stale startup/runtime-intent recovery but is not required for ordinary parent continuation.
-- `/api/agents` and `/api/state` present a consistent state while parent planner is restored and waiting for the next model invocation.
-- Tests cover success, failure, orphaned parent, repair mode, and no-I1/I2 regression cases.
+- Normal child activation completion never produces `idle` when an open parent planner run exists.
+- Normal child activation completion throws if the parent run is missing from the ledger when the activation references a parent card.
+- Root-level activations without a parent still produce idle correctly.
+- No normal-runtime path calls `planClearActiveCardRunForRepair`.
+- Repair paths (startup, session sweep) still clear `active_card_run` correctly.
+- Executor failure and activation barrier failure restore the parent planner instead of going idle.
+- I1/I2 invariant observers remain as tick-based safety nets.
+- No new invariant ID is needed.
+- No mutation mode flag is needed.
 
 ## Non-Goals
 
 - Do not implement parallel agent execution.
-- Do not add a new persisted activation stack unless the ledger proves insufficient after strict invariants are implemented.
-- Do not add compatibility shims for historical malformed runtime state in normal runtime code.
-- Do not silently normalize missing parent planner runs during normal live execution.
-
-## Open Questions
-
-- Should normal I9 failure throw from `applyRuntimeMutation()` or return a structured failure that the caller converts to a runtime error? Throwing is simpler and more fail-fast; structured return preserves reducer purity.
-- Should repair mode live in the same `completeActivation` mutation with `mode: 'repair'`, or should it use a separate `repairCompleteActivation` mutation? A separate mutation is clearer but touches more call sites.
-- Should the operator read model expose a distinct `resuming` state for a restored parent planner whose session manifest is still `waiting`? This may improve UI clarity without changing runtime semantics.
+- Do not add a new persisted activation stack.
+- Do not add a mutation mode flag on `completeActivation`.
+- Do not add I9.
+- Do not rename `parentPlannerRunFor` (already correctly scoped to startup repair).
+- Do not create a separate `repairCompleteActivation` mutation.
+- Do not change session lifecycle to match `active_card_run`.
