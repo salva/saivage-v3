@@ -113,14 +113,14 @@ export function applyRuntimeMutation(projectRoot: string, mutation: RuntimeMutat
       return updateRuntimeStateLockedDeriving(projectRoot, (current) => {
         const plan = planOpenPlannerRunTerminalUpdate({ state: current, goalId: mutation.goalId, result: mutation.result, nowIso: mutation.at });
         if (!plan) return { state: current, result: null };
-        const runtime_runs = (current.runtime_runs ?? []).map((run) => run.run_id === plan.runId ? { ...run, ...plan.updates } : run);
+        const runtime_runs = current.runtime_runs.map((run) => run.run_id === plan.runId ? { ...run, ...plan.updates } : run);
         return { state: { ...current, runtime_runs }, result: runtime_runs.find((run) => run.run_id === plan.runId) ?? null };
       });
     case 'bindPlannerSessionToOpenRun':
       return updateRuntimeStateLockedDeriving(projectRoot, (current) => {
         const plan = planPlannerRunSessionBinding({ state: current, goalId: mutation.goalId, plannerSessionId: mutation.plannerSessionId });
         if (!plan) return { state: current, result: null };
-        const runtime_runs = (current.runtime_runs ?? []).map((run) => run.run_id === plan.runId ? { ...run, ...plan.updates } : run);
+        const runtime_runs = current.runtime_runs.map((run) => run.run_id === plan.runId ? { ...run, ...plan.updates } : run);
         return { state: { ...current, runtime_runs }, result: runtime_runs.find((run) => run.run_id === plan.runId) ?? null };
       });
     case 'appendRuntimeCommand':
@@ -153,9 +153,9 @@ export function applyRuntimeMutation(projectRoot: string, mutation: RuntimeMutat
       return updateRuntimeStateLockedDeriving(projectRoot, (current) => {
         const next = {
           ...mutation.state,
-          runtime_commands: current.runtime_commands ?? mutation.state.runtime_commands ?? [],
-          runtime_runs: current.runtime_runs ?? mutation.state.runtime_runs ?? [],
-          runtime_activations: current.runtime_activations ?? mutation.state.runtime_activations ?? [],
+          runtime_commands: current.runtime_commands,
+          runtime_runs: current.runtime_runs,
+          runtime_activations: current.runtime_activations,
         };
         return { state: next, result: next };
       });

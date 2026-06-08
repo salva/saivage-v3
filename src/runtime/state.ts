@@ -201,7 +201,7 @@ export function appendRuntimeCommand(projectRoot: string, command: RuntimeComman
   const at = new Date().toISOString();
   const record: RuntimeCommandRecord = { command_id: runtimeRecordId('cmd'), command, status: 'accepted', requested_at: at, completed_at: null, source, error: null };
   return updateRuntimeStateLockedDeriving(projectRoot, (state) => ({
-    state: { ...state, runtime_commands: [...(state.runtime_commands ?? []), record], updated_at: at },
+    state: { ...state, runtime_commands: [...state.runtime_commands, record], updated_at: at },
     result: record,
   }));
 }
@@ -218,7 +218,7 @@ export function appendRuntimeRun(projectRoot: string, input: Omit<RuntimeRunReco
   const at = new Date().toISOString();
   const record: RuntimeRunRecord = { ...input, run_id: input.run_id ?? runtimeRecordId('run'), started_at: input.started_at ?? at, updated_at: input.updated_at ?? at };
   return updateRuntimeStateLockedDeriving(projectRoot, (state) => ({
-    state: { ...state, runtime_runs: [...(state.runtime_runs ?? []).filter((run) => run.run_id !== record.run_id), record], updated_at: at },
+    state: { ...state, runtime_runs: [...state.runtime_runs.filter((run) => run.run_id !== record.run_id), record], updated_at: at },
     result: record,
   }));
 }
@@ -226,11 +226,11 @@ export function appendRuntimeRun(projectRoot: string, input: Omit<RuntimeRunReco
 export function updateRuntimeRun(projectRoot: string, runId: string, changes: Partial<RuntimeRunRecord>): RuntimeRunRecord | null {
   const at = new Date().toISOString();
   return updateRuntimeStateLockedDeriving(projectRoot, (state) => {
-    const existing = (state.runtime_runs ?? []).find((run) => run.run_id === runId);
+    const existing = state.runtime_runs.find((run) => run.run_id === runId);
     if (!existing) return { state, result: null };
     const updated = { ...existing, ...changes, updated_at: at };
     return {
-      state: { ...state, runtime_runs: (state.runtime_runs ?? []).map((run) => run.run_id === runId ? updated : run), updated_at: at },
+      state: { ...state, runtime_runs: state.runtime_runs.map((run) => run.run_id === runId ? updated : run), updated_at: at },
       result: updated,
     };
   });
@@ -241,17 +241,17 @@ export function upsertRuntimeActivation(projectRoot: string, input: Omit<Runtime
   const record: RuntimeActivationRecord = { ...input, activation_id: input.activation_id ?? runtimeRecordId('act'), requested_at: input.requested_at ?? at, updated_at: input.updated_at ?? at };
   return updateRuntimeStateLockedDeriving(projectRoot, (state) => {
     const existing = input.activation_id
-      ? (state.runtime_activations ?? []).find((activation) => activation.activation_id === input.activation_id)
-      : (state.runtime_activations ?? []).find((activation) => activation.idempotency_key === input.idempotency_key && !['completed', 'failed', 'blocked', 'cancelled'].includes(activation.status));
+      ? state.runtime_activations.find((activation) => activation.activation_id === input.activation_id)
+      : state.runtime_activations.find((activation) => activation.idempotency_key === input.idempotency_key && !['completed', 'failed', 'blocked', 'cancelled'].includes(activation.status));
     if (existing) {
       const updated = { ...existing, ...input, activation_id: existing.activation_id, requested_at: existing.requested_at, updated_at: at };
       return {
-        state: { ...state, runtime_activations: (state.runtime_activations ?? []).map((activation) => activation.activation_id === existing.activation_id ? updated : activation), updated_at: at },
+        state: { ...state, runtime_activations: state.runtime_activations.map((activation) => activation.activation_id === existing.activation_id ? updated : activation), updated_at: at },
         result: updated,
       };
     }
     return {
-      state: { ...state, runtime_activations: [...(state.runtime_activations ?? []), record], updated_at: at },
+      state: { ...state, runtime_activations: [...state.runtime_activations, record], updated_at: at },
       result: record,
     };
   });

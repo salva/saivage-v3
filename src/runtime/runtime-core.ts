@@ -51,7 +51,7 @@ export function buildRejectedRuntimeCommandState(input: {
     rejectedCommand,
     state: {
       ...input.state,
-      runtime_commands: (input.state.runtime_commands ?? []).map((item) =>
+      runtime_commands: input.state.runtime_commands.map((item) =>
         item.command_id === input.command.command_id ? rejectedCommand : item,
       ),
       updated_at: input.at,
@@ -75,7 +75,7 @@ export function buildCompletedRuntimeCommandState(input: {
     state: {
       ...input.state,
       ...input.statePatch,
-      runtime_commands: (input.state.runtime_commands ?? []).map((item) =>
+      runtime_commands: input.state.runtime_commands.map((item) =>
         item.command_id === input.command.command_id ? completedCommand : item,
       ),
       updated_at: input.at,
@@ -135,7 +135,7 @@ export function planOpenRootRunStopUpdates(input: {
   state: RuntimeState;
   nowIso: string;
 }): RuntimeRunUpdatePlan[] {
-  return (input.state.runtime_runs ?? [])
+  return input.state.runtime_runs
     .filter((run) => run.kind === 'root' && !run.finished_at)
     .map((run) => ({
       runId: run.run_id,
@@ -218,7 +218,7 @@ export function planStartProjectPrecondition(input: {
   paused: boolean;
   source: 'operator' | 'tool' | 'runtime' | 'analyst';
 }): StartProjectPreconditionDecision {
-  const openRootRun = (input.state.runtime_runs ?? []).find(
+  const openRootRun = input.state.runtime_runs.find(
     (run) => run.kind === 'root' && !run.finished_at,
   ) ?? null;
   const base = {
@@ -235,7 +235,7 @@ export function planStartProjectPrecondition(input: {
     input.blockedPlanning?.failure_kind === 'token_budget_exceeded';
   const retryingPlanningBlocker = retryingTokenBudgetPlanningBlocker;
   const staleRunningIntentWithoutActiveRootRun =
-    (input.state.runtime_intent?.status ?? 'stopped') === 'running' &&
+    (input.state.runtime_intent.status) === 'running' &&
     !openRootRun &&
     input.state.status === 'idle' &&
     (input.state.active_card_run ?? null) === null &&
@@ -249,7 +249,7 @@ export function planStartProjectPrecondition(input: {
   if (
     input.paused ||
     input.state.paused ||
-    ((input.state.runtime_intent?.status ?? 'stopped') === 'running' &&
+    ((input.state.runtime_intent.status) === 'running' &&
       !staleRunningIntentWithoutActiveRootRun &&
       !retryingPlanningBlocker)
   ) {
@@ -260,7 +260,7 @@ export function planStartProjectPrecondition(input: {
         message: 'Project runtime is already running or paused.',
         nextAction: 'Use stop_project to stop current intent, or resume/unpause before starting again.',
         currentState: {
-          intent: input.state.runtime_intent?.status ?? 'stopped',
+          intent: input.state.runtime_intent.status,
           paused: input.state.paused,
           activeRunId: openRootRun?.run_id ?? null,
         },
@@ -357,8 +357,8 @@ export function observeRuntimeStateInvariants(input: {
   if (readCard) {
     const cardIds = new Set<string>();
     if (currentCardId) cardIds.add(currentCardId);
-    for (const activation of state.runtime_activations ?? []) cardIds.add(activation.child_card_id);
-    for (const run of state.runtime_runs ?? []) cardIds.add(run.card_id);
+    for (const activation of state.runtime_activations) cardIds.add(activation.child_card_id);
+    for (const run of state.runtime_runs) cardIds.add(run.card_id);
     for (const cardId of cardIds) {
       const card = readCard(cardId);
       if (!card) continue;
@@ -374,7 +374,7 @@ export function observeRuntimeStateInvariants(input: {
     }
   }
 
-  for (const activation of state.runtime_activations ?? []) {
+  for (const activation of state.runtime_activations) {
     const outcome = activation.outcome ?? null;
     if (activation.status === 'needs_verification' && outcome?.kind !== 'paused') {
       observations.push({ invariant: 'I7', key: activation.activation_id, details: { activationId: activation.activation_id, status: activation.status, outcome } });
@@ -390,7 +390,7 @@ export function observeRuntimeStateInvariants(input: {
     }
   }
 
-  for (const run of state.runtime_runs ?? []) {
+  for (const run of state.runtime_runs) {
     const outcome = run.outcome ?? null;
     if (run.phase === 'needs_verification' && outcome?.kind !== 'paused') {
       observations.push({ invariant: 'I8', key: run.run_id, details: { runId: run.run_id, phase: run.phase, outcome } });
@@ -505,13 +505,13 @@ export function planIdleRunningRootRunReconciliation(input: {
   const { state, projectTerminal, nowIso } = input;
   const outcome = input.projectLifecycle ? runtimeRunOutcomeFromLifecycle(input.projectLifecycle) : null;
   if (
-    (state.runtime_intent?.status ?? 'stopped') !== 'running' ||
+    (state.runtime_intent.status) !== 'running' ||
     state.status !== 'idle' ||
     (state.active_card_run ?? null) !== null
   ) {
     return null;
   }
-  const openRuns = (state.runtime_runs ?? []).filter((run) => run.runtime_status === 'running' && !run.finished_at);
+  const openRuns = (state.runtime_runs).filter((run) => run.runtime_status === 'running' && !run.finished_at);
   if (openRuns.length === 0) {
     if (!projectTerminal) return null;
     return {
@@ -519,7 +519,7 @@ export function planIdleRunningRootRunReconciliation(input: {
       statePatch: {
         runtime_intent: {
           status: 'stopped',
-          source_command_id: state.runtime_intent?.source_command_id ?? null,
+          source_command_id: state.runtime_intent.source_command_id,
           updated_at: nowIso,
           reason: 'Reconciled running runtime intent to expected idle because the project card is terminal and no active card run exists.',
         },
@@ -568,9 +568,9 @@ export function planProjectRootRedispatch(input: {
   if (state.paused) return { shouldRedispatch: false };
   if (state.status !== 'idle') return { shouldRedispatch: false };
   if ((state.active_card_run ?? null) !== null) return { shouldRedispatch: false };
-  const intentStatus = state.runtime_intent?.status ?? 'stopped';
+  const intentStatus = state.runtime_intent.status;
   if (intentStatus !== 'running') return { shouldRedispatch: false };
-  const rootRuns = (state.runtime_runs ?? []).filter((run) => run.kind === 'root' && run.card_id === projectCardId);
+  const rootRuns = (state.runtime_runs).filter((run) => run.kind === 'root' && run.card_id === projectCardId);
   const openRootRun = rootRuns.find((run) => !run.finished_at);
   if (openRootRun) return { shouldRedispatch: true, cardId: projectCardId, reason: 'open_root_run' };
   const latestRootRun = rootRuns.slice().sort((a, b) => (b.updated_at ?? '').localeCompare(a.updated_at ?? ''))[0];
@@ -649,7 +649,7 @@ export function reduceActivationCompletion(
       ? { ...activation, status: terminalStatus as typeof activation.status, updated_at: nowIso, ...(activationOutcome ? { outcome: activationOutcome } : {}) }
       : activation,
   );
-  const runs = (currentState.runtime_runs ?? []).map((run) =>
+  const runs = currentState.runtime_runs.map((run) =>
     run.card_id === childCardId &&
     (completedRunIds.has(run.run_id) || completedActivationIds.has(run.activation_id ?? '')) &&
     !run.finished_at
@@ -703,7 +703,7 @@ function findParentPlannerRunForResumption(
   const parentCardId = completedActivation.parent_card_id;
   const parentSessionId = completedActivation.parent_session_id;
   const parentRunId = completedActivation.parent_run_id;
-  const candidates = (state.runtime_runs ?? []).filter(
+  const candidates = (state.runtime_runs).filter(
     (run) =>
       run.card_id === parentCardId &&
       run.phase === 'planner' &&

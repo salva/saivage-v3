@@ -54,10 +54,10 @@ export function shouldRestartRunningIntentOnStartup(input: {
   projectHasBlockedPlanning: boolean;
 }): boolean {
   return (
-    (input.state.runtime_intent?.status ?? 'stopped') === 'running' &&
+    input.state.runtime_intent.status === 'running' &&
     input.state.status === 'idle' &&
     (input.state.active_card_run ?? null) === null &&
-    (input.state.runtime_runs ?? []).every((run) => run.kind !== 'root' || Boolean(run.finished_at)) &&
+    input.state.runtime_runs.every((run) => run.kind !== 'root' || Boolean(run.finished_at)) &&
     !input.projectHasBlockedPlanning
   );
 }

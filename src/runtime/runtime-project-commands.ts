@@ -183,7 +183,7 @@ export class RuntimeProjectCommandRunner {
       success: true,
       command: completedCommand,
       intent: persisted.runtime_intent,
-      run: (persisted.runtime_runs ?? []).find((item) => item.run_id === run.run_id) ?? run,
+      run: persisted.runtime_runs.find((item) => item.run_id === run.run_id) ?? run,
     };
   }
 
@@ -225,7 +225,7 @@ export class RuntimeProjectCommandRunner {
     const persisted = readRuntimeState(this.deps.projectRoot) ?? current;
     const stoppedRun =
       stoppedRunIds.length > 0
-        ? (persisted.runtime_runs ?? []).find((item) => item.run_id === stoppedRunIds[0])
+        ? persisted.runtime_runs.find((item) => item.run_id === stoppedRunIds[0])
         : undefined;
     return {
       success: true,

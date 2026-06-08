@@ -52,7 +52,7 @@ export function validateReviewerAssessment(input: {
     if (evidenceId !== goalId && card.status !== 'done') {
       return { valid: false, reason: `Reviewer cited non-complete evidence card '${evidenceId}' with status '${card.status}'.` };
     }
-    if ((card.artifacts?.length ?? 0) === 0 && (card.attachments?.length ?? 0) === 0 && !card.lifecycle.result) {
+    if (card.artifacts.length === 0 && card.attachments.length === 0 && !card.lifecycle.result) {
       return { valid: false, reason: `Reviewer cited card '${evidenceId}' without durable result, artifact, or attachment evidence.` };
     }
   }
