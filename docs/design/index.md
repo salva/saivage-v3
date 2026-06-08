@@ -14,6 +14,7 @@ Use these pages for design-era context. For current operator behavior, start wit
 - [Terminal Commit Layer](./terminal-commit-layer.md)
 - [Duplicate Child Block Fix](./duplicate-child-block-fix.md)
 - [Over-Engineering Findings](./over-engineering-findings.md)
+- [Over-Engineering Remediation Plan](./over-engineering-remediation-plan.md)
 - [Security](./security.md)
 - [Configuration](./configuration.md)
 - [Skills](./skills.md)
