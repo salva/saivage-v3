@@ -34,7 +34,7 @@ describe('executor completion handler', () => {
       }),
     });
 
-    expect(result).toEqual({ transitioned: true, executedTerminal: true, failed: false, outcome: 'done' });
+    expect(result).toEqual({ executedTerminal: true, failed: false, outcome: 'done' });
     expect(calls).toEqual([`executor_finish:code-a:done`, `update:${completedAt}`, 'unwind:code-a:done']);
   });
 
@@ -62,7 +62,7 @@ describe('executor completion handler', () => {
       }),
     });
 
-    expect(result).toEqual({ transitioned: true, executedTerminal: true, failed: true, outcome: 'failed' });
+    expect(result).toEqual({ executedTerminal: true, failed: true, outcome: 'failed' });
     expect(calls).toEqual([
       'executor_finish:code-a:failed:evidence_registration_failed',
       'update:registration failed',
@@ -110,7 +110,7 @@ describe('executor completion handler', () => {
       }),
     });
 
-    expect(result).toEqual({ transitioned: true, executedTerminal: false, failed: false, outcome: 'needs_verification' });
+    expect(result).toEqual({ executedTerminal: false, failed: false, outcome: 'needs_verification' });
     expect(calls).toEqual(['executor_partial_finish:code-a:needs_verification:fallback_with_evidence:parse_failure', 'update:needs_verification:null:null']);
   });
 });

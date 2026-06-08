@@ -40,10 +40,7 @@ export class PlannerActivationRunner {
       throw new Error(`Goal '${goalId}' is in status '${currentStatus}' which is neither startable nor restartable.`);
     }
     if (activationTransition.action === 'start' || activationTransition.action === 'restart') {
-      const transitioned = await this.deps.stateMachine.transitionCard(goalId, activationTransition.action, { goalId });
-      if (!transitioned) {
-        throw new Error(`Goal '${goalId}' could not be transitioned via ${activationTransition.action} from status '${currentStatus}'.`);
-      }
+      await this.deps.stateMachine.transitionCard(goalId, activationTransition.action, { goalId });
     }
     const refreshed = this.deps.cards.read(goalId);
     if (!refreshed) throw new Error(`Goal '${goalId}' disappeared during activation.`);

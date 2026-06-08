@@ -3,7 +3,7 @@ import { lifecycleCardPatch } from './lifecycle-patch.js';
 import { generatedFileValidationErrors, validateGeneratedFiles, validateTerminalOverlay } from './validators.js';
 
 export interface TerminalCommitEffects {
-  transitionCard(cardId: string, event: string, details: Record<string, unknown>): Promise<boolean | unknown> | boolean | unknown;
+  transitionCard(cardId: string, event: string, details: Record<string, unknown>): Promise<unknown> | unknown;
   updateCard(cardId: string, patch: Partial<CardRecord>): Promise<unknown> | unknown;
 }
 
@@ -42,7 +42,7 @@ export async function commitExecutorSuccess(input: {
   };
   const lifecycle = { status: 'done', result, error: null, completed_at: input.completedAt } satisfies Extract<CardLifecycleState, { status: 'done' }>;
   assertNoTerminalOverlayErrors(input.card, lifecycle);
-  await transitionOrThrow(input.effects.transitionCard(input.card.id, 'executor_finish', { goalId: input.goalId, finalStatus: 'done' }));
+  await input.effects.transitionCard(input.card.id, 'executor_finish', { goalId: input.goalId, finalStatus: 'done' });
   const patch: Partial<CardRecord> = { ...lifecycleCardPatch(lifecycle), status_text: input.statusText, status_text_updated_at: input.acceptedAt, status_text_author_session_id: input.sessionId, latest_self_report: latestSelfReport as unknown as Record<string, unknown> };
   await input.effects.updateCard(input.card.id, patch);
   return { lifecycle, result, patch };
@@ -65,7 +65,7 @@ export async function commitExecutorFailure(input: {
   const result: ExecutorFailureResult = { kind: 'executor_failure', error: input.error, partial_result: input.partialResult, latest_self_report: latestSelfReport };
   const lifecycle = { status: 'failed', result, error: input.error, completed_at: input.completedAt } satisfies Extract<CardLifecycleState, { status: 'failed' }>;
   assertNoTerminalOverlayErrors(input.card, lifecycle);
-  await transitionOrThrow(input.effects.transitionCard(input.card.id, 'executor_finish', { goalId: input.goalId, finalStatus: 'failed', reason: input.transitionReason }));
+  await input.effects.transitionCard(input.card.id, 'executor_finish', { goalId: input.goalId, finalStatus: 'failed', reason: input.transitionReason });
   const patch: Partial<CardRecord> = { ...lifecycleCardPatch(lifecycle), status_text: input.statusText, status_text_updated_at: input.acceptedAt, status_text_author_session_id: input.sessionId ?? null, latest_self_report: latestSelfReport as unknown as Record<string, unknown> };
   await input.effects.updateCard(input.card.id, patch);
   return { lifecycle, result, patch };
@@ -89,7 +89,7 @@ export async function commitExecutorInvocationFailure(input: {
   };
   const lifecycle = { status: 'failed', result, error: input.error, completed_at: input.at } satisfies Extract<CardLifecycleState, { status: 'failed' }>;
   assertNoTerminalOverlayErrors(input.card, lifecycle);
-  await transitionOrThrow(input.effects.transitionCard(input.card.id, 'fail', { reason: input.reason, error: input.error, goalId: input.goalId }));
+  await input.effects.transitionCard(input.card.id, 'fail', { reason: input.reason, error: input.error, goalId: input.goalId });
   const patch: Partial<CardRecord> = {
     ...lifecycleCardPatch(lifecycle),
     status_text: input.error,
@@ -117,14 +117,10 @@ export async function commitExecutorParkedVerification(input: {
   const result: ExecutorNeedsVerificationResult = { kind: 'executor_needs_verification', reason: input.reason, preserved_result: input.preservedResult, fallback_reason: input.fallbackReason, latest_self_report: latestSelfReport };
   const lifecycle = { status: 'needs_verification', result, error: null, completed_at: null } satisfies Extract<CardLifecycleState, { status: 'needs_verification' }>;
   assertNoTerminalOverlayErrors(input.card, lifecycle);
-  await transitionOrThrow(input.effects.transitionCard(input.card.id, 'executor_partial_finish', { goalId: input.goalId, finalStatus: 'needs_verification', reason: input.reason }));
+  await input.effects.transitionCard(input.card.id, 'executor_partial_finish', { goalId: input.goalId, finalStatus: 'needs_verification', reason: input.reason });
   const patch: Partial<CardRecord> = { ...lifecycleCardPatch(lifecycle), status_text: input.statusText, status_text_updated_at: input.acceptedAt, status_text_author_session_id: input.sessionId ?? null, latest_self_report: latestSelfReport as unknown as Record<string, unknown> };
   await input.effects.updateCard(input.card.id, patch);
   return { lifecycle, result, patch };
-}
-
-async function transitionOrThrow(result: Promise<boolean | unknown> | boolean | unknown): Promise<void> {
-  if (await result === false) throw new Error('Terminal commit transition was rejected.');
 }
 
 function selfReport(result: string, summary: string, statusText: string, at: string): SelfReport {

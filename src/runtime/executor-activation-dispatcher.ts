@@ -51,14 +51,12 @@ export class ExecutorActivationDispatcher {
     if (!callerEdge) throw new Error(`Activation '${activation.activation_id}' for '${card.id}' has no caller edge.`);
     const startAction = selectActivationStartAction(card.status, 'executor');
     if (startAction.action === 'reject') return { executedTerminal: false, failed: true };
-    const transitioned =
-      startAction.action === 'none'
-        ? true
-        : await this.deps.stateMachine.transitionCard(card.id, startAction.action, {
-            goalId,
-            reason: 'pending_activation_dispatch',
-          });
-    if (!transitioned) return { executedTerminal: false, failed: true };
+    if (startAction.action !== 'none') {
+      await this.deps.stateMachine.transitionCard(card.id, startAction.action, {
+        goalId,
+        reason: 'pending_activation_dispatch',
+      });
+    }
 
     this.deps.mutations.apply({
       kind: 'patchRuntimeState',
@@ -158,7 +156,7 @@ export class ExecutorActivationDispatcher {
     });
     return {
       executedTerminal: completion.executedTerminal,
-      failed: !completion.transitioned || completion.failed,
+      failed: completion.failed,
     };
   }
 

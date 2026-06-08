@@ -17,7 +17,7 @@ export async function commitReviewerPass(input: {
   const lifecycle = { status: 'done', result, error: null, completed_at: input.completedAt } satisfies Extract<CardLifecycleState, { status: 'done' }>;
   assertNoTerminalOverlayErrors(input.card, lifecycle);
   if (input.card.status !== 'done') {
-    await transitionOrThrow(input.effects.transitionCard(input.card.id, 'complete', input.transitionDetails ?? { assessment_id: input.assessmentId }));
+    await input.effects.transitionCard(input.card.id, 'complete', input.transitionDetails ?? { assessment_id: input.assessmentId });
   }
   const patch = { ...lifecycleCardPatch(lifecycle), status_text: input.reviewSummary };
   await input.effects.updateCard(input.card.id, patch);
@@ -43,15 +43,11 @@ export async function commitReviewerInvocationFailure(input: {
   } satisfies Extract<CardLifecycleState, { status: 'blocked' }>;
   assertNoTerminalOverlayErrors(input.card, lifecycle);
   if (input.card.status !== 'blocked') {
-    await transitionOrThrow(input.effects.transitionCard(input.card.id, 'block', { blocked_reason: input.blockedReason }));
+    await input.effects.transitionCard(input.card.id, 'block', { blocked_reason: input.blockedReason });
   }
   const patch: Partial<CardRecord> = { ...lifecycleCardPatch(lifecycle), status_text: input.blockedReason };
   await input.effects.updateCard(input.card.id, patch);
   return { lifecycle, result, patch };
-}
-
-async function transitionOrThrow(result: Promise<boolean | unknown> | boolean | unknown): Promise<void> {
-  if (await result === false) throw new Error('Terminal commit transition was rejected.');
 }
 
 function assertNoTerminalOverlayErrors(card: CardRecord, lifecycle: CardLifecycleState): void {

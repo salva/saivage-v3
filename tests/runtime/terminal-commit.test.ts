@@ -154,9 +154,9 @@ describe('terminal commit functions', () => {
     expect(fx.transitions[0]).toEqual(expect.objectContaining({ event: 'executor_partial_finish' }));
   });
 
-  it('throws and does not write when a terminal transition is rejected', async () => {
+  it('propagates a thrown transition and does not write', async () => {
     const fx = effects();
-    fx.transitionCard = async () => false;
+    fx.transitionCard = async () => { throw new Error('transition rejected by state machine'); };
 
     await expect(commitExecutorSuccess({
       projectRoot: process.cwd(),
@@ -170,7 +170,7 @@ describe('terminal commit functions', () => {
       statusText: 'done',
       sessionId: 'executor-card-a',
       effects: fx,
-    })).rejects.toThrow('Terminal commit transition was rejected.');
+    })).rejects.toThrow('transition rejected by state machine');
     expect(fx.patches).toEqual([]);
   });
 

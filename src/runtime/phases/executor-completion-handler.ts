@@ -29,7 +29,7 @@ export async function handleExecutorCompletion(input: {
   ignoredArtifactRegistrations?: string[];
   ignoredAttachmentRegistrations?: string[];
   effects: ExecutorCompletionEffects;
-}): Promise<{ transitioned: boolean; executedTerminal: boolean; failed: boolean; outcome: ActivationCompletionOutcome | null }> {
+}): Promise<{ executedTerminal: boolean; failed: boolean; outcome: ActivationCompletionOutcome | null }> {
   const outcomeDecision = decideExecutorOutcome({ execResult: input.execResult, registrationFailed: input.registrationFailed });
   const outcome = outcomeDecision.outcome;
   const latestCard = input.effects.readCard(input.cardId);
@@ -80,7 +80,7 @@ export async function handleExecutorCompletion(input: {
   input.effects.recordChildActivationLifecycle?.(input.cardId, receipt.lifecycle);
 
   if (outcome === 'needs_verification') {
-    return { transitioned: true, executedTerminal: false, failed: false, outcome };
+    return { executedTerminal: false, failed: false, outcome };
   }
   input.effects.appendChildUnwindToolResult(
     input.cardId,
@@ -89,9 +89,9 @@ export async function handleExecutorCompletion(input: {
   );
   if (outcome === 'failed') {
     input.effects.emitCardFailed(input.cardId, input.goalId);
-    return { transitioned: true, executedTerminal: true, failed: true, outcome };
+    return { executedTerminal: true, failed: true, outcome };
   }
-  return { transitioned: true, executedTerminal: true, failed: false, outcome };
+  return { executedTerminal: true, failed: false, outcome };
 }
 
 function executorResultPayload(execResult: ExecutorResult): Record<string, unknown> {
