@@ -72,7 +72,7 @@ function makeDeps(card: CardRecord): PlannerIterationRunnerDeps {
     } as unknown as AgentExecutionPort,
     skillsEngine: () => null,
     goalContext: {
-      buildGoalContextBlock: jest.fn(() => '## Goal Context\ncontext'),
+      buildPlannerGoalContext: jest.fn(() => ({ resumeReason: 'initial', goalContext: '## Goal Context\ncontext' })),
       inferResumeReason: jest.fn(() => 'initial'),
       injectQueuedPlannerNotes: jest.fn(),
     } as unknown as PlannerIterationRunnerDeps['goalContext'],

@@ -11,8 +11,7 @@ export interface PlannerPhaseRunnerDeps {
   maxDepth: number;
   readGoalCard(goalId: string): CardRecord | null | undefined;
   buildGoalEvidenceContext(goalId: string): string;
-  buildGoalContextBlock(goalId: string, resumeReason: GoalResumeReason): string;
-  inferResumeReason(goalId: string, fallback: GoalResumeReason): GoalResumeReason;
+  buildPlannerGoalContext(goalId: string, fallback: GoalResumeReason): { resumeReason: GoalResumeReason; goalContext: string };
   injectSyntheticPlannerNotes(goalId: string): void;
   activationBarrier?: PlannerActivationBarrier;
 }
@@ -25,8 +24,7 @@ export class PlannerPhaseRunner {
     const currentDepth = goalCard?.depth;
     const plannerContract = createPlannerContract();
     const resumeContext = this.deps.buildGoalEvidenceContext(input.goalId);
-    const resumeReason = this.deps.inferResumeReason(input.goalId, input.iteration === 0 ? 'initial' : 'reviewer_correction');
-    const goalContext = this.deps.buildGoalContextBlock(input.goalId, resumeReason);
+    const { goalContext } = this.deps.buildPlannerGoalContext(input.goalId, input.iteration === 0 ? 'initial' : 'reviewer_correction');
     let plannerPrompt = buildPlannerPrompt(plannerContract, undefined, currentDepth, this.deps.maxDepth);
     plannerPrompt += `\n\n${goalContext}\n\n## Parent Resume Context\n${resumeContext}`;
     try {

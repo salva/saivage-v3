@@ -37,9 +37,8 @@ export function createRuntimePauseResumeController(deps: RuntimePauseResumeContr
           deps.goalContext.appendPlannerResumeContext(
             state.active_card_run.card_id,
             plannerSessionId,
-            deps.goalContext.inferResumeReason(state.active_card_run.card_id),
+            'service_restart',
           );
-          deps.goalContext.injectQueuedPlannerNotes(plannerSessionId);
         }
       } catch { void 0; }
     },

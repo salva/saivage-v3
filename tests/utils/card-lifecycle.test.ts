@@ -66,6 +66,12 @@ describe('card lifecycle domain rules', () => {
     expect(() => validateTransition('backlog', 'done')).toThrow(/Invalid transition: backlog/);
   });
 
+  it('allows terminal cards to become changed', () => {
+    expect(canTransition('done', 'changed')).toBe(true);
+    expect(canTransition('failed', 'changed')).toBe(true);
+    expect(canTransition('cancelled', 'changed')).toBe(true);
+  });
+
   it('owns terminal type and state predicates', () => {
     expect(isTerminalType('code')).toBe(true);
     expect(isTerminalType('goal')).toBe(false);

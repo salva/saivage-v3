@@ -1,9 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { writeFileSyncDurable } from '../persistence/index.js';
-import { appendMessage, findPlannerSessionForCard, getSession, listSessions } from './session-persistence.js';
+import { findPlannerSessionForCard, getSession, listSessions } from './session-persistence.js';
 import type { RoundStamp } from './session-stamper.js';
-import type { AgentSession, CardRecord } from '../schemas/index.js';
+import type { AgentSession, CardRecord, CardStatus } from '../schemas/index.js';
 import type { CardStore } from '../cards/store-api.js';
 import { now } from '../utils/clock.js';
 
@@ -15,6 +15,7 @@ export interface SyntheticPlannerNote {
   affected_card_id: string;
   descendant_card_ids: string[];
   summary: string;
+  previous_status?: CardStatus;
   created_at: string;
 }
 
@@ -30,7 +31,7 @@ function contains(store: CardStore, goalId: string, affectedCardId: string): boo
   return goalId === affectedCardId || store.getDescendantIds(goalId).includes(affectedCardId);
 }
 
-export function findDeepestContainingPlanner(projectRoot: string, store: CardStore, affectedCardId: string): { session: AgentSession; goalId: string } | null {
+export function findContainingPlannerChain(projectRoot: string, store: CardStore, affectedCardId: string): Array<{ session: AgentSession; goalId: string }> {
   const sessions = listSessions(saivageDir(projectRoot))
     .map((id) => getSession(saivageDir(projectRoot), id))
     .filter((session): session is AgentSession => Boolean(session && session.role === 'planner' && session.goal_card_id));
@@ -38,15 +39,20 @@ export function findDeepestContainingPlanner(projectRoot: string, store: CardSto
     .map((session) => ({ session, goalId: session.goal_card_id as string, card: store.read(session.goal_card_id as string) }))
     .filter((entry): entry is { session: AgentSession; goalId: string; card: CardRecord } => Boolean(entry.card && contains(store, entry.goalId, affectedCardId)))
     .sort((a, b) => b.card.depth - a.card.depth);
-  if (candidates[0]) return { session: candidates[0].session, goalId: candidates[0].goalId };
-  const ancestors = [affectedCardId, ...store.getAncestors(affectedCardId)];
+  if (candidates.length > 0) return candidates.map(({ session, goalId }) => ({ session, goalId }));
+  const ancestors = [affectedCardId, ...store.getAncestors(affectedCardId).reverse()];
+  const chain: Array<{ session: AgentSession; goalId: string }> = [];
   for (const id of ancestors) {
     const card = store.read(id);
     if (!card || (card.type !== 'goal' && card.type !== 'project')) continue;
     const session = findPlannerSessionForCard(saivageDir(projectRoot), id);
-    if (session) return { session, goalId: id };
+    if (session) chain.push({ session, goalId: id });
   }
-  return null;
+  return chain;
+}
+
+export function findDeepestContainingPlanner(projectRoot: string, store: CardStore, affectedCardId: string): { session: AgentSession; goalId: string } | null {
+  return findContainingPlannerChain(projectRoot, store, affectedCardId)[0] ?? null;
 }
 
 export function queueSyntheticPlannerNote(projectRoot: string, input: Omit<SyntheticPlannerNote, 'id' | 'created_at'>): SyntheticPlannerNote | null {
@@ -68,6 +74,10 @@ export function drainSyntheticPlannerNotes(projectRoot: string, plannerSessionId
   return drained;
 }
 
+export function peekSyntheticPlannerNotes(projectRoot: string, plannerSessionId: string): SyntheticPlannerNote[] {
+  return readSyntheticQueue(projectRoot).notes.filter((note) => note.target_planner_session_id === plannerSessionId);
+}
+
 export function discardSubtreeChangedSyntheticNotes(projectRoot: string, affectedCardId: string): number {
   const queue = readSyntheticQueue(projectRoot);
   const before = queue.notes.length;
@@ -77,16 +87,10 @@ export function discardSubtreeChangedSyntheticNotes(projectRoot: string, affecte
 }
 
 export function injectQueuedSyntheticPlannerNotes(projectRoot: string, plannerSessionId: string, sessionStamper: { stampUserMessage(sessionId: string): RoundStamp }): number {
-  const queue = readSyntheticQueue(projectRoot);
-  const pending = queue.notes.filter((note) => note.target_planner_session_id === plannerSessionId);
-  if (pending.length === 0) return 0;
-  const lines = ['## Synthetic runtime notes since your last turn', '', ...pending.map((note) => `- ${note.kind} for ${note.affected_card_id}: ${note.summary}${note.descendant_card_ids.length ? ` (descendant_card_ids: ${note.descendant_card_ids.join(', ')})` : ''}`)];
-  appendMessage(saivageDir(projectRoot), plannerSessionId, { role: 'user', kind: 'text', content: lines.join('\n') }, sessionStamper.stampUserMessage(plannerSessionId));
-  const injectedIds = new Set(pending.map((note) => note.id));
-  const after = readSyntheticQueue(projectRoot);
-  after.notes = after.notes.filter((note) => !injectedIds.has(note.id));
-  writeSyntheticQueue(projectRoot, after);
-  return pending.length;
+  void projectRoot;
+  void plannerSessionId;
+  void sessionStamper;
+  return 0;
 }
 
 export function consumeChangedCardActivation(projectRoot: string, cardId: string): number {

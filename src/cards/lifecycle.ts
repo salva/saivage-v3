@@ -74,9 +74,9 @@ const VALID_TRANSITIONS: Record<CardStatus, CardStatus[]> = {
   running: ['done', 'failed', 'blocked', 'changed', 'cancelled', 'backlog', 'needs_verification'],
   blocked: ['backlog', 'running', 'changed', 'cancelled'],
   changed: ['backlog', 'running', 'cancelled'],
-  done: ['backlog', 'cancelled'],
-  failed: ['backlog', 'cancelled'],
-  cancelled: ['backlog'],
+  done: ['backlog', 'cancelled', 'changed'],
+  failed: ['backlog', 'cancelled', 'changed'],
+  cancelled: ['backlog', 'changed'],
   needs_verification: ['cancelled'],
 };
 

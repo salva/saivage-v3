@@ -665,12 +665,13 @@ type GoalContextNote =
   | {
       kind: 'subtree_changed';
       descendant_card_ids: string[];
+      previous_status?: CardStatus;
       body: string;
       at: string;
     }
   | { kind: 'subtree_not_ready'; reasons: SubtreeReadinessReason[]; at: string }
   | { kind: 'reviewer_interrupted'; assessment_id: string; at: string }
-  | { kind: 'analyst_note'; body: string; at: string };
+  | { kind: 'analyst_note'; previous_status?: CardStatus; body: string; at: string };
 
 type LatestSelfReport = {
   result: 'done' | 'failed' | 'blocked';

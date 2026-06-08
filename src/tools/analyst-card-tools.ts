@@ -7,7 +7,8 @@ import { deriveCurrentCardId } from '../runtime/current-run.js';
 import { readRuntimeState } from '../runtime/state-api.js';
 import { processApi } from '../runtime/process-api.js';
 import { decide } from '../permissions/index.js';
-import { markGoalNeedsCorrections, normalizeAnalystIssues, notifyPlannerOfAnalystAction } from '../agents/analyst-stage6.js';
+import { markGoalNeedsCorrections, normalizeAnalystIssues } from '../agents/analyst-stage6.js';
+import { propagateChange } from '../runtime/changed-propagation.js';
 import { orderedCardsForTree, toCardView, computeCardDisplayPath } from '../application/read-models/card-view.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import {
@@ -120,7 +121,9 @@ export async function edit_card(ctx: ToolContext, params: { id: string } & Recor
       for (const [key, value] of Object.entries(params)) { if (key === 'id') continue; if (ALLOWED_EDIT_FIELDS.has(key)) changes[key] = value; else rejected.push(key); }
       if (Object.keys(changes).length === 0) return toolFailure('validation', `edit_card failed: no allowed fields to update. Rejected fields: ${rejected.join(', ') || '(none)'}. Allowed fields include: ${Array.from(ALLOWED_EDIT_FIELDS).join(', ')}. See the 'edit_card' tool's parameter schema.`, { rejected });
       const updated = store.mutateCard(params.id, changes as Partial<CardRecord>, { actor: ctx.actor, surface: ctx.surface, reason: 'analyst edit' });
-      try { notifyPlannerOfAnalystAction(ctx.projectRoot, store, params.id, `analyst edited card fields: ${Object.keys(changes).join(', ')}`); } catch { /* best-effort planner notification; edit result remains authoritative */ }
+      if (ctx.actor === 'analyst') {
+        try { propagateChange(ctx.projectRoot, store, params.id, { kind: 'analyst_edit', summary: `analyst edited card fields: ${Object.keys(changes).join(', ')}` }); } catch { /* best-effort planner notification; edit result remains authoritative */ }
+      }
       return { success: true, data: updated };
     } catch (err) { return toolFailureFromError(err, 'validation', humanizeToolError('edit_card', err instanceof Error ? err.message : String(err))); }
   } });

@@ -91,9 +91,7 @@ exports[`tool-definition-serializer snapshots Chat wire shape for sample catalog
           "status": {
             "description": "Optional initial planner status.",
             "enum": [
-              "drafting",
               "backlog",
-              "active",
               "running",
               "blocked",
               "changed",
@@ -258,9 +256,7 @@ exports[`tool-definition-serializer snapshots Codex wire shape for sample catalo
         "status": {
           "description": "Optional initial planner status.",
           "enum": [
-            "drafting",
             "backlog",
-            "active",
             "running",
             "blocked",
             "changed",

@@ -14,6 +14,7 @@ import { CardStore } from '../cards/store-api.js';
 import { recordControlAction, stableStringify } from '../persistence/index.js';
 import { queueNotification } from '../notifications/index.js';
 import type { CardMutationContext } from '../cards/store-api.js';
+import { isTerminalState } from '../cards/lifecycle.js';
 import { lifecycleCardPatch } from '../runtime/terminal-commit/lifecycle-patch.js';
 import { findDeepestContainingPlanner, queueSyntheticPlannerNote } from '../runtime/synthetic-planner-notes.js';
 
@@ -26,9 +27,9 @@ export type PlannerToolErrorKind =
   | 'reviewer_invocation_failed';
 
 export type SubtreeReadinessReason = {
-  kind: 'descendant_blocking';
+  kind: 'descendant_not_terminal';
   card_id: string;
-  status: 'blocked' | 'changed';
+  status: CardStatus;
 };
 
 export class PlannerToolError extends Error {
@@ -193,9 +194,9 @@ function collectSubtreeReadinessReasons(
   const reasons: SubtreeReadinessReason[] = [];
   for (const descendantId of store.getDescendantIds(goalId)) {
     const descendant = requireCard(store, descendantId);
-    if (descendant.status === 'blocked' || descendant.status === 'changed') {
+    if (!isTerminalState(descendant.status)) {
       reasons.push({
-        kind: 'descendant_blocking',
+        kind: 'descendant_not_terminal',
         card_id: descendantId,
         status: descendant.status,
       });
@@ -231,16 +232,16 @@ export class PlannerToolsService {
 
   cancelCard(cardId: string): CardRecord {
     const card = requireCard(this.store, cardId);
-    if (!decide({ role: 'planner', action: 'card.cancel', targetState: card.status }).allowed) {
-      throw new PlannerToolError(
-        'invalid_card_status',
-        `Card '${cardId}' in status '${card.status}' cannot be cancelled.`,
-      );
-    }
     if (subtreeContainsActiveLeaf(this.store, this.runtimeStateProvider?.() ?? null, cardId)) {
       throw new PlannerToolError(
         'card_already_active',
         `Card '${cardId}' cannot be cancelled while its subtree contains the active runtime leaf.`,
+      );
+    }
+    if (!decide({ role: 'planner', action: 'card.cancel', targetState: card.status }).allowed) {
+      throw new PlannerToolError(
+        'invalid_card_status',
+        `Card '${cardId}' in status '${card.status}' cannot be cancelled.`,
       );
     }
     const updated = this.store.setStatus(cardId, 'cancelled');
@@ -418,7 +419,7 @@ export class PlannerToolsService {
       if (reasons.length > 0) {
         throw new PlannerToolError(
           'subtree_not_ready',
-          `Goal '${goalId}' cannot be reported done while descendants are blocked or changed.`,
+          `Goal '${goalId}' cannot be reported done while descendants are non-terminal.`,
           { reasons },
         );
       }

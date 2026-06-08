@@ -49,8 +49,7 @@ export class PlannerIterationRunner {
         maxDepth: this.deps.cards.maxDepth,
         readGoalCard: (cardId) => this.deps.cards.read(cardId),
         buildGoalEvidenceContext: (cardId) => buildGoalEvidenceContext({ goalId: cardId, cards: this.deps.cards }),
-        buildGoalContextBlock: (cardId, resumeReason) => this.deps.goalContext.buildGoalContextBlock(cardId, resumeReason),
-        inferResumeReason: (cardId, fallback) => this.deps.goalContext.inferResumeReason(cardId, fallback),
+        buildPlannerGoalContext: (cardId, fallback) => this.deps.goalContext.buildPlannerGoalContext(cardId, fallback),
         injectSyntheticPlannerNotes: (cardId) => {
           this.deps.goalContext.injectQueuedPlannerNotes(`planner:${cardId}`);
         },

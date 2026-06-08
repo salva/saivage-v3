@@ -36,8 +36,7 @@ describe('PlannerPhaseRunner', () => {
         tags: ['runtime'],
       }) as unknown as CardRecord,
       buildGoalEvidenceContext: () => '{"children":[]}',
-      buildGoalContextBlock: () => '## Goal Context\ncontext',
-      inferResumeReason: () => 'initial',
+      buildPlannerGoalContext: () => ({ resumeReason: 'initial', goalContext: '## Goal Context\ncontext' }),
       injectSyntheticPlannerNotes: () => {
         injected = true;
       },
