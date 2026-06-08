@@ -26,7 +26,7 @@ describe('EventsReadModelService', () => {
       logger.appendEvent({ kind: 'started', id: 'evt-started', timestamp, project_root: projectRoot });
       logger.appendEvent({ kind: 'session_started', id: 'evt-session-1', timestamp, session_id: 'planner:goal-1', role: 'planner', goal_id: 'goal-1', card_id: 'goal-1' });
       logger.appendEvent({ kind: 'session_started', id: 'evt-session-2', timestamp, session_id: 'executor:card-1', role: 'executor', goal_id: 'goal-1', card_id: 'card-1' });
-      logger.appendEvent({ kind: 'frozen', id: 'evt-frozen', timestamp, freeze_id: 'freeze-1', reason: 'operator requested freeze' });
+      logger.appendEvent({ kind: 'paused', id: 'evt-paused', timestamp });
     } finally {
       logger.close();
     }

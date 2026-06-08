@@ -107,7 +107,7 @@ GET    /api/runtime/status             Runtime status read model
 GET    /api/runtime/card-runs          Runtime card-run read model
 ```
 
-Runtime mutation controls are not exposed as generic operator HTTP routes in the current route inventory. CLI pause/resume remain local/runtime-backed controls; freeze manifests remain schema/persistence helpers only, and there is no generic HTTP freeze or resume-from-freeze route.
+Runtime mutation controls are not exposed as generic operator HTTP routes in the current route inventory. CLI pause/resume remain local/runtime-backed controls; the freeze concept (status, manifests, and routes) was removed entirely.
 
 ### Notifications
 

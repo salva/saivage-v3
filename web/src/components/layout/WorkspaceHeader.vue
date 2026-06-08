@@ -76,21 +76,18 @@ const runtimeChipTitle = computed(() => {
 const stateCueLabel = computed(() => {
   if (props.isUnauthorized) return 'Unauthorized';
   if (props.isStale) return 'Stale snapshot';
-  if (props.runtimeStatus === 'frozen') return 'Frozen';
   if (props.runtimeStatus === 'error') return 'Degraded';
   return null;
 });
 const stateCueDetail = computed(() => {
   if (props.isUnauthorized) return 'API and WebSocket access were rejected. Re-enter a valid token.';
   if (props.isStale) return 'You are viewing an older runtime snapshot. Refresh to resync authoritative REST state.';
-  if (props.runtimeStatus === 'frozen') return props.runtimeModeDetail || 'Runtime is frozen and needs operator attention.';
   if (props.runtimeStatus === 'error') return props.runtimeModeDetail || 'Runtime reported an error state.';
   return '';
 });
 const cueClass = computed(() => {
   if (props.isUnauthorized) return 'cue-unauthorized';
   if (props.isStale) return 'cue-stale';
-  if (props.runtimeStatus === 'frozen') return 'cue-frozen';
   if (props.runtimeStatus === 'error') return 'cue-degraded';
   return 'cue-neutral';
 });
@@ -199,10 +196,6 @@ const cueClass = computed(() => {
   color: var(--danger);
   border-color: var(--danger);
 }
-.rt-frozen {
-  color: var(--accent-2);
-  border-color: var(--accent-2);
-}
 
 .cue-chip.cue-no-token,
 .cue-chip.cue-stale {
@@ -213,10 +206,6 @@ const cueClass = computed(() => {
 .cue-chip.cue-degraded {
   color: var(--danger);
   border-color: var(--danger);
-}
-.cue-chip.cue-frozen {
-  color: var(--accent-2);
-  border-color: var(--accent-2);
 }
 
 </style>

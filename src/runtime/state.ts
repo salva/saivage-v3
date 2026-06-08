@@ -100,7 +100,6 @@ function defaultRuntimeState(): RuntimeState {
     paused_at: null,
     updated_at: now,
     last_tick_at: null,
-    frozen_reason: null,
     runtime_intent: { status: 'stopped', updated_at: now, source_command_id: null, reason: 'default stopped intent until explicit start_project command' },
     runtime_commands: [],
     runtime_runs: [],

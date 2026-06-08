@@ -59,9 +59,6 @@ function operatorErrorMessage(err: unknown): string {
     if (err.status === 503) {
       return 'Runtime control is unavailable because runtime state is not initialized. Start the runtime or restore runtime state first.';
     }
-    if (err.status === 400 && err.body.action === 'resume-from-freeze') {
-      return 'Runtime is frozen. Generic resume is blocked. Use the resume-from-freeze workflow to restore from the freeze manifest before resuming dispatch.';
-    }
     if (typeof err.message === 'string' && err.message.trim()) {
       return err.message;
     }

@@ -41,7 +41,7 @@ function legacyRuntimeState(overrides: Partial<RuntimeState> = {}): RuntimeState
     paused: true,
     paused_at: now,
     updated_at: now,
-    frozen_reason: null,
+    
     ...overrides,
   };
 }

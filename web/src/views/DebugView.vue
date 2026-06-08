@@ -17,21 +17,11 @@
         <template v-else>
           <section class="debug-section">
             <h4 class="debug-section-title">Runtime State</h4>
-            <div v-if="debugRuntime?.status === 'frozen'" class="freeze-banner">
-              <div class="freeze-banner-text">
-                <strong>❄ Runtime Frozen</strong>
-                <span class="freeze-reason">{{ debugRuntime.frozen_reason || 'No reason provided' }}</span>
-              </div>
-            </div>
             <div v-if="debugRuntime" class="debug-grid">
               <div class="debug-grid-item"><span class="dg-key">Status:</span><span class="dg-value">{{ debugRuntime.status }}</span></div>
               <div class="debug-grid-item"><span class="dg-key">PID:</span><span class="dg-value">{{ debugRuntime.pid }}</span></div>
               <div class="debug-grid-item"><span class="dg-key">Started:</span><span class="dg-value">{{ fmtDate(debugRuntime.started_at) }}</span></div>
               <div class="debug-grid-item"><span class="dg-key">Paused:</span><span class="dg-value">{{ debugRuntime.paused ? 'Yes' : 'No' }}</span></div>
-              <div v-if="debugRuntime?.status === 'frozen'" class="debug-grid-item">
-                <span class="dg-key">Frozen:</span>
-                <span class="dg-value freeze-value">Yes</span>
-              </div>
               <div class="debug-grid-item"><span class="dg-key">Current Card:</span><span class="dg-value mono">{{ currentCardId || 'none' }}</span></div>
               <div class="debug-grid-item"><span class="dg-key">Agent Session:</span><span class="dg-value mono">{{ currentAgentSessionId || 'none' }}</span></div>
             </div>
@@ -109,13 +99,6 @@
               <div class="debug-grid-item"><span class="dg-key">Agent Session:</span><span class="dg-value mono">{{ currentAgentSessionId || 'none' }}</span></div>
             </div>
 
-            <div v-if="debugRuntime?.status === 'frozen'" class="freeze-banner operator-freeze-guidance" role="alert">
-              <div class="freeze-banner-text">
-                <strong>Runtime is frozen.</strong>
-                <span class="freeze-reason">Generic resume is disabled; use the documented resume-from-freeze workflow after reviewing the freeze manifest.</span>
-              </div>
-            </div>
-
             <div v-if="!debugRuntime" class="debug-empty operator-empty-runtime">
               Runtime state is unavailable. Open Dashboard → Runtime Console to start project execution or inspect recovery state.
             </div>
@@ -125,7 +108,6 @@
             </div>
 
             <div v-if="!debugRuntime" class="operator-help-text">Runtime diagnostics are unavailable because runtime state is not initialized. Open Dashboard → Runtime Console to start project execution or inspect recovery state.</div>
-            <div v-else-if="debugRuntime.status === 'frozen'" class="operator-help-text">Frozen runtime recovery is coordinated from Runtime Console after reviewing the freeze manifest.</div>
           </div>
         </section>
 
@@ -460,10 +442,6 @@ onUnmounted(() => {
 .dg-key { font-size:12px; color:var(--text-muted); }
 .dg-value { font-size:12px; color:var(--text); }
 .dg-value.mono, .mono { font-family:'SF Mono',monospace; font-size:11px; color:var(--accent-2); }
-.freeze-banner { display:flex; align-items:center; gap:10px; padding:12px 16px; background:var(--surface-2); border:1px solid var(--entry-purple-border); border-radius:8px; margin-bottom:12px; }
-.freeze-banner-text { font-size:14px; color:var(--text); display:flex; flex-direction:column; gap:2px; }
-.freeze-reason { font-size:12px; color:var(--text-muted); font-style:italic; }
-.freeze-value { color:var(--purple); font-weight:600; }
 .operator-header { align-items:flex-start; gap:16px; }
 .operator-subtitle { margin:6px 0 0; font-size:12px; color:var(--text-muted); }
 .operator-actions-inline { display:flex; gap:8px; flex-wrap:wrap; }
@@ -474,7 +452,6 @@ onUnmounted(() => {
 .operator-banner-error { background:var(--entry-danger-bg); border:1px solid var(--entry-danger-border); color:var(--danger); }
 .operator-runtime-card { background:var(--surface-1); border:1px solid var(--surface-3); border-radius:8px; padding:16px; }
 .operator-runtime-summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:8px; margin-bottom:12px; }
-.operator-freeze-guidance { margin-top:4px; }
 .operator-empty-runtime { padding:20px 0; }
 .operator-runtime-buttons, .operator-note-actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
 .operator-button { padding:7px 14px; font-size:12px; color:var(--text); background:var(--surface-3); border:1px solid var(--border); border-radius:6px; cursor:pointer; font-family:inherit; transition:all .15s; }
@@ -487,7 +464,6 @@ onUnmounted(() => {
 .operator-status-badge.status-paused { background:var(--entry-user-bg); color:var(--accent-2); }
 .operator-status-badge.status-idle { background:var(--surface-3); color:var(--text); }
 .operator-status-badge.status-error { background:var(--entry-danger-bg); color:var(--danger); }
-.operator-status-badge.status-frozen { background:var(--surface-2); color:var(--purple); }
 .operator-status-badge.status-unavailable { background:var(--surface-3); color:var(--text-muted); }
 .operator-notes-list { display:flex; flex-direction:column; gap:10px; }
 .operator-note-card, .process-card { background:var(--surface-1); border:1px solid var(--surface-3); border-radius:8px; padding:12px; }

@@ -197,7 +197,6 @@ const {
   doneGoals,
   failedBlocked,
   isStale: runtimeIsStale,
-  isFrozen,
   unauthorized: runtimeUnauthorized,
   lastCommand,
   lastActionableError,
@@ -212,9 +211,7 @@ const errorMsg = ref<string | null>(null);
 
 const { goalChildren, runtimeBannerMessage, runtimeBannerClass, barWidth } = useDashboardReadModel({
   runtimeRefs: {
-    runtime,
     statusLabel,
-    isFrozen,
     isStale: runtimeIsStale,
     unauthorized: runtimeUnauthorized,
     cardIndex,
@@ -294,13 +291,11 @@ onMounted(async () => {
 .rt-running { color: var(--accent); border-color: var(--accent); background: var(--entry-accent-bg); }
 .rt-idle { color: var(--text-muted); border-color: var(--border-strong); background: var(--surface-3); }
 .rt-paused { color: var(--warn); border-color: var(--entry-warn-border); background: var(--entry-warn-bg); }
-.rt-frozen { color: var(--accent-2); border-color: var(--accent-2); background: var(--entry-user-bg); }
 .rt-error { color: var(--danger); border-color: var(--danger); background: var(--entry-danger-bg); }
 .rt-unknown { color: var(--text-muted); border-color: var(--border-strong); background: var(--surface-3); }
 .rt-running .status-dot { background: var(--accent); }
 .rt-idle .status-dot { background: var(--text-muted); }
 .rt-paused .status-dot { background: var(--warn); }
-.rt-frozen .status-dot { background: var(--accent-2); }
 .rt-error .status-dot { background: var(--danger); }
 .rt-unknown .status-dot { background: var(--text-muted); }
 .index-bars { display: flex; flex-direction: column; gap: 6px; }

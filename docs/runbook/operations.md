@@ -167,7 +167,7 @@ Resume re-enables dispatch. Depending on open runtime runs and intent, the runti
 
 ### Frozen state
 
-Generic resume is intentionally rejected from `frozen` or `error` states. The current operator HTTP route inventory does not expose freeze or dedicated frozen-state recovery controls; freeze manifests are retained as schema/persistence helpers only. Treat a frozen state as an incident: inspect runtime/debug state, repair the underlying condition, and use project-specific recovery rather than generic resume.
+Generic resume is intentionally rejected from the `error` state. The runtime has no `frozen` status and no freeze/resume-from-freeze controls; the freeze concept was removed entirely. Treat an `error` state as an incident: inspect runtime/debug state, repair the underlying condition, and use project-specific recovery rather than generic resume.
 
 ## Directives instead of legacy dispatch
 

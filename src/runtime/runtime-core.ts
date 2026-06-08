@@ -1,4 +1,4 @@
-import type { ActionableErrorEnvelope, CardLifecycleState, CardRecord, CardStatus, FreezeManifest, HandoffSummary, RuntimeActivationRecord, RuntimeCommandRecord, RuntimeLedgerActivationOutcome, RuntimeLedgerRunOutcome, RuntimeRunRecord, RuntimeState } from '../schemas/index.js';
+import type { ActionableErrorEnvelope, CardLifecycleState, CardRecord, CardStatus, RuntimeActivationRecord, RuntimeCommandRecord, RuntimeLedgerActivationOutcome, RuntimeLedgerRunOutcome, RuntimeRunRecord, RuntimeState } from '../schemas/index.js';
 import type { ActivationCompletionOutcome } from '../schemas/index.js';
 import { activeCardRunSchema } from '../schemas/index.js';
 import { TERMINAL_STATUSES } from '../permissions/index.js';

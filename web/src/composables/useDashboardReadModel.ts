@@ -12,9 +12,7 @@ export interface DashboardReadModel {
 
 export function useDashboardReadModel(options: {
   runtimeRefs: {
-    runtime: Ref<{ frozen_reason?: string | null } | null>;
     statusLabel: Ref<string>;
-    isFrozen: Ref<boolean>;
     isStale: Ref<boolean>;
     unauthorized: Ref<boolean>;
     cardIndex: Ref<CardIndex>;
@@ -26,7 +24,6 @@ export function useDashboardReadModel(options: {
 
   const runtimeBannerMessage = computed(() => {
     if (options.runtimeRefs.unauthorized.value) return 'Runtime snapshot is unavailable because the API token was rejected.';
-    if (options.runtimeRefs.isFrozen.value) return options.runtimeRefs.runtime.value?.frozen_reason || 'Runtime is frozen and needs operator attention.';
     if (options.runtimeRefs.statusLabel.value === 'error') return 'Runtime is degraded. Inspect Debug and current evidence before treating work as healthy.';
     if (options.runtimeRefs.isStale.value) return 'Runtime snapshot is stale. Refresh to confirm the current REST state.';
     return null;

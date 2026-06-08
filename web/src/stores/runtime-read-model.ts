@@ -55,7 +55,6 @@ export function selectRuntimeSummary(runtime: RuntimeState | null): RuntimeSumma
 
 export function selectRuntimeStatusLabel(runtime: RuntimeState | null): string {
   if (!runtime) return 'unknown';
-  if (runtime.status === 'frozen') return 'frozen';
   if (runtime.paused) return 'paused';
   return runtime.status;
 }
@@ -76,14 +75,13 @@ export function selectCurrentAgentSessionId(runtime: RuntimeState | null): strin
 
 export function selectRuntimeStatusTone(runtime: RuntimeState | null): string {
   const label = selectRuntimeStatusLabel(runtime);
-  if (label === 'error' || label === 'frozen') return 'danger';
+  if (label === 'error') return 'danger';
   if (label === 'paused') return 'warning';
   if (label === 'running') return 'success';
   return 'neutral';
 }
 
-export function selectRuntimeModeLabel(options: { frozen: boolean; paused: boolean; statusLabel: string }): string {
-  if (options.frozen) return 'Frozen';
+export function selectRuntimeModeLabel(options: { paused: boolean; statusLabel: string }): string {
   if (options.paused) return 'Paused';
   return options.statusLabel === 'unknown'
     ? 'Unknown'
@@ -107,14 +105,12 @@ export function selectAvailabilityDetail(availability: ServerAvailability | null
 export function selectRuntimeDetail(options: {
   unauthorized: boolean;
   runtime: RuntimeState | null;
-  frozen: boolean;
   paused: boolean;
   stale: boolean;
   status: RuntimeStatus;
   availabilityDetail: string | null;
 }): string {
   if (options.unauthorized) return 'Runtime snapshot unavailable until a valid API token is provided.';
-  if (options.frozen) return options.runtime?.frozen_reason || 'Runtime is frozen and needs operator attention.';
   if (options.status === 'error') return 'Runtime reported an error state. Inspect Debug for recovery evidence.';
   if (options.paused) return 'Runtime is paused. Use Runtime Console to resume active runs and activation edges when appropriate.';
   if (options.stale) return 'Runtime snapshot is stale. Refresh to resync with the authoritative REST state.';

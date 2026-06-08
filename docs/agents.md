@@ -279,7 +279,7 @@ type RuntimeState = {
 type ActiveCardRun = {
   card_id: string;
   card_type: CardType;
-  runtime_status: 'idle' | 'running' | 'paused' | 'error' | 'frozen' | 'stopped' | 'cancelled';
+  runtime_status: 'idle' | 'running' | 'paused' | 'error' | 'stopped' | 'cancelled';
   phase: 'executor' | 'planner' | 'reviewer';
   caller_session_id: string | null;
   caller_tool_call_id: string | null;

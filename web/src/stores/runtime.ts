@@ -69,7 +69,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
   const status = computed<RuntimeStatus>(() => runtime.value?.status ?? 'idle');
   const isRunning = computed(() => status.value === 'running');
   const isPaused = computed(() => runtime.value?.paused ?? false);
-  const isFrozen = computed(() => runtime.value?.status === 'frozen');
   const currentCardId = computed(() => selectCurrentCardId(runtime.value));
   const currentAgentSessionId = computed(() => selectCurrentAgentSessionId(runtime.value));
   const rootRun = computed(() => currentRun.value);
@@ -91,12 +90,11 @@ export const useRuntimeStore = defineStore('runtime', () => {
   const failedBlocked = computed<number>(
     () => (cardIndex.value.byStatus['failed'] ?? 0) + (cardIndex.value.byStatus['blocked'] ?? 0),
   );
-  const runtimeModeLabel = computed(() => selectRuntimeModeLabel({ frozen: isFrozen.value, paused: isPaused.value, statusLabel: statusLabel.value }));
+  const runtimeModeLabel = computed(() => selectRuntimeModeLabel({ paused: isPaused.value, statusLabel: statusLabel.value }));
   const availabilityDetail = computed(() => selectAvailabilityDetail(serverAvailability.value));
   const runtimeDetail = computed(() => selectRuntimeDetail({
     unauthorized: unauthorized.value,
     runtime: runtime.value,
-    frozen: isFrozen.value,
     paused: isPaused.value,
     stale: isStale.value,
     status: status.value,
@@ -189,7 +187,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
     status,
     isRunning,
     isPaused,
-    isFrozen,
     currentCardId,
     currentAgentSessionId,
     statusLabel,

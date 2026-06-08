@@ -136,18 +136,4 @@ describe('EventLogger runtime event validation', () => {
     }
   });
 
-  it('persists validated freeze lifecycle events with required payloads', () => {
-    const logger = new EventLogger(makeSaivageDir());
-    try {
-      logger.appendEvent({ kind: 'frozen', id: 'evt-frozen', timestamp, freeze_id: 'freeze-1', reason: 'operator requested freeze' });
-      logger.appendEvent({ kind: 'resumed_from_freeze', id: 'evt-resumed', timestamp, freeze_id: 'freeze-1' });
-      logger.flushSync();
-      const raw = readFileSync(logger.getLogPath(), 'utf-8');
-      expect(raw).toContain('"kind":"frozen"');
-      expect(raw).toContain('"kind":"resumed_from_freeze"');
-      expect(logger.getEvents().map((event) => event.kind)).toEqual(['frozen', 'resumed_from_freeze']);
-    } finally {
-      logger.close();
-    }
-  });
 });

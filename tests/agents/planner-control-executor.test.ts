@@ -80,7 +80,7 @@ function runtimeWithActive(cardId: string): RuntimeState {
     paused: false,
     paused_at: null,
     updated_at: now,
-    frozen_reason: null,
+    
   };
 }
 

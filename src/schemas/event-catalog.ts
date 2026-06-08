@@ -130,8 +130,6 @@ export const EventRegistry = {
   runtime_command: open({ command: runtimeRecordSchema }, { domain: 'runtime', severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
   runtime_run: open({ run: runtimeRecordSchema }, { domain: 'runtime', severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
   runtime_activation: open({ activation: runtimeRecordSchema }, { domain: 'runtime', severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
-  frozen: open({ freeze_id: z.string(), reason: z.string() }, { domain: 'runtime', severity: 'warning', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
-  resumed_from_freeze: open({ freeze_id: z.string() }, { domain: 'runtime', severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
   session_started: open({ session_id: z.string(), role: agentRoleSchema, goal_id: z.string(), card_id: z.string() }, { domain: 'agent', severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
   llm_attempt: { domain: 'agent', strict: true as const, baseShape: llmAttemptBaseShape, refine: undefined as ((data: unknown, ctx: z.RefinementCtx) => void) | undefined, severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' },
   llm_invocation_summary: { domain: 'agent', strict: true as const, baseShape: llmInvocationSummaryBaseShape, refine: llmInvocationSummaryRefine as ((data: unknown, ctx: z.RefinementCtx) => void) | undefined, severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' },
