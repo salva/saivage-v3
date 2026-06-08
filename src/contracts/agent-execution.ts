@@ -120,7 +120,3 @@ export interface RuntimeActivationLedgerPort {
   appendRun(input: Omit<RuntimeRunRecord, 'run_id' | 'started_at' | 'updated_at'> & Partial<Pick<RuntimeRunRecord, 'run_id' | 'started_at' | 'updated_at'>>): RuntimeRunRecord;
   upsertActivation(input: Omit<RuntimeActivationRecord, 'activation_id' | 'requested_at' | 'updated_at'> & Partial<Pick<RuntimeActivationRecord, 'activation_id' | 'requested_at' | 'updated_at'>>): RuntimeActivationRecord;
 }
-
-export interface RuntimeStateSnapshotPort {
-  readState(): RuntimeState | null;
-}

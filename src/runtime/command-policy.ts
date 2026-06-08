@@ -19,7 +19,6 @@ export const DEFAULT_COMMAND_TIMEOUT_MS = 120_000;
 export const MAX_COMMAND_TIMEOUT_MS = 600_000;
 export const DEFAULT_MAX_OUTPUT_BYTES = 65_536;
 export const MAX_ANALYST_OUTPUT_BYTES = 1_048_576;
-export const MAX_LIST_RESULTS = 1_000;
 
 export function sanitizedCommandEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};

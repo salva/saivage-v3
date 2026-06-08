@@ -77,7 +77,7 @@ If a future requirement (for example genuinely concurrent activations) needs out
 
 ## Dead code noticed (optional cleanup, not required for the fix)
 
-The re-verification found that `transitionCard` can no longer return `false` (it returns `true` or throws), so the `=== false` arms in `transitionOrThrow` (`src/runtime/terminal-commit/commit-planner.ts:70`, `src/runtime/terminal-commit/commit-reviewer.ts:64`, `src/runtime/terminal-commit/commit-executor.ts:127`) and the `if (!transitioned)` branches in `src/runtime/executor-activation-dispatcher.ts:61` and `src/runtime/phases/planner-activation-runner.ts:44` are unreachable. Removing them is a safe, separate cleanup. It is not needed to fix the incident; do it only if touching those files anyway.
+The re-verification found that `transitionCard` can no longer return `false` (it returns `true` or throws), so the `=== false` arms in `transitionOrThrow` (`src/runtime/terminal-commit/commit-planner.ts:70`, `src/runtime/terminal-commit/commit-reviewer.ts:54`, `src/runtime/terminal-commit/commit-executor.ts:127`) and the `if (!transitioned)` branches in `src/runtime/executor-activation-dispatcher.ts:61` and `src/runtime/phases/planner-activation-runner.ts:44` are unreachable. Removing them is a safe, separate cleanup. It is not needed to fix the incident; do it only if touching those files anyway.
 
 ## Implementation plan
 

@@ -1,8 +1,7 @@
 import { z } from 'zod';
-import type { CardStatus, RuntimeStatus } from '../schemas/index.js';
+import type { CardStatus } from '../schemas/index.js';
 import type { CardStore } from '../cards/store-api.js';
 import { sanitizeAnalystPayload, sanitizeAnalystText } from './analyst-sanitization.js';
-import { readRuntimeState } from '../runtime/state-api.js';
 import { consumeChangedCardActivation, discardSubtreeChangedSyntheticNotes, drainSyntheticPlannerNotes, findDeepestContainingPlanner, injectQueuedSyntheticPlannerNotes, queueSyntheticPlannerNote, type SyntheticPlannerNote } from '../runtime/synthetic-planner-notes.js';
 
 export const analystIssueSchema = z.object({
@@ -20,13 +19,6 @@ export function normalizeAnalystIssues(input: unknown): AnalystIssue[] {
   return parsed.map((issue) => sanitizeAnalystPayload(issue, 1000) as AnalystIssue);
 }
 
-export function runtimeStatusForApi(projectRoot: string): 'idle' | 'running' | 'paused' {
-  const state = readRuntimeState(projectRoot);
-  if (state?.paused || state?.status === 'paused') return 'paused';
-  if (state?.status === 'running') return 'running';
-  return 'idle';
-}
-
 export { consumeChangedCardActivation, discardSubtreeChangedSyntheticNotes, drainSyntheticPlannerNotes, findDeepestContainingPlanner, injectQueuedSyntheticPlannerNotes, queueSyntheticPlannerNote };
 
 export function markGoalNeedsCorrections(projectRoot: string, store: CardStore, originGoalId: string, issues: AnalystIssue[], note?: string): { origin_goal_id: string; notes_recorded_on_goal_ids: string[]; status_transition: { from: CardStatus; to: CardStatus } | null } {
@@ -41,14 +33,6 @@ ${sanitizeAnalystText(note, 1000)}` : ''}` });
     status_transition = { from: origin.status, to: 'changed' };
   }
   return { origin_goal_id: originGoalId, notes_recorded_on_goal_ids: [], status_transition };
-}
-
-export function markDescendantChanged(projectRoot: string, store: CardStore, affectedCardId: string, summary: string): void {
-  const card = store.read(affectedCardId);
-  if (!card) throw new Error(`Card '${affectedCardId}' not found.`);
-  markCardChangedForAnalystCorrection(store, affectedCardId, card.status);
-  const routed = findDeepestContainingPlanner(projectRoot, store, affectedCardId);
-  if (routed) queueSyntheticPlannerNote(projectRoot, { target_planner_session_id: routed.session.id, target_goal_card_id: routed.goalId, kind: 'subtree_changed', affected_card_id: affectedCardId, descendant_card_ids: [affectedCardId], summary: sanitizeAnalystText(summary, 1000) });
 }
 
 function markCardChangedForAnalystCorrection(store: CardStore, cardId: string, status: CardStatus): boolean {
@@ -99,9 +83,4 @@ export function notifyPlannerOfAnalystAction(
       summary: sanitizeAnalystText(summary, 1000),
     });
   }
-}
-
-export function normalizeRuntimeStatus(status: RuntimeStatus | undefined, paused: boolean | undefined): 'idle' | 'running' | 'paused' {
-  if (paused || status === 'paused') return 'paused';
-  return status === 'running' ? 'running' : 'idle';
 }

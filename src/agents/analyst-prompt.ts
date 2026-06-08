@@ -86,5 +86,3 @@ export function getAnalystSystemPrompt(): string { return ANALYST_SYSTEM_PROMPT;
 export function getAvailableAnalystToolNames(surface: ControlActionSurface): string[] {
   return Object.keys(TOOL_REGISTRY).filter((name) => RoleToolPolicy.assertAnalystSurfaceTool(name, surface).allowed);
 }
-
-export const ANALYST_TOOL_REGISTRY = TOOL_REGISTRY;

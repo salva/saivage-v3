@@ -58,7 +58,3 @@ export class LlmProviderGateway implements LlmInvocationClient {
     }
   }
 }
-
-export function createLlmProviderGateway(baseUrl: string, apiKey?: string, registry?: ProviderRegistry): LlmProviderGateway {
-  return new LlmProviderGateway({ baseUrl, apiKey, registry });
-}

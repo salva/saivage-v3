@@ -239,7 +239,6 @@ export type {
   ReviewerInvocationRequest,
   SessionReinvokeRequest,
   RuntimeActivationLedgerPort,
-  RuntimeStateSnapshotPort,
   PlannerStatus,
   PlannerResult,
   ExecutorArtifactDef,

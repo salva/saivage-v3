@@ -37,13 +37,13 @@ The runtime READS and HANDLES a `'frozen'` status that **nothing ever WRITES** i
 - Confidence: HIGH. Impact: LOW–MEDIUM.
 
 ### 5. Dead exported symbols (zero refs; safe deletes)
-- `RuntimeStateSnapshotPort` (`src/contracts/agent-execution.ts:124` + barrel `src/contracts/index.ts:242`): declaration + re-export only. Delete.
-- `createLlmProviderGateway` (`src/agents/llm-provider-gateway.ts:62`): 0 callers; everyone uses `new LlmProviderGateway(...)`. Delete.
+- `RuntimeStateSnapshotPort` (`src/contracts/agent-execution.ts` + barrel `src/contracts/index.ts:242`): declaration + re-export only. Delete.
+- `createLlmProviderGateway` (`src/agents/llm-provider-gateway.ts`): 0 callers; everyone uses `new LlmProviderGateway(...)`. Delete.
 - `agents/index.ts` + `agents/execution-api.ts`: zero production importers; referenced only by `tests/utils/agents-module-boundary.test.ts`, which exists to assert these barrels exist. Delete both + that test (the other `agents/*-api.ts` facades have real consumers — keep them).
 - `mcp/status-api.ts`: zero importers. Delete.
 - `agents/default-agent-execution.ts`: zero importers (dead 1-line barrel). Delete.
 - `agents/fake-agent.ts`: `export *` path-preservation barrel; only the dead barrels consume it. Delete after #5 barrels go; point tests at `runtime/fake-agent.js`.
-- Also dead (analyst-stage6.ts): `runtimeStatusForApi` (:23), `normalizeRuntimeStatus` (:104), `markDescendantChanged` (:46); `ANALYST_TOOL_REGISTRY` alias (`src/agents/analyst-prompt.ts:90`); `MAX_LIST_RESULTS` (`src/runtime/command-policy.ts:22`); `deleteSession`/`buildConversationContext` (`src/runtime/session-persistence.ts:345,365`, tests-only); the `*_TOOL_DEFINITION(S)` family in `skill-tools.ts` (superseded by `tools/mcp-skill-tools.ts`).
+- Also dead (analyst-stage6.ts): `runtimeStatusForApi` (:23), `normalizeRuntimeStatus` (:104), `markDescendantChanged` (:46); `ANALYST_TOOL_REGISTRY` alias (`src/agents/analyst-prompt.ts`); `MAX_LIST_RESULTS` (`src/runtime/command-policy.ts:22`); `deleteSession`/`buildConversationContext` (`src/runtime/session-persistence.ts:345,365`, tests-only); the `*_TOOL_DEFINITION(S)` family in `skill-tools.ts` (superseded by `tools/mcp-skill-tools.ts`).
 - Confidence: HIGH (each grep-verified zero). Impact: LOW each, MEDIUM cumulatively.
 
 ### 6. `process-runner.ts` dead wrapper surface
@@ -55,7 +55,7 @@ The runtime READS and HANDLES a `'frozen'` status that **nothing ever WRITES** i
 
 ### 7. The `transitionCard` `=== false` / `!transitioned` family
 - `transitionCard` (`src/runtime/state-machine.ts:184`) only returns `true` or throws (since "enforce strict terminal transitions"). So these are unreachable:
-  - `transitionOrThrow` `=== false` arms: `src/runtime/terminal-commit/commit-planner.ts:70`, `src/runtime/terminal-commit/commit-reviewer.ts:64`, `src/runtime/terminal-commit/commit-executor.ts:127`
+  - `transitionOrThrow` `=== false` arms: `src/runtime/terminal-commit/commit-planner.ts:70`, `src/runtime/terminal-commit/commit-reviewer.ts:54`, `src/runtime/terminal-commit/commit-executor.ts:127`
   - `if (!transitioned)`: `src/runtime/executor-activation-dispatcher.ts:61`, `src/runtime/phases/planner-activation-runner.ts:44`
   - `handleExecutorCompletion` always returns `transitioned: true` → `!completion.transitioned` at `src/runtime/executor-activation-dispatcher.ts:161` is always false.
 - Fix: drop the `transitionOrThrow` helper and the dead guards; `await` the transition directly. Narrow `TerminalCommitEffects.transitionCard` return type (`src/runtime/terminal-commit/commit-executor.ts:6`) from `Promise<boolean | unknown> | boolean | unknown` to `Promise<void>`, removing the type surface that only existed to feed the dead branch.

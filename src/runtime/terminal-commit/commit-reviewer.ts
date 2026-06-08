@@ -1,4 +1,4 @@
-import type { CardLifecycleState, CardRecord, PlannerBlockedResult, PlannerDoneResult, ReviewerCorrectionResult, ReviewerPassResult } from '../../schemas/index.js';
+import type { CardLifecycleState, CardRecord, PlannerBlockedResult, PlannerDoneResult, ReviewerPassResult } from '../../schemas/index.js';
 import { lifecycleCardPatch } from './lifecycle-patch.js';
 import type { TerminalCommitEffects, TerminalCommitReceipt } from './commit-executor.js';
 import { validateTerminalOverlay } from './validators.js';
@@ -22,18 +22,6 @@ export async function commitReviewerPass(input: {
   const patch = { ...lifecycleCardPatch(lifecycle), status_text: input.reviewSummary };
   await input.effects.updateCard(input.card.id, patch);
   return { lifecycle, result, patch };
-}
-
-export async function commitReviewerCorrection(input: {
-  card: CardRecord;
-  issues: Array<Record<string, unknown>>;
-  summary: string;
-  assessmentId: string;
-  effects?: Pick<TerminalCommitEffects, 'transitionCard'>;
-}): Promise<{ result: ReviewerCorrectionResult; transitioned: boolean }> {
-  const result: ReviewerCorrectionResult = { kind: 'reviewer_correction', issues: input.issues, summary: input.summary, assessment_id: input.assessmentId };
-  if (input.effects) await transitionOrThrow(input.effects.transitionCard(input.card.id, 'reviewer_repair_resume', { assessment_id: input.assessmentId }));
-  return { result, transitioned: true };
 }
 
 export async function commitReviewerInvocationFailure(input: {
