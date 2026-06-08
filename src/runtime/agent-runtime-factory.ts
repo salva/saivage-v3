@@ -36,7 +36,7 @@ export function createConfiguredAgentRuntime(input: {
   };
   const runtime =
     input.agentRuntime ??
-    (input.config.agentExecutionFactory ?? createDefaultAgentExecution)(
+    createDefaultAgentExecution(
       input.config.projectRoot,
       {
         ...input.config.fakeAgentConfig,

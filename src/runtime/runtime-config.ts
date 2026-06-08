@@ -66,11 +66,6 @@ export interface RuntimeConfig {
     fixtureDir: string;
     saivageDir?: string;
   };
-  agentExecutionFactory?: (
-    projectRoot: string,
-    fakeAgentConfig: RuntimeConfig['fakeAgentConfig'],
-    activationLedger: RuntimeActivationLedgerPort,
-  ) => AgentExecutionPort;
   skillsEngine?: RuntimeSkillsPort;
   eventLogger: EventLogger;
   errorLogger: ErrorLogger;
