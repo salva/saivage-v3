@@ -11,10 +11,9 @@ Status: execution plan. Companion to `over-engineering-findings.md`. Every step 
   - `npm run validate:routine`
 - Commit message style: `refactor(scope): …` for deletes/collapses, `fix(scope): …` only if behavior changes. One WI per commit.
 - Before editing any symbol, re-grep it (names drift). If an anchor moved, fix it in `over-engineering-findings.md` and here first.
-- Two items (WI-1 freeze, WI-13 config shim) need an explicit product decision before coding. They are written as "decision + plan-for-each-branch".
+- Two items need an explicit product decision before coding: WI-1 (freeze concept) and WI-17 (config legacy-key migration shim). They are written as "decision + plan-for-each-branch".
 
-Suggested order: WI-2 → WI-3 → WI-4 → WI-5 → WI-6 → WI-7 → WI-8 → WI-9 → WI-10 → WI-11 → WI-12 → WI-1 → WI-13.
-(Safe dead-code/unreachable removals first; larger refactors next; decision-gated items last.)
+Suggested order: WI-2 → WI-3 → WI-4 → WI-5 → WI-6 → WI-7 → WI-8 → WI-9 → WI-10 → WI-11 → WI-13 → WI-14 → WI-1 → WI-15 → WI-16 → WI-17. (Safe dead-code/unreachable removals first; then small collapses; then the freeze removal; then the higher-leverage refactors; decision-gated config shim last. WI-12 is optional/skip. WI-15 deliberately follows WI-1 because WI-1 removes `frozen_reason`.)
 
 ---
 
@@ -199,17 +198,16 @@ Risk: LOW–MEDIUM.
 
 ---
 
-## WI-12 — Demote `*PhaseRunner` classes to functions
+## WI-12 — Demote `*PhaseRunner` classes to functions (OPTIONAL / LOW VALUE — default: skip)
 
-`ReviewerPhaseRunner`, `ExecutorPhaseRunner`, `PlannerPhaseRunner` are stateless single-`run()` classes, each `new`'d-and-discarded at one production call site.
+Reassessed after review: this is the weakest item in the plan and is **not recommended on its own**. `ReviewerPhaseRunner`, `ExecutorPhaseRunner`, `PlannerPhaseRunner` are stateless single-`run()` classes `new`'d-and-discarded at one call site, so `new XPhaseRunner(deps).run(input)` → `runXPhase(deps, input)` is a lateral move: it shifts dependencies from a constructor to a function argument without removing real complexity or any dead path. It does not delete code; it rewrites working, tested code and churns three test files for a stylistic preference.
 
-- Convert each to a plain async function, e.g. `runPlannerPhase(deps, input)`, preserving the body verbatim.
-- Update the three production call sites: `src/runtime/phases/planner-iteration-runner.ts:46`, `src/runtime/executor-activation-dispatcher.ts:77`, `src/runtime/runtime-reviewer-dispatcher.ts:70` (replace `await new XPhaseRunner({…}).run({…})` with `await runXPhase({…}, {…})`).
-- Update the three tests: `tests/runtime/executor-phase-runner.test.ts:25`, `tests/runtime/planner-phase-runner.test.ts:12`, `tests/runtime/reviewer-phase-runner.test.ts:17` (they construct the class — switch to the function). These are small (42-61 lines) real-logic tests; keep their assertions, change only construction.
-- These may sit behind `src/contracts` ports or be referenced in `docs/agents.md`/parity tests — check the agent-tool parity guard isn't affected (it shouldn't be; these are internal phases).
+Decision: **skip unless** you are already editing these files for another reason (e.g. they touch a renamed symbol), in which case the conversion is a cheap drive-by. Do not schedule it as standalone work. This keeps the plan aligned with "simple/clean" without manufacturing churn ("brave refactoring" is for real complexity, not cosmetic class-vs-function preference).
 
-Gates: the three focused phase-runner tests; then `npm run typecheck`, `npm test`, `npm run validate:routine`.
-Risk: LOW–MEDIUM (do the three together or one at a time).
+If done opportunistically: convert each to `async function runXPhase(deps, input)` preserving the body verbatim; update call sites `src/runtime/phases/planner-iteration-runner.ts:46`, `src/runtime/executor-activation-dispatcher.ts:77`, `src/runtime/runtime-reviewer-dispatcher.ts:70`; update tests `tests/runtime/executor-phase-runner.test.ts:25`, `tests/runtime/planner-phase-runner.test.ts:12`, `tests/runtime/reviewer-phase-runner.test.ts:17` (change construction only, keep assertions).
+
+Gates (if done): the three focused phase-runner tests; then `npm run typecheck`, `npm test`, `npm run validate:routine`.
+Risk: LOW. Value: LOW.
 
 ---
 
@@ -258,14 +256,38 @@ Risk: MEDIUM (touches many runtime files, but typecheck + the large runtime test
 
 ## WI-16 — Collapse triple `cardRecordSchema.parse` in the card write path (HIGH leverage, hot path)
 
-The same in-memory `CardRecord` is parsed 3× per mutation: `src/cards/card-patch-service.ts:53` → `src/cards/apply-mutation.ts:209` (persist) / `:169` (create) → `src/cards/apply-mutation.ts:106` (`stageByIdTmp`).
+The same in-memory `CardRecord` is parsed 3× per mutation: `src/cards/card-patch-service.ts:53` (entry) → `src/cards/apply-mutation.ts:169` (create) / `:209` (persist) → `src/cards/apply-mutation.ts:106` (`stageByIdTmp`, last line before disk).
 
-- Decide the single authoritative gate. Recommended: keep the parse at the durable boundary (`stageByIdTmp`, `src/cards/apply-mutation.ts:106`) — it is the last point before bytes hit disk and covers both create and persist. Drop the redundant `cardRecordSchema.parse(op.next)` (`:209`) and `cardRecordSchema.parse(op.card)` (`:169`), and the service-layer `safeParse` in `src/cards/card-patch-service.ts:53` and `src/cards/lifecycle-commands.ts:105` — IF the writer-boundary parse fully covers them. Verify the error-handling contract: `card-patch-service.ts` currently throws a specific error on `safeParse` failure (`:53-54`); ensure the retained gate produces an equally clear failure.
-- Keep `src/cards/position-repair.ts:20` and `src/cards/evidence-ref-service.ts:97` parses (different inputs/paths — verify they're not in this hot path before touching).
-- This is a behavior-adjacent change (validation timing). Add/keep a test that a malformed card is still rejected with a clear error at the single gate.
+Correction (supersedes the original "keep the disk parse" wording): validate at the **entry boundary** and let the downstream typed code trust the `CardRecord` type. This is the fail-fast direction per AGENTS.md: catch bad input before any mutation/business logic runs, not after the object has already flowed through cycle detection, version-seq invariants, and history building. Keeping the disk-boundary parse as the only gate would be the opposite — validating last, after everything has already operated on unvalidated data.
+
+- Keep the entry-layer parse at each entry point: `src/cards/card-patch-service.ts:53` (it throws a clear `Card validation failed: …`) and `src/cards/lifecycle-commands.ts:105`. These run before the mutation and are the meaningful fail-fast gate.
+- Drop the two inner parses that re-validate an already-validated, owned, in-process object under the lock: `cardRecordSchema.parse(op.card)` (`src/cards/apply-mutation.ts:169`) and `cardRecordSchema.parse(op.next)` (`:209`). Note `applyMutationLocked` also performs version-seq invariant checks around these parses — keep those checks; only the `cardRecordSchema.parse(...)` wrapping goes.
+- Judgment call on the disk-boundary parse (`stageByIdTmp`, `src/cards/apply-mutation.ts:106`): this is the last guard before `writeFileSync`, so dropping it means a programming error that builds a malformed in-memory card would be written to disk and only caught on next read. Two defensible options:
+  1. Drop it too (full trust-the-type): cleanest, consistent with "no over-defensive code", because the entry parse already validated the object and nothing untyped mutates it afterward.
+  2. Keep only this one as a cheap last-write integrity check and instead drop the entry parse.
+  Recommended: option 1 (drop all but the entry parse) for consistency with the fail-fast-at-boundary principle, UNLESS the team wants disk-write hardening, in which case option 2. Do not keep both the entry parse and the disk parse — that is the redundancy being removed. Pick one and record the choice in the commit.
+- Keep `src/cards/position-repair.ts:20` (parses JSON read from disk — a real untrusted boundary) and `src/cards/evidence-ref-service.ts:97` (verify it is a separate entry, not this hot path, before touching).
+- This is a behavior-adjacent change (validation timing). Keep/add a test that malformed input is rejected with a clear error at the entry gate.
 
 Gates: focused card tests (`tests/cards/**`), then `npm run typecheck`, `npm test`, `npm run validate:routine`.
-Risk: MEDIUM (validation path; keep one authoritative parse, prove rejection still works).
+Risk: MEDIUM (validation path; one authoritative entry gate, prove rejection still works).
+
+---
+
+## WI-17 — Config legacy-key migration shim (DECISION REQUIRED)
+
+The findings doc flagged this (Tier 5) but it had no work item; adding it for completeness. `src/agents/config-schema.ts` carries a camelCase→snake_case config migration: `LEGACY_RUNTIME_KEYS` (`:7`), `migrateLegacyRuntimeSection` (`:28`), `normalizeLegacyRootConfig` (`:52`), wired live in `loadConfig` (`:376,382,386`) and `src/config/environment.ts:170`. AGENTS.md says "no backward compatibility, no migration code", so this is a policy-violating shim.
+
+Unlike the dead-code items, this is REACHABLE code: removing it changes which config files are accepted (legacy camelCase configs would start failing). That is a behavior change, hence a decision.
+
+### Decision
+- **A: remove the shim, require snake_case.** Delete `LEGACY_RUNTIME_KEYS`/`migrateLegacyRuntimeSection`/`normalizeLegacyRootConfig` and their call sites; the Zod schema then rejects legacy keys (fail fast). Migrate any in-repo/deployment config files that still use camelCase first (grep `.saivage/saivage.json` and deployment configs). Add a clear error pointing at the renamed keys.
+- **B: keep the shim.** Only if real deployments still ship camelCase config and can't be migrated in this cycle. If so, this is an accepted, documented exception to the no-migration rule — note it and stop.
+
+Recommended: A, but only after confirming no active deployment config relies on the legacy keys (check the LXC-backed projects' `.saivage/saivage.json`). This is the one item where the "no migration code" rule must be weighed against not breaking running deployments — do not remove it blind.
+
+Gates: `npm run typecheck`, `npm test`, `npm run validate:routine`, and a config-load test proving snake_case works and legacy keys fail with a clear message.
+Risk: MEDIUM (config-acceptance behavior change). Decision-gated.
 
 ---
 
@@ -297,9 +319,21 @@ Risk: MEDIUM (validation path; keep one authoritative parse, prove rejection sti
 - [ ] WI-9 contract-factory dead `_input` params
 - [ ] WI-10 process-runner dead wrappers
 - [ ] WI-11 ProcessReadModelService collapse
-- [ ] WI-12 PhaseRunner classes → functions
+- [ ] WI-12 PhaseRunner classes → functions (OPTIONAL — default skip)
 - [ ] WI-13 small pass-through cleanups
 - [ ] WI-14 agentExecutionFactory dead seam
 - [ ] WI-15 RuntimeState interface + `?? []` sweep
-- [ ] WI-16 triple card parse collapse
+- [ ] WI-16 triple card parse collapse (validate at entry, not disk)
+- [ ] WI-17 config legacy-key migration shim (decision: A/B)
 - [ ] smaller defensive cleanups (opportunistic)
+
+## Review responses (verified against code)
+
+An external review challenged several items. Each was checked against the real code before accepting or rejecting. Summary so the record isn't re-litigated:
+
+- **"The shipped duplicate-block guard is over-defensive symptom-masking; replace with a loop-level early-exit."** REJECTED with evidence. The five block paths converge on `transitionCard('block')` inside the two terminal-commit helpers — that is the single chokepoint, not any runtime loop. The second block originates in the LLM tool-execution layer via the synchronous activation barrier (`src/agents/invocation-runner.ts:309`), so a `runPlannerLoop` early-exit is not even on the throwing path. Covering it at the loop layer would need ≥3 scattered early-exits (`planner-iteration-runner`, `reviewer-invocation-failure`, `planner-invocation-failure`) vs 2 lines at the convergence point. The guard is also consistent with three pre-existing idempotent-terminal-commit precedents (`commitReviewerPass:19`, `terminateIfNonTerminal:193`, `alignBlockedPlanningCardStatuses:29`), the first of which has been by-design since the terminal-commit layer was created. Fail-fast is preserved (scoped to `status==='blocked'`; `done->block` still throws). Keep the shipped fix.
+- **"Fix reentrancy with a floating Promise (`Promise.resolve().then(dispatchChild)`) + a `{parked:true}` signal instead of the queue design."** REJECTED with evidence. This is not simpler: it reintroduces the hardest part of the queue design (protocol-valid parking of the parent turn + a resume path), because the current loop ends a turn by `await`-ing dispatch then `continue` (`src/agents/invocation-runner.ts:309,314`); replacing the await with a floating Promise + `continue` would issue the next provider call with the `activate_card` tool call still unresolved. It also makes the load-bearing "parent run still open when child completes" invariant (`reduceActivationCompletion` / `findParentPlannerRunForResumption`) depend on microtask scheduling rather than a call-stack guarantee. Reentrancy decoupling remains a real rearchitecture, not warranted by the incident (which the guard already fixes).
+- **WI-16 validation direction.** ACCEPTED. The original "keep the disk parse, drop the entry parse" was backwards; fail-fast wants validation at the entry boundary with the typed object trusted downstream. WI-16 rewritten accordingly (with an honest note about the disk-write integrity tradeoff).
+- **WI-12 (PhaseRunner classes → functions) is low-value churn.** ACCEPTED. Demoted to OPTIONAL/skip-by-default; it's a lateral class→function move that deletes no dead code.
+- **WI-14 (agentExecutionFactory) may break a test seam.** ALREADY HANDLED. The live test seam is `fakeAgentConfig` + injected `agentRuntime` (via `createRuntimeCoreTestContainer`), NOT the `agentExecutionFactory` config field, which is never assigned anywhere. WI-14 already keeps `createDefaultAgentExecution`/`FakeAgentAdapter` and removes only the dead field. No change needed.
+- **Other items (WI-1 freeze removal, WI-15 RuntimeState interface, WI-2..WI-11 dead code).** The review endorsed these; they stand.
