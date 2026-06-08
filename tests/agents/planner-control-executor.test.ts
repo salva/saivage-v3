@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { PlannerControlExecutor } from '../../src/agents/planner-control-executor.js';
-import type { CardRecord, ReviewerResult, RuntimeState } from '../../src/schemas/types.js';
+import type { CardRecord, RuntimeState } from '../../src/schemas/types.js';
 import {
   appendRuntimeRun,
   readRuntimeState,
@@ -13,7 +13,6 @@ import {
 import { CardStore } from '../../src/cards/card-store.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { listControlActions } from '../../src/persistence/control-action-audit.js';
-import { createSession } from '../../src/runtime/session-persistence.js';
 
 function makeCard(
   overrides: Partial<CardRecord> & { type: CardRecord['type']; title: string },
@@ -155,7 +154,7 @@ describe('PlannerControlExecutor', () => {
     });
   });
 
-  it('runs report_goal_done through reviewer assessment and passes session/assessment context', async () => {
+  it('accepts report_goal_done without invoking a synchronous reviewer', async () => {
     const goal = store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'running' }));
     const evidence = store.create(
       makeCard({
@@ -167,27 +166,9 @@ describe('PlannerControlExecutor', () => {
         lifecycle: { status: 'done', result: { kind: 'executor_success', executor: { summary: 'done' }, generated_files: [], verified_at: '2026-01-01T00:00:00.000Z', latest_self_report: { result: 'done', outcome: 'done', summary: 'done', status_text: 'done', at: '2026-01-01T00:00:00.000Z' }, warnings: [] }, error: null, completed_at: '2026-01-01T00:00:00.000Z' },
       }),
     );
-    const review: ReviewerResult = {
-      result: 'pass',
-      summary: 'approved',
-      achieved: ['done'],
-      issues: [],
-      evidence_card_ids: [evidence.id],
-    };
-    const calls: Array<{
-      goalId: string;
-      assessmentId: string;
-      reviewerSessionId: string;
-      report: unknown;
-    }> = [];
     const executor = new PlannerControlExecutor({
       cardStore: store,
       projectRoot: tmpDir,
-      assessmentIdFactory: () => 'assessment-1',
-      reviewer: (goalId, assessmentId, reviewerSessionId, report) => {
-        calls.push({ goalId, assessmentId, reviewerSessionId, report });
-        return review;
-      },
     });
 
     const result = await executor.execute({
@@ -201,157 +182,13 @@ describe('PlannerControlExecutor', () => {
     });
 
     expect(result.success).toBe(true);
-    expect(calls).toEqual([
-      {
-        goalId: goal.id,
-        assessmentId: 'assessment-1',
-        reviewerSessionId: `reviewer:${goal.id}:assessment-1`,
-        report: expect.objectContaining({
-          status_text: 'complete',
-          evidence_card_ids: [evidence.id],
-        }),
-      },
-    ]);
     expect(result.data).toEqual(
       expect.objectContaining({
         accepted: true,
-        assessment: expect.objectContaining({
-          result: 'pass',
-          assessment_id: 'assessment-1',
-          reviewer_session_id: `reviewer:${goal.id}:assessment-1`,
-        }),
+        card: expect.objectContaining({ status: 'done' }),
       }),
     );
     expect(store.read(goal.id)?.status).toBe('done');
-  });
-
-  it('persists a precise reviewer-capacity blocker when report_goal_done reviewer invocation fails', async () => {
-    const goal = store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'running' }));
-    const evidence = store.create(
-      makeCard({
-        type: 'code',
-        title: 'Evidence',
-        parent: goal.id,
-        depth: 2,
-        status: 'done',
-        lifecycle: { status: 'done', result: { kind: 'executor_success', executor: { summary: 'done' }, generated_files: [], verified_at: '2026-01-01T00:00:00.000Z', latest_self_report: { result: 'done', outcome: 'done', summary: 'done', status_text: 'done', at: '2026-01-01T00:00:00.000Z' }, warnings: [] }, error: null, completed_at: '2026-01-01T00:00:00.000Z' },
-      }),
-    );
-    const executor = new PlannerControlExecutor({
-      cardStore: store,
-      projectRoot: tmpDir,
-      assessmentIdFactory: () => 'assessment-unavailable',
-      reviewer: () => {
-        throw new Error('provider pool exhausted');
-      },
-    });
-
-    const result = await executor.execute({
-      sessionId: `planner:${goal.id}`,
-      toolCallId: 'call-report',
-      toolName: 'report_goal_done',
-      args: {
-        status_text: 'complete',
-        evidence_card_ids: [evidence.id],
-      },
-    });
-
-    expect(result.success).toBe(false);
-    const body = result.data;
-    expect(body).toEqual({
-      success: false,
-      tool_error: expect.objectContaining({
-        kind: 'reviewer_invocation_failed',
-        message: expect.stringContaining('reviewer/provider capacity is unavailable'),
-      }),
-    });
-    const blocked = store.read(goal.id);
-    expect(blocked).toMatchObject({
-      status: 'blocked',
-      lifecycle: expect.objectContaining({
-        error: expect.stringContaining(
-          'Reviewer invocation failed before assessment output could be produced',
-        ),
-      }),
-    });
-    expect(blocked?.lifecycle.error).not.toContain('provider pool exhausted');
-    expect(blocked?.lifecycle.result).toMatchObject({
-      kind: 'planner_blocked',
-        resume_reason: 'reviewer_unavailable',
-    });
-  });
-
-  it('does not write legacy correction note files after reviewer retries are exhausted', async () => {
-    const goal = store.create(
-      makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'running', retries: 1 }),
-    );
-    store.setStatus(goal.id, 'running');
-    createSession(join(tmpDir, '.saivage'), 'planner', goal.id, goal.id);
-    const review: ReviewerResult = {
-      result: 'needs_corrections',
-      summary: 'fix it',
-      achieved: [],
-      issues: [{ summary: 'missing evidence', severity: 'blocker' }],
-      evidence_card_ids: [],
-    };
-    const executor = new PlannerControlExecutor({
-      cardStore: store,
-      projectRoot: tmpDir,
-      maxReviewRetries: 1,
-      assessmentIdFactory: () => 'assessment-fail',
-      reviewer: () => review,
-    });
-
-    const result = await executor.execute({
-      sessionId: `planner:${goal.id}`,
-      toolCallId: 'call-report',
-      toolName: 'report_goal_done',
-      args: { status_text: 'complete' },
-    });
-
-    expect(result.success).toBe(true);
-    expect(store.read(goal.id)?.status).toBe('changed');
-    expect(existsSync(join(tmpDir, '.saivage', 'notes'))).toBe(false);
-  });
-
-  it('queues a pending-subtree-correction synthetic note after reviewer retries are exhausted', async () => {
-    const goal = store.create(
-      makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'running', retries: 1 }),
-    );
-    store.setStatus(goal.id, 'running');
-    const review: ReviewerResult = {
-      result: 'needs_corrections',
-      summary: 'fix it',
-      achieved: [],
-      issues: [{ summary: 'missing evidence', severity: 'blocker' }],
-      evidence_card_ids: [],
-    };
-    const executor = new PlannerControlExecutor({
-      cardStore: store,
-      projectRoot: tmpDir,
-      maxReviewRetries: 1,
-      assessmentIdFactory: () => 'assessment-fail',
-      reviewer: () => review,
-    });
-
-    const result = await executor.execute({
-      sessionId: `planner:${goal.id}`,
-      toolCallId: 'call-report',
-      toolName: 'report_goal_done',
-      args: { status_text: 'complete' },
-    });
-
-    expect(result.success).toBe(true);
-    const queue = JSON.parse(
-      readFileSync(join(tmpDir, '.saivage', 'runtime', 'synthetic-notes.json'), 'utf-8'),
-    ) as { notes: Array<{ kind: string; affected_card_id: string; summary: string }> };
-    expect(queue.notes).toEqual([
-      expect.objectContaining({
-        kind: 'pending_subtree_correction',
-        affected_card_id: goal.id,
-        summary: expect.stringContaining('missing evidence'),
-      }),
-    ]);
   });
 
   it('dispatches queue_notification through planner-control and audits planner runtime surface', async () => {

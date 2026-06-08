@@ -12,15 +12,6 @@ export function synthesizeReportGoalEnvelope(
       payload: { status: 'done', summary: `${toolName} accepted for goal ${goalId}.` },
     };
   }
-  if (status === 'changed') {
-    return {
-      kind: 'result',
-      payload: {
-        status: 'continue',
-        summary: `${toolName}: goal ${goalId} needs re-planning (review corrections exhausted); continuing.`,
-      },
-    };
-  }
   if (status === 'blocked' || status === 'failed') {
     return {
       kind: 'result',

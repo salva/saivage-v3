@@ -3,9 +3,17 @@ import type { ReviewerResult } from '../../contracts/index.js';
 import { commitReviewerPass } from '../terminal-commit/index.js';
 import { buildReviewAssessment } from '../reviewer-assessment.js';
 import { RuntimeActivationInvariantError } from '../state.js';
+import type { SyntheticPlannerNote } from '../synthetic-planner-notes.js';
 import type { ReviewerPhaseDecision } from './reviewer-phase.js';
 
+const REVIEWER_PASS_INTERRUPTING_NOTE_KINDS = new Set<SyntheticPlannerNote['kind']>([
+  'subtree_changed',
+  'analyst_note',
+  'pending_subtree_correction',
+]);
+
 export interface ReviewerAssessmentEffects {
+  projectRoot: string;
   now(): string;
   readCard(cardId: string): CardRecord | null;
   transitionCard(cardId: string, event: 'complete', details: Record<string, unknown>): Promise<unknown>;
@@ -15,6 +23,7 @@ export interface ReviewerAssessmentEffects {
   appendChildUnwindToolResult(goalId: string, outcome: 'done', summary: string): boolean;
   transitionRuntime(event: 'reviewer_finished', details: Record<string, unknown>): Promise<unknown>;
   emitProjectRunCompleted(goalId: string, assessment: ReviewAssessment): void;
+  peekPlannerNotes(plannerSessionId: string): SyntheticPlannerNote[];
 }
 
 export async function handleReviewerAssessmentDecision(input: {
@@ -63,6 +72,10 @@ export async function handleReviewerAssessmentDecision(input: {
       throw new RuntimeActivationInvariantError(
         `Runtime activation invariant violation: reviewer pass for '${input.goalId}' cannot commit because the goal card cannot be read.`,
       );
+    }
+    const pendingNotes = input.effects.peekPlannerNotes(`planner:${input.goalId}`);
+    if (pendingNotes.some((note) => REVIEWER_PASS_INTERRUPTING_NOTE_KINDS.has(note.kind))) {
+      return { kind: 'continue_planner' };
     }
     await commitReviewerPass({
       card: latestGoalCard,

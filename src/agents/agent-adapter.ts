@@ -158,10 +158,6 @@ export class AgentAdapter implements AgentExecutionPort {
       saivageDir: this.saivageDir,
       runtimeStateProvider: () => this.activationLedger?.readState() ?? null,
       activationLedgerProvider: () => this.activationLedger,
-      markSessionWaiting: (sessionId) => this.sessionLifecycle.markWaiting(sessionId),
-      markSessionActive: (sessionId) => this.sessionLifecycle.markActive(sessionId),
-      invokeReviewer: (request) => this.invokeReviewer(request),
-      maxReviewRetries: this.runtimeConfig?.maxReviewRetries ?? 3,
       eventBusProvider: () => this.runtimeLedgerEventBus,
       eventLogger: this.eventLogger,
     });

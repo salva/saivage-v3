@@ -1,10 +1,6 @@
-import { randomUUID } from 'node:crypto';
 import type {
   CardRecord,
   CardStatus,
-  ReviewAssessment,
-  ReviewerIssue,
-  ReviewerResult,
   RuntimeState,
 } from '../schemas/index.js';
 import type { CardLifecycleState } from '../schemas/index.js';
@@ -16,15 +12,13 @@ import { queueNotification } from '../notifications/index.js';
 import type { CardMutationContext } from '../cards/store-api.js';
 import { isTerminalState } from '../cards/lifecycle.js';
 import { lifecycleCardPatch } from '../runtime/terminal-commit/lifecycle-patch.js';
-import { findDeepestContainingPlanner, queueSyntheticPlannerNote } from '../runtime/synthetic-planner-notes.js';
 
 export type PlannerToolErrorKind =
   | 'subtree_not_ready'
   | 'invalid_evidence'
   | 'terminal_card_requires_restart'
   | 'card_already_active'
-  | 'invalid_card_status'
-  | 'reviewer_invocation_failed';
+  | 'invalid_card_status';
 
 export type SubtreeReadinessReason = {
   kind: 'descendant_not_terminal';
@@ -63,25 +57,11 @@ export interface ReportGoalInput {
 export interface ReportGoalResult {
   card: CardRecord;
   accepted: true;
-  assessment?: ReviewAssessment;
-}
-
-export interface ReviewerInvoker {
-  (
-    goalId: string,
-    assessmentId: string,
-    reviewerSessionId: string,
-    report: GoalSelfReport,
-    parentSessionId?: string,
-  ): Promise<ReviewerResult> | ReviewerResult;
 }
 
 export interface PlannerToolsServiceOptions {
   runtimeStateProvider?: () => RuntimeState | null;
   projectRoot?: string;
-  reviewer?: ReviewerInvoker;
-  maxReviewRetries?: number;
-  assessmentIdFactory?: () => string;
 }
 
 const REPORTABLE_OUTCOMES: Record<
@@ -124,10 +104,6 @@ function hasDurableEvidence(card: CardRecord): boolean {
     );
   }
   return !!(result as { executor?: unknown }).executor || Object.keys(result).length > 0;
-}
-
-function reviewerInvocationFailedMessage(goalId: string): string {
-  return `Reviewer invocation failed before assessment output could be produced for goal '${goalId}'; reviewer/provider capacity is unavailable for terminal acceptance.`;
 }
 
 function reportLifecycle(status: Extract<CardStatus, 'done' | 'failed' | 'blocked'>, report: GoalSelfReport, statusText: string, completedAt: string): CardLifecycleState {
@@ -208,9 +184,6 @@ function collectSubtreeReadinessReasons(
 export class PlannerToolsService {
   private readonly runtimeStateProvider?: () => RuntimeState | null;
   private readonly projectRoot?: string;
-  private readonly reviewer?: ReviewerInvoker;
-  private readonly maxReviewRetries: number;
-  private readonly assessmentIdFactory: () => string;
 
   constructor(
     private readonly store: CardStore,
@@ -218,15 +191,9 @@ export class PlannerToolsService {
   ) {
     if (typeof runtimeStateProviderOrOptions === 'function') {
       this.runtimeStateProvider = runtimeStateProviderOrOptions;
-      this.maxReviewRetries = 3;
-      this.assessmentIdFactory = () => randomUUID();
     } else {
       this.runtimeStateProvider = runtimeStateProviderOrOptions?.runtimeStateProvider;
       this.projectRoot = runtimeStateProviderOrOptions?.projectRoot;
-      this.reviewer = runtimeStateProviderOrOptions?.reviewer;
-      this.maxReviewRetries = runtimeStateProviderOrOptions?.maxReviewRetries ?? 3;
-      this.assessmentIdFactory =
-        runtimeStateProviderOrOptions?.assessmentIdFactory ?? (() => randomUUID());
     }
   }
 
@@ -385,30 +352,6 @@ export class PlannerToolsService {
     input: ReportGoalInput,
     sessionId?: string,
   ): ReportGoalResult {
-    const result = this.reportGoalSync(toolName, goalId, input, sessionId);
-    if (result instanceof Promise) {
-      throw new Error(
-        'Asynchronous reviewer is not supported by reportGoal(); use reportGoalAsync().',
-      );
-    }
-    return result;
-  }
-
-  async reportGoalAsync(
-    toolName: keyof typeof REPORTABLE_OUTCOMES,
-    goalId: string,
-    input: ReportGoalInput,
-    sessionId?: string,
-  ): Promise<ReportGoalResult> {
-    return await this.reportGoalSync(toolName, goalId, input, sessionId);
-  }
-
-  private reportGoalSync(
-    toolName: keyof typeof REPORTABLE_OUTCOMES,
-    goalId: string,
-    input: ReportGoalInput,
-    sessionId?: string,
-  ): ReportGoalResult | Promise<ReportGoalResult> {
     const goal = requireCard(this.store, goalId);
     if ((goal.type !== 'goal' && goal.type !== 'project') || !input.status_text.trim()) {
       throw new Error(`Tool '${toolName}' requires a goal/project card and non-empty status_text.`);
@@ -438,123 +381,14 @@ export class PlannerToolsService {
       at: new Date().toISOString(),
     };
 
-    if (toolName === 'report_goal_done' && this.reviewer) {
-      const assessmentId = this.assessmentIdFactory();
-      const reviewerSessionId = `reviewer:${goalId}:${assessmentId}`;
-      try {
-        const maybeReview = this.reviewer(
-          goalId,
-          assessmentId,
-          reviewerSessionId,
-          report,
-          sessionId,
-        );
-        if (maybeReview instanceof Promise) {
-          return maybeReview
-            .then((review) =>
-              this.applyReviewerAssessment(
-                goal,
-                report,
-                input.status_text,
-                sessionId,
-                assessmentId,
-                reviewerSessionId,
-                review,
-              ),
-            )
-            .catch((err: unknown) => {
-              throw this.persistReviewerInvocationBlock(goalId, err);
-            });
-        }
-        return this.applyReviewerAssessment(
-          goal,
-          report,
-          input.status_text,
-          sessionId,
-          assessmentId,
-          reviewerSessionId,
-          maybeReview,
-        );
-      } catch (err) {
-        throw this.persistReviewerInvocationBlock(goalId, err);
-      }
-    }
-
     const updated = this.acceptReport(
       goal,
       toolName,
       report,
       input.status_text,
       sessionId,
-      undefined,
     );
     return { card: updated, accepted: true };
-  }
-
-  private persistReviewerInvocationBlock(goalId: string, err: unknown): PlannerToolError {
-    if (err instanceof PlannerToolError) return err;
-    const message = reviewerInvocationFailedMessage(goalId);
-    requireCard(this.store, goalId);
-    // Reviewer/provider failure commits a blocked lifecycle result even when the goal is not on a normal transition path.
-    this.store.repairTerminalLifecycle(goalId, {
-      ...lifecycleCardPatch({
-        status: 'blocked',
-        result: {
-          kind: 'planner_blocked',
-          blocked_reason: message,
-          resume_reason: 'reviewer_unavailable',
-          blocker_cause: 'reviewer_unavailable',
-        },
-        error: message,
-        completed_at: null,
-      }),
-      status_text: message,
-      status_text_updated_at: new Date().toISOString(),
-    });
-    return new PlannerToolError('reviewer_invocation_failed', message);
-  }
-
-  private applyReviewerAssessment(
-    goal: CardRecord,
-    report: GoalSelfReport,
-    statusText: string,
-    sessionId: string | undefined,
-    assessmentId: string,
-    reviewerSessionId: string,
-    rawReview: ReviewerResult,
-  ): ReportGoalResult {
-    const review = rawReview;
-    const assessment: ReviewAssessment = {
-      ...review,
-      assessment_id: assessmentId,
-      at: new Date().toISOString(),
-      reviewer_session_id: reviewerSessionId,
-      goal_card_id: goal.id,
-    };
-    if (assessment.result === 'pass') {
-      const updated = this.acceptReport(
-        requireCard(this.store, goal.id),
-        'report_goal_done',
-        report,
-        statusText,
-        sessionId,
-        assessment,
-      );
-      return { card: updated, accepted: true, assessment };
-    }
-
-    const current = requireCard(this.store, goal.id);
-    const attempts = current.retries + 1;
-    this.store.update(goal.id, { retries: attempts });
-    if (attempts > this.maxReviewRetries) {
-      this.writePendingSubtreeCorrectionNotes(goal.id, assessment.issues, sessionId);
-      const changed = this.store.repairTerminalLifecycle(goal.id, {
-        status: 'changed',
-        lifecycle: { status: 'changed', result: null, error: null, completed_at: null },
-      });
-      return { card: changed, accepted: true, assessment };
-    }
-    return { card: requireCard(this.store, goal.id), accepted: true, assessment };
   }
 
   private acceptReport(
@@ -563,12 +397,10 @@ export class PlannerToolsService {
     report: GoalSelfReport,
     statusText: string,
     sessionId: string | undefined,
-    assessment: ReviewAssessment | undefined,
   ): CardRecord {
     const completedAt = new Date().toISOString();
     const status = REPORTABLE_OUTCOMES[toolName];
     const lifecycle = reportLifecycle(status, report, statusText, completedAt);
-    void assessment;
     // Planner terminal reports commit done/failed/blocked lifecycle state with result evidence.
     return this.store.repairTerminalLifecycle(goal.id, {
       ...lifecycleCardPatch(lifecycle),
@@ -577,31 +409,6 @@ export class PlannerToolsService {
       status_text_updated_at: completedAt,
       status_text_author_session_id: sessionId ?? null,
       latest_self_report: report as Record<string, unknown>,
-    });
-  }
-
-  private writePendingSubtreeCorrectionNotes(originId: string, issues: ReviewerIssue[], sessionId?: string): void {
-    const projectRoot = this.projectRoot ?? this.store.projectRoot;
-    const routed = findDeepestContainingPlanner(projectRoot, this.store, originId);
-    const fallbackGoalId = sessionId?.startsWith('planner:') ? sessionId.slice('planner:'.length) : null;
-    const fallbackGoal = fallbackGoalId ? this.store.read(fallbackGoalId) : null;
-    const fallbackContainsOrigin = Boolean(
-      fallbackGoal &&
-        (fallbackGoal.type === 'goal' || fallbackGoal.type === 'project') &&
-        (fallbackGoal.id === originId || this.store.getDescendantIds(fallbackGoal.id).includes(originId)),
-    );
-    const target = routed ?? (sessionId && fallbackGoal && fallbackContainsOrigin
-      ? { sessionId, goalId: fallbackGoal.id }
-      : null);
-    if (!target) return; // PLAN-NOTE: no live planner owns this subtree, so there is nothing to inject into.
-    const summary = issues.map((issue) => issue.summary).join('; ');
-    queueSyntheticPlannerNote(projectRoot, {
-      target_planner_session_id: 'session' in target ? target.session.id : target.sessionId,
-      target_goal_card_id: target.goalId,
-      kind: 'pending_subtree_correction',
-      affected_card_id: originId,
-      descendant_card_ids: [],
-      summary: `pending_subtree_correction from ${originId}: ${summary}`,
     });
   }
 }

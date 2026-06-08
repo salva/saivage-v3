@@ -18,9 +18,6 @@ export interface PlannerControlExecutionContext {
   saivageDir?: string;
   runtimeStateProvider?: PlannerToolsServiceOptions['runtimeStateProvider'];
   activationLedger?: RuntimeActivationLedgerPort;
-  reviewer?: PlannerToolsServiceOptions['reviewer'];
-  maxReviewRetries?: number;
-  assessmentIdFactory?: PlannerToolsServiceOptions['assessmentIdFactory'];
   eventBus?: TypedEventEmitter;
   eventBusProvider?: () => TypedEventEmitter | undefined;
   eventLogger?: EventLogger;
@@ -50,9 +47,6 @@ export class PlannerControlExecutor {
     return new PlannerToolsService(this.context.cardStore, {
       projectRoot: this.context.projectRoot,
       runtimeStateProvider: this.context.runtimeStateProvider,
-      reviewer: this.context.reviewer,
-      maxReviewRetries: this.context.maxReviewRetries,
-      assessmentIdFactory: this.context.assessmentIdFactory,
     });
   }
 
@@ -237,7 +231,7 @@ export class PlannerControlExecutor {
         case 'report_goal_done':
         case 'report_goal_failed':
         case 'report_goal_blocked':
-          result = await plannerTools.reportGoalAsync(invocation.toolName, this.parentCardId(invocation) ?? '', {
+          result = plannerTools.reportGoal(invocation.toolName, this.parentCardId(invocation) ?? '', {
             status_text: String(args.status_text ?? ''),
             summary: typeof args.summary === 'string' ? args.summary : undefined,
             evidence_card_ids: Array.isArray(args.evidence_card_ids) ? args.evidence_card_ids.map((value) => String(value)) : undefined,

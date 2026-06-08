@@ -2,6 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 import { handleReviewerAssessmentDecision, type ReviewerAssessmentEffects } from '../../src/runtime/phases/reviewer-assessment-handler.js';
 import type { CardRecord, ReviewAssessment } from '../../src/schemas/types.js';
 import type { ReviewerResult } from '../../src/contracts/index.js';
+import type { SyntheticPlannerNote } from '../../src/runtime/synthetic-planner-notes.js';
 
 const now = '2026-01-01T00:00:00.000Z';
 const directOwnership = { kind: 'direct', source: 'project_root' } as const;
@@ -17,6 +18,19 @@ function reviewResult(result: ReviewerResult['assessment']['result']): ReviewerR
       evidence_card_ids: ['goal-a'],
     },
   } as ReviewerResult;
+}
+
+function note(kind: SyntheticPlannerNote['kind']): SyntheticPlannerNote {
+  return {
+    id: `note-${kind}`,
+    target_planner_session_id: 'planner:goal-a',
+    target_goal_card_id: 'goal-a',
+    kind,
+    affected_card_id: 'goal-a',
+    descendant_card_ids: [],
+    summary: kind,
+    created_at: now,
+  };
 }
 
 describe('reviewer assessment handler', () => {
@@ -110,6 +124,81 @@ describe('reviewer assessment handler', () => {
     ]);
   });
 
+  it('continues planner without committing or draining when a pending analyst note exists', async () => {
+    const calls: string[] = [];
+    const notes = [note('analyst_note')];
+    const outcome = await handleReviewerAssessmentDecision({
+      goalId: 'goal-a',
+      ownership: activationOwnership,
+      assessmentId: 'assessment-goal-a-1',
+      reviewerSessionId: 'reviewer:goal-a:assessment-goal-a-1',
+      reviewResult: reviewResult('pass'),
+      decision: { kind: 'pass' },
+      effects: testEffects({
+        readCard: () => ({ id: 'goal-a', status: 'running', lifecycle: { status: 'running', result: { kind: 'planner_done', summary: 'review summary' }, completed_at: null, error: 'stale error' } } as unknown as CardRecord),
+        peekPlannerNotes: (plannerSessionId) => {
+          calls.push(`peek:${plannerSessionId}`);
+          return notes;
+        },
+        transitionCard: async () => { calls.push('complete'); },
+        updateCard: async () => { calls.push('update'); },
+        appendChildUnwindToolResult: () => { calls.push('unwind'); return true; },
+        transitionRuntime: async () => { calls.push('runtime'); },
+        emitGoalCompleted: () => { calls.push('completed'); },
+      }),
+    });
+
+    expect(outcome).toEqual({ kind: 'continue_planner' });
+    expect(calls).toEqual(['peek:planner:goal-a']);
+    expect(notes).toEqual([expect.objectContaining({ kind: 'analyst_note' })]);
+  });
+
+  it('commits reviewer pass when no planner note is pending', async () => {
+    const calls: string[] = [];
+    const outcome = await handleReviewerAssessmentDecision({
+      goalId: 'goal-a',
+      ownership: activationOwnership,
+      assessmentId: 'assessment-goal-a-1',
+      reviewerSessionId: 'reviewer:goal-a:assessment-goal-a-1',
+      reviewResult: reviewResult('pass'),
+      decision: { kind: 'pass' },
+      effects: testEffects({
+        readCard: () => ({ id: 'goal-a', status: 'running', lifecycle: { status: 'running', result: { kind: 'planner_done', summary: 'review summary' }, completed_at: null, error: null } } as unknown as CardRecord),
+        peekPlannerNotes: () => [],
+        transitionCard: async () => { calls.push('complete'); },
+        updateCard: async () => { calls.push('update'); },
+        appendChildUnwindToolResult: () => { calls.push('unwind'); return true; },
+        emitGoalCompleted: () => { calls.push('completed'); },
+      }),
+    });
+
+    expect(outcome).toEqual({ kind: 'completed' });
+    expect(calls).toEqual(['complete', 'update', 'unwind', 'completed']);
+  });
+
+  it('commits reviewer pass when only reviewer_interrupted notes are pending', async () => {
+    const calls: string[] = [];
+    const outcome = await handleReviewerAssessmentDecision({
+      goalId: 'goal-a',
+      ownership: activationOwnership,
+      assessmentId: 'assessment-goal-a-1',
+      reviewerSessionId: 'reviewer:goal-a:assessment-goal-a-1',
+      reviewResult: reviewResult('pass'),
+      decision: { kind: 'pass' },
+      effects: testEffects({
+        readCard: () => ({ id: 'goal-a', status: 'running', lifecycle: { status: 'running', result: { kind: 'planner_done', summary: 'review summary' }, completed_at: null, error: null } } as unknown as CardRecord),
+        peekPlannerNotes: () => [note('reviewer_interrupted')],
+        transitionCard: async () => { calls.push('complete'); },
+        updateCard: async () => { calls.push('update'); },
+        appendChildUnwindToolResult: () => { calls.push('unwind'); return true; },
+        emitGoalCompleted: () => { calls.push('completed'); },
+      }),
+    });
+
+    expect(outcome).toEqual({ kind: 'completed' });
+    expect(calls).toEqual(['complete', 'update', 'unwind', 'completed']);
+  });
+
   it('throws when activation-owned reviewer pass cannot unwind to parent', async () => {
     const calls: string[] = [];
     await expect(handleReviewerAssessmentDecision({
@@ -177,6 +266,7 @@ describe('reviewer assessment handler', () => {
 
 function testEffects(overrides: Partial<ReviewerAssessmentEffects> = {}): ReviewerAssessmentEffects {
   return {
+    projectRoot: '/tmp/saivage-test-project',
     now: () => now,
     readCard: () => null,
     transitionCard: async () => undefined,
@@ -186,6 +276,7 @@ function testEffects(overrides: Partial<ReviewerAssessmentEffects> = {}): Review
     appendChildUnwindToolResult: () => false,
     transitionRuntime: async () => undefined,
     emitProjectRunCompleted: () => undefined,
+    peekPlannerNotes: () => [],
     ...overrides,
   };
 }

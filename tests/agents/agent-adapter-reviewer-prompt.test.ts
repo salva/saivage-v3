@@ -5,9 +5,7 @@ import { tmpdir } from 'node:os';
 
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import type { LlmCallFn } from '../../src/agents/llm-contracts.js';
-import { buildReviewerPrompt } from '../../src/agents/system-prompt.js';
 import { createPlannerContract } from '../../src/contracts/planner-contract.js';
-import { createReviewerContract } from '../../src/contracts/reviewer-contract.js';
 import type { SaivageConfig } from '../../src/agents/config-schema.js';
 import type { AgentMessage, CardRecord } from '../../src/schemas/types.js';
 import { CardStore } from '../../src/cards/card-store.js';
@@ -103,7 +101,7 @@ describe('AgentAdapter planner-control reviewer prompt contract', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('invokes planner-control acceptance review with buildReviewerPrompt, stable reviewerSessionId, and framed ReviewerResult request context', async () => {
+  it('does not invoke a reviewer from planner-control report_goal_done', async () => {
     const goal = store.create(makeCard({
       type: 'goal',
       title: 'Adopt reviewer prompt contract',
@@ -135,20 +133,6 @@ describe('AgentAdapter planner-control reviewer prompt contract', () => {
           tool_calls: [{ id: 'call-report-goal-done', type: 'function', function: { name: 'report_goal_done', arguments: JSON.stringify(plannerReport) } }],
         };
       }
-      if (sessionId.startsWith(`reviewer:${goal.id}:`)) {
-        return {
-          kind: 'tool_calls',
-          tool_calls: [{ id: 'call-reviewer', type: 'function', function: { name: 'emit_reviewer_result', arguments: JSON.stringify({
-            assessment: {
-              result: 'pass',
-              summary: 'Canonical reviewer result accepted.',
-              achieved: ['Reviewer prompt contract adopted'],
-              issues: [],
-              evidence_card_ids: [evidence.id],
-            },
-          }) } }],
-        };
-      }
       throw new Error(`unexpected LLM call for session ${sessionId}`);
     };
     const adapterWithLlm = new AgentAdapter({
@@ -173,23 +157,7 @@ describe('AgentAdapter planner-control reviewer prompt contract', () => {
       summary: `report_goal_done accepted for goal ${goal.id}.`,
     }));
     expect(llmCalls.filter((call) => call.sessionId === `planner:${goal.id}`)).toHaveLength(1);
-    const reviewerCall = llmCalls.find((call) => call.sessionId.startsWith(`reviewer:${goal.id}:`));
-    expect(reviewerCall).toBeDefined();
-    expect(reviewerCall?.sessionId).toMatch(new RegExp(`^reviewer:${goal.id}:.+`));
-    expect(reviewerCall?.messages).toHaveLength(1);
-    const reviewMessage = reviewerCall!.messages[0];
-    const actualAssessmentId = reviewerCall!.sessionId.slice(`reviewer:${goal.id}:`.length);
-    expect(actualAssessmentId.length).toBeGreaterThan(0);
-    expect(reviewerCall?.systemPrompt).toBe(buildReviewerPrompt(createReviewerContract()));
-    expect(reviewMessage).toEqual(expect.objectContaining({
-      session_id: reviewerCall!.sessionId,
-      role: 'user',
-      kind: 'text',
-    }));
-    expect(reviewMessage.content).toContain(`terminal outcome for goal '${goal.id}'`);
-    expect(reviewMessage.content).toContain('canonical ReviewerResult JSON envelope');
-    expect(reviewMessage.content).toContain('"status_text": "Reviewer prompt contract adopted"');
-    expect(reviewMessage.content).toContain(`"evidence_card_ids": [\n    "${evidence.id}"\n  ]`);
-    expect(reviewMessage.content).toContain('"changed_files": [');
+    expect(llmCalls.some((call) => call.sessionId.startsWith(`reviewer:${goal.id}:`))).toBe(false);
+    expect(store.read(goal.id)?.status).toBe('done');
   });
 });

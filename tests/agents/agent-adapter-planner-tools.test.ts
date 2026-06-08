@@ -417,14 +417,6 @@ describe('synthesizeReportGoalEnvelope', () => {
       },
     });
 
-    expect(synthesizeReportGoalEnvelope('report_goal_done', 'goal-1', 'changed')).toEqual({
-      kind: 'result',
-      payload: {
-        status: 'continue',
-        summary: 'report_goal_done: goal goal-1 needs re-planning (review corrections exhausted); continuing.',
-      },
-    });
-
     expect(synthesizeReportGoalEnvelope('report_goal_blocked', 'goal-1', 'blocked')).toEqual({
       kind: 'result',
       payload: {
@@ -443,6 +435,7 @@ describe('synthesizeReportGoalEnvelope', () => {
       },
     });
 
+    expect(synthesizeReportGoalEnvelope('report_goal_done', 'goal-1', 'changed')).toBeNull();
     expect(synthesizeReportGoalEnvelope('report_goal_done', 'goal-1', 'running')).toBeNull();
     expect(synthesizeReportGoalEnvelope('report_goal_done', 'goal-1', undefined)).toBeNull();
   });

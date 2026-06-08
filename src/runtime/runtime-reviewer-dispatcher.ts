@@ -10,6 +10,7 @@ import { buildReviewerActiveRun, decideReviewerPhase } from './phases/reviewer-p
 import { ReviewerPhaseRunner } from './phases/reviewer-phase-runner.js';
 import { handleReviewerInvocationFailure } from './phases/reviewer-invocation-failure.js';
 import { handleReviewerAssessmentDecision } from './phases/reviewer-assessment-handler.js';
+import { peekSyntheticPlannerNotes } from './synthetic-planner-notes.js';
 import {
   nextReviewerAssessmentId,
   reviewerSessionId as makeReviewerSessionId,
@@ -127,6 +128,7 @@ export class RuntimeReviewerDispatcher {
       decision: reviewerDecision,
       planningContext,
       effects: {
+        projectRoot: this.deps.projectRoot,
         now: this.deps.now,
         readCard: (cardId) => this.deps.cards.read(cardId),
         transitionCard: (cardId, event, details) => this.deps.stateMachine.transitionCard(cardId, event, details),
@@ -142,6 +144,7 @@ export class RuntimeReviewerDispatcher {
         appendChildUnwindToolResult: (cardId, outcome, summary) => this.deps.activationUnwind.appendChildUnwindToolResult(cardId, outcome, summary),
         transitionRuntime: (event, details) => this.deps.stateMachine.transition(event, details),
         emitProjectRunCompleted: (cardId, assessment) => this.emitProjectRunCompleted(cardId, assessment),
+        peekPlannerNotes: (plannerSessionId) => peekSyntheticPlannerNotes(this.deps.projectRoot, plannerSessionId),
       },
     });
     return reviewerOutcome.kind === 'completed';
