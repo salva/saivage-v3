@@ -1,7 +1,7 @@
 import { describe, it, expect } from '@jest/globals';
 import { createPlannerContract } from '../../src/contracts/planner-contract.js';
 
-const contract = createPlannerContract({ goalId: 'g1', parentSessionId: 's1' });
+const contract = createPlannerContract();
 
 describe('planner contract', () => {
   it('exposes the planner result terminal', () => {

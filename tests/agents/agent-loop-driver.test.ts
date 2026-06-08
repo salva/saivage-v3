@@ -13,7 +13,7 @@ function makeIO(overrides: Partial<AgentLoopDriverIO<ExecutorResultEnvelope, Exe
 } {
   const log: { kind: string; payload?: unknown }[] = [];
   const rejections: VerifierRejectionEvent[] = [];
-  const contract = createExecutorContract({ cardId: 'c1', goalId: 'g1' });
+  const contract = createExecutorContract();
   const verifier = createContractVerifier();
   const io: AgentLoopDriverIO<ExecutorResultEnvelope, ExecutorResult> = {
     contract,

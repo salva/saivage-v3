@@ -159,7 +159,7 @@ describe('AgentAdapter activation barrier compensation', () => {
         goalId: goal.id,
         systemPrompt: 'activate child',
         contextMessages: [],
-        contract: createPlannerContract({ goalId: goal.id, parentSessionId: `planner:${goal.id}` }),
+        contract: createPlannerContract(),
         activationBarrier: {
           dispatch: async ({ activation }) => {
             updateRuntimeState(root, {

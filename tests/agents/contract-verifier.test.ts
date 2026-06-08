@@ -4,8 +4,8 @@ import { createExecutorContract } from '../../src/contracts/executor-contract.js
 import { createPlannerContract } from '../../src/contracts/planner-contract.js';
 
 const verifier = createContractVerifier();
-const exec = createExecutorContract({ cardId: 'c1', goalId: 'g1' });
-const planner = createPlannerContract({ goalId: 'g1', parentSessionId: 's1' });
+const exec = createExecutorContract();
+const planner = createPlannerContract();
 
 describe('contract verifier', () => {
   describe('parseDoneArgs', () => {

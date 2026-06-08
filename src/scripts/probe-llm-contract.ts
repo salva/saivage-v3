@@ -90,10 +90,10 @@ function buildOptionsForRole(role: OperationalAgentRole) {
   }
   const contract =
     role === 'planner'
-      ? createPlannerContract({ goalId: 'probe-goal', parentSessionId: 'planner:probe-goal' })
+      ? createPlannerContract()
       : role === 'executor'
-        ? createExecutorContract({ cardId: 'probe-card', goalId: 'probe-goal' })
-        : createReviewerContract({ goalId: 'probe-goal', assessmentId: 'probe-assessment' });
+        ? createExecutorContract()
+        : createReviewerContract();
   const tools = contract.terminals.map((t) => t.toolDefinition);
   const offered = contract.terminals.map((t) => t.name);
   return buildLlmOptions(role, tools, offered, { temperature: 0, max_tokens: 64 }, undefined, undefined);

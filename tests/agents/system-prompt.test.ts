@@ -9,9 +9,9 @@ import { createPlannerContract } from '../../src/contracts/planner-contract.js';
 import { createExecutorContract } from '../../src/contracts/executor-contract.js';
 import { createReviewerContract } from '../../src/contracts/reviewer-contract.js';
 
-const plannerContract = createPlannerContract({ goalId: 'g', parentSessionId: 'planner:g' });
-const executorContract = createExecutorContract({ cardId: 'c', goalId: 'g' });
-const reviewerContract = createReviewerContract({ goalId: 'g', assessmentId: 'a' });
+const plannerContract = createPlannerContract();
+const executorContract = createExecutorContract();
+const reviewerContract = createReviewerContract();
 
 describe('System Prompt Builder', () => {
   describe('buildPlannerPrompt', () => {
@@ -151,7 +151,7 @@ describe('System Prompt Builder', () => {
 
 describe('planner system prompt', () => {
   it('describes cancel_card as destructive recovery-only guidance', () => {
-    const prompt = buildPlannerPrompt(createPlannerContract({ goalId: 'project', parentSessionId: 'planner:project' }));
+    const prompt = buildPlannerPrompt(createPlannerContract());
     expect(prompt).toContain('Use cancellation only for cleanup/recovery');
     expect(prompt).toContain('Do not cancel the next actionable backlog child');
     expect(prompt).toContain('is not a scheduling primitive');

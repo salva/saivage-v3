@@ -31,16 +31,16 @@ function createMinimalAdapter(tmpDir: string, llmCallFn?: LlmCallFn): AgentAdapt
 }
 
 function plannerRequest(goalId: string, systemPrompt = 'prompt') {
-  return { goalId, systemPrompt, contextMessages: [], contract: createPlannerContract({ goalId, parentSessionId: `planner:${goalId}` }) };
+  return { goalId, systemPrompt, contextMessages: [], contract: createPlannerContract() };
 }
 
 function executorRequest(cardId: string, goalId: string, systemPrompt = 'prompt') {
-  return { cardId, goalId, systemPrompt, contextMessages: [], contract: createExecutorContract({ cardId, goalId }) };
+  return { cardId, goalId, systemPrompt, contextMessages: [], contract: createExecutorContract() };
 }
 
 function reviewerRequest(goalId: string, systemPrompt = 'prompt') {
   const assessmentId = `assessment-${goalId}`;
-  return { goalId, systemPrompt, contextMessages: [], assessmentId, contract: createReviewerContract({ goalId, assessmentId }) };
+  return { goalId, systemPrompt, contextMessages: [], assessmentId, contract: createReviewerContract() };
 }
 
 describe('AgentAdapter dispatch precondition', () => {

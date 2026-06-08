@@ -345,7 +345,7 @@ export class AgentAdapter implements AgentExecutionPort {
         goalId: session.goal_card_id,
         systemPrompt: request.systemPrompt,
         contextMessages: request.contextMessages,
-        contract: createExecutorContract({ cardId: session.card_id, goalId: session.goal_card_id }),
+        contract: createExecutorContract(),
       });
     }
     if (session.role === 'reviewer') {
@@ -357,7 +357,7 @@ export class AgentAdapter implements AgentExecutionPort {
         contextMessages: request.contextMessages,
         reviewerSessionId: session.id,
         assessmentId: session.assessment_id,
-        contract: createReviewerContract({ goalId: session.goal_card_id, assessmentId: session.assessment_id }),
+        contract: createReviewerContract(),
       });
     }
     throw new Error(`Session '${request.sessionId}' is not reinvokable.`);

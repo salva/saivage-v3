@@ -23,11 +23,11 @@ type CancellationTracker = {
 };
 
 function plannerRequest(goalId: string, systemPrompt: string, contextMessages: import('../../src/schemas/index.js').AgentMessage[]) {
-  return { goalId, systemPrompt, contextMessages, contract: createPlannerContract({ goalId, parentSessionId: `planner:${goalId}` }) };
+  return { goalId, systemPrompt, contextMessages, contract: createPlannerContract() };
 }
 
 function executorRequest(cardId: string, goalId: string, systemPrompt: string, contextMessages: import('../../src/schemas/index.js').AgentMessage[]) {
-  return { cardId, goalId, systemPrompt, contextMessages, contract: createExecutorContract({ cardId, goalId }) };
+  return { cardId, goalId, systemPrompt, contextMessages, contract: createExecutorContract() };
 }
 
 function makeCancellationTracker(): CancellationTracker {

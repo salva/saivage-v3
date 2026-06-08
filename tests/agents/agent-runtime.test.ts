@@ -46,16 +46,16 @@ function createMinimalAdapter(tmpDir: string): AgentAdapter {
 }
 
 function plannerRequest(goalId: string, systemPrompt = 'system prompt') {
-  return { goalId, systemPrompt, contextMessages: [], contract: createPlannerContract({ goalId, parentSessionId: `planner:${goalId}` }) };
+  return { goalId, systemPrompt, contextMessages: [], contract: createPlannerContract() };
 }
 
 function executorRequest(cardId: string, goalId: string, systemPrompt = 'system prompt') {
-  return { cardId, goalId, systemPrompt, contextMessages: [], contract: createExecutorContract({ cardId, goalId }) };
+  return { cardId, goalId, systemPrompt, contextMessages: [], contract: createExecutorContract() };
 }
 
 function reviewerRequest(goalId: string, systemPrompt = 'system prompt') {
   const assessmentId = `assessment-${goalId}`;
-  return { goalId, systemPrompt, contextMessages: [], assessmentId, contract: createReviewerContract({ goalId, assessmentId }) };
+  return { goalId, systemPrompt, contextMessages: [], assessmentId, contract: createReviewerContract() };
 }
 
 describe('AgentRuntime Interface', () => {

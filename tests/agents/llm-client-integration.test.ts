@@ -109,11 +109,11 @@ function createMockServer(
 }
 
 function plannerRequest(goalId: string) {
-  return { goalId, systemPrompt: sp(), contextMessages: msgs(), contract: createPlannerContract({ goalId, parentSessionId: `planner:${goalId}` }) };
+  return { goalId, systemPrompt: sp(), contextMessages: msgs(), contract: createPlannerContract() };
 }
 
 function executorRequest(cardId: string, goalId: string) {
-  return { cardId, goalId, systemPrompt: sp(), contextMessages: msgs(), contract: createExecutorContract({ cardId, goalId }) };
+  return { cardId, goalId, systemPrompt: sp(), contextMessages: msgs(), contract: createExecutorContract() };
 }
 
 function createMultiCaptureMockServer(

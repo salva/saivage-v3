@@ -43,7 +43,7 @@ export function createPlannerControlExecutor(config: PlannerControlFactoryConfig
     reviewer: async (goalId, assessmentId, reviewerSessionId, report, parentSessionId) => {
       if (parentSessionId) config.markSessionWaiting(parentSessionId);
       try {
-        const reviewerContract = createReviewerContract({ goalId, assessmentId });
+        const reviewerContract = createReviewerContract();
         return (
           await config.invokeReviewer({
             goalId,

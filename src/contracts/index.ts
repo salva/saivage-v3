@@ -280,15 +280,12 @@ export {
 
 export {
   createPlannerContract,
-  type PlannerContractInput,
   type PlannerEnvelope,
   type PlannerTypedResult,
 } from './planner-contract.js';
 export {
   createExecutorContract,
-  type ExecutorContractInput,
 } from './executor-contract.js';
 export {
   createReviewerContract,
-  type ReviewerContractInput,
 } from './reviewer-contract.js';

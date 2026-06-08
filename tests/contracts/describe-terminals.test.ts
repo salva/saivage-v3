@@ -2,7 +2,7 @@ import { describe, it, expect } from '@jest/globals';
 import { createPlannerContract } from '../../src/contracts/planner-contract.js';
 
 describe('describeTerminals via planner contract', () => {
-  const prose = createPlannerContract({ goalId: 'g1', parentSessionId: 's1' }).describe();
+  const prose = createPlannerContract().describe();
 
   it('renders a numbered list', () => {
     expect(prose).toMatch(/^1\. `emit_planner_result`/);

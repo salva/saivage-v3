@@ -11,11 +11,6 @@ import { zodToJsonSchemaMini } from '../agents/zod-to-jsonschema-mini.js';
 import { describeTerminals } from './describe-terminals.js';
 import { verifyAgainstTerminals } from './verify-against-terminals.js';
 
-export interface PlannerContractInput {
-  goalId: string;
-  parentSessionId: string;
-}
-
 export type PlannerEnvelope =
   | { kind: 'result'; payload: PlannerResultEnvelope };
 
@@ -25,9 +20,7 @@ export type PlannerTypedResult =
 const PLANNER_RESULT_TERMINAL_DESC =
   'Emit the planner result envelope as the final action of this turn.';
 
-export function createPlannerContract(
-  _input: PlannerContractInput,
-): Contract<PlannerEnvelope, PlannerTypedResult> {
+export function createPlannerContract(): Contract<PlannerEnvelope, PlannerTypedResult> {
   const resultTerminal: ContractTerminalDescriptor = {
     name: 'emit_planner_result',
     description: PLANNER_RESULT_TERMINAL_DESC,

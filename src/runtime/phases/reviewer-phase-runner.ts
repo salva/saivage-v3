@@ -17,7 +17,7 @@ export class ReviewerPhaseRunner {
   constructor(private readonly deps: ReviewerPhaseRunnerDeps) {}
 
   async run(input: { goalId: string; assessmentId: string; reviewerSessionId: string }): Promise<ReviewerResult> {
-    const reviewerContract = createReviewerContract({ goalId: input.goalId, assessmentId: input.assessmentId });
+    const reviewerContract = createReviewerContract();
     let reviewerPrompt = buildReviewerPrompt(reviewerContract);
     try {
       if (this.deps.skillsEngine) {

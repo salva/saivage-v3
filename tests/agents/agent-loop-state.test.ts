@@ -13,7 +13,7 @@ import { createContractVerifier } from '../../src/agents/contract-verifier.js';
 import type { ExecutorResultEnvelope } from '../../src/contracts/executor-envelope.js';
 import type { LlmCompleteResult } from '../../src/agents/llm-contracts.js';
 
-const contract = createExecutorContract({ cardId: 'c1', goalId: 'g1' });
+const contract = createExecutorContract();
 const verifier = createContractVerifier();
 
 function toolCallsResult(tcs: { id: string; name: string; args: string }[]): LlmCompleteResult {

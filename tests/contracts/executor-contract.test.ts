@@ -1,7 +1,7 @@
 import { describe, it, expect } from '@jest/globals';
 import { createExecutorContract } from '../../src/contracts/executor-contract.js';
 
-const contract = createExecutorContract({ cardId: 'c1', goalId: 'g1' });
+const contract = createExecutorContract();
 
 describe('executor contract', () => {
   it('exposes single terminal emit_executor_result', () => {

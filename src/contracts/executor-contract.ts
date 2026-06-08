@@ -11,17 +11,10 @@ import { zodToJsonSchemaMini } from '../agents/zod-to-jsonschema-mini.js';
 import { describeTerminals } from './describe-terminals.js';
 import { verifyAgainstTerminals } from './verify-against-terminals.js';
 
-export interface ExecutorContractInput {
-  cardId: string;
-  goalId: string;
-}
-
 const EXECUTOR_TERMINAL_DESC =
   'Emit the executor result envelope as the final action of this turn.';
 
-export function createExecutorContract(
-  _input: ExecutorContractInput,
-): Contract<ExecutorResultEnvelope, ExecutorResult> {
+export function createExecutorContract(): Contract<ExecutorResultEnvelope, ExecutorResult> {
   const terminal: ContractTerminalDescriptor = {
     name: 'emit_executor_result',
     description: EXECUTOR_TERMINAL_DESC,

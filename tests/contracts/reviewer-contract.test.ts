@@ -1,7 +1,7 @@
 import { describe, it, expect } from '@jest/globals';
 import { createReviewerContract } from '../../src/contracts/reviewer-contract.js';
 
-const contract = createReviewerContract({ goalId: 'g1', assessmentId: 'a1' });
+const contract = createReviewerContract();
 
 describe('reviewer contract', () => {
   it('exposes single terminal emit_reviewer_result', () => {

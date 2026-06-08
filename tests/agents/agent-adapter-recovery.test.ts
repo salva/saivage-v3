@@ -52,7 +52,7 @@ function plannerRequest(goalId: string, systemPrompt = 'prompt') {
     goalId,
     systemPrompt,
     contextMessages: [],
-    contract: createPlannerContract({ goalId, parentSessionId: `planner:${goalId}` }),
+    contract: createPlannerContract(),
   };
 }
 

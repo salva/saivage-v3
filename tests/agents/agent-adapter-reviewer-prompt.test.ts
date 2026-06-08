@@ -165,7 +165,7 @@ describe('AgentAdapter planner-control reviewer prompt contract', () => {
       goalId: goal.id,
       systemPrompt: 'planner-system-prompt',
       contextMessages: [],
-      contract: createPlannerContract({ goalId: goal.id, parentSessionId: `planner:${goal.id}` }),
+      contract: createPlannerContract(),
     });
 
     expect(result).toEqual(expect.objectContaining({
@@ -180,7 +180,7 @@ describe('AgentAdapter planner-control reviewer prompt contract', () => {
     const reviewMessage = reviewerCall!.messages[0];
     const actualAssessmentId = reviewerCall!.sessionId.slice(`reviewer:${goal.id}:`.length);
     expect(actualAssessmentId.length).toBeGreaterThan(0);
-    expect(reviewerCall?.systemPrompt).toBe(buildReviewerPrompt(createReviewerContract({ goalId: goal.id, assessmentId: actualAssessmentId })));
+    expect(reviewerCall?.systemPrompt).toBe(buildReviewerPrompt(createReviewerContract()));
     expect(reviewMessage).toEqual(expect.objectContaining({
       session_id: reviewerCall!.sessionId,
       role: 'user',

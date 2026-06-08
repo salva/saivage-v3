@@ -14,7 +14,7 @@ export class ExecutorPhaseRunner {
   constructor(private readonly deps: ExecutorPhaseRunnerDeps) {}
 
   async run(input: { card: CardRecord; goalId: string; goalCard: CardRecord | null | undefined }): Promise<ExecutorResult> {
-    const executorContract = createExecutorContract({ cardId: input.card.id, goalId: input.goalId });
+    const executorContract = createExecutorContract();
     let executorPrompt = buildExecutorPrompt(executorContract, input.card.type);
     try {
       if (this.deps.skillsEngine) {

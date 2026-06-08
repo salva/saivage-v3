@@ -70,7 +70,7 @@ function cleanupDir(dir: string): void {
 }
 
 function plannerRequest(goalId: string) {
-  return { goalId, systemPrompt: spText(), contextMessages: userMsgs(), contract: createPlannerContract({ goalId, parentSessionId: `planner:${goalId}` }) };
+  return { goalId, systemPrompt: spText(), contextMessages: userMsgs(), contract: createPlannerContract() };
 }
 
 function createTestAgentAdapter(projectRoot: string, eventBus?: EventEmitter, cardStore = new CardStore(projectRoot)): InstanceType<typeof AgentAdapter> {

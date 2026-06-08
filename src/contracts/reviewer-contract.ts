@@ -11,17 +11,10 @@ import { zodToJsonSchemaMini } from '../agents/zod-to-jsonschema-mini.js';
 import { describeTerminals } from './describe-terminals.js';
 import { verifyAgainstTerminals } from './verify-against-terminals.js';
 
-export interface ReviewerContractInput {
-  goalId: string;
-  assessmentId: string;
-}
-
 const REVIEWER_TERMINAL_DESC =
   'Emit the reviewer result envelope as the final action of this turn.';
 
-export function createReviewerContract(
-  _input: ReviewerContractInput,
-): Contract<ReviewerResultEnvelope, ReviewerResult> {
+export function createReviewerContract(): Contract<ReviewerResultEnvelope, ReviewerResult> {
   const terminal: ContractTerminalDescriptor = {
     name: 'emit_reviewer_result',
     description: REVIEWER_TERMINAL_DESC,

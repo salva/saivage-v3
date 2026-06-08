@@ -623,9 +623,9 @@ describe('SkillsEngine', () => {
   // ═══════════════ System Prompt Integration ═══════════════
 
   describe('System Prompt Integration', () => {
-    const plannerContract = createPlannerContract({ goalId: 'g', parentSessionId: 'planner:g' });
-    const executorContract = createExecutorContract({ cardId: 'c', goalId: 'g' });
-    const reviewerContract = createReviewerContract({ goalId: 'g', assessmentId: 'a' });
+    const plannerContract = createPlannerContract();
+    const executorContract = createExecutorContract();
+    const reviewerContract = createReviewerContract();
 
     it('buildPlannerPrompt(skills) appends skills when provided', () => {
       const prompt = buildPlannerPrompt(plannerContract, '--- SKILL: test ---\ncontent\n--- END SKILL ---');
