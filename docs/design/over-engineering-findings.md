@@ -79,9 +79,9 @@ The runtime READS and HANDLES a `'frozen'` status that **nothing ever WRITES** i
 - Fix: delete the port + adapter; pass `projectRoot`.
 - Confidence: HIGH. Impact: MEDIUM.
 
-### 11. `ProcessReadModelService` (`src/application/read-models/process-read-model.ts:5`)
-- Stateless class; all 4 methods forward verbatim to `processApi(this.projectRoot)`. Delete; callers use `processApi(projectRoot)` directly.
-- Confidence: HIGH. Impact: MEDIUM.
+### 11. `ProcessReadModelService` (removed; was `application/read-models/process-read-model.ts`)
+- Stateless class; all 4 methods forwarded verbatim to `processApi(this.projectRoot)`. Deleted; callers use `processApi(projectRoot)` directly (see `src/server/routes/operator-process-handlers.ts`).
+- Confidence: HIGH. Impact: MEDIUM. Status: DONE (WI-11).
 
 ### 12. `*PhaseRunner` classes → functions
 - `ReviewerPhaseRunner`, `ExecutorPhaseRunner`, `PlannerPhaseRunner` are stateless single-`run()`-method classes, each `new`'d-and-discarded at exactly one call site. Demote to plain functions `runReviewerPhase(deps, input)` etc.

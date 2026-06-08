@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 import { join } from 'node:path';
-import { ProcessReadModelService } from '../../src/application/read-models/index.js';
+import { processApi } from '../../src/runtime/process-api.js';
 import type { ProcessRecord } from '../../src/schemas/index.js';
 
 function record(overrides: Partial<ProcessRecord> = {}): ProcessRecord {
@@ -36,9 +36,9 @@ function record(overrides: Partial<ProcessRecord> = {}): ProcessRecord {
   };
 }
 
-describe('ProcessReadModelService', () => {
+describe('process operator view projection', () => {
   it('projects process records into the existing operator-safe process view shape', () => {
-    const service = new ProcessReadModelService('/workspace/project');
+    const service = processApi('/workspace/project');
 
     expect(service.toProcessView(record())).toEqual({
       id: 'proc-1',
@@ -66,7 +66,7 @@ describe('ProcessReadModelService', () => {
   });
 
   it('redacts sensitive commands and hides paths outside the project root', () => {
-    const service = new ProcessReadModelService('/workspace/project');
+    const service = processApi('/workspace/project');
     const view = service.toProcessView(record({
       command: 'curl https://example.test --header "Authorization: Bearer secret-token"',
       cwd: '/etc',
@@ -82,7 +82,7 @@ describe('ProcessReadModelService', () => {
   });
 
   it('preserves the legacy timed_out heuristic', () => {
-    const service = new ProcessReadModelService('/workspace/project');
+    const service = processApi('/workspace/project');
     expect(service.toProcessView(record({ status: 'failed', exit_code: null }))).toHaveProperty('timed_out', true);
     expect(service.toProcessView(record({ status: 'failed', exit_code: 1 }))).toHaveProperty('timed_out', false);
   });

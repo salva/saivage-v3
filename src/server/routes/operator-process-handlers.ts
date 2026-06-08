@@ -1,19 +1,19 @@
-import { ProcessReadModelService } from '../../application/read-models/index.js';
+import { processApi } from '../../runtime/process-api.js';
 import type { OperatorContractHandlerMap, OperatorProjectContext } from './operator-handler-context.js';
 
 export function buildProcessOperatorContractHandlers(options: OperatorProjectContext): OperatorContractHandlerMap {
-  const readModel = new ProcessReadModelService(options.projectRoot);
+  const processes = processApi(options.projectRoot);
 
   return {
     'processes.list': () => {
       try {
-        return { body: readModel.listProcesses() };
+        return { body: processes.listForOperator() };
       } catch (err) {
         return {
           statusCode: 500,
           body: {
             error: 'Failed to list processes',
-            message: readModel.errorMessage(err),
+            message: processes.errorMessage(err),
           },
         };
       }
@@ -25,7 +25,7 @@ export function buildProcessOperatorContractHandlers(options: OperatorProjectCon
       }
 
       try {
-        const process = readModel.getProcess(processId);
+        const process = processes.getForOperator(processId);
         if (!process) {
           return {
             statusCode: 404,
@@ -42,7 +42,7 @@ export function buildProcessOperatorContractHandlers(options: OperatorProjectCon
           statusCode: 500,
           body: {
             error: 'Failed to get process',
-            message: readModel.errorMessage(err),
+            message: processes.errorMessage(err),
           },
         };
       }
