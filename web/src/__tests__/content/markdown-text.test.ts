@@ -29,7 +29,7 @@ describe('MarkdownText', () => {
   });
 
   it('renders GFM tables with thead/tbody and th/td (E08 regression)', () => {
-    const source = '| Card | Status |\n| --- | --- |\n| Goal | active |\n| Child | done |';
+    const source = '| Card | Status |\n| --- | --- |\n| Goal | running |\n| Child | done |';
     const wrapper = mount(MarkdownText, { props: { source } });
     expect(wrapper.find('table').exists()).toBe(true);
     expect(wrapper.find('thead').exists()).toBe(true);
@@ -39,7 +39,7 @@ describe('MarkdownText', () => {
     expect(wrapper.findAll('th')).toHaveLength(2);
     expect(wrapper.findAll('tbody td')).toHaveLength(4);
     expect(wrapper.find('thead').text()).toContain('Card');
-    expect(wrapper.find('tbody').text()).toContain('active');
+    expect(wrapper.find('tbody').text()).toContain('running');
   });
 
   it('sanitizes script tags out of untrusted markdown', () => {

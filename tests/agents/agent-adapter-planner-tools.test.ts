@@ -265,16 +265,6 @@ describe('AgentAdapter planner tool surface', () => {
     expect(store.read(child.id)?.status).toBe('backlog');
   });
 
-  it('activates drafting cards through the legal backlog step', () => {
-    const drafting = store.create(makeCard({ type: 'code', title: 'Draft', status: 'drafting' }));
-    const service = new PlannerToolsService(store);
-
-    const activated = service.activateCard(drafting.id);
-
-    expect(activated.status).toBe('active');
-    expect(store.read(drafting.id)?.status).toBe('active');
-  });
-
   it('advertises cancel_card as destructive cleanup/recovery rather than scheduling', () => {
     const plannerTools = (adapter as any).buildToolsForRole('planner');
     const cancelDefinition = plannerTools.find(
@@ -453,7 +443,7 @@ describe('synthesizeReportGoalEnvelope', () => {
       },
     });
 
-    expect(synthesizeReportGoalEnvelope('report_goal_done', 'goal-1', 'active')).toBeNull();
+    expect(synthesizeReportGoalEnvelope('report_goal_done', 'goal-1', 'running')).toBeNull();
     expect(synthesizeReportGoalEnvelope('report_goal_done', 'goal-1', undefined)).toBeNull();
   });
 });

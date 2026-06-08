@@ -71,7 +71,7 @@ describe('synthetic planner notes', () => {
 
   it('consumeChangedCardActivation does not attempt changed -> running and does not throw', () => {
     const goal = store.create(makeCard({ type: 'goal', title: 'G', parent: 'project' }));
-    store.setStatus(goal.id, 'active');
+    store.setStatus(goal.id, 'running');
     store.setStatus(goal.id, 'running');
     store.setStatus(goal.id, 'changed');
 

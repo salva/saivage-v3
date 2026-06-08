@@ -229,33 +229,6 @@ export class PlannerToolsService {
     }
   }
 
-  activateCard(cardId: string): CardRecord {
-    const card = requireCard(this.store, cardId);
-    const runtimeState = this.runtimeStateProvider?.() ?? null;
-    if (runtimeState?.active_card_run?.card_id === cardId) {
-      throw new PlannerToolError(
-        'card_already_active',
-        `Card '${cardId}' is already the active runtime leaf.`,
-      );
-    }
-    if (card.status === 'active' || card.status === 'running') {
-      throw new PlannerToolError('card_already_active', `Card '${cardId}' is already active.`);
-    }
-    const startDecision = decide({
-      role: 'planner',
-      action: 'card.start',
-      targetState: card.status,
-    });
-    if (!startDecision.allowed) {
-      throw new PlannerToolError(
-        'terminal_card_requires_restart',
-        `Card '${cardId}' in status '${card.status}' must be restarted before activation.`,
-      );
-    }
-    if (card.status === 'drafting') this.store.setStatus(cardId, 'backlog');
-    return this.store.setStatus(cardId, 'active');
-  }
-
   cancelCard(cardId: string): CardRecord {
     const card = requireCard(this.store, cardId);
     if (!decide({ role: 'planner', action: 'card.cancel', targetState: card.status }).allowed) {
@@ -332,7 +305,7 @@ export class PlannerToolsService {
       changes.latest_self_report = null;
     }
     this.store.update(cardId, changes);
-    return this.store.setStatus(cardId, 'active');
+    return this.store.read(cardId)!;
   }
 
   queueNotification(

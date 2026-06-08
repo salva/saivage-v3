@@ -57,7 +57,7 @@ export interface CardEvidence {
 export interface CardLifecycleSummary {
   status: CardStatus;
   terminal: boolean;
-  phase: 'drafting' | 'planned' | 'ready' | 'running' | 'blocked' | 'completed' | 'failed' | 'cancelled';
+  phase: 'planned' | 'ready' | 'running' | 'blocked' | 'completed' | 'failed' | 'cancelled';
   explanation: string;
   completionState: 'not-started' | 'in-progress' | 'blocked' | 'failed' | 'cancelled' | 'marked-done';
   error: string | null;
@@ -125,7 +125,6 @@ const terminalStatuses = new Set<CardStatus>(['done', 'failed', 'cancelled']);
 
 function lifecyclePhase(status: CardStatus): CardLifecycleSummary['phase'] {
   switch (status) {
-    case 'drafting': return 'drafting';
     case 'backlog': return 'planned';
     case 'running': return 'running';
     case 'blocked': return 'blocked';
@@ -138,7 +137,6 @@ function lifecyclePhase(status: CardStatus): CardLifecycleSummary['phase'] {
 
 function completionState(status: CardStatus): CardLifecycleSummary['completionState'] {
   switch (status) {
-    case 'drafting':
     case 'backlog': return 'not-started';
     case 'blocked': return 'blocked';
     case 'failed': return 'failed';
@@ -150,9 +148,7 @@ function completionState(status: CardStatus): CardLifecycleSummary['completionSt
 
 export function deriveCardLifecycleSummary(card: CardRecord, children: CardRecord[] = []): CardLifecycleSummary {
   const childCounts = {
-    drafting: 0,
     backlog: 0,
-    active: 0,
     running: 0,
     blocked: 0,
     changed: 0,
@@ -174,7 +170,7 @@ export function deriveCardLifecycleSummary(card: CardRecord, children: CardRecor
     durationMs: null,
     retries: card.retries,
     childCounts,
-    hasActiveChildren: children.some((child) => child.status === 'active' || child.status === 'running'),
+    hasActiveChildren: children.some((child) => child.status === 'running'),
     hasBlockingChildren: children.some((child) => child.status === 'blocked' || child.status === 'failed'),
     dependencyIds: card.depends_on,
     blockedByDependencyIds: [],

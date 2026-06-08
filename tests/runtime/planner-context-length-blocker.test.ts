@@ -23,7 +23,7 @@ import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 import type { CardRecord, CardStatus } from '../../src/schemas/index.js';
 
 function plannerBlockedPatch(
-  status: Extract<CardStatus, 'active' | 'running' | 'blocked'>,
+  status: Extract<CardStatus, 'running' | 'blocked'>,
   blockedReason: string,
   resumeReason: string,
 ): Partial<CardRecord> {
@@ -463,7 +463,7 @@ describe('planner context-length failures', () => {
     const blockedReason =
       'Planner context exceeded the selected LLM token budget before scheduler output could be produced; compact/trim planner context before resuming.';
     harness.cardTestTools.repairTerminalLifecycle('project', {
-      ...plannerBlockedPatch('active', blockedReason, 'planner_context_length_exceeded'),
+      ...plannerBlockedPatch('running', blockedReason, 'planner_context_length_exceeded'),
     });
     updateRuntimeState(tmpDir, {
       runtime_runs: [{

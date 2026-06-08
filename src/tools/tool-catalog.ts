@@ -6,9 +6,7 @@ import type { ToolContext, ToolResult } from './analyst-tool-types.js';
 
 export const CARD_STATUS_VALUES = cardStatusValues;
 export const RUNTIME_CARD_STATUS_VALUES = CARD_STATUS_VALUES.filter((status) => status !== 'needs_verification') as [
-  'drafting',
   'backlog',
-  'active',
   'running',
   'blocked',
   'changed',

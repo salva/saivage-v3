@@ -1,7 +1,7 @@
 export const cardTypeValues = ['project', 'goal', 'architecture', 'code', 'test', 'doc', 'data', 'research', 'ops'] as const;
 export type CardType = typeof cardTypeValues[number];
 
-export const cardStatusValues = ['drafting', 'backlog', 'active', 'running', 'blocked', 'changed', 'done', 'failed', 'cancelled', 'needs_verification'] as const;
+export const cardStatusValues = ['backlog', 'running', 'blocked', 'changed', 'done', 'failed', 'cancelled', 'needs_verification'] as const;
 export type CardStatus = typeof cardStatusValues[number];
 
 

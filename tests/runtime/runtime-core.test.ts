@@ -158,7 +158,7 @@ describe('runtime core reducers', () => {
       state: state({ runtime_intent: { status: 'running', source_command_id: 'cmd-1', updated_at: 't0' }, runtime_runs: [run({ run_id: 'root', kind: 'root', ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project', parent_run_id: null, activation_id: null })] }),
       projectCardId: 'project',
       projectCardExists: true,
-      projectCardStatus: 'active',
+      projectCardStatus: 'running',
       hasBlockedPlanning: false,
       blockedPlanning: null,
       paused: false,

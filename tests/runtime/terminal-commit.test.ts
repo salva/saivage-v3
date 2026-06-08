@@ -72,7 +72,7 @@ function effects() {
 }
 
 // Mirrors the real RuntimeStateMachine.transitionCard + planCardTransition behavior:
-// a 'block' transition is only legal from an 'active' or 'running' source, and any
+// a 'block' transition is only legal from a 'running' source, and any
 // other source throws (the same RuntimeDispatchInvariantError class of failure that
 // surfaced in the GetRich v2 duplicate-block incident).
 function strictBlockingEffects(fromStatus: CardRecord['status']) {
@@ -82,7 +82,7 @@ function strictBlockingEffects(fromStatus: CardRecord['status']) {
     transitions,
     patches,
     transitionCard: async (cardId: string, event: string, details: Record<string, unknown>) => {
-      if (event === 'block' && fromStatus !== 'active' && fromStatus !== 'running') {
+      if (event === 'block' && fromStatus !== 'running') {
         throw new Error(`card '${cardId}' cannot transition via 'block' from '${fromStatus}'.`);
       }
       transitions.push({ cardId, event, details });

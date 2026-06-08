@@ -424,10 +424,10 @@ describe('CardStore CRUD still works with validated indexes', () => {
 describe('CardStore selective patch behavior', () => {
   it('drops no-op fields whose value equals the existing value (active card, depends_on echo)', () => {
     const card = store.create(makeCard({ type: 'goal', title: 'Echo', parent: 'project' }));
-    store.setStatus(card.id, 'active');
+    store.setStatus(card.id, 'running');
     const before = store.read(card.id)!;
     // Echoing existing depends_on (empty array) together with a real title change must succeed
-    // on an active card even though depends_on is a CRITICAL_FIELD that cannot change in 'active'.
+    // on a running card even though depends_on is a CRITICAL_FIELD that cannot change in 'running'.
     const updated = store.mutateCard(
       card.id,
       { title: 'Echo renamed', depends_on: [] },
@@ -442,14 +442,14 @@ describe('CardStore selective patch behavior', () => {
   it('rejects only when a CRITICAL_FIELD actually changes on a status-locked card', () => {
     const a = store.create(makeCard({ type: 'goal', title: 'A', parent: 'project' }));
     const b = store.create(makeCard({ type: 'goal', title: 'B', parent: 'project' }));
-    store.setStatus(b.id, 'active');
+    store.setStatus(b.id, 'running');
     expect(() =>
       store.mutateCard(
         b.id,
         { depends_on: [a.id] },
         { actor: 'analyst', surface: 'web-chat', reason: 'test' },
       ),
-    ).toThrow(/cannot be changed on a card in status 'active'/);
+    ).toThrow(/cannot be changed on a card in status 'running'/);
   });
 
   it('returns the existing card unchanged when every passed field is a no-op', () => {

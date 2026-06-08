@@ -113,7 +113,7 @@ describe('executor invocation failure handler', () => {
         stateMachine: {
           transitionCard: async (cardId: string, action: RuntimeCardAction, details: Record<string, unknown>) => {
             if (action === 'start') {
-              cards.setStatus(cardId, 'active');
+              cards.setStatus(cardId, 'running');
               cards.setStatus(cardId, 'running');
               return true;
             }

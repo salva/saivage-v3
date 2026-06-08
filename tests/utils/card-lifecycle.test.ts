@@ -61,7 +61,7 @@ function baseCard(overrides: Partial<CardRecord> = {}): CardRecord {
 
 describe('card lifecycle domain rules', () => {
   it('validates status transitions without a CardStore or filesystem', () => {
-    expect(canTransition('backlog', 'active')).toBe(true);
+    expect(canTransition('backlog', 'running')).toBe(true);
     expect(canTransition('backlog', 'done')).toBe(false);
     expect(() => validateTransition('backlog', 'done')).toThrow(/Invalid transition: backlog/);
   });
@@ -74,14 +74,14 @@ describe('card lifecycle domain rules', () => {
   });
 
   it('prunes no-op patch fields before editability checks', () => {
-    const card = baseCard({ status: 'active' });
+    const card = baseCard({ status: 'running' });
     const pruned = prunePartialPatch(card, { title: 'Goal', depends_on: [] });
     expect(pruned).toEqual({});
   });
 
   it('rejects structural edits on status-locked cards', () => {
-    const card = baseCard({ status: 'active' });
-    expect(() => validateMutablePatch(card, { depends_on: ['goal-2'] }, { childCount: 0 })).toThrow(/cannot be changed on a card in status 'active'/);
+    const card = baseCard({ status: 'running' });
+    expect(() => validateMutablePatch(card, { depends_on: ['goal-2'] }, { childCount: 0 })).toThrow(/cannot be changed on a card in status 'running'/);
   });
 
   it('locks terminal lifecycle fields behind explicit commit or repair contexts', () => {
@@ -138,7 +138,7 @@ describe('card lifecycle domain rules', () => {
       store.create(projectInput);
       const { id: _cardId, ...cardInput } = baseCard({ title: 'G' });
       const card = store.create(cardInput);
-      store.setStatus(card.id, 'active');
+      store.setStatus(card.id, 'running');
       store.setStatus(card.id, 'running');
 
       const blocked = store.setStatus(card.id, 'blocked');
@@ -159,7 +159,7 @@ describe('card lifecycle domain rules', () => {
       store.create(projectInput);
       const { id: _cardId, ...cardInput } = baseCard({ title: 'G2' });
       const card = store.create(cardInput);
-      store.setStatus(card.id, 'active');
+      store.setStatus(card.id, 'running');
       store.setStatus(card.id, 'running');
 
       const needsVerification = store.setStatus(card.id, 'needs_verification');
@@ -180,7 +180,7 @@ describe('card lifecycle domain rules', () => {
       store.create(projectInput);
       const { id: _cardId, ...cardInput } = baseCard({ title: 'G3' });
       const card = store.create(cardInput);
-      store.setStatus(card.id, 'active');
+      store.setStatus(card.id, 'running');
       store.setStatus(card.id, 'running');
 
       expect(() => store.setStatus(card.id, 'done')).toThrow(

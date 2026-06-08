@@ -21,7 +21,7 @@ function writeFixture(dir: string, name: string, fixture: FakeAgentFixture): voi
 }
 
 function advanceToTerminal(store: CardStore, goalId: string, targetStatus: CardStatus = 'done'): void {
-  store.setStatus(goalId, 'active');
+  store.setStatus(goalId, 'running');
   store.setStatus(goalId, 'running');
   if (targetStatus === 'done') {
     store.repairTerminalLifecycle(goalId, {

@@ -524,7 +524,7 @@ describe('Runtime Integration', () => {
     it('allows blocked goals to be reopened to backlog for replanning', () => {
       const store = new CardStore(tmpDir);
       const goal = makeGoalCard(store, 'goal-reopen', 'Reopen Blocked Goal');
-      store.setStatus(goal.id, 'active');
+      store.setStatus(goal.id, 'running');
       store.setStatus(goal.id, 'running');
       store.repairTerminalLifecycle(goal.id, {
         status: 'blocked',
@@ -687,7 +687,7 @@ describe('Runtime Integration', () => {
       const store = new CardStore(tmpDir);
       const goalCard = makeGoalCard(store, 'goal-1', 'Crash Goal');
 
-      store.setStatus(goalCard.id, 'active');
+      store.setStatus(goalCard.id, 'running');
       const terminalCard = makeTerminalCard(store, 'code-crash-1', goalCard.id, {
         status: 'running',
       });

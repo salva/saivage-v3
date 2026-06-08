@@ -104,7 +104,7 @@ const cardDetail = parseOperatorResponse('cards.get', {
     completedAt: now,
     durationMs: 1000,
     retries: 0,
-    childCounts: { drafting: 0, backlog: 0, active: 0, running: 0, blocked: 0, done: 0, failed: 0, cancelled: 0 },
+    childCounts: { backlog: 0, running: 0, blocked: 0, changed: 0, done: 0, failed: 0, cancelled: 0, needs_verification: 0 },
     hasActiveChildren: false,
     hasBlockingChildren: false,
     dependencyIds: [],

@@ -45,7 +45,7 @@ describe('card history substrate', () => {
 
   it('F13 r5: every accepted patch produces a history entry (status transitions included)', () => {
     const card = createCard();
-    const updated = store.setStatus(card.id, 'active');
+    const updated = store.setStatus(card.id, 'running');
     expect(updated.version_seq).toBe(2);
     const history = store.listCardHistory(card.id);
     expect(history).toHaveLength(1);

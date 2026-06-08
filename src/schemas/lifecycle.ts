@@ -83,9 +83,7 @@ export type BlockedResult = PlannerBlockedResult;
 export type NeedsVerificationResult = ExecutorNeedsVerificationResult;
 
 export type CardLifecycleState =
-  | { status: 'drafting'; result: null; error: null; completed_at: null }
   | { status: 'backlog'; result: null; error: null; completed_at: null }
-  | { status: 'active'; result: CardResult | null; error: string | null; completed_at: null }
   | { status: 'running'; result: CardResult | null; error: string | null; completed_at: null }
   | { status: 'changed'; result: CardResult | null; error: string | null; completed_at: null }
   | { status: 'done'; result: DoneResult; error: null; completed_at: string }
@@ -188,9 +186,7 @@ export const blockedResultSchema: z.ZodType<BlockedResult> = plannerBlockedResul
 export const needsVerificationResultSchema: z.ZodType<NeedsVerificationResult> = executorNeedsVerificationResultSchema;
 
 export const cardLifecycleStateSchema: z.ZodType<CardLifecycleState> = z.discriminatedUnion('status', [
-  z.object({ status: z.literal('drafting'), result: z.null(), error: z.null(), completed_at: z.null() }).strict(),
   z.object({ status: z.literal('backlog'), result: z.null(), error: z.null(), completed_at: z.null() }).strict(),
-  z.object({ status: z.literal('active'), result: cardResultSchema.nullable(), error: z.string().nullable(), completed_at: z.null() }).strict(),
   z.object({ status: z.literal('running'), result: cardResultSchema.nullable(), error: z.string().nullable(), completed_at: z.null() }).strict(),
   z.object({ status: z.literal('changed'), result: cardResultSchema.nullable(), error: z.string().nullable(), completed_at: z.null() }).strict(),
   z.object({ status: z.literal('done'), result: doneResultSchema, error: z.null(), completed_at: timestampSchema }).strict(),

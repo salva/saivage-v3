@@ -18,7 +18,7 @@ export async function performRuntimeCrashRecovery(input: {
   transitionCard: (cardId: string, event: RuntimeCardAction) => Promise<boolean>;
 }): Promise<void> {
   for (const card of input.cards)
-    if (card.status === 'active' || card.status === 'running') {
+    if (card.status === 'running') {
       await input.transitionCard(card.id, 'crash_recovery_drop_to_backlog');
     }
   const tmpRuntimeDir = join(input.projectRoot, '.saivage-work', 'tmp', 'runtime');

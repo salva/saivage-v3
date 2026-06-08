@@ -334,24 +334,18 @@ describe('RuntimeStateMachine.transitionCard (Step 5 decomposition)', () => {
   }
 
   const cases: Array<{ name: string; from: import('../../src/schemas/types.js').CardStatus; action: import('../../src/runtime/state-machine.js').RuntimeCardAction; payload?: Record<string, unknown>; expected: import('../../src/schemas/types.js').CardStatus[] }> = [
-    { name: 'start from drafting', from: 'drafting', action: 'start', expected: ['backlog', 'active', 'running'] },
-    { name: 'start from backlog', from: 'backlog', action: 'start', expected: ['active', 'running'] },
-    { name: 'restart from failed', from: 'failed', action: 'restart', expected: ['backlog', 'active', 'running'] },
-    { name: 'restart from cancelled', from: 'cancelled', action: 'restart', expected: ['drafting', 'backlog', 'active', 'running'] },
+    { name: 'start from backlog', from: 'backlog', action: 'start', expected: ['running'] },
+    { name: 'restart from failed', from: 'failed', action: 'restart', expected: ['backlog', 'running'] },
+    { name: 'restart from cancelled', from: 'cancelled', action: 'restart', expected: ['backlog', 'running'] },
     { name: 'fail from running', from: 'running', action: 'fail', expected: [] },
-    { name: 'fail from drafting', from: 'drafting', action: 'fail', expected: [] },
-    { name: 'block from active', from: 'active', action: 'block', expected: [] },
     { name: 'block from running', from: 'running', action: 'block', expected: [] },
-    { name: 'complete from active', from: 'active', action: 'complete', expected: [] },
     { name: 'complete from running', from: 'running', action: 'complete', expected: [] },
     { name: 'cancel from blocked', from: 'blocked', action: 'cancel', expected: ['cancelled'] },
     { name: 'executor_finish done', from: 'running', action: 'executor_finish', payload: { finalStatus: 'done' }, expected: [] },
     { name: 'executor_finish failed', from: 'running', action: 'executor_finish', payload: { finalStatus: 'failed' }, expected: [] },
     { name: 'executor_partial_finish from running', from: 'running', action: 'executor_partial_finish', expected: [] },
-    { name: 'reviewer_repair_resume from active', from: 'active', action: 'reviewer_repair_resume', expected: ['running'] },
     { name: 'reviewer_repair_resume from running (no-op)', from: 'running', action: 'reviewer_repair_resume', expected: [] },
     { name: 'crash_recovery_drop_to_backlog from running', from: 'running', action: 'crash_recovery_drop_to_backlog', expected: ['backlog'] },
-    { name: 'crash_recovery_drop_to_backlog from active', from: 'active', action: 'crash_recovery_drop_to_backlog', expected: ['backlog'] },
     { name: 'planner_set_status failed→backlog', from: 'failed', action: 'planner_set_status', payload: { requestedStatus: 'backlog' }, expected: ['backlog'] },
     { name: 'planner_set_status same status (no-op)', from: 'backlog', action: 'planner_set_status', payload: { requestedStatus: 'backlog' }, expected: [] },
   ];

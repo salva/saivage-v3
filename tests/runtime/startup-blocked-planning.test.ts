@@ -13,8 +13,8 @@ function card(overrides: Partial<CardRecord> = {}): CardRecord {
   return {
     id: 'goal-a',
     type: 'goal',
-    status: 'active',
-    lifecycle: { status: 'active', result: planning, error: 'Need operator input', completed_at: null },
+    status: 'running',
+    lifecycle: { status: 'running', result: planning, error: 'Need operator input', completed_at: null },
     ...overrides,
   } as CardRecord;
 }
@@ -58,7 +58,7 @@ function withActivePlannerRun(cardId: string): string {
 }
 
 describe('startup blocked-planning alignment', () => {
-  it('blocks active interrupted planner cards with blocked-planning metadata', async () => {
+  it('blocks running interrupted planner cards with blocked-planning metadata', async () => {
     const projectRoot = withActivePlannerRun('goal-a');
     const setup = deps([card()], projectRoot);
 
@@ -71,7 +71,7 @@ describe('startup blocked-planning alignment', () => {
     expect(setup.calls).toEqual(['block:goal-a', 'finish:goal-a', 'repair:goal-a', 'patch-runtime']);
   });
 
-  it('fails startup for active blocked-planning metadata without persisted planner ownership', async () => {
+  it('fails startup for running blocked-planning metadata without persisted planner ownership', async () => {
     const setup = deps([card()]);
 
     await expect(alignBlockedPlanningCardStatuses(setup.input)).rejects.toThrow("blocked-planning metadata without persisted planner ownership");
@@ -92,8 +92,8 @@ describe('startup blocked-planning alignment', () => {
   });
 
   it('fails startup when card status and lifecycle disagree', async () => {
-    const setup = deps([card({ status: 'blocked', lifecycle: { status: 'active', result: planning, error: 'Need operator input', completed_at: null } })]);
+    const setup = deps([card({ status: 'blocked', lifecycle: { status: 'running', result: planning, error: 'Need operator input', completed_at: null } })]);
 
-    await expect(alignBlockedPlanningCardStatuses(setup.input)).rejects.toThrow("status 'blocked' contradicts lifecycle status 'active'");
+    await expect(alignBlockedPlanningCardStatuses(setup.input)).rejects.toThrow("status 'blocked' contradicts lifecycle status 'running'");
   });
 });

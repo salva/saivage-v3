@@ -31,8 +31,8 @@ describe('queue notification roundtrip', () => {
   });
 
   it('injects queued notification kind and body into the receiving session transcript exactly once and leaves no legacy on-disk artifacts', () => {
-    const goal = store.create(makeCard({ id: 'goal-1', type: 'goal', title: 'Goal', status: 'active' }));
-    const child = store.create(makeCard({ id: 'code-1', type: 'code', title: 'Child', parent: goal.id, depth: 2, status: 'active' }));
+    const goal = store.create(makeCard({ id: 'goal-1', type: 'goal', title: 'Goal', status: 'running' }));
+    const child = store.create(makeCard({ id: 'code-1', type: 'code', title: 'Child', parent: goal.id, depth: 2, status: 'running' }));
     createSession(join(projectRoot, '.saivage'), 'executor', goal.id, child.id, undefined, 'executor-session');
     const adapter = new AgentAdapter({ projectRoot, saivageDir: join(projectRoot, '.saivage'), config: loadConfig(projectRoot).config, cardStore: store });
 

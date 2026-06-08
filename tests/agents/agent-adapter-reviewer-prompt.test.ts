@@ -107,7 +107,7 @@ describe('AgentAdapter planner-control reviewer prompt contract', () => {
     const goal = store.create(makeCard({
       type: 'goal',
       title: 'Adopt reviewer prompt contract',
-      status: 'active',
+      status: 'running',
       acceptance: 'Reviewer prompt must request the canonical envelope.',
     }));
     const evidence = store.create(makeCard({

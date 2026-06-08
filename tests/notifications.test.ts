@@ -71,7 +71,7 @@ describe('queueNotification recipient resolution', () => {
   });
 
   it('resolves and queues card recipients to affected active sessions', () => {
-    const goal = store.create(makeCard({ id: 'goal-1', type: 'goal', title: 'Goal', status: 'active' }));
+    const goal = store.create(makeCard({ id: 'goal-1', type: 'goal', title: 'Goal', status: 'running' }));
     const child = store.create(makeCard({ id: 'code-1', type: 'code', title: 'Child', parent: goal.id, depth: 2 }));
     createSession(join(projectRoot, '.saivage'), 'executor', goal.id, child.id, undefined, 'executor-session');
 

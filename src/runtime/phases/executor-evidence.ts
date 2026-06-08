@@ -164,7 +164,7 @@ export function buildIgnoredExecutorEvidencePatch(input: {
   ignoredAttachmentRegistrations: string[];
 }): Partial<CardRecord> | null {
   if (input.ignoredArtifactRegistrations.length === 0 && input.ignoredAttachmentRegistrations.length === 0) return null;
-  if (input.existingLifecycle.status !== 'active' && input.existingLifecycle.status !== 'running' && input.existingLifecycle.status !== 'changed') return null;
+  if (input.existingLifecycle.status !== 'running' && input.existingLifecycle.status !== 'changed') return null;
   return {
     lifecycle: { ...input.existingLifecycle, result: { ...(input.existingLifecycle.result ?? {}), evidence_registration_ignored: { artifacts: input.ignoredArtifactRegistrations, attachments: input.ignoredAttachmentRegistrations } } as CardLifecycleState['result'] },
   };

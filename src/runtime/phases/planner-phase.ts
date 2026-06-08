@@ -276,7 +276,6 @@ export function planPlannerActivationSetup(input: {
   const hasTokenBudgetPlanningBlocker =
     existingPlanning?.resume_reason === 'planner_context_length_exceeded';
   const retryingTokenBudgetBlocker =
-    input.initialStatus !== 'active' &&
     input.initialStatus !== 'running' &&
     hasTokenBudgetPlanningBlocker;
   const retryingPlanningBlocker = retryingTokenBudgetBlocker;
@@ -311,7 +310,7 @@ export function buildProjectPlannerRetryPatch(input: {
 }): Partial<CardRecord> {
   void input;
   return {
-    ...lifecycleCardPatch({ status: 'active', result: null, error: null, completed_at: null }),
+    ...lifecycleCardPatch({ status: 'running', result: null, error: null, completed_at: null }),
     status_text: null,
   };
 }

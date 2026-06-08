@@ -3,9 +3,9 @@ import { planCardTransition } from '../../src/runtime/transition-policy.js';
 
 describe('planCardTransition', () => {
   it('plans ordered start/restart/fail steps without mutating cards', () => {
-    expect(planCardTransition({ action: 'start', fromStatus: 'drafting', canTransition: () => true })).toEqual({ accepted: true, steps: ['backlog', 'active', 'running'] });
-    expect(planCardTransition({ action: 'restart', fromStatus: 'cancelled', canTransition: () => true })).toEqual({ accepted: true, steps: ['drafting', 'backlog', 'active', 'running'] });
-    expect(planCardTransition({ action: 'fail', fromStatus: 'backlog', canTransition: () => true })).toEqual({ accepted: true, steps: ['active', 'running', 'failed'] });
+    expect(planCardTransition({ action: 'start', fromStatus: 'backlog', canTransition: () => true })).toEqual({ accepted: true, steps: ['running'] });
+    expect(planCardTransition({ action: 'restart', fromStatus: 'cancelled', canTransition: () => true })).toEqual({ accepted: true, steps: ['backlog', 'running'] });
+    expect(planCardTransition({ action: 'fail', fromStatus: 'backlog', canTransition: () => true })).toEqual({ accepted: true, steps: ['running', 'failed'] });
   });
 
   it('uses supplied transition capability for planner-set and cancel decisions', () => {

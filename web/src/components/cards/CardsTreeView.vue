@@ -191,9 +191,7 @@ const renderedTree = computed<TreeNode[]>(() => {
   flex-shrink: 0;
 }
 
-.status-drafting { background: var(--border-strong); }
 .status-backlog { background: var(--text-muted); }
-.status-active { background: var(--accent-2); }
 .status-running { background: var(--accent); }
 .status-blocked { background: var(--warn); }
 .status-done { background: var(--accent); }

@@ -58,7 +58,7 @@ function typeIcon(type: CardType): string {
 
 function statusIcon(status: CardStatus): string {
   const icons: Record<CardStatus, string> = {
-    drafting: '📝', backlog: '📋', active: '▶', running: '⚡',
+    backlog: '📋', running: '⚡',
     blocked: '⛔', changed: '✎', done: '✅', failed: '❌', cancelled: '🚫', needs_verification: '🔍',
   };
   return icons[status] || '●';
@@ -154,7 +154,6 @@ function formatDuration(ms: number | null | undefined): string {
 .tl-marker.status-done { border-color: var(--accent); background: var(--entry-accent-bg); }
 .tl-marker.status-failed { border-color: var(--danger); background: var(--entry-danger-bg); }
 .tl-marker.status-running { border-color: var(--accent-2); background: var(--entry-user-bg); }
-.tl-marker.status-active { border-color: var(--accent-2); background: var(--entry-user-bg); }
 .tl-marker.status-blocked { border-color: var(--warn); background: var(--entry-warn-bg); }
 .tl-marker.status-cancelled { border-color: var(--border-strong); background: var(--surface-3); opacity: 0.6; }
 .tl-marker.status-needs_verification { border-color: var(--warn); background: var(--entry-warn-bg); }
@@ -209,9 +208,7 @@ function formatDuration(ms: number | null | undefined): string {
 .tl-status.status-done { background: var(--entry-accent-bg); color: var(--accent); }
 .tl-status.status-failed { background: var(--entry-danger-bg); color: var(--danger); }
 .tl-status.status-running { background: var(--entry-user-bg); color: var(--accent-2); }
-.tl-status.status-active { background: var(--entry-user-bg); color: var(--accent-2); }
 .tl-status.status-blocked { background: var(--entry-warn-bg); color: var(--warn); }
-.tl-status.status-drafting { background: var(--surface-3); color: var(--text-muted); }
 .tl-status.status-backlog { background: var(--surface-3); color: var(--text); }
 .tl-status.status-cancelled { background: var(--surface-3); color: var(--border-strong); }
 

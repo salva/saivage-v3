@@ -3,8 +3,8 @@ import { actionableEnumError, createActionableErrorEnvelope } from '../../src/sc
 
 describe('actionable error envelope target contract (Wave 1)', () => {
   it('invalid planner-state values return accepted values and a next action', () => {
-    const error = actionableEnumError('planner_state', 'ready', ['drafting', 'backlog', 'active']);
-    expect(error).toEqual(expect.objectContaining({ code: 'invalid_enum_value', acceptedValues: ['drafting', 'backlog', 'active'] }));
+    const error = actionableEnumError('planner_state', 'ready', ['backlog', 'running']);
+    expect(error).toEqual(expect.objectContaining({ code: 'invalid_enum_value', acceptedValues: ['backlog', 'running'] }));
     expect(error.nextAction).toContain('Retry');
   });
 

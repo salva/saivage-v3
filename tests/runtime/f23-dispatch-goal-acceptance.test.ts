@@ -75,9 +75,9 @@ describe('F23 — dispatchGoal acceptance', () => {
 
   it('F23 — refuses to dispatch a goal in a non-startable / non-restartable status with a single activate error', async () => {
     const store = new CardStore(projectRoot);
-    // 'active' is neither STARTABLE nor RESTARTABLE — dispatchGoal should treat it as already-active and proceed.
+    // 'running' is neither STARTABLE nor RESTARTABLE — dispatchGoal should treat it as already active and proceed.
     // 'needs_verification' is neither STARTABLE nor RESTARTABLE — dispatchGoal should refuse loudly.
-    store.setStatus('project', 'active');
+    store.setStatus('project', 'running');
     store.setStatus('project', 'running');
     try { store.setStatus('project', 'needs_verification' as never); } catch { /* may reject */ }
 

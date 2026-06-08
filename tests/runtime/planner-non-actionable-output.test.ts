@@ -125,8 +125,8 @@ describe('planner output actionability guard', () => {
     const fakeAgent = new FakeAgentAdapter({ mapping, fixtureDir });
     harness = createHarness(mapping, fakeAgent);
     harness.cardTestTools.repairTerminalLifecycle('project', {
-      status: 'active',
-      lifecycle: { status: 'active', result: { kind: 'planner_blocked', blocked_reason: reviewerBlockedReason, resume_reason: 'reviewer_unavailable' }, error: reviewerBlockedReason, completed_at: null },
+      status: 'running',
+      lifecycle: { status: 'running', result: { kind: 'planner_blocked', blocked_reason: reviewerBlockedReason, resume_reason: 'reviewer_unavailable' }, error: reviewerBlockedReason, completed_at: null },
       status_text: reviewerBlockedReason,
     });
 

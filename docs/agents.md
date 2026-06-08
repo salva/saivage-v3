@@ -174,8 +174,7 @@ mirrors it onto the card. There is no `set_status_text` planner tool.
 
 ### 4.2 Statuses
 
-- `backlog`: not currently active.
-- `active`: ready for a planner to choose.
+- `backlog`: planned but not running.
 - `running`: work is in progress.
 - `changed`: the card's state was externally modified (by the analyst
   or by a descendant subtree correction) since its planner last saw
@@ -197,7 +196,7 @@ Status transitions driven by `activate_card`:
 
 | Source status | Effect of `activate_card(card_id)` |
 |---|---|
-| `backlog`, `active` | Card transitions to `running`. Activation proceeds. |
+| `backlog` | Card transitions to `running`. Activation proceeds. |
 | `changed` | Card transitions to `running`; the `changed` marker is consumed by the activation and any queued `subtree_changed` notes referencing this card are delivered once and discarded (§11). |
 | `done`, `failed`, `blocked`, `cancelled` | Re-activation is allowed for goal cards as the normal correction path: the `Dormant` planner is resumed with fresh notes and the card transitions back to `running`. For terminal cards, `restart_card` is required first to clear `result.executor`; otherwise `activate_card` returns a `tool_error` of kind `terminal_card_requires_restart`. |
 | `running` | Tool error of kind `card_already_active`: only one activation may be in flight per card. |
@@ -477,7 +476,7 @@ These tools are subtree-scoped: the target card must lie inside the
 calling planner's goal subtree.
 
 - `cancel_card(card_id)`
-  - Allowed transitions: from `backlog`, `active`, or `changed` to
+  - Allowed transitions: from `backlog` or `changed` to
     `cancelled`. This is a destructive cleanup/recovery primitive, not a scheduler primitive: planners must not cancel the next actionable backlog child merely to avoid, postpone, or replace `activate_card`.
   - Refused for the active leaf, for any card whose subtree contains
     the active leaf, for cards in status `running`, and for cards
@@ -496,8 +495,8 @@ calling planner's goal subtree.
     `RuntimeState.active_card_run?.card_id`, or any descendant planner
     session is not `Dormant`.
   - Allowed targets: cards in `backlog`, `done`, `failed`, `blocked`,
-    or `cancelled`. To delete an `active` or `changed` card, the
-    caller must first call `cancel_card`. Deleting a `running` card
+    or `cancelled`. To delete a `changed` card, the caller must first
+    call `cancel_card`. Deleting a `running` card
     is not allowed in this stage (it would imply ancestor-cascade
     cancellation; see §17).
   - Effect: archives the full card record (fields, notes, result,
@@ -510,7 +509,7 @@ calling planner's goal subtree.
 
 - `restart_card(card_id)`
   - Allowed transitions: from `done`, `failed`, `blocked`, `cancelled`,
-    or `changed` back to `active`.
+    or `changed` back to `backlog`; dispatch then starts it as `running`.
   - Refused while the card is the active leaf. Because every card has
     at most one activation in flight at any moment and `running` is
     held only by the active leaf and its in-flight ancestors, no

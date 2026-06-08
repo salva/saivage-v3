@@ -33,7 +33,7 @@ const ALWAYS_ALLOWED_FIELDS: ReadonlySet<string> = new Set([
   'latest_self_report',
 ]);
 
-const FULL_EDIT_STATES: ReadonlySet<CardStatus> = new Set<CardStatus>(['drafting', 'backlog']);
+const FULL_EDIT_STATES: ReadonlySet<CardStatus> = new Set<CardStatus>(['backlog']);
 
 const LIFECYCLE_LOCKED_STATES: ReadonlySet<CardStatus> = new Set<CardStatus>([
   'done',
@@ -70,15 +70,13 @@ const TERMINAL_STATES: ReadonlySet<CardStatus> = new Set<CardStatus>([
 ]);
 
 const VALID_TRANSITIONS: Record<CardStatus, CardStatus[]> = {
-  drafting: ['backlog', 'cancelled'],
-  backlog: ['active', 'cancelled'],
-  active: ['running', 'cancelled', 'backlog'],
+  backlog: ['running', 'cancelled'],
   running: ['done', 'failed', 'blocked', 'changed', 'cancelled', 'backlog', 'needs_verification'],
   blocked: ['backlog', 'running', 'changed', 'cancelled'],
-  changed: ['backlog', 'active', 'cancelled'],
+  changed: ['backlog', 'running', 'cancelled'],
   done: ['backlog', 'cancelled'],
   failed: ['backlog', 'cancelled'],
-  cancelled: ['drafting'],
+  cancelled: ['backlog'],
   needs_verification: ['cancelled'],
 };
 
@@ -130,9 +128,7 @@ export function buildSetStatusLifecycle(
   stamp: string,
 ): CardRecord['lifecycle'] {
   switch (newStatus) {
-    case 'drafting':
     case 'backlog':
-    case 'active':
     case 'running':
     case 'changed':
     case 'cancelled':

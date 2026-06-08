@@ -20,10 +20,9 @@ export function selectActivationStartAction(
     return { action: 'restart', reason: 'restartable_status' };
   }
   if (role === 'executor') {
-    if (fromStatus === 'active') return { action: 'reviewer_repair_resume', reason: 'active_reviewer_repair_resume' };
     if (fromStatus === 'running') return { action: 'none', reason: 'already_running' };
   }
-  if (role === 'planner' && (fromStatus === 'active' || fromStatus === 'running')) {
+  if (role === 'planner' && fromStatus === 'running') {
     return { action: 'none', reason: 'already_active' };
   }
   return { action: 'reject', reason: 'invalid_activation_status' };
@@ -53,19 +52,18 @@ export function planCardTransition(input: PlanCardTransitionInput): CardTransiti
     case 'start':
       if (!(STARTABLE_STATES as readonly CardStatus[]).includes(from)) return reject();
       switch (from) {
-        case 'drafting': return accept(['backlog', 'active', 'running']);
-        case 'backlog': return accept(['active', 'running']);
-        case 'changed': return accept(['active', 'running']);
+        case 'backlog': return accept(['running']);
+        case 'changed': return accept(['running']);
         default: return reject();
       }
     case 'restart':
       if (!(RESTARTABLE_STATES as readonly CardStatus[]).includes(from)) return reject();
       switch (from) {
-        case 'failed': return accept(['backlog', 'active', 'running']);
-        case 'done': return accept(['backlog', 'active', 'running']);
-        case 'cancelled': return accept(['drafting', 'backlog', 'active', 'running']);
-        case 'blocked': return accept(['backlog', 'active', 'running']);
-        case 'changed': return accept(['active', 'running']);
+        case 'failed': return accept(['backlog', 'running']);
+        case 'done': return accept(['backlog', 'running']);
+        case 'cancelled': return accept(['backlog', 'running']);
+        case 'blocked': return accept(['backlog', 'running']);
+        case 'changed': return accept(['running']);
         default: return reject();
       }
     case 'cancel':
@@ -77,22 +75,18 @@ export function planCardTransition(input: PlanCardTransitionInput): CardTransiti
       return input.canTransition(requested) ? accept([requested]) : reject();
     }
     case 'block':
-      if (from === 'active') return accept(['running', 'blocked']);
       if (from === 'running') return accept(['blocked']);
       return reject();
     case 'complete':
-      if (from === 'active') return accept(['running', 'done']);
       if (from === 'running') return accept(['done']);
       return reject();
     case 'fail':
       if (TERMINAL_STATUSES.has(from)) return reject();
       switch (from) {
         case 'running': return accept(['failed']);
-        case 'active': return accept(['running', 'failed']);
-        case 'backlog': return accept(['active', 'running', 'failed']);
-        case 'drafting': return accept(['backlog', 'active', 'running', 'failed']);
+        case 'backlog': return accept(['running', 'failed']);
         case 'blocked': return accept(['running', 'failed']);
-        case 'changed': return accept(['active', 'running', 'failed']);
+        case 'changed': return accept(['running', 'failed']);
         default: return reject();
       }
     case 'executor_finish': {
@@ -106,11 +100,9 @@ export function planCardTransition(input: PlanCardTransitionInput): CardTransiti
       if (from !== 'running') return reject();
       return accept(['needs_verification']);
     case 'reviewer_repair_resume':
-      if (from === 'active') return accept(['running']);
       if (from === 'running') return accept([]);
       return reject();
     case 'crash_recovery_drop_to_backlog':
-      if (from === 'active') return accept(['backlog']);
       if (from === 'running') return accept(['backlog']);
       return reject();
     default:

@@ -47,7 +47,7 @@ export async function restart_goal(ctx: ToolContext, params: { goalId: string })
       const restartDecision = decide({ role: 'analyst', action: 'card.restart', targetState: goal.status });
       if (!restartDecision.allowed) return toolFailure('permission', `Goal '${params.goalId}' has status '${goal.status}' and cannot be restarted by analyst (${restartDecision.reason}).`, { goalId: params.goalId, status: goal.status });
       for (const id of store.getDescendantIds(params.goalId)) {
-        const child = store.read(id); if (!child || (child.status !== 'running' && child.status !== 'active')) continue;
+        const child = store.read(id); if (!child || child.status !== 'running') continue;
         const cancelDecision = decide({ role: 'analyst', action: 'card.cancel', targetState: child.status });
         if (!cancelDecision.allowed) return toolFailure('permission', `Descendant card '${id}' in status '${child.status}' cannot be cancelled by analyst (${cancelDecision.reason}).`, { id, status: child.status });
         store.setStatus(id, 'cancelled');

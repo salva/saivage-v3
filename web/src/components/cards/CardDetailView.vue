@@ -308,9 +308,7 @@ function sourceLabel(source: string): string { return source.replace('result.', 
 function statusBadgeClass(status: CardStatus): string { return `status-${status}`; }
 function statusExplainer(status: CardStatus): string {
   const map: Record<CardStatus, string> = {
-    drafting: 'This card is still being shaped and may not be dispatchable.',
     backlog: 'This card is planned but not started.',
-    active: 'This card is active but not necessarily executing now.',
     running: 'This card is running. Evidence may be incomplete until the active work finishes.',
     blocked: 'This card is blocked. Check blockers, tool errors, review findings, and notes before retrying.',
     changed: 'This card has changed and needs planner attention before completion can proceed.',
@@ -340,7 +338,7 @@ const childWorkSummary = computed(() => {
   if (!lifecycle.value) return 'No child summary available.';
   const counts = lifecycle.value.childCounts;
   const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
-  return `${total} children: ${counts.active + counts.running} active/running, ${counts.blocked + counts.failed} blocked/failed, ${counts.done} done`;
+  return `${total} children: ${counts.running} running, ${counts.blocked + counts.failed} blocked/failed, ${counts.done} done`;
 });
 const evidenceSummaryLine = computed(() => evidence.value?.summary.summary || 'Evidence has been recorded for this card.');
 const dependencyRefs = computed(() => currentCard.value?.dependencyRefs ?? currentCard.value?.depends_on.map((id) => ({ id, display_path: null, title: null })) ?? []);
@@ -482,10 +480,10 @@ function actionLabel(action: string): string {
 .detail-title { font-size:20px; font-weight:600; color:var(--text); margin:0; }
 .detail-display-path { margin-right:8px; color:var(--accent-2); font-family:'SF Mono',monospace; font-size:18px; }
 .detail-status-chip { font-size:11px; font-weight:600; padding:2px 10px; border-radius:10px; text-transform:uppercase; border:1px solid transparent; }
-.status-active,.status-running { background:var(--entry-user-bg); color:var(--accent-2); border-color:var(--accent-2); }
+.status-running { background:var(--entry-user-bg); color:var(--accent-2); border-color:var(--accent-2); }
 .status-done { background:var(--entry-accent-bg); color:var(--accent); border-color:var(--accent); }
 .status-failed { background:var(--entry-danger-bg); color:var(--danger); border-color:var(--danger); }
-.status-backlog,.status-drafting,.status-cancelled,.status-blocked { background:var(--surface-3); color:var(--text); border-color:var(--border-strong); }
+.status-backlog,.status-cancelled,.status-blocked { background:var(--surface-3); color:var(--text); border-color:var(--border-strong); }
 .status-needs_verification { background:var(--entry-warn-bg); color:var(--warn); border-color:var(--warn); }
 .detail-id,.generated-file-path { font-family:'SF Mono',monospace; }
 .meta-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:8px; }

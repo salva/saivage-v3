@@ -60,7 +60,7 @@ describe('runtime redesign final golden behavior', () => {
   it('status changes cannot auto-dispatch root or child work; child work requires activate_card from an active parent run', async () => {
     const ctx = setupCards();
     try {
-      ctx.cardStore.setStatus(ctx.codeId, 'active');
+      ctx.cardStore.setStatus(ctx.codeId, 'running');
       expect(readRuntimeState(ctx.projectRoot)?.runtime_runs ?? []).toHaveLength(0);
 
       const exec = new PlannerControlExecutor({ projectRoot: ctx.projectRoot, cardStore: ctx.cardStore, activationLedger: activationLedger(ctx.projectRoot) });

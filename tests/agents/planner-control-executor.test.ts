@@ -128,9 +128,9 @@ describe('PlannerControlExecutor', () => {
   });
 
   it('rejects cancel_card when the target subtree contains the active runtime leaf', async () => {
-    const goal = store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'active' }));
+    const goal = store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'running' }));
     const child = store.create(
-      makeCard({ type: 'code', title: 'Child', parent: goal.id, depth: 2, status: 'active' }),
+      makeCard({ type: 'code', title: 'Child', parent: goal.id, depth: 2, status: 'running' }),
     );
     const executor = new PlannerControlExecutor({
       cardStore: store,
@@ -156,7 +156,7 @@ describe('PlannerControlExecutor', () => {
   });
 
   it('runs report_goal_done through reviewer assessment and passes session/assessment context', async () => {
-    const goal = store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'active' }));
+    const goal = store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'running' }));
     const evidence = store.create(
       makeCard({
         type: 'code',
@@ -226,7 +226,7 @@ describe('PlannerControlExecutor', () => {
   });
 
   it('persists a precise reviewer-capacity blocker when report_goal_done reviewer invocation fails', async () => {
-    const goal = store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'active' }));
+    const goal = store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'running' }));
     const evidence = store.create(
       makeCard({
         type: 'code',
@@ -283,7 +283,7 @@ describe('PlannerControlExecutor', () => {
 
   it('does not write legacy correction note files after reviewer retries are exhausted', async () => {
     const goal = store.create(
-      makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'active', retries: 1 }),
+      makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'running', retries: 1 }),
     );
     store.setStatus(goal.id, 'running');
     createSession(join(tmpDir, '.saivage'), 'planner', goal.id, goal.id);
@@ -316,7 +316,7 @@ describe('PlannerControlExecutor', () => {
 
   it('queues a pending-subtree-correction synthetic note after reviewer retries are exhausted', async () => {
     const goal = store.create(
-      makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'active', retries: 1 }),
+      makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'running', retries: 1 }),
     );
     store.setStatus(goal.id, 'running');
     const review: ReviewerResult = {
@@ -355,7 +355,7 @@ describe('PlannerControlExecutor', () => {
   });
 
   it('dispatches queue_notification through planner-control and audits planner runtime surface', async () => {
-    const goal = store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'active' }));
+    const goal = store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'running' }));
     const executor = new PlannerControlExecutor({
       cardStore: store,
       projectRoot: tmpDir,
@@ -390,7 +390,7 @@ describe('PlannerControlExecutor', () => {
   });
 
   it('returns successful activate_card as a durable activation record without mutating status', async () => {
-    const goal = store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'active' }));
+    const goal = store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'running' }));
     const child = store.create(
       makeCard({ type: 'code', title: 'Child', parent: goal.id, depth: 2 }),
     );
@@ -424,7 +424,7 @@ describe('PlannerControlExecutor', () => {
   });
 
   it('rejects activate_card for a non-child of the active parent planner', async () => {
-    const goal = store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'active' }));
+    const goal = store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'running' }));
     const nestedGoal = store.create(makeCard({ id: 'nested-goal', type: 'goal', title: 'Nested', parent: goal.id, depth: 2 }));
     const grandchild = store.create(makeCard({ type: 'code', title: 'Grandchild', parent: nestedGoal.id, depth: 3 }));
     appendActivePlannerRun(tmpDir, goal.id);
@@ -458,7 +458,7 @@ describe('PlannerControlExecutor', () => {
   });
 
   it('preserves service success and tool_error payload shapes', async () => {
-    const goal = store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'active' }));
+    const goal = store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'running' }));
     const child = store.create(makeCard({ type: 'code', title: 'Child', parent: goal.id, depth: 2 }));
     const blockedDep = store.create(makeCard({ type: 'code', title: 'Dep', status: 'blocked' }));
     const blockedTarget = store.create(

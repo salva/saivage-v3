@@ -11,7 +11,7 @@ function card(overrides: Partial<CardRecord>): CardRecord {
     position: 0,
     title: 'Card',
     description: 'Description',
-    status: 'active',
+    status: 'running',
     tags: [],
     priority: 1,
     urgency: 'normal',
@@ -26,7 +26,7 @@ function card(overrides: Partial<CardRecord>): CardRecord {
     attachments: [],
     retries: 0,
     ...overrides,
-    lifecycle: (overrides.lifecycle ?? { status: overrides.status ?? 'active', result: null, error: null, completed_at: null }) as CardRecord['lifecycle'],
+    lifecycle: (overrides.lifecycle ?? { status: overrides.status ?? 'running', result: null, error: null, completed_at: null }) as CardRecord['lifecycle'],
   } as CardRecord;
 }
 

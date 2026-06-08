@@ -92,7 +92,7 @@ describe('Contract C2 partial-success reporting', () => {
       const codeIds = store.listChildren('card-1');
       const proc = startProcess(root, 'sleep 30', { cardId: codeIds[1], requiredForCardCompletion: true, ownerKind: 'runtime' });
       procId = proc.id;
-      store.setStatus(codeIds[1], 'active');
+      store.setStatus(codeIds[1], 'running');
       store.setStatus(codeIds[1], 'running');
       const result = await delete_card({ projectRoot: root, store, actor: 'analyst', surface: 'web-chat' }, { ids: codeIds });
       expect(result.success).toBe(true);
@@ -113,7 +113,7 @@ describe('Contract C2 partial-success reporting', () => {
       const codeIds = store.listChildren('card-1');
       const proc = startProcess(root, 'sleep 30', { cardId: codeIds[1], requiredForCardCompletion: true, ownerKind: 'runtime' });
       procId = proc.id;
-      store.setStatus(codeIds[1], 'active');
+      store.setStatus(codeIds[1], 'running');
       store.setStatus(codeIds[1], 'running');
       jest.spyOn(globalThis, 'fetch').mockImplementation(async () => toolResponse('delete_card', { ids: codeIds }));
       const handler = new AnalystHandler(root, createTestAnalystRuntime({ cardStore: new CardStore(root) }));

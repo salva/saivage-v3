@@ -20,7 +20,7 @@ describe('executor phase decisions', () => {
   it('selects start actions from card status', () => {
     expect(selectActivationStartAction('backlog', 'executor').action).toBe('start');
     expect(selectActivationStartAction('done', 'executor').action).toBe('restart');
-    expect(selectActivationStartAction('active', 'executor').action).toBe('reviewer_repair_resume');
+    expect(selectActivationStartAction('running', 'executor').action).toBe('none');
     expect(selectActivationStartAction('running', 'executor').action).toBe('none');
     expect(selectActivationStartAction('needs_verification', 'executor').action).toBe('reject');
   });

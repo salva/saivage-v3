@@ -12,7 +12,7 @@ function plannerResult(status: PlannerResult['status']): PlannerResult {
 
 describe('planner phase decisions', () => {
   it('decides goal activation transition action by card status', () => {
-    expect(selectActivationStartAction('active', 'planner').action).toBe('none');
+    expect(selectActivationStartAction('running', 'planner').action).toBe('none');
     expect(selectActivationStartAction('backlog', 'planner').action).toBe('start');
     expect(selectActivationStartAction('failed', 'planner').action).toBe('restart');
     expect(selectActivationStartAction('cancelled', 'planner').action).toBe('restart');
@@ -103,9 +103,9 @@ describe('planner phase decisions', () => {
       plannerResult: plannerResult('continue'),
       currentCard: {
         id: 'goal-a',
-        status: 'active',
+        status: 'running',
         lifecycle: {
-          status: 'active',
+          status: 'running',
           result: { kind: 'planner_blocked', blocked_reason: 'old blocker', resume_reason: 'planner_blocked' },
           error: null,
           completed_at: null,
@@ -177,8 +177,8 @@ describe('planner phase decisions', () => {
       goalId: 'goal-a',
       childCards: [
         { parent: 'goal-a', status: 'done' },
-        { parent: 'goal-a', status: 'active' },
-        { parent: 'other', status: 'active' },
+        { parent: 'goal-a', status: 'running' },
+        { parent: 'other', status: 'running' },
       ] as any,
     })).toEqual({
       hasUnfinishedChildWork: true,
@@ -211,8 +211,8 @@ describe('planner phase decisions', () => {
       goalId: 'goal-a',
       initialStatus: 'blocked',
       refreshedCard: {
-        status: 'active',
-        lifecycle: { status: 'active', result: tokenBudgetPlanning, error: null, completed_at: null },
+        status: 'running',
+        lifecycle: { status: 'running', result: tokenBudgetPlanning, error: null, completed_at: null },
       } as unknown as CardRecord,
     });
     expect(retry).toEqual(expect.objectContaining({
@@ -226,8 +226,8 @@ describe('planner phase decisions', () => {
 
     expect(planPlannerActivationSetup({
       goalId: 'goal-a',
-      initialStatus: 'active',
-      refreshedCard: { status: 'active', lifecycle: { status: 'active', result: null, error: null, completed_at: null } } as unknown as CardRecord,
+      initialStatus: 'running',
+      refreshedCard: { status: 'running', lifecycle: { status: 'running', result: null, error: null, completed_at: null } } as unknown as CardRecord,
     })).toEqual(expect.objectContaining({
       existingPlanning: null,
       retryingPlanningBlocker: false,
@@ -253,7 +253,7 @@ describe('planner phase decisions', () => {
       retryingTokenBudgetBlocker: false,
       compactedPersistedPlannerHistory: true,
     });
-    expect(patch).toEqual({ status: 'active', lifecycle: { status: 'active', result: null, error: null, completed_at: null }, status_text: null });
+    expect(patch).toEqual({ status: 'running', lifecycle: { status: 'running', result: null, error: null, completed_at: null }, status_text: null });
     expect(describeProjectPlannerRetry({ retryingTokenBudgetBlocker: true }).intentReason).toContain('token-budget blocker');
     expect(describeProjectPlannerRetry({ retryingTokenBudgetBlocker: false }).diagnosticMessage).toContain('planner retry');
   });

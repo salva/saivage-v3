@@ -6,7 +6,7 @@ import { getBlockedPlanning } from './planning-blockers.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
 import { TERMINAL_STATUSES } from '../permissions/index.js';
 
-const PLANNING_COMPATIBLE_INTERRUPTED_STATUSES = new Set<CardRecord['status']>(['active', 'running']);
+const PLANNING_COMPATIBLE_INTERRUPTED_STATUSES = new Set<CardRecord['status']>(['running']);
 
 export async function alignBlockedPlanningCardStatuses(input: {
   cards: {

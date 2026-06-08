@@ -236,7 +236,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       const api = makeRuntime(projectRoot, undefined, async (goalId: string) => {
         calls.push(goalId);
       });
-      cards.setStatus('project', 'active');
+      cards.setStatus('project', 'running');
       cards.setStatus('project', 'running');
       cards.repairTerminalLifecycle('project', {
         status: 'done',

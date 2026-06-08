@@ -478,9 +478,7 @@ onUnmounted(() => {
 .csb-label { font-size:11px; color:var(--text-muted); text-transform:capitalize; text-align:right; }
 .csb-track { height:6px; background:var(--surface-3); border-radius:3px; overflow:hidden; }
 .csb-fill { height:100%; border-radius:3px; }
-.csb-fill.s-drafting { background:var(--border-strong); }
 .csb-fill.s-backlog { background:var(--text-muted); }
-.csb-fill.s-active { background:var(--accent-2); }
 .csb-fill.s-running { background:var(--accent); }
 .csb-fill.s-blocked { background:var(--warn); }
 .csb-fill.s-done { background:var(--accent); }
@@ -493,9 +491,8 @@ onUnmounted(() => {
 .dc-type { width:18px; text-align:center; font-family:'SF Mono',monospace; font-size:10px; font-weight:600; color:var(--text-muted); }
 .dc-title { flex:1; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .dc-status { font-size:10px; font-weight:600; padding:1px 5px; border-radius:4px; text-transform:uppercase; }
-.dc-status.s-drafting { color:var(--text-muted); background:var(--surface-3); }
 .dc-status.s-backlog { color:var(--text); background:var(--surface-3); }
-.dc-status.s-active,.dc-status.s-running { color:var(--accent-2); background:var(--entry-user-bg); }
+.dc-status.s-running { color:var(--accent-2); background:var(--entry-user-bg); }
 .dc-status.s-blocked { color:var(--warn); background:var(--entry-warn-bg); }
 .dc-status.s-done { color:var(--accent); background:var(--entry-accent-bg); }
 .dc-status.s-failed { color:var(--danger); background:var(--entry-danger-bg); }

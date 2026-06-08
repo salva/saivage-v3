@@ -47,7 +47,7 @@ describe('reviewer assessment handler', () => {
       reviewResult: reviewResult('pass'),
       decision: { kind: 'pass' },
       effects: testEffects({
-        readCard: () => ({ id: 'goal-a', status: 'active', lifecycle: { status: 'active', result: { kind: 'planner_done', summary: 'review summary' }, completed_at: null, error: 'stale error' } } as unknown as CardRecord),
+        readCard: () => ({ id: 'goal-a', status: 'running', lifecycle: { status: 'running', result: { kind: 'planner_done', summary: 'review summary' }, completed_at: null, error: 'stale error' } } as unknown as CardRecord),
         transitionCard: async (cardId, event, details) => { calls.push(`${event}:${cardId}:${'assessment' in details}`); },
         updateCard: async (_cardId, patch) => { patches.push(patch); calls.push(`update:${patch.lifecycle?.completed_at}`); },
         appendChildUnwindToolResult: (cardId, outcomeKind) => { calls.push(`unwind:${cardId}:${outcomeKind}`); return true; },
@@ -91,7 +91,7 @@ describe('reviewer assessment handler', () => {
       reviewResult: reviewResult('pass'),
       decision: { kind: 'pass' },
       effects: testEffects({
-        readCard: () => ({ id: 'goal-a', status: 'active', lifecycle: { status: 'active', result: { kind: 'planner_done', summary: 'review summary' }, completed_at: null, error: 'stale error' } } as unknown as CardRecord),
+        readCard: () => ({ id: 'goal-a', status: 'running', lifecycle: { status: 'running', result: { kind: 'planner_done', summary: 'review summary' }, completed_at: null, error: 'stale error' } } as unknown as CardRecord),
         transitionCard: async (cardId, event, details) => { calls.push(`${event}:${cardId}:${'assessment' in details}`); },
         updateCard: async (_cardId, patch) => { calls.push(`update:${patch.lifecycle?.completed_at}`); },
         appendChildUnwindToolResult: (cardId, outcomeKind) => { calls.push(`unwind:${cardId}:${outcomeKind}`); return true; },
@@ -120,7 +120,7 @@ describe('reviewer assessment handler', () => {
       reviewResult: reviewResult('pass'),
       decision: { kind: 'pass' },
       effects: testEffects({
-        readCard: () => ({ id: 'goal-a', status: 'active', lifecycle: { status: 'active', result: { kind: 'planner_done', summary: 'review summary' }, completed_at: null, error: null } } as unknown as CardRecord),
+        readCard: () => ({ id: 'goal-a', status: 'running', lifecycle: { status: 'running', result: { kind: 'planner_done', summary: 'review summary' }, completed_at: null, error: null } } as unknown as CardRecord),
         appendChildUnwindToolResult: (cardId, outcomeKind) => { calls.push(`unwind:${cardId}:${outcomeKind}`); return false; },
         transitionRuntime: async (event, details) => { calls.push(`${event}:${details.reason}`); },
         emitGoalCompleted: (cardId) => { calls.push(`completed:${cardId}`); },

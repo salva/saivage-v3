@@ -138,7 +138,7 @@ function setupTestProject(projectRoot: string): CardStore {
     parent: 'project',
     title: 'Test Goal',
     description: 'A test goal',
-    status: 'active',
+    status: 'running',
     depth: 0,
     tags: [],
     priority: 1,
@@ -215,7 +215,7 @@ describe('Analyst Tool Definitions', () => {
     expect(createProps.parent.anyOf).toEqual([{ type: 'string' }, { type: 'null' }]);
     expect(createProps.parent.description).toContain('Use null only when creating the root project card');
     expect(createProps.status.description).toContain(
-      'Allowed values: drafting, backlog, active, running, blocked, changed, done, failed, cancelled, needs_verification.',
+      'Allowed values: backlog, running, blocked, changed, done, failed, cancelled, needs_verification.',
     );
     expect(toolByName('create_card').function.description).toContain('use edit_card');
     expect(toolByName('create_card').function.description).toContain("parent 'project' for top-level goals");
@@ -326,7 +326,7 @@ describe('Analyst Tools', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('cannot be cancelled by analyst');
-    expect(store.read('card-1')?.status).toBe('active');
+    expect(store.read('card-1')?.status).toBe('running');
   });
 
   it('includes display paths in analyst card projections', async () => {
@@ -429,7 +429,7 @@ describe('Analyst Tools', () => {
 
   it('denies delete_card when a descendant is matrix-disallowed', async () => {
     store.setStatus('card-1', 'backlog');
-    store.setStatus('card-2', 'active');
+    store.setStatus('card-2', 'running');
     store.setStatus('card-2', 'running');
 
     const result = await delete_card(

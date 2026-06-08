@@ -10,7 +10,7 @@ export interface CardFilterState {
   query: string;
 }
 
-const CARD_STATUSES: CardStatus[] = ['drafting', 'backlog', 'active', 'running', 'blocked', 'changed', 'done', 'failed', 'cancelled', 'needs_verification'];
+const CARD_STATUSES: CardStatus[] = ['backlog', 'running', 'blocked', 'changed', 'done', 'failed', 'cancelled', 'needs_verification'];
 
 export function buildDetailError(err: unknown, fallback: string): DetailErrorState {
   if (err instanceof ApiError) {

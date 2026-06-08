@@ -31,7 +31,7 @@ describe('CardDetailView child order', () => {
       card({ id: 'mid', parent: 'parent', title: 'Middle', priority: 50 }),
     ];
     store.currentAncestorIds = [];
-    store.currentLifecycle = { status: 'backlog', terminal: false, phase: 'ready', explanation: 'ready', completionState: 'not-started', error: null, startedAt: null, completedAt: null, durationMs: null, retries: 0, childCounts: { drafting: 0, backlog: 3, active: 0, running: 0, blocked: 0, changed: 0, done: 0, failed: 0, cancelled: 0, needs_verification: 0 }, hasActiveChildren: false, hasBlockingChildren: false, dependencyIds: [], blockedByDependencyIds: [] };
+    store.currentLifecycle = { status: 'backlog', terminal: false, phase: 'ready', explanation: 'ready', completionState: 'not-started', error: null, startedAt: null, completedAt: null, durationMs: null, retries: 0, childCounts: { backlog: 3, running: 0, blocked: 0, changed: 0, done: 0, failed: 0, cancelled: 0, needs_verification: 0 }, hasActiveChildren: false, hasBlockingChildren: false, dependencyIds: [], blockedByDependencyIds: [] };
     store.currentReview = { status: 'not-run', review: null, evidenceStatus: 'none', summary: 'No review.' };
     store.currentPlanning = null;
     store.currentDispatches = { outgoing: [], incoming: [] };
