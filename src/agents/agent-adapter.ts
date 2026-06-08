@@ -206,15 +206,15 @@ export class AgentAdapter implements AgentExecutionPort {
       invocationService: this.invocationService,
       eventBusProvider: () => this.eventBus,
       eventLogger: this.eventLogger,
-      redactModelIssueText: (message) => this.redactModelIssueText(message),
-      redactProviderErrorMessage: (message) => this.redactProviderErrorMessage(message),
+      redactModelIssueText: (message) => this.redactModelIssue(message),
+      redactProviderErrorMessage: (message) => this.redactModelIssue(message),
       compensateActivationBarrierThrow: (sessionId, toolCallId, activation, error) =>
         compensateActivationBarrierThrow(
           {
             projectRoot: this.projectRoot,
             saivageDir: this.saivageDir,
             messageLog: this.messageLog,
-            redactProviderErrorMessage: (message) => this.redactProviderErrorMessage(message),
+            redactProviderErrorMessage: (message) => this.redactModelIssue(message),
           },
           sessionId,
           toolCallId,
@@ -274,10 +274,7 @@ export class AgentAdapter implements AgentExecutionPort {
   getSafeFileContent(filePath: string, content: string): SafeFileResult {
     return getSafeFileForAgent(filePath, content);
   }
-  private redactModelIssueText(message: unknown): string {
-    return redactTextForOutbound(message, 'model.issue', { source: 'agent-adapter' });
-  }
-  private redactProviderErrorMessage(message: unknown): string {
+  private redactModelIssue(message: unknown): string {
     return redactTextForOutbound(message, 'model.issue', { source: 'agent-adapter' });
   }
   cancelSession(sessionId: string): boolean {
@@ -387,7 +384,7 @@ export class AgentAdapter implements AgentExecutionPort {
         projectRoot: this.projectRoot,
         saivageDir: this.saivageDir,
         messageLog: this.messageLog,
-        redactProviderErrorMessage: (message) => this.redactProviderErrorMessage(message),
+        redactProviderErrorMessage: (message) => this.redactModelIssue(message),
       },
       sessionId,
       toolCallId,

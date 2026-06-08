@@ -220,7 +220,7 @@ describe('redacted outbound sinks', () => {
         config: { models: { default: ['model'] }, providers: {} },
         cardStore: new CardStore(root),
       } as never);
-      const redacted = (adapter as unknown as { redactProviderErrorMessage(message: unknown): string }).redactProviderErrorMessage(
+      const redacted = (adapter as unknown as { redactModelIssue(message: unknown): string }).redactModelIssue(
         `Provider failed with Bearer ${RAW_TOKEN} {"access_token":"${RAW_ACCESS}"}`,
       );
       expectNoSyntheticSecret(redacted);

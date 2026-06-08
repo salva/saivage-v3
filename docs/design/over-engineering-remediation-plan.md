@@ -215,9 +215,9 @@ Risk: LOW. Value: LOW.
 
 These are independent one-liners; can be one commit.
 
-- `src/agents/agent-adapter.ts:277,280`: `redactModelIssueText` and `redactProviderErrorMessage` have byte-identical bodies. Merge to a single private method; update the two pass-through points (`AgentInvocationRunner` ctor at `:209-210` and `compensateActivationBarrierThrow` at `:217,390`) to use the one method.
-- `src/redaction/index.ts:296`: `redactTextForOutbound`/`redactSnippetForOutbound` accept an `options` arg then `void options`. Drop the dead `options` parameter from both signatures and from all call sites (e.g. `src/agents/agent-adapter.ts:278`). Keep `redactForOutbound` (`:292`), which does forward options.
-- `src/runtime/runtime.ts:150` ↔ `src/runtime/core-composition.ts:132`: the `controls` object is a 1:1 forwarder between `RuntimeApi` and `RuntimeLifecycleController`. Collapse the redundant `controls` intermediate so `RuntimeApi` calls the lifecycle controller directly (keep the two non-trivial entries `getStatus`/`getActivityStatus`).
+- DONE: `src/agents/agent-adapter.ts` `redactModelIssueText` and `redactProviderErrorMessage` had byte-identical bodies. Merged into a single private `redactModelIssue`; the two consumer config keys (`AgentInvocationRunner` ctor and `compensateActivationBarrierThrow`) both feed it.
+- DEFERRED (reassessed): `redactTextForOutbound`/`redactSnippetForOutbound` in `src/redaction/index.ts` accept `options` then `void options`. The param is genuinely dead (even the concrete `redactText`/`snippet` impls ignore it, and `RedactionOptions.source` is never read), BUT it is threaded through the `RedactionPort` interface and ~25 call sites pass `{ source: ... }`. Removing it cleanly means editing the interface + ~25 call sites — that is lateral churn disproportionate to the LOW value, the same concern that demoted WI-12. Skip unless the redaction subsystem is being refactored for another reason; if removed, do the interface signatures and all call sites in one focused commit.
+- DEFERRED (reassessed): the `controls` object (`src/runtime/runtime.ts`) is NOT a 1:1 pass-through — `src/runtime/core-composition.ts` consumes `controls.X()` in TWO places to build separate API objects. Collapsing it touches the core runtime public-API assembly for LOW value; skip unless that wiring is being changed anyway.
 
 Gates: `npm run typecheck`, `npm test`, `npm run validate:routine`.
 Risk: LOW.
