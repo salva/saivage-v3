@@ -17,7 +17,7 @@ const DOMAIN_PACKAGES = new Set([
 const CONTRACT_FORBIDDEN = new Set(['server', 'persistence', 'cards', 'notifications', 'runtime', 'tools', 'agents', 'mcp']);
 const AGENT_RUNTIME_RESTRICTED = new Set(['runtime']);
 const SCHEMA_FORBIDDEN = new Set(['events', 'server', 'persistence', 'cards', 'notifications', 'runtime', 'tools', 'agents', 'mcp']);
-const RUNTIME_AGENT_IMPORT_EXCEPTIONS = new Set(['agents/default-agent-execution.js', 'agents/analyst-stage6.js', 'agents/session-persistence.js', 'agents/system-prompt.js', 'agents/skills-engine.js', 'agents/agent-adapter.js', 'agents/config-schema.js']);
+const RUNTIME_AGENT_IMPORT_EXCEPTIONS = new Set(['agents/analyst-stage6.js', 'agents/session-persistence.js', 'agents/system-prompt.js', 'agents/skills-engine.js', 'agents/agent-adapter.js', 'agents/config-schema.js']);
 const AGENT_RUNTIME_IMPORT_EXCEPTIONS = new Set(['src/agents/analyst-tools.ts', 'src/agents/analyst-stage6.ts', 'src/agents/analyst-handler.ts']);
 const PREEXISTING_DEEP_IMPORT_EXCEPTIONS = new Set([
   'src/agents/agent-adapter.ts->notifications/notification-delivery.js',
@@ -108,7 +108,6 @@ function runSelfTest() {
     { fromPkg: 'runtime', parts: ['agents', 'index.js'], ok: false, label: 'runtime must not import agents index' },
     { fromPkg: 'server', parts: ['runtime', 'control-api.js'], ok: true, label: 'server may use runtime control API' },
     { fromPkg: 'server', parts: ['runtime'], ok: false, label: 'server must not use runtime root' },
-    { fromPkg: 'runtime', parts: ['agents', 'default-agent-execution.js'], ok: true, label: 'runtime may use exact default execution factory' },
     { fromPkg: 'agents', parts: ['runtime'], ok: false, label: 'agents must not use runtime package root' },
     { fromPkg: 'agents', parts: ['runtime', 'index.js'], ok: false, label: 'agents must not use runtime index' },
     { fromPkg: 'agents', parts: ['runtime', 'state.js'], ok: false, label: 'agents must not deep-import runtime state' },
