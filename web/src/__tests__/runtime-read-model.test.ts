@@ -12,6 +12,7 @@ function runtime(overrides: Partial<RuntimeState> = {}): RuntimeState {
     active_card_run: { card_id: 'goal', card_type: 'goal', ownership: { kind: 'direct', source: 'operator' }, runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:goal', correction_attempts: 0, started_at: '2025-01-01T00:00:00Z', last_turn_at: '2025-01-01T00:00:00Z' },
     paused: false,
     paused_at: null,
+    runtime_intent: { status: 'running', updated_at: '2025-01-01T00:00:00Z', source_command_id: null },
     runtime_runs: [],
     runtime_activations: [],
     runtime_commands: [],

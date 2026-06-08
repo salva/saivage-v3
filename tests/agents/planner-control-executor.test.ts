@@ -80,7 +80,10 @@ function runtimeWithActive(cardId: string): RuntimeState {
     paused: false,
     paused_at: null,
     updated_at: now,
-    
+    runtime_intent: { status: 'running', updated_at: now, source_command_id: null },
+    runtime_commands: [],
+    runtime_runs: [],
+    runtime_activations: [],
   };
 }
 

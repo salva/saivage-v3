@@ -41,7 +41,10 @@ function legacyRuntimeState(overrides: Partial<RuntimeState> = {}): RuntimeState
     paused: true,
     paused_at: now,
     updated_at: now,
-    
+    runtime_intent: { status: 'stopped', updated_at: now, source_command_id: null },
+    runtime_commands: [],
+    runtime_runs: [],
+    runtime_activations: [],
     ...overrides,
   };
 }

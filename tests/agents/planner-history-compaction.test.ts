@@ -211,6 +211,7 @@ describe('planner persisted history context compaction', () => {
           started_at: '2026-06-01T00:01:00.000Z',
           updated_at: '2026-06-01T00:01:00.000Z',
         }],
+        runtime_commands: [],
         runtime_activations: [{
           activation_id: 'act-1',
           idempotency_key: 'key-1',
