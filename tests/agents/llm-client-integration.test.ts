@@ -185,6 +185,7 @@ function cleanupDir(dir: string): void {
 function createTestAgentAdapter(projectRoot: string, eventBus?: EventEmitter, cardStore = new CardStore(projectRoot)): InstanceType<typeof AgentAdapter> {
   const saivageDir = join(projectRoot, '.saivage');
   const { config, warnings } = loadConfig(projectRoot);
+  (config.runtime as { recoveryDelayMs: number }).recoveryDelayMs = 1;
   if (eventBus) for (const warning of warnings) eventBus.emit('config_warning', { warning });
   return new AgentAdapter({ projectRoot, saivageDir, config, eventBus, cardStore });
 }
@@ -590,7 +591,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
             apiKey: 'synthetic-adapter-key',
           },
         },
-        runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
+        runtime: {},
       });
       const events = new EventEmitter();
       const failures: unknown[] = [];
@@ -811,10 +812,11 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
             apiKey: 'sk-integration-test',
           },
         },
-        runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
+        runtime: {},
       });
 
       const { config } = loadConfig(tempDir);
+      (config.runtime as { recoveryDelayMs: number }).recoveryDelayMs = 1;
       const saivageDir = join(tempDir, '.saivage');
       const adapter = new AgentAdapter({ projectRoot: tempDir, saivageDir, config, cardStore: new CardStore(tempDir) });
 
@@ -867,7 +869,7 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
             apiKey: makeJwtWithCodexAccount('acct-test-123'),
           },
         },
-        runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
+        runtime: {},
       });
 
       const events = new EventEmitter();
@@ -917,7 +919,7 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
             apiKey: 'sk-test',
           },
         },
-        runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
+        runtime: {},
       });
 
       const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
@@ -950,7 +952,7 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
             apiKey: 'sk-test',
           },
         },
-        runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
+        runtime: {},
       });
 
       const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
@@ -1089,7 +1091,7 @@ describe('Account-level Provider Config Overrides', () => {
             },
           },
         },
-        runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
+        runtime: {},
       });
 
       const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
@@ -1129,7 +1131,7 @@ describe('Account-level Provider Config Overrides', () => {
             },
           },
         },
-        runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
+        runtime: {},
       });
 
       const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
@@ -1163,7 +1165,7 @@ describe('Account-level Provider Config Overrides', () => {
             authProfile: 'test-oauth',
           },
         },
-        runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
+        runtime: {},
       });
       writeFileSync(
         join(tempDir, '.saivage', 'auth-profiles.json'),
@@ -1203,7 +1205,7 @@ describe('Account-level Provider Config Overrides', () => {
             apiKey: 'sk-opencode-go',
           },
         },
-        runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
+        runtime: {},
       });
 
       const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
@@ -1265,7 +1267,7 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
             apiKey: 'sk-test',
           },
         },
-        runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
+        runtime: {},
       });
 
       const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
@@ -1304,7 +1306,7 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
             apiKey: 'sk-test',
           },
         },
-        runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
+        runtime: {},
       });
 
       const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
@@ -1343,7 +1345,7 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
             apiKey: 'sk-test',
           },
         },
-        runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
+        runtime: {},
       });
 
       const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
@@ -1382,7 +1384,7 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
             apiKey: 'sk-test',
           },
         },
-        runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
+        runtime: {},
       });
 
       const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
@@ -1421,7 +1423,7 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
             apiKey: 'sk-test',
           },
         },
-        runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
+        runtime: {},
       });
 
       const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));

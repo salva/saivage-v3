@@ -16,7 +16,7 @@ function makeRoot(config: Record<string, unknown>): string {
   writeFileSync(join(saivageDir, 'saivage.json'), JSON.stringify({
     models: { default: ['test-model'] },
     providers: { test: { models: ['test-model'], apiKey: 'test-key', baseUrl: 'http://test-provider.invalid/v1' } },
-    runtime: { continuousImprovement: false, startup: { reconcileOrphanedSessions: false } },
+    runtime: {},
     supervisor: { enabled: false, intervalMs: 60000, consecutiveStuckVerdicts: 3, logLines: 10 },
     server: { host: '127.0.0.1', port: 18080 },
     ...config,

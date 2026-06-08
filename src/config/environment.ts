@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { z } from 'zod';
 import { parseArgs } from 'node:util';
 import { interpolateValue, type EnvironmentSource } from './env-interpolation.js';
-import { normalizeLegacyRootConfig, saivageConfigSchema, type SaivageConfig } from '../agents/config-api.js';
+import { saivageConfigSchema, type SaivageConfig } from '../agents/config-api.js';
 import { validateModelRoles } from './validate-model-roles.js';
 
 export type NodeEnvironment = 'development' | 'production' | 'test';
@@ -167,8 +167,7 @@ function readConfigFile(configPath: string, env: EnvironmentSource): { config: S
   }
 
   const { value: interpolated, warnings } = interpolateValue(rawObj, env);
-  const normalizedInterpolated = normalizeLegacyRootConfig(interpolated);
-  const parsed = saivageConfigSchema.safeParse(normalizedInterpolated);
+  const parsed = saivageConfigSchema.safeParse(interpolated);
   if (!parsed.success) {
     const issues = parsed.error.issues.map((issue) => `${issue.path.join('.') || '<root>'}: ${issue.message}`).join('; ');
     throw new EnvironmentLoadError(`Configuration validation failed: ${issues}`, { field: parsed.error.issues[0]?.path.join('.') || 'config', expected: parsed.error.issues[0]?.message ?? 'schema match', received: 'invalid config value', source: 'file' });

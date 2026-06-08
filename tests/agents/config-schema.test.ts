@@ -104,46 +104,6 @@ describe('config-schema', () => {
       expect(result.success).toBe(false);
     });
 
-    it('performs a one-shot migration from legacy runtime keys to §13 persisted names', () => {
-      setupConfig({
-        models: { default: ['test'] },
-        runtime: {
-          continuousImprovement: true,
-          maxReviewRetries: 5,
-          processTimeouts: { plannerMs: 10, executorMs: 20, reviewerMs: 30 },
-        },
-      });
-
-      const { config } = loadConfig(TEST_ROOT);
-      expect(config.runtime.maxReviewRetries).toBe(5);
-      expect(config.runtime.processTimeouts).toEqual({ plannerMs: 10, executorMs: 20, reviewerMs: 30 });
-      const migrated = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
-      expect(migrated.runtime).toEqual({
-        continuous_improvement: true,
-        max_review_retries: 5,
-        process_timeouts: { planner_ms: 10, executor_ms: 20, reviewer_ms: 30 },
-      });
-    });
-
-
-
-    it('preserves supported legacy operational runtime overrides in memory while migrating persisted keys', () => {
-      setupConfig({
-        models: { default: ['test'] },
-        runtime: {
-          continuousImprovement: false,
-          maxRecoveryRetries: 9,
-          recoveryDelayMs: 12345,
-        },
-      });
-
-      const { config } = loadConfig(TEST_ROOT);
-      expect(config.runtime.maxRecoveryRetries).toBe(9);
-      expect(config.runtime.recoveryDelayMs).toBe(12345);
-      const migrated = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
-      expect(migrated.runtime).toEqual({ continuous_improvement: false, max_review_retries: 9 });
-    });
-
     it('rejects removed operational runtime keys when persisted in snake_case without legacy migration', () => {
       setupConfig({
         models: { default: ['test'] },
@@ -245,30 +205,6 @@ describe('config-schema', () => {
       expect(config.telegram?.botToken).toBe('token123');
       expect(config.notifications?.channels).toEqual(['telegram', 'web']);
       expect(config.mcpServers?.test_server?.transport).toBe('stdio');
-    });
-
-    it('normalizes top-level failover into models.failover', () => {
-      setupConfig({
-        models: { default: ['deepseek-v4-flash'] },
-        failover: {
-          'kimi-k2.6': ['deepseek-v4-pro'],
-        },
-      });
-
-      const { config } = loadConfig(TEST_ROOT);
-      expect(config.models.failover?.['kimi-k2.6']).toEqual(['deepseek-v4-pro']);
-    });
-
-    it('normalizes object-shaped top-level modelEquivalents into models.equivalents', () => {
-      setupConfig({
-        models: { default: ['deepseek-v4-flash'] },
-        modelEquivalents: {
-          'kimi-k2.6': ['deepseek-v4-pro'],
-        },
-      });
-
-      const { config } = loadConfig(TEST_ROOT);
-      expect(config.models.equivalents).toEqual([['kimi-k2.6', 'deepseek-v4-pro']]);
     });
 
     it('drops a role array byte-equal to models.default so the role inherits default', () => {

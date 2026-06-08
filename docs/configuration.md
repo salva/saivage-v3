@@ -204,7 +204,7 @@ Rollback is additive: remove the declarations to return to built-in defaults, or
 
 ## Runtime Section (`runtime`)
 
-Controls the persisted §13 runtime settings. The on-disk section accepts only the snake_case keys below; legacy camelCase runtime keys are one-shot migrated by `loadConfig()` and unsupported persisted runtime keys are rejected.
+Controls the persisted §13 runtime settings. The on-disk section accepts only the snake_case keys below; any other key (including legacy camelCase runtime keys) is rejected at the strict schema boundary.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -445,7 +445,7 @@ Unknown environment variables resolve to an empty string and generate a warning.
 <!-- saivage:config-schema:start -->
 ## Source-verified schema inventory
 
-`npm run docs:verify` compares this table with `src/agents/config-schema.ts` field-by-field. Persisted `runtime` accepts the snake_case §13 keys only; legacy camelCase runtime keys are one-shot migrated by `loadConfig()`.
+`npm run docs:verify` compares this table with `src/agents/config-schema.ts` field-by-field. Persisted `runtime` accepts the snake_case §13 keys only; any other key is rejected.
 
 | Section | Fields | Code anchor |
 |---|---|---|

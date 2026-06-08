@@ -250,7 +250,7 @@ provider until its cooldown expires.
 
 ## Runtime
 
-Persisted runtime configuration uses the §13 snake_case keys only. `loadConfig()` one-shot migrates legacy camelCase runtime files, while the schema rejects unsupported persisted runtime keys.
+Persisted runtime configuration uses the §13 snake_case keys only. The schema strictly rejects any other key, including legacy camelCase runtime keys; there is no config migration.
 
 ```json
 {
@@ -441,7 +441,7 @@ An API token for the Saivage server itself is set via the
 <!-- saivage:config-schema:start -->
 ## Source-verified schema inventory
 
-`npm run docs:verify` compares this table with `src/agents/config-schema.ts` field-by-field. Persisted `runtime` accepts the snake_case §13 keys only; legacy camelCase runtime keys are one-shot migrated by `loadConfig()`.
+`npm run docs:verify` compares this table with `src/agents/config-schema.ts` field-by-field. Persisted `runtime` accepts the snake_case §13 keys only; any other key is rejected.
 
 | Section | Fields | Code anchor |
 |---|---|---|

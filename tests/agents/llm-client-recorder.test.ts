@@ -307,7 +307,7 @@ describe('AgentLlmInvocationGateway recorder wiring', () => {
               apiKey: 'sk',
             },
           },
-          runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
+          runtime: {},
         }),
       );
       const { config } = loadConfig(root);

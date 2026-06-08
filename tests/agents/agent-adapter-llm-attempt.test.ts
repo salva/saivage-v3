@@ -76,6 +76,9 @@ function plannerRequest(goalId: string) {
 function createTestAgentAdapter(projectRoot: string, eventBus?: EventEmitter, cardStore = new CardStore(projectRoot)): InstanceType<typeof AgentAdapter> {
   const saivageDir = join(projectRoot, '.saivage');
   const { config, warnings } = loadConfig(projectRoot);
+  // recoveryDelayMs is an internal operational default (not config-accepted); override
+  // it in-memory to keep retry/cooldown timing fast for these tests.
+  (config.runtime as { recoveryDelayMs: number }).recoveryDelayMs = 1;
   if (eventBus) for (const warning of warnings) eventBus.emit('config_warning', { warning });
   return new AgentAdapter({ projectRoot, saivageDir, config, eventBus, cardStore });
 }
@@ -141,7 +144,7 @@ describe('AgentAdapter F04 llm_attempt + llm_invocation_summary emission', () =>
         'p-b': { priority: 20, models: ['m-b'], baseUrl: `http://localhost:${handle.port}`, apiKey: 'k-b' },
         'p-c': { priority: 10, models: ['m-c'], baseUrl: `http://localhost:${handle.port}`, apiKey: 'k-c' },
       },
-      runtime: { recoveryDelayMs: 1, maxRecoveryRetries: 0 },
+      runtime: {},
     });
     const events = new EventEmitter();
     const attempts: AttemptEvent[] = [];
@@ -178,7 +181,7 @@ describe('AgentAdapter F04 llm_attempt + llm_invocation_summary emission', () =>
         'p-a': { priority: 20, models: ['m-a'], baseUrl: `http://localhost:${handle.port}`, apiKey: 'k-a' },
         'p-b': { priority: 10, models: ['m-b'], baseUrl: `http://localhost:${handle.port}`, apiKey: 'k-b' },
       },
-      runtime: { recoveryDelayMs: 1, maxRecoveryRetries: 0 },
+      runtime: {},
     });
     const events = new EventEmitter();
     const attempts: AttemptEvent[] = [];

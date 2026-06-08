@@ -1,74 +1,9 @@
 import { z } from 'zod';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { interpolateValue, type EnvironmentSource } from '../config/index.js';
-
-// ── Legacy runtime migration ─────────────────────────────────
-
-const LEGACY_RUNTIME_KEYS = new Set([
-  'continuousImprovement',
-  'maxReviewRetries',
-  'processTimeouts',
-  'recoverAgentInvocations',
-  'healthCheckIntervalMs',
-  'idleShutdownMs',
-  'maxGoalDepth',
-  'recoveryDelayMs',
-  'autoDispatchBacklog',
-  'compactionThreshold',
-  'maxCompactions',
-  'compactionTimeoutMs',
-  'compactionKeepFraction',
-  'maxRecoveryRetries',
-]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-function migrateLegacyRuntimeSection(rawObj: unknown): { value: unknown; migrated: boolean; legacyRuntime?: Record<string, unknown> } {
-  if (!isRecord(rawObj) || !isRecord(rawObj['runtime'])) return { value: rawObj, migrated: false };
-  const runtime = rawObj['runtime'] as Record<string, unknown>;
-  const hasLegacyKeys = Object.keys(runtime).some((key) => LEGACY_RUNTIME_KEYS.has(key));
-  if (!hasLegacyKeys) return { value: rawObj, migrated: false };
-  const migratedRuntime: Record<string, unknown> = {};
-  if ('continuous_improvement' in runtime) migratedRuntime['continuous_improvement'] = runtime['continuous_improvement'];
-  else if ('continuousImprovement' in runtime) migratedRuntime['continuous_improvement'] = runtime['continuousImprovement'];
-  if ('max_review_retries' in runtime) migratedRuntime['max_review_retries'] = runtime['max_review_retries'];
-  else if ('maxReviewRetries' in runtime) migratedRuntime['max_review_retries'] = runtime['maxReviewRetries'];
-  else if ('maxRecoveryRetries' in runtime) migratedRuntime['max_review_retries'] = runtime['maxRecoveryRetries'];
-  if ('process_timeouts' in runtime) migratedRuntime['process_timeouts'] = runtime['process_timeouts'];
-  else if (isRecord(runtime['processTimeouts'])) {
-    const pt = runtime['processTimeouts'] as Record<string, unknown>;
-    migratedRuntime['process_timeouts'] = {
-      ...(pt['plannerMs'] !== undefined ? { planner_ms: pt['plannerMs'] } : {}),
-      ...(pt['executorMs'] !== undefined ? { executor_ms: pt['executorMs'] } : {}),
-      ...(pt['reviewerMs'] !== undefined ? { reviewer_ms: pt['reviewerMs'] } : {}),
-    };
-  }
-  return { value: { ...rawObj, runtime: migratedRuntime }, migrated: true, legacyRuntime: runtime };
-}
-
-
-export function normalizeLegacyRootConfig(rawObj: unknown): unknown {
-  if (!isRecord(rawObj)) return rawObj;
-
-  const normalized: Record<string, unknown> = { ...rawObj };
-  const models = isRecord(normalized['models'])
-    ? { ...(normalized['models'] as Record<string, unknown>) }
-    : {};
-
-  if ('failover' in normalized && !('failover' in models)) {
-    models['failover'] = normalized['failover'];
-  }
-  delete normalized['failover'];
-
-  if ('modelEquivalents' in normalized && !('equivalents' in models)) {
-    models['equivalents'] = normalized['modelEquivalents'];
-  }
-  delete normalized['modelEquivalents'];
-
-  normalized['models'] = models;
-  return normalized;
 }
 
 // ── Zod Schemas ───────────────────────────────────────────────
@@ -373,32 +308,16 @@ export function loadConfig(projectRoot: string, env: EnvironmentSource = process
     );
   }
 
-  const migration = migrateLegacyRuntimeSection(rawObj);
-  if (migration.migrated) {
-    rawObj = migration.value;
-    writeFileSync(configPath, JSON.stringify(rawObj, null, 2) + '\n', 'utf-8');
-  }
-
-  rawObj = normalizeLegacyRootConfig(rawObj);
-
   // Interpolate env vars
   const { value: interpolated, warnings } = interpolateValue(rawObj, env);
-  const normalizedInterpolated = normalizeLegacyRootConfig(interpolated);
 
   // Validate with Zod
-  const parsed = saivageConfigSchema.safeParse(normalizedInterpolated);
+  const parsed = saivageConfigSchema.safeParse(interpolated);
   if (!parsed.success) {
     const issues = parsed.error.issues
       .map((i) => `  - ${i.path.join('.')}: ${i.message}`)
       .join('\n');
     throw new Error(`Configuration validation failed:\n${issues}`);
-  }
-
-  if (migration.legacyRuntime) {
-    const runtime = parsed.data.runtime as RuntimeSection;
-    const legacy = migration.legacyRuntime;
-    if (typeof legacy['recoveryDelayMs'] === 'number') runtime.recoveryDelayMs = legacy['recoveryDelayMs'];
-    if (typeof legacy['maxRecoveryRetries'] === 'number') runtime.maxRecoveryRetries = legacy['maxRecoveryRetries'];
   }
 
   return { config: parsed.data, warnings };
