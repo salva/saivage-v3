@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { CardStore } from '../../src/cards/card-store.js';
-import { FakeAgentAdapter, type FakeAgentFixture } from '../../src/agents/fake-agent.js';
+import { FakeAgentAdapter, type FakeAgentFixture } from '../../src/runtime/fake-agent.js';
 import { releaseLock } from '../../src/runtime/lock.js';
 import type { CardRecord } from '../../src/schemas/types.js';
 import type { AgentExecutionPort as AgentRuntime } from '../../src/contracts/index.js';

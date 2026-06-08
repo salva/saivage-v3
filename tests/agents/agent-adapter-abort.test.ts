@@ -7,7 +7,7 @@ import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import { EventLogger } from '../../src/observability/event-logger.js';
 import { getEventSeverity } from '../../src/events/index.js';
 import type { AgentExecutionPort as AgentRuntime } from '../../src/contracts/index.js';
-import { FakeAgentAdapter } from '../../src/agents/fake-agent.js';
+import { FakeAgentAdapter } from '../../src/runtime/fake-agent.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { releaseLock } from '../../src/runtime/lock.js';
 import { getSession } from '../../src/agents/session-persistence.js';

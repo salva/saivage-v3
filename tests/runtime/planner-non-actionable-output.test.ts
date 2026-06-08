@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
-import { FakeAgentAdapter, type FakeAgentFixture } from '../../src/agents/fake-agent.js';
+import { FakeAgentAdapter, type FakeAgentFixture } from '../../src/runtime/fake-agent.js';
 import { releaseLock } from '../../src/runtime/lock.js';
 import { deriveCurrentCardId } from '../../src/runtime/current-run.js';
 import { createRuntimeCoreTestContainer, type RuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';

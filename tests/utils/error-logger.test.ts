@@ -13,7 +13,7 @@ import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import { ErrorLogger, type ErrorRecord, type ErrorInput } from '../../src/observability/error-logger.js';
 import { releaseLock } from '../../src/runtime/lock.js';
-import { FakeAgentAdapter, type FakeAgentFixture } from '../../src/agents/fake-agent.js';
+import { FakeAgentAdapter, type FakeAgentFixture } from '../../src/runtime/fake-agent.js';
 import type { CardRecord } from '../../src/schemas/types.js';
 import { createRuntimeCoreTestContainer, type RuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
 import { PlannerControlExecutor } from '../../src/agents/planner-control-executor.js';

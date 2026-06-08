@@ -3,7 +3,7 @@ import { rmSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'nod
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
-import { FakeAgentAdapter, type FakeAgentFixture } from '../../src/agents/fake-agent.js';
+import { FakeAgentAdapter, type FakeAgentFixture } from '../../src/runtime/fake-agent.js';
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import type { AgentExecutionPort as AgentRuntime } from '../../src/contracts/index.js';
 import type { SaivageConfig } from '../../src/agents/config-schema.js';

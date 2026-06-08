@@ -6,8 +6,8 @@ import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import { readRuntimeState } from '../../src/runtime/state.js';
-import { FakeAgentAdapter } from '../../src/agents/fake-agent.js';
-import type { FakeAgentFixture } from '../../src/agents/fake-agent.js';
+import { FakeAgentAdapter } from '../../src/runtime/fake-agent.js';
+import type { FakeAgentFixture } from '../../src/runtime/fake-agent.js';
 import {
   acquireLock,
   releaseLock,

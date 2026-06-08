@@ -9,7 +9,7 @@ import { releaseLock } from '../../src/runtime/lock.js';
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import { EventLogger } from '../../src/observability/event-logger.js';
 import { saivageConfigSchema } from '../../src/agents/config-schema.js';
-import type { FakeAgentFixture } from '../../src/agents/fake-agent.js';
+import type { FakeAgentFixture } from '../../src/runtime/fake-agent.js';
 import { createRuntimeCoreTestContainer, type RuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
 import { CardStore } from '../../src/cards/card-store.js';
 

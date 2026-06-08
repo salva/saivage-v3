@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { CardStore } from '../../src/cards/card-store.js';
-import type { FakeAgentFixture } from '../../src/agents/fake-agent.js';
+import type { FakeAgentFixture } from '../../src/runtime/fake-agent.js';
 import { releaseLock } from '../../src/runtime/lock.js';
 import { startProcess, snapshotProcessRuntimeScope } from '../../src/runtime/process-runner.js';
 import type { CardRecord, CardStatus } from '../../src/schemas/types.js';

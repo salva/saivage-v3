@@ -27,7 +27,7 @@ import { tmpdir } from 'node:os';
 
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { CardStore } from '../../src/cards/card-store.js';
-import { FakeAgentAdapter, type FakeAgentFixture } from '../../src/agents/fake-agent.js';
+import { FakeAgentAdapter, type FakeAgentFixture } from '../../src/runtime/fake-agent.js';
 import { scanContent } from '../../src/workspace/heuristic-scanner.js';
 import { quarantineContent } from '../../src/workspace/quarantine.js';
 import { isStashPathAllowed, getSafeFileForAgent } from '../../src/workspace/file-access-security.js';

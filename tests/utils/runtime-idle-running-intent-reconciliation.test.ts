@@ -11,7 +11,7 @@ import {
   saveRuntimeState,
 } from '../../src/runtime/state.js';
 import { releaseLock } from '../../src/runtime/lock.js';
-import { FakeAgentAdapter } from '../../src/agents/fake-agent.js';
+import { FakeAgentAdapter } from '../../src/runtime/fake-agent.js';
 import { createRuntimeCoreTestContainer, type RuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
 import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 

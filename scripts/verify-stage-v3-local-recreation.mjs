@@ -22,7 +22,7 @@ mkdirSync(snapshotsDir, { recursive: true });
 
 const { initProjectTree } = await import(pathToFileURL(join(repoRoot, 'dist/src/persistence/file-tree.js')).href);
 const { Runtime } = await import(pathToFileURL(join(repoRoot, 'dist/src/runtime/runtime.js')).href);
-const { FakeAgentAdapter } = await import(pathToFileURL(join(repoRoot, 'dist/src/agents/fake-agent.js')).href);
+const { FakeAgentAdapter } = await import(pathToFileURL(join(repoRoot, 'dist/src/runtime/fake-agent.js')).href);
 const { releaseLock } = await import(pathToFileURL(join(repoRoot, 'dist/src/runtime/lock.js')).href);
 const { registerCardRoutes } = await import(pathToFileURL(join(repoRoot, 'dist/src/server/routes/cards.js')).href);
 const { registerChatsFilesDebugRoutes } = await import(pathToFileURL(join(repoRoot, 'dist/src/server/routes/chats-files-debug.js')).href);

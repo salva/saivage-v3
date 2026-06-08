@@ -9,7 +9,7 @@ import {
   getSessionMessages,
   createSession,
 } from '../../src/agents/session-persistence.js';
-import { FakeAgentAdapter } from '../../src/agents/fake-agent.js';
+import { FakeAgentAdapter } from '../../src/runtime/fake-agent.js';
 import { LlmRequestError } from '../../src/agents/llm-errors.js';
 import { releaseLock } from '../../src/runtime/lock.js';
 import { deriveCurrentCardId } from '../../src/runtime/current-run.js';
