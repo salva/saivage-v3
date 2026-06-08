@@ -171,16 +171,17 @@ Risk: LOW–MEDIUM (many call sites; typecheck-driven).
 
 ## WI-10 — Trim the `process-runner.ts` dead wrapper surface
 
-`src/runtime/process-runner.ts` (largest file, 1083 lines) exposes free-function + class-method twins, several with zero production imports. Production uses only: `getProcess`, `killProcess`, `listProcesses`, `tailOutput`, `reconcileProcessRecords`, `disposeProcessRuntimeScope`, `setProcessTerminalBuffering`, `loadRegistry`.
+`src/runtime/process-runner.ts` (largest file) exposes free-function + class-method twins.
 
-- Re-grep each candidate to reconfirm zero production importers before deleting (file is large; be careful):
-  - Fully dead chains (delete free fn + method + the `*ForService` core if reached nowhere else): `saveRegistry` (+`saveRegistryForService`), `registerProcessTerminalSink` (+`registerProcessTerminalSinkForService`), `cleanupProcessOutput`/`cleanupAllCompleted` (+`cleanupProcessOutputForService`/`cleanupAllCompletedForService`).
-  - Dead wrappers only (keep the `*ForService` core, which stays live via another path): `startProcess` (logic stays via `startProcessForService` used by `startAndWait`), `stopAllRunningForRuntimeShutdown` (stays via `disposeProcessRuntimeScopeForService`), `snapshotProcessRuntimeScope`.
-- Remove the corresponding re-exports from `src/runtime/process-api.ts` / any barrel if present.
-- Check `tests/` for references to the removed wrappers; delete/adjust those test cases.
+Reassessed during execution (the findings list was too aggressive): most of the "dead wrapper" free functions (`saveRegistry`, `startProcess`, `cleanupProcessOutput`, `cleanupAllCompleted`, `snapshotProcessRuntimeScope`) have **0 production callers but many test callers** (9, 22, 4, 4, 9 respectively) — they are the process-runner public test API, not dead code, and AGENTS.md does not call actively-used test scaffolding dead. Only two chains had **zero refs anywhere** and were removed:
 
-Gates: focused process tests (grep `tests` for `process-runner`/`process-api`); then `npm run typecheck`, `npm test`, `npm run validate:routine`.
-Risk: MEDIUM (large file; verify each name's callers individually; do it as one focused commit).
+- `registerProcessTerminalSink` (free fn + class method + `registerProcessTerminalSinkForService`, whose only caller was the class method) — fully dead chain, deleted.
+- `stopAllRunningForRuntimeShutdown` free fn + class method — dead wrappers, deleted; the `stopAllRunningForRuntimeShutdownForService` core stays (still called by `disposeProcessRuntimeScopeForService`).
+
+Status: DONE (WI-10), scoped to the two genuinely-dead chains. The remaining twins are test-API; converting them would be churn, not dead-code removal — leave them unless the process-runner test surface is refactored separately.
+
+Gates: `npm run typecheck`, `npm test`, `npm run validate:routine`.
+Risk: MEDIUM (large file; verified each name's callers individually).
 
 ---
 

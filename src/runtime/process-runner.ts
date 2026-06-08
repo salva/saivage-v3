@@ -94,7 +94,6 @@ export class ProcessRunnerService {
   commandHash(command: string): string { return commandHash(this, command); }
   loadRegistry(): Map<string, ProcessRecord> { return loadRegistryForService(this); }
   saveRegistry(records: ProcessRecord[]): void { saveRegistryForService(this, records); }
-  registerProcessTerminalSink(sink: ProcessTerminalSink): () => void { return registerProcessTerminalSinkForService(this, sink); }
   setProcessTerminalBuffering(paused: boolean): void { setProcessTerminalBufferingForService(this, paused); }
   startProcess(command: string, options: ProcessStartOptions): ProcessRecord { return startProcessForService(this, command, options); }
   waitProcess(procId: string, timeoutMs: number = 0): Promise<ProcessWaitResult> { return waitProcessForService(this, procId, timeoutMs); }
@@ -106,7 +105,6 @@ export class ProcessRunnerService {
   getProcess(procId: string): ProcessRecord | null { return getProcessForService(this, procId); }
   cleanupProcessOutput(procId: string): boolean { return cleanupProcessOutputForService(this, procId); }
   cleanupAllCompleted(): number { return cleanupAllCompletedForService(this); }
-  stopAllRunningForRuntimeShutdown(): Promise<string[]> { return stopAllRunningForRuntimeShutdownForService(this); }
   snapshotProcessRuntimeScope(): RuntimeLifecycleSnapshot { return this.processScope().snapshot(); }
   disposeProcessRuntimeScope(): Promise<RuntimeDisposeReportEntry[]> { return disposeProcessRuntimeScopeForService(this); }
   isProcessLiveAttached(procId: string): boolean { const child = this.activeProcesses.get(procId); return Boolean(child && resolveStatus(child) === 'running'); }
@@ -396,24 +394,6 @@ function dispatchTerminal(service: ProcessRunnerService, record: ProcessRecord):
   }
   delivered.add(record.id);
   for (const sink of service.terminalSinks) sink(note);
-}
-
-function registerProcessTerminalSinkForService(service: ProcessRunnerService, sink: ProcessTerminalSink): () => void {
-  const sinks = service.terminalSinks;
-  sinks.add(sink);
-  const scope = processScope(service);
-  const handle = scope.register({
-    kind: 'listener',
-    label: `terminal-sink:${service.projectRoot}`,
-    dispose: () => {
-      sinks?.delete(sink);
-      return 'removed';
-    },
-  });
-  return () => {
-    handle.unregister();
-    sinks?.delete(sink);
-  };
 }
 
 function setProcessTerminalBufferingForService(service: ProcessRunnerService, paused: boolean): void {
@@ -1019,10 +999,6 @@ export function saveRegistry(projectRoot: string, records: ProcessRecord[]): voi
   serviceFor(projectRoot).saveRegistry(records);
 }
 
-export function registerProcessTerminalSink(projectRoot: string, sink: ProcessTerminalSink): () => void {
-  return serviceFor(projectRoot).registerProcessTerminalSink(sink);
-}
-
 export function setProcessTerminalBuffering(projectRoot: string, paused: boolean): void {
   serviceFor(projectRoot).setProcessTerminalBuffering(paused);
 }
@@ -1065,10 +1041,6 @@ export function cleanupProcessOutput(projectRoot: string, procId: string): boole
 
 export function cleanupAllCompleted(projectRoot: string): number {
   return serviceFor(projectRoot).cleanupAllCompleted();
-}
-
-export function stopAllRunningForRuntimeShutdown(projectRoot: string): Promise<string[]> {
-  return serviceFor(projectRoot).stopAllRunningForRuntimeShutdown();
 }
 
 export function snapshotProcessRuntimeScope(projectRoot: string): RuntimeLifecycleSnapshot {
