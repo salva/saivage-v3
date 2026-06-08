@@ -1,17 +1,12 @@
 import { existsSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
-import type { CardLifecycleState, CardRecord, ReviewAssessment } from '../../schemas/index.js';
+import type { CardLifecycleState, CardRecord } from '../../schemas/index.js';
 import { cardLifecycleStateSchema } from '../../schemas/lifecycle.js';
 
 export interface GeneratedFileValidation {
   valid: string[];
   missing: string[];
   unsafe: string[];
-}
-
-export interface EvidenceCompleteness {
-  semantically_complete: boolean;
-  reasons: string[];
 }
 
 export function pathIsInside(parentPath: string, candidatePath: string): boolean {
@@ -89,34 +84,3 @@ export function validateTerminalOverlay(_previousCard: CardRecord, nextLifecycle
   return diagnostics;
 }
 
-export function validateEvidenceCompleteness(input: {
-  card: CardRecord;
-  readCard(id: string): CardRecord | null | undefined;
-  evidenceCardIds?: string[];
-  assessment?: Pick<ReviewAssessment, 'evidence_card_ids'>;
-}): EvidenceCompleteness {
-  const evidenceIds = input.evidenceCardIds ?? input.assessment?.evidence_card_ids ?? evidenceIdsFromResult(input.card.lifecycle.result);
-  const reasons: string[] = [];
-  if (evidenceIds.length === 0) reasons.push('Reviewer assessment must cite at least one evidence_card_id.');
-
-  for (const evidenceId of evidenceIds) {
-    const evidenceCard = input.readCard(evidenceId);
-    if (!evidenceCard) {
-      reasons.push(`Reviewer cited missing evidence card '${evidenceId}'.`);
-      continue;
-    }
-    if (evidenceId !== input.card.id && evidenceCard.status !== 'done') {
-      reasons.push(`Reviewer cited non-complete evidence card '${evidenceId}' with status '${evidenceCard.status}'.`);
-    }
-    if ((evidenceCard.artifacts?.length ?? 0) === 0 && (evidenceCard.attachments?.length ?? 0) === 0 && !evidenceCard.lifecycle.result) {
-      reasons.push(`Reviewer cited card '${evidenceId}' without durable result, artifact, or attachment evidence.`);
-    }
-  }
-
-  return { semantically_complete: reasons.length === 0, reasons };
-}
-
-function evidenceIdsFromResult(result: CardLifecycleState['result']): string[] {
-  if (result?.kind === 'executor_success') return result.generated_files;
-  return [];
-}

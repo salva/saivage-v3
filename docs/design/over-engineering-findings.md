@@ -33,7 +33,7 @@ The runtime READS and HANDLES a `'frozen'` status that **nothing ever WRITES** i
 ### 4. Dead terminal-commit functions
 - `commitReviewerCorrection` (`src/runtime/terminal-commit/commit-reviewer.ts:27`): zero refs anywhere. Reviewer corrections actually flow through `reviewer-assessment-handler.ts` (`{ kind: 'continue_planner' }`). Delete.
 - `commitPlannerDone` (`src/runtime/terminal-commit/commit-planner.ts:6`): tests-only. Planner "done" flows via the reviewer → `commitReviewerPass`. Delete (and its test).
-- `validateEvidenceCompleteness` (`src/runtime/terminal-commit/validators.ts:92`): tests-only; the evidence-completeness gate is never enforced in production. Delete (plus orphaned `EvidenceCompleteness` type / `evidenceIdsFromResult` if unused).
+- `validateEvidenceCompleteness` (`src/runtime/terminal-commit/validators.ts`): tests-only; the evidence-completeness gate is never enforced in production. Delete (plus orphaned `EvidenceCompleteness` type / `evidenceIdsFromResult` if unused).
 - Confidence: HIGH. Impact: LOW–MEDIUM.
 
 ### 5. Dead exported symbols (zero refs; safe deletes)
@@ -55,7 +55,7 @@ The runtime READS and HANDLES a `'frozen'` status that **nothing ever WRITES** i
 
 ### 7. The `transitionCard` `=== false` / `!transitioned` family
 - `transitionCard` (`src/runtime/state-machine.ts:184`) only returns `true` or throws (since "enforce strict terminal transitions"). So these are unreachable:
-  - `transitionOrThrow` `=== false` arms: `src/runtime/terminal-commit/commit-planner.ts:70`, `src/runtime/terminal-commit/commit-reviewer.ts:54`, `src/runtime/terminal-commit/commit-executor.ts:127`
+  - `transitionOrThrow` `=== false` arms: `src/runtime/terminal-commit/commit-planner.ts:54`, `src/runtime/terminal-commit/commit-reviewer.ts:54`, `src/runtime/terminal-commit/commit-executor.ts:127`
   - `if (!transitioned)`: `src/runtime/executor-activation-dispatcher.ts:61`, `src/runtime/phases/planner-activation-runner.ts:44`
   - `handleExecutorCompletion` always returns `transitioned: true` → `!completion.transitioned` at `src/runtime/executor-activation-dispatcher.ts:161` is always false.
 - Fix: drop the `transitionOrThrow` helper and the dead guards; `await` the transition directly. Narrow `TerminalCommitEffects.transitionCard` return type (`src/runtime/terminal-commit/commit-executor.ts:6`) from `Promise<boolean | unknown> | boolean | unknown` to `Promise<void>`, removing the type surface that only existed to feed the dead branch.

@@ -443,17 +443,6 @@ describe('session-persistence', () => {
     });
   });
 
-  describe('deleteSession', () => {
-    it('should delete session and messages', () => {
-      const session = mod.createSession(SAIVAGE_DIR, 'planner');
-      mod.appendMessage(SAIVAGE_DIR, session.id, { role: 'user', kind: 'text', content: 'test' }, { round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0 });
-
-      mod.deleteSession(SAIVAGE_DIR, session.id);
-      expect(mod.getSession(SAIVAGE_DIR, session.id)).toBeNull();
-      expect(mod.getSessionMessages(SAIVAGE_DIR, session.id)).toEqual([]);
-    });
-  });
-
   describe('listSessions', () => {
     it('should list all session IDs', () => {
       const s1 = mod.createSession(SAIVAGE_DIR, 'planner');
@@ -478,20 +467,6 @@ describe('session-persistence', () => {
 
     it('should return 0 for empty string', () => {
       expect(mod.estimateTokens('')).toBe(0);
-    });
-  });
-
-  describe('buildConversationContext', () => {
-    it('should build a context string from messages', () => {
-      const session = mod.createSession(SAIVAGE_DIR, 'planner');
-      mod.appendMessage(SAIVAGE_DIR, session.id, { role: 'user', kind: 'text', content: 'Hello' }, { round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0 });
-      mod.appendMessage(SAIVAGE_DIR, session.id, { role: 'assistant', kind: 'text', content: 'Hi there' }, { round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0 });
-
-      const messages = mod.getSessionMessages(SAIVAGE_DIR, session.id);
-      const ctx = mod.buildConversationContext(messages);
-      expect(ctx).toContain('[USER]');
-      expect(ctx).toContain('Hello');
-      expect(ctx).toContain('[ASSISTANT]');
     });
   });
 });

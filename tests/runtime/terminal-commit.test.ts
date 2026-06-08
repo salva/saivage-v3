@@ -7,10 +7,8 @@ import {
   commitExecutorParkedVerification,
   commitExecutorSuccess,
   commitPlannerBlocked,
-  commitPlannerDone,
   commitReviewerInvocationFailure,
   commitReviewerPass,
-  validateEvidenceCompleteness,
   validateGeneratedFiles,
   validateTerminalOverlay,
 } from '../../src/runtime/terminal-commit/index.js';
@@ -133,20 +131,6 @@ describe('terminal commit validators', () => {
       completed_at: now,
     })).toEqual([]);
   });
-
-  it('checks reviewer evidence completeness', () => {
-    const goal = card({ id: 'goal-a', type: 'goal', lifecycle: { status: 'running', result: { kind: 'planner_done', summary: 'planned' }, error: null, completed_at: null } });
-    const result = validateEvidenceCompleteness({
-      card: goal,
-      evidenceCardIds: ['child-a', 'child-b'],
-      readCard: (id) => id === 'child-a' ? card({ id, status: 'done', lifecycle: { status: 'done', result: { kind: 'executor_success', executor: { ok: true }, generated_files: [], verified_at: now, latest_self_report: { result: 'done', outcome: 'done', summary: 'ok', status_text: 'done', at: now }, warnings: [] }, error: null, completed_at: now } }) : card({ id, status: 'active', lifecycle: { status: 'active', result: null, error: null, completed_at: null } }),
-    });
-    expect(result.semantically_complete).toBe(false);
-    expect(result.reasons).toEqual(expect.arrayContaining([
-      "Reviewer cited non-complete evidence card 'child-b' with status 'active'.",
-      "Reviewer cited card 'child-b' without durable result, artifact, or attachment evidence.",
-    ]));
-  });
 });
 
 describe('terminal commit functions', () => {
@@ -216,24 +200,6 @@ describe('terminal commit functions', () => {
       completedAt: now,
       effects: fx,
     })).rejects.toThrow("Cannot commit reviewer pass for card 'goal-a' without typed planner lifecycle context.");
-  });
-
-  it('rejects planner done for parent goal and commits it for planning-only cards', async () => {
-    const fx = effects();
-    await expect(commitPlannerDone({
-      card: card({ id: 'goal-a', type: 'goal' }),
-      summary: 'done',
-      completedAt: now,
-      effects: fx,
-    })).rejects.toThrow("Planner done cannot be terminal for parent card type 'goal'.");
-
-    const receipt = await commitPlannerDone({
-      card: card({ id: 'doc-a', type: 'doc' }),
-      summary: 'doc planning done',
-      completedAt: now,
-      effects: fx,
-    });
-    expect(receipt.lifecycle.result).toEqual({ kind: 'planner_done', summary: 'doc planning done' });
   });
 
   it('commits planner blocked with only typed lifecycle result', async () => {

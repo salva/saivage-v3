@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, unlinkSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { agentSessionSchema, agentMessageSchema } from '../schemas/index.js';
 import { generateRoundId } from '../schemas/round-id-server.js';
@@ -342,17 +342,6 @@ export function getSessionTokenCount(
   return estimateMessageTokens(messages);
 }
 
-export function deleteSession(saivageDir: string, sessionId: string): void {
-  const sp = sessionPath(saivageDir, sessionId);
-  if (existsSync(sp)) {
-    unlinkSync(sp);
-  }
-  const mp = messagesPath(saivageDir, sessionId);
-  if (existsSync(mp)) {
-    unlinkSync(mp);
-  }
-}
-
 export function listSessions(saivageDir: string): string[] {
   const sd = sessionsDir(saivageDir);
   if (!existsSync(sd)) return [];
@@ -360,20 +349,6 @@ export function listSessions(saivageDir: string): string[] {
   return readdirSync(sd)
     .filter((f: string) => f.endsWith('.json'))
     .map((f: string) => f.replace('.json', ''));
-}
-
-export function buildConversationContext(
-  messages: AgentMessage[],
-): string {
-  return messages
-    .map((m) => {
-      const role = m.role.toUpperCase();
-      const content = m.content.length > 2000
-        ? m.content.slice(0, 2000) + '... [truncated]'
-        : m.content;
-      return `[${role}]${m.tool ? ` (${m.tool})` : ''}: ${content}`;
-    })
-    .join('\n\n');
 }
 
 

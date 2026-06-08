@@ -1,25 +1,7 @@
-import type { CardLifecycleState, CardRecord, PlannerBlockedResult, PlannerDoneResult, PlannerFailureResult } from '../../schemas/index.js';
+import type { CardLifecycleState, CardRecord, PlannerBlockedResult, PlannerFailureResult } from '../../schemas/index.js';
 import { lifecycleCardPatch } from './lifecycle-patch.js';
 import type { TerminalCommitEffects, TerminalCommitReceipt } from './commit-executor.js';
 import { validateTerminalOverlay } from './validators.js';
-
-export async function commitPlannerDone(input: {
-  card: CardRecord;
-  summary: string;
-  completedAt: string;
-  effects: TerminalCommitEffects;
-}): Promise<TerminalCommitReceipt<Extract<CardLifecycleState, { status: 'done' }>, PlannerDoneResult>> {
-  if (input.card.type === 'project' || input.card.type === 'goal') {
-    throw new Error(`Planner done cannot be terminal for parent card type '${input.card.type}'.`);
-  }
-  const result: PlannerDoneResult = { kind: 'planner_done', summary: input.summary };
-  const lifecycle = { status: 'done', result, error: null, completed_at: input.completedAt } satisfies Extract<CardLifecycleState, { status: 'done' }>;
-  assertNoTerminalOverlayErrors(input.card, lifecycle);
-  await transitionOrThrow(input.effects.transitionCard(input.card.id, 'complete', { summary: input.summary }));
-  const patch = { ...lifecycleCardPatch(lifecycle), status_text: input.summary };
-  await input.effects.updateCard(input.card.id, patch);
-  return { lifecycle, result, patch };
-}
 
 export async function commitPlannerBlocked(input: {
   card: CardRecord;
