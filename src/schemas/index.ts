@@ -219,6 +219,8 @@ export {
   cardHistoryKindSchema,
   controlActionAuditEntrySchema,
   cardIndexEntrySchema,
+  analystIssueSchema,
+  analystIssuesSchema,
   reviewerIssueSchema,
   reviewerResultSchema,
   reviewAssessmentSchema,

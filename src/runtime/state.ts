@@ -82,7 +82,7 @@ function assertNoMixedRuntimeStateLayout(projectRoot: string): void {
 }
 
 function assertRuntimeStateInvariants(state: RuntimeState): RuntimeState {
-  if (state.status !== 'idle' || (state.active_card_run ?? null) === null) {
+  if (state.status !== 'idle' || state.active_card_run === null) {
     return state;
   }
   throw new RuntimeStateInvariantError(describeInvariantViolation(state));

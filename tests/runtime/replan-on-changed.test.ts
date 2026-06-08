@@ -73,7 +73,6 @@ function makeDeps(card: CardRecord): PlannerIterationRunnerDeps {
     skillsEngine: () => null,
     goalContext: {
       buildPlannerGoalContext: jest.fn(() => ({ resumeReason: 'initial', goalContext: '## Goal Context\ncontext' })),
-      inferResumeReason: jest.fn(() => 'initial'),
     } as unknown as PlannerIterationRunnerDeps['goalContext'],
     pendingActivations: {
       dispatchActivation: jest.fn(),

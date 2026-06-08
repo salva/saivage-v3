@@ -17,7 +17,7 @@ export type PlannerToolErrorKind =
   | 'subtree_not_ready'
   | 'invalid_evidence'
   | 'terminal_card_requires_restart'
-  | 'card_already_active'
+  | 'card_already_running'
   | 'invalid_card_status';
 
 export type SubtreeReadinessReason = {
@@ -201,8 +201,8 @@ export class PlannerToolsService {
     const card = requireCard(this.store, cardId);
     if (subtreeContainsActiveLeaf(this.store, this.runtimeStateProvider?.() ?? null, cardId)) {
       throw new PlannerToolError(
-        'card_already_active',
-        `Card '${cardId}' cannot be cancelled while its subtree contains the active runtime leaf.`,
+        'card_already_running',
+        `Card '${cardId}' cannot be cancelled while its subtree contains the running runtime leaf.`,
       );
     }
     if (!decide({ role: 'planner', action: 'card.cancel', targetState: card.status }).allowed) {
@@ -231,8 +231,8 @@ export class PlannerToolsService {
       const card = requireCard(this.store, id);
       if (runtimeState?.active_card_run?.card_id === id) {
         throw new PlannerToolError(
-          'card_already_active',
-          `Card '${cardId}' cannot be deleted while its subtree contains the active runtime leaf.`,
+          'card_already_running',
+          `Card '${cardId}' cannot be deleted while its subtree contains the running runtime leaf.`,
         );
       }
       if (!decide({ role: 'planner', action: 'card.delete', targetState: card.status }).allowed) {
@@ -250,8 +250,8 @@ export class PlannerToolsService {
     const card = requireCard(this.store, cardId);
     if (subtreeContainsActiveLeaf(this.store, this.runtimeStateProvider?.() ?? null, cardId)) {
       throw new PlannerToolError(
-        'card_already_active',
-        `Card '${cardId}' cannot be restarted while its subtree contains the active runtime leaf.`,
+        'card_already_running',
+        `Card '${cardId}' cannot be restarted while its subtree contains the running runtime leaf.`,
       );
     }
     if (!decide({ role: 'planner', action: 'card.restart', targetState: card.status }).allowed) {

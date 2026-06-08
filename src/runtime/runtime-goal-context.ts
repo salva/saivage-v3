@@ -14,7 +14,6 @@ import { readRuntimeState } from './state.js';
 import type { SessionStamper } from './session-stamper.js';
 
 export interface RuntimeGoalContextCoordinator {
-  inferResumeReason(goalId: string, fallback?: GoalResumeReason): GoalResumeReason;
   buildGoalContextBlock(goalId: string, resumeReason?: GoalResumeReason): string;
   buildPlannerGoalContext(goalId: string, fallback?: GoalResumeReason): { resumeReason: GoalResumeReason; goalContext: string };
   appendPlannerResumeContext(goalId: string, plannerSessionId: string, resumeReason: GoalResumeReason): void;
@@ -47,11 +46,6 @@ export function createRuntimeGoalContextCoordinator(deps: {
   };
 
   const coordinator: RuntimeGoalContextCoordinator = {
-    inferResumeReason(goalId: string, fallback: GoalResumeReason = 'initial'): GoalResumeReason {
-    const state = readRuntimeState(deps.projectRoot);
-    return inferGoalResumeReason({ goalId, fallback, activeRun: state?.active_card_run, notes: [] });
-    },
-
     buildGoalContextBlock(goalId: string, resumeReason: GoalResumeReason = 'initial'): string {
     return renderContext(goalId, resumeReason, []);
     },

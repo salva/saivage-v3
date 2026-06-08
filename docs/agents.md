@@ -199,7 +199,7 @@ Status transitions driven by `activate_card`:
 | `backlog` | Card transitions to `running`. Activation proceeds. |
 | `changed` | Card transitions to `running`; the `changed` marker is consumed by the activation and any queued `subtree_changed` notes referencing this card are delivered once and discarded (§11). |
 | `done`, `failed`, `blocked`, `cancelled` | Re-activation is allowed for goal cards as the normal correction path: the `Dormant` planner is resumed with fresh notes and the card transitions back to `running`. For terminal cards, `restart_card` is required first to clear `result.executor`; otherwise `activate_card` returns a `tool_error` of kind `terminal_card_requires_restart`. |
-| `running` | Tool error of kind `card_already_active`: only one activation may be in flight per card. |
+| `running` | Tool error of kind `card_already_running`: only one activation may be in flight per card. |
 
 The terminal activation outcome (`done`, `failed`, or `blocked`)
 replaces `running` when control returns to the parent.
@@ -772,8 +772,8 @@ written when a `report_goal_done` is finally accepted.
 **Reviewer interrupt recovery.** If a service restart (or supervisor
 force-cancel) interrupts a reviewer session before `result.review`
 is persisted, the runtime sets the goal's planner session back to
-`Running` with `resume_reason: 'reviewer_interrupted'` and Goal
-Context that includes a `reviewer_interrupted` synthetic note. The
+`Running` with `resume_reason: 'service_restart'` and Goal Context
+that includes a `reviewer_interrupted` synthetic note. The
 planner inspects its own subtree (the card status, child cards,
 artifacts) and, if the work is still complete, calls
 `report_goal_done` again. The runtime then re-runs the acceptance

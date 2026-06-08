@@ -238,7 +238,7 @@ export function planStartProjectPrecondition(input: {
     (input.state.runtime_intent.status) === 'running' &&
     !openRootRun &&
     input.state.status === 'idle' &&
-    (input.state.active_card_run ?? null) === null &&
+    input.state.active_card_run === null &&
     !input.hasBlockedPlanning;
   const decisionBase = {
     openRootRun,
@@ -328,7 +328,7 @@ export function observeRuntimeStateInvariants(input: {
   const observations: RuntimeInvariantObservation[] = [];
   const { state, currentCardStatus } = input;
 
-  if (state.status === 'running' && (state.active_card_run ?? null) === null) {
+  if (state.status === 'running' && state.active_card_run === null) {
     observations.push({
       invariant: 'I1',
       key: 'global',
@@ -336,11 +336,11 @@ export function observeRuntimeStateInvariants(input: {
     });
   }
 
-  if (state.status === 'idle' && (state.active_card_run ?? null) !== null) {
+  if (state.status === 'idle' && state.active_card_run !== null) {
     observations.push({
       invariant: 'I1',
       key: 'global',
-      details: { status: state.status, activeRunCardId: state.active_card_run?.card_id ?? null, activeRunStatus: state.active_card_run?.runtime_status ?? null },
+      details: { status: state.status, activeRunCardId: state.active_card_run.card_id, activeRunStatus: state.active_card_run.runtime_status },
     });
   }
 
@@ -507,7 +507,7 @@ export function planIdleRunningRootRunReconciliation(input: {
   if (
     (state.runtime_intent.status) !== 'running' ||
     state.status !== 'idle' ||
-    (state.active_card_run ?? null) !== null
+    state.active_card_run !== null
   ) {
     return null;
   }
@@ -567,7 +567,7 @@ export function planProjectRootRedispatch(input: {
   const { state, projectCardId } = input;
   if (state.paused) return { shouldRedispatch: false };
   if (state.status !== 'idle') return { shouldRedispatch: false };
-  if ((state.active_card_run ?? null) !== null) return { shouldRedispatch: false };
+  if (state.active_card_run !== null) return { shouldRedispatch: false };
   const intentStatus = state.runtime_intent.status;
   if (intentStatus !== 'running') return { shouldRedispatch: false };
   const rootRuns = (state.runtime_runs).filter((run) => run.kind === 'root' && run.card_id === projectCardId);

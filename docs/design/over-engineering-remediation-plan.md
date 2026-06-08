@@ -108,7 +108,7 @@ Each verified zero references beyond definition/barrel.
 - `commitReviewerCorrection` — delete from `src/runtime/terminal-commit/commit-reviewer.ts:27` (barrel is `export *`, no line edit).
 - `createLlmProviderGateway` — delete from `src/agents/llm-provider-gateway.ts`. Keep the `LlmProviderGateway` class.
 - `RuntimeStateSnapshotPort` — delete from `src/contracts/agent-execution.ts` AND remove the explicit re-export line `src/contracts/index.ts:242`.
-- `runtimeStatusForApi` (`src/agents/analyst-stage6.ts:23`), `markDescendantChanged` (`:46`), `normalizeRuntimeStatus` (`:104`) — delete all three; then prune now-unused imports in that file (`RuntimeStatus` at `:2`, `readRuntimeState` at `:5` — confirm no remaining use first).
+- `runtimeStatusForApi`, `markDescendantChanged`, `normalizeRuntimeStatus` — delete all three from `src/agents/analyst-stage6.ts`; then prune now-unused imports in that file.
 - `ANALYST_TOOL_REGISTRY` — delete the alias at `src/agents/analyst-prompt.ts`.
 - `MAX_LIST_RESULTS` — delete from `src/runtime/command-policy.ts:22`.
 

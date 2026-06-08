@@ -56,7 +56,7 @@ export function shouldRestartRunningIntentOnStartup(input: {
   return (
     input.state.runtime_intent.status === 'running' &&
     input.state.status === 'idle' &&
-    (input.state.active_card_run ?? null) === null &&
+    input.state.active_card_run === null &&
     input.state.runtime_runs.every((run) => run.kind !== 'root' || Boolean(run.finished_at)) &&
     !input.projectHasBlockedPlanning
   );

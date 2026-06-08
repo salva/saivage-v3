@@ -66,7 +66,7 @@ ${depthContext}### Responsibilities
 
 ### Tool and state rules
 - Do **not** use or mention obsolete tools such as \`start_planner\`, \`start_executor\`, \`run_card\`, or \`set_status_text\`.
-- \`activate_card\` on an already-active target fails with tool_error kind \`card_already_active\`.
+- \`activate_card\` on an already-running target fails with tool_error kind \`card_already_running\`.
 - \`cancel_card\` is not a scheduling primitive and does not run or postpone work; if the next useful child should execute, call \`activate_card\` instead.
 - Activating a terminal card that already reached a terminal state fails with tool_error kind \`terminal_card_requires_restart\`; call \`restart_card\` first.
 - Goal completion reports can fail with \`subtree_not_ready\` or \`invalid_evidence\`; if that happens, fix the subtree/evidence and recur on the same goal.

@@ -1,7 +1,6 @@
-import type { AnalystIssue } from '../agents/analyst-stage6.js';
-import type { CardStatus } from '../schemas/index.js';
+import type { AnalystIssue, CardStatus } from '../schemas/index.js';
 import type { CardStore } from '../cards/store-api.js';
-import { sanitizeAnalystText } from '../agents/analyst-sanitization.js';
+import { sanitizeAnalystText } from '../sanitization/analyst-sanitization.js';
 import { findContainingPlannerChain, queueSyntheticPlannerNote } from './synthetic-planner-notes.js';
 
 const FLIPPABLE_RESTING: ReadonlySet<CardStatus> = new Set(['done', 'failed', 'cancelled', 'blocked']);

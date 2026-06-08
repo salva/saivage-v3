@@ -57,7 +57,7 @@ describe('System Prompt Builder', () => {
       expect(prompt).toContain('subtree_not_ready');
       expect(prompt).toContain('invalid_evidence');
       expect(prompt).toContain('terminal_card_requires_restart');
-      expect(prompt).toContain('card_already_active');
+      expect(prompt).toContain('card_already_running');
     });
 
     it('describes the planner contract terminal tools', () => {

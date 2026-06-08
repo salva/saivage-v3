@@ -23,7 +23,7 @@ export function selectActivationStartAction(
     if (fromStatus === 'running') return { action: 'none', reason: 'already_running' };
   }
   if (role === 'planner' && fromStatus === 'running') {
-    return { action: 'none', reason: 'already_active' };
+    return { action: 'none', reason: 'already_running' };
   }
   return { action: 'reject', reason: 'invalid_activation_status' };
 }

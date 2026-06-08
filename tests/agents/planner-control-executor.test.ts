@@ -148,8 +148,8 @@ describe('PlannerControlExecutor', () => {
     expect(result.data).toEqual({
       success: false,
       tool_error: expect.objectContaining({
-        kind: 'card_already_active',
-        message: expect.stringContaining('active runtime leaf'),
+        kind: 'card_already_running',
+        message: expect.stringContaining('running runtime leaf'),
       }),
     });
   });
@@ -340,7 +340,7 @@ describe('PlannerControlExecutor', () => {
       expect.objectContaining({
         success: false,
         actionable_error: expect.objectContaining({ code: 'activate_card_dependencies_blocked' }),
-        dep_failures: [{ dep_id: blockedDep.id, planner_state: 'blocked' }],
+        dep_failures: [{ dep_id: blockedDep.id, card_status: 'blocked' }],
       }),
     );
   });
