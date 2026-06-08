@@ -109,10 +109,10 @@ function hasDurableEvidence(card: CardRecord): boolean {
 function reportLifecycle(status: Extract<CardStatus, 'done' | 'failed' | 'blocked'>, report: GoalSelfReport, statusText: string, completedAt: string): CardLifecycleState {
   if (status === 'done') {
     return {
-      status,
-      result: { kind: 'planner_done', summary: report.summary ?? statusText },
+      status: 'running',
+      result: { kind: 'planner_done', summary: report.summary?.trim() ? report.summary : statusText },
       error: null,
-      completed_at: completedAt,
+      completed_at: null,
     };
   }
   if (status === 'blocked') {

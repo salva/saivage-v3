@@ -185,10 +185,16 @@ describe('PlannerControlExecutor', () => {
     expect(result.data).toEqual(
       expect.objectContaining({
         accepted: true,
-        card: expect.objectContaining({ status: 'done' }),
+        card: expect.objectContaining({ status: 'running' }),
       }),
     );
-    expect(store.read(goal.id)?.status).toBe('done');
+    expect(store.read(goal.id)?.status).toBe('running');
+    expect(store.read(goal.id)?.lifecycle).toEqual({
+      status: 'running',
+      result: { kind: 'planner_done', summary: 'complete' },
+      error: null,
+      completed_at: null,
+    });
   });
 
   it('dispatches queue_notification through planner-control and audits planner runtime surface', async () => {

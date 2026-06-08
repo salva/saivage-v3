@@ -6,7 +6,7 @@ export function synthesizeReportGoalEnvelope(
   goalId: string,
   status: string | undefined,
 ): { kind: 'result'; payload: PlannerResultEnvelope } | null {
-  if (status === 'done') {
+  if (toolName === 'report_goal_done' || status === 'done') {
     return {
       kind: 'result',
       payload: { status: 'done', summary: `${toolName} accepted for goal ${goalId}.` },

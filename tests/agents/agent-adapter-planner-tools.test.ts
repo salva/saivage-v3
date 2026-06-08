@@ -435,8 +435,13 @@ describe('synthesizeReportGoalEnvelope', () => {
       },
     });
 
-    expect(synthesizeReportGoalEnvelope('report_goal_done', 'goal-1', 'changed')).toBeNull();
-    expect(synthesizeReportGoalEnvelope('report_goal_done', 'goal-1', 'running')).toBeNull();
-    expect(synthesizeReportGoalEnvelope('report_goal_done', 'goal-1', undefined)).toBeNull();
+    expect(synthesizeReportGoalEnvelope('report_goal_done', 'goal-1', 'running')).toEqual({
+      kind: 'result',
+      payload: {
+        status: 'done',
+        summary: 'report_goal_done accepted for goal goal-1.',
+      },
+    });
+    expect(synthesizeReportGoalEnvelope('report_goal_blocked', 'goal-1', 'running')).toBeNull();
   });
 });

@@ -107,6 +107,14 @@ describe('PlannerToolsService report_goal_done subtree gate', () => {
     setStatus(store, childId, status);
     const service = new PlannerToolsService(store);
 
-    expect(service.reportGoal('report_goal_done', goalId, { status_text: 'done' }).card.status).toBe('done');
+    const result = service.reportGoal('report_goal_done', goalId, { status_text: 'done' });
+
+    expect(result.card.status).toBe('running');
+    expect(result.card.lifecycle).toEqual({
+      status: 'running',
+      result: { kind: 'planner_done', summary: 'done' },
+      error: null,
+      completed_at: null,
+    });
   });
 });

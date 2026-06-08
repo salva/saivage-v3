@@ -107,6 +107,14 @@ export class RuntimePlannerDispatcher {
         const completed = await this.deps.reviewerDispatcher.runReviewer(goalId, iteration.planningContext);
         if (completed) return;
         plannerDone = false;
+        try {
+          await this.plannerActivationRunner().activate(goalId);
+        } catch (err) {
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          this.deps.publishRuntimeDiagnostic({ goal_id: goalId, phase: 'review_correction_activate', error: err });
+          this.deps.errorLogger.appendError({ message: errorMessage, goalId, phase: 'review_correction_activate' });
+          return;
+        }
       }
     }
     if (this.deps.lifecycle.shuttingDown) {

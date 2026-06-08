@@ -158,6 +158,12 @@ describe('AgentAdapter planner-control reviewer prompt contract', () => {
     }));
     expect(llmCalls.filter((call) => call.sessionId === `planner:${goal.id}`)).toHaveLength(1);
     expect(llmCalls.some((call) => call.sessionId.startsWith(`reviewer:${goal.id}:`))).toBe(false);
-    expect(store.read(goal.id)?.status).toBe('done');
+    expect(store.read(goal.id)?.status).toBe('running');
+    expect(store.read(goal.id)?.lifecycle).toEqual({
+      status: 'running',
+      result: { kind: 'planner_done', summary: 'Planner terminal report for acceptance review.' },
+      error: null,
+      completed_at: null,
+    });
   });
 });
