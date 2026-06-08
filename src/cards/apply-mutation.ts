@@ -166,7 +166,7 @@ function applyMutationLocked(
 ): ApplyMutationLockedOutcome {
   const { projectRoot, state } = deps;
   if (op.kind === 'create') {
-    const card = cardRecordSchema.parse(op.card);
+    const card = op.card;
     if (state.has(card.id)) {
       throw new CardStoreInvariantError(`Cannot create card '${card.id}': already exists.`);
     }
@@ -206,7 +206,7 @@ function applyMutationLocked(
         `Persist for card '${op.next.id}' expected version_seq=${prior.version_seq + 1}, got ${op.next.version_seq}.`,
       );
     }
-    const nextValidated = cardRecordSchema.parse(op.next);
+    const nextValidated = op.next;
     const historyEntry = buildHistoryEntry(
       prior,
       op.historyKind,
