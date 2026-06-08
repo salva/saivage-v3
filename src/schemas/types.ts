@@ -5,7 +5,6 @@ export const cardStatusValues = ['backlog', 'running', 'blocked', 'changed', 'do
 export type CardStatus = typeof cardStatusValues[number];
 
 
-export type PlannerState = CardStatus;
 export const cardActionValues = ['card.start', 'card.cancel', 'card.delete', 'card.restart'] as const;
 export type CardAction = typeof cardActionValues[number];
 export type RuntimeIntentStatus = 'running' | 'stopped';
@@ -49,7 +48,7 @@ export interface CardMetadata { max_review_retries?: number; [key: string]: unkn
 import type { CardLifecycleState } from './lifecycle.js';
 
 export interface CardRecord {
-  id: string; type: CardType; parent: string | null; depth: number; position: number; title: string; description: string; status: CardStatus; planner_state?: PlannerState; plannerState?: PlannerState;
+  id: string; type: CardType; parent: string | null; depth: number; position: number; title: string; description: string; status: CardStatus;
   subtype?: string | null; instructions_file?: string | null; tags: string[]; priority: number; urgency: Urgency; created_by: CreatedBy;
   created_at: string; updated_at: string; version_seq: number; assigned_to?: string | null; depends_on: string[]; related: string[];
   acceptance: string; lifecycle: CardLifecycleState; metrics?: Record<string, number | string | boolean | null> | null;
@@ -110,7 +109,7 @@ export type ActiveCardRunPhase = 'planner' | 'executor' | 'reviewer';
 export interface ActiveCardRun { card_id: string; card_type: CardType; ownership: RuntimeDispatchOwnership; runtime_status: ActiveCardRunRuntimeStatus; phase: ActiveCardRunPhase; caller_session_id: string | null; caller_tool_call_id: string | null; planner_session_id?: string | null; executor_session_id?: string | null; reviewer_session_id?: string | null; correction_attempts: number; started_at: string; last_turn_at: string; }
 export interface ProjectRunCompletedPayload { project_card_id: string; result: 'done' | 'failed' | 'blocked'; summary: string; failure_kind?: string; blocked_reason?: string; }
 export interface HandoffSummary { session_id: string; role: AgentRole; last_action: string; next_action: string; context_summary: string; }
-export interface RuntimeState { status: RuntimeStatus; project_id: 'project'; pid: number; started_at: string; active_card_run?: ActiveCardRun | null; paused: boolean; paused_at?: string | null; updated_at: string; last_tick_at?: string | null; runtime_intent: RuntimeIntent; runtime_commands: RuntimeCommandRecord[]; runtime_runs: RuntimeRunRecord[]; runtime_activations: RuntimeActivationRecord[]; }
+export interface RuntimeState { status: RuntimeStatus; project_id: 'project'; pid: number; started_at: string; active_card_run: ActiveCardRun | null; paused: boolean; paused_at?: string | null; updated_at: string; last_tick_at?: string | null; runtime_intent: RuntimeIntent; runtime_commands: RuntimeCommandRecord[]; runtime_runs: RuntimeRunRecord[]; runtime_activations: RuntimeActivationRecord[]; }
 export type SourceKind = 'command_output' | 'file' | 'download' | 'web' | 'api' | 'tool';
 export type ReviewStatus = 'passed' | 'blocked' | 'sanitized';
 export type RiskLevel = 'low' | 'medium' | 'high';

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -8,7 +8,6 @@ import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { createRuntimeGoalContextCoordinator } from '../../src/runtime/runtime-goal-context.js';
 import {
   consumeChangedCardActivation,
-  injectQueuedSyntheticPlannerNotes,
   peekSyntheticPlannerNotes,
   queueSyntheticPlannerNote,
 } from '../../src/runtime/synthetic-planner-notes.js';
@@ -50,12 +49,6 @@ function makeCard(
   };
 }
 
-function readQueuedNotes(root: string): Array<{ id: string; kind: string; affected_card_id: string }> {
-  const path = join(root, '.saivage', 'runtime', 'synthetic-notes.json');
-  if (!existsSync(path)) return [];
-  return (JSON.parse(readFileSync(path, 'utf-8')) as { notes: [] }).notes;
-}
-
 describe('synthetic planner notes', () => {
   let tmpDir: string;
   let store: CardStore;
@@ -80,29 +73,6 @@ describe('synthetic planner notes', () => {
     expect(() => consumeChangedCardActivation(tmpDir, goal.id)).not.toThrow();
 
     expect(store.read(goal.id)!.status).toBe('changed');
-  });
-
-  it('leaves queued notes untouched on the legacy direct injection path', () => {
-    queueSyntheticPlannerNote(tmpDir, {
-      target_planner_session_id: 'planner:goal-1',
-      target_goal_card_id: 'goal-1',
-      kind: 'analyst_note',
-      affected_card_id: 'goal-1',
-      descendant_card_ids: [],
-      summary: 'x',
-    });
-
-    expect(injectQueuedSyntheticPlannerNotes(tmpDir, 'planner:goal-1', {
-      stampUserMessage: () => ({
-        round_id: 'r-user-00000000000000000000000000000001',
-        message_index: 0,
-        block_index: 0,
-      }),
-    })).toBe(0);
-
-    expect(readQueuedNotes(tmpDir)).toEqual([
-      expect.objectContaining({ kind: 'analyst_note', affected_card_id: 'goal-1' }),
-    ]);
   });
 
   it('keeps reviewer context note-free and drains planner context exactly once', () => {

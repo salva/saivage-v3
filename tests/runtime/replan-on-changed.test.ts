@@ -74,7 +74,6 @@ function makeDeps(card: CardRecord): PlannerIterationRunnerDeps {
     goalContext: {
       buildPlannerGoalContext: jest.fn(() => ({ resumeReason: 'initial', goalContext: '## Goal Context\ncontext' })),
       inferResumeReason: jest.fn(() => 'initial'),
-      injectQueuedPlannerNotes: jest.fn(),
     } as unknown as PlannerIterationRunnerDeps['goalContext'],
     pendingActivations: {
       dispatchActivation: jest.fn(),
@@ -94,6 +93,5 @@ describe('PlannerIterationRunner replan on changed', () => {
 
     expect(result).toEqual({ kind: 'replan' });
     expect(deps.pendingActivations.dispatch).toHaveBeenCalledWith(card.id);
-    expect(deps.goalContext.injectQueuedPlannerNotes).toHaveBeenCalledWith(`planner:${card.id}`);
   });
 });

@@ -12,7 +12,6 @@ export interface PlannerPhaseRunnerDeps {
   readGoalCard(goalId: string): CardRecord | null | undefined;
   buildGoalEvidenceContext(goalId: string): string;
   buildPlannerGoalContext(goalId: string, fallback: GoalResumeReason): { resumeReason: GoalResumeReason; goalContext: string };
-  injectSyntheticPlannerNotes(goalId: string): void;
   activationBarrier?: PlannerActivationBarrier;
 }
 
@@ -60,7 +59,6 @@ export class PlannerPhaseRunner {
     } catch {
       void 0;
     }
-    this.deps.injectSyntheticPlannerNotes(input.goalId);
     const result = this.deps.agentRuntime.invokePlanner({ goalId: input.goalId, systemPrompt: plannerPrompt, contract: plannerContract, activationBarrier: this.deps.activationBarrier });
     return result instanceof Promise ? await result : result;
   }

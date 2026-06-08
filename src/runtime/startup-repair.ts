@@ -208,7 +208,7 @@ export async function executeStartupActiveRunRepairDecision(input: {
         reason: 'reviewer_interrupted',
       });
       const plannerSessionId = requiredPlannerSession(run);
-      const summary = `reviewer_interrupted: reviewer output for ${run.card_id} was discarded after service restart; interrupted_reviewer_session_id=${run.reviewer_session_id ?? 'unknown'}; resume_reason: reviewer_interrupted.`;
+      const summary = `reviewer_interrupted: reviewer output for ${run.card_id} was discarded after service restart; interrupted_reviewer_session_id=${run.reviewer_session_id ?? 'unknown'}; resume_reason: service_restart.`;
       effects.queueSyntheticPlannerNote({
         target_planner_session_id: plannerSessionId,
         target_goal_card_id: run.card_id,

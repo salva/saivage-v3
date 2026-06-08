@@ -50,9 +50,6 @@ export class PlannerIterationRunner {
         readGoalCard: (cardId) => this.deps.cards.read(cardId),
         buildGoalEvidenceContext: (cardId) => buildGoalEvidenceContext({ goalId: cardId, cards: this.deps.cards }),
         buildPlannerGoalContext: (cardId, fallback) => this.deps.goalContext.buildPlannerGoalContext(cardId, fallback),
-        injectSyntheticPlannerNotes: (cardId) => {
-          this.deps.goalContext.injectQueuedPlannerNotes(`planner:${cardId}`);
-        },
         activationBarrier: {
           dispatch: async ({ activation }: PlannerActivationBarrierRequest) => {
             await this.deps.pendingActivations.dispatchActivation(activation);

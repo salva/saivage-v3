@@ -259,6 +259,7 @@ describe('Core schemas still validate expected records', () => {
       project_id: 'project',
       pid: 123,
       started_at: '2025-01-01T00:00:00.000Z',
+      active_card_run: null,
       paused: false,
       updated_at: '2025-01-01T00:00:00.000Z',
       runtime_intent: { status: 'stopped', updated_at: '2025-01-01T00:00:00.000Z', source_command_id: null, reason: null },

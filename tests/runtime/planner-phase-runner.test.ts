@@ -8,7 +8,6 @@ describe('PlannerPhaseRunner', () => {
   it('builds planner prompt with skills and goal context before invocation', async () => {
     let request: PlannerInvocationRequest | null = null;
     let skillMatchParams: MatchParams | null = null;
-    let injected = false;
     const runner = new PlannerPhaseRunner({
       agentRuntime: {
         invokePlanner(input: PlannerInvocationRequest) {
@@ -37,15 +36,11 @@ describe('PlannerPhaseRunner', () => {
       }) as unknown as CardRecord,
       buildGoalEvidenceContext: () => '{"children":[]}',
       buildPlannerGoalContext: () => ({ resumeReason: 'initial', goalContext: '## Goal Context\ncontext' }),
-      injectSyntheticPlannerNotes: () => {
-        injected = true;
-      },
     });
 
     await runner.run({ goalId: 'goal-a', iteration: 0 });
 
     const captured = request as PlannerInvocationRequest | null;
-    expect(injected).toBe(true);
     expect(captured).toEqual(expect.objectContaining({ goalId: 'goal-a' }));
     expect(captured?.systemPrompt).toContain('planner instructions');
     expect(captured?.systemPrompt).toContain('planner skill');

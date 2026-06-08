@@ -18,7 +18,6 @@ export interface RuntimeGoalContextCoordinator {
   buildGoalContextBlock(goalId: string, resumeReason?: GoalResumeReason): string;
   buildPlannerGoalContext(goalId: string, fallback?: GoalResumeReason): { resumeReason: GoalResumeReason; goalContext: string };
   appendPlannerResumeContext(goalId: string, plannerSessionId: string, resumeReason: GoalResumeReason): void;
-  injectQueuedPlannerNotes(plannerSessionId: string): void;
 }
 
 export function createRuntimeGoalContextCoordinator(deps: {
@@ -76,10 +75,6 @@ export function createRuntimeGoalContextCoordinator(deps: {
       deps.sessionStamper.stampUserMessage(plannerSessionId),
       deps.sessionStamper,
     );
-    },
-
-    injectQueuedPlannerNotes(plannerSessionId: string): void {
-    void plannerSessionId;
     },
   };
   return coordinator;

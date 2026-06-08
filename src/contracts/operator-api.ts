@@ -143,7 +143,6 @@ export {
   CardPermissionFieldsSchema,
   HealthLivenessResponseSchema,
   HealthReadinessResponseSchema,
-  PlannerStateCardFieldsSchema,
   RuntimeActivationRecordSchema,
   RuntimeCardRunsResponseSchema,
   RuntimeCommandRecordSchema,

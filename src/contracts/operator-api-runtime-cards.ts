@@ -39,10 +39,6 @@ export const RuntimeRunRecordSchema = runtimeRunRecordSchema;
 export const RuntimeActivationRecordSchema = runtimeActivationRecordSchema;
 export const RuntimeCommandRecordSchema = runtimeCommandRecordSchema;
 export const CardPermissionFieldsSchema = z.object({ allowedActions: z.array(cardActionSchema).optional() });
-export const PlannerStateCardFieldsSchema = z.object({
-  planner_state: cardStatusSchema.optional(),
-  plannerState: cardStatusSchema.optional(),
-});
 
 export const CardIdParamsSchema = z.object({ id: z.string().min(1) });
 

@@ -3,7 +3,6 @@ import type { CardStatus } from '../schemas/index.js';
 import type { CardStore } from '../cards/store-api.js';
 import { sanitizeAnalystPayload, sanitizeAnalystText } from './analyst-sanitization.js';
 import { propagateChange } from '../runtime/changed-propagation.js';
-import { consumeChangedCardActivation, discardSubtreeChangedSyntheticNotes, drainSyntheticPlannerNotes, findDeepestContainingPlanner, injectQueuedSyntheticPlannerNotes, queueSyntheticPlannerNote } from '../runtime/synthetic-planner-notes.js';
 
 export const analystIssueSchema = z.object({
   summary: z.string().min(1),
@@ -19,8 +18,6 @@ export function normalizeAnalystIssues(input: unknown): AnalystIssue[] {
   const parsed = analystIssuesSchema.parse(input);
   return parsed.map((issue) => sanitizeAnalystPayload(issue, 1000) as AnalystIssue);
 }
-
-export { consumeChangedCardActivation, discardSubtreeChangedSyntheticNotes, drainSyntheticPlannerNotes, findDeepestContainingPlanner, injectQueuedSyntheticPlannerNotes, queueSyntheticPlannerNote };
 
 export function markGoalNeedsCorrections(projectRoot: string, store: CardStore, originGoalId: string, issues: AnalystIssue[], note?: string): { origin_goal_id: string; notes_recorded_on_goal_ids: string[]; status_transition: { from: CardStatus; to: CardStatus } | null } {
   const origin = store.read(originGoalId);

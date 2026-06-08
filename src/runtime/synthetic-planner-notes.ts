@@ -2,7 +2,6 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { writeFileSyncDurable } from '../persistence/index.js';
 import { findPlannerSessionForCard, getSession, listSessions } from './session-persistence.js';
-import type { RoundStamp } from './session-stamper.js';
 import type { AgentSession, CardRecord, CardStatus } from '../schemas/index.js';
 import type { CardStore } from '../cards/store-api.js';
 import { now } from '../utils/clock.js';
@@ -51,10 +50,6 @@ export function findContainingPlannerChain(projectRoot: string, store: CardStore
   return chain;
 }
 
-export function findDeepestContainingPlanner(projectRoot: string, store: CardStore, affectedCardId: string): { session: AgentSession; goalId: string } | null {
-  return findContainingPlannerChain(projectRoot, store, affectedCardId)[0] ?? null;
-}
-
 export function queueSyntheticPlannerNote(projectRoot: string, input: Omit<SyntheticPlannerNote, 'id' | 'created_at'>): SyntheticPlannerNote | null {
   const queue = readSyntheticQueue(projectRoot);
   const existing = queue.notes.find((note) => note.target_planner_session_id === input.target_planner_session_id && note.kind === input.kind && note.affected_card_id === input.affected_card_id && note.summary === input.summary);
@@ -84,13 +79,6 @@ export function discardSubtreeChangedSyntheticNotes(projectRoot: string, affecte
   queue.notes = queue.notes.filter((note) => !(note.kind === 'subtree_changed' && (note.affected_card_id === affectedCardId || note.descendant_card_ids.includes(affectedCardId))));
   writeSyntheticQueue(projectRoot, queue);
   return before - queue.notes.length;
-}
-
-export function injectQueuedSyntheticPlannerNotes(projectRoot: string, plannerSessionId: string, sessionStamper: { stampUserMessage(sessionId: string): RoundStamp }): number {
-  void projectRoot;
-  void plannerSessionId;
-  void sessionStamper;
-  return 0;
 }
 
 export function consumeChangedCardActivation(projectRoot: string, cardId: string): number {

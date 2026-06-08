@@ -40,7 +40,7 @@ describe('System Prompt Builder', () => {
     it('includes terminal status_text and reviewer_interrupted recovery guidance', () => {
       const prompt = buildPlannerPrompt(plannerContract);
       expect(prompt).toContain('status_text');
-      expect(prompt).toContain("resume_reason: 'reviewer_interrupted'");
+      expect(prompt).toContain("resume_reason: 'service_restart'");
       expect(prompt).toContain('re-issue `report_goal_done`');
     });
 

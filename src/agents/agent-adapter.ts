@@ -40,7 +40,6 @@ import type { McpToolInvocationPort } from '../mcp/manager-api.js';
 import { SkillsEngine } from './skills-engine.js';
 import { getProjectNotificationCenter } from '../notifications/notification-delivery.js';
 import type { CardStore } from '../cards/store-api.js';
-import { injectQueuedSyntheticPlannerNotes } from '../runtime/synthetic-planner-notes.js';
 import { PlannerControlExecutor } from './planner-control-executor.js';
 import { createPlannerControlExecutor } from './planner-control-factory.js';
 import { ContextCompactor } from './context-compactor.js';
@@ -286,12 +285,6 @@ export class AgentAdapter implements AgentExecutionPort {
     return this.sessionLifecycle.getActiveSessionHandoffs();
   }
   async invokePlanner(request: PlannerInvocationRequest): Promise<PlannerResult> {
-    const plannerSessionId = `planner:${request.goalId}`;
-    const existing = getSession(this.saivageDir, plannerSessionId);
-    if (existing)
-      injectQueuedSyntheticPlannerNotes(this.projectRoot, plannerSessionId, {
-        stampUserMessage: (id: string) => this.sessionStamper.stampUserMessage(id),
-      });
     const typedResult = await this.invokeAgent<PlannerEnvelope, PlannerTypedResult>(
       'planner',
       request.goalId,
