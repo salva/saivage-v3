@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import * as toolsIndex from '../../src/tools/index.js';
 import { ToolRuntime, defineTool } from '../../src/tools/runtime.js';
-import { AGENT_TOOL_DEFINITIONS } from '../../src/tools/agent-tools.js';
+import { AGENT_TOOL_DEFINITIONS } from '../../src/tools/definitions/index.js';
 import { PlannerToolError, PlannerToolsService } from '../../src/tools/planner-tools.js';
 
 describe('tools module ownership boundary', () => {

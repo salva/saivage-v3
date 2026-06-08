@@ -22,8 +22,6 @@ const AGENT_RUNTIME_IMPORT_EXCEPTIONS = new Set(['src/agents/analyst-tools.ts', 
 const PREEXISTING_DEEP_IMPORT_EXCEPTIONS = new Set([
   'src/agents/agent-adapter.ts->notifications/notification-delivery.js',
   'src/agents/analyst-secret-classifier.ts->workspace/secret-paths.js',
-  'src/tools/agent-tools.ts->agents/analyst-tool-schemas.js',
-  'src/tools/agent-tools.ts->agents/analyst-tools.js',
 ]);
 const PREEXISTING_SERVER_IMPORT_EXCEPTIONS = new Set();
 const ROOT_IMPORT_FORBIDDEN_PACKAGES = new Set(['agents', 'runtime', 'cards', 'mcp', 'server']);
