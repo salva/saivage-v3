@@ -8,6 +8,7 @@ import {
   commitExecutorSuccess,
   commitPlannerBlocked,
   commitPlannerDone,
+  commitReviewerInvocationFailure,
   commitReviewerPass,
   validateEvidenceCompleteness,
   validateGeneratedFiles,
@@ -63,6 +64,29 @@ function effects() {
     transitions,
     patches,
     transitionCard: async (cardId: string, event: string, details: Record<string, unknown>) => {
+      transitions.push({ cardId, event, details });
+      return true;
+    },
+    updateCard: async (cardId: string, patch: Partial<CardRecord>) => {
+      patches.push({ cardId, patch });
+    },
+  };
+}
+
+// Mirrors the real RuntimeStateMachine.transitionCard + planCardTransition behavior:
+// a 'block' transition is only legal from an 'active' or 'running' source, and any
+// other source throws (the same RuntimeDispatchInvariantError class of failure that
+// surfaced in the GetRich v2 duplicate-block incident).
+function strictBlockingEffects(fromStatus: CardRecord['status']) {
+  const transitions: Array<{ cardId: string; event: string; details: Record<string, unknown> }> = [];
+  const patches: Array<{ cardId: string; patch: Partial<CardRecord> }> = [];
+  return {
+    transitions,
+    patches,
+    transitionCard: async (cardId: string, event: string, details: Record<string, unknown>) => {
+      if (event === 'block' && fromStatus !== 'active' && fromStatus !== 'running') {
+        throw new Error(`card '${cardId}' cannot transition via 'block' from '${fromStatus}'.`);
+      }
       transitions.push({ cardId, event, details });
       return true;
     },
@@ -248,5 +272,76 @@ describe('terminal commit functions', () => {
     } finally {
       rmSync(projectRoot, { recursive: true, force: true });
     }
+  });
+
+  // Regression: GetRich v2 duplicate-child-block incident. A child goal already in
+  // 'blocked' must not attempt a second 'block' transition (which the state machine
+  // rejects and throws on, misattributing the failure to the parent planner).
+  it('commitPlannerBlocked is a no-op transition when the card is already blocked', async () => {
+    const fx = strictBlockingEffects('blocked');
+    const blockedCard = card({
+      id: 'card-25',
+      type: 'goal',
+      status: 'blocked',
+      lifecycle: { status: 'blocked', result: { kind: 'planner_blocked', blocked_reason: 'first block', resume_reason: 'reviewer_unavailable' }, error: 'first block', completed_at: null },
+    });
+
+    const receipt = await commitPlannerBlocked({
+      card: blockedCard,
+      blockedReason: 'second block attempt',
+      resumeReason: 'reviewer_unavailable',
+      effects: fx,
+    });
+
+    expect(fx.transitions).toEqual([]);
+    expect(receipt.patch).toEqual(expect.objectContaining({ status: 'blocked' }));
+    expect(fx.patches).toHaveLength(1);
+  });
+
+  it('commitReviewerInvocationFailure is a no-op transition when the card is already blocked', async () => {
+    const fx = strictBlockingEffects('blocked');
+    const blockedCard = card({
+      id: 'card-25',
+      type: 'goal',
+      status: 'blocked',
+      lifecycle: { status: 'blocked', result: { kind: 'planner_blocked', blocked_reason: 'first block', resume_reason: 'planner_blocked' }, error: 'first block', completed_at: null },
+    });
+
+    const receipt = await commitReviewerInvocationFailure({
+      card: blockedCard,
+      blockedReason: 'reviewer unavailable',
+      effects: fx,
+    });
+
+    expect(fx.transitions).toEqual([]);
+    expect(receipt.patch).toEqual(expect.objectContaining({ status: 'blocked' }));
+    expect(receipt.result).toEqual(expect.objectContaining({ kind: 'planner_blocked', blocker_cause: 'reviewer_unavailable' }));
+    expect(fx.patches).toHaveLength(1);
+  });
+
+  it('still blocks normally from a running source', async () => {
+    const fx = strictBlockingEffects('running');
+    const receipt = await commitPlannerBlocked({
+      card: card({ id: 'goal-a', type: 'goal', status: 'running' }),
+      blockedReason: 'genuine block',
+      resumeReason: 'reviewer_unavailable',
+      effects: fx,
+    });
+
+    expect(fx.transitions).toEqual([expect.objectContaining({ event: 'block', cardId: 'goal-a' })]);
+    expect(receipt.patch).toEqual(expect.objectContaining({ status: 'blocked' }));
+  });
+
+  it('preserves fail-fast: a genuinely invalid source still throws on block', async () => {
+    // 'done' is not 'blocked', so the guard does not skip; the strict mock throws,
+    // matching the real state machine rejecting 'done' -> 'block'.
+    const fx = strictBlockingEffects('done');
+    await expect(commitPlannerBlocked({
+      card: card({ id: 'goal-a', type: 'goal', status: 'done', lifecycle: { status: 'done', result: { kind: 'planner_done', summary: 'done' }, error: null, completed_at: now } }),
+      blockedReason: 'should not block a done card',
+      resumeReason: 'reviewer_unavailable',
+      effects: fx,
+    })).rejects.toThrow("cannot transition via 'block' from 'done'.");
+    expect(fx.patches).toEqual([]);
   });
 });

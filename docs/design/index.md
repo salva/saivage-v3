@@ -12,6 +12,7 @@ Use these pages for design-era context. For current operator behavior, start wit
 - [Agents](./agents.md)
 - [Runtime](./runtime.md)
 - [Terminal Commit Layer](./terminal-commit-layer.md)
+- [Duplicate Child Block Fix](./duplicate-child-block-fix.md)
 - [Security](./security.md)
 - [Configuration](./configuration.md)
 - [Skills](./skills.md)

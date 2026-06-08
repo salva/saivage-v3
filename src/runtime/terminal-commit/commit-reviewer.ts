@@ -54,7 +54,9 @@ export async function commitReviewerInvocationFailure(input: {
     result,
   } satisfies Extract<CardLifecycleState, { status: 'blocked' }>;
   assertNoTerminalOverlayErrors(input.card, lifecycle);
-  await transitionOrThrow(input.effects.transitionCard(input.card.id, 'block', { blocked_reason: input.blockedReason }));
+  if (input.card.status !== 'blocked') {
+    await transitionOrThrow(input.effects.transitionCard(input.card.id, 'block', { blocked_reason: input.blockedReason }));
+  }
   const patch: Partial<CardRecord> = { ...lifecycleCardPatch(lifecycle), status_text: input.blockedReason };
   await input.effects.updateCard(input.card.id, patch);
   return { lifecycle, result, patch };
