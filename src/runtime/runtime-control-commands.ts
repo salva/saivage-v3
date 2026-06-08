@@ -1,19 +1,16 @@
 import type { RuntimeState } from '../schemas/index.js';
 import { buildPauseRuntimeStatePatch, buildResumeRuntimeStatePatch } from './runtime-core.js';
 
-export const FROZEN_RUNTIME_RECOVERY_MESSAGE = 'Runtime is frozen. Inspect runtime/debug state and use project-specific recovery; generic resume cannot restore frozen state.';
-
 export type RuntimeControlEventKind = 'paused' | 'resumed';
 
 export interface RuntimeControlResult {
   ok: boolean;
-  code: 'paused' | 'resumed' | 'frozen' | 'unavailable' | 'error';
+  code: 'paused' | 'resumed' | 'unavailable' | 'error';
   statusCode?: number;
   status?: string;
   paused?: boolean;
   error?: string;
   message?: string;
-  action?: 'inspect-frozen-state';
   state?: RuntimeState;
 }
 
@@ -34,7 +31,6 @@ export function pauseRuntimeCommand(_projectRoot: string, effects: PauseResumeEf
   try {
     const current = effects.readState();
     if (!current) return unavailableResult('pause');
-    if (current.status === 'frozen') return pausedResult(current);
 
     effects.setLifecyclePaused?.(true);
     effects.setProcessBuffering?.(true);
@@ -52,16 +48,6 @@ export function resumeRuntimeCommand(_projectRoot: string, effects: PauseResumeE
   try {
     const current = effects.readState();
     if (!current) return unavailableResult('resume');
-    if (current.status === 'frozen') {
-      return {
-        ok: false,
-        code: 'frozen',
-        statusCode: 400,
-        error: 'Runtime is frozen',
-        message: FROZEN_RUNTIME_RECOVERY_MESSAGE,
-        action: 'inspect-frozen-state',
-      };
-    }
 
     effects.setLifecyclePaused?.(false);
     effects.setProcessBuffering?.(false);

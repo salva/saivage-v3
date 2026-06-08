@@ -1,7 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { CardStore } from '../../cards/store-api.js';
-import { readFreezeManifest } from '../../runtime/control-api.js';
 import { readRuntimeState } from '../../runtime/state-api.js';
 import { runtimeStateSchema } from '../../schemas/index.js';
 import type { RuntimeState } from '../../schemas/index.js';
@@ -16,10 +15,6 @@ export class DebugReadModelService {
 
   getState(pid = process.pid): DebugStateReadModel {
     const state = readRuntimeState(this.projectRoot);
-    if (state && state.status === 'frozen') {
-      const manifest = readFreezeManifest(this.projectRoot);
-      if (manifest) state.frozen_reason = manifest.reason;
-    }
     const cards = this.store.list();
     const cardIndex = cards.map((c) => ({ id: c.id, type: c.type, parent: c.parent, status: c.status, title: c.title, priority: c.priority, depends_on: c.depends_on }));
     return { runtime: state ? runtimeStateSchema.extend({ pid: runtimeStateSchema.shape.pid }).parse({ ...state, pid }) : null, cards: cardIndex, totalCards: cards.length };

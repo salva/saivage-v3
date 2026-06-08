@@ -8,7 +8,6 @@ import { disposeProcessRuntimeScope } from './process-runner.js';
 import { buildShutdownRuntimeStatePatch } from './runtime-core.js';
 import { releaseLock } from './lock.js';
 import type { RuntimeStateMachine } from './state-machine.js';
-import { readRuntimeState } from './state.js';
 import type { RuntimeDiagnostics } from './runtime-diagnostics.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
 import type { LifecycleFlags } from './runtime-lifecycle-state.js';
@@ -53,25 +52,6 @@ export async function performRuntimeShutdown(input: {
   if (!input.lifecycle.running) return;
   input.supervisor.stop();
   input.stateMachine.stop();
-  if ((readRuntimeState(input.projectRoot)?.status ?? 'idle') === 'frozen') {
-    try {
-      input.diagnostics.setLastLifecycleDisposeReport(await disposeProcessRuntimeScope(input.projectRoot));
-    } catch (error) {
-      input.diagnostics.setLastLifecycleDisposeReport(processDisposeFailureReport(error));
-    }
-    try {
-      releaseLock(input.projectRoot);
-    } catch {
-      void 0;
-    }
-    input.lifecycle.running = false;
-    input.lifecycle.shuttingDown = false;
-    input.emitShutdown();
-    input.eventLogger.appendEvent({ kind: 'shutdown' });
-    if (input.ownsEventLogger) input.eventLogger.close();
-    if (input.ownsErrorLogger) input.errorLogger.close();
-    return;
-  }
   input.lifecycle.shuttingDown = true;
   input.lifecycle.running = false;
   try {

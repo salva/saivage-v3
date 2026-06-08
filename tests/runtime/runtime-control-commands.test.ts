@@ -1,7 +1,6 @@
 import { describe, expect, it, jest } from '@jest/globals';
 
 import {
-  FROZEN_RUNTIME_RECOVERY_MESSAGE,
   pauseRuntimeCommand,
   resumeRuntimeCommand,
   type PauseResumeEffects,
@@ -39,14 +38,6 @@ describe('runtime-control-commands', () => {
     const result = pauseRuntimeCommand('/project', effects(null, { applyStatePatch }));
 
     expect(result).toMatchObject({ ok: false, code: 'unavailable', statusCode: 503 });
-    expect(applyStatePatch).not.toHaveBeenCalled();
-  });
-
-  it('rejects generic resume from frozen state with the shared recovery message', () => {
-    const applyStatePatch = jest.fn();
-    const result = resumeRuntimeCommand('/project', effects(runtimeState({ status: 'frozen', paused: true }), { applyStatePatch }));
-
-    expect(result).toMatchObject({ ok: false, code: 'frozen', statusCode: 400, message: FROZEN_RUNTIME_RECOVERY_MESSAGE });
     expect(applyStatePatch).not.toHaveBeenCalled();
   });
 

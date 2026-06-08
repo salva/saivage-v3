@@ -10,8 +10,6 @@ import { pauseRuntimeCommand, resumeRuntimeCommand, type RuntimeControlResult } 
  * Accepted semantics:
  * - CLI/analyst paths mutate persisted runtime state through the shared
  *   pause/resume command handler.
- * - frozen: generic resume is rejected everywhere with actionable incident
- *   recovery guidance; pause is idempotent and preserves frozen state.
  * - stopped/unavailable: if no runtime state exists, controls fail with an
  *   actionable initialization error rather than creating an unsafe shim state.
  */

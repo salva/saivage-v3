@@ -9,15 +9,10 @@ import {
 import {
   pauseRuntimeControl,
   resumeRuntimeControl,
-  FROZEN_RUNTIME_RECOVERY_MESSAGE,
-  readFreezeManifest,
-  clearFreezeManifest,
 } from '../../src/runtime/control-api.js';
 import { initRuntimeState, runtimeStatePath } from '../../src/runtime/state.js';
 import { readRuntimeState as directReadRuntimeState, updateRuntimeState as directUpdateRuntimeState, appendRuntimeRun as directAppendRuntimeRun, upsertRuntimeActivation as directUpsertRuntimeActivation } from '../../src/runtime/state.js';
 import { pauseRuntimeControl as directPauseRuntimeControl, resumeRuntimeControl as directResumeRuntimeControl } from '../../src/runtime/control.js';
-import { FROZEN_RUNTIME_RECOVERY_MESSAGE as directFrozenRuntimeRecoveryMessage } from '../../src/runtime/runtime-control-commands.js';
-import { readFreezeManifest as directReadFreezeManifest, clearFreezeManifest as directClearFreezeManifest } from '../../src/runtime/freeze-manifest.js';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -315,12 +310,9 @@ describe('runtime module ownership boundary', () => {
     expect(typeof api.getForOperator).toBe('function');
   });
 
-  it('exports runtime-owned pause/resume and freeze authority through control-api', () => {
+  it('exports runtime-owned pause/resume authority through control-api', () => {
     expect(pauseRuntimeControl).toBe(directPauseRuntimeControl);
     expect(resumeRuntimeControl).toBe(directResumeRuntimeControl);
-    expect(FROZEN_RUNTIME_RECOVERY_MESSAGE).toBe(directFrozenRuntimeRecoveryMessage);
-    expect(readFreezeManifest).toBe(directReadFreezeManifest);
-    expect(clearFreezeManifest).toBe(directClearFreezeManifest);
   });
 
   it('does not retain legacy src/utils runtime compatibility or ownership files', () => {

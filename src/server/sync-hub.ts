@@ -24,8 +24,6 @@ export const liveSyncEventKinds = [
   'runtime_command',
   'paused',
   'resumed',
-  'frozen',
-  'resumed_from_freeze',
   'project_run_completed',
   'runtime_actionable_error',
   'runtime_diagnostic',
@@ -107,8 +105,6 @@ export function mapLiveSyncEvent(event: DomainEvent<LiveSyncEventKind>): LiveSyn
     case 'runtime_command':
     case 'paused':
     case 'resumed':
-    case 'frozen':
-    case 'resumed_from_freeze':
     case 'project_run_completed':
       add({ resource: 'runtime' });
       break;

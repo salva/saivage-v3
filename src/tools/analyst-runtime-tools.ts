@@ -2,7 +2,6 @@ import { z } from 'zod';
 import { join } from 'node:path';
 
 import { PROJECT_CARD_ID } from '../cards/store-api.js';
-import { FROZEN_RUNTIME_RECOVERY_MESSAGE } from '../runtime/control-api.js';
 import { processApi } from '../runtime/process-api.js';
 import { readRuntimeState } from '../runtime/state-api.js';
 import { listControlActions } from '../persistence/index.js';
@@ -47,7 +46,7 @@ export async function pause_runtime(ctx: ToolContext, params: Record<string, nev
 export async function resume_runtime(ctx: ToolContext, params: Record<string, never> = {}): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, params, { action: 'runtime.resume', safety_class: 'low', target_kind: 'runtime', getTargetId: () => 'project', run: async () => {
     const state = readRuntimeState(ctx.projectRoot);
-    if (state?.status === 'frozen' || state?.status === 'error') return toolFailure('conflict', `${state.status === 'frozen' ? FROZEN_RUNTIME_RECOVERY_MESSAGE : 'Runtime is in error state. Inspect Debug errors/timeline and fix the underlying failure before attempting recovery.'}`, { runtime_status: state.status });
+    if (state?.status === 'error') return toolFailure('conflict', 'Runtime is in error state. Inspect Debug errors/timeline and fix the underlying failure before attempting recovery.', { runtime_status: state.status });
     if (!ctx.runtime) return toolFailure('conflict', 'Active runtime is not available.');
     ctx.runtime.resume();
     const updated = readRuntimeState(ctx.projectRoot);

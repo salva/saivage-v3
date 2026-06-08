@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { buildCompletedRuntimeCommandState, buildDispatchPausedRuntimeStatePatch, buildFreezeManifest, buildFreezeRuntimeStatePatch, buildPauseRuntimeStatePatch, buildRejectedRuntimeCommandState, buildResumeFromFreezeRuntimeStatePatch, buildResumeHandoffContext, buildResumeRuntimeStatePatch, buildShutdownRuntimeStatePatch, makeRuntimePreconditionError, observeRuntimeStateInvariants, planClearActiveCardRunForRepair, planIdleRunningRootRunReconciliation, planOpenPlannerRunTerminalUpdate, planOpenRootRunStopUpdates, planPlannerRunSessionBinding, planProjectRootRedispatch, planRootRunDispatchFailureUpdate, planRootRunDispatchSuccessUpdate, planStartProjectPrecondition, planSweptCurrentAgentSessionPatch, reduceActivationCompletion, reduceRuntimeEvent } from '../../src/runtime/runtime-core.js';
+import { buildCompletedRuntimeCommandState, buildDispatchPausedRuntimeStatePatch, buildPauseRuntimeStatePatch, buildRejectedRuntimeCommandState, buildResumeRuntimeStatePatch, buildShutdownRuntimeStatePatch, makeRuntimePreconditionError, observeRuntimeStateInvariants, planClearActiveCardRunForRepair, planIdleRunningRootRunReconciliation, planOpenPlannerRunTerminalUpdate, planOpenRootRunStopUpdates, planPlannerRunSessionBinding, planProjectRootRedispatch, planRootRunDispatchFailureUpdate, planRootRunDispatchSuccessUpdate, planStartProjectPrecondition, planSweptCurrentAgentSessionPatch, reduceActivationCompletion, reduceRuntimeEvent } from '../../src/runtime/runtime-core.js';
 import { RuntimeStateInvariantError } from '../../src/runtime/state.js';
 import type { PlannerDoneResult } from '../../src/schemas/index.js';
 import type { RuntimeState } from '../../src/schemas/types.js';
@@ -118,7 +118,7 @@ describe('runtime core reducers', () => {
     ]);
   });
 
-  it('builds pause, resume, and freeze-manifest state helper shapes', () => {
+  it('builds pause and resume state helper shapes', () => {
     const activeState = state({
       started_at: 'started',
       active_card_run: { card_id: 'goal-a', card_type: 'goal', ownership: { kind: 'direct', source: 'project_root' },
@@ -126,22 +126,6 @@ describe('runtime core reducers', () => {
     });
     expect(buildPauseRuntimeStatePatch('paused')).toEqual({ status: 'paused', paused: true, paused_at: 'paused' });
     expect(buildResumeRuntimeStatePatch(activeState)).toEqual({ status: 'running', paused: false, paused_at: null });
-    expect(buildFreezeRuntimeStatePatch({ state: activeState, frozenAt: 'frozen' })).toEqual(expect.objectContaining({ status: 'frozen', started_at: 'started', paused: true, paused_at: 'frozen' }));
-    const manifest = buildFreezeManifest({
-      state: activeState,
-      freezeId: 'freeze-1',
-      frozenAt: 'frozen',
-      pid: 123,
-      handoffSummaries: [{ session_id: 'planner:goal-a', role: 'planner', last_action: 'planned', next_action: 'resume', context_summary: 'context' }],
-      runtimeVersion: '0.1.0',
-    });
-    expect(manifest).toEqual(expect.objectContaining({ freeze_id: 'freeze-1', reason: 'operator requested freeze', active_card_run: expect.objectContaining({ card_id: 'goal-a' }), schema_version: 1 }));
-    expect(buildResumeFromFreezeRuntimeStatePatch(manifest)).toEqual(expect.objectContaining({ status: 'running', started_at: 'started', active_card_run: expect.objectContaining({ card_id: 'goal-a' }), paused: false, paused_at: null }));
-    expect(() => buildResumeFromFreezeRuntimeStatePatch({
-      ...manifest,
-      active_card_run: { ...manifest.active_card_run!, runtime_status: 'stopped' } as unknown as RuntimeState['active_card_run'],
-    })).toThrow('freeze resume cannot restore non-running active_card_run');
-    expect(buildResumeHandoffContext(manifest)).toContain('[Handoff] Session: planner:goal-a');
   });
 
   it('plans startup and shutdown cleanup patches', () => {
