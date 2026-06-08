@@ -24,7 +24,7 @@ function makeIO(overrides: Partial<AgentLoopDriverIO<ExecutorResultEnvelope, Exe
     invokeTurn: async () => ({ kind: 'message', content: '' }) as LlmCompleteResult,
     persistAssistantToolCalls: (r) => { log.push({ kind: 'persistAssistantToolCalls', payload: r }); },
     persistAssistantText: (c) => { log.push({ kind: 'persistAssistantText', payload: c }); },
-    executeActionToolCalls: async () => { log.push({ kind: 'executeActionToolCalls' }); return { runtimeSignalledDone: false }; },
+    executeActionToolCalls: async () => { log.push({ kind: 'executeActionToolCalls' }); },
     persistDuplicateDoneIgnored: (id, name) => { log.push({ kind: 'persistDuplicateDoneIgnored', payload: { id, name } }); },
     persistVerifiedDone: (id, name) => { log.push({ kind: 'persistVerifiedDone', payload: { id, name } }); },
     persistViolatedDone: (id, name, content) => { log.push({ kind: 'persistViolatedDone', payload: { id, name, content } }); },
@@ -133,26 +133,12 @@ describe('agent-loop-driver', () => {
     expect(outcome.reason).toBe('abort');
   });
 
-  it('honors signalDoneFromRuntime: completes after the current turn with the runtime envelope', async () => {
-    const runtimeEnvelope = { status: 'done', summary: 'from-runtime', artifacts: [], attachments: [] } as unknown as ExecutorResultEnvelope;
-    const { io } = makeIO({
-      invokeTurn: async () => ({ kind: 'message', content: '' }) as LlmCompleteResult,
-    });
-    const driver = createAgentLoopDriver(io);
-    driver.signalDoneFromRuntime(runtimeEnvelope);
-    const outcome = await driver.run();
-    expect(outcome.kind).toBe('succeeded');
-    if (outcome.kind !== 'succeeded') return;
-    expect(outcome.envelope).toBe(runtimeEnvelope);
-    expect(outcome.terminalName).toBe('emit_executor_result');
-  });
-
   it('drains takeRuntimeDoneEnvelope source after a non-terminal tool-call turn', async () => {
     const runtimeEnvelope = { status: 'done', summary: 'queued', artifacts: [], attachments: [] } as unknown as ExecutorResultEnvelope;
     let drained = false;
     const { io } = makeIO({
       invokeTurn: async () => toolCalls([{ id: 'tc-1', name: 'read_file', args: '{}' }]),
-      executeActionToolCalls: async () => ({ runtimeSignalledDone: true }),
+      executeActionToolCalls: async () => {},
       takeRuntimeDoneEnvelope: () => {
         if (drained) return null;
         drained = true;
@@ -182,7 +168,6 @@ describe('agent-loop-driver', () => {
       },
       executeActionToolCalls: async () => {
         if (turn === 1) queued = runtimeEnvelope;
-        return { runtimeSignalledDone: queued !== null };
       },
       takeRuntimeDoneEnvelope: () => {
         const current = queued;

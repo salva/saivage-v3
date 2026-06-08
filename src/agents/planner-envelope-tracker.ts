@@ -56,10 +56,6 @@ export class PlannerEnvelopeTracker {
     }
   }
 
-  hasEnvelope(): boolean {
-    return Boolean(this.pendingEnvelope);
-  }
-
   takeEnvelope<E>(): E | null {
     const envelope = this.pendingEnvelope;
     this.pendingEnvelope = null;

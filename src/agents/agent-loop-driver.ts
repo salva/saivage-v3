@@ -40,8 +40,8 @@ export interface AgentLoopDriverIO<Envelope, TypedResult> {
   persistAssistantToolCalls: (result: LlmCompleteResult) => Promise<void> | void;
   /** Persist a plain assistant text message (no tool calls returned). */
   persistAssistantText: (content: string) => Promise<void> | void;
-  /** Execute non-terminal action tool calls and persist their tool results; returns true if any tool produced an external signalDoneFromRuntime envelope. */
-  executeActionToolCalls: (result: LlmCompleteResult) => Promise<{ runtimeSignalledDone: boolean }>;
+  /** Execute non-terminal action tool calls and persist their tool results. */
+  executeActionToolCalls: (result: LlmCompleteResult) => Promise<void> | void;
   /** Persist a `tool_result` row marking duplicate terminal calls as ignored. */
   persistDuplicateDoneIgnored: (toolCallId: string, toolName: string) => Promise<void> | void;
   /** Persist a `tool_result` row for the verified terminal call. */
@@ -60,8 +60,6 @@ export interface AgentLoopDriverIO<Envelope, TypedResult> {
 
 export interface AgentLoopDriver<Envelope, TypedResult> {
   run(): Promise<InvocationOutcomeOf<Envelope, TypedResult>>;
-  /** Externally signal that the runtime has produced a terminal envelope mid-loop. */
-  signalDoneFromRuntime(envelope: Envelope): void;
 }
 
 function assertNeverState(state: never): never {
@@ -71,15 +69,9 @@ function assertNeverState(state: never): never {
 export function createAgentLoopDriver<Envelope, TypedResult>(
   io: AgentLoopDriverIO<Envelope, TypedResult>,
 ): AgentLoopDriver<Envelope, TypedResult> {
-  let runtimeDoneEnvelope: Envelope | null = null;
   let state: AgentLoopState<Envelope> = { kind: 'agent_turn', turn: 0, repairAttempts: 0 };
 
   function takeRuntimeDone(): Envelope | null {
-    if (runtimeDoneEnvelope !== null) {
-      const e = runtimeDoneEnvelope;
-      runtimeDoneEnvelope = null;
-      return e;
-    }
     if (io.takeRuntimeDoneEnvelope) return io.takeRuntimeDoneEnvelope();
     return null;
   }
@@ -200,8 +192,5 @@ export function createAgentLoopDriver<Envelope, TypedResult>(
 
   return {
     run,
-    signalDoneFromRuntime(envelope) {
-      runtimeDoneEnvelope = envelope;
-    },
   };
 }

@@ -265,7 +265,7 @@ export class AgentInvocationRunner {
                     });
                   },
                   executeActionToolCalls: async (result) => {
-                    if (result.kind !== 'tool_calls') return { runtimeSignalledDone: false };
+                    if (result.kind !== 'tool_calls') return;
                     for (const tc of result.tool_calls) {
                       if (contract.isTerminalToolName(tc.function.name)) continue;
                       const parsedArgs = parseProtocolToolArgs(tc.function.arguments);
@@ -330,7 +330,6 @@ export class AgentInvocationRunner {
                         plannerEnvelopeTracker.trackTerminalToolResult(tc.function.name, goalId, msg.content);
                       }
                     }
-                    return { runtimeSignalledDone: plannerEnvelopeTracker.hasEnvelope() };
                   },
                   persistDuplicateDoneIgnored: (toolCallId, toolName) => {
                     this.config.messageLog.append(session.id, {
