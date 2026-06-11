@@ -1,15 +1,16 @@
 # Card Runner XState Replacement Plan
 
-Status: implementation planning draft. This document explains how to replace the
-current Saivage v3 runtime with the XState architecture described in
+Status: implementation planning draft. This document explains how to build a new
+minimal Saivage v3 runtime core around the XState architecture described in
 [Card Runner XState Rearchitecture Draft](./card-runner-xstate-rearchitecture-draft.md).
-It is not a progressive compatibility plan, not a bridge plan, and not a
-migration plan for old `.saivage` runtime state.
+It is not a one-for-one porting plan for the old runtime, not a bridge plan, and
+not a migration plan for old `.saivage` runtime state.
 
 ## 1. Goal
 
-Build the new runtime layers cleanly around XState actors and remove the old
-dispatcher/session/unwind architecture from the active tree.
+Build a clean, functional runtime core around XState actors. Do not port old-core
+responsibilities just because they exist. The old runtime was over-engineered;
+only behavior required for a working Saivage app should move into the new core.
 
 The target architecture is XState only:
 
@@ -28,31 +29,71 @@ to translate between the old runtime and the new runtime. Temporary scaffolding
 is allowed inside a short-lived implementation branch, but it must be deleted
 before the replacement is considered complete.
 
-## 2. Replacement Strategy
+## 2. Functional Minimum
 
-Prefer a clean replacement over a progressive port.
+The new core is considered functional when it can do this without old dispatcher,
+session-active-status, or activation-unwind machinery:
+
+1. Start and stop the server with RuntimeSupervisor as the runtime owner.
+2. Load project/card state and expose a usable operator read model.
+3. Start a terminal card, run its executor LLMRunner, handle required tool calls,
+   and commit `done`, `failed`, `blocked`, or `needs_verification`.
+4. Start a goal card, run planner turns, create/start child cards through
+   `activate_card`, receive exactly one child outcome, and continue planning.
+5. Run reviewer turns for goal completion, return corrections to planning, and
+   commit accepted goal outcomes.
+6. Persist enough actor, card, message, tool-call, note, and process state to
+   survive dirty shutdown by continuing safe paths or explicitly failing unsafe
+   paths with diagnostics.
+7. Pause, resume, cancel, and shut down without corrupting card/message/tool
+   state.
+8. Keep the analyst usable as a separate operator assistant, not as a card-owned
+   actor.
+
+Everything else is optional until a current product surface needs it.
+
+Do not port these old-core concepts as independent requirements:
+
+- Runtime run ledgers as a product-visible orchestration substrate.
+- Runtime activation arrays as separate state from parent/child actor waits.
+- Process-local active session status.
+- Scheduled redispatch loops.
+- Startup repair that reconstructs old active runs.
+- Synthetic planner-note routing when NoteBox can cover the behavior.
+- Global single-active-non-analyst-session enforcement.
+- Dispatcher composition objects that exist only to wire old phase runners.
+
+## 3. Replacement Strategy
+
+Prefer a clean minimal core over a progressive port.
 
 The easiest path is likely:
 
-1. Move old runtime orchestration code out of the active import tree.
-2. Keep only domain primitives that are still valid: card store, lifecycle
+1. Build the new RuntimeSupervisor/CardRunner/LLMRunner/ProcessRunner core in a
+   new active runtime boundary.
+2. Move old runtime orchestration code out of the active import tree when the new
+   core owns the corresponding product behavior.
+3. Keep only domain primitives that are still valid: card store, lifecycle
    transition policy, provider configuration, observability sinks, file/process
    primitives, skills/tool definitions, and prompt/context builders if they fit
    the new ownership model.
-3. Reimplement runtime orchestration from scratch with RuntimeSupervisor,
+4. Reimplement runtime orchestration from scratch with RuntimeSupervisor,
    CardRunner, LLMRunner, ProcessRunner, NoteBox, and actor persistence.
-4. Rewrite adjacent layers that assume old active-run/session/activation state.
-5. Delete any temporary compatibility, bridge, or adapter modules before merge.
+5. Move and modify adjacent layers progressively as they become needed by the new
+   core. If an old adjacent layer is unnecessary for current functionality, leave
+   it out instead of preserving it.
+6. Delete any temporary compatibility, bridge, or adapter modules before merge.
 
 This does not require running old and new dispatchers side by side. If an old
-layer's shape fights the new architecture, rewrite it instead of adapting around
-it.
+layer's shape fights the new architecture, rewrite it or omit it instead of
+adapting around it.
 
-## 3. Old Code To Remove Or Rewrite
+## 4. Old Code To Audit, Not Port
 
-Move these files out of the active runtime path early. They can be deleted
-immediately or parked in a temporary branch-local archive while behavior is being
-reimplemented, but they should not remain imported by the new runtime:
+Treat these files as behavior references and deletion targets, not as porting
+units. They can be deleted immediately, left temporarily unreferenced, or parked
+in a branch-local archive while the new core is built. They should not remain
+imported by the final runtime:
 
 - `src/runtime/runtime-planner-dispatcher.ts`
 - `src/runtime/pending-activation-dispatcher.ts`
@@ -65,9 +106,24 @@ reimplemented, but they should not remain imported by the new runtime:
 - `src/runtime/phases/reviewer-phase-runner.ts`
 - `src/runtime/session-persistence.ts` active-session ownership logic
 - `src/runtime/state-machine.ts` dispatch/tick/redispatch responsibilities
+- `src/runtime/runtime-core.ts` active-run/runtime-run/runtime-activation reducer
+  responsibilities
+- `src/runtime/runtime-dispatch-composition.ts`
+- `src/runtime/runtime-lifecycle-controller.ts`
+- `src/runtime/runtime-lifecycle-state.ts`
+- `src/runtime/runtime-startup.ts` old active-session reconciliation
+- `src/runtime/startup-repair.ts` old active-run repair paths
+- `src/runtime/activation-repair.ts`
+- `src/runtime/runtime-run-ledger.ts`
+- `src/runtime/runtime-project-commands.ts` old command runner shape
 - Runtime state fields that encode old orchestration, especially active run,
   runtime activation arrays, dispatch-in-flight maps, and single-active-session
   assumptions.
+
+The `src/runtime/phases/` directory should also be audited as old-core code. Keep
+or extract only product domain logic that still makes sense, such as terminal
+commit validation or prompt/context assembly. Do not port phase runners or phase
+state helpers as an architectural layer.
 
 Rewrite adjacent layers if they encode old runtime assumptions:
 
@@ -78,11 +134,11 @@ Rewrite adjacent layers if they encode old runtime assumptions:
 - Web stores should consume projected `runnerPhase`, `agentPhase`, `pauseMode`,
   diagnostics, and public card status.
 - Agent invocation code should become a provider/model turn primitive used by
-  LLMRunner, not a role-specific planner/executor/reviewer orchestration adapter.
+  LLMRunner, not role-specific planner/executor/reviewer orchestration glue.
 - Session/message persistence should become LLMRunner-owned conversation and
   tool-call logs, not global role sessions with process-local active status.
 
-## 4. New Runtime Layers
+## 5. New Runtime Layers
 
 Create `src/runtime/actors/` as the new orchestration boundary:
 
@@ -109,7 +165,7 @@ Create `src/runtime/actors/` as the new orchestration boundary:
 The rest of the runtime should depend on this package-level boundary instead of
 reaching into individual actor internals.
 
-## 5. Persistence Model
+## 6. Persistence Model
 
 Implement new persistence before full behavior:
 
@@ -138,14 +194,14 @@ Rules:
 - The global single-active-non-analyst-session invariant is removed; concurrency
   is controlled by actor ownership and admission permits.
 
-## 6. Build Order
+## 7. Build Order
 
-These are construction phases, not a progressive production rollout. Each phase
-should leave the new runtime internally coherent. The old runtime does not need
-to keep working during the replacement branch if that makes implementation
-simpler.
+These are construction phases for a minimal new core. They are not a checklist of
+old-runtime features to port. Each phase should leave the new runtime internally
+coherent for the behavior it owns. The old runtime does not need to keep working
+during the replacement branch if that makes implementation simpler.
 
-### Phase A: Runtime Shell
+### Phase A: Minimal Runtime Shell
 
 Work:
 
@@ -154,16 +210,19 @@ Work:
    append helpers.
 3. Implement RuntimeSupervisor skeleton with `mode` and `work` parallel regions.
 4. Implement read-model projection types.
-5. Remove old dispatcher startup wiring from the active server composition and
-   replace it with supervisor startup/shutdown placeholders.
+5. Wire server startup/shutdown to RuntimeSupervisor for the new core. If old
+   dispatcher startup wiring is disconnected here, document that card execution
+   remains unavailable until the terminal/goal phases land.
 
 Exit criteria:
 
 - Runtime starts a supervisor actor.
 - Supervisor snapshot round-trip is tested.
-- Old dispatchers are no longer the startup owner.
+- Runtime ownership is explicit: either the branch still uses old dispatchers for
+  behavior not yet rebuilt, or card execution is intentionally unavailable until
+  later phases. Do not hide this behind a bridge.
 
-### Phase B: Generic LLMRunner
+### Phase B: Provider Turn And Generic LLMRunner
 
 Work:
 
@@ -174,15 +233,20 @@ Work:
 4. Emit only generic outputs: `LLM_TOOL_CALL`, `LLM_RESULT`, `LLM_ERROR`.
 5. Persist before provider calls, after provider responses/errors, after tool
    calls, after tool results/errors, and at wait-state transitions.
-6. Remove or rewrite AgentSession active-status logic that conflicts with actor
+6. Add minimal admission here: one provider-call permit owned by supervisor. Full
+   queueing/pause polish can come later, but provider calls must not bypass the
+   admission boundary.
+7. Remove or rewrite AgentSession active-status logic that conflicts with actor
    ownership.
 
 Exit criteria:
 
 - LLMRunner can run a model turn from a persisted input envelope.
 - No role-specific planner/executor/reviewer policy lives inside LLMRunner.
+- Provider calls go through supervisor admission, even if the initial permit
+  implementation is simple.
 
-### Phase C: Terminal CardRunner
+### Phase C: Terminal CardRunner And Required Executor Tools
 
 Work:
 
@@ -191,20 +255,28 @@ Work:
    executor input, and classifies executor `LLM_RESULT` into `TERMINAL_OUTCOME`.
 3. Rewrite evidence registration and terminal commit paths as CardRunner actions
    or domain services with no dependency on old active-run state.
-4. Implement executor recovery from interrupted `running` and
+4. Implement only the executor tools required for the app to perform real
+   terminal work. If a tool is old-core baggage and no current executor needs it,
+   leave it out.
+5. If real executor work requires process execution, implement the needed
+   ProcessRunner subset in this phase instead of waiting for a separate process
+   phase.
+6. Implement executor recovery from interrupted `running` and
    `waiting_for_tool(process)` states.
 
 Exit criteria:
 
 - A terminal card executes through actors only.
 - No `ExecutorActivationDispatcher` path remains.
+- Required executor tool calls are handled by the actor core. Unsupported old
+  tools fail clearly rather than going through old runtime glue.
 
-### Phase D: ProcessRunner And Tool Protocol
+### Phase D: Tool Protocol Completion
 
 Work:
 
-1. Implement ProcessRunner with durable records, cancellation, reattach, and
-   terminal delivery status.
+1. Complete ProcessRunner capabilities not already needed by Phase C: durable
+   records, cancellation, reattach, and terminal delivery status.
 2. LLMRunner persists assistant tool calls and wait state before external work
    starts.
 3. ProcessRunner records terminal process result/error before delivering
@@ -239,7 +311,7 @@ Exit criteria:
 - `PendingActivationDispatcher` and live `ActivationUnwindRunner` behavior are
   gone.
 
-### Phase F: Goal Planning
+### Phase F: Goal Planning Minimum
 
 Work:
 
@@ -250,6 +322,8 @@ Work:
 4. Persist classified self-event decisions before sending the self-event.
 5. Move retry budgets and iteration counters into CardRunner context.
 6. Delete planner process-local loop logic.
+7. Move only planner tools required for current goal execution. Tools whose only
+   purpose was old runtime maintenance should be omitted.
 
 Exit criteria:
 
@@ -257,7 +331,7 @@ Exit criteria:
   runners.
 - Planner boundaries are recoverable from CardRunner/LLMRunner state.
 
-### Phase G: Reviewer And NoteBox
+### Phase G: Reviewer And NoteBox Minimum
 
 Work:
 
@@ -276,14 +350,15 @@ Exit criteria:
 - Reviewer pass/fail/correction behavior is CardRunner-owned.
 - Note delivery is idempotent and recoverable by note id.
 
-### Phase H: Supervisor Lifecycle And Admission
+### Phase H: Supervisor Lifecycle Completion
 
 Work:
 
 1. Implement full startup `RECOVER` sequence.
 2. Rebuild actor tree from snapshots and domain records.
 3. Verify tree consistency before normal event processing.
-4. Implement admission permits per provider call.
+4. Expand the minimal admission boundary from Phase B into full provider-call
+   admission policy.
 5. Implement collaborative quiescence: supervisor enters `paused` only after
    actors persist safe pausable state and acknowledge `QUIESCE`.
 6. Implement cancellation and shutdown ordering: CardRunner stops owned
@@ -295,7 +370,7 @@ Exit criteria:
 
 - RuntimeSupervisor is the only dispatcher and lifecycle owner.
 
-### Phase I: API/UI Rewrite
+### Phase I: API/UI And Tool Surface Rewrite
 
 Work:
 
@@ -305,20 +380,24 @@ Work:
 4. Expose stable Saivage terms only: public card status, `runnerPhase`,
    `agentPhase`, `pauseMode`, actor diagnostics, message logs, and process
    records.
-5. Ensure no API/UI contract exposes raw XState state values, snapshots, event
+5. Rewrite planner, executor, reviewer, and analyst tool read paths that depended
+   on old `RuntimeState` fields. Keep only current product tools.
+6. Ensure no API/UI contract exposes raw XState state values, snapshots, event
    queues, or framework terminology.
 
 Exit criteria:
 
 - Operator surfaces work against the new actor runtime directly.
 - No bridge model converts old runtime state to new UI state.
+- Analyst remains usable as a separate operator assistant without becoming a
+  CardRunner-owned actor.
 
-### Phase J: Deletion And Tree Cleanup
+### Phase J: Final Tree Cleanup
 
 Work:
 
-1. Delete obsolete dispatcher, phase-runner, session-active-status, activation
-   unwind, and runtime tick code.
+1. Verify obsolete dispatcher, phase-runner, session-active-status, activation
+   unwind, and runtime tick code were deleted as their replacement phases landed.
 2. Delete tests that only assert old orchestration.
 3. Rewrite tests that assert product behavior through new actor boundaries.
 4. Remove obsolete schemas and runtime state fields.
@@ -330,25 +409,31 @@ Exit criteria:
 - The codebase has one runtime architecture.
 - No final adapter, bridge, compatibility shim, or old-state migration remains.
 
-## 7. Replacement Matrix
+Deletion is not supposed to wait until Phase J. Each phase should delete the old
+runtime owner it replaces as soon as the new minimal behavior is covered. Phase J
+is only the final sweep for missed imports, stale schemas, obsolete tests, and
+documentation drift.
 
-| Old responsibility | New owner |
+## 8. Old Responsibility Triage
+
+| Old responsibility | New action |
 | --- | --- |
-| Terminal executor dispatch | Terminal CardRunner + executor LLMRunner |
-| Managed process wait/delivery | ProcessRunner + LLMRunner wait state |
-| `activate_card` recursive dispatch | Parent/child CardRunner messaging |
-| Parent tool-result unwind | LLMRunner delivery ledger |
-| Planner iteration loop | Goal CardRunner + planner LLMRunner |
-| Reviewer handoff and correction loop | Goal CardRunner + reviewer LLMRunner |
-| Synthetic live planner notes | NoteBox |
-| Runtime pause booleans | RuntimeSupervisor parallel `mode` region |
-| Dispatch in-flight maps | Actor registry and deterministic ids |
-| Scheduled redispatch | Supervisor recovery/admission/event routing |
-| Active run API fields | Read-model projections |
-| Role-specific AgentSession ownership | LLMRunner-owned conversation state |
-| Runtime activation arrays | Parent/child actor waits and delivery records |
+| Terminal executor dispatch | Rebuild as Terminal CardRunner + executor LLMRunner |
+| Managed process wait/delivery | Rebuild only required tools with ProcessRunner + LLMRunner wait state |
+| `activate_card` recursive dispatch | Rebuild as parent/child CardRunner messaging |
+| Parent tool-result unwind | Rebuild as LLMRunner delivery ledger |
+| Planner iteration loop | Rebuild minimum viable goal CardRunner + planner LLMRunner |
+| Reviewer handoff and correction loop | Rebuild minimum viable reviewer phase |
+| Synthetic live planner notes | Replace with NoteBox if still needed |
+| Runtime pause booleans | Replace with RuntimeSupervisor mode; no boolean port |
+| Dispatch in-flight maps | Delete; actor registry and deterministic ids cover ownership |
+| Scheduled redispatch | Delete unless a current product need reappears |
+| Active run API fields | Replace with read-model projections only if UI needs them |
+| Role-specific AgentSession ownership | Delete; LLMRunner owns conversation advancement |
+| Runtime activation arrays | Delete; parent/child waits and delivery records cover required behavior |
+| Old startup active-run repair | Delete; implement actor recovery from new persisted state |
 
-## 8. Testing Strategy
+## 9. Testing Strategy
 
 Required test themes:
 
@@ -364,6 +449,8 @@ Required test themes:
 - Pause reaches `paused` only after durable quiescence acknowledgements.
 - API/UI read models never expose raw XState snapshots.
 - Import-boundary tests prove old dispatcher modules are not used.
+- Unsupported old tools or runtime commands fail clearly instead of falling back
+  to old-core behavior.
 
 Use focused tests while building each phase, then run broad validation before the
 replacement branch is considered complete:
@@ -377,7 +464,13 @@ npm run validate:ui-smoke
 Run `npm run validate:ui` when API/UI read models change substantially, and
 `npm run validate:release` before merging the full replacement.
 
-## 9. Commit Cadence
+Intermediate construction commits may intentionally break old runtime tests after
+the old owner has been disconnected. In that case, keep focused new-core tests
+green, mark or rewrite obsolete old-core tests promptly, and do not treat a broad
+suite failure caused only by deleted old behavior as a reason to preserve old
+glue.
+
+## 10. Commit Cadence
 
 Commit by construction phase or by coherent subphase. It is acceptable for
 intermediate commits on the replacement branch to remove old runtime behavior
@@ -393,9 +486,9 @@ Prefer this cadence:
 5. Run the relevant focused validation.
 
 Do not merge a state where old and new runtime paths coexist through permanent
-adapters or bridges.
+translation glue or bridge modules.
 
-## 10. Stop Conditions
+## 11. Stop Conditions
 
 Pause and update the XState design if any of these happen:
 
