@@ -415,6 +415,9 @@ export class AgentAdapter implements AgentExecutionPort {
   getCandidateAvailability(): CandidateAvailability {
     return this.candidateAvailability;
   }
+  getInvocationService(): InvocationService {
+    return this.invocationService;
+  }
 
   async flushRecorders(): Promise<void> {
     await this.invocationService.flushRecorders();
