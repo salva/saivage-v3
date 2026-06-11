@@ -8,7 +8,9 @@ import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { createSession } from '../../src/runtime/session-persistence.js';
 import { propagateChange } from '../../src/runtime/changed-propagation.js';
 import { peekSyntheticPlannerNotes } from '../../src/runtime/synthetic-planner-notes.js';
+import { clearActiveGoalNoteSinks, getActiveGoalNoteSinks } from '../../src/runtime/actors/index.js';
 import type { CardRecord, CardStatus } from '../../src/schemas/index.js';
+import type { GoalNote } from '../../src/runtime/actors/index.js';
 
 function makeCard(overrides: Partial<CardRecord> & { id: string; type: CardRecord['type']; parent: string | null; depth: number; title: string }): Omit<CardRecord, 'created_at' | 'updated_at' | 'version_seq' | 'position'> & { id: string } {
   return {
@@ -95,6 +97,7 @@ describe('changed propagation', () => {
   });
 
   afterEach(() => {
+    clearActiveGoalNoteSinks(projectRoot);
     rmSync(projectRoot, { recursive: true, force: true });
   });
 
@@ -138,6 +141,30 @@ describe('changed propagation', () => {
     expect(peekSyntheticPlannerNotes(projectRoot, `planner:${goalBId}`)).toEqual([
       expect.objectContaining({ kind: 'analyst_note', affected_card_id: goalBId, previous_status: 'done' }),
       expect.objectContaining({ kind: 'pending_subtree_correction', affected_card_id: goalBId, previous_status: 'done' }),
+    ]);
+  });
+
+  it('delivers changed notes to active XState goal NoteBox before synthetic fallback', () => {
+    const deliveredNotes: GoalNote[] = [];
+    getActiveGoalNoteSinks(projectRoot).register(goalBId, { addNote: (note) => deliveredNotes.push(note) });
+    setStatus(store, goalBId, 'running');
+    setStatus(store, cardCId, 'done');
+
+    const result = propagateChange(projectRoot, store, cardCId, { kind: 'analyst_edit', summary: 'analyst edited code' });
+
+    expect(result.notified_planner_session_ids).toContain(`planner:${goalBId}`);
+    expect(deliveredNotes).toEqual([
+      expect.objectContaining({ id: expect.stringContaining(`subtree_changed:${goalBId}:${cardCId}`) }),
+    ]);
+    expect(JSON.parse(deliveredNotes[0]!.content)).toMatchObject({
+      kind: 'subtree_changed',
+      affected_card_id: cardCId,
+      summary: 'analyst edited code',
+      previous_status: 'running',
+    });
+    expect(peekSyntheticPlannerNotes(projectRoot, `planner:${goalBId}`)).toEqual([]);
+    expect(peekSyntheticPlannerNotes(projectRoot, `planner:${goalAId}`)).toEqual([
+      expect.objectContaining({ kind: 'subtree_changed', affected_card_id: cardCId }),
     ]);
   });
 });

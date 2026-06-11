@@ -1,6 +1,7 @@
 import type { AnalystIssue, CardStatus } from '../schemas/index.js';
 import type { CardStore } from '../cards/store-api.js';
 import { sanitizeAnalystText } from '../sanitization/analyst-sanitization.js';
+import { getActiveGoalNoteSinks } from './actors/active-goal-note-sinks.js';
 import { findContainingPlannerChain, queueSyntheticPlannerNote } from './synthetic-planner-notes.js';
 
 const FLIPPABLE_RESTING: ReadonlySet<CardStatus> = new Set(['done', 'failed', 'cancelled', 'blocked']);
@@ -13,6 +14,16 @@ export interface ChangedPropagation {
   flipped: Array<{ card_id: string; previous_status: CardStatus }>;
   stopped_at_running: string | null;
   notified_planner_session_ids: string[];
+}
+
+interface RoutedPlannerNoteInput {
+  target_planner_session_id: string;
+  target_goal_card_id: string;
+  kind: 'analyst_note' | 'pending_subtree_correction' | 'subtree_changed';
+  affected_card_id: string;
+  descendant_card_ids: string[];
+  summary: string;
+  previous_status?: CardStatus;
 }
 
 function originSummary(origin: ChangeOrigin): string {
@@ -50,9 +61,10 @@ export function propagateChange(projectRoot: string, store: CardStore, editedCar
 
   const summary = originSummary(origin);
   const notified = new Set<string>();
+  const liveNotes = getActiveGoalNoteSinks(projectRoot);
   for (const routed of findContainingPlannerChain(projectRoot, store, editedCardId)) {
     const kind = editedCardId === routed.goalId ? 'analyst_note' : 'subtree_changed';
-    queueSyntheticPlannerNote(projectRoot, {
+    queuePlannerNote(projectRoot, liveNotes, {
       target_planner_session_id: routed.session.id,
       target_goal_card_id: routed.goalId,
       kind,
@@ -67,7 +79,7 @@ export function propagateChange(projectRoot: string, store: CardStore, editedCar
   if (origin.kind === 'analyst_correction') {
     const routed = findContainingPlannerChain(projectRoot, store, editedCardId)[0];
     if (routed) {
-      queueSyntheticPlannerNote(projectRoot, {
+      queuePlannerNote(projectRoot, liveNotes, {
         target_planner_session_id: routed.session.id,
         target_goal_card_id: routed.goalId,
         kind: 'pending_subtree_correction',
@@ -81,4 +93,19 @@ export function propagateChange(projectRoot: string, store: CardStore, editedCar
   }
 
   return { flipped, stopped_at_running, notified_planner_session_ids: [...notified] };
+}
+
+function queuePlannerNote(projectRoot: string, liveNotes: ReturnType<typeof getActiveGoalNoteSinks>, input: RoutedPlannerNoteInput): void {
+  const deliveredLive = liveNotes.addNote(input.target_goal_card_id, {
+    id: `changed:${input.kind}:${input.target_goal_card_id}:${input.affected_card_id}:${input.summary}`,
+    content: JSON.stringify({
+      kind: input.kind,
+      affected_card_id: input.affected_card_id,
+      descendant_card_ids: input.descendant_card_ids,
+      summary: input.summary,
+      previous_status: input.previous_status ?? null,
+    }),
+  });
+  if (deliveredLive) return;
+  queueSyntheticPlannerNote(projectRoot, input);
 }

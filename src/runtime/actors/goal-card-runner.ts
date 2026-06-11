@@ -4,6 +4,7 @@ import { cardActorId, plannerActorId, reviewerActorId } from './ids.js';
 import { LlmRunnerController } from './llm-runner.js';
 import { saveActorSnapshot } from './snapshots.js';
 import { appendToolDelivery } from './llm-delivery-log.js';
+import { getActiveGoalNoteSinks } from './active-goal-note-sinks.js';
 import type { AdmissionPort, LlmInvocationInput, ProviderTurnPort } from './llm-runner.js';
 import type { XStateActorInputContext } from './actor-input-builders.js';
 import type { XStateChildCard } from './xstate-child-activation.js';
@@ -134,55 +135,61 @@ export class GoalCardRunnerController {
     this.actor.send({ type: 'START' });
     this.persist();
     await this.statusPort?.markRunning(this.cardId);
-    let currentInput = input;
-    for (let turn = 0; turn < 20; turn++) {
-      currentInput = this.deliverPendingNotes(currentInput);
-      const output = await this.plannerRunner.runTurn({ ...currentInput, agentId: plannerActorId(this.cardId) });
-      if (output.type === 'LLM_RESULT') {
-        const review = await this.reviewPlannerResult(currentInput, output.result.content, turn);
-        if (review.kind === 'passed') return this.complete({ status: 'done', statusText: output.result.content });
-        if (review.kind === 'failed') return this.complete({ status: 'failed', statusText: review.reason });
-        this.actor.send({ type: 'REVIEW_NEEDS_CORRECTIONS' });
-        this.persist();
+    const noteSinks = getActiveGoalNoteSinks(this.actor.getSnapshot().context.projectRoot);
+    noteSinks.register(this.cardId, this);
+    try {
+      let currentInput = input;
+      for (let turn = 0; turn < 20; turn++) {
+        currentInput = this.deliverPendingNotes(currentInput);
+        const output = await this.plannerRunner.runTurn({ ...currentInput, agentId: plannerActorId(this.cardId) });
+        if (output.type === 'LLM_RESULT') {
+          const review = await this.reviewPlannerResult(currentInput, output.result.content, turn);
+          if (review.kind === 'passed') return this.complete({ status: 'done', statusText: output.result.content });
+          if (review.kind === 'failed') return this.complete({ status: 'failed', statusText: review.reason });
+          this.actor.send({ type: 'REVIEW_NEEDS_CORRECTIONS' });
+          this.persist();
+          currentInput = {
+            ...currentInput,
+            inputId: `${input.inputId}:review:${turn + 1}`,
+            episodeContext: {
+              ...currentInput.episodeContext,
+              lastReviewResult: { result: 'needs_corrections', summary: review.summary },
+            },
+          };
+          continue;
+        }
+        if (output.type === 'LLM_ERROR') return this.complete({ status: 'failed', statusText: output.error });
+        if (output.toolName !== 'activate_card') return this.complete({ status: 'failed', statusText: `Unsupported planner tool call '${output.toolName}'.` });
+        const childId = parseActivateCardArgs(output.args).cardId;
+        const childOutcome = await this.childActivation.startChild(childId);
+        const deliveryInputId = `${input.inputId}:child:${turn + 1}`;
+        const deliveryResult = { cardId: childId, ...childOutcome };
+        appendToolDelivery(this.actor.getSnapshot().context.projectRoot, {
+          agent_id: plannerActorId(this.cardId),
+          source_input_id: currentInput.inputId,
+          delivery_input_id: deliveryInputId,
+          tool_call_id: output.toolCallId,
+          tool_name: output.toolName,
+          result: deliveryResult,
+        });
         currentInput = {
           ...currentInput,
-          inputId: `${input.inputId}:review:${turn + 1}`,
+          inputId: deliveryInputId,
           episodeContext: {
             ...currentInput.episodeContext,
-            lastReviewResult: { result: 'needs_corrections', summary: review.summary },
+            lastToolResult: {
+              toolCallId: output.toolCallId,
+              toolName: output.toolName,
+              result: deliveryResult,
+            },
           },
         };
-        continue;
+        if (childOutcome.status !== 'done') return this.complete({ status: childOutcome.status, statusText: childOutcome.statusText });
       }
-      if (output.type === 'LLM_ERROR') return this.complete({ status: 'failed', statusText: output.error });
-      if (output.toolName !== 'activate_card') return this.complete({ status: 'failed', statusText: `Unsupported planner tool call '${output.toolName}'.` });
-      const childId = parseActivateCardArgs(output.args).cardId;
-      const childOutcome = await this.childActivation.startChild(childId);
-      const deliveryInputId = `${input.inputId}:child:${turn + 1}`;
-      const deliveryResult = { cardId: childId, ...childOutcome };
-      appendToolDelivery(this.actor.getSnapshot().context.projectRoot, {
-        agent_id: plannerActorId(this.cardId),
-        source_input_id: currentInput.inputId,
-        delivery_input_id: deliveryInputId,
-        tool_call_id: output.toolCallId,
-        tool_name: output.toolName,
-        result: deliveryResult,
-      });
-      currentInput = {
-        ...currentInput,
-        inputId: deliveryInputId,
-        episodeContext: {
-          ...currentInput.episodeContext,
-          lastToolResult: {
-            toolCallId: output.toolCallId,
-            toolName: output.toolName,
-            result: deliveryResult,
-          },
-        },
-      };
-      if (childOutcome.status !== 'done') return this.complete({ status: childOutcome.status, statusText: childOutcome.statusText });
+      return this.complete({ status: 'blocked', statusText: 'Planner exceeded the GoalCardRunner turn budget.' });
+    } finally {
+      noteSinks.unregister(this.cardId, this);
     }
-    return this.complete({ status: 'blocked', statusText: 'Planner exceeded the GoalCardRunner turn budget.' });
   }
 
   get phase(): 'done' | 'planning' | 'reviewing' {

@@ -3,6 +3,7 @@ export * from './snapshots.js';
 export * from './actor-tool-definitions.js';
 export * from './actor-input-builders.js';
 export * from './llm-delivery-log.js';
+export * from './active-goal-note-sinks.js';
 export * from './runtime-supervisor.js';
 export * from './llm-runner.js';
 export * from './invocation-provider-turn.js';
