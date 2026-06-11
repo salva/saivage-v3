@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync } from 'node:fs';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, jest } from '@jest/globals';
@@ -13,6 +13,8 @@ import {
   RuntimeSupervisorController,
   saveActorSnapshot,
   actorSnapshotPath,
+  actorMessagesPath,
+  actorToolDeliveriesPath,
   supervisorActorId,
   TerminalCardRunnerController,
   ProcessRunnerController,
@@ -70,6 +72,15 @@ function plannerInput(cardId: string): Omit<LlmInvocationInput, 'agentId'> {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function readJsonl(path: string): Array<Record<string, unknown>> {
+  if (!existsSync(path)) return [];
+  return readFileSync(path, 'utf-8')
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 
 async function waitFor(condition: () => boolean, timeoutMs = 500): Promise<void> {
@@ -258,6 +269,10 @@ describe('XState minimal runtime core', () => {
       toolName: 'run_process',
       args: { command: 'pwd' },
     });
+    expect(readJsonl(actorMessagesPath(projectRoot, 'executor:T-tools')).map((entry) => entry.kind)).toEqual([
+      'activity',
+      'tool_call',
+    ]);
   }));
 
   it('LLMRunner respects supervisor provider-call admission', async () => withTempProject(async (projectRoot) => {
@@ -277,6 +292,10 @@ describe('XState minimal runtime core', () => {
       error: 'Provider admission denied for executor:T-admission-denied:input:T-admission-denied.',
     });
     expect(provider.completeTurn).not.toHaveBeenCalled();
+    expect(readJsonl(actorMessagesPath(projectRoot, 'executor:T-admission-denied')).map((entry) => entry.kind)).toEqual([
+      'activity',
+      'model_issue',
+    ]);
     supervisor.releaseProviderCall('external-call');
   }));
 
@@ -357,6 +376,10 @@ describe('XState minimal runtime core', () => {
 
     expect(outcome.status).toBe('done');
     expect(provider.completeTurn).toHaveBeenCalledTimes(3);
+    expect(readJsonl(actorToolDeliveriesPath(projectRoot, 'executor:T-process-flow')).map((entry) => entry.tool_name)).toEqual([
+      'run_process',
+      'wait_process',
+    ]);
     expect(readActorSnapshots(projectRoot).find((item) => item.actor_id === 'process:p-flow')).toMatchObject({
       actor_kind: 'process',
       state_value: 'done',
@@ -389,6 +412,14 @@ describe('XState minimal runtime core', () => {
     expect(outcome).toEqual({ status: 'done', statusText: 'goal complete' });
     expect(childActivation.startChild).toHaveBeenCalledWith('T-child');
     expect(provider.completeTurn).toHaveBeenCalledTimes(2);
+    expect(readJsonl(actorToolDeliveriesPath(projectRoot, 'planner:G-1'))).toEqual([
+      expect.objectContaining({
+        tool_call_id: 'activate-child',
+        tool_name: 'activate_card',
+        delivery_input_id: 'planner-input:G-1:child:1',
+        result: expect.objectContaining({ cardId: 'T-child', status: 'done', statusText: 'child done' }),
+      }),
+    ]);
     expect(runner.phase).toBe('done');
     expect(runner.publicStatus).toBe('done');
     expect(readActorSnapshots(projectRoot).map((item) => item.actor_id).sort()).toContain('planner:G-1');

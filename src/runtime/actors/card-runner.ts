@@ -6,6 +6,7 @@ import { saveActorSnapshot } from './snapshots.js';
 import type { LlmInvocationInput, ProviderTurnPort } from './llm-runner.js';
 import { ProcessRunnerController } from './process-runner.js';
 import type { AdmissionPort } from './llm-runner.js';
+import { appendToolDelivery } from './llm-delivery-log.js';
 
 export type TerminalCardPublicStatus = 'backlog' | 'running' | 'done' | 'failed' | 'blocked' | 'needs_verification' | 'cancelled';
 
@@ -115,9 +116,18 @@ export class TerminalCardRunnerController {
         return this.fail(error instanceof Error ? error.message : String(error));
       }
       if (!toolResult.handled) return this.fail(`Unsupported executor tool call '${output.toolName}'.`);
+      const deliveryInputId = `${input.inputId}:tool:${turn + 1}`;
+      appendToolDelivery(this.actor.getSnapshot().context.projectRoot, {
+        agent_id: executorActorId(this.cardId),
+        source_input_id: currentInput.inputId,
+        delivery_input_id: deliveryInputId,
+        tool_call_id: output.toolCallId,
+        tool_name: output.toolName,
+        result: toolResult.result,
+      });
       currentInput = {
         ...currentInput,
-        inputId: `${input.inputId}:tool:${turn + 1}`,
+        inputId: deliveryInputId,
         episodeContext: {
           ...currentInput.episodeContext,
           lastToolResult: {

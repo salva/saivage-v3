@@ -3,6 +3,7 @@ import { buildXStateReviewerInput } from './actor-input-builders.js';
 import { cardActorId, plannerActorId, reviewerActorId } from './ids.js';
 import { LlmRunnerController } from './llm-runner.js';
 import { saveActorSnapshot } from './snapshots.js';
+import { appendToolDelivery } from './llm-delivery-log.js';
 import type { AdmissionPort, LlmInvocationInput, ProviderTurnPort } from './llm-runner.js';
 import type { XStateActorInputContext } from './actor-input-builders.js';
 import type { XStateChildCard } from './xstate-child-activation.js';
@@ -157,15 +158,25 @@ export class GoalCardRunnerController {
       if (output.toolName !== 'activate_card') return this.complete({ status: 'failed', statusText: `Unsupported planner tool call '${output.toolName}'.` });
       const childId = parseActivateCardArgs(output.args).cardId;
       const childOutcome = await this.childActivation.startChild(childId);
+      const deliveryInputId = `${input.inputId}:child:${turn + 1}`;
+      const deliveryResult = { cardId: childId, ...childOutcome };
+      appendToolDelivery(this.actor.getSnapshot().context.projectRoot, {
+        agent_id: plannerActorId(this.cardId),
+        source_input_id: currentInput.inputId,
+        delivery_input_id: deliveryInputId,
+        tool_call_id: output.toolCallId,
+        tool_name: output.toolName,
+        result: deliveryResult,
+      });
       currentInput = {
         ...currentInput,
-        inputId: `${input.inputId}:child:${turn + 1}`,
+        inputId: deliveryInputId,
         episodeContext: {
           ...currentInput.episodeContext,
           lastToolResult: {
             toolCallId: output.toolCallId,
             toolName: output.toolName,
-            result: { cardId: childId, ...childOutcome },
+            result: deliveryResult,
           },
         },
       };

@@ -4,6 +4,7 @@ import type { LlmCompleteResult, ToolDefinition } from '../../agents/llm-contrac
 import type { CapabilityRequest } from '../../agents/provider-capabilities.js';
 import { saveActorSnapshot } from './snapshots.js';
 import { actorKindFromId } from './ids.js';
+import { appendLlmTurnError, appendLlmTurnFinished, appendLlmTurnStarted } from './llm-delivery-log.js';
 
 export interface LlmInvocationInput {
   inputId: string;
@@ -125,9 +126,12 @@ export class LlmRunnerController {
     if (input.agentId !== this.agentId) throw new Error(`Input ${input.inputId} targets ${input.agentId}, not ${this.agentId}`);
     this.actor.send({ type: 'RUN_TURN', input });
     this.persist();
+    appendLlmTurnStarted(this.actor.getSnapshot().context.projectRoot, input);
     const callId = `${this.agentId}:${input.inputId}`;
     if (this.admission && !this.admission.requestProviderCall(callId)) {
-      this.actor.send({ type: 'PROVIDER_ERROR', error: `Provider admission denied for ${callId}.` });
+      const error = `Provider admission denied for ${callId}.`;
+      appendLlmTurnError(this.actor.getSnapshot().context.projectRoot, input, error);
+      this.actor.send({ type: 'PROVIDER_ERROR', error });
       this.persist();
       const output = this.actor.getSnapshot().context.output;
       if (!output) throw new Error(`LLMRunner ${this.agentId} completed without output.`);
@@ -135,9 +139,12 @@ export class LlmRunnerController {
     }
     try {
       const result = await this.providerTurn.completeTurn(input);
+      appendLlmTurnFinished(this.actor.getSnapshot().context.projectRoot, input, result);
       this.actor.send({ type: 'PROVIDER_RESULT', result });
     } catch (error) {
-      this.actor.send({ type: 'PROVIDER_ERROR', error: error instanceof Error ? error.message : String(error) });
+      const message = error instanceof Error ? error.message : String(error);
+      appendLlmTurnError(this.actor.getSnapshot().context.projectRoot, input, message);
+      this.actor.send({ type: 'PROVIDER_ERROR', error: message });
     } finally {
       this.admission?.releaseProviderCall(callId);
     }
