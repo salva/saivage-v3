@@ -86,7 +86,7 @@ export interface AnalystResponse {
 
 export interface AnalystRuntimeDeps {
   cardStore: CardStore;
-  runtime: Pick<RuntimeApi, 'startProject' | 'stopProject' | 'pause' | 'resume'>;
+  runtime: Pick<RuntimeApi, 'startProject' | 'stopProject' | 'pause' | 'resume' | 'getStatus'>;
   stamper: SessionStamper & { getActivityStatus(sessionId: string): SessionActivity };
   candidateAvailability?: CandidateAvailability;
   eventLogger?: EventLogger;

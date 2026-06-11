@@ -54,11 +54,10 @@ describe('server availability contract', () => {
     expect(availability.components.mcp).toEqual(expect.objectContaining({ state: 'idle', source: 'mcp-manager' }));
   });
 
-  it('reports missing runtime state as a live-service diagnostic', () => {
+  it('uses live runtime services even when legacy runtime state is absent', () => {
     setupProject(tmpDir, false);
     const availability = buildServerAvailability({ projectRoot: tmpDir, runtimeApplication: createTestRuntimeApplication(), mcpManager: { getStatus: () => [] } });
-    expect(availability.components.runtime.state).toBe('degraded');
-    expect(availability.components.runtime.diagnostic?.code).toBe('runtime-state-missing');
+    expect(availability.components.runtime).toEqual(expect.objectContaining({ state: 'available', source: 'runtime-application' }));
     expect(availability.components.mcp.state).toBe('idle');
   });
 
@@ -69,7 +68,7 @@ describe('server availability contract', () => {
       runtimeApplication: createTestRuntimeApplication(),
       mcpManager: { getStatus: () => [] },
     });
-    expect(availability.components.runtime.state).toBe('degraded');
+    expect(availability.components.runtime).toEqual(expect.objectContaining({ state: 'available', source: 'runtime-application' }));
     expect(availability.components.mcp).toEqual(expect.objectContaining({ state: 'idle', source: 'mcp-manager' }));
     expect(availability.components.mcp.state).not.toBe('degraded');
     expect(availability.components.mcp.diagnostic?.code).toBe('mcp-manager-empty');

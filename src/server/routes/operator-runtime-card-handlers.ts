@@ -22,7 +22,7 @@ export function buildRuntimeCardOperatorContractHandlers(options: RuntimeCardOpe
   const { projectRoot } = options;
   let cardsReadModel: CardsReadModelService | null = null;
   const getCardsReadModel = () => {
-    cardsReadModel ??= new CardsReadModelService(projectRoot, requireCardStore(options.cardStore));
+    cardsReadModel ??= new CardsReadModelService(projectRoot, requireCardStore(options.cardStore), options.runtimeApplication?.runtimeApi);
     return cardsReadModel;
   };
 

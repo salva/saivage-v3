@@ -3,7 +3,6 @@ import { join } from 'node:path';
 
 import { PROJECT_CARD_ID } from '../cards/store-api.js';
 import { processApi } from '../runtime/process-api.js';
-import { readRuntimeState } from '../runtime/state-api.js';
 import { listControlActions } from '../persistence/index.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
@@ -38,19 +37,19 @@ export async function pause_runtime(ctx: ToolContext, params: Record<string, nev
   return runAuditedAnalystTool(ctx, params, { action: 'runtime.pause', safety_class: 'low', target_kind: 'runtime', getTargetId: () => 'project', run: async () => {
     if (!ctx.runtime) return toolFailure('conflict', 'Active runtime is not available.');
     ctx.runtime.pause();
-    const state = readRuntimeState(ctx.projectRoot);
-    return { success: true, data: { status: state?.status ?? 'unknown', paused: state?.paused ?? true } };
+    const state = ctx.runtime.getStatus();
+    return { success: true, data: { status: state.status, paused: state.paused } };
   } });
 }
 
 export async function resume_runtime(ctx: ToolContext, params: Record<string, never> = {}): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, params, { action: 'runtime.resume', safety_class: 'low', target_kind: 'runtime', getTargetId: () => 'project', run: async () => {
-    const state = readRuntimeState(ctx.projectRoot);
-    if (state?.status === 'error') return toolFailure('conflict', 'Runtime is in error state. Inspect Debug errors/timeline and fix the underlying failure before attempting recovery.', { runtime_status: state.status });
     if (!ctx.runtime) return toolFailure('conflict', 'Active runtime is not available.');
+    const state = ctx.runtime.getStatus();
+    if (state.status === 'error') return toolFailure('conflict', 'Runtime is in error state. Inspect Debug errors/timeline and fix the underlying failure before attempting recovery.', { runtime_status: state.status });
     ctx.runtime.resume();
-    const updated = readRuntimeState(ctx.projectRoot);
-    return { success: true, data: { status: updated?.status ?? 'unknown', paused: updated?.paused ?? false } };
+    const updated = ctx.runtime.getStatus();
+    return { success: true, data: { status: updated.status, paused: updated.paused } };
   } });
 }
 

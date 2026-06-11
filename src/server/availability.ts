@@ -42,17 +42,22 @@ export function buildServerAvailability(inputs: ServerAvailabilityInputs): Serve
 
   let runtime: ServerAvailability['components']['runtime'];
   try {
-    const state = readRuntimeState(inputs.projectRoot);
-    runtime = state
-      ? { state: 'available', source: 'runtime-application', checkedAt }
-      : { state: 'degraded', source: 'runtime-state', checkedAt, diagnostic: { code: 'runtime-state-missing', summary: 'Runtime application is running but runtime state is not initialized.' } };
+    inputs.runtimeApplication.runtimeApi.getStatus();
+    runtime = { state: 'available', source: 'runtime-application', checkedAt };
   } catch (error) {
-    runtime = {
-      state: 'degraded',
-      source: 'runtime-state',
-      checkedAt,
-      diagnostic: diagnostic('runtime-state-read-failed', error, inputs.projectRoot),
-    };
+    try {
+      const state = readRuntimeState(inputs.projectRoot);
+      runtime = state
+        ? { state: 'available', source: 'runtime-state', checkedAt }
+        : { state: 'degraded', source: 'runtime-state', checkedAt, diagnostic: { code: 'runtime-state-missing', summary: 'Runtime application is running but runtime state is not initialized.' } };
+    } catch (stateError) {
+      runtime = {
+        state: 'degraded',
+        source: 'runtime-state',
+        checkedAt,
+        diagnostic: diagnostic('runtime-state-read-failed', stateError, inputs.projectRoot),
+      };
+    }
   }
 
   let mcp: ServerAvailability['components']['mcp'];
