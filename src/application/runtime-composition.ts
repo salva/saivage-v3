@@ -12,12 +12,11 @@ import type { EventBus } from '../events/index.js';
 import type { McpManager } from '../mcp/manager-api.js';
 import { EventLogger, ErrorLogger } from '../observability/index.js';
 import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from '../runtime/state.js';
-import type { RuntimeConfig } from '../runtime/runtime-config.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
-import { createRuntimeCoreContainer } from '../runtime/core-composition.js';
 import { SessionStampCounter } from '../runtime/session-stamp-counter.js';
 import { CardStore } from '../cards/card-store.js';
 import type { InvocationService } from '../agents/invocation-service.js';
+import { createXStateRuntimeApi } from './xstate-runtime-api-factory.js';
 
 export interface RuntimeApiFactoryDeps {
   projectRoot: string;
@@ -97,41 +96,14 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   });
   agentAdapter.setSkillsEngine(skillsEngine);
 
-  const runtimeConfig: RuntimeConfig = {
-    projectRoot,
-    fakeAgentConfig: { mapping: {}, fixtureDir: '' },
-    skillsEngine,
-    autoDispatchBacklog: false,
-    continuousImprovement: config.runtime.continuousImprovement,
+  const runtimeFactory = services.runtimeApiFactory ?? createXStateRuntimeApi;
+  const runtimeComposition = createComposedRuntimeApi({
+    runtimeApi: runtimeFactory({ projectRoot, eventBus, cardStore, invocationService: agentAdapter.getInvocationService() }),
+    candidateAvailability,
     eventLogger,
     errorLogger,
     eventBus,
-    cardStore,
-    sessionStamper: stamper,
-    supervisorConfig: config.supervisor
-      ? {
-          enabled: config.supervisor.enabled,
-          intervalMs: config.supervisor.intervalMs,
-          consecutiveStuckVerdicts: config.supervisor.consecutiveStuckVerdicts,
-          logLines: config.supervisor.logLines,
-        }
-      : undefined,
-  };
-  const runtimeComposition = services.runtimeApiFactory
-    ? createOptInRuntimeApi({
-      runtimeApi: services.runtimeApiFactory({ projectRoot, eventBus, cardStore, invocationService: agentAdapter.getInvocationService() }),
-      candidateAvailability,
-      eventLogger,
-      errorLogger,
-    })
-    : createDefaultRuntimeApi({
-      runtimeConfig,
-      agentAdapter,
-      stamper,
-      candidateAvailability,
-      eventLogger,
-      errorLogger,
-    });
+  });
   const runtimeApi = runtimeComposition.runtimeApi;
   const emitAnalystToolInvokedFromRuntime = runtimeComposition.emitAnalystToolInvoked;
   let analystDepsCache: AnalystRuntimeDeps | null = null;
@@ -171,63 +143,32 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   };
 }
 
-function createDefaultRuntimeApi(input: {
-  runtimeConfig: RuntimeConfig;
-  agentAdapter: AgentAdapter;
-  stamper: SessionStampCounter;
-  candidateAvailability: DisposableCandidateAvailability;
-  eventLogger: EventLogger;
-  errorLogger: ErrorLogger;
-}): { runtimeApi: RuntimeApi; emitAnalystToolInvoked(payload: EventPayload<'analyst_tool_invoked'>): void } {
-  let emitAnalystToolInvoked: ((payload: EventPayload<'analyst_tool_invoked'>) => void) | null = null;
-  const runtimeCore = createRuntimeCoreContainer({
-    config: input.runtimeConfig,
-    agentRuntime: input.agentAdapter,
-    getActivityStatus: (sessionId) => input.stamper.getActivityStatus(sessionId),
-    wireAgentEventBus: (agentEventBus) => {
-      input.agentAdapter.setEventBus(agentEventBus);
-    },
-    wireRuntimeLedgerEvents: (runtimeLedgerEvents) => {
-      input.agentAdapter.setRuntimeLedgerEventBus(runtimeLedgerEvents);
-    },
-    wireAnalystToolInvokedEmitter: (emit) => {
-      emitAnalystToolInvoked = emit;
-    },
-  });
-  if (!emitAnalystToolInvoked) throw new Error('Runtime analyst event emitter was not provided.');
-  return {
-    runtimeApi: {
-      ...runtimeCore.api,
-      shutdown: async () => {
-        await runtimeCore.api.shutdown();
-        input.candidateAvailability.dispose();
-        input.eventLogger.close();
-        input.errorLogger.close();
-      },
-    },
-    emitAnalystToolInvoked(payload) {
-      if (!emitAnalystToolInvoked) throw new Error('Runtime analyst event emitter is unavailable.');
-      emitAnalystToolInvoked(payload);
-    },
-  };
-}
-
-function createOptInRuntimeApi(input: {
+function createComposedRuntimeApi(input: {
   runtimeApi: RuntimeApi;
   candidateAvailability: DisposableCandidateAvailability;
   eventLogger: EventLogger;
   errorLogger: ErrorLogger;
+  eventBus: EventBus;
 }): { runtimeApi: RuntimeApi; emitAnalystToolInvoked(payload: EventPayload<'analyst_tool_invoked'>): void } {
   return {
     runtimeApi: {
-      ...input.runtimeApi,
+      start: () => input.runtimeApi.start(),
       shutdown: async () => {
         await input.runtimeApi.shutdown();
         input.candidateAvailability.dispose();
         input.eventLogger.close();
         input.errorLogger.close();
       },
+      pause: () => input.runtimeApi.pause(),
+      resume: () => input.runtimeApi.resume(),
+      startProject: (source) => input.runtimeApi.startProject(source),
+      stopProject: (source) => input.runtimeApi.stopProject(source),
+      subscribe: (options) => input.runtimeApi.subscribe(options),
+      getStatus: () => input.runtimeApi.getStatus(),
+      getActivityStatus: (sessionId) => input.runtimeApi.getActivityStatus(sessionId),
     },
-    emitAnalystToolInvoked() {},
+    emitAnalystToolInvoked(payload) {
+      input.eventBus.emit('analyst_tool_invoked', payload);
+    },
   };
 }
