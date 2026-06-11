@@ -1,15 +1,17 @@
 import { executorActorId, plannerActorId } from './ids.js';
-import { XSTATE_PLANNER_TOOL_DEFINITIONS, XSTATE_PROCESS_TOOL_DEFINITIONS } from './actor-tool-definitions.js';
+import { buildXStateExecutorInput, buildXStatePlannerInput } from './actor-input-builders.js';
 import { GoalCardRunnerController } from './goal-card-runner.js';
 import { TerminalCardRunnerController } from './card-runner.js';
 import type { ChildActivationOutcome, ChildActivationPort } from './goal-card-runner.js';
 import type { GoalCardStatusPort } from './goal-card-runner.js';
 import type { AdmissionPort, ProviderTurnPort } from './llm-runner.js';
 import type { TerminalCardStatusPort } from './card-runner.js';
+import type { RuntimeContextCardReader } from '../context-builder.js';
 
 export interface XStateChildCard {
   id: string;
   type: string;
+  depth?: number;
   status?: string;
 }
 
@@ -20,6 +22,7 @@ export interface XStateChildCardReader {
 export interface XStateChildActivationOptions {
   projectRoot: string;
   cards: XStateChildCardReader;
+  contextCards?: RuntimeContextCardReader;
   providerTurn: ProviderTurnPort;
   admission?: AdmissionPort;
   reviewerProviderTurn?: ProviderTurnPort;
@@ -49,18 +52,11 @@ class XStateChildActivation implements ChildActivationPort {
       statusPort: this.options.goalStatusPort,
       publicStatus: normalizePublicStatus(card.status),
     });
-    return runner.start({
+    return runner.start(buildXStatePlannerInput({
       inputId: `activate-goal:${card.id}`,
-      role: 'planner',
-      sessionId: plannerActorId(card.id),
-      systemPrompt: `Plan and execute goal card '${card.id}'.`,
-      contextMessages: [],
-      tools: XSTATE_PLANNER_TOOL_DEFINITIONS,
-      terminalToolNames: [],
-      modelParams: {},
-      capabilityRequest: { requiresTools: true },
-      episodeContext: { cardId: card.id, cardType: card.type },
-    });
+      card,
+      context: { cards: this.options.contextCards },
+    }));
   }
 
   private async startTerminal(card: XStateChildCard): Promise<ChildActivationOutcome> {
@@ -72,18 +68,12 @@ class XStateChildActivation implements ChildActivationPort {
       normalizePublicStatus(card.status),
       this.options.terminalStatusPort,
     );
-    const outcome = await runner.start({
+    const outcome = await runner.start(buildXStateExecutorInput({
       inputId: `activate-terminal:${card.id}`,
-      role: 'executor',
-      sessionId: executorActorId(card.id),
-      systemPrompt: `Execute terminal card '${card.id}'.`,
-      contextMessages: [],
-      tools: XSTATE_PROCESS_TOOL_DEFINITIONS,
-      terminalToolNames: [],
-      modelParams: {},
-      capabilityRequest: { requiresTools: false },
-      episodeContext: { cardId: card.id, cardType: card.type },
-    });
+      card,
+      goalId: card.id,
+      context: { cards: this.options.contextCards },
+    }));
     if (outcome.status === 'needs_verification') return { status: 'blocked', statusText: outcome.statusText };
     return { status: outcome.status, statusText: outcome.statusText };
   }

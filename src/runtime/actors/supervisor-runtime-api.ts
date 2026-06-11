@@ -1,8 +1,8 @@
 import { EventBus } from '../../events/index.js';
 import { createActionableErrorEnvelope } from '../../schemas/index.js';
 import { PROJECT_CARD_ID } from '../../cards/project-card.js';
+import { buildXStatePlannerInput } from './actor-input-builders.js';
 import { GoalCardRunnerController } from './goal-card-runner.js';
-import { XSTATE_PLANNER_TOOL_DEFINITIONS } from './actor-tool-definitions.js';
 import { plannerActorId } from './ids.js';
 import { RuntimeSupervisorController } from './runtime-supervisor.js';
 import { createXStateChildActivation } from './xstate-child-activation.js';
@@ -15,6 +15,7 @@ import type { GoalCardStatusPort } from './goal-card-runner.js';
 import type { ProviderTurnPort } from './llm-runner.js';
 import type { TerminalCardStatusPort } from './card-runner.js';
 import type { XStateChildCardReader } from './xstate-child-activation.js';
+import type { RuntimeContextCardReader } from '../context-builder.js';
 
 export type ProjectRootCardReader = XStateChildCardReader;
 
@@ -23,6 +24,7 @@ export interface SupervisorRuntimeApiOptions {
   eventBus?: EventBus;
   now?: () => string;
   rootCards?: ProjectRootCardReader;
+  contextCards?: RuntimeContextCardReader;
   providerTurn?: ProviderTurnPort;
   reviewerProviderTurn?: ProviderTurnPort;
   childActivation?: ChildActivationPort;
@@ -97,6 +99,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       ? createXStateChildActivation({
         projectRoot: this.options.projectRoot,
         cards: this.options.rootCards,
+        contextCards: this.options.contextCards,
         providerTurn: this.options.providerTurn,
         admission: this.supervisor,
         reviewerProviderTurn: this.options.reviewerProviderTurn,
@@ -111,18 +114,12 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       childActivation,
       { admission: this.supervisor, reviewerProviderTurn: this.options.reviewerProviderTurn, statusPort: this.options.goalStatusPort },
     );
-    const outcome = await runner.start({
+    const outcome = await runner.start(buildXStatePlannerInput({
       inputId: `start-project:${command.command_id}`,
-      role: 'planner',
-      sessionId: plannerActorId(PROJECT_CARD_ID),
-      systemPrompt: 'Plan and execute the project goal.',
-      contextMessages: [],
-      tools: XSTATE_PLANNER_TOOL_DEFINITIONS,
-      terminalToolNames: [],
-      modelParams: {},
-      capabilityRequest: { requiresTools: true },
-      episodeContext: { cardId: PROJECT_CARD_ID, sourceCommandId: command.command_id },
-    });
+      card: { id: PROJECT_CARD_ID, type: 'project' },
+      sourceCommandId: command.command_id,
+      context: { cards: this.options.contextCards },
+    }));
     const finishedAt = this.now();
     this.currentCardId = null;
     return {

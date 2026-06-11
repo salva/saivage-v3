@@ -6,7 +6,8 @@ import { EventBus } from '../../src/events/index.js';
 import { createXStateRuntimeApi } from '../../src/application/xstate-runtime-api-factory.js';
 import type { CardRecord } from '../../src/schemas/index.js';
 import type { InvocationRequest } from '../../src/agents/invocation-service.js';
-import type { InvocationTurnService, TerminalCardStorePort, XStateChildCardReader } from '../../src/runtime/actors/index.js';
+import type { GoalCardStorePort, InvocationTurnService, TerminalCardStorePort, XStateChildCardReader } from '../../src/runtime/actors/index.js';
+import type { RuntimeContextCardReader } from '../../src/runtime/context-builder.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-xstate-runtime-factory-'));
@@ -18,8 +19,34 @@ function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promis
 
 describe('createXStateRuntimeApi', () => {
   it('constructs a RuntimeApi backed by InvocationService provider turns and CardStore ports', async () => withTempProject(async (projectRoot) => {
-    const cardStore: XStateChildCardReader & TerminalCardStorePort = {
-      read: jest.fn((cardId: string) => cardId === 'project' ? { id: 'project', type: 'project' } : null),
+    const projectCard = {
+      id: 'project',
+      type: 'project',
+      parent: null,
+      depth: 0,
+      position: 0,
+      title: 'Project Goal',
+      description: 'Complete the project',
+      status: 'backlog',
+      lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
+      tags: [],
+      priority: 0,
+      urgency: 'normal',
+      created_by: 'user',
+      created_at: '2026-06-12T00:00:00.000Z',
+      updated_at: '2026-06-12T00:00:00.000Z',
+      version_seq: 1,
+      depends_on: [],
+      related: [],
+      acceptance: 'Done means complete.',
+      artifacts: [],
+      attachments: [],
+      retries: 0,
+    } as CardRecord;
+    const cardStore: XStateChildCardReader & RuntimeContextCardReader & GoalCardStorePort & TerminalCardStorePort = {
+      read: jest.fn((cardId: string) => cardId === 'project' ? projectCard : null),
+      listChildren: jest.fn(() => []),
+      blocksFor: jest.fn(() => []),
       setStatus: jest.fn(() => ({} as CardRecord)),
       commitTerminalLifecyclePatch: jest.fn(() => ({} as CardRecord)),
     };
@@ -40,6 +67,7 @@ describe('createXStateRuntimeApi', () => {
     expect(invocationService.invokeWithRecovery).toHaveBeenCalledWith(expect.objectContaining({
       role: 'planner',
       sessionId: 'planner:project',
+      systemPrompt: expect.stringContaining('Project Goal'),
     }));
     expect(cardStore.read).toHaveBeenCalledWith('project');
     expect(cardStore.setStatus).toHaveBeenCalledWith('project', 'running');
