@@ -1,4 +1,5 @@
 import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, jest } from '@jest/globals';
@@ -8,8 +9,10 @@ import {
   executorActorId,
   plannerActorId,
   readActorSnapshots,
+  removeActorSnapshot,
   RuntimeSupervisorController,
   saveActorSnapshot,
+  actorSnapshotPath,
   supervisorActorId,
   TerminalCardRunnerController,
   ProcessRunnerController,
@@ -88,7 +91,7 @@ describe('XState minimal runtime core', () => {
     expect(actorKindFromId('executor:T-1')).toBe('llm');
   });
 
-  it('persists actor snapshots with schema version envelope', () => withTempProject((projectRoot) => {
+  it('persists actor snapshots in per-actor files with schema version envelope', () => withTempProject((projectRoot) => {
     saveActorSnapshot(projectRoot, {
       actor_id: 'card:T-1',
       actor_kind: 'card',
@@ -100,6 +103,40 @@ describe('XState minimal runtime core', () => {
     expect(readActorSnapshots(projectRoot)).toMatchObject([
       { actor_id: 'card:T-1', actor_kind: 'card', state_value: 'done' },
     ]);
+    expect(existsSync(actorSnapshotPath(projectRoot, 'card:T-1'))).toBe(true);
+    expect(actorSnapshotPath(projectRoot, 'card:T-1')).toContain('.saivage/runtime/actors/card/');
+  }));
+
+  it('overwrites, sorts, and removes per-actor snapshots by actor id', () => withTempProject((projectRoot) => {
+    saveActorSnapshot(projectRoot, {
+      actor_id: 'executor:T-1',
+      actor_kind: 'llm',
+      state_value: 'running',
+      context: { turn: 1 },
+      updated_at: new Date().toISOString(),
+    });
+    saveActorSnapshot(projectRoot, {
+      actor_id: 'card:T-1',
+      actor_kind: 'card',
+      state_value: 'executing',
+      context: { cardId: 'T-1' },
+      updated_at: new Date().toISOString(),
+    });
+    saveActorSnapshot(projectRoot, {
+      actor_id: 'executor:T-1',
+      actor_kind: 'llm',
+      state_value: 'done',
+      context: { turn: 2 },
+      updated_at: new Date().toISOString(),
+    });
+
+    expect(readActorSnapshots(projectRoot).map((item) => `${item.actor_id}:${String(item.state_value)}`)).toEqual([
+      'card:T-1:executing',
+      'executor:T-1:done',
+    ]);
+
+    removeActorSnapshot(projectRoot, 'card:T-1');
+    expect(readActorSnapshots(projectRoot).map((item) => item.actor_id)).toEqual(['executor:T-1']);
   }));
 
   it('supervisor owns one provider-call admission permit', () => withTempProject((projectRoot) => {
