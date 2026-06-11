@@ -19,6 +19,7 @@ import {
   createGoalCardStatusPort,
   type LlmInvocationInput,
   type ProviderTurnPort,
+  type GoalCardStatusPort,
   type TerminalCardStatusPort,
 } from '../../../src/runtime/actors/index.js';
 import type { LlmCompleteResult } from '../../../src/agents/llm-contracts.js';
@@ -472,6 +473,30 @@ describe('XState minimal runtime core', () => {
 
     expect(runner.phase).toBe('done');
     expect(runner.publicStatus).toBe('cancelled');
+  }));
+
+  it('GoalCardRunner cancellation is a simple terminal transition with status publication', async () => withTempProject(async (projectRoot) => {
+    const provider: ProviderTurnPort = {
+      completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'unused' })),
+    };
+    const statusPort: GoalCardStatusPort = {
+      markRunning: jest.fn<(cardId: string) => void>(),
+      markCancelled: jest.fn<(cardId: string) => void>(),
+      commitGoalOutcome: jest.fn<GoalCardStatusPort['commitGoalOutcome']>(),
+    };
+    const runner = new GoalCardRunnerController(
+      projectRoot,
+      'G-cancel',
+      provider,
+      { startChild: jest.fn(async () => ({ status: 'done' as const, statusText: 'unused' })) },
+      { statusPort },
+    );
+
+    await runner.cancel();
+
+    expect(runner.phase).toBe('done');
+    expect(runner.publicStatus).toBe('cancelled');
+    expect(statusPort.markCancelled).toHaveBeenCalledWith('G-cancel');
   }));
 
   it('ProcessRunner timeout returns control without killing the process', async () => withTempProject(async (projectRoot) => {

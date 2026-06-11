@@ -179,6 +179,12 @@ export class GoalCardRunnerController {
     this.persist();
   }
 
+  async cancel(): Promise<void> {
+    this.actor.send({ type: 'CANCEL' });
+    this.persist();
+    await this.statusPort?.markCancelled(this.cardId);
+  }
+
   snapshot() {
     const snapshot = this.actor.getSnapshot();
     return {
