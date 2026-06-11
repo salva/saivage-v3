@@ -47,8 +47,8 @@ session-active-status, or activation-unwind machinery:
    paths with diagnostics.
 7. Pause, resume, cancel, and shut down without corrupting card/message/tool
    state.
-8. Keep the analyst usable as a separate operator assistant, not as a card-owned
-   actor.
+8. Keep the analyst usable as a separate operator assistant. It does not need to
+   be card-owned, but it may use XState if actor ownership improves the design.
 
 Everything else is optional until a current product surface needs it.
 
@@ -62,6 +62,12 @@ Do not port these old-core concepts as independent requirements:
 - Synthetic planner-note routing when NoteBox can cover the behavior.
 - Global single-active-non-analyst-session enforcement.
 - Dispatcher composition objects that exist only to wire old phase runners.
+
+Before reintroducing any old layer, ask whether the old approach was actually
+right. The default answer should be "no" unless the layer still represents a
+clear product concept. If a cleaner XState actor, domain service, or read-model
+projection can replace an old layer, use the cleaner design instead of preserving
+the old shape.
 
 ## 3. Replacement Strategy
 
@@ -82,7 +88,13 @@ The easiest path is likely:
 5. Move and modify adjacent layers progressively as they become needed by the new
    core. If an old adjacent layer is unnecessary for current functionality, leave
    it out instead of preserving it.
-6. Delete any temporary compatibility, bridge, or adapter modules before merge.
+6. Reassess each adjacent layer before moving it. The implementation choice is
+   not "port or delete"; it is "keep the product behavior, then choose the best
+   new ownership model."
+7. Extend XState beyond card execution when it improves lifecycle ownership,
+   recovery, or operator control. The analyst path is eligible for this treatment
+   even though it is not card-attached.
+8. Delete any temporary compatibility, bridge, or adapter modules before merge.
 
 This does not require running old and new dispatchers side by side. If an old
 layer's shape fights the new architecture, rewrite it or omit it instead of
@@ -125,6 +137,17 @@ or extract only product domain logic that still makes sense, such as terminal
 commit validation or prompt/context assembly. Do not port phase runners or phase
 state helpers as an architectural layer.
 
+The audit question for every old layer is:
+
+1. What current product behavior does this layer support?
+2. Is that behavior required for the functional minimum or a current operator
+   surface?
+3. Is the old ownership model still right under XState?
+4. Could the behavior be simpler as a CardRunner action, LLMRunner wait state,
+   RuntimeSupervisor policy, standalone domain service, read-model projection, or
+   separate XState actor?
+5. If it is not required now, can it be omitted until the product need reappears?
+
 Rewrite adjacent layers if they encode old runtime assumptions:
 
 - Server runtime-control routes should command RuntimeSupervisor, not old
@@ -161,6 +184,12 @@ Create `src/runtime/actors/` as the new orchestration boundary:
   `reviewer:<card>`, `executor:<card>`, and `process:<id>`.
 - `read-model.ts`: projection from actors/domain state into API/UI fields without
   exposing raw XState state.
+
+Additional actors are allowed when they simplify real lifecycle ownership. Do not
+add generic actor layers "because XState is available," but do consider XState
+for long-lived non-card workflows such as analyst conversations, MCP/server
+connections, operator command execution, or durable background reconciliation if
+they need explicit states, cancellation, pause/quiescence, or recovery.
 
 The rest of the runtime should depend on this package-level boundary instead of
 reaching into individual actor internals.
@@ -370,7 +399,7 @@ Exit criteria:
 
 - RuntimeSupervisor is the only dispatcher and lifecycle owner.
 
-### Phase I: API/UI And Tool Surface Rewrite
+### Phase I: API/UI, Analyst, And Tool Surface Rewrite
 
 Work:
 
@@ -382,15 +411,19 @@ Work:
    records.
 5. Rewrite planner, executor, reviewer, and analyst tool read paths that depended
    on old `RuntimeState` fields. Keep only current product tools.
-6. Ensure no API/UI contract exposes raw XState state values, snapshots, event
+6. Reassess the analyst implementation. It must remain separate from CardRunner,
+   but it may become an AnalystRunner XState actor if that gives cleaner
+   conversation lifecycle, provider admission, cancellation, or recovery than the
+   current non-actor path.
+7. Ensure no API/UI contract exposes raw XState state values, snapshots, event
    queues, or framework terminology.
 
 Exit criteria:
 
 - Operator surfaces work against the new actor runtime directly.
 - No bridge model converts old runtime state to new UI state.
-- Analyst remains usable as a separate operator assistant without becoming a
-  CardRunner-owned actor.
+- Analyst remains usable as a separate operator assistant. If rebuilt with
+  XState, it is owned by an analyst/runtime supervisor path, not by CardRunner.
 
 ### Phase J: Final Tree Cleanup
 
@@ -432,6 +465,7 @@ documentation drift.
 | Role-specific AgentSession ownership | Delete; LLMRunner owns conversation advancement |
 | Runtime activation arrays | Delete; parent/child waits and delivery records cover required behavior |
 | Old startup active-run repair | Delete; implement actor recovery from new persisted state |
+| Analyst non-card conversations | Reassess; keep non-card, but XState actor ownership is allowed if cleaner |
 
 ## 9. Testing Strategy
 
@@ -499,6 +533,9 @@ Pause and update the XState design if any of these happen:
 - LLMRunner cannot stay role-generic without hiding role policy in provider
   plumbing.
 - Temporary scaffolding starts becoming a permanent bridge.
+- A layer is being reintroduced primarily because it existed in the old core,
+  rather than because a current product behavior needs it and the ownership model
+  was re-evaluated.
 
 If a stop condition is hit, update both this plan and the XState draft before
 continuing implementation.
