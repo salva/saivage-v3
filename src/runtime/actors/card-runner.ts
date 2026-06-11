@@ -84,11 +84,14 @@ export class TerminalCardRunnerController {
     this.actor.send({ type: 'START' });
     this.persist();
     const output = await this.llmRunner.runTurn({ ...input, agentId: executorActorId(this.cardId) });
-    if (output.type !== 'LLM_RESULT' || !output.result) {
+    if (output.type !== 'LLM_RESULT') {
+      const statusText = output.type === 'LLM_TOOL_CALL'
+        ? `Unsupported executor tool call '${output.toolName}'.`
+        : output.error ?? 'Executor failed without a terminal result.';
       const outcome: TerminalOutcome = {
         status: 'failed',
-        statusText: output.error ?? 'Executor failed without a terminal result.',
-        result: { kind: 'message', content: output.error ?? 'executor failed' },
+        statusText,
+        result: { kind: 'message', content: statusText },
       };
       this.actor.send({ type: 'TERMINAL_OUTCOME', outcome });
       this.persist();

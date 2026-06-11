@@ -19,12 +19,10 @@ export interface LlmInvocationInput {
   episodeContext: Record<string, unknown>;
 }
 
-export interface LlmRunnerOutput {
-  type: 'LLM_RESULT' | 'LLM_TOOL_CALL' | 'LLM_ERROR';
-  agentId: string;
-  result?: LlmCompleteResult;
-  error?: string;
-}
+export type LlmRunnerOutput =
+  | { type: 'LLM_RESULT'; agentId: string; result: Extract<LlmCompleteResult, { kind: 'message' }> }
+  | { type: 'LLM_TOOL_CALL'; agentId: string; toolCallId: string; toolName: string; args: unknown }
+  | { type: 'LLM_ERROR'; agentId: string; error: string };
 
 export interface ProviderTurnPort {
   completeTurn(input: LlmInvocationInput): Promise<LlmCompleteResult>;
@@ -69,7 +67,7 @@ const llmRunnerMachine = createMachine({
         PROVIDER_RESULT: {
           target: 'done',
           actions: assign({
-            output: ({ context, event }) => ({ type: 'LLM_RESULT', agentId: context.agentId, result: event.result }),
+            output: ({ context, event }) => outputFromProviderResult(context.agentId, event.result),
           }),
         },
         PROVIDER_ERROR: {
@@ -82,6 +80,27 @@ const llmRunnerMachine = createMachine({
     },
   },
 });
+
+function outputFromProviderResult(agentId: string, result: LlmCompleteResult): LlmRunnerOutput {
+  if (result.kind === 'message') return { type: 'LLM_RESULT', agentId, result };
+  const [call] = result.tool_calls;
+  if (!call) return { type: 'LLM_ERROR', agentId, error: 'Provider returned tool_calls without a tool call.' };
+  return {
+    type: 'LLM_TOOL_CALL',
+    agentId,
+    toolCallId: call.id,
+    toolName: call.function.name,
+    args: parseToolArguments(call.function.arguments),
+  };
+}
+
+function parseToolArguments(raw: string): unknown {
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    return raw;
+  }
+}
 
 export class LlmRunnerController {
   private readonly actor;

@@ -13,6 +13,7 @@ import {
   supervisorActorId,
   TerminalCardRunnerController,
   ProcessRunnerController,
+  LlmRunnerController,
   type LlmInvocationInput,
   type ProviderTurnPort,
 } from '../../../src/runtime/actors/index.js';
@@ -109,6 +110,50 @@ describe('XState minimal runtime core', () => {
       'card:T-1',
       'executor:T-1',
     ]);
+  }));
+
+  it('LLMRunner emits generic tool-call output', async () => withTempProject(async (projectRoot) => {
+    const provider: ProviderTurnPort = {
+      completeTurn: jest.fn(async () => ({
+        kind: 'tool_calls' as const,
+        tool_calls: [{
+          id: 'tool-1',
+          type: 'function' as const,
+          function: { name: 'run_process', arguments: '{"command":"pwd"}' },
+        }],
+      })),
+    };
+    const runner = new LlmRunnerController(projectRoot, 'executor:T-tools', provider);
+
+    const output = await runner.runTurn({ ...invocationInput('T-tools'), agentId: 'executor:T-tools' });
+
+    expect(output).toEqual({
+      type: 'LLM_TOOL_CALL',
+      agentId: 'executor:T-tools',
+      toolCallId: 'tool-1',
+      toolName: 'run_process',
+      args: { command: 'pwd' },
+    });
+  }));
+
+  it('terminal CardRunner fails clearly on unsupported executor tool calls', async () => withTempProject(async (projectRoot) => {
+    const provider: ProviderTurnPort = {
+      completeTurn: jest.fn(async () => ({
+        kind: 'tool_calls' as const,
+        tool_calls: [{
+          id: 'tool-unsupported',
+          type: 'function' as const,
+          function: { name: 'old_runtime_tool', arguments: '{}' },
+        }],
+      })),
+    };
+    const runner = new TerminalCardRunnerController(projectRoot, 'T-unsupported', provider);
+
+    const outcome = await runner.start(invocationInput('T-unsupported'));
+
+    expect(outcome.status).toBe('failed');
+    expect(outcome.statusText).toBe("Unsupported executor tool call 'old_runtime_tool'.");
+    expect(runner.publicStatus).toBe('failed');
   }));
 
   it('terminal CardRunner cancellation is a simple terminal transition', () => withTempProject((projectRoot) => {
