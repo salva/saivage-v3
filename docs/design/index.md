@@ -12,6 +12,7 @@ Use these pages for design-era context. For current operator behavior, start wit
 - [Agents](./agents.md)
 - [Runtime](./runtime.md)
 - [Terminal Commit Layer](./terminal-commit-layer.md)
+- [Card Runner State Machine Draft](./card-runner-state-machine-draft.md)
 - [Card-Attached Agent Lifetime Plan](./card-attached-agent-lifetime-plan.md)
 - [Duplicate Child Block Fix](./duplicate-child-block-fix.md)
 - [Over-Engineering Findings](./over-engineering-findings.md)
