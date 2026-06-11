@@ -1,0 +1,59 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { describe, expect, it } from '@jest/globals';
+import { buildActorRuntimeReadModel } from '../../src/application/read-models/actor-runtime-read-model.js';
+import { RuntimeSupervisorController, saveActorSnapshot } from '../../src/runtime/actors/index.js';
+
+function withTempProject<T>(fn: (projectRoot: string) => T): T {
+  const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-actor-read-model-'));
+  try {
+    return fn(projectRoot);
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+}
+
+describe('actor runtime read model', () => {
+  it('projects supervisor, card runner, and LLM runner snapshots without raw XState details', () => withTempProject((projectRoot) => {
+    const supervisor = new RuntimeSupervisorController();
+    supervisor.start(projectRoot);
+    supervisor.pause();
+    saveActorSnapshot(projectRoot, {
+      actor_id: 'card:T-1',
+      actor_kind: 'card',
+      state_value: 'executing',
+      context: { privateField: 'not projected' },
+      updated_at: new Date().toISOString(),
+    });
+    saveActorSnapshot(projectRoot, {
+      actor_id: 'executor:T-1',
+      actor_kind: 'llm',
+      state_value: 'running',
+      context: { privateField: 'not projected' },
+      updated_at: new Date().toISOString(),
+    });
+
+    expect(buildActorRuntimeReadModel(projectRoot)).toEqual({
+      pauseMode: 'paused',
+      cards: [{ cardId: 'T-1', runnerPhase: 'executing' }],
+      agents: [{ agentId: 'executor:T-1', agentPhase: 'running' }],
+      diagnostics: [],
+    });
+  }));
+
+  it('reports unknown supervisor snapshot shape as diagnostics', () => withTempProject((projectRoot) => {
+    saveActorSnapshot(projectRoot, {
+      actor_id: 'supervisor',
+      actor_kind: 'supervisor',
+      state_value: 'running',
+      context: {},
+      updated_at: new Date().toISOString(),
+    });
+
+    expect(buildActorRuntimeReadModel(projectRoot)).toMatchObject({
+      pauseMode: 'unknown',
+      diagnostics: ['supervisor snapshot is missing mode region'],
+    });
+  }));
+});
