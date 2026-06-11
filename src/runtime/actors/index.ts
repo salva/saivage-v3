@@ -2,6 +2,7 @@ export * from './ids.js';
 export * from './snapshots.js';
 export * from './runtime-supervisor.js';
 export * from './llm-runner.js';
+export * from './invocation-provider-turn.js';
 export * from './card-runner.js';
 export * from './terminal-card-status-port.js';
 export * from './xstate-child-activation.js';
