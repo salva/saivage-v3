@@ -174,16 +174,28 @@ Create `src/runtime/actors/` as the new orchestration boundary:
 - `llm-runner.ts`: generic LLMRunner machine for input envelopes, provider
   requests, tool-call ledger transitions, tool results/errors, and generic
   output events.
-- `process-runner.ts`: durable process actor with `running` and `done` states,
-  process reattach/reconcile, cancellation, and exactly-one terminal delivery.
-- `notebox.ts`: idempotent note storage, delivery, consumption, and recovery
-  reconciliation.
-- `persistence.ts`: Saivage-owned actor snapshot schemas, JSONL append helpers,
-  atomic JSON writes, and index-manifest helpers.
+- `process-runner.ts`: background process actor that starts a subprocess, waits
+  for it with a timeout, and gives the owning LLMRunner control over what happens
+  next. ProcessRunner does not kill the process on timeout. Instead, it reports
+  the timeout to the LLMRunner, which decides whether to keep waiting, inspect
+  partial output, kill the process, or abandon it. ProcessRunner provides
+  exactly-one terminal delivery and can be reattached after dirty shutdown if
+  the process is still running.
+- `notebox.ts`: starts as a data structure owned by CardRunner — a set of
+  delivered note ids and a list of pending notes. Only extract into a separate
+  persisted module if note delivery grows real persistence or recovery complexity.
+  The initial implementation needs only: idempotent delivery by note id, delivery
+  before the next LLMRunner turn, and pending-note guards on `REVIEW_PASSED`.
+- `persistence.ts`: Saivage-owned actor snapshot read/write, JSONL append, atomic
+  JSON write, and companion index-manifest helpers. Start with what Phase C needs
+  (card snapshots, LLM runner snapshots, message logs) and add segmentation and
+  index manifests when the phases that need them land.
 - `ids.ts`: deterministic actor ids such as `card:<id>`, `planner:<card>`,
   `reviewer:<card>`, `executor:<card>`, and `process:<id>`.
 - `read-model.ts`: projection from actors/domain state into API/UI fields without
-  exposing raw XState state.
+  exposing raw XState state. This module lives near API routes, not inside the
+  actors package boundary. Actors expose their state through well-defined
+  interfaces; projections are a separate concern.
 
 Additional actors are allowed when they simplify real lifecycle ownership. Do not
 add generic actor layers "because XState is available," but do consider XState
@@ -196,23 +208,31 @@ reaching into individual actor internals.
 
 ## 6. Persistence Model
 
-Implement new persistence before full behavior:
+Implement persistence incrementally. Start with what Phase C needs and add
+storage complexity when the phases that need it land:
 
+Phase C needs:
 ```text
 .saivage/runtime/actors/supervisor.json
 .saivage/runtime/actors/card/<card-id>.json
 .saivage/runtime/actors/llm/<agent-id>.json
-.saivage/runtime/actors/process/<process-id>.json
+.saivage/agents/messages/<agent-id>.jsonl
+```
+
+Later phases add:
+```text
 .saivage/runtime/events.jsonl
 .saivage/agents/messages/<agent-id>.index.json
 .saivage/agents/messages/<agent-id>.<segment>.jsonl
 .saivage/agents/tool-deliveries/<agent-id>.jsonl
-.saivage/cards/<card-id>/notes.jsonl
+.saivage/cards/<card-id>/notes.jsonl (if NoteBox grows beyond in-memory)
 ```
 
 Rules:
 
 - Actor snapshots are Saivage-owned schemas, not opaque framework internals.
+  Include a `schema_version` field from day one so future schema changes don't
+  require another clean break.
 - Startup does not migrate old active runtime state.
 - Incompatible old `.saivage` runtime state should fail closed with an operator
   reset instruction or be explicitly marked failed/abandoned if safe.
@@ -234,7 +254,8 @@ during the replacement branch if that makes implementation simpler.
 
 Work:
 
-1. Add `xstate` as a runtime dependency.
+1. Add `xstate` as a runtime dependency. Pin to XState v5-style actors and
+   machine setup; v4 has a different actor API and snapshot model.
 2. Add actor ids, snapshot schemas, JSON/JSONL persistence primitives, and event
    append helpers.
 3. Implement RuntimeSupervisor skeleton with `mode` and `work` parallel regions.
@@ -255,8 +276,14 @@ Exit criteria:
 
 Work:
 
-1. Replace role-specific agent invocation orchestration with a provider/model turn
-   primitive usable by LLMRunner.
+1. Add `xstate` as a runtime dependency. Pin to XState v5-style actors and
+   machine setup; v4 has a different actor API and snapshot model.
+2. Replace role-specific agent invocation orchestration with a provider/model turn
+   primitive usable by LLMRunner. The concrete interface is `LlmInvocationInput`:
+   CardRunner prepares and persists an input envelope containing system prompt
+   reference, episode context (card id, workspace, parent, children, review
+   context, delivered note ids), and the model call parameters. LLMRunner loads
+   it by id and calls the provider.
 2. Define and persist `LlmInvocationInput` envelopes.
 3. Implement generic LLMRunner states: `done`, `running`, `waiting_for_tool`.
 4. Emit only generic outputs: `LLM_TOOL_CALL`, `LLM_RESULT`, `LLM_ERROR`.
@@ -286,10 +313,15 @@ Work:
    or domain services with no dependency on old active-run state.
 4. Implement only the executor tools required for the app to perform real
    terminal work. If a tool is old-core baggage and no current executor needs it,
-   leave it out.
-5. If real executor work requires process execution, implement the needed
-   ProcessRunner subset in this phase instead of waiting for a separate process
-   phase.
+   leave it out. Process execution counts: if a terminal executor needs to run a
+   subprocess, implement ProcessRunner here because the LLMRunner must be able to
+   start a process, wait for it with a timeout, and then decide whether to keep
+   waiting, inspect partial output, kill the process, or move on.
+5. ProcessRunner is not a simple completion wrapper. A process timeout returns
+   control to the LLMRunner without killing the process. The LLMRunner decides
+   what to do next: wait again, read partial output, kill the process, or treat
+   it as failed. This requires ProcessRunner to track a running subprocess as a
+   real background actor, not just a flag on a tool-call ledger entry.
 6. Implement executor recovery from interrupted `running` and
    `waiting_for_tool(process)` states.
 
@@ -304,8 +336,10 @@ Exit criteria:
 
 Work:
 
-1. Complete ProcessRunner capabilities not already needed by Phase C: durable
-   records, cancellation, reattach, and terminal delivery status.
+1. Complete ProcessRunner capabilities not already needed by Phase C: detach and
+   reattach to a running process after dirty shutdown, kill on LLMRunner request,
+   read partial output, and report timeout or completion with exactly-one
+   terminal delivery.
 2. LLMRunner persists assistant tool calls and wait state before external work
    starts.
 3. ProcessRunner records terminal process result/error before delivering
@@ -332,6 +366,10 @@ Work:
    from a persisted envelope.
 6. Delete old runtime activation arrays and activation unwind logic from active
    state.
+
+Note: Phase E is unit-testable with mock child outcomes, but the first real
+end-to-end test where a planner activates a child and receives its result requires
+at least a minimal Phase F planner.
 
 Exit criteria:
 
@@ -367,9 +405,11 @@ Work:
 1. Implement `planning -> reviewing` through `REVIEW_READY`.
 2. CardRunner owns `reviewer:<goal>` and classifies reviewer `LLM_RESULT` into
    `REVIEW_PASSED`, `REVIEW_NEEDS_CORRECTIONS`, or `REVIEW_FAILED`.
-3. Guard `REVIEW_PASSED` with NoteBox pending-note checks.
-4. Route reviewer corrections through Goal Context/NoteBox and return to
-   `planning` until retry exhaustion.
+3. Guard `REVIEW_PASSED` with NoteBox pending-note checks. NoteBox starts as a
+   CardRunner-owned data structure: a set of delivered note ids and a list of
+   pending notes. Idempotent delivery by note id is the only initial requirement.
+4. Route reviewer corrections through NoteBox and return to `planning` until
+   retry exhaustion.
 5. Convert active edits into NoteBox entries while public card status stays
    `running`.
 6. Delete reviewer dispatcher and synthetic live planner-note routing.
@@ -377,7 +417,23 @@ Work:
 Exit criteria:
 
 - Reviewer pass/fail/correction behavior is CardRunner-owned.
-- Note delivery is idempotent and recoverable by note id.
+- ProcessRunner provides exactly-one terminal delivery and can be reattached after
+  dirty shutdown if the process is still running. A process timeout returns control
+  to the LLMRunner without killing the process. The LLMRunner decides whether to
+  keep waiting, inspect partial output, kill the process, or abandon it.
+- Note delivery is idempotent by note id. NoteBox starts as a CardRunner-owned
+  data structure. Only extract it into a separate persisted module if it grows
+  real persistence or recovery complexity.
+- CardRunner `cancelling` is a transient cleanup phase. For the initial
+  implementation, it transitions immediately to `done` with `cancelled` public
+  card status. Add real cancellation owned-work cleanup if actual cancellation
+  sequences require it.
+- Planner iteration exhaustion (hitting the budget) transitions CardRunner to
+  `done` with `blocked` or `failed` public card status, same as the current
+  `terminateIfNonTerminal`. No separate mechanism is needed.
+- `changed` card edits become NoteBox entries delivered to the owning planner.
+  This is not optional — `changed` is a current product status and NoteBox must
+  handle it.
 
 ### Phase H: Supervisor Lifecycle Completion
 
@@ -386,8 +442,9 @@ Work:
 1. Implement full startup `RECOVER` sequence.
 2. Rebuild actor tree from snapshots and domain records.
 3. Verify tree consistency before normal event processing.
-4. Expand the minimal admission boundary from Phase B into full provider-call
-   admission policy.
+4. Expand the minimal admission boundary from Phase B: one provider call at a time
+   continues to be sufficient. Only add queuing or permit pools if a real product
+   need appears.
 5. Implement collaborative quiescence: supervisor enters `paused` only after
    actors persist safe pausable state and acknowledge `QUIESCE`.
 6. Implement cancellation and shutdown ordering: CardRunner stops owned
@@ -452,12 +509,12 @@ documentation drift.
 | Old responsibility | New action |
 | --- | --- |
 | Terminal executor dispatch | Rebuild as Terminal CardRunner + executor LLMRunner |
-| Managed process wait/delivery | Rebuild only required tools with ProcessRunner + LLMRunner wait state |
+| Managed process wait/delivery | Rebuild as ProcessRunner: background process actor that starts a subprocess, reports timeout without killing it, and gives LLMRunner control to keep waiting, inspect output, kill, or abandon |
 | `activate_card` recursive dispatch | Rebuild as parent/child CardRunner messaging |
 | Parent tool-result unwind | Rebuild as LLMRunner delivery ledger |
 | Planner iteration loop | Rebuild minimum viable goal CardRunner + planner LLMRunner |
 | Reviewer handoff and correction loop | Rebuild minimum viable reviewer phase |
-| Synthetic live planner notes | Replace with NoteBox if still needed |
+| Synthetic live planner notes | Replace with NoteBox; `changed` card edits become NoteBox entries delivered to the owning planner |
 | Runtime pause booleans | Replace with RuntimeSupervisor mode; no boolean port |
 | Dispatch in-flight maps | Delete; actor registry and deterministic ids cover ownership |
 | Scheduled redispatch | Delete unless a current product need reappears |

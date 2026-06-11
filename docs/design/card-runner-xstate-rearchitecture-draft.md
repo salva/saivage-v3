@@ -155,8 +155,11 @@ remains valid.
 
 ### 5.4 ProcessRunner State
 
-ProcessRunner state is private implementation state for one durable external
-process or command wait.
+ProcessRunner state is private implementation state for one background external
+process. A process is a subprocess that can outlive a single LLMRunner turn. When a
+process times out, ProcessRunner does not kill it. Instead, ProcessRunner reports the
+timeout to the owning LLMRunner, which decides whether to keep waiting, inspect
+partial output, kill the process, or abandon it.
 
 Conceptually:
 
@@ -168,6 +171,10 @@ running | done
 process has a terminal result or failure and no active work remains. For
 ProcessRunner, `done` is the settled state. A new process execution uses a new
 ProcessRunner and process record.
+
+ProcessRunner provides exactly-one terminal delivery to the waiting LLMRunner. If
+the process is still running after a dirty shutdown, ProcessRunner reattaches to it
+instead of starting a duplicate.
 
 ### 5.5 NoteBox
 
