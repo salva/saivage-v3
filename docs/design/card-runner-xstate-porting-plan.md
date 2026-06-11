@@ -1,10 +1,64 @@
 # Card Runner XState Replacement Plan
 
-Status: implementation planning draft. This document explains how to build a new
+Status: active replacement plan, readjusted after the first XState core
+implementation slices on 2026-06-12. This document explains how to build a new
 minimal Saivage v3 runtime core around the XState architecture described in
 [Card Runner XState Rearchitecture Draft](./card-runner-xstate-rearchitecture-draft.md).
 It is not a one-for-one porting plan for the old runtime, not a bridge plan, and
 not a migration plan for old `.saivage` runtime state.
+
+## 0. Current Implementation Checkpoint
+
+The first implementation pass validated the main architecture but also exposed
+where the next work must be narrower than the original broad phase list. The
+following pieces now exist in `src/runtime/actors/` or adjacent composition code:
+
+- deterministic actor ids and Saivage-owned actor snapshots;
+- `RuntimeSupervisorController` with pause/resume/stop and one provider-call
+  admission permit;
+- role-generic `LlmRunnerController` with `LLM_RESULT`, `LLM_TOOL_CALL`, and
+  `LLM_ERROR` outputs;
+- `ProcessRunnerController` with timeout-without-kill, inspect, wait, and explicit
+  kill behavior;
+- terminal and goal CardRunner controllers;
+- recursive XState child activation through `activate_card`;
+- reviewer turns and CardRunner-owned NoteBox delivery by note id;
+- terminal and goal status ports that write public card lifecycle state through
+  the `CardStore` lifecycle methods;
+- an `InvocationService` to `ProviderTurnPort` adapter;
+- an opt-in `createXStateRuntimeApi()` composition factory; and
+- XState actor input builders that reuse existing planner, executor, and reviewer
+  prompt/context builders.
+
+The following confirmed gaps are now the priority before deeper recovery or API
+rewrites:
+
+1. Actor snapshots still use a single early file under
+   `.saivage/tmp/state/actors.json`; this is fine for unit tests but is not the
+   Phase H recovery layout.
+2. LLM turns do not yet persist message JSONL or a tool-call delivery ledger, so
+   dirty-shutdown recovery around model/tool boundaries is not meaningful yet.
+3. `changed` card propagation still lives in the old synthetic planner-note path;
+   XState NoteBox delivery exists but is not wired to `changed` edits yet.
+4. The production server default still uses the old runtime core. The XState
+   runtime is intentionally opt-in through `runtimeApiFactory` until persistence
+   and `changed` handling are strong enough to switch without pretending recovery
+   is complete.
+
+Readjusted near-term order:
+
+1. Replace the single actor snapshot file with a small per-actor Saivage-owned
+   snapshot layout.
+2. Add append-only LLM message/tool-call delivery logs only to the extent needed
+   for exactly-one delivery and restart diagnostics.
+3. Wire `changed` edits into the owning goal CardRunner NoteBox without preserving
+   the old synthetic-note routing shape.
+4. Then switch the default runtime composition to the XState runtime and delete
+   the old owner for behavior now covered by actors.
+
+Do not add a general event-sourcing system, queues, distributed locks, or generic
+workflow framework while closing these gaps. Add the smallest persisted records
+that make the actor boundaries safe and inspectable.
 
 ## 1. Goal
 
@@ -208,8 +262,11 @@ reaching into individual actor internals.
 
 ## 6. Persistence Model
 
-Implement persistence incrementally. Start with what Phase C needs and add
-storage complexity when the phases that need it land:
+Implement persistence incrementally. The first implementation used a simple
+single-file actor snapshot store to prove the actor boundary. Before recovery or
+production switchover, replace that test-friendly layout with small per-actor
+files and append-only delivery logs. Add storage complexity only when a phase
+needs it:
 
 Phase C needs:
 ```text
@@ -217,6 +274,7 @@ Phase C needs:
 .saivage/runtime/actors/card/<card-id>.json
 .saivage/runtime/actors/llm/<agent-id>.json
 .saivage/agents/messages/<agent-id>.jsonl
+.saivage/agents/tool-deliveries/<agent-id>.jsonl
 ```
 
 Later phases add:
@@ -224,7 +282,6 @@ Later phases add:
 .saivage/runtime/events.jsonl
 .saivage/agents/messages/<agent-id>.index.json
 .saivage/agents/messages/<agent-id>.<segment>.jsonl
-.saivage/agents/tool-deliveries/<agent-id>.jsonl
 .saivage/cards/<card-id>/notes.jsonl (if NoteBox grows beyond in-memory)
 ```
 
@@ -242,6 +299,9 @@ Rules:
   domain files.
 - The global single-active-non-analyst-session invariant is removed; concurrency
   is controlled by actor ownership and admission permits.
+- Do not persist private XState internals, event queues, or framework snapshots.
+  Persist Saivage facts: actor id/kind, public phase, card id, current input id,
+  pending tool call ids, process ids, and terminal outcomes.
 
 ## 7. Build Order
 
@@ -260,17 +320,22 @@ Work:
    append helpers.
 3. Implement RuntimeSupervisor skeleton with `mode` and `work` parallel regions.
 4. Implement read-model projection types.
-5. Wire server startup/shutdown to RuntimeSupervisor for the new core. If old
-   dispatcher startup wiring is disconnected here, document that card execution
-   remains unavailable until the terminal/goal phases land.
+5. Add an explicit XState runtime composition boundary. It may remain opt-in until
+   Phases B, D, and G have enough persistence and NoteBox wiring to avoid a
+   misleading production switchover.
 
 Exit criteria:
 
-- Runtime starts a supervisor actor.
+- Runtime can start a supervisor actor through an explicit XState runtime
+  boundary.
 - Supervisor snapshot round-trip is tested.
 - Runtime ownership is explicit: either the branch still uses old dispatchers for
   behavior not yet rebuilt, or card execution is intentionally unavailable until
   later phases. Do not hide this behind a bridge.
+
+Current status: structurally complete. The XState runtime has an opt-in
+composition factory, but production server startup still defaults to the old core
+until message/tool persistence and `changed` handling are closed.
 
 ### Phase B: Provider Turn And Generic LLMRunner
 
@@ -284,7 +349,9 @@ Work:
    reference, episode context (card id, workspace, parent, children, review
    context, delivered note ids), and the model call parameters. LLMRunner loads
    it by id and calls the provider.
-2. Define and persist `LlmInvocationInput` envelopes.
+2. Define `LlmInvocationInput` envelopes. Persist only the minimal envelope or
+   message reference needed for restart diagnostics and exactly-one tool delivery;
+   do not build a generic queue or event-sourcing layer.
 3. Implement generic LLMRunner states: `done`, `running`, `waiting_for_tool`.
 4. Emit only generic outputs: `LLM_TOOL_CALL`, `LLM_RESULT`, `LLM_ERROR`.
 5. Persist before provider calls, after provider responses/errors, after tool
@@ -297,10 +364,15 @@ Work:
 
 Exit criteria:
 
-- LLMRunner can run a model turn from a persisted input envelope.
+- LLMRunner can run a model turn from an input envelope and persist enough
+  turn-boundary metadata to explain or safely fail after a restart.
 - No role-specific planner/executor/reviewer policy lives inside LLMRunner.
 - Provider calls go through supervisor admission, even if the initial permit
   implementation is simple.
+
+Current status: generic LLMRunner, provider adapter, and admission are complete.
+Turn-boundary message/tool persistence is not complete and is the next Phase B/D
+gap to close.
 
 ### Phase C: Terminal CardRunner And Required Executor Tools
 
@@ -340,17 +412,21 @@ Work:
    reattach to a running process after dirty shutdown, kill on LLMRunner request,
    read partial output, and report timeout or completion with exactly-one
    terminal delivery.
-2. LLMRunner persists assistant tool calls and wait state before external work
-   starts.
-3. ProcessRunner records terminal process result/error before delivering
-   `APPEND_TOOL_RESULT` or `APPEND_TOOL_ERROR`.
-4. Enforce exactly-one matching tool result/error for every assistant tool call,
-   including terminal/reporting tool calls.
+2. LLMRunner persists assistant tool calls and a minimal delivery record before
+   external work starts.
+3. ProcessRunner records terminal process result/error before the owning runner
+   delivers the result to the next model turn.
+4. Enforce exactly-one matching tool result/error for every assistant tool call.
+   Start with in-process plus append-only delivery records; add richer recovery
+   only when a concrete dirty-shutdown path needs it.
 
 Exit criteria:
 
 - Process tools are actor-owned.
 - Dirty shutdown around process start/result/delivery is recoverable.
+
+Current status: process tools are actor-owned for the happy path and timeout path.
+Dirty-shutdown reattachment and exactly-one persisted delivery are still open.
 
 ### Phase E: Parent/Child Card Activation
 
@@ -410,8 +486,9 @@ Work:
    pending notes. Idempotent delivery by note id is the only initial requirement.
 4. Route reviewer corrections through NoteBox and return to `planning` until
    retry exhaustion.
-5. Convert active edits into NoteBox entries while public card status stays
-   `running`.
+5. Convert `changed` edits into NoteBox entries for the owning goal while public
+   card status stays `running` for active XState-owned work. Do not keep the old
+   synthetic planner-note queue as the final owner of this behavior.
 6. Delete reviewer dispatcher and synthetic live planner-note routing.
 
 Exit criteria:
@@ -435,26 +512,36 @@ Exit criteria:
   This is not optional — `changed` is a current product status and NoteBox must
   handle it.
 
+Current status: reviewer and in-memory NoteBox delivery are implemented. The
+`changed` edit integration is not yet implemented and should happen before the
+production runtime switchover.
+
 ### Phase H: Supervisor Lifecycle Completion
 
 Work:
 
-1. Implement full startup `RECOVER` sequence.
-2. Rebuild actor tree from snapshots and domain records.
-3. Verify tree consistency before normal event processing.
-4. Expand the minimal admission boundary from Phase B: one provider call at a time
+1. Move actor snapshots from the early single-file test layout to a small
+   per-actor layout that can support targeted recovery.
+2. Implement full startup `RECOVER` sequence.
+3. Rebuild actor tree from snapshots and domain records.
+4. Verify tree consistency before normal event processing.
+5. Expand the minimal admission boundary from Phase B: one provider call at a time
    continues to be sufficient. Only add queuing or permit pools if a real product
    need appears.
-5. Implement collaborative quiescence: supervisor enters `paused` only after
+6. Implement collaborative quiescence: supervisor enters `paused` only after
    actors persist safe pausable state and acknowledge `QUIESCE`.
-6. Implement cancellation and shutdown ordering: CardRunner stops owned
+7. Implement cancellation and shutdown ordering: CardRunner stops owned
    LLMRunners; ProcessRunner reconciles or records bounded abandonment.
-7. Remove old lifecycle pause booleans, dispatch promises, scheduled redispatch,
+8. Remove old lifecycle pause booleans, dispatch promises, scheduled redispatch,
    and runtime tick ownership.
 
 Exit criteria:
 
 - RuntimeSupervisor is the only dispatcher and lifecycle owner.
+
+Current status: not started beyond the supervisor skeleton and simple admission.
+Do not start broad recovery until the actor snapshot layout and LLM/tool delivery
+logs exist.
 
 ### Phase I: API/UI, Analyst, And Tool Surface Rewrite
 
