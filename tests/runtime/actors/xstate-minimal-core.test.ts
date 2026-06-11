@@ -16,6 +16,7 @@ import {
   LlmRunnerController,
   GoalCardRunnerController,
   createTerminalCardStatusPort,
+  createGoalCardStatusPort,
   type LlmInvocationInput,
   type ProviderTurnPort,
   type TerminalCardStatusPort,
@@ -176,6 +177,24 @@ describe('XState minimal runtime core', () => {
       status: 'failed',
       status_text: 'executor failed',
       lifecycle: expect.objectContaining({ status: 'failed', error: 'executor failed' }),
+    }));
+  });
+
+  it('goal card status adapter writes planner lifecycle patches for goal outcomes', () => {
+    const store = {
+      setStatus: jest.fn(() => ({} as CardRecord)),
+      commitTerminalLifecyclePatch: jest.fn(() => ({} as CardRecord)),
+    };
+    const port = createGoalCardStatusPort(store, () => '2026-06-12T00:00:00.000Z');
+
+    port.markRunning('G-adapter');
+    port.commitGoalOutcome('G-adapter', { status: 'done', statusText: 'goal complete' });
+
+    expect(store.setStatus).toHaveBeenCalledWith('G-adapter', 'running');
+    expect(store.commitTerminalLifecyclePatch).toHaveBeenCalledWith('G-adapter', expect.objectContaining({
+      status: 'done',
+      status_text: 'goal complete',
+      lifecycle: expect.objectContaining({ status: 'done', result: { kind: 'planner_done', summary: 'goal complete' } }),
     }));
   });
 

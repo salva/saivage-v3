@@ -20,6 +20,12 @@ export interface GoalOutcome {
   statusText: string;
 }
 
+export interface GoalCardStatusPort {
+  markRunning(cardId: string): void | Promise<void>;
+  markCancelled(cardId: string): void | Promise<void>;
+  commitGoalOutcome(cardId: string, outcome: GoalOutcome): void | Promise<void>;
+}
+
 export interface GoalNote {
   id: string;
   content: string;
@@ -86,6 +92,7 @@ export interface GoalCardRunnerOptions {
   admission?: AdmissionPort;
   reviewerProviderTurn?: ProviderTurnPort;
   publicStatus?: GoalCardPublicStatus;
+  statusPort?: GoalCardStatusPort;
 }
 
 export class GoalCardRunnerController {
@@ -107,12 +114,16 @@ export class GoalCardRunnerController {
     this.reviewerRunner = options.reviewerProviderTurn
       ? new LlmRunnerController(projectRoot, reviewerActorId(cardId), options.reviewerProviderTurn, options.admission)
       : null;
+    this.statusPort = options.statusPort;
     this.actor.start();
   }
+
+  private readonly statusPort?: GoalCardStatusPort;
 
   async start(input: Omit<LlmInvocationInput, 'agentId'>): Promise<GoalOutcome> {
     this.actor.send({ type: 'START' });
     this.persist();
+    await this.statusPort?.markRunning(this.cardId);
     let currentInput = input;
     for (let turn = 0; turn < 20; turn++) {
       currentInput = this.deliverPendingNotes(currentInput);
@@ -185,9 +196,10 @@ export class GoalCardRunnerController {
     };
   }
 
-  private complete(outcome: GoalOutcome): GoalOutcome {
+  private async complete(outcome: GoalOutcome): Promise<GoalOutcome> {
     this.actor.send({ type: 'GOAL_OUTCOME', outcome });
     this.persist();
+    await this.statusPort?.commitGoalOutcome(this.cardId, outcome);
     return outcome;
   }
 

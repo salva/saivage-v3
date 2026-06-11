@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { EventBus } from '../../src/events/index.js';
 import { createXStateRuntimeApi } from '../../src/application/xstate-runtime-api-factory.js';
 import type { CardRecord } from '../../src/schemas/index.js';
+import type { InvocationRequest } from '../../src/agents/invocation-service.js';
 import type { InvocationTurnService, TerminalCardStorePort, XStateChildCardReader } from '../../src/runtime/actors/index.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
@@ -23,7 +24,7 @@ describe('createXStateRuntimeApi', () => {
       commitTerminalLifecyclePatch: jest.fn(() => ({} as CardRecord)),
     };
     const invocationService: InvocationTurnService = {
-      invokeWithRecovery: jest.fn(async () => ({ kind: 'message' as const, content: 'done from invocation service' })),
+      invokeWithRecovery: jest.fn(async (request: InvocationRequest) => ({ kind: 'message' as const, content: request.role === 'reviewer' ? 'pass' : 'done from invocation service' })),
     };
     const api = createXStateRuntimeApi({
       projectRoot,
@@ -41,5 +42,10 @@ describe('createXStateRuntimeApi', () => {
       sessionId: 'planner:project',
     }));
     expect(cardStore.read).toHaveBeenCalledWith('project');
+    expect(cardStore.setStatus).toHaveBeenCalledWith('project', 'running');
+    expect(cardStore.commitTerminalLifecyclePatch).toHaveBeenCalledWith('project', expect.objectContaining({
+      status: 'done',
+      status_text: 'done from invocation service',
+    }));
   }));
 });

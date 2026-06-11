@@ -11,6 +11,7 @@ import type { RuntimeCommandRecord, RuntimeRunRecord, RuntimeState, RuntimeStatu
 import type { SessionActivity } from '../session-stamper.js';
 import type { Subscription, SubscriptionOptions } from '../../events/index.js';
 import type { ChildActivationPort } from './goal-card-runner.js';
+import type { GoalCardStatusPort } from './goal-card-runner.js';
 import type { ProviderTurnPort } from './llm-runner.js';
 import type { TerminalCardStatusPort } from './card-runner.js';
 import type { XStateChildCardReader } from './xstate-child-activation.js';
@@ -25,6 +26,7 @@ export interface SupervisorRuntimeApiOptions {
   providerTurn?: ProviderTurnPort;
   reviewerProviderTurn?: ProviderTurnPort;
   childActivation?: ChildActivationPort;
+  goalStatusPort?: GoalCardStatusPort;
   terminalStatusPort?: TerminalCardStatusPort;
 }
 
@@ -98,6 +100,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
         providerTurn: this.options.providerTurn,
         admission: this.supervisor,
         reviewerProviderTurn: this.options.reviewerProviderTurn,
+        goalStatusPort: this.options.goalStatusPort,
         terminalStatusPort: this.options.terminalStatusPort,
       })
       : missingChildActivation());
@@ -106,7 +109,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       PROJECT_CARD_ID,
       this.options.providerTurn,
       childActivation,
-      { admission: this.supervisor, reviewerProviderTurn: this.options.reviewerProviderTurn },
+      { admission: this.supervisor, reviewerProviderTurn: this.options.reviewerProviderTurn, statusPort: this.options.goalStatusPort },
     );
     const outcome = await runner.start({
       inputId: `start-project:${command.command_id}`,

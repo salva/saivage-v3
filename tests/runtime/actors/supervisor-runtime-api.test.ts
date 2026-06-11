@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, jest } from '@jest/globals';
 import { createSupervisorRuntimeApi, readActorSnapshots } from '../../../src/runtime/actors/index.js';
-import type { LlmInvocationInput, ProviderTurnPort, XStateChildCard } from '../../../src/runtime/actors/index.js';
+import type { GoalCardStatusPort, LlmInvocationInput, ProviderTurnPort, XStateChildCard } from '../../../src/runtime/actors/index.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-supervisor-api-'));
@@ -45,10 +45,16 @@ describe('SupervisorRuntimeApi', () => {
     const providerTurn: ProviderTurnPort = {
       completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'project complete' })),
     };
+    const goalStatusPort: GoalCardStatusPort = {
+      markRunning: jest.fn<(cardId: string) => void>(),
+      markCancelled: jest.fn<(cardId: string) => void>(),
+      commitGoalOutcome: jest.fn<GoalCardStatusPort['commitGoalOutcome']>(),
+    };
     const api = createSupervisorRuntimeApi({
       projectRoot,
       providerTurn,
       rootCards: { read: jest.fn(() => ({ id: 'project', type: 'project' })) },
+      goalStatusPort,
       now: () => '2026-06-12T00:00:00.000Z',
     });
 
@@ -66,6 +72,8 @@ describe('SupervisorRuntimeApi', () => {
       sessionId: 'planner:project',
       tools: [expect.objectContaining({ function: expect.objectContaining({ name: 'activate_card' }) })],
     }));
+    expect(goalStatusPort.markRunning).toHaveBeenCalledWith('project');
+    expect(goalStatusPort.commitGoalOutcome).toHaveBeenCalledWith('project', { status: 'done', statusText: 'project complete' });
     expect(readActorSnapshots(projectRoot).map((item) => item.actor_id).sort()).toEqual([
       'card:project',
       'planner:project',

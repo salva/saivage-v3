@@ -3,6 +3,7 @@ import { XSTATE_PLANNER_TOOL_DEFINITIONS, XSTATE_PROCESS_TOOL_DEFINITIONS } from
 import { GoalCardRunnerController } from './goal-card-runner.js';
 import { TerminalCardRunnerController } from './card-runner.js';
 import type { ChildActivationOutcome, ChildActivationPort } from './goal-card-runner.js';
+import type { GoalCardStatusPort } from './goal-card-runner.js';
 import type { AdmissionPort, ProviderTurnPort } from './llm-runner.js';
 import type { TerminalCardStatusPort } from './card-runner.js';
 
@@ -22,6 +23,7 @@ export interface XStateChildActivationOptions {
   providerTurn: ProviderTurnPort;
   admission?: AdmissionPort;
   reviewerProviderTurn?: ProviderTurnPort;
+  goalStatusPort?: GoalCardStatusPort;
   terminalStatusPort?: TerminalCardStatusPort;
 }
 
@@ -44,6 +46,7 @@ class XStateChildActivation implements ChildActivationPort {
     const runner = new GoalCardRunnerController(this.options.projectRoot, card.id, this.options.providerTurn, this, {
       admission: this.options.admission,
       reviewerProviderTurn: this.options.reviewerProviderTurn,
+      statusPort: this.options.goalStatusPort,
       publicStatus: normalizePublicStatus(card.status),
     });
     return runner.start({
