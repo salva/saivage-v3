@@ -14,6 +14,7 @@ import {
   TerminalCardRunnerController,
   ProcessRunnerController,
   LlmRunnerController,
+  GoalCardRunnerController,
   type LlmInvocationInput,
   type ProviderTurnPort,
 } from '../../../src/runtime/actors/index.js';
@@ -40,6 +41,21 @@ function invocationInput(cardId: string): Omit<LlmInvocationInput, 'agentId'> {
     terminalToolNames: [],
     modelParams: {},
     capabilityRequest: { requiresTools: false },
+    episodeContext: { cardId },
+  };
+}
+
+function plannerInput(cardId: string): Omit<LlmInvocationInput, 'agentId'> {
+  return {
+    inputId: `planner-input:${cardId}`,
+    role: 'planner',
+    sessionId: plannerActorId(cardId),
+    systemPrompt: 'plan the goal',
+    contextMessages: [],
+    tools: [],
+    terminalToolNames: [],
+    modelParams: {},
+    capabilityRequest: { requiresTools: true },
     episodeContext: { cardId },
   };
 }
@@ -245,6 +261,60 @@ describe('XState minimal runtime core', () => {
       actor_kind: 'process',
       state_value: 'done',
     });
+  }));
+
+  it('GoalCardRunner feeds child activation outcome back to planner', async () => withTempProject(async (projectRoot) => {
+    const childActivation = {
+      startChild: jest.fn(async () => ({ status: 'done' as const, statusText: 'child done' })),
+    };
+    const provider: ProviderTurnPort = {
+      completeTurn: jest.fn(async (input: LlmInvocationInput) => {
+        if (!input.episodeContext.lastToolResult) {
+          return {
+            kind: 'tool_calls' as const,
+            tool_calls: [{
+              id: 'activate-child',
+              type: 'function' as const,
+              function: { name: 'activate_card', arguments: JSON.stringify({ cardId: 'T-child' }) },
+            }],
+          };
+        }
+        return { kind: 'message' as const, content: 'goal complete' };
+      }),
+    };
+    const runner = new GoalCardRunnerController(projectRoot, 'G-1', provider, childActivation);
+
+    const outcome = await runner.start(plannerInput('G-1'));
+
+    expect(outcome).toEqual({ status: 'done', statusText: 'goal complete' });
+    expect(childActivation.startChild).toHaveBeenCalledWith('T-child');
+    expect(provider.completeTurn).toHaveBeenCalledTimes(2);
+    expect(runner.phase).toBe('done');
+    expect(runner.publicStatus).toBe('done');
+    expect(readActorSnapshots(projectRoot).map((item) => item.actor_id).sort()).toContain('planner:G-1');
+  }));
+
+  it('GoalCardRunner reports failed child activation as goal failure', async () => withTempProject(async (projectRoot) => {
+    const childActivation = {
+      startChild: jest.fn(async () => ({ status: 'failed' as const, statusText: 'child failed' })),
+    };
+    const provider: ProviderTurnPort = {
+      completeTurn: jest.fn(async () => ({
+        kind: 'tool_calls' as const,
+        tool_calls: [{
+          id: 'activate-child-failed',
+          type: 'function' as const,
+          function: { name: 'activate_card', arguments: JSON.stringify({ cardId: 'T-failed' }) },
+        }],
+      })),
+    };
+    const runner = new GoalCardRunnerController(projectRoot, 'G-2', provider, childActivation);
+
+    const outcome = await runner.start(plannerInput('G-2'));
+
+    expect(outcome).toEqual({ status: 'failed', statusText: 'child failed' });
+    expect(provider.completeTurn).toHaveBeenCalledTimes(1);
+    expect(runner.publicStatus).toBe('failed');
   }));
 
   it('terminal CardRunner cancellation is a simple terminal transition', () => withTempProject((projectRoot) => {
