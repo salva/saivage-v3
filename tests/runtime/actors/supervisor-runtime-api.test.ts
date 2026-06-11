@@ -64,6 +64,7 @@ describe('SupervisorRuntimeApi', () => {
       agentId: 'planner:project',
       role: 'planner',
       sessionId: 'planner:project',
+      tools: [expect.objectContaining({ function: expect.objectContaining({ name: 'activate_card' }) })],
     }));
     expect(readActorSnapshots(projectRoot).map((item) => item.actor_id).sort()).toEqual([
       'card:project',
@@ -118,7 +119,13 @@ describe('SupervisorRuntimeApi', () => {
 
     expect(result.success).toBe(true);
     expect(providerTurn.completeTurn).toHaveBeenCalledWith(expect.objectContaining({ agentId: 'planner:project' }));
-    expect(providerTurn.completeTurn).toHaveBeenCalledWith(expect.objectContaining({ agentId: 'executor:T-child' }));
+    expect(providerTurn.completeTurn).toHaveBeenCalledWith(expect.objectContaining({
+      agentId: 'executor:T-child',
+      tools: expect.arrayContaining([
+        expect.objectContaining({ function: expect.objectContaining({ name: 'run_process' }) }),
+        expect.objectContaining({ function: expect.objectContaining({ name: 'wait_process' }) }),
+      ]),
+    }));
     expect(readActorSnapshots(projectRoot).map((item) => item.actor_id).sort()).toEqual([
       'card:T-child',
       'card:project',

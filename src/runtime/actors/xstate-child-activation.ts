@@ -1,4 +1,5 @@
 import { executorActorId, plannerActorId } from './ids.js';
+import { XSTATE_PLANNER_TOOL_DEFINITIONS, XSTATE_PROCESS_TOOL_DEFINITIONS } from './actor-tool-definitions.js';
 import { GoalCardRunnerController } from './goal-card-runner.js';
 import { TerminalCardRunnerController } from './card-runner.js';
 import type { ChildActivationOutcome, ChildActivationPort } from './goal-card-runner.js';
@@ -51,7 +52,7 @@ class XStateChildActivation implements ChildActivationPort {
       sessionId: plannerActorId(card.id),
       systemPrompt: `Plan and execute goal card '${card.id}'.`,
       contextMessages: [],
-      tools: [],
+      tools: XSTATE_PLANNER_TOOL_DEFINITIONS,
       terminalToolNames: [],
       modelParams: {},
       capabilityRequest: { requiresTools: true },
@@ -74,7 +75,7 @@ class XStateChildActivation implements ChildActivationPort {
       sessionId: executorActorId(card.id),
       systemPrompt: `Execute terminal card '${card.id}'.`,
       contextMessages: [],
-      tools: [],
+      tools: XSTATE_PROCESS_TOOL_DEFINITIONS,
       terminalToolNames: [],
       modelParams: {},
       capabilityRequest: { requiresTools: false },

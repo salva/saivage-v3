@@ -2,6 +2,7 @@ import { EventBus } from '../../events/index.js';
 import { createActionableErrorEnvelope } from '../../schemas/index.js';
 import { PROJECT_CARD_ID } from '../../cards/project-card.js';
 import { GoalCardRunnerController } from './goal-card-runner.js';
+import { XSTATE_PLANNER_TOOL_DEFINITIONS } from './actor-tool-definitions.js';
 import { plannerActorId } from './ids.js';
 import { RuntimeSupervisorController } from './runtime-supervisor.js';
 import { createXStateChildActivation } from './xstate-child-activation.js';
@@ -113,7 +114,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       sessionId: plannerActorId(PROJECT_CARD_ID),
       systemPrompt: 'Plan and execute the project goal.',
       contextMessages: [],
-      tools: [],
+      tools: XSTATE_PLANNER_TOOL_DEFINITIONS,
       terminalToolNames: [],
       modelParams: {},
       capabilityRequest: { requiresTools: true },
