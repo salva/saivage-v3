@@ -317,6 +317,63 @@ describe('XState minimal runtime core', () => {
     expect(runner.publicStatus).toBe('failed');
   }));
 
+  it('GoalCardRunner completes after reviewer pass', async () => withTempProject(async (projectRoot) => {
+    const plannerProvider: ProviderTurnPort = {
+      completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'planner done' })),
+    };
+    const reviewerProvider: ProviderTurnPort = {
+      completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'pass' })),
+    };
+    const runner = new GoalCardRunnerController(
+      projectRoot,
+      'G-reviewed-pass',
+      plannerProvider,
+      { startChild: jest.fn(async () => ({ status: 'done' as const, statusText: 'unused' })) },
+      { reviewerProviderTurn: reviewerProvider },
+    );
+
+    const outcome = await runner.start(plannerInput('G-reviewed-pass'));
+
+    expect(outcome).toEqual({ status: 'done', statusText: 'planner done' });
+    expect(reviewerProvider.completeTurn).toHaveBeenCalledTimes(1);
+    expect(readActorSnapshots(projectRoot).map((item) => item.actor_id).sort()).toEqual([
+      'card:G-reviewed-pass',
+      'planner:G-reviewed-pass',
+      'reviewer:G-reviewed-pass',
+    ]);
+  }));
+
+  it('GoalCardRunner returns reviewer corrections to planner', async () => withTempProject(async (projectRoot) => {
+    const plannerProvider: ProviderTurnPort = {
+      completeTurn: jest.fn(async (input: LlmInvocationInput) => {
+        if (input.episodeContext.lastReviewResult) return { kind: 'message' as const, content: 'corrected planner done' };
+        return { kind: 'message' as const, content: 'initial planner done' };
+      }),
+    };
+    const reviewerProvider: ProviderTurnPort = {
+      completeTurn: jest.fn(async (input: LlmInvocationInput) => {
+        if (input.episodeContext.plannerSummary === 'initial planner done') {
+          return { kind: 'message' as const, content: 'needs_corrections: fix evidence' };
+        }
+        return { kind: 'message' as const, content: 'pass' };
+      }),
+    };
+    const runner = new GoalCardRunnerController(
+      projectRoot,
+      'G-reviewed-corrected',
+      plannerProvider,
+      { startChild: jest.fn(async () => ({ status: 'done' as const, statusText: 'unused' })) },
+      { reviewerProviderTurn: reviewerProvider },
+    );
+
+    const outcome = await runner.start(plannerInput('G-reviewed-corrected'));
+
+    expect(outcome).toEqual({ status: 'done', statusText: 'corrected planner done' });
+    expect(plannerProvider.completeTurn).toHaveBeenCalledTimes(2);
+    expect(reviewerProvider.completeTurn).toHaveBeenCalledTimes(2);
+    expect(runner.publicStatus).toBe('done');
+  }));
+
   it('terminal CardRunner cancellation is a simple terminal transition', () => withTempProject((projectRoot) => {
     const provider: ProviderTurnPort = {
       completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'unused' })),

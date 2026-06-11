@@ -1,5 +1,5 @@
 import { assign, createActor, createMachine } from 'xstate';
-import { cardActorId, plannerActorId } from './ids.js';
+import { cardActorId, plannerActorId, reviewerActorId } from './ids.js';
 import { LlmRunnerController } from './llm-runner.js';
 import { saveActorSnapshot } from './snapshots.js';
 import type { AdmissionPort, LlmInvocationInput, ProviderTurnPort } from './llm-runner.js';
@@ -29,6 +29,8 @@ interface GoalCardRunnerContext {
 
 type GoalCardRunnerEvent =
   | { type: 'START' }
+  | { type: 'REVIEW_READY' }
+  | { type: 'REVIEW_NEEDS_CORRECTIONS' }
   | { type: 'GOAL_OUTCOME'; outcome: GoalOutcome }
   | { type: 'CANCEL' };
 
@@ -54,6 +56,17 @@ const goalCardRunnerMachine = createMachine({
     },
     planning: {
       on: {
+        REVIEW_READY: { target: 'reviewing' },
+        GOAL_OUTCOME: {
+          target: 'done',
+          actions: assign({ publicStatus: ({ event }) => event.outcome.status, outcome: ({ event }) => event.outcome }),
+        },
+        CANCEL: { target: 'done', actions: assign({ publicStatus: 'cancelled' }) },
+      },
+    },
+    reviewing: {
+      on: {
+        REVIEW_NEEDS_CORRECTIONS: { target: 'planning' },
         GOAL_OUTCOME: {
           target: 'done',
           actions: assign({ publicStatus: ({ event }) => event.outcome.status, outcome: ({ event }) => event.outcome }),
@@ -64,20 +77,29 @@ const goalCardRunnerMachine = createMachine({
   },
 });
 
+export interface GoalCardRunnerOptions {
+  admission?: AdmissionPort;
+  reviewerProviderTurn?: ProviderTurnPort;
+  publicStatus?: GoalCardPublicStatus;
+}
+
 export class GoalCardRunnerController {
   private readonly actor;
   private readonly plannerRunner: LlmRunnerController;
+  private readonly reviewerRunner: LlmRunnerController | null;
 
   constructor(
     projectRoot: string,
     readonly cardId: string,
     providerTurn: ProviderTurnPort,
     private readonly childActivation: ChildActivationPort,
-    admission?: AdmissionPort,
-    publicStatus: GoalCardPublicStatus = 'backlog',
+    options: GoalCardRunnerOptions = {},
   ) {
-    this.actor = createActor(goalCardRunnerMachine, { input: { projectRoot, cardId, publicStatus } });
-    this.plannerRunner = new LlmRunnerController(projectRoot, plannerActorId(cardId), providerTurn, admission);
+    this.actor = createActor(goalCardRunnerMachine, { input: { projectRoot, cardId, publicStatus: options.publicStatus } });
+    this.plannerRunner = new LlmRunnerController(projectRoot, plannerActorId(cardId), providerTurn, options.admission);
+    this.reviewerRunner = options.reviewerProviderTurn
+      ? new LlmRunnerController(projectRoot, reviewerActorId(cardId), options.reviewerProviderTurn, options.admission)
+      : null;
     this.actor.start();
   }
 
@@ -87,7 +109,22 @@ export class GoalCardRunnerController {
     let currentInput = input;
     for (let turn = 0; turn < 20; turn++) {
       const output = await this.plannerRunner.runTurn({ ...currentInput, agentId: plannerActorId(this.cardId) });
-      if (output.type === 'LLM_RESULT') return this.complete({ status: 'done', statusText: output.result.content });
+      if (output.type === 'LLM_RESULT') {
+        const review = await this.reviewPlannerResult(currentInput, output.result.content, turn);
+        if (review.kind === 'passed') return this.complete({ status: 'done', statusText: output.result.content });
+        if (review.kind === 'failed') return this.complete({ status: 'failed', statusText: review.reason });
+        this.actor.send({ type: 'REVIEW_NEEDS_CORRECTIONS' });
+        this.persist();
+        currentInput = {
+          ...currentInput,
+          inputId: `${input.inputId}:review:${turn + 1}`,
+          episodeContext: {
+            ...currentInput.episodeContext,
+            lastReviewResult: { result: 'needs_corrections', summary: review.summary },
+          },
+        };
+        continue;
+      }
       if (output.type === 'LLM_ERROR') return this.complete({ status: 'failed', statusText: output.error });
       if (output.toolName !== 'activate_card') return this.complete({ status: 'failed', statusText: `Unsupported planner tool call '${output.toolName}'.` });
       const childId = parseActivateCardArgs(output.args).cardId;
@@ -109,8 +146,8 @@ export class GoalCardRunnerController {
     return this.complete({ status: 'blocked', statusText: 'Planner exceeded the GoalCardRunner turn budget.' });
   }
 
-  get phase(): 'done' | 'planning' {
-    return this.actor.getSnapshot().value as 'done' | 'planning';
+  get phase(): 'done' | 'planning' | 'reviewing' {
+    return this.actor.getSnapshot().value as 'done' | 'planning' | 'reviewing';
   }
 
   get publicStatus(): GoalCardPublicStatus {
@@ -132,6 +169,31 @@ export class GoalCardRunnerController {
     this.actor.send({ type: 'GOAL_OUTCOME', outcome });
     this.persist();
     return outcome;
+  }
+
+  private async reviewPlannerResult(input: Omit<LlmInvocationInput, 'agentId'>, plannerSummary: string, turn: number): Promise<
+    | { kind: 'passed' }
+    | { kind: 'needs_corrections'; summary: string }
+    | { kind: 'failed'; reason: string }
+  > {
+    if (!this.reviewerRunner) return { kind: 'passed' };
+    this.actor.send({ type: 'REVIEW_READY' });
+    this.persist();
+    const reviewerOutput = await this.reviewerRunner.runTurn({
+      ...input,
+      inputId: `${input.inputId}:reviewer:${turn + 1}`,
+      agentId: reviewerActorId(this.cardId),
+      role: 'reviewer',
+      sessionId: reviewerActorId(this.cardId),
+      episodeContext: { ...input.episodeContext, plannerSummary },
+    });
+    if (reviewerOutput.type !== 'LLM_RESULT') {
+      return { kind: 'failed', reason: reviewerOutput.type === 'LLM_ERROR' ? reviewerOutput.error : `Reviewer emitted unsupported tool call '${reviewerOutput.toolName}'.` };
+    }
+    const content = reviewerOutput.result.content.trim();
+    if (content === 'pass') return { kind: 'passed' };
+    if (content.startsWith('needs_corrections:')) return { kind: 'needs_corrections', summary: content.slice('needs_corrections:'.length).trim() };
+    return { kind: 'failed', reason: `Reviewer returned unsupported result '${content}'.` };
   }
 
   private persist(): void {
