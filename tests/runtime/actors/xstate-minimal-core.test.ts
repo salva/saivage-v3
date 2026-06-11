@@ -156,6 +156,53 @@ describe('XState minimal runtime core', () => {
     expect(runner.publicStatus).toBe('failed');
   }));
 
+  it('terminal CardRunner lets the LLM keep waiting on a timed-out process', async () => withTempProject(async (projectRoot) => {
+    const provider: ProviderTurnPort = {
+      completeTurn: jest.fn(async (input: LlmInvocationInput) => {
+        const lastToolResult = input.episodeContext.lastToolResult as { result?: { status?: string } } | undefined;
+        if (!lastToolResult) {
+          return {
+            kind: 'tool_calls' as const,
+            tool_calls: [{
+              id: 'tool-run-process',
+              type: 'function' as const,
+              function: {
+                name: 'run_process',
+                arguments: JSON.stringify({
+                  processId: 'p-flow',
+                  command: process.execPath,
+                  args: ['-e', "setTimeout(() => { process.stdout.write('done\\n'); }, 80);"],
+                  timeoutMs: 10,
+                }),
+              },
+            }],
+          };
+        }
+        if (lastToolResult.result?.status === 'running') {
+          return {
+            kind: 'tool_calls' as const,
+            tool_calls: [{
+              id: 'tool-wait-process',
+              type: 'function' as const,
+              function: { name: 'wait_process', arguments: JSON.stringify({ processId: 'p-flow', timeoutMs: 1000 }) },
+            }],
+          };
+        }
+        return { kind: 'message' as const, content: 'process completed' };
+      }),
+    };
+    const runner = new TerminalCardRunnerController(projectRoot, 'T-process-flow', provider);
+
+    const outcome = await runner.start(invocationInput('T-process-flow'));
+
+    expect(outcome.status).toBe('done');
+    expect(provider.completeTurn).toHaveBeenCalledTimes(3);
+    expect(readActorSnapshots(projectRoot).find((item) => item.actor_id === 'process:p-flow')).toMatchObject({
+      actor_kind: 'process',
+      state_value: 'done',
+    });
+  }));
+
   it('terminal CardRunner cancellation is a simple terminal transition', () => withTempProject((projectRoot) => {
     const provider: ProviderTurnPort = {
       completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'unused' })),
