@@ -1,9 +1,8 @@
 # Card Runner XState Rearchitecture Draft
 
-Status: exploratory draft design. This document describes an alternative target
-architecture built on XState. It does not replace
-[Card Runner State Machine Draft](./card-runner-state-machine-draft.md) and does
-not describe current runtime behavior. Current behavior remains documented in
+Status: exploratory draft design. This document describes the target XState
+architecture for replacing the current runtime. It does not describe current
+runtime behavior. Current behavior remains documented in
 [Agents and runtime architecture](../agents.md).
 
 ## 1. Goal
@@ -15,9 +14,9 @@ while preserving the layered runtime model:
 - CardRunner state is private orchestration state for one card.
 - LLMRunner state is private implementation state for one attached agent.
 
-This design replaces the custom `_set_state` / `_on_enter__*` / delayed-call core
-with XState actors, events, transitions, entry actions, invoked async services,
-and snapshots.
+This design replaces the current dispatcher/session/unwind runtime with XState
+actors, events, transitions, entry actions, invoked async services, and
+snapshots.
 
 It does not make XState the product model. Cards remain Saivage domain objects.
 
@@ -434,10 +433,9 @@ failure policy. Ordinary `needs_corrections` while retries remain is
 
 LLMRunner is generic across planner, reviewer, and executor.
 
-This draft uses `LLMRunner` for the runtime object called `AgentRunner` in the
-custom-core draft. The rename is intentional: `AgentSession` remains the durable
-attached-agent conversation, while LLMRunner is only the private actor that drives
-provider turns and tool waits for that session.
+This draft uses `LLMRunner` for the private actor that drives provider turns and
+tool waits. `AgentSession` remains the durable attached-agent conversation and
+message history; LLMRunner is the runtime actor that advances that conversation.
 
 ```ts
 type LLMRunnerState =
@@ -1466,10 +1464,11 @@ Before committing to this architecture, answer these with a prototype:
   more indirect?
 - Can CardRunner own LLMRunner actors without leaking XState concepts into the
   API/UI?
-- Does XState's async invocation model simplify provider/tool handling, or does
-  it duplicate existing AgentAdapter logic?
+- Does XState's async invocation model simplify provider/tool handling enough to
+  justify rewriting role-specific AgentAdapter orchestration as generic
+  LLMRunner/provider-turn plumbing?
 - Is cancellation/quiescence easier to express as supervisor state than in the
-  custom delayed-call model?
+  current dispatcher lifecycle model?
 
-If the prototype requires extensive adapter glue for every transition, prefer the
-custom async state-machine core instead.
+If the prototype requires extensive permanent adapter glue for every transition,
+stop and revise the XState design rather than keeping bridge code.

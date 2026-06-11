@@ -1,89 +1,117 @@
-# Card Runner XState Porting Plan
+# Card Runner XState Replacement Plan
 
-Status: implementation planning draft. This document explains how to port the
-current Saivage v3 runtime to the XState architecture described in
+Status: implementation planning draft. This document explains how to replace the
+current Saivage v3 runtime with the XState architecture described in
 [Card Runner XState Rearchitecture Draft](./card-runner-xstate-rearchitecture-draft.md).
-It is not a compatibility or migration plan for old `.saivage` runtime state.
+It is not a progressive compatibility plan, not a bridge plan, and not a
+migration plan for old `.saivage` runtime state.
 
 ## 1. Goal
 
-Replace the current planner/reviewer/executor dispatcher stack with persistent
-XState actors while preserving Saivage domain behavior:
+Build the new runtime layers cleanly around XState actors and remove the old
+dispatcher/session/unwind architecture from the active tree.
 
-- Cards remain canonical domain records.
+The target architecture is XState only:
+
+- Cards remain canonical Saivage domain records.
 - Public card status remains the operator/API lifecycle.
 - CardRunner owns card activation phase: `planning`, `reviewing`, `executing`,
   `done`, or `cancelling`.
 - LLMRunner is role-generic and owns provider/tool protocol state.
 - ProcessRunner owns durable external process state.
-- RuntimeSupervisor owns admission, pause/quiescence, recovery, and actor tree
+- RuntimeSupervisor owns admission, pause/quiescence, recovery, actor registry,
+  and actor lifecycle.
+- API/UI consume Saivage read-model projections, never XState snapshots.
+
+The final codebase must not contain adapter or bridge code whose only purpose is
+to translate between the old runtime and the new runtime. Temporary scaffolding
+is allowed inside a short-lived implementation branch, but it must be deleted
+before the replacement is considered complete.
+
+## 2. Replacement Strategy
+
+Prefer a clean replacement over a progressive port.
+
+The easiest path is likely:
+
+1. Move old runtime orchestration code out of the active import tree.
+2. Keep only domain primitives that are still valid: card store, lifecycle
+   transition policy, provider configuration, observability sinks, file/process
+   primitives, skills/tool definitions, and prompt/context builders if they fit
+   the new ownership model.
+3. Reimplement runtime orchestration from scratch with RuntimeSupervisor,
+   CardRunner, LLMRunner, ProcessRunner, NoteBox, and actor persistence.
+4. Rewrite adjacent layers that assume old active-run/session/activation state.
+5. Delete any temporary compatibility, bridge, or adapter modules before merge.
+
+This does not require running old and new dispatchers side by side. If an old
+layer's shape fights the new architecture, rewrite it instead of adapting around
+it.
+
+## 3. Old Code To Remove Or Rewrite
+
+Move these files out of the active runtime path early. They can be deleted
+immediately or parked in a temporary branch-local archive while behavior is being
+reimplemented, but they should not remain imported by the new runtime:
+
+- `src/runtime/runtime-planner-dispatcher.ts`
+- `src/runtime/pending-activation-dispatcher.ts`
+- `src/runtime/executor-activation-dispatcher.ts`
+- `src/runtime/runtime-reviewer-dispatcher.ts`
+- `src/runtime/activation-unwind.ts`
+- `src/runtime/phases/planner-activation-runner.ts`
+- `src/runtime/phases/planner-iteration-runner.ts`
+- `src/runtime/phases/executor-phase-runner.ts`
+- `src/runtime/phases/reviewer-phase-runner.ts`
+- `src/runtime/session-persistence.ts` active-session ownership logic
+- `src/runtime/state-machine.ts` dispatch/tick/redispatch responsibilities
+- Runtime state fields that encode old orchestration, especially active run,
+  runtime activation arrays, dispatch-in-flight maps, and single-active-session
+  assumptions.
+
+Rewrite adjacent layers if they encode old runtime assumptions:
+
+- Server runtime-control routes should command RuntimeSupervisor, not old
+  dispatcher methods.
+- Operator API state responses should be built from read-model projections, not
+  old active-run fields.
+- Web stores should consume projected `runnerPhase`, `agentPhase`, `pauseMode`,
+  diagnostics, and public card status.
+- Agent invocation code should become a provider/model turn primitive used by
+  LLMRunner, not a role-specific planner/executor/reviewer orchestration adapter.
+- Session/message persistence should become LLMRunner-owned conversation and
+  tool-call logs, not global role sessions with process-local active status.
+
+## 4. New Runtime Layers
+
+Create `src/runtime/actors/` as the new orchestration boundary:
+
+- `runtime-supervisor.ts`: root XState actor, deterministic actor registry,
+  admission permits, pause/quiescence, startup recovery, shutdown, and child
   lifecycle.
-
-The port should remove old runtime code as it is replaced. Do not keep a long
-term dual runtime, feature flag, or backward-compatible legacy state reader.
-
-## 2. Current Code To Replace
-
-The main old-runtime seams are:
-
-- `src/runtime/runtime-planner-dispatcher.ts`: owns the current planner loop,
-  retry budget, reviewer handoff, pause checks, and direct planner runs.
-- `src/runtime/pending-activation-dispatcher.ts`: recursively dispatches child
-  goal and terminal activations after `activate_card`.
-- `src/runtime/executor-activation-dispatcher.ts`: starts terminal card
-  execution, records active run ownership, runs executor, registers evidence,
-  commits terminal lifecycle, and unwinds parent tool results.
-- `src/runtime/runtime-reviewer-dispatcher.ts`: starts reviewer sessions,
-  validates reviewer results, commits goal lifecycle, and returns corrections to
-  planner control.
-- `src/runtime/activation-unwind.ts`: finds unresolved `activate_card` calls,
-  appends parent tool results, and repairs orphaned activation results.
-- `src/runtime/session-persistence.ts`: stores role-specific AgentSession JSON
-  and message JSONL, enforces the current global single-active-non-analyst
-  invariant, and marks sessions waiting/done.
-- `src/runtime/state-machine.ts` and `src/runtime/runtime-core.ts`: maintain the
-  current runtime patch reducer, scheduled ticks, redispatch, and public card
-  lifecycle transitions.
-- `src/agents/agent-adapter.ts`: currently exposes role-specific planner,
-  executor, reviewer, and analyst invocation methods. The port keeps the
-  provider adapter surface but moves role orchestration out of dispatcher loops
-  and into CardRunner/LLMRunner actors.
-
-The porting strategy is to introduce the new actor runtime beside the old code
-for one slice at a time, then delete each replaced old seam in the same slice or
-the immediately following cleanup slice.
-
-## 3. Target Runtime Modules
-
-Create a new `src/runtime/actors/` area with these initial modules:
-
-- `runtime-supervisor.ts`: root XState actor, actor registry, admission permits,
-  pause/quiescence, startup recovery, shutdown, and child actor lifecycle.
 - `card-runner.ts`: CardRunner machine and actions for public card status
   transitions, phase transitions, NoteBox delivery, parent/child activation
   outcomes, and self-event classification.
-- `llm-runner.ts`: generic LLMRunner machine for persisted input envelopes,
-  provider invocation, tool-call ledger transitions, tool results/errors, and
-  generic output events.
+- `llm-runner.ts`: generic LLMRunner machine for input envelopes, provider
+  requests, tool-call ledger transitions, tool results/errors, and generic
+  output events.
 - `process-runner.ts`: durable process actor with `running` and `done` states,
-  process reattach/reconcile, and exactly-one terminal delivery.
-- `persistence.ts`: Saivage-owned XState snapshot read/write helpers, JSONL
-  append helpers, and index-manifest helpers.
+  process reattach/reconcile, cancellation, and exactly-one terminal delivery.
+- `notebox.ts`: idempotent note storage, delivery, consumption, and recovery
+  reconciliation.
+- `persistence.ts`: Saivage-owned actor snapshot schemas, JSONL append helpers,
+  atomic JSON writes, and index-manifest helpers.
 - `ids.ts`: deterministic actor ids such as `card:<id>`, `planner:<card>`,
   `reviewer:<card>`, `executor:<card>`, and `process:<id>`.
-- `read-model.ts`: projection from actors/domain state into API/UI fields such
-  as `runnerPhase`, `agentPhase`, and `pauseMode` without exposing raw XState
-  snapshots.
+- `read-model.ts`: projection from actors/domain state into API/UI fields without
+  exposing raw XState state.
 
-Keep existing domain modules for cards, lifecycle commits, evidence validation,
-observability, skills, and provider adapters unless a slice proves they must be
-reshaped.
+The rest of the runtime should depend on this package-level boundary instead of
+reaching into individual actor internals.
 
-## 4. Persistence Cutover
+## 5. Persistence Model
 
-The first implementation work is a persistence foundation, not actor behavior.
-Add new stores under `.saivage/runtime/actors/` and `.saivage/agents/` using the
-draft's JSON/JSONL model:
+Implement new persistence before full behavior:
 
 ```text
 .saivage/runtime/actors/supervisor.json
@@ -94,358 +122,233 @@ draft's JSON/JSONL model:
 .saivage/agents/messages/<agent-id>.index.json
 .saivage/agents/messages/<agent-id>.<segment>.jsonl
 .saivage/agents/tool-deliveries/<agent-id>.jsonl
+.saivage/cards/<card-id>/notes.jsonl
 ```
 
 Rules:
 
-- New actor snapshots are Saivage-owned schemas, not opaque framework internals.
-- Do not read old active session state as recoverable actor state.
-- Startup rejects or explicitly fails incompatible old runtime state instead of
-  migrating it.
-- Agent message history may keep the existing JSONL shape initially if the new
-  LLMRunner owns all appends and durable boundaries.
-- The global single-active-non-analyst-session invariant goes away when the
-  terminal-card slice lands; concurrency is then represented by actor ownership
-  and admission permits.
+- Actor snapshots are Saivage-owned schemas, not opaque framework internals.
+- Startup does not migrate old active runtime state.
+- Incompatible old `.saivage` runtime state should fail closed with an operator
+  reset instruction or be explicitly marked failed/abandoned if safe.
+- Message logs and tool-call histories are append-only JSONL.
+- Compact JSON snapshots are fast-start state, not the only audit trail.
+- Companion index manifests identify current log segments and current versioned
+  domain files.
+- The global single-active-non-analyst-session invariant is removed; concurrency
+  is controlled by actor ownership and admission permits.
 
-## 5. Slice 0: Dependency And Skeleton
+## 6. Build Order
 
-Purpose: add XState without changing runtime behavior.
+These are construction phases, not a progressive production rollout. Each phase
+should leave the new runtime internally coherent. The old runtime does not need
+to keep working during the replacement branch if that makes implementation
+simpler.
+
+### Phase A: Runtime Shell
 
 Work:
 
 1. Add `xstate` as a runtime dependency.
-2. Add actor id helpers and minimal persisted snapshot schemas.
-3. Add empty RuntimeSupervisor/CardRunner/LLMRunner machines with tests proving
-   deterministic ids and snapshot round-trip.
-4. Add `read-model.ts` projection types but do not expose them through API yet.
-
-Validation:
-
-- `npm run typecheck`
-- Focused actor persistence tests
-- `npm run validate:docs`
+2. Add actor ids, snapshot schemas, JSON/JSONL persistence primitives, and event
+   append helpers.
+3. Implement RuntimeSupervisor skeleton with `mode` and `work` parallel regions.
+4. Implement read-model projection types.
+5. Remove old dispatcher startup wiring from the active server composition and
+   replace it with supervisor startup/shutdown placeholders.
 
 Exit criteria:
 
-- Old runtime behavior is unchanged.
-- New actor modules compile and persist/reload simple snapshots.
+- Runtime starts a supervisor actor.
+- Supervisor snapshot round-trip is tested.
+- Old dispatchers are no longer the startup owner.
 
-## 6. Slice 1: Terminal Card Execution
-
-Purpose: prove `START -> executing -> done` for one terminal card.
-
-Replace:
-
-- The terminal path inside `ExecutorActivationDispatcher.dispatch` for operator
-  or parent-activation execution.
-
-Keep temporarily:
-
-- Existing evidence registration and terminal commit helpers.
-- Existing AgentAdapter provider invocation implementation.
+### Phase B: Generic LLMRunner
 
 Work:
 
-1. Implement TerminalCardRunner `START` action.
-2. CardRunner transitions the public card to `running`, creates or reuses
-   `executor:<card>`, persists `LlmInvocationInput`, and sends `RUN_TURN`.
-3. LLMRunner invokes the current executor adapter through a narrow provider port.
-4. LLMRunner emits generic `LLM_RESULT` or `LLM_ERROR`.
-5. CardRunner classifies the result into `TERMINAL_OUTCOME`, reuses current
-   evidence validation and terminal commit helpers, then enters `done`.
-6. Persist actor snapshots before each durable boundary.
-7. Add recovery tests for restart while executor LLMRunner is `running` and while
-   it is `waiting_for_tool(process)`.
-
-Delete or shrink:
-
-- Remove terminal execution responsibility from `ExecutorActivationDispatcher`.
-  Leave only a short adapter that sends `START` to `card:<id>` until the parent
-  activation slice deletes it entirely.
-
-Validation:
-
-- Focused executor/CardRunner tests
-- Existing executor completion/evidence tests
-- `npm run validate:routine`
+1. Replace role-specific agent invocation orchestration with a provider/model turn
+   primitive usable by LLMRunner.
+2. Define and persist `LlmInvocationInput` envelopes.
+3. Implement generic LLMRunner states: `done`, `running`, `waiting_for_tool`.
+4. Emit only generic outputs: `LLM_TOOL_CALL`, `LLM_RESULT`, `LLM_ERROR`.
+5. Persist before provider calls, after provider responses/errors, after tool
+   calls, after tool results/errors, and at wait-state transitions.
+6. Remove or rewrite AgentSession active-status logic that conflicts with actor
+   ownership.
 
 Exit criteria:
 
-- A terminal card can run to terminal status through XState actors.
-- API/UI still see public card status and existing evidence fields.
-- No raw XState snapshots are exposed.
+- LLMRunner can run a model turn from a persisted input envelope.
+- No role-specific planner/executor/reviewer policy lives inside LLMRunner.
 
-## 7. Slice 2: Process Tool Calls
-
-Purpose: move external process execution out of ad hoc LLM/tool handling.
-
-Replace:
-
-- Any executor/planner tool path that starts a managed process and waits for the
-  result.
+### Phase C: Terminal CardRunner
 
 Work:
 
-1. Implement ProcessRunner with durable process records and `deliveryStatus`.
-2. LLMRunner persists assistant tool call and wait state before ProcessRunner
+1. Implement terminal CardRunner `START -> executing -> done`.
+2. CardRunner transitions public card status, owns `executor:<card>`, persists
+   executor input, and classifies executor `LLM_RESULT` into `TERMINAL_OUTCOME`.
+3. Rewrite evidence registration and terminal commit paths as CardRunner actions
+   or domain services with no dependency on old active-run state.
+4. Implement executor recovery from interrupted `running` and
+   `waiting_for_tool(process)` states.
+
+Exit criteria:
+
+- A terminal card executes through actors only.
+- No `ExecutorActivationDispatcher` path remains.
+
+### Phase D: ProcessRunner And Tool Protocol
+
+Work:
+
+1. Implement ProcessRunner with durable records, cancellation, reattach, and
+   terminal delivery status.
+2. LLMRunner persists assistant tool calls and wait state before external work
    starts.
-3. ProcessRunner records terminal result/error before sending
+3. ProcessRunner records terminal process result/error before delivering
    `APPEND_TOOL_RESULT` or `APPEND_TOOL_ERROR`.
-4. Recovery reattaches or reconciles process state and delivers exactly one
-   terminal tool result/error.
-
-Validation:
-
-- ProcessRunner unit tests for success, failure, cancellation, dirty shutdown,
-  duplicate delivery, and missing process record.
-- Focused LLMRunner tool-protocol tests.
+4. Enforce exactly-one matching tool result/error for every assistant tool call,
+   including terminal/reporting tool calls.
 
 Exit criteria:
 
-- Terminal cards can use process tools without old dispatcher involvement.
+- Process tools are actor-owned.
+- Dirty shutdown around process start/result/delivery is recoverable.
 
-## 8. Slice 3: Parent Planner `activate_card` Waits
-
-Purpose: replace pending activation recursion with actor parent/child messaging.
-
-Replace:
-
-- `PendingActivationDispatcher`.
-- Most `ActivationUnwindRunner` responsibility for live activations.
+### Phase E: Parent/Child Card Activation
 
 Work:
 
-1. LLMRunner emits `LLM_TOOL_CALL` for `activate_card` only after persisting the
-   assistant tool call and `waiting_for_tool(child_card)` state.
-2. Parent CardRunner validates the child can start and asks RuntimeSupervisor to
-   start or retrieve `card:<child>`.
-3. Parent CardRunner sends `START` to child CardRunner and remains `planning`.
-4. Child CardRunner sends exactly one activation outcome to the parent when it
-   enters `done`.
+1. Implement `activate_card` as LLMRunner output plus CardRunner validation.
+2. Parent LLMRunner persists `waiting_for_tool(child_card)` before the child
+   starts.
+3. RuntimeSupervisor starts or retrieves `card:<child>`.
+4. Parent CardRunner sends `START`; child CardRunner sends exactly one terminal
+   activation outcome.
 5. Parent LLMRunner appends exactly one matching tool result/error and resumes
-   from a persisted input envelope.
-6. Recovery reconciles parent wait state with child card/runner state before
-   normal event processing.
-
-Delete or shrink:
-
-- Delete `PendingActivationDispatcher` after planner dispatch no longer calls
-  it.
-- Keep only small historical repair helpers from `activation-unwind.ts` if tests
-  still need them; otherwise delete live unwind paths.
-
-Validation:
-
-- Parent/child actor tests for terminal child done/failed/blocked.
-- Duplicate `activate_card` delivery tests.
-- Dirty shutdown tests at each boundary: before child start, after child start,
-  after child terminal, after parent delivery.
+   from a persisted envelope.
+6. Delete old runtime activation arrays and activation unwind logic from active
+   state.
 
 Exit criteria:
 
-- Parent planners see one tool result/error per `activate_card` without scanning
-  old runtime activation arrays.
+- Parent planners receive child outcomes without scanning sessions or runtime
+  activation records.
+- `PendingActivationDispatcher` and live `ActivationUnwindRunner` behavior are
+  gone.
 
-## 9. Slice 4: Goal Planning Loop
-
-Purpose: move planner iteration from `RuntimePlannerDispatcher` into CardRunner
-and LLMRunner.
-
-Replace:
-
-- `PlannerActivationRunner` and `PlannerIterationRunner` orchestration from
-  `runtime-planner-dispatcher.ts`.
-
-Keep temporarily:
-
-- Existing planner prompt/context builders.
-- Existing planner failure handling helpers, reshaped into CardRunner actions.
+### Phase F: Goal Planning
 
 Work:
 
-1. Goal CardRunner starts in `planning`, creates `planner:<goal>`, and sends
-   `RUN_TURN` with a persisted input envelope.
-2. LLMRunner returns generic outputs only.
-3. CardRunner classifies planner reports into continue, replan, blocked, failed,
-   or `REVIEW_READY` self-event.
-4. Planner no-progress recovery remains inside LLMRunner and does not expose
-   provider/account diagnostics to model context.
-5. Retry budgets and iteration counters become CardRunner context persisted at
-   every durable boundary.
-
-Delete or shrink:
-
-- Replace `RuntimePlannerDispatcher.dispatchGoal` with a supervisor call that
-  sends `START` or `RESUME` to `card:<goal>`.
-- Delete planner loop code after equivalent actor tests pass.
-
-Validation:
-
-- Planner classification tests.
-- Existing planner tool contract tests.
-- Goal CardRunner recovery tests for lost self-events and interrupted planner
-  turns.
+1. Implement goal CardRunner `planning` phase with owned `planner:<goal>`.
+2. Rewrite planner context/prompt assembly as input-envelope construction.
+3. CardRunner classifies planner `LLM_RESULT` into continue, replan, blocked,
+   failed, or `REVIEW_READY` self-events.
+4. Persist classified self-event decisions before sending the self-event.
+5. Move retry budgets and iteration counters into CardRunner context.
+6. Delete planner process-local loop logic.
 
 Exit criteria:
 
-- Goal planning no longer runs as a process-local `for` loop.
-- Planner turn boundaries are recoverable from persisted LLMRunner/CardRunner
-  state.
+- Goal planning no longer runs through `RuntimePlannerDispatcher` or phase
+  runners.
+- Planner boundaries are recoverable from CardRunner/LLMRunner state.
 
-## 10. Slice 5: Reviewer Phase And NoteBox
-
-Purpose: move reviewer handoff and correction loops into CardRunner, then add
-NoteBox delivery semantics.
-
-Replace:
-
-- `RuntimeReviewerDispatcher`.
-- Synthetic planner notes as a live delivery mechanism.
+### Phase G: Reviewer And NoteBox
 
 Work:
 
-1. CardRunner transitions `planning -> reviewing` through `REVIEW_READY`.
-2. CardRunner creates or reuses `reviewer:<goal>` and sends `RUN_TURN`.
-3. CardRunner classifies reviewer `LLM_RESULT` into `REVIEW_PASSED`,
-   `REVIEW_NEEDS_CORRECTIONS`, or `REVIEW_FAILED` self-events.
-4. `REVIEW_PASSED` is guarded by NoteBox: pending planner-visible notes divert
-   back to `planning`; otherwise the goal commits terminal done.
-5. `REVIEW_NEEDS_CORRECTIONS` appends correction context and returns to
+1. Implement `planning -> reviewing` through `REVIEW_READY`.
+2. CardRunner owns `reviewer:<goal>` and classifies reviewer `LLM_RESULT` into
+   `REVIEW_PASSED`, `REVIEW_NEEDS_CORRECTIONS`, or `REVIEW_FAILED`.
+3. Guard `REVIEW_PASSED` with NoteBox pending-note checks.
+4. Route reviewer corrections through Goal Context/NoteBox and return to
    `planning` until retry exhaustion.
-6. Active edits become NoteBox entries; running cards stay publicly `running`.
-7. Note delivery is idempotent by note id and persisted before `RUN_TURN`.
-
-Delete or shrink:
-
-- Delete `RuntimeReviewerDispatcher` after all reviewer result decisions are
-  CardRunner self-events.
-- Remove synthetic planner-note live routing if NoteBox covers its use cases.
-
-Validation:
-
-- Reviewer pass/fail/needs-corrections tests.
-- NoteBox delivery and dirty shutdown tests.
-- Active edit tests for inactive versus running cards.
+5. Convert active edits into NoteBox entries while public card status stays
+   `running`.
+6. Delete reviewer dispatcher and synthetic live planner-note routing.
 
 Exit criteria:
 
-- Reviewer retry and note-driven replan behavior are actor-owned.
+- Reviewer pass/fail/correction behavior is CardRunner-owned.
+- Note delivery is idempotent and recoverable by note id.
 
-## 11. Slice 6: RuntimeSupervisor Cutover
-
-Purpose: make RuntimeSupervisor the only dispatcher and lifecycle owner.
-
-Replace:
-
-- Scheduled redispatch/tick ownership in `RuntimeStateMachine`.
-- `lifecycle.dispatchPromises`, `dispatchInFlight`, and global pause booleans as
-  dispatch-control primitives.
+### Phase H: Supervisor Lifecycle And Admission
 
 Work:
 
-1. Runtime startup creates RuntimeSupervisor and sends `RECOVER`.
-2. Supervisor reconstructs CardRunner, LLMRunner, and ProcessRunner actors from
-   persisted snapshots and domain state.
-3. Supervisor owns parallel `mode` and `work` regions: running, quiescing,
-   paused, stopping, ready, model invocation active, and recovering.
-4. Admission permits gate each provider call, not each card.
-5. Pause sends `QUIESCE` to active actors and enters `paused` only after durable
-   acknowledgements.
-6. Shutdown stops owned child actors in order: CardRunner stops owned LLMRunners;
-   ProcessRunner reconciles or marks bounded abandonment.
-
-Delete or shrink:
-
-- Keep `RuntimeStateMachine.transitionCard` only if it remains the best public
-  card lifecycle policy adapter. Delete runtime dispatch/tick behavior from it.
-- Remove old lifecycle dispatch promise maps.
-
-Validation:
-
-- Supervisor recovery tests.
-- Pause/resume/quiescence tests.
-- Admission permit tests for multiple simultaneous cards.
+1. Implement full startup `RECOVER` sequence.
+2. Rebuild actor tree from snapshots and domain records.
+3. Verify tree consistency before normal event processing.
+4. Implement admission permits per provider call.
+5. Implement collaborative quiescence: supervisor enters `paused` only after
+   actors persist safe pausable state and acknowledge `QUIESCE`.
+6. Implement cancellation and shutdown ordering: CardRunner stops owned
+   LLMRunners; ProcessRunner reconciles or records bounded abandonment.
+7. Remove old lifecycle pause booleans, dispatch promises, scheduled redispatch,
+   and runtime tick ownership.
 
 Exit criteria:
 
-- No old dispatcher starts planner/reviewer/executor work.
+- RuntimeSupervisor is the only dispatcher and lifecycle owner.
 
-## 12. Slice 7: API/UI Read Model
-
-Purpose: expose the new runtime without leaking XState concepts.
-
-Replace:
-
-- Any API/UI dependence on old runtime fields that described active run/session
-  ownership rather than Saivage domain state.
+### Phase I: API/UI Rewrite
 
 Work:
 
-1. Add read-model projection from CardRunner/LLMRunner/RuntimeSupervisor state.
-2. Expose stable Saivage fields only: `runnerPhase`, `agentPhase`, `pauseMode`,
-   current actor diagnostics, and public card status.
-3. Keep agent message display backed by Saivage message logs, not XState
-   snapshots.
-4. Update web stores/tests to consume projections.
-
-Validation:
-
-- API contract tests.
-- `npm run web:test:operator-smoke`
-- Relevant web store tests.
+1. Rewrite runtime-control server routes to command RuntimeSupervisor.
+2. Rewrite state/debug API responses to use read-model projections.
+3. Rewrite web stores and panels that relied on old active-run/session fields.
+4. Expose stable Saivage terms only: public card status, `runnerPhase`,
+   `agentPhase`, `pauseMode`, actor diagnostics, message logs, and process
+   records.
+5. Ensure no API/UI contract exposes raw XState state values, snapshots, event
+   queues, or framework terminology.
 
 Exit criteria:
 
-- Operator surfaces show actor progress without exposing XState state values,
-  actor snapshots, event queues, or framework terminology.
+- Operator surfaces work against the new actor runtime directly.
+- No bridge model converts old runtime state to new UI state.
 
-## 13. Slice 8: Old State Removal
-
-Purpose: remove old runtime artifacts once the actor path is complete.
+### Phase J: Deletion And Tree Cleanup
 
 Work:
 
-1. Delete obsolete runtime activation arrays and active-card-run fields from new
-   runtime writes.
-2. Delete old dispatcher files and tests that only assert old orchestration.
-3. Delete orphaned session-reconciliation paths that conflict with actor
-   recovery.
-4. Update docs that describe old dispatcher behavior.
-5. Keep no migration path for old `.saivage`; startup should fail closed or
-   require reset when old incompatible state exists.
-
-Validation:
-
-- `npm run validate:routine`
-- `npm test`
-- `npm run validate:ui-smoke`
+1. Delete obsolete dispatcher, phase-runner, session-active-status, activation
+   unwind, and runtime tick code.
+2. Delete tests that only assert old orchestration.
+3. Rewrite tests that assert product behavior through new actor boundaries.
+4. Remove obsolete schemas and runtime state fields.
+5. Update docs that describe old dispatcher/session behavior.
+6. Run import-boundary checks to ensure old runtime modules are not reachable.
 
 Exit criteria:
 
 - The codebase has one runtime architecture.
-- Old state files are not read as active runtime state.
+- No final adapter, bridge, compatibility shim, or old-state migration remains.
 
-## 14. Replacement Matrix
+## 7. Replacement Matrix
 
-| Old responsibility | New owner | First slice |
-| --- | --- | --- |
-| Terminal executor dispatch | Terminal CardRunner + executor LLMRunner | Slice 1 |
-| Managed process wait/delivery | ProcessRunner + LLMRunner wait state | Slice 2 |
-| `activate_card` recursive dispatch | Parent/child CardRunner messaging | Slice 3 |
-| Parent tool-result unwind | LLMRunner delivery ledger | Slice 3 |
-| Planner iteration loop | Goal CardRunner + planner LLMRunner | Slice 4 |
-| Reviewer handoff and correction loop | Goal CardRunner + reviewer LLMRunner | Slice 5 |
-| Synthetic live planner notes | NoteBox | Slice 5 |
-| Runtime pause booleans | RuntimeSupervisor parallel `mode` region | Slice 6 |
-| Dispatch in-flight maps | Actor registry and deterministic ids | Slice 6 |
-| Scheduled redispatch | Supervisor recovery/admission/event routing | Slice 6 |
-| Active run API fields | Read-model projections | Slice 7 |
+| Old responsibility | New owner |
+| --- | --- |
+| Terminal executor dispatch | Terminal CardRunner + executor LLMRunner |
+| Managed process wait/delivery | ProcessRunner + LLMRunner wait state |
+| `activate_card` recursive dispatch | Parent/child CardRunner messaging |
+| Parent tool-result unwind | LLMRunner delivery ledger |
+| Planner iteration loop | Goal CardRunner + planner LLMRunner |
+| Reviewer handoff and correction loop | Goal CardRunner + reviewer LLMRunner |
+| Synthetic live planner notes | NoteBox |
+| Runtime pause booleans | RuntimeSupervisor parallel `mode` region |
+| Dispatch in-flight maps | Actor registry and deterministic ids |
+| Scheduled redispatch | Supervisor recovery/admission/event routing |
+| Active run API fields | Read-model projections |
+| Role-specific AgentSession ownership | LLMRunner-owned conversation state |
+| Runtime activation arrays | Parent/child actor waits and delivery records |
 
-## 15. Testing Strategy
-
-Each slice needs unit tests at the actor boundary and at least one integration
-test through the existing runtime command/API surface.
+## 8. Testing Strategy
 
 Required test themes:
 
@@ -460,34 +363,49 @@ Required test themes:
   ambiguous.
 - Pause reaches `paused` only after durable quiescence acknowledgements.
 - API/UI read models never expose raw XState snapshots.
+- Import-boundary tests prove old dispatcher modules are not used.
 
-## 16. Commit And Validation Cadence
+Use focused tests while building each phase, then run broad validation before the
+replacement branch is considered complete:
 
-Commit each slice separately. Prefer this cadence:
+```bash
+npm run validate:routine
+npm test
+npm run validate:ui-smoke
+```
 
-1. Add narrow actor/persistence code plus focused tests.
-2. Port one old responsibility.
-3. Delete or shrink the old code now made redundant.
-4. Run focused tests.
-5. Run `npm run validate:routine` for runtime slices.
-6. Run `npm run validate:ui-smoke` when API/UI read models change.
-7. Run `npm test` before deleting old dispatcher families or changing recovery.
+Run `npm run validate:ui` when API/UI read models change substantially, and
+`npm run validate:release` before merging the full replacement.
 
-Do not batch multiple slices into one commit. If a slice reveals the XState glue
-is more complex than the custom-core fallback, stop and reassess before porting
-the next dispatcher.
+## 9. Commit Cadence
 
-## 17. Stop Conditions
+Commit by construction phase or by coherent subphase. It is acceptable for
+intermediate commits on the replacement branch to remove old runtime behavior
+before the new runtime is complete, provided the commit message and tests make
+that explicit.
 
-Pause the port and revisit the architecture if any of these happen:
+Prefer this cadence:
+
+1. Remove or disconnect old runtime owner for the area being rebuilt.
+2. Add new actor/domain implementation.
+3. Add product-behavior tests through the new boundary.
+4. Delete temporary scaffolding before leaving the phase.
+5. Run the relevant focused validation.
+
+Do not merge a state where old and new runtime paths coexist through permanent
+adapters or bridges.
+
+## 10. Stop Conditions
+
+Pause and update the XState design if any of these happen:
 
 - XState snapshots cannot be represented as simple Saivage-owned JSON schemas.
-- Actor messaging makes exactly-one `activate_card` delivery less clear than the
-  current explicit unwind logic.
+- Actor messaging makes exactly-one `activate_card` delivery unclear.
 - Recovery requires persisting private XState internals or in-memory queues.
-- The API/UI needs raw XState concepts to explain runtime state.
-- The first terminal-card slice needs extensive adapter glue before it can commit
-  `START -> executing -> done`.
+- API/UI needs raw XState concepts to explain runtime state.
+- LLMRunner cannot stay role-generic without hiding role policy in provider
+  plumbing.
+- Temporary scaffolding starts becoming a permanent bridge.
 
 If a stop condition is hit, update both this plan and the XState draft before
 continuing implementation.
