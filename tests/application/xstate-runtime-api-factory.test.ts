@@ -69,6 +69,11 @@ describe('createXStateRuntimeApi', () => {
       sessionId: 'planner:project',
       systemPrompt: expect.stringContaining('Project Goal'),
     }));
+    expect(invocationService.invokeWithRecovery).toHaveBeenCalledWith(expect.objectContaining({
+      role: 'reviewer',
+      sessionId: 'reviewer:project',
+      systemPrompt: expect.stringContaining('## Goal Evidence Context'),
+    }));
     expect(cardStore.read).toHaveBeenCalledWith('project');
     expect(cardStore.setStatus).toHaveBeenCalledWith('project', 'running');
     expect(cardStore.commitTerminalLifecyclePatch).toHaveBeenCalledWith('project', expect.objectContaining({

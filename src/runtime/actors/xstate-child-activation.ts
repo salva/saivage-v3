@@ -50,6 +50,8 @@ class XStateChildActivation implements ChildActivationPort {
       admission: this.options.admission,
       reviewerProviderTurn: this.options.reviewerProviderTurn,
       statusPort: this.options.goalStatusPort,
+      card,
+      context: { cards: this.options.contextCards },
       publicStatus: normalizePublicStatus(card.status),
     });
     return runner.start(buildXStatePlannerInput({

@@ -112,7 +112,13 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       PROJECT_CARD_ID,
       this.options.providerTurn,
       childActivation,
-      { admission: this.supervisor, reviewerProviderTurn: this.options.reviewerProviderTurn, statusPort: this.options.goalStatusPort },
+      {
+        admission: this.supervisor,
+        reviewerProviderTurn: this.options.reviewerProviderTurn,
+        statusPort: this.options.goalStatusPort,
+        card: { id: PROJECT_CARD_ID, type: 'project' },
+        context: { cards: this.options.contextCards },
+      },
     );
     const outcome = await runner.start(buildXStatePlannerInput({
       inputId: `start-project:${command.command_id}`,

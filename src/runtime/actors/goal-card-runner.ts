@@ -1,8 +1,11 @@
 import { assign, createActor, createMachine } from 'xstate';
+import { buildXStateReviewerInput } from './actor-input-builders.js';
 import { cardActorId, plannerActorId, reviewerActorId } from './ids.js';
 import { LlmRunnerController } from './llm-runner.js';
 import { saveActorSnapshot } from './snapshots.js';
 import type { AdmissionPort, LlmInvocationInput, ProviderTurnPort } from './llm-runner.js';
+import type { XStateActorInputContext } from './actor-input-builders.js';
+import type { XStateChildCard } from './xstate-child-activation.js';
 
 export type GoalCardPublicStatus = 'backlog' | 'running' | 'done' | 'failed' | 'blocked' | 'cancelled';
 
@@ -93,6 +96,8 @@ export interface GoalCardRunnerOptions {
   reviewerProviderTurn?: ProviderTurnPort;
   publicStatus?: GoalCardPublicStatus;
   statusPort?: GoalCardStatusPort;
+  card?: XStateChildCard;
+  context?: XStateActorInputContext;
 }
 
 export class GoalCardRunnerController {
@@ -101,6 +106,8 @@ export class GoalCardRunnerController {
   private readonly reviewerRunner: LlmRunnerController | null;
   private readonly pendingNotes: GoalNote[] = [];
   private readonly deliveredNoteIds = new Set<string>();
+  private readonly card: XStateChildCard;
+  private readonly inputContext?: XStateActorInputContext;
 
   constructor(
     projectRoot: string,
@@ -115,6 +122,8 @@ export class GoalCardRunnerController {
       ? new LlmRunnerController(projectRoot, reviewerActorId(cardId), options.reviewerProviderTurn, options.admission)
       : null;
     this.statusPort = options.statusPort;
+    this.card = options.card ?? { id: cardId, type: 'goal' };
+    this.inputContext = options.context;
     this.actor.start();
   }
 
@@ -217,14 +226,13 @@ export class GoalCardRunnerController {
     if (!this.reviewerRunner) return { kind: 'passed' };
     this.actor.send({ type: 'REVIEW_READY' });
     this.persist();
-    const reviewerOutput = await this.reviewerRunner.runTurn({
-      ...input,
+    const reviewerInput = buildXStateReviewerInput({
       inputId: `${input.inputId}:reviewer:${turn + 1}`,
-      agentId: reviewerActorId(this.cardId),
-      role: 'reviewer',
-      sessionId: reviewerActorId(this.cardId),
-      episodeContext: { ...input.episodeContext, plannerSummary },
+      card: this.card,
+      plannerSummary,
+      context: this.inputContext,
     });
+    const reviewerOutput = await this.reviewerRunner.runTurn({ ...reviewerInput, agentId: reviewerActorId(this.cardId) });
     if (reviewerOutput.type !== 'LLM_RESULT') {
       return { kind: 'failed', reason: reviewerOutput.type === 'LLM_ERROR' ? reviewerOutput.error : `Reviewer emitted unsupported tool call '${reviewerOutput.toolName}'.` };
     }
