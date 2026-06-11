@@ -15,6 +15,12 @@ export interface TerminalOutcome {
   result: LlmCompleteResult;
 }
 
+export interface TerminalCardStatusPort {
+  markRunning(cardId: string): void | Promise<void>;
+  markCancelled(cardId: string): void | Promise<void>;
+  commitTerminalOutcome(cardId: string, outcome: TerminalOutcome): void | Promise<void>;
+}
+
 interface TerminalCardRunnerContext {
   projectRoot: string;
   cardId: string;
@@ -78,6 +84,7 @@ export class TerminalCardRunnerController {
     providerTurn: ProviderTurnPort,
     admission?: AdmissionPort,
     publicStatus: TerminalCardPublicStatus = 'backlog',
+    private readonly statusPort?: TerminalCardStatusPort,
   ) {
     this.actor = createActor(terminalCardRunnerMachine, { input: { projectRoot, cardId, publicStatus } });
     this.llmRunner = new LlmRunnerController(projectRoot, executorActorId(cardId), providerTurn, admission);
@@ -87,6 +94,7 @@ export class TerminalCardRunnerController {
   async start(input: Omit<LlmInvocationInput, 'agentId'>): Promise<TerminalOutcome> {
     this.actor.send({ type: 'START' });
     this.persist();
+    await this.statusPort?.markRunning(this.cardId);
     let currentInput = input;
     for (let turn = 0; turn < 10; turn++) {
       const output = await this.llmRunner.runTurn({ ...currentInput, agentId: executorActorId(this.cardId) });
@@ -94,6 +102,7 @@ export class TerminalCardRunnerController {
         const outcome: TerminalOutcome = { status: 'done', statusText: 'Executor completed.', result: output.result };
         this.actor.send({ type: 'TERMINAL_OUTCOME', outcome });
         this.persist();
+        await this.statusPort?.commitTerminalOutcome(this.cardId, outcome);
         return outcome;
       }
       if (output.type === 'LLM_ERROR') {
@@ -122,7 +131,7 @@ export class TerminalCardRunnerController {
     return this.fail('Executor exceeded the terminal CardRunner turn budget.');
   }
 
-  private fail(statusText: string): TerminalOutcome {
+  private async fail(statusText: string): Promise<TerminalOutcome> {
     const outcome: TerminalOutcome = {
       status: 'failed',
       statusText,
@@ -130,6 +139,7 @@ export class TerminalCardRunnerController {
     };
     this.actor.send({ type: 'TERMINAL_OUTCOME', outcome });
     this.persist();
+    await this.statusPort?.commitTerminalOutcome(this.cardId, outcome);
     return outcome;
   }
 
@@ -164,9 +174,10 @@ export class TerminalCardRunnerController {
     return { handled: false };
   }
 
-  cancel(): void {
+  async cancel(): Promise<void> {
     this.actor.send({ type: 'CANCEL' });
     this.persist();
+    await this.statusPort?.markCancelled(this.cardId);
   }
 
   get phase(): 'done' | 'executing' {

@@ -15,10 +15,13 @@ import {
   ProcessRunnerController,
   LlmRunnerController,
   GoalCardRunnerController,
+  createTerminalCardStatusPort,
   type LlmInvocationInput,
   type ProviderTurnPort,
+  type TerminalCardStatusPort,
 } from '../../../src/runtime/actors/index.js';
 import type { LlmCompleteResult } from '../../../src/agents/llm-contracts.js';
+import type { CardRecord } from '../../../src/schemas/index.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-xstate-core-'));
@@ -135,6 +138,46 @@ describe('XState minimal runtime core', () => {
       'executor:T-1',
     ]);
   }));
+
+  it('terminal CardRunner publishes running and terminal status through a narrow port', async () => withTempProject(async (projectRoot) => {
+    const statusPort: TerminalCardStatusPort = {
+      markRunning: jest.fn<(cardId: string) => void>(),
+      markCancelled: jest.fn<(cardId: string) => void>(),
+      commitTerminalOutcome: jest.fn<TerminalCardStatusPort['commitTerminalOutcome']>(),
+    };
+    const provider: ProviderTurnPort = {
+      completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'done' })),
+    };
+    const runner = new TerminalCardRunnerController(projectRoot, 'T-status', provider, undefined, 'backlog', statusPort);
+
+    const outcome = await runner.start(invocationInput('T-status'));
+
+    expect(statusPort.markRunning).toHaveBeenCalledWith('T-status');
+    expect(statusPort.commitTerminalOutcome).toHaveBeenCalledWith('T-status', outcome);
+    expect(statusPort.markCancelled).not.toHaveBeenCalled();
+  }));
+
+  it('terminal card status adapter writes lifecycle patches for terminal outcomes', () => {
+    const store = {
+      setStatus: jest.fn(() => ({} as CardRecord)),
+      commitTerminalLifecyclePatch: jest.fn(() => ({} as CardRecord)),
+    };
+    const port = createTerminalCardStatusPort(store, () => '2026-06-12T00:00:00.000Z');
+
+    port.markRunning('T-adapter');
+    port.commitTerminalOutcome('T-adapter', {
+      status: 'failed',
+      statusText: 'executor failed',
+      result: { kind: 'message', content: 'failure detail' },
+    });
+
+    expect(store.setStatus).toHaveBeenCalledWith('T-adapter', 'running');
+    expect(store.commitTerminalLifecyclePatch).toHaveBeenCalledWith('T-adapter', expect.objectContaining({
+      status: 'failed',
+      status_text: 'executor failed',
+      lifecycle: expect.objectContaining({ status: 'failed', error: 'executor failed' }),
+    }));
+  });
 
   it('LLMRunner emits generic tool-call output', async () => withTempProject(async (projectRoot) => {
     const provider: ProviderTurnPort = {

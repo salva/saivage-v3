@@ -3,6 +3,7 @@ export * from './snapshots.js';
 export * from './runtime-supervisor.js';
 export * from './llm-runner.js';
 export * from './card-runner.js';
+export * from './terminal-card-status-port.js';
 export * from './process-runner.js';
 export * from './goal-card-runner.js';
 export * from './supervisor-runtime-api.js';
