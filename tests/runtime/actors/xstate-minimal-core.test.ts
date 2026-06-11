@@ -12,6 +12,7 @@ import {
   saveActorSnapshot,
   supervisorActorId,
   TerminalCardRunnerController,
+  ProcessRunnerController,
   type LlmInvocationInput,
   type ProviderTurnPort,
 } from '../../../src/runtime/actors/index.js';
@@ -40,6 +41,10 @@ function invocationInput(cardId: string): Omit<LlmInvocationInput, 'agentId'> {
     capabilityRequest: { requiresTools: false },
     episodeContext: { cardId },
   };
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 describe('XState minimal runtime core', () => {
@@ -116,5 +121,47 @@ describe('XState minimal runtime core', () => {
 
     expect(runner.phase).toBe('done');
     expect(runner.publicStatus).toBe('cancelled');
+  }));
+
+  it('ProcessRunner timeout returns control without killing the process', async () => withTempProject(async (projectRoot) => {
+    const runner = new ProcessRunnerController(projectRoot, 'P-1');
+    runner.start({
+      command: process.execPath,
+      args: ['-e', "process.stdout.write('ready\\n'); setTimeout(() => { process.stdout.write('done\\n'); }, 120);"],
+    });
+    await delay(30);
+
+    const timedOut = await runner.wait(20);
+
+    expect(timedOut.status).toBe('running');
+    expect(timedOut.output.stdout).toContain('ready');
+    expect(runner.state).toBe('running');
+    expect(runner.readOutput().stdout).toContain('ready');
+
+    const completed = await runner.wait(1000);
+    expect(completed.status).toBe('done');
+    expect(completed.output.stdout).toContain('done');
+    expect(runner.state).toBe('done');
+
+    const processSnapshot = readActorSnapshots(projectRoot).find((item) => item.actor_id === 'process:P-1');
+    expect(processSnapshot).toMatchObject({ actor_kind: 'process', state_value: 'done' });
+  }));
+
+  it('ProcessRunner kills a running process only when explicitly requested', async () => withTempProject(async (projectRoot) => {
+    const runner = new ProcessRunnerController(projectRoot, 'P-2');
+    runner.start({
+      command: process.execPath,
+      args: ['-e', "process.stdout.write('looping\\n'); setInterval(() => {}, 1000);"],
+    });
+
+    const timedOut = await runner.wait(20);
+    expect(timedOut.status).toBe('running');
+
+    runner.kill();
+    const killed = await runner.wait(1000);
+
+    expect(killed.status).toBe('done');
+    if (killed.status === 'done') expect(killed.signal).toBe('SIGTERM');
+    expect(runner.state).toBe('done');
   }));
 });
