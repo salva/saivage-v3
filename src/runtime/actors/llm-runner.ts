@@ -28,6 +28,11 @@ export interface ProviderTurnPort {
   completeTurn(input: LlmInvocationInput): Promise<LlmCompleteResult>;
 }
 
+export interface AdmissionPort {
+  requestProviderCall(callId: string): boolean;
+  releaseProviderCall(callId: string): void;
+}
+
 interface LlmRunnerContext {
   projectRoot: string;
   agentId: string;
@@ -105,7 +110,12 @@ function parseToolArguments(raw: string): unknown {
 export class LlmRunnerController {
   private readonly actor;
 
-  constructor(projectRoot: string, readonly agentId: string, private readonly providerTurn: ProviderTurnPort) {
+  constructor(
+    projectRoot: string,
+    readonly agentId: string,
+    private readonly providerTurn: ProviderTurnPort,
+    private readonly admission?: AdmissionPort,
+  ) {
     if (actorKindFromId(agentId) !== 'llm') throw new Error(`LLMRunner requires an LLM actor id: ${agentId}`);
     this.actor = createActor(llmRunnerMachine, { input: { projectRoot, agentId } });
     this.actor.start();
@@ -115,11 +125,21 @@ export class LlmRunnerController {
     if (input.agentId !== this.agentId) throw new Error(`Input ${input.inputId} targets ${input.agentId}, not ${this.agentId}`);
     this.actor.send({ type: 'RUN_TURN', input });
     this.persist();
+    const callId = `${this.agentId}:${input.inputId}`;
+    if (this.admission && !this.admission.requestProviderCall(callId)) {
+      this.actor.send({ type: 'PROVIDER_ERROR', error: `Provider admission denied for ${callId}.` });
+      this.persist();
+      const output = this.actor.getSnapshot().context.output;
+      if (!output) throw new Error(`LLMRunner ${this.agentId} completed without output.`);
+      return output;
+    }
     try {
       const result = await this.providerTurn.completeTurn(input);
       this.actor.send({ type: 'PROVIDER_RESULT', result });
     } catch (error) {
       this.actor.send({ type: 'PROVIDER_ERROR', error: error instanceof Error ? error.message : String(error) });
+    } finally {
+      this.admission?.releaseProviderCall(callId);
     }
     this.persist();
     const output = this.actor.getSnapshot().context.output;

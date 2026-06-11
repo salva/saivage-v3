@@ -48,6 +48,14 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function waitFor(condition: () => boolean, timeoutMs = 500): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!condition()) {
+    if (Date.now() >= deadline) throw new Error('Timed out waiting for condition.');
+    await delay(10);
+  }
+}
+
 describe('XState minimal runtime core', () => {
   it('derives deterministic actor ids and kinds', () => {
     expect(supervisorActorId()).toBe('supervisor');
@@ -136,6 +144,42 @@ describe('XState minimal runtime core', () => {
     });
   }));
 
+  it('LLMRunner respects supervisor provider-call admission', async () => withTempProject(async (projectRoot) => {
+    const supervisor = new RuntimeSupervisorController();
+    supervisor.start(projectRoot);
+    expect(supervisor.requestProviderCall('external-call')).toBe(true);
+    const provider: ProviderTurnPort = {
+      completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'should not run' })),
+    };
+    const runner = new LlmRunnerController(projectRoot, 'executor:T-admission-denied', provider, supervisor);
+
+    const denied = await runner.runTurn({ ...invocationInput('T-admission-denied'), agentId: 'executor:T-admission-denied' });
+
+    expect(denied).toEqual({
+      type: 'LLM_ERROR',
+      agentId: 'executor:T-admission-denied',
+      error: 'Provider admission denied for executor:T-admission-denied:input:T-admission-denied.',
+    });
+    expect(provider.completeTurn).not.toHaveBeenCalled();
+    supervisor.releaseProviderCall('external-call');
+  }));
+
+  it('LLMRunner releases supervisor admission after provider completion', async () => withTempProject(async (projectRoot) => {
+    const supervisor = new RuntimeSupervisorController();
+    supervisor.start(projectRoot);
+    const provider: ProviderTurnPort = {
+      completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'done' })),
+    };
+    const runner = new LlmRunnerController(projectRoot, 'executor:T-admission-release', provider, supervisor);
+
+    const output = await runner.runTurn({ ...invocationInput('T-admission-release'), agentId: 'executor:T-admission-release' });
+
+    expect(output.type).toBe('LLM_RESULT');
+    expect(supervisor.work).toBe('ready');
+    expect(supervisor.requestProviderCall('next-call')).toBe(true);
+    supervisor.releaseProviderCall('next-call');
+  }));
+
   it('terminal CardRunner fails clearly on unsupported executor tool calls', async () => withTempProject(async (projectRoot) => {
     const provider: ProviderTurnPort = {
       completeTurn: jest.fn(async () => ({
@@ -221,7 +265,7 @@ describe('XState minimal runtime core', () => {
       command: process.execPath,
       args: ['-e', "process.stdout.write('ready\\n'); setTimeout(() => { process.stdout.write('done\\n'); }, 120);"],
     });
-    await delay(30);
+    await waitFor(() => runner.readOutput().stdout.includes('ready'));
 
     const timedOut = await runner.wait(20);
 

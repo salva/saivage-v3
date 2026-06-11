@@ -5,6 +5,7 @@ import { LlmRunnerController } from './llm-runner.js';
 import { saveActorSnapshot } from './snapshots.js';
 import type { LlmInvocationInput, ProviderTurnPort } from './llm-runner.js';
 import { ProcessRunnerController } from './process-runner.js';
+import type { AdmissionPort } from './llm-runner.js';
 
 export type TerminalCardPublicStatus = 'backlog' | 'running' | 'done' | 'failed' | 'blocked' | 'needs_verification' | 'cancelled';
 
@@ -75,10 +76,11 @@ export class TerminalCardRunnerController {
     projectRoot: string,
     readonly cardId: string,
     providerTurn: ProviderTurnPort,
+    admission?: AdmissionPort,
     publicStatus: TerminalCardPublicStatus = 'backlog',
   ) {
     this.actor = createActor(terminalCardRunnerMachine, { input: { projectRoot, cardId, publicStatus } });
-    this.llmRunner = new LlmRunnerController(projectRoot, executorActorId(cardId), providerTurn);
+    this.llmRunner = new LlmRunnerController(projectRoot, executorActorId(cardId), providerTurn, admission);
     this.actor.start();
   }
 
