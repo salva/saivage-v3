@@ -20,6 +20,11 @@ export interface GoalOutcome {
   statusText: string;
 }
 
+export interface GoalNote {
+  id: string;
+  content: string;
+}
+
 interface GoalCardRunnerContext {
   projectRoot: string;
   cardId: string;
@@ -87,6 +92,8 @@ export class GoalCardRunnerController {
   private readonly actor;
   private readonly plannerRunner: LlmRunnerController;
   private readonly reviewerRunner: LlmRunnerController | null;
+  private readonly pendingNotes: GoalNote[] = [];
+  private readonly deliveredNoteIds = new Set<string>();
 
   constructor(
     projectRoot: string,
@@ -108,6 +115,7 @@ export class GoalCardRunnerController {
     this.persist();
     let currentInput = input;
     for (let turn = 0; turn < 20; turn++) {
+      currentInput = this.deliverPendingNotes(currentInput);
       const output = await this.plannerRunner.runTurn({ ...currentInput, agentId: plannerActorId(this.cardId) });
       if (output.type === 'LLM_RESULT') {
         const review = await this.reviewPlannerResult(currentInput, output.result.content, turn);
@@ -154,13 +162,25 @@ export class GoalCardRunnerController {
     return this.actor.getSnapshot().context.publicStatus;
   }
 
+  addNote(note: GoalNote): void {
+    if (this.pendingNotes.some((item) => item.id === note.id) || this.deliveredNoteIds.has(note.id)) return;
+    this.pendingNotes.push(note);
+    this.persist();
+  }
+
   snapshot() {
     const snapshot = this.actor.getSnapshot();
     return {
       actor_id: cardActorId(this.cardId),
       actor_kind: 'card' as const,
       state_value: snapshot.value,
-      context: snapshot.context as unknown as Record<string, unknown>,
+      context: {
+        ...(snapshot.context as unknown as Record<string, unknown>),
+        noteBox: {
+          pendingNoteIds: this.pendingNotes.map((note) => note.id),
+          deliveredNoteIds: [...this.deliveredNoteIds].sort(),
+        },
+      },
       updated_at: new Date().toISOString(),
     };
   }
@@ -198,6 +218,21 @@ export class GoalCardRunnerController {
 
   private persist(): void {
     saveActorSnapshot(this.actor.getSnapshot().context.projectRoot, this.snapshot());
+  }
+
+  private deliverPendingNotes(input: Omit<LlmInvocationInput, 'agentId'>): Omit<LlmInvocationInput, 'agentId'> {
+    const notes = this.pendingNotes.splice(0);
+    if (notes.length === 0) return input;
+    for (const note of notes) this.deliveredNoteIds.add(note.id);
+    this.persist();
+    return {
+      ...input,
+      episodeContext: {
+        ...input.episodeContext,
+        pendingNotes: notes,
+        deliveredNoteIds: [...this.deliveredNoteIds].sort(),
+      },
+    };
   }
 }
 

@@ -374,6 +374,32 @@ describe('XState minimal runtime core', () => {
     expect(runner.publicStatus).toBe('done');
   }));
 
+  it('GoalCardRunner delivers pending notes to planner once by note id', async () => withTempProject(async (projectRoot) => {
+    const seenNotes: unknown[] = [];
+    const plannerProvider: ProviderTurnPort = {
+      completeTurn: jest.fn(async (input: LlmInvocationInput) => {
+        seenNotes.push(input.episodeContext.pendingNotes ?? []);
+        return { kind: 'message' as const, content: 'planner saw notes' };
+      }),
+    };
+    const runner = new GoalCardRunnerController(
+      projectRoot,
+      'G-notes',
+      plannerProvider,
+      { startChild: jest.fn(async () => ({ status: 'done' as const, statusText: 'unused' })) },
+    );
+    runner.addNote({ id: 'note-1', content: 'card changed' });
+    runner.addNote({ id: 'note-1', content: 'duplicate ignored' });
+
+    const outcome = await runner.start(plannerInput('G-notes'));
+
+    expect(outcome.status).toBe('done');
+    expect(seenNotes).toEqual([[{ id: 'note-1', content: 'card changed' }]]);
+    expect(readActorSnapshots(projectRoot).find((item) => item.actor_id === 'card:G-notes')?.context).toMatchObject({
+      noteBox: { pendingNoteIds: [], deliveredNoteIds: ['note-1'] },
+    });
+  }));
+
   it('terminal CardRunner cancellation is a simple terminal transition', () => withTempProject((projectRoot) => {
     const provider: ProviderTurnPort = {
       completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'unused' })),
