@@ -34,21 +34,21 @@ Planner/card state owns hierarchy, objectives, dependencies, evidence, status, a
 
 Changing planner/card state does not by itself dispatch work. Root work starts through explicit runtime control; child work starts through parent-planner `activate_card`.
 
-The Analyst is the global card mutation authority for user-requested changes. Planners have local card authority only over direct children of the goal they own; they do not directly target ancestors, siblings, unrelated cards, or deeper descendants. Recursive operations such as cancelling or deleting a direct child may affect that child's subtree as a runtime consequence.
+The Analyst is the global card mutation authority for user-requested changes. Planners have local card authority only over direct children of the goal they own; they do not directly target ancestors, siblings, unrelated cards, or deeper descendants. Recursive operations such as cancelling or deleting a direct child may affect that child's subtree as a runtime consequence. Cards may be reordered among siblings where supported, but cross-parent movement is not a supported operation.
 
 ## 4. Active Work Model
 
 At most one leaf card is doing real work at a time. The active work chain can contain multiple cards with durable status `running`, but only the leaf receives scheduling, LLM turns, or process work.
 
-Ancestors are waiting for their active child. Their runner/session lifecycle state is `AwaitingChild`; this is not a durable card status.
+Ancestors are waiting for their active child. This waiting state is actor-local lifecycle state, not a durable card status.
 
-The runtime persists enough active-card-run and activation-ledger information to unwind one terminal child outcome back to its parent planner.
+The runtime persists enough active-card-run and activation-ledger information to unwind one child activation outcome back to its parent planner.
 
 Activation validation happens before dispatch. A parent planner can activate only an immediate child that is ready to run.
 
 ## 5. Agent Lifecycle
 
-Planner sessions are long-lived per goal and should have deterministic identity derived from the goal card. A planner can become dormant after reporting done, failed, or blocked, and can later be resumed by activation of the same goal.
+Planner sessions are long-lived per goal and should have deterministic identity derived from the goal card. A planner can become dormant after reporting done, failed, or blocked, and can later be resumed by activation of the same goal as the same logical agent session.
 
 Executor sessions are one-shot per terminal card activation.
 
@@ -66,7 +66,7 @@ Run:
 2. If the runtime is paused, the supervisor lifts the scheduling gate.
 3. If no root run exists, the supervisor records durable running intent and creates the root runtime run.
 4. If the project is already running, the supervisor returns an already-running warning and creates no duplicate root run.
-5. When needed, the supervisor activates the parentless project goal card.
+5. When needed, the supervisor activates the parentless project card.
 
 Child execution:
 
@@ -74,7 +74,7 @@ Child execution:
 2. Runtime validates parent ownership and child readiness.
 3. Runtime records an activation edge from parent run/tool call to child run.
 4. Runtime dispatches the child to planner/executor/reviewer flow.
-5. Runtime returns exactly one terminal outcome to the parent planner.
+5. Runtime returns exactly one activation outcome to the parent planner.
 
 Pause:
 
@@ -102,13 +102,13 @@ Analyst mutation or parent-planner mutation sets a non-active card to `changed`.
 
 Inactive ancestors on the direct path to the project root receive changed-subtree context and become `changed` until the first running ancestor. Running ancestors stay `running` and receive notification/context instead of status overwrite. Ancestors are not automatically dispatched by the status change.
 
-The acceptance gate prevents a planner from closing a goal while any executable descendant is not in a terminal accepted state. This forces the planner to observe and handle changed, blocked, backlog, running, failed, cancelled, or otherwise incomplete executable descendants before claiming completion. Goal cards carry their own planning diary state.
+The acceptance gate prevents a planner from closing a goal while any executable descendant is not in a completion-compatible state. This forces the planner to observe and handle changed, blocked, backlog, running, failed, or otherwise incomplete executable descendants before claiming completion. Cancelled descendants are completion-compatible and do not block `done`. Goal cards carry their own planning diary state.
 
 `status_text` is a runtime projection from accepted terminal reports only. It is not updated from progress chatter, rejected reports, or reviewer correction requests.
 
 ## 9. Collaborative Cancellation
 
-Direct cancellation is only safe for inactive cancellable cards.
+Direct cancellation is only safe for inactive cancellable cards. Recursive cancellation preserves descendants that are already `done`.
 
 For running cards or subtrees containing the active leaf, cancellation is represented as notifications sent to the requested card and downstream active cards. Agents are expected to stop voluntarily at safe points and report failure/cancelled outcomes. Those outcomes unwind through normal activation barriers until they reach the planner responsible for the originally requested cancellation.
 
