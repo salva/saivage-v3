@@ -58,19 +58,36 @@ Old-harness cleanup checkpoint, 2026-06-12:
   output, startup session sweep, stale running intent reconciliation, and planner
   context-length blockers were removed or replaced by narrow startup/actor/domain
   tests.
-- Remaining `createRuntimeCoreTestContainer` users are larger suites that mix
-  product behavior with old orchestration assumptions:
-  `tests/runtime/runtime-command-ledger.test.ts`,
-  `tests/utils/runtime-integration.test.ts`, `tests/e2e/hardening-e2e.test.ts`,
-  `tests/utils/error-logger.test.ts`, and
-  `tests/utils/stuck-agent-supervisor.test.ts`. Boundary assertions in
-  `tests/utils/runtime-module-boundary.test.ts` remain until the old source files
-  are gone.
-- Do not preserve any of those remaining tests merely because they provide broad
+- Remaining `createRuntimeCoreTestContainer` users need file-local triage rather
+  than a blanket rewrite:
+  - `tests/runtime/runtime-command-ledger.test.ts` mostly asserts old runtime
+    command/run/activation ledger mechanics. Treat it as an obsolete
+    orchestration suite unless a specific current product behavior is proven
+    uncovered elsewhere.
+  - `tests/utils/runtime-integration.test.ts` mixes mostly old harness behavior
+    with direct runtime lock tests. Preserve lock coverage as direct `lock.ts`
+    tests; do not keep the old integration harness for its own sake.
+  - `tests/e2e/hardening-e2e.test.ts` contains valid security/API/quarantine
+    tests plus an old harness lifecycle/artifact section. Preserve security
+    coverage; replace artifact/lifecycle coverage only if a current XState-era
+    ownership boundary lacks it.
+  - `tests/utils/error-logger.test.ts` contains valid `ErrorLogger` unit/JSONL
+    tests plus old runtime error-propagation harness sections. Preserve the
+    direct logger tests; add XState logging coverage only for live behavior that
+    is not already tested.
+  - `tests/utils/stuck-agent-supervisor.test.ts` contains valid
+    `StuckAgentSupervisor` unit tests plus old runtime-wiring sections. Preserve
+    the direct supervisor tests; avoid rebuilding runtime integration around the
+    old core.
+  Boundary assertions in `tests/utils/runtime-module-boundary.test.ts` remain
+  until the old source files are gone.
+- Do not preserve any remaining harness section merely because it provides broad
   old-runtime integration coverage. For each file, first separate current product
   behavior from old implementation behavior. Delete old-orchestration assertions.
   Add only the smallest XState-era actor/domain/API test needed for current
   behavior that is otherwise unprotected.
+- Reviewing or accepting this plan is not authorization to perform the cleanup.
+  Execute the file edits only after an explicit implementation request.
 
 Readjusted near-term order:
 
@@ -626,10 +643,12 @@ documentation drift.
 Current final-cleanup posture after the old-harness retrospective:
 
 - The remaining old harness files are not automatically rewrite targets. Treat
-  them as mixed bags of useful product assertions and obsolete implementation
-  assertions.
+  them as file-local triage targets: some are mostly obsolete, some contain
+  valuable direct unit/security coverage, and some contain both.
 - If a file mostly validates old dispatch/run-ledger/session mechanics, delete it
   and rely on focused XState/domain tests for live behavior.
+- If a file contains valid direct unit/API/security tests, preserve those tests
+  without dragging the old runtime harness along.
 - If a product behavior is still valid and lacks coverage, add one small test at
   the ownership boundary that now owns the behavior. Do not rebuild a miniature
   version of `createRuntimeCoreTestContainer`.
