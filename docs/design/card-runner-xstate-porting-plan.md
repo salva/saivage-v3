@@ -32,8 +32,8 @@ following pieces now exist in `src/runtime/actors/` or adjacent composition code
   prompt/context builders; and
 - a startup recovery-plan reader that validates persisted actor snapshots before
   the supervisor starts; and
-- append-only tool-call status records for `pending`, `delivered`, and `errored`
-  transitions at LLM/CardRunner tool boundaries.
+- append-only tool-call status records for `pending`, `delivered`, `errored`, and
+  startup `abandoned` transitions at LLM/CardRunner tool boundaries.
 
 The following confirmed gaps are now the priority before deeper recovery or API
 rewrites:
@@ -41,8 +41,9 @@ rewrites:
 1. The recovery-plan reader validates persisted actor snapshots, but startup does
    not yet rebuild actors or reconcile running process snapshots.
 2. LLM turns persist message JSONL, tool-delivery records, and
-   `pending/delivered/errored` tool status transitions, but startup recovery does
-   not yet mark stale pending tool calls `abandoned`.
+   `pending/delivered/errored/abandoned` tool status transitions. The remaining
+   protocol gap is enforcing exactly-one terminal transition when providers emit
+   multiple tool calls in one turn or cancellation races active tool handling.
 3. `changed` card propagation reaches active XState goal NoteBoxes, but the old
    synthetic planner-note fallback still exists for inactive/no-owner cases.
 4. The production server now defaults to the XState runtime, but old dispatcher

@@ -2,7 +2,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, jest } from '@jest/globals';
+import { existsSync, readFileSync } from 'node:fs';
 import { createSupervisorRuntimeApi, readActorSnapshots, saveActorSnapshot, SupervisorRuntimeApi } from '../../../src/runtime/actors/index.js';
+import { actorToolCallStatusesPath, appendToolCallStatus } from '../../../src/runtime/actors/index.js';
 import type { GoalCardStatusPort, LlmInvocationInput, ProviderTurnPort, XStateChildCard } from '../../../src/runtime/actors/index.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
@@ -11,6 +13,15 @@ function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promis
   if (result instanceof Promise) return result.finally(() => rmSync(projectRoot, { recursive: true, force: true }));
   rmSync(projectRoot, { recursive: true, force: true });
   return result;
+}
+
+function readJsonl(path: string): Array<Record<string, unknown>> {
+  if (!existsSync(path)) return [];
+  return readFileSync(path, 'utf-8')
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 
 describe('SupervisorRuntimeApi', () => {
@@ -51,6 +62,37 @@ describe('SupervisorRuntimeApi', () => {
       cards: [{ cardId: 'G-recover', active: true }],
       llms: [{ actorId: 'planner:G-recover', active: true }],
     });
+  }));
+
+  it('abandons stale pending tool calls during startup recovery', async () => withTempProject(async (projectRoot) => {
+    appendToolCallStatus(projectRoot, {
+      agent_id: 'planner:G-stale',
+      source_input_id: 'input:G-stale',
+      tool_call_id: 'call-stale',
+      tool_name: 'activate_card',
+      status: 'pending',
+    });
+    appendToolCallStatus(projectRoot, {
+      agent_id: 'planner:G-delivered',
+      source_input_id: 'input:G-delivered',
+      tool_call_id: 'call-delivered',
+      tool_name: 'activate_card',
+      status: 'pending',
+    });
+    appendToolCallStatus(projectRoot, {
+      agent_id: 'planner:G-delivered',
+      source_input_id: 'input:G-delivered',
+      tool_call_id: 'call-delivered',
+      tool_name: 'activate_card',
+      status: 'delivered',
+      delivery_input_id: 'input:G-delivered:child:1',
+    });
+    const api = new SupervisorRuntimeApi({ projectRoot, now: () => '2026-06-12T00:00:00.000Z' });
+
+    await api.start();
+
+    expect(readJsonl(actorToolCallStatusesPath(projectRoot, 'planner:G-stale')).map((entry) => entry.status)).toEqual(['pending', 'abandoned']);
+    expect(readJsonl(actorToolCallStatusesPath(projectRoot, 'planner:G-delivered')).map((entry) => entry.status)).toEqual(['pending', 'delivered']);
   }));
 
   it('fails startProject clearly until goal execution is wired', async () => withTempProject(async (projectRoot) => {

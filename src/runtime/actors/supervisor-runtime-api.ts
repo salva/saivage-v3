@@ -4,6 +4,7 @@ import { PROJECT_CARD_ID } from '../../cards/project-card.js';
 import { buildXStatePlannerInput } from './actor-input-builders.js';
 import { buildActorRecoveryPlan } from './actor-recovery.js';
 import { GoalCardRunnerController } from './goal-card-runner.js';
+import { abandonStalePendingToolCalls } from './llm-delivery-log.js';
 import { plannerActorId } from './ids.js';
 import { RuntimeSupervisorController } from './runtime-supervisor.js';
 import { createXStateChildActivation } from './xstate-child-activation.js';
@@ -52,6 +53,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
   async start(): Promise<void> {
     if (this.started) return;
     this.recoveryPlan = buildActorRecoveryPlan(this.options.projectRoot, this.options.rootCards);
+    abandonStalePendingToolCalls(this.options.projectRoot);
     this.supervisor.start(this.options.projectRoot);
     this.started = true;
   }

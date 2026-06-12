@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { appendSyncIdempotentByKey } from '../../persistence/index.js';
@@ -41,8 +42,12 @@ export function actorToolDeliveriesPath(projectRoot: string, agentId: string): s
   return join(projectRoot, '.saivage', 'agents', 'tool-deliveries', `${encodeURIComponent(agentId)}.jsonl`);
 }
 
+function actorToolCallStatusesDir(projectRoot: string): string {
+  return join(projectRoot, '.saivage', 'agents', 'tool-call-statuses');
+}
+
 export function actorToolCallStatusesPath(projectRoot: string, agentId: string): string {
-  return join(projectRoot, '.saivage', 'agents', 'tool-call-statuses', `${encodeURIComponent(agentId)}.jsonl`);
+  return join(actorToolCallStatusesDir(projectRoot), `${encodeURIComponent(agentId)}.jsonl`);
 }
 
 export function appendLlmTurnStarted(projectRoot: string, input: LlmInvocationInput): void {
@@ -143,6 +148,33 @@ export function appendToolCallStatus(projectRoot: string, record: Omit<ToolCallS
   return parsed;
 }
 
+export function readToolCallStatuses(projectRoot: string, agentId?: string): ToolCallStatusRecord[] {
+  const paths = agentId ? [actorToolCallStatusesPath(projectRoot, agentId)] : actorToolCallStatusPaths(projectRoot);
+  return paths.flatMap((path) => readToolCallStatusPath(path));
+}
+
+export function abandonStalePendingToolCalls(projectRoot: string, reason = 'Runtime restarted before the pending tool call reached a terminal delivery state.'): ToolCallStatusRecord[] {
+  const records = readToolCallStatuses(projectRoot);
+  const terminalKeys = new Set(records
+    .filter((record) => record.status === 'delivered' || record.status === 'errored' || record.status === 'abandoned')
+    .map(toolCallKey));
+  const abandoned: ToolCallStatusRecord[] = [];
+  for (const record of records) {
+    if (record.status !== 'pending') continue;
+    if (terminalKeys.has(toolCallKey(record))) continue;
+    abandoned.push(appendToolCallStatus(projectRoot, {
+      agent_id: record.agent_id,
+      source_input_id: record.source_input_id,
+      tool_call_id: record.tool_call_id,
+      tool_name: record.tool_name,
+      status: 'abandoned',
+      error: reason,
+    }));
+    terminalKeys.add(toolCallKey(record));
+  }
+  return abandoned;
+}
+
 function appendToolCallMessage(projectRoot: string, input: LlmInvocationInput, toolCall: ToolCall, index: number): void {
   appendActorMessage(projectRoot, input.agentId, {
     id: `${input.inputId}:tool-call:${toolCall.id}`,
@@ -166,6 +198,27 @@ function appendActorMessage(projectRoot: string, agentId: string, message: Agent
 
 function roundId(kind: 'pre' | 'user' | 'assistant', seed: string): string {
   return `r-${kind}-${createHash('sha256').update(seed).digest('hex').slice(0, 32)}`;
+}
+
+function actorToolCallStatusPaths(projectRoot: string): string[] {
+  const dir = actorToolCallStatusesDir(projectRoot);
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.jsonl'))
+    .map((entry) => join(dir, entry.name))
+    .sort();
+}
+
+function readToolCallStatusPath(path: string): ToolCallStatusRecord[] {
+  if (!existsSync(path)) return [];
+  return readFileSync(path, 'utf-8')
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => toolCallStatusRecordSchema.parse(JSON.parse(line)));
+}
+
+function toolCallKey(record: Pick<ToolCallStatusRecord, 'agent_id' | 'source_input_id' | 'tool_call_id'>): string {
+  return [record.agent_id, record.source_input_id, record.tool_call_id].join(':');
 }
 
 function toolStatusTransitionId(record: Omit<ToolCallStatusRecord, 'transition_id' | 'created_at'>): string {
