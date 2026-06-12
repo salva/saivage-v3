@@ -76,13 +76,15 @@ The system does not provide:
 
 ## 5. Cards
 
-Cards are the durable units of project work. They form a parent-child tree rooted at the project card.
+Cards are the durable units of project work. They form a parent-child tree rooted at the current project card.
 
 A card can describe a project, a goal, or a terminal task. Goal cards are worked by planners. Terminal cards are worked by executors. Reviewers assess completed goals.
 
 Every card may carry title, description, acceptance criteria, tags, dependencies, priority, urgency, history, result data, and a runtime-written `status_text` summarizing the most recent accepted terminal report.
 
-The project card is the single undeletable root card. It carries project-level context, global constraints, and the user's top-level objective summary. Agents working below the root must be able to receive relevant project context without treating the project card as ordinary disposable work.
+The project card is mostly a regular goal card. Its special properties are structural and activation-related: it has no parent, and the runtime activates it directly when the user asks the Analyst to run/continue the system. It carries project-level context, global constraints, and the user's top-level objective summary.
+
+If the user asks the Analyst to replace the project objective, the system may delete or archive the current project card and create a new parentless project card. Replacement is a deliberate destructive project-level change and should be confirmed in conversation before execution.
 
 Goal and project cards carry their own planning diary state: decomposition, assumptions, sequencing notes, reviewer feedback, and relevant correction history.
 

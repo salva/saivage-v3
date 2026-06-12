@@ -64,7 +64,7 @@ Run:
 2. If the runtime is paused, the supervisor lifts the scheduling gate.
 3. If no root run exists, the supervisor records durable running intent and creates the root runtime run.
 4. If the project is already running, the supervisor returns an already-running warning and creates no duplicate root run.
-5. When needed, the supervisor activates the project planner.
+5. When needed, the supervisor activates the parentless project goal card.
 
 Child execution:
 
@@ -150,7 +150,7 @@ The runtime implementation direction is XState-centered: machine states and acto
 
 Target actor ownership:
 
-- supervisor owns root runtime mode, pause gate, shutdown process termination, and root project actor;
+- supervisor owns root runtime mode, pause gate, shutdown process termination, and activation of the parentless project goal actor;
 - goal card actor owns planner turns, reviewer turns, active child activation, and process waits for planner tools;
 - terminal card actor owns executor turns and process actors;
 - LLM turn actors own provider invocation/admission/cancellation boundaries;
