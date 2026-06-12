@@ -77,10 +77,10 @@ Old-harness cleanup checkpoint, 2026-06-12:
     tests plus old runtime error-propagation harness sections; the old harness
     sections were removed and the direct logger tests remain. Add XState logging
     coverage only for live behavior that is not already tested.
-  - `tests/utils/stuck-agent-supervisor.test.ts` contains valid
-    `StuckAgentSupervisor` unit tests plus old runtime-wiring sections. Preserve
-    the direct supervisor tests; avoid rebuilding runtime integration around the
-    old core.
+  - `tests/utils/stuck-agent-supervisor.test.ts` contained valid
+    `StuckAgentSupervisor` unit tests plus old runtime-wiring sections; the old
+    runtime-wiring sections were removed and the direct supervisor tests remain.
+    Avoid rebuilding runtime integration around the old core.
   Boundary assertions in `tests/utils/runtime-module-boundary.test.ts` remain
   until the old source files are gone.
 - Do not preserve any remaining harness section merely because it provides broad
