@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { ANALYST_TOOL_NAMES } from '../../src/tools/definitions/index.js';
 import { TOOL_REGISTRY } from '../../src/agents/analyst-prompt.js';
@@ -19,7 +19,6 @@ describe('obsolete backend trigger contracts are removed', () => {
   });
 
   it('runtime no longer exposes directive wakeup API', () => {
-    const source = readFileSync(join(process.cwd(), 'src/runtime/runtime.ts'), 'utf8');
-    expect(source).not.toContain('requestProjectDirectiveWakeup');
+    expect(existsSync(join(process.cwd(), 'src/runtime/runtime.ts'))).toBe(false);
   });
 });
