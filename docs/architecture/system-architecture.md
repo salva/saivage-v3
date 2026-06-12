@@ -34,7 +34,7 @@ Planner/card state owns hierarchy, objectives, dependencies, evidence, status, a
 
 Changing planner/card state does not by itself dispatch work. Root work starts through explicit runtime control; child work starts through parent-planner `activate_card`.
 
-The Analyst is the global card mutation authority for user-requested changes. Planners have local card authority only over direct children of the goal they own; they do not mutate ancestors, siblings, unrelated cards, or deeper descendants directly.
+The Analyst is the global card mutation authority for user-requested changes. Planners have local card authority only over direct children of the goal they own; they do not directly target ancestors, siblings, unrelated cards, or deeper descendants. Recursive operations such as cancelling or deleting a direct child may affect that child's subtree as a runtime consequence.
 
 ## 4. Active Work Model
 

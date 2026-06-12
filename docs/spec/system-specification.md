@@ -109,7 +109,7 @@ Children under a parent form an explicit ordered list. Creation appends to the e
 
 The Analyst has global card authority on behalf of the user. It may create, edit, reorder, move, cancel, delete, archive, or replace any card when the requested operation is supported and any required destructive-action confirmation has been satisfied.
 
-A planner's card authority is local to the goal it owns. It may interact only with that goal's direct children: create them, edit them, reorder them, cancel/delete them where supported, and activate them. A planner may not mutate ancestors, siblings, unrelated cards, or descendants below one of its children. Larger tree reshaping is Analyst-owned.
+A planner's card authority is local to the goal it owns. It may directly target only that goal's direct children: create them, edit them, reorder them, cancel/delete them where supported, and activate them. Some supported operations, such as cancelling or deleting a direct child, may recursively affect that child's descendants. The planner still targets only the direct child; it may not directly mutate ancestors, siblings, unrelated cards, or descendants below one of its children. Larger tree reshaping is Analyst-owned.
 
 Displayed child order is for presentation and comprehension. It is not a hard scheduling contract. A planner may dispatch children out of displayed order if its reasoning says that is appropriate.
 
@@ -197,9 +197,9 @@ Notifications never block goal completion and have no acknowledgement gate.
 
 Cancellation is collaborative when the target is running.
 
-If the target card is not running and is safe to cancel, the runtime may mark it `cancelled` directly.
+If the target card is not running and is safe to cancel, the runtime may mark it and its cancellable descendants `cancelled` directly.
 
-If the target card is running, or if its subtree contains the active leaf, the runtime cannot simply cancel it by fiat. Instead, it queues cancellation-request notifications to the target card and every active downstream card in the activation chain below it.
+If the target card is running, or if its subtree contains the active leaf, the runtime cannot simply cancel it by fiat. Instead, it queues cancellation-request notifications to the target card and every active downstream card in the activation chain below it. A planner may request this recursive cancellation only by targeting one of its direct children; the recursive effect belongs to runtime semantics, not to the planner directly controlling grandchildren.
 
 Those notifications ask the responsible agents to voluntarily stop their work and report back failure. The expected flow is:
 
