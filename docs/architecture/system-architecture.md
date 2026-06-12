@@ -44,7 +44,7 @@ Ancestors are waiting for their active child. This waiting state is actor-local 
 
 The runtime persists enough active-card-run and activation-ledger information to unwind one child activation outcome back to its parent planner.
 
-Activation validation happens before dispatch. A parent planner can activate only an immediate child in `backlog`, `changed`, `blocked`, or `failed`. Activation transitions the child to `running`; child `done`, `failed`, or `blocked` outcomes update the child card before the parent planner receives the activation tool result.
+Activation validation happens before dispatch. A parent planner can activate only an immediate child in `backlog`, `changed`, `blocked`, or `failed`. Activation transitions the child to `running`; child `done`, `failed`, or `blocked` outcomes update the child card before the parent planner receives the activation tool result. `done` cards are not activatable unless later modification changes them to `changed`.
 
 ## 5. Agent Lifecycle
 
@@ -54,7 +54,7 @@ Executor sessions are one-shot per terminal card activation.
 
 Reviewer sessions are one-shot per assessment.
 
-Reviewer assessment happens after runtime readiness and evidence gates pass. The reviewer receives the project card data, the assessed goal subtree, and the planner return value. Reviewer approval is valid only for the card tree snapshot it assessed. If the goal or any descendant changes before approval commits, the runtime invalidates the reviewer pass and returns the goal to planner ownership with correction/change context.
+Reviewer assessment happens after runtime readiness and evidence gates pass. The reviewer receives the project card data, the assessed goal subtree, and the planner return value. Reviewer approval is valid only for the card tree snapshot it assessed. If the goal or any descendant changes before approval commits, the runtime invalidates the reviewer pass and returns the goal to planner ownership with correction/change context. Negative reviewer results are stored with the card and injected back into the planner context through the completion-return response; positive reviewer text is only attached to the card.
 
 Analyst sessions are user-facing conversational sessions. Analyst mutations go through canonical runtime, card, config, process, and notification services.
 
@@ -100,15 +100,15 @@ Notification content is not a durable user-managed object. Persistence exists on
 
 Analyst mutation or parent-planner mutation sets a non-active card to `changed`. If the modified card is already `running`, it remains `running`. In both cases the runtime queues a notification to the modified card so the card's main agent becomes aware of the change.
 
-When the Analyst modifies a deep card, inactive ancestors on the direct path to the project root receive changed-subtree context and become `changed` until the first running ancestor. Running ancestors stay `running` and receive notification/context instead of status overwrite. Ancestors are not automatically dispatched by the status change.
+When a modification affects an inactive descendant, inactive ancestors on the direct path to the project root receive changed-subtree context and become `changed` until the first running ancestor. Running ancestors stay `running` and receive notification/context instead of status overwrite. In practice, deep propagation is most often needed for Analyst edits because parent-planner edits target direct children of the active goal. Ancestors are not automatically dispatched by the status change.
 
 The acceptance gate prevents a planner from closing a goal while any executable descendant is not in a completion-compatible state. This forces the planner to observe and handle changed, blocked, backlog, running, failed, or otherwise incomplete executable descendants before claiming completion. Cancelled descendants are completion-compatible and do not block `done`. Goal cards carry their own planning diary state.
 
-`result` is attached from accepted main-agent results only. It is not updated from progress chatter, rejected reports, or reviewer correction requests. `working_status` is separate free text for ongoing agent progress.
+`result` is attached from accepted main-agent results only. It is not updated from progress chatter, rejected reports, or reviewer correction requests. `working_status` is separate free text for agents attached to the card.
 
 ## 9. Collaborative Cancellation
 
-Direct cancellation is only safe for inactive cancellable cards. Recursive cancellation preserves descendants that are already `done` and converts non-completion-compatible descendants, including `failed` and `blocked`, to `cancelled`.
+Direct cancellation is safe for cards that are not `running`. Recursive cancellation preserves descendants that are already `done` and converts non-completion-compatible descendants, including `failed` and `blocked`, to `cancelled`. Runtime-owned processes attached to non-running cancelled cards are terminated through canonical process controls.
 
 For running cards or subtrees containing the active leaf, cancellation is represented as notifications sent to the requested card and downstream active cards. Agents are expected to stop voluntarily at safe points and report failure/cancelled outcomes. Those outcomes unwind through normal activation barriers until they reach the planner responsible for the originally requested cancellation.
 

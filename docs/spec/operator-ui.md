@@ -26,6 +26,7 @@ Narrow/mobile layouts are intentionally unspecified for now.
 The workspace area renders read-only projections of runtime state, including:
 
 - cards and card detail;
+- distinct card `working_status`, accepted `result`, specialized result fields, and card field history when available;
 - card tree/board/list views;
 - runtime dashboard/state;
 - agent sessions and transcripts;
@@ -138,6 +139,7 @@ The UI satisfies this specification when:
 - the Analyst panel is visible on first paint at desktop widths;
 - no drawer/toggle control is required to reach the Analyst;
 - the workspace remains visible beside the Analyst panel;
+- card detail distinguishes live `working_status` from accepted `result` and can expose card field history when available;
 - read-only workspace navigation/filtering/copy/refresh still works;
 - no direct UI control performs an Analyst-only mutation;
 - "Discuss with analyst" stages contextual chat text rather than opening a panel;

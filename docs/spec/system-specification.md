@@ -81,7 +81,7 @@ A card can describe a project, a goal, or a terminal task. Goal cards are worked
 
 Every card has a title, freeform description, and acceptance criteria. Cards may also carry tags, dependencies, history, result data, and agent-maintained working status.
 
-`working_status` is free text that the card's main agent may use to record ongoing advancement. It is not the accepted completion result.
+`working_status` is free text for agents attached to the card to record ongoing advancement. Agents may update it through dedicated tools or direct field editing when those write paths are available. It is not the accepted completion result.
 
 `result` is the data returned by the card's main agent to its parent and attached to the card when accepted. The system must not mirror mid-run progress, rejected reports, reviewer correction requests, or failed validation attempts into `result` as if they were accepted outcomes. Specialized agents may also store their own result fields, such as `reviewer_result`, for feedback that must be visible to later planner turns.
 
@@ -89,7 +89,7 @@ Card storage should preserve field-level history. Each durable field may be stor
 
 The project card is mostly a regular goal card. Its special properties are structural and activation-related: it has no parent, and the runtime activates it directly when the user asks the Analyst to run/continue the system. It carries project-level context, global constraints, and the user's top-level objective summary.
 
-If the user asks the Analyst to replace the project objective, the normal path is to cancel the current project card, archive or delete it, and create a new parentless project card. Replacement is a deliberate destructive project-level change and should be confirmed in conversation before execution. Direct replacement of a running project card is not required; the Analyst should guide the user through cancellation first.
+If the user asks the Analyst to replace the project objective, the expected path is to cancel the current project card, archive or delete it, and create a new parentless project card. Replacement is a deliberate destructive project-level change and should be confirmed in conversation before execution. Direct replacement of a running project card is not required; the Analyst should guide the user through cancellation first.
 
 Archiving is not a card status. To archive a card, the system moves its on-disk representation to a card archive directory and removes it from the runtime's active card tree.
 
@@ -155,7 +155,7 @@ At most one active leaf does real work at a time. The active work can still form
 
 Planners do not directly run child planners or executors. A planner calls `activate_card(card_id)`. From the parent planner's perspective, this is a synchronous logical barrier: one tool call eventually receives exactly one activation outcome.
 
-`activate_card` is valid only when the caller is the responsible parent planner, the requested card is an immediate child of that planner's goal, and the child is in an activatable state. Activatable statuses are `backlog`, `changed`, `blocked`, and `failed`. Activating a card in any activatable state transitions it to `running`. Invalid activation attempts fail before dispatch and leave card status unchanged.
+`activate_card` is valid only when the caller is the responsible parent planner, the requested card is an immediate child of that planner's goal, and the child is in an activatable state. Activatable statuses are `backlog`, `changed`, `blocked`, and `failed`. Activating a card in any activatable state transitions it to `running`, so reactivating a `changed` card clears the durable `changed` status by replacing it with `running`. A `done` card is not activatable; it must first be modified into `changed` or replaced by new work. Invalid activation attempts fail before dispatch and leave card status unchanged.
 
 The runtime may persist, recover, and resume the physical work across service restarts. The parent planner still observes one outcome for the activation:
 
@@ -164,6 +164,8 @@ The runtime may persist, recover, and resume the physical work across service re
 - `blocked`
 
 The main agent for every card type may report `done`, `failed`, or `blocked`. Before the parent planner receives the activation outcome, the child card first transitions to the matching card status.
+
+The Analyst does not directly set cards to `blocked`. `blocked` is reported by a card's main agent as an activation outcome. Analyst intervention uses supported card edits, cancellation, new backlog cards, or card-addressed notifications.
 
 Reviewer `needs_corrections` is handled inside the child activation. It is not a parent-visible activation result unless review retries are exhausted and the child activation ultimately returns `failed`.
 
@@ -193,7 +195,7 @@ Before accepting `done`, the runtime must verify:
 - required evidence references are valid;
 - reviewer assessment passes after readiness and evidence gates pass.
 
-If any executable descendant remains `changed`, `blocked`, `backlog`, `running`, `failed`, or otherwise non-compatible with successful completion, the parent cannot close the goal. Only `done` and `cancelled` descendants are completion-compatible and do not block `done`. `blocked` is unresolved rather than final: the parent planner must fix the blocking condition and reactivate the card, send a notification explaining the unblocked condition before reactivation, edit the card so it becomes `changed`, cancel the card, or report `blocked` itself so the responsibility moves upward. `failed` blocks `done` until the parent takes explicit action, such as retrying through reactivation, replacing the failed work, or marking the failed child as cancelled where supported. The runtime reports a readiness error that identifies the descendant state that must be handled.
+If any executable descendant remains `changed`, `blocked`, `backlog`, `running`, `failed`, or otherwise non-compatible with successful completion, the parent cannot close the goal. Only `done` and `cancelled` descendants are completion-compatible and do not block `done`. `blocked` is unresolved rather than final: the parent planner must fix the blocking condition and reactivate the card, send a notification explaining the unblocked condition before reactivation, edit the card so it becomes `changed` under the changed-card rules in section 9, cancel the card, or report `blocked` itself so the responsibility moves upward. `failed` blocks `done` until the parent takes explicit action, such as retrying through reactivation, replacing the failed work, or marking the failed child as cancelled where supported. The runtime reports a readiness error that identifies the descendant state that must be handled.
 
 Goal planning diary state must reflect the latest accepted planner and reviewer state before the enclosing goal can close.
 
@@ -205,7 +207,7 @@ Notifications never block goal completion and have no acknowledgement gate.
 
 Cancellation can be initiated by the Analyst or by the parent planner responsible for the target card. Cancellation is collaborative when the target is running.
 
-If the target card is not running and is safe to cancel, the runtime may mark it and its cancellable descendants `cancelled` directly. Recursive cancellation changes descendants in non-completion-compatible states, including `failed` and `blocked`, to `cancelled`. Descendants that are already `done` remain `done`.
+If the target card is not `running`, the runtime may mark it and its cancellable descendants `cancelled` directly. Recursive cancellation changes descendants in non-completion-compatible states, including `failed` and `blocked`, to `cancelled`. Descendants that are already `done` remain `done`. If a non-running cancelled card has runtime-owned processes attached, those processes are terminated as part of the cancellation process through canonical process controls.
 
 If the project card is cancelled, autonomous project progress becomes paused. The user decides the next project-level action through the Analyst.
 
@@ -230,7 +232,7 @@ Notifications are ephemeral card-addressed delivery items.
 
 A notification is queued onto a card. The card runtime delivers it to that card's main agent session:
 
-- the currently running main agent session for that card, once it becomes active again and reaches a point where it can accept delivered notification context; or
+- the currently active card's main agent session, once the LLM becomes active again and reaches a point where it can accept delivered notification context; or
 - the next future main agent session for that card, if that session is ever started.
 
 Notifications are immutable after queueing. To correct one, queue another notification that supersedes it.
@@ -253,7 +255,7 @@ The Analyst must let the user complete these tasks in natural language:
 - queue card-addressed notifications;
 - run/continue, pause, and shutdown the runtime;
 - request card or subtree cancellation;
-- mark goals as needing corrections;
+- mark goals as needing corrections by queueing planner notifications, editing goal objectives or acceptance criteria, or otherwise using supported card-edit paths;
 - terminate live runtime processes through canonical process controls;
 - change model/provider routing, failover, MCP entries, runtime settings, and server settings;
 - diagnose failures by correlating cards, runtime events, agent sessions, process output, files, configuration, and credentials;
@@ -271,7 +273,7 @@ At the system level, only these UI facts are part of the core contract:
 
 - the Analyst must be reachable from the operator UI;
 - the workspace is a projection surface, not a parallel mutation surface;
-- any mutating user action outside bounded authentication/bootstrap must route through the Analyst;
+- any mutating user action outside authentication/bootstrap must route through the Analyst;
 - UI navigation can be driven by the Analyst so the conversational answer and visible workspace stay in sync.
 
 Analyst-driven navigation means the Analyst can ask the webapp to show a particular card, file, debug view, process, runtime view, or agent session to illustrate the answer. The Analyst also receives enough current workspace context to answer with awareness of what the user is seeing.
@@ -301,6 +303,8 @@ The specification does not impose a process concurrency limit for now. Future ru
 Reviewer assessment happens after the planner reports a goal ready for completion and after runtime readiness and evidence gates pass. For now, the reviewer receives the project card data, the goal subtree being assessed, and the return value from the planner agent. The reviewer records an assessment for that snapshot.
 
 Reviewer approval is valid only for the card tree snapshot it assessed. The invalidation rule is defined with changed-card propagation: if the goal or any descendant changes before approval commits, the runtime detects the stale assessment through the pending change notification/context and returns the goal to planner ownership.
+
+Reviewer results are stored locally with the assessed card. If the reviewer result is negative, it is injected back into the planner context through the response to the planner's completion-return tool call. If the reviewer result is positive, the reviewer text is attached to the card for recordkeeping but is otherwise ignored by the planner flow.
 
 ## 18. Agent Session Resumption
 
@@ -342,17 +346,20 @@ The system satisfies this specification when:
 - `activate_card` behaves as a synchronous logical barrier from the parent planner perspective;
 - `activate_card` is valid for child cards in `backlog`, `changed`, `blocked`, or `failed`, and activation transitions the child to `running`;
 - child activation outcomes update the child card to `done`, `failed`, or `blocked` before the parent planner receives the tool result;
+- the Analyst cannot directly set a card to `blocked`; blocked status is produced by a card main-agent activation outcome;
 - modifying a non-active card makes it `changed` and queues a notification to that card;
 - modifying a running card keeps it `running` and queues a notification to that card;
 - `changed`, `blocked`, `backlog`, `running`, and `failed` descendants block parent `done` reports until handled;
-- `cancelled` descendants do not block parent `done` reports;
+- `done` and `cancelled` descendants do not block parent `done` reports;
 - inactive descendant edits propagate changed-subtree context to inactive ancestors up to the first running ancestor or project root;
 - cancellation of running work is collaborative through downstream notifications and voluntary failed outcomes;
 - recursive cancellation of inactive subtrees preserves already-`done` descendants;
 - recursive cancellation converts `failed` and `blocked` descendants to `cancelled`;
-- card `result` reflects accepted main-agent results only, while `working_status` is separate progress text;
+- cancellation of a non-running card terminates attached runtime-owned processes through canonical process controls;
+- card `result` reflects accepted main-agent results only, while `working_status` is a separate free field for agent usage;
 - goal completion rejects any executable descendant state that is not compatible with accepted completion;
 - reviewer approval is invalidated if the assessed goal or any descendant changes before approval commits;
+- negative reviewer results are stored with the card and injected into planner context, while positive reviewer text is attached for recordkeeping only;
 - notifications are card-addressed, ephemeral, immutable, and non-inspectable as objects;
 - undelivered notifications remain with deleted or archived card representations and are no longer delivered through the active runtime;
 - restart/reset of planner state is not required;
