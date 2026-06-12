@@ -76,12 +76,12 @@ flowchart TD
 
   terminal --> terminalRunner[Terminal card-runner actor]
 
-  projectRunner --> plannerTurn[LLM turn actor: planner/reviewer]
-  projectRunner --> plannerProcess[Process actor(s)]
-  goalRunner --> goalTurn[LLM turn actor: planner/reviewer]
-  goalRunner --> goalProcess[Process actor(s)]
-  terminalRunner --> executorTurn[LLM turn actor: executor]
-  terminalRunner --> terminalProcess[Process actor(s)]
+  projectRunner --> plannerTurn[LLM turn actor for planner or reviewer]
+  projectRunner --> plannerProcess[Process actors]
+  goalRunner --> goalTurn[LLM turn actor for planner or reviewer]
+  goalRunner --> goalProcess[Process actors]
+  terminalRunner --> executorTurn[LLM turn actor for executor]
+  terminalRunner --> terminalProcess[Process actors]
 ```
 
 Actor ownership:
