@@ -259,7 +259,7 @@ The plan lists 6 test files under "Known compatibility tests to delete or rewrit
 - `tests/runtime/planning-blockers.test.ts` (not listed — constructs cards with `CardRecord['result']`)
 - `tests/runtime/runtime-core.test.ts` (not listed — asserts `outcome_snapshot`)
 - `tests/utils/runtime-adapter-wiring.test.ts` (not listed — asserts `card.result.success`)
-- `tests/utils/runtime-idle-running-intent-reconciliation.test.ts` (not listed — asserts `outcome_snapshot`)
+- `tests/runtime/runtime-core.test.ts` (idle/running reconciliation coverage, including `outcome_snapshot` fixtures)
 - `tests/runtime/runtime-mutations.test.ts` (not listed — `outcome_snapshot` fixtures)
 
 **Recommendation**: Expand the test enumeration in Stage 4/5 to cover all test files that construct or assert `CardRecord` fields.
