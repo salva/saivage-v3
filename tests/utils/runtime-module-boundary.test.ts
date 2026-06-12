@@ -297,6 +297,37 @@ describe('runtime module ownership boundary', () => {
     expect(source).not.toContain('new ActiveRuntime');
   });
 
+  it('keeps old concrete runtime core quarantined from application and production entrypoints', () => {
+    const forbiddenRuntimeCoreImports = [
+      'runtime/core-composition.js',
+      'runtime/runtime.js',
+      'runtime/runtime-config.js',
+    ];
+
+    for (const filePath of listTypeScriptFiles(join(process.cwd(), 'src'))) {
+      const relativePath = filePath.slice(process.cwd().length + 1);
+      if (
+        relativePath === 'src/runtime/runtime.ts' ||
+        relativePath === 'src/runtime/core-composition.ts' ||
+        relativePath === 'src/runtime/runtime-config.ts'
+      ) {
+        continue;
+      }
+
+      const source = readFileSync(filePath, 'utf8');
+      for (const forbiddenImport of forbiddenRuntimeCoreImports) {
+        expect(source).not.toContain(forbiddenImport);
+      }
+
+      if (relativePath.startsWith('src/application/')) {
+        expect(source).not.toContain('core-composition.js');
+        expect(source).not.toContain('initializeRuntimeImplementation');
+        expect(source).not.toContain('RuntimeConfig');
+        expect(source).not.toContain('RuntimeAssembly');
+      }
+    }
+  });
+
   it('exports source-proven runtime state reads through state-api', () => {
     const root = mkdtempSync(join(tmpdir(), 'runtime-boundary-state-'));
     try {

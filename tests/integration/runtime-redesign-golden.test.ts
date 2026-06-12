@@ -1,4 +1,4 @@
-import { describe, expect, it } from '@jest/globals';
+import { describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,7 +9,7 @@ import { operatorApiContracts } from '../../src/contracts/operator-api.js';
 import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from '../../src/runtime/state.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
-import { createRuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
+import { createSupervisorRuntimeApi, readActorSnapshots, type GoalCardStatusPort, type ProviderTurnPort } from '../../src/runtime/actors/index.js';
 
 function tempRoot(prefix: string): string { return mkdtempSync(join(tmpdir(), prefix)); }
 
@@ -41,19 +41,41 @@ describe('runtime redesign final golden behavior', () => {
       expect(ANALYST_TOOL_NAMES).not.toContain('lets_dance');
       expect(Object.keys(TOOL_REGISTRY)).not.toContain('lets_dance');
 
-      const dispatched: string[] = [];
-      const { api } = createRuntimeCoreTestContainer({
-        config: { projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' }, autoDispatchBacklog: false },
-        goalDispatcher: async (goalId) => { dispatched.push(goalId); },
+      const providerTurn: ProviderTurnPort = {
+        completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'project complete' })),
+      };
+      const goalStatusPort: GoalCardStatusPort = {
+        markRunning: jest.fn<(cardId: string) => void>(),
+        markCancelled: jest.fn<(cardId: string) => void>(),
+        commitGoalOutcome: jest.fn<GoalCardStatusPort['commitGoalOutcome']>(),
+      };
+      const api = createSupervisorRuntimeApi({
+        projectRoot,
+        providerTurn,
+        rootCards: { read: jest.fn(() => ({ id: 'project', type: 'project' })) },
+        goalStatusPort,
+        now: () => '2026-06-12T00:00:00.000Z',
       });
       expect('requestProjectDirectiveWakeup' in api).toBe(false);
       const result = await api.startProject('operator');
       expect(result.success).toBe(true);
-      const state = readRuntimeState(projectRoot)!;
-      expect(state.runtime_intent?.status).toBe('running');
-      expect(state.runtime_commands).toEqual(expect.arrayContaining([expect.objectContaining({ command: 'start_project', status: 'completed' })]));
-      expect(state.runtime_runs).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'root', ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project' })]));
-      expect(dispatched).toEqual([]);
+      if (result.success) {
+        expect(result.command).toMatchObject({ command: 'start_project', status: 'completed', source: 'operator' });
+        expect(result.intent).toMatchObject({ status: 'stopped', reason: 'xstate_project_done' });
+        expect(result.run).toMatchObject({
+          kind: 'root',
+          card_id: 'project',
+          ownership: { kind: 'direct', source: 'project_root' },
+          phase: 'completed',
+          runtime_status: 'idle',
+          session_id: 'planner:project',
+        });
+      }
+      expect(providerTurn.completeTurn).toHaveBeenCalledWith(expect.objectContaining({ agentId: 'planner:project', role: 'planner', sessionId: 'planner:project' }));
+      expect(goalStatusPort.markRunning).toHaveBeenCalledWith('project');
+      expect(goalStatusPort.commitGoalOutcome).toHaveBeenCalledWith('project', { status: 'done', statusText: 'project complete' });
+      expect(readActorSnapshots(projectRoot).map((item) => item.actor_id).sort()).toEqual(['card:project', 'planner:project', 'supervisor']);
+      await api.shutdown();
     } finally { rmSync(projectRoot, { recursive: true, force: true }); }
   });
 
@@ -79,18 +101,6 @@ describe('runtime redesign final golden behavior', () => {
       const activation = (state.runtime_activations ?? []).find((item) => item.child_card_id === ctx.codeId)!;
       expect(state.runtime_runs).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'child', ownership: { kind: 'activation', activation_id: activation.activation_id, parent_run_id: 'run-parent', parent_card_id: ctx.goalId, parent_session_id: `planner:${ctx.goalId}`, parent_tool_call_id: 'call-a' }, card_id: ctx.codeId, parent_run_id: 'run-parent' })]));
     } finally { rmSync(ctx.projectRoot, { recursive: true, force: true }); }
-  });
-
-  it('runtime summaries use command/run/activation records rather than status-derived ready queue APIs', () => {
-    const projectRoot = tempRoot('saivage-runtime-golden-summary-');
-    try {
-      initProjectTree(projectRoot);
-      const harness = createRuntimeCoreTestContainer({
-        config: { projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' }, autoDispatchBacklog: false },
-      });
-      expect('buildReadyQueue' in harness).toBe(false);
-      expect('getReadyQueue' in harness).toBe(false);
-    } finally { rmSync(projectRoot, { recursive: true, force: true }); }
   });
 
   it('operator contract registry no longer exposes card mutation entries', () => {
