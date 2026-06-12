@@ -547,6 +547,11 @@ describe('XState minimal runtime core', () => {
     expect(outcome).toEqual({ status: 'done', statusText: 'corrected planner done' });
     expect(plannerProvider.completeTurn).toHaveBeenCalledTimes(2);
     expect(reviewerProvider.completeTurn).toHaveBeenCalledTimes(2);
+    expect(plannerProvider.completeTurn).toHaveBeenLastCalledWith(expect.objectContaining({
+      episodeContext: expect.objectContaining({
+        lastReviewResult: { result: 'needs_corrections', summary: 'fix evidence' },
+      }),
+    }));
     expect(runner.publicStatus).toBe('done');
   }));
 
