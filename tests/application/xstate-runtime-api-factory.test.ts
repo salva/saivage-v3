@@ -3,7 +3,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventBus } from '../../src/events/index.js';
+import { CardStore } from '../../src/cards/card-store.js';
 import { createXStateRuntimeApi } from '../../src/application/xstate-runtime-api-factory.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
 import type { CardRecord } from '../../src/schemas/index.js';
 import type { InvocationRequest } from '../../src/agents/invocation-service.js';
 import type { GoalCardStorePort, InvocationTurnService, TerminalCardStorePort, XStateChildCardReader } from '../../src/runtime/actors/index.js';
@@ -79,6 +81,48 @@ describe('createXStateRuntimeApi', () => {
     expect(cardStore.commitTerminalLifecyclePatch).toHaveBeenCalledWith('project', expect.objectContaining({
       status: 'done',
       status_text: 'done from invocation service',
+    }));
+  }));
+
+  it('observes project cards created through the shared CardStore after runtime assembly', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const cardStore = new CardStore(projectRoot);
+    const invocationService: InvocationTurnService = {
+      invokeWithRecovery: jest.fn(async () => ({ kind: 'message' as const, content: 'done after late create' })),
+    };
+    const api = createXStateRuntimeApi({
+      projectRoot,
+      eventBus: new EventBus(),
+      cardStore,
+      invocationService,
+      now: () => '2026-06-12T00:00:00.000Z',
+    });
+    cardStore.create({
+      type: 'project',
+      parent: null,
+      depth: 0,
+      title: 'Late Project',
+      description: 'Created after runtime assembly',
+      status: 'backlog',
+      tags: [],
+      priority: 0,
+      urgency: 'normal',
+      created_by: 'user',
+      depends_on: [],
+      related: [],
+      acceptance: 'Done.',
+      artifacts: [],
+      attachments: [],
+      retries: 0,
+    });
+
+    const result = await api.startProject('operator');
+
+    expect(result.success).toBe(true);
+    expect(invocationService.invokeWithRecovery).toHaveBeenCalledWith(expect.objectContaining({
+      role: 'planner',
+      sessionId: 'planner:project',
+      systemPrompt: expect.stringContaining('Late Project'),
     }));
   }));
 });

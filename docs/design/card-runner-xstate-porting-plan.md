@@ -60,10 +60,10 @@ Old-harness cleanup checkpoint, 2026-06-12:
   tests.
 - Remaining `createRuntimeCoreTestContainer` users need file-local triage rather
   than a blanket rewrite:
-  - `tests/runtime/runtime-command-ledger.test.ts` mostly asserts old runtime
-    command/run/activation ledger mechanics. Treat it as an obsolete
-    orchestration suite unless a specific current product behavior is proven
-    uncovered elsewhere.
+  - `tests/runtime/runtime-command-ledger.test.ts` mostly asserted old runtime
+    command/run/activation ledger mechanics and was removed. Narrow XState-era
+    coverage now protects current `startProject`/`stopProject` shell contracts
+    and shared `CardStore` visibility after runtime assembly.
   - `tests/utils/runtime-integration.test.ts` mixed mostly old harness behavior
     with direct runtime lock tests and was removed; lock coverage now lives in
     `tests/runtime/runtime-lock.test.ts`. Do not recreate the old integration

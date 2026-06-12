@@ -162,6 +162,27 @@ describe('SupervisorRuntimeApi', () => {
     if (!result.success) expect(result.error.code).toBe('xstate_project_card_missing');
   }));
 
+  it('stopProject returns a completed stop command and stopped intent', async () => withTempProject(async (projectRoot) => {
+    const api = createSupervisorRuntimeApi({ projectRoot, now: () => '2026-06-12T00:00:00.000Z' });
+
+    const result = await api.stopProject('operator');
+
+    expect(result).toEqual({
+      success: true,
+      command: expect.objectContaining({
+        command: 'stop_project',
+        status: 'completed',
+        source: 'operator',
+      }),
+      intent: {
+        status: 'stopped',
+        updated_at: '2026-06-12T00:00:00.000Z',
+        source_command_id: null,
+        reason: 'xstate_runtime_shell_stop',
+      },
+    });
+  }));
+
   it('activates terminal children through XState child activation', async () => withTempProject(async (projectRoot) => {
     const providerTurn: ProviderTurnPort = {
       completeTurn: jest.fn(async (input: LlmInvocationInput) => {
