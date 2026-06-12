@@ -10,6 +10,8 @@
 /node_modules/
 /dist/
 /docs/.vitepress/dist/
+/docs/old/.vitepress/dist/
+/docs/working/
 /tmp/
 /old-documents/
 /issues/

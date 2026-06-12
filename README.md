@@ -26,35 +26,22 @@ curl http://localhost:8080/health
 
 | Link | Authority status | Reader guidance |
 |---|---|---|
-| [Operator runbook](docs/runbook/index.md) | current authority | Start, pause, resume, diagnose, recover incidents, and release Saivage from the implemented runbook. |
-| [Agents and runtime architecture](docs/agents.md) | current functional/architecture authority | Normative runtime, card, planner/executor/reviewer, activation, pause, recovery, and analyst-mutation semantics. |
-| [Analyst as sole control surface](docs/specifications/analyst-control-surface.md) | current functional specification | Product contract for the autonomous runtime plus Analyst-only user mutation model; wraps the approved SPEC. |
-| [Goal planning runtime](docs/goal-planning-runtime.md) | current summary | Short runtime-control and ledger ownership explainer; defer to `docs/agents.md` for normative behavior. |
-| [Operation route inventory](docs/operation.md) | current route/API authority | Auth, HTTP/WebSocket route inventory, and response-contract notes; not procedural or behavioral authority. |
-| [Design documentation](docs/design/index.md) | design/planning index | Use as the concept map for design plans and design-era context; follow status labels before relying on linked topic pages. |
-| [Documentation index](docs/index.md) | current authority | Curated table of contents for current docs and findings dossiers. |
-| See historical: [Historical documentation](docs/historical/README.md) | historical provenance | Provenance-only plans, audits, and pre-consolidation designs; not current operator guidance. |
+| [Functional specification](docs/spec/system-specification.md) | current functional authority | What Saivage must do from the user and runtime point of view. |
+| [Architecture](docs/architecture/system-architecture.md) | current architecture summary | How the functional model is organized into runtime, agents, storage, API, and UI subsystems. |
+| [Old documentation](docs/old/) | superseded provenance | Previous docs generations preserved for reference only. |
 
 ## Key concepts
 
 | Link | Authority status | Reader guidance |
 |---|---|---|
-| [Card model](docs/design/card-model.md) | stale context | Useful design-era context; prefer `docs/agents.md` and current card-store/source behavior for implementation authority. |
-| [Card lifecycle](docs/design/card-lifecycle.md) | stale context | Useful design-era context; prefer `docs/agents.md` and current planner-tool/runtime source behavior. |
-| [Agents](docs/design/agents.md) | stale context | Useful design-era context; prefer [Agents and runtime architecture](docs/agents.md). |
-| [Runtime](docs/design/runtime.md) | stale context | Useful design-era context; prefer [Agents and runtime architecture](docs/agents.md). |
-| [Security](docs/design/security.md) | stale context | Useful design-era context; prefer [Operation guide](docs/operation.md) and current redaction/auth source behavior. |
-| [Configuration](docs/design/configuration.md) | stale context | Useful design-era context; prefer [Configuration reference](docs/configuration.md). |
-| [Skills](docs/design/skills.md) | stale context | Useful design-era context; prefer [Agents and runtime architecture](docs/agents.md). |
-| [Server API](docs/design/server-api.md) | stale context | Useful design-era context; prefer [Operation guide](docs/operation.md). |
-| [Data model](docs/design/data-model.md) | stale context | Useful design-era context; prefer `docs/agents.md` and current validators/source behavior. |
-| [UX design](docs/design/ux-design.md) | stale context | Useful design-era context; prefer [Operation guide](docs/operation.md) and current web source behavior. |
-| [Decisions](docs/design/decisions.md) | historical provenance | Provenance-only design choices; prefer [Agents and runtime architecture](docs/agents.md) for current behavior. |
-| [Implementation plan](docs/design/implementation-plan.md) | historical provenance | Provenance-only delivery context; prefer current source, runbook, and remediation dossiers. |
+| [Functional specification](docs/spec/system-specification.md) | current | Start here for product behavior and runtime semantics. |
+| [Architecture summary](docs/architecture/system-architecture.md) | current | Use after the functional spec for design orientation. |
+| `docs/working/<date>/` | local, ignored | Temporary working documents and plans; not committed to git. |
+| `docs/old/` | superseded | Previous generations of documentation. |
 
 ## Verification
 
-Run the validation profile that matches the change type; see the [validation matrix](docs/runbook/release.md#validation-matrix) for details. The checked-in GitHub Actions workflow at [`.github/workflows/validation.yml`](.github/workflows/validation.yml) is least-privilege and secret-free (`contents: read`, no `secrets.*` or token-like env assignments), cancels superseded runs for the same workflow/ref, sets up Node.js 24 with npm caching, installs with `npm ci`, and runs `npm run validate:routine` plus `npm run validate:docs` automatically on push/pull request. `workflow_dispatch` inputs expose the heavier `npm run validate:ui-smoke` and `npm run validate:release` profiles as manual gates.
+Run the validation profile that matches the change type. The checked-in GitHub Actions workflow at [`.github/workflows/validation.yml`](.github/workflows/validation.yml) is least-privilege and secret-free (`contents: read`, no `secrets.*` or token-like env assignments), cancels superseded runs for the same workflow/ref, sets up Node.js 24 with npm caching, installs with `npm ci`, and runs `npm run validate:routine` plus `npm run validate:docs` automatically on push/pull request. `workflow_dispatch` inputs expose the heavier `npm run validate:ui-smoke` and `npm run validate:release` profiles as manual gates.
 
 ```bash
 npm run validate:docs
@@ -74,4 +61,4 @@ npm test
 npm run web:test:operator-smoke
 ```
 
-`npm run docs:verify` builds VitePress and checks route/role/config/runtime anchors, historical isolation, runbook curl examples, design-doc link boundaries, global Markdown internal links, documented validation-command parity, and docs:verify sub-guard entry points. It verifies that `npm run web:test:operator-smoke` exists and is documented, but intentionally does not execute that Vitest smoke guard so routine docs verification stays lightweight. Run `npm run web:test:operator-smoke` directly after operator-dashboard changes and during release sign-off.
+The documentation tree is being reconstructed under `docs/spec/` and `docs/architecture/`. Treat docs-specific validation as deferred until that reconstruction is complete; use code, build, and focused test gates for implementation changes in the meantime.
