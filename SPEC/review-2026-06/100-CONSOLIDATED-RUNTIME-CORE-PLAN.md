@@ -8,7 +8,7 @@ This plan supersedes the local ordering in `99-METAPLAN.md` for runtime-core wor
 
 XState is a central design requirement for the new core. The corrective action is not to remove XState from runners, and not to keep imperative runner loops with snapshots attached. The corrective action is to make XState own runtime behavior.
 
-Functional objective: make project execution event-based around XState machines: external code sends events, machines transition, invoked/spawned actors do work, and observers project state. Do not add a separate command bus, event-sourcing layer, workflow framework, or generic orchestration abstraction. Do not add actor layers, event buses, schemas, ports, or tests because they are conventional. Add them only when they are indispensable to runtime behavior or when they remove accidental complexity from the old implementation.
+Functional objective: make the mostly autonomous runtime core event-based around XState machines: machines receive events, transition according to internal state, invoke/spawn actors for work, and emit/provide state for projections. The runtime should not depend on frequent CLI/API interaction to make progress. External surfaces mostly observe frontend-facing state/events, and the main read/write control surface is analyst/operator interaction that can pause/resume the system and change cards. Do not add a separate command bus, event-sourcing layer, workflow framework, or generic orchestration abstraction. Do not add actor layers, event buses, schemas, ports, or tests because they are conventional. Add them only when they are indispensable to runtime behavior or when they remove accidental complexity from the old implementation.
 
 Mandatory rules for the next implementation tranche:
 
@@ -27,6 +27,7 @@ Accepted follow-up review corrections:
 3. Actor-to-actor runtime behavior flows through XState actor events, spawned/invoked children, and typed completion events. The existing `EventBus` remains an external projection/notification mechanism only; it is not the internal orchestration bus and must not become a second workflow engine.
 4. Required side effects, including card status writes, LLM turn logging, tool delivery/status logging, and snapshot persistence, must be wired as machine actions or invoked services at explicit state boundaries. They must not be hidden in controller methods or helper loops.
 5. The inherited controller-heavy test suite is not authoritative. Replace tests that protect the old implementation with a new, smaller set of direct machine tests, API-boundary tests, and projection tests. Do not preserve tests solely because they existed.
+6. The frontend does not drive the runtime loop. It receives projected runtime/card/agent/process state and event updates from the actor tree. Analyst/operator writes are explicit input events such as pause, resume, card edits, card cancellation, or note/card-change delivery into the relevant actor.
 
 Controller deletion rule:
 
@@ -95,7 +96,7 @@ Work:
    - Terminal card actors invoke one LLM turn actor at a time and spawn process actors only when a process tool requires one.
    - LLM turn actors complete with a typed output: message, single tool call, rejected multiple tool calls, provider error, or cancelled.
    - Child card actors complete with a typed card outcome event consumed by the parent goal card actor.
-   - The supervisor actor owns pause/stop/quiescence; external code observes supervisor snapshots rather than directly awaiting child runners.
+   - The supervisor actor owns pause/stop/quiescence; external code observes supervisor/card snapshots and projected events rather than directly awaiting child runners.
 1. Redesign `LlmRunner` as an invoked-actor machine:
    - `idle` -> `requesting_admission` -> `calling_provider` -> `returned_message` / `returned_tool_call` / `failed` / `cancelled`.
    - Provider invocation must be an XState invocation with cancellation/cleanup semantics.
@@ -118,6 +119,7 @@ Work:
    - `startProject()` sends a `START_PROJECT` event and returns once the command is accepted/started; completion is observed through actor state/events.
    - `stopProject()` and `shutdown()` send cancellation/stop events to children and wait for the supervisor actor to reach a terminal/quiescent state.
    - Pause/stop must prevent new provider admissions and propagate cancellation to active LLM, reviewer, child-card, and process actors. Do not preserve `requestProviderCall()` / `releaseProviderCall()` as an imperative side-channel if the same behavior can be represented by supervisor/card/LLM machine events.
+   - Analyst/operator writes enter as machine events, not direct store mutation that bypasses the actor tree. Card changes made externally must either pause/reconcile the affected actors or be delivered as typed change/note events so the runtime can respond consistently.
 5. Delete or collapse controller classes:
    - Replace `LlmRunnerController` with a `llmTurnMachine` plus `createLlmTurnActor(...)` or a parent-spawned actor.
    - Replace `TerminalCardRunnerController` with a `terminalCardMachine` plus actor input/dependency injection.
@@ -184,6 +186,7 @@ Work:
 2. Replace `getStatus()` placeholders: distinguish idle, paused, stopping, and active work; compute current card from the active runner; compute `goalCount` from the card store or a cheap read-model projection.
 3. Decide whether `RuntimeStatus` needs a schema enum addition for `stopping` or whether `stopping` remains internal and maps to an existing public status with a separate flag.
 4. Keep XState snapshots out of API responses; expose Saivage read-model projections only.
+5. Treat frontend updates as projections of actor state/events, not as an API that drives runtime progress. The projection layer may use the existing `EventBus`, but only for notification/read-model delivery.
 
 Tests:
 
