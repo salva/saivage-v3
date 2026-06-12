@@ -147,7 +147,7 @@ At most one active leaf does real work at a time. The active work can still form
 
 Planners do not directly run child planners or executors. A planner calls `activate_card(card_id)`. From the parent planner's perspective, this is a synchronous logical barrier: one tool call eventually receives exactly one terminal outcome.
 
-`activate_card` is valid only when the caller is the responsible parent planner, the requested card is an immediate child of that planner's goal, the child is in an activatable state, and no other active child is already running for that parent. Invalid activation attempts fail before dispatch and leave card status unchanged.
+`activate_card` is valid only when the caller is the responsible parent planner, the requested card is an immediate child of that planner's goal, and the child is in an activatable state. Invalid activation attempts fail before dispatch and leave card status unchanged.
 
 The runtime may persist, recover, and resume the physical work across service restarts. The parent planner still observes one outcome for the activation:
 

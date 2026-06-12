@@ -44,7 +44,7 @@ Ancestors are waiting for their active child. Their runner/session lifecycle sta
 
 The runtime persists enough active-card-run and activation-ledger information to unwind one terminal child outcome back to its parent planner.
 
-Activation validation happens before dispatch. A parent planner can activate only an immediate child that is ready to run, and only when that parent has no active child already in flight.
+Activation validation happens before dispatch. A parent planner can activate only an immediate child that is ready to run.
 
 ## 5. Agent Lifecycle
 
