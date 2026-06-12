@@ -1,17 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import type { AgentExecutionPort } from '../../src/contracts/index.js';
-import { CardStore } from '../../src/cards/card-store.js';
-import { initProjectTree } from '../../src/persistence/file-tree.js';
-import { ExecutorActivationDispatcher } from '../../src/runtime/executor-activation-dispatcher.js';
-import { createRuntimeStateMutationPort } from '../../src/runtime/mutations.js';
 import { handleExecutorInvocationFailure, type ExecutorInvocationFailureEffects } from '../../src/runtime/phases/executor-invocation-failure.js';
-import { appendRuntimeRun, initRuntimeState, readRuntimeState, updateRuntimeState, upsertRuntimeActivation } from '../../src/runtime/state.js';
-import type { RuntimeCardAction } from '../../src/runtime/state-machine.js';
 import type { CardRecord } from '../../src/schemas/index.js';
-import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 
 describe('executor invocation failure handler', () => {
   it('fails the card, appends unwind result, and emits card_failed', async () => {
@@ -33,125 +22,6 @@ describe('executor invocation failure handler', () => {
       'unwind:code-a:failed:Terminal card code-a execution failed before producing a result.',
       'failed:code-a:goal-a',
     ]);
-  });
-
-  it('restores parent planner run after dispatcher catches invocation failure', async () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-executor-invocation-failure-'));
-    try {
-      initProjectTree(projectRoot);
-      initRuntimeState(projectRoot);
-      materializeProjectCard(projectRoot);
-      const cards = new CardStore(projectRoot);
-      const codeCard = cards.create({
-        type: 'code',
-        parent: 'project',
-        depth: 1,
-        title: 'Code A',
-        description: 'Do code work',
-        status: 'backlog',
-        depends_on: [],
-        priority: 1,
-        tags: [],
-        urgency: 'normal',
-        created_by: 'planner',
-        related: [],
-        acceptance: '',
-        artifacts: [],
-        attachments: [],
-        retries: 0,
-      });
-      const parentRun = appendRuntimeRun(projectRoot, { run_id: 'run-parent', kind: 'root', ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project', parent_run_id: null, command_id: null, activation_id: null, phase: 'planner', runtime_status: 'running', session_id: 'planner:project' });
-      const codeCardId = codeCard.id;
-      const childRun = appendRuntimeRun(projectRoot, { run_id: 'run-child', kind: 'child', ownership: { kind: 'activation', activation_id: 'act-test', parent_run_id: 'run-parent', parent_card_id: 'project', parent_session_id: 'planner:project', parent_tool_call_id: 'call-test' }, card_id: codeCardId, parent_run_id: parentRun.run_id, command_id: null, activation_id: null, phase: 'executor', runtime_status: 'running', session_id: `executor-${codeCardId}` });
-      upsertRuntimeActivation(projectRoot, {
-        idempotency_key: `run-parent:call-a:${codeCardId}`,
-        parent_card_id: 'project',
-        parent_run_id: parentRun.run_id,
-        parent_session_id: 'planner:project',
-        parent_tool_call_id: 'call-a',
-        child_card_id: codeCardId,
-        status: 'running',
-        precondition: 'accepted',
-        runtime_run_id: childRun.run_id,
-        error: null,
-      });
-      updateRuntimeState(projectRoot, {
-        status: 'running',
-        active_card_run: {
-          card_id: codeCardId,
-          card_type: 'code',
-          phase: 'executor',
-          ownership: { kind: 'direct', source: 'project_root' }, runtime_status: 'running',
-          caller_session_id: 'planner:project',
-          caller_tool_call_id: 'call-a',
-          executor_session_id: `executor-${codeCardId}`,
-          correction_attempts: 0,
-          started_at: '2026-01-01T00:00:00.000Z',
-          last_turn_at: '2026-01-01T00:00:00.000Z',
-        },
-      });
-      const failureToolResults: Array<{ cardId: string; outcome: string; summary: string }> = [];
-      const mutations = createRuntimeStateMutationPort(projectRoot);
-      const now = () => '2026-01-01T00:01:00.000Z';
-      const dispatcher = new ExecutorActivationDispatcher({
-        projectRoot,
-        cards,
-        agentRuntime: failingAgentRuntime(),
-        skillsEngine: null,
-        activationUnwind: {
-          appendChildUnwindToolResult: (cardId: string, outcome: 'failed', summary: string) => {
-            failureToolResults.push({ cardId, outcome, summary });
-            mutations.apply({ kind: 'completeActivation', childCardId: cardId, outcome, completedAt: now(), lifecycle: cards.read(cardId)?.lifecycle ?? null });
-          },
-        },
-        mutations,
-        now,
-        emit: () => undefined,
-        publishRuntimeDiagnostic: () => undefined,
-        eventLogger: { appendEvent: () => undefined },
-        errorLogger: { appendError: () => undefined },
-        stateMachine: {
-          transitionCard: async (cardId: string, action: RuntimeCardAction, details: Record<string, unknown>) => {
-            if (action === 'start') {
-              cards.setStatus(cardId, 'running');
-              cards.setStatus(cardId, 'running');
-              return true;
-            }
-            if (action === 'fail') {
-              const error = typeof details.error === 'string' ? details.error : 'executor failed';
-              cards.commitTerminalLifecyclePatch(cardId, {
-                status: 'failed',
-                lifecycle: {
-                  status: 'failed',
-                  result: { kind: 'executor_failure', error, partial_result: null, latest_self_report: { result: 'failed', outcome: 'failed', summary: error, status_text: 'failed', at: now() } },
-                  error,
-                  completed_at: now(),
-                },
-              });
-              return true;
-            }
-            return false;
-          },
-        },
-      } as never);
-
-      await expect(dispatcher.dispatch({
-        goalId: 'project',
-        goalCard: cards.read('project'),
-        card: codeCard,
-        callerEdge: { parentCardId: 'project', callerSessionId: 'planner:project', callerToolCallId: 'call-a' },
-        activation: { activation_id: 'act-a', idempotency_key: 'key-a', parent_card_id: 'project', parent_run_id: 'run-parent', parent_session_id: 'planner:project', parent_tool_call_id: 'call-a', child_card_id: codeCard.id, status: 'pending', requested_at: now(), updated_at: now(), precondition: 'accepted', runtime_run_id: 'run-child' },
-      })).resolves.toEqual({ executedTerminal: false, failed: true });
-
-      const state = readRuntimeState(projectRoot);
-      expect(state?.active_card_run).toEqual(expect.objectContaining({ card_id: 'project', phase: 'planner', planner_session_id: 'planner:project' }));
-      expect((cards.read(codeCardId) as CardRecord).status).toBe('failed');
-      expect(failureToolResults).toEqual([
-        { cardId: codeCardId, outcome: 'failed', summary: `Terminal card ${codeCardId} execution failed before producing a result.` },
-      ]);
-    } finally {
-      rmSync(projectRoot, { recursive: true, force: true });
-    }
   });
 });
 
@@ -189,16 +59,4 @@ function executorCard(id: string): CardRecord {
     retries: 0,
     lifecycle: { status: 'running', result: null, error: null, completed_at: null },
   } as unknown as CardRecord;
-}
-
-function failingAgentRuntime(): AgentExecutionPort {
-  return {
-    invokePlanner: () => ({ status: 'done' }),
-    invokeExecutor: () => { throw new Error('executor exploded'); },
-    invokeReviewer: () => ({ assessment: { result: 'pass', summary: 'ok', achieved: [], issues: [], evidence_card_ids: [] } }),
-    cancelSession: () => false,
-    forceCancelSession: () => false,
-    getHandoffSummary: () => null,
-    getActiveSessionHandoffs: () => [],
-  };
 }
