@@ -148,7 +148,7 @@ The goal card machine handles both regular goal cards and the parentless project
 Minimal externally meaningful phases:
 
 - `dormant`: no active LLM turn or child activation for this goal.
-- `marking_running`: card-store transition to `running` when activated.
+- `marking_running`: card-store transition to `running` when activated. The transition must commit before planner work starts; if it fails, the machine must not enter `planning`.
 - `planning`: planner LLM turn is active or awaiting tool output.
 - `waiting_process`: planner is waiting for a runtime-owned process result.
 - `delivering_tool_result`: planner tool/process output is being delivered back to the planner session.
@@ -193,6 +193,18 @@ Planning diary:
 - Planning diary state lives on goal/project card fields.
 - Do not reintroduce a separate plan-card type.
 
+Planner session lifecycle:
+
+- Planner sessions use deterministic identity derived from the goal card.
+- A planner is created lazily the first time the goal needs an LLM agent.
+- The same logical planner session receives repeated activation requests over that goal's lifetime.
+- When reactivated after `changed` or `blocked`, the planner resumes with prior session context plus new runtime-provided activation, notification, correction, and changed-subtree context.
+
+Reviewer turn input:
+
+- Reviewer LLM turn input includes the project card data, the assessed goal subtree, and the planner return value for that completion attempt.
+- Reviewer-negative results include assessment details, cited evidence, and correction context for the next planner turn.
+
 ## 8. Terminal Card Machine
 
 The terminal card machine handles executor work for terminal task cards.
@@ -200,7 +212,7 @@ The terminal card machine handles executor work for terminal task cards.
 Minimal phases:
 
 - `dormant`: not active.
-- `marking_running`: card-store transition to `running`.
+- `marking_running`: card-store transition to `running`. The transition must commit before executor work starts; if it fails, the machine must not enter `executing`.
 - `executing`: executor LLM turn is active or awaiting tool output.
 - `waiting_process`: executor is waiting for a runtime-owned process result.
 - `delivering_tool_result`: tool/process output is delivered to the executor session.
@@ -215,7 +227,8 @@ Responsibilities:
 - Update `working_status` only through agent-visible write paths.
 - Attach `result` only after an accepted executor outcome.
 - Preserve raw diagnostics in logs/read models, not in unsanitized model context.
-- On cancellation request while active, deliver cancellation context and let the executor voluntarily stop and report failure/cancelled outcome.
+- Treat `changed` as durable card status, not a long-running actor phase. A changed non-active terminal card is dormant until the responsible parent planner or Analyst action changes it again or the parent planner reactivates it.
+- On cancellation request while active, deliver cancellation context and let the executor voluntarily stop and report `failed`. `cancelled` is a runtime-applied card status, not a parent-visible activation outcome.
 
 The machine should enforce a turn budget through machine context and events, not through an external `for` loop.
 
@@ -236,6 +249,7 @@ Minimal phases:
 Responsibilities:
 
 - Admission request and release happen as machine actions/invoked services at state boundaries.
+- Admission checks read the current supervisor pause/admission gate at the start of each provider turn. The gate is evaluated per turn, not continuously during an already-admitted provider call.
 - Provider calls are cancellable invoked services.
 - Parent card machines receive typed outputs; they do not inspect child context after a method call.
 - Multiple provider tool calls must fail fast or follow an explicit future protocol. The first implementation must not silently select the first tool call.
@@ -306,8 +320,9 @@ Inactive cancellation:
 Running cancellation:
 
 - The runtime queues cancellation-request notifications to the requested card and active downstream cards.
-- Active agents stop at safe points and report failure/cancelled outcomes.
-- Outcomes unwind through normal activation barriers.
+- Active agents stop at safe points and report `failed` through their normal activation outcome path.
+- The runtime marks the cancelled requested card/subtree status as `cancelled` as part of fulfilling the cancellation request; `cancelled` is not a parent-visible activation outcome.
+- Failed outcomes unwind through normal activation barriers so parent planners can handle the interrupted work in context.
 - The runtime should reach a bounded quiescent state or report that unsafe work was abandoned.
 
 Do not add a separate user-facing Abort operation. Cancel is the required operation.
