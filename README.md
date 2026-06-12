@@ -27,6 +27,7 @@ curl http://localhost:8080/health
 | Link | Authority status | Reader guidance |
 |---|---|---|
 | [Functional specification](docs/spec/system-specification.md) | current functional authority | What Saivage must do from the user and runtime point of view. |
+| [Operator UI specification](docs/spec/operator-ui.md) | current UI functional authority | Analyst panel, read-only workspace, UI mutation boundaries, and contextual navigation. |
 | [Architecture](docs/architecture/system-architecture.md) | current architecture summary | How the functional model is organized into runtime, agents, storage, API, and UI subsystems. |
 | [Old documentation](docs/old/) | superseded provenance | Previous docs generations preserved for reference only. |
 
@@ -35,6 +36,7 @@ curl http://localhost:8080/health
 | Link | Authority status | Reader guidance |
 |---|---|---|
 | [Functional specification](docs/spec/system-specification.md) | current | Start here for product behavior and runtime semantics. |
+| [Operator UI specification](docs/spec/operator-ui.md) | current | Use for UI behavior and Analyst integration details. |
 | [Architecture summary](docs/architecture/system-architecture.md) | current | Use after the functional spec for design orientation. |
 | `docs/working/<date>/` | local, ignored | Temporary working documents and plans; not committed to git. |
 | `docs/old/` | superseded | Previous generations of documentation. |

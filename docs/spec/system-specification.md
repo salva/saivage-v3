@@ -4,32 +4,64 @@ Status: current functional authority.
 
 Last updated: 2026-06-12.
 
-## 1. Product Model
+## 1. Vision
 
-Saivage v3 is two coupled systems:
+Saivage is an autonomous software-development system controlled through a conversation.
 
-- An autonomous card-centered runtime that advances project work without user intervention once started.
-- An Analyst chat that is the user's sole mutating control surface for inspecting, steering, configuring, and repairing the runtime.
+It has two coupled parts:
 
-The operator UI is a read-only workspace plus an always-visible Analyst panel. The UI may navigate, filter, refresh, expand/collapse, copy displayed values, and authenticate/bootstrap the Analyst. Any user-visible server-state mutation must be requested through the Analyst.
+- An autonomous runtime that owns project progress.
+- An Analyst chat that is the user's way to inspect, steer, configure, and repair that runtime.
 
-## 2. Core Scope
+The runtime does the work. The Analyst is how the user controls the runtime. The operator UI exists to show what is happening and to host the Analyst; it is not a second control panel.
+
+The user's mental model should be simple: tell the Analyst what you want to know or change, and the Analyst uses the system's canonical services to inspect or mutate state. If work needs to be done, the Analyst delegates it to the autonomous runtime through cards, notifications, configuration changes, or lifecycle controls.
+
+## 2. System Layers
+
+The runtime, the Analyst, and the worker agents are not the same kind of thing.
+
+### Infrastructure Layer
+
+The runtime is infrastructure. It owns scheduling, activation, persistence, process management, notification delivery, and recovery. It is the only dispatcher. It is not an agent role and should not be described as a peer of planner, executor, or reviewer.
+
+The operator UI and HTTP/WebSocket server are also infrastructure surfaces. They expose projections, chat transport, and authenticated access to canonical services. They do not define runtime behavior.
+
+### Control Layer
+
+The Analyst is the user-facing control agent. It is an agent in the sense that it reasons over user requests, tool results, and system state, but functionally it is the control surface for the autonomous runtime.
+
+The Analyst can inspect anything the authenticated user is allowed to inspect, including secrets. Secret access is not hidden from the Analyst by default. The UI may still redact or avoid displaying secrets unnecessarily, and chat responses should avoid gratuitous disclosure, but the Analyst must be able to inspect secret-bearing files or configuration when the user's requested diagnosis, configuration, or repair requires it.
+
+The Analyst does not perform delivery work directly. It does not replace the executor by editing project source, running builds as delivery, or deploying. It creates/edits/cancels cards, queues notifications, changes configuration, controls lifecycle, and explains what happened.
+
+### Work Agent Layer
+
+Planner, executor, and reviewer are worker agent roles.
+
+- A planner owns one goal subtree and decides how to decompose, activate, and report that goal.
+- An executor performs one terminal card activation.
+- A reviewer assesses a completed goal after runtime acceptance gates pass.
+
+These roles are dispatched by the runtime. They do not directly invoke each other.
+
+## 3. Core Product Scope
 
 Saivage manages software-development work through a durable card tree.
 
 The system must support:
 
-- creating, editing, ordering, moving, cancelling, and deleting cards through the Analyst where those operations are supported;
-- autonomous planner, executor, and reviewer agents working through cards;
-- explicit root project start and stop;
-- global pause and resume;
-- card-addressed notifications for delivering short-lived context to card agents;
+- autonomous planner, executor, and reviewer work through cards;
+- explicit user lifecycle control through the Analyst;
+- card creation, editing, ordering, movement, cancellation, and deletion where supported;
 - correction-aware goal revisiting through `changed` cards and correction context;
-- process execution and safe process inspection/termination;
-- redacted inspection of runtime state, files, agent sessions, events, errors, control actions, configuration, and process output;
-- model/provider routing, failover, MCP server, runtime, and server configuration through the Analyst.
+- card-addressed notifications for delivering short-lived instructions/context to card agents;
+- process execution, process inspection, and process termination;
+- model/provider routing, failover, MCP server, runtime, and server configuration;
+- full system inspection by the Analyst, including secrets when needed;
+- read-only UI projections of cards, agents, runtime state, files, timeline/debug data, and processes.
 
-## 3. Non-Goals
+## 4. Non-Goals
 
 The system does not provide:
 
@@ -40,53 +72,33 @@ The system does not provide:
 - arbitrary cross-tree card reparenting;
 - hard scheduling guarantees from displayed child order;
 - resetting/restarting planner internal state as a required user capability;
-- the Analyst acting as a substitute executor that writes project code, runs builds, or deploys delivery work directly.
+- the Analyst acting as a substitute executor for delivery work.
 
-## 4. Roles
+## 5. Cards
 
-### Runtime
+Cards are the durable units of project work. They form a parent-child tree rooted at the project card.
 
-The runtime owns card execution, runtime intent, runtime commands, runtime runs, activation records, process records, event logs, notification delivery, and recovery metadata. It is the only dispatcher.
+A card can describe a goal or a terminal task. Goal cards are worked by planners. Terminal cards are worked by executors. Reviewers assess completed goals.
 
-### Analyst
+Every card may carry title, description, acceptance criteria, tags, dependencies, priority, urgency, history, result data, and a runtime-written `status_text` summarizing the most recent accepted terminal report.
 
-The Analyst is the user-facing mutation surface. It can inspect system state, navigate the workspace, change cards, queue card-addressed notifications, configure the platform, and issue canonical runtime controls. It delegates delivery work to planners, executors, reviewers, and runtime services.
-
-### Planner
-
-A planner owns one goal subtree. It can create and edit immediate children, order children, cancel safe children, queue card-addressed notifications, activate immediate children, and report the goal outcome.
-
-### Executor
-
-An executor performs one terminal card activation. A re-activation of the same terminal card opens a new executor session.
-
-### Reviewer
-
-A reviewer assesses a completed goal after runtime acceptance gates pass. Reviewer sessions are one-shot.
-
-## 5. Card Model
-
-Cards form the durable project hierarchy.
-
-Card statuses:
+### Card Statuses
 
 - `backlog`: planned but not running.
 - `running`: part of the active in-flight activation chain. Only the leaf does real work; running ancestors wait for their active child.
-- `changed`: externally modified since the responsible planner last observed it. This is a real durable state for parent-planner visibility.
+- `changed`: the card was modified after the responsible planner last observed it.
 - `done`: accepted complete.
 - `failed`: ended in failure.
 - `blocked`: cannot proceed without external change.
 - `cancelled`: cancelled work.
 
-`AwaitingChild` is not a card status. It is a planner/session lifecycle state for a running ancestor waiting on its active child or process wait.
+`AwaitingChild` is not a card status. It is a planner/session lifecycle state for an active ancestor waiting on a child or process wait.
 
-Every card may carry title, description, acceptance criteria, tags, dependencies, priority, urgency, history, result data, and a runtime-written `status_text` summarizing the most recent accepted terminal report.
-
-## 6. Card Hierarchy And Ordering
+## 6. Card Ordering And Movement
 
 Children under a parent form an explicit ordered list. Creation appends to the end by default. The Analyst and planners may reorder children under the same parent.
 
-Displayed child order is a presentation and comprehension convention, not a hard scheduling contract. The planner may dispatch children out of displayed order when its reasoning says that is appropriate.
+Displayed child order is for presentation and comprehension. It is not a hard scheduling contract. A planner may dispatch children out of displayed order if its reasoning says that is appropriate.
 
 Moving a card to a different parent is restricted to the parent-child axis:
 
@@ -95,33 +107,63 @@ Moving a card to a different parent is restricted to the parent-child axis:
 
 Moving a card under an unrelated parent is not supported.
 
-## 7. Runtime Start, Stop, Pause, And Resume
+## 7. Lifecycle Controls
 
-The runtime starts idle. It does not auto-activate the project card on server boot.
+From the user and Analyst point of view, there are three lifecycle controls:
 
-Root execution starts only through explicit `start_project` runtime control requested through the Analyst. The runtime records durable intent, creates a root runtime run, and dispatches the project planner from that run.
+- **Run**: start or resume autonomous progress.
+- **Pause**: stop scheduling new autonomous work without killing state or processes.
+- **Shutdown**: pause and then terminate running processes.
 
-If `start_project` is requested while root execution is already running, the runtime must not create a second root run. It returns an already-running error or warning for the Analyst to report to the user.
+### Run
 
-Root execution stops only through explicit `stop_project` runtime control. Stop records durable intent and stops autonomous progress.
+Run is the user-facing operation for both initial start and resume. If the project has never been started or has no active root run, Run starts root project execution. If the system is paused, Run resumes it. If the system is already running, Run returns an already-running warning and creates no second root run.
 
-Pause is a global scheduling gate. While paused, the runtime stops admitting new LLM turns. It does not change card status, active-card-run state, or session lifecycle state. Resume lifts the gate and lets the runtime continue from the next safe scheduling point.
+Implementation may keep separate internal commands such as `start_project` and `resume_runtime`, but the Analyst should present a unified user concept: "run/continue the system."
+
+### Pause
+
+Pause is a global scheduling gate. It stops the runtime from admitting new LLM turns. It does not mutate card statuses, active-card-run state, session lifecycle state, or process state.
+
+Already-running shell processes may continue while the system is paused. Tool dispatch that is already in flight reaches the next safe point. Pending process results are buffered until the runtime can safely deliver them.
+
+Pause is the normal intervention state. While paused, the Analyst can edit cards, queue notifications, change configuration, inspect state, or mark goals as needing corrections.
+
+### Shutdown
+
+Shutdown is the hard lifecycle operation. It first pauses scheduling, then terminates running processes owned by the runtime. Shutdown is for stopping autonomous activity and cleaning up live process work, not for rewriting card outcomes by itself.
+
+Shutdown should report what was paused, which processes were terminated, which could not be terminated, and what the user can do next.
+
+The old user-facing concept "stop" is too ambiguous. The functional contract should use Pause for non-destructive interruption and Shutdown for pause-plus-process-termination.
 
 ## 8. Active Work And `activate_card`
 
-The runtime has at most one active leaf doing real work at any time. The active work may form a chain of `running` cards from project root to leaf; ancestors are waiting.
+At most one active leaf does real work at a time. The active work can still form a chain of `running` cards from the project root to the leaf; ancestors are waiting.
 
-Planners do not directly run child planners or executors. A planner asks the runtime to `activate_card(card_id)`. From the parent planner's point of view this is a synchronous logical barrier: one tool call eventually receives exactly one terminal result.
+Planners do not directly run child planners or executors. A planner calls `activate_card(card_id)`. From the parent planner's perspective, this is a synchronous logical barrier: one tool call eventually receives exactly one terminal outcome.
 
-The runtime may persist and resume physical work across service restarts, but the caller sees one terminal outcome per activation:
+The runtime may persist, recover, and resume the physical work across service restarts. The parent planner still observes one outcome for the activation:
 
 - `done`
 - `failed`
 - `blocked`
 
-Reviewer `needs_corrections` is not a parent-visible activation outcome. The runtime handles it inside the child activation by resuming the same goal planner until review retries are exhausted.
+Reviewer `needs_corrections` is handled inside the child activation. It is not a parent-visible activation result unless review retries are exhausted and the child activation ultimately returns `failed`.
 
-## 9. Planner Completion Gates
+## 9. Changed Cards
+
+When a non-active card is modified by the Analyst or by its parent planner, its card status must become `changed`.
+
+If the modified card is already `running`, it remains `running`. Running status is not overwritten by `changed` because it is part of the active activation chain.
+
+In every case, the runtime queues a notification to the modified card so that the main agent handling that card becomes aware of the change. If the card is currently active and paused, the notification is delivered when the agent next accepts injected context. If the card is not active, the notification is delivered to the next future main agent session for that card.
+
+`changed` is a parent-visible durable signal. It tells the parent planner that the child or descendant changed after the planner last observed it. A planner cannot successfully report a goal `done` while any descendant remains `changed`.
+
+The `changed` state does not by itself dispatch work. The responsible planner must see the changed child in context and decide whether to reactivate it.
+
+## 10. Planner Completion Gates
 
 A planner can report a goal `done`, `failed`, or `blocked`.
 
@@ -132,91 +174,94 @@ Before accepting `done`, the runtime must verify:
 - required evidence references are valid;
 - reviewer assessment passes after readiness and evidence gates pass.
 
-If any descendant remains `changed`, the parent cannot close the goal. The `subtree_not_ready` error tells the planner which descendant state must be handled.
+If any descendant remains `changed`, the parent cannot close the goal. The runtime reports a readiness error that identifies the descendant state that must be handled.
 
 Notifications never block goal completion and have no acknowledgement gate.
 
-## 10. Changed Cards And Corrections
-
-The Analyst may mark a goal as needing corrections or edit card state while the runtime is paused. This records correction context and may set the affected card to `changed`.
-
-`changed` exists so parent planners can see that a child or descendant was modified after their last observation. It does not by itself wake or dispatch runtime work. The responsible parent planner sees `subtree_changed` context and decides whether to reactivate the changed descendant.
-
-A planner cannot successfully report `done` while a descendant remains `changed`.
-
 ## 11. Cancellation
 
-Cancel is the required stop-work operation for cards and subtrees.
+Cancellation is collaborative when the target is running.
 
-Cancellation is allowed only when the target is safe to cancel. In the current functional model, cancellation of a running active leaf or a subtree containing the active leaf may be refused. When cancellation is refused, the Analyst must explain the limitation and perform zero mutation.
+If the target card is not running and is safe to cancel, the runtime may mark it `cancelled` directly.
 
-Obsolete work should normally be handled by cancelling the old card when allowed and creating replacement work.
+If the target card is running, or if its subtree contains the active leaf, the runtime cannot simply cancel it by fiat. Instead, it queues cancellation-request notifications to the target card and every active downstream card in the activation chain below it.
 
-Abort and restart/reset are not separate required user capabilities.
+Those notifications ask the responsible agents to voluntarily stop their work and report back failure. The expected flow is:
+
+1. The active downstream agent receives a cancellation request.
+2. It stops at the next safe point and reports a failure/cancelled outcome.
+3. That failure unwinds to its parent planner.
+4. The parent planner handles the failed child and may itself report failure upward.
+5. Eventually the failure chain reaches the planner responsible for the card originally requested for cancellation.
+6. That planner handles the cancellation request in its own goal context.
+
+This preserves agent ownership of work and keeps `activate_card` as the barrier through which outcomes flow.
+
+Abort is not a separate required user capability. Restart/reset of planner state is not a required user capability. Obsolete work is replaced by creating new cards, cancelling old work where possible, and queueing context/correction notifications.
 
 ## 12. Notifications
 
 Notifications are ephemeral card-addressed delivery items.
 
-A notification is queued onto a card. The card runtime delivers it to the card's main agent session:
+A notification is queued onto a card. The card runtime delivers it to that card's main agent session:
 
 - the currently running but paused main agent session for that card, when it resumes or next accepts injected context; or
 - the next future main agent session for that card.
 
 Notifications are immutable after queueing. To correct one, queue another notification that supersedes it.
 
-Notifications are forgotten after delivery. The platform does not expose a notification inbox, list, get, edit, delete, acknowledge, clear-all, or management UI.
+Notifications are forgotten as queue items after delivery. The platform does not expose a notification inbox, list, get, edit, delete, acknowledge, clear-all, or management UI.
 
 If a user phrases a notification in role terms, such as "tell the executor for goal-7," the Analyst resolves that request to the relevant card or asks one clarifying question.
 
 Delivery can be confirmed only by inspecting the receiving agent session transcript and seeing whether the content appeared and how the agent responded.
 
-## 13. Analyst Control Surface
+## 13. Analyst Capabilities
 
-The Analyst must support these user capabilities end-to-end through natural language:
+The Analyst must let the user complete these tasks in natural language:
 
-- inspect cards, runtime state, runtime events, errors, control actions, agent sessions, process registry, process logs, directory listings, and non-secret file contents;
-- navigate the left workspace to cards, files, debug views, processes, runtime cards, and agent sessions;
+- inspect cards, runtime state, runtime events, errors, control actions, agent sessions, process registry, process logs, directory listings, file contents, configuration, credentials, and secret-bearing state when needed;
+- navigate the workspace to cards, files, debug views, processes, runtime cards, and agent sessions;
 - create, edit, reorder, move, cancel, and delete cards where supported;
 - queue card-addressed notifications;
-- start, stop, pause, and resume the runtime;
-- cancel cards or goal subtrees when cancellation is supported;
+- run/continue, pause, and shutdown the runtime;
+- request card or subtree cancellation;
 - mark goals as needing corrections;
-- terminate live runtime processes;
+- terminate live runtime processes through canonical process controls;
 - change model/provider routing, failover, MCP entries, runtime settings, and server settings;
-- diagnose failures by correlating cards, runtime events, agent sessions, and process output;
+- diagnose failures by correlating cards, runtime events, agent sessions, process output, files, configuration, and credentials;
 - apply accepted repair actions in the same conversation.
 
-When the user asks for something ambiguous, the Analyst asks one clarifying question rather than guessing.
+When a request is ambiguous, the Analyst asks one clarifying question rather than guessing.
 
-For destructive or hard-to-reverse actions, the Analyst confirms in conversation before executing. Confirmation is conversational, not modal.
+For destructive or hard-to-reverse actions, the Analyst confirms in conversation before executing. Confirmation is conversational, not a modal.
 
-## 14. Operator UI
+## 14. UI Integration
 
-The operator web UI is a single screen with two always-visible regions at typical desktop widths:
+The UI requirements are specified separately in [Operator UI specification](./operator-ui.md).
 
-- left workspace area for read-only projections of runtime state;
-- right Analyst panel for chat history and composer.
+At the system level, only these UI facts are part of the core contract:
 
-The Analyst panel is not a drawer, modal, popover, slide-over, or toggled region. There is no open/close/expand/collapse control for it.
+- the Analyst must be reachable from the operator UI;
+- the workspace is a projection surface, not a parallel mutation surface;
+- any mutating user action outside bounded authentication/bootstrap must route through the Analyst;
+- UI navigation can be driven by the Analyst so the conversational answer and visible workspace stay in sync.
 
-The UI may contain read-only views, filters, search, sort, expand/collapse, refresh, copy-to-clipboard, route switching, and "Discuss with analyst" affordances that stage contextual chat drafts. It must not contain controls that mutate server state outside the Analyst, except bounded authentication/bootstrap controls.
+## 15. Inspection And Secrets
 
-## 15. Inspection And Security
+The Analyst can see everything the authenticated operator can authorize it to inspect, including secrets.
 
-The Analyst can inspect non-secret project and runtime artifacts.
+This includes secret-bearing files, provider configuration, auth profiles, environment files, and credentials when those are relevant to the user's request. The system should avoid unnecessary secret disclosure in casual responses and UI projections, but it must not make secrets categorically invisible to the Analyst.
 
-Secret-bearing paths must be blocked or redacted before content reaches the Analyst or UI. Examples include auth profiles, provider tokens, environment files, SSH keys, cloud credentials, npm/pypi credentials, and credential blobs.
-
-Configuration inspection returns secret values absent or visibly redacted.
+The UI and logs may still use redaction by default. Redaction is an output-safety and display policy, not a claim that the Analyst lacks inspection authority.
 
 API bearer tokens must not be placed in URLs.
 
 ## 16. Process Handling
 
-Agents may start bounded project commands through runtime-owned process facilities. Process records expose safe read models: status, timestamps, redacted command text, contained working directory, contained logs, and termination availability.
+Agents may start bounded project commands through runtime-owned process facilities. Process records expose safe read models: status, timestamps, command text, contained working directory, logs, and termination availability.
 
-The Analyst may inspect process state and terminate a live runtime process when the canonical process control supports it.
+The Analyst may inspect process state and terminate a live runtime process when the canonical process control supports it. Shutdown also terminates runtime-owned running processes after pausing scheduling.
 
 ## 17. Configuration
 
@@ -245,13 +290,16 @@ If the user confirms a destructive action after context has gone stale, the Anal
 The system satisfies this specification when:
 
 - all user-visible mutations are reachable through the Analyst and not through separate workspace controls;
-- the runtime starts only through explicit `start_project` and refuses duplicate root starts while already running;
-- pause behaves as a global scheduling gate and does not mutate card/session lifecycle state;
+- Run starts idle work, resumes paused work, and refuses duplicate root starts while already running;
+- Pause behaves as a global scheduling gate and does not mutate card/session lifecycle state;
+- Shutdown pauses scheduling and terminates runtime-owned running processes;
 - exactly one active leaf does real work at a time;
 - `activate_card` behaves as a synchronous logical barrier from the parent planner perspective;
+- modifying a non-active card makes it `changed` and queues a notification to that card;
+- modifying a running card keeps it `running` and queues a notification to that card;
 - `changed` descendants block parent `done` reports until handled;
+- cancellation of running work is collaborative through downstream notifications and voluntary failed outcomes;
 - notifications are card-addressed, ephemeral, immutable, and non-inspectable as objects;
-- cancellation is the only required card/subtree stop-work operation;
 - restart/reset of planner state is not required;
-- the Analyst can inspect, diagnose, configure, and repair through canonical services without doing delivery work directly;
-- the UI remains a read-only projection surface except authentication/bootstrap.
+- the Analyst can inspect, diagnose, configure, and repair through canonical services, including secret inspection when needed;
+- UI details are governed by the operator UI specification and remain subordinate to the Analyst-as-control-surface model.

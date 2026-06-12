@@ -7,3 +7,4 @@ Use these documents to decide what the system must do from the user and runtime 
 Current specifications:
 
 - [System functional specification](./system-specification.md)
+- [Operator UI specification](./operator-ui.md)
