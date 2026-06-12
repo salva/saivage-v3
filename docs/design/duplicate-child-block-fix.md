@@ -30,7 +30,7 @@ The incident shape is a cross-context double block on one child: the child's own
 Skipping a terminal transition when the card is already in the target terminal state is the established pattern here. Three existing places already do it:
 
 - `commitReviewerPass` skips `complete` when `card.status === 'done'` (`src/runtime/terminal-commit/commit-reviewer.ts:19`).
-- `terminateIfNonTerminal` returns early when the card is already terminal, including `blocked` (`src/runtime/runtime-planner-dispatcher.ts:193`).
+- The removed legacy planner dispatcher also treated already-terminal cards as no-ops during cleanup.
 - `alignBlockedPlanningCardStatuses` skips re-blocking an already-`blocked` card (`src/runtime/startup-blocked-planning.ts:29`).
 
 The two block-commit helpers are the inconsistent outliers. Making them match is not a hack; it is removing an inconsistency.
@@ -77,7 +77,7 @@ If a future requirement (for example genuinely concurrent activations) needs out
 
 ## Dead code noticed (optional cleanup, not required for the fix)
 
-The re-verification found that `transitionCard` can no longer return `false` (it returns `true` or throws), so the `=== false` arms in `transitionOrThrow` (`src/runtime/terminal-commit/commit-planner.ts:54`, `src/runtime/terminal-commit/commit-reviewer.ts:54`, `src/runtime/terminal-commit/commit-executor.ts:127`) and the `if (!transitioned)` branches in `src/runtime/executor-activation-dispatcher.ts:61` and `src/runtime/phases/planner-activation-runner.ts:44` are unreachable. Removing them is a safe, separate cleanup. It is not needed to fix the incident; do it only if touching those files anyway.
+The re-verification found that `transitionCard` can no longer return `false` (it returns `true` or throws), so the `=== false` arms in `transitionOrThrow` (`src/runtime/terminal-commit/commit-planner.ts:54`, `src/runtime/terminal-commit/commit-reviewer.ts:54`, `src/runtime/terminal-commit/commit-executor.ts:127`) are unreachable. Related dead guards in the legacy activation dispatch path were removed with that obsolete runtime-loop path. Removing the remaining terminal-commit arms is a safe, separate cleanup. It is not needed to fix the incident; do it only if touching those files anyway.
 
 ## Implementation plan
 

@@ -139,6 +139,13 @@ describe('runtime module ownership boundary', () => {
     expect(existsSync(join(process.cwd(), 'src/runtime/core-composition.ts'))).toBe(false);
     expect(existsSync(join(process.cwd(), 'src/runtime/runtime.ts'))).toBe(false);
     expect(existsSync(join(process.cwd(), 'src/runtime/runtime-dispatch-composition.ts'))).toBe(false);
+    expect(existsSync(join(process.cwd(), 'src/runtime/runtime-planner-dispatcher.ts'))).toBe(false);
+    expect(existsSync(join(process.cwd(), 'src/runtime/runtime-reviewer-dispatcher.ts'))).toBe(false);
+    expect(existsSync(join(process.cwd(), 'src/runtime/pending-activation-dispatcher.ts'))).toBe(false);
+    expect(existsSync(join(process.cwd(), 'src/runtime/executor-activation-dispatcher.ts'))).toBe(false);
+    expect(existsSync(join(process.cwd(), 'src/runtime/runtime-lifecycle-controller.ts'))).toBe(false);
+    expect(existsSync(join(process.cwd(), 'src/runtime/phases/planner-iteration-runner.ts'))).toBe(false);
+    expect(existsSync(join(process.cwd(), 'src/runtime/phases/planner-activation-runner.ts'))).toBe(false);
   });
 
   it('keeps production runtime core parts free of concrete card mutation authority', () => {
