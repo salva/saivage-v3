@@ -149,6 +149,16 @@ describe('runtime module ownership boundary', () => {
     expect(existsSync(join(process.cwd(), 'src/runtime/phases/planner-phase-runner.ts'))).toBe(false);
     expect(existsSync(join(process.cwd(), 'src/runtime/phases/executor-phase-runner.ts'))).toBe(false);
     expect(existsSync(join(process.cwd(), 'src/runtime/phases/reviewer-phase-runner.ts'))).toBe(false);
+    expect(existsSync(join(process.cwd(), 'src/runtime/phases/executor-completion-handler.ts'))).toBe(false);
+    expect(existsSync(join(process.cwd(), 'src/runtime/phases/executor-evidence.ts'))).toBe(false);
+    expect(existsSync(join(process.cwd(), 'src/runtime/phases/executor-invocation-failure.ts'))).toBe(false);
+    expect(existsSync(join(process.cwd(), 'src/runtime/phases/executor-phase.ts'))).toBe(false);
+    expect(existsSync(join(process.cwd(), 'src/runtime/phases/planner-invocation-failure.ts'))).toBe(false);
+    expect(existsSync(join(process.cwd(), 'src/runtime/phases/planner-phase.ts'))).toBe(false);
+    expect(existsSync(join(process.cwd(), 'src/runtime/phases/planner-post-dispatch-handler.ts'))).toBe(false);
+    expect(existsSync(join(process.cwd(), 'src/runtime/phases/reviewer-assessment-handler.ts'))).toBe(false);
+    expect(existsSync(join(process.cwd(), 'src/runtime/phases/reviewer-invocation-failure.ts'))).toBe(false);
+    expect(existsSync(join(process.cwd(), 'src/runtime/phases/reviewer-phase.ts'))).toBe(false);
     expect(existsSync(join(process.cwd(), 'src/runtime/runtime-startup.ts'))).toBe(false);
     expect(existsSync(join(process.cwd(), 'src/runtime/runtime-shutdown.ts'))).toBe(false);
     expect(existsSync(join(process.cwd(), 'src/runtime/runtime-project-commands.ts'))).toBe(false);

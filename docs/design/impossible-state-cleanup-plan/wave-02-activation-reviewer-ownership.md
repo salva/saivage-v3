@@ -146,7 +146,7 @@ Add or update focused tests:
 Recommended focused command:
 
 ```bash
-NODE_OPTIONS=--experimental-vm-modules npx jest tests/runtime/reviewer-assessment-handler.test.ts tests/runtime/runtime-activation-ledger.test.ts tests/runtime/runtime-reducers.test.ts --runInBand --forceExit
+NODE_OPTIONS=--experimental-vm-modules npx jest tests/runtime/runtime-activation-ledger.test.ts tests/runtime/runtime-reducers.test.ts tests/utils/runtime-module-boundary.test.ts --runInBand --forceExit
 ```
 
 ## Validation

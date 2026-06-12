@@ -308,7 +308,7 @@ The second search has expected false positives for tool/API success flags. Only 
 - `tests/runtime/terminal-commit.test.ts`: reviewer fallback planning context.
 - `tests/runtime/terminal-commit.test.ts`: planner blocked preserving legacy nested planning metadata.
 - `tests/application/read-models.test.ts`: backward-compatible flat card fields plus derived lifecycle.
-- `tests/runtime/planner-phase.test.ts`: direct `card.result.planning` assertions.
+- `tests/runtime/planner-phase.test.ts`: removed with the old phase helper layer.
 - `tests/runtime/planning-blockers.test.ts`: `CardRecord['result']` helpers.
 - `tests/utils/runtime-adapter-wiring.test.ts`: `card.result.success` assertions.
 - Runtime ledger tests that assert `outcome_snapshot`, once Stage 8 runs.

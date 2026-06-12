@@ -255,7 +255,7 @@ The plan lists 6 test files under "Known compatibility tests to delete or rewrit
 - `tests/runtime/terminal-commit.test.ts` (listed)
 - `tests/schemas/lifecycle.test.ts` (listed)
 - `tests/application/read-models.test.ts` (listed)
-- `tests/runtime/planner-phase.test.ts` (not listed — reads `card.result!.planning`)
+- `tests/runtime/planner-phase.test.ts` (removed with the old phase helper layer)
 - `tests/runtime/planning-blockers.test.ts` (not listed — constructs cards with `CardRecord['result']`)
 - `tests/runtime/runtime-core.test.ts` (not listed — asserts `outcome_snapshot`)
 - `tests/utils/runtime-adapter-wiring.test.ts` (not listed — asserts `card.result.success`)

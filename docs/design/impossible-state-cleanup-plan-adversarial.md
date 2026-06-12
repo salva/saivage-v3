@@ -51,7 +51,7 @@ Wave 3 references `src/runtime/terminal-commit/commit-planner.ts#L18-L63`, `comm
 
 ### G01. C07 is not covered by any wave
 
-The reconciled inventory lists C07 ("Reviewer pass proceeds when the goal card is missing") at `src/runtime/phases/reviewer-assessment-handler.ts:52-71`. Current code at line 60 reads `const latestGoalCard = input.effects.readCard(input.goalId)` and at line 61 only commits the pass if `latestGoalCard` is truthy, but still emits completion at line 86. This finding is not mentioned in any wave document.
+The reconciled inventory listed C07 ("Reviewer pass proceeds when the goal card is missing") in the old phase helper implementation. That implementation has since been removed during the XState runtime replacement, so the remaining action is to keep this behavior covered in current actor/runtime tests rather than resurrecting `src/runtime/phases/reviewer-assessment-handler.ts`.
 
 **Severity:** high
 **Recommendation:** Add C07 to Wave 2 or Wave 3. Wave 2 already covers reviewer ownership (C06, C08, C09, C13, C20) and is the natural home. Add a step: "throw if the reviewed goal card cannot be read before committing reviewer pass lifecycle."

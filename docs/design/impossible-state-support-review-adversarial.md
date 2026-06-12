@@ -109,7 +109,7 @@ This is exactly the kind of defensive defaulting the review should flag. In norm
 
 ### M02. Executor completion handler falls back to stale card
 
-`handleExecutorCompletion()` at `src/runtime/phases/executor-completion-handler.ts:34`:
+The old `handleExecutorCompletion()` helper used this fallback before the phase helper layer was removed:
 ```typescript
 const latestCard = input.effects.readCard(input.cardId) ?? input.card;
 ```
@@ -121,7 +121,7 @@ If the latest card read returns `null`, the code falls back to the originally-pa
 
 ### M03. F09 is outdated; fallback was added intentionally
 
-F09 flags the `reviewer_finished` fallback at `src/runtime/phases/reviewer-assessment-handler.ts:78-84`. However, this fallback was added intentionally in commit `cd7fbff6` ("fix(runtime): idle direct reviewer completions without activation edge") to handle direct dispatch without an activation edge.
+F09 flagged the old `reviewer_finished` fallback in the removed phase helper layer. However, this fallback was added intentionally in commit `cd7fbff6` ("fix(runtime): idle direct reviewer completions without activation edge") to handle direct dispatch without an activation edge.
 
 The review doesn't acknowledge that this was a deliberate recent change. Either the commit was wrong, or the finding is outdated.
 

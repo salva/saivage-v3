@@ -84,7 +84,7 @@ Add or update:
 Focused command:
 
 ```bash
-NODE_OPTIONS=--experimental-vm-modules npx jest tests/runtime/executor-completion-handler.test.ts tests/runtime/startup-repair.test.ts tests/runtime/terminal-commit.test.ts --runInBand --forceExit
+NODE_OPTIONS=--experimental-vm-modules npx jest tests/runtime/terminal-commit.test.ts tests/runtime/runtime-reducers.test.ts tests/utils/runtime-module-boundary.test.ts --runInBand --forceExit
 ```
 
 ## Validation

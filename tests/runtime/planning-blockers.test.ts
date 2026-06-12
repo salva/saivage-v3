@@ -1,6 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
 import { blockedPlanningReason, cardHasBlockedPlanning, getBlockedPlanning, shouldPreservePrecisePlanningBlocker } from '../../src/runtime/planning-blockers.js';
-import { buildPlannerInvocationFailureBlocker } from '../../src/runtime/phases/planner-phase.js';
 import type { CardRecord, PlannerBlockedResult } from '../../src/schemas/index.js';
 
 function planning(overrides: Partial<PlannerBlockedResult> = {}): PlannerBlockedResult {
@@ -49,9 +48,5 @@ describe('planning blocker helpers', () => {
     expect(shouldPreservePrecisePlanningBlocker(blocked, 'planner_context_length_exceeded')).toBe(false);
     expect(shouldPreservePrecisePlanningBlocker(card(planning({ resume_reason: 'reviewer_unavailable' })), 'planner_blocked')).toBe(true);
     expect(shouldPreservePrecisePlanningBlocker(card(planning({ resume_reason: 'reviewer_invocation_failed' })), 'planner_blocked')).toBe(true);
-  });
-
-  it('sets token-budget blocker cause at planner invocation failure creation time', () => {
-    expect(buildPlannerInvocationFailureBlocker({ providerStatus: null }).planning.blocker_cause).toBe('token_budget_exceeded');
   });
 });
