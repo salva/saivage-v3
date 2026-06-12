@@ -64,51 +64,30 @@ The runtime actor tree has one root supervisor actor. The supervisor owns the pa
 ```mermaid
 graph TD
   api[RuntimeApi adapter] --> supervisor[Supervisor actor]
-
-  subgraph projectCard[Project card actor]
-    subgraph projectChildren[Child card actors]
-      goalCard[Goal card actor]
-      terminalSibling[Terminal card actor]
-    end
-    subgraph projectRun[Private runner]
-      projectRunner[Project goal-card-runner actor]
-      projectTurn[LLM turn actor]
-      projectProcess[Process actors]
-      projectRunner --> projectTurn
-      projectRunner --> projectProcess
-    end
-  end
-
-  subgraph goalCardBox[Goal card actor]
-    subgraph goalChildren[Child card actors]
-      terminalCard[Terminal card actor]
-      nestedGoalCard[Goal card actor]
-    end
-    subgraph goalRun[Private runner]
-      goalRunner[Goal card-runner actor]
-      goalTurn[LLM turn actor]
-      goalProcess[Process actors]
-      goalRunner --> goalTurn
-      goalRunner --> goalProcess
-    end
-  end
-
-  subgraph terminalCardBox[Terminal card actor]
-    subgraph terminalRun[Private runner]
-      terminalRunner[Terminal card-runner actor]
-      terminalTurn[LLM turn actor]
-      terminalProcess[Process actors]
-      terminalRunner --> terminalTurn
-      terminalRunner --> terminalProcess
-    end
-  end
-
   supervisor --> projectCard
-  goalCard -. expands as .-> goalCardBox
-  terminalCard -. expands as .-> terminalCardBox
+
+  projectCard[Project card actor] --> projectChildren[children array]
+  projectCard --> projectRunner[Project goal-card-runner actor]
+  projectChildren --> goalCard[Goal card actor]
+  projectChildren --> terminalSibling[Terminal card actor]
+
+  goalCard --> goalChildren[children array]
+  goalCard --> goalRunner[Goal card-runner actor]
+  goalChildren --> terminalCard[Terminal card actor]
+  goalChildren --> nestedGoalCard[Goal card actor]
+
+  terminalCard --> terminalChildren[children array]
+  terminalCard --> terminalRunner[Terminal card-runner actor]
+
+  projectRunner --> projectTurn[LLM turn actor]
+  projectRunner --> projectProcess[Process actors]
+  goalRunner --> goalTurn[LLM turn actor]
+  goalRunner --> goalProcess[Process actors]
+  terminalRunner --> terminalTurn[LLM turn actor]
+  terminalRunner --> terminalProcess[Process actors]
 ```
 
-The diagram shows representative branches. The same card-actor pattern repeats recursively: every card actor owns its child card actors, and any active card actor owns the runner actor appropriate for that card type. Runner actors own transient LLM turn actors and any process actors needed by their tools.
+The diagram shows representative branches. The same card-actor pattern repeats recursively: every card actor owns a `children` array of child-card actor references, and any active card actor owns the runner actor appropriate for that card type. Runner actors own transient LLM turn actors and any process actors needed by their tools.
 
 Actor ownership:
 
