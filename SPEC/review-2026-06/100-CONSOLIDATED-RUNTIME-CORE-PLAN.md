@@ -8,6 +8,8 @@ This plan supersedes the local ordering in `99-METAPLAN.md` for runtime-core wor
 
 XState is a central design requirement for the new core. The corrective action is not to remove XState from runners, and not to keep imperative runner loops with snapshots attached. The corrective action is to make XState own runtime behavior.
 
+Functional objective: make project execution event-based around XState machines: external code sends events, machines transition, invoked/spawned actors do work, and observers project state. Do not add a separate command bus, event-sourcing layer, workflow framework, or generic orchestration abstraction. Do not add actor layers, event buses, schemas, ports, or tests because they are conventional. Add them only when they are indispensable to runtime behavior or when they remove accidental complexity from the old implementation.
+
 Mandatory rules for the next implementation tranche:
 
 1. `RuntimeSupervisor`, `GoalCardRunner`, `TerminalCardRunner`, `LlmRunner`, and `ProcessRunner` must be real XState actors whose states and events drive behavior.
@@ -18,11 +20,21 @@ Mandatory rules for the next implementation tranche:
 6. Persisted actor snapshots must correspond to meaningful recovery states, not post-hoc logs of what imperative code already did.
 7. Keep the architecture simple: use the smallest XState machines that remove invalid states. Do not add generic workflow frameworks, event sourcing, queues, or compatibility bridges.
 
+Accepted follow-up review corrections:
+
+1. The public runtime command surface must be event-based around the supervisor machine. `startProject()` may either return after command acceptance or provide an await-completion facade, depending on the product/API need. In both cases, it must send an event to the supervisor actor and then observe actor state/events. It must not execute the workflow itself or synthesize completion by calling controller/runner methods. If existing TypeScript/API contracts imply completion-return semantics, keep them only by waiting on the actor tree, not by preserving imperative orchestration.
+2. Define one supervisor-owned actor tree before implementation: supervisor actor owns the root goal card actor; goal card actors own planner/reviewer LLM turn actors and any active child card actor; terminal card actors own executor LLM turn actors and process actors. Do not use detached `createActor()` islands to emulate parent-child behavior.
+3. Actor-to-actor runtime behavior flows through XState actor events, spawned/invoked children, and typed completion events. The existing `EventBus` remains an external projection/notification mechanism only; it is not the internal orchestration bus and must not become a second workflow engine.
+4. Required side effects, including card status writes, LLM turn logging, tool delivery/status logging, and snapshot persistence, must be wired as machine actions or invoked services at explicit state boundaries. They must not be hidden in controller methods or helper loops.
+5. The inherited controller-heavy test suite is not authoritative. Replace tests that protect the old implementation with a new, smaller set of direct machine tests, API-boundary tests, and projection tests. Do not preserve tests solely because they existed.
+
 Controller deletion rule:
 
 1. If a class has `start()`, `cancel()`, `reviewPlannerResult()`, `handleExecutorToolCall()`, or any loop/branching that decides runtime progress, it is competing with XState and must be removed or reduced to a test-only helper during the rework.
 2. A retained external adapter may construct the top-level actor system, send commands to the supervisor actor, subscribe/wait for supervisor snapshots, and project read-model state. It must not import, instantiate, or call card, LLM, reviewer, child-activation, or process runner implementations. It must not call `runner.start()`, `runner.cancel()`, `startChild()`, `runTurn()`, `wait()`, or any method that advances runtime behavior. Runtime behavior may advance only through XState actor events, invocations, spawned children, and machine transitions.
 3. Prefer files named `*.machine.ts`, `*.actor.ts`, `*.actors.ts`, or `*.projection.ts` over `*Controller` for the new core.
+
+The only production wrapper allowed around the actor tree is the public `RuntimeApi` adapter. Its purpose is command acceptance, snapshot subscription, and projection. It is not a place to await business workflow completion.
 
 ## Review Verdicts
 
@@ -75,51 +87,71 @@ Issues covered: F01, F02, F04, F13.
 
 Work:
 
+0. Define the minimal actor contract before code changes:
+   - `RuntimeApi.startProject()` sends `START_PROJECT` to the supervisor actor. If the API returns immediately, it returns command acceptance/rejection. If the API waits for completion, it waits by subscribing to supervisor/root-card actor state and resolves from the final actor outcome. It never waits by calling a runner/controller workflow method.
+   - Public methods such as `pause()`, `resume()`, `stopProject()`, and `shutdown()` are thin event senders plus optional state waiters. They do not own runtime decisions.
+   - The supervisor actor spawns the root goal card actor on `START_PROJECT` and stores the actor reference in supervisor-owned state.
+   - Goal card actors invoke one LLM turn actor at a time for planner/reviewer turns and spawn/invoke one active child card actor when handling `activate_card`.
+   - Terminal card actors invoke one LLM turn actor at a time and spawn process actors only when a process tool requires one.
+   - LLM turn actors complete with a typed output: message, single tool call, rejected multiple tool calls, provider error, or cancelled.
+   - Child card actors complete with a typed card outcome event consumed by the parent goal card actor.
+   - The supervisor actor owns pause/stop/quiescence; external code observes supervisor snapshots rather than directly awaiting child runners.
 1. Redesign `LlmRunner` as an invoked-actor machine:
    - `idle` -> `requesting_admission` -> `calling_provider` -> `returned_message` / `returned_tool_call` / `failed` / `cancelled`.
    - Provider invocation must be an XState invocation with cancellation/cleanup semantics.
    - Admission request/release must happen through machine entry/exit actions, not manual `try/finally` in controller code.
    - Provider output must be represented faithfully. If the first XState runtime supports only one tool call per turn, the machine must fail fast on multiple tool calls in P0 rather than silently selecting the first. Later tool-protocol work may add richer exactly-once persistence, but P0 must not encode lossy provider-output semantics.
+   - Parent card machines must receive LLM output through typed actor completion/events, not by reading child context after calling a `runTurn()` method.
 2. Redesign `TerminalCardRunner` as an XState machine whose states drive executor turns:
    - `idle`, `marking_running`, `waiting_for_llm`, `handling_tool`, `delivering_tool_result`, `committing_success`, `committing_failure`, `blocked`, `cancelled`, `done`.
    - Tool handling (`run_process`, `wait_process`, `inspect_process`, `kill_process`) must be invoked actors/services owned by the machine.
    - The hard turn budget should be machine context updated on each `LLM_RESULT`/`LLM_TOOL_CALL`, not a `for` loop.
+   - Process actors must own OS process lifecycle. Keep this small: `idle`, `running`, `killing`, `done`, `failed` is enough unless implementation proves another durable state is required. Cancellation sends termination to the child process, waits boundedly, then force-kills or records an unsafe-abandoned diagnostic.
 3. Redesign `GoalCardRunner` as an XState machine whose states drive planner/reviewer/child flow:
    - `idle`, `marking_running`, `planning`, `activating_child`, `reviewing`, `delivering_child_result`, `applying_review_corrections`, `committing_outcome`, `blocked`, `failed`, `cancelled`, `done`.
    - `activate_card` must not call a `ChildActivationPort.startChild()` Promise API. The goal machine handles the tool call by spawning/invoking the child card actor through the supervisor-owned actor registry or an injected actor factory. The child result returns as a typed actor completion/event. Any child-activation adapter that contains branching, recursion, or awaits child completion is old-runtime baggage and must be deleted.
    - Reviewer verdict must be a typed event, not a direct function return that decides the next imperative loop iteration.
+   - P0 may keep a tiny reviewer-output adapter if needed, but `goalCardMachine` must only consume typed reviewer events: passed, needs corrections, failed, provider error, unsupported output, or cancelled. P4 replaces any temporary string adapter with structured reviewer protocol.
+   - Notes must enter the goal actor as events and accumulate in machine context. Do not keep a process-global note sink singleton as the active delivery mechanism in the new core.
 4. Redesign `RuntimeSupervisor` as the parent actor that owns the root project actor and runtime mode:
    - `idle`, `running`, `pausing`, `paused`, `stopping`, `stopped`.
    - `startProject()` sends a `START_PROJECT` event and returns once the command is accepted/started; completion is observed through actor state/events.
    - `stopProject()` and `shutdown()` send cancellation/stop events to children and wait for the supervisor actor to reach a terminal/quiescent state.
+   - Pause/stop must prevent new provider admissions and propagate cancellation to active LLM, reviewer, child-card, and process actors. Do not preserve `requestProviderCall()` / `releaseProviderCall()` as an imperative side-channel if the same behavior can be represented by supervisor/card/LLM machine events.
 5. Delete or collapse controller classes:
    - Replace `LlmRunnerController` with a `llmTurnMachine` plus `createLlmTurnActor(...)` or a parent-spawned actor.
    - Replace `TerminalCardRunnerController` with a `terminalCardMachine` plus actor input/dependency injection.
    - Replace `GoalCardRunnerController` with a `goalCardMachine` plus actor input/dependency injection.
    - Replace `ProcessRunnerController` if it contains process lifecycle decisions that belong in `processMachine`.
    - Keep only a thin `RuntimeApi` adapter if needed for the existing public `RuntimeApi` interface.
+   - Delete `getRecoveryPlan()` and `this.recoveryPlan` from the runtime API adapter unless the P0 implementation consumes them. Recovery for the new actor tree belongs in P5; dead recovery display code should not survive P0.
 6. Move orchestration into machine definitions and invoked actors:
    - provider turn invocation belongs to `llmTurnMachine`;
    - executor tool dispatch belongs to `terminalCardMachine` or spawned tool/process actors;
    - child activation belongs to `goalCardMachine` via spawned/invoked child card actors;
    - reviewer verdict handling belongs to `goalCardMachine`;
    - cancellation/quiescence belongs to parent/child XState event flow.
-7. Persist meaningful XState snapshots at machine state boundaries. Recovery should be able to inspect a snapshot and know whether the actor was calling a provider, waiting for a child, handling a tool, committing a result, or done.
-8. For every P0 machine state, define a recovery classification before implementation: `resume_safe`, `abandon_with_diagnostic`, `reconcile_then_resume`, or `terminal`. Persist only context required by those classifications. Full startup rebuilding may land later, but P0 machines must not introduce states whose recovery behavior is undefined.
-9. Keep the implementation small. The first pass may use explicit `fromPromise`/invoked service actors and typed events; do not introduce extra abstraction layers around XState.
-10. A machine state should normally represent a durable wait point, cancellation boundary, recovery boundary, or externally meaningful lifecycle phase. Pure synchronous side effects such as marking running or committing a result may be entry/exit actions unless they need retry/recovery semantics. Do not create transient states solely to mirror every function call.
+7. Wire required side effects at explicit machine boundaries:
+   - `markRunning`, `markCancelled`, and commit-outcome writes are machine actions or invoked services. If a required card-store write fails, transition to failed/blocked with a diagnostic; do not silently continue.
+   - LLM turn logs and tool delivery/status logs are machine actions or small injected services. Do not hide them in old controller helper methods.
+   - Snapshot persistence happens at meaningful machine boundaries through a single small persistence action/observer. Persistence failure is a runtime failure unless the state is explicitly classified as non-durable.
+8. Persist meaningful XState snapshots at machine state boundaries. Recovery should be able to inspect a snapshot and know whether the actor was calling a provider, waiting for a child, handling a tool, committing a result, or done.
+9. For every P0 machine state, define a recovery classification before implementation: `resume_safe`, `abandon_with_diagnostic`, `reconcile_then_resume`, or `terminal`. Persist only context required by those classifications. Full startup rebuilding may land later, but P0 machines must not introduce states whose recovery behavior is undefined.
+10. Keep the implementation small. The first pass may use explicit `fromPromise`/invoked service actors and typed events; do not introduce extra abstraction layers around XState.
+11. A machine state should normally represent a durable wait point, cancellation boundary, recovery boundary, or externally meaningful lifecycle phase. Pure synchronous side effects such as marking running or committing a result may be entry/exit actions unless they need retry/recovery semantics. Do not create transient states solely to mirror every function call.
 
 P0 is not complete unless `stopProject()` and `shutdown()` can cancel an active provider call, reviewer call, child activation, and process wait through supervisor-to-child XState events, and can observe a bounded quiescent state. P1 may refine diagnostics and projections, but cancellability and quiescence are P0 acceptance criteria.
 
 Tests:
 
-1. Replace tests that assert imperative `start()` loop completion with tests that send machine events or use the facade to observe state transitions.
+1. Replace inherited tests that assert imperative `start()` loop completion with a new machine-first suite. `tests/runtime/actors/xstate-minimal-core.test.ts` and `tests/runtime/actors/supervisor-runtime-api.test.ts` may be rewritten wholesale; do not keep assertions that only preserve controller semantics.
 2. Add state-transition tests for planner tool call, child activation, reviewer correction, executor tool call, provider error, cancellation while provider call is active, and cancellation while process wait is active.
 3. Add tests that `stopProject()` sends cancellation to active children and reaches quiescence.
 4. Add boundary tests that `src/runtime/actors/*controller*.ts` files are absent or contain no orchestration methods/loops.
 5. Add a boundary test that `supervisor-runtime-api.ts` imports only the supervisor actor/factory and read-model projection modules from `src/runtime/actors`; it must not import `goal-card-runner`, `card-runner`, `llm-runner`, `process-runner`, or `xstate-child-activation` orchestration APIs.
 6. Add direct machine tests that can exercise transitions without constructing controller classes.
-7. `npm run typecheck`, focused actor tests, `npm test`, `npm run validate:routine`.
+7. Add explicit tests that multiple provider tool calls fail fast in the LLM turn actor, and that the runtime does not silently select the first tool call.
+8. `npm run typecheck`, focused actor tests, `npm test`, `npm run validate:routine`.
 
 ### P1: Polish Runtime Ownership Diagnostics And Status After P0 Cancellation
 
