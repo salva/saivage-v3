@@ -99,8 +99,6 @@ Terminal card types include `architecture`, `code`, `test`, `doc`, `data`, `rese
 - `blocked`: cannot proceed without external change.
 - `cancelled`: cancelled work.
 
-`AwaitingChild` is not a card status. It is a planner/session lifecycle state for an active ancestor waiting on a child or process wait.
-
 `status_text` is written only by the runtime from an accepted terminal report. The system must not mirror mid-run progress, rejected reports, reviewer correction requests, or failed validation attempts into `status_text` as if they were accepted outcomes.
 
 ## 6. Card Ordering And Movement
