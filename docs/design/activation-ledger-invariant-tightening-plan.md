@@ -290,13 +290,12 @@ Keep for startup repair and session sweep callers only.
 
 ### Step 5: Add doc comments to startup-recovery functions
 
-- `planIdleRunningRootRunReconciliation`: note it is startup-recovery-only.
-- `planClearActiveCardRunForRepair`: note it is for repair/interruption paths only.
+- DONE: the old `planIdleRunningRootRunReconciliation` and `planClearActiveCardRunForRepair` helpers were removed with obsolete startup/runtime-core cleanup.
 
 ### Step 6: Validation
 
 ```bash
-NODE_OPTIONS=--experimental-vm-modules npx jest tests/runtime/runtime-core.test.ts --runInBand --forceExit
+NODE_OPTIONS=--experimental-vm-modules npx jest tests/runtime/runtime-reducers.test.ts --runInBand --forceExit
 npm run typecheck
 npm run validate:routine
 npm run build

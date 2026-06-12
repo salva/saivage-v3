@@ -25,8 +25,7 @@ Method note: "dead" = zero production references (only its own definition, a bar
 ### 3. Dead freeze/resume manifest creation cluster
 The runtime READS and HANDLES a `'frozen'` status that **nothing ever WRITES** in production. Dead writers/builders:
 - `saveFreezeManifest` (`src/runtime/freeze-manifest.ts` — removed), `clearFreezeManifest`, `freezeManifestExists`
-- `buildFreezeManifest` (`src/runtime/runtime-core.ts:177`), `buildFreezeRuntimeStatePatch` (:165), `buildResumeFromFreezeRuntimeStatePatch` (:203), `buildResumeHandoffContext` (:219)
-- Verified: each has 0 production refs outside its own file/barrel. The only `status: 'frozen'` producers (`src/runtime/runtime-core.ts:170,190`) are inside these dead builders. `readFreezeManifest` is the only live freeze symbol.
+- The old freeze builders lived in `runtime-core.ts`, which has since been removed with the obsolete state-machine/core cleanup. `readFreezeManifest` is the only live freeze symbol noted by this historical finding.
 - Caveat: live code still *handles* `frozen` (`src/runtime/runtime-control-commands.ts:37,55`, `src/tools/analyst-runtime-tools.ts:50`, `src/application/read-models/debug-read-model.ts:19`, `sync-hub.ts`). The old shutdown handler was removed with obsolete runtime startup/shutdown composition. So either freeze was never finished or was abandoned. Decide: delete the whole freeze concept (writers + handlers + status), or keep it as a real feature. Right now it is half-built dead weight.
 - Confidence: HIGH that the writers are dead. Impact: MEDIUM. Needs a product decision on the `'frozen'` status itself.
 
@@ -54,7 +53,7 @@ The runtime READS and HANDLES a `'frozen'` status that **nothing ever WRITES** i
 ## Tier 3 — Unreachable branches (delete the dead arm)
 
 ### 7. The `transitionCard` `=== false` / `!transitioned` family
-- `transitionCard` (`src/runtime/state-machine.ts:184`) only returns `true` or throws (since "enforce strict terminal transitions"). So these are unreachable:
+- The removed `RuntimeStateMachine.transitionCard` path only returned `true` or threw after strict terminal transition enforcement. The remaining unreachable arms are:
   - `transitionOrThrow` `=== false` arms: `src/runtime/terminal-commit/commit-planner.ts:54`, `src/runtime/terminal-commit/commit-reviewer.ts:54`, `src/runtime/terminal-commit/commit-executor.ts:127`
   - Related `if (!transitioned)` arms in the old activation-dispatch loop were removed with the obsolete dispatcher path.
   - `handleExecutorCompletion` still always returns `transitioned: true`; any remaining use of that field is dead logic.

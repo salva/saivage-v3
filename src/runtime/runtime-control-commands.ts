@@ -1,5 +1,5 @@
 import type { RuntimeState } from '../schemas/index.js';
-import { buildPauseRuntimeStatePatch, buildResumeRuntimeStatePatch } from './runtime-core.js';
+import { buildPauseRuntimeStatePatch, buildResumeRuntimeStatePatch } from './runtime-control-state.js';
 
 export type RuntimeControlEventKind = 'paused' | 'resumed';
 

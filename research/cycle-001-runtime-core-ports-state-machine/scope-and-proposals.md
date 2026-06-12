@@ -18,8 +18,7 @@ Recommended reviewer focus: prefer `proposal-direct.md` unless review believes c
 ## Key evidence from current source
 
 - `Runtime` still owns broad command, dispatch, state, event, planner/executor/reviewer, cleanup, and transition coordination (`src/runtime/runtime.ts:102`, `src/runtime/runtime.ts:119`, `src/runtime/runtime.ts:481-553`, `src/runtime/runtime.ts:607-818`).
-- `RuntimeStateMachine` currently imports `CardStore`, `PROJECT_CARD_ID`, permissions, and `ErrorLogger` (`src/runtime/state-machine.ts:8-11`) and its dependency interface names concrete `CardStore` (`src/runtime/state-machine.ts:47-55`).
-- Card transition decisions are concentrated in `RuntimeStateMachine.decompose` (`src/runtime/state-machine.ts:190-258`), making it the best extraction seam for a pure policy module.
+- The old `RuntimeStateMachine` implementation has since been removed; card transition decisions now live in the pure `transition-policy.ts` module.
 - State-machine tests use real `CardStore`, runtime state files, and `ErrorLogger`, which verifies behavior but keeps tests coupled to concrete infrastructure (`tests/runtime/state-machine.test.ts:34-48`, `tests/runtime/state-machine.test.ts:177-196`).
 - `tests/runtime/state-machine-wired.test.ts` asserts `Runtime` exposes `runtime.stateMachine`, which may be an implementation-private surface to delete or replace if the implementation narrows the API (`tests/runtime/state-machine-wired.test.ts:10-24`).
 

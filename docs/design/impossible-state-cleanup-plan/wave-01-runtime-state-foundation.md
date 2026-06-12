@@ -99,17 +99,13 @@ The parser must validate the payload with the `ActiveCardRun` schema or equivale
 
 Add or update focused tests:
 
-- `tests/runtime/state-machine.test.ts`: tick with running/no active run throws and does not patch to idle.
-- `tests/runtime/state-machine.test.ts`: tick with idle/non-null active run throws and does not patch to running.
-- `tests/runtime/state-machine.test.ts`: active card read failure propagates.
-- `tests/runtime/state-machine.test.ts`: redispatch failure propagates.
-- `tests/runtime/state-machine.test.ts`: scheduled tick rejection is caught at the scheduler boundary and recorded, not emitted as an unhandled promise rejection.
-- `tests/runtime/runtime-core.test.ts`: `reviewer_started` without `activeCardRun` throws.
+- The old `tests/runtime/state-machine.test.ts` and `tests/runtime/runtime-core.test.ts` files were removed with obsolete runtime-core/state-machine cleanup.
+- Current focused coverage for surviving reducer behavior lives in `tests/runtime/runtime-reducers.test.ts`.
 
 ## Validation
 
 ```bash
-NODE_OPTIONS=--experimental-vm-modules npx jest tests/runtime/state-machine.test.ts tests/runtime/runtime-core.test.ts --runInBand --forceExit
+NODE_OPTIONS=--experimental-vm-modules npx jest tests/runtime/runtime-reducers.test.ts tests/runtime/transition-policy.test.ts --runInBand --forceExit
 npm run typecheck
 npm test
 npm run validate:docs

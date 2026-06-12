@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { CardRecord } from '../schemas/index.js';
-import type { RuntimeCardAction } from './state-machine.js';
+import type { RuntimeCardAction } from './transition-policy.js';
 import {
   cleanStalePreviews,
   cleanStaleStash,

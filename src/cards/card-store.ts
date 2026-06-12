@@ -189,7 +189,7 @@ export class CardStore {
   /**
    * Non-throwing legality check for a single status step.
    * Returns `true` if `from === to` or if `to` is listed in `VALID_TRANSITIONS[from]`.
-   * Used by `RuntimeStateMachine` to gate `planner_set_status` and `cancel` actions
+   * Used by runtime transition policy to gate `planner_set_status` and `cancel` actions
    * without raising.
    */
   canTransition(from: CardStatus, to: CardStatus): boolean {

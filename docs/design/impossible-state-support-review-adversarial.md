@@ -8,7 +8,7 @@ This document reviews `docs/design/impossible-state-support-review.md` against t
 
 ### F01. Reentrancy guard is not impossible-state support
 
-The `_tickInFlight` guard at `src/runtime/state-machine.ts:157` is a standard sequential-runtime reentrancy guard. In single-threaded JavaScript, if `tick()` is called while already executing, that means code inside `tick()` triggered another `tick()`. The guard prevents infinite recursion.
+The removed `_tickInFlight` guard in the old `state-machine.ts` was a standard sequential-runtime reentrancy guard. In single-threaded JavaScript, if `tick()` is called while already executing, that means code inside `tick()` triggered another `tick()`. The guard prevented infinite recursion.
 
 This is not "defensive code for impossible internal states." It is a legitimate concurrency/reentrancy guard for a sequential runtime. The review confuses two different concepts:
 - Defensive code that silently recovers from impossible states (bad)

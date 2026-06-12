@@ -31,7 +31,7 @@ Skipping a terminal transition when the card is already in the target terminal s
 
 - `commitReviewerPass` skips `complete` when `card.status === 'done'` (`src/runtime/terminal-commit/commit-reviewer.ts:19`).
 - The removed legacy planner dispatcher also treated already-terminal cards as no-ops during cleanup.
-- `alignBlockedPlanningCardStatuses` skips re-blocking an already-`blocked` card (`src/runtime/startup-blocked-planning.ts:29`).
+- The removed startup blocked-planning repair helper also skipped re-blocking an already-`blocked` card.
 
 The two block-commit helpers are the inconsistent outliers. Making them match is not a hack; it is removing an inconsistency.
 

@@ -72,7 +72,7 @@ Add/update:
 Focused command:
 
 ```bash
-NODE_OPTIONS=--experimental-vm-modules npx jest tests/runtime/startup-blocked-planning.test.ts tests/runtime/startup-repair.test.ts tests/runtime/planner-phase.test.ts tests/runtime/startup-repair.test.ts --runInBand --forceExit
+NODE_OPTIONS=--experimental-vm-modules npx jest tests/runtime/planner-phase.test.ts tests/runtime/runtime-reducers.test.ts --runInBand --forceExit
 ```
 
 ## Validation

@@ -4,7 +4,7 @@ import type { ActivationCompletionOutcome, CardRecord, RuntimeDispatchOwnership,
  * @internal
  * @stage activation-state-machine
  *
- * Planner-facing shapers for active card run snapshots. RuntimeStateMachine owns
+ * Planner-facing shapers for active card run snapshots. The actor runtime owns
  * card phase transitions and RuntimeStateMutationPort owns persisted activation
  * completion.
  */

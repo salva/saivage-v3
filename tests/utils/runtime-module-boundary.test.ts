@@ -159,6 +159,10 @@ describe('runtime module ownership boundary', () => {
     expect(existsSync(join(process.cwd(), 'src/runtime/activation-unwind.ts'))).toBe(false);
     expect(existsSync(join(process.cwd(), 'src/runtime/startup-repair.ts'))).toBe(false);
     expect(existsSync(join(process.cwd(), 'src/runtime/phases/planner-failure-handler.ts'))).toBe(false);
+    expect(existsSync(join(process.cwd(), 'src/runtime/runtime-core.ts'))).toBe(false);
+    expect(existsSync(join(process.cwd(), 'src/runtime/state-machine.ts'))).toBe(false);
+    expect(existsSync(join(process.cwd(), 'src/runtime/startup-blocked-planning.ts'))).toBe(false);
+    expect(existsSync(join(process.cwd(), 'src/runtime/startup-run-reconciliation.ts'))).toBe(false);
   });
 
   it('keeps production runtime core parts free of concrete card mutation authority', () => {

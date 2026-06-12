@@ -32,7 +32,7 @@ The rest of WI-1 assumes A.
 
 WI-1a backend producers + handlers:
 - Delete file `src/runtime/freeze-manifest.ts` entirely (`saveFreezeManifest`, `readFreezeManifest`, `clearFreezeManifest`, `freezeManifestExists`).
-- Delete the freeze builders in `src/runtime/runtime-core.ts`: `buildFreezeManifest`, `buildFreezeRuntimeStatePatch`, `buildResumeFromFreezeRuntimeStatePatch`, `buildResumeHandoffContext`, and the `FreezeManifest` import. (Around `src/runtime/runtime-core.ts:165`–`228`.)
+- DONE: the old freeze builders were removed with `runtime-core.ts` during obsolete state-machine/core cleanup.
 - `src/runtime/control-api.ts`: remove the `readFreezeManifest`/`clearFreezeManifest`/`FROZEN_RUNTIME_RECOVERY_MESSAGE` re-exports (lines ~3-4).
 - `src/runtime/runtime-control-commands.ts`: remove the `'frozen'` member from `RuntimeControlResult.code`, the `action?: 'inspect-frozen-state'` field, the `FROZEN_RUNTIME_RECOVERY_MESSAGE` const, and the `if (current.status === 'frozen')` branches in `pauseRuntimeCommand` (`:37`) and `resumeRuntimeCommand` (`:55-63`).
 - DONE: the old `src/runtime/runtime-shutdown.ts` file was removed with the obsolete runtime startup/shutdown composition path, including its frozen-specific shutdown branch.
@@ -50,7 +50,7 @@ WI-1b schema/types:
 
 WI-1c web + tests + docs:
 - Web (the `RuntimeStatus` type flows from `@saivage/schemas`, so types update automatically; remove the UI that references `'frozen'`): `web/src/stores/runtime.ts` (`isFrozen`, lines 72/94/99/192), `web/src/stores/runtime-read-model.ts` (`:58,79,85-86,110,117`), `web/src/composables/useDashboardReadModel.ts` (`:15,17,29`), `web/src/stores/debug.ts:62-63`, `web/src/views/DebugView.vue` (banner/grid/styles `:20-33,112-128,463-490`), `web/src/views/DashboardView.vue` (`:200,217,297-303`), `web/src/components/layout/WorkspaceHeader.vue` (`:79,86,93,202,217`).
-- Tests to delete/trim: delete `tests/utils/freeze-manifest.test.ts`; trim freeze blocks in `tests/runtime/runtime-core.test.ts` (`:121-145`), `tests/runtime/runtime-control-commands.test.ts` (`:47-50`), `tests/analyst.test.ts` (`:580-603`), `tests/utils/event-logger.test.ts` (`:139-152`), `tests/application/events-read-model.test.ts:29` (swap event kind), `tests/utils/runtime-module-boundary.test.ts` (freeze identity asserts), and remove `frozen_reason: null` from the ~5 `RuntimeState` fixtures listed in the findings doc (and `web/src/__tests__/runtime-read-model.test.ts:15`).
+- Tests to delete/trim: delete `tests/utils/freeze-manifest.test.ts`; trim freeze blocks in current runtime reducer/control coverage (`tests/runtime/runtime-reducers.test.ts`, `tests/runtime/runtime-control-commands.test.ts`), `tests/analyst.test.ts` (`:580-603`), `tests/utils/event-logger.test.ts` (`:139-152`), `tests/application/events-read-model.test.ts:29` (swap event kind), `tests/utils/runtime-module-boundary.test.ts` (freeze identity asserts), and remove `frozen_reason: null` from the ~5 `RuntimeState` fixtures listed in the findings doc (and `web/src/__tests__/runtime-read-model.test.ts:15`).
 - Keep as permanent removal guards: `tests/cli/saivage-reset.test.ts:10-24`, `web/src/__tests__/runtime-store.test.ts:39-40`, `web/src/__tests__/dashboard-view.test.ts:16`, `web/src/__tests__/api-client-contracts.test.ts:14-15`.
 - `scripts/verify-doc-routes.js:15`: drop `freeze|resume-from-freeze` from `RUNTIME_CONTROL_ROW_RE`.
 - Docs: update current docs that describe freeze as "helpers only" to state it is removed: `docs/operation.md:55,229`, `docs/analyst.md:22`, `docs/runbook/operations.md:168-170`, `docs/runbook/incidents.md:23,71-78`, `docs/runbook/index.md`, `docs/runbook/release.md:101-102`, `docs/index.md:9`, `docs/troubleshooting.md:6`, `docs/design/data-model.md:421,432`, `docs/design/server-api.md:110`, `docs/agents.md:282`. Leave `docs/historical/**` untouched.
@@ -132,7 +132,7 @@ Risk: LOW.
 
 ## WI-7 — Delete the dead `transitionCard === false` / `!transitioned` family
 
-`RuntimeStateMachine.transitionCard` (`src/runtime/state-machine.ts:184`) only returns `true` or throws. Remove the unreachable arms and the over-widened type.
+The removed `RuntimeStateMachine.transitionCard` path only returned `true` or threw after strict terminal transition enforcement. Remove any remaining unreachable arms and over-widened types in current terminal-commit code.
 
 - `src/runtime/terminal-commit/commit-executor.ts`: change `TerminalCommitEffects.transitionCard` return type (`:6`) from `Promise<boolean | unknown> | boolean | unknown` to `Promise<void>` (the boolean was only used by the dead `=== false`). Delete the `transitionOrThrow` helper (`:126`) and replace its three call sites with a direct `await effects.transitionCard(...)`.
 - `src/runtime/terminal-commit/commit-planner.ts`: delete `transitionOrThrow` (`:69`); replace `await transitionOrThrow(...)` calls with `await ...transitionCard(...)`. (Note: the `if (input.card.status !== 'blocked')` guard added by the duplicate-block fix stays.)
@@ -294,8 +294,8 @@ Risk: MEDIUM (config-acceptance behavior change). Decision-gated.
 ## Smaller defensive cleanups (fold into the nearest related WI when touching the file)
 
 - `src/runtime/reviewer-assessment.ts:55`: `card.artifacts`/`card.attachments` are required arrays; drop `?.`/`?? 0` → `card.artifacts.length === 0 && card.attachments.length === 0`. (Do alongside WI-15 or standalone.)
-- `src/runtime/state-machine.ts:92-97`: `patchRuntimeState` mutation discards `updateRuntimeState`'s returned state, forcing a re-read + null-throw. Have the mutation return the new state and pass it through (removes the redundant `readRuntimeState` + throw). Touches the mutation port's `void` contract — small, do as its own commit.
-- `src/cards/validator.ts:96` `?? 0` after the depth map is fully populated; `src/runtime/runtime-core.ts:204` redundant cast — LOW priority, opportunistic.
+- DONE: the old `state-machine.ts` re-read/null-throw path was removed with obsolete state-machine cleanup.
+- `src/cards/validator.ts:96` `?? 0` after the depth map is fully populated — LOW priority, opportunistic.
 
 ---
 

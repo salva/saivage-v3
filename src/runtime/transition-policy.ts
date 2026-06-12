@@ -1,6 +1,18 @@
 import type { CardStatus } from '../schemas/index.js';
 import { STARTABLE_STATES, RESTARTABLE_STATES, TERMINAL_STATUSES } from '../permissions/index.js';
-import type { RuntimeCardAction } from './state-machine.js';
+
+export type RuntimeCardAction =
+  | 'start'
+  | 'restart'
+  | 'cancel'
+  | 'planner_set_status'
+  | 'block'
+  | 'complete'
+  | 'fail'
+  | 'executor_finish'
+  | 'executor_partial_finish'
+  | 'reviewer_repair_resume'
+  | 'crash_recovery_drop_to_backlog';
 
 export type ActivationAction =
   | { action: 'start'; reason: string }

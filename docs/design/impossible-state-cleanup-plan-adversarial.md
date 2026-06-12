@@ -151,7 +151,7 @@ The metaplan says "Wave 6 should run after Waves 1-3." But Wave 6 Step 3 targets
 
 ### M01. Wave 1 Step 5 doesn't specify `parseReviewerStartedActiveRun`
 
-The plan says "The parser must throw if `activeCardRun` is missing or malformed" but doesn't specify what this parser looks like. The current code at `src/runtime/runtime-core.ts:347` simply casts: `(payload.activeCardRun ?? null) as RuntimeState['active_card_run']`. The plan needs to specify whether `parseReviewerStartedActiveRun()` is a new function or a schema validation, and what "malformed" means (missing field? wrong type? semantically invalid?).
+The plan says "The parser must throw if `activeCardRun` is missing or malformed" but doesn't specify what this parser looks like. The old `runtime-core.ts` parser path has since been removed with obsolete state-machine cleanup. If this behavior is reintroduced, the plan needs to specify whether the parser is a new function or schema validation, and what "malformed" means (missing field, wrong type, semantically invalid, etc.).
 
 **Severity:** medium
 **Recommendation:** Specify that `parseReviewerStartedActiveRun()` validates the payload shape against the `ActiveCardRun` schema and throws `RuntimeStateInvariantError` on validation failure. Reference the schema type.
@@ -173,11 +173,7 @@ The plan says "if the card is terminal, synthesize unwind outcome from card life
 ### M04. Wave 7 Step 2 audit is underspecified
 
 "Audit all reducers/transitions that set `status: 'idle'`" is a research step, not an implementation step. The plan should list the known reducers/transitions that set idle, or at minimum specify the audit method. Currently known idle transitions:
-- `reduceRuntimeEvent`: `goal_exit`, `card_terminated`, `goal_completed`, `reviewer_finished` (`src/runtime/runtime-core.ts:342-351`)
-- `buildShutdownRuntimeStatePatch()` in `runtime-core.ts` if still present after old shutdown composition removal
-- `planClearActiveCardRunForRepair()` (`src/runtime/runtime-core.ts:224-235`)
-- `planSweptCurrentAgentSessionPatch()` (`src/runtime/runtime-core.ts:237-245`)
-- `planIdleRunningRootRunReconciliation()` state patches (`src/runtime/runtime-core.ts:542-597`)
+- The old `reduceRuntimeEvent`, shutdown patch, active-card-run repair, swept-session patch, and idle/root-run reconciliation helpers were removed with obsolete `runtime-core.ts` cleanup.
 - The old `buildBlockedPlannerStartupState()` startup-repair path was removed with obsolete startup repair.
 
 **Severity:** medium
@@ -201,7 +197,7 @@ Rule D says "Malformed model/provider output is external input" and Wave 5 Step 
 
 ### X03. `findParentPlannerRunForResumption()` in runtime-core.ts still synthesizes after Wave 2
 
-The current `findParentPlannerRunForResumption()` at `src/runtime/runtime-core.ts:736-767` constructs an `active_card_run` with synthesized fields: `caller_session_id: null`, `caller_tool_call_id: null`, and `planner_session_id: parentRunId ? plannerSessionId : null` where `plannerSessionId` can fall back to `planner:${parentCardId}` (line 754). This is in the normal `reduceActivationCompletion()` path, not startup repair. Wave 2 Step 1 removes defaults from `activeRunFromActivationState()` but doesn't address `findParentPlannerRunForResumption()`, which constructs active runs directly.
+The current activation completion reducer constructs an `active_card_run` when restoring a waiting parent planner. This is in the normal `reduceActivationCompletion()` path, not startup repair. Wave 2 Step 1 removes defaults from `activeRunFromActivationState()` but must also address any direct active-run construction in activation completion.
 
 **Severity:** high — this is a synthesis path that Wave 2 misses
 **Recommendation:** Add a step to Wave 2: "Make `findParentPlannerRunForResumption()` use `RuntimeDispatchOwnership` instead of synthesizing caller/planner session ids." The returned active run should copy identity from the activation record, not default or synthesize.
@@ -255,21 +251,21 @@ Wave 1 removes tick self-healing. Wave 7 makes idle+terminal-active-run invalid.
 
 ### O01. `planSweptCurrentAgentSessionPatch()` is not covered
 
-`src/runtime/runtime-core.ts:237-245` sets `{ active_card_run: null, status: 'idle' }` when the current session is swept. This is a legitimate shutdown path, but it constructs an idle state with no active run during a mutation. If any intermediate state exists between the mutation and the next tick, Wave 7's invariant could fire. The plan doesn't mention this function.
+The old swept-session helper that set `{ active_card_run: null, status: 'idle' }` was removed with obsolete `runtime-core.ts` cleanup. If equivalent session-sweep behavior is added to the actor runtime, the invariant interaction should be specified there.
 
 **Severity:** low — this path is correct, but should be verified
 **Recommendation:** Add `planSweptCurrentAgentSessionPatch()` to the Wave 7 Step 2 audit list.
 
 ### O02. `buildResumeFromFreezeRuntimeStatePatch()` is not covered
 
-`src/runtime/runtime-core.ts:202-210` sets `active_card_run: manifest.active_card_run ?? null` and `status: manifest.active_card_run ? 'running' : 'idle'`. If the manifest has a terminal active run, this produces idle+non-null-active-run, which Wave 7 would reject. The plan doesn't address freeze/resume.
+The old freeze/resume runtime-core manifest helpers were removed. If freeze/resume is retained as a product feature, it needs a current actor-runtime design rather than the removed manifest path.
 
 **Severity:** medium
 **Recommendation:** Add a step to Wave 7: "Ensure `buildResumeFromFreezeRuntimeStatePatch()` clears terminal active runs or converts them to running state." Or add a freeze manifest validation that rejects manifests with terminal active runs.
 
 ### O03. `planIdleRunningRootRunReconciliation()` is not covered by Wave 7
 
-The startup reconciliation at `src/runtime/runtime-core.ts:542-597` produces state patches with `status: 'idle'` and `active_card_run: null`. This is correct, but the function's early-return conditions (line 551-557) mean it can return `null` when the runtime is idle with a non-null active run, leaving the invalid state unpatched. This is a Wave 6 target (R03) but the interaction with Wave 7 is not noted.
+The old startup reconciliation helper was removed with obsolete startup/core cleanup. If actor startup reconciliation adds similar state patches, the interaction with Wave 7 invariants should be specified in that new path.
 
 **Severity:** low
 **Recommendation:** Cross-reference R03 and Wave 7 Step 3 in the metaplan.

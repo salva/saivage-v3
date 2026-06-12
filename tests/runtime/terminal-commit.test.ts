@@ -71,7 +71,7 @@ function effects() {
   };
 }
 
-// Mirrors the real RuntimeStateMachine.transitionCard + planCardTransition behavior:
+// Mirrors the real transition-policy behavior:
 // a 'block' transition is only legal from a 'running' source, and any
 // other source throws (the same RuntimeDispatchInvariantError class of failure that
 // surfaced in the GetRich v2 duplicate-block incident).
