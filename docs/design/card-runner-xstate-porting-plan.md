@@ -213,10 +213,11 @@ imported by the final runtime:
 - `src/runtime/executor-activation-dispatcher.ts`
 - `src/runtime/runtime-reviewer-dispatcher.ts`
 - `src/runtime/activation-unwind.ts`
-- `src/runtime/phases/planner-activation-runner.ts`
-- `src/runtime/phases/planner-iteration-runner.ts`
-- `src/runtime/phases/executor-phase-runner.ts`
-- `src/runtime/phases/reviewer-phase-runner.ts`
+- `src/runtime/phases/planner-activation-runner.ts` (removed)
+- `src/runtime/phases/planner-iteration-runner.ts` (removed)
+- `src/runtime/phases/planner-phase-runner.ts` (removed)
+- `src/runtime/phases/executor-phase-runner.ts` (removed)
+- `src/runtime/phases/reviewer-phase-runner.ts` (removed)
 - `src/runtime/session-persistence.ts` active-session ownership logic
 - `src/runtime/state-machine.ts` dispatch/tick/redispatch responsibilities
 - `src/runtime/runtime-core.ts` active-run/runtime-run/runtime-activation reducer

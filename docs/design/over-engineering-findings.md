@@ -83,9 +83,9 @@ The runtime READS and HANDLES a `'frozen'` status that **nothing ever WRITES** i
 - Stateless class; all 4 methods forwarded verbatim to `processApi(this.projectRoot)`. Deleted; callers use `processApi(projectRoot)` directly (see `src/server/routes/operator-process-handlers.ts`).
 - Confidence: HIGH. Impact: MEDIUM. Status: DONE (WI-11).
 
-### 12. `*PhaseRunner` classes → functions
-- `ReviewerPhaseRunner`, `ExecutorPhaseRunner`, `PlannerPhaseRunner` are stateless single-`run()`-method classes, each `new`'d-and-discarded at exactly one call site. Demote to plain functions `runReviewerPhase(deps, input)` etc.
-- Confidence: MEDIUM. Impact: MEDIUM.
+### 12. `*PhaseRunner` classes (removed)
+- `ReviewerPhaseRunner`, `ExecutorPhaseRunner`, and `PlannerPhaseRunner` became test-only after the XState switchover. They were deleted; live prompt/context coverage now targets the XState actor input builders.
+- Confidence: MEDIUM. Impact: MEDIUM. Status: DONE.
 
 ### 13. Smaller pass-throughs
 - Duplicate identical methods `AgentAdapter.redactModelIssueText` ≡ `redactProviderErrorMessage` (`src/agents/agent-adapter.ts:277,280`, byte-identical) → merge to one.

@@ -140,7 +140,7 @@ Risk: LOW.
 - DONE: the old `executor-activation-dispatcher.ts` and `planner-activation-runner.ts` paths were deleted with the obsolete runtime dispatcher loop. The remaining cleanup is to drop the `transitioned` field from `handleExecutorCompletion`'s return type (`src/runtime/phases/executor-completion-handler.ts` returns at `:83,92,94`) if no current caller needs it.
 - The test `tests/runtime/terminal-commit.test.ts:149` ("throws and does not write when a terminal transition is rejected") sets `fx.transitionCard = async () => false` to force the dead path. Since `transitionCard` can never return `false` in reality, this test asserts a non-real contract — delete this test case (it tests removed behavior).
 
-Gates: focused `tests/runtime/terminal-commit.test.ts`, `tests/runtime/executor-phase-runner.test.ts`; then `npm run typecheck`, `npm test`, `npm run validate:routine`. Watch for other tests that mock `transitionCard` returning false.
+Gates: focused `tests/runtime/terminal-commit.test.ts`; then `npm run typecheck`, `npm test`, `npm run validate:routine`. Watch for other tests that mock `transitionCard` returning false.
 Risk: LOW–MEDIUM (touches several commit helpers; the test suite will catch regressions).
 
 ---
@@ -198,16 +198,14 @@ Risk: LOW–MEDIUM.
 
 ---
 
-## WI-12 — Demote `*PhaseRunner` classes to functions (OPTIONAL / LOW VALUE — default: skip)
+## WI-12 — Remove obsolete `*PhaseRunner` classes
 
-Reassessed after review: this is the weakest item in the plan and is **not recommended on its own**. `ReviewerPhaseRunner`, `ExecutorPhaseRunner`, `PlannerPhaseRunner` are stateless single-`run()` classes `new`'d-and-discarded at one call site, so `new XPhaseRunner(deps).run(input)` → `runXPhase(deps, input)` is a lateral move: it shifts dependencies from a constructor to a function argument without removing real complexity or any dead path. It does not delete code; it rewrites working, tested code and churns three test files for a stylistic preference.
+Reassessed after the old dispatcher loop was deleted: `ReviewerPhaseRunner`, `ExecutorPhaseRunner`, and `PlannerPhaseRunner` were test-only and no longer fed production runtime behavior. The live prompt path is the XState actor input builder layer.
 
-Decision: **skip unless** you are already editing these files for another reason (e.g. they touch a renamed symbol), in which case the conversion is a cheap drive-by. Do not schedule it as standalone work. This keeps the plan aligned with "simple/clean" without manufacturing churn ("brave refactoring" is for real complexity, not cosmetic class-vs-function preference).
+Status: DONE. Deleted the three phase-runner files and their obsolete direct tests. Added focused actor-input-builder coverage for planner goal/evidence context, executor card context, and reviewer goal/evidence context.
 
-If done opportunistically: convert each to `async function runXPhase(deps, input)` preserving the body verbatim; update the remaining direct tests `tests/runtime/executor-phase-runner.test.ts:25`, `tests/runtime/planner-phase-runner.test.ts:12`, `tests/runtime/reviewer-phase-runner.test.ts:17` (change construction only, keep assertions). The old dispatcher call sites were deleted with the obsolete runtime-loop path.
-
-Gates (if done): the three focused phase-runner tests; then `npm run typecheck`, `npm test`, `npm run validate:routine`.
-Risk: LOW. Value: LOW.
+Gates: `tests/runtime/actors/actor-input-builders.test.ts`, `npm run typecheck`, `npm test`, `npm run validate:routine`.
+Risk: LOW. Value: MEDIUM (removes dead test-only runtime code and shifts coverage to the live actor runtime path).
 
 ---
 
