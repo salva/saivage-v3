@@ -64,9 +64,10 @@ Old-harness cleanup checkpoint, 2026-06-12:
     command/run/activation ledger mechanics. Treat it as an obsolete
     orchestration suite unless a specific current product behavior is proven
     uncovered elsewhere.
-  - `tests/utils/runtime-integration.test.ts` mixes mostly old harness behavior
-    with direct runtime lock tests. Preserve lock coverage as direct `lock.ts`
-    tests; do not keep the old integration harness for its own sake.
+  - `tests/utils/runtime-integration.test.ts` mixed mostly old harness behavior
+    with direct runtime lock tests and was removed; lock coverage now lives in
+    `tests/runtime/runtime-lock.test.ts`. Do not recreate the old integration
+    harness for its own sake.
   - `tests/e2e/hardening-e2e.test.ts` contains valid security/API/quarantine
     tests plus an old harness lifecycle/artifact section. Preserve security
     coverage; replace artifact/lifecycle coverage only if a current XState-era
