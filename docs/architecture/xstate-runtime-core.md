@@ -69,14 +69,11 @@ graph TD
   projectCard[Project card actor] --> projectChildren[children array]
   projectCard --> projectRunner[Project goal-card-runner actor]
   projectChildren --> goalCard[Goal card actor]
-  projectChildren --> terminalSibling[Terminal card actor]
 
   goalCard --> goalChildren[children array]
   goalCard --> goalRunner[Goal card-runner actor]
   goalChildren --> terminalCard[Terminal card actor]
-  goalChildren --> nestedGoalCard[Goal card actor]
 
-  terminalCard --> terminalChildren[children array]
   terminalCard --> terminalRunner[Terminal card-runner actor]
 
   projectRunner --> projectTurn[LLM turn actor]
@@ -87,7 +84,7 @@ graph TD
   terminalRunner --> terminalProcess[Process actors]
 ```
 
-The diagram shows representative branches. The same card-actor pattern repeats recursively: every card actor owns a `children` array of child-card actor references, and any active card actor owns the runner actor appropriate for that card type. Runner actors own transient LLM turn actors and any process actors needed by their tools.
+The diagram shows one representative branch. Project and goal card actors own a `children` array of child-card actor references, while terminal card actors are leaves. Any active card actor owns the runner actor appropriate for that card type. Runner actors own transient LLM turn actors and any process actors needed by their tools.
 
 Actor ownership:
 
