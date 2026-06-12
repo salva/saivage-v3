@@ -158,9 +158,10 @@ The runtime implementation direction is XState-centered: machine states and acto
 
 Target actor ownership:
 
-- supervisor owns root runtime mode, pause gate, shutdown process termination, and activation of the parentless project card runner actor;
-- goal card runner actor owns planner turns, reviewer turns, active child activation, and tool-result waits for planner tools;
-- terminal card runner actor owns executor turns and process actors;
+- supervisor owns root runtime mode, pause gate, shutdown process termination, and the parentless project card actor;
+- card actors mirror the durable card tree, own child card actor references, expose public card status projections, and own the currently active private runner actor when their card is being worked;
+- goal card runner actor owns planner turns, reviewer turns, child activation barriers routed through child card actors, and tool-result waits for planner tools;
+- terminal card runner actor owns executor turns and process actors for one active terminal activation;
 - LLM turn actors own provider invocation/admission/cancellation boundaries;
 - process actors own OS process lifecycle.
 

@@ -59,30 +59,44 @@ The implementation must preserve these functional invariants:
 
 ## 4. Actor Tree
 
-The runtime actor tree has one root supervisor actor. All runtime work is reachable from that root.
+The runtime actor tree has one root supervisor actor. The supervisor owns the parentless project card actor. Card actors mirror the durable card hierarchy: each card actor owns its child card actors and, when that card is actively worked, its private card runner actor.
 
-```text
-RuntimeApi adapter
-  -> supervisor actor
-       -> parentless project card runner actor
-            -> goal card runner actor for active child goal
-                 -> terminal card runner actor for active leaf
-                      -> LLM turn actor
-                      -> process actor(s), when process tools require them
-                 -> LLM turn actor for planner/reviewer turns
-                 -> process actor(s), when planner process tools require them
+```mermaid
+flowchart TD
+  api[RuntimeApi adapter] --> supervisor[Supervisor actor]
+  supervisor --> project[Project card actor]
+
+  project --> projectRunner[Project goal-card-runner actor]
+  project --> goal[Child goal card actor]
+  project --> terminalSibling[Child terminal card actor]
+
+  goal --> goalRunner[Goal card-runner actor]
+  goal --> terminal[Child terminal card actor]
+  goal --> nestedGoal[Child goal card actor]
+
+  terminal --> terminalRunner[Terminal card-runner actor]
+
+  projectRunner --> plannerTurn[LLM turn actor: planner/reviewer]
+  projectRunner --> plannerProcess[Process actor(s)]
+  goalRunner --> goalTurn[LLM turn actor: planner/reviewer]
+  goalRunner --> goalProcess[Process actor(s)]
+  terminalRunner --> executorTurn[LLM turn actor: executor]
+  terminalRunner --> terminalProcess[Process actor(s)]
 ```
 
 Actor ownership:
 
-- The supervisor actor owns runtime mode, root run intent, pause gate, shutdown, root project runner actor, and recovery coordination.
-- The project card runner actor uses the goal-card-runner machine with project-specific input/context.
-- Goal card runner actors own planner turns, active child activation, reviewer turns, tool-result waits for planner tools, and planning diary updates for one goal subtree.
+- The supervisor actor owns runtime mode, root run intent, pause gate, shutdown, the parentless project card actor, and recovery coordination.
+- Card actors own durable card identity, public card status projection, child card actor references, and the currently active runner actor for that card when one exists.
+- The project card actor is a card actor with no parent; when actively worked, it starts a goal-card-runner actor with project-specific input/context.
+- Goal card runner actors own planner turns, active child activation barriers, reviewer turns, tool-result waits for planner tools, and planning diary updates for one active goal-card run.
 - Terminal card runner actors own executor turns and process/tool work for one terminal activation.
 - LLM turn actors own provider admission, provider invocation, provider cancellation, and typed provider output.
 - Process actors own OS process lifecycle, process status, waits, termination, and safe log read models.
 
-Child card activations are invoked by their parent machine because `activate_card` needs exactly one completion or failure outcome delivered to the waiting parent planner under the single-active-leaf model. Longer-lived owned resources such as process actors may be spawned when their lifecycle outlives one tool call. If Saivage later lifts the single-active-leaf model, child activation ownership can be reconsidered. Actor-to-actor runtime behavior flows through XState events, actor completion, and typed outputs. Event/timeline infrastructure may publish projections and audit records, but it must not become an internal workflow bus.
+Child card activations are invoked through the card actor hierarchy because `activate_card` needs exactly one completion or failure outcome delivered to the waiting parent planner under the single-active-leaf model. Longer-lived owned resources such as process actors may be spawned when their lifecycle outlives one tool call. If Saivage later lifts the single-active-leaf model, child activation ownership can be reconsidered. Actor-to-actor runtime behavior flows through XState events, actor completion, and typed outputs. Event/timeline infrastructure may publish projections and audit records, but it must not become an internal workflow bus.
+
+LLM turn actors never own card hierarchy traversal. An LLM turn actor may return a typed tool-call request such as `activate_card`, but the parent card-runner actor handles that request by sending an activation event to its owning card actor, which routes to the appropriate immediate child card actor. This keeps child card actors as children of their parent card actors, not children of transient LLM turn actors.
 
 ## 5. RuntimeApi Boundary
 
@@ -115,8 +129,8 @@ If a public method needs completion-return semantics, it sends an event and wait
 The supervisor machine owns runtime-level control. Minimal states:
 
 - `idle`: no root actor is running.
-- `running`: the root project runner actor exists and the pause gate is open.
-- `paused`: the root project runner actor may exist, but no new LLM turns are admitted.
+- `running`: the root project card actor exists and the pause gate is open.
+- `paused`: the root project card actor may exist, but no new LLM turns are admitted.
 - `shutting_down`: pause gate is closed and runtime-owned processes are being terminated.
 - `failed`: unrecoverable supervisor-level failure, if needed.
 
@@ -134,7 +148,7 @@ Primary events:
 
 Responsibilities:
 
-- Run starts the parentless project card runner actor when idle.
+- Run starts the parentless project card actor when idle. The project card actor starts its project goal-card-runner actor when work is admitted.
 - Run from `paused` lifts the pause gate.
 - Run from `running` returns an already-running warning and creates no duplicate root run.
 - Pause blocks new LLM-turn admission without killing running processes or mutating card status.
@@ -153,7 +167,7 @@ Minimal externally meaningful phases:
 - `preparing_activation`: card-store transition to `running` and activation metadata are being committed. The transition must commit before planner work starts; if it fails, the machine must not enter `planning`.
 - `planning`: planner LLM turn is active, or the runner is ready to start the next planner turn with newly available context/tool results.
 - `awaiting_tool_result`: a planner-requested tool or process wait is being handled outside the LLM turn actor. Process lifecycle remains owned by process actors; the runner waits only for the runtime tool result needed to continue the planner session.
-- `activating_child`: a direct child card runner actor is invoked behind an `activate_card` barrier.
+- `activating_child`: activation is routed to an immediate child card actor behind an `activate_card` barrier.
 - `checking_readiness`: runtime completion gates are being evaluated. This is intentionally a named local phase so readiness diagnostics and recovery boundaries are visible; it can be collapsed to guards later without changing the product contract if it proves trivial.
 - `reviewing`: reviewer assessment is active.
 - `committing_outcome`: accepted `done`, `failed`, or `blocked` result is being attached to the card.
@@ -162,9 +176,9 @@ Non-active cards do not need a running card-runner actor. Public statuses such a
 
 Planner tool handling:
 
-- `activate_card(child_id)` is handled by the goal machine, not by a child-activation service that owns workflow branching.
+- `activate_card(child_id)` is emitted by an LLM turn actor as a typed tool-call request and handled by the goal runner machine. The LLM turn actor does not invoke the child card.
 - Activation validates responsible parent planner, immediate-child relationship, and child status in `backlog`, `changed`, `blocked`, or `failed`.
-- Activation transitions the child to `running` and invokes the child card runner actor.
+- Activation transitions the child card to `running`, then the child card actor starts its appropriate private runner actor.
 - Child actor completion returns exactly one typed outcome: `done`, `failed`, or `blocked`.
 - The child card is committed to the matching status before the parent planner receives the tool result.
 - Process tools spawn or address process actors, move the goal runner through `awaiting_tool_result` when the planner waits, and deliver process results to the next planner turn.
@@ -414,12 +428,12 @@ Required test groups:
 - Add boundary tests proving runtime behavior cannot advance through wrapper-owned orchestration methods.
 - Define the permanent module ownership map: actor/machine modules own workflow, projection modules own read models, canonical services own validated external requests, and no additional layer owns autonomous work sequencing.
 
-P0 is complete when runtime workflow cannot advance except through supervisor events, actor events, invoked services, invoked child card runners, spawned resource actors, and machine transitions.
+P0 is complete when runtime workflow cannot advance except through supervisor events, card actor events, runner actor events, invoked services, child-card activation barriers, spawned resource actors, and machine transitions.
 
 ### P1: Supervisor Machine
 
 - Implement Run/Pause/Shutdown.
-- Own parentless project card runner actor creation.
+- Own parentless project card actor creation.
 - Enforce duplicate Run warning.
 - Gate LLM admission while paused.
 - Terminate process actors during Shutdown.
