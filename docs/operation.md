@@ -66,6 +66,9 @@ Returns runtime-focused status data:
 - `paused`
 - `currentCardId`
 - `goalCount`
+- `actorRuntime.pauseMode`, `actorRuntime.cards[].runnerPhase`,
+  `actorRuntime.agents[].agentPhase`, and bounded actor diagnostics projected from
+  Saivage actor snapshots without raw XState snapshot/context data
 - runtime command/run/activation and intent metadata when available through detailed runtime surfaces
 - optional `serverAvailability` with the same component contract as `/health`
 

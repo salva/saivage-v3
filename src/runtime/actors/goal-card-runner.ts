@@ -3,7 +3,7 @@ import { buildXStateReviewerInput } from './actor-input-builders.js';
 import { cardActorId, plannerActorId, reviewerActorId } from './ids.js';
 import { LlmRunnerController } from './llm-runner.js';
 import { saveActorSnapshot } from './snapshots.js';
-import { appendToolDelivery } from './llm-delivery-log.js';
+import { appendToolCallStatus, appendToolDelivery } from './llm-delivery-log.js';
 import { getActiveGoalNoteSinks } from './active-goal-note-sinks.js';
 import type { AdmissionPort, LlmInvocationInput, ProviderTurnPort } from './llm-runner.js';
 import type { XStateActorInputContext } from './actor-input-builders.js';
@@ -159,9 +159,21 @@ export class GoalCardRunnerController {
           continue;
         }
         if (output.type === 'LLM_ERROR') return this.complete({ status: 'failed', statusText: output.error });
-        if (output.toolName !== 'activate_card') return this.complete({ status: 'failed', statusText: `Unsupported planner tool call '${output.toolName}'.` });
-        const childId = parseActivateCardArgs(output.args).cardId;
-        const childOutcome = await this.childActivation.startChild(childId);
+        if (output.toolName !== 'activate_card') {
+          const message = `Unsupported planner tool call '${output.toolName}'.`;
+          this.recordToolError(currentInput.inputId, output.toolCallId, output.toolName, message);
+          return this.complete({ status: 'failed', statusText: message });
+        }
+        let childId: string;
+        let childOutcome: ChildActivationOutcome;
+        try {
+          childId = parseActivateCardArgs(output.args).cardId;
+          childOutcome = await this.childActivation.startChild(childId);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          this.recordToolError(currentInput.inputId, output.toolCallId, output.toolName, message);
+          return this.complete({ status: 'failed', statusText: message });
+        }
         const deliveryInputId = `${input.inputId}:child:${turn + 1}`;
         const deliveryResult = { cardId: childId, ...childOutcome };
         appendToolDelivery(this.actor.getSnapshot().context.projectRoot, {
@@ -234,6 +246,17 @@ export class GoalCardRunnerController {
     this.persist();
     await this.statusPort?.commitGoalOutcome(this.cardId, outcome);
     return outcome;
+  }
+
+  private recordToolError(sourceInputId: string, toolCallId: string, toolName: string, error: string): void {
+    appendToolCallStatus(this.actor.getSnapshot().context.projectRoot, {
+      agent_id: plannerActorId(this.cardId),
+      source_input_id: sourceInputId,
+      tool_call_id: toolCallId,
+      tool_name: toolName,
+      status: 'errored',
+      error,
+    });
   }
 
   private async reviewPlannerResult(input: Omit<LlmInvocationInput, 'agentId'>, plannerSummary: string, turn: number): Promise<

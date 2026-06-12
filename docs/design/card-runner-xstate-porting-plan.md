@@ -1,7 +1,8 @@
 # Card Runner XState Replacement Plan
 
 Status: active replacement plan, readjusted after the first XState core
-implementation slices on 2026-06-12. This document explains how to build a new
+implementation slices on 2026-06-12 and the default runtime switchover on
+2026-06-12. This document explains how to build a new
 minimal Saivage v3 runtime core around the XState architecture described in
 [Card Runner XState Rearchitecture Draft](./card-runner-xstate-rearchitecture-draft.md).
 It is not a one-for-one porting plan for the old runtime, not a bridge plan, and
@@ -26,35 +27,39 @@ following pieces now exist in `src/runtime/actors/` or adjacent composition code
 - terminal and goal status ports that write public card lifecycle state through
   the `CardStore` lifecycle methods;
 - an `InvocationService` to `ProviderTurnPort` adapter;
-- an opt-in `createXStateRuntimeApi()` composition factory; and
+- a default `createXStateRuntimeApi()` runtime composition factory;
 - XState actor input builders that reuse existing planner, executor, and reviewer
-  prompt/context builders.
+  prompt/context builders; and
+- a startup recovery-plan reader that validates persisted actor snapshots before
+  the supervisor starts; and
+- append-only tool-call status records for `pending`, `delivered`, and `errored`
+  transitions at LLM/CardRunner tool boundaries.
 
 The following confirmed gaps are now the priority before deeper recovery or API
 rewrites:
 
-1. Actor snapshots still use a single early file under
-   `.saivage/tmp/state/actors.json`; this is fine for unit tests but is not the
-   Phase H recovery layout.
-2. LLM turns do not yet persist message JSONL or a tool-call delivery ledger, so
-   dirty-shutdown recovery around model/tool boundaries is not meaningful yet.
-3. `changed` card propagation still lives in the old synthetic planner-note path;
-   XState NoteBox delivery exists but is not wired to `changed` edits yet.
-4. The production server default still uses the old runtime core. The XState
-   runtime is intentionally opt-in through `runtimeApiFactory` until persistence
-   and `changed` handling are strong enough to switch without pretending recovery
-   is complete.
+1. The recovery-plan reader validates persisted actor snapshots, but startup does
+   not yet rebuild actors or reconcile running process snapshots.
+2. LLM turns persist message JSONL, tool-delivery records, and
+   `pending/delivered/errored` tool status transitions, but startup recovery does
+   not yet mark stale pending tool calls `abandoned`.
+3. `changed` card propagation reaches active XState goal NoteBoxes, but the old
+   synthetic planner-note fallback still exists for inactive/no-owner cases.
+4. The production server now defaults to the XState runtime, but old dispatcher
+   and old core modules remain in `src/runtime/` as deletion targets while tests
+   are rewritten around actor boundaries.
 
 Readjusted near-term order:
 
-1. Replace the single actor snapshot file with a small per-actor Saivage-owned
-   snapshot layout.
-2. Add append-only LLM message/tool-call delivery logs only to the extent needed
-   for exactly-one delivery and restart diagnostics.
-3. Wire `changed` edits into the owning goal CardRunner NoteBox without preserving
-   the old synthetic-note routing shape.
-4. Then switch the default runtime composition to the XState runtime and delete
-   the old owner for behavior now covered by actors.
+1. Complete startup recovery from the validated actor recovery plan: rebuild safe
+   actor trees, explicitly abandon unsafe provider/tool/process boundaries, and
+   publish diagnostics.
+2. Complete the durable tool protocol by recording status transitions for every
+   tool call and exactly-one delivery/error to the waiting LLMRunner.
+3. Remove the remaining old synthetic-note fallback once CardRunner NoteBox
+   persistence covers inactive/no-owner recovery cases.
+4. Delete old dispatcher/core owners once their remaining tests are replaced by
+   actor-boundary tests.
 
 Do not add a general event-sourcing system, queues, distributed locks, or generic
 workflow framework while closing these gaps. Add the smallest persisted records

@@ -18,7 +18,20 @@ const toolDeliveryRecordSchema = z.object({
   created_at: z.string().datetime(),
 });
 
+const toolCallStatusRecordSchema = z.object({
+  transition_id: z.string().min(1),
+  agent_id: z.string().min(1),
+  source_input_id: z.string().min(1),
+  tool_call_id: z.string().min(1),
+  tool_name: z.string().min(1),
+  status: z.enum(['pending', 'delivered', 'errored', 'abandoned']),
+  delivery_input_id: z.string().min(1).optional(),
+  error: z.string().min(1).optional(),
+  created_at: z.string().datetime(),
+});
+
 export type ToolDeliveryRecord = z.infer<typeof toolDeliveryRecordSchema>;
+export type ToolCallStatusRecord = z.infer<typeof toolCallStatusRecordSchema>;
 
 export function actorMessagesPath(projectRoot: string, agentId: string): string {
   return join(projectRoot, '.saivage', 'agents', 'messages', `${encodeURIComponent(agentId)}.jsonl`);
@@ -26,6 +39,10 @@ export function actorMessagesPath(projectRoot: string, agentId: string): string 
 
 export function actorToolDeliveriesPath(projectRoot: string, agentId: string): string {
   return join(projectRoot, '.saivage', 'agents', 'tool-deliveries', `${encodeURIComponent(agentId)}.jsonl`);
+}
+
+export function actorToolCallStatusesPath(projectRoot: string, agentId: string): string {
+  return join(projectRoot, '.saivage', 'agents', 'tool-call-statuses', `${encodeURIComponent(agentId)}.jsonl`);
 }
 
 export function appendLlmTurnStarted(projectRoot: string, input: LlmInvocationInput): void {
@@ -57,7 +74,16 @@ export function appendLlmTurnFinished(projectRoot: string, input: LlmInvocationI
     });
     return;
   }
-  result.tool_calls.forEach((toolCall, index) => appendToolCallMessage(projectRoot, input, toolCall, index));
+  result.tool_calls.forEach((toolCall, index) => {
+    appendToolCallMessage(projectRoot, input, toolCall, index);
+    appendToolCallStatus(projectRoot, {
+      agent_id: input.agentId,
+      source_input_id: input.inputId,
+      tool_call_id: toolCall.id,
+      tool_name: toolCall.function.name,
+      status: 'pending',
+    });
+  });
 }
 
 export function appendLlmTurnError(projectRoot: string, input: LlmInvocationInput, error: string): void {
@@ -95,6 +121,25 @@ export function appendToolDelivery(projectRoot: string, record: Omit<ToolDeliver
     block_index: 0,
     timestamp: parsed.created_at,
   });
+  appendToolCallStatus(projectRoot, {
+    agent_id: parsed.agent_id,
+    source_input_id: parsed.source_input_id,
+    tool_call_id: parsed.tool_call_id,
+    tool_name: parsed.tool_name,
+    status: 'delivered',
+    delivery_input_id: parsed.delivery_input_id,
+  });
+  return parsed;
+}
+
+export function appendToolCallStatus(projectRoot: string, record: Omit<ToolCallStatusRecord, 'transition_id' | 'created_at'>): ToolCallStatusRecord {
+  const statusRecord: ToolCallStatusRecord = {
+    ...record,
+    transition_id: toolStatusTransitionId(record),
+    created_at: new Date().toISOString(),
+  };
+  const parsed = toolCallStatusRecordSchema.parse(statusRecord);
+  appendSyncIdempotentByKey(actorToolCallStatusesPath(projectRoot, parsed.agent_id), parsed, 'transition_id');
   return parsed;
 }
 
@@ -121,4 +166,8 @@ function appendActorMessage(projectRoot: string, agentId: string, message: Agent
 
 function roundId(kind: 'pre' | 'user' | 'assistant', seed: string): string {
   return `r-${kind}-${createHash('sha256').update(seed).digest('hex').slice(0, 32)}`;
+}
+
+function toolStatusTransitionId(record: Omit<ToolCallStatusRecord, 'transition_id' | 'created_at'>): string {
+  return [record.agent_id, record.source_input_id, record.tool_call_id, record.status, record.delivery_input_id ?? '', record.error ?? ''].join(':');
 }

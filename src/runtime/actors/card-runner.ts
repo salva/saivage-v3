@@ -6,7 +6,7 @@ import { saveActorSnapshot } from './snapshots.js';
 import type { LlmInvocationInput, ProviderTurnPort } from './llm-runner.js';
 import { ProcessRunnerController } from './process-runner.js';
 import type { AdmissionPort } from './llm-runner.js';
-import { appendToolDelivery } from './llm-delivery-log.js';
+import { appendToolCallStatus, appendToolDelivery } from './llm-delivery-log.js';
 
 export type TerminalCardPublicStatus = 'backlog' | 'running' | 'done' | 'failed' | 'blocked' | 'needs_verification' | 'cancelled';
 
@@ -113,9 +113,15 @@ export class TerminalCardRunnerController {
       try {
         toolResult = await this.handleExecutorToolCall(output.toolCallId, output.toolName, output.args);
       } catch (error) {
-        return this.fail(error instanceof Error ? error.message : String(error));
+        const message = error instanceof Error ? error.message : String(error);
+        this.recordToolError(currentInput.inputId, output.toolCallId, output.toolName, message);
+        return this.fail(message);
       }
-      if (!toolResult.handled) return this.fail(`Unsupported executor tool call '${output.toolName}'.`);
+      if (!toolResult.handled) {
+        const message = `Unsupported executor tool call '${output.toolName}'.`;
+        this.recordToolError(currentInput.inputId, output.toolCallId, output.toolName, message);
+        return this.fail(message);
+      }
       const deliveryInputId = `${input.inputId}:tool:${turn + 1}`;
       appendToolDelivery(this.actor.getSnapshot().context.projectRoot, {
         agent_id: executorActorId(this.cardId),
@@ -182,6 +188,17 @@ export class TerminalCardRunnerController {
       return { handled: true, result: await runner.wait(1000) };
     }
     return { handled: false };
+  }
+
+  private recordToolError(sourceInputId: string, toolCallId: string, toolName: string, error: string): void {
+    appendToolCallStatus(this.actor.getSnapshot().context.projectRoot, {
+      agent_id: executorActorId(this.cardId),
+      source_input_id: sourceInputId,
+      tool_call_id: toolCallId,
+      tool_name: toolName,
+      status: 'errored',
+      error,
+    });
   }
 
   async cancel(): Promise<void> {

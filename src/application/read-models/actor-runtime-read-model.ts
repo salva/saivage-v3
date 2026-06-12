@@ -32,11 +32,11 @@ export function buildActorRuntimeReadModel(projectRoot: string): ActorRuntimeRea
       continue;
     }
     if (snapshot.actor_kind === 'card') {
-      cards.push({ cardId: stripRequiredPrefix(snapshot.actor_id, 'card:', diagnostics), runnerPhase: String(snapshot.state_value) });
+      cards.push({ cardId: stripRequiredPrefix(snapshot.actor_id, 'card:', diagnostics), runnerPhase: readCardRunnerPhase(snapshot.actor_id, snapshot.state_value, diagnostics) });
       continue;
     }
     if (snapshot.actor_kind === 'llm') {
-      agents.push({ agentId: snapshot.actor_id, agentPhase: String(snapshot.state_value) });
+      agents.push({ agentId: snapshot.actor_id, agentPhase: readAgentPhase(snapshot.actor_id, snapshot.state_value, diagnostics) });
     }
   }
 
@@ -46,6 +46,18 @@ export function buildActorRuntimeReadModel(projectRoot: string): ActorRuntimeRea
     agents: agents.sort((a, b) => a.agentId.localeCompare(b.agentId)),
     diagnostics,
   };
+}
+
+function readCardRunnerPhase(actorId: string, value: unknown, diagnostics: string[]): string {
+  if (value === 'planning' || value === 'reviewing' || value === 'executing' || value === 'done') return value;
+  diagnostics.push(`card actor '${actorId}' has unknown runner phase '${String(value)}'`);
+  return 'unknown';
+}
+
+function readAgentPhase(actorId: string, value: unknown, diagnostics: string[]): string {
+  if (value === 'running' || value === 'done') return value;
+  diagnostics.push(`agent actor '${actorId}' has unknown phase '${String(value)}'`);
+  return 'unknown';
 }
 
 function readSupervisorMode(value: unknown, diagnostics: string[]): ActorPauseMode {

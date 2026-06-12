@@ -15,6 +15,7 @@ import {
   actorSnapshotPath,
   actorMessagesPath,
   actorToolDeliveriesPath,
+  actorToolCallStatusesPath,
   supervisorActorId,
   TerminalCardRunnerController,
   ProcessRunnerController,
@@ -273,6 +274,9 @@ describe('XState minimal runtime core', () => {
       'activity',
       'tool_call',
     ]);
+    expect(readJsonl(actorToolCallStatusesPath(projectRoot, 'executor:T-tools'))).toMatchObject([
+      { source_input_id: 'input:T-tools', tool_call_id: 'tool-1', tool_name: 'run_process', status: 'pending' },
+    ]);
   }));
 
   it('LLMRunner respects supervisor provider-call admission', async () => withTempProject(async (projectRoot) => {
@@ -333,6 +337,10 @@ describe('XState minimal runtime core', () => {
     expect(outcome.status).toBe('failed');
     expect(outcome.statusText).toBe("Unsupported executor tool call 'old_runtime_tool'.");
     expect(runner.publicStatus).toBe('failed');
+    expect(readJsonl(actorToolCallStatusesPath(projectRoot, 'executor:T-unsupported'))).toMatchObject([
+      { tool_call_id: 'tool-unsupported', tool_name: 'old_runtime_tool', status: 'pending' },
+      { tool_call_id: 'tool-unsupported', tool_name: 'old_runtime_tool', status: 'errored', error: "Unsupported executor tool call 'old_runtime_tool'." },
+    ]);
   }));
 
   it('terminal CardRunner lets the LLM keep waiting on a timed-out process', async () => withTempProject(async (projectRoot) => {
@@ -380,6 +388,12 @@ describe('XState minimal runtime core', () => {
       'run_process',
       'wait_process',
     ]);
+    expect(readJsonl(actorToolCallStatusesPath(projectRoot, 'executor:T-process-flow')).map((entry) => `${entry.tool_call_id}:${entry.status}`)).toEqual([
+      'tool-run-process:pending',
+      'tool-run-process:delivered',
+      'tool-wait-process:pending',
+      'tool-wait-process:delivered',
+    ]);
     expect(readActorSnapshots(projectRoot).find((item) => item.actor_id === 'process:p-flow')).toMatchObject({
       actor_kind: 'process',
       state_value: 'done',
@@ -420,6 +434,10 @@ describe('XState minimal runtime core', () => {
         result: expect.objectContaining({ cardId: 'T-child', status: 'done', statusText: 'child done' }),
       }),
     ]);
+    expect(readJsonl(actorToolCallStatusesPath(projectRoot, 'planner:G-1')).map((entry) => `${entry.tool_call_id}:${entry.status}`)).toEqual([
+      'activate-child:pending',
+      'activate-child:delivered',
+    ]);
     expect(runner.phase).toBe('done');
     expect(runner.publicStatus).toBe('done');
     expect(readActorSnapshots(projectRoot).map((item) => item.actor_id).sort()).toContain('planner:G-1');
@@ -446,6 +464,33 @@ describe('XState minimal runtime core', () => {
     expect(outcome).toEqual({ status: 'failed', statusText: 'child failed' });
     expect(provider.completeTurn).toHaveBeenCalledTimes(1);
     expect(runner.publicStatus).toBe('failed');
+  }));
+
+  it('GoalCardRunner records errored status for unsupported planner tool calls', async () => withTempProject(async (projectRoot) => {
+    const provider: ProviderTurnPort = {
+      completeTurn: jest.fn(async () => ({
+        kind: 'tool_calls' as const,
+        tool_calls: [{
+          id: 'unsupported-planner-tool',
+          type: 'function' as const,
+          function: { name: 'old_planner_tool', arguments: '{}' },
+        }],
+      })),
+    };
+    const runner = new GoalCardRunnerController(
+      projectRoot,
+      'G-unsupported-tool',
+      provider,
+      { startChild: jest.fn(async () => ({ status: 'done' as const, statusText: 'unused' })) },
+    );
+
+    const outcome = await runner.start(plannerInput('G-unsupported-tool'));
+
+    expect(outcome).toEqual({ status: 'failed', statusText: "Unsupported planner tool call 'old_planner_tool'." });
+    expect(readJsonl(actorToolCallStatusesPath(projectRoot, 'planner:G-unsupported-tool'))).toMatchObject([
+      { tool_call_id: 'unsupported-planner-tool', tool_name: 'old_planner_tool', status: 'pending' },
+      { tool_call_id: 'unsupported-planner-tool', tool_name: 'old_planner_tool', status: 'errored', error: "Unsupported planner tool call 'old_planner_tool'." },
+    ]);
   }));
 
   it('GoalCardRunner completes after reviewer pass', async () => withTempProject(async (projectRoot) => {

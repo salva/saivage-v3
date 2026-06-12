@@ -56,4 +56,30 @@ describe('actor runtime read model', () => {
       diagnostics: ['supervisor snapshot is missing mode region'],
     });
   }));
+
+  it('maps unknown actor phases to diagnostics instead of exposing raw state values', () => withTempProject((projectRoot) => {
+    saveActorSnapshot(projectRoot, {
+      actor_id: 'card:G-unknown',
+      actor_kind: 'card',
+      state_value: { nested: 'xstate-node' },
+      context: {},
+      updated_at: new Date().toISOString(),
+    });
+    saveActorSnapshot(projectRoot, {
+      actor_id: 'planner:G-unknown',
+      actor_kind: 'llm',
+      state_value: 'waiting_for_tool',
+      context: {},
+      updated_at: new Date().toISOString(),
+    });
+
+    expect(buildActorRuntimeReadModel(projectRoot)).toMatchObject({
+      cards: [{ cardId: 'G-unknown', runnerPhase: 'unknown' }],
+      agents: [{ agentId: 'planner:G-unknown', agentPhase: 'unknown' }],
+      diagnostics: [
+        "card actor 'card:G-unknown' has unknown runner phase '[object Object]'",
+        "agent actor 'planner:G-unknown' has unknown phase 'waiting_for_tool'",
+      ],
+    });
+  }));
 });

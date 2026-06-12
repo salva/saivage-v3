@@ -133,7 +133,7 @@ curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" \
   http://localhost:8080/api/runtime/status
 ```
 
-This returns `runtime`, `paused`, `currentCardId`, and `goalCount` and falls back to persisted state if no live runtime authority is attached.
+This returns `runtime`, `paused`, `currentCardId`, `goalCount`, and `actorRuntime` projections (`pauseMode`, card `runnerPhase`, agent `agentPhase`, diagnostics) without exposing raw XState snapshots. It falls back to persisted state if no live runtime authority is attached.
 
 ## Runtime control contracts
 

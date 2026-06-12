@@ -1,7 +1,9 @@
 import type { RuntimeApi } from '../../runtime/control-api.js';
 import { readRuntimeState } from '../../runtime/state-api.js';
 import { deriveCurrentCardId } from '../../runtime/current-run.js';
+import { buildActorRuntimeReadModel } from './actor-runtime-read-model.js';
 import type { ServerAvailability } from '../../contracts/index.js';
+import type { ActorRuntimeReadModel } from './actor-runtime-read-model.js';
 
 export interface RuntimeStatusReadModel {
   runtime: string;
@@ -10,6 +12,7 @@ export interface RuntimeStatusReadModel {
   goalCount: number;
   lastTickAt: string | null;
   pid: number;
+  actorRuntime: ActorRuntimeReadModel;
   serverAvailability?: ServerAvailability;
 }
 
@@ -31,6 +34,7 @@ export function buildRuntimeStatusReadModel(inputs: RuntimeStatusInputs): Runtim
       goalCount: status.goalCount,
       lastTickAt: status.lastTickAt,
       pid,
+      actorRuntime: buildActorRuntimeReadModel(inputs.projectRoot),
       ...(inputs.serverAvailability ? { serverAvailability: inputs.serverAvailability } : {}),
     };
   }
@@ -42,6 +46,7 @@ export function buildRuntimeStatusReadModel(inputs: RuntimeStatusInputs): Runtim
     goalCount: 0,
     lastTickAt: state?.last_tick_at ?? null,
     pid,
+    actorRuntime: buildActorRuntimeReadModel(inputs.projectRoot),
     ...(inputs.serverAvailability ? { serverAvailability: inputs.serverAvailability } : {}),
   };
 }

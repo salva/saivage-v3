@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, jest } from '@jest/globals';
-import { createSupervisorRuntimeApi, readActorSnapshots } from '../../../src/runtime/actors/index.js';
+import { createSupervisorRuntimeApi, readActorSnapshots, saveActorSnapshot, SupervisorRuntimeApi } from '../../../src/runtime/actors/index.js';
 import type { GoalCardStatusPort, LlmInvocationInput, ProviderTurnPort, XStateChildCard } from '../../../src/runtime/actors/index.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
@@ -26,6 +26,31 @@ describe('SupervisorRuntimeApi', () => {
     await api.shutdown();
 
     expect(readActorSnapshots(projectRoot).some((item) => item.actor_id === 'supervisor')).toBe(true);
+  }));
+
+  it('captures the actor recovery plan before starting the supervisor', async () => withTempProject(async (projectRoot) => {
+    saveActorSnapshot(projectRoot, {
+      actor_id: 'card:G-recover',
+      actor_kind: 'card',
+      state_value: 'planning',
+      context: { cardId: 'G-recover', publicStatus: 'running' },
+      updated_at: '2026-06-12T00:00:00.000Z',
+    });
+    saveActorSnapshot(projectRoot, {
+      actor_id: 'planner:G-recover',
+      actor_kind: 'llm',
+      state_value: 'running',
+      context: { cardId: 'G-recover' },
+      updated_at: '2026-06-12T00:00:00.000Z',
+    });
+    const api = new SupervisorRuntimeApi({ projectRoot, now: () => '2026-06-12T00:00:00.000Z' });
+
+    await api.start();
+
+    expect(api.getRecoveryPlan()).toMatchObject({
+      cards: [{ cardId: 'G-recover', active: true }],
+      llms: [{ actorId: 'planner:G-recover', active: true }],
+    });
   }));
 
   it('fails startProject clearly until goal execution is wired', async () => withTempProject(async (projectRoot) => {
