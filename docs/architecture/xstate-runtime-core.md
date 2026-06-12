@@ -64,30 +64,48 @@ The runtime actor tree has one root supervisor actor. The supervisor owns the pa
 ```mermaid
 graph TD
   api[RuntimeApi adapter] --> supervisor[Supervisor actor]
-  supervisor --> project[Project card actor]
 
-  project --> projectRunner[Project goal-card-runner actor]
-  project --> goal[Child goal card actor]
-  project --> terminalSibling[Child terminal card actor]
-  terminalSibling --> terminalSiblingRunner[Terminal card-runner actor]
+  subgraph projectCard[Project card actor]
+    subgraph projectChildren[Child card actors]
+      goalCard[Goal card actor]
+      terminalSibling[Terminal card actor]
+    end
+    subgraph projectRun[Private runner]
+      projectRunner[Project goal-card-runner actor]
+      projectTurn[LLM turn actor]
+      projectProcess[Process actors]
+      projectRunner --> projectTurn
+      projectRunner --> projectProcess
+    end
+  end
 
-  goal --> goalRunner[Goal card-runner actor]
-  goal --> terminal[Child terminal card actor]
-  goal --> nestedGoal[Child goal card actor]
-  nestedGoal --> nestedGoalRunner[Goal card-runner actor]
+  subgraph goalCardBox[Goal card actor]
+    subgraph goalChildren[Child card actors]
+      terminalCard[Terminal card actor]
+      nestedGoalCard[Goal card actor]
+    end
+    subgraph goalRun[Private runner]
+      goalRunner[Goal card-runner actor]
+      goalTurn[LLM turn actor]
+      goalProcess[Process actors]
+      goalRunner --> goalTurn
+      goalRunner --> goalProcess
+    end
+  end
 
-  terminal --> terminalRunner[Terminal card-runner actor]
+  subgraph terminalCardBox[Terminal card actor]
+    subgraph terminalRun[Private runner]
+      terminalRunner[Terminal card-runner actor]
+      terminalTurn[LLM turn actor]
+      terminalProcess[Process actors]
+      terminalRunner --> terminalTurn
+      terminalRunner --> terminalProcess
+    end
+  end
 
-  projectRunner --> plannerTurn[LLM turn actor for planner or reviewer]
-  projectRunner --> plannerProcess[Process actors]
-  goalRunner --> goalTurn[LLM turn actor for planner or reviewer]
-  goalRunner --> goalProcess[Process actors]
-  nestedGoalRunner --> nestedGoalTurn[LLM turn actor for planner or reviewer]
-  nestedGoalRunner --> nestedGoalProcess[Process actors]
-  terminalRunner --> executorTurn[LLM turn actor for executor]
-  terminalRunner --> terminalProcess[Process actors]
-  terminalSiblingRunner --> siblingExecutorTurn[LLM turn actor for executor]
-  terminalSiblingRunner --> siblingProcess[Process actors]
+  supervisor --> projectCard
+  goalCard -. expands as .-> goalCardBox
+  terminalCard -. expands as .-> terminalCardBox
 ```
 
 The diagram shows representative branches. The same card-actor pattern repeats recursively: every card actor owns its child card actors, and any active card actor owns the runner actor appropriate for that card type. Runner actors own transient LLM turn actors and any process actors needed by their tools.
