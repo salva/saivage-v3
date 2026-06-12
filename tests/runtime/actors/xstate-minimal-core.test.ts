@@ -466,6 +466,34 @@ describe('XState minimal runtime core', () => {
     expect(runner.publicStatus).toBe('failed');
   }));
 
+  it('GoalCardRunner reports blocked child activation as blocked goal outcome', async () => withTempProject(async (projectRoot) => {
+    const childActivation = {
+      startChild: jest.fn(async () => ({ status: 'blocked' as const, statusText: 'child blocked' })),
+    };
+    const statusPort: GoalCardStatusPort = {
+      markRunning: jest.fn<(cardId: string) => void>(),
+      markCancelled: jest.fn<(cardId: string) => void>(),
+      commitGoalOutcome: jest.fn<GoalCardStatusPort['commitGoalOutcome']>(),
+    };
+    const provider: ProviderTurnPort = {
+      completeTurn: jest.fn(async () => ({
+        kind: 'tool_calls' as const,
+        tool_calls: [{
+          id: 'activate-blocked-child',
+          type: 'function' as const,
+          function: { name: 'activate_card', arguments: JSON.stringify({ cardId: 'T-blocked' }) },
+        }],
+      })),
+    };
+    const runner = new GoalCardRunnerController(projectRoot, 'G-blocked-child', provider, childActivation, { statusPort });
+
+    const outcome = await runner.start(plannerInput('G-blocked-child'));
+
+    expect(outcome).toEqual({ status: 'blocked', statusText: 'child blocked' });
+    expect(statusPort.commitGoalOutcome).toHaveBeenCalledWith('G-blocked-child', outcome);
+    expect(runner.publicStatus).toBe('blocked');
+  }));
+
   it('GoalCardRunner records errored status for unsupported planner tool calls', async () => withTempProject(async (projectRoot) => {
     const provider: ProviderTurnPort = {
       completeTurn: jest.fn(async () => ({
