@@ -8,4 +8,3 @@ Current architecture documents:
 
 - [System architecture](./system-architecture.md)
 - [XState runtime core architecture](./xstate-runtime-core.md)
-- [XState runtime core open decisions](./xstate-runtime-core-open-decisions.md)
