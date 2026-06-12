@@ -190,6 +190,28 @@ describe('XState minimal runtime core', () => {
     ]);
   }));
 
+  it('terminal CardRunner fails with the provider error reported by LLMRunner', async () => withTempProject(async (projectRoot) => {
+    const provider: ProviderTurnPort = {
+      completeTurn: jest.fn(async () => {
+        throw new Error('context_length_exceeded');
+      }),
+    };
+    const runner = new TerminalCardRunnerController(projectRoot, 'T-provider-error', provider);
+
+    const outcome = await runner.start(invocationInput('T-provider-error'));
+
+    expect(outcome).toEqual({
+      status: 'failed',
+      statusText: 'context_length_exceeded',
+      result: { kind: 'message', content: 'context_length_exceeded' },
+    });
+    expect(runner.publicStatus).toBe('failed');
+    expect(readJsonl(actorMessagesPath(projectRoot, 'executor:T-provider-error')).map((entry) => entry.kind)).toEqual([
+      'activity',
+      'model_issue',
+    ]);
+  }));
+
   it('terminal CardRunner publishes running and terminal status through a narrow port', async () => withTempProject(async (projectRoot) => {
     const statusPort: TerminalCardStatusPort = {
       markRunning: jest.fn<(cardId: string) => void>(),
