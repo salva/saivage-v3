@@ -1,6 +1,6 @@
 # Analyst as Sole Control Surface — Approved Functional SPEC
 
-Reviewer-approved SPEC at: [saivage-v3/SPEC/analyst-as-control-surface/SPEC-r7.md](saivage-v3/SPEC/analyst-as-control-surface/SPEC-r7.md)
+Reviewer-approved SPEC at: [SPEC-r7.md](SPEC-r7.md)
 
 ## Approved companion documents
 

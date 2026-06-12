@@ -1,6 +1,13 @@
 # Saivage v3 documentation
 
-Use this index as the current entry point for operator procedures, design references, provenance records, and remediation dossiers.
+Use this index as the current entry point for functional specifications, operator procedures, design references, provenance records, and remediation dossiers.
+
+## Functional specifications
+
+| Link | Authority status | Reader guidance |
+|---|---|---|
+| [Analyst as sole control surface](/specifications/analyst-control-surface) | approved functional contract | Product contract for the autonomous runtime plus Analyst-only user mutation model. |
+| [Functional specifications index](/specifications/) | current index | Index of approved product contracts. |
 
 ## Runbook
 
@@ -14,7 +21,7 @@ Use this index as the current entry point for operator procedures, design refere
 
 | Link | Authority status | Reader guidance |
 |---|---|---|
-| [Design index](/design/) | current authority | Concept-level map for the consolidated design tree; follow each linked page status. |
+| [Design index](/design/) | design/planning index | Concept-level map for design plans and design-era pages; follow each linked page status. |
 | [Card model](/design/card-model) | stale context | Useful design-era context; prefer `docs/agents.md` and current card-store/source behavior. |
 | [Card lifecycle](/design/card-lifecycle) | stale context | Useful design-era context; prefer `docs/agents.md` and current planner-tool/runtime source behavior. |
 | [Agents](/design/agents) | stale context | Useful design-era context; prefer [Agents and runtime architecture](/agents). |
@@ -35,7 +42,7 @@ Use this index as the current entry point for operator procedures, design refere
 - [Analyst guide](/analyst) — current authority: analyst-facing tools and WebSocket behavior.
 - [Configuration reference](/configuration) — current authority: schema-aligned configuration details.
 - [Operation route inventory](/operation) — current route/API authority: documented operator-facing HTTP and WebSocket routes, auth transport, and response-contract notes; not procedural guidance.
-- [Goal planning runtime](/goal-planning-runtime) — stale context: legacy runtime summary retained for context; prefer [Agents and runtime architecture](/agents).
+- [Goal planning runtime](/goal-planning-runtime) — current summary: runtime-control and ledger ownership explainer; defer to [Agents and runtime architecture](/agents) for normative behavior.
 
 ## Provenance
 

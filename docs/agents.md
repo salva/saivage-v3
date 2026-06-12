@@ -1,7 +1,7 @@
 # Agent Architecture
 
 
-This document is the current Saivage v3 agent architecture reference. See historical: the companion implementation plan is preserved as [Planner Redesign Implementation Plan](./historical/2026-05-remediation-dossiers/planner-redesign-plan.md).
+This document is the current Saivage v3 runtime, card, and agent behavior authority. Functional product contracts such as Analyst-only user mutation live under [Functional Specifications](/specifications/); route inventories and runbooks defer to this page for runtime semantics. See historical: the companion implementation plan is preserved as [Planner Redesign Implementation Plan](./historical/2026-05-remediation-dossiers/planner-redesign-plan.md).
 
 The design is card-centered. A planner owns a goal subtree, but it does
 not directly invoke another planner or executor. It asks the runtime to
@@ -23,14 +23,14 @@ The verb names the control-transfer, not a single execution.
 | Planner | Owns one goal subtree: creates and edits child cards, activates child cards, and reports the goal result. | Long-lived for the goal. Goes `Dormant` after `report_goal_done`, `report_goal_failed`, or `report_goal_blocked`. Resumed by a later `activate_card` on the same goal. | A parent planner calling `activate_card(goalCardId)`. The project card has no parent planner; the runtime activates it only from an explicit root runtime start command (§11). |
 | Executor | Performs one terminal card. | One-shot per card activation. A re-activation of the same terminal card opens a new executor session. | Runtime, inside `activate_card` for a terminal card. |
 | Reviewer | Assesses a planner's completed goal. | One-shot per assessment. | Runtime, inside `activate_card` after `report_goal_done` clears the runtime acceptance gates (§8.2). |
-| Analyst | Operator-facing assistant for creating cards, notes, correction directives, and the project kickoff. | Session-oriented. | Operator. |
+| Analyst | Operator-facing assistant and mutating user control surface for inspection, card changes, queued agent context/notifications, correction directives, runtime controls, and the project kickoff. | Session-oriented. | Operator. |
 | Project planner | The planner for the project root. It is an ordinary goal planner whose goal is the project card. | Long-lived for the project. | The runtime, when an explicit root runtime start command/run is active (§11). |
 
 ## 2. Component View
 
 ```mermaid
 flowchart TD
-  UI[Web UI / REST API] --> RT[Runtime]
+  UI[Read-only UI / Analyst controls / REST projections] --> RT[Runtime]
   RT --> CS[CardStore]
   RT --> NC[NotificationCenter]
   RT --> PR[ProcessRunner]
@@ -45,7 +45,10 @@ flowchart TD
 ```
 
 The Runtime is the only dispatcher. The AgentAdapter runs LLM sessions
-and hands runtime tools back to Runtime for authoritative execution.
+and hands runtime tools back to Runtime for authoritative execution. The
+operator UI projects runtime state; user-visible mutations are routed through
+the Analyst and canonical runtime/control services rather than direct
+workspace controls.
 
 ## 2.1 Agent-Visible Message Policy
 
@@ -175,7 +178,9 @@ mirrors it onto the card. There is no `set_status_text` planner tool.
 ### 4.2 Statuses
 
 - `backlog`: planned but not running.
-- `running`: work is in progress.
+- `running`: this card is part of the active in-flight activation chain.
+  Only the leaf of that chain receives real scheduling/execution at any
+  moment; running ancestors are waiting for their active child.
 - `changed`: the card's state was externally modified (by the analyst
   or by a descendant subtree correction) since its planner last saw
   it. The card is not immediately re-activated; instead the parent
@@ -204,6 +209,10 @@ Status transitions driven by `activate_card`:
 The terminal activation outcome (`done`, `failed`, or `blocked`)
 replaces `running` when control returns to the parent.
 
+`AwaitingChild` is not a card status. It is a planner/card-runner lifecycle
+state for an active ancestor whose card can still have durable card status
+`running` while the leaf does the work.
+
 ### 4.3 Status Reporting Contract
 
 - Every executor's terminal response must include a `status_text`
@@ -230,7 +239,7 @@ Lifecycle states:
 
 - `Running`: the session may receive LLM turns. At most one planner is
   in this state globally.
-- `AwaitingChild`: the session owns an outstanding `activate_card` or
+- `AwaitingChild`: the session/card-runner owns an outstanding `activate_card` or
   process wait and receives no LLM turns.
 - `Dormant`: the session reported done, failed, or blocked. It can be
   resumed by a later `activate_card` on the same goal.
@@ -263,10 +272,13 @@ agent session is executing. Root work begins only after an explicit
 `start_project` runtime command creates running runtime intent and a root
 runtime run (§11).
 
-At any moment thereafter, at most one card-run is doing real work.
-Every ancestor planner up to the project root is `AwaitingChild` of its
-direct child. The runtime stores only the leaf card-run; the ancestor
-chain is derived on demand from the card hierarchy.
+At any moment thereafter, at most one card-run is doing real work. The
+active work nevertheless forms a chain of cards in parent-child relations:
+the leaf receives scheduler/LLM/process work, while each running ancestor
+is waiting for its active child. Every ancestor planner up to the project
+root is in the `AwaitingChild` planner/card-runner lifecycle state for its
+direct child. The runtime stores only the active leaf card-run; the ancestor
+chain is derived on demand from the card hierarchy and activation ledger.
 
 ```ts
 type RuntimeState = {
@@ -293,8 +305,10 @@ type ActiveCardRun = {
 
 `active_card_run` is `null` when the runtime is idle (e.g. before the
 project card has been activated, or after the project planner goes
-`Dormant`). Otherwise it holds the single card that is currently
-executing, planning, or under review. The persisted-state invariant is
+`Dormant`). Otherwise it holds the leaf card that is currently executing,
+planning, or under review. It does not list the running ancestors; those are
+the derived activation chain whose runner/session state is `AwaitingChild`.
+The persisted-state invariant is
 enforced in `src/runtime/state.ts`: an idle state with
 An idle runtime must not retain a non-terminal running
 `active_card_run`; production reads reject historical corruption and
@@ -690,8 +704,10 @@ type ReviewAssessment = ReviewerResult & {
 (`report_goal_done / _failed / _blocked`) for this goal, persisted on
 the card. There is no separate `PlanningResult` type.
 
-Only the directive note kinds shown above are injected into `notes`;
-ordinary notes remain available through note tools.
+Only the directive/context record kinds shown above are injected into
+Goal Context `notes`. The legacy v2 user-managed note object is not a
+separate control surface in v3; user intent enters through Analyst card
+mutations, queued context/notifications, or canonical runtime controls.
 
 Every runtime resume appends one synthetic user turn to the planner's
 message log containing the freshly rebuilt Goal Context block plus the
@@ -797,50 +813,50 @@ failed, or blocked, or until the operator stops runtime intent through the
 runtime controls. The operator/analyst recovery loop for project-level
 failure is deferred to a future stage.
 
-Analyst correction on a non-project goal records notes only:
+Analyst correction on a non-project goal records correction context only:
 
 ```ts
 mark_goal_needs_corrections(goalId, issues, note?): void
 ```
 
-It records `pending_subtree_correction` notes on the origin and
+It records `pending_subtree_correction` context on the origin and
 ancestor goals and may flip the origin card to `changed`. It does not
 activate any card. Reactivation is left to the planner: ancestor
 planners observe the `changed` state through Goal Context (as
-`subtree_changed` notes and updated child statuses) and decide whether
+`subtree_changed` context records and updated child statuses) and decide whether
 to call `activate_card` on the affected descendant.
 
 For project-level intervention after kickoff, use runtime controls for
-root execution intent and goal-scoped notes/corrections for planner context.
-Project-level notes or directives are not executable triggers and do not
+root execution intent and goal-scoped queued context/corrections for planner context.
+Project-level context, notifications, or directives are not executable triggers and do not
 start the project by themselves.
 
 The analyst always interacts with mutable state through the pattern
 **pause → mutate → unpause**:
 
 1. `pause_runtime` (global gate).
-2. Write notes, update planner-owned card fields, or record correction
-   context.
+2. Queue context/notifications, update planner-owned card fields, or record
+   correction context.
 3. `resume_runtime`.
 
-The active planner (if any) sees the new notes the next time it is
-admitted to the LLM conversation. Concretely, the runtime queues the
-notes and injects them as a synthetic user turn at the next point the
-target planner is about to receive an assistant turn (a freshly
-landed `tool_result`, a fresh activation, or a runtime resume). The
-mechanism is one-shot per note: the synthetic turn is appended once,
-then the note is removed from the queue. The card-side status (e.g.
-`changed`) and any persisted `pending_subtree_correction` records on
-the card remain; the queued note is just the delivery vehicle into
-the LLM conversation.
+The active planner (if any) sees queued context/notifications the next time it
+is admitted to the LLM conversation. Concretely, the runtime queues the
+context and injects it as a synthetic user turn at the next point the target
+planner is about to receive an assistant turn: after a freshly landed
+`tool_result`, a fresh activation, or a runtime resume. The mechanism is
+one-shot per queued item: the synthetic turn is appended once, then the item
+is removed from the queue. The card-side status (e.g. `changed`) and any
+persisted `pending_subtree_correction` records on the card remain; queued
+context is the delivery vehicle into the LLM conversation.
 
-**Note routing.** A synthetic note (`subtree_changed`,
+**Context routing.** A synthetic context item (`subtree_changed`,
 `analyst_note`, `pending_subtree_correction`, `subtree_not_ready`,
-`reviewer_interrupted`) is queued on the session of the deepest
-planner whose goal subtree contains the affected card. If that
-planner is currently `Dormant`, the note remains queued and is
-delivered the next time the planner is brought to `Running` by
-`activate_card`.
+`reviewer_interrupted`) is queued on the session of the deepest planner
+whose goal subtree contains the affected card. If that planner is currently
+running but paused, the item is delivered when the runtime resumes and the
+planner next accepts injected context. If that planner is `Dormant`, the item
+remains queued and is delivered the next time the planner is brought to
+`Running` by `activate_card`.
 
 Guaranteeing semantic consistency of analyst mutations against
 in-flight runtime state is deferred to a future stage.
@@ -957,20 +973,17 @@ above is the in-memory mirror.
 
 ## 14. HTTP API
 
-- the start-project runtime command and the stop-project runtime command —
-  explicit root runtime-control commands. These endpoints are the root
-  start/stop API; directive files and card status changes are not root
-  execution controls.
-- the goal needs-corrections runtime command — body
-  `{issues: AnalystIssue[], note?: string}`. The `flagged_by` field is
-  derived from the authenticated session. Records correction notes for
-  the goal and ancestors and may flip the origin to `changed`. Resumes
-  no planner and returns no planner session id.
-  `{issues: AnalystIssue[], note?: string}`. Records planner context only;
-  it is not an executable runtime trigger. Use `start_project` / `stop_project`
-  for root runtime intent.
-- the pause runtime command and the resume runtime command — global
-  pause gate (§5, §12). Returns the updated `RuntimeState`.
+This section describes route-visible read models and integration surfaces. It
+does not make HTTP the functional control authority. User-visible mutations are
+Analyst-mediated and executed through canonical runtime/card/config services;
+the mounted route inventory lives in [Operation route inventory](/operation).
+
+- root start/stop are explicit runtime-control commands. Directive files and
+  card status changes are not root execution controls.
+- goal needs-corrections records planner context only; it is not an executable
+  runtime trigger. Use root runtime controls for root runtime intent.
+- pause and resume are global runtime gates (§5, §12), not card or session
+  lifecycle mutations.
 - `GET /api/agents` — enumerates every persisted `.saivage/agents/messages/*.jsonl` session plus session manifests, parsing `analyst`, `planner:<id>`, `reviewer:<id>`, `executor:<id>`, and `card-*` ids and marking only the session derived from `RuntimeState.active_card_run` active after reload (enforced by `src/contracts/operator-api-agents.ts`, `src/server/routes/operator-agent-handlers.ts`, and `tests/server/agents-detail-route.test.ts`).
 - `GET /ws` — WebSocket analyst chat/event stream. The server checks auth on upgrade, serializes analyst turns per client connection, and sanitizes analyst message/activity/tool payloads before sending them to operators (enforced by `src/server/websocket.ts`, `src/agents/analyst-sanitization.ts`, and `tests/server/websocket-analyst-safety.test.ts`).
 - `GET /api/runtime/card-runs` — returns a typed union for operator UI:
@@ -1026,8 +1039,13 @@ type AnalystIssue = {
 - At most one planner is `Running` globally. Ancestor planners are
   derivably `AwaitingChild` by virtue of holding an unresolved
   `activate_card` tool call in their message log.
+- `AwaitingChild` is a planner/card-runner lifecycle state, not a durable
+  card status.
 - `active_card_run` is either `null` (idle) or points at the single
-  card-run currently doing work.
+  leaf card-run currently doing work. The active running card chain is derived
+  from this leaf plus the card hierarchy and activation ledger.
+- A card can be `running` because it is an ancestor waiting for its active
+  child; only the leaf does real work at any moment.
 - The card hierarchy is the durable source of parent/child structure;
   the runtime never persists an ancestor chain separately.
 - One `activate_card` tool call yields exactly one terminal tool
@@ -1054,8 +1072,12 @@ type AnalystIssue = {
   planner with the freshly rebuilt Goal Context. The operation is
   idempotent in the sense that the same planner is reused; it is not
   side-effect-free, because the planner may emit new tool calls.
-- Notifications do not wake planners and do not block
-  `report_goal_done`.
+- Queued context/notifications can target the currently running but paused
+  agent session, or a future matching session if no current recipient exists.
+  They do not wake planners and do not block `report_goal_done`.
+- The operator UI is a projection/read-only workspace except bounded
+  authentication/bootstrap. User-visible server mutations go through the
+  Analyst and canonical runtime/card/config services.
 - Old `.saivage/` state is not migrated.
 
 ### 15.1 Planner Tool Authority

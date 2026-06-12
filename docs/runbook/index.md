@@ -27,8 +27,10 @@ curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" \
 ```
 
 3. Pause before low-risk maintenance; treat frozen states as incidents requiring project-specific recovery.
-4. Inspect Debug, Cards, Agents, Files, and Notifications in the Web Control Room before editing runtime files manually.
+4. Inspect Debug, Cards, Agents, Files, and runtime events in the Web Control Room before any recovery action; prefer Analyst-mediated controls over manual runtime-file edits.
 5. Use this runbook for procedures and [Troubleshooting incidents](./incidents.md) for recovery paths.
+
+For the functional meaning of card statuses, session lifecycle states, the active running chain, `activate_card`, pause, and Analyst-mediated mutation, see [Agents and runtime architecture](/agents).
 
 ## Validation profiles
 

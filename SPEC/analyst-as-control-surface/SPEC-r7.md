@@ -32,7 +32,7 @@ The two parts have a fixed spatial division in the operator web UI. The Analyst 
 
 Saivage v2 had a user-visible object class called a "note". Notes were how the user passed information to the planner, because v2 objectives were static. That assumption no longer holds in v3: objectives evolve through the card tree itself, and any durable information about a goal attaches to the card it concerns. The v2 "note" is therefore retired.
 
-In v3 the equivalent low-level mechanism is the **notification**. A notification is an ephemeral piece of content queued to be injected, as soon as possible, into the next agent session targeting a given card or role. Notifications are not a user-managed object class: there is no notification inbox, no per-notification acknowledge action, no edit, no delete, no bulk-handle operation, and no list/get capability. The platform (planner, executor, reviewer, runtime, error reporter) is the primary producer of notifications; the user, via the Analyst, is one of several producers.
+In v3 the equivalent low-level mechanism is the **notification**. A notification is an ephemeral piece of content queued to be injected, as soon as possible, into either a currently running but paused agent session matching the addressed card or role, or the next future agent session targeting that card or role. Notifications are not a user-managed object class: there is no notification inbox, no per-notification acknowledge action, no edit, no delete, no bulk-handle operation, and no list/get capability. The platform (planner, executor, reviewer, runtime, error reporter) is the primary producer of notifications; the user, via the Analyst, is one of several producers.
 
 Notification semantics:
 
@@ -68,7 +68,7 @@ The Analyst can switch between view categories (cards, debug, files, agents, das
 
 - "Open card code-3." → the left panel switches to the cards view and opens card code-3; the Analyst confirms.
 - "Take me to the debug view, filtered to errors." → the left panel switches to the debug view with the errors filter applied; the Analyst confirms.
-- "Open the planner session that last touched goal-7 and add a note to that card saying we should retry with smaller batches." → the left panel opens the planner session, the Analyst queues a notification for goal-7 with that content (or edits the card per the user's intent), and the Analyst reports both outcomes.
+- "Open the planner session that last touched goal-7 and queue context for that card saying we should retry with smaller batches." → the left panel opens the planner session, the Analyst queues a notification/context item for goal-7 with that content (or edits the card per the user's intent), and the Analyst reports both outcomes.
 - "Go back to where I was before." → the left panel returns to the previously active view and entity; the Analyst confirms.
 
 ### Mutate cards
@@ -100,12 +100,14 @@ Example utterances and expected outcomes:
 
 ### Queue notifications to agent sessions
 
-The user can queue a notification, addressed to a given card or role, that will be injected into the next agent session targeting that card or role. The queued content is whatever natural-language instruction or context the user wants the agent to see. The Analyst is one producer among several; the runtime itself queues notifications as part of its normal operation.
+The user can queue a notification, addressed to a given card or role, that will be injected into a currently running paused matching agent session when it resumes or next accepts injected context, or into the next future matching agent session. The queued content is whatever natural-language instruction or context the user wants the agent to see. The Analyst is one producer among several; the runtime itself queues notifications as part of its normal operation.
 
-- "Queue a notification for goal-7 telling the executor to prefer streaming over batched calls." → a notification is queued for the next agent session on goal-7 and the Analyst confirms.
+- "Queue a notification for goal-7 telling the executor to prefer streaming over batched calls." → a notification is queued for the current paused or next future matching agent session on goal-7 and the Analyst confirms.
 - "Tell the planner of goal-19 to disregard the last notification I queued." → a follow-up notification is queued; the Analyst confirms.
 
 The Analyst does not offer "edit notification", "delete notification", "list pending notifications", "mark notification handled", or any equivalent management operation, because notifications are not a managed object class.
+
+Pause-mutate-resume semantics: pausing is a canonical runtime control. While paused, the Analyst may perform Analyst-owned mutations such as card edits, configuration changes, or notification/context queueing. Resuming is also a canonical runtime control. After resume, planner/executor/reviewer agents remain responsible for delivery work.
 
 ### Control the runtime
 
@@ -289,7 +291,7 @@ Each item must be verifiable by a tester with only the rendered web UI and the A
 
 - Asking the Analyst "open card code-3" navigates the left workspace area to card code-3's view AND the Analyst confirms in chat; the user does not have to click any navigation control.
 - Asking the Analyst "open the debug view" navigates the left workspace area to the debug view AND the Analyst confirms.
-- Asking the Analyst "open the planner session that last touched goal-7 and add a note saying we should retry with smaller batches" navigates the left workspace area to that session AND performs the mutation in the same turn AND the Analyst reports both outcomes.
+- Asking the Analyst "open the planner session that last touched goal-7 and queue context saying we should retry with smaller batches" navigates the left workspace area to that session AND performs the mutation in the same turn AND the Analyst reports both outcomes.
 - Asking the Analyst "go back to where I was before" returns the left workspace area to the previously active view and entity AND the Analyst confirms.
 
 ### Conversational equivalence
@@ -310,9 +312,10 @@ The Analyst can perform every action whose UI control was removed. Each of the f
 
 #### Notifications
 
-- "Queue a notification for goal-7 saying: prefer streaming over batched calls in the next executor run." → a notification with that content is queued for the next agent session targeting goal-7; the Analyst confirms.
+- "Queue a notification for goal-7 saying: prefer streaming over batched calls in the next executor run." → a notification with that content is queued for the current paused or next future matching agent session targeting goal-7; the Analyst confirms.
 - "Queue a notification for the planner role saying: disregard my previous notification about streaming." → a follow-up notification is queued; the Analyst confirms.
 - "Show me the most recent planner session for goal-7 and tell me whether my queued notification was delivered." → the Analyst inspects the relevant agent session transcript and reports whether the notification content appears in it.
+- With an executor session for goal-7 currently paused, "Tell the current executor for goal-7 to prefer streaming over batched calls, then resume" queues the context for that paused session through the Analyst, resumes through canonical runtime control, and the executor receives the context after resume. The Analyst does not perform the delivery work itself.
 
 #### Runtime control
 

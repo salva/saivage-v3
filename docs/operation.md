@@ -5,6 +5,8 @@
 
 This page is the route inventory and API/auth/contract reference for operator-facing HTTP and WebSocket surfaces. Use [Runbook Operations](/runbook/operations) for startup, runtime control, maintenance, backup, incident procedure, and validation walkthroughs.
 
+For functional runtime/card/agent behavior, including card status vs runner/session state, the active chain, `activate_card`, pause, recovery, and Analyst-mediated mutation, use [Agents and runtime architecture](/agents). For the approved Analyst-only user mutation contract, use [Analyst as sole control surface](/specifications/analyst-control-surface).
+
 ## Public vs protected route surfaces
 
 Public when the server is up:
@@ -159,7 +161,9 @@ The current UI model is:
 - WebSocket events improve freshness and live UX but are observational projections, not the only source of truth.
 - Unauthorized, offline, stale, and degraded states are intentional UI states, not implicit success states.
 
-Runtime Console and Planning Tree responsibilities are separate. Use the Runtime Console and runtime API for root `start_project` / `stop_project`, runtime intent, command/run/activation ledgers, and actionable runtime errors. Use the Planning Tree for card hierarchy, planner-owned state, dependencies, evidence, and discussion. Moving a card, editing planner state, writing notes or directive files, or satisfying a preview confirmation never starts, stops, or activates runtime work.
+The frontend does not independently start, stop, activate, or mutate runtime work. It observes state, navigates read-only views, and communicates through the Analyst/control abstractions defined by the functional docs.
+
+Runtime and card projections have separate responsibilities. Runtime views display root intent, command/run/activation ledgers, and actionable runtime errors. Planning views display card hierarchy, planner-owned state, dependencies, evidence, and discussion. Moving a card, editing planner state, queueing context/notifications, or satisfying a preview confirmation never starts, stops, or activates runtime work by itself.
 
 ### Runtime ledger WebSocket events
 
@@ -172,7 +176,7 @@ The operator WebSocket emits live observational projections of runtime ledger an
 | `runtime.activation` | `activity` | `activation` | A parent-planner `activate_card` activation ledger record changed. |
 | `runtime.actionable_error` | `error` | `actionable_error` | A runtime-control or activation precondition failure was recorded with a stable code and next action. |
 
-These events are not execution authority. They do not start root work, stop root work, activate child cards, or confirm mutations by themselves; they only let operators and the Runtime Console observe persisted command/run/activation/actionable-error changes sooner. For authoritative freshness, clients must still reconcile through `GET /api/state` after page load, reconnect, stale live updates, or command completion, and command callers should trust the REST command response for the just-submitted mutation.
+These events are not execution authority. They do not start root work, stop root work, activate child cards, or confirm mutations by themselves; they only let operators and read-only runtime views observe persisted command/run/activation/actionable-error changes sooner. For authoritative freshness, clients must still reconcile through `GET /api/state` after page load, reconnect, stale live updates, or command completion, and command callers should trust the canonical control response for the just-submitted mutation.
 
 <!-- saivage:operator-routes:start -->
 ## Operator-facing HTTP route inventory

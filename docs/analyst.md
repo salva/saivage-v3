@@ -1,25 +1,25 @@
 # Analyst Operator Guide
 
 
-Use the analyst as Saivage's **general operator chat agent**.
+Use the Analyst as Saivage's **sole mutating user control surface**. The autonomous runtime performs project work; the Analyst is the user's conversational surface for inspection, steering, configuration, repair, and lifecycle control. The approved functional contract is [Analyst as sole control surface](/specifications/analyst-control-surface).
 
 The analyst's job is three things at once:
 
 - **chat partner** — explain what Saivage is doing and answer operator questions in plain language;
 - **inspector** — read non-secret files, list directories, inspect runtime state, read card/session history, and run bounded inspection shell commands;
-- **director** — when something needs to change, route the work through cards, notes, or canonical control actions instead of doing the project work directly.
+- **director** — when something needs to change, route the work through cards, queued context/notifications for agent sessions, or canonical control actions instead of doing the project work directly.
 
 ## What the analyst is for
 
-The analyst is the operator-facing reasoning surface for the whole system.
+The analyst is the operator-facing reasoning and mutation surface for the whole system. The operator UI is read-only/projection except bounded authentication/bootstrap controls; user-visible server-state mutations must be requested through the Analyst and performed through canonical Saivage services.
 
 Use it to:
 
-- inspect the target project, docs, logs, runtime state, cards, notes, sessions, processes, and audit history;
+- inspect the target project, docs, logs, runtime state, cards, queued-context delivery evidence in agent transcripts, sessions, processes, and audit history;
 - explain why work is blocked, stale, failing, or waiting;
 - create or amend cards when project work needs to be delegated;
-- add non-executable notes for planner/operator context;
-- call canonical controls such as runtime `start_project`, `stop_project`, pause, and resume when those controls are the right operator action. Freeze controls are not exposed as a supported analyst/runtime surface in this cycle. Process termination controls are deferred.
+- queue context/notifications for a currently running paused agent session or for a future matching planner/executor/reviewer session;
+- call canonical controls such as runtime `start_project`, `stop_project`, pause, resume, abort/restart/mark-corrections where supported, and terminate process where supported. These controls request runtime-owned actions; they are not direct Analyst execution.
 
 Do **not** use the analyst as a substitute executor.
 
@@ -138,25 +138,32 @@ The analyst must not use shell or other direct tools to:
 - edit the target project's source tree;
 - run builds or tests as a substitute for executor or reviewer delivery work;
 - deploy or mutate the host outside canonical operator controls;
-- overwrite cards, notes, or agent artifacts outside the canonical Saivage services.
+- overwrite cards, queued context/notifications, or agent artifacts outside the canonical Saivage services.
 
 When project work needs to happen, the analyst should:
 
 - create or amend a card for planner consideration;
-- add a non-executable note for operator/planner context;
+- queue context/notifications for the appropriate current paused or future agent session;
 - call the canonical control that already owns the action. Root work starts through `start_project`; child work starts through parent-planner `activate_card`, not by analyst status edits or directive files.
+
+## Notifications and agent context
+
+The legacy v2 user-facing note object is retired. Durable goal information belongs on cards. Short-lived instructions or context for agents are queued as context/notifications.
+
+Queued context/notifications are immutable delivery items, not a user-managed object class. There is no inbox, edit, delete, acknowledge, clear-all, list, or notification-management UI.
+
+The Analyst may queue context/notifications to:
+
+- a currently running but paused agent session, for delivery when that session resumes or next accepts injected context;
+- a future planner, executor, or reviewer session matching the requested card or role.
+
+The Analyst can later inspect agent session transcripts to determine whether queued context was delivered and how the receiving agent responded.
 
 ## Persistent web chat panel
 
-The analyst chat panel is available from **every major workspace view**.
+The Analyst panel is always visible in the operator web UI on typical desktop layouts. It is not a drawer and is not opened, closed, toggled, or expanded by a button or keyboard shortcut.
 
-Operators can open it by:
-
-- using the Analyst button in the workspace header;
-- pressing **Ctrl+J** on Windows/Linux;
-- pressing **Cmd+J** on macOS.
-
-The panel stays persistent in the web shell so operators can keep investigating while moving between dashboard, cards, agents, files, and debug views.
+The left workspace area displays read-only projections of runtime state. The right Analyst panel contains the chat history and composer. Navigation, filtering, refresh, copy, and projection-only UI affordances may remain; server-state mutation outside the Analyst is not allowed except bounded authentication/bootstrap.
 
 ## "Discuss with analyst" from card detail
 
@@ -164,7 +171,7 @@ Card detail provides a **Discuss with analyst** entry point.
 
 Use it when a specific card needs explanation, triage, or follow-up delegation.
 
-That action seeds the analyst conversation with card context so the new chat starts already grounded in the selected card. The seeded context is for inspection and reasoning; if the card needs changes, the analyst still routes those changes through card edits, notes, or canonical controls.
+That action stages a contextual draft in the always-visible Analyst composer for the active card or entity. It does not open a panel or create a separate mutation path. If the card needs changes, the analyst still routes those changes through card edits, queued context/notifications, or canonical controls.
 
 ## Live attribution and transcript behavior
 
@@ -182,7 +189,7 @@ The `analyst_tool_invoked` broadcast is sanitized before emission. Operators sho
 
 ### Toaster behavior
 
-The app shell shows a small analyst-action toaster for live analyst mutations and related broadcasts. Use it as a freshness signal, then inspect the updated card, history, or notifications view for the authoritative state.
+The app shell shows a small analyst-action toaster for live analyst mutations and related broadcasts. Use it as a freshness signal, then inspect the updated card, history, runtime event/audit view, or receiving agent session transcript for the authoritative state.
 
 ## Validation artifact recording convention
 
@@ -205,7 +212,7 @@ Use these suites for focused analyst UI regression checks:
 
 - `src/__tests__/analyst-chat-panel.test.ts` — AnalystChatPanel rendering, tool chips, composer, unsaved new-chat behavior
 - `src/__tests__/analyst-chat-store.test.ts` — analyst chat Pinia store seeding, synthetic hint draining, local new-chat state
-- `src/__tests__/app-shell-analyst-drawer.test.ts` — persistent app-shell drawer entry points and keyboard shortcut
+- `src/__tests__/app-shell-analyst-drawer.test.ts` — legacy-named app-shell analyst panel coverage; update/rename this suite when the always-visible panel implementation replaces drawer/toggle behavior
 - `src/__tests__/analyst-toaster.test.ts` — live analyst mutation toaster behavior
 - `src/__tests__/card-detail-view.test.ts` — card detail live refresh, `analyst_tool_invoked` reactions, and attribution-adjacent updates
 - `src/__tests__/card-history-panel-analyst-filter.test.ts` — analyst-authored card history filtering and attribution copy

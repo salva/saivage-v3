@@ -221,6 +221,6 @@ Recommended maintenance sequence:
 5. Resume when the maintenance window ends.
 
 
-## Runtime Console and Planning Tree split
+## Runtime And Planning Projection Split
 
-Use the Dashboard Runtime Console for `start_project`, `stop_project`, runtime intent, command/run/activation ledgers, and recovery signals. Use the Planning Tree for card hierarchy, planner state, dependencies, and evidence. Editing planner state or moving cards does not start or stop execution; child work starts only through parent-planner `activate_card`.
+Use runtime projections for runtime intent, command/run/activation ledgers, and recovery signals. Use the Planning Tree for card hierarchy, planner state, dependencies, and evidence. User-visible mutations are Analyst-mediated canonical controls or card/config services; editing planner state or moving cards does not start or stop execution, and child work starts only through parent-planner `activate_card`.

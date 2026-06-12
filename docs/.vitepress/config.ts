@@ -10,6 +10,7 @@ export default defineConfig({
   themeConfig: {
     nav: [
       { text: 'Home', link: '/' },
+      { text: 'Specs', link: '/specifications/' },
       { text: 'Design', link: '/design/' },
       { text: 'Runbook', link: '/runbook/' },
       { text: 'Analyst Guide', link: '/analyst' },
@@ -22,6 +23,21 @@ export default defineConfig({
           items: [
             { text: 'Install', link: '/install' },
             { text: 'Configuration', link: '/configuration' },
+          ],
+        },
+        {
+          text: 'Functional Specifications',
+          items: [
+            { text: 'Specifications Index', link: '/specifications/' },
+            { text: 'Analyst Control Surface', link: '/specifications/analyst-control-surface' },
+          ],
+        },
+        {
+          text: 'Architecture Reference',
+          items: [
+            { text: 'Agents and Runtime Architecture', link: '/agents' },
+            { text: 'Goal Planning Runtime Summary', link: '/goal-planning-runtime' },
+            { text: 'Operation Route Inventory', link: '/operation' },
           ],
         },
         {
@@ -52,8 +68,6 @@ export default defineConfig({
             { text: 'Release', link: '/runbook/release' },
             { text: 'LXC Operations', link: '/runbook/lxc-operations' },
             { text: 'Analyst Operator Guide', link: '/analyst' },
-            { text: 'Operation Route Inventory', link: '/operation' },
-            { text: 'Goal Planning Runtime', link: '/goal-planning-runtime' },
           ],
         },
         {

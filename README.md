@@ -1,6 +1,6 @@
 # Saivage v3
 
-Saivage v3 is an autonomous multi-agent runtime for software-development work. A top-level planner decomposes goals into cards, executors perform scoped work, reviewers verify results, and the operator control room exposes cards, agents, files, timeline events, and runtime controls.
+Saivage v3 is an autonomous multi-agent runtime for software-development work. A top-level planner decomposes goals into cards, executors perform scoped work, reviewers verify results, and the operator workspace projects cards, agents, files, timeline events, and runtime state while the Analyst chat is the mutating user control surface.
 
 ## Quick start
 
@@ -27,7 +27,11 @@ curl http://localhost:8080/health
 | Link | Authority status | Reader guidance |
 |---|---|---|
 | [Operator runbook](docs/runbook/index.md) | current authority | Start, pause, resume, diagnose, recover incidents, and release Saivage from the implemented runbook. |
-| [Design documentation](docs/design/index.md) | current authority | Use as the concept map for design-era pages; follow status labels before relying on linked topic pages. |
+| [Agents and runtime architecture](docs/agents.md) | current functional/architecture authority | Normative runtime, card, planner/executor/reviewer, activation, pause, recovery, and analyst-mutation semantics. |
+| [Analyst as sole control surface](docs/specifications/analyst-control-surface.md) | current functional specification | Product contract for the autonomous runtime plus Analyst-only user mutation model; wraps the approved SPEC. |
+| [Goal planning runtime](docs/goal-planning-runtime.md) | current summary | Short runtime-control and ledger ownership explainer; defer to `docs/agents.md` for normative behavior. |
+| [Operation route inventory](docs/operation.md) | current route/API authority | Auth, HTTP/WebSocket route inventory, and response-contract notes; not procedural or behavioral authority. |
+| [Design documentation](docs/design/index.md) | design/planning index | Use as the concept map for design plans and design-era context; follow status labels before relying on linked topic pages. |
 | [Documentation index](docs/index.md) | current authority | Curated table of contents for current docs and findings dossiers. |
 | See historical: [Historical documentation](docs/historical/README.md) | historical provenance | Provenance-only plans, audits, and pre-consolidation designs; not current operator guidance. |
 

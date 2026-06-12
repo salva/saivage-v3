@@ -64,7 +64,7 @@ Mutating controls use a static authorization table keyed by actor, surface, and 
 What to do:
 
 1. Confirm the intended surface: `web-chat`, `web-ui`, `rest`, `cli`, `runtime`, or `telegram`.
-2. Use the canonical owner for the action: Runtime Console/API `start_project`/`stop_project` or parent-planner `activate_card` for execution control.
+2. Use the canonical owner for the action: Analyst-mediated runtime control for `start_project`/`stop_project`, or parent-planner `activate_card` for child execution control.
 3. Inspect `/api/control-actions` to see whether the request was denied or committed.
 4. Change the authz table in `src/agents/authz.ts` rather than bypassing individual routes if policy is wrong.
 
