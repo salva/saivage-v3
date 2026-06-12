@@ -83,9 +83,11 @@ graph TD
   goalRunner --> goalTurn[LLM turn actor for planner or reviewer]
   goalRunner --> goalProcess[Process actors]
   nestedGoalRunner --> nestedGoalTurn[LLM turn actor for planner or reviewer]
+  nestedGoalRunner --> nestedGoalProcess[Process actors]
   terminalRunner --> executorTurn[LLM turn actor for executor]
   terminalRunner --> terminalProcess[Process actors]
   terminalSiblingRunner --> siblingExecutorTurn[LLM turn actor for executor]
+  terminalSiblingRunner --> siblingProcess[Process actors]
 ```
 
 The diagram shows representative branches. The same card-actor pattern repeats recursively: every card actor owns its child card actors, and any active card actor owns the runner actor appropriate for that card type. Runner actors own transient LLM turn actors and any process actors needed by their tools.
