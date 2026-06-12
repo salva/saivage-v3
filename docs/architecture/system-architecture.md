@@ -165,4 +165,4 @@ Target actor ownership:
 
 Process execution follows a launch-and-monitor model. Agents launch project commands through runtime-owned process actors, inspect status/logs over time, use bounded waits for completion, and explicitly terminate processes when needed. The functional specification does not impose process concurrency limits for now.
 
-Controllers that advance runtime behavior are legacy by default. A retained `RuntimeApi` may accept commands, send events, wait on snapshots, and project read models; it must not execute workflow logic itself.
+Controllers that advance runtime behavior are disallowed by default. A retained `RuntimeApi` may accept commands, send events, wait on snapshots, and project read models; it must not execute workflow logic itself.

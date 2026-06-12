@@ -16,7 +16,7 @@ This document is implementation architecture, not a second product contract. If 
 
 ## 2. Design Directive
 
-XState is load-bearing infrastructure for the runtime core. Runtime behavior is driven by machine states, typed events, invoked services, and spawned actors. It is not driven by imperative controller loops that call `start()`, `runTurn()`, `activateChild()`, `review()`, or `wait()` methods while XState snapshots are attached afterward.
+XState is load-bearing infrastructure for the runtime core. Runtime behavior is driven by machine states, typed events, invoked services, and owned actors. It is not driven by imperative orchestration loops that call `start()`, `runTurn()`, `activateChild()`, `review()`, or `wait()` methods while XState snapshots are attached afterward.
 
 The runtime must stay simple:
 
@@ -24,7 +24,7 @@ The runtime must stay simple:
 - no event-sourcing layer;
 - no generic workflow framework;
 - no detached actor islands used to emulate parent-child behavior;
-- no compatibility path for old runtime state, old run ledgers, or old controller contracts;
+- no compatibility path for discarded runtime state shapes, discarded run-ledger shapes, or discarded orchestration contracts;
 - no generic actor registry unless the first direct actor tree proves it is needed.
 
 Use the smallest machines that make invalid states hard to represent. A machine state should normally be a durable wait point, cancellation boundary, recovery boundary, or externally meaningful lifecycle phase. Synchronous card-store writes can be machine actions unless they need retry or recovery semantics.
@@ -54,6 +54,7 @@ The implementation must preserve these functional invariants:
 - Pause is a scheduling gate and does not mutate card/session/process state.
 - Shutdown pauses first, then terminates runtime-owned running processes.
 - Process handling uses launch, inspect, bounded wait, and explicit termination; wait timeout does not kill the process.
+- Configuration changes apply to future relevant work. In-flight LLM turns keep the provider/configuration they were admitted with; later LLM turns read the latest effective configuration at admission time.
 - Operator APIs and UI expose Saivage read models, never raw XState snapshots.
 
 ## 4. Actor Tree
@@ -81,11 +82,13 @@ Actor ownership:
 - LLM turn actors own provider admission, provider invocation, provider cancellation, and typed provider output.
 - Process actors own OS process lifecycle, process status, waits, termination, and safe log read models.
 
-Child actors are spawned or invoked by their parent machine. Actor-to-actor runtime behavior flows through XState events, actor completion, and typed outputs. The existing event/timeline infrastructure may publish projections, but it must not become an internal workflow bus.
+Child card activations are invoked by their parent machine because `activate_card` needs exactly one completion or failure outcome delivered to the waiting parent planner. Longer-lived owned resources such as process actors may be spawned when their lifecycle outlives one tool call. Actor-to-actor runtime behavior flows through XState events, actor completion, and typed outputs. Event/timeline infrastructure may publish projections and audit records, but it must not become an internal workflow bus.
 
 ## 5. RuntimeApi Boundary
 
-`RuntimeApi` is the only production wrapper around the actor tree. It is an adapter for external callers such as HTTP routes, CLI commands, and application composition.
+`RuntimeApi` is the only production wrapper around the actor tree. It is an adapter for external callers such as HTTP routes, CLI commands, the Analyst service, and application composition.
+
+The Analyst is not part of the autonomous runtime actor tree. Analyst sessions are user-facing agent sessions that inspect projections and call canonical services. Analyst tools translate user intent into runtime, card, notification, process, and configuration operations; those operations enter the runtime actor tree as typed events or as read-model queries through `RuntimeApi` and adjacent canonical services.
 
 Allowed responsibilities:
 
@@ -101,7 +104,7 @@ Forbidden responsibilities:
 - call workflow methods such as `start()`, `cancel()`, `runTurn()`, `activateChild()`, or `wait()` on runtime objects;
 - synthesize child activation completion outside the actor tree;
 - expose raw XState snapshots over public APIs;
-- preserve old controller behavior to satisfy old tests.
+- preserve discarded orchestration behavior to satisfy discarded tests.
 
 If a public method needs completion-return semantics, it sends an event and waits by observing actor state. It must not run the workflow itself.
 
@@ -123,9 +126,7 @@ Primary events:
 - `PROJECT_ACTOR_DONE`
 - `PROJECT_ACTOR_FAILED`
 - `PROJECT_ACTOR_BLOCKED`
-- `CARD_CHANGED`
 - `CARD_CANCEL_REQUESTED`
-- `NOTIFICATION_QUEUED`
 - `PROCESS_TERMINATION_REPORTED`
 - `RECOVERY_RECONCILED`
 
@@ -150,8 +151,9 @@ Minimal externally meaningful phases:
 - `marking_running`: card-store transition to `running` when activated.
 - `planning`: planner LLM turn is active or awaiting tool output.
 - `waiting_process`: planner is waiting for a runtime-owned process result.
+- `delivering_tool_result`: planner tool/process output is being delivered back to the planner session.
 - `activating_child`: a direct child card actor is active behind an `activate_card` barrier.
-- `delivering_child_result`: child outcome is being delivered back to the planner session.
+- `delivering_child_result`: child outcome has been committed and is being delivered back to the planner session.
 - `checking_readiness`: runtime completion gates are being evaluated.
 - `reviewing`: reviewer assessment is active.
 - `delivering_review_result`: negative reviewer result is injected into planner context, or positive result is attached to the card.
@@ -162,17 +164,17 @@ Planner tool handling:
 
 - `activate_card(child_id)` is handled by the goal machine, not by a child-activation service that owns workflow branching.
 - Activation validates responsible parent planner, immediate-child relationship, and child status in `backlog`, `changed`, `blocked`, or `failed`.
-- Activation transitions the child to `running` and spawns/invokes the child card actor.
+- Activation transitions the child to `running` and invokes the child card actor.
 - Child actor completion returns exactly one typed outcome: `done`, `failed`, or `blocked`.
 - The child card is committed to the matching status before the parent planner receives the tool result.
-- Process tools spawn or address process actors and move the goal machine through `waiting_process` when the planner waits.
-- Card edit/reorder/cancel tools are limited to direct children. Recursive cancellation effects belong to runtime semantics, not planner authority over grandchildren.
+- Process tools spawn or address process actors, move the goal machine through `waiting_process` when the planner waits, and deliver process results through `delivering_tool_result`.
+- Card create/edit/reorder/cancel tools are limited to direct children. Created children enter the tree in `backlog` unless the card API defines a stricter initial status. Recursive cancellation effects belong to runtime semantics, not planner authority over grandchildren.
 
 Completion handling:
 
 - Planner `done` reports go through readiness gates before review.
 - Readiness rejects any executable descendant that is not completion-compatible.
-- Required evidence references are validated before review.
+- Required evidence references are validated before review. Evidence validation verifies that referenced evidence belongs to the assessed subtree or project context, still exists in the active card representation, and points to durable card result data, artifacts, attachments, process records, or file evidence that the reviewer can inspect.
 - Reviewer assessment happens after readiness/evidence gates.
 - If the reviewer requests corrections, the goal returns to planner ownership inside the same activation barrier.
 - If the goal or any descendant changes before reviewer approval commits, the review pass is invalidated.
@@ -181,7 +183,7 @@ Completion handling:
 
 Changed handling:
 
-- `changed` is durable card status, not necessarily a distinct long-running actor phase.
+- `changed` is durable card status, not a long-running actor phase. A changed non-active goal is dormant until the responsible parent planner or Analyst action changes it again or the parent planner reactivates it.
 - Activating a `changed` card transitions it to `running`, clearing the durable `changed` status.
 - A goal cannot report `done` while any executable descendant remains `changed`.
 - Change notifications and changed-subtree context are delivered when the goal actor next accepts context.
@@ -314,6 +316,10 @@ Do not add a separate user-facing Abort operation. Cancel is the required operat
 
 Persist state at meaningful machine boundaries. Do not persist snapshots merely to mirror imperative code after it already ran.
 
+When persisting actor state, prefer XState persisted snapshots plus Saivage metadata needed for actor identity, projection, and recovery classification. Do not expose persisted XState snapshots as public read models.
+
+Card-store writes that must commit before the state changes are invoked services with explicit success/failure transitions. Purely synchronous writes may be machine actions only when a write failure can safely fail the transition loudly rather than leaving the machine in a misleading externally visible state.
+
 Persisted concerns:
 
 - card tree and versioned card fields;
@@ -322,7 +328,7 @@ Persisted concerns:
 - meaningful actor state and minimal context required for recovery classification;
 - process registry and safe logs;
 - event/error/control-action timelines;
-- pending notifications only until delivery or card archival/deletion.
+- pending card-addressed notifications until delivery, or until their card leaves the active runtime through deletion/archival.
 
 Every persisted actor state should have one recovery classification before implementation:
 
@@ -350,7 +356,7 @@ Projection responsibilities:
 - let the Analyst drive workspace navigation by projecting route/view changes to the UI;
 - keep secret redaction as output/display policy, not Analyst authority limitation.
 
-The existing event/timeline mechanism may carry projection updates and audit records. It must not coordinate internal runtime workflow.
+Event/timeline mechanisms may carry projection updates and audit records. They must not coordinate internal runtime workflow.
 
 ## 15. File And Module Shape
 
@@ -368,11 +374,11 @@ Prefer machine and actor files over controller classes:
 - `src/runtime/actors/process.machine.ts`
 - `src/runtime/actors/process.actor.ts`
 
-Delete or collapse controller classes by default. A class or module is suspect if it owns loops, branching, or methods that advance runtime workflow. Keep wrappers only at real external boundaries.
+Avoid controller classes by default. A class or module is suspect if it owns loops, branching, or methods that advance runtime workflow. Keep wrappers only at real external boundaries.
 
 ## 16. Testing Strategy
 
-Do not preserve controller-heavy tests solely because they existed. Replace them with smaller tests that protect the new architecture.
+Do not preserve orchestration-heavy tests solely because they are familiar. Prefer smaller tests that protect the new architecture.
 
 Required test groups:
 
@@ -391,8 +397,8 @@ Required test groups:
 
 - Define typed events and outputs for supervisor, goal card, terminal card, LLM turn, and process actors.
 - Collapse `RuntimeApi` into event sender, snapshot waiter, and projection adapter.
-- Add boundary tests that production runtime behavior cannot use controller orchestration methods.
-- Decide final deletion list for old controller modules.
+- Add boundary tests proving runtime behavior cannot advance through wrapper-owned orchestration methods.
+- Define the permanent module ownership map: actor/machine modules own workflow, projection modules own read models, canonical services own validated external requests, and no additional layer owns autonomous work sequencing.
 
 P0 is complete when runtime workflow cannot advance except through supervisor events, actor events, invoked services, spawned children, and machine transitions.
 
