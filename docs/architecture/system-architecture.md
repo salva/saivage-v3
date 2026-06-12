@@ -100,7 +100,7 @@ Analyst mutation or parent-planner mutation sets a non-active card to `changed`.
 
 Inactive ancestors on the direct path to the project root receive changed-subtree context and become `changed` until the first running ancestor. Running ancestors stay `running` and receive notification/context instead of status overwrite. Ancestors are not automatically dispatched by the status change.
 
-The acceptance gate prevents a planner from closing a goal while any executable descendant is not in a terminal accepted state. This forces the planner to observe and handle changed, blocked, backlog, running, failed, cancelled, or otherwise incomplete executable descendants before claiming completion. Planner-owned plan cards are durable planning diaries rather than independently activated work.
+The acceptance gate prevents a planner from closing a goal while any executable descendant is not in a terminal accepted state. This forces the planner to observe and handle changed, blocked, backlog, running, failed, cancelled, or otherwise incomplete executable descendants before claiming completion. Goal cards carry their own planning diary state.
 
 `status_text` is a runtime projection from accepted terminal reports only. It is not updated from progress chatter, rejected reports, or reviewer correction requests.
 

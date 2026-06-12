@@ -78,13 +78,13 @@ The system does not provide:
 
 Cards are the durable units of project work. They form a parent-child tree rooted at the project card.
 
-A card can describe a project, a goal, a planner-owned plan, or a terminal task. Goal cards are worked by planners. Terminal cards are worked by executors. Reviewers assess completed goals.
+A card can describe a project, a goal, or a terminal task. Goal cards are worked by planners. Terminal cards are worked by executors. Reviewers assess completed goals.
 
 Every card may carry title, description, acceptance criteria, tags, dependencies, priority, urgency, history, result data, and a runtime-written `status_text` summarizing the most recent accepted terminal report.
 
 The project card is the single undeletable root card. It carries project-level context, global constraints, and the user's top-level objective summary. Agents working below the root must be able to receive relevant project context without treating the project card as ordinary disposable work.
 
-Goal and project cards may have one planner-owned plan card as their first child. The plan card is the durable planning diary for that goal: it records decomposition, assumptions, sequencing notes, reviewer feedback, and relevant correction history. It is not a separate executable child competing with implementation work and is not activated independently.
+Goal and project cards carry their own planning diary state: decomposition, assumptions, sequencing notes, reviewer feedback, and relevant correction history.
 
 Terminal card types include `architecture`, `code`, `test`, `doc`, `data`, `research`, and `ops`. The system may support additional terminal types, but every terminal card must still use the executor activation flow.
 
@@ -189,7 +189,7 @@ Before accepting `done`, the runtime must verify:
 
 If any executable descendant remains `changed`, `blocked`, `backlog`, `running`, `failed`, `cancelled`, or otherwise non-terminal for successful completion, the parent cannot close the goal. The runtime reports a readiness error that identifies the descendant state that must be handled.
 
-Planner-owned plan cards do not need executor-style terminal outcomes, but they must reflect the latest accepted planner and reviewer state before the enclosing goal can close.
+Goal planning diary state must reflect the latest accepted planner and reviewer state before the enclosing goal can close.
 
 If a reviewer interrupts a completion by requesting corrections, the goal returns to planner ownership with reviewer feedback in context. The parent planner remains behind the same `activate_card` barrier until that child activation ultimately reports `done`, `failed`, or `blocked`.
 
