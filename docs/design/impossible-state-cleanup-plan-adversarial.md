@@ -88,16 +88,12 @@ Wave 2 introduces `RuntimeDispatchOwnership` as a discriminated union type (`act
 
 ### A02. Wave 2 Step 1 scope is too broad
 
-"Remove Defensive Active-Run Defaults" targets `src/runtime/activation-reducer.ts#L18-L66` and lists required fields. But `activeRunFromActivationState()` is also called by:
-- `buildReviewerInterruptedStartupState()` in `src/runtime/startup-repair.ts:80`
-- `buildChildRunStartupState()` in `src/runtime/startup-repair.ts:100`
-- `buildResumePlannerStartupState()` in `src/runtime/startup-repair.ts:141`
-- `parentPlannerRunFor()` in `src/runtime/activation-unwind.ts:272`
+"Remove Defensive Active-Run Defaults" targets `src/runtime/activation-reducer.ts#L18-L66` and lists required fields. At the time of the review, `activeRunFromActivationState()` was also called by legacy startup-repair and activation-unwind helpers. Those legacy helpers have since been removed with the obsolete runtime startup/activation repair path.
 
-These callers still need to produce valid active runs, and the startup-repair callers synthesize `plannerSessionId` as `planner:${parentCardId}` (line 104, line 145). The plan says "Only timestamps for newly opened runs may default to `nowIso`" but does not address how startup repair callers should provide the now-required fields. Rule A says repair code can exist in startup modules, but Step 1 removes defaults from `activeRunFromActivationState()` without providing an alternative for repair callers.
+If any new repair path is introduced, it must produce valid active runs explicitly rather than relying on the removed legacy repair synthesis. The plan says "Only timestamps for newly opened runs may default to `nowIso`"; keep that as a normal-path invariant and do not recreate the removed startup-repair defaults.
 
 **Severity:** high — removing defaults without providing repair alternatives will break startup
-**Recommendation:** Add an explicit repair variant: `activeRunFromActivationStateForRepair()` that accepts optional fields and synthesizes missing identity only for startup-repair contexts. Or keep `activeRunFromActivationState()` as the normal-path strict function and create a separate `reconstructActiveRunForStartupRepair()` that explicitly names the synthesis it performs.
+**Recommendation:** Keep `activeRunFromActivationState()` as the normal-path strict function. Do not add a repair variant unless a current actor-runtime recovery path has a concrete, explicit identity source.
 
 ### A03. Wave 2 Step 5 interacts with model retries but doesn't address the root cause
 
@@ -162,10 +158,10 @@ The plan says "The parser must throw if `activeCardRun` is missing or malformed"
 
 ### M02. Wave 3 Step 4 doesn't specify what "synthesize unwind outcome from card lifecycle/status" means for startup repair
 
-The plan says "if the card is terminal, synthesize unwind outcome from card lifecycle/status" but the current `executeStartupActiveRunRepairDecision()` at `src/runtime/startup-repair.ts:210-236` always appends a failed unwind for `executor_interrupted`, regardless of card terminality. The plan says to change this, but doesn't specify the new code path for terminal cards. Should it call `recordChildActivationLifecycle()` instead? Use the `selectTerminalActivationSynthesis()` helper? The fix direction is clear but the implementation path is not.
+The plan says "if the card is terminal, synthesize unwind outcome from card lifecycle/status". The old `executeStartupActiveRunRepairDecision()` implementation that motivated this note has since been removed with the obsolete runtime startup repair path. Any future actor-runtime recovery design should specify a current code path rather than reviving startup unwind synthesis.
 
 **Severity:** medium
-**Recommendation:** Specify: for terminal executor cards during startup, call `recordChildActivationLifecycle(cardId, card.lifecycle)` instead of `appendChildUnwindToolResult(cardId, 'failed', ...)`, or call `selectTerminalActivationSynthesis()` and use its outcome.
+**Recommendation:** Specify the actor-runtime recovery behavior directly if terminal executor cards need recovery. Do not reintroduce the removed `appendChildUnwindToolResult` startup path.
 
 ### M03. Wave 5 Step 7 splits pruning APIs but doesn't specify the diagnostic/assertion API shape
 
@@ -178,11 +174,11 @@ The plan says "if the card is terminal, synthesize unwind outcome from card life
 
 "Audit all reducers/transitions that set `status: 'idle'`" is a research step, not an implementation step. The plan should list the known reducers/transitions that set idle, or at minimum specify the audit method. Currently known idle transitions:
 - `reduceRuntimeEvent`: `goal_exit`, `card_terminated`, `goal_completed`, `reviewer_finished` (`src/runtime/runtime-core.ts:342-351`)
-- `buildShutdownRuntimeStatePatch()` (`src/runtime/runtime-core.ts:247-254`)
+- `buildShutdownRuntimeStatePatch()` in `runtime-core.ts` if still present after old shutdown composition removal
 - `planClearActiveCardRunForRepair()` (`src/runtime/runtime-core.ts:224-235`)
 - `planSweptCurrentAgentSessionPatch()` (`src/runtime/runtime-core.ts:237-245`)
 - `planIdleRunningRootRunReconciliation()` state patches (`src/runtime/runtime-core.ts:542-597`)
-- `buildBlockedPlannerStartupState()` (`src/runtime/startup-repair.ts:119-131`)
+- The old `buildBlockedPlannerStartupState()` startup-repair path was removed with obsolete startup repair.
 
 **Severity:** medium
 **Recommendation:** Pre-populate Step 2 with the known idle-transition sites above. The audit then verifies this list is complete rather than starting from scratch.

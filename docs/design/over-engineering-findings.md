@@ -27,7 +27,7 @@ The runtime READS and HANDLES a `'frozen'` status that **nothing ever WRITES** i
 - `saveFreezeManifest` (`src/runtime/freeze-manifest.ts` — removed), `clearFreezeManifest`, `freezeManifestExists`
 - `buildFreezeManifest` (`src/runtime/runtime-core.ts:177`), `buildFreezeRuntimeStatePatch` (:165), `buildResumeFromFreezeRuntimeStatePatch` (:203), `buildResumeHandoffContext` (:219)
 - Verified: each has 0 production refs outside its own file/barrel. The only `status: 'frozen'` producers (`src/runtime/runtime-core.ts:170,190`) are inside these dead builders. `readFreezeManifest` is the only live freeze symbol.
-- Caveat: live code still *handles* `frozen` (`src/runtime/runtime-shutdown.ts:56`, `src/runtime/runtime-control-commands.ts:37,55`, `src/tools/analyst-runtime-tools.ts:50`, `src/application/read-models/debug-read-model.ts:19`, `sync-hub.ts`). So either freeze was never finished or was abandoned. Decide: delete the whole freeze concept (writers + handlers + status), or keep it as a real feature. Right now it is half-built dead weight.
+- Caveat: live code still *handles* `frozen` (`src/runtime/runtime-control-commands.ts:37,55`, `src/tools/analyst-runtime-tools.ts:50`, `src/application/read-models/debug-read-model.ts:19`, `sync-hub.ts`). The old shutdown handler was removed with obsolete runtime startup/shutdown composition. So either freeze was never finished or was abandoned. Decide: delete the whole freeze concept (writers + handlers + status), or keep it as a real feature. Right now it is half-built dead weight.
 - Confidence: HIGH that the writers are dead. Impact: MEDIUM. Needs a product decision on the `'frozen'` status itself.
 
 ### 4. Dead terminal-commit functions

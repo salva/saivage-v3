@@ -35,7 +35,7 @@ WI-1a backend producers + handlers:
 - Delete the freeze builders in `src/runtime/runtime-core.ts`: `buildFreezeManifest`, `buildFreezeRuntimeStatePatch`, `buildResumeFromFreezeRuntimeStatePatch`, `buildResumeHandoffContext`, and the `FreezeManifest` import. (Around `src/runtime/runtime-core.ts:165`–`228`.)
 - `src/runtime/control-api.ts`: remove the `readFreezeManifest`/`clearFreezeManifest`/`FROZEN_RUNTIME_RECOVERY_MESSAGE` re-exports (lines ~3-4).
 - `src/runtime/runtime-control-commands.ts`: remove the `'frozen'` member from `RuntimeControlResult.code`, the `action?: 'inspect-frozen-state'` field, the `FROZEN_RUNTIME_RECOVERY_MESSAGE` const, and the `if (current.status === 'frozen')` branches in `pauseRuntimeCommand` (`:37`) and `resumeRuntimeCommand` (`:55-63`).
-- `src/runtime/runtime-shutdown.ts:56`: remove the frozen-specific shutdown branch.
+- DONE: the old `src/runtime/runtime-shutdown.ts` file was removed with the obsolete runtime startup/shutdown composition path, including its frozen-specific shutdown branch.
 - `src/runtime/control.ts`: remove the frozen doc-comment lines.
 - `src/tools/analyst-runtime-tools.ts`: drop the `FROZEN_RUNTIME_RECOVERY_MESSAGE` import and simplify `:50` from `state?.status === 'frozen' || state?.status === 'error'` to the `error` case only.
 - `src/application/read-models/debug-read-model.ts`: remove the `readFreezeManifest` import and the `if (state.status === 'frozen')` block (`:19-21`).
