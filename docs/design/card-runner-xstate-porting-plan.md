@@ -73,10 +73,10 @@ Old-harness cleanup checkpoint, 2026-06-12:
     was removed and the direct security coverage remains. Replace
     artifact/lifecycle coverage only if a current XState-era ownership boundary
     lacks it.
-  - `tests/utils/error-logger.test.ts` contains valid `ErrorLogger` unit/JSONL
-    tests plus old runtime error-propagation harness sections. Preserve the
-    direct logger tests; add XState logging coverage only for live behavior that
-    is not already tested.
+  - `tests/utils/error-logger.test.ts` contained valid `ErrorLogger` unit/JSONL
+    tests plus old runtime error-propagation harness sections; the old harness
+    sections were removed and the direct logger tests remain. Add XState logging
+    coverage only for live behavior that is not already tested.
   - `tests/utils/stuck-agent-supervisor.test.ts` contains valid
     `StuckAgentSupervisor` unit tests plus old runtime-wiring sections. Preserve
     the direct supervisor tests; avoid rebuilding runtime integration around the
