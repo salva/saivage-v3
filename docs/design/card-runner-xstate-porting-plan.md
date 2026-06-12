@@ -1,9 +1,10 @@
 # Card Runner XState Replacement Plan
 
 Status: active replacement plan, readjusted after the first XState core
-implementation slices on 2026-06-12 and the default runtime switchover on
-2026-06-12. This document explains how to build a new
-minimal Saivage v3 runtime core around the XState architecture described in
+implementation slices on 2026-06-12, the default runtime switchover on
+2026-06-12, and the first old-harness cleanup retrospective on 2026-06-12. This
+document explains how to build a new minimal Saivage v3 runtime core around the
+XState architecture described in
 [Card Runner XState Rearchitecture Draft](./card-runner-xstate-rearchitecture-draft.md).
 It is not a one-for-one porting plan for the old runtime, not a bridge plan, and
 not a migration plan for old `.saivage` runtime state.
@@ -50,6 +51,27 @@ rewrites:
    and old core modules remain in `src/runtime/` as deletion targets while tests
    are rewritten around actor boundaries.
 
+Old-harness cleanup checkpoint, 2026-06-12:
+
+- The simple deletion/rewrite tranche is done. Obsolete old-harness tests for
+  executor fallback evidence, F23 dispatch acceptance, planner non-actionable
+  output, startup session sweep, stale running intent reconciliation, and planner
+  context-length blockers were removed or replaced by narrow startup/actor/domain
+  tests.
+- Remaining `createRuntimeCoreTestContainer` users are larger suites that mix
+  product behavior with old orchestration assumptions:
+  `tests/runtime/runtime-command-ledger.test.ts`,
+  `tests/utils/runtime-integration.test.ts`, `tests/e2e/hardening-e2e.test.ts`,
+  `tests/utils/error-logger.test.ts`, and
+  `tests/utils/stuck-agent-supervisor.test.ts`. Boundary assertions in
+  `tests/utils/runtime-module-boundary.test.ts` remain until the old source files
+  are gone.
+- Do not preserve any of those remaining tests merely because they provide broad
+  old-runtime integration coverage. For each file, first separate current product
+  behavior from old implementation behavior. Delete old-orchestration assertions.
+  Add only the smallest XState-era actor/domain/API test needed for current
+  behavior that is otherwise unprotected.
+
 Readjusted near-term order:
 
 1. Complete startup recovery from the validated actor recovery plan: rebuild safe
@@ -59,8 +81,8 @@ Readjusted near-term order:
    tool call and exactly-one delivery/error to the waiting LLMRunner.
 3. Remove the remaining old synthetic-note fallback once CardRunner NoteBox
    persistence covers inactive/no-owner recovery cases.
-4. Delete old dispatcher/core owners once their remaining tests are replaced by
-   actor-boundary tests.
+4. Delete old dispatcher/core owners once their remaining tests are deleted or
+   replaced by focused XState-era tests for current product behavior.
 
 Do not add a general event-sourcing system, queues, distributed locks, or generic
 workflow framework while closing these gaps. Add the smallest persisted records
@@ -581,8 +603,12 @@ Work:
 
 1. Verify obsolete dispatcher, phase-runner, session-active-status, activation
    unwind, and runtime tick code were deleted as their replacement phases landed.
-2. Delete tests that only assert old orchestration.
-3. Rewrite tests that assert product behavior through new actor boundaries.
+2. Delete tests that only assert old orchestration, old runtime state repair,
+   old dispatch ledgers, old session-active ownership, or old compatibility
+   behavior.
+3. Rewrite tests only when they assert current product behavior that is not
+   already protected elsewhere. Prefer narrow actor/domain/API tests over broad
+   end-to-end harnesses.
 4. Remove obsolete schemas and runtime state fields.
 5. Update docs that describe old dispatcher/session behavior.
 6. Run import-boundary checks to ensure old runtime modules are not reachable.
@@ -596,6 +622,17 @@ Deletion is not supposed to wait until Phase J. Each phase should delete the old
 runtime owner it replaces as soon as the new minimal behavior is covered. Phase J
 is only the final sweep for missed imports, stale schemas, obsolete tests, and
 documentation drift.
+
+Current final-cleanup posture after the old-harness retrospective:
+
+- The remaining old harness files are not automatically rewrite targets. Treat
+  them as mixed bags of useful product assertions and obsolete implementation
+  assertions.
+- If a file mostly validates old dispatch/run-ledger/session mechanics, delete it
+  and rely on focused XState/domain tests for live behavior.
+- If a product behavior is still valid and lacks coverage, add one small test at
+  the ownership boundary that now owns the behavior. Do not rebuild a miniature
+  version of `createRuntimeCoreTestContainer`.
 
 ## 8. Old Responsibility Triage
 
@@ -636,6 +673,15 @@ Required test themes:
 - Unsupported old tools or runtime commands fail clearly instead of falling back
   to old-core behavior.
 
+Non-goals for testing:
+
+- No compatibility tests for old `.saivage` runtime state, old run-ledger shapes,
+  old activation arrays, or old active-session ownership.
+- No broad harness whose value is only that it exercises many old runtime layers
+  at once.
+- No adapter tests that prove old dispatcher behavior still works after the XState
+  runtime is the default.
+
 Use focused tests while building each phase, then run broad validation before the
 replacement branch is considered complete:
 
@@ -648,11 +694,11 @@ npm run validate:ui-smoke
 Run `npm run validate:ui` when API/UI read models change substantially, and
 `npm run validate:release` before merging the full replacement.
 
-Intermediate construction commits may intentionally break old runtime tests after
-the old owner has been disconnected. In that case, keep focused new-core tests
-green, mark or rewrite obsolete old-core tests promptly, and do not treat a broad
-suite failure caused only by deleted old behavior as a reason to preserve old
-glue.
+Intermediate construction commits may intentionally break or delete old runtime
+tests after the old owner has been disconnected. In that case, keep focused
+new-core tests green, delete obsolete old-core tests promptly, and do not treat a
+broad suite failure caused only by deleted old behavior as a reason to preserve
+old glue.
 
 ## 10. Commit Cadence
 
