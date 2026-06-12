@@ -30,7 +30,7 @@ This distinction matters: the runtime should not be described as a peer of plann
 
 The runtime is the only dispatcher. Agents request work through tools; they do not directly invoke other agents.
 
-Planner/card state owns hierarchy, objectives, dependencies, evidence, status, and history. Runtime execution state owns root intent, command/run/activation ledgers, active-card-run state, process records, and recovery metadata.
+Planner/card state owns hierarchy, objectives, dependencies, evidence, status, result data, working status, and history. Runtime execution state owns root intent, command/run/activation ledgers, active-card-run state, process records, and recovery metadata.
 
 Changing planner/card state does not by itself dispatch work. Root work starts through explicit runtime control; child work starts through parent-planner `activate_card`.
 
@@ -44,17 +44,17 @@ Ancestors are waiting for their active child. This waiting state is actor-local 
 
 The runtime persists enough active-card-run and activation-ledger information to unwind one child activation outcome back to its parent planner.
 
-Activation validation happens before dispatch. A parent planner can activate only an immediate child that is ready to run.
+Activation validation happens before dispatch. A parent planner can activate only an immediate child in `backlog`, `changed`, `blocked`, or `failed`. Activation transitions the child to `running`; child `done`, `failed`, or `blocked` outcomes update the child card before the parent planner receives the activation tool result.
 
 ## 5. Agent Lifecycle
 
-Planner sessions are long-lived per goal and should have deterministic identity derived from the goal card. A planner can become dormant after reporting done, failed, or blocked, and can later be resumed by activation of the same goal as the same logical agent session.
+Planner sessions are goal-lived and should have deterministic identity derived from the goal card. A planner is created lazily the first time it is needed, can become dormant after reporting done, failed, or blocked, and can later be resumed by activation of the same goal as the same logical agent session.
 
 Executor sessions are one-shot per terminal card activation.
 
 Reviewer sessions are one-shot per assessment.
 
-Reviewer approval is valid only for the card tree snapshot it assessed. If the goal or any descendant changes before approval commits, the runtime invalidates the reviewer pass and returns the goal to planner ownership with correction/change context.
+Reviewer assessment happens after runtime readiness and evidence gates pass. The reviewer receives the project card data, the assessed goal subtree, and the planner return value. Reviewer approval is valid only for the card tree snapshot it assessed. If the goal or any descendant changes before approval commits, the runtime invalidates the reviewer pass and returns the goal to planner ownership with correction/change context.
 
 Analyst sessions are user-facing conversational sessions. Analyst mutations go through canonical runtime, card, config, process, and notification services.
 
@@ -100,15 +100,15 @@ Notification content is not a durable user-managed object. Persistence exists on
 
 Analyst mutation or parent-planner mutation sets a non-active card to `changed`. If the modified card is already `running`, it remains `running`. In both cases the runtime queues a notification to the modified card so the card's main agent becomes aware of the change.
 
-Inactive ancestors on the direct path to the project root receive changed-subtree context and become `changed` until the first running ancestor. Running ancestors stay `running` and receive notification/context instead of status overwrite. Ancestors are not automatically dispatched by the status change.
+When the Analyst modifies a deep card, inactive ancestors on the direct path to the project root receive changed-subtree context and become `changed` until the first running ancestor. Running ancestors stay `running` and receive notification/context instead of status overwrite. Ancestors are not automatically dispatched by the status change.
 
 The acceptance gate prevents a planner from closing a goal while any executable descendant is not in a completion-compatible state. This forces the planner to observe and handle changed, blocked, backlog, running, failed, or otherwise incomplete executable descendants before claiming completion. Cancelled descendants are completion-compatible and do not block `done`. Goal cards carry their own planning diary state.
 
-`status_text` is a runtime projection from accepted terminal reports only. It is not updated from progress chatter, rejected reports, or reviewer correction requests.
+`result` is attached from accepted main-agent results only. It is not updated from progress chatter, rejected reports, or reviewer correction requests. `working_status` is separate free text for ongoing agent progress.
 
 ## 9. Collaborative Cancellation
 
-Direct cancellation is only safe for inactive cancellable cards. Recursive cancellation preserves descendants that are already `done`.
+Direct cancellation is only safe for inactive cancellable cards. Recursive cancellation preserves descendants that are already `done` and converts non-completion-compatible descendants, including `failed` and `blocked`, to `cancelled`.
 
 For running cards or subtrees containing the active leaf, cancellation is represented as notifications sent to the requested card and downstream active cards. Agents are expected to stop voluntarily at safe points and report failure/cancelled outcomes. Those outcomes unwind through normal activation barriers until they reach the planner responsible for the originally requested cancellation.
 
@@ -119,6 +119,7 @@ Durable state remains project-local. Saivage state must live under the project `
 Expected persisted concerns include:
 
 - card tree and history;
+- versioned card fields, including title, description, acceptance criteria, result data, and working status;
 - agent messages and manifests;
 - runtime state, intent, commands, runs, and activations;
 - process registry and safe process logs;
@@ -131,6 +132,8 @@ Expected persisted concerns include:
 HTTP routes and WebSocket frames are projection and transport surfaces. They do not define runtime semantics.
 
 The UI fetches authoritative read models through REST and receives freshness hints through WebSocket invalidation or event frames. WebSocket does not replace REST as source of truth.
+
+The Analyst can drive workspace navigation by asking the webapp to show a specific card, file, process, debug view, runtime view, or agent session. The UI also sends enough active view/entity/filter context for the Analyst to reason about what the user is seeing.
 
 XState or internal actor snapshots must not leak directly through operator APIs. Public responses expose Saivage read models.
 
@@ -152,10 +155,12 @@ The runtime implementation direction is XState-centered: machine states and acto
 
 Target actor ownership:
 
-- supervisor owns root runtime mode, pause gate, shutdown process termination, and activation of the parentless project goal actor;
+- supervisor owns root runtime mode, pause gate, shutdown process termination, and activation of the parentless project card actor;
 - goal card actor owns planner turns, reviewer turns, active child activation, and process waits for planner tools;
 - terminal card actor owns executor turns and process actors;
 - LLM turn actors own provider invocation/admission/cancellation boundaries;
 - process actors own OS process lifecycle.
+
+Process execution follows a launch-and-monitor model. Agents launch project commands through runtime-owned process actors, inspect status/logs over time, use bounded waits for completion, and explicitly terminate processes when needed. The functional specification does not impose process concurrency limits for now.
 
 Controllers that advance runtime behavior are legacy by default. A retained `RuntimeApi` may accept commands, send events, wait on snapshots, and project read models; it must not execute workflow logic itself.

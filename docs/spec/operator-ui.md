@@ -100,7 +100,7 @@ Forbidden direct UI mutations include:
 
 - creating cards;
 - editing cards;
-- deleting cards;
+- deleting or archiving cards;
 - reordering cards directly through the UI;
 - queueing notifications;
 - starting/running/resuming the runtime;
