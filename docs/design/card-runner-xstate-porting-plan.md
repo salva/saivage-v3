@@ -68,10 +68,11 @@ Old-harness cleanup checkpoint, 2026-06-12:
     with direct runtime lock tests and was removed; lock coverage now lives in
     `tests/runtime/runtime-lock.test.ts`. Do not recreate the old integration
     harness for its own sake.
-  - `tests/e2e/hardening-e2e.test.ts` contains valid security/API/quarantine
-    tests plus an old harness lifecycle/artifact section. Preserve security
-    coverage; replace artifact/lifecycle coverage only if a current XState-era
-    ownership boundary lacks it.
+  - `tests/e2e/hardening-e2e.test.ts` contained valid security/API/quarantine
+    tests plus an old harness lifecycle/artifact section; the old harness section
+    was removed and the direct security coverage remains. Replace
+    artifact/lifecycle coverage only if a current XState-era ownership boundary
+    lacks it.
   - `tests/utils/error-logger.test.ts` contains valid `ErrorLogger` unit/JSONL
     tests plus old runtime error-propagation harness sections. Preserve the
     direct logger tests; add XState logging coverage only for live behavior that
