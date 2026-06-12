@@ -1,8 +1,21 @@
 # Consolidated Runtime Core Plan
 
-Status: new execution plan, written after reassessing the XState runtime review findings against current code and the active cleanup plans on 2026-06-12.
+Status: new execution plan, written after reassessing the XState runtime review findings against current code and the active cleanup plans on 2026-06-12. Updated on 2026-06-12 to make XState central and load-bearing, not optional or decorative.
 
 This plan supersedes the local ordering in `99-METAPLAN.md` for runtime-core work. It does not replace the broader over-engineering plan wholesale; it pulls forward the parts that matter for the new runtime core and leaves lower-priority cleanup as later batches.
+
+## Architectural Directive
+
+XState is a central design requirement for the new core. The corrective action is not to remove XState from runners, and not to keep imperative runner loops with snapshots attached. The corrective action is to make XState own runtime behavior.
+
+Mandatory rules for the next implementation tranche:
+
+1. `RuntimeSupervisor`, `GoalCardRunner`, `TerminalCardRunner`, `LlmRunner`, and `ProcessRunner` must be real XState actors whose states and events drive behavior.
+2. Long-running provider calls, reviewer calls, child activations, and process waits must be invoked services / actors owned by the machine, not ad-hoc `for` loops around `await`.
+3. Cancellation, pause/quiescence, startup recovery, and tool delivery must be represented as machine events and states.
+4. Controller classes may remain only as thin facades for starting/stopping actors and exposing Saivage read-model projections. They must not contain the orchestration algorithm.
+5. Persisted actor snapshots must correspond to meaningful recovery states, not post-hoc logs of what imperative code already did.
+6. Keep the architecture simple: use the smallest XState machines that remove invalid states. Do not add generic workflow frameworks, event sourcing, queues, or compatibility bridges.
 
 ## Review Verdicts
 
@@ -11,7 +24,7 @@ The earlier review found real problems, but not all deserve the same priority or
 | Finding | Verdict | Reason |
 | --- | --- | --- |
 | F01 `startProject()` is synchronous/imperative | Accepted, reframed | The immediate bug is not that it awaits completion by itself; the bug is that active execution is not represented as runtime-owned cancellable work. |
-| F02 XState machines are decorative | Accepted as design debt | True for `GoalCardRunner`, `TerminalCardRunner`, and `LlmRunner`. Do not fix with a large rewrite before cancellation/recovery semantics are clear. |
+| F02 XState machines are decorative | Accepted as top-priority architectural defect | True for `GoalCardRunner`, `TerminalCardRunner`, and `LlmRunner`. Because XState is a central requirement, this must be fixed by making machines own invocation, tool, cancellation, completion, and recovery transitions. |
 | F03 dead production modules | Accepted with precision | The runtime-path modules are dead or legacy-adjacent. Do not confuse them with similarly named live modules under `src/agents/`. |
 | F04 no cancellation path in runner loops | Accepted | Highest-priority correctness issue. Pause/stop can only deny future provider admission; it does not cooperatively stop active runner loops. |
 | F05 brittle reviewer parsing | Accepted | Raw string verdicts are too fragile for a control-plane decision. |
@@ -47,20 +60,60 @@ From `docs/design/over-engineering-remediation-plan.md`, the runtime-relevant cl
 
 ## Priority Order
 
-### P0: Stabilize Runtime Ownership And Cancellation
+### P0: Make XState Load-Bearing
 
-Goal: active runtime work must be owned, observable, and stoppable before deeper recovery or cleanup.
+Goal: replace imperative runner orchestration with XState-owned behavior before adding more runtime features.
 
 Issues covered: F01, F02, F04, F13.
 
 Work:
 
-1. Introduce explicit in-flight work ownership in `SupervisorRuntimeApi`.
-2. Keep a reference to the currently running root/goal runner instead of creating it as an untracked local in `startProject()`.
-3. Add cooperative cancellation checks to `GoalCardRunnerController.start()` and `TerminalCardRunnerController.start()` before and after each awaited provider/tool/child operation.
-4. Add a minimal runner cancellation interface that marks cards cancelled or blocked consistently and stops child process actors where applicable.
-5. Make `stopProject()` and `shutdown()` request cancellation and wait for quiescence, with a bounded timeout and clear diagnostic if quiescence fails.
-6. Do not do a full event-driven XState rewrite in this batch. Treat XState-as-recording as a known smell until cancellation and recovery semantics are correct.
+1. Redesign `LlmRunner` as an invoked-actor machine:
+   - `idle` -> `requesting_admission` -> `calling_provider` -> `returned_message` / `returned_tool_call` / `failed` / `cancelled`.
+   - Provider invocation must be an XState invocation with cancellation/cleanup semantics.
+   - Admission request/release must happen through machine entry/exit actions, not manual `try/finally` in controller code.
+2. Redesign `TerminalCardRunner` as an XState machine whose states drive executor turns:
+   - `idle`, `marking_running`, `waiting_for_llm`, `handling_tool`, `delivering_tool_result`, `committing_success`, `committing_failure`, `blocked`, `cancelled`, `done`.
+   - Tool handling (`run_process`, `wait_process`, `inspect_process`, `kill_process`) must be invoked actors/services owned by the machine.
+   - The hard turn budget should be machine context updated on each `LLM_RESULT`/`LLM_TOOL_CALL`, not a `for` loop.
+3. Redesign `GoalCardRunner` as an XState machine whose states drive planner/reviewer/child flow:
+   - `idle`, `marking_running`, `planning`, `activating_child`, `reviewing`, `delivering_child_result`, `applying_review_corrections`, `committing_outcome`, `blocked`, `failed`, `cancelled`, `done`.
+   - Child activation must be spawned/invoked by the goal machine and return through a typed event.
+   - Reviewer verdict must be a typed event, not a direct function return that decides the next imperative loop iteration.
+4. Redesign `RuntimeSupervisor` as the parent actor that owns the root project actor and runtime mode:
+   - `idle`, `running`, `pausing`, `paused`, `stopping`, `stopped`.
+   - `startProject()` sends a `START_PROJECT` event and returns once the command is accepted/started; completion is observed through actor state/events.
+   - `stopProject()` and `shutdown()` send cancellation/stop events to children and wait for the supervisor actor to reach a terminal/quiescent state.
+5. Reduce controller classes to facades:
+   - construct actors;
+   - send commands;
+   - subscribe to snapshots/events;
+   - expose read-model projections;
+   - persist snapshots.
+   They must not contain planner/executor/reviewer orchestration loops.
+6. Persist meaningful XState snapshots at machine state boundaries. Recovery should be able to inspect a snapshot and know whether the actor was calling a provider, waiting for a child, handling a tool, committing a result, or done.
+7. Keep the implementation small. The first pass may use explicit `fromPromise`/invoked service actors and typed events; do not introduce extra abstraction layers around XState.
+
+Tests:
+
+1. Replace tests that assert imperative `start()` loop completion with tests that send machine events or use the facade to observe state transitions.
+2. Add state-transition tests for planner tool call, child activation, reviewer correction, executor tool call, provider error, cancellation while provider call is active, and cancellation while process wait is active.
+3. Add tests that `stopProject()` sends cancellation to active children and reaches quiescence.
+4. Add boundary tests that runner controller methods do not contain orchestration `for` loops.
+5. `npm run typecheck`, focused actor tests, `npm test`, `npm run validate:routine`.
+
+### P1: Stabilize Runtime Ownership And Cancellation On Top Of XState
+
+Goal: active runtime work must be owned, observable, and stoppable by the XState actor tree.
+
+Issues covered: F01, F04, F13.
+
+Work:
+
+1. Store the root project actor reference in the supervisor actor context or child actor map, not as an untracked local in `startProject()`.
+2. Represent cancellation as explicit machine events (`CANCEL_REQUESTED`, `CHILD_CANCELLED`, `PROVIDER_CANCELLED`, `PROCESS_CANCELLED`) and terminal states.
+3. Make `stopProject()` and `shutdown()` request cancellation and wait for quiescence with a bounded timeout and clear diagnostic if quiescence fails.
+4. Stop child process actors and release provider admission via state exit actions.
 
 Tests:
 
@@ -68,7 +121,7 @@ Tests:
 2. `tests/runtime/actors/supervisor-runtime-api.test.ts` for `stopProject()` cancelling active work.
 3. `npm run typecheck`, `npm test`, `npm run validate:routine`.
 
-### P1: Make Operator Status Truthful
+### P2: Make Operator Status Truthful
 
 Goal: status APIs must reflect active XState runtime work instead of returning idle placeholders.
 
@@ -87,7 +140,7 @@ Tests:
 2. Extend `tests/application/xstate-runtime-api-factory.test.ts` for application-composed status.
 3. Run `npm run validate:ui-smoke` because operator projections are affected.
 
-### P2: Complete Tool Protocol Hardening
+### P3: Complete Tool Protocol Hardening
 
 Goal: every tool call must have exactly one terminal delivery or error, and tool definitions must not drift from dispatch.
 
@@ -107,7 +160,7 @@ Tests:
 2. Add tests for tool parser/schema parity.
 3. Run `npm run typecheck`, `npm test`, `npm run validate:routine`.
 
-### P3: Replace Brittle Reviewer Verdict Parsing
+### P4: Replace Brittle Reviewer Verdict Parsing
 
 Goal: reviewer control-plane results should be structured, not accidental prose.
 
@@ -124,7 +177,7 @@ Tests:
 1. Focused tests for valid pass/corrections/failure reviewer outputs.
 2. Tests that unsupported prose fails without committing a false success.
 
-### P4: Implement Real Startup Recovery
+### P5: Implement Real Startup Recovery
 
 Goal: the recovery plan should drive safe actor/process/card reconciliation, not just be exposed for tests.
 
@@ -132,8 +185,8 @@ Issues covered: old-plan startup recovery gap, F08, F10, F16.
 
 Work:
 
-1. Define recovery policy by actor kind: supervisor, card, LLM, process.
-2. Rebuild only safe actor trees from snapshots; explicitly abandon unsafe provider/tool/process boundaries with diagnostics.
+1. Define recovery policy by actor kind and state value: supervisor, card, LLM, process.
+2. Rebuild only safe XState actor trees from snapshots; explicitly abandon unsafe provider/tool/process boundaries with diagnostics.
 3. For active card snapshots, reconcile public card status before dispatching more work.
 4. Reconcile running process snapshots: either reattach if safe or mark abandoned/failed with evidence.
 5. Add typed snapshot context schemas only for contexts that recovery will actually consume.
@@ -144,7 +197,7 @@ Tests:
 1. Startup tests for active card, active LLM, running process, stale pending tool call, and missing owner card.
 2. Tests that recovery emits diagnostics for abandoned unsafe state.
 
-### P5: Persist And Route NoteBox State, Then Remove Old Synthetic Fallback
+### P6: Persist And Route NoteBox State, Then Remove Old Synthetic Fallback
 
 Goal: changed-card propagation should use CardRunner NoteBox ownership rather than old synthetic planner-note fallback.
 
@@ -163,7 +216,7 @@ Tests:
 2. Restart recovers pending note or explicitly reports abandoned note.
 3. Shutdown clears active note sink registry.
 
-### P6: Delete Dead Runtime-Path Modules And Legacy Runtime Config Shapes
+### P7: Delete Dead Runtime-Path Modules And Legacy Runtime Config Shapes
 
 Goal: remove code that is not part of the new core.
 
@@ -192,7 +245,7 @@ Tests:
 2. `npm test`
 3. `npm run validate:routine`
 
-### P7: Terminal Commit And Runtime State Cleanup
+### P8: Terminal Commit And Runtime State Cleanup
 
 Goal: finish low-risk cleanup that became easier after old runtime deletion.
 
@@ -209,7 +262,7 @@ Tests:
 2. Runtime reducer/state tests.
 3. `npm run validate:routine`.
 
-### P8: Broader Over-Engineering Cleanup
+### P9: Broader Over-Engineering Cleanup
 
 Goal: keep reducing accidental surface without distracting from core runtime correctness.
 
@@ -232,19 +285,21 @@ Tests:
 1. Do not reintroduce old runtime-core, dispatcher, startup repair, phase runner, or phase helper layers.
 2. Do not add compatibility shims for old `.saivage` runtime state.
 3. Do not expose XState snapshots directly through operator API/UI.
-4. Do not perform a full event-sourced workflow rewrite.
-5. Do not preserve dead code because tests happen to import it. Either move the useful behavior into current actor/domain tests or delete the test.
+4. Do not keep XState as a decorative persistence/state-label layer around imperative loops.
+5. Do not perform a full event-sourced workflow rewrite.
+6. Do not preserve dead code because tests happen to import it. Either move the useful behavior into current actor/domain tests or delete the test.
 
 ## Execution Checklist
 
-1. P0 runtime ownership and cancellation.
-2. P1 truthful status/activity reporting.
-3. P2 durable tool protocol hardening.
-4. P3 structured reviewer verdicts.
-5. P4 startup recovery.
-6. P5 NoteBox persistence and synthetic fallback removal.
-7. P6 dead runtime-path module deletion.
-8. P7 terminal/state cleanup.
-9. P8 broader over-engineering cleanup.
+1. P0 make XState load-bearing.
+2. P1 runtime ownership and cancellation on top of XState.
+3. P2 truthful status/activity reporting.
+4. P3 durable tool protocol hardening.
+5. P4 structured reviewer verdicts.
+6. P5 startup recovery.
+7. P6 NoteBox persistence and synthetic fallback removal.
+8. P7 dead runtime-path module deletion.
+9. P8 terminal/state cleanup.
+10. P9 broader over-engineering cleanup.
 
 Each priority block should be a separate tranche with focused tests first, then `npm run validate:routine`, `npm test`, `npm run build`, and `npm run validate:ui-smoke` when API/UI projections change.

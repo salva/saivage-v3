@@ -3,7 +3,7 @@
 | ID | Title | Category | Severity | Transversality |
 |----|-------|----------|----------|----------------|
 | F01 | SupervisorRuntimeApi.startProject is synchronous-imperative, not reactive | Architectural / bad assumption | 5 | Cross-cutting |
-| F02 | XState machines are decorative -- state transitions are not the execution driver | Architectural / bad abstraction | 4 | Cross-cutting |
+| F02 | XState machines are decorative -- state transitions are not the execution driver | Architectural / bad abstraction | 5 | Cross-cutting |
 | F03 | Six dead production modules with zero importers | Dead code | 3 | Local |
 | F04 | GoalCardRunner.start() has no cancellation path while supervisor is paused/stopping | Bad assumption / correctness | 5 | Cross-cutting |
 | F05 | Reviewer response parsing is brittle string matching | Bad assumption / fragile | 4 | Local |

@@ -17,7 +17,7 @@ Architectural / bad abstraction
 
 ## Severity
 
-4 -- The XState dependency adds complexity (import cost, learning curve, snapshot serialization for state that could be a plain object) without delivering the benefit of declarative state machines. The code would be simpler and more honest with plain state objects.
+5 -- XState is a central design requirement for the new runtime core. The defect is therefore not "XState should be removed"; the defect is that the current implementation fails to make XState load-bearing. The next design should move invocation, tool delivery, cancellation, completion, and recovery transitions into real XState machines, reducing controller classes to thin facades rather than preserving imperative orchestration loops.
 
 ## Transversality
 
