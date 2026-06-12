@@ -69,7 +69,6 @@ The system does not provide:
 - a second operator console, fallback keyword command parser, or programmatic user-facing mutation API that bypasses the Analyst;
 - a user-managed note or notification object class;
 - notification inbox, list, get, edit, delete, acknowledge, clear-all, or bulk-handle operations;
-- arbitrary cross-tree card reparenting;
 - hard scheduling guarantees from displayed child order;
 - resetting/restarting planner internal state as a required user capability;
 - the Analyst acting as a substitute executor for delivery work.
@@ -106,16 +105,13 @@ Terminal card types include `architecture`, `code`, `test`, `doc`, `data`, `rese
 
 ## 6. Card Ordering And Movement
 
-Children under a parent form an explicit ordered list. Creation appends to the end by default. The Analyst and planners may reorder children under the same parent.
+Children under a parent form an explicit ordered list. Creation appends to the end by default.
+
+The Analyst has global card authority on behalf of the user. It may create, edit, reorder, move, cancel, delete, archive, or replace any card when the requested operation is supported and any required destructive-action confirmation has been satisfied.
+
+A planner's card authority is local to the goal it owns. It may interact only with that goal's direct children: create them, edit them, reorder them, cancel/delete them where supported, and activate them. A planner may not mutate ancestors, siblings, unrelated cards, or descendants below one of its children. Larger tree reshaping is Analyst-owned.
 
 Displayed child order is for presentation and comprehension. It is not a hard scheduling contract. A planner may dispatch children out of displayed order if its reasoning says that is appropriate.
-
-Moving a card to a different parent is restricted to the parent-child axis:
-
-- Move down into one of the card's current siblings.
-- Move up to become a sibling of the card's current parent.
-
-Moving a card under an unrelated parent is not supported.
 
 ## 7. Lifecycle Controls
 
@@ -165,7 +161,7 @@ Reviewer `needs_corrections` is handled inside the child activation. It is not a
 
 ## 9. Changed Cards
 
-When a non-active card is modified by the Analyst or by its parent planner, its card status must become `changed`.
+When a non-active card is modified by the Analyst, or when a direct child is modified by its parent planner, its card status must become `changed`.
 
 If the modified card is already `running`, it remains `running`. Running status is not overwritten by `changed` because it is part of the active activation chain.
 
