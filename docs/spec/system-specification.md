@@ -322,7 +322,7 @@ The Analyst can reconfigure:
 - runtime settings;
 - server settings.
 
-Configuration changes apply to subsequent relevant work without server restart unless the specific change requires a restart. If a restart is required, the Analyst must say so and ask before restarting.
+Configuration changes apply to subsequent relevant work without server restart unless the specific change requires a restart. Runtime components should reevaluate dynamically changeable settings at their relevant use/admission boundaries rather than requiring restart or long-lived cached configuration. If a restart is required, the Analyst must say so and ask before restarting.
 
 ## 20. Failure Modes
 

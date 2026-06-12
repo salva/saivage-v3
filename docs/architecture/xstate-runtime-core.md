@@ -54,7 +54,7 @@ The implementation must preserve these functional invariants:
 - Pause is a scheduling gate and does not mutate card/session/process state.
 - Shutdown pauses first, then terminates runtime-owned running processes.
 - Process handling uses launch, inspect, bounded wait, and explicit termination; wait timeout does not kill the process.
-- Configuration changes apply to future relevant work. In-flight LLM turns keep the provider/configuration they were admitted with; later LLM turns read the latest effective configuration at admission time.
+- Configuration changes apply to future relevant work. Runtime components should read dynamically changeable settings at their relevant use/admission boundary rather than caching them indefinitely. In-flight LLM turns keep the provider/configuration they were admitted with; later LLM turns read the latest effective configuration at admission time.
 - Operator APIs and UI expose Saivage read models, never raw XState snapshots.
 
 ## 4. Actor Tree
@@ -82,7 +82,7 @@ Actor ownership:
 - LLM turn actors own provider admission, provider invocation, provider cancellation, and typed provider output.
 - Process actors own OS process lifecycle, process status, waits, termination, and safe log read models.
 
-Child card activations are invoked by their parent machine because `activate_card` needs exactly one completion or failure outcome delivered to the waiting parent planner. Longer-lived owned resources such as process actors may be spawned when their lifecycle outlives one tool call. Actor-to-actor runtime behavior flows through XState events, actor completion, and typed outputs. Event/timeline infrastructure may publish projections and audit records, but it must not become an internal workflow bus.
+Child card activations are invoked by their parent machine because `activate_card` needs exactly one completion or failure outcome delivered to the waiting parent planner under the single-active-leaf model. Longer-lived owned resources such as process actors may be spawned when their lifecycle outlives one tool call. If Saivage later lifts the single-active-leaf model, child activation ownership can be reconsidered. Actor-to-actor runtime behavior flows through XState events, actor completion, and typed outputs. Event/timeline infrastructure may publish projections and audit records, but it must not become an internal workflow bus.
 
 ## 5. RuntimeApi Boundary
 
@@ -154,7 +154,7 @@ Minimal externally meaningful phases:
 - `delivering_tool_result`: planner tool/process output is being delivered back to the planner session.
 - `activating_child`: a direct child card actor is active behind an `activate_card` barrier.
 - `delivering_child_result`: child outcome has been committed and is being delivered back to the planner session.
-- `checking_readiness`: runtime completion gates are being evaluated.
+- `checking_readiness`: runtime completion gates are being evaluated. This is intentionally a named local phase so readiness diagnostics and recovery boundaries are visible; it can be collapsed to guards later without changing the product contract if it proves trivial.
 - `reviewing`: reviewer assessment is active.
 - `delivering_review_result`: negative reviewer result is injected into planner context, or positive result is attached to the card.
 - `committing_outcome`: accepted `done`, `failed`, or `blocked` result is being attached to the card.
