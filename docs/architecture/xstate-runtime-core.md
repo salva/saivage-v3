@@ -62,7 +62,7 @@ The implementation must preserve these functional invariants:
 The runtime actor tree has one root supervisor actor. The supervisor owns the parentless project card actor. Card actors mirror the durable card hierarchy: each card actor owns its child card actors and, when that card is actively worked, its private card runner actor.
 
 ```mermaid
-flowchart TD
+graph TD
   api[RuntimeApi adapter] --> supervisor[Supervisor actor]
   supervisor --> project[Project card actor]
 
