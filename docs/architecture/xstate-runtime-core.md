@@ -83,6 +83,15 @@ graph TD
   terminalRunner --> terminalTurn[LLM turn actor]
   terminalRunner --> terminalProcess[Process actors]
 
+  projectTurn -. sample activate_card .-> projectRunner
+  projectRunner -. sample activation .-> projectCard
+  projectCard -. route to child .-> goalCard
+  goalCard -. start runner .-> goalRunner
+  goalTurn -. sample activate_card .-> goalRunner
+  goalRunner -. sample activation .-> goalCard
+  goalCard -. route to child .-> terminalCard
+  terminalCard -. start runner .-> terminalRunner
+
   classDef cardActor fill:#e8f1ff,stroke:#2f5fa8,stroke-width:2px,color:#14213d
   classDef runnerActor fill:#fff4df,stroke:#b36b00,stroke-width:2px,color:#3a2300
   classDef resourceActor fill:#e9f8ef,stroke:#287a42,stroke-width:2px,color:#0f2a18
@@ -94,7 +103,7 @@ graph TD
   class api,supervisor,projectChildren,goalChildren support
 ```
 
-The diagram shows one representative branch. Blue nodes are card actors, orange nodes are private card-runner actors, and green nodes are runner-owned resource actors. Project and goal card actors own a `children` array of child-card actor references, while terminal card actors are leaves. Any active card actor owns the runner actor appropriate for that card type. Runner actors own transient LLM turn actors and any process actors needed by their tools.
+The diagram shows one representative branch. Solid arrows show actor ownership. Dotted arrows show a sample `activate_card` invocation chain from an LLM turn back through its runner, then through card actors to the selected child card and that child's runner. Blue nodes are card actors, orange nodes are private card-runner actors, and green nodes are runner-owned resource actors. Project and goal card actors own a `children` array of child-card actor references, while terminal card actors are leaves. Any active card actor owns the runner actor appropriate for that card type. Runner actors own transient LLM turn actors and any process actors needed by their tools.
 
 Actor ownership:
 
