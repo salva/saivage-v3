@@ -42,13 +42,17 @@ Ancestors are waiting for their active child. Their runner/session lifecycle sta
 
 The runtime persists enough active-card-run and activation-ledger information to unwind one terminal child outcome back to its parent planner.
 
+Activation validation happens before dispatch. A parent planner can activate only an immediate child that is ready to run, and only when that parent has no active child already in flight.
+
 ## 5. Agent Lifecycle
 
-Planner sessions are long-lived per goal. A planner can become dormant after reporting done, failed, or blocked, and can later be resumed by activation of the same goal.
+Planner sessions are long-lived per goal and should have deterministic identity derived from the goal card. A planner can become dormant after reporting done, failed, or blocked, and can later be resumed by activation of the same goal.
 
 Executor sessions are one-shot per terminal card activation.
 
 Reviewer sessions are one-shot per assessment.
+
+Reviewer approval is valid only for the card tree snapshot it assessed. If the goal or any descendant changes before approval commits, the runtime invalidates the reviewer pass and returns the goal to planner ownership with correction/change context.
 
 Analyst sessions are user-facing conversational sessions. Analyst mutations go through canonical runtime, card, config, process, and notification services.
 
@@ -94,9 +98,11 @@ Notification content is not a durable user-managed object. Persistence exists on
 
 Analyst mutation or parent-planner mutation sets a non-active card to `changed`. If the modified card is already `running`, it remains `running`. In both cases the runtime queues a notification to the modified card so the card's main agent becomes aware of the change.
 
-Ancestors receive `subtree_changed` context, but are not automatically dispatched by the status change.
+Inactive ancestors on the direct path to the project root receive changed-subtree context and become `changed` until the first running ancestor. Running ancestors stay `running` and receive notification/context instead of status overwrite. Ancestors are not automatically dispatched by the status change.
 
-The acceptance gate prevents a planner from closing a goal while any descendant is `changed`. This forces the planner to observe and handle the modification before claiming completion.
+The acceptance gate prevents a planner from closing a goal while any executable descendant is not in a terminal accepted state. This forces the planner to observe and handle changed, blocked, backlog, running, failed, cancelled, or otherwise incomplete executable descendants before claiming completion. Planner-owned plan cards are durable planning diaries rather than independently activated work.
+
+`status_text` is a runtime projection from accepted terminal reports only. It is not updated from progress chatter, rejected reports, or reviewer correction requests.
 
 ## 9. Collaborative Cancellation
 
@@ -135,6 +141,8 @@ API bearer tokens are accepted in `Authorization: Bearer` headers, not URL query
 The Analyst may inspect secrets when the authenticated user request requires it. UI projections and logs may redact secrets by default, but that redaction is a display/output policy rather than a limit on Analyst authority.
 
 File inspection and process output are filtered through containment, binary/size checks, and safe command rendering. Secret display should be deliberate and minimized, not categorically unavailable to the Analyst.
+
+Provider diagnostics, account details, runtime internals, and raw error metadata must not be injected into planner, executor, reviewer, or analyst model context merely because they exist. Agent-visible context is deliberately constructed: include actionable recovery information when needed, sanitize diagnostic detail, and preserve raw data in logs or projections with appropriate access controls.
 
 ## 13. Implementation Direction
 

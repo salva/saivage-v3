@@ -78,9 +78,15 @@ The system does not provide:
 
 Cards are the durable units of project work. They form a parent-child tree rooted at the project card.
 
-A card can describe a goal or a terminal task. Goal cards are worked by planners. Terminal cards are worked by executors. Reviewers assess completed goals.
+A card can describe a project, a goal, a planner-owned plan, or a terminal task. Goal cards are worked by planners. Terminal cards are worked by executors. Reviewers assess completed goals.
 
 Every card may carry title, description, acceptance criteria, tags, dependencies, priority, urgency, history, result data, and a runtime-written `status_text` summarizing the most recent accepted terminal report.
+
+The project card is the single undeletable root card. It carries project-level context, global constraints, and the user's top-level objective summary. Agents working below the root must be able to receive relevant project context without treating the project card as ordinary disposable work.
+
+Goal and project cards may have one planner-owned plan card as their first child. The plan card is the durable planning diary for that goal: it records decomposition, assumptions, sequencing notes, reviewer feedback, and relevant correction history. It is not a separate executable child competing with implementation work and is not activated independently.
+
+Terminal card types include `architecture`, `code`, `test`, `doc`, `data`, `research`, and `ops`. The system may support additional terminal types, but every terminal card must still use the executor activation flow.
 
 ### Card Statuses
 
@@ -93,6 +99,8 @@ Every card may carry title, description, acceptance criteria, tags, dependencies
 - `cancelled`: cancelled work.
 
 `AwaitingChild` is not a card status. It is a planner/session lifecycle state for an active ancestor waiting on a child or process wait.
+
+`status_text` is written only by the runtime from an accepted terminal report. The system must not mirror mid-run progress, rejected reports, reviewer correction requests, or failed validation attempts into `status_text` as if they were accepted outcomes.
 
 ## 6. Card Ordering And Movement
 
@@ -143,6 +151,8 @@ At most one active leaf does real work at a time. The active work can still form
 
 Planners do not directly run child planners or executors. A planner calls `activate_card(card_id)`. From the parent planner's perspective, this is a synchronous logical barrier: one tool call eventually receives exactly one terminal outcome.
 
+`activate_card` is valid only when the caller is the responsible parent planner, the requested card is an immediate child of that planner's goal, the child is in an activatable state, and no other active child is already running for that parent. Invalid activation attempts fail before dispatch and leave card status unchanged.
+
 The runtime may persist, recover, and resume the physical work across service restarts. The parent planner still observes one outcome for the activation:
 
 - `done`
@@ -159,7 +169,11 @@ If the modified card is already `running`, it remains `running`. Running status 
 
 In every case, the runtime queues a notification to the modified card so that the main agent handling that card becomes aware of the change. If the card is currently active and paused, the notification is delivered when the agent next accepts injected context. If the card is not active, the notification is delivered to the next future main agent session for that card.
 
-`changed` is a parent-visible durable signal. It tells the parent planner that the child or descendant changed after the planner last observed it. A planner cannot successfully report a goal `done` while any descendant remains `changed`.
+`changed` is a parent-visible durable signal. It tells the parent planner that the child or descendant changed after the planner last observed it. A planner cannot successfully report a goal `done` while any executable descendant is not in a terminal accepted state compatible with completion.
+
+When an inactive descendant changes, the runtime also records changed-subtree context for the direct ancestor path up to the first running ancestor or the project root. Resting ancestors on that path become `changed`; running ancestors remain `running` and receive notification/context instead of having their status overwritten.
+
+If a goal is under review and the goal or any descendant changes before the reviewer pass commits, the reviewer pass is invalidated. The goal returns to planner ownership with correction/change context; stale reviewer approval must not mark the goal `done`.
 
 The `changed` state does not by itself dispatch work. The responsible planner must see the changed child in context and decide whether to reactivate it.
 
@@ -169,12 +183,15 @@ A planner can report a goal `done`, `failed`, or `blocked`.
 
 Before accepting `done`, the runtime must verify:
 
-- no descendant card remains `blocked`;
-- no descendant card remains `changed`;
+- every executable descendant card is in a terminal accepted state compatible with completion;
 - required evidence references are valid;
 - reviewer assessment passes after readiness and evidence gates pass.
 
-If any descendant remains `changed`, the parent cannot close the goal. The runtime reports a readiness error that identifies the descendant state that must be handled.
+If any executable descendant remains `changed`, `blocked`, `backlog`, `running`, `failed`, `cancelled`, or otherwise non-terminal for successful completion, the parent cannot close the goal. The runtime reports a readiness error that identifies the descendant state that must be handled.
+
+Planner-owned plan cards do not need executor-style terminal outcomes, but they must reflect the latest accepted planner and reviewer state before the enclosing goal can close.
+
+If a reviewer interrupts a completion by requesting corrections, the goal returns to planner ownership with reviewer feedback in context. The parent planner remains behind the same `activate_card` barrier until that child activation ultimately reports `done`, `failed`, or `blocked`.
 
 Notifications never block goal completion and have no acknowledgement gate.
 
@@ -299,6 +316,8 @@ The system satisfies this specification when:
 - modifying a running card keeps it `running` and queues a notification to that card;
 - `changed` descendants block parent `done` reports until handled;
 - cancellation of running work is collaborative through downstream notifications and voluntary failed outcomes;
+- terminal card `status_text` reflects accepted terminal reports only;
+- goal completion rejects any executable descendant state that is not compatible with accepted completion;
 - notifications are card-addressed, ephemeral, immutable, and non-inspectable as objects;
 - restart/reset of planner state is not required;
 - the Analyst can inspect, diagnose, configure, and repair through canonical services, including secret inspection when needed;
