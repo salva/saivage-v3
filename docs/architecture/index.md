@@ -7,3 +7,4 @@ Use these documents to understand how the functional specification is realized. 
 Current architecture documents:
 
 - [System architecture](./system-architecture.md)
+- [XState runtime core architecture](./xstate-runtime-core.md)

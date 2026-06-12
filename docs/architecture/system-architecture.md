@@ -26,6 +26,8 @@ Runtime is infrastructure. Operator UI and HTTP/WebSocket transport are infrastr
 
 This distinction matters: the runtime should not be described as a peer of planner/executor/reviewer. It owns dispatch and persistence. Worker agents perform card work under runtime control. The Analyst controls the system on behalf of the user through canonical services.
 
+The detailed runtime-core implementation architecture is specified in [XState runtime core architecture](./xstate-runtime-core.md).
+
 ## 3. Ownership Boundaries
 
 The runtime is the only dispatcher. Agents request work through tools; they do not directly invoke other agents.
@@ -125,7 +127,7 @@ Expected persisted concerns include:
 - process registry and safe process logs;
 - event and error timelines;
 - redacted audit/control-action records;
-- pending card-addressed notifications only until delivery.
+- pending card-addressed notifications until delivery, or until their card leaves the active runtime through deletion/archival.
 
 ## 11. API And UI Projection
 
@@ -151,7 +153,7 @@ Provider diagnostics, account details, runtime internals, and raw error metadata
 
 ## 13. Implementation Direction
 
-The runtime implementation direction is XState-centered: machine states and actor events should drive behavior, not imperative controller loops decorated with snapshots.
+The runtime implementation direction is XState-centered: machine states and actor events drive behavior, not imperative controller loops decorated with snapshots. The detailed actor contracts, state ownership, persistence boundaries, and implementation sequence are defined in [XState runtime core architecture](./xstate-runtime-core.md).
 
 Target actor ownership:
 
