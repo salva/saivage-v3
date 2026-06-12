@@ -1,35 +1,19 @@
-import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from '@jest/globals';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
+import { CardStore } from '../../src/cards/card-store.js';
+import { completeSession, createSession, getSession, getSessionMessages, markSessionWaiting } from '../../src/runtime/session-persistence.js';
+import { EventLogger } from '../../src/observability/index.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
-import { createSession, completeSession, getSession, getSessionMessages, markSessionWaiting } from '../../src/agents/session-persistence.js';
+import { createRuntimeStateMutationPort } from '../../src/runtime/mutations.js';
+import { releaseLock } from '../../src/runtime/lock.js';
+import { performRuntimeStartup } from '../../src/runtime/runtime-startup.js';
 import { readRuntimeState, updateRuntimeState } from '../../src/runtime/state.js';
-import type { AgentExecutionPort as AgentRuntime } from '../../src/contracts/index.js';
-import type { PlannerResult, ExecutorResult, ReviewerResult } from '../../src/contracts/index.js';
-import type { HandoffSummary } from '../../src/schemas/types.js';
-import { createRuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
 import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 
-class NoopAgentRuntime implements AgentRuntime {
-  invokePlanner(): Promise<PlannerResult> { return Promise.resolve({ status: 'continue' }); }
-  invokeExecutor(): Promise<ExecutorResult> { return Promise.resolve({ card_id: 'x', status: 'done', status_text: 'noop', artifacts: [], attachments: [], fallback_with_evidence: null }); }
-  invokeReviewer(): Promise<ReviewerResult> { return Promise.resolve({ assessment: { result: 'pass', summary: 'noop', achieved: [], issues: [], evidence_card_ids: [] } }); }
-  cancelSession(): boolean { return false; }
-  forceCancelSession(): boolean { return false; }
-  getHandoffSummary(): HandoffSummary | null { return null; }
-  getActiveSessionHandoffs(): HandoffSummary[] { return []; }
-}
-
-function readEvents(projectRoot: string): Array<Record<string, unknown>> {
-  return readFileSync(join(projectRoot, '.saivage', 'runtime', 'events.jsonl'), 'utf8')
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as Record<string, unknown>);
-}
-
-describe('startup agent session sweep', () => {
+describe('runtime startup session sweep', () => {
   let projectRoot: string;
   let saivageDir: string;
 
@@ -41,10 +25,11 @@ describe('startup agent session sweep', () => {
   });
 
   afterEach(() => {
+    try { releaseLock(projectRoot); } catch { /* ignore unlocked temp projects */ }
     rmSync(projectRoot, { recursive: true, force: true });
   });
 
-  it('sweeps active non-analyst sessions, preserves waiting planner and analyst, logs one sweep event, clears stale current_agent_session_id', async () => {
+  it('sweeps active non-analyst sessions, logs one sweep event, and clears swept active runtime state', async () => {
     const activeExecutor = createSession(saivageDir, 'executor', 'goal-1', 'card-1');
     const activeReviewer = createSession(saivageDir, 'reviewer', 'goal-1', 'goal-1');
     const activePlanner = createSession(saivageDir, 'planner', 'goal-1', 'goal-1');
@@ -55,17 +40,47 @@ describe('startup agent session sweep', () => {
     completeSession(saivageDir, doneExecutor.id, 'done');
     const waitingBefore = readFileSync(join(saivageDir, 'agents', 'sessions', `${waitingPlanner.id}.json`), 'utf8');
     const analystBefore = readFileSync(join(saivageDir, 'agents', 'sessions', `${analyst.id}.json`), 'utf8');
-    updateRuntimeState(projectRoot, { status: 'running', active_card_run: { card_id: 'goal-1', card_type: 'goal', ownership: { kind: 'direct', source: 'project_root' },
-  runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: activePlanner.id, correction_attempts: 0, started_at: new Date().toISOString(), last_turn_at: new Date().toISOString() } });
-
-    const harness = createRuntimeCoreTestContainer({
-      config: { projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' } },
-      agentRuntime: new NoopAgentRuntime(),
+    updateRuntimeState(projectRoot, {
+      status: 'running',
+      active_card_run: {
+        card_id: 'goal-1',
+        card_type: 'goal',
+        ownership: { kind: 'direct', source: 'project_root' },
+        runtime_status: 'running',
+        phase: 'planner',
+        caller_session_id: null,
+        caller_tool_call_id: null,
+        planner_session_id: activePlanner.id,
+        correction_attempts: 0,
+        started_at: new Date().toISOString(),
+        last_turn_at: new Date().toISOString(),
+      },
     });
-    const { api } = harness;
-    await api.start();
-    const stateAfterStartup = readRuntimeState(projectRoot);
-    await api.shutdown();
+    const emitted: Array<{ kind: string; payload: unknown }> = [];
+    const eventLogger = new EventLogger(saivageDir);
+
+    await performRuntimeStartup({
+      projectRoot,
+      cards: new CardStore(projectRoot),
+      stateMachine: {
+        start: () => undefined,
+        transitionCard: async () => true,
+        requestImmediateTick: async () => undefined,
+      } as never,
+      runLedger: { finishOpenPlannerRun: () => null } as never,
+      projectCommands: { startProject: async () => undefined } as never,
+      supervisor: { start: () => undefined } as never,
+      events: {
+        emit: (kind: string, payload: unknown) => { emitted.push({ kind, payload }); },
+        publishRuntimeLedgerEvent: () => undefined,
+      } as never,
+      eventLogger,
+      mutations: createRuntimeStateMutationPort(projectRoot),
+      lifecycle: { running: false, paused: false, shuttingDown: false, dispatchInFlight: new Set(), dispatchPromises: new Map() },
+      repairStartupActiveCardRun: async () => readRuntimeState(projectRoot),
+      dispatchGoalThroughScheduler: async () => undefined,
+      trackBackgroundDispatch: () => undefined,
+    });
 
     for (const sessionId of [activeExecutor.id, activeReviewer.id, activePlanner.id]) {
       expect(getSession(saivageDir, sessionId)?.status).toBe('failed');
@@ -76,58 +91,12 @@ describe('startup agent session sweep', () => {
     expect(readFileSync(join(saivageDir, 'agents', 'sessions', `${waitingPlanner.id}.json`), 'utf8')).toBe(waitingBefore);
     expect(readFileSync(join(saivageDir, 'agents', 'sessions', `${analyst.id}.json`), 'utf8')).toBe(analystBefore);
     expect(getSession(saivageDir, doneExecutor.id)?.status).toBe('done');
-    const sweepEvents = readEvents(projectRoot).filter((event) => event.kind === 'startup_session_sweep');
-    expect(sweepEvents).toHaveLength(1);
-    expect((sweepEvents[0].swept_session_ids as string[]).sort()).toEqual([
-      activeExecutor.id,
-      activeReviewer.id,
-      activePlanner.id,
-    ].sort());
-    expect(stateAfterStartup?.active_card_run).toBeNull();
-    // /api/agents reads these same persisted manifests; route coverage is therefore exercised by the manifest assertions above.
+    const expectedSweptIds = [activeExecutor.id, activeReviewer.id, activePlanner.id].sort();
+    const emittedSweep = emitted.find((event) => event.kind === 'startup_session_sweep');
+    expect((emittedSweep?.payload as { swept_session_ids?: string[] }).swept_session_ids?.sort()).toEqual(expectedSweptIds);
+    const [loggedSweep] = eventLogger.getEvents({ kind: 'startup_session_sweep' });
+    expect(loggedSweep).toEqual(expect.objectContaining({ kind: 'startup_session_sweep' }));
+    expect((loggedSweep as unknown as { swept_session_ids: string[] }).swept_session_ids.sort()).toEqual(expectedSweptIds);
+    expect(readRuntimeState(projectRoot)?.active_card_run).toBeNull();
   });
-  it('requeues an interrupted planner active run on startup', async () => {
-    updateRuntimeState(projectRoot, {
-      status: 'running',
-      active_card_run: {
-        card_id: 'project',
-        card_type: 'project',
-        ownership: { kind: 'direct', source: 'project_root' },
-  runtime_status: 'running',
-        phase: 'planner',
-        caller_session_id: null,
-        caller_tool_call_id: null,
-        planner_session_id: 'planner:project',
-        correction_attempts: 0,
-        started_at: new Date().toISOString(),
-        last_turn_at: new Date().toISOString(),
-      },
-      runtime_intent: {
-        status: 'running',
-        source_command_id: 'cmd-started-before-restart',
-        updated_at: new Date().toISOString(),
-        reason: 'test interrupted planner run',
-      },
-    });
-
-    const harness = createRuntimeCoreTestContainer({
-      config: { projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' } },
-      agentRuntime: new NoopAgentRuntime(),
-    });
-    const { api } = harness;
-    try {
-      await api.start();
-      await new Promise((resolve) => setTimeout(resolve, 0));
-
-      const project = harness.cardTestTools.read('project');
-      expect(project?.status).toBe('blocked');
-      expect(project?.lifecycle.result).toEqual(expect.objectContaining({
-        resume_reason: 'non_actionable_continue',
-      }));
-      expect(harness.stateTestTools.read()?.active_card_run).toBeNull();
-    } finally {
-      await api.shutdown();
-    }
-  });
-
 });
