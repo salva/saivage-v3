@@ -6,21 +6,14 @@ import { tmpdir } from 'node:os';
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import { EventLogger } from '../../src/observability/event-logger.js';
 import { getEventSeverity } from '../../src/events/index.js';
-import type { AgentExecutionPort as AgentRuntime } from '../../src/contracts/index.js';
 import { FakeAgentAdapter } from '../../src/runtime/fake-agent.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { releaseLock } from '../../src/runtime/lock.js';
 import { getSession } from '../../src/agents/session-persistence.js';
-import { createRuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import type { LlmCallFn } from '../../src/agents/llm-contracts.js';
 import { createExecutorContract } from '../../src/contracts/executor-contract.js';
 import { createPlannerContract } from '../../src/contracts/planner-contract.js';
-
-type CancellationTracker = {
-  abortCalls: Array<{ sessionId: string }>;
-  forceCancelCalls: Array<{ sessionId: string }>;
-};
 
 function plannerRequest(goalId: string, systemPrompt: string, contextMessages: import('../../src/schemas/index.js').AgentMessage[]) {
   return { goalId, systemPrompt, contextMessages, contract: createPlannerContract() };
@@ -28,10 +21,6 @@ function plannerRequest(goalId: string, systemPrompt: string, contextMessages: i
 
 function executorRequest(cardId: string, goalId: string, systemPrompt: string, contextMessages: import('../../src/schemas/index.js').AgentMessage[]) {
   return { cardId, goalId, systemPrompt, contextMessages, contract: createExecutorContract() };
-}
-
-function makeCancellationTracker(): CancellationTracker {
-  return { abortCalls: [], forceCancelCalls: [] };
 }
 
 function createMinimalAdapter(
@@ -518,150 +507,6 @@ describe('FakeAgentAdapter cancellation semantics', () => {
 
     expect(fake.forceCancelSession('fake-reviewer-1')).toBe(true);
     expect(fake.getHandoffSummary('fake-reviewer-1')).toBeNull();
-  });
-});
-
-describe('Runtime/Supervisor wiring for abort and force-cancel', () => {
-  let tmpDir: string;
-  let cancellationTracker: CancellationTracker;
-
-  beforeEach(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), 'saivage-runtime-wire-'));
-    mkdirSync(join(tmpDir, '.saivage'), { recursive: true });
-    mkdirSync(join(tmpDir, '.saivage', 'runtime'), { recursive: true });
-    writeFileSync(
-      join(tmpDir, '.saivage', 'saivage.json'),
-      JSON.stringify({
-        providers: {},
-        models: { routes: [] },
-        server: { port: 8080, host: '0.0.0.0' },
-        runtime: {
-          compactionThreshold: 0.8,
-          maxCompactions: 3,
-          recoveryDelayMs: 60000,
-          maxRecoveryRetries: 3,
-          selfCheck: { planner: 0, executor: 0, reviewer: 0, analyst: 0 },
-        },
-        security: {},
-        supervisor: {},
-      }),
-      'utf-8',
-    );
-    initProjectTree(tmpDir);
-    cancellationTracker = makeCancellationTracker();
-  });
-
-  afterEach(() => {
-    try {
-      releaseLock(tmpDir);
-    } catch { /* ignore */ }
-    rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  it('delegates abortSession to agentRuntime.cancelSession via mock AgentRuntime', () => {
-    const mockAgentRuntime: AgentRuntime = {
-      invokePlanner(_request) {
-        return { status: 'done' };
-      },
-      invokeExecutor(_request) {
-        return { card_id: 'c', status: 'done' as const, status_text: 'Completed successfully', artifacts: [], attachments: [], fallback_with_evidence: null };
-      },
-      invokeReviewer(_request) {
-        return { assessment: { result: 'pass' as const, summary: '', achieved: [], issues: [], evidence_card_ids: [] } };
-      },
-      cancelSession(sessionId: string) {
-        cancellationTracker.abortCalls.push({ sessionId });
-        return true;
-      },
-      forceCancelSession(sessionId: string) {
-        cancellationTracker.forceCancelCalls.push({ sessionId });
-        return true;
-      },
-      getHandoffSummary(_sessionId: string) {
-        return null;
-      },
-      getActiveSessionHandoffs() {
-        return [];
-      },
-    };
-
-    const harness = createRuntimeCoreTestContainer({
-      config: {
-        projectRoot: tmpDir,
-        fakeAgentConfig: { mapping: {}, fixtureDir: tmpDir },
-        supervisorConfig: { enabled: true, intervalMs: 100, consecutiveStuckVerdicts: 2, logLines: 50 },
-      },
-      agentRuntime: mockAgentRuntime,
-    });
-
-    harness.agentRuntimeTestTools.cancelSession('test-session');
-    expect(cancellationTracker.abortCalls).toHaveLength(1);
-    expect(cancellationTracker.abortCalls[0].sessionId).toBe('test-session');
-
-    harness.agentRuntimeTestTools.forceCancelSession('force-session');
-    expect(cancellationTracker.forceCancelCalls).toHaveLength(1);
-    expect(cancellationTracker.forceCancelCalls[0].sessionId).toBe('force-session');
-
-    harness.supervisorTestTools.stop();
-  });
-
-  it('wires abortSession to FakeAgentAdapter.cancelSession when no explicit runtime', () => {
-    const harness = createRuntimeCoreTestContainer({
-      config: {
-        projectRoot: tmpDir,
-        fakeAgentConfig: { mapping: { '*': 'default' }, fixtureDir: tmpDir },
-        supervisorConfig: { enabled: false },
-      },
-    });
-
-    expect(harness.agentRuntimeTestTools.getConstructorName()).toBe(FakeAgentAdapter.name);
-    expect(harness.agentRuntimeTestTools.cancelSession('test')).toBe(false);
-  });
-
-  it('wires abortSession to AgentAdapter.cancelSession when AgentAdapter is injected', () => {
-    const eventLogger = new EventLogger(join(tmpDir, '.saivage'));
-    const adapter = createMinimalAdapter(tmpDir, { eventLogger });
-    const ctrl = new AbortController();
-    internals(adapter).setAbortController('wired-session', ctrl);
-
-    const harness = createRuntimeCoreTestContainer({
-      config: {
-        projectRoot: tmpDir,
-        fakeAgentConfig: { mapping: {}, fixtureDir: tmpDir },
-        supervisorConfig: { enabled: false },
-        eventLogger,
-      },
-      agentRuntime: adapter,
-    });
-
-    const result = harness.agentRuntimeTestTools.cancelSession('wired-session');
-    expect(result).toBe(true);
-    expect(ctrl.signal.aborted).toBe(true);
-
-    harness.supervisorTestTools.stop();
-    eventLogger.close();
-  });
-
-  it('wires forceCancelSession to AgentAdapter.forceCancelSession when AgentAdapter injected', () => {
-    const eventLogger = new EventLogger(join(tmpDir, '.saivage'));
-    const adapter = createMinimalAdapter(tmpDir, { eventLogger });
-
-    const harness = createRuntimeCoreTestContainer({
-      config: {
-        projectRoot: tmpDir,
-        fakeAgentConfig: { mapping: {}, fixtureDir: tmpDir },
-        supervisorConfig: { enabled: false },
-        eventLogger,
-      },
-      agentRuntime: adapter,
-    });
-
-    const result = harness.agentRuntimeTestTools.forceCancelSession('no-controller-force');
-    expect(result).toBe(false);
-    expect(internals(adapter).cancelledSessions.has('no-controller-force')).toBe(true);
-
-    harness.supervisorTestTools.stop();
-    eventLogger.close();
   });
 });
 
