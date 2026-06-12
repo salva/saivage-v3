@@ -909,8 +909,8 @@ Only the owner of the orphaned tool call is resumed. Other planners
 keep their persisted lifecycle status. After repair, the runtime
 returns to idle if no `active_card_run` remains. Startup repair must not
 consume directive files, scan card status, or dispatch the project planner
-before repair settles. The source guard is `repairStartupActiveCardRun()` plus
-`safeTick()` in `src/runtime/runtime.ts`, with regression coverage in
+before repair settles. The source guards are the startup repair/reconciliation
+helpers under `src/runtime/startup-*.ts`, with regression coverage in
 `tests/runtime/startup-repair.test.ts`.
 
 Runtime pause is global (`RuntimeState.paused`). It does not change
@@ -1078,7 +1078,8 @@ role:
 
 | File | Responsibility |
 |---|---|
-| `src/runtime/runtime.ts` | Runtime bootstrap, explicit start/stop commands, activation records, reviewer loop, single active card-run, restart repair. |
+| `src/runtime/actors/` | XState-era supervisor, card runners, LLM runners, child activation, and actor recovery. |
+| `src/application/xstate-runtime-api-factory.ts` | Runtime API composition backed by invocation services and card-store ports. |
 | `src/contracts/agent-execution.ts` | Runtime-facing agent execution port and planner/executor/reviewer invocation contracts. |
 | `src/agents/agent-adapter.ts` | Session loop, tool dispatch, single-active-planner enforcement hooks. |
 | `src/tools/planner-tools.ts` | Planner tool registry: card tools, workspace tools, `activate_card`, report tools (each carrying `status_text`). |

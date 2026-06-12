@@ -135,36 +135,10 @@ describe('runtime module ownership boundary', () => {
     }
   });
 
-  it('keeps RuntimeCoreContainer from exposing concrete Runtime', () => {
-    const source = readFileSync(join(process.cwd(), 'src/runtime/core-composition.ts'), 'utf8');
-    expect(source).not.toContain('  runtime: Runtime;');
-    expect(source).not.toContain('agentEventBus: runtime');
-    expect(source).not.toContain('RuntimeInternalParts');
-    expect(source).not.toContain('internalsSink');
-    expect(source).not.toContain('._runCheck(');
-  });
-
-  it('keeps production runtime core composition free of test tools', () => {
-    const source = readFileSync(join(process.cwd(), 'src/runtime/core-composition.ts'), 'utf8');
-    const start = source.indexOf('export interface RuntimeCoreContainer');
-    const end = source.indexOf('export interface RuntimeCoreTestContainer');
-    expect(start).toBeGreaterThanOrEqual(0);
-    expect(end).toBeGreaterThan(start);
-    const productionInterface = source.slice(start, end);
-    expect(productionInterface).not.toContain('TestTools');
-    expect(productionInterface).not.toContain('cardTestTools');
-    expect(productionInterface).not.toContain('lifecycleTestTools');
-    expect(productionInterface).not.toContain('agentEventBus');
-    expect(productionInterface).not.toContain('runtimeLedgerEvents');
-    expect(productionInterface).not.toContain('emitAnalystToolInvoked');
-    const productionFactoryStart = source.indexOf('export function createRuntimeCoreContainer');
-    const testFactoryStart = source.indexOf('export function createRuntimeCoreTestContainer');
-    expect(productionFactoryStart).toBeGreaterThanOrEqual(0);
-    expect(testFactoryStart).toBeGreaterThan(productionFactoryStart);
-    const productionFactory = source.slice(productionFactoryStart, testFactoryStart);
-    expect(productionFactory).not.toContain('createRuntimeCoreTestContainer');
-    expect(productionFactory).not.toContain('testPartsSink');
-    expect(productionFactory).not.toContain('lifecycleTestToolsSink');
+  it('removes obsolete concrete runtime composition files', () => {
+    expect(existsSync(join(process.cwd(), 'src/runtime/core-composition.ts'))).toBe(false);
+    expect(existsSync(join(process.cwd(), 'src/runtime/runtime.ts'))).toBe(false);
+    expect(existsSync(join(process.cwd(), 'src/runtime/runtime-dispatch-composition.ts'))).toBe(false);
   });
 
   it('keeps production runtime core parts free of concrete card mutation authority', () => {
@@ -210,76 +184,6 @@ describe('runtime module ownership boundary', () => {
     expect(assembly).not.toContain('Diagnostics');
   });
 
-  it('keeps agent event emission out of lifecycle test tools', () => {
-    const source = readFileSync(join(process.cwd(), 'src/runtime/core-composition.ts'), 'utf8');
-    const lifecycleToolsStart = source.indexOf('  lifecycleTestTools: {');
-    const lifecycleToolsEnd = source.indexOf('\n  };\n}', lifecycleToolsStart);
-    expect(lifecycleToolsStart).toBeGreaterThanOrEqual(0);
-    expect(lifecycleToolsEnd).toBeGreaterThan(lifecycleToolsStart);
-    const lifecycleTools = source.slice(lifecycleToolsStart, lifecycleToolsEnd);
-    expect(lifecycleTools).not.toContain('emitAgentEvent');
-  });
-
-  it('keeps runtime core independent from ActiveRuntime adapter', () => {
-    const source = readFileSync(join(process.cwd(), 'src/runtime/runtime.ts'), 'utf8');
-    expect(source).not.toContain("../agents/");
-    expect(source).not.toContain('active-runtime.js');
-    expect(source).not.toContain('ActiveRuntimeStampCounter');
-    expect(source).not.toContain('ActiveRuntimeStampSource');
-    expect(source).not.toContain('_activeRuntime');
-    expect(source).not.toContain('export class Runtime');
-    expect(source).not.toContain('setActiveRuntime');
-    expect(source).not.toContain('config.activeRuntime');
-    expect(source).not.toContain('activeRuntime: this._');
-    expect(source).not.toContain('extends EventEmitter');
-    expect(source).not.toContain('start_project()');
-    expect(source).not.toContain('stop_project()');
-    expect(source).not.toContain('runCleanup(');
-    expect(source).not.toContain('trackProcessStarted(');
-    expect(source).not.toContain('trackProcessStopped(');
-    expect(source).not.toContain('readonly runningProcesses');
-    expect(source).not.toContain('  readonly cardStore');
-    expect(source).not.toContain('  readonly projectRoot');
-    expect(source).not.toContain('  readonly agentRuntime');
-    expect(source).not.toContain('  readonly eventBus');
-    expect(source).not.toContain('notificationCenter');
-    expect(source).not.toContain('  get eventLogger(');
-    expect(source).not.toContain('  get errorLogger(');
-    expect(source).not.toContain('  get supervisor(');
-    expect(source).not.toContain('  get status(');
-    expect(source).not.toContain('  get paused(');
-    expect(source).not.toContain('  emitAgentEvent(');
-    expect(source).not.toContain('  registerArtifactOnCard(');
-    expect(source).not.toContain('  registerAttachmentOnCard(');
-    expect(source).not.toContain('  getBackgroundDispatchCount(');
-    expect(source).not.toContain('  get lastLifecycleDisposeReport(');
-    expect(source).not.toContain('  freeze(');
-    expect(source).not.toContain('  resumeFromFreeze(');
-    expect(source).not.toContain('  async performCrashRecovery(');
-    expect(source).not.toContain('  async dispatchGoal(');
-    expect(source).not.toContain('  emit(');
-    expect(source).not.toContain('  async startProject(');
-    expect(source).not.toContain('  async stopProject(');
-    expect(source).not.toContain('  async startup(');
-    expect(source).not.toContain('  async shutdown(');
-    expect(source).not.toContain('  pause(');
-    expect(source).not.toContain('  resume(');
-    expect(source).not.toContain('  consumeResumeHandoffContext(');
-    expect(source).not.toContain('  getState(');
-    expect(source).not.toContain('../agents/skills-engine.js');
-    expect(source).not.toContain('../agents/system-prompt.js');
-    expect(source).not.toContain('../agents/analyst-stage6.js');
-  });
-
-  it('keeps lifecycle implementation wiring out of concrete Runtime', () => {
-    const source = readFileSync(join(process.cwd(), 'src/runtime/runtime.ts'), 'utf8');
-    expect(source).toContain('RuntimeLifecycleController');
-    expect(source).not.toContain('performRuntimeStartup');
-    expect(source).not.toContain('performRuntimeShutdown');
-    expect(source).not.toContain('performRuntimeCrashRecovery');
-    expect(source).not.toContain('repairRuntimeStartupActiveCardRun');
-  });
-
   it('keeps application extras outside the RuntimeApi shape', () => {
     const source = readFileSync(join(process.cwd(), 'src/application/runtime-composition.ts'), 'utf8');
     expect(source).toContain('readonly runtimeApi: RuntimeApi');
@@ -299,16 +203,14 @@ describe('runtime module ownership boundary', () => {
 
   it('keeps old concrete runtime core quarantined from application and production entrypoints', () => {
     const forbiddenRuntimeCoreImports = [
-      'runtime/core-composition.js',
       'runtime/runtime.js',
-      'runtime/runtime-config.js',
+      'runtime/core-composition.js',
+      'runtime/runtime-dispatch-composition.js',
     ];
 
     for (const filePath of listTypeScriptFiles(join(process.cwd(), 'src'))) {
       const relativePath = filePath.slice(process.cwd().length + 1);
       if (
-        relativePath === 'src/runtime/runtime.ts' ||
-        relativePath === 'src/runtime/core-composition.ts' ||
         relativePath === 'src/runtime/runtime-config.ts'
       ) {
         continue;

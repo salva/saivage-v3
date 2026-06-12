@@ -79,7 +79,7 @@ Risk: LOW.
 `src/agents/fake-agent.ts` is `export * from '../runtime/fake-agent.js'`. Real impl is `src/runtime/fake-agent.ts`; production already imports the runtime path (`src/runtime/agent-runtime-factory.ts:5`).
 
 - Repoint all remaining test import sites from `../../src/agents/fake-agent.js` to `../../src/runtime/fake-agent.js`: `tests/agents/agent-adapter-abort.test.ts:10`, `tests/agents/agent-runtime.test.ts:6`, `tests/utils/runtime-agent-events.test.ts:12`, `tests/runtime/planner-context-compaction.test.ts:6`. (The `tests/utils/agents-module-boundary.test.ts:13` site is removed in WI-2; `tests/utils/runtime-adapter-wiring.test.ts`, `tests/utils/runtime-continuous-improvement.test.ts`, `tests/runtime/planner-non-actionable-output.test.ts`, `tests/utils/runtime-idle-running-intent-reconciliation.test.ts`, `tests/runtime/planner-context-length-blocker.test.ts`, `tests/utils/runtime-integration.test.ts`, the old harness section of `tests/e2e/hardening-e2e.test.ts`, and the old harness sections of `tests/utils/error-logger.test.ts` were removed during the XState runtime switchover cleanup.)
-- `scripts/verify-stage-v3-local-recreation.mjs:25`: repoint `dist/src/agents/fake-agent.js` → `dist/src/runtime/fake-agent.js`. (Note: this script imports `{ Runtime }` from `dist/src/runtime/runtime.js` at `:24`, but `runtime.ts` no longer exports `class Runtime`; the script looks already-broken — flag separately, don't fix it here.)
+- DONE: removed the obsolete `scripts/verify-stage-v3-local-recreation.mjs` stage artifact; it imported the deleted concrete runtime.
 - Delete `src/agents/fake-agent.ts`.
 - `scripts/check-import-boundaries.cjs`: if it has `agents/fake-agent` allowlist entries, remove them.
 
@@ -218,7 +218,7 @@ These are independent one-liners; can be one commit.
 
 - DONE: `src/agents/agent-adapter.ts` `redactModelIssueText` and `redactProviderErrorMessage` had byte-identical bodies. Merged into a single private `redactModelIssue`; the two consumer config keys (`AgentInvocationRunner` ctor and `compensateActivationBarrierThrow`) both feed it.
 - DEFERRED (reassessed): `redactTextForOutbound`/`redactSnippetForOutbound` in `src/redaction/index.ts` accept `options` then `void options`. The param is genuinely dead (even the concrete `redactText`/`snippet` impls ignore it, and `RedactionOptions.source` is never read), BUT it is threaded through the `RedactionPort` interface and ~25 call sites pass `{ source: ... }`. Removing it cleanly means editing the interface + ~25 call sites — that is lateral churn disproportionate to the LOW value, the same concern that demoted WI-12. Skip unless the redaction subsystem is being refactored for another reason; if removed, do the interface signatures and all call sites in one focused commit.
-- DEFERRED (reassessed): the `controls` object (`src/runtime/runtime.ts`) is NOT a 1:1 pass-through — `src/runtime/core-composition.ts` consumes `controls.X()` in TWO places to build separate API objects. Collapsing it touches the core runtime public-API assembly for LOW value; skip unless that wiring is being changed anyway.
+- OBSOLETE: the old concrete runtime `controls` object was removed with `src/runtime/runtime.ts` and `src/runtime/core-composition.ts`.
 
 Gates: `npm run typecheck`, `npm test`, `npm run validate:routine`.
 Risk: LOW.
@@ -227,7 +227,7 @@ Risk: LOW.
 
 ## WI-14 — `agentExecutionFactory` dead config seam (CAREFUL — not what it looks like)
 
-Correction to the findings doc: `createDefaultAgentExecution` (`src/runtime/agent-runtime-factory.ts:15`) is NOT dead — it is the test fallback that constructs `FakeAgentAdapter` when `Runtime` is created without an injected `agentRuntime`. Production always injects `agentAdapter` (`src/application/runtime-composition.ts:113` → `src/runtime/runtime.ts:88,92`), so the fallback is dead in production but live in tests.
+Correction to the findings doc: `createDefaultAgentExecution` (`src/runtime/agent-runtime-factory.ts:15`) is NOT dead — it remains the fallback that constructs `FakeAgentAdapter` for legacy/focused tests that use the old agent-runtime factory directly. The production application no longer composes the deleted concrete `Runtime`.
 
 What IS dead: the `agentExecutionFactory` config field (`src/runtime/runtime-config.ts:69`) is never assigned anywhere; the `?? createDefaultAgentExecution` indirection at `src/runtime/agent-runtime-factory.ts:39` always resolves to `createDefaultAgentExecution`.
 

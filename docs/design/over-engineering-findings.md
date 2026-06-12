@@ -75,9 +75,9 @@ The runtime READS and HANDLES a `'frozen'` status that **nothing ever WRITES** i
 ## Tier 4 — Indirection collapse (each removes a layer; behavior-neutral)
 
 ### 10. `RuntimeSessionPersistencePort` + `createFileRuntimeSessionPersistencePort` (`src/runtime/session-persistence-port.ts:13,28`)
-- One impl, a 6-method pass-through binding `saivageDir` to free functions; injected at exactly one site (`src/runtime/runtime.ts:72` → `ActivationUnwindRunner`); zero test fakes. `ActivationUnwindRunner` already takes `projectRoot` and could call the persistence functions directly.
-- Fix: delete the port + adapter; pass `projectRoot`.
-- Confidence: HIGH. Impact: MEDIUM.
+- Original finding targeted the deleted concrete runtime's activation-unwind wiring. The remaining file should be re-triaged only if `activation-unwind.ts` or session persistence is actively refactored.
+- Fix: deferred; do not churn this until the remaining old activation path is removed.
+- Confidence: MEDIUM. Impact: MEDIUM. Status: STALE AFTER XSTATE SWITCHOVER.
 
 ### 11. `ProcessReadModelService` (removed; was `application/read-models/process-read-model.ts`)
 - Stateless class; all 4 methods forwarded verbatim to `processApi(this.projectRoot)`. Deleted; callers use `processApi(projectRoot)` directly (see `src/server/routes/operator-process-handlers.ts`).
@@ -90,7 +90,7 @@ The runtime READS and HANDLES a `'frozen'` status that **nothing ever WRITES** i
 ### 13. Smaller pass-throughs
 - Duplicate identical methods `AgentAdapter.redactModelIssueText` ≡ `redactProviderErrorMessage` (`src/agents/agent-adapter.ts:277,280`, byte-identical) → merge to one.
 - `redactTextForOutbound`/`redactSnippetForOutbound` accept an `options` arg then `void options` (`src/redaction/index.ts:296`) → drop the misleading dead parameter.
-- Double forwarding `RuntimeApi` ↔ `controls` ↔ `RuntimeLifecycleController` (`src/runtime/runtime.ts:150`, `src/runtime/core-composition.ts:132`) → collapse the redundant `controls` intermediate.
+- DONE: Double forwarding through the deleted concrete runtime/core composition was removed with `src/runtime/runtime.ts` and `src/runtime/core-composition.ts`.
 - `agentExecutionFactory` config field is never assigned; `createDefaultAgentExecution` + `default-agent-execution.ts` barrel are a dead seam → inline the `new FakeAgentAdapter` fallback, drop the field.
 - Confidence: HIGH (each verified). Impact: LOW each.
 

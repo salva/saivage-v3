@@ -221,7 +221,7 @@ imported by the final runtime:
 - `src/runtime/state-machine.ts` dispatch/tick/redispatch responsibilities
 - `src/runtime/runtime-core.ts` active-run/runtime-run/runtime-activation reducer
   responsibilities
-- `src/runtime/runtime-dispatch-composition.ts`
+- `src/runtime/runtime-dispatch-composition.ts` (removed)
 - `src/runtime/runtime-lifecycle-controller.ts`
 - `src/runtime/runtime-lifecycle-state.ts`
 - `src/runtime/runtime-startup.ts` old active-session reconciliation
