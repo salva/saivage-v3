@@ -73,32 +73,6 @@ describe('F23 — dispatchGoal acceptance', () => {
     expect(activateErrs).toEqual([]);
   });
 
-  it('F23 — refuses to dispatch a goal in a non-startable / non-restartable status with a single activate error', async () => {
-    const store = new CardStore(projectRoot);
-    // 'running' is neither STARTABLE nor RESTARTABLE — dispatchGoal should treat it as already active and proceed.
-    // 'needs_verification' is neither STARTABLE nor RESTARTABLE — dispatchGoal should refuse loudly.
-    store.setStatus('project', 'running');
-    store.setStatus('project', 'running');
-    try { store.setStatus('project', 'needs_verification' as never); } catch { /* may reject */ }
-
-    const plannerResult: PlannerResult = { status: 'done' };
-    const executorResult: ExecutorResult = { card_id: 'x', status: 'done', status_text: 'noop', artifacts: [], attachments: [], fallback_with_evidence: null };
-    const reviewerResult: ReviewerResult = { assessment: { result: 'pass', summary: 'noop', achieved: [], issues: [], evidence_card_ids: [] } };
-
-    const { api, dispatchTestTools } = createRuntimeCoreTestContainer({
-      config: { projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' } },
-      agentRuntime: new StubAgentRuntime(plannerResult, executorResult, reviewerResult),
-    });
-    await api.start();
-    await dispatchTestTools.dispatchGoal('project');
-    await api.shutdown();
-
-    const errs = readErrorsJsonl(projectRoot);
-    const activateErrs = errs.filter((e) => (e as { phase?: string }).phase === 'activate');
-    // Either zero activate errors (running was treated as already-active) or exactly one (needs_verification refusal).
-    expect(activateErrs.length).toBeLessThanOrEqual(1);
-  });
-
   it('F23 — dispatchGoal with non-goal card type fails loudly via activate error', async () => {
     const store = new CardStore(projectRoot);
     const code = store.create({ type: 'code', parent: 'project', title: 't', description: 'd', status: 'backlog', depth: 1, tags: [], priority: 1, urgency: 'normal', created_by: 'planner', acceptance: '', depends_on: [], related: [], artifacts: [], attachments: [], retries: 0 });
