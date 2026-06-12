@@ -84,16 +84,17 @@ What to do:
 Likely causes:
 
 - Operator changed a card while an agent was running.
-- A directive or escalation note arrived.
-- A blocking notification was not acknowledged.
-- Executor/reviewer dispatch was held for notification delivery.
+- A card-addressed notification arrived but has not yet been delivered to the
+  card's current paused or next future main agent session.
+- A descendant card is in `changed`, so the parent planner cannot close the
+  subtree until it observes and handles that changed state.
 
 What to do:
 
-1. Inspect card history and notes.
+1. Inspect card history and the relevant agent session transcript.
 2. Inspect the session conversation for synthetic operator-update messages.
-3. Ensure the agent used `diff_card`, `get_card_history_entry`, `get_note`, or similar read tools as needed.
-4. Ensure blocking notifications are acknowledged before accepting terminal results.
+3. Ensure the agent used `diff_card`, `get_card_history_entry`, or similar read tools as needed.
+4. Check whether a descendant card remains `changed`; if so, queue card context or mark the affected goal for corrections rather than forcing completion.
 5. Treat repeated failure after reinvocation as an agent/tooling issue rather than forcing completion.
 
 ## Generated file preview is blocked or redacted

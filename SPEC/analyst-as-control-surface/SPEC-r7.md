@@ -20,7 +20,7 @@ The runtime owns the card tree, the notification queue, runtime state and event 
 
 ### The Analyst chat
 
-The Analyst is a single conversational session per project. The user types in natural language; the Analyst inspects, mutates, reconfigures, and reports back. It inherits the authenticated user's authority. It is not an autonomous worker: it does not write code, run builds, or deploy. Delivery work is delegated by creating or editing cards, by queueing notifications to upcoming agent sessions, and by issuing runtime control actions, all of which the autonomous runtime then executes.
+The Analyst is a single conversational session per project. The user types in natural language; the Analyst inspects, mutates, reconfigures, and reports back. It inherits the authenticated user's authority. It is not an autonomous worker: it does not write code, run builds, or deploy. Delivery work is delegated by creating or editing cards, by queueing notifications to cards, and by issuing runtime control actions, all of which the autonomous runtime then executes.
 
 The runtime acts on its own according to project state. The user steers via the Analyst — no other control path exists.
 
@@ -32,7 +32,7 @@ The two parts have a fixed spatial division in the operator web UI. The Analyst 
 
 Saivage v2 had a user-visible object class called a "note". Notes were how the user passed information to the planner, because v2 objectives were static. That assumption no longer holds in v3: objectives evolve through the card tree itself, and any durable information about a goal attaches to the card it concerns. The v2 "note" is therefore retired.
 
-In v3 the equivalent low-level mechanism is the **notification**. A notification is an ephemeral piece of content queued to be injected, as soon as possible, into either a currently running but paused agent session matching the addressed card or role, or the next future agent session targeting that card or role. Notifications are not a user-managed object class: there is no notification inbox, no per-notification acknowledge action, no edit, no delete, no bulk-handle operation, and no list/get capability. The platform (planner, executor, reviewer, runtime, error reporter) is the primary producer of notifications; the user, via the Analyst, is one of several producers.
+In v3 the equivalent low-level mechanism is the **notification**. A notification is an ephemeral piece of content queued onto a card. The card runtime delivers that content, as soon as possible, to the main agent session responsible for that card: either the currently running but paused session for the card, or the next future session for that card. Notifications are not addressed directly to arbitrary roles; if the user phrases a request in role terms (for example, "tell the executor for goal-7"), the Analyst resolves it to the relevant card or asks a clarifying question. Notifications are not a user-managed object class: there is no notification inbox, no per-notification acknowledge action, no edit, no delete, no bulk-handle operation, and no list/get capability. The platform (planner, executor, reviewer, runtime, error reporter) is the primary producer of notifications; the user, via the Analyst, is one of several producers.
 
 Notification semantics:
 
@@ -98,12 +98,12 @@ Example utterances and expected outcomes:
 - "Edit the acceptance criteria of goal-7 to add: results reproducible from a clean checkout." → the criteria are updated and the Analyst reports the new value.
 - "Delete every cancelled card." → all cards with status `cancelled` are deleted in one turn, and the Analyst reports the count and ids.
 
-### Queue notifications to agent sessions
+### Queue notifications to cards
 
-The user can queue a notification, addressed to a given card or role, that will be injected into a currently running paused matching agent session when it resumes or next accepts injected context, or into the next future matching agent session. The queued content is whatever natural-language instruction or context the user wants the agent to see. The Analyst is one producer among several; the runtime itself queues notifications as part of its normal operation.
+The user can queue a notification onto a card. The card runtime injects the content into that card's current paused main agent session when it resumes or next accepts injected context, or into the next future main agent session for that card. The queued content is whatever natural-language instruction or context the user wants the agent responsible for the card to see. The Analyst is one producer among several; the runtime itself queues notifications as part of its normal operation.
 
-- "Queue a notification for goal-7 telling the executor to prefer streaming over batched calls." → a notification is queued for the current paused or next future matching agent session on goal-7 and the Analyst confirms.
-- "Tell the planner of goal-19 to disregard the last notification I queued." → a follow-up notification is queued; the Analyst confirms.
+- "Queue a notification for goal-7 telling the agent to prefer streaming over batched calls." → a notification is queued on goal-7 for the card's current paused or next future main agent session and the Analyst confirms.
+- "Tell goal-19 to disregard the last notification I queued." → a follow-up notification is queued on goal-19; the Analyst confirms.
 
 The Analyst does not offer "edit notification", "delete notification", "list pending notifications", "mark notification handled", or any equivalent management operation, because notifications are not a managed object class.
 
@@ -111,13 +111,12 @@ Pause-mutate-resume semantics: pausing is a canonical runtime control. While pau
 
 ### Control the runtime
 
-The user can start root project execution; stop it; pause and resume the runtime globally; abort a goal subtree, which halts work on that subtree and any descendants; restart a card or a goal subtree, which discards in-progress agent work for that scope and re-plans from scratch; mark a goal as needing corrections, which causes the runtime to revisit that goal under a corrections-aware execution policy; and terminate a live runtime process.
+The user can start root project execution; stop it; pause and resume the runtime globally; cancel a card or goal subtree when cancellation is supported for its current state; mark a goal as needing corrections, which causes the relevant parent planner to see the changed state and decide whether to reactivate that goal; and terminate a live runtime process. Resetting or restarting a planner's internal state is not a required user capability: if work should be replaced, the planner or Analyst can create a new card and cancel the old one.
 
-- "Start the project." → root execution begins; the Analyst confirms the new runtime state.
+- "Start the project." → if the project is idle or stopped, root execution begins and the Analyst confirms the new runtime state; if it is already running, the runtime returns an error or warning and the Analyst tells the user the system is already running.
 - "Stop the project." → autonomous progress stops; the Analyst reports the stopped state.
 - "Pause." / "Resume." → the runtime stops and resumes producing autonomous progress; the Analyst reports the new state.
-- "Abort goal-7." → work on goal-7 and its descendants halts; the Analyst confirms.
-- "Restart goal-7." → in-progress agent work on goal-7 is discarded and the runtime begins again from a clean state on that subtree; the Analyst confirms.
+- "Cancel goal-7." → if goal-7 can be cancelled in its current state, work on goal-7 is cancelled and the Analyst confirms; if it cannot be cancelled because it is currently running or contains the active leaf, the Analyst explains the limitation and performs zero mutation.
 - "Mark goal-7 as needing corrections." → the goal is flagged for corrections-aware re-execution; the Analyst confirms.
 - "Terminate process P-123." → the process is killed; the Analyst reports the exit status.
 
@@ -137,7 +136,7 @@ The user can change which model and provider profile is used for any role (plann
 
 The user can correlate a card failure with the originating planner or executor session, runtime events, and process output; ask for a diagnosis; and apply the fix in the same conversation.
 
-- "Why did goal-7 fail and what should we do?" → the Analyst returns a narrative answer grounded in card history, runtime errors, agent sessions, and process output, and proposes concrete next actions (queue a directive notification, edit acceptance, restart the card, change model routing).
+- "Why did goal-7 fail and what should we do?" → the Analyst returns a narrative answer grounded in card history, runtime errors, agent sessions, and process output, and proposes concrete next actions (queue a directive notification, edit acceptance, mark the goal as needing corrections, create replacement work, cancel obsolete work, change model routing).
 - "Apply that fix." → the proposed mutations are executed in the same turn.
 
 ### Multi-turn conversation
@@ -199,7 +198,7 @@ The only user-visible control surface that is permitted to exist outside the Ana
 - a login affordance for the user's own session (sign in, sign out);
 - initial entry of the provider secret(s) required to authenticate the model used for the Analyst role itself, when no profile capable of running the Analyst exists yet, so that the user has any way to reach the Analyst at all.
 
-Everything else, including but not limited to role routing (planner, executor, reviewer, analyst), failover ordering, provider profile selection once at least one Analyst-capable profile is configured, additional or subsequent provider secret entry, MCP server entries, runtime settings, server settings, card state (create, edit, reorder, move, delete), notifications (queueing), and runtime control (start, stop, pause, resume, abort, restart, mark-corrections, terminate process), is Analyst-only and MUST NOT be reachable through UI controls.
+Everything else, including but not limited to role routing (planner, executor, reviewer, analyst), failover ordering, provider profile selection once at least one Analyst-capable profile is configured, additional or subsequent provider secret entry, MCP server entries, runtime settings, server settings, card state (create, edit, reorder, move, delete), notifications (queueing), and runtime control (start, stop, pause, resume, cancel, mark-corrections, terminate process), is Analyst-only and MUST NOT be reachable through UI controls.
 
 The UI MAY NOT contain any button, menu entry, context-menu action, drag-and-drop interaction, or keyboard shortcut that, when invoked, performs any of the Analyst-only actions listed above. The following mutating controls currently present in the operator UI must no longer exist after this change; they are listed here as evidence of what is being removed, not as instructions on how to remove them:
 
@@ -231,7 +230,7 @@ When a single user turn maps to several internal steps and some succeed while ot
 
 ### User asks for something dangerous or irreversible
 
-For destructive or hard-to-reverse actions (deleting cards, bulk operations across many objects, stopping the project, restarting the server, aborting a goal subtree), the Analyst confirms in conversation before executing. Confirmation is conversational, not a modal dialog. The observable outcomes of confirmation are:
+For destructive or hard-to-reverse actions (deleting cards, bulk operations across many objects, stopping the project, restarting the server, cancelling a goal subtree), the Analyst confirms in conversation before executing. Confirmation is conversational, not a modal dialog. The observable outcomes of confirmation are:
 
 - **Affirmation.** The user replies in the affirmative ("yes", "do it", "go ahead") in direct response to the confirmation. The Analyst then executes the action and reports the result.
 - **Cancellation or refusal.** The user replies in the negative ("no", "cancel", "stop") or otherwise indicates they do not want to proceed. The Analyst performs zero mutations and explicitly reports that nothing changed.
@@ -263,7 +262,7 @@ Each item must be verifiable by a tester with only the rendered web UI and the A
 
 ### UI removal
 
-- The operator web UI has no button, menu entry, context-menu action, drag interaction, or keyboard shortcut that, when invoked, performs any Analyst-only action (card create/edit/reorder/move/delete, notification queueing, runtime start/stop/pause/resume/abort/restart/mark-corrections/terminate-process, model routing, failover order, MCP entry management, runtime or server settings change).
+- The operator web UI has no button, menu entry, context-menu action, drag interaction, or keyboard shortcut that, when invoked, performs any Analyst-only action (card create/edit/reorder/move/delete, notification queueing, runtime start/stop/pause/resume/cancel/mark-corrections/terminate-process, model routing, failover order, MCP entry management, runtime or server settings change).
 - The only mutation-capable controls reachable from the rendered UI outside the chat are the bounded bootstrap affordances: a login/sign-out affordance and an initial provider-secret entry needed when no Analyst-capable provider is configured yet.
 - No "Start Project" or "Stop Project" control exists in the rendered web UI.
 - No "New card", "Create card", card action-menu, or delete-draft control exists in the rendered web UI.
@@ -312,18 +311,18 @@ The Analyst can perform every action whose UI control was removed. Each of the f
 
 #### Notifications
 
-- "Queue a notification for goal-7 saying: prefer streaming over batched calls in the next executor run." → a notification with that content is queued for the current paused or next future matching agent session targeting goal-7; the Analyst confirms.
-- "Queue a notification for the planner role saying: disregard my previous notification about streaming." → a follow-up notification is queued; the Analyst confirms.
+- "Queue a notification for goal-7 saying: prefer streaming over batched calls in the next run." → a notification with that content is queued on goal-7 for the current paused or next future main agent session for that card; the Analyst confirms.
+- "Queue a notification for goal-19 saying: disregard my previous notification about streaming." → a follow-up notification is queued on goal-19; the Analyst confirms.
 - "Show me the most recent planner session for goal-7 and tell me whether my queued notification was delivered." → the Analyst inspects the relevant agent session transcript and reports whether the notification content appears in it.
 - With an executor session for goal-7 currently paused, "Tell the current executor for goal-7 to prefer streaming over batched calls, then resume" queues the context for that paused session through the Analyst, resumes through canonical runtime control, and the executor receives the context after resume. The Analyst does not perform the delivery work itself.
 
 #### Runtime control
 
 - "Start the project." → root execution begins; the Analyst confirms the running state.
+- If the user asks to start the project while it is already running, the runtime returns an already-running error or warning, the Analyst reports that state, and no second root run is created.
 - "Stop the project." → autonomous progress stops; the Analyst confirms the stopped state.
 - "Pause." then "Resume." → the runtime pauses and resumes; the Analyst confirms each transition.
-- "Abort goal-7." → work on goal-7 and its descendants halts; the Analyst confirms.
-- "Restart goal-7." → in-progress agent work for goal-7 is discarded and re-planning begins; the Analyst confirms.
+- "Cancel goal-7." → if goal-7 is cancellable in its current state, it is cancelled; if it is running or contains the active leaf, the Analyst explains that cancellation is not supported for that active scope and performs zero mutation.
 - "Mark goal-7 as needing corrections." → goal-7 is flagged for corrections-aware re-execution; the Analyst confirms.
 - "Terminate process P-123." → the named process is terminated; the Analyst reports the exit status.
 

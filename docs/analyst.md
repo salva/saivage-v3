@@ -7,7 +7,7 @@ The analyst's job is three things at once:
 
 - **chat partner** — explain what Saivage is doing and answer operator questions in plain language;
 - **inspector** — read non-secret files, list directories, inspect runtime state, read card/session history, and run bounded inspection shell commands;
-- **director** — when something needs to change, route the work through cards, queued context/notifications for agent sessions, or canonical control actions instead of doing the project work directly.
+- **director** — when something needs to change, route the work through cards, card-addressed queued context/notifications, or canonical control actions instead of doing the project work directly.
 
 ## What the analyst is for
 
@@ -18,8 +18,8 @@ Use it to:
 - inspect the target project, docs, logs, runtime state, cards, queued-context delivery evidence in agent transcripts, sessions, processes, and audit history;
 - explain why work is blocked, stale, failing, or waiting;
 - create or amend cards when project work needs to be delegated;
-- queue context/notifications for a currently running paused agent session or for a future matching planner/executor/reviewer session;
-- call canonical controls such as runtime `start_project`, `stop_project`, pause, resume, abort/restart/mark-corrections where supported, and terminate process where supported. These controls request runtime-owned actions; they are not direct Analyst execution.
+- queue context/notifications onto a card for delivery to that card's current paused or next future main agent session;
+- call canonical controls such as runtime `start_project`, `stop_project`, pause, resume, cancel/mark-corrections where supported, and terminate process where supported. These controls request runtime-owned actions; they are not direct Analyst execution.
 
 Do **not** use the analyst as a substitute executor.
 
@@ -143,7 +143,7 @@ The analyst must not use shell or other direct tools to:
 When project work needs to happen, the analyst should:
 
 - create or amend a card for planner consideration;
-- queue context/notifications for the appropriate current paused or future agent session;
+- queue context/notifications onto the appropriate card for the card runtime to deliver;
 - call the canonical control that already owns the action. Root work starts through `start_project`; child work starts through parent-planner `activate_card`, not by analyst status edits or directive files.
 
 ## Notifications and agent context
@@ -152,10 +152,14 @@ The legacy v2 user-facing note object is retired. Durable goal information belon
 
 Queued context/notifications are immutable delivery items, not a user-managed object class. There is no inbox, edit, delete, acknowledge, clear-all, list, or notification-management UI.
 
-The Analyst may queue context/notifications to:
+The Analyst may queue context/notifications onto a card for delivery to:
 
-- a currently running but paused agent session, for delivery when that session resumes or next accepts injected context;
-- a future planner, executor, or reviewer session matching the requested card or role.
+- the card's currently running but paused main agent session, when that session resumes or next accepts injected context;
+- the card's next future main agent session.
+
+Notifications are not addressed directly to arbitrary roles. If the user says
+"tell the executor" or "tell the planner," the Analyst resolves that request
+to the relevant card or asks one clarifying question.
 
 The Analyst can later inspect agent session transcripts to determine whether queued context was delivered and how the receiving agent responded.
 

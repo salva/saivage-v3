@@ -23,7 +23,7 @@ The verb names the control-transfer, not a single execution.
 | Planner | Owns one goal subtree: creates and edits child cards, activates child cards, and reports the goal result. | Long-lived for the goal. Goes `Dormant` after `report_goal_done`, `report_goal_failed`, or `report_goal_blocked`. Resumed by a later `activate_card` on the same goal. | A parent planner calling `activate_card(goalCardId)`. The project card has no parent planner; the runtime activates it only from an explicit root runtime start command (§11). |
 | Executor | Performs one terminal card. | One-shot per card activation. A re-activation of the same terminal card opens a new executor session. | Runtime, inside `activate_card` for a terminal card. |
 | Reviewer | Assesses a planner's completed goal. | One-shot per assessment. | Runtime, inside `activate_card` after `report_goal_done` clears the runtime acceptance gates (§8.2). |
-| Analyst | Operator-facing assistant and mutating user control surface for inspection, card changes, queued agent context/notifications, correction directives, runtime controls, and the project kickoff. | Session-oriented. | Operator. |
+| Analyst | Operator-facing assistant and mutating user control surface for inspection, card changes, card-addressed queued context/notifications, correction directives, runtime controls, and the project kickoff. | Session-oriented. | Operator. |
 | Project planner | The planner for the project root. It is an ordinary goal planner whose goal is the project card. | Long-lived for the project. | The runtime, when an explicit root runtime start command/run is active (§11). |
 
 ## 2. Component View
@@ -183,10 +183,11 @@ mirrors it onto the card. There is no `set_status_text` planner tool.
   moment; running ancestors are waiting for their active child.
 - `changed`: the card's state was externally modified (by the analyst
   or by a descendant subtree correction) since its planner last saw
-  it. The card is not immediately re-activated; instead the parent
-  planner (and, recursively, any ancestor) sees a `subtree_changed`
-  note in its next Goal Context and decides whether to call
-  `activate_card` on the affected descendant.
+  it. This is a real durable card state whose purpose is to make the
+  change visible to the parent planner. The card is not immediately
+  re-activated; instead the parent planner (and, recursively, any
+  ancestor) sees a `subtree_changed` note in its next Goal Context and
+  decides whether to call `activate_card` on the affected descendant.
 - `done`: accepted complete.
 - `failed`: ended in failure.
 - `blocked`: cannot proceed without external change.
@@ -426,9 +427,12 @@ split-brain state (`src/runtime/state.ts#symbol:RuntimeStateLayoutError`,
 ## 7. Planner Tools
 
 Planner tools are scoped to the planner's own card boundary. A planner can
-create, edit, reorder, cancel, delete, restart, and activate only immediate
-children of its card. Grandchildren belong to the child planner. Card
-reparenting is not supported.
+create immediate child cards, edit child objectives and ordering, cancel
+children that are safe to cancel, queue card-addressed notifications, and
+activate immediate children. Grandchildren belong to the child planner. Card
+reparenting is not supported. Resetting/restarting planner state and deleting
+cards are not required planner capabilities; obsolete work should be replaced
+by creating a new child and cancelling the old one when cancellation is valid.
 
 Card mutation, inspection, and notifications:
 
@@ -436,9 +440,9 @@ Card mutation, inspection, and notifications:
 - `edit_card(card_id, patch)` — direct children only; parent/depth changes are rejected.
 - `reorder_child(ordered_child_ids)` — persists explicit order for this planner card's immediate children.
 - `cancel_card(card_id)` — destructive cleanup/recovery only; see §7.1.
-- `delete_card(card_id)` — see §7.1.
-- `restart_card(card_id)` — see §7.1.
-- `queue_notification(recipient, kind, body)`
+- `delete_card(card_id)` — legacy current implementation inventory; not part of the target planner functional contract.
+- `restart_card(card_id)` — legacy current implementation inventory; not part of the target planner functional contract.
+- `queue_notification(card_id, body)` — queues one ephemeral message on a card for the card runtime to deliver to that card's current paused or next future main agent session.
 - `list_cards(filter?)`
 - `get_card(card_id)`
 - `get_tree(card_id?)`
@@ -501,43 +505,12 @@ calling planner's goal subtree.
   - Effect: marks the card `cancelled`, persists a synthetic
     `latest_self_report` of result `failed` (reason `cancelled`)
     when none exists, leaves the planner session (if any) `Dormant`,
-    and emits `card_cancelled`. This is the prerequisite to
-    `delete_card` for non-terminal cards.
+    and emits `card_cancelled`.
 
-- `delete_card(card_id)`
-  - Refused if `card_id` or any descendant equals
-    `RuntimeState.active_card_run?.card_id`, or any descendant planner
-    session is not `Dormant`.
-  - Allowed targets: cards in `backlog`, `done`, `failed`, `blocked`,
-    or `cancelled`. To delete a `changed` card, the caller must first
-    call `cancel_card`. Deleting a `running` card
-    is not allowed in this stage (it would imply ancestor-cascade
-    cancellation; see §17).
-  - Effect: archives the full card record (fields, notes, result,
-    evidence references) under `.saivage/archive/cards/<card_id>.json`,
-    removes the card from `CardStore`, and emits
-    `card_destructive_delete`.
-  - Cascades: descendants are archived and removed under the same
-    rules; if any descendant fails its precondition, the whole
-    operation is rejected with no partial mutation.
-
-- `restart_card(card_id)`
-  - Allowed transitions: from `done`, `failed`, `blocked`, `cancelled`,
-    or `changed` back to `backlog`; dispatch then starts it as `running`.
-  - Refused while the card is the active leaf. Because every card has
-    at most one activation in flight at any moment and `running` is
-    held only by the active leaf and its in-flight ancestors, no
-    other `running` source is reachable in this stage.
-  - Effect on terminal cards: clears `result.executor`, leaves
-    `status_text` as-is (the next executor run will overwrite it),
-    leaves history intact.
-  - Effect on goal cards: clears `result.review`, clears
-    `latest_self_report`, resets `correction_attempts` to 0, and
-    leaves the planner session in its current `Dormant` state. The
-    planner is not woken; the parent must call `activate_card(card_id)`
-    to give control back.
-  - Reset of a planner's internal LLM message log is **not** part of
-    `restart_card`. It is listed as a future stage in §17.
+Planner-facing delete, reset, and restart operations are intentionally out of
+scope for the current functional model. The normal recovery path is to cancel
+obsolete work, create replacement work, queue card-addressed context, or mark a
+goal as changed/corrections-needed so the responsible planner can reactivate it.
 
 ## 8. Card Activation Outcomes
 
@@ -591,6 +564,9 @@ long as the supervisor and runtime pause controls allow.
 
 There is no notification-acknowledgement gate. Notifications never
 block `report_goal_done` and are not part of the activation contract.
+A `changed` descendant does block `report_goal_done` through the
+`subtree_not_ready` gate above; this is the durable signal that the
+parent planner has not yet incorporated the changed child state.
 Operator observability rollups are non-blocking: Debug derives
 per-session-per-minute notification summaries from failure/error timeline
 events in `web/src/stores/debug.ts`; current stale-operator-visibility UI
@@ -813,6 +789,10 @@ failed, or blocked, or until the operator stops runtime intent through the
 runtime controls. The operator/analyst recovery loop for project-level
 failure is deferred to a future stage.
 
+If `start_project` is requested while root execution is already running, the
+runtime must not create a second root run. It returns an already-running error
+or warning response for the Analyst to report to the user.
+
 Analyst correction on a non-project goal records correction context only:
 
 ```ts
@@ -824,7 +804,9 @@ ancestor goals and may flip the origin card to `changed`. It does not
 activate any card. Reactivation is left to the planner: ancestor
 planners observe the `changed` state through Goal Context (as
 `subtree_changed` context records and updated child statuses) and decide whether
-to call `activate_card` on the affected descendant.
+to call `activate_card` on the affected descendant. A planner cannot
+successfully report its goal done while any descendant remains `changed`;
+the `subtree_not_ready` gate rejects that report.
 
 For project-level intervention after kickoff, use runtime controls for
 root execution intent and goal-scoped queued context/corrections for planner context.
@@ -839,24 +821,27 @@ The analyst always interacts with mutable state through the pattern
    correction context.
 3. `resume_runtime`.
 
-The active planner (if any) sees queued context/notifications the next time it
-is admitted to the LLM conversation. Concretely, the runtime queues the
-context and injects it as a synthetic user turn at the next point the target
-planner is about to receive an assistant turn: after a freshly landed
-`tool_result`, a fresh activation, or a runtime resume. The mechanism is
-one-shot per queued item: the synthetic turn is appended once, then the item
-is removed from the queue. The card-side status (e.g. `changed`) and any
-persisted `pending_subtree_correction` records on the card remain; queued
-context is the delivery vehicle into the LLM conversation.
+The active card's main agent (if any) sees queued context/notifications the
+next time it is admitted to the LLM conversation. Concretely, the runtime
+queues the context on a card and injects it as a synthetic user turn at the
+next point that card's main agent is about to receive an assistant turn: after
+a freshly landed `tool_result`, a fresh activation, or a runtime resume. The
+mechanism is one-shot per queued item: the synthetic turn is appended once,
+then the item is removed from the queue. The card-side status (e.g. `changed`)
+and any persisted `pending_subtree_correction` records on the card remain;
+queued context is the delivery vehicle into the LLM conversation.
 
-**Context routing.** A synthetic context item (`subtree_changed`,
+**Context routing.** Operator/user notifications are addressed to cards, not
+directly to roles. The runtime queues the notification on the addressed card;
+the card runtime delivers it to that card's current paused or next future main
+agent session. A synthetic planner context item (`subtree_changed`,
 `analyst_note`, `pending_subtree_correction`, `subtree_not_ready`,
-`reviewer_interrupted`) is queued on the session of the deepest planner
-whose goal subtree contains the affected card. If that planner is currently
-running but paused, the item is delivered when the runtime resumes and the
-planner next accepts injected context. If that planner is `Dormant`, the item
-remains queued and is delivered the next time the planner is brought to
-`Running` by `activate_card`.
+`reviewer_interrupted`) is queued on the session of the deepest planner whose
+goal subtree contains the affected card. If that planner is currently running
+but paused, the item is delivered when the runtime resumes and the planner next
+accepts injected context. If that planner is `Dormant`, the item remains queued
+and is delivered the next time the planner is brought to `Running` by
+`activate_card`.
 
 Guaranteeing semantic consistency of analyst mutations against
 in-flight runtime state is deferred to a future stage.
@@ -1132,9 +1117,10 @@ redesign and are listed here so they are not lost:
   notifications). The clean-slate boot rule in this design only
   discards the legacy directory; the new layout is added later.
 - **Reset-planner feature.** A dedicated operator action to truncate a
-  `Dormant` planner's LLM message log so the next `activate_card`
-  starts with only the Goal Context. Today the operator's recourse is
-  to `add_note` and re-activate.
+  `Dormant` planner's LLM message log is not a current requirement. The
+  current recovery path is to queue card-addressed context, create
+  replacement work, cancel obsolete work, or mark a goal as changed or
+  needing corrections.
 - **Continuous improvement agent.** The `continuousImprovement` config
   flag is reserved for a future stage where the runtime auto-emits
   currently read but has no runtime effect.
@@ -1145,9 +1131,10 @@ redesign and are listed here so they are not lost:
   also lives here.
 - **Analyst mutation consistency.** Guaranteeing that pause-mutate-
   unpause mutations leave the active planner's view consistent with
-  the underlying state across arbitrary edits (status flips, notes,
-  field edits) is deferred. The current contract is best-effort: the
-  planner sees the changes as a synthetic note ASAP and replans.
+  the underlying state across arbitrary edits (status flips,
+  card-addressed notifications, field edits) is deferred. The current
+  contract is best-effort: the planner sees changed cards and queued
+  context as soon as the runtime can safely deliver them.
 - **Subtree-readiness for descendant subprocesses.** Durable process
   records now exist and are observable, but the acceptance gate does
   not yet add a `pending_subprocess` reason for the goal card's own
@@ -1177,6 +1164,9 @@ Jest coverage before broader test runs.
 ## Agent tool matrix (source-verified)
 
 `npm run docs:verify` compares this table with `src/agents/role-tool-policy.ts`, `src/agents/agent-adapter.ts`, `src/agents/workspace-tools.ts`, and the analyst tool definitions.
+Rows in this source-verified table are current implementation inventory, not
+permission to preserve legacy note/restart/reset semantics when they conflict
+with the functional contract above.
 
 | Role | Tools | Code anchor |
 |---|---|---|
