@@ -216,11 +216,12 @@ If the target card is running, or if its subtree contains the active leaf, the r
 Those notifications ask the responsible agents to voluntarily stop their work and report back failure. The expected flow is:
 
 1. The active downstream agent receives a cancellation request.
-2. It stops at the next safe point and reports a failure/cancelled outcome.
-3. That failure unwinds to its parent planner.
-4. The parent planner handles the failed child and may itself report failure upward.
-5. Eventually the failure chain reaches the planner responsible for the card originally requested for cancellation.
-6. That planner handles the cancellation request in its own goal context.
+2. It stops at the next safe point and reports `failed` through the normal activation outcome path.
+3. The runtime applies `cancelled` as card status for the requested cancellation target/subtree; `cancelled` is not a parent-visible activation outcome.
+4. That failure unwinds to its parent planner.
+5. The parent planner handles the failed child and may itself report failure upward.
+6. Eventually the failure chain reaches the planner responsible for the card originally requested for cancellation.
+7. That planner handles the cancellation request in its own goal context.
 
 This preserves agent ownership of work and keeps `activate_card` as the barrier through which outcomes flow.
 

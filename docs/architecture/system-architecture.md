@@ -13,6 +13,7 @@ The major subsystems are:
 - Operator web UI: read-only workspace plus always-visible Analyst panel.
 - Analyst agent: user-facing inspection and mutation orchestrator.
 - Runtime supervisor: root intent, run/resume, pause, shutdown, active-work ownership, recovery coordination.
+- Canonical card service: Analyst-owned card mutation validation, durable tree updates, audit/projection events, and active-runtime change notification.
 - Card store: durable project hierarchy and card history.
 - Agent sessions: planner, executor, reviewer, and analyst transcripts.
 - Agent adapter: LLM invocation, tool dispatch, model-visible message construction, and transcript persistence.
@@ -36,7 +37,7 @@ Planner/card state owns hierarchy, objectives, dependencies, evidence, status, r
 
 Changing planner/card state does not by itself dispatch work. Root work starts through explicit runtime control; child work starts through parent-planner `activate_card`.
 
-The Analyst is the global card mutation authority for user-requested changes. Planners have local card authority only over direct children of the goal they own; they do not directly target ancestors, siblings, unrelated cards, or deeper descendants. Recursive operations such as cancelling or deleting a direct child may affect that child's subtree as a runtime consequence. Cards may be reordered among siblings where supported, but cross-parent movement is not a supported operation.
+The Analyst is the global card mutation authority for user-requested changes. Analyst card mutations go through the canonical card service, which must not start autonomous work directly. Planners have local card authority only over direct children of the goal they own; they do not directly target ancestors, siblings, unrelated cards, or deeper descendants. Recursive operations such as cancelling or deleting a direct child may affect that child's subtree as a runtime consequence. Cards may be reordered among siblings where supported, but cross-parent movement is not a supported operation.
 
 ## 4. Active Work Model
 
@@ -112,7 +113,7 @@ The acceptance gate prevents a planner from closing a goal while any executable 
 
 Direct cancellation is safe for cards that are not `running`. Recursive cancellation preserves descendants that are already `done` and converts non-completion-compatible descendants, including `failed` and `blocked`, to `cancelled`. Runtime-owned processes attached to non-running cancelled cards are terminated through canonical process controls.
 
-For running cards or subtrees containing the active leaf, cancellation is represented as notifications sent to the requested card and downstream active cards. Agents are expected to stop voluntarily at safe points and report failure/cancelled outcomes. Those outcomes unwind through normal activation barriers until they reach the planner responsible for the originally requested cancellation.
+For running cards or subtrees containing the active leaf, cancellation is represented as notifications sent to the requested card and downstream active cards. Agents are expected to stop voluntarily at safe points and report `failed`; `cancelled` is applied as runtime card status, not as a parent-visible activation outcome. Failed outcomes unwind through normal activation barriers until they reach the planner responsible for the originally requested cancellation.
 
 ## 10. Persistence
 
@@ -153,13 +154,13 @@ Provider diagnostics, account details, runtime internals, and raw error metadata
 
 ## 13. Implementation Direction
 
-The runtime implementation direction is XState-centered: machine states and actor events drive behavior, not imperative controller loops decorated with snapshots. The detailed actor contracts, state ownership, persistence boundaries, and implementation sequence are defined in [XState runtime core architecture](./xstate-runtime-core.md).
+The runtime implementation direction is XState-centered: machine states and actor events drive behavior, not imperative orchestration loops decorated with snapshots. The detailed actor contracts, state ownership, persistence boundaries, and implementation sequence are defined in [XState runtime core architecture](./xstate-runtime-core.md).
 
 Target actor ownership:
 
-- supervisor owns root runtime mode, pause gate, shutdown process termination, and activation of the parentless project card actor;
-- goal card actor owns planner turns, reviewer turns, active child activation, and process waits for planner tools;
-- terminal card actor owns executor turns and process actors;
+- supervisor owns root runtime mode, pause gate, shutdown process termination, and activation of the parentless project card runner actor;
+- goal card runner actor owns planner turns, reviewer turns, active child activation, and tool-result waits for planner tools;
+- terminal card runner actor owns executor turns and process actors;
 - LLM turn actors own provider invocation/admission/cancellation boundaries;
 - process actors own OS process lifecycle.
 

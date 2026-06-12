@@ -64,9 +64,9 @@ The runtime actor tree has one root supervisor actor. All runtime work is reacha
 ```text
 RuntimeApi adapter
   -> supervisor actor
-       -> parentless project card actor
-            -> goal card actor for active child goal
-                 -> terminal card actor for active leaf
+       -> parentless project card runner actor
+            -> goal card runner actor for active child goal
+                 -> terminal card runner actor for active leaf
                       -> LLM turn actor
                       -> process actor(s), when process tools require them
                  -> LLM turn actor for planner/reviewer turns
@@ -75,10 +75,10 @@ RuntimeApi adapter
 
 Actor ownership:
 
-- The supervisor actor owns runtime mode, root run intent, pause gate, shutdown, root project actor, and recovery coordination.
-- The project card actor uses the goal-card machine with project-specific input/context.
-- Goal card actors own planner turns, active child activation, reviewer turns, process waits for planner tools, and planning diary updates for one goal subtree.
-- Terminal card actors own executor turns and process/tool work for one terminal activation.
+- The supervisor actor owns runtime mode, root run intent, pause gate, shutdown, root project runner actor, and recovery coordination.
+- The project card runner actor uses the goal-card-runner machine with project-specific input/context.
+- Goal card runner actors own planner turns, active child activation, reviewer turns, tool-result waits for planner tools, and planning diary updates for one goal subtree.
+- Terminal card runner actors own executor turns and process/tool work for one terminal activation.
 - LLM turn actors own provider admission, provider invocation, provider cancellation, and typed provider output.
 - Process actors own OS process lifecycle, process status, waits, termination, and safe log read models.
 
@@ -88,7 +88,9 @@ Child card activations are invoked by their parent machine because `activate_car
 
 `RuntimeApi` is the only production wrapper around the actor tree. It is an adapter for external callers such as HTTP routes, CLI commands, the Analyst service, and application composition.
 
-The Analyst is not part of the autonomous runtime actor tree. Analyst sessions are user-facing agent sessions that inspect projections and call canonical services. Analyst tools translate user intent into runtime, card, notification, process, and configuration operations; those operations enter the runtime actor tree as typed events or as read-model queries through `RuntimeApi` and adjacent canonical services.
+The Analyst is not part of the autonomous runtime actor tree. Analyst sessions are user-facing agent sessions that inspect projections and call canonical services. Analyst tools translate user intent into runtime, card, notification, process, and configuration operations; lifecycle operations enter the runtime actor tree as typed events through `RuntimeApi`, while card mutations go through the canonical card service.
+
+The canonical card service owns Analyst-initiated card create, edit, reorder, archive, delete, and non-running cancellation requests. It validates authority and destructive-action confirmation, mutates the durable card tree, emits audit/projection events, and sends typed change/cancellation notifications to affected active runtime actors. It must not start autonomous work directly.
 
 Allowed responsibilities:
 
@@ -113,8 +115,8 @@ If a public method needs completion-return semantics, it sends an event and wait
 The supervisor machine owns runtime-level control. Minimal states:
 
 - `idle`: no root actor is running.
-- `running`: the root project actor exists and the pause gate is open.
-- `paused`: the root project actor may exist, but no new LLM turns are admitted.
+- `running`: the root project runner actor exists and the pause gate is open.
+- `paused`: the root project runner actor may exist, but no new LLM turns are admitted.
 - `shutting_down`: pause gate is closed and runtime-owned processes are being terminated.
 - `failed`: unrecoverable supervisor-level failure, if needed.
 
@@ -126,48 +128,46 @@ Primary events:
 - `PROJECT_ACTOR_DONE`
 - `PROJECT_ACTOR_FAILED`
 - `PROJECT_ACTOR_BLOCKED`
-- `CARD_CANCEL_REQUESTED`
+- `RUNNING_WORK_CANCEL_REQUESTED`
 - `PROCESS_TERMINATION_REPORTED`
 - `RECOVERY_RECONCILED`
 
 Responsibilities:
 
-- Run starts the parentless project card actor when idle.
+- Run starts the parentless project card runner actor when idle.
 - Run from `paused` lifts the pause gate.
 - Run from `running` returns an already-running warning and creates no duplicate root run.
 - Pause blocks new LLM-turn admission without killing running processes or mutating card status.
 - Shutdown first pauses, then sends termination events to runtime-owned running process actors and reports results.
+- `RUNNING_WORK_CANCEL_REQUESTED` coordinates cancellation only when the target is running or contains the active leaf. Non-running card/subtree cancellation is handled by the canonical card service.
 - Supervisor recovery rebuilds safe actor state or records diagnostics for abandoned unsafe state.
 
 The supervisor should not know planner/executor logic. It coordinates root lifecycle and owns the top of the actor tree.
 
-## 7. Goal Card Machine
+## 7. Goal Card Runner Machine
 
-The goal card machine handles both regular goal cards and the parentless project card.
+The goal card runner machine handles active execution for regular goal cards and the parentless project card. It is private runtime state, not the public card lifecycle. Durable card status remains the fixed card-store state set (`backlog`, `running`, `changed`, `done`, `failed`, `blocked`, `cancelled`) and is exposed through projections. Runner phases describe what the active runtime is doing while a card is being worked.
 
 Minimal externally meaningful phases:
 
-- `dormant`: no active LLM turn or child activation for this goal.
-- `marking_running`: card-store transition to `running` when activated. The transition must commit before planner work starts; if it fails, the machine must not enter `planning`.
-- `planning`: planner LLM turn is active or awaiting tool output.
-- `waiting_process`: planner is waiting for a runtime-owned process result.
-- `delivering_tool_result`: planner tool/process output is being delivered back to the planner session.
-- `activating_child`: a direct child card actor is active behind an `activate_card` barrier.
-- `delivering_child_result`: child outcome has been committed and is being delivered back to the planner session.
+- `preparing_activation`: card-store transition to `running` and activation metadata are being committed. The transition must commit before planner work starts; if it fails, the machine must not enter `planning`.
+- `planning`: planner LLM turn is active, or the runner is ready to start the next planner turn with newly available context/tool results.
+- `awaiting_tool_result`: a planner-requested tool or process wait is being handled outside the LLM turn actor. Process lifecycle remains owned by process actors; the runner waits only for the runtime tool result needed to continue the planner session.
+- `activating_child`: a direct child card runner actor is invoked behind an `activate_card` barrier.
 - `checking_readiness`: runtime completion gates are being evaluated. This is intentionally a named local phase so readiness diagnostics and recovery boundaries are visible; it can be collapsed to guards later without changing the product contract if it proves trivial.
 - `reviewing`: reviewer assessment is active.
-- `delivering_review_result`: negative reviewer result is injected into planner context, or positive result is attached to the card.
 - `committing_outcome`: accepted `done`, `failed`, or `blocked` result is being attached to the card.
-- `done`, `failed`, `blocked`, `cancelled`: dormant terminal card statuses until later user/planner action changes them where allowed.
+
+Non-active cards do not need a running card-runner actor. Public statuses such as `done`, `failed`, `blocked`, `cancelled`, and `changed` are durable card-store statuses, not goal-card-runner phases.
 
 Planner tool handling:
 
 - `activate_card(child_id)` is handled by the goal machine, not by a child-activation service that owns workflow branching.
 - Activation validates responsible parent planner, immediate-child relationship, and child status in `backlog`, `changed`, `blocked`, or `failed`.
-- Activation transitions the child to `running` and invokes the child card actor.
+- Activation transitions the child to `running` and invokes the child card runner actor.
 - Child actor completion returns exactly one typed outcome: `done`, `failed`, or `blocked`.
 - The child card is committed to the matching status before the parent planner receives the tool result.
-- Process tools spawn or address process actors, move the goal machine through `waiting_process` when the planner waits, and deliver process results through `delivering_tool_result`.
+- Process tools spawn or address process actors, move the goal runner through `awaiting_tool_result` when the planner waits, and deliver process results to the next planner turn.
 - Card create/edit/reorder/cancel tools are limited to direct children. Created children enter the tree in `backlog` unless the card API defines a stricter initial status. Recursive cancellation effects belong to runtime semantics, not planner authority over grandchildren.
 
 Completion handling:
@@ -205,19 +205,18 @@ Reviewer turn input:
 - Reviewer LLM turn input includes the project card data, the assessed goal subtree, and the planner return value for that completion attempt.
 - Reviewer-negative results include assessment details, cited evidence, and correction context for the next planner turn.
 
-## 8. Terminal Card Machine
+## 8. Terminal Card Runner Machine
 
-The terminal card machine handles executor work for terminal task cards.
+The terminal card runner machine handles active executor work for terminal task cards. It is private runtime state, not the public card lifecycle.
 
 Minimal phases:
 
-- `dormant`: not active.
-- `marking_running`: card-store transition to `running`. The transition must commit before executor work starts; if it fails, the machine must not enter `executing`.
-- `executing`: executor LLM turn is active or awaiting tool output.
-- `waiting_process`: executor is waiting for a runtime-owned process result.
-- `delivering_tool_result`: tool/process output is delivered to the executor session.
+- `preparing_activation`: card-store transition to `running` and activation metadata are being committed. The transition must commit before executor work starts; if it fails, the machine must not enter `executing`.
+- `executing`: executor LLM turn is active, or the runner is ready to start the next executor turn with newly available context/tool results.
+- `awaiting_tool_result`: an executor-requested tool or process wait is being handled outside the LLM turn actor. Process lifecycle remains owned by process actors; the runner waits only for the runtime tool result needed to continue the executor session.
 - `committing_outcome`: accepted `done`, `failed`, or `blocked` result is being attached to the card.
-- `done`, `failed`, `blocked`, `cancelled`: dormant terminal statuses.
+
+Non-active terminal cards do not need a running card-runner actor. Public statuses such as `done`, `failed`, `blocked`, `cancelled`, and `changed` are durable card-store statuses, not terminal-card-runner phases.
 
 Responsibilities:
 
@@ -227,7 +226,7 @@ Responsibilities:
 - Update `working_status` only through agent-visible write paths.
 - Attach `result` only after an accepted executor outcome.
 - Preserve raw diagnostics in logs/read models, not in unsanitized model context.
-- Treat `changed` as durable card status, not a long-running actor phase. A changed non-active terminal card is dormant until the responsible parent planner or Analyst action changes it again or the parent planner reactivates it.
+- Treat `changed` as durable card status, not a long-running actor phase. A changed non-active terminal card waits in the card store until the responsible parent planner or Analyst action changes it again or the parent planner reactivates it.
 - On cancellation request while active, deliver cancellation context and let the executor voluntarily stop and report `failed`. `cancelled` is a runtime-applied card status, not a parent-visible activation outcome.
 
 The machine should enforce a turn budget through machine context and events, not through an external `for` loop.
@@ -251,7 +250,7 @@ Responsibilities:
 - Admission request and release happen as machine actions/invoked services at state boundaries.
 - Admission checks read the current supervisor pause/admission gate at the start of each provider turn. The gate is evaluated per turn, not continuously during an already-admitted provider call.
 - Provider calls are cancellable invoked services.
-- Parent card machines receive typed outputs; they do not inspect child context after a method call.
+- Parent card runner machines receive typed outputs; they do not inspect child context after a method call.
 - Multiple provider tool calls must fail fast or follow an explicit future protocol. The first implementation must not silently select the first tool call.
 - Raw provider errors are stored for diagnostics and sanitized before being included in model-visible context.
 
@@ -273,7 +272,7 @@ Responsibilities:
 
 - Launch project commands in a contained working directory.
 - Publish safe process read models: status, timestamps, rendered command, working directory, logs, and termination availability.
-- Implement bounded waits. A wait timeout returns control to the calling card actor and does not kill the process.
+- Implement bounded waits. A wait timeout returns control to the calling card runner actor and does not kill the process.
 - Handle explicit termination from Analyst, card cancellation, or Shutdown.
 - On cancellation, terminate gracefully when possible, then force-kill or record an abandoned diagnostic when needed.
 - Reconcile persisted running process state during startup recovery.
@@ -356,7 +355,7 @@ Examples:
 
 - A process actor in `running` may be `reconcile_then_resume` if the OS process can be found.
 - A provider call in progress at crash time is usually `abandon_with_diagnostic` because the external request cannot be safely reattached.
-- A card actor waiting for a child outcome is `reconcile_then_resume` if the child actor/card state can be rebuilt.
+- A card runner actor waiting for a child outcome is `reconcile_then_resume` if the child runner actor and durable card state can be rebuilt.
 - A committed `done`, `failed`, `blocked`, or `cancelled` actor state is `terminal`.
 
 ## 14. Projections And Events
@@ -380,10 +379,10 @@ Prefer machine and actor files over controller classes:
 - `src/runtime/actors/supervisor.machine.ts`
 - `src/runtime/actors/supervisor.actor.ts`
 - `src/runtime/actors/supervisor.projection.ts`
-- `src/runtime/actors/goal-card.machine.ts`
-- `src/runtime/actors/goal-card.actor.ts`
-- `src/runtime/actors/terminal-card.machine.ts`
-- `src/runtime/actors/terminal-card.actor.ts`
+- `src/runtime/actors/goal-card-runner.machine.ts`
+- `src/runtime/actors/goal-card-runner.actor.ts`
+- `src/runtime/actors/terminal-card-runner.machine.ts`
+- `src/runtime/actors/terminal-card-runner.actor.ts`
 - `src/runtime/actors/llm-turn.machine.ts`
 - `src/runtime/actors/llm-turn.actor.ts`
 - `src/runtime/actors/process.machine.ts`
@@ -398,8 +397,8 @@ Do not preserve orchestration-heavy tests solely because they are familiar. Pref
 Required test groups:
 
 - direct machine transition tests for supervisor Run/Pause/Shutdown;
-- goal-card machine tests for activation success/failure/blocked, invalid activation, changed handling, readiness rejection, reviewer pass/correction/invalidation;
-- terminal-card machine tests for executor success/failure/blocked, tool delivery, process wait, process termination, and cancellation request delivery;
+- goal-card-runner machine tests for activation success/failure/blocked, invalid activation, changed handling, readiness rejection, reviewer pass/correction/invalidation;
+- terminal-card-runner machine tests for executor success/failure/blocked, tool delivery, process wait, process termination, and cancellation request delivery;
 - LLM turn tests for pause-before-admission, provider cancellation, provider failure, assistant message, one tool call, and unsupported multiple tool calls;
 - process machine tests for launch, wait timeout without kill, inspect, terminate, failure, and abandoned recovery;
 - RuntimeApi boundary tests proving it sends events and projects read models but does not instantiate/call card/LLM/process workflow runners;
@@ -415,12 +414,12 @@ Required test groups:
 - Add boundary tests proving runtime behavior cannot advance through wrapper-owned orchestration methods.
 - Define the permanent module ownership map: actor/machine modules own workflow, projection modules own read models, canonical services own validated external requests, and no additional layer owns autonomous work sequencing.
 
-P0 is complete when runtime workflow cannot advance except through supervisor events, actor events, invoked services, spawned children, and machine transitions.
+P0 is complete when runtime workflow cannot advance except through supervisor events, actor events, invoked services, invoked child card runners, spawned resource actors, and machine transitions.
 
 ### P1: Supervisor Machine
 
 - Implement Run/Pause/Shutdown.
-- Own parentless project card actor creation.
+- Own parentless project card runner actor creation.
 - Enforce duplicate Run warning.
 - Gate LLM admission while paused.
 - Terminate process actors during Shutdown.
@@ -431,13 +430,13 @@ P0 is complete when runtime workflow cannot advance except through supervisor ev
 - Implement provider admission, provider invocation, typed outputs, cancellation, provider failure, and unsupported output.
 - Fail fast on multiple tool calls unless a later explicit protocol supports them.
 
-### P3: Process Machine And Terminal Card Machine
+### P3: Process Machine And Terminal Card Runner Machine
 
 - Implement process lifecycle first if terminal tools need it.
 - Implement terminal card executor turns and process-tool handling through actor events.
 - Attach accepted `result`; keep `working_status` separate.
 
-### P4: Goal Card Machine
+### P4: Goal Card Runner Machine
 
 - Implement planner turns, child activation, planner process waits, readiness gates, reviewer turns, reviewer corrections, and committed outcomes.
 - Keep planning diary on goal/project card fields.
