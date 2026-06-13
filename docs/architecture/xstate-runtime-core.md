@@ -116,6 +116,29 @@ Child card activations are invoked through the owning `CardInternalActor` becaus
 
 LLM turn actors never own card hierarchy traversal. An LLM turn actor may return a typed tool-call request such as `activate_card`, but the parent `CardInternalActor` handles that request by routing to the appropriate immediate child `CardNodeActor` from its owned children. This keeps child node actors as children of their parent card's internal actor, not children of transient LLM turn actors.
 
+The dynamic call sequence for `activate_card(child_id)` is:
+
+```mermaid
+sequenceDiagram
+  participant ParentInternal as Parent CardInternalActor
+  participant ParentTurn as Parent LLM turn actor
+  participant ChildNode as Child CardNodeActor
+  participant ChildInternal as Child CardInternalActor
+
+  ParentInternal->>ParentTurn: invoke planner turn
+  ParentTurn-->>ParentInternal: tool request activate_card child_id
+  ParentInternal->>ParentInternal: validate immediate child and activatable status
+  ParentInternal->>ChildNode: activate child
+  ChildNode->>ChildNode: commit status running
+  ChildNode->>ChildInternal: delegate active work
+  ChildInternal-->>ChildNode: outcome done failed or blocked
+  ChildNode->>ChildNode: commit durable outcome
+  ChildNode-->>ParentInternal: activation result
+  ParentInternal->>ParentInternal: resume planner with tool result
+```
+
+The parent `CardInternalActor` owns the activation barrier for the child call. The child `CardNodeActor` owns durable status transitions, and the child `CardInternalActor` owns type-specific planner or executor work. The parent LLM turn is only the source of the typed tool request; it does not hold child references or drive descendant workflow.
+
 ## 5. RuntimeApi Boundary
 
 `RuntimeApi` is the only production wrapper around the actor tree. It is an adapter for external callers such as HTTP routes, CLI commands, the Analyst service, and application composition.
