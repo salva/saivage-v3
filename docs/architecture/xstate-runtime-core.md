@@ -76,45 +76,56 @@ graph TD
 
   terminalNode --> terminalInternal[Terminal CardInternalActor]
 
+  projectInternal --> projectActivate[activate_card tool-handler actor]
+  projectInternal --> projectTools[other tool-handler actors]
   projectInternal --> projectLlm[Planner LLMActor]
+  goalInternal --> goalActivate[activate_card tool-handler actor]
+  goalInternal --> goalTools[other tool-handler actors]
   goalInternal --> goalLlm[Planner LLMActor]
+  terminalInternal --> terminalTools[terminal tool-handler actors]
   terminalInternal --> terminalLlm[Executor LLMActor]
 
-  projectLlm --> projectProcess[Process actors]
-  goalLlm --> goalProcess[Process actors]
-  terminalLlm --> terminalProcess[Process actors]
+  projectTools --> projectProcess[Process actors]
+  goalTools --> goalProcess[Process actors]
+  terminalTools --> terminalProcess[Process actors]
 
+  projectInternal -. provide registry .-> projectLlm
   projectLlm -. LLM returns activate_card .-> projectLlm
-  projectLlm -. invoke activate handler .-> projectInternal
-  projectInternal -. route to child .-> goalNode
+  projectLlm -. invoke handler .-> projectActivate
+  projectActivate -. route to child .-> goalNode
   goalNode -. delegate to internal .-> goalInternal
+  goalInternal -. provide registry .-> goalLlm
   goalLlm -. LLM returns activate_card .-> goalLlm
-  goalLlm -. invoke activate handler .-> goalInternal
-  goalInternal -. route to child .-> terminalNode
+  goalLlm -. invoke handler .-> goalActivate
+  goalActivate -. route to child .-> terminalNode
   terminalNode -. delegate to internal .-> terminalInternal
+  terminalInternal -. provide registry .-> terminalLlm
 
   classDef nodeActor fill:#e8f1ff,stroke:#2f5fa8,stroke-width:2px,color:#14213d
   classDef internalActor fill:#fff4df,stroke:#b36b00,stroke-width:2px,color:#3a2300
   classDef llmActor fill:#f7e9ff,stroke:#7a2fa8,stroke-width:2px,color:#24113a
+  classDef toolHandler fill:#fff9d8,stroke:#9a7a00,stroke-width:2px,color:#332600
   classDef resourceActor fill:#e9f8ef,stroke:#287a42,stroke-width:2px,color:#0f2a18
   classDef support fill:#f2f2f2,stroke:#777,stroke-width:1px,color:#222
 
   class projectNode,goalNode,terminalNode nodeActor
   class projectInternal,goalInternal,terminalInternal internalActor
   class projectLlm,goalLlm,terminalLlm llmActor
+  class projectActivate,projectTools,goalActivate,goalTools,terminalTools toolHandler
   class projectProcess,goalProcess,terminalProcess resourceActor
   class api,supervisor,projectChildren,goalChildren support
 ```
 
-The diagram shows one representative branch. Solid arrows show actor ownership. Dotted arrows show a sample `activate_card` invocation chain from an LLM response inside its owning planner `LLMActor`, then through a registered `activate_card` tool-handler actor supplied by the parent `CardInternalActor` to the selected child `CardNodeActor`. Blue nodes are `CardNodeActor`s, orange nodes are type-specific `CardInternalActor`s, purple nodes are planner/executor `LLMActor`s, and green nodes are LLM-owned resource actors. Project and goal internal actors own a `children` array of child-node references, while terminal internal actors are leaves. `LLMActor`s own LLM/provider calls, the ReAct loop, tool-handler actor registry, tool-result context, and any process actors needed by their tools.
+The diagram shows one representative branch. Solid arrows show actor ownership. Dotted arrows show registry handoff and a sample `activate_card` invocation chain from an LLM response inside its owning planner `LLMActor`, through the registered `activate_card` tool-handler actor constructed by the parent `CardInternalActor`, to the selected child `CardNodeActor`. Blue nodes are `CardNodeActor`s, orange nodes are type-specific `CardInternalActor`s, purple nodes are planner/executor `LLMActor`s, yellow nodes are tool-handler actors, and green nodes are process/resource actors. Project and goal internal actors own a `children` array of child-node references, while terminal internal actors are leaves. `CardInternalActor`s construct and own the card-scoped tool-handler actors; `LLMActor`s own LLM/provider calls, the ReAct loop, the passed tool-handler actor registry, and tool-result context.
 
 Actor ownership:
 
 - The supervisor actor owns runtime mode, root run intent, pause gate, shutdown, the parentless project `CardNodeActor`, and recovery coordination.
 - `CardNodeActor`s own durable card identity, public card status projection, and the type-specific `CardInternalActor` for that card.
-- Project and goal `CardInternalActor`s own child-node references, child activation authority, readiness/review gates, and planning diary updates.
-- Terminal `CardInternalActor`s own terminal-card semantic execution for one activation and do not own children.
-- Planner and executor `LLMActor`s own LLM/provider calls, tool-call loop states, the tool-handler actor registry, tool-result waits, turn budgets, provider admission/cancellation, and tool-result context passed into later LLM calls.
+- Project and goal `CardInternalActor`s own child-node references, child activation authority, readiness/review gates, planning diary updates, and construction of card-scoped tool-handler actors.
+- Terminal `CardInternalActor`s own terminal-card semantic execution and construction of terminal tool-handler actors for one activation; they do not own children.
+- Planner and executor `LLMActor`s own LLM/provider calls, tool-call loop states, the passed tool-handler actor registry, tool-result waits, turn budgets, provider admission/cancellation, and tool-result context passed into later LLM calls.
+- Tool-handler actors own one tool's execution semantics and may own or address process actors when that tool requires process work.
 - Process actors own OS process lifecycle, process status, waits, termination, and safe log read models.
 
 Child card activations are invoked through a registered `activate_card` tool-handler actor constructed by the owning `CardInternalActor` because `activate_card` needs exactly one completion or failure outcome delivered to the waiting parent planner under the single-active-leaf model. The planner `LLMActor` owns the tool-call loop and invokes the handler from its tool registry; it does not own child references. Longer-lived owned resources such as process actors may be spawned by registered tool-handler actors when their lifecycle outlives one tool call. If Saivage later lifts the single-active-leaf model, child activation ownership can be reconsidered. Actor-to-actor runtime behavior flows through XState events, actor completion, and typed outputs. Event/timeline infrastructure may publish projections and audit records, but it must not become an internal workflow bus.
@@ -127,30 +138,32 @@ The dynamic call sequence for `activate_card(child_id)` is:
 sequenceDiagram
   participant ParentInternal as Parent CardInternalActor
   participant PlannerLlm as Planner LLMActor
+  participant ActivateHandler as activate_card tool-handler actor
   participant ChildNode as Child CardNodeActor
   participant ChildInternal as Child CardInternalActor
 
   activate ParentInternal
+  ParentInternal->>ActivateHandler: construct with child refs and authority
   ParentInternal->>+PlannerLlm: invoke planner LLM actor
   ParentInternal->>PlannerLlm: provide tool-handler actor registry
   PlannerLlm->>PlannerLlm: call LLM provider
   PlannerLlm->>PlannerLlm: receive tool request activate_card child_id
-  PlannerLlm->>ParentInternal: invoke activate_card handler
-  ParentInternal->>ParentInternal: validate immediate child and activatable status
-  ParentInternal->>+ChildNode: activate child
+  PlannerLlm->>+ActivateHandler: invoke activate_card handler
+  ActivateHandler->>ActivateHandler: validate immediate child and activatable status
+  ActivateHandler->>+ChildNode: activate child
   ChildNode->>ChildNode: commit status running
   ChildNode->>+ChildInternal: delegate active work
   ChildInternal-->>-ChildNode: outcome done failed or blocked
   ChildNode->>ChildNode: commit durable outcome
-  ChildNode-->>-ParentInternal: activation result
-  ParentInternal-->>PlannerLlm: return activate_card tool result
+  ChildNode-->>-ActivateHandler: activation result
+  ActivateHandler-->>-PlannerLlm: return activate_card tool result
   PlannerLlm->>PlannerLlm: call LLM provider with tool result
   PlannerLlm->>PlannerLlm: receive assistant message or next tool request
   PlannerLlm-->>-ParentInternal: final planner outcome or correction request
   deactivate ParentInternal
 ```
 
-The `activate_card(child_id)` request is a message returned by an LLM/provider call inside the planner `LLMActor`. It is not a recursive call into the parent. The planner LLM actor owns the ReAct loop, resolves `activate_card` through its tool-handler actor registry, and invokes the handler actor constructed by the parent `CardInternalActor`. The parent internal actor owns the activation barrier while the child runs, then returns the child result to the planner LLM actor as the tool result. The planner LLM actor makes a later LLM/provider call with that result as tool-result context. The child `CardNodeActor` owns durable status transitions, and the child `CardInternalActor` owns type-specific planner or executor work. The LLM actor does not hold child references or drive descendant workflow directly.
+The `activate_card(child_id)` request is a message returned by an LLM/provider call inside the planner `LLMActor`. It is not a recursive call into the parent. The planner LLM actor owns the ReAct loop, resolves `activate_card` through its tool-handler actor registry, and invokes the handler actor constructed by the parent `CardInternalActor`. The tool-handler actor owns the activation barrier while the child runs, then returns the child result to the planner LLM actor as the tool result. The planner LLM actor makes a later LLM/provider call with that result as tool-result context. The child `CardNodeActor` owns durable status transitions, and the child `CardInternalActor` owns type-specific planner or executor work. The LLM actor does not hold child references or drive descendant workflow directly.
 
 ## 5. RuntimeApi Boundary
 
