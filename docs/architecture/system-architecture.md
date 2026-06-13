@@ -160,8 +160,9 @@ Target actor ownership:
 
 - supervisor owns root runtime mode, pause gate, shutdown process termination, and the parentless project `CardNodeActor`;
 - `CardNodeActor`s own durable card identity, public card status projection, and the type-specific `CardInternalActor` for that card;
-- project and goal `CardInternalActor`s own child `CardNodeActor` references, planner turns, reviewer turns, child activation barriers, and tool-result waits for planner tools;
-- terminal `CardInternalActor`s own executor turns and process actors for one active terminal activation and do not own children;
+- project and goal `CardInternalActor`s own child `CardNodeActor` references, child activation authority, readiness/review gates, and planner-agent invocation;
+- terminal `CardInternalActor`s own terminal-card semantic execution for one active terminal activation, invoke an executor agent, and do not own children;
+- planner and executor `AgentActor`s own LLM/tool-call loop states, tool-result waits, turn budgets, and tool-result context passed into later LLM turns;
 - LLM turn actors own provider invocation/admission/cancellation boundaries;
 - process actors own OS process lifecycle.
 
