@@ -54,7 +54,7 @@ The implementation must preserve these functional invariants:
 - Pause is a scheduling gate and does not mutate card/session/process state.
 - Shutdown pauses first, then terminates runtime-owned running processes.
 - Process handling uses launch, inspect, bounded wait, and explicit termination; wait timeout does not kill the process.
-- Configuration changes apply to future relevant work. Runtime components should read dynamically changeable settings at their relevant use/admission boundary rather than caching them indefinitely. In-flight LLM turns keep the provider/configuration they were admitted with; later LLM turns read the latest effective configuration at admission time.
+- Configuration changes apply to future relevant work. Runtime components should read dynamically changeable settings at their relevant use/admission boundary rather than caching them indefinitely. In-flight LLM/provider calls keep the provider/configuration they were admitted with; later LLM/provider calls read the latest effective configuration at admission time.
 - Operator APIs and UI expose Saivage read models, never raw XState snapshots.
 
 ## 4. Actor Tree
@@ -80,18 +80,15 @@ graph TD
   goalInternal --> goalAgent[Planner AgentActor]
   terminalInternal --> terminalAgent[Executor AgentActor]
 
-  projectAgent --> projectTurn[LLM turn actor]
   projectAgent --> projectProcess[Process actors]
-  goalAgent --> goalTurn[LLM turn actor]
   goalAgent --> goalProcess[Process actors]
-  terminalAgent --> terminalTurn[LLM turn actor]
   terminalAgent --> terminalProcess[Process actors]
 
-  projectTurn -. return activate_card .-> projectAgent
+  projectAgent -. LLM returns activate_card .-> projectAgent
   projectAgent -. use activate capability .-> projectInternal
   projectInternal -. route to child .-> goalNode
   goalNode -. delegate to internal .-> goalInternal
-  goalTurn -. return activate_card .-> goalAgent
+  goalAgent -. LLM returns activate_card .-> goalAgent
   goalAgent -. use activate capability .-> goalInternal
   goalInternal -. route to child .-> terminalNode
   terminalNode -. delegate to internal .-> terminalInternal
@@ -105,11 +102,11 @@ graph TD
   class projectNode,goalNode,terminalNode nodeActor
   class projectInternal,goalInternal,terminalInternal internalActor
   class projectAgent,goalAgent,terminalAgent agentActor
-  class projectTurn,projectProcess,goalTurn,goalProcess,terminalTurn,terminalProcess resourceActor
+  class projectProcess,goalProcess,terminalProcess resourceActor
   class api,supervisor,projectChildren,goalChildren support
 ```
 
-The diagram shows one representative branch. Solid arrows show actor ownership. Dotted arrows show a sample `activate_card` invocation chain from an LLM turn back through its owning planner `AgentActor`, then through the parent `CardInternalActor` capability to the selected child `CardNodeActor`. Blue nodes are `CardNodeActor`s, orange nodes are type-specific `CardInternalActor`s, purple nodes are planner/executor `AgentActor`s, and green nodes are agent-owned resource actors. Project and goal internal actors own a `children` array of child-node references, while terminal internal actors are leaves. `AgentActor`s own transient LLM turn actors and any process actors needed by their tools.
+The diagram shows one representative branch. Solid arrows show actor ownership. Dotted arrows show a sample `activate_card` invocation chain from an LLM response inside its owning planner `AgentActor`, then through the parent `CardInternalActor` capability to the selected child `CardNodeActor`. Blue nodes are `CardNodeActor`s, orange nodes are type-specific `CardInternalActor`s, purple nodes are planner/executor `AgentActor`s, and green nodes are agent-owned resource actors. Project and goal internal actors own a `children` array of child-node references, while terminal internal actors are leaves. `AgentActor`s own LLM/provider calls, the ReAct loop, tool-result context, and any process actors needed by their tools.
 
 Actor ownership:
 
@@ -117,13 +114,12 @@ Actor ownership:
 - `CardNodeActor`s own durable card identity, public card status projection, and the type-specific `CardInternalActor` for that card.
 - Project and goal `CardInternalActor`s own child-node references, child activation authority, readiness/review gates, and planning diary updates.
 - Terminal `CardInternalActor`s own terminal-card semantic execution for one activation and do not own children.
-- Planner and executor `AgentActor`s own LLM/tool-call loop states, tool-result waits, turn budgets, and tool-result context passed into later LLM turns.
-- LLM turn actors own provider admission, provider invocation, provider cancellation, and typed provider output.
+- Planner and executor `AgentActor`s own LLM/provider calls, tool-call loop states, tool-result waits, turn budgets, provider admission/cancellation, and tool-result context passed into later LLM calls.
 - Process actors own OS process lifecycle, process status, waits, termination, and safe log read models.
 
 Child card activations are invoked through the owning `CardInternalActor` capability because `activate_card` needs exactly one completion or failure outcome delivered to the waiting parent planner under the single-active-leaf model. The planner `AgentActor` owns the tool-call loop and asks that capability for the tool result; it does not own child references. Longer-lived owned resources such as process actors may be spawned by agent tool helpers when their lifecycle outlives one tool call. If Saivage later lifts the single-active-leaf model, child activation ownership can be reconsidered. Actor-to-actor runtime behavior flows through XState events, actor completion, and typed outputs. Event/timeline infrastructure may publish projections and audit records, but it must not become an internal workflow bus.
 
-LLM turn actors never own card hierarchy traversal. An LLM turn actor may return a typed tool-call request such as `activate_card`; the planner `AgentActor` receives that request and runs the corresponding tool through capabilities provided by its owning `CardInternalActor`. For `activate_card`, the owning `CardInternalActor` validates and routes to the appropriate immediate child `CardNodeActor` from its owned children. This keeps child node actors as children of their parent card's internal actor, not children of agent or LLM turn actors.
+Agent actors never own card hierarchy traversal. An LLM/provider response may contain a typed tool-call request such as `activate_card`; the planner `AgentActor` receives that request and runs the corresponding tool through capabilities provided by its owning `CardInternalActor`. For `activate_card`, the owning `CardInternalActor` validates and routes to the appropriate immediate child `CardNodeActor` from its owned children. This keeps child node actors as children of their parent card's internal actor, not children of agent actors.
 
 The dynamic call sequence for `activate_card(child_id)` is:
 
@@ -131,15 +127,13 @@ The dynamic call sequence for `activate_card(child_id)` is:
 sequenceDiagram
   participant ParentInternal as Parent CardInternalActor
   participant PlannerAgent as Planner AgentActor
-  participant PlannerTurn1 as Planner LLM turn actor 1
   participant ChildNode as Child CardNodeActor
   participant ChildInternal as Child CardInternalActor
-  participant PlannerTurn2 as Planner LLM turn actor 2
 
   activate ParentInternal
   ParentInternal->>+PlannerAgent: invoke planner agent
-  PlannerAgent->>+PlannerTurn1: invoke planner turn
-  PlannerTurn1-->>-PlannerAgent: return tool request activate_card child_id
+  PlannerAgent->>PlannerAgent: call LLM provider
+  PlannerAgent->>PlannerAgent: receive tool request activate_card child_id
   PlannerAgent->>ParentInternal: request activate_card child_id
   ParentInternal->>ParentInternal: validate immediate child and activatable status
   ParentInternal->>+ChildNode: activate child
@@ -149,13 +143,13 @@ sequenceDiagram
   ChildNode->>ChildNode: commit durable outcome
   ChildNode-->>-ParentInternal: activation result
   ParentInternal-->>PlannerAgent: return activate_card tool result
-  PlannerAgent->>+PlannerTurn2: invoke next planner turn with tool result
-  PlannerTurn2-->>-PlannerAgent: return assistant message or next tool request
+  PlannerAgent->>PlannerAgent: call LLM provider with tool result
+  PlannerAgent->>PlannerAgent: receive assistant message or next tool request
   PlannerAgent-->>-ParentInternal: final planner outcome or correction request
   deactivate ParentInternal
 ```
 
-The `activate_card(child_id)` request is a message returned by the first invoked planner LLM turn to the planner `AgentActor`. It is not a recursive call into the parent. The planner agent owns the LLM/tool loop and asks the parent `CardInternalActor` to run the `activate_card` capability. The parent internal actor owns the activation barrier while the child runs, then returns the child result to the planner agent as the tool result. The planner agent invokes a later planner LLM turn with that result as tool-result context. The child `CardNodeActor` owns durable status transitions, and the child `CardInternalActor` owns type-specific planner or executor work. The LLM turn is only the source of the typed tool request; it does not hold child references or drive descendant workflow.
+The `activate_card(child_id)` request is a message returned by an LLM/provider call inside the planner `AgentActor`. It is not a recursive call into the parent. The planner agent owns the ReAct loop and asks the parent `CardInternalActor` to run the `activate_card` capability. The parent internal actor owns the activation barrier while the child runs, then returns the child result to the planner agent as the tool result. The planner agent makes a later LLM/provider call with that result as tool-result context. The child `CardNodeActor` owns durable status transitions, and the child `CardInternalActor` owns type-specific planner or executor work. The agent actor is the LLM actor; it does not hold child references or drive descendant workflow directly.
 
 ## 5. RuntimeApi Boundary
 
@@ -189,7 +183,7 @@ The supervisor machine owns runtime-level control. Minimal states:
 
 - `idle`: no root actor is running.
 - `running`: the root project `CardNodeActor` exists and the pause gate is open.
-- `paused`: the root project `CardNodeActor` may exist, but no new LLM turns are admitted.
+- `paused`: the root project `CardNodeActor` may exist, but no new LLM/provider calls are admitted.
 - `shutting_down`: pause gate is closed and runtime-owned processes are being terminated.
 - `failed`: unrecoverable supervisor-level failure, if needed.
 
@@ -210,7 +204,7 @@ Responsibilities:
 - Run starts the parentless project `CardNodeActor` when idle. The project node delegates admitted work to its project `CardInternalActor`.
 - Run from `paused` lifts the pause gate.
 - Run from `running` returns an already-running warning and creates no duplicate root run.
-- Pause blocks new LLM-turn admission without killing running processes or mutating card status.
+- Pause blocks new LLM/provider-call admission without killing running processes or mutating card status.
 - Shutdown first pauses, then sends termination events to runtime-owned running process actors and reports results.
 - `RUNNING_WORK_CANCEL_REQUESTED` coordinates cancellation only when the target is running or contains the active leaf. Non-running card/subtree cancellation is handled by the canonical card service.
 - Supervisor recovery rebuilds safe actor state or records diagnostics for abandoned unsafe state.
@@ -232,7 +226,7 @@ Non-active cards do not need an active internal execution phase. Public statuses
 
 Planner-agent capability handling:
 
-- `activate_card(child_id)` is emitted by an LLM turn actor as a typed tool-call request, handled by the planner `AgentActor` tool loop, and delegated to the owning goal `CardInternalActor` as a card-scoped capability request. The LLM turn actor and planner agent do not own child card references.
+- `activate_card(child_id)` is emitted by an LLM/provider response as a typed tool-call request, handled by the planner `AgentActor` tool loop, and delegated to the owning goal `CardInternalActor` as a card-scoped capability request. The planner agent does not own child card references.
 - Activation validates responsible parent planner, immediate-child relationship, and child status in `backlog`, `changed`, `blocked`, or `failed`.
 - Activation transitions the child card to `running`, then the child `CardNodeActor` delegates active behavior to its appropriate `CardInternalActor`.
 - Child actor completion returns exactly one typed outcome: `done`, `failed`, or `blocked`.
@@ -272,8 +266,8 @@ Planner session lifecycle:
 
 Reviewer turn input:
 
-- Reviewer LLM turn input includes the project card data, the assessed goal subtree, and the planner return value for that completion attempt.
-- Reviewer-negative results include assessment details, cited evidence, and correction context for the next planner turn.
+- Reviewer LLM input includes the project card data, the assessed goal subtree, and the planner return value for that completion attempt.
+- Reviewer-negative results include assessment details, cited evidence, and correction context for the next planner LLM call.
 
 ## 8. Terminal CardInternalActor Machine
 
@@ -301,53 +295,32 @@ The executor agent should enforce a turn budget through machine context and even
 
 ## 9. AgentActor Machine
 
-Planner and executor `AgentActor`s own the LLM/tool-call loop for one card activation. They are agent-session actors, not durable card actors. A card internal actor invokes an agent actor and provides scoped capabilities; the agent actor invokes LLM turn actors and tool helpers until it returns an accepted card-level result or fails.
+Planner and executor `AgentActor`s own the LLM/tool-call loop for one card activation. They are agent-session actors, not durable card actors. A card internal actor invokes an agent actor and provides scoped capabilities; the agent actor calls the provider and tool helpers until it returns an accepted card-level result or fails.
 
 Minimal phases:
 
-- `thinking`: one LLM turn actor is active, or the agent is ready to start the next turn with new context.
+- `thinking`: one LLM/provider call is active, or the agent is ready to start the next call with new context.
 - `running_tool`: exactly one requested tool is being handled through a helper or capability request.
-- `applying_tool_result`: the tool result is being appended to agent context for the next LLM turn; this can be collapsed into actions if trivial.
+- `applying_tool_result`: the tool result is being appended to agent context for the next LLM/provider call; this can be collapsed into actions if trivial.
 - `returning_outcome`: the agent has accepted an outcome and is returning it to the owning card internal actor.
 - `failed`: provider, protocol, tool, or budget failure that should become a failed card-level outcome unless the owning card internal actor handles it differently.
 
 Responsibilities:
 
-- Invoke one LLM turn actor at a time.
+- Make one LLM/provider call at a time.
+- Admit each provider call at its use boundary and retain that call's provider/configuration until it returns or is cancelled.
 - Interpret LLM outputs as either one tool request or one accepted outcome.
 - Reject unsupported multiple-tool-call output in the first implementation pass.
 - Run ordinary tools through the shared tool helper.
 - Run card-scoped tools such as `activate_card` by sending capability requests to the owning `CardInternalActor` and waiting for the returned tool result.
-- Store tool results in agent-session context for the next LLM turn.
+- Store tool results in agent-session context for the next LLM/provider call.
 - Enforce turn budgets and protocol limits.
+- Own provider-call cancellation and sanitized provider failure handling.
 - Preserve raw diagnostics in logs/read models, not in unsanitized model context.
 
 `AgentActor` states may mention tool calls. `CardInternalActor` states should not, except for servicing scoped capability requests while the agent is running.
 
-## 10. LLM Turn Machine
-
-The LLM turn machine owns one provider turn.
-
-Minimal phases:
-
-- `requesting_admission`: checks the supervisor pause/admission gate.
-- `calling_provider`: provider invocation is active and cancellable.
-- `returned_message`: assistant message result without tool call.
-- `returned_tool_call`: exactly one supported tool call.
-- `unsupported_output`: provider output violates the current protocol, such as multiple tool calls in the first implementation pass.
-- `failed`: provider or protocol failure.
-- `cancelled`: cancellation accepted before completion.
-
-Responsibilities:
-
-- Admission request and release happen as machine actions/invoked services at state boundaries.
-- Admission checks read the current supervisor pause/admission gate at the start of each provider turn. The gate is evaluated per turn, not continuously during an already-admitted provider call.
-- Provider calls are cancellable invoked services.
-- Parent `AgentActor` machines receive typed outputs; they do not inspect child context after a method call.
-- Multiple provider tool calls must fail fast or follow an explicit future protocol. The first implementation must not silently select the first tool call.
-- Raw provider errors are stored for diagnostics and sanitized before being included in model-visible context.
-
-## 11. Process Machine
+## 10. Process Machine
 
 The process machine owns one OS process lifecycle.
 
@@ -372,7 +345,7 @@ Responsibilities:
 
 The functional spec imposes no process concurrency limit for now.
 
-## 12. Card Changes And Notifications
+## 11. Card Changes And Notifications
 
 Card changes enter the runtime as events. Direct store mutation without actor notification is not part of the active runtime path.
 
@@ -394,11 +367,11 @@ Notification behavior:
 - Undelivered notifications on deleted/archived cards remain with that card representation and are no longer delivered through the active runtime.
 - There is no notification inbox, list/get/edit/delete/acknowledge API, or bulk-management UI.
 
-## 13. Cancellation And Quiescence
+## 12. Cancellation And Quiescence
 
 Pause and cancellation are separate.
 
-- Pause is a scheduling gate. It blocks new LLM turn admission and leaves card/session/process state unchanged.
+- Pause is a scheduling gate. It blocks new LLM/provider-call admission and leaves card/session/process state unchanged.
 - Cancellation changes work intent for a card/subtree.
 - Shutdown is pause plus process termination.
 
@@ -419,7 +392,7 @@ Running cancellation:
 
 Do not add a separate user-facing Abort operation. Cancel is the required operation.
 
-## 14. Persistence And Recovery
+## 13. Persistence And Recovery
 
 Persist state at meaningful machine boundaries. Do not persist snapshots merely to mirror imperative code after it already ran.
 
@@ -451,7 +424,7 @@ Examples:
 - A planner `AgentActor` waiting on a parent `CardInternalActor` activation capability is `reconcile_then_resume` if the child actor and durable card state can be rebuilt.
 - A committed `done`, `failed`, `blocked`, or `cancelled` actor state is `terminal`.
 
-## 15. Projections And Events
+## 14. Projections And Events
 
 Internal XState snapshots are not public API.
 
@@ -465,7 +438,7 @@ Projection responsibilities:
 
 Event/timeline mechanisms may carry projection updates and audit records. They must not coordinate internal runtime workflow.
 
-## 16. File And Module Shape
+## 15. File And Module Shape
 
 Prefer machine and actor files over controller classes:
 
@@ -482,14 +455,12 @@ Prefer machine and actor files over controller classes:
 - `src/runtime/actors/planner-agent.actor.ts`
 - `src/runtime/actors/executor-agent.machine.ts`
 - `src/runtime/actors/executor-agent.actor.ts`
-- `src/runtime/actors/llm-turn.machine.ts`
-- `src/runtime/actors/llm-turn.actor.ts`
 - `src/runtime/actors/process.machine.ts`
 - `src/runtime/actors/process.actor.ts`
 
 Avoid controller classes by default. A class or module is suspect if it owns loops, branching, or methods that advance runtime workflow. Keep wrappers only at real external boundaries.
 
-## 17. Testing Strategy
+## 16. Testing Strategy
 
 Do not preserve orchestration-heavy tests solely because they are familiar. Prefer smaller tests that protect the new architecture.
 
@@ -498,18 +469,17 @@ Required test groups:
 - direct machine transition tests for supervisor Run/Pause/Shutdown;
 - goal `CardInternalActor` machine tests for child activation capability success/failure/blocked, invalid activation, changed handling, readiness rejection, reviewer pass/correction/invalidation;
 - terminal `CardInternalActor` machine tests proving it invokes the executor agent, returns accepted outcomes, and does not own tool-loop states;
-- planner/executor `AgentActor` machine tests for one-tool-at-a-time loops, tool-result context delivery to the next LLM turn, tool failure handling, turn budget exhaustion, and accepted outcomes;
-- LLM turn tests for pause-before-admission, provider cancellation, provider failure, assistant message, one tool call, and unsupported multiple tool calls;
+- planner/executor `AgentActor` machine tests for provider admission before each LLM call, provider cancellation, provider failure, one-tool-at-a-time loops, tool-result context delivery to the next LLM call, unsupported multiple tool calls, tool failure handling, turn budget exhaustion, and accepted outcomes;
 - process machine tests for launch, wait timeout without kill, inspect, terminate, failure, and abandoned recovery;
 - RuntimeApi boundary tests proving it sends events and projects read models but does not instantiate/call card/LLM/process workflow actors;
 - API/projection tests proving public responses expose Saivage read models, not raw XState snapshots;
 - UI smoke tests when projection contracts change.
 
-## 18. Implementation Sequence
+## 17. Implementation Sequence
 
 ### P0: Actor Contracts And RuntimeApi Boundary
 
-- Define typed events and outputs for supervisor, `CardNodeActor`, goal `CardInternalActor`, terminal `CardInternalActor`, planner/executor `AgentActor`s, LLM turn, and process actors.
+- Define typed events and outputs for supervisor, `CardNodeActor`, goal `CardInternalActor`, terminal `CardInternalActor`, planner/executor `AgentActor`s, and process actors.
 - Collapse `RuntimeApi` into event sender, snapshot waiter, and projection adapter.
 - Add boundary tests proving runtime behavior cannot advance through wrapper-owned orchestration methods.
 - Define the permanent module ownership map: actor/machine modules own workflow, projection modules own read models, canonical services own validated external requests, and no additional layer owns autonomous work sequencing.
@@ -525,15 +495,15 @@ P0 is complete when runtime workflow cannot advance except through supervisor ev
 - Terminate process actors during Shutdown.
 - Project supervisor status into read models.
 
-### P2: LLM Turn Machine
+### P2: AgentActor Provider Calls
 
-- Implement provider admission, provider invocation, typed outputs, cancellation, provider failure, and unsupported output.
+- Implement provider admission, provider invocation, typed outputs, cancellation, provider failure, and unsupported output inside planner/executor `AgentActor`s.
 - Fail fast on multiple tool calls unless a later explicit protocol supports them.
 
 ### P3: Process Machine And Agent Loop Machines
 
 - Implement process lifecycle first if terminal tools need it.
-- Implement planner/executor `AgentActor` LLM/tool loops with one tool result fed into the next LLM turn.
+- Implement planner/executor `AgentActor` LLM/tool loops with one tool result fed into the next LLM call.
 - Implement process-tool handling through agent-owned tool helpers and process actor events.
 
 ### P4: CardInternalActor Machines
@@ -558,7 +528,7 @@ P0 is complete when runtime workflow cannot advance except through supervisor ev
 
 - Classify recovery behavior for every persisted actor state.
 - Rebuild safe actor state on startup.
-- Reconcile card/process state before admitting new LLM turns.
+- Reconcile card/process state before admitting new LLM/provider calls.
 - Emit diagnostics for abandoned unsafe work.
 
 Do not begin broad goal/terminal rewrites before P0/P1 make the supervisor boundary stable.
