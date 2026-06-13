@@ -121,23 +121,27 @@ The dynamic call sequence for `activate_card(child_id)` is:
 ```mermaid
 sequenceDiagram
   participant ParentInternal as Parent CardInternalActor
-  participant ParentTurn as Parent LLM turn actor
+  participant PlannerTurn1 as Planner LLM turn actor 1
   participant ChildNode as Child CardNodeActor
   participant ChildInternal as Child CardInternalActor
+  participant PlannerTurn2 as Planner LLM turn actor 2
 
-  ParentInternal->>ParentTurn: invoke planner turn
-  ParentTurn-->>ParentInternal: tool request activate_card child_id
+  activate ParentInternal
+  ParentInternal->>+PlannerTurn1: invoke planner turn
+  PlannerTurn1-->>-ParentInternal: return tool request activate_card child_id
   ParentInternal->>ParentInternal: validate immediate child and activatable status
-  ParentInternal->>ChildNode: activate child
+  ParentInternal->>+ChildNode: activate child
   ChildNode->>ChildNode: commit status running
-  ChildNode->>ChildInternal: delegate active work
-  ChildInternal-->>ChildNode: outcome done failed or blocked
+  ChildNode->>+ChildInternal: delegate active work
+  ChildInternal-->>-ChildNode: outcome done failed or blocked
   ChildNode->>ChildNode: commit durable outcome
-  ChildNode-->>ParentInternal: activation result
-  ParentInternal->>ParentInternal: resume planner with tool result
+  ChildNode-->>-ParentInternal: activation result
+  ParentInternal->>+PlannerTurn2: invoke next planner turn with tool result
+  PlannerTurn2-->>-ParentInternal: return assistant message or next tool request
+  deactivate ParentInternal
 ```
 
-The parent `CardInternalActor` owns the activation barrier for the child call. The child `CardNodeActor` owns durable status transitions, and the child `CardInternalActor` owns type-specific planner or executor work. The parent LLM turn is only the source of the typed tool request; it does not hold child references or drive descendant workflow.
+The `activate_card(child_id)` request is a message returned by the first invoked planner LLM turn. It is not a recursive call into the parent. The parent `CardInternalActor` receives that returned tool request, owns the activation barrier while the child runs, then invokes a later planner LLM turn with the child result as tool-result context. The child `CardNodeActor` owns durable status transitions, and the child `CardInternalActor` owns type-specific planner or executor work. The parent LLM turn is only the source of the typed tool request; it does not hold child references or drive descendant workflow.
 
 ## 5. RuntimeApi Boundary
 
