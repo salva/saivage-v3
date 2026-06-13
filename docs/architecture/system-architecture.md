@@ -160,9 +160,9 @@ Target actor ownership:
 
 - supervisor owns root runtime mode, pause gate, shutdown process termination, and the parentless project `CardNodeActor`;
 - `CardNodeActor`s own durable card identity, public card status projection, and the type-specific `CardInternalActor` for that card;
-- project and goal `CardInternalActor`s own child `CardNodeActor` references, child activation authority, readiness/review gates, and planner-agent invocation;
-- terminal `CardInternalActor`s own terminal-card semantic execution for one active terminal activation, invoke an executor agent, and do not own children;
-- planner and executor `AgentActor`s own LLM/provider calls, tool-handler registry, tool-call loop states, tool-result waits, turn budgets, provider admission/cancellation, and tool-result context passed into later LLM calls;
+- project and goal `CardInternalActor`s own child `CardNodeActor` references, child activation authority, readiness/review gates, tool-handler actor construction, and planner `LLMActor` invocation;
+- terminal `CardInternalActor`s own terminal-card semantic execution for one active terminal activation, construct tool-handler actors, invoke an executor `LLMActor`, and do not own children;
+- planner and executor `LLMActor`s own LLM/provider calls, tool-handler actor registry, tool-call loop states, tool-result waits, turn budgets, provider admission/cancellation, and tool-result context passed into later LLM calls;
 - process actors own OS process lifecycle.
 
 Process execution follows a launch-and-monitor model. Agents launch project commands through runtime-owned process actors, inspect status/logs over time, use bounded waits for completion, and explicitly terminate processes when needed. The functional specification does not impose process concurrency limits for now.
