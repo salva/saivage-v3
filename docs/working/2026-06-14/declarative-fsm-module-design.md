@@ -69,7 +69,7 @@ Delivery rules:
 - The runtime loads the target snapshot, dispatches the event synchronously, persists the new snapshot and emitted commands, then enqueues any async jobs derived from commands.
 - Delivery for a single target object is serial. The runtime must not dispatch two events concurrently to the same FSM object.
 - Delivery across different target objects may be concurrent if their persistence and command queues remain consistent.
-- If dispatch throws `InvalidTransitionError` for an invalid snapshot state or invalid target state, the runtime records a diagnostic and does not retry the same event blindly.
+- If dispatch throws `InvalidTransitionError`, it is for an unknown snapshot state or an invalid target state. Unhandled events are ignored, not thrown. The runtime records a diagnostic and does not retry the same event blindly.
 - Event envelopes should have stable ids so delivery can be deduplicated after recovery.
 - Events should be persisted before delivery when losing them would strand durable work.
 
@@ -241,10 +241,14 @@ type MachineDefinition<State extends string, Self extends MachineSelf<State>, Ev
 
 `on_enter` runs after a state transition is committed in memory and before commands are returned to the caller.
 
+`on_leave` rules:
+
+- `on_leave` does not fire when the machine stays in the same state. It fires only on actual state transition.
+- `on_leave` receives only the machine object (`self`), which knows its current state and fields. It does not receive the triggering event or target state.
+
 `on_enter` rules:
 
 - `on_enter` does not fire for the initial state. The initial state is set by definition, not by transition. Use an explicit init event if the machine must emit commands at startup.
-- `on_enter` does not fire when a handler stays in the same state (returns no `state` field). `on_enter` fires only on entry to a new state.
 - `on_enter` receives the same inputs as a regular handler: `self` is the machine object after its state field has been updated to the target state, and `event` is the original event that triggered the transition.
 
 ## 7. Dispatch Semantics
@@ -262,10 +266,13 @@ function dispatch(machine, self, event): DispatchResult<...>;
 
 Rules:
 
+- `dispatch` mutates `self` in place. The caller holds a reference to the same object and can persist it after dispatch returns. `DispatchResult` returns the new state and emitted commands for convenience; it does not carry a separate object snapshot.
 - If the current state has no handler for the event, dispatch ignores the event and returns no commands, except for implicit `done` advance in `sequence`.
 - If a direct transition is configured, the state changes to the target and the target state's `on_enter` runs.
 - If a handler is configured, the handler runs synchronously and may update the machine object, emit commands, and/or transition.
-- If a handler returns no `state`, the machine remains in the current state.
+- If a handler returns no `state`, or explicitly returns the current state, the machine stays in the same state. No transition occurs.
+- `on_leave` fires only when the machine actually transitions to a different state. It does not fire when the handler stays in the same state.
+- `on_enter` fires only when the machine actually transitions to a different state. It does not fire for the initial state (set by definition, not by transition).
 - If a transition occurs, `on_leave` for the source state runs before the state change is committed.
 - If a transition occurs, `on_enter` for the target state runs after the handler result is applied and the state change is committed.
 - Commands returned by `on_leave`, the event handler, and `on_enter` are concatenated in deterministic order: `on_leave` commands first, handler commands second, `on_enter` commands third.
@@ -301,19 +308,7 @@ Recommended runtime sequence:
 7. async job callback enqueues completion event envelope
 ```
 
-Snapshot shape:
-
-```ts
-type MachineSnapshot<State extends string, Data extends object> = {
-  machine: string;
-  id: string;
-  state: State;
-  data: Data;
-  version: number;
-};
-```
-
-The module should include a small snapshot validator, but it should not know where snapshots are stored.
+The FSM module does not define a snapshot type. Persistence is the runtime's responsibility. The runtime must be able to serialize and reconstruct `self` objects from persisted data. The module only requires that `self` objects have a `state` field matching the machine's state type.
 
 ## 10. Command Effects
 
@@ -539,11 +534,7 @@ export class InvalidMachineDefinitionError extends Error {}
 
 Optional helpers:
 
-```ts
-export function command<Command>(command: Command): { commands: Command[] };
-```
-
-Do not add `assign` helpers, `transition` helpers, interpreters, schedulers, timers, actor spawning, `delay`, or persistence adapters to this module initially. Those belong to the Saivage runtime or to a later iteration if repeated local patterns prove they belong here.
+Do not add `assign` helpers, `transition` helpers, `command` helpers, interpreters, schedulers, timers, actor spawning, `delay`, or persistence adapters to this module initially. Those belong to the Saivage runtime or to a later iteration if repeated local patterns prove they belong here.
 
 ## 14. Validation Rules
 
@@ -562,7 +553,7 @@ At dispatch time:
 
 - Unknown current state throws.
 - Unknown events for the current state are ignored.
-- Handler returning an unknown target state throws.
+# InvalidTransitionError is thrown only for unknown snapshot states and invalid target states, not for unhandled events.
 - Handler throwing an exception converts to caller-visible failure; the module does not swallow it.
 
 ## 15. Testing Strategy
