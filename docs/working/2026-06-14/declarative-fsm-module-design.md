@@ -67,7 +67,8 @@ type EventEnvelope = {
 Delivery rules:
 
 - The only way to advance an FSM object is to enqueue an `EventEnvelope` and let the runtime deliver it with `dispatch`.
-- `self.send(name, args)` enqueues an event envelope addressed to that object and wakes the event pump. It does not call `dispatch` directly.
+- `self.send(name, args)` wraps the runtime's `enqueueEvent` function: it constructs an envelope addressed to the object's own `MachineRef` and pushes it to the global event queue. It does not call `dispatch` directly.
+- Cross-object event delivery uses the runtime's `enqueueEvent` function directly with an explicit `target: MachineRef`. `self.send` is sugar for self-targeted events only.
 - The event pump is one long-lived async task waiting on the queue. Queue wait is implemented with a stored promise resolver: when the queue is empty the pump awaits a promise; when `send` pushes an event it calls the resolver to wake the pump.
 - Because wakeup resumes the pump through promise continuation scheduling, dispatch happens outside the current JavaScript call stack. `send` is always asynchronous with respect to dispatch.
 - The async event pump drains queued FSM events before awaiting the queue again. This keeps dispatch synchronous while still integrating with asynchronous I/O.
@@ -75,10 +76,14 @@ Delivery rules:
 - Delivery for a single target object is serial. The runtime must not dispatch two events concurrently to the same FSM object.
 - Delivery across different target objects may be concurrent if their persistence and command queues remain consistent.
 - If dispatch throws `InvalidTransitionError`, it is for an unknown snapshot state or an invalid target state. Unhandled events are ignored, not thrown. The runtime records a diagnostic and does not retry the same event blindly.
-- Event envelopes should have stable ids so delivery can be deduplicated after recovery.
+- Event envelopes should have stable ids so delivery can be deduplicated after recovery. The FSM module does not inspect or use `id`; deduplication is the runtime's responsibility.
 - Events should be persisted before delivery when losing them would strand durable work.
 
 This queue is not a generic workflow bus. It is the runtime's durable delivery mechanism for FSM events.
+
+The `AsyncEventQueue` and `runEventPump` are runtime code, not part of the FSM module. The FSM module exports only `defineMachine`, `dispatch`, and error classes.
+
+The `drain()` implementation assumes single-threaded JavaScript: between `shift()` returning the first item and `drain()` being called, no other `push()` can interleave within the same microtask. This is safe in Node.js but would need synchronization in a multi-threaded environment.
 
 Minimal queue/pump shape:
 
@@ -125,6 +130,8 @@ async function runEventPump(queue: AsyncEventQueue<EventEnvelope>) {
 
 The pump starts once during runtime startup with `void runEventPump(queue)`. Command execution is fire-and-forget from the pump perspective: `startCommand` starts async work, attaches completion/error callbacks, and those callbacks enqueue later FSM events through the same queue.
 
+The `dispatchEvent` function in the pump sketch extracts the event from the envelope and calls the FSM module's `dispatch(machine, self, event)` with the envelope's `name` and `args` fields as the `Event`. `dispatchEvent` is runtime code; `dispatch` is the FSM module's pure synchronous function.
+
 ## 4. Async Job Queue And Callbacks
 
 Commands emitted by FSM handlers are converted by the runtime into async jobs. Jobs do not mutate FSM state directly. They finish by invoking a callback that enqueues an event envelope.
@@ -132,15 +139,15 @@ Commands emitted by FSM handlers are converted by the runtime into async jobs. J
 Callbacks should normally be JavaScript/TypeScript closures. The closure can capture the target FSM object reference, event-construction data, and the runtime's `enqueueEvent` function.
 
 ```ts
-type AsyncJob<Cmd extends Command, Ev extends Event> = {
+type AsyncJob<Cmd extends Command> = {
   id: string;
   command: Cmd;
-  callback: JobCallback<Ev>;
+  callback: JobCallback;
   timeoutMs: number;
   createdAt: string;
 };
 
-type JobCallback<Ev extends Event> = {
+type JobCallback = {
   onSucceeded: (result: unknown) => void;
   onFailed: (error: unknown) => void;
   onTimedOut: () => void;
@@ -167,7 +174,7 @@ function makeProviderCallback(input: {
   target: MachineRef;
   requestId: string;
   enqueueEvent: (envelope: EventEnvelope) => void;
-}): JobCallback<LlmEvent> {
+}): JobCallback {
   const { target, requestId, enqueueEvent } = input;
 
   return {
@@ -257,30 +264,31 @@ type HandlerResult<State extends string, Cmd extends Command> = {
 type MachineSelf<State extends string> = {
   _sm: {
     state: State;
+    ref?: MachineRef;
   };
   state(): State;
   send(name: string, args?: Record<string, unknown>): void;
 };
 
-type Handler<State extends string, Self extends MachineSelf<State>, Ev extends Event, Cmd extends Command> =
+type Handler<State extends string, Self extends MachineSelf<State>, Cmd extends Command> =
   (input: {
     self: Self;
-    event: Ev;
+    event: Event;
   }) => HandlerResult<State, Cmd>;
 
 type LeaveHook<State extends string, Self extends MachineSelf<State>, Cmd extends Command> =
   (self: Self) => { commands?: Cmd[] } | void;
 
-type StateDefinition<State extends string, Self extends MachineSelf<State>, Ev extends Event, Cmd extends Command> = {
+type StateDefinition<State extends string, Self extends MachineSelf<State>, Cmd extends Command> = {
   on_leave?: LeaveHook<State, Self, Cmd>;
-  on_enter?: Handler<State, Self, Ev, Cmd>;
-  on?: Record<string, State | Handler<State, Self, Ev, Cmd>>;
+  on_enter?: Handler<State, Self, Cmd>;
+  on?: Record<string, State | Handler<State, Self, Cmd>>;
 };
 
-type MachineDefinition<State extends string, Self extends MachineSelf<State>, Ev extends Event, Cmd extends Command> = {
+type MachineDefinition<State extends string, Self extends MachineSelf<State>, Cmd extends Command> = {
   initial: State;
   sequence?: State[];
-  states: Record<State, StateDefinition<State, Self, Ev, Cmd>>;
+  states: Record<State, StateDefinition<State, Self, Cmd>>;
 };
 ```
 
@@ -326,7 +334,7 @@ Rules:
 - If the current state has no handler for the event, dispatch ignores the event and returns no commands, except for implicit `done` advance in `sequence`.
 - If a direct transition is configured, the state changes to the target and the target state's `on_enter` runs.
 - If a handler is configured, the handler runs synchronously and may update the machine object, emit commands, and/or transition.
-- If a handler returns no `state`, or explicitly returns the current state, the machine stays in the same state. No transition occurs.
+- If a handler returns no `state`, or explicitly returns the current state, or returns `undefined`, the machine stays in the same state. No transition occurs.
 - `on_leave` fires only when the machine actually transitions to a different state. It does not fire when the handler stays in the same state.
 - `on_enter` fires only when the machine actually transitions to a different state. It does not fire for the initial state (set by definition, not by transition).
 - If a transition occurs, `on_leave` for the source state runs before the state change is committed.
@@ -342,9 +350,11 @@ State-machine bookkeeping rules:
 
 - All data owned by the FSM module lives under `self._sm`.
 - `self._sm.state` is the current state and is the only required `_sm` field initially.
+- `self._sm.ref` is an optional `MachineRef` set by the runtime when creating or recovering an FSM object. The FSM module does not create or manage refs.
 - Domain data, runtime references, and object methods live outside `_sm`.
 - Machine objects expose a `state()` method that returns `self._sm.state`.
-- Machine objects expose a `send(name, args?)` method that queues an event for the same object in the global event queue.
+- Machine objects expose a `send(name, args?)` method that queues an event for the same object in the global event queue. This method is added by the runtime, not by the FSM module. It closes over the runtime's `enqueueEvent` function and the object's `MachineRef`, so that `send` is equivalent to `enqueueEvent({ target: self._sm.ref, name, args })`. The FSM module does not define `send`; it documents the expected interface.
+- The runtime sets `self._sm.ref` to the object's `MachineRef` when creating or recovering an FSM object. The FSM module does not create or manage refs; it only reserves the field name.
 - Application handlers should use `self.state()` to read the current state. They should not read or mutate `_sm` directly except through `dispatch` or FSM-provided helpers.
 - If the FSM module later needs local metadata, such as a sequence index cache or debug counters, it goes under `_sm` rather than becoming top-level object fields.
 
@@ -421,8 +431,6 @@ type SupervisorFields = {
 
 type SupervisorSelf = MachineSelf<SupervisorState> & SupervisorFields;
 
-type SupervisorEvent = Event;
-
 type SupervisorCommand =
   | { type: "start_project"; projectId: string }
   | { type: "warn_already_running" }
@@ -431,7 +439,6 @@ type SupervisorCommand =
 const supervisorMachine = defineMachine<
   SupervisorState,
   SupervisorSelf,
-  SupervisorEvent,
   SupervisorCommand
 >({
   initial: "idle",
@@ -485,11 +492,9 @@ This sketch shows the intended style. Provider calls and tool calls are commands
 ```ts
 type LlmState = "ready" | "calling_provider" | "running_tool" | "completed" | "failed";
 
-type LlmEvent = Event;
-
 type LlmSelf = MachineSelf<LlmState> & LlmContext;
 
-const llmLoopMachine = defineMachine<LlmState, LlmSelf, LlmEvent, LlmCommand>({
+const llmLoopMachine = defineMachine<LlmState, LlmSelf, LlmCommand>({
   initial: "ready",
   states: {
     ready: {
@@ -574,14 +579,14 @@ This version deliberately separates `calling_provider` from `ready`. That is not
 Minimal exported API:
 
 ```ts
-export function defineMachine<State extends string, Self extends MachineSelf<State>, Ev extends Event, Cmd extends Command>(
-  definition: MachineDefinition<State, Self, Ev, Cmd>,
-): CompiledMachine<State, Self, Ev, Cmd>;
+export function defineMachine<State extends string, Self extends MachineSelf<State>, Cmd extends Command>(
+  definition: MachineDefinition<State, Self, Cmd>,
+): CompiledMachine<State, Self, Cmd>;
 
-export function dispatch<State extends string, Self extends MachineSelf<State>, Ev extends Event, Cmd extends Command>(
-  machine: CompiledMachine<State, Self, Ev, Cmd>,
+export function dispatch<State extends string, Self extends MachineSelf<State>, Cmd extends Command>(
+  machine: CompiledMachine<State, Self, Cmd>,
   self: Self,
-  event: Ev,
+  event: Event,
 ): DispatchResult<State, Cmd>;
 
 export class InvalidTransitionError extends Error {}
