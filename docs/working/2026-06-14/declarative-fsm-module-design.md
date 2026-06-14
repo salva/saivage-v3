@@ -13,6 +13,7 @@ The design is inspired by `Class::StateMachine::Declarative`, but intentionally 
 - declarative state and event definitions;
 - synchronous event handling;
 - state transitions;
+- `on_leave` hooks before transitions;
 - `on_enter` hooks after transitions;
 - event handlers that may either return commands or request transitions;
 - no internal async execution;
@@ -211,13 +212,21 @@ type Handler<State extends string, Context, Ev extends Event, Cmd extends Comman
     event: Ev;
   }) => HandlerResult<State, Context, Cmd>;
 
+type LeaveHook<State extends string, Context, Cmd extends Command> =
+  (self: {
+    state: State;
+    context: Context;
+  }) => { commands?: Cmd[] } | void;
+
 type StateDefinition<State extends string, Context, Ev extends Event, Cmd extends Command> = {
+  on_leave?: LeaveHook<State, Context, Cmd>;
   on_enter?: Handler<State, Context, Ev, Cmd>;
   on?: Partial<Record<Ev["type"], State | Handler<State, Context, Ev, Cmd>>>;
 };
 
 type MachineDefinition<State extends string, Context, Ev extends Event, Cmd extends Command> = {
   initial: State;
+  sequence?: State[];
   states: Record<State, StateDefinition<State, Context, Ev, Cmd>>;
 };
 ```
@@ -226,6 +235,10 @@ type MachineDefinition<State extends string, Context, Ev extends Event, Cmd exte
 
 - a target state string for direct transition;
 - a handler function for validation, context updates, command emission, and conditional transition.
+
+`sequence` is an optional linear list of states. It exists only to support the `done`-means-advance convention. If a state appears in `sequence` and does not define its own `done` handler, `done` transitions to the next state in that list. The last state in the sequence has no implicit `done` transition.
+
+`on_leave` runs before a state transition is committed. It is intentionally minimal: it receives only the current machine self, which knows the current state and context. It does not receive the triggering event or target state. Use it for generic state-scoped cleanup, such as cancelling or detaching live jobs owned by the current state.
 
 `on_enter` runs after a state transition is committed in memory and before commands are returned to the caller.
 
@@ -251,17 +264,30 @@ function dispatch(machine, snapshot, event): DispatchResult<...>;
 
 Rules:
 
-- If the current state has no handler for the event, dispatch throws `InvalidTransitionError`.
+- If the current state has no handler for the event, dispatch throws `InvalidTransitionError`, except for implicit `done` advance in `sequence`.
 - If a direct transition is configured, the state changes to the target and the target state's `on_enter` runs.
 - If a handler is configured, the handler runs synchronously and may update context, emit commands, and/or transition.
 - If a handler returns no `state`, the machine remains in the current state.
-- If a transition occurs, `on_enter` for the target state runs after the handler result is applied.
-- Commands returned by the event handler and `on_enter` are concatenated in deterministic order: handler commands first, `on_enter` commands second.
+- If a transition occurs, `on_leave` for the source state runs before the state change is committed.
+- If a transition occurs, `on_enter` for the target state runs after the handler result is applied and the state change is committed.
+- Commands returned by `on_leave`, the event handler, and `on_enter` are concatenated in deterministic order: `on_leave` commands first, handler commands second, `on_enter` commands third.
+- `on_leave` must not update context or trigger another transition directly. It may emit cleanup commands whose completion events later report diagnostics.
 - `on_enter` must not trigger another state transition directly. It may emit commands whose completion events later trigger transitions.
-- Handlers and `on_enter` must be pure with respect to external systems. They may compute commands but must not perform I/O.
+- Handlers, `on_leave`, and `on_enter` must be pure with respect to external systems. They may compute commands but must not perform I/O.
 - Handlers and `on_enter` must not mutate the input context. Return a new or updated context in the handler result. The runtime should treat context as immutable and replace it atomically with the handler result.
+- `on_leave` must not mutate context and must not return context updates. It may return commands only.
 
-## 8. Persistence Boundary
+## 8. Minimal Conventions
+
+These conventions keep common machines terse without adding a general workflow framework.
+
+- `done` is the default advance event inside an explicitly declared `sequence`. If a state belongs to `sequence` and does not override `done`, `done` advances to the next state in that sequence.
+- `error` is the conventional failure event name. It has no implicit behavior unless the machine or current state declares an `error` transition.
+- `on_enter` starts or admits state-scoped work. `on_leave` stops, cancels, or detaches state-scoped work.
+- States that intentionally ignore an event should define an explicit no-op handler. Unknown events remain invalid transitions.
+- Specific event names are still preferred for externally meaningful completions, such as `provider_call_succeeded`, `tool_call_failed`, and `process_wait_timed_out`. `done` is for local step advancement where the source is obvious.
+
+## 9. Persistence Boundary
 
 The FSM module does not persist anything itself. The caller owns persistence.
 
@@ -291,7 +317,7 @@ type MachineSnapshot<State extends string, Context> = {
 
 The module should include a small snapshot validator, but it should not know where snapshots are stored.
 
-## 9. Command Effects
+## 10. Command Effects
 
 Commands are plain data emitted by handlers. They describe the side effect to perform, not what event to produce on completion. The callback closure (Section 4) is responsible for constructing the completion event envelope. Commands do not carry event-type-name mappings or callback references.
 
@@ -322,7 +348,7 @@ Command rules:
 - Commands are not executed by the FSM module.
 - Commands should carry enough identity for the owning FSM object's recovery code to decide whether a pending external operation should be recreated, ignored, or converted into a diagnostic/failure event.
 
-## 10. Example: Supervisor Machine
+## 11. Example: Supervisor Machine
 
 ```ts
 type SupervisorState = "idle" | "running" | "paused" | "shutting_down";
@@ -394,7 +420,7 @@ const supervisorMachine = defineMachine<
 });
 ```
 
-## 11. Example: LLM Loop Machine
+## 12. Example: LLM Loop Machine
 
 This sketch shows the intended style. Provider calls and tool calls are commands; their completions return as events.
 
@@ -490,7 +516,7 @@ const llmLoopMachine = defineMachine<LlmState, LlmContext, LlmEvent, LlmCommand>
 
 This version deliberately separates `calling_provider` from `ready`. That is not required globally, but it is useful in the LLM loop because provider calls, tool calls, cancellation, timeout, and recovery differ by phase.
 
-## 12. API Surface
+## 13. API Surface
 
 Minimal exported API:
 
@@ -517,24 +543,27 @@ export function command<Command>(command: Command): { commands: Command[] };
 
 Do not add `assign` helpers, `transition` helpers, interpreters, schedulers, timers, actor spawning, or persistence adapters to this module initially. Those belong to the Saivage runtime. Inline spread syntax like `{ context: { ...context, ...patch } }` is readable without an `assign` helper.
 
-## 13. Validation Rules
+## 14. Validation Rules
 
 At definition time:
 
 - `initial` must exist in `states`.
+- Every `sequence` state must exist in `states`.
+- A state must not appear more than once in `sequence`.
 - Every direct transition target must exist.
 - State names and event names must be non-empty strings.
+- `on_leave` must be a function when present.
 - `on_enter` must be a function when present.
 - `on` handlers must be functions or valid target states.
 
 At dispatch time:
 
 - Unknown current state throws.
-- Unknown event for current state throws.
+- Unknown event for current state throws, except `done` when the current state has an implicit sequence advance.
 - Handler returning an unknown target state throws.
 - Handler throwing an exception converts to caller-visible failure; the module does not swallow it.
 
-## 14. Testing Strategy
+## 15. Testing Strategy
 
 Test the FSM module independently:
 
@@ -542,8 +571,11 @@ Test the FSM module independently:
 - handler transition works;
 - handler can update context;
 - handler can emit commands;
+- `on_leave` runs before transition;
 - `on_enter` runs after transition;
+- `on_leave` commands precede handler commands;
 - handler commands precede `on_enter` commands;
+- `done` advances within an explicitly declared sequence;
 - invalid event throws;
 - invalid target throws;
 - no async behavior exists in the module.
@@ -567,7 +599,7 @@ Test Saivage machines separately by asserting domain invariants:
 - cancellation waits for bounded operation completion events;
 - project completion returns supervisor to `idle` while preserving project card outcome.
 
-## 15. Non-Goals
+## 16. Non-Goals
 
 The module should not implement:
 
@@ -585,7 +617,7 @@ The module should not implement:
 
 If Saivage later needs any of these, add them outside this module first. Promote into the FSM module only after repeated local patterns prove they belong there.
 
-## 16. Why This Fits Saivage
+## 17. Why This Fits Saivage
 
 This design keeps the useful part of state machines: explicit states, explicit events, invalid transition detection, and easy transition tests.
 
