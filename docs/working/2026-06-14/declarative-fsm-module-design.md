@@ -30,7 +30,7 @@ The runtime also owns event queueing and delivery. FSM objects do not call each 
 The module has four concepts:
 
 - **Machine definition**: static declaration of states, events, handlers, and hooks.
-- **Machine instance**: current state plus typed context.
+- **Machine instance**: a regular JS/TS object with a current state field, methods, and its own typed fields.
 - **Event**: synchronous input delivered to the machine.
 - **Command**: explicit side-effect request emitted by the machine for the outer runtime to execute.
 
@@ -69,7 +69,7 @@ Delivery rules:
 - The runtime loads the target snapshot, dispatches the event synchronously, persists the new snapshot and emitted commands, then enqueues any async jobs derived from commands.
 - Delivery for a single target object is serial. The runtime must not dispatch two events concurrently to the same FSM object.
 - Delivery across different target objects may be concurrent if their persistence and command queues remain consistent.
-- If dispatch throws `InvalidTransitionError`, the runtime records a diagnostic and does not retry the same event blindly.
+- If dispatch throws `InvalidTransitionError` for an invalid snapshot state or invalid target state, the runtime records a diagnostic and does not retry the same event blindly.
 - Event envelopes should have stable ids so delivery can be deduplicated after recovery.
 - Events should be persisted before delivery when losing them would strand durable work.
 
@@ -199,46 +199,45 @@ Example API sketch:
 type Event = { type: string; [key: string]: unknown };
 type Command = { type: string; [key: string]: unknown };
 
-type HandlerResult<State extends string, Context, Cmd extends Command> = {
+type HandlerResult<State extends string, Cmd extends Command> = {
   state?: State;
-  context?: Context;
   commands?: Cmd[];
 };
 
-type Handler<State extends string, Context, Ev extends Event, Cmd extends Command> =
-  (input: {
-    state: State;
-    context: Context;
-    event: Ev;
-  }) => HandlerResult<State, Context, Cmd>;
-
-type LeaveHook<State extends string, Context, Cmd extends Command> =
-  (self: {
-    state: State;
-    context: Context;
-  }) => { commands?: Cmd[] } | void;
-
-type StateDefinition<State extends string, Context, Ev extends Event, Cmd extends Command> = {
-  on_leave?: LeaveHook<State, Context, Cmd>;
-  on_enter?: Handler<State, Context, Ev, Cmd>;
-  on?: Partial<Record<Ev["type"], State | Handler<State, Context, Ev, Cmd>>>;
+type MachineSelf<State extends string> = {
+  state: State;
 };
 
-type MachineDefinition<State extends string, Context, Ev extends Event, Cmd extends Command> = {
+type Handler<State extends string, Self extends MachineSelf<State>, Ev extends Event, Cmd extends Command> =
+  (input: {
+    self: Self;
+    event: Ev;
+  }) => HandlerResult<State, Cmd>;
+
+type LeaveHook<State extends string, Self extends MachineSelf<State>, Cmd extends Command> =
+  (self: Self) => { commands?: Cmd[] } | void;
+
+type StateDefinition<State extends string, Self extends MachineSelf<State>, Ev extends Event, Cmd extends Command> = {
+  on_leave?: LeaveHook<State, Self, Cmd>;
+  on_enter?: Handler<State, Self, Ev, Cmd>;
+  on?: Partial<Record<Ev["type"], State | Handler<State, Self, Ev, Cmd>>>;
+};
+
+type MachineDefinition<State extends string, Self extends MachineSelf<State>, Ev extends Event, Cmd extends Command> = {
   initial: State;
   sequence?: State[];
-  states: Record<State, StateDefinition<State, Context, Ev, Cmd>>;
+  states: Record<State, StateDefinition<State, Self, Ev, Cmd>>;
 };
 ```
 
 `on` entries can be either:
 
 - a target state string for direct transition;
-- a handler function for validation, context updates, command emission, and conditional transition.
+- a handler function for validation, object field updates, command emission, and conditional transition.
 
 `sequence` is an optional linear list of states. It exists only to support the `done`-means-advance convention. If a state appears in `sequence` and does not define its own `done` handler, `done` transitions to the next state in that list. The last state in the sequence has no implicit `done` transition.
 
-`on_leave` runs before a state transition is committed. It is intentionally minimal: it receives only the current machine self, which knows the current state and context. It does not receive the triggering event or target state. Use it for generic state-scoped cleanup, such as cancelling or detaching live jobs owned by the current state.
+`on_leave` runs before a state transition is committed. It is intentionally minimal: it receives only the current machine object, which knows the current state and its own fields. It does not receive the triggering event or target state. Use it for generic state-scoped cleanup, such as cancelling or detaching live jobs owned by the current state.
 
 `on_enter` runs after a state transition is committed in memory and before commands are returned to the caller.
 
@@ -246,36 +245,35 @@ type MachineDefinition<State extends string, Context, Ev extends Event, Cmd exte
 
 - `on_enter` does not fire for the initial state. The initial state is set by definition, not by transition. Use an explicit init event if the machine must emit commands at startup.
 - `on_enter` does not fire when a handler stays in the same state (returns no `state` field). `on_enter` fires only on entry to a new state.
-- `on_enter` receives the same inputs as a regular handler: `state` is the target state the machine just entered, `context` is the context after the triggering handler's updates, and `event` is the original event that triggered the transition.
+- `on_enter` receives the same inputs as a regular handler: `self` is the machine object after its state field has been updated to the target state, and `event` is the original event that triggered the transition.
 
 ## 7. Dispatch Semantics
 
 Dispatch is synchronous and deterministic.
 
 ```ts
-type DispatchResult<State extends string, Context, Cmd extends Command> = {
+type DispatchResult<State extends string, Cmd extends Command> = {
   state: State;
-  context: Context;
   commands: Cmd[];
 };
 
-function dispatch(machine, snapshot, event): DispatchResult<...>;
+function dispatch(machine, self, event): DispatchResult<...>;
 ```
 
 Rules:
 
-- If the current state has no handler for the event, dispatch throws `InvalidTransitionError`, except for implicit `done` advance in `sequence`.
+- If the current state has no handler for the event, dispatch ignores the event and returns no commands, except for implicit `done` advance in `sequence`.
 - If a direct transition is configured, the state changes to the target and the target state's `on_enter` runs.
-- If a handler is configured, the handler runs synchronously and may update context, emit commands, and/or transition.
+- If a handler is configured, the handler runs synchronously and may update the machine object, emit commands, and/or transition.
 - If a handler returns no `state`, the machine remains in the current state.
 - If a transition occurs, `on_leave` for the source state runs before the state change is committed.
 - If a transition occurs, `on_enter` for the target state runs after the handler result is applied and the state change is committed.
 - Commands returned by `on_leave`, the event handler, and `on_enter` are concatenated in deterministic order: `on_leave` commands first, handler commands second, `on_enter` commands third.
-- `on_leave` must not update context or trigger another transition directly. It may emit cleanup commands whose completion events later report diagnostics.
+- `on_leave` must not trigger another transition directly. It may emit cleanup commands whose completion events later report diagnostics.
 - `on_enter` must not trigger another state transition directly. It may emit commands whose completion events later trigger transitions.
 - Handlers, `on_leave`, and `on_enter` must be pure with respect to external systems. They may compute commands but must not perform I/O.
-- Handlers and `on_enter` must not mutate the input context. Return a new or updated context in the handler result. The runtime should treat context as immutable and replace it atomically with the handler result.
-- `on_leave` must not mutate context and must not return context updates. It may return commands only.
+- Handlers and `on_enter` may mutate the machine object fields synchronously. They must not mutate external systems or other machine objects.
+- `on_leave` should be used for cleanup commands and should not mutate durable fields except for trivial local bookkeeping needed to detach live handles.
 
 ## 8. Minimal Conventions
 
@@ -284,7 +282,7 @@ These conventions keep common machines terse without adding a general workflow f
 - `done` is the default advance event inside an explicitly declared `sequence`. If a state belongs to `sequence` and does not override `done`, `done` advances to the next state in that sequence.
 - `error` is the conventional failure event name. It has no implicit behavior unless the machine or current state declares an `error` transition.
 - `on_enter` starts or admits state-scoped work. `on_leave` stops, cancels, or detaches state-scoped work.
-- States that intentionally ignore an event should define an explicit no-op handler. Unknown events remain invalid transitions.
+- Unhandled events are ignored by default. This matches the lightweight object style and avoids boilerplate no-op handlers.
 - Specific event names are still preferred for externally meaningful completions, such as `provider_call_succeeded`, `tool_call_failed`, and `process_wait_timed_out`. `done` is for local step advancement where the source is obvious.
 
 ## 9. Persistence Boundary
@@ -306,11 +304,11 @@ Recommended runtime sequence:
 Snapshot shape:
 
 ```ts
-type MachineSnapshot<State extends string, Context> = {
+type MachineSnapshot<State extends string, Data extends object> = {
   machine: string;
   id: string;
   state: State;
-  context: Context;
+  data: Data;
   version: number;
 };
 ```
@@ -353,16 +351,18 @@ Command rules:
 ```ts
 type SupervisorState = "idle" | "running" | "paused" | "shutting_down";
 
-type SupervisorContext = {
+type SupervisorFields = {
   projectId: string;
   lastOutcome?: "done" | "failed" | "blocked" | "cancelled";
 };
+
+type SupervisorSelf = MachineSelf<SupervisorState> & SupervisorFields;
 
 type SupervisorEvent =
   | { type: "run_requested" }
   | { type: "pause_requested" }
   | { type: "shutdown_requested" }
-  | { type: "project_completed"; outcome: SupervisorContext["lastOutcome"] }
+  | { type: "project_completed"; outcome: SupervisorFields["lastOutcome"] }
   | { type: "processes_terminated" };
 
 type SupervisorCommand =
@@ -372,7 +372,7 @@ type SupervisorCommand =
 
 const supervisorMachine = defineMachine<
   SupervisorState,
-  SupervisorContext,
+  SupervisorSelf,
   SupervisorEvent,
   SupervisorCommand
 >({
@@ -380,9 +380,9 @@ const supervisorMachine = defineMachine<
   states: {
     idle: {
       on: {
-        run_requested: ({ context }) => ({
+        run_requested: ({ self }) => ({
           state: "running",
-          commands: [{ type: "start_project", projectId: context.projectId }],
+          commands: [{ type: "start_project", projectId: self.projectId }],
         }),
       },
     },
@@ -394,10 +394,10 @@ const supervisorMachine = defineMachine<
         }),
         pause_requested: "paused",
         shutdown_requested: "shutting_down",
-        project_completed: ({ context, event }) => ({
-          state: "idle",
-          context: { ...context, lastOutcome: event.outcome },
-        }),
+        project_completed: ({ self, event }) => {
+          self.lastOutcome = event.outcome;
+          return { state: "idle" };
+        },
       },
     },
 
@@ -436,14 +436,16 @@ type LlmEvent =
   | { type: "tool_call_failed"; error: string }
   | { type: "cancel_requested" };
 
-const llmLoopMachine = defineMachine<LlmState, LlmContext, LlmEvent, LlmCommand>({
+type LlmSelf = MachineSelf<LlmState> & LlmContext;
+
+const llmLoopMachine = defineMachine<LlmState, LlmSelf, LlmEvent, LlmCommand>({
   initial: "ready",
   states: {
     ready: {
       on: {
-        start_requested: ({ context }) => ({
+        start_requested: ({ self }) => ({
           state: "calling_provider",
-          commands: [callProviderCommand(context)],
+          commands: [callProviderCommand(self)],
         }),
         cancel_requested: "failed",
       },
@@ -451,60 +453,60 @@ const llmLoopMachine = defineMachine<LlmState, LlmContext, LlmEvent, LlmCommand>
 
     calling_provider: {
       on: {
-        provider_call_succeeded: ({ context, event }) => {
+        provider_call_succeeded: ({ self, event }) => {
           const parsed = parseModelOutput(event.output);
           if (parsed.kind === "outcome") {
+            self.outcome = parsed.outcome;
             return {
               state: "completed",
-              context: { ...context, outcome: parsed.outcome },
             };
           }
 
+          self.pendingTools = parsed.toolCalls;
           return {
             state: "running_tool",
-            context: { ...context, pendingTools: parsed.toolCalls },
-            commands: [runNextToolCommand(parsed.toolCalls, context)],
+            commands: [runNextToolCommand(parsed.toolCalls, self)],
           };
         },
-        provider_call_failed: ({ context, event }) => ({
-          state: "failed",
-          context: { ...context, error: event.error },
-        }),
-        provider_call_timed_out: ({ context }) => ({
-          state: "failed",
-          context: { ...context, error: "provider call timed out" },
-        }),
-        cancel_requested: ({ context }) => ({
-          context: { ...context, cancellationRequested: true },
-        }),
+        provider_call_failed: ({ self, event }) => {
+          self.error = event.error;
+          return { state: "failed" };
+        },
+        provider_call_timed_out: ({ self }) => {
+          self.error = "provider call timed out";
+          return { state: "failed" };
+        },
+        cancel_requested: ({ self }) => {
+          self.cancellationRequested = true;
+          return {};
+        },
       },
     },
 
     running_tool: {
       on: {
-        tool_call_succeeded: ({ context, event }) => {
-          const nextContext = appendToolResult(context, event.result);
-          const nextTool = nextPendingTool(nextContext);
+        tool_call_succeeded: ({ self, event }) => {
+          appendToolResult(self, event.result);
+          const nextTool = nextPendingTool(self);
           if (nextTool) {
             return {
-              context: nextContext,
-              commands: [runToolCommand(nextTool, nextContext)],
+              commands: [runToolCommand(nextTool, self)],
             };
           }
 
           return {
             state: "calling_provider",
-            context: nextContext,
-            commands: [callProviderCommand(nextContext)],
+            commands: [callProviderCommand(self)],
           };
         },
-        tool_call_failed: ({ context, event }) => ({
-          state: "failed",
-          context: { ...context, error: event.error },
-        }),
-        cancel_requested: ({ context }) => ({
-          context: { ...context, cancellationRequested: true },
-        }),
+        tool_call_failed: ({ self, event }) => {
+          self.error = event.error;
+          return { state: "failed" };
+        },
+        cancel_requested: ({ self }) => {
+          self.cancellationRequested = true;
+          return {};
+        },
       },
     },
 
@@ -521,15 +523,15 @@ This version deliberately separates `calling_provider` from `ready`. That is not
 Minimal exported API:
 
 ```ts
-export function defineMachine<State, Context, Event, Command>(
-  definition: MachineDefinition<State, Context, Event, Command>,
-): CompiledMachine<State, Context, Event, Command>;
+export function defineMachine<State extends string, Self extends MachineSelf<State>, Ev extends Event, Cmd extends Command>(
+  definition: MachineDefinition<State, Self, Ev, Cmd>,
+): CompiledMachine<State, Self, Ev, Cmd>;
 
-export function dispatch<State, Context, Event, Command>(
-  machine: CompiledMachine<State, Context, Event, Command>,
-  snapshot: MachineSnapshot<State, Context>,
-  event: Event,
-): DispatchResult<State, Context, Command>;
+export function dispatch<State extends string, Self extends MachineSelf<State>, Ev extends Event, Cmd extends Command>(
+  machine: CompiledMachine<State, Self, Ev, Cmd>,
+  self: Self,
+  event: Ev,
+): DispatchResult<State, Cmd>;
 
 export class InvalidTransitionError extends Error {}
 export class InvalidMachineDefinitionError extends Error {}
@@ -541,7 +543,7 @@ Optional helpers:
 export function command<Command>(command: Command): { commands: Command[] };
 ```
 
-Do not add `assign` helpers, `transition` helpers, interpreters, schedulers, timers, actor spawning, or persistence adapters to this module initially. Those belong to the Saivage runtime. Inline spread syntax like `{ context: { ...context, ...patch } }` is readable without an `assign` helper.
+Do not add `assign` helpers, `transition` helpers, interpreters, schedulers, timers, actor spawning, `delay`, or persistence adapters to this module initially. Those belong to the Saivage runtime or to a later iteration if repeated local patterns prove they belong here.
 
 ## 14. Validation Rules
 
@@ -559,7 +561,7 @@ At definition time:
 At dispatch time:
 
 - Unknown current state throws.
-- Unknown event for current state throws, except `done` when the current state has an implicit sequence advance.
+- Unknown events for the current state are ignored.
 - Handler returning an unknown target state throws.
 - Handler throwing an exception converts to caller-visible failure; the module does not swallow it.
 
@@ -569,14 +571,14 @@ Test the FSM module independently:
 
 - direct transition works;
 - handler transition works;
-- handler can update context;
+- handler can update machine object fields;
 - handler can emit commands;
 - `on_leave` runs before transition;
 - `on_enter` runs after transition;
 - `on_leave` commands precede handler commands;
 - handler commands precede `on_enter` commands;
 - `done` advances within an explicitly declared sequence;
-- invalid event throws;
+- unknown event is ignored;
 - invalid target throws;
 - no async behavior exists in the module.
 
@@ -587,7 +589,7 @@ Test the runtime delivery subsystem separately:
 - commands become async jobs;
 - closure callbacks enqueue completion event envelopes rather than calling dispatch directly;
 - duplicate event ids are ignored or rejected deterministically;
-- stale completion events are rejected by target FSM context;
+- stale completion events are rejected by target FSM object fields;
 - timeout callbacks produce timeout events.
 
 Test Saivage machines separately by asserting domain invariants:
@@ -610,6 +612,7 @@ The module should not implement:
 - async actions;
 - built-in persistence;
 - built-in command execution;
+- built-in `delay` handling;
 - cross-object synchronous calls;
 - implicit retries;
 - visual statechart tooling;
