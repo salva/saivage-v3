@@ -23,7 +23,7 @@ The design is inspired by `Class::StateMachine::Declarative`, but intentionally 
 
 The FSM module is the deterministic core. A separate runtime executes async commands and dispatches completion events back into the FSM.
 
-The runtime also owns event queueing and delivery. FSM objects do not call each other directly. Events are enqueued as delivery requests, and the runtime delivers them by calling `dispatch` on the target FSM object.
+The runtime also owns event queueing and delivery. FSM objects do not call each other directly. Events are enqueued as delivery requests, and the async application main loop drains that queue by calling `dispatch` on target FSM objects before it goes back to waiting for external I/O.
 
 ## 2. Core Model
 
@@ -31,13 +31,13 @@ The module has four concepts:
 
 - **Machine definition**: static declaration of states, events, handlers, and hooks.
 - **Machine instance**: a regular JS/TS object with methods and typed fields. State-machine bookkeeping lives under a reserved `_sm` slot on that object.
-- **Event**: synchronous input delivered to the machine.
+- **Event**: untyped named input delivered to the machine, with an optional dictionary of arguments.
 - **Command**: explicit side-effect request emitted by the machine for the outer runtime to execute.
 
 The core flow is:
 
 ```text
-event envelope -> event queue -> dispatch -> sync transition -> on_enter hooks -> commands
+send(name, args) -> global event queue -> app main loop -> dispatch -> sync transition -> on_enter hooks -> commands
 commands -> async job queue -> job callback -> event envelope -> event queue
 ```
 
@@ -45,7 +45,7 @@ The FSM never awaits. If work requires I/O, timers, LLM calls, process waits, fi
 
 ## 3. Event Queue And Delivery
 
-Events are delivered through a runtime-owned queue. A queued event is an envelope containing the target object reference and the event payload.
+Events are delivered through a runtime-owned global queue. A queued event is an envelope containing the target object reference, an event name, and an argument dictionary. Event argument types are intentionally not enforced by the framework.
 
 ```ts
 type MachineRef = {
@@ -53,10 +53,11 @@ type MachineRef = {
   id: string;
 };
 
-type EventEnvelope<Ev extends Event> = {
+type EventEnvelope = {
   id: string;
   target: MachineRef;
-  event: Ev;
+  name: string;
+  args?: Record<string, unknown>;
   causationId?: string;
   correlationId?: string;
   createdAt: string;
@@ -66,6 +67,8 @@ type EventEnvelope<Ev extends Event> = {
 Delivery rules:
 
 - The only way to advance an FSM object is to enqueue an `EventEnvelope` and let the runtime deliver it with `dispatch`.
+- `self.send(name, args)` enqueues an event envelope addressed to that object. It does not call `dispatch` directly.
+- The async application main loop drains queued FSM events before going back to the OS/event-loop wait point. This keeps dispatch synchronous while still integrating with asynchronous I/O.
 - The runtime loads the target snapshot, dispatches the event synchronously, persists the new snapshot and emitted commands, then enqueues any async jobs derived from commands.
 - Delivery for a single target object is serial. The runtime must not dispatch two events concurrently to the same FSM object.
 - Delivery across different target objects may be concurrent if their persistence and command queues remain consistent.
@@ -116,7 +119,7 @@ Example callback closure:
 function makeProviderCallback(input: {
   target: MachineRef;
   requestId: string;
-  enqueueEvent: (envelope: EventEnvelope<LlmEvent>) => void;
+  enqueueEvent: (envelope: EventEnvelope) => void;
 }): JobCallback<LlmEvent> {
   const { target, requestId, enqueueEvent } = input;
 
@@ -125,8 +128,8 @@ function makeProviderCallback(input: {
       enqueueEvent({
         id: newEventId(),
         target,
-        event: {
-          type: "provider_call_succeeded",
+        name: "provider_call_succeeded",
+        args: {
           requestId,
           output: result as ModelOutput,
         },
@@ -138,8 +141,8 @@ function makeProviderCallback(input: {
       enqueueEvent({
         id: newEventId(),
         target,
-        event: {
-          type: "provider_call_failed",
+        name: "provider_call_failed",
+        args: {
           requestId,
           error: sanitizeError(error),
         },
@@ -151,8 +154,8 @@ function makeProviderCallback(input: {
       enqueueEvent({
         id: newEventId(),
         target,
-        event: {
-          type: "provider_call_timed_out",
+        name: "provider_call_timed_out",
+        args: {
           requestId,
         },
         correlationId: requestId,
@@ -196,7 +199,7 @@ Generic `done` and `error` are allowed only inside very small local machines whe
 Example API sketch:
 
 ```ts
-type Event = { type: string; [key: string]: unknown };
+type Event = { name: string; args?: Record<string, unknown> };
 type Command = { type: string; [key: string]: unknown };
 
 type HandlerResult<State extends string, Cmd extends Command> = {
@@ -209,6 +212,7 @@ type MachineSelf<State extends string> = {
     state: State;
   };
   state(): State;
+  send(name: string, args?: Record<string, unknown>): void;
 };
 
 type Handler<State extends string, Self extends MachineSelf<State>, Ev extends Event, Cmd extends Command> =
@@ -223,7 +227,7 @@ type LeaveHook<State extends string, Self extends MachineSelf<State>, Cmd extend
 type StateDefinition<State extends string, Self extends MachineSelf<State>, Ev extends Event, Cmd extends Command> = {
   on_leave?: LeaveHook<State, Self, Cmd>;
   on_enter?: Handler<State, Self, Ev, Cmd>;
-  on?: Partial<Record<Ev["type"], State | Handler<State, Self, Ev, Cmd>>>;
+  on?: Record<string, State | Handler<State, Self, Ev, Cmd>>;
 };
 
 type MachineDefinition<State extends string, Self extends MachineSelf<State>, Ev extends Event, Cmd extends Command> = {
@@ -237,6 +241,8 @@ type MachineDefinition<State extends string, Self extends MachineSelf<State>, Ev
 
 - a target state string for direct transition;
 - a handler function for validation, object field updates, command emission, and conditional transition.
+
+Events are keyed by name. Event arguments are plain dictionaries and are validated, if needed, by the receiving handler.
 
 `sequence` is an optional linear list of states. It exists only to support the `done`-means-advance convention. If a state appears in `sequence` and does not define its own `done` handler, `done` transitions to the next state in that list. The last state in the sequence has no implicit `done` transition.
 
@@ -291,6 +297,7 @@ State-machine bookkeeping rules:
 - `self._sm.state` is the current state and is the only required `_sm` field initially.
 - Domain data, runtime references, and object methods live outside `_sm`.
 - Machine objects expose a `state()` method that returns `self._sm.state`.
+- Machine objects expose a `send(name, args?)` method that queues an event for the same object in the global event queue.
 - Application handlers should use `self.state()` to read the current state. They should not read or mutate `_sm` directly except through `dispatch` or FSM-provided helpers.
 - If the FSM module later needs local metadata, such as a sequence index cache or debug counters, it goes under `_sm` rather than becoming top-level object fields.
 
@@ -302,6 +309,7 @@ These conventions keep common machines terse without adding a general workflow f
 - `error` is the conventional failure event name. It has no implicit behavior unless the machine or current state declares an `error` transition.
 - `on_enter` starts or admits state-scoped work. `on_leave` stops, cancels, or detaches state-scoped work.
 - Unhandled events are ignored by default. This matches the lightweight object style and avoids boilerplate no-op handlers.
+- Event payloads are untyped dictionaries by framework design. Handlers own any argument validation they require.
 - Specific event names are still preferred for externally meaningful completions, such as `provider_call_succeeded`, `tool_call_failed`, and `process_wait_timed_out`. `done` is for local step advancement where the source is obvious.
 
 ## 9. Persistence Boundary
@@ -311,8 +319,8 @@ The FSM module does not persist anything itself. The caller owns persistence.
 Recommended runtime sequence:
 
 ```text
-1. receive event
-2. enqueue event envelope
+1. object calls send(name, args) or external code enqueues event envelope
+2. async application main loop drains the global event queue before waiting for I/O
 3. delivery loop loads target snapshot
 4. dispatch event through FSM
 5. persist new snapshot and emitted commands atomically when possible
@@ -344,7 +352,7 @@ type RuntimeCommand =
     };
 ```
 
-The runtime converts a command into an async job by pairing it with a callback closure. The closure is constructed by the subsystem that knows the target FSM object, the event types to produce on each outcome, and the `enqueueEvent` function. The command itself stays serializable plain data.
+The runtime converts a command into an async job by pairing it with a callback closure. The closure is constructed by the subsystem that knows the target FSM object, the event names to produce on each outcome, and the `enqueueEvent` function. The command itself stays serializable plain data.
 
 Command rules:
 
@@ -365,12 +373,7 @@ type SupervisorFields = {
 
 type SupervisorSelf = MachineSelf<SupervisorState> & SupervisorFields;
 
-type SupervisorEvent =
-  | { type: "run_requested" }
-  | { type: "pause_requested" }
-  | { type: "shutdown_requested" }
-  | { type: "project_completed"; outcome: SupervisorFields["lastOutcome"] }
-  | { type: "processes_terminated" };
+type SupervisorEvent = Event;
 
 type SupervisorCommand =
   | { type: "start_project"; projectId: string }
@@ -402,7 +405,7 @@ const supervisorMachine = defineMachine<
         pause_requested: "paused",
         shutdown_requested: "shutting_down",
         project_completed: ({ self, event }) => {
-          self.lastOutcome = event.outcome;
+          self.lastOutcome = event.args?.outcome as SupervisorFields["lastOutcome"];
           return { state: "idle" };
         },
       },
@@ -434,14 +437,7 @@ This sketch shows the intended style. Provider calls and tool calls are commands
 ```ts
 type LlmState = "ready" | "calling_provider" | "running_tool" | "completed" | "failed";
 
-type LlmEvent =
-  | { type: "start_requested" }
-  | { type: "provider_call_succeeded"; output: ModelOutput }
-  | { type: "provider_call_failed"; error: string }
-  | { type: "provider_call_timed_out" }
-  | { type: "tool_call_succeeded"; result: ToolResult }
-  | { type: "tool_call_failed"; error: string }
-  | { type: "cancel_requested" };
+type LlmEvent = Event;
 
 type LlmSelf = MachineSelf<LlmState> & LlmContext;
 
@@ -461,7 +457,7 @@ const llmLoopMachine = defineMachine<LlmState, LlmSelf, LlmEvent, LlmCommand>({
     calling_provider: {
       on: {
         provider_call_succeeded: ({ self, event }) => {
-          const parsed = parseModelOutput(event.output);
+          const parsed = parseModelOutput(event.args?.output as ModelOutput);
           if (parsed.kind === "outcome") {
             self.outcome = parsed.outcome;
             return {
@@ -476,7 +472,7 @@ const llmLoopMachine = defineMachine<LlmState, LlmSelf, LlmEvent, LlmCommand>({
           };
         },
         provider_call_failed: ({ self, event }) => {
-          self.error = event.error;
+          self.error = String(event.args?.error ?? "provider call failed");
           return { state: "failed" };
         },
         provider_call_timed_out: ({ self }) => {
@@ -493,7 +489,7 @@ const llmLoopMachine = defineMachine<LlmState, LlmSelf, LlmEvent, LlmCommand>({
     running_tool: {
       on: {
         tool_call_succeeded: ({ self, event }) => {
-          appendToolResult(self, event.result);
+          appendToolResult(self, event.args?.result as ToolResult);
           const nextTool = nextPendingTool(self);
           if (nextTool) {
             return {
@@ -507,7 +503,7 @@ const llmLoopMachine = defineMachine<LlmState, LlmSelf, LlmEvent, LlmCommand>({
           };
         },
         tool_call_failed: ({ self, event }) => {
-          self.error = event.error;
+          self.error = String(event.args?.error ?? "tool call failed");
           return { state: "failed" };
         },
         cancel_requested: ({ self }) => {
@@ -588,6 +584,8 @@ Test the FSM module independently:
 Test the runtime delivery subsystem separately:
 
 - event envelopes deliver to the referenced target object;
+- `self.send(name, args)` enqueues an event and does not dispatch inline;
+- the async main loop drains queued FSM events before going back to external I/O wait;
 - delivery for one target object is serial;
 - commands become async jobs;
 - closure callbacks enqueue completion event envelopes rather than calling dispatch directly;
