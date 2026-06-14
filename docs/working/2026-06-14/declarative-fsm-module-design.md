@@ -67,8 +67,10 @@ type EventEnvelope = {
 Delivery rules:
 
 - The only way to advance an FSM object is to enqueue an `EventEnvelope` and let the runtime deliver it with `dispatch`.
-- `self.send(name, args)` enqueues an event envelope addressed to that object. It does not call `dispatch` directly.
-- The async application main loop drains queued FSM events before going back to the OS/event-loop wait point. This keeps dispatch synchronous while still integrating with asynchronous I/O.
+- `self.send(name, args)` enqueues an event envelope addressed to that object and wakes the event pump. It does not call `dispatch` directly.
+- The event pump is one long-lived async task waiting on the queue. Queue wait is implemented with a stored promise resolver: when the queue is empty the pump awaits a promise; when `send` pushes an event it calls the resolver to wake the pump.
+- Because wakeup resumes the pump through promise continuation scheduling, dispatch happens outside the current JavaScript call stack. `send` is always asynchronous with respect to dispatch.
+- The async event pump drains queued FSM events before awaiting the queue again. This keeps dispatch synchronous while still integrating with asynchronous I/O.
 - The runtime loads the target snapshot, dispatches the event synchronously, persists the new snapshot and emitted commands, then enqueues any async jobs derived from commands.
 - Delivery for a single target object is serial. The runtime must not dispatch two events concurrently to the same FSM object.
 - Delivery across different target objects may be concurrent if their persistence and command queues remain consistent.
@@ -77,6 +79,51 @@ Delivery rules:
 - Events should be persisted before delivery when losing them would strand durable work.
 
 This queue is not a generic workflow bus. It is the runtime's durable delivery mechanism for FSM events.
+
+Minimal queue/pump shape:
+
+```ts
+class AsyncEventQueue<T> {
+  private items: T[] = [];
+  private wake: (() => void) | undefined;
+
+  push(item: T) {
+    this.items.push(item);
+    this.wake?.();
+    this.wake = undefined;
+  }
+
+  async shift(): Promise<T> {
+    while (this.items.length === 0) {
+      await new Promise<void>((resolve) => {
+        this.wake = resolve;
+      });
+    }
+
+    return this.items.shift()!;
+  }
+
+  drain(): T[] {
+    const batch = this.items;
+    this.items = [];
+    return batch;
+  }
+}
+
+async function runEventPump(queue: AsyncEventQueue<EventEnvelope>) {
+  for (;;) {
+    const first = await queue.shift();
+    const batch = [first, ...queue.drain()];
+
+    for (const event of batch) {
+      const commands = dispatchEvent(event);
+      for (const command of commands) startCommand(command);
+    }
+  }
+}
+```
+
+The pump starts once during runtime startup with `void runEventPump(queue)`. Command execution is fire-and-forget from the pump perspective: `startCommand` starts async work, attaches completion/error callbacks, and those callbacks enqueue later FSM events through the same queue.
 
 ## 4. Async Job Queue And Callbacks
 
@@ -320,12 +367,13 @@ Recommended runtime sequence:
 
 ```text
 1. object calls send(name, args) or external code enqueues event envelope
-2. async application main loop drains the global event queue before waiting for I/O
-3. delivery loop loads target snapshot
-4. dispatch event through FSM
-5. persist new snapshot and emitted commands atomically when possible
-6. convert commands into async jobs
-7. async job callback enqueues completion event envelope
+2. event queue wakes the long-lived async event pump via stored promise resolver
+3. event pump drains the global event queue before awaiting it again
+4. delivery loop loads target snapshot
+5. dispatch event through FSM
+6. persist new snapshot and emitted commands atomically when possible
+7. convert commands into async jobs
+8. async job callback enqueues completion event envelope and wakes the pump
 ```
 
 The FSM module does not define a snapshot type. Persistence is the runtime's responsibility. The runtime must be able to serialize and reconstruct `self` objects from persisted data. The module only requires that `self` objects have a reserved `_sm` slot with a `state` field matching the machine's state type and a `state()` method that returns it.
@@ -585,7 +633,9 @@ Test the runtime delivery subsystem separately:
 
 - event envelopes deliver to the referenced target object;
 - `self.send(name, args)` enqueues an event and does not dispatch inline;
-- the async main loop drains queued FSM events before going back to external I/O wait;
+- `send` wakes the async event pump through a stored promise resolver;
+- dispatch runs from the event pump after the current JavaScript call stack has unwound;
+- the async event pump drains queued FSM events before awaiting the queue again;
 - delivery for one target object is serial;
 - commands become async jobs;
 - closure callbacks enqueue completion event envelopes rather than calling dispatch directly;
