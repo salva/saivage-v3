@@ -208,6 +208,7 @@ type MachineSelf<State extends string> = {
   _sm: {
     state: State;
   };
+  state(): State;
 };
 
 type Handler<State extends string, Self extends MachineSelf<State>, Ev extends Event, Cmd extends Command> =
@@ -239,19 +240,19 @@ type MachineDefinition<State extends string, Self extends MachineSelf<State>, Ev
 
 `sequence` is an optional linear list of states. It exists only to support the `done`-means-advance convention. If a state appears in `sequence` and does not define its own `done` handler, `done` transitions to the next state in that list. The last state in the sequence has no implicit `done` transition.
 
-`on_leave` runs before a state transition is committed. It is intentionally minimal: it receives only the current machine object, which knows the current state through `self._sm.state` and owns its own fields. It does not receive the triggering event or target state. Use it for generic state-scoped cleanup, such as cancelling or detaching live jobs owned by the current state.
+`on_leave` runs before a state transition is committed. It is intentionally minimal: it receives only the current machine object, which knows the current state through `self.state()` and owns its own fields. It does not receive the triggering event or target state. Use it for generic state-scoped cleanup, such as cancelling or detaching live jobs owned by the current state.
 
 `on_enter` runs after a state transition is committed in memory and before commands are returned to the caller.
 
 `on_leave` rules:
 
 - `on_leave` does not fire when the machine stays in the same state. It fires only on actual state transition.
-- `on_leave` receives only the machine object (`self`), which knows its current state through `self._sm.state` and owns its own fields. It does not receive the triggering event or target state.
+- `on_leave` receives only the machine object (`self`), which knows its current state through `self.state()` and owns its own fields. It does not receive the triggering event or target state.
 
 `on_enter` rules:
 
 - `on_enter` does not fire for the initial state. The initial state is set by definition, not by transition. Use an explicit init event if the machine must emit commands at startup.
-- `on_enter` receives the same inputs as a regular handler: `self` is the machine object after `self._sm.state` has been updated to the target state, and `event` is the original event that triggered the transition.
+- `on_enter` receives the same inputs as a regular handler: `self` is the machine object after its state has been updated to the target state, and `event` is the original event that triggered the transition.
 
 ## 7. Dispatch Semantics
 
@@ -289,7 +290,8 @@ State-machine bookkeeping rules:
 - All data owned by the FSM module lives under `self._sm`.
 - `self._sm.state` is the current state and is the only required `_sm` field initially.
 - Domain data, runtime references, and object methods live outside `_sm`.
-- Application handlers may read `self._sm.state`, but they should not mutate `_sm` directly except through `dispatch`.
+- Machine objects expose a `state()` method that returns `self._sm.state`.
+- Application handlers should use `self.state()` to read the current state. They should not read or mutate `_sm` directly except through `dispatch` or FSM-provided helpers.
 - If the FSM module later needs local metadata, such as a sequence index cache or debug counters, it goes under `_sm` rather than becoming top-level object fields.
 
 ## 8. Minimal Conventions
@@ -318,7 +320,7 @@ Recommended runtime sequence:
 7. async job callback enqueues completion event envelope
 ```
 
-The FSM module does not define a snapshot type. Persistence is the runtime's responsibility. The runtime must be able to serialize and reconstruct `self` objects from persisted data. The module only requires that `self` objects have a reserved `_sm` slot with a `state` field matching the machine's state type.
+The FSM module does not define a snapshot type. Persistence is the runtime's responsibility. The runtime must be able to serialize and reconstruct `self` objects from persisted data. The module only requires that `self` objects have a reserved `_sm` slot with a `state` field matching the machine's state type and a `state()` method that returns it.
 
 ## 10. Command Effects
 
