@@ -1,8 +1,8 @@
-# Declarative FSM Module Design
+# Declarative FSM Module Architecture
 
 Date: 2026-06-14.
 
-Status: working design.
+Status: current runtime-core implementation architecture.
 
 ## 1. Goal
 
@@ -37,7 +37,7 @@ The module has four concepts:
 The core flow is:
 
 ```text
-send(name, args) -> global event queue -> app main loop -> dispatch -> sync transition -> on_enter hooks -> commands
+send(name, args) -> global event queue -> app main loop -> dispatch -> on_leave -> sync transition -> on_enter -> commands
 commands -> async job queue -> job callback -> event envelope -> event queue
 ```
 
@@ -72,10 +72,10 @@ Delivery rules:
 - The event pump is one long-lived async task waiting on the queue. Queue wait is implemented with a stored promise resolver: when the queue is empty the pump awaits a promise; when `send` pushes an event it calls the resolver to wake the pump.
 - Because wakeup resumes the pump through promise continuation scheduling, dispatch happens outside the current JavaScript call stack. `send` is always asynchronous with respect to dispatch.
 - The async event pump drains queued FSM events before awaiting the queue again. This keeps dispatch synchronous while still integrating with asynchronous I/O.
-- The runtime loads the target snapshot, dispatches the event synchronously, persists the new snapshot and emitted commands, then enqueues any async jobs derived from commands.
+- The runtime loads or reconstructs the target machine object, dispatches the event synchronously, persists the updated object state and emitted commands, then enqueues any async jobs derived from commands.
 - Delivery for a single target object is serial. The runtime must not dispatch two events concurrently to the same FSM object.
 - Delivery across different target objects may be concurrent if their persistence and command queues remain consistent.
-- If dispatch throws `InvalidTransitionError`, it is for an unknown snapshot state or an invalid target state. Unhandled events are ignored, not thrown. The runtime records a diagnostic and does not retry the same event blindly.
+- If dispatch throws `InvalidTransitionError`, it is for an unknown current state or an invalid target state. Unhandled events are ignored, not thrown. The runtime records a diagnostic and does not retry the same event blindly.
 - Event envelopes should have stable ids so delivery can be deduplicated after recovery. The FSM module does not inspect or use `id`; deduplication is the runtime's responsibility.
 - Events should be persisted before delivery when losing them would strand durable work.
 
@@ -264,7 +264,6 @@ type HandlerResult<State extends string, Cmd extends Command> = {
 type MachineSelf<State extends string> = {
   _sm: {
     state: State;
-    ref?: MachineRef;
   };
   state(): State;
   send(name: string, args?: Record<string, unknown>): void;
@@ -274,7 +273,7 @@ type Handler<State extends string, Self extends MachineSelf<State>, Cmd extends 
   (input: {
     self: Self;
     event: Event;
-  }) => HandlerResult<State, Cmd>;
+  }) => HandlerResult<State, Cmd> | void;
 
 type LeaveHook<State extends string, Self extends MachineSelf<State>, Cmd extends Command> =
   (self: Self) => { commands?: Cmd[] } | void;
@@ -325,7 +324,11 @@ type DispatchResult<State extends string, Cmd extends Command> = {
   commands: Cmd[];
 };
 
-function dispatch(machine, self, event): DispatchResult<...>;
+function dispatch<State extends string, Self extends MachineSelf<State>, Cmd extends Command>(
+  machine: CompiledMachine<State, Self, Cmd>,
+  self: Self,
+  event: Event,
+): DispatchResult<State, Cmd>;
 ```
 
 Rules:
@@ -350,11 +353,10 @@ State-machine bookkeeping rules:
 
 - All data owned by the FSM module lives under `self._sm`.
 - `self._sm.state` is the current state and is the only required `_sm` field initially.
-- `self._sm.ref` is an optional `MachineRef` set by the runtime when creating or recovering an FSM object. The FSM module does not create or manage refs.
 - Domain data, runtime references, and object methods live outside `_sm`.
 - Machine objects expose a `state()` method that returns `self._sm.state`.
-- Machine objects expose a `send(name, args?)` method that queues an event for the same object in the global event queue. This method is added by the runtime, not by the FSM module. It closes over the runtime's `enqueueEvent` function and the object's `MachineRef`, so that `send` is equivalent to `enqueueEvent({ target: self._sm.ref, name, args })`. The FSM module does not define `send`; it documents the expected interface.
-- The runtime sets `self._sm.ref` to the object's `MachineRef` when creating or recovering an FSM object. The FSM module does not create or manage refs; it only reserves the field name.
+- Machine objects expose a `send(name, args?)` method that queues an event for the same object in the global event queue. This method is added by the runtime, not by the FSM module. It closes over the runtime's `enqueueEvent` function and the object's `MachineRef`. The FSM module does not define `send`; it documents the expected interface.
+- The runtime owns `MachineRef` assignment. The ref may live in a runtime registry or closure; it does not need to be stored under `_sm` unless a later implementation proves that storing it there is useful.
 - Application handlers should use `self.state()` to read the current state. They should not read or mutate `_sm` directly except through `dispatch` or FSM-provided helpers.
 - If the FSM module later needs local metadata, such as a sequence index cache or debug counters, it goes under `_sm` rather than becoming top-level object fields.
 
@@ -379,14 +381,14 @@ Recommended runtime sequence:
 1. object calls send(name, args) or external code enqueues event envelope
 2. event queue wakes the long-lived async event pump via stored promise resolver
 3. event pump drains the global event queue before awaiting it again
-4. delivery loop loads target snapshot
+4. delivery loop loads or reconstructs the target machine object
 5. dispatch event through FSM
-6. persist new snapshot and emitted commands atomically when possible
+6. persist updated object state and emitted commands atomically when possible
 7. convert commands into async jobs
 8. async job callback enqueues completion event envelope and wakes the pump
 ```
 
-The FSM module does not define a snapshot type. Persistence is the runtime's responsibility. The runtime must be able to serialize and reconstruct `self` objects from persisted data. The module only requires that `self` objects have a reserved `_sm` slot with a `state` field matching the machine's state type and a `state()` method that returns it.
+The FSM module does not define a snapshot type. Persistence is the runtime's responsibility. The runtime must be able to serialize and reconstruct `self` objects from persisted data. The module only requires that `self` objects have a reserved `_sm` slot with a `state` field matching the machine's state type, a `state()` method that returns it, and a runtime-provided `send()` method for self-addressed event delivery.
 
 ## 10. Command Effects
 
@@ -614,7 +616,7 @@ At dispatch time:
 
 - Unknown current state throws.
 - Unknown events for the current state are ignored.
-- `InvalidTransitionError` is thrown only for unknown snapshot states and invalid target states, not for unhandled events.
+- `InvalidTransitionError` is thrown only for unknown current states and invalid target states, not for unhandled events.
 - Handler throwing an exception converts to caller-visible failure; the module does not swallow it.
 
 ## 15. Testing Strategy

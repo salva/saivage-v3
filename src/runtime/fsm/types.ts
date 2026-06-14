@@ -15,7 +15,6 @@ export type MachineRef = {
 export type MachineSelf<State extends string> = {
   _sm: {
     state: State;
-    ref?: MachineRef;
   };
   state(): State;
   send(name: string, args?: Record<string, unknown>): void;
@@ -25,7 +24,7 @@ export type Handler<State extends string, Self extends MachineSelf<State>, Cmd e
   (input: {
     self: Self;
     event: Event;
-  }) => HandlerResult<State, Cmd>;
+  }) => HandlerResult<State, Cmd> | void;
 
 export type LeaveHook<State extends string, Self extends MachineSelf<State>, Cmd extends Command> =
   (self: Self) => { commands?: Cmd[] } | void;

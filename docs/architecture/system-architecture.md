@@ -27,7 +27,7 @@ Runtime is infrastructure. Operator UI and HTTP/WebSocket transport are infrastr
 
 This distinction matters: the runtime should not be described as a peer of planner/executor/reviewer. It owns dispatch and persistence. Worker agents perform card work under runtime control. The Analyst controls the system on behalf of the user through canonical services.
 
-The detailed runtime-core implementation architecture is specified in [XState runtime core architecture](./xstate-runtime-core.md).
+The detailed FSM module architecture is specified in [Declarative FSM module architecture](./declarative-fsm-module.md).
 
 ## 3. Ownership Boundaries
 
@@ -154,7 +154,7 @@ Provider diagnostics, account details, runtime internals, and raw error metadata
 
 ## 13. Implementation Direction
 
-The runtime implementation direction is XState-centered: machine states and actor events drive behavior, not imperative orchestration loops decorated with snapshots. The detailed actor contracts, state ownership, persistence boundaries, and implementation sequence are defined in [XState runtime core architecture](./xstate-runtime-core.md).
+The runtime implementation direction is declarative-FSM-centered: machine states and runtime-delivered events drive behavior, not imperative orchestration loops decorated with snapshots. The FSM module contract, state ownership, persistence boundary, and command-effect model are defined in [Declarative FSM module architecture](./declarative-fsm-module.md).
 
 Target actor ownership:
 
