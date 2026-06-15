@@ -7,4 +7,5 @@ Use these documents to understand how the functional specification is realized. 
 Current architecture documents:
 
 - [System architecture](./system-architecture.md)
+- [Micro-actor runtime core architecture](./micro-actor-runtime-core.md)
 - [Declarative FSM module architecture](./declarative-fsm-module.md)

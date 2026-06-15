@@ -2,7 +2,7 @@
 
 Status: current design summary.
 
-Last updated: 2026-06-12.
+Last updated: 2026-06-15.
 
 ## 1. Architectural Shape
 
@@ -113,7 +113,9 @@ The acceptance gate prevents a planner from closing a goal while any executable 
 
 Direct cancellation is safe for cards that are not `running`. Recursive cancellation preserves descendants that are already `done` and converts non-completion-compatible descendants, including `failed` and `blocked`, to `cancelled`. Runtime-owned processes attached to non-running cancelled cards are terminated through canonical process controls.
 
-For running cards or subtrees containing the active leaf, cancellation is represented as notifications sent to the requested card and downstream active cards. Agents are expected to stop voluntarily at safe points and report `failed`; `cancelled` is applied as runtime card status, not as a parent-visible activation outcome. Failed outcomes unwind through normal activation barriers until they reach the planner responsible for the originally requested cancellation.
+For running cards or subtrees containing the active leaf, cancellation is cooperative and bounded. The runtime sends notifications to the requested card and downstream active cards, limits future LLM admission for that subtree to cancellation/cooperative-finish context, and waits for in-flight provider calls, tool calls, or bounded process waits to complete or time out. Agents observe the cancellation at the next LLM admission boundary and report `failed`; `cancelled` is applied as runtime card status, not as a parent-visible activation outcome. Failed outcomes unwind through normal activation barriers until they reach the planner responsible for the originally requested cancellation. Shutdown remains the hard operation that directly terminates runtime-owned running processes.
+
+Project-card cancellation is the root special case. The supervisor coordinates cooperative cancellation of the active chain, marks the project card `cancelled` when fulfilled, returns to idle, and leaves the next project-level action to the user through the Analyst.
 
 ## 10. Persistence
 
@@ -122,7 +124,7 @@ Durable state remains project-local. Saivage state must live under the project `
 Expected persisted concerns include:
 
 - card tree and history;
-- versioned card fields, including title, description, acceptance criteria, result data, and working status;
+- multi-file versioned card fields, including title, description, acceptance criteria, result data, and working status, with card index files pointing to the latest field versions;
 - agent messages and manifests;
 - runtime state, intent, commands, runs, and activations;
 - process registry and safe process logs;
@@ -138,7 +140,7 @@ The UI fetches authoritative read models through REST and receives freshness hin
 
 The Analyst can drive workspace navigation by asking the webapp to show a specific card, file, process, debug view, runtime view, or agent session. The UI also sends enough active view/entity/filter context for the Analyst to reason about what the user is seeing.
 
-XState or internal actor snapshots must not leak directly through operator APIs. Public responses expose Saivage read models.
+Internal actor state and compiled transition tables must not leak directly through operator APIs. Public responses expose Saivage read models.
 
 ## 12. Security Architecture
 
@@ -154,15 +156,15 @@ Provider diagnostics, account details, runtime internals, and raw error metadata
 
 ## 13. Implementation Direction
 
-The runtime implementation direction is declarative-FSM-centered: machine states and runtime-delivered events drive behavior, not imperative orchestration loops decorated with snapshots. The FSM module contract, state ownership, persistence boundary, and command-effect model are defined in [Declarative FSM module architecture](./declarative-fsm-module.md).
+The runtime implementation direction is micro-actor-centered: actor states and queued `send`/`call` messages drive behavior, not imperative orchestration loops. The FSM module contract, state ownership, delivery model, and persistence boundary are defined in [Declarative FSM module architecture](./declarative-fsm-module.md). The full runtime actor tree is defined in [Micro-Actor Runtime Core Architecture](./micro-actor-runtime-core.md).
 
 Target actor ownership:
 
 - supervisor owns root runtime mode, pause gate, shutdown process termination, and the parentless project `CardNodeActor`;
 - `CardNodeActor`s own durable card identity, public card status projection, and the type-specific `CardInternalActor` for that card;
-- project and goal `CardInternalActor`s own child `CardNodeActor` references, child activation authority, readiness/review gates, tool-handler actor construction, and planner `LLMActor` invocation;
-- terminal `CardInternalActor`s own terminal-card semantic execution for one active terminal activation, construct tool-handler actors, invoke an executor `LLMActor`, and do not own children;
-- planner and executor `LLMActor`s own LLM/provider calls, tool-handler actor registry, tool-call loop states, tool-result waits, turn budgets, provider admission/cancellation, and tool-result context passed into later LLM calls;
+- project and goal `CardInternalActor`s own child `CardNodeActor` references, child activation authority, readiness/review gates, card-scoped capability construction, and planner `LLMActor` invocation;
+- terminal `CardInternalActor`s own terminal-card semantic execution for one active terminal activation, construct card-scoped capabilities, invoke an executor `LLMActor`, and do not own children;
+- planner and executor `LLMActor`s own LLM/provider calls, the passed capability registry, tool-call loop states, tool-result waits, turn budgets, provider admission/cancellation intent, and tool-result context passed into later LLM calls;
 - process actors own OS process lifecycle.
 
 Process execution follows a launch-and-monitor model. Agents launch project commands through runtime-owned process actors, inspect status/logs over time, use bounded waits for completion, and explicitly terminate processes when needed. The functional specification does not impose process concurrency limits for now.
