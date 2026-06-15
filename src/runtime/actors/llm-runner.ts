@@ -1,7 +1,7 @@
 import type { OperationalAgentRole } from '../../schemas/index.js';
 import type { LlmCompleteResult, ToolDefinition } from '../../agents/llm-contracts.js';
 import type { CapabilityRequest } from '../../agents/provider-capabilities.js';
-import { BaseActor, dispatchCall, dispatchEvent, startActor } from '../fsm/index.js';
+import { BaseActor, startActor } from '../fsm/index.js';
 import { saveActorSnapshot } from './snapshots.js';
 import { actorKindFromId } from './ids.js';
 import { appendLlmTurnError, appendLlmTurnFinished, appendLlmTurnStarted } from './llm-delivery-log.js';
@@ -79,6 +79,14 @@ export class LlmRunnerActor extends BaseActor {
     this.output = { type: 'LLM_ERROR', agentId: this.agentId, error: args.error };
   }
 
+  _on_enter__running(): void {
+    this.persist();
+  }
+
+  _on_enter__done(): void {
+    this.persist();
+  }
+
   context(): LlmRunnerContext {
     return {
       projectRoot: this.projectRoot,
@@ -86,6 +94,20 @@ export class LlmRunnerActor extends BaseActor {
       input: this.input,
       output: this.output,
     };
+  }
+
+  snapshot() {
+    return {
+      actor_id: this.agentId,
+      actor_kind: 'llm' as const,
+      state_value: this.state(),
+      context: this.context() as unknown as Record<string, unknown>,
+      updated_at: new Date().toISOString(),
+    };
+  }
+
+  private persist(): void {
+    saveActorSnapshot(this.projectRoot, this.snapshot());
   }
 }
 
@@ -125,17 +147,17 @@ export class LlmRunnerController {
 
   async runTurn(input: LlmInvocationInput): Promise<LlmRunnerOutput> {
     if (input.agentId !== this.agentId) throw new Error(`Input ${input.inputId} targets ${input.agentId}, not ${this.agentId}`);
-    dispatchCall(this.actor, { kind: 'call', name: 'run', args: input });
-    dispatchEvent(this.actor, { kind: 'event', name: 'run' });
-    this.persist();
+    this.actor.call('run', input);
+    this.actor.send('run');
     appendLlmTurnStarted(this.actor.projectRoot, input);
     const callId = `${this.agentId}:${input.inputId}`;
     if (this.admission && !this.admission.requestProviderCall(callId)) {
       const error = `Provider admission denied for ${callId}.`;
       appendLlmTurnError(this.actor.projectRoot, input, error);
-      dispatchCall(this.actor, { kind: 'call', name: 'provider_error', args: { error } });
-      dispatchEvent(this.actor, { kind: 'event', name: 'failed' });
-      this.persist();
+      this.actor.call('provider_error', { error });
+      this.actor.send('failed');
+      await this.actor.waitForState((s) => s === 'running');
+      await this.actor.waitForState((s) => s === 'done');
       const output = this.actor.output;
       if (!output) throw new Error(`LLMRunner ${this.agentId} completed without output.`);
       return output;
@@ -143,17 +165,17 @@ export class LlmRunnerController {
     try {
       const result = await this.providerTurn.completeTurn(input);
       appendLlmTurnFinished(this.actor.projectRoot, input, result);
-      dispatchCall(this.actor, { kind: 'call', name: 'provider_result', args: { result } });
-      dispatchEvent(this.actor, { kind: 'event', name: 'done' });
+      this.actor.call('provider_result', { result });
+      this.actor.send('done');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       appendLlmTurnError(this.actor.projectRoot, input, message);
-      dispatchCall(this.actor, { kind: 'call', name: 'provider_error', args: { error: message } });
-      dispatchEvent(this.actor, { kind: 'event', name: 'failed' });
+      this.actor.call('provider_error', { error: message });
+      this.actor.send('failed');
     } finally {
       this.admission?.releaseProviderCall(callId);
     }
-    this.persist();
+    await this.actor.waitForState((s) => s === 'done');
     const output = this.actor.output;
     if (!output) throw new Error(`LLMRunner ${this.agentId} completed without output.`);
     return output;
@@ -171,9 +193,5 @@ export class LlmRunnerController {
       context: this.actor.context() as unknown as Record<string, unknown>,
       updated_at: new Date().toISOString(),
     };
-  }
-
-  private persist(): void {
-    saveActorSnapshot(this.actor.projectRoot, this.snapshot());
   }
 }

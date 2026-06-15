@@ -2,13 +2,12 @@ import { describe, it, expect } from '@jest/globals';
 import {
   BaseActor,
   compileActorDefinition,
-  dispatchCall,
-  dispatchEvent,
   InvalidActorDefinitionError,
   InvalidTransitionError,
   MissingCallHandlerError,
   startActor,
 } from '../../../src/runtime/fsm/index.js';
+import { dispatchCall, dispatchEvent } from '../../../src/runtime/fsm/dispatch.js';
 import type { ActorDefinition, CompiledActorDefinition } from '../../../src/runtime/fsm/index.js';
 
 class LightActor extends BaseActor {

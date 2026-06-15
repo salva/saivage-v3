@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { BaseActor, dispatchCall, dispatchEvent, startActor } from '../fsm/index.js';
+import { BaseActor, startActor } from '../fsm/index.js';
 import { processActorId } from './ids.js';
 import { saveActorSnapshot } from './snapshots.js';
 
@@ -83,6 +83,14 @@ export class ProcessRunnerActor extends BaseActor {
     this.pid = null;
   }
 
+  _on_enter__running(): void {
+    this.persist();
+  }
+
+  _on_enter__done(): void {
+    this.persist();
+  }
+
   context(): ProcessRunnerContext {
     return {
       projectRoot: this.projectRoot,
@@ -96,6 +104,20 @@ export class ProcessRunnerActor extends BaseActor {
       stderr: this.stderr,
     };
   }
+
+  snapshot() {
+    return {
+      actor_id: processActorId(this.processId),
+      actor_kind: 'process' as const,
+      state_value: this.state(),
+      context: this.context() as unknown as Record<string, unknown>,
+      updated_at: new Date().toISOString(),
+    };
+  }
+
+  private persist(): void {
+    saveActorSnapshot(this.projectRoot, this.snapshot());
+  }
 }
 
 export class ProcessRunnerController {
@@ -107,38 +129,36 @@ export class ProcessRunnerController {
     this.actor = startActor(ProcessRunnerActor, projectRoot, processId);
   }
 
-  start(input: ProcessRunnerStartInput): void {
+  async start(input: ProcessRunnerStartInput): Promise<void> {
     if (this.state === 'running') throw new Error(`ProcessRunner ${this.processId} is already running.`);
     this.child = spawn(input.command, input.args ?? [], {
       cwd: input.cwd,
       env: input.env,
       stdio: 'pipe',
     });
-    dispatchCall(this.actor, { kind: 'call', name: 'started', args: { command: input.command, args: input.args ?? [], pid: this.child.pid ?? null } });
-    dispatchEvent(this.actor, { kind: 'event', name: 'started' });
     this.child.stdout.setEncoding('utf8');
     this.child.stderr.setEncoding('utf8');
     this.child.stdout.on('data', (chunk: string) => {
-      dispatchCall(this.actor, { kind: 'call', name: 'output', args: { stdout: chunk } });
-      this.persist();
+      this.actor.call('output', { stdout: chunk });
     });
     this.child.stderr.on('data', (chunk: string) => {
-      dispatchCall(this.actor, { kind: 'call', name: 'output', args: { stderr: chunk } });
-      this.persist();
+      this.actor.call('output', { stderr: chunk });
     });
     this.exitPromise = new Promise((resolve) => {
       this.child?.once('exit', (exitCode, signal) => {
-        dispatchCall(this.actor, { kind: 'call', name: 'exited', args: { exitCode, signal } });
-        dispatchEvent(this.actor, { kind: 'event', name: 'exited' });
-        this.persist();
+        this.actor.call('exited', { exitCode, signal });
+        this.actor.send('exited');
         resolve({ status: 'done', exitCode, signal, output: this.readOutput() });
       });
     });
-    this.persist();
+    this.actor.call('started', { command: input.command, args: input.args ?? [], pid: this.child.pid ?? null });
+    this.actor.send('started');
+    await this.actor.waitForState((s) => s === 'running');
   }
 
   async wait(timeoutMs: number): Promise<ProcessWaitResult> {
     if (this.state !== 'running') {
+      await this.actor.waitForState((s) => s === 'done');
       const context = this.actor.context();
       return { status: 'done', exitCode: context.exitCode, signal: context.signal, output: this.readOutput() };
     }

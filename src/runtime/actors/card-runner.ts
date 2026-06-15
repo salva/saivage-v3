@@ -1,5 +1,5 @@
 import type { LlmCompleteResult } from '../../agents/llm-contracts.js';
-import { BaseActor, dispatchCall, dispatchEvent, startActor } from '../fsm/index.js';
+import { BaseActor, startActor } from '../fsm/index.js';
 import { cardActorId, executorActorId } from './ids.js';
 import { LlmRunnerController } from './llm-runner.js';
 import { saveActorSnapshot } from './snapshots.js';
@@ -71,6 +71,14 @@ export class TerminalCardRunnerActor extends BaseActor {
     this.publicStatus = 'cancelled';
   }
 
+  _on_enter__executing(): void {
+    this.persist();
+  }
+
+  _on_enter__done(): void {
+    this.persist();
+  }
+
   context(): TerminalCardRunnerContext {
     return {
       projectRoot: this.projectRoot,
@@ -78,6 +86,20 @@ export class TerminalCardRunnerActor extends BaseActor {
       publicStatus: this.publicStatus,
       outcome: this.outcome,
     };
+  }
+
+  snapshot() {
+    return {
+      actor_id: cardActorId(this.cardId),
+      actor_kind: 'card' as const,
+      state_value: this.state(),
+      context: this.context() as unknown as Record<string, unknown>,
+      updated_at: new Date().toISOString(),
+    };
+  }
+
+  private persist(): void {
+    saveActorSnapshot(this.projectRoot, this.snapshot());
   }
 }
 
@@ -99,20 +121,16 @@ export class TerminalCardRunnerController {
   }
 
   async start(input: Omit<LlmInvocationInput, 'agentId'>): Promise<TerminalOutcome> {
-    dispatchCall(this.actor, { kind: 'call', name: 'start' });
-    dispatchEvent(this.actor, { kind: 'event', name: 'start' });
-    this.persist();
+    this.actor.call('start');
+    this.actor.send('start');
+    await this.actor.waitForState((s) => s === 'executing');
     await this.statusPort?.markRunning(this.cardId);
     let currentInput = input;
     for (let turn = 0; turn < 10; turn++) {
       const output = await this.llmRunner.runTurn({ ...currentInput, agentId: executorActorId(this.cardId) });
       if (output.type === 'LLM_RESULT') {
         const outcome: TerminalOutcome = { status: 'done', statusText: 'Executor completed.', result: output.result };
-        dispatchCall(this.actor, { kind: 'call', name: 'outcome', args: outcome });
-        dispatchEvent(this.actor, { kind: 'event', name: 'done' });
-        this.persist();
-        await this.statusPort?.commitTerminalOutcome(this.cardId, outcome);
-        return outcome;
+        return this.complete(outcome);
       }
       if (output.type === 'LLM_ERROR') {
         return this.fail(output.error);
@@ -155,17 +173,21 @@ export class TerminalCardRunnerController {
     return this.fail('Executor exceeded the terminal CardRunner turn budget.');
   }
 
+  private async complete(outcome: TerminalOutcome): Promise<TerminalOutcome> {
+    this.actor.call('outcome', outcome);
+    this.actor.send(outcome.status === 'done' ? 'done' : 'failed');
+    await this.actor.waitForState((s) => s === 'done');
+    await this.statusPort?.commitTerminalOutcome(this.cardId, outcome);
+    return outcome;
+  }
+
   private async fail(statusText: string): Promise<TerminalOutcome> {
     const outcome: TerminalOutcome = {
       status: 'failed',
       statusText,
       result: { kind: 'message', content: statusText },
     };
-    dispatchCall(this.actor, { kind: 'call', name: 'outcome', args: outcome });
-    dispatchEvent(this.actor, { kind: 'event', name: outcome.status === 'done' ? 'done' : 'failed' });
-    this.persist();
-    await this.statusPort?.commitTerminalOutcome(this.cardId, outcome);
-    return outcome;
+    return this.complete(outcome);
   }
 
   private async handleExecutorToolCall(toolCallId: string, toolName: string, args: unknown): Promise<{ handled: true; result: unknown } | { handled: false }> {
@@ -174,7 +196,7 @@ export class TerminalCardRunnerController {
       const processId = parsed.processId ?? toolCallId;
       const runner = new ProcessRunnerController(this.actor.projectRoot, processId);
       this.processes.set(processId, runner);
-      runner.start({ command: parsed.command, args: parsed.args });
+      await runner.start({ command: parsed.command, args: parsed.args });
       return { handled: true, result: await runner.wait(parsed.timeoutMs) };
     }
     if (toolName === 'wait_process') {
@@ -211,9 +233,9 @@ export class TerminalCardRunnerController {
   }
 
   async cancel(): Promise<void> {
-    dispatchCall(this.actor, { kind: 'call', name: 'cancel' });
-    dispatchEvent(this.actor, { kind: 'event', name: 'cancel' });
-    this.persist();
+    this.actor.call('cancel');
+    this.actor.send('cancel');
+    await this.actor.waitForState((s) => s === 'done');
     await this.statusPort?.markCancelled(this.cardId);
   }
 
@@ -226,17 +248,7 @@ export class TerminalCardRunnerController {
   }
 
   snapshot() {
-    return {
-      actor_id: cardActorId(this.cardId),
-      actor_kind: 'card' as const,
-      state_value: this.actor.state(),
-      context: this.actor.context() as unknown as Record<string, unknown>,
-      updated_at: new Date().toISOString(),
-    };
-  }
-
-  private persist(): void {
-    saveActorSnapshot(this.actor.projectRoot, this.snapshot());
+    return this.actor.snapshot();
   }
 }
 

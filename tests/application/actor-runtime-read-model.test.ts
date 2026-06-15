@@ -5,20 +5,37 @@ import { describe, expect, it } from '@jest/globals';
 import { buildActorRuntimeReadModel } from '../../src/application/read-models/actor-runtime-read-model.js';
 import { RuntimeSupervisorController, saveActorSnapshot } from '../../src/runtime/actors/index.js';
 
-function withTempProject<T>(fn: (projectRoot: string) => T): T {
+function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-actor-read-model-'));
-  try {
-    return fn(projectRoot);
-  } finally {
-    rmSync(projectRoot, { recursive: true, force: true });
+  const result = fn(projectRoot);
+  if (result instanceof Promise) {
+    return result.finally(() => rmSync(projectRoot, { recursive: true, force: true }));
   }
+  rmSync(projectRoot, { recursive: true, force: true });
+  return result;
+}
+
+async function eventually(assertion: () => void, timeoutMs = 1000): Promise<void> {
+  let lastError: unknown;
+  for (let i = 0; i < 40; i++) {
+    try {
+      assertion();
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+  throw lastError;
 }
 
 describe('actor runtime read model', () => {
-  it('projects supervisor, card runner, and LLM runner snapshots without raw XState details', () => withTempProject((projectRoot) => {
+  it('projects supervisor, card runner, and LLM runner snapshots without raw XState details', () => withTempProject(async (projectRoot) => {
     const supervisor = new RuntimeSupervisorController();
     supervisor.start(projectRoot);
+    await eventually(() => { expect(supervisor.mode).toBe('running'); });
     supervisor.pause();
+    await eventually(() => { expect(supervisor.mode).toBe('paused'); });
     saveActorSnapshot(projectRoot, {
       actor_id: 'card:T-1',
       actor_kind: 'card',

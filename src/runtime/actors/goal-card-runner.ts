@@ -1,5 +1,5 @@
 import { buildXStateReviewerInput } from './actor-input-builders.js';
-import { BaseActor, dispatchCall, dispatchEvent, startActor } from '../fsm/index.js';
+import { BaseActor, startActor } from '../fsm/index.js';
 import { cardActorId, plannerActorId, reviewerActorId } from './ids.js';
 import { LlmRunnerController } from './llm-runner.js';
 import { saveActorSnapshot } from './snapshots.js';
@@ -89,6 +89,18 @@ export class GoalCardRunnerActor extends BaseActor {
     this.publicStatus = 'cancelled';
   }
 
+  _on_enter__planning(): void {
+    this.persist();
+  }
+
+  _on_enter__reviewing(): void {
+    this.persist();
+  }
+
+  _on_enter__done(): void {
+    this.persist();
+  }
+
   context(): GoalCardRunnerContext {
     return {
       projectRoot: this.projectRoot,
@@ -96,6 +108,20 @@ export class GoalCardRunnerActor extends BaseActor {
       publicStatus: this.publicStatus,
       outcome: this.outcome,
     };
+  }
+
+  snapshot() {
+    return {
+      actor_id: cardActorId(this.cardId),
+      actor_kind: 'card' as const,
+      state_value: this.state(),
+      context: this.context() as unknown as Record<string, unknown>,
+      updated_at: new Date().toISOString(),
+    };
+  }
+
+  private persist(): void {
+    saveActorSnapshot(this.projectRoot, this.snapshot());
   }
 }
 
@@ -137,9 +163,9 @@ export class GoalCardRunnerController {
   private readonly statusPort?: GoalCardStatusPort;
 
   async start(input: Omit<LlmInvocationInput, 'agentId'>): Promise<GoalOutcome> {
-    dispatchCall(this.actor, { kind: 'call', name: 'start' });
-    dispatchEvent(this.actor, { kind: 'event', name: 'start' });
-    this.persist();
+    this.actor.call('start');
+    this.actor.send('start');
+    await this.actor.waitForState((s) => s === 'planning');
     await this.statusPort?.markRunning(this.cardId);
     const noteSinks = getActiveGoalNoteSinks(this.actor.projectRoot);
     noteSinks.register(this.cardId, this);
@@ -152,8 +178,8 @@ export class GoalCardRunnerController {
           const review = await this.reviewPlannerResult(currentInput, output.result.content, turn);
           if (review.kind === 'passed') return this.complete({ status: 'done', statusText: output.result.content });
           if (review.kind === 'failed') return this.complete({ status: 'failed', statusText: review.reason });
-          dispatchEvent(this.actor, { kind: 'event', name: 'needs_corrections' });
-          this.persist();
+          this.actor.send('needs_corrections');
+          await this.actor.waitForState((s) => s === 'planning');
           currentInput = {
             ...currentInput,
             inputId: `${input.inputId}:review:${turn + 1}`,
@@ -225,9 +251,9 @@ export class GoalCardRunnerController {
   }
 
   async cancel(): Promise<void> {
-    dispatchCall(this.actor, { kind: 'call', name: 'cancel' });
-    dispatchEvent(this.actor, { kind: 'event', name: 'cancel' });
-    this.persist();
+    this.actor.call('cancel');
+    this.actor.send('cancel');
+    await this.actor.waitForState((s) => s === 'done');
     await this.statusPort?.markCancelled(this.cardId);
   }
 
@@ -247,11 +273,16 @@ export class GoalCardRunnerController {
     };
   }
 
+  private persist(): void {
+    saveActorSnapshot(this.actor.projectRoot, this.snapshot());
+  }
+
   private async complete(outcome: GoalOutcome): Promise<GoalOutcome> {
-    dispatchCall(this.actor, { kind: 'call', name: 'outcome', args: outcome });
-    dispatchEvent(this.actor, { kind: 'event', name: outcome.status === 'done' ? 'done' : 'failed' });
-    this.persist();
+    this.actor.call('outcome', outcome);
+    this.actor.send(outcome.status === 'done' ? 'done' : 'failed');
+    await this.actor.waitForState((s) => s === 'done');
     await this.statusPort?.commitGoalOutcome(this.cardId, outcome);
+    this.persist();
     return outcome;
   }
 
@@ -272,8 +303,8 @@ export class GoalCardRunnerController {
     | { kind: 'failed'; reason: string }
   > {
     if (!this.reviewerRunner) return { kind: 'passed' };
-    dispatchEvent(this.actor, { kind: 'event', name: 'review_ready' });
-    this.persist();
+    this.actor.send('review_ready');
+    await this.actor.waitForState((s) => s === 'reviewing');
     const reviewerInput = buildXStateReviewerInput({
       inputId: `${input.inputId}:reviewer:${turn + 1}`,
       card: this.card,
@@ -290,15 +321,10 @@ export class GoalCardRunnerController {
     return { kind: 'failed', reason: `Reviewer returned unsupported result '${content}'.` };
   }
 
-  private persist(): void {
-    saveActorSnapshot(this.actor.projectRoot, this.snapshot());
-  }
-
   private deliverPendingNotes(input: Omit<LlmInvocationInput, 'agentId'>): Omit<LlmInvocationInput, 'agentId'> {
     const notes = this.pendingNotes.splice(0);
     if (notes.length === 0) return input;
     for (const note of notes) this.deliveredNoteIds.add(note.id);
-    this.persist();
     return {
       ...input,
       episodeContext: {

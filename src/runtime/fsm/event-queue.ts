@@ -6,8 +6,11 @@ export type ActorMessageErrorHandler = (error: unknown, message: ActorMessage) =
 export class AsyncActorQueue {
   private items: ActorMessage[] = [];
   private wake: (() => void) | undefined;
+  private closed = false;
+  private closeResolve: (() => void) | undefined;
 
   push(message: ActorMessage): void {
+    if (this.closed) return;
     this.items.push(message);
     this.wake?.();
     this.wake = undefined;
@@ -15,9 +18,15 @@ export class AsyncActorQueue {
 
   async shift(): Promise<ActorMessage> {
     while (this.items.length === 0) {
+      if (this.closed) {
+        throw new Error('Actor queue closed');
+      }
       await new Promise<void>((resolve) => {
         this.wake = resolve;
       });
+      if (this.closed) {
+        throw new Error('Actor queue closed');
+      }
     }
 
     return this.items.shift()!;
@@ -27,6 +36,19 @@ export class AsyncActorQueue {
     const batch = this.items;
     this.items = [];
     return batch;
+  }
+
+  close(): void {
+    this.closed = true;
+    this.wake?.();
+    this.wake = undefined;
+    if (this.closeResolve) {
+      this.closeResolve();
+    }
+  }
+
+  isClosed(): boolean {
+    return this.closed;
   }
 }
 
@@ -57,9 +79,14 @@ export async function runActorPump(
   queue: AsyncActorQueue,
   handleMessage: ActorMessageHandler,
   onError: ActorMessageErrorHandler,
-): Promise<never> {
-  for (;;) {
-    await runActorBatch(queue, handleMessage, onError);
+): Promise<void> {
+  try {
+    for (;;) {
+      await runActorBatch(queue, handleMessage, onError);
+    }
+  } catch (error) {
+    if (queue.isClosed()) return;
+    throw error;
   }
 }
 

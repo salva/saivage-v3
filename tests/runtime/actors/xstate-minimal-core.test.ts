@@ -92,6 +92,20 @@ async function waitFor(condition: () => boolean, timeoutMs = 500): Promise<void>
   }
 }
 
+async function eventually(assertion: () => void, timeoutMs = 1000): Promise<void> {
+  let lastError: unknown;
+  for (let i = 0; i < 40; i++) {
+    try {
+      assertion();
+      return;
+    } catch (error) {
+      lastError = error;
+      await delay(10);
+    }
+  }
+  throw lastError;
+}
+
 describe('XState minimal runtime core', () => {
   it('derives deterministic actor ids and kinds', () => {
     expect(supervisorActorId()).toBe('supervisor');
@@ -151,17 +165,17 @@ describe('XState minimal runtime core', () => {
     expect(readActorSnapshots(projectRoot).map((item) => item.actor_id)).toEqual(['executor:T-1']);
   }));
 
-  it('supervisor owns one provider-call admission permit', () => withTempProject((projectRoot) => {
+  it('supervisor owns one provider-call admission permit', () => withTempProject(async (projectRoot) => {
     const supervisor = new RuntimeSupervisorController();
     supervisor.start(projectRoot);
 
-    expect(supervisor.mode).toBe('running');
+    await eventually(() => { expect(supervisor.mode).toBe('running'); });
     expect(supervisor.work).toBe('ready');
     expect(supervisor.requestProviderCall('call-1')).toBe(true);
-    expect(supervisor.work).toBe('model_invocation_active');
+    await eventually(() => { expect(supervisor.work).toBe('model_invocation_active'); });
     expect(supervisor.requestProviderCall('call-2')).toBe(false);
     supervisor.releaseProviderCall('call-1');
-    expect(supervisor.work).toBe('ready');
+    await eventually(() => { expect(supervisor.work).toBe('ready'); });
 
     const snapshots = readActorSnapshots(projectRoot);
     expect(snapshots.some((item) => item.actor_id === 'supervisor')).toBe(true);
@@ -304,7 +318,9 @@ describe('XState minimal runtime core', () => {
   it('LLMRunner respects supervisor provider-call admission', async () => withTempProject(async (projectRoot) => {
     const supervisor = new RuntimeSupervisorController();
     supervisor.start(projectRoot);
+    await eventually(() => { expect(supervisor.mode).toBe('running'); });
     expect(supervisor.requestProviderCall('external-call')).toBe(true);
+    await eventually(() => { expect(supervisor.work).toBe('model_invocation_active'); });
     const provider: ProviderTurnPort = {
       completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'should not run' })),
     };
@@ -328,6 +344,7 @@ describe('XState minimal runtime core', () => {
   it('LLMRunner releases supervisor admission after provider completion', async () => withTempProject(async (projectRoot) => {
     const supervisor = new RuntimeSupervisorController();
     supervisor.start(projectRoot);
+    await eventually(() => { expect(supervisor.mode).toBe('running'); });
     const provider: ProviderTurnPort = {
       completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'done' })),
     };
@@ -336,7 +353,7 @@ describe('XState minimal runtime core', () => {
     const output = await runner.runTurn({ ...invocationInput('T-admission-release'), agentId: 'executor:T-admission-release' });
 
     expect(output.type).toBe('LLM_RESULT');
-    expect(supervisor.work).toBe('ready');
+    await eventually(() => { expect(supervisor.work).toBe('ready'); });
     expect(supervisor.requestProviderCall('next-call')).toBe(true);
     supervisor.releaseProviderCall('next-call');
   }));
@@ -631,13 +648,13 @@ describe('XState minimal runtime core', () => {
     });
   }));
 
-  it('terminal CardRunner cancellation is a simple terminal transition', () => withTempProject((projectRoot) => {
+  it('terminal CardRunner cancellation is a simple terminal transition', () => withTempProject(async (projectRoot) => {
     const provider: ProviderTurnPort = {
       completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'unused' })),
     };
     const runner = new TerminalCardRunnerController(projectRoot, 'T-2', provider);
 
-    runner.cancel();
+    await runner.cancel();
 
     expect(runner.phase).toBe('done');
     expect(runner.publicStatus).toBe('cancelled');
@@ -669,7 +686,7 @@ describe('XState minimal runtime core', () => {
 
   it('ProcessRunner timeout returns control without killing the process', async () => withTempProject(async (projectRoot) => {
     const runner = new ProcessRunnerController(projectRoot, 'P-1');
-    runner.start({
+    await runner.start({
       command: process.execPath,
       args: ['-e', "process.stdout.write('ready\\n'); setTimeout(() => { process.stdout.write('done\\n'); }, 120);"],
     });
@@ -693,7 +710,7 @@ describe('XState minimal runtime core', () => {
 
   it('ProcessRunner kills a running process only when explicitly requested', async () => withTempProject(async (projectRoot) => {
     const runner = new ProcessRunnerController(projectRoot, 'P-2');
-    runner.start({
+    await runner.start({
       command: process.execPath,
       args: ['-e', "process.stdout.write('looping\\n'); setInterval(() => {}, 1000);"],
     });

@@ -5,7 +5,6 @@ export {
   InvalidTransitionError,
   MissingCallHandlerError,
 } from './define-machine.js';
-export { dispatchEvent, dispatchCall, dispatchRecover } from './dispatch.js';
 export {
   BaseActor,
   startActor,

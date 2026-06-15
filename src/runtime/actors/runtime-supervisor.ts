@@ -1,4 +1,4 @@
-import { BaseActor, dispatchCall, dispatchEvent, startActor } from '../fsm/index.js';
+import { BaseActor, startActor } from '../fsm/index.js';
 import { saveActorSnapshot } from './snapshots.js';
 import { supervisorActorId } from './ids.js';
 
@@ -40,16 +40,46 @@ export class RuntimeSupervisorActor extends BaseActor {
 
   setProjectRoot(args: StartArgs): void {
     this.projectRoot = args.projectRoot;
+    this.persist();
   }
 
   requestProviderCall(args: ProviderCallArgs): void {
     this.activeProviderCallId = args.callId;
+    this.persist();
   }
 
   releaseProviderCall(args: ProviderCallArgs): void {
     if (this.activeProviderCallId === args.callId) {
       this.activeProviderCallId = null;
     }
+    this.persist();
+  }
+
+  _on_enter__paused(): void {
+    this.persist();
+  }
+
+  _on_enter__running(): void {
+    this.persist();
+  }
+
+  _on_enter__stopping(): void {
+    this.persist();
+  }
+
+  snapshot() {
+    return {
+      actor_id: supervisorActorId(),
+      actor_kind: 'supervisor' as const,
+      state_value: { mode: this.state() as RuntimeSupervisorMode, work: this.work },
+      context: { projectRoot: this.projectRoot, activeProviderCallId: this.activeProviderCallId } as unknown as Record<string, unknown>,
+      updated_at: new Date().toISOString(),
+    };
+  }
+
+  private persist(): void {
+    if (!this.projectRoot) return;
+    saveActorSnapshot(this.projectRoot, this.snapshot());
   }
 }
 
@@ -57,35 +87,29 @@ export class RuntimeSupervisorController {
   private readonly actor = startActor(RuntimeSupervisorActor);
 
   start(projectRoot: string): void {
-    dispatchCall(this.actor, { kind: 'call', name: 'start', args: { projectRoot } });
-    this.persist();
+    this.actor.call('start', { projectRoot });
   }
 
   stop(): void {
-    dispatchEvent(this.actor, { kind: 'event', name: 'stop' });
-    this.persist();
+    this.actor.send('stop');
   }
 
   pause(): void {
-    dispatchEvent(this.actor, { kind: 'event', name: 'pause' });
-    this.persist();
+    this.actor.send('pause');
   }
 
   resume(): void {
-    dispatchEvent(this.actor, { kind: 'event', name: 'resume' });
-    this.persist();
+    this.actor.send('resume');
   }
 
   requestProviderCall(callId: string): boolean {
     if (this.work !== 'ready' || this.mode !== 'running') return false;
-    dispatchCall(this.actor, { kind: 'call', name: 'request_provider_call', args: { callId } });
-    this.persist();
+    this.actor.call('request_provider_call', { callId });
     return true;
   }
 
   releaseProviderCall(callId: string): void {
-    dispatchCall(this.actor, { kind: 'call', name: 'release_provider_call', args: { callId } });
-    this.persist();
+    this.actor.call('release_provider_call', { callId });
   }
 
   get mode(): RuntimeSupervisorMode {
@@ -111,11 +135,5 @@ export class RuntimeSupervisorController {
       context: this.context as unknown as Record<string, unknown>,
       updated_at: new Date().toISOString(),
     };
-  }
-
-  private persist(): void {
-    const projectRoot = this.context.projectRoot;
-    if (!projectRoot) return;
-    saveActorSnapshot(projectRoot, this.snapshot());
   }
 }

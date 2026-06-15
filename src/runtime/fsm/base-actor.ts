@@ -12,6 +12,7 @@ export abstract class BaseActor {
   #definition: CompiledActorDefinition | undefined;
   #state: string | undefined;
   #queue: AsyncActorQueue | undefined;
+  #stateWaiters: Array<{ predicate: (state: string) => boolean; resolve: (state: string) => void }> = [];
 
   state(): string {
     return this.#requireInternals().state;
@@ -26,6 +27,14 @@ export abstract class BaseActor {
       ? { kind: 'call' as const, name }
       : { kind: 'call' as const, name, args };
     this.#requireInternals().queue.push(message);
+  }
+
+  waitForState(predicate: (state: string) => boolean): Promise<string> {
+    const current = this.#requireInternals().state;
+    if (predicate(current)) return Promise.resolve(current);
+    return new Promise<string>((resolve) => {
+      this.#stateWaiters.push({ predicate, resolve });
+    });
   }
 
   _installActorInternals(internals: ActorInternals): void {
@@ -48,10 +57,23 @@ export abstract class BaseActor {
   _setStateForRuntime(state: string): void {
     this.#requireInternals();
     this.#state = state;
+    this.#notifyStateWaiters(state);
   }
 
   _queueForRuntime(): AsyncActorQueue {
     return this.#requireInternals().queue;
+  }
+
+  #notifyStateWaiters(state: string): void {
+    const remaining: Array<{ predicate: (state: string) => boolean; resolve: (state: string) => void }> = [];
+    for (const waiter of this.#stateWaiters) {
+      if (waiter.predicate(state)) {
+        waiter.resolve(state);
+      } else {
+        remaining.push(waiter);
+      }
+    }
+    this.#stateWaiters = remaining;
   }
 
   #requireInternals(): ActorInternals {
@@ -115,7 +137,7 @@ function installActor<T extends BaseActor>(
       }
       dispatchCall(actor, message);
     },
-    (error, message) => {
+    (error, _message) => {
       throw error;
     },
   );
