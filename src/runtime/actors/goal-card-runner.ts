@@ -1,5 +1,5 @@
-import { assign, createActor, createMachine } from 'xstate';
 import { buildXStateReviewerInput } from './actor-input-builders.js';
+import { BaseActor, dispatchCall, dispatchEvent, startActor } from '../fsm/index.js';
 import { cardActorId, plannerActorId, reviewerActorId } from './ids.js';
 import { LlmRunnerController } from './llm-runner.js';
 import { saveActorSnapshot } from './snapshots.js';
@@ -36,62 +36,68 @@ export interface GoalNote {
   content: string;
 }
 
-interface GoalCardRunnerContext {
+export interface GoalCardRunnerContext {
   projectRoot: string;
   cardId: string;
   publicStatus: GoalCardPublicStatus;
   outcome: GoalOutcome | null;
 }
 
-type GoalCardRunnerEvent =
-  | { type: 'START' }
-  | { type: 'REVIEW_READY' }
-  | { type: 'REVIEW_NEEDS_CORRECTIONS' }
-  | { type: 'GOAL_OUTCOME'; outcome: GoalOutcome }
-  | { type: 'CANCEL' };
+export class GoalCardRunnerActor extends BaseActor {
+  static _actor = {
+    initial: 'done',
+    states: {
+      done: {
+        on: { start: 'planning', cancel: 'done' },
+        calls: { start: 'recordStart', cancel: 'recordCancel' },
+      },
+      planning: {
+        on: { review_ready: 'reviewing', done: 'done', failed: 'done', cancel: 'done' },
+        calls: { outcome: 'recordOutcome', cancel: 'recordCancel' },
+      },
+      reviewing: {
+        on: { needs_corrections: 'planning', done: 'done', failed: 'done', cancel: 'done' },
+        calls: { outcome: 'recordOutcome', cancel: 'recordCancel' },
+      },
+    },
+  };
 
-const goalCardRunnerMachine = createMachine({
-  types: {} as {
-    context: GoalCardRunnerContext;
-    events: GoalCardRunnerEvent;
-  },
-  id: 'goalCardRunner',
-  initial: 'done',
-  context: ({ input }: { input: { projectRoot: string; cardId: string; publicStatus?: GoalCardPublicStatus } }) => ({
-    projectRoot: input.projectRoot,
-    cardId: input.cardId,
-    publicStatus: input.publicStatus ?? 'backlog',
-    outcome: null,
-  }),
-  states: {
-    done: {
-      on: {
-        START: { target: 'planning', actions: assign({ publicStatus: 'running', outcome: null }) },
-        CANCEL: { actions: assign({ publicStatus: 'cancelled' }) },
-      },
-    },
-    planning: {
-      on: {
-        REVIEW_READY: { target: 'reviewing' },
-        GOAL_OUTCOME: {
-          target: 'done',
-          actions: assign({ publicStatus: ({ event }) => event.outcome.status, outcome: ({ event }) => event.outcome }),
-        },
-        CANCEL: { target: 'done', actions: assign({ publicStatus: 'cancelled' }) },
-      },
-    },
-    reviewing: {
-      on: {
-        REVIEW_NEEDS_CORRECTIONS: { target: 'planning' },
-        GOAL_OUTCOME: {
-          target: 'done',
-          actions: assign({ publicStatus: ({ event }) => event.outcome.status, outcome: ({ event }) => event.outcome }),
-        },
-        CANCEL: { target: 'done', actions: assign({ publicStatus: 'cancelled' }) },
-      },
-    },
-  },
-});
+  outcome: GoalOutcome | null = null;
+
+  constructor(
+    readonly projectRoot: string,
+    readonly cardId: string,
+    publicStatus: GoalCardPublicStatus = 'backlog',
+  ) {
+    super();
+    this.publicStatus = publicStatus;
+  }
+
+  publicStatus: GoalCardPublicStatus;
+
+  recordStart(): void {
+    this.publicStatus = 'running';
+    this.outcome = null;
+  }
+
+  recordOutcome(outcome: GoalOutcome): void {
+    this.publicStatus = outcome.status;
+    this.outcome = outcome;
+  }
+
+  recordCancel(): void {
+    this.publicStatus = 'cancelled';
+  }
+
+  context(): GoalCardRunnerContext {
+    return {
+      projectRoot: this.projectRoot,
+      cardId: this.cardId,
+      publicStatus: this.publicStatus,
+      outcome: this.outcome,
+    };
+  }
+}
 
 export interface GoalCardRunnerOptions {
   admission?: AdmissionPort;
@@ -103,7 +109,7 @@ export interface GoalCardRunnerOptions {
 }
 
 export class GoalCardRunnerController {
-  private readonly actor;
+  private readonly actor: GoalCardRunnerActor;
   private readonly plannerRunner: LlmRunnerController;
   private readonly reviewerRunner: LlmRunnerController | null;
   private readonly pendingNotes: GoalNote[] = [];
@@ -118,7 +124,7 @@ export class GoalCardRunnerController {
     private readonly childActivation: ChildActivationPort,
     options: GoalCardRunnerOptions = {},
   ) {
-    this.actor = createActor(goalCardRunnerMachine, { input: { projectRoot, cardId, publicStatus: options.publicStatus } });
+    this.actor = startActor(GoalCardRunnerActor, projectRoot, cardId, options.publicStatus);
     this.plannerRunner = new LlmRunnerController(projectRoot, plannerActorId(cardId), providerTurn, options.admission);
     this.reviewerRunner = options.reviewerProviderTurn
       ? new LlmRunnerController(projectRoot, reviewerActorId(cardId), options.reviewerProviderTurn, options.admission)
@@ -126,16 +132,16 @@ export class GoalCardRunnerController {
     this.statusPort = options.statusPort;
     this.card = options.card ?? { id: cardId, type: 'goal' };
     this.inputContext = options.context;
-    this.actor.start();
   }
 
   private readonly statusPort?: GoalCardStatusPort;
 
   async start(input: Omit<LlmInvocationInput, 'agentId'>): Promise<GoalOutcome> {
-    this.actor.send({ type: 'START' });
+    dispatchCall(this.actor, { kind: 'call', name: 'start' });
+    dispatchEvent(this.actor, { kind: 'event', name: 'start' });
     this.persist();
     await this.statusPort?.markRunning(this.cardId);
-    const noteSinks = getActiveGoalNoteSinks(this.actor.getSnapshot().context.projectRoot);
+    const noteSinks = getActiveGoalNoteSinks(this.actor.projectRoot);
     noteSinks.register(this.cardId, this);
     try {
       let currentInput = input;
@@ -146,7 +152,7 @@ export class GoalCardRunnerController {
           const review = await this.reviewPlannerResult(currentInput, output.result.content, turn);
           if (review.kind === 'passed') return this.complete({ status: 'done', statusText: output.result.content });
           if (review.kind === 'failed') return this.complete({ status: 'failed', statusText: review.reason });
-          this.actor.send({ type: 'REVIEW_NEEDS_CORRECTIONS' });
+          dispatchEvent(this.actor, { kind: 'event', name: 'needs_corrections' });
           this.persist();
           currentInput = {
             ...currentInput,
@@ -176,7 +182,7 @@ export class GoalCardRunnerController {
         }
         const deliveryInputId = `${input.inputId}:child:${turn + 1}`;
         const deliveryResult = { cardId: childId, ...childOutcome };
-        appendToolDelivery(this.actor.getSnapshot().context.projectRoot, {
+        appendToolDelivery(this.actor.projectRoot, {
           agent_id: plannerActorId(this.cardId),
           source_input_id: currentInput.inputId,
           delivery_input_id: deliveryInputId,
@@ -205,11 +211,11 @@ export class GoalCardRunnerController {
   }
 
   get phase(): 'done' | 'planning' | 'reviewing' {
-    return this.actor.getSnapshot().value as 'done' | 'planning' | 'reviewing';
+    return this.actor.state() as 'done' | 'planning' | 'reviewing';
   }
 
   get publicStatus(): GoalCardPublicStatus {
-    return this.actor.getSnapshot().context.publicStatus;
+    return this.actor.publicStatus;
   }
 
   addNote(note: GoalNote): void {
@@ -219,19 +225,19 @@ export class GoalCardRunnerController {
   }
 
   async cancel(): Promise<void> {
-    this.actor.send({ type: 'CANCEL' });
+    dispatchCall(this.actor, { kind: 'call', name: 'cancel' });
+    dispatchEvent(this.actor, { kind: 'event', name: 'cancel' });
     this.persist();
     await this.statusPort?.markCancelled(this.cardId);
   }
 
   snapshot() {
-    const snapshot = this.actor.getSnapshot();
     return {
       actor_id: cardActorId(this.cardId),
       actor_kind: 'card' as const,
-      state_value: snapshot.value,
+      state_value: this.actor.state(),
       context: {
-        ...(snapshot.context as unknown as Record<string, unknown>),
+        ...(this.actor.context() as unknown as Record<string, unknown>),
         noteBox: {
           pendingNoteIds: this.pendingNotes.map((note) => note.id),
           deliveredNoteIds: [...this.deliveredNoteIds].sort(),
@@ -242,14 +248,15 @@ export class GoalCardRunnerController {
   }
 
   private async complete(outcome: GoalOutcome): Promise<GoalOutcome> {
-    this.actor.send({ type: 'GOAL_OUTCOME', outcome });
+    dispatchCall(this.actor, { kind: 'call', name: 'outcome', args: outcome });
+    dispatchEvent(this.actor, { kind: 'event', name: outcome.status === 'done' ? 'done' : 'failed' });
     this.persist();
     await this.statusPort?.commitGoalOutcome(this.cardId, outcome);
     return outcome;
   }
 
   private recordToolError(sourceInputId: string, toolCallId: string, toolName: string, error: string): void {
-    appendToolCallStatus(this.actor.getSnapshot().context.projectRoot, {
+    appendToolCallStatus(this.actor.projectRoot, {
       agent_id: plannerActorId(this.cardId),
       source_input_id: sourceInputId,
       tool_call_id: toolCallId,
@@ -265,7 +272,7 @@ export class GoalCardRunnerController {
     | { kind: 'failed'; reason: string }
   > {
     if (!this.reviewerRunner) return { kind: 'passed' };
-    this.actor.send({ type: 'REVIEW_READY' });
+    dispatchEvent(this.actor, { kind: 'event', name: 'review_ready' });
     this.persist();
     const reviewerInput = buildXStateReviewerInput({
       inputId: `${input.inputId}:reviewer:${turn + 1}`,
@@ -284,7 +291,7 @@ export class GoalCardRunnerController {
   }
 
   private persist(): void {
-    saveActorSnapshot(this.actor.getSnapshot().context.projectRoot, this.snapshot());
+    saveActorSnapshot(this.actor.projectRoot, this.snapshot());
   }
 
   private deliverPendingNotes(input: Omit<LlmInvocationInput, 'agentId'>): Omit<LlmInvocationInput, 'agentId'> {
