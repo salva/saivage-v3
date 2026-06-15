@@ -93,7 +93,6 @@ export function compileActorDefinition(definition: ActorDefinition): CompiledAct
   for (const [stateName, stateDef] of Object.entries(definition.states)) {
     validateMethodOverride(stateDef.enter, `enter override in state "${stateName}"`);
     validateMethodOverride(stateDef.leave, `leave override in state "${stateName}"`);
-    validateMethodOverride(stateDef.recover, `recover override in state "${stateName}"`);
 
     for (const [eventName, targetState] of Object.entries(stateDef.on ?? {})) {
       if (eventName === '') {

@@ -15,7 +15,6 @@ export type StateDefinition = {
   on?: Record<string, string>;
   enter?: string | false;
   leave?: string | false;
-  recover?: string | false;
   calls?: Record<string, string | false>;
 };
 

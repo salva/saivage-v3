@@ -118,7 +118,7 @@ function getCompiledActorDefinition(ctor: ActorConstructor) {
 }
 ```
 
-`startActor(Foo, args...)` compiles or reuses `Foo._compiled_actor`, constructs the class, initializes `BaseActor` private runtime slots to the initial state, and starts the queue pump. `createActor(...)` is an alias for starting a new actor.
+`startActor(Foo, args...)` compiles or reuses `Foo._compiled_actor`, constructs the class, initializes `BaseActor` private runtime slots to the initial state, and starts the queue pump.
 
 `recoverActor(Foo, state, args...)` compiles or reuses `Foo._compiled_actor`, constructs the class, initializes `BaseActor` private runtime slots to the recovered state, runs the state recovery hook, and starts the queue pump.
 
@@ -147,7 +147,6 @@ type StateDefinition = {
   // Optional escape hatches. Omit these for convention lookup.
   enter?: string | false;
   leave?: string | false;
-  recover?: string | false;
   calls?: Record<string, string | false>;
 };
 
@@ -170,7 +169,7 @@ Rules:
 - `states` declares the complete state set.
 - `on` maps event names to target states.
 - `sequence` is optional and exists only for the local `done`-means-advance convention.
-- `enter`, `leave`, `recover`, and `calls` are optional overrides for convention method lookup.
+- `enter`, `leave`, and `calls` are optional overrides for convention method lookup.
 - `false` disables a convention hook or call for that state.
 
 Actor definitions do not store anonymous handlers. Behavior lives on the actor class through convention methods, or through explicit method-name overrides when a convention name is undesirable.
@@ -649,7 +648,6 @@ The `calling_provider`, `interpreting_provider_output`, and `running_tool` state
 Minimal exported API:
 
 ```ts
-export function createActor<T extends BaseActor>(ctor: ActorConstructor<T>, ...args: unknown[]): T;
 export function startActor<T extends BaseActor>(ctor: ActorConstructor<T>, ...args: unknown[]): T;
 export function recoverActor<T extends BaseActor>(ctor: ActorConstructor<T>, state: string, ...args: unknown[]): T;
 
@@ -674,7 +672,6 @@ At definition time:
 - Every direct transition target must exist.
 - State names and event names must be non-empty strings.
 - `enter`, `leave`, and `calls` overrides must be method-name strings or `false`.
-- `recover` overrides must be method-name strings or `false`.
 - Concrete actor classes must declare their own static `_actor`; inherited `_actor` is rejected.
 
 At delivery time:
@@ -692,7 +689,7 @@ Test the FSM module independently:
 
 - `static _actor` declares a definition for a class;
 - `_compiled_actor` is initialized lazily on first actor creation;
-- `createActor(...)` initializes `BaseActor` private slots, `state()`, `send()`, `call()`, queue, and pump;
+- `startActor(...)` initializes `BaseActor` private slots, `state()`, `send()`, `call()`, queue, and pump;
 - `recoverActor(...)` initializes `BaseActor` private slots with a restored state and runs `_on_recover__{state}` or `_on_enter__{state}` fallback;
 - `initial` defaults to the first state;
 - direct transition works;

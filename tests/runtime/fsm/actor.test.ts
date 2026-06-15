@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { BaseActor, createActorWithOptions, recoverActor, recoverActorWithOptions } from '../../../src/runtime/fsm/index.js';
+import { BaseActor, recoverActor, startActor } from '../../../src/runtime/fsm/index.js';
 
 class CounterActor extends BaseActor {
   static _actor = {
@@ -23,12 +23,9 @@ class CounterActor extends BaseActor {
   }
 }
 
-describe('createActor', () => {
+describe('startActor', () => {
   it('creates a live actor with initial state and send(event)', async () => {
-    const errors: unknown[] = [];
-    const actor = createActorWithOptions(CounterActor, {
-      onError: (error) => { errors.push(error); },
-    });
+    const actor = startActor(CounterActor);
 
     expect(actor.state()).toBe('idle');
     expect(actor.count).toBe(0);
@@ -37,13 +34,10 @@ describe('createActor', () => {
     await eventually(() => expect(actor.state()).toBe('active'));
 
     expect(actor.count).toBe(1);
-    expect(errors).toEqual([]);
   });
 
   it('serializes messages through the actor queue', async () => {
-    const actor = createActorWithOptions(CounterActor, {
-      onError: (error) => { throw error; },
-    });
+    const actor = startActor(CounterActor);
 
     actor.call('start');
     await eventually(() => expect(actor.state()).toBe('active'));
@@ -118,7 +112,7 @@ describe('recoverActor', () => {
     expect(() => recoverActor(RecoverableActor, 'missing')).toThrow('unknown state');
   });
 
-  it('reports recover hook errors through actor recovery creation', () => {
+  it('reports recover hook errors through actor recovery', () => {
     class RecoverableActor extends BaseActor {
       static _actor = {
         states: {
@@ -131,8 +125,7 @@ describe('recoverActor', () => {
       }
     }
 
-    expect(() => recoverActorWithOptions(RecoverableActor, { state: 'idle' }))
-      .toThrow('recover failed');
+    expect(() => recoverActor(RecoverableActor, 'idle')).toThrow('recover failed');
   });
 });
 

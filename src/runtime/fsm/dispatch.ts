@@ -69,12 +69,7 @@ export function dispatchRecover(actor: BaseActor): void {
     throw new InvalidTransitionError(`Unknown current state "${currentState}"`);
   }
 
-  const recoverOverride = stateDef.recover;
-  if (recoverOverride === false) {
-    return;
-  }
-
-  const recoverName = recoverOverride ?? `_on_recover__${currentState}`;
+  const recoverName = `_on_recover__${currentState}`;
   const recoverMethod = methodFromActor(actor, recoverName);
   if (recoverMethod) {
     assertSyncResult(recoverMethod.call(actor), recoverName);

@@ -7,7 +7,7 @@ import {
   InvalidActorDefinitionError,
   InvalidTransitionError,
   MissingCallHandlerError,
-  createActor,
+  startActor,
 } from '../../../src/runtime/fsm/index.js';
 import type { ActorDefinition, CompiledActorDefinition } from '../../../src/runtime/fsm/index.js';
 
@@ -43,7 +43,7 @@ describe('actor definition compilation', () => {
     const ctor = LightActor as typeof LightActor & { _compiled_actor?: CompiledActorDefinition };
     delete ctor._compiled_actor;
     expect(ctor._compiled_actor).toBeUndefined();
-    const actor = createActor(ctor);
+    const actor = startActor(ctor);
     expect(actor.state()).toBe('off');
     const compiled = (ctor as { _compiled_actor?: CompiledActorDefinition })._compiled_actor;
     expect(compiled?.initial).toBe('off');
@@ -71,7 +71,7 @@ describe('actor definition compilation', () => {
 
 describe('dispatchEvent', () => {
   it('handles direct string transition', () => {
-    const actor = createActor(LightActor);
+    const actor = startActor(LightActor);
 
     dispatchEvent(actor, { kind: 'event', name: 'toggle' });
 
@@ -79,7 +79,7 @@ describe('dispatchEvent', () => {
   });
 
   it('ignores unknown events', () => {
-    const actor = createActor(LightActor);
+    const actor = startActor(LightActor);
 
     dispatchEvent(actor, { kind: 'event', name: 'unknown_event' });
 
@@ -87,7 +87,7 @@ describe('dispatchEvent', () => {
   });
 
   it('fires enter on transition', () => {
-    const actor = createActor(LightActor);
+    const actor = startActor(LightActor);
 
     dispatchEvent(actor, { kind: 'event', name: 'toggle' });
 
@@ -95,7 +95,7 @@ describe('dispatchEvent', () => {
   });
 
   it('fires leave on transition', () => {
-    const actor = createActor(LightActor);
+    const actor = startActor(LightActor);
 
     dispatchEvent(actor, { kind: 'event', name: 'toggle' });
     dispatchEvent(actor, { kind: 'event', name: 'flicker' });
@@ -113,7 +113,7 @@ describe('dispatchEvent', () => {
       _on_leave__closed() { this.left += 1; }
     }
 
-    const actor = createActor(DoorActor);
+    const actor = startActor(DoorActor);
     dispatchEvent(actor, { kind: 'event', name: 'stay' });
 
     expect(actor.entered).toBe(0);
@@ -125,7 +125,7 @@ describe('dispatchEvent', () => {
       static _actor = { sequence: ['a', 'b', 'c'], states: { a: {}, b: {}, c: {} } };
     }
 
-    const actor = createActor(StepActor);
+    const actor = startActor(StepActor);
 
     dispatchEvent(actor, { kind: 'event', name: 'done' });
     expect(actor.state()).toBe('b');
@@ -136,7 +136,7 @@ describe('dispatchEvent', () => {
   });
 
   it('throws InvalidTransitionError for unknown current state', () => {
-    const actor = createActor(LightActor);
+    const actor = startActor(LightActor);
     actor._setStateForRuntime('nonexistent');
 
     expect(() => dispatchEvent(actor, { kind: 'event', name: 'toggle' }))
@@ -149,7 +149,7 @@ describe('dispatchEvent', () => {
       _on_enter__running() { return Promise.resolve(); }
     }
 
-    const actor = createActor(BadActor);
+    const actor = startActor(BadActor);
     expect(() => dispatchEvent(actor, { kind: 'event', name: 'start' }))
       .toThrow(InvalidTransitionError);
   });
@@ -166,7 +166,7 @@ describe('dispatchCall', () => {
       }
     }
 
-    const actor = createActor(WorkerActor);
+    const actor = startActor(WorkerActor);
     dispatchCall(actor, { kind: 'call', name: 'run', args: { reason: 'test' } });
 
     expect(actor.reason).toBe('test');
@@ -184,14 +184,14 @@ describe('dispatchCall', () => {
       handleRun() { this.called = true; }
     }
 
-    const actor = createActor(WorkerActor);
+    const actor = startActor(WorkerActor);
     dispatchCall(actor, { kind: 'call', name: 'run' });
 
     expect(actor.called).toBe(true);
   });
 
   it('throws for missing call handlers', () => {
-    const actor = createActor(LightActor);
+    const actor = startActor(LightActor);
 
     expect(() => dispatchCall(actor, { kind: 'call', name: 'missing' }))
       .toThrow(MissingCallHandlerError);
@@ -202,7 +202,7 @@ describe('dispatchCall', () => {
       static _actor: ActorDefinition = { states: { idle: { calls: { noop: false } } } };
     }
 
-    const actor = createActor(WorkerActor);
+    const actor = startActor(WorkerActor);
 
     expect(() => dispatchCall(actor, { kind: 'call', name: 'noop' })).not.toThrow();
   });

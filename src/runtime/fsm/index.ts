@@ -8,15 +8,11 @@ export {
 export { dispatchEvent, dispatchCall, dispatchRecover } from './dispatch.js';
 export {
   BaseActor,
-  createActor,
-  createActorWithOptions,
   startActor,
-  startActorWithOptions,
   recoverActor,
-  recoverActorWithOptions,
 } from './base-actor.js';
 export { AsyncActorQueue, runActorBatch, runActorPump } from './event-queue.js';
-export type { ActorConstructor, ActorErrorHandler, CreateActorOptions, RecoverActorOptions } from './base-actor.js';
+export type { ActorConstructor } from './base-actor.js';
 export type { ActorMessageHandler, ActorMessageErrorHandler } from './event-queue.js';
 export type { ActorClassWithDefinition } from './define-machine.js';
 export type {
