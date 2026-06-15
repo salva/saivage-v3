@@ -278,14 +278,12 @@ Responsibilities:
 
 ## 10. ProcessActor
 
-`ProcessActor` owns one runtime-started OS process.
+`ProcessActor` owns one runtime-started OS process. Its state tracks durable process outcome, not transient launch, wait, or termination operations.
 
 States:
 
-- `starting`
 - `running`
-- `killing`
-- `exited`
+- `done`
 - `failed`
 
 Calls:
@@ -297,8 +295,6 @@ Calls:
 
 Events:
 
-- `started`
-- `exited`
 - `done`
 - `failed`
 
@@ -306,9 +302,10 @@ Responsibilities:
 
 - Launch project commands in a contained working directory.
 - Publish safe process read models: status, timestamps, rendered command, working directory, logs, and termination availability.
+- Store launch, wait, exit, and termination details on actor fields and process records, not as transient actor states.
 - Support bounded waits as caller/tool operations that observe process state.
 - Keep a wait timeout non-destructive; the process remains `running` unless it exits or fails.
-- Handle explicit termination from Analyst, card cancellation, or Shutdown.
+- Handle explicit termination from Analyst, card cancellation, or Shutdown; successful termination stores signal/exit details and sends `done`.
 - Reconcile persisted running process state during startup recovery.
 
 ## 11. Notifications And Changes
