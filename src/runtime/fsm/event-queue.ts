@@ -1,19 +1,19 @@
-import type { Event } from './types.js';
+import type { ActorMessage } from './types.js';
 
-export type EventHandler = (event: Event) => void;
-export type EventErrorHandler = (error: unknown, event: Event) => void;
+export type ActorMessageHandler = (message: ActorMessage) => void;
+export type ActorMessageErrorHandler = (error: unknown, message: ActorMessage) => void;
 
-export class AsyncEventQueue {
-  private items: Event[] = [];
+export class AsyncActorQueue {
+  private items: ActorMessage[] = [];
   private wake: (() => void) | undefined;
 
-  push(event: Event): void {
-    this.items.push(event);
+  push(message: ActorMessage): void {
+    this.items.push(message);
     this.wake?.();
     this.wake = undefined;
   }
 
-  async shift(): Promise<Event> {
+  async shift(): Promise<ActorMessage> {
     while (this.items.length === 0) {
       await new Promise<void>((resolve) => {
         this.wake = resolve;
@@ -23,43 +23,43 @@ export class AsyncEventQueue {
     return this.items.shift()!;
   }
 
-  drain(): Event[] {
+  drain(): ActorMessage[] {
     const batch = this.items;
     this.items = [];
     return batch;
   }
 }
 
-export async function runEventBatch(
-  queue: AsyncEventQueue,
-  handleEvent: EventHandler,
-  onError: EventErrorHandler,
+export async function runActorBatch(
+  queue: AsyncActorQueue,
+  handleMessage: ActorMessageHandler,
+  onError: ActorMessageErrorHandler,
 ): Promise<number> {
   const first = await queue.shift();
   const batch = [first, ...queue.drain()];
 
-  for (const event of batch) {
+  for (const message of batch) {
     try {
-      const result = handleEvent(event) as unknown;
+      const result = handleMessage(message) as unknown;
       if (isPromiseLike(result)) {
         void Promise.resolve(result).catch(() => undefined);
-        onError(new Error('Actor event handlers must be synchronous'), event);
+        onError(new Error('Actor message handlers must be synchronous'), message);
       }
     } catch (error) {
-      onError(error, event);
+      onError(error, message);
     }
   }
 
   return batch.length;
 }
 
-export async function runEventPump(
-  queue: AsyncEventQueue,
-  handleEvent: EventHandler,
-  onError: EventErrorHandler,
+export async function runActorPump(
+  queue: AsyncActorQueue,
+  handleMessage: ActorMessageHandler,
+  onError: ActorMessageErrorHandler,
 ): Promise<never> {
   for (;;) {
-    await runEventBatch(queue, handleEvent, onError);
+    await runActorBatch(queue, handleMessage, onError);
   }
 }
 

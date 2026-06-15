@@ -1,104 +1,105 @@
-import type { Command, CompiledMachine, DispatchResult, Event, MachineSelf } from './types.js';
-import { InvalidTransitionError } from './define-machine.js';
+import type { CallMessage, EventMessage, StateDefinition } from './types.js';
+import { InvalidTransitionError, MissingCallHandlerError } from './define-machine.js';
+import type { BaseActor } from './actor.js';
 
-export function dispatch<State extends string, Self extends MachineSelf<State>, Cmd extends Command>(
-  machine: CompiledMachine<State, Self, Cmd>,
-  self: Self,
-  event: Event,
-): DispatchResult<State, Cmd> {
-  const currentState = self._sm.state;
+export function dispatchEvent(actor: BaseActor, event: EventMessage): string {
+  const definition = actor._actorDefinitionForRuntime();
+  const currentState = actor._stateForRuntime();
+  const stateDef = definition.states[currentState];
 
-  const stateDef = machine.stateDefinitions.get(currentState);
   if (!stateDef) {
+    throw new InvalidTransitionError(`Unknown current state "${currentState}"`);
+  }
+
+  const targetState = stateDef.on?.[event.name]
+    ?? implicitDoneTarget(definition.sequence, currentState, event.name);
+
+  if (targetState === undefined) {
+    return currentState;
+  }
+
+  if (!(targetState in definition.states)) {
     throw new InvalidTransitionError(
-      `Unknown current state "${String(currentState)}"`,
+      `Invalid target state "${targetState}" for event "${event.name}" in state "${currentState}"`,
     );
   }
 
-  const handler = stateDef.on?.[event.name];
-
-  if (handler === undefined) {
-    if (event.name === 'done' && machine.sequence.has(currentState)) {
-      const idx = machine.sequence.get(currentState)!;
-      const sequenceList = Array.from(machine.sequence.keys());
-      if (idx < sequenceList.length - 1) {
-        const nextState = sequenceList[idx + 1];
-        return transition<State, Self, Cmd>(machine, self, currentState, nextState, event);
-      }
-    }
-    return { state: currentState, commands: [] };
+  if (targetState === currentState) {
+    return currentState;
   }
 
-  if (typeof handler === 'string') {
-    return transition<State, Self, Cmd>(machine, self, currentState, handler, event);
-  }
+  callOptionalHook(actor, stateDef, 'leave', `_on_leave__${currentState}`);
+  actor._setStateForRuntime(targetState);
+  callOptionalHook(actor, definition.states[targetState]!, 'enter', `_on_enter__${targetState}`);
 
-  const rawResult = handler({ self, event });
-  assertSyncResult(rawResult, `Handler for event "${event.name}" in state "${String(currentState)}"`);
-  const result = rawResult ?? {};
-  const targetState = 'state' in result ? (result.state as State | undefined) : undefined;
-  const handlerCommands = result.commands ?? [];
-
-  if (targetState === undefined || targetState === currentState) {
-    self._sm.state = currentState;
-    return { state: currentState, commands: handlerCommands };
-  }
-
-  const targetDef = machine.stateDefinitions.get(targetState);
-  if (!targetDef) {
-    throw new InvalidTransitionError(
-      `Invalid target state "${String(targetState)}" for event "${event.name}" in state "${String(currentState)}"`,
-    );
-  }
-
-  const leaveResult = stateDef.on_leave?.(self);
-  assertSyncResult(leaveResult, `on_leave for state "${String(currentState)}"`);
-  const leaveCmds = leaveResult?.commands ?? [];
-
-  self._sm.state = targetState;
-
-  const rawEnterResult = targetDef.on_enter?.({ self, event });
-  assertSyncResult(rawEnterResult, `on_enter for state "${String(targetState)}"`);
-  const enterResult = rawEnterResult ?? {};
-  const enterCmds = enterResult.commands ?? [];
-
-  return {
-    state: targetState,
-    commands: [...leaveCmds, ...handlerCommands, ...enterCmds],
-  };
+  return targetState;
 }
 
-function transition<State extends string, Self extends MachineSelf<State>, Cmd extends Command>(
-  machine: CompiledMachine<State, Self, Cmd>,
-  self: Self,
-  fromState: State,
-  toState: State,
-  event: Event,
-): DispatchResult<State, Cmd> {
-  const fromDef = machine.stateDefinitions.get(fromState);
-  const toDef = machine.stateDefinitions.get(toState);
+export function dispatchCall(actor: BaseActor, call: CallMessage): void {
+  const definition = actor._actorDefinitionForRuntime();
+  const currentState = actor._stateForRuntime();
+  const stateDef = definition.states[currentState];
 
-  if (!toDef) {
-    throw new InvalidTransitionError(
-      `Invalid target state "${String(toState)}" for event "${event.name}" in state "${String(fromState)}"`,
+  if (!stateDef) {
+    throw new InvalidTransitionError(`Unknown current state "${currentState}"`);
+  }
+
+  const override = stateDef.calls?.[call.name];
+  if (override === false) {
+    return;
+  }
+
+  const methodName = override ?? `_on_call__${currentState}__${call.name}`;
+  const method = methodFromActor(actor, methodName);
+  if (!method) {
+    throw new MissingCallHandlerError(
+      `Missing call handler "${methodName}" for call "${call.name}" in state "${currentState}"`,
     );
   }
 
-  const leaveResult = fromDef?.on_leave?.(self);
-  assertSyncResult(leaveResult, `on_leave for state "${String(fromState)}"`);
-  const leaveCmds = leaveResult?.commands ?? [];
+  assertSyncResult(method.call(actor, call.args), methodName);
+}
 
-  self._sm.state = toState;
+function callOptionalHook(
+  actor: BaseActor,
+  stateDef: StateDefinition,
+  hook: 'enter' | 'leave',
+  conventionName: string,
+): void {
+  const override = stateDef[hook];
+  if (override === false) {
+    return;
+  }
 
-  const rawEnterResult = toDef.on_enter?.({ self, event });
-  assertSyncResult(rawEnterResult, `on_enter for state "${String(toState)}"`);
-  const enterResult = rawEnterResult ?? {};
-  const enterCmds = enterResult.commands ?? [];
+  const methodName = override ?? conventionName;
+  const method = methodFromActor(actor, methodName);
+  if (!method) {
+    return;
+  }
 
-  return {
-    state: toState,
-    commands: [...leaveCmds, ...enterCmds],
-  };
+  assertSyncResult(method.call(actor), methodName);
+}
+
+function implicitDoneTarget(
+  sequence: string[] | undefined,
+  currentState: string,
+  eventName: string,
+): string | undefined {
+  if (eventName !== 'done' || !sequence) {
+    return undefined;
+  }
+
+  const index = sequence.indexOf(currentState);
+  if (index === -1 || index >= sequence.length - 1) {
+    return undefined;
+  }
+
+  return sequence[index + 1];
+}
+
+function methodFromActor(actor: BaseActor, methodName: string): Function | undefined {
+  const value = (actor as unknown as Record<string, unknown>)[methodName];
+  return typeof value === 'function' ? value : undefined;
 }
 
 function assertSyncResult(value: unknown, label: string): void {

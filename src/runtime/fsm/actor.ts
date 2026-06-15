@@ -1,55 +1,117 @@
-import { dispatch } from './dispatch.js';
-import { AsyncEventQueue, runEventPump } from './event-queue.js';
-import type { Command, CompiledMachine, Event, MachineSelf } from './types.js';
+import { dispatchCall, dispatchEvent } from './dispatch.js';
+import { getActorDefinition, initialState } from './define-machine.js';
+import { AsyncActorQueue, runActorPump } from './event-queue.js';
+import type { ActorDefinition, ActorInternals, ActorMessage } from './types.js';
 
-export type Actor<State extends string, Fields extends object, Cmd extends Command> =
-  MachineSelf<State> & Fields & {
-    readonly _queue: AsyncEventQueue;
-  };
+export type ActorConstructor<T extends BaseActor = BaseActor> = new (...args: any[]) => T;
 
-export type ActorCommandHandler<State extends string, Fields extends object, Cmd extends Command> = (
-  commands: Cmd[],
-  actor: Actor<State, Fields, Cmd>,
-  event: Event,
-) => void;
-
-export type ActorErrorHandler<State extends string, Fields extends object, Cmd extends Command> = (
+export type ActorErrorHandler<T extends BaseActor = BaseActor> = (
   error: unknown,
-  actor: Actor<State, Fields, Cmd>,
-  event: Event,
+  actor: T,
+  message: ActorMessage,
 ) => void;
 
-export type CreateActorInput<State extends string, Fields extends object, Cmd extends Command> = {
-  machine: CompiledMachine<State, MachineSelf<State> & Fields, Cmd>;
-  fields: Fields;
-  onCommands: ActorCommandHandler<State, Fields, Cmd>;
-  onError: ActorErrorHandler<State, Fields, Cmd>;
+export type CreateActorOptions<T extends BaseActor = BaseActor> = {
+  onError?: ActorErrorHandler<T>;
 };
 
-export function createActor<State extends string, Fields extends object, Cmd extends Command>(
-  input: CreateActorInput<State, Fields, Cmd>,
-): Actor<State, Fields, Cmd> {
-  const queue = new AsyncEventQueue();
-  const actor = input.fields as Actor<State, Fields, Cmd>;
+export abstract class BaseActor {
+  #definition: ActorDefinition | undefined;
+  #state: string | undefined;
+  #queue: AsyncActorQueue | undefined;
 
-  Object.defineProperty(actor, '_queue', {
-    value: queue,
-    enumerable: false,
+  state(): string {
+    return this.#requireInternals().state;
+  }
+
+  send(name: string): void {
+    this.#requireInternals().queue.push({ kind: 'event', name });
+  }
+
+  call(name: string, args?: unknown): void {
+    const message = args === undefined
+      ? { kind: 'call' as const, name }
+      : { kind: 'call' as const, name, args };
+    this.#requireInternals().queue.push(message);
+  }
+
+  _installActorInternals(internals: ActorInternals): void {
+    if (this.#queue !== undefined) {
+      throw new Error('Actor internals already installed');
+    }
+    this.#definition = internals.definition;
+    this.#state = internals.state;
+    this.#queue = internals.queue;
+  }
+
+  _actorDefinitionForRuntime(): ActorDefinition {
+    return this.#requireInternals().definition;
+  }
+
+  _stateForRuntime(): string {
+    return this.#requireInternals().state;
+  }
+
+  _setStateForRuntime(state: string): void {
+    this.#requireInternals();
+    this.#state = state;
+  }
+
+  _queueForRuntime(): AsyncActorQueue {
+    return this.#requireInternals().queue;
+  }
+
+  #requireInternals(): ActorInternals {
+    if (this.#definition === undefined || this.#state === undefined || this.#queue === undefined) {
+      throw new Error('Actor internals are not installed');
+    }
+
+    return {
+      definition: this.#definition,
+      state: this.#state,
+      queue: this.#queue,
+    };
+  }
+}
+
+export function createActor<T extends BaseActor>(
+  ctor: ActorConstructor<T>,
+  ...args: ConstructorParameters<ActorConstructor<T>>
+): T {
+  return createActorWithOptions(ctor, {}, ...args);
+}
+
+export function createActorWithOptions<T extends BaseActor>(
+  ctor: ActorConstructor<T>,
+  options: CreateActorOptions<T>,
+  ...args: ConstructorParameters<ActorConstructor<T>>
+): T {
+  const definition = getActorDefinition(ctor);
+  const actor = new ctor(...args);
+  const queue = new AsyncActorQueue();
+
+  actor._installActorInternals({
+    definition,
+    state: initialState(definition),
+    queue,
   });
 
-  actor._sm = { state: input.machine.initial };
-  actor.state = function state() { return this._sm.state; };
-  actor.send = (name, args) => {
-    queue.push(args === undefined ? { name } : { name, args });
-  };
-
-  void runEventPump(
+  void runActorPump(
     queue,
-    (event) => {
-      const result = dispatch(input.machine, actor, event);
-      input.onCommands(result.commands, actor, event);
+    (message) => {
+      if (message.kind === 'event') {
+        dispatchEvent(actor, message);
+        return;
+      }
+      dispatchCall(actor, message);
     },
-    (error, event) => { input.onError(error, actor, event); },
+    (error, message) => {
+      if (options.onError) {
+        options.onError(error, actor, message);
+        return;
+      }
+      throw error;
+    },
   );
 
   return actor;

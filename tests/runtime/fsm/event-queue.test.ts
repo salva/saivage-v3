@@ -1,85 +1,85 @@
 import { describe, expect, it } from '@jest/globals';
-import { AsyncEventQueue, runEventBatch } from '../../../src/runtime/fsm/index.js';
-import type { Event } from '../../../src/runtime/fsm/index.js';
+import { AsyncActorQueue, runActorBatch } from '../../../src/runtime/fsm/index.js';
+import type { ActorMessage } from '../../../src/runtime/fsm/index.js';
 
-describe('AsyncEventQueue', () => {
-  it('delivers queued events in batch order', async () => {
-    const queue = new AsyncEventQueue();
-    const delivered: Event[] = [];
+describe('AsyncActorQueue', () => {
+  it('delivers queued messages in batch order', async () => {
+    const queue = new AsyncActorQueue();
+    const delivered: ActorMessage[] = [];
     const errors: unknown[] = [];
 
-    queue.push({ name: 'first' });
-    queue.push({ name: 'second', args: { value: 2 } });
+    queue.push({ kind: 'event', name: 'first' });
+    queue.push({ kind: 'call', name: 'second', args: { value: 2 } });
 
-    await expect(runEventBatch(
+    await expect(runActorBatch(
       queue,
-      (event) => { delivered.push(event); },
+      (message) => { delivered.push(message); },
       (error) => { errors.push(error); },
     )).resolves.toBe(2);
 
     expect(delivered).toEqual([
-      { name: 'first' },
-      { name: 'second', args: { value: 2 } },
+      { kind: 'event', name: 'first' },
+      { kind: 'call', name: 'second', args: { value: 2 } },
     ]);
     expect(errors).toEqual([]);
   });
 
-  it('waits while empty and wakes when an event is pushed', async () => {
-    const queue = new AsyncEventQueue();
+  it('waits while empty and wakes when a message is pushed', async () => {
+    const queue = new AsyncActorQueue();
     const delivered: string[] = [];
 
-    const batch = runEventBatch(
+    const batch = runActorBatch(
       queue,
-      (event) => { delivered.push(event.name); },
+      (message) => { delivered.push(message.name); },
       () => {},
     );
     await Promise.resolve();
     expect(delivered).toEqual([]);
 
-    queue.push({ name: 'woke' });
+    queue.push({ kind: 'event', name: 'woke' });
 
     await expect(batch).resolves.toBe(1);
     expect(delivered).toEqual(['woke']);
   });
 
   it('reports sync handler errors and continues through the batch', async () => {
-    const queue = new AsyncEventQueue();
+    const queue = new AsyncActorQueue();
     const delivered: string[] = [];
-    const errors: Array<{ error: unknown; event: Event }> = [];
+    const errors: Array<{ error: unknown; message: ActorMessage }> = [];
 
-    queue.push({ name: 'bad' });
-    queue.push({ name: 'good' });
+    queue.push({ kind: 'event', name: 'bad' });
+    queue.push({ kind: 'event', name: 'good' });
 
-    const count = await runEventBatch(
+    const count = await runActorBatch(
       queue,
-      (event) => {
-        if (event.name === 'bad') throw new Error('boom');
-        delivered.push(event.name);
+      (message) => {
+        if (message.name === 'bad') throw new Error('boom');
+        delivered.push(message.name);
       },
-      (error, event) => { errors.push({ error, event }); },
+      (error, message) => { errors.push({ error, message }); },
     );
 
     expect(count).toBe(2);
     expect(delivered).toEqual(['good']);
     expect(errors).toHaveLength(1);
-    expect(errors[0]?.event).toEqual({ name: 'bad' });
+    expect(errors[0]?.message).toEqual({ kind: 'event', name: 'bad' });
     expect(errors[0]?.error).toBeInstanceOf(Error);
   });
 
   it('reports promise-returning handlers as invalid sync handlers', async () => {
-    const queue = new AsyncEventQueue();
-    const errors: Array<{ error: unknown; event: Event }> = [];
+    const queue = new AsyncActorQueue();
+    const errors: Array<{ error: unknown; message: ActorMessage }> = [];
 
-    queue.push({ name: 'async_handler' });
+    queue.push({ kind: 'event', name: 'async_handler' });
 
-    await expect(runEventBatch(
+    await expect(runActorBatch(
       queue,
-      (() => Promise.resolve()) as unknown as (event: Event) => void,
-      (error, event) => { errors.push({ error, event }); },
+      (() => Promise.resolve()) as unknown as (message: ActorMessage) => void,
+      (error, message) => { errors.push({ error, message }); },
     )).resolves.toBe(1);
 
     expect(errors).toHaveLength(1);
-    expect(errors[0]?.event).toEqual({ name: 'async_handler' });
+    expect(errors[0]?.message).toEqual({ kind: 'event', name: 'async_handler' });
     expect(errors[0]?.error).toBeInstanceOf(Error);
     expect(String((errors[0]?.error as Error).message)).toContain('synchronous');
   });

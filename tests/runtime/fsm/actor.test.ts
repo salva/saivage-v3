@@ -1,70 +1,53 @@
 import { describe, expect, it } from '@jest/globals';
-import { createActor, defineMachine } from '../../../src/runtime/fsm/index.js';
-import type { MachineSelf } from '../../../src/runtime/fsm/index.js';
+import { Actor, BaseActor, createActorWithOptions } from '../../../src/runtime/fsm/index.js';
 
-type CounterState = 'idle' | 'active';
-type CounterCommand = { type: 'started'; count: number };
-type CounterFields = { count: number };
-type CounterSelf = MachineSelf<CounterState> & CounterFields;
-
-const counterMachine = defineMachine<CounterState, CounterSelf, CounterCommand>({
+@Actor({
   initial: 'idle',
   states: {
-    idle: {
-      on: {
-        start: ({ self }) => {
-          self.count += 1;
-          return {
-            state: 'active',
-            commands: [{ type: 'started', count: self.count }],
-          };
-        },
-      },
-    },
-    active: {
-      on: {
-        increment: ({ self }) => {
-          self.count += 1;
-          return {};
-        },
-      },
-    },
+    idle: { on: { start: 'active' } },
+    active: { on: { incremented: 'active' } },
   },
-});
+})
+class CounterActor extends BaseActor {
+  count = 0;
+
+  _on_call__idle__start() {
+    this.count += 1;
+    this.send('start');
+  }
+
+  _on_call__active__increment() {
+    this.count += 1;
+    this.send('incremented');
+  }
+}
 
 describe('createActor', () => {
-  it('creates a live actor with initial state and send()', async () => {
-    const commands: CounterCommand[] = [];
+  it('creates a live actor with initial state and send(event)', async () => {
     const errors: unknown[] = [];
-    const actor = createActor<CounterState, CounterFields, CounterCommand>({
-      machine: counterMachine,
-      fields: { count: 0 },
-      onCommands: (emitted) => { commands.push(...emitted); },
+    const actor = createActorWithOptions(CounterActor, {
       onError: (error) => { errors.push(error); },
     });
 
     expect(actor.state()).toBe('idle');
     expect(actor.count).toBe(0);
 
-    actor.send('start');
+    actor.call('start');
     await eventually(() => expect(actor.state()).toBe('active'));
 
     expect(actor.count).toBe(1);
-    expect(commands).toEqual([{ type: 'started', count: 1 }]);
     expect(errors).toEqual([]);
   });
 
-  it('serializes events through the actor queue', async () => {
-    const actor = createActor<CounterState, CounterFields, CounterCommand>({
-      machine: counterMachine,
-      fields: { count: 0 },
-      onCommands: () => {},
+  it('serializes messages through the actor queue', async () => {
+    const actor = createActorWithOptions(CounterActor, {
       onError: (error) => { throw error; },
     });
 
-    actor.send('start');
-    actor.send('increment');
-    actor.send('increment');
+    actor.call('start');
+    await eventually(() => expect(actor.state()).toBe('active'));
+    actor.call('increment');
+    actor.call('increment');
 
     await eventually(() => expect(actor.count).toBe(3));
     expect(actor.state()).toBe('active');

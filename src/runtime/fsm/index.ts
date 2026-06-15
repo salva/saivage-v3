@@ -1,19 +1,21 @@
-export { defineMachine, InvalidTransitionError, InvalidMachineDefinitionError } from './define-machine.js';
-export { dispatch } from './dispatch.js';
-export { createActor } from './actor.js';
-export { AsyncEventQueue, runEventBatch, runEventPump } from './event-queue.js';
-export type { Actor, ActorCommandHandler, ActorErrorHandler, CreateActorInput } from './actor.js';
-export type { EventHandler, EventErrorHandler } from './event-queue.js';
+export {
+  Actor,
+  getActorDefinition,
+  initialState,
+  InvalidActorDefinitionError,
+  InvalidTransitionError,
+  MissingCallHandlerError,
+} from './define-machine.js';
+export { dispatchEvent, dispatchCall } from './dispatch.js';
+export { BaseActor, createActor, createActorWithOptions } from './actor.js';
+export { AsyncActorQueue, runActorBatch, runActorPump } from './event-queue.js';
+export type { ActorConstructor, ActorErrorHandler, CreateActorOptions } from './actor.js';
+export type { ActorMessageHandler, ActorMessageErrorHandler } from './event-queue.js';
 export type {
-  Event,
-  Command,
-  HandlerResult,
-  MachineRef,
-  MachineSelf,
-  Handler,
-  LeaveHook,
+  ActorMessage,
+  EventMessage,
+  CallMessage,
   StateDefinition,
-  MachineDefinition,
-  DispatchResult,
-  CompiledMachine,
+  ActorDefinition,
+  ActorInternals,
 } from './types.js';

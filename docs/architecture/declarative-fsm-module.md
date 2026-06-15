@@ -29,22 +29,22 @@ The FSM module is the deterministic core. Actor methods may start runtime-owned 
 The module has five concepts:
 
 - **Actor definition**: static declaration of states and event transitions, normally attached by an `@Actor(...)` class decorator.
-- **Actor**: a regular JS/TS class instance with domain fields and methods. FSM bookkeeping lives under a reserved `_sm` slot.
-- **Event**: queued state-transition input, delivered by `send(name, args?)`.
+- **Actor**: a regular JS/TS class instance with domain fields and methods. Runtime/FSM bookkeeping lives in JavaScript private fields on `BaseActor`.
+- **Event**: queued state-transition input, delivered by `send(name)`.
 - **Call**: queued method invocation, delivered by `call(name, args?)` and handled by state-scoped convention methods.
 - **Actor queue**: one actor-local mailbox that serializes events and calls for one actor instance.
 
 The core flow is:
 
 ```text
-actor.send(name, args) -> actor queue -> actor pump -> event dispatch -> leave -> state change -> enter
+actor.send(name) -> actor queue -> actor pump -> event dispatch -> leave -> state change -> enter
 actor.call(name, args) -> actor queue -> actor pump -> state-scoped call method
-async completion callback -> actor.send(name, args)
+async completion callback -> actor fields -> actor.send(name)
 ```
 
 The FSM never awaits inside transition dispatch. If work requires I/O, timers, LLM calls, process waits, file operations, or network requests, an actor method calls the appropriate runtime service and returns. The runtime service later reports completion by calling `actor.send(...)`.
 
-Creating an actor makes it live: the runtime installs `_sm`, `state()`, `send()`, `call()`, creates the actor-local queue, and starts the actor pump. From that point, supported advancement happens only through queued `send` and `call` delivery. Low-level dispatch functions are actor-pump internals, not application APIs.
+Creating an actor makes it live: the runtime initializes the `BaseActor` private fields, creates the actor-local queue, and starts the actor pump. From that point, supported advancement happens only through queued `send` and `call` delivery. Low-level dispatch functions are actor-pump internals, not application APIs.
 
 ## 3. Actor Definition
 
@@ -72,7 +72,7 @@ Actor definitions are pure transition data. They do not contain handler function
     failed: {},
   },
 })
-class Foo extends BaseActor<FooState> {
+class Foo extends BaseActor {
   _on_call__idle__start_work(args: StartArgs) {
     this.prepare(args);
     this.send("start");
@@ -80,8 +80,14 @@ class Foo extends BaseActor<FooState> {
 
   _on_enter__running() {
     this.runtime.startWork({
-      onSucceeded: result => this.send("done", { result }),
-      onFailed: error => this.send("error", { error }),
+      onSucceeded: result => {
+        this.result = result;
+        this.send("done");
+      },
+      onFailed: error => {
+        this.error = error;
+        this.send("error");
+      },
     });
   }
 
@@ -103,7 +109,9 @@ function Actor(definition: ActorDefinition) {
 }
 ```
 
-`createActor(Foo, args...)` constructs the class, reads the registered definition, installs actor runtime methods, initializes `_sm.state`, and starts the queue pump.
+`createActor(Foo, args...)` constructs the class, reads the registered definition, initializes `BaseActor` private runtime slots, and starts the queue pump.
+
+The decorator cannot make TypeScript treat an undecorated class as extending `BaseActor`. A class decorator can return a replacement subclass at runtime, but TypeScript will not infer `state()`, `send()`, `call()`, or private slot availability from that replacement. Every concrete actor must explicitly extend `BaseActor`.
 
 ## 4. Definition Shape
 
@@ -111,20 +119,21 @@ Example API sketch:
 
 ```ts
 type ActorMessage =
-  | { kind: "event"; name: string; args?: Record<string, unknown> }
+  | { kind: "event"; name: string }
   | { kind: "call"; name: string; args?: unknown };
 
-type ActorSelf<State extends string> = {
-  _sm: {
-    state: State;
-  };
-  state(): State;
-  send(name: string, args?: Record<string, unknown>): void;
-  call(name: string, args?: unknown): void;
-};
+abstract class BaseActor {
+  #definition: ActorDefinition | undefined;
+  #state: string | undefined;
+  #queue: AsyncActorQueue | undefined;
 
-type StateDefinition<State extends string> = {
-  on?: Record<string, State>;
+  state(): string;
+  send(name: string): void;
+  call(name: string, args?: unknown): void;
+}
+
+type StateDefinition = {
+  on?: Record<string, string>;
 
   // Optional escape hatches. Omit these for convention lookup.
   enter?: string | false;
@@ -132,10 +141,10 @@ type StateDefinition<State extends string> = {
   calls?: Record<string, string | false>;
 };
 
-type ActorDefinition<State extends string = string> = {
-  initial?: State;
-  sequence?: State[];
-  states: Record<State, StateDefinition<State>>;
+type ActorDefinition = {
+  initial?: string;
+  sequence?: string[];
+  states: Record<string, StateDefinition>;
 };
 ```
 
@@ -163,11 +172,17 @@ _on_call__{state}__{callName}   // state-scoped call handler
 Examples:
 
 ```ts
-class CardActor extends BaseActor<CardState> {
+class CardActor extends BaseActor {
   _on_enter__executing() {
     this.runtime.startExecutor(this.cardId, {
-      onSucceeded: report => this.send("executor_succeeded", { report }),
-      onFailed: error => this.send("executor_failed", { error }),
+      onSucceeded: report => {
+        this.executorReport = report;
+        this.send("executor_succeeded");
+      },
+      onFailed: error => {
+        this.error = error;
+        this.send("executor_failed");
+      },
     });
   }
 
@@ -206,7 +221,7 @@ Override example:
     running: {},
   },
 })
-class CardActor extends BaseActor<CardState> {
+class CardActor extends BaseActor {
   handleRunFromReady(args: { reason: string }) {
     this.runReason = args.reason;
     this.send("run_requested");
@@ -251,7 +266,6 @@ Each actor owns a queue whose items are plain messages:
 type EventMessage = {
   kind: "event";
   name: string;
-  args?: Record<string, unknown>;
 };
 
 type CallMessage = {
@@ -265,7 +279,7 @@ type ActorMessage = EventMessage | CallMessage;
 
 Delivery rules:
 
-- `actor.send(name, args)` pushes `{ kind: "event", name, args }` to that actor's queue.
+- `actor.send(name)` pushes `{ kind: "event", name }` to that actor's queue.
 - `actor.call(name, args)` pushes `{ kind: "call", name, args }` to that actor's queue.
 - Neither method dispatches inline. Delivery always occurs after the current JavaScript call stack unwinds.
 - Cross-object delivery obtains the target actor and calls `target.send(...)` or `target.call(...)`.
@@ -341,8 +355,8 @@ Rules:
 - Unknown event for the current state is ignored, except for implicit `done` advance in `sequence`.
 - Direct transitions are the only event transition form in the definition.
 - If an event maps to the current state, no leave or enter hook runs.
-- On actual state change, leave runs before `_sm.state` changes.
-- On actual state change, enter runs after `_sm.state` changes.
+- On actual state change, leave runs before the `BaseActor` private state slot changes.
+- On actual state change, enter runs after the `BaseActor` private state slot changes.
 - Leave and enter hooks must not directly call low-level dispatch.
 - Leave and enter hooks may call `send()` to enqueue later events.
 - Leave and enter hooks may start async runtime work directly.
@@ -350,12 +364,11 @@ Rules:
 
 State-machine bookkeeping rules:
 
-- All FSM module data lives under `self._sm`.
-- `self._sm.state` is the current state and is the only required `_sm` field initially.
-- Domain data, runtime references, and object methods live outside `_sm`.
-- Actor objects expose `state()` to read `self._sm.state`.
-- Actor objects expose runtime-installed `send(name, args?)` and `call(name, args?)` methods.
-- Application code should use `state()` rather than reading `_sm.state` directly.
+- All FSM module instance data lives in JavaScript private fields on `BaseActor`.
+- Domain data, runtime references, and actor behavior live on the concrete subclass.
+- Actor objects expose `state()` to read the current private state slot.
+- Actor objects expose `send(name)` and `call(name, args?)` methods.
+- Application code cannot and should not read private FSM slots directly.
 
 ## 9. Call Dispatch Semantics
 
@@ -385,7 +398,7 @@ These conventions keep common actors terse without adding a general workflow fra
 - `leave` stops, cancels, or detaches state-scoped work.
 - Unhandled events are ignored by default.
 - Unhandled calls throw by default.
-- Event payloads are untyped dictionaries by framework design.
+- Events carry no payload by framework design; event-specific data lives on actor fields before `send(name)` is called.
 - Call arguments are `unknown` by framework design.
 - Specific event names are preferred for externally meaningful completions, such as `provider_call_succeeded`, `tool_call_failed`, and `process_wait_timed_out`.
 
@@ -396,7 +409,7 @@ The FSM module does not define commands. Actor methods call runtime services dir
 Example:
 
 ```ts
-class LlmActor extends BaseActor<LlmState> {
+class LlmActor extends BaseActor {
   _on_enter__calling_provider() {
     const requestId = this.requestId;
 
@@ -404,9 +417,20 @@ class LlmActor extends BaseActor<LlmState> {
       requestId,
       prompt: this.prompt,
       timeoutMs: 60_000,
-      onSucceeded: output => this.send("provider_call_succeeded", { requestId, output }),
-      onFailed: error => this.send("provider_call_failed", { requestId, error }),
-      onTimedOut: () => this.send("provider_call_timed_out", { requestId }),
+      onSucceeded: output => {
+        this.providerRequestId = requestId;
+        this.providerOutput = output;
+        this.send("provider_call_succeeded");
+      },
+      onFailed: error => {
+        this.providerRequestId = requestId;
+        this.error = error;
+        this.send("provider_call_failed");
+      },
+      onTimedOut: () => {
+        this.providerRequestId = requestId;
+        this.send("provider_call_timed_out");
+      },
     });
   }
 }
@@ -416,7 +440,7 @@ Async work rules:
 
 - Every external operation must have a timeout or inactivity timeout.
 - Completion callbacks must call `actor.send(...)`; they must not call low-level dispatch directly.
-- Completion events must include enough correlation data for the actor to reject stale or duplicate completions.
+- Completion callbacks must store enough correlation data on actor fields for the actor to reject stale or duplicate completions.
 - Live callbacks are not persisted. Recovery code reconstructs safe work from durable actor/domain state or emits diagnostics/failure events.
 - Cancellation is modeled as events and runtime service calls. Already-running jobs normally finish or time out and then deliver their callback event.
 
@@ -436,14 +460,14 @@ Recommended runtime sequence:
 7. async runtime callbacks later call actor.send(...)
 ```
 
-The FSM module does not define a snapshot type. The runtime must be able to serialize and reconstruct actor objects from persisted domain data plus `_sm.state`.
+The FSM module does not define a snapshot type. The runtime must be able to serialize and reconstruct actor objects from persisted domain data plus the actor's current state string.
 
 ## 13. Example: Supervisor Actor
 
 ```ts
 type SupervisorState = "idle" | "running" | "paused" | "shutting_down" | "failed";
 
-@Actor<SupervisorState>({
+@Actor({
   initial: "idle",
   states: {
     idle: {
@@ -479,7 +503,7 @@ type SupervisorState = "idle" | "running" | "paused" | "shutting_down" | "failed
     failed: {},
   },
 })
-class SupervisorActor extends BaseActor<SupervisorState> {
+class SupervisorActor extends BaseActor {
   projectId: string;
   lastOutcome?: "done" | "failed" | "blocked" | "cancelled";
 
@@ -495,9 +519,12 @@ class SupervisorActor extends BaseActor<SupervisorState> {
     this.runtime.startProject(this.projectId, {
       onCompleted: outcome => {
         this.lastOutcome = outcome;
-        this.send("project_completed", { outcome });
+        this.send("project_completed");
       },
-      onFailed: error => this.send("error", { error }),
+      onFailed: error => {
+        this.error = error;
+        this.send("error");
+      },
     });
   }
 
@@ -505,7 +532,10 @@ class SupervisorActor extends BaseActor<SupervisorState> {
     this.runtime.terminateRuntimeProcesses({
       timeoutMs: 30_000,
       onCompleted: () => this.send("processes_terminated"),
-      onFailed: error => this.send("error", { error }),
+      onFailed: error => {
+        this.error = error;
+        this.send("error");
+      },
     });
   }
 }
@@ -516,7 +546,7 @@ class SupervisorActor extends BaseActor<SupervisorState> {
 ```ts
 type LlmState = "ready" | "calling_provider" | "running_tool" | "completed" | "failed";
 
-@Actor<LlmState>({
+@Actor({
   initial: "ready",
   states: {
     ready: {
@@ -548,7 +578,7 @@ type LlmState = "ready" | "calling_provider" | "running_tool" | "completed" | "f
     failed: {},
   },
 })
-class LlmLoopActor extends BaseActor<LlmState> {
+class LlmLoopActor extends BaseActor {
   _on_call__ready__start(args: StartArgs) {
     this.prompt = args.prompt;
     this.send("start_requested");
@@ -568,7 +598,10 @@ class LlmLoopActor extends BaseActor<LlmState> {
         this.pendingTools = parsed.toolCalls;
         this.send("provider_call_succeeded");
       },
-      onFailed: error => this.send("provider_call_failed", { error }),
+      onFailed: error => {
+        this.error = error;
+        this.send("provider_call_failed");
+      },
       onTimedOut: () => this.send("provider_call_timed_out"),
     });
   }
@@ -585,7 +618,10 @@ class LlmLoopActor extends BaseActor<LlmState> {
         this.toolResults.push(result);
         this.send("tool_call_succeeded");
       },
-      onFailed: error => this.send("tool_call_failed", { error }),
+      onFailed: error => {
+        this.error = error;
+        this.send("tool_call_failed");
+      },
     });
   }
 }
@@ -598,11 +634,9 @@ This version deliberately separates `calling_provider` from `ready`. That is not
 Minimal exported API:
 
 ```ts
-export function Actor<State extends string>(
-  definition: ActorDefinition<State>,
-): ClassDecorator;
+export function Actor(definition: ActorDefinition): ClassDecorator;
 
-export function createActor<T extends object>(ctor: ActorConstructor<T>, ...args: unknown[]): T & RuntimeActorMethods;
+export function createActor<T extends BaseActor>(ctor: ActorConstructor<T>, ...args: unknown[]): T;
 
 export function getActorDefinition(ctor: Function): ActorDefinition;
 
@@ -641,7 +675,7 @@ At delivery time:
 Test the FSM module independently:
 
 - `@Actor(...)` registers a definition for a class;
-- `createActor(...)` initializes `_sm.state`, `state()`, `send()`, `call()`, queue, and pump;
+- `createActor(...)` initializes `BaseActor` private slots, `state()`, `send()`, `call()`, queue, and pump;
 - `initial` defaults to the first state;
 - direct transition works;
 - `leave` runs before transition;
