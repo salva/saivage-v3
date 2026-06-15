@@ -29,9 +29,9 @@ The runtime also owns actor event queues and event delivery. FSM objects do not 
 
 The module has four concepts:
 
-- **Machine definition**: static declaration of states, events, handlers, and hooks.
-- **Machine instance**: a regular JS/TS object with methods and typed fields. State-machine bookkeeping lives under a reserved `_sm` slot on that object.
-- **Event**: untyped named input delivered to the machine, with an optional dictionary of arguments.
+- **Actor definition**: static declaration of states, events, handlers, and hooks.
+- **Actor**: a regular JS/TS object with methods and typed fields. State-machine bookkeeping lives under a reserved `_sm` slot on that object. Every actor owns one event queue and one dispatch pump.
+- **Event**: untyped named input delivered to the actor, with an optional dictionary of arguments.
 - **Command**: explicit side-effect request emitted by the machine for the outer runtime to execute.
 
 The core flow is:
@@ -42,6 +42,8 @@ commands -> async job queue -> job completion callback -> actor.send(name, args)
 ```
 
 The FSM never awaits. If work requires I/O, timers, LLM calls, process waits, file operations, or network requests, the FSM emits a command and stops. The runtime converts the command into an async job. The job later sends a completion event to the target actor.
+
+Creating an actor makes it live: the runtime installs `send()`, creates the actor-local event queue, and starts the actor pump. From that point, the supported way to advance the actor is `actor.send(name, args)`. The low-level `dispatch` function is what the actor pump calls internally; application/runtime code should not use direct dispatch as a delivery path.
 
 ## 3. Actor Event Queue And Delivery
 
@@ -57,6 +59,12 @@ type ActorRef = MachineRef & {
   send(name: string, args?: Record<string, unknown>): void;
 };
 
+type Actor<State extends string> = ActorRef & {
+  _sm: { state: State };
+  state(): State;
+  queue: AsyncEventQueue;
+};
+
 type Event = {
   name: string;
   args?: Record<string, unknown>;
@@ -65,7 +73,7 @@ type Event = {
 
 Delivery rules:
 
-- The only way to advance an FSM object asynchronously is to push an `Event` into that actor's event queue and let that actor's pump call `dispatch`.
+- The only supported way to advance an actor is to push an `Event` into that actor's event queue and let that actor's pump call `dispatch`.
 - `self.send(name, args)` pushes `{ name, args }` to the same actor's queue. It does not call `dispatch` directly.
 - Cross-object event delivery obtains the target actor and calls `target.send(name, args)`. The event queue item itself remains target-free.
 - Each actor pump is one long-lived async task waiting on one actor's queue. Queue wait is implemented with a stored promise resolver: when the queue is empty the pump awaits a promise; when runtime code pushes an event it calls the resolver to wake the pump.
@@ -131,7 +139,7 @@ async function runEventPump(actor: Actor) {
 }
 ```
 
-Each actor pump starts when its actor starts, for example `void runEventPump(actor)`. Command execution is fire-and-forget from the pump perspective: `startCommands` starts async work, attaches completion/error callbacks, and those callbacks later call `actor.send(...)`.
+Each actor pump starts when its actor is created, for example `void runEventPump(actor)`. Command execution is fire-and-forget from the pump perspective: `startCommands` starts async work, attaches completion/error callbacks, and those callbacks later call `actor.send(...)`.
 
 The actor pump owns dispatch for exactly one machine object. The queue only stores event pairs; the pump supplies actor-local machine, self, persistence, command-starting, and error-reporting behavior.
 
