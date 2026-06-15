@@ -28,7 +28,7 @@ The FSM module is the deterministic core. Actor methods may start runtime-owned 
 
 The module has five concepts:
 
-- **Actor definition**: static declaration of states and event transitions, normally attached by an `@Actor(...)` class decorator.
+- **Actor definition**: static `_actor` declaration of states and event transitions on each concrete actor class.
 - **Actor**: a regular JS/TS class instance with domain fields and methods. Runtime/FSM bookkeeping lives in JavaScript private fields on `BaseActor`.
 - **Event**: queued state-transition input, delivered by `send(name)`.
 - **Call**: queued method invocation, delivered by `call(name, args?)` and handled by state-scoped convention methods.
@@ -51,28 +51,29 @@ Creating an actor makes it live: the runtime initializes the `BaseActor` private
 Actor definitions are pure transition data. They do not contain handler functions by default.
 
 ```ts
-@Actor({
-  initial: "idle",
-  states: {
-    idle: {
-      on: {
-        start: "running",
-        error: "failed",
-      },
-    },
-
-    running: {
-      on: {
-        done: "done",
-        error: "failed",
-      },
-    },
-
-    done: {},
-    failed: {},
-  },
-})
 class Foo extends BaseActor {
+  static _actor = {
+    initial: "idle",
+    states: {
+      idle: {
+        on: {
+          start: "running",
+          error: "failed",
+        },
+      },
+
+      running: {
+        on: {
+          done: "done",
+          error: "failed",
+        },
+      },
+
+      done: {},
+      failed: {},
+    },
+  };
+
   _on_call__idle__start_work(args: StartArgs) {
     this.prepare(args);
     this.send("start");
@@ -97,21 +98,30 @@ class Foo extends BaseActor {
 }
 ```
 
-The decorator should be minimal. It registers the definition for the constructor and should not heavily mutate the prototype.
+Every concrete actor must explicitly extend `BaseActor` and declare its own static `_actor` slot. The runtime rejects classes that inherit `_actor` without declaring their own slot, using `Object.hasOwn(ctor, "_actor")`; this avoids accidentally running a subclass with a parent actor declaration.
+
+The runtime compiles `_actor` lazily when the first instance of that class is created. The compiled jump tables are cached in a non-enumerable static `_compiled_actor` slot on the class.
 
 ```ts
-const actorDefinitions = new WeakMap<Function, ActorDefinition>();
+class Foo extends BaseActor {
+  static _actor = { /* raw declaration */ };
+  static _compiled_actor?: CompiledActorDefinition;
+}
 
-function Actor(definition: ActorDefinition) {
-  return function (ctor: Function) {
-    actorDefinitions.set(ctor, definition);
-  };
+function getCompiledActorDefinition(ctor: ActorConstructor) {
+  if (!Object.hasOwn(ctor, "_actor")) {
+    throw new InvalidActorDefinitionError(`${ctor.name} must declare static _actor`);
+  }
+
+  if (!ctor._compiled_actor) {
+    ctor._compiled_actor = compileActorDefinition(ctor._actor);
+  }
+
+  return ctor._compiled_actor;
 }
 ```
 
-`createActor(Foo, args...)` constructs the class, reads the registered definition, initializes `BaseActor` private runtime slots, and starts the queue pump.
-
-The decorator cannot make TypeScript treat an undecorated class as extending `BaseActor`. A class decorator can return a replacement subclass at runtime, but TypeScript will not infer `state()`, `send()`, `call()`, or private slot availability from that replacement. Every concrete actor must explicitly extend `BaseActor`.
+`createActor(Foo, args...)` compiles or reuses `Foo._compiled_actor`, constructs the class, initializes `BaseActor` private runtime slots, and starts the queue pump.
 
 ## 4. Definition Shape
 
@@ -145,6 +155,12 @@ type ActorDefinition = {
   initial?: string;
   sequence?: string[];
   states: Record<string, StateDefinition>;
+};
+
+type CompiledActorDefinition = {
+  initial: string;
+  sequence: ReadonlyMap<string, number>;
+  states: ReadonlyMap<string, StateDefinition>;
 };
 ```
 
@@ -209,19 +225,20 @@ Lookup rules:
 Override example:
 
 ```ts
-@Actor({
-  states: {
-    ready: {
-      calls: {
-        run: "handleRunFromReady",
-        debug_noop: false,
-      },
-      on: { run_requested: "running" },
-    },
-    running: {},
-  },
-})
 class CardActor extends BaseActor {
+  static _actor = {
+    states: {
+      ready: {
+        calls: {
+          run: "handleRunFromReady",
+          debug_noop: false,
+        },
+        on: { run_requested: "running" },
+      },
+      running: {},
+    },
+  };
+
   handleRunFromReady(args: { reason: string }) {
     this.runReason = args.reason;
     this.send("run_requested");
@@ -229,7 +246,7 @@ class CardActor extends BaseActor {
 }
 ```
 
-## 6. Why Not Method Decorators
+## 6. Why Not Decorators Or Method Decorators
 
 Method decorators are useful for metadata, but they do not solve this design's main ergonomics problem.
 
@@ -256,7 +273,7 @@ class Foo {
 }
 ```
 
-The class decorator remains useful because it attaches one actor definition to the class without per-method registration boilerplate.
+A class decorator could attach the same metadata, but the static `_actor` slot is simpler: it needs no decorator compiler support, is directly inspectable, and matches the runtime model where the class owns its declaration and compiled jump tables.
 
 ## 7. Actor Queue And Delivery
 
@@ -467,43 +484,44 @@ The FSM module does not define a snapshot type. The runtime must be able to seri
 ```ts
 type SupervisorState = "idle" | "running" | "paused" | "shutting_down" | "failed";
 
-@Actor({
-  initial: "idle",
-  states: {
-    idle: {
-      on: {
-        run_requested: "running",
-        shutdown_requested: "shutting_down",
-      },
-    },
-
-    running: {
-      on: {
-        project_completed: "idle",
-        pause_requested: "paused",
-        shutdown_requested: "shutting_down",
-        error: "failed",
-      },
-    },
-
-    paused: {
-      on: {
-        run_requested: "running",
-        shutdown_requested: "shutting_down",
-      },
-    },
-
-    shutting_down: {
-      on: {
-        processes_terminated: "idle",
-        error: "failed",
-      },
-    },
-
-    failed: {},
-  },
-})
 class SupervisorActor extends BaseActor {
+  static _actor = {
+    initial: "idle",
+    states: {
+      idle: {
+        on: {
+          run_requested: "running",
+          shutdown_requested: "shutting_down",
+        },
+      },
+
+      running: {
+        on: {
+          project_completed: "idle",
+          pause_requested: "paused",
+          shutdown_requested: "shutting_down",
+          error: "failed",
+        },
+      },
+
+      paused: {
+        on: {
+          run_requested: "running",
+          shutdown_requested: "shutting_down",
+        },
+      },
+
+      shutting_down: {
+        on: {
+          processes_terminated: "idle",
+          error: "failed",
+        },
+      },
+
+      failed: {},
+    },
+  };
+
   projectId: string;
   lastOutcome?: "done" | "failed" | "blocked" | "cancelled";
 
@@ -546,39 +564,40 @@ class SupervisorActor extends BaseActor {
 ```ts
 type LlmState = "ready" | "calling_provider" | "running_tool" | "completed" | "failed";
 
-@Actor({
-  initial: "ready",
-  states: {
-    ready: {
-      on: {
-        start_requested: "calling_provider",
-        cancel_requested: "failed",
-      },
-    },
-
-    calling_provider: {
-      on: {
-        provider_call_succeeded: "running_tool",
-        provider_call_failed: "failed",
-        provider_call_timed_out: "failed",
-        model_completed: "completed",
-        cancel_requested: "failed",
-      },
-    },
-
-    running_tool: {
-      on: {
-        tool_call_succeeded: "calling_provider",
-        tool_call_failed: "failed",
-        cancel_requested: "failed",
-      },
-    },
-
-    completed: {},
-    failed: {},
-  },
-})
 class LlmLoopActor extends BaseActor {
+  static _actor = {
+    initial: "ready",
+    states: {
+      ready: {
+        on: {
+          start_requested: "calling_provider",
+          cancel_requested: "failed",
+        },
+      },
+
+      calling_provider: {
+        on: {
+          provider_call_succeeded: "running_tool",
+          provider_call_failed: "failed",
+          provider_call_timed_out: "failed",
+          model_completed: "completed",
+          cancel_requested: "failed",
+        },
+      },
+
+      running_tool: {
+        on: {
+          tool_call_succeeded: "calling_provider",
+          tool_call_failed: "failed",
+          cancel_requested: "failed",
+        },
+      },
+
+      completed: {},
+      failed: {},
+    },
+  };
+
   _on_call__ready__start(args: StartArgs) {
     this.prompt = args.prompt;
     this.send("start_requested");
@@ -634,11 +653,10 @@ This version deliberately separates `calling_provider` from `ready`. That is not
 Minimal exported API:
 
 ```ts
-export function Actor(definition: ActorDefinition): ClassDecorator;
-
 export function createActor<T extends BaseActor>(ctor: ActorConstructor<T>, ...args: unknown[]): T;
 
-export function getActorDefinition(ctor: Function): ActorDefinition;
+export function compileActorDefinition(definition: ActorDefinition): CompiledActorDefinition;
+export function getCompiledActorDefinition(ctor: ActorConstructor): CompiledActorDefinition;
 
 export class InvalidActorDefinitionError extends Error {}
 export class InvalidTransitionError extends Error {}
@@ -660,6 +678,7 @@ At definition time:
 - Every direct transition target must exist.
 - State names and event names must be non-empty strings.
 - `enter`, `leave`, and `calls` overrides must be method-name strings or `false`.
+- Concrete actor classes must declare their own static `_actor`; inherited `_actor` is rejected.
 
 At delivery time:
 
@@ -674,7 +693,8 @@ At delivery time:
 
 Test the FSM module independently:
 
-- `@Actor(...)` registers a definition for a class;
+- `static _actor` declares a definition for a class;
+- `_compiled_actor` is initialized lazily on first actor creation;
 - `createActor(...)` initializes `BaseActor` private slots, `state()`, `send()`, `call()`, queue, and pump;
 - `initial` defaults to the first state;
 - direct transition works;

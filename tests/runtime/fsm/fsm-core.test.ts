@@ -1,25 +1,27 @@
 import { describe, it, expect } from '@jest/globals';
 import {
-  Actor,
   BaseActor,
+  compileActorDefinition,
   dispatchCall,
   dispatchEvent,
-  getActorDefinition,
   InvalidActorDefinitionError,
   InvalidTransitionError,
   MissingCallHandlerError,
   createActor,
 } from '../../../src/runtime/fsm/index.js';
+import type { ActorDefinition, CompiledActorDefinition } from '../../../src/runtime/fsm/index.js';
 
-@Actor({
-  initial: 'off',
-  states: {
-    off: { on: { toggle: 'on' } },
-    on: { on: { toggle: 'off', flicker: 'broken' } },
-    broken: { on: { replace: 'off' } },
-  },
-})
 class LightActor extends BaseActor {
+  static _actor: ActorDefinition = {
+    initial: 'off',
+    states: {
+      off: { on: { toggle: 'on' } },
+      on: { on: { toggle: 'off', flicker: 'broken' } },
+      broken: { on: { replace: 'off' } },
+    },
+  };
+  static _compiled_actor?: CompiledActorDefinition;
+
   flickerCount = 0;
   log: string[] = [];
 
@@ -36,27 +38,33 @@ class LightActor extends BaseActor {
   }
 }
 
-describe('@Actor', () => {
-  it('registers actor definitions per class', () => {
-    expect(getActorDefinition(LightActor).initial).toBe('off');
+describe('actor definition compilation', () => {
+  it('compiles actor definitions lazily per class', () => {
+    const ctor = LightActor as typeof LightActor & { _compiled_actor?: CompiledActorDefinition };
+    delete ctor._compiled_actor;
+    expect(ctor._compiled_actor).toBeUndefined();
+    const actor = createActor(ctor);
+    expect(actor.state()).toBe('off');
+    const compiled = (ctor as { _compiled_actor?: CompiledActorDefinition })._compiled_actor;
+    expect(compiled?.initial).toBe('off');
   });
 
   it('rejects empty definitions', () => {
-    expect(() => Actor({ states: {} })).toThrow(InvalidActorDefinitionError);
+    expect(() => compileActorDefinition({ states: {} })).toThrow(InvalidActorDefinitionError);
   });
 
   it('rejects initial state not in states', () => {
-    expect(() => Actor({ initial: 'missing', states: { off: {} } }))
+    expect(() => compileActorDefinition({ initial: 'missing', states: { off: {} } }))
       .toThrow(InvalidActorDefinitionError);
   });
 
   it('rejects duplicate states in sequence', () => {
-    expect(() => Actor({ sequence: ['a', 'a'], states: { a: {}, b: {} } }))
+    expect(() => compileActorDefinition({ sequence: ['a', 'a'], states: { a: {}, b: {} } }))
       .toThrow(InvalidActorDefinitionError);
   });
 
   it('rejects transition target not in states', () => {
-    expect(() => Actor({ states: { off: { on: { go: 'missing' } } } }))
+    expect(() => compileActorDefinition({ states: { off: { on: { go: 'missing' } } } }))
       .toThrow(InvalidActorDefinitionError);
   });
 });
@@ -97,8 +105,8 @@ describe('dispatchEvent', () => {
   });
 
   it('does not fire leave or enter when staying in same state', () => {
-    @Actor({ states: { closed: { on: { stay: 'closed' } } } })
     class DoorActor extends BaseActor {
+      static _actor = { states: { closed: { on: { stay: 'closed' } } } };
       entered = 0;
       left = 0;
       _on_enter__closed() { this.entered += 1; }
@@ -113,8 +121,9 @@ describe('dispatchEvent', () => {
   });
 
   it('advances done inside sequence', () => {
-    @Actor({ sequence: ['a', 'b', 'c'], states: { a: {}, b: {}, c: {} } })
-    class StepActor extends BaseActor {}
+    class StepActor extends BaseActor {
+      static _actor = { sequence: ['a', 'b', 'c'], states: { a: {}, b: {}, c: {} } };
+    }
 
     const actor = createActor(StepActor);
 
@@ -135,8 +144,8 @@ describe('dispatchEvent', () => {
   });
 
   it('rejects promise-returning hooks', () => {
-    @Actor({ states: { idle: { on: { start: 'running' } }, running: {} } })
     class BadActor extends BaseActor {
+      static _actor = { states: { idle: { on: { start: 'running' } }, running: {} } };
       _on_enter__running() { return Promise.resolve(); }
     }
 
@@ -148,8 +157,8 @@ describe('dispatchEvent', () => {
 
 describe('dispatchCall', () => {
   it('invokes convention call handlers with args', () => {
-    @Actor({ states: { idle: { on: { started: 'running' } }, running: {} } })
     class WorkerActor extends BaseActor {
+      static _actor = { states: { idle: { on: { started: 'running' } }, running: {} } };
       reason = '';
       _on_call__idle__run(args: { reason: string }) {
         this.reason = args.reason;
@@ -164,12 +173,13 @@ describe('dispatchCall', () => {
   });
 
   it('supports explicit call method override', () => {
-    @Actor({
-      states: {
-        idle: { calls: { run: 'handleRun' } },
-      },
-    })
     class WorkerActor extends BaseActor {
+      static _actor = {
+        states: {
+          idle: { calls: { run: 'handleRun' } },
+        },
+      };
+
       called = false;
       handleRun() { this.called = true; }
     }
@@ -188,8 +198,9 @@ describe('dispatchCall', () => {
   });
 
   it('treats false call override as disabled no-op', () => {
-    @Actor({ states: { idle: { calls: { noop: false } } } })
-    class WorkerActor extends BaseActor {}
+    class WorkerActor extends BaseActor {
+      static _actor: ActorDefinition = { states: { idle: { calls: { noop: false } } } };
+    }
 
     const actor = createActor(WorkerActor);
 

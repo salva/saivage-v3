@@ -1,6 +1,4 @@
-import type { ActorDefinition } from './types.js';
-
-const actorDefinitions = new WeakMap<Function, ActorDefinition>();
+import type { ActorDefinition, CompiledActorDefinition, StateDefinition } from './types.js';
 
 export class InvalidTransitionError extends Error {
   constructor(message: string) {
@@ -23,37 +21,40 @@ export class MissingCallHandlerError extends Error {
   }
 }
 
-export function Actor(definition: ActorDefinition): ClassDecorator {
-  validateActorDefinition(definition);
+export type ActorClassWithDefinition = Function & {
+  _actor?: ActorDefinition;
+  _compiled_actor?: CompiledActorDefinition;
+};
 
-  return (ctor) => {
-    actorDefinitions.set(ctor, definition);
-  };
-}
-
-export function getActorDefinition(ctor: Function): ActorDefinition {
-  const definition = actorDefinitions.get(ctor);
-  if (!definition) {
+export function getCompiledActorDefinition(ctor: ActorClassWithDefinition): CompiledActorDefinition {
+  if (!Object.hasOwn(ctor, '_actor')) {
     throw new InvalidActorDefinitionError(
-      `Missing @Actor definition for ${ctor.name || '<anonymous>'}`,
+      `${ctor.name || '<anonymous>'} must declare static _actor`,
     );
   }
-  return definition;
-}
 
-export function initialState(definition: ActorDefinition): string {
-  if (definition.initial !== undefined) {
-    return definition.initial;
+  if (ctor._compiled_actor) {
+    return ctor._compiled_actor;
   }
 
-  const first = Object.keys(definition.states)[0];
-  if (!first) {
-    throw new InvalidActorDefinitionError('Actor definition must declare at least one state');
+  const definition = ctor._actor;
+  if (!definition) {
+    throw new InvalidActorDefinitionError(
+      `${ctor.name || '<anonymous>'} static _actor is missing`,
+    );
   }
-  return first;
+
+  const compiled = compileActorDefinition(definition);
+  Object.defineProperty(ctor, '_compiled_actor', {
+    value: compiled,
+    enumerable: false,
+    configurable: true,
+    writable: true,
+  });
+  return compiled;
 }
 
-function validateActorDefinition(definition: ActorDefinition): void {
+export function compileActorDefinition(definition: ActorDefinition): CompiledActorDefinition {
   const states = Object.keys(definition.states);
   if (states.length === 0) {
     throw new InvalidActorDefinitionError('Actor definition must declare at least one state');
@@ -73,7 +74,8 @@ function validateActorDefinition(definition: ActorDefinition): void {
 
   if (definition.sequence) {
     const seen = new Set<string>();
-    for (const stateName of definition.sequence) {
+    for (let i = 0; i < definition.sequence.length; i++) {
+      const stateName = definition.sequence[i]!;
       if (seen.has(stateName)) {
         throw new InvalidActorDefinitionError(
           `State "${stateName}" appears more than once in sequence`,
@@ -114,6 +116,21 @@ function validateActorDefinition(definition: ActorDefinition): void {
       validateMethodOverride(methodName, `call override "${callName}" in state "${stateName}"`);
     }
   }
+
+  return {
+    initial: definition.initial ?? states[0]!,
+    sequence: compileSequence(definition.sequence),
+    states: new Map<string, StateDefinition>(Object.entries(definition.states)),
+  };
+}
+
+function compileSequence(sequence: string[] | undefined): ReadonlyMap<string, number> {
+  const compiled = new Map<string, number>();
+  if (!sequence) return compiled;
+  for (let i = 0; i < sequence.length; i++) {
+    compiled.set(sequence[i]!, i);
+  }
+  return compiled;
 }
 
 function validateMethodOverride(value: string | false | undefined, label: string): void {

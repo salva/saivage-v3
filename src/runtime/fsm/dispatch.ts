@@ -5,7 +5,7 @@ import type { BaseActor } from './actor.js';
 export function dispatchEvent(actor: BaseActor, event: EventMessage): string {
   const definition = actor._actorDefinitionForRuntime();
   const currentState = actor._stateForRuntime();
-  const stateDef = definition.states[currentState];
+  const stateDef = definition.states.get(currentState);
 
   if (!stateDef) {
     throw new InvalidTransitionError(`Unknown current state "${currentState}"`);
@@ -18,7 +18,7 @@ export function dispatchEvent(actor: BaseActor, event: EventMessage): string {
     return currentState;
   }
 
-  if (!(targetState in definition.states)) {
+  if (!definition.states.has(targetState)) {
     throw new InvalidTransitionError(
       `Invalid target state "${targetState}" for event "${event.name}" in state "${currentState}"`,
     );
@@ -30,7 +30,7 @@ export function dispatchEvent(actor: BaseActor, event: EventMessage): string {
 
   callOptionalHook(actor, stateDef, 'leave', `_on_leave__${currentState}`);
   actor._setStateForRuntime(targetState);
-  callOptionalHook(actor, definition.states[targetState]!, 'enter', `_on_enter__${targetState}`);
+  callOptionalHook(actor, definition.states.get(targetState)!, 'enter', `_on_enter__${targetState}`);
 
   return targetState;
 }
@@ -38,7 +38,7 @@ export function dispatchEvent(actor: BaseActor, event: EventMessage): string {
 export function dispatchCall(actor: BaseActor, call: CallMessage): void {
   const definition = actor._actorDefinitionForRuntime();
   const currentState = actor._stateForRuntime();
-  const stateDef = definition.states[currentState];
+  const stateDef = definition.states.get(currentState);
 
   if (!stateDef) {
     throw new InvalidTransitionError(`Unknown current state "${currentState}"`);
@@ -81,20 +81,21 @@ function callOptionalHook(
 }
 
 function implicitDoneTarget(
-  sequence: string[] | undefined,
+  sequence: ReadonlyMap<string, number>,
   currentState: string,
   eventName: string,
 ): string | undefined {
-  if (eventName !== 'done' || !sequence) {
+  if (eventName !== 'done' || !sequence.has(currentState)) {
     return undefined;
   }
 
-  const index = sequence.indexOf(currentState);
-  if (index === -1 || index >= sequence.length - 1) {
+  const index = sequence.get(currentState)!;
+  const sequenceList = Array.from(sequence.keys());
+  if (index >= sequenceList.length - 1) {
     return undefined;
   }
 
-  return sequence[index + 1];
+  return sequenceList[index + 1];
 }
 
 function methodFromActor(actor: BaseActor, methodName: string): Function | undefined {

@@ -1,9 +1,12 @@
 import { dispatchCall, dispatchEvent } from './dispatch.js';
-import { getActorDefinition, initialState } from './define-machine.js';
+import { getCompiledActorDefinition } from './define-machine.js';
 import { AsyncActorQueue, runActorPump } from './event-queue.js';
-import type { ActorDefinition, ActorInternals, ActorMessage } from './types.js';
+import type { ActorDefinition, ActorInternals, ActorMessage, CompiledActorDefinition } from './types.js';
 
-export type ActorConstructor<T extends BaseActor = BaseActor> = new (...args: any[]) => T;
+export type ActorConstructor<T extends BaseActor = BaseActor> = (new (...args: any[]) => T) & {
+  _actor: ActorDefinition;
+  _compiled_actor?: CompiledActorDefinition;
+};
 
 export type ActorErrorHandler<T extends BaseActor = BaseActor> = (
   error: unknown,
@@ -16,7 +19,7 @@ export type CreateActorOptions<T extends BaseActor = BaseActor> = {
 };
 
 export abstract class BaseActor {
-  #definition: ActorDefinition | undefined;
+  #definition: CompiledActorDefinition | undefined;
   #state: string | undefined;
   #queue: AsyncActorQueue | undefined;
 
@@ -44,7 +47,7 @@ export abstract class BaseActor {
     this.#queue = internals.queue;
   }
 
-  _actorDefinitionForRuntime(): ActorDefinition {
+  _actorDefinitionForRuntime(): CompiledActorDefinition {
     return this.#requireInternals().definition;
   }
 
@@ -86,13 +89,13 @@ export function createActorWithOptions<T extends BaseActor>(
   options: CreateActorOptions<T>,
   ...args: ConstructorParameters<ActorConstructor<T>>
 ): T {
-  const definition = getActorDefinition(ctor);
+  const definition = getCompiledActorDefinition(ctor);
   const actor = new ctor(...args);
   const queue = new AsyncActorQueue();
 
   actor._installActorInternals({
     definition,
-    state: initialState(definition),
+    state: definition.initial,
     queue,
   });
 

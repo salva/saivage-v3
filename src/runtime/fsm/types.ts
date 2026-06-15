@@ -24,8 +24,14 @@ export type ActorDefinition = {
   states: Record<string, StateDefinition>;
 };
 
+export type CompiledActorDefinition = {
+  initial: string;
+  sequence: ReadonlyMap<string, number>;
+  states: ReadonlyMap<string, StateDefinition>;
+};
+
 export type ActorInternals = {
-  definition: ActorDefinition;
+  definition: CompiledActorDefinition;
   state: string;
   queue: import('./event-queue.js').AsyncActorQueue;
 };

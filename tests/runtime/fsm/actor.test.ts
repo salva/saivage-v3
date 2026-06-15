@@ -1,14 +1,15 @@
 import { describe, expect, it } from '@jest/globals';
-import { Actor, BaseActor, createActorWithOptions } from '../../../src/runtime/fsm/index.js';
+import { BaseActor, createActorWithOptions } from '../../../src/runtime/fsm/index.js';
 
-@Actor({
-  initial: 'idle',
-  states: {
-    idle: { on: { start: 'active' } },
-    active: { on: { incremented: 'active' } },
-  },
-})
 class CounterActor extends BaseActor {
+  static _actor = {
+    initial: 'idle',
+    states: {
+      idle: { on: { start: 'active' } },
+      active: { on: { incremented: 'active' } },
+    },
+  };
+
   count = 0;
 
   _on_call__idle__start() {
