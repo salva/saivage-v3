@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { BaseActor, createActorWithOptions } from '../../../src/runtime/fsm/index.js';
+import { BaseActor, createActorWithOptions, recoverActor, recoverActorWithOptions } from '../../../src/runtime/fsm/index.js';
 
 class CounterActor extends BaseActor {
   static _actor = {
@@ -52,6 +52,87 @@ describe('createActor', () => {
 
     await eventually(() => expect(actor.count).toBe(3));
     expect(actor.state()).toBe('active');
+  });
+});
+
+describe('recoverActor', () => {
+  it('restores the requested state and calls the state recover hook', () => {
+    class RecoverableActor extends BaseActor {
+      static _actor = {
+        initial: 'idle',
+        states: {
+          idle: {},
+          running: {},
+        },
+      };
+
+      log: string[] = [];
+
+      _on_recover__running() {
+        this.log.push(`recover:${this.state()}`);
+      }
+
+      _on_enter__running() {
+        this.log.push('enter fallback should not run');
+      }
+    }
+
+    const actor = recoverActor(RecoverableActor, 'running');
+
+    expect(actor.state()).toBe('running');
+    expect(actor.log).toEqual(['recover:running']);
+  });
+
+  it('falls back to enter hook when recover hook is missing', () => {
+    class RecoverableActor extends BaseActor {
+      static _actor = {
+        initial: 'idle',
+        states: {
+          idle: {},
+          running: {},
+        },
+      };
+
+      log: string[] = [];
+
+      _on_enter__running() {
+        this.log.push(`enter:${this.state()}`);
+      }
+    }
+
+    const actor = recoverActor(RecoverableActor, 'running');
+
+    expect(actor.state()).toBe('running');
+    expect(actor.log).toEqual(['enter:running']);
+  });
+
+  it('rejects unknown recovered states', () => {
+    class RecoverableActor extends BaseActor {
+      static _actor = {
+        states: {
+          idle: {},
+        },
+      };
+    }
+
+    expect(() => recoverActor(RecoverableActor, 'missing')).toThrow('unknown state');
+  });
+
+  it('reports recover hook errors through actor recovery creation', () => {
+    class RecoverableActor extends BaseActor {
+      static _actor = {
+        states: {
+          idle: {},
+        },
+      };
+
+      _on_recover__idle() {
+        throw new Error('recover failed');
+      }
+    }
+
+    expect(() => recoverActorWithOptions(RecoverableActor, { state: 'idle' }))
+      .toThrow('recover failed');
   });
 });
 

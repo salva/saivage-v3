@@ -118,7 +118,9 @@ function getCompiledActorDefinition(ctor: ActorConstructor) {
 }
 ```
 
-`createActor(Foo, args...)` compiles or reuses `Foo._compiled_actor`, constructs the class, initializes `BaseActor` private runtime slots, and starts the queue pump.
+`startActor(Foo, args...)` compiles or reuses `Foo._compiled_actor`, constructs the class, initializes `BaseActor` private runtime slots to the initial state, and starts the queue pump. `createActor(...)` is an alias for starting a new actor.
+
+`recoverActor(Foo, state, args...)` compiles or reuses `Foo._compiled_actor`, constructs the class, initializes `BaseActor` private runtime slots to the recovered state, runs the state recovery hook, and starts the queue pump.
 
 ## 4. Definition Shape
 
@@ -145,6 +147,7 @@ type StateDefinition = {
   // Optional escape hatches. Omit these for convention lookup.
   enter?: string | false;
   leave?: string | false;
+  recover?: string | false;
   calls?: Record<string, string | false>;
 };
 
@@ -167,7 +170,7 @@ Rules:
 - `states` declares the complete state set.
 - `on` maps event names to target states.
 - `sequence` is optional and exists only for the local `done`-means-advance convention.
-- `enter`, `leave`, and `calls` are optional overrides for convention method lookup.
+- `enter`, `leave`, `recover`, and `calls` are optional overrides for convention method lookup.
 - `false` disables a convention hook or call for that state.
 
 Actor definitions do not store anonymous handlers. Behavior lives on the actor class through convention methods, or through explicit method-name overrides when a convention name is undesirable.
@@ -179,6 +182,7 @@ The default method names are:
 ```text
 _on_enter__{state}              // after entering a state
 _on_leave__{state}              // before leaving a state
+_on_recover__{state}            // after restoring an actor in a state
 _on_call__{state}__{callName}   // state-scoped call handler
 ```
 
@@ -214,10 +218,21 @@ Lookup rules:
 
 - Enter hooks are optional. Missing enter methods are no-ops.
 - Leave hooks are optional. Missing leave methods are no-ops.
+- Recover hooks are optional. Missing recover methods fall back to the state enter hook when it exists.
 - Call handlers are strict. A missing call handler throws a runtime error unless the state definition disables that call explicitly.
 - Convention methods are called with `this` bound to the actor instance.
 - Methods must be synchronous with respect to FSM mutation. They may start async runtime work, but they must not `await` before returning to the pump.
 - If a convention method returns a promise, the actor pump treats it as a programming error.
+
+Recovery rules:
+
+- Recovery is a construction mode, not a queued event.
+- `recoverActor(ctor, state, ...)` validates that `state` exists in the compiled actor definition.
+- The recovered state is installed before recovery hooks run, so `this.state()` returns the restored state.
+- `_on_recover__{state}` runs when present.
+- If `_on_recover__{state}` is missing, `_on_enter__{state}` runs when present.
+- If the state definition sets `recover: false`, no recover or enter fallback hook runs.
+- Recovery hooks must be synchronous. They may start runtime work and enqueue events through `send()`.
 
 Override example:
 
@@ -635,6 +650,8 @@ Minimal exported API:
 
 ```ts
 export function createActor<T extends BaseActor>(ctor: ActorConstructor<T>, ...args: unknown[]): T;
+export function startActor<T extends BaseActor>(ctor: ActorConstructor<T>, ...args: unknown[]): T;
+export function recoverActor<T extends BaseActor>(ctor: ActorConstructor<T>, state: string, ...args: unknown[]): T;
 
 export function compileActorDefinition(definition: ActorDefinition): CompiledActorDefinition;
 export function getCompiledActorDefinition(ctor: ActorConstructor): CompiledActorDefinition;
@@ -657,6 +674,7 @@ At definition time:
 - Every direct transition target must exist.
 - State names and event names must be non-empty strings.
 - `enter`, `leave`, and `calls` overrides must be method-name strings or `false`.
+- `recover` overrides must be method-name strings or `false`.
 - Concrete actor classes must declare their own static `_actor`; inherited `_actor` is rejected.
 
 At delivery time:
@@ -675,6 +693,7 @@ Test the FSM module independently:
 - `static _actor` declares a definition for a class;
 - `_compiled_actor` is initialized lazily on first actor creation;
 - `createActor(...)` initializes `BaseActor` private slots, `state()`, `send()`, `call()`, queue, and pump;
+- `recoverActor(...)` initializes `BaseActor` private slots with a restored state and runs `_on_recover__{state}` or `_on_enter__{state}` fallback;
 - `initial` defaults to the first state;
 - direct transition works;
 - `leave` runs before transition;

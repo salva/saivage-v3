@@ -60,6 +60,30 @@ export function dispatchCall(actor: BaseActor, call: CallMessage): void {
   assertSyncResult(method.call(actor, call.args), methodName);
 }
 
+export function dispatchRecover(actor: BaseActor): void {
+  const definition = actor._actorDefinitionForRuntime();
+  const currentState = actor._stateForRuntime();
+  const stateDef = definition.states.get(currentState);
+
+  if (!stateDef) {
+    throw new InvalidTransitionError(`Unknown current state "${currentState}"`);
+  }
+
+  const recoverOverride = stateDef.recover;
+  if (recoverOverride === false) {
+    return;
+  }
+
+  const recoverName = recoverOverride ?? `_on_recover__${currentState}`;
+  const recoverMethod = methodFromActor(actor, recoverName);
+  if (recoverMethod) {
+    assertSyncResult(recoverMethod.call(actor), recoverName);
+    return;
+  }
+
+  callOptionalHook(actor, stateDef, 'enter', `_on_enter__${currentState}`);
+}
+
 function callOptionalHook(
   actor: BaseActor,
   stateDef: StateDefinition,

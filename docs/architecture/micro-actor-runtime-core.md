@@ -350,6 +350,8 @@ Classify recovery at durable boundaries:
 - `abandon_with_diagnostic`: cannot safely reattach to external work;
 - `terminal`: no recovery work needed.
 
+Actor restoration uses the FSM module's native recovery path. The runtime reconstructs the actor instance from persisted domain data, calls `recoverActor(ActorClass, persistedState, ...)`, and lets the actor run `_on_recover__{state}`. When no recover hook exists, the FSM module falls back to `_on_enter__{state}`. Recovery hooks rebuild runtime-owned live resources, restart safe idempotent work, reconcile external process/provider state, or record diagnostics and send `failed`.
+
 Examples:
 
 - A `ProcessActor` in `running` may be `reconcile_then_resume` if the OS process can be found through the process registry.
