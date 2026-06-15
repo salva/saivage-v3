@@ -42,7 +42,7 @@ The implementation must preserve these functional invariants:
 - Every external operation admitted by the runtime has a timeout or inactivity timeout.
 - Operator APIs and UI expose Saivage read models, never raw actor internals.
 
-Most task states use the same local completion protocol: the state starts or admits work, stores any result/error data on actor fields, sends `done` when that work completes successfully, and sends `failed` when that work fails. Use more specific events only for intermediate facts that a state must distinguish before deciding whether its own task is done or failed.
+Most task states use the same local completion protocol: the state starts or admits work, stores any result/error data on actor fields, sends `done` when that work completes successfully, and sends `failed` when that work fails. Use specific event names only for branch facts, such as `tool_calls_ready`, that are not success/failure signals.
 
 ## 3. Actor Tree
 
@@ -129,9 +129,7 @@ Calls:
 
 Events:
 
-- `project_completed`
-- `process_termination_completed`
-- `recovery_reconciled`
+- `done`
 - `failed`
 
 Responsibilities:
@@ -202,10 +200,7 @@ Calls:
 
 Events:
 
-- `planner_completed`
-- `readiness_rejected`
-- `reviewer_approved`
-- `reviewer_rejected`
+- `done`
 - `changed_context_received`
 - `failed`
 
@@ -236,7 +231,7 @@ Calls:
 
 Events:
 
-- `executor_completed`
+- `done`
 - `changed_context_received`
 - `failed`
 
@@ -268,24 +263,17 @@ Events:
 
 - `done`
 - `failed`
-- `provider_succeeded`
-- `provider_failed`
-- `provider_timed_out`
-- `tool_succeeded`
-- `tool_failed`
-- `turn_budget_exhausted`
-- `outcome_accepted`
 
 Responsibilities:
 
 - Make one LLM/provider call at a time.
 - Admit each provider call at its use boundary and retain that call's provider/configuration until it returns or times out.
-- Interpret provider output as tool requests and/or one accepted outcome.
+- Interpret provider output as tool requests and/or one accepted outcome; accepted outcome data is stored on actor fields before sending `done`.
 - Resolve tool requests by name from the supplied capability registry.
 - Execute tool requests serially.
 - Preserve semantic barrier ordering for `activate_card`.
 - Store tool results in session context for the next provider call.
-- Enforce turn budgets, operation timeouts, and protocol limits.
+- Enforce turn budgets, operation timeouts, and protocol limits; budget exhaustion stores diagnostic fields and sends `failed`.
 - Convert raw provider/tool diagnostics into sanitized model-visible failure context.
 
 ## 10. ProcessActor
@@ -311,8 +299,7 @@ Events:
 
 - `started`
 - `exited`
-- `wait_timed_out`
-- `termination_completed`
+- `done`
 - `failed`
 
 Responsibilities:

@@ -466,7 +466,7 @@ class SupervisorActor extends BaseActor {
 
       running: {
         on: {
-          project_completed: "idle",
+          done: "idle",
           pause_requested: "paused",
           shutdown_requested: "shutting_down",
           failed: "failed",
@@ -506,7 +506,7 @@ class SupervisorActor extends BaseActor {
     this.runtime.startProject(this.projectId, {
       onCompleted: outcome => {
         this.lastOutcome = outcome;
-        this.send("project_completed");
+        this.send("done");
       },
       onFailed: error => {
         this.error = error;
@@ -531,7 +531,7 @@ class SupervisorActor extends BaseActor {
 ## 13. Example: LLM Loop Actor
 
 ```ts
-type LlmState = "ready" | "calling_provider" | "running_tool" | "done" | "failed";
+type LlmState = "ready" | "calling_provider" | "interpreting_provider_output" | "running_tool" | "done" | "failed";
 
 class LlmLoopActor extends BaseActor {
   static _actor = {
@@ -546,9 +546,17 @@ class LlmLoopActor extends BaseActor {
 
       calling_provider: {
         on: {
-          done: "running_tool",
+          done: "interpreting_provider_output",
           failed: "failed",
-          model_accepted: "done",
+          cancel_requested: "failed",
+        },
+      },
+
+      interpreting_provider_output: {
+        on: {
+          outcome_accepted: "done",
+          tool_calls_ready: "running_tool",
+          failed: "failed",
           cancel_requested: "failed",
         },
       },
@@ -575,14 +583,7 @@ class LlmLoopActor extends BaseActor {
     this.runtime.callProvider({
       prompt: this.prompt,
       onSucceeded: output => {
-        const parsed = parseModelOutput(output);
-        if (parsed.kind === "outcome") {
-          this.outcome = parsed.outcome;
-          this.send("model_accepted");
-          return;
-        }
-
-        this.pendingTools = parsed.toolCalls;
+        this.providerOutput = output;
         this.send("done");
       },
       onFailed: error => {
@@ -591,6 +592,18 @@ class LlmLoopActor extends BaseActor {
       },
       onTimedOut: () => this.send("failed"),
     });
+  }
+
+  _on_enter__interpreting_provider_output() {
+    const parsed = parseModelOutput(this.providerOutput);
+    if (parsed.kind === "outcome") {
+      this.outcome = parsed.outcome;
+      this.send("outcome_accepted");
+      return;
+    }
+
+    this.pendingTools = parsed.toolCalls;
+    this.send("tool_calls_ready");
   }
 
   _on_enter__running_tool() {
@@ -614,7 +627,7 @@ class LlmLoopActor extends BaseActor {
 }
 ```
 
-The `calling_provider` and `running_tool` states separate provider-call, tool-call, cancellation, timeout, and recovery behavior by phase.
+The `calling_provider`, `interpreting_provider_output`, and `running_tool` states separate provider-call, output interpretation, tool-call, cancellation, timeout, and recovery behavior by phase. `done` and `failed` still report whether the current state's work completed successfully; fact events such as `outcome_accepted` and `tool_calls_ready` are branch decisions, not success/failure signals.
 
 ## 14. API Surface
 
