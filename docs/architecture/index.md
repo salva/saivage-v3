@@ -8,7 +8,3 @@ Current architecture documents:
 
 - [System architecture](./system-architecture.md)
 - [Declarative FSM module architecture](./declarative-fsm-module.md)
-
-Historical implementation notes that may still help compare alternatives:
-
-- [XState runtime core architecture](./xstate-runtime-core.md)

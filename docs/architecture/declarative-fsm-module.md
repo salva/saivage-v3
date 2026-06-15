@@ -6,9 +6,9 @@ Status: current runtime-core implementation direction.
 
 ## 1. Goal
 
-Define a small TypeScript module for actor-local finite-state machines. The module gives Saivage explicit states, deterministic transitions, per-actor delivery, and conventional lifecycle methods without adopting XState's actor/statechart framework.
+Define a small TypeScript module for actor-local finite-state machines. The module gives Saivage explicit states, deterministic transitions, per-actor delivery, and conventional lifecycle methods.
 
-The design is inspired by `Class::StateMachine::Declarative`, but intentionally supports only a minimal subset:
+The module supports:
 
 - class-level actor definitions;
 - declarative state and transition definitions;
@@ -16,11 +16,8 @@ The design is inspired by `Class::StateMachine::Declarative`, but intentionally 
 - two delivered message kinds: `event` and `call`;
 - synchronous transition dispatch;
 - convention-based `enter`, `leave`, and `call` methods;
-- no framework-owned async work;
-- no command return channel;
-- no hidden actors;
-- no nested statecharts;
-- no implicit workflow bus.
+- runtime-owned async work started by actor methods;
+- explicit completion events returned through actor queues.
 
 The FSM module is the deterministic core. Actor methods may start runtime-owned async work directly by calling runtime services. Async completions must return to the actor through queued events.
 
@@ -246,36 +243,7 @@ class CardActor extends BaseActor {
 }
 ```
 
-## 6. Why Not Decorators Or Method Decorators
-
-Method decorators are useful for metadata, but they do not solve this design's main ergonomics problem.
-
-JavaScript class elements need property names. TypeScript rejects duplicate method names, and JavaScript keeps only the last same-named method. A decorator can replace the function stored at a property, register metadata about it, or create aliases during initialization, but it cannot turn duplicate class elements into distinct methods before the duplicate-name problem exists.
-
-This is invalid or unusable for state-specific handlers:
-
-```ts
-class Foo {
-  @OnEnter("idle")
-  enter() {}
-
-  @OnEnter("running")
-  enter() {}
-}
-```
-
-Convention names avoid the collision while keeping the declaration local to the class:
-
-```ts
-class Foo {
-  _on_enter__idle() {}
-  _on_enter__running() {}
-}
-```
-
-A class decorator could attach the same metadata, but the static `_actor` slot is simpler: it needs no decorator compiler support, is directly inspectable, and matches the runtime model where the class owns its declaration and compiled jump tables.
-
-## 7. Actor Queue And Delivery
+## 6. Actor Queue And Delivery
 
 Each actor owns a queue whose items are plain messages:
 
@@ -360,7 +328,7 @@ async function runActorPump(actor: RuntimeActor) {
 
 The `drain()` implementation assumes single-threaded JavaScript: between `shift()` returning the first item and `drain()` being called, no other `push()` can interleave within the same microtask. This is safe in Node.js but would need synchronization in a multi-threaded environment.
 
-## 8. Event Dispatch Semantics
+## 7. Event Dispatch Semantics
 
 Event dispatch is synchronous and deterministic.
 
@@ -387,7 +355,7 @@ State-machine bookkeeping rules:
 - Actor objects expose `send(name)` and `call(name, args?)` methods.
 - Application code cannot and should not read private FSM slots directly.
 
-## 9. Call Dispatch Semantics
+## 8. Call Dispatch Semantics
 
 Calls are state-scoped method invocations. They are for external or parent/runtime requests that should run actor code without first modeling the request as a transition event.
 
@@ -404,13 +372,13 @@ Rules:
 
 This separates invocation from transition. For example, `call("run")` can validate input and enqueue `run_requested`; the transition remains explicit in `states.ready.on.run_requested`.
 
-## 10. Minimal Conventions
+## 9. Minimal Conventions
 
 These conventions keep common actors terse without adding a general workflow framework.
 
 - `initial` defaults to the first state key when omitted.
 - `done` advances to the next state only inside an explicitly declared `sequence`.
-- `error` transitions to `failed` only when the current state declares `error: "failed"`, or when a later implementation explicitly adopts a definition-level default. There is no hidden global failure transition initially.
+- `error` transitions to `failed` only when the current state declares `error: "failed"`.
 - `enter` starts or admits state-scoped work.
 - `leave` stops, cancels, or detaches state-scoped work.
 - Unhandled events are ignored by default.
@@ -419,7 +387,7 @@ These conventions keep common actors terse without adding a general workflow fra
 - Call arguments are `unknown` by framework design.
 - Specific event names are preferred for externally meaningful completions, such as `provider_call_succeeded`, `tool_call_failed`, and `process_wait_timed_out`.
 
-## 11. Async Work And Completion
+## 10. Async Work And Completion
 
 The FSM module does not define commands. Actor methods call runtime services directly.
 
@@ -461,7 +429,7 @@ Async work rules:
 - Live callbacks are not persisted. Recovery code reconstructs safe work from durable actor/domain state or emits diagnostics/failure events.
 - Cancellation is modeled as events and runtime service calls. Already-running jobs normally finish or time out and then deliver their callback event.
 
-## 12. Persistence Boundary
+## 11. Persistence Boundary
 
 The FSM module does not persist anything itself. The caller owns persistence.
 
@@ -479,7 +447,7 @@ Recommended runtime sequence:
 
 The FSM module does not define a snapshot type. The runtime must be able to serialize and reconstruct actor objects from persisted domain data plus the actor's current state string.
 
-## 13. Example: Supervisor Actor
+## 12. Example: Supervisor Actor
 
 ```ts
 type SupervisorState = "idle" | "running" | "paused" | "shutting_down" | "failed";
@@ -559,7 +527,7 @@ class SupervisorActor extends BaseActor {
 }
 ```
 
-## 14. Example: LLM Loop Actor
+## 13. Example: LLM Loop Actor
 
 ```ts
 type LlmState = "ready" | "calling_provider" | "running_tool" | "completed" | "failed";
@@ -646,9 +614,9 @@ class LlmLoopActor extends BaseActor {
 }
 ```
 
-This version deliberately separates `calling_provider` from `ready`. That is not required globally, but it is useful in the LLM loop because provider calls, tool calls, cancellation, timeout, and recovery differ by phase.
+The `calling_provider` and `running_tool` states separate provider-call, tool-call, cancellation, timeout, and recovery behavior by phase.
 
-## 15. API Surface
+## 14. API Surface
 
 Minimal exported API:
 
@@ -663,11 +631,9 @@ export class InvalidTransitionError extends Error {}
 export class MissingCallHandlerError extends Error {}
 ```
 
-Internal-only helpers may include `dispatchEvent`, `dispatchCall`, `installActorRuntime`, and `runActorPump`. They should not be the public application API.
+Internal helpers include `dispatchEvent`, `dispatchCall`, actor runtime installation, and `runActorPump`.
 
-Do not add `assign` helpers, `transition` helpers, command helpers, interpreters, schedulers, timers, actor spawning, `delay`, or persistence adapters to this module initially. Those belong to the Saivage runtime or to a later iteration if repeated local patterns prove they belong here.
-
-## 16. Validation Rules
+## 15. Validation Rules
 
 At definition time:
 
@@ -689,7 +655,7 @@ At delivery time:
 - Convention methods throwing exceptions become caller/runtime-visible delivery failures; the module does not swallow them.
 - Convention methods returning promises throw a programming error.
 
-## 17. Testing Strategy
+## 16. Testing Strategy
 
 Test the FSM module independently:
 
@@ -730,31 +696,3 @@ Test Saivage actors separately by asserting domain invariants:
 - `activate_card` behaves as a barrier;
 - cancellation waits for bounded operation completion events;
 - project completion returns supervisor to `idle` while preserving project card outcome.
-
-## 18. Non-Goals
-
-The module should not implement:
-
-- hierarchical states;
-- parallel states;
-- actor supervision;
-- delayed transitions;
-- async actions;
-- built-in persistence;
-- built-in command execution;
-- built-in `delay` handling;
-- cross-object synchronous calls;
-- implicit retries;
-- visual statechart tooling;
-- a generic workflow engine;
-- JavaScript syntax macros or AST transforms.
-
-If Saivage later needs any of these, add them outside this module first. Promote into the FSM module only after repeated local patterns prove they belong there.
-
-## 19. Why This Fits Saivage
-
-This design keeps the useful part of state machines: explicit states, explicit events, invalid transition detection, serial actor delivery, and easy transition tests.
-
-It avoids the part that made XState feel too large: actor hierarchy, invoked actor semantics, statechart features, and framework-owned async execution.
-
-Saivage already needs its own durable runtime for cards, activation records, LLM sessions, process registry, and recovery. A synchronous actor-local FSM with convention methods maps directly to that runtime without hiding persistence or recovery behind framework behavior.
