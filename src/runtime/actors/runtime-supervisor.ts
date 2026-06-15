@@ -1,4 +1,4 @@
-import { assign, createActor, createMachine } from 'xstate';
+import { BaseActor, dispatchCall, dispatchEvent, startActor } from '../fsm/index.js';
 import { saveActorSnapshot } from './snapshots.js';
 import { supervisorActorId } from './ids.js';
 
@@ -10,118 +10,105 @@ export interface RuntimeSupervisorContext {
   activeProviderCallId: string | null;
 }
 
-type RuntimeSupervisorEvent =
-  | { type: 'START'; projectRoot: string }
-  | { type: 'STOP' }
-  | { type: 'PAUSE' }
-  | { type: 'RESUME' }
-  | { type: 'REQUEST_PROVIDER_CALL'; callId: string }
-  | { type: 'RELEASE_PROVIDER_CALL'; callId: string };
+type StartArgs = { projectRoot: string };
+type ProviderCallArgs = { callId: string };
 
-export const runtimeSupervisorMachine = createMachine({
-  types: {} as {
-    context: RuntimeSupervisorContext;
-    events: RuntimeSupervisorEvent;
-  },
-  id: 'runtimeSupervisor',
-  type: 'parallel',
-  context: { projectRoot: null, activeProviderCallId: null },
-  states: {
-    mode: {
-      initial: 'running',
-      states: {
-        running: { on: { PAUSE: 'paused', STOP: 'stopping' } },
-        paused: { on: { RESUME: 'running', STOP: 'stopping' } },
-        stopping: {},
+export class RuntimeSupervisorActor extends BaseActor {
+  static _actor = {
+    initial: 'running',
+    states: {
+      running: {
+        on: { pause: 'paused', stop: 'stopping' },
+        calls: { start: 'setProjectRoot', request_provider_call: 'requestProviderCall', release_provider_call: 'releaseProviderCall' },
+      },
+      paused: {
+        on: { resume: 'running', stop: 'stopping' },
+        calls: { start: 'setProjectRoot', request_provider_call: 'requestProviderCall', release_provider_call: 'releaseProviderCall' },
+      },
+      stopping: {
+        calls: { start: 'setProjectRoot', request_provider_call: 'requestProviderCall', release_provider_call: 'releaseProviderCall' },
       },
     },
-    work: {
-      initial: 'ready',
-      states: {
-        ready: {
-          on: {
-            REQUEST_PROVIDER_CALL: {
-              target: 'model_invocation_active',
-              actions: assign({ activeProviderCallId: ({ event }) => event.callId }),
-            },
-          },
-        },
-        model_invocation_active: {
-          on: {
-            RELEASE_PROVIDER_CALL: {
-              guard: ({ context, event }) => context.activeProviderCallId === event.callId,
-              target: 'ready',
-              actions: assign({ activeProviderCallId: null }),
-            },
-          },
-        },
-      },
-    },
-  },
-  on: {
-    START: { actions: assign({ projectRoot: ({ event }) => event.projectRoot }) },
-  },
-});
+  };
+
+  projectRoot: string | null = null;
+  activeProviderCallId: string | null = null;
+
+  get work(): RuntimeSupervisorWork {
+    return this.activeProviderCallId === null ? 'ready' : 'model_invocation_active';
+  }
+
+  setProjectRoot(args: StartArgs): void {
+    this.projectRoot = args.projectRoot;
+  }
+
+  requestProviderCall(args: ProviderCallArgs): void {
+    this.activeProviderCallId = args.callId;
+  }
+
+  releaseProviderCall(args: ProviderCallArgs): void {
+    if (this.activeProviderCallId === args.callId) {
+      this.activeProviderCallId = null;
+    }
+  }
+}
 
 export class RuntimeSupervisorController {
-  private readonly actor = createActor(runtimeSupervisorMachine);
+  private readonly actor = startActor(RuntimeSupervisorActor);
 
   start(projectRoot: string): void {
-    this.actor.start();
-    this.actor.send({ type: 'START', projectRoot });
+    dispatchCall(this.actor, { kind: 'call', name: 'start', args: { projectRoot } });
     this.persist();
   }
 
   stop(): void {
-    this.actor.send({ type: 'STOP' });
+    dispatchEvent(this.actor, { kind: 'event', name: 'stop' });
     this.persist();
   }
 
   pause(): void {
-    this.actor.send({ type: 'PAUSE' });
+    dispatchEvent(this.actor, { kind: 'event', name: 'pause' });
     this.persist();
   }
 
   resume(): void {
-    this.actor.send({ type: 'RESUME' });
+    dispatchEvent(this.actor, { kind: 'event', name: 'resume' });
     this.persist();
   }
 
   requestProviderCall(callId: string): boolean {
     if (this.work !== 'ready' || this.mode !== 'running') return false;
-    this.actor.send({ type: 'REQUEST_PROVIDER_CALL', callId });
+    dispatchCall(this.actor, { kind: 'call', name: 'request_provider_call', args: { callId } });
     this.persist();
     return true;
   }
 
   releaseProviderCall(callId: string): void {
-    this.actor.send({ type: 'RELEASE_PROVIDER_CALL', callId });
+    dispatchCall(this.actor, { kind: 'call', name: 'release_provider_call', args: { callId } });
     this.persist();
   }
 
   get mode(): RuntimeSupervisorMode {
-    const value = this.actor.getSnapshot().value;
-    if (typeof value !== 'object' || value === null || !('mode' in value)) throw new Error('RuntimeSupervisor snapshot missing mode region.');
-    return value.mode as RuntimeSupervisorMode;
+    return this.actor.state() as RuntimeSupervisorMode;
   }
 
   get work(): RuntimeSupervisorWork {
-    const value = this.actor.getSnapshot().value;
-    if (typeof value !== 'object' || value === null || !('work' in value)) throw new Error('RuntimeSupervisor snapshot missing work region.');
-    return value.work as RuntimeSupervisorWork;
+    return this.actor.work;
   }
 
   get context(): RuntimeSupervisorContext {
-    return this.actor.getSnapshot().context;
+    return {
+      projectRoot: this.actor.projectRoot,
+      activeProviderCallId: this.actor.activeProviderCallId,
+    };
   }
 
   snapshot() {
-    const snapshot = this.actor.getSnapshot();
     return {
       actor_id: supervisorActorId(),
       actor_kind: 'supervisor' as const,
-      state_value: snapshot.value,
-      context: snapshot.context as unknown as Record<string, unknown>,
+      state_value: { mode: this.mode, work: this.work },
+      context: this.context as unknown as Record<string, unknown>,
       updated_at: new Date().toISOString(),
     };
   }
