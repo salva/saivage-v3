@@ -1,7 +1,7 @@
 export { defineMachine, InvalidTransitionError, InvalidMachineDefinitionError } from './define-machine.js';
 export { dispatch } from './dispatch.js';
-export { AsyncCallbackQueue, runCallbackBatch, runCallbackPump } from './callback-queue.js';
-export type { QueuedCallback } from './callback-queue.js';
+export { AsyncEventQueue, runEventBatch, runEventPump } from './event-queue.js';
+export type { EventHandler, EventErrorHandler } from './event-queue.js';
 export type {
   Event,
   Command,

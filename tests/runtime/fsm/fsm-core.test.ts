@@ -317,6 +317,72 @@ describe('dispatch', () => {
     expect(result.state).toBe('idle');
     expect(result.commands).toEqual([{ type: 'log', message: 'pinged' }]);
   });
+
+  it('rejects promise-returning handlers at runtime', () => {
+    type AsyncState = 'idle' | 'done';
+    type AsyncSelf = MachineSelf<AsyncState>;
+    const asyncMachine = defineMachine<AsyncState, AsyncSelf, never>({
+      initial: 'idle',
+      states: {
+        idle: {
+          on: {
+            go: (async () => ({ state: 'done' })) as any,
+          },
+        },
+        done: {},
+      },
+    });
+    const self: AsyncSelf = {
+      _sm: { state: 'idle' },
+      state() { return this._sm.state; },
+      send() {},
+    };
+
+    expect(() => dispatch(asyncMachine, self, { name: 'go' })).toThrow(InvalidTransitionError);
+  });
+
+  it('rejects promise-returning on_enter hooks at runtime', () => {
+    type AsyncState = 'idle' | 'done';
+    type AsyncSelf = MachineSelf<AsyncState>;
+    const asyncMachine = defineMachine<AsyncState, AsyncSelf, never>({
+      initial: 'idle',
+      states: {
+        idle: { on: { go: 'done' } },
+        done: {
+          on_enter: (async () => ({})) as any,
+        },
+      },
+    });
+    const self: AsyncSelf = {
+      _sm: { state: 'idle' },
+      state() { return this._sm.state; },
+      send() {},
+    };
+
+    expect(() => dispatch(asyncMachine, self, { name: 'go' })).toThrow(InvalidTransitionError);
+  });
+
+  it('rejects promise-returning on_leave hooks at runtime', () => {
+    type AsyncState = 'idle' | 'done';
+    type AsyncSelf = MachineSelf<AsyncState>;
+    const asyncMachine = defineMachine<AsyncState, AsyncSelf, never>({
+      initial: 'idle',
+      states: {
+        idle: {
+          on_leave: (async () => ({})) as any,
+          on: { go: 'done' },
+        },
+        done: {},
+      },
+    });
+    const self: AsyncSelf = {
+      _sm: { state: 'idle' },
+      state() { return this._sm.state; },
+      send() {},
+    };
+
+    expect(() => dispatch(asyncMachine, self, { name: 'go' })).toThrow(InvalidTransitionError);
+  });
 });
 
 describe('sequence convention', () => {

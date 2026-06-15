@@ -33,7 +33,9 @@ export function dispatch<State extends string, Self extends MachineSelf<State>, 
     return transition<State, Self, Cmd>(machine, self, currentState, handler, event);
   }
 
-  const result = handler({ self, event }) ?? {};
+  const rawResult = handler({ self, event });
+  assertSyncResult(rawResult, `Handler for event "${event.name}" in state "${String(currentState)}"`);
+  const result = rawResult ?? {};
   const targetState = 'state' in result ? (result.state as State | undefined) : undefined;
   const handlerCommands = result.commands ?? [];
 
@@ -50,11 +52,14 @@ export function dispatch<State extends string, Self extends MachineSelf<State>, 
   }
 
   const leaveResult = stateDef.on_leave?.(self);
+  assertSyncResult(leaveResult, `on_leave for state "${String(currentState)}"`);
   const leaveCmds = leaveResult?.commands ?? [];
 
   self._sm.state = targetState;
 
-  const enterResult = targetDef.on_enter?.({ self, event }) ?? {};
+  const rawEnterResult = targetDef.on_enter?.({ self, event });
+  assertSyncResult(rawEnterResult, `on_enter for state "${String(targetState)}"`);
+  const enterResult = rawEnterResult ?? {};
   const enterCmds = enterResult.commands ?? [];
 
   return {
@@ -80,15 +85,27 @@ function transition<State extends string, Self extends MachineSelf<State>, Cmd e
   }
 
   const leaveResult = fromDef?.on_leave?.(self);
+  assertSyncResult(leaveResult, `on_leave for state "${String(fromState)}"`);
   const leaveCmds = leaveResult?.commands ?? [];
 
   self._sm.state = toState;
 
-  const enterResult = toDef.on_enter?.({ self, event }) ?? {};
+  const rawEnterResult = toDef.on_enter?.({ self, event });
+  assertSyncResult(rawEnterResult, `on_enter for state "${String(toState)}"`);
+  const enterResult = rawEnterResult ?? {};
   const enterCmds = enterResult.commands ?? [];
 
   return {
     state: toState,
     commands: [...leaveCmds, ...enterCmds],
   };
+}
+
+function assertSyncResult(value: unknown, label: string): void {
+  if (typeof value === 'object'
+    && value !== null
+    && 'then' in value
+    && typeof (value as { then?: unknown }).then === 'function') {
+    throw new InvalidTransitionError(`${label} must be synchronous`);
+  }
 }

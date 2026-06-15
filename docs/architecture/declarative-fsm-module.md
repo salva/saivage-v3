@@ -23,7 +23,7 @@ The design is inspired by `Class::StateMachine::Declarative`, but intentionally 
 
 The FSM module is the deterministic core. A separate runtime executes async commands and dispatches completion events back into the FSM.
 
-The runtime also owns callback scheduling and event delivery. FSM objects do not call each other directly. Runtime APIs enqueue callbacks, and those callbacks invoke the runtime delivery code that calls `dispatch` on target FSM objects before the loop goes back to waiting for external I/O.
+The runtime also owns actor event queues and event delivery. FSM objects do not call each other directly. Each actor has its own queue and pump. Sending to an actor pushes an event pair into that actor's queue; the actor pump serially calls `dispatch` for its own object. Different actors may run their pumps in parallel.
 
 ## 2. Core Model
 
@@ -37,15 +37,15 @@ The module has four concepts:
 The core flow is:
 
 ```text
-send(name, args) -> callback queue -> opaque callback -> dispatch -> on_leave -> sync transition -> on_enter -> commands
-commands -> async job queue -> job completion callback -> callback queue -> opaque callback
+send(name, args) -> actor event queue -> actor pump -> dispatch -> on_leave -> sync transition -> on_enter -> commands
+commands -> async job queue -> job completion callback -> actor.send(name, args)
 ```
 
-The FSM never awaits. If work requires I/O, timers, LLM calls, process waits, file operations, or network requests, the FSM emits a command and stops. The runtime converts the command into an async job. The job later invokes or schedules a callback that delivers a completion event to the target FSM object.
+The FSM never awaits. If work requires I/O, timers, LLM calls, process waits, file operations, or network requests, the FSM emits a command and stops. The runtime converts the command into an async job. The job later sends a completion event to the target actor.
 
-## 3. Callback Queue And Event Delivery
+## 3. Actor Event Queue And Delivery
 
-Events are delivered by runtime callbacks, not by putting event data directly into a queue. The runtime queue holds opaque functions. The queue handler does not inspect callback contents, event names, targets, envelopes, or commands; it only invokes queued callbacks. A callback may capture an event envelope containing the target object reference, an event name, and an argument dictionary, then invoke runtime delivery code for that envelope. Event argument types are intentionally not enforced by the framework.
+Each actor owns an event queue whose items are plain event pairs: an event name plus an optional argument dictionary. The queue is actor-local, so it does not need to store a target. Routing happens before enqueue: code obtains the target actor and calls `target.send(name, args)`.
 
 ```ts
 type MachineRef = {
@@ -53,54 +53,51 @@ type MachineRef = {
   id: string;
 };
 
-type EventEnvelope = {
-  id: string;
-  target: MachineRef;
-  name: string;
-  args?: Record<string, unknown>;
-  causationId?: string;
-  correlationId?: string;
-  createdAt: string;
+type ActorRef = MachineRef & {
+  send(name: string, args?: Record<string, unknown>): void;
 };
 
-type QueuedCallback = () => void | Promise<void>;
+type Event = {
+  name: string;
+  args?: Record<string, unknown>;
+};
 ```
 
 Delivery rules:
 
-- The only way to advance an FSM object asynchronously is through an opaque queued callback that, when invoked, calls runtime delivery code and then `dispatch`.
-- `self.send(name, args)` wraps the runtime scheduler: it creates an opaque callback that captures the object's own `MachineRef`, event name, and arguments, then pushes that callback to the global callback queue. It does not call `dispatch` directly.
-- Cross-object event delivery creates an opaque callback that captures an explicit `target: MachineRef`. `self.send` is sugar for self-targeted delivery only.
-- The callback pump is one long-lived async task waiting on the queue. Queue wait is implemented with a stored promise resolver: when the queue is empty the pump awaits a promise; when runtime code pushes a callback it calls the resolver to wake the pump.
+- The only way to advance an FSM object asynchronously is to push an `Event` into that actor's event queue and let that actor's pump call `dispatch`.
+- `self.send(name, args)` pushes `{ name, args }` to the same actor's queue. It does not call `dispatch` directly.
+- Cross-object event delivery obtains the target actor and calls `target.send(name, args)`. The event queue item itself remains target-free.
+- Each actor pump is one long-lived async task waiting on one actor's queue. Queue wait is implemented with a stored promise resolver: when the queue is empty the pump awaits a promise; when runtime code pushes an event it calls the resolver to wake the pump.
 - Because wakeup resumes the pump through promise continuation scheduling, dispatch happens outside the current JavaScript call stack. `send` is always asynchronous with respect to dispatch.
-- The async callback pump drains queued callbacks before awaiting the queue again. This keeps dispatch synchronous within each delivery callback while still integrating with asynchronous I/O.
-- The runtime loads or reconstructs the target machine object, dispatches the event synchronously, persists the updated object state and emitted commands, then enqueues any async jobs derived from commands.
-- Delivery for a single target object is serial. The runtime must not dispatch two events concurrently to the same FSM object.
-- Delivery across different target objects may be concurrent if their persistence and command queues remain consistent.
+- The actor pump drains queued events before awaiting the queue again. This keeps one actor serial while allowing different actor pumps to run in parallel.
+- The actor pump dispatches the event synchronously, persists the updated object state and emitted commands, then starts any async jobs derived from commands.
+- Delivery for a single actor is serial. The runtime must not dispatch two events concurrently to the same FSM object.
+- Delivery across different actors may be concurrent if their persistence and command queues remain consistent.
 - If dispatch throws `InvalidTransitionError`, it is for an unknown current state or an invalid target state. Unhandled events are ignored, not thrown. The runtime records a diagnostic and does not retry the same event blindly.
-- Event envelopes should have stable ids so delivery can be deduplicated after recovery. The FSM module does not inspect or use `id`; deduplication is the runtime's responsibility.
+- Durable delivery records, when needed, should have stable ids so delivery can be deduplicated after recovery. The FSM module does not inspect or use those ids; deduplication is the runtime's responsibility.
 - Events should be persisted before delivery when losing them would strand durable work.
 
-This queue is not a generic workflow bus and not an event-data queue. It is the runtime's opaque callback scheduling mechanism. Event envelopes are data captured inside callbacks or persisted for recovery; they are not the queue item type, and the queue handler never examines them.
+This queue is not a generic workflow bus. It is a per-actor mailbox for FSM events. Queue items are only event pairs; target selection, command execution, persistence, and recovery are actor/runtime responsibilities around the queue.
 
-The `AsyncCallbackQueue` and `runCallbackPump` are runtime code, not part of the FSM module. The FSM module exports only `defineMachine`, `dispatch`, and error classes.
+The `AsyncEventQueue` and `runEventPump` are runtime code. They are intentionally small and actor-local. The FSM module's deterministic core remains `defineMachine`, `dispatch`, and error classes.
 
 The `drain()` implementation assumes single-threaded JavaScript: between `shift()` returning the first item and `drain()` being called, no other `push()` can interleave within the same microtask. This is safe in Node.js but would need synchronization in a multi-threaded environment.
 
 Minimal queue/pump shape:
 
 ```ts
-class AsyncCallbackQueue {
-  private items: QueuedCallback[] = [];
+class AsyncEventQueue {
+  private items: Event[] = [];
   private wake: (() => void) | undefined;
 
-  push(item: QueuedCallback) {
-    this.items.push(item);
+  push(event: Event) {
+    this.items.push(event);
     this.wake?.();
     this.wake = undefined;
   }
 
-  async shift(): Promise<QueuedCallback> {
+  async shift(): Promise<Event> {
     while (this.items.length === 0) {
       await new Promise<void>((resolve) => {
         this.wake = resolve;
@@ -110,34 +107,39 @@ class AsyncCallbackQueue {
     return this.items.shift()!;
   }
 
-  drain(): QueuedCallback[] {
+  drain(): Event[] {
     const batch = this.items;
     this.items = [];
     return batch;
   }
 }
 
-async function runCallbackPump(queue: AsyncCallbackQueue) {
+async function runEventPump(actor: Actor) {
   for (;;) {
-    const first = await queue.shift();
-    const batch = [first, ...queue.drain()];
+    const first = await actor.queue.shift();
+    const batch = [first, ...actor.queue.drain()];
 
-    for (const callback of batch) {
-      await callback();
+    for (const event of batch) {
+      try {
+        const commands = dispatch(actor.machine, actor.self, event);
+        actor.startCommands(commands);
+      } catch (error) {
+        actor.reportError(error, event);
+      }
     }
   }
 }
 ```
 
-The pump starts once during runtime startup with `void runCallbackPump(queue)`. Command execution is fire-and-forget from the pump perspective: `startCommand` starts async work, attaches completion/error callbacks, and those callbacks schedule later delivery callbacks through the same queue.
+Each actor pump starts when its actor starts, for example `void runEventPump(actor)`. Command execution is fire-and-forget from the pump perspective: `startCommands` starts async work, attaches completion/error callbacks, and those callbacks later call `actor.send(...)`.
 
-The queue handler does not know what a callback does. For FSM delivery, one opaque callback body may extract an event from a captured envelope, call runtime delivery code, and then call the FSM module's `dispatch(machine, self, event)` with the envelope's `name` and `args` fields as the `Event`. That delivery code is runtime code; `dispatch` is the FSM module's pure synchronous function.
+The actor pump owns dispatch for exactly one machine object. The queue only stores event pairs; the pump supplies actor-local machine, self, persistence, command-starting, and error-reporting behavior.
 
-## 4. Async Job Queue And Callbacks
+## 4. Async Job Completion
 
-Commands emitted by FSM handlers are converted by the runtime into async jobs. Jobs do not mutate FSM state directly. They finish by invoking or scheduling a callback that delivers an event envelope.
+Commands emitted by FSM handlers are converted by the runtime into async jobs. Jobs do not mutate FSM state directly. They finish by sending an event to the owning actor.
 
-Callbacks should normally be JavaScript/TypeScript closures. The closure can capture the target FSM object reference, event-construction data, and the runtime's callback queue. The queue only sees an opaque function.
+Callbacks should normally be JavaScript/TypeScript closures. The closure can capture the target actor reference and event-construction data, then call `actor.send(name, args)` on completion.
 
 ```ts
 type AsyncJob<Cmd extends Command> = {
@@ -155,15 +157,15 @@ type JobCallback = {
 };
 ```
 
-The callback closure carries the target machine reference and knows how to translate job completion into an event for that object. For example, a provider-call job callback targets the LLM-loop FSM object and pushes an opaque callback that will deliver `provider_call_succeeded`, `provider_call_failed`, or `provider_call_timed_out`.
+The job callback closure carries the target actor reference and knows how to translate job completion into an event for that actor. For example, a provider-call job callback targets the LLM-loop actor and sends `provider_call_succeeded`, `provider_call_failed`, or `provider_call_timed_out`.
 
 Async jobs and callback closures are live runtime objects. They are not serialized. When the system restarts and reconstructs an FSM object from saved state, that object's recovery logic is responsible for recreating any needed async jobs and closures from the saved FSM state and durable domain state.
 
 Job rules:
 
 - Every async job must have a timeout or inactivity timeout.
-- A job callback must schedule an opaque callback that performs event delivery; it must not call `dispatch` directly.
-- A job callback must target exactly one FSM object.
+- A job callback must call `actor.send(name, args)`; it must not call `dispatch` directly.
+- A job callback must target exactly one actor.
 - Job completion events must include enough correlation data for the target FSM object to reject stale or duplicate completions.
 - Async jobs and callbacks are not persisted. If an object is recovered from saved state, its recovery code recreates any jobs that are safe to recreate and emits diagnostics or failure events for work that cannot be safely reconstructed.
 - Cancellation is modeled as events and commands. The job queue may stop admitting new jobs for a cancelled scope, but already-running jobs normally finish or time out and then deliver their callback event.
@@ -172,63 +174,34 @@ Example callback closure:
 
 ```ts
 function makeProviderCallback(input: {
-  target: MachineRef;
+  target: ActorRef;
   requestId: string;
-  queue: AsyncCallbackQueue;
 }): JobCallback {
-  const { target, requestId, queue } = input;
-
-  const scheduleCompletion = (envelope: EventEnvelope) => {
-    queue.push(() => {
-      const commands = deliverEvent(envelope);
-      for (const command of commands) startCommand(command);
-    });
-  };
+  const { target, requestId } = input;
 
   return {
     onSucceeded(result) {
-      scheduleCompletion({
-        id: newEventId(),
-        target,
-        name: "provider_call_succeeded",
-        args: {
-          requestId,
-          output: result as ModelOutput,
-        },
-        correlationId: requestId,
-        createdAt: new Date().toISOString(),
+      target.send("provider_call_succeeded", {
+        requestId,
+        output: result as ModelOutput,
       });
     },
     onFailed(error) {
-      scheduleCompletion({
-        id: newEventId(),
-        target,
-        name: "provider_call_failed",
-        args: {
-          requestId,
-          error: sanitizeError(error),
-        },
-        correlationId: requestId,
-        createdAt: new Date().toISOString(),
+      target.send("provider_call_failed", {
+        requestId,
+        error: sanitizeError(error),
       });
     },
     onTimedOut() {
-      scheduleCompletion({
-        id: newEventId(),
-        target,
-        name: "provider_call_timed_out",
-        args: {
-          requestId,
-        },
-        correlationId: requestId,
-        createdAt: new Date().toISOString(),
+      target.send("provider_call_timed_out", {
+        requestId,
       });
     },
   };
 }
 ```
 
-When the job completes, it calls the closure. The closure constructs the event envelope and schedules a callback for normal delivery.
+When the job completes, it calls the closure. The closure constructs the event pair and sends it to the target actor's queue.
 
 ## 5. Event Naming
 
@@ -363,7 +336,7 @@ State-machine bookkeeping rules:
 - `self._sm.state` is the current state and is the only required `_sm` field initially.
 - Domain data, runtime references, and object methods live outside `_sm`.
 - Machine objects expose a `state()` method that returns `self._sm.state`.
-- Machine objects expose a `send(name, args?)` method that pushes an opaque callback for the same object onto the runtime callback queue. This method is added by the runtime, not by the FSM module. It closes over the runtime's callback queue and the object's `MachineRef`. The FSM module does not define `send`; it documents the expected interface.
+- Machine objects expose a `send(name, args?)` method that pushes `{ name, args }` to the same actor's event queue. This method is added by the runtime, not by the FSM module. It closes over the actor-local queue. The FSM module does not define `send`; it documents the expected interface.
 - The runtime owns `MachineRef` assignment. The ref may live in a runtime registry or closure; it does not need to be stored under `_sm` unless a later implementation proves that storing it there is useful.
 - Application handlers should use `self.state()` to read the current state. They should not read or mutate `_sm` directly except through `dispatch` or FSM-provided helpers.
 - If the FSM module later needs local metadata, such as a sequence index cache or debug counters, it goes under `_sm` rather than becoming top-level object fields.
@@ -386,21 +359,21 @@ The FSM module does not persist anything itself. The caller owns persistence.
 Recommended runtime sequence:
 
 ```text
-1. object calls send(name, args) or external code pushes an opaque callback
-2. callback queue wakes the long-lived async callback pump via stored promise resolver
-3. callback pump drains queued callbacks before awaiting it again
-4. invoked callback loads or reconstructs the target machine object
-5. invoked callback dispatches event through FSM
-6. invoked callback persists updated object state and emitted commands atomically when possible
-7. invoked callback converts commands into async jobs
-8. async job completion pushes another opaque callback and wakes the pump
+1. actor receives send(name, args) and pushes `{ name, args }` to its event queue
+2. actor event queue wakes that actor's long-lived async pump via stored promise resolver
+3. actor pump drains queued events before awaiting it again
+4. actor pump loads or reconstructs the actor's machine object when needed
+5. actor pump dispatches event through FSM
+6. actor pump persists updated object state and emitted commands atomically when possible
+7. actor pump converts commands into async jobs
+8. async job completion calls actor.send(name, args) and wakes the pump
 ```
 
-The FSM module does not define a snapshot type. Persistence is the runtime's responsibility. The runtime must be able to serialize and reconstruct `self` objects from persisted data. The module only requires that `self` objects have a reserved `_sm` slot with a `state` field matching the machine's state type, a `state()` method that returns it, and a runtime-provided `send()` method that schedules self-addressed delivery through an opaque callback.
+The FSM module does not define a snapshot type. Persistence is the runtime's responsibility. The runtime must be able to serialize and reconstruct `self` objects from persisted data. The module only requires that `self` objects have a reserved `_sm` slot with a `state` field matching the machine's state type, a `state()` method that returns it, and a runtime-provided `send()` method that pushes self-addressed events to the actor-local queue.
 
 ## 10. Command Effects
 
-Commands are plain data emitted by handlers. They describe the side effect to perform, not what event to produce on completion. The callback closure (Section 4) is responsible for constructing the completion event data and pushing an opaque delivery callback. Commands do not carry event-type-name mappings or callback references.
+Commands are plain data emitted by handlers. They describe the side effect to perform, not what event to produce on completion. The job callback closure (Section 4) is responsible for constructing the completion event pair and sending it to the target actor. Commands do not carry event-type-name mappings or callback references.
 
 Example:
 
@@ -420,7 +393,7 @@ type RuntimeCommand =
     };
 ```
 
-The runtime converts a command into an async job by pairing it with a callback closure. The closure is constructed by the subsystem that knows the target FSM object, the event names to produce on each outcome, and the runtime callback queue. The command itself stays serializable plain data.
+The runtime converts a command into an async job by pairing it with a callback closure. The closure is constructed by the subsystem that knows the target actor and the event names to produce on each outcome. The command itself stays serializable plain data.
 
 Command rules:
 
@@ -646,16 +619,16 @@ Test the FSM module independently:
 
 Test the runtime delivery subsystem separately:
 
-- queued callbacks are opaque functions; the queue handler only invokes them;
-- event envelopes captured by callbacks deliver to the referenced target object;
-- `self.send(name, args)` pushes an opaque callback and does not dispatch inline;
-- `send` wakes the async callback pump through a stored promise resolver;
-- dispatch runs from an invoked callback after the current JavaScript call stack has unwound;
-- the async callback pump drains queued callbacks before awaiting the queue again;
-- delivery for one target object is serial;
+- actor queues store only `{ name, args? }` event pairs;
+- `self.send(name, args)` pushes an event pair and does not dispatch inline;
+- `send` wakes the actor event pump through a stored promise resolver;
+- dispatch runs from the actor pump after the current JavaScript call stack has unwound;
+- the actor event pump drains queued events before awaiting the queue again;
+- delivery for one actor is serial;
+- different actor pumps may process events in parallel;
 - commands become async jobs;
-- closure callbacks push opaque delivery callbacks rather than calling dispatch directly;
-- duplicate event ids are ignored or rejected deterministically;
+- job completion callbacks call `actor.send(name, args)` rather than calling dispatch directly;
+- duplicate durable delivery records are ignored or rejected deterministically;
 - stale completion events are rejected by target FSM object fields;
 - timeout callbacks produce timeout events.
 
