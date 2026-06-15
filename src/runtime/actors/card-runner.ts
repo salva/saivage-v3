@@ -1,5 +1,5 @@
-import { assign, createActor, createMachine } from 'xstate';
 import type { LlmCompleteResult } from '../../agents/llm-contracts.js';
+import { BaseActor, dispatchCall, dispatchEvent, startActor } from '../fsm/index.js';
 import { cardActorId, executorActorId } from './ids.js';
 import { LlmRunnerController } from './llm-runner.js';
 import { saveActorSnapshot } from './snapshots.js';
@@ -22,60 +22,67 @@ export interface TerminalCardStatusPort {
   commitTerminalOutcome(cardId: string, outcome: TerminalOutcome): void | Promise<void>;
 }
 
-interface TerminalCardRunnerContext {
+export interface TerminalCardRunnerContext {
   projectRoot: string;
   cardId: string;
   publicStatus: TerminalCardPublicStatus;
   outcome: TerminalOutcome | null;
 }
 
-type TerminalCardRunnerEvent =
-  | { type: 'START' }
-  | { type: 'TERMINAL_OUTCOME'; outcome: TerminalOutcome }
-  | { type: 'CANCEL' };
+export class TerminalCardRunnerActor extends BaseActor {
+  static _actor = {
+    initial: 'done',
+    states: {
+      done: {
+        on: { start: 'executing', cancel: 'done' },
+        calls: { start: 'recordStart', cancel: 'recordCancel' },
+      },
+      executing: {
+        on: { done: 'done', failed: 'done', cancel: 'done' },
+        calls: { outcome: 'recordOutcome', cancel: 'recordCancel' },
+      },
+    },
+  };
 
-const terminalCardRunnerMachine = createMachine({
-  types: {} as {
-    context: TerminalCardRunnerContext;
-    events: TerminalCardRunnerEvent;
-  },
-  id: 'terminalCardRunner',
-  initial: 'done',
-  context: ({ input }: { input: { projectRoot: string; cardId: string; publicStatus?: TerminalCardPublicStatus } }) => ({
-    projectRoot: input.projectRoot,
-    cardId: input.cardId,
-    publicStatus: input.publicStatus ?? 'backlog',
-    outcome: null,
-  }),
-  states: {
-    done: {
-      on: {
-        START: {
-          target: 'executing',
-          actions: assign({ publicStatus: 'running', outcome: null }),
-        },
-        CANCEL: {
-          actions: assign({ publicStatus: 'cancelled' }),
-        },
-      },
-    },
-    executing: {
-      on: {
-        TERMINAL_OUTCOME: {
-          target: 'done',
-          actions: assign({ publicStatus: ({ event }) => event.outcome.status, outcome: ({ event }) => event.outcome }),
-        },
-        CANCEL: {
-          target: 'done',
-          actions: assign({ publicStatus: 'cancelled' }),
-        },
-      },
-    },
-  },
-});
+  outcome: TerminalOutcome | null = null;
+
+  constructor(
+    readonly projectRoot: string,
+    readonly cardId: string,
+    publicStatus: TerminalCardPublicStatus = 'backlog',
+  ) {
+    super();
+    this.publicStatus = publicStatus;
+  }
+
+  publicStatus: TerminalCardPublicStatus;
+
+  recordStart(): void {
+    this.publicStatus = 'running';
+    this.outcome = null;
+  }
+
+  recordOutcome(outcome: TerminalOutcome): void {
+    this.publicStatus = outcome.status;
+    this.outcome = outcome;
+  }
+
+  recordCancel(): void {
+    this.publicStatus = 'cancelled';
+  }
+
+  context(): TerminalCardRunnerContext {
+    return {
+      projectRoot: this.projectRoot,
+      cardId: this.cardId,
+      publicStatus: this.publicStatus,
+      outcome: this.outcome,
+    };
+  }
+}
 
 export class TerminalCardRunnerController {
-  private readonly actor;
+  private readonly actor: TerminalCardRunnerActor;
   private readonly llmRunner: LlmRunnerController;
   private readonly processes = new Map<string, ProcessRunnerController>();
 
@@ -87,13 +94,13 @@ export class TerminalCardRunnerController {
     publicStatus: TerminalCardPublicStatus = 'backlog',
     private readonly statusPort?: TerminalCardStatusPort,
   ) {
-    this.actor = createActor(terminalCardRunnerMachine, { input: { projectRoot, cardId, publicStatus } });
+    this.actor = startActor(TerminalCardRunnerActor, projectRoot, cardId, publicStatus);
     this.llmRunner = new LlmRunnerController(projectRoot, executorActorId(cardId), providerTurn, admission);
-    this.actor.start();
   }
 
   async start(input: Omit<LlmInvocationInput, 'agentId'>): Promise<TerminalOutcome> {
-    this.actor.send({ type: 'START' });
+    dispatchCall(this.actor, { kind: 'call', name: 'start' });
+    dispatchEvent(this.actor, { kind: 'event', name: 'start' });
     this.persist();
     await this.statusPort?.markRunning(this.cardId);
     let currentInput = input;
@@ -101,7 +108,8 @@ export class TerminalCardRunnerController {
       const output = await this.llmRunner.runTurn({ ...currentInput, agentId: executorActorId(this.cardId) });
       if (output.type === 'LLM_RESULT') {
         const outcome: TerminalOutcome = { status: 'done', statusText: 'Executor completed.', result: output.result };
-        this.actor.send({ type: 'TERMINAL_OUTCOME', outcome });
+        dispatchCall(this.actor, { kind: 'call', name: 'outcome', args: outcome });
+        dispatchEvent(this.actor, { kind: 'event', name: 'done' });
         this.persist();
         await this.statusPort?.commitTerminalOutcome(this.cardId, outcome);
         return outcome;
@@ -123,7 +131,7 @@ export class TerminalCardRunnerController {
         return this.fail(message);
       }
       const deliveryInputId = `${input.inputId}:tool:${turn + 1}`;
-      appendToolDelivery(this.actor.getSnapshot().context.projectRoot, {
+      appendToolDelivery(this.actor.projectRoot, {
         agent_id: executorActorId(this.cardId),
         source_input_id: currentInput.inputId,
         delivery_input_id: deliveryInputId,
@@ -153,7 +161,8 @@ export class TerminalCardRunnerController {
       statusText,
       result: { kind: 'message', content: statusText },
     };
-    this.actor.send({ type: 'TERMINAL_OUTCOME', outcome });
+    dispatchCall(this.actor, { kind: 'call', name: 'outcome', args: outcome });
+    dispatchEvent(this.actor, { kind: 'event', name: outcome.status === 'done' ? 'done' : 'failed' });
     this.persist();
     await this.statusPort?.commitTerminalOutcome(this.cardId, outcome);
     return outcome;
@@ -163,7 +172,7 @@ export class TerminalCardRunnerController {
     if (toolName === 'run_process') {
       const parsed = parseProcessStartArgs(args);
       const processId = parsed.processId ?? toolCallId;
-      const runner = new ProcessRunnerController(this.actor.getSnapshot().context.projectRoot, processId);
+      const runner = new ProcessRunnerController(this.actor.projectRoot, processId);
       this.processes.set(processId, runner);
       runner.start({ command: parsed.command, args: parsed.args });
       return { handled: true, result: await runner.wait(parsed.timeoutMs) };
@@ -191,7 +200,7 @@ export class TerminalCardRunnerController {
   }
 
   private recordToolError(sourceInputId: string, toolCallId: string, toolName: string, error: string): void {
-    appendToolCallStatus(this.actor.getSnapshot().context.projectRoot, {
+    appendToolCallStatus(this.actor.projectRoot, {
       agent_id: executorActorId(this.cardId),
       source_input_id: sourceInputId,
       tool_call_id: toolCallId,
@@ -202,32 +211,32 @@ export class TerminalCardRunnerController {
   }
 
   async cancel(): Promise<void> {
-    this.actor.send({ type: 'CANCEL' });
+    dispatchCall(this.actor, { kind: 'call', name: 'cancel' });
+    dispatchEvent(this.actor, { kind: 'event', name: 'cancel' });
     this.persist();
     await this.statusPort?.markCancelled(this.cardId);
   }
 
   get phase(): 'done' | 'executing' {
-    return this.actor.getSnapshot().value as 'done' | 'executing';
+    return this.actor.state() as 'done' | 'executing';
   }
 
   get publicStatus(): TerminalCardPublicStatus {
-    return this.actor.getSnapshot().context.publicStatus;
+    return this.actor.publicStatus;
   }
 
   snapshot() {
-    const snapshot = this.actor.getSnapshot();
     return {
       actor_id: cardActorId(this.cardId),
       actor_kind: 'card' as const,
-      state_value: snapshot.value,
-      context: snapshot.context as unknown as Record<string, unknown>,
+      state_value: this.actor.state(),
+      context: this.actor.context() as unknown as Record<string, unknown>,
       updated_at: new Date().toISOString(),
     };
   }
 
   private persist(): void {
-    saveActorSnapshot(this.actor.getSnapshot().context.projectRoot, this.snapshot());
+    saveActorSnapshot(this.actor.projectRoot, this.snapshot());
   }
 }
 
