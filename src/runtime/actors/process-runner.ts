@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { assign, createActor, createMachine } from 'xstate';
+import { BaseActor, dispatchCall, dispatchEvent, startActor } from '../fsm/index.js';
 import { processActorId } from './ids.js';
 import { saveActorSnapshot } from './snapshots.js';
 
@@ -19,7 +19,7 @@ export type ProcessWaitResult =
   | { status: 'running'; timedOut: true; output: ProcessOutputSnapshot }
   | { status: 'done'; exitCode: number | null; signal: NodeJS.Signals | null; output: ProcessOutputSnapshot };
 
-interface ProcessRunnerContext {
+export interface ProcessRunnerContext {
   projectRoot: string;
   processId: string;
   command: string | null;
@@ -31,75 +31,80 @@ interface ProcessRunnerContext {
   stderr: string;
 }
 
-type ProcessRunnerEvent =
-  | { type: 'STARTED'; command: string; args: string[]; pid: number | null }
-  | { type: 'OUTPUT'; stdout?: string; stderr?: string }
-  | { type: 'EXITED'; exitCode: number | null; signal: NodeJS.Signals | null };
+type StartedArgs = { command: string; args: string[]; pid: number | null };
+type OutputArgs = { stdout?: string; stderr?: string };
+type ExitedArgs = { exitCode: number | null; signal: NodeJS.Signals | null };
 
-const processRunnerMachine = createMachine({
-  types: {} as {
-    context: ProcessRunnerContext;
-    events: ProcessRunnerEvent;
-  },
-  id: 'processRunner',
-  initial: 'done',
-  context: ({ input }: { input: { projectRoot: string; processId: string } }) => ({
-    projectRoot: input.projectRoot,
-    processId: input.processId,
-    command: null,
-    args: [],
-    pid: null,
-    exitCode: null,
-    signal: null,
-    stdout: '',
-    stderr: '',
-  }),
-  states: {
-    done: {
-      on: {
-        STARTED: {
-          target: 'running',
-          actions: assign({
-            command: ({ event }) => event.command,
-            args: ({ event }) => event.args,
-            pid: ({ event }) => event.pid,
-            exitCode: null,
-            signal: null,
-            stdout: '',
-            stderr: '',
-          }),
-        },
+export class ProcessRunnerActor extends BaseActor {
+  static _actor = {
+    initial: 'done',
+    states: {
+      done: {
+        on: { started: 'running' },
+        calls: { started: 'recordStarted' },
+      },
+      running: {
+        on: { exited: 'done' },
+        calls: { output: 'recordOutput', exited: 'recordExited' },
       },
     },
-    running: {
-      on: {
-        OUTPUT: {
-          actions: assign({
-            stdout: ({ context, event }) => context.stdout + (event.stdout ?? ''),
-            stderr: ({ context, event }) => context.stderr + (event.stderr ?? ''),
-          }),
-        },
-        EXITED: {
-          target: 'done',
-          actions: assign({
-            exitCode: ({ event }) => event.exitCode,
-            signal: ({ event }) => event.signal,
-            pid: null,
-          }),
-        },
-      },
-    },
-  },
-});
+  };
+
+  command: string | null = null;
+  args: string[] = [];
+  pid: number | null = null;
+  exitCode: number | null = null;
+  signal: NodeJS.Signals | null = null;
+  stdout = '';
+  stderr = '';
+
+  constructor(readonly projectRoot: string, readonly processId: string) {
+    super();
+  }
+
+  recordStarted(args: StartedArgs): void {
+    this.command = args.command;
+    this.args = args.args;
+    this.pid = args.pid;
+    this.exitCode = null;
+    this.signal = null;
+    this.stdout = '';
+    this.stderr = '';
+  }
+
+  recordOutput(args: OutputArgs): void {
+    this.stdout += args.stdout ?? '';
+    this.stderr += args.stderr ?? '';
+  }
+
+  recordExited(args: ExitedArgs): void {
+    this.exitCode = args.exitCode;
+    this.signal = args.signal;
+    this.pid = null;
+  }
+
+  context(): ProcessRunnerContext {
+    return {
+      projectRoot: this.projectRoot,
+      processId: this.processId,
+      command: this.command,
+      args: this.args,
+      pid: this.pid,
+      exitCode: this.exitCode,
+      signal: this.signal,
+      stdout: this.stdout,
+      stderr: this.stderr,
+    };
+  }
+}
 
 export class ProcessRunnerController {
-  private readonly actor;
+  private readonly actor: ProcessRunnerActor;
   private child: ChildProcessWithoutNullStreams | null = null;
   private exitPromise: Promise<ProcessWaitResult> | null = null;
 
   constructor(projectRoot: string, readonly processId: string) {
-    this.actor = createActor(processRunnerMachine, { input: { projectRoot, processId } });
-    this.actor.start();
+    this.actor = startActor(ProcessRunnerActor, projectRoot, processId);
   }
 
   start(input: ProcessRunnerStartInput): void {
@@ -109,20 +114,22 @@ export class ProcessRunnerController {
       env: input.env,
       stdio: 'pipe',
     });
-    this.actor.send({ type: 'STARTED', command: input.command, args: input.args ?? [], pid: this.child.pid ?? null });
+    dispatchCall(this.actor, { kind: 'call', name: 'started', args: { command: input.command, args: input.args ?? [], pid: this.child.pid ?? null } });
+    dispatchEvent(this.actor, { kind: 'event', name: 'started' });
     this.child.stdout.setEncoding('utf8');
     this.child.stderr.setEncoding('utf8');
     this.child.stdout.on('data', (chunk: string) => {
-      this.actor.send({ type: 'OUTPUT', stdout: chunk });
+      dispatchCall(this.actor, { kind: 'call', name: 'output', args: { stdout: chunk } });
       this.persist();
     });
     this.child.stderr.on('data', (chunk: string) => {
-      this.actor.send({ type: 'OUTPUT', stderr: chunk });
+      dispatchCall(this.actor, { kind: 'call', name: 'output', args: { stderr: chunk } });
       this.persist();
     });
     this.exitPromise = new Promise((resolve) => {
       this.child?.once('exit', (exitCode, signal) => {
-        this.actor.send({ type: 'EXITED', exitCode, signal });
+        dispatchCall(this.actor, { kind: 'call', name: 'exited', args: { exitCode, signal } });
+        dispatchEvent(this.actor, { kind: 'event', name: 'exited' });
         this.persist();
         resolve({ status: 'done', exitCode, signal, output: this.readOutput() });
       });
@@ -132,7 +139,7 @@ export class ProcessRunnerController {
 
   async wait(timeoutMs: number): Promise<ProcessWaitResult> {
     if (this.state !== 'running') {
-      const context = this.actor.getSnapshot().context;
+      const context = this.actor.context();
       return { status: 'done', exitCode: context.exitCode, signal: context.signal, output: this.readOutput() };
     }
     if (!this.exitPromise) throw new Error(`ProcessRunner ${this.processId} is running without an exit promise.`);
@@ -147,26 +154,25 @@ export class ProcessRunnerController {
   }
 
   readOutput(): ProcessOutputSnapshot {
-    const context = this.actor.getSnapshot().context;
+    const context = this.actor.context();
     return { stdout: context.stdout, stderr: context.stderr };
   }
 
   get state(): 'running' | 'done' {
-    return this.actor.getSnapshot().value as 'running' | 'done';
+    return this.actor.state() as 'running' | 'done';
   }
 
   snapshot() {
-    const snapshot = this.actor.getSnapshot();
     return {
       actor_id: processActorId(this.processId),
       actor_kind: 'process' as const,
-      state_value: snapshot.value,
-      context: snapshot.context as unknown as Record<string, unknown>,
+      state_value: this.actor.state(),
+      context: this.actor.context() as unknown as Record<string, unknown>,
       updated_at: new Date().toISOString(),
     };
   }
 
   private persist(): void {
-    saveActorSnapshot(this.actor.getSnapshot().context.projectRoot, this.snapshot());
+    saveActorSnapshot(this.actor.projectRoot, this.snapshot());
   }
 }
