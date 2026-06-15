@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { AsyncCallbackQueue, runCallbackBatch } from '../../../src/runtime/fsm/index.js';
+import { AsyncCallbackQueue, runCallbackBatch, type QueuedCallback } from '../../../src/runtime/fsm/index.js';
 
 describe('AsyncCallbackQueue', () => {
   it('invokes queued callbacks in batch order', async () => {
@@ -64,5 +64,55 @@ describe('AsyncCallbackQueue', () => {
 
     await expect(runCallbackBatch(queue)).resolves.toBe(1);
     expect(delivered).toEqual([opaquePayload]);
+  });
+
+  it('wakes all pending shift waiters when items arrive', async () => {
+    const queue = new AsyncCallbackQueue();
+
+    const first = queue.shift();
+    const second = queue.shift();
+
+    queue.push(() => {});
+    queue.push(() => {});
+
+    const item1 = await first;
+    const item2 = await second;
+    expect(typeof item1).toBe('function');
+    expect(typeof item2).toBe('function');
+  });
+
+  it('close makes pending shift resolve with undefined', async () => {
+    const queue = new AsyncCallbackQueue();
+
+    const result = await Promise.race([
+      queue.shift(),
+      new Promise<QueuedCallback | undefined>((resolve) => {
+        setTimeout(() => resolve(undefined), 50);
+      }),
+    ]);
+
+    expect(result).toBeUndefined();
+
+    queue.close();
+    const closed = await queue.shift();
+    expect(closed).toBeUndefined();
+  });
+
+  it('close wakes a pending shift immediately', async () => {
+    const queue = new AsyncCallbackQueue();
+    const shiftPromise = queue.shift();
+
+    queue.close();
+
+    const result = await shiftPromise;
+    expect(result).toBeUndefined();
+  });
+
+  it('runCallbackBatch returns 0 after close', async () => {
+    const queue = new AsyncCallbackQueue();
+    queue.close();
+
+    const count = await runCallbackBatch(queue);
+    expect(count).toBe(0);
   });
 });
