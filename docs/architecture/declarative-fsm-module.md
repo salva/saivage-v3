@@ -492,7 +492,7 @@ class SupervisorActor extends BaseActor {
   };
 
   projectId: string;
-  lastOutcome?: "done" | "failed" | "blocked" | "cancelled";
+  lastOutcome?: "done" | "failed" | "blocked" | "canceled";
 
   _on_call__idle__run() {
     this.send("run_requested");
@@ -531,7 +531,7 @@ class SupervisorActor extends BaseActor {
 ## 13. Example: LLM Loop Actor
 
 ```ts
-type LlmState = "ready" | "calling_provider" | "running_tool" | "completed" | "failed";
+type LlmState = "ready" | "calling_provider" | "running_tool" | "done" | "failed";
 
 class LlmLoopActor extends BaseActor {
   static _actor = {
@@ -548,7 +548,7 @@ class LlmLoopActor extends BaseActor {
         on: {
           done: "running_tool",
           failed: "failed",
-          model_completed: "completed",
+          model_accepted: "done",
           cancel_requested: "failed",
         },
       },
@@ -561,7 +561,7 @@ class LlmLoopActor extends BaseActor {
         },
       },
 
-      completed: {},
+      done: {},
       failed: {},
     },
   };
@@ -578,7 +578,7 @@ class LlmLoopActor extends BaseActor {
         const parsed = parseModelOutput(output);
         if (parsed.kind === "outcome") {
           this.outcome = parsed.outcome;
-          this.send("model_completed");
+          this.send("model_accepted");
           return;
         }
 

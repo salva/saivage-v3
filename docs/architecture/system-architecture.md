@@ -51,7 +51,7 @@ Activation validation happens before dispatch. A parent planner can activate onl
 
 ## 5. Agent Lifecycle
 
-Planner sessions are goal-lived and should have deterministic identity derived from the goal card. A planner is created lazily the first time it is needed, can become dormant after reporting done, failed, or blocked, and can later be resumed by activation of the same goal as the same logical agent session.
+Planner sessions are goal-lived and should have deterministic identity derived from the goal card. A planner is created lazily the first time it is needed, can become inactive after reporting done, failed, or blocked, and can later be resumed by activation of the same goal as the same logical agent session.
 
 Executor sessions are one-shot per terminal card activation.
 
@@ -105,17 +105,17 @@ Analyst mutation or parent-planner mutation sets a non-active card to `changed`.
 
 When a modification affects an inactive descendant, inactive ancestors on the direct path to the project root receive changed-subtree context and become `changed` until the first running ancestor. Running ancestors stay `running` and receive notification/context instead of status overwrite. In practice, deep propagation is most often needed for Analyst edits because parent-planner edits target direct children of the active goal. Ancestors are not automatically dispatched by the status change.
 
-The acceptance gate prevents a planner from closing a goal while any executable descendant is not in a completion-compatible state. This forces the planner to observe and handle changed, blocked, backlog, running, failed, or otherwise incomplete executable descendants before claiming completion. Cancelled descendants are completion-compatible and do not block `done`. Goal cards carry their own planning diary state.
+The acceptance gate prevents a planner from closing a goal while any executable descendant is not in a completion-compatible state. This forces the planner to observe and handle changed, blocked, backlog, running, failed, or otherwise incomplete executable descendants before claiming completion. Canceled descendants are completion-compatible and do not block `done`. Goal cards carry their own planning diary state.
 
 `result` is attached from accepted main-agent results only. It is not updated from progress chatter, rejected reports, or reviewer correction requests. `working_status` is separate free text for agents attached to the card.
 
 ## 9. Collaborative Cancellation
 
-Direct cancellation is safe for cards that are not `running`. Recursive cancellation preserves descendants that are already `done` and converts non-completion-compatible descendants, including `failed` and `blocked`, to `cancelled`. Runtime-owned processes attached to non-running cancelled cards are terminated through canonical process controls.
+Direct cancellation is safe for cards that are not `running`. Recursive cancellation preserves descendants that are already `done` and converts non-completion-compatible descendants, including `failed` and `blocked`, to `canceled`. Runtime-owned processes attached to non-running canceled cards are terminated through canonical process controls.
 
-For running cards or subtrees containing the active leaf, cancellation is cooperative and bounded. The runtime sends notifications to the requested card and downstream active cards, limits future LLM admission for that subtree to cancellation/cooperative-finish context, and waits for in-flight provider calls, tool calls, or bounded process waits to complete or time out. Agents observe the cancellation at the next LLM admission boundary and report `failed`; `cancelled` is applied as runtime card status, not as a parent-visible activation outcome. Failed outcomes unwind through normal activation barriers until they reach the planner responsible for the originally requested cancellation. Shutdown remains the hard operation that directly terminates runtime-owned running processes.
+For running cards or subtrees containing the active leaf, cancellation is cooperative and bounded. The runtime sends notifications to the requested card and downstream active cards, limits future LLM admission for that subtree to cancellation/cooperative-finish context, and waits for in-flight provider calls, tool calls, or bounded process waits to complete or time out. Agents observe the cancellation at the next LLM admission boundary and report `failed`; `canceled` is applied as runtime card status, not as a parent-visible activation outcome. Failed outcomes unwind through normal activation barriers until they reach the planner responsible for the originally requested cancellation. Shutdown remains the hard operation that directly terminates runtime-owned running processes.
 
-Project-card cancellation is the root special case. The supervisor coordinates cooperative cancellation of the active chain, marks the project card `cancelled` when fulfilled, returns to idle, and leaves the next project-level action to the user through the Analyst.
+Project-card cancellation is the root special case. The supervisor coordinates cooperative cancellation of the active chain, marks the project card `canceled` when fulfilled, returns to idle, and leaves the next project-level action to the user through the Analyst.
 
 ## 10. Persistence
 

@@ -29,7 +29,7 @@ The implementation must preserve these functional invariants:
 - Activating a child transitions it to `running`.
 - Child activation outcomes update the child card to `done`, `failed`, or `blocked` before the parent receives the tool result.
 - The Analyst cannot directly set a card to `blocked`; `blocked` is a main-agent activation outcome.
-- Only `done` and `cancelled` descendants are completion-compatible for parent `done`.
+- Only `done` and `canceled` descendants are completion-compatible for parent `done`.
 - `changed`, `blocked`, `backlog`, `running`, and `failed` descendants block parent `done` until handled.
 - `working_status` is free text for agents attached to the card.
 - `result` is attached only from accepted main-agent results.
@@ -143,21 +143,23 @@ Responsibilities:
 - Shutdown first pauses, then uses the process registry to find runtime-owned running process actors, call termination, and report results.
 - Running cancellation coordinates cooperative cancellation only when the target is running or contains the active leaf.
 - Supervisor recovery rebuilds safe actor state or records diagnostics for abandoned unsafe state.
-- When the parentless project card completes with `done`, `failed`, `blocked`, or `cancelled`, the supervisor returns to `idle`.
+- When the parentless project card reaches `done`, `failed`, `blocked`, or `canceled`, the supervisor returns to `idle`.
 
 The supervisor does not know planner, executor, reviewer, or tool semantics.
 
 ## 6. CardNodeActor
 
-`CardNodeActor` is the durable card runtime boundary. It owns card identity, public status transitions, and one type-specific `CardInternalActor`.
+`CardNodeActor` is the durable card runtime boundary. Its actor state is the card state. Activation, status commits, and completion handling are synchronous actions or delegated internal actor work; they do not get separate transitional actor states.
 
 States:
 
-- `dormant`: card is not active.
-- `activating`: activation validation and durable `running` status commit are in progress.
-- `running`: the internal actor owns active semantic work.
-- `completed`: the internal actor returned `done`, `failed`, or `blocked`, and durable card status/result have been committed.
-- `cancelled`: runtime applied cancellation to this card.
+- `backlog`
+- `running`
+- `blocked`
+- `canceled`
+- `failed`
+- `done`
+- `changed`
 
 Calls:
 
@@ -167,19 +169,19 @@ Calls:
 
 Events:
 
-- `activation_committed`
-- `internal_completed`
-- `cancellation_requested`
-- `status_committed`
+- `done`
+- `blocked`
+- `canceled`
+- `changed`
 - `failed`
 
 Responsibilities:
 
-- Validate immediate-child activation through parent-provided authority.
-- Commit public card status changes before returning activation outcomes upward.
+- Validate immediate-child activation through parent-provided authority before entering `running`.
+- Commit public card state changes before returning activation outcomes upward.
 - Instantiate the correct `CardInternalActor` for project, goal, or terminal cards.
 - Deliver queued notifications to the main agent session at LLM admission boundaries.
-- Keep durable card status separate from private actor lifecycle state.
+- Keep lifecycle bookkeeping in actor fields rather than transitional states unless the work becomes independently recoverable asynchronous work.
 
 ## 7. Goal CardInternalActor
 
@@ -189,7 +191,9 @@ States:
 
 - `planning`: planner `LLMActor` is active with a card-scoped capability registry.
 - `reviewing`: reviewer assessment is active.
-- `completed`: accepted `done`, `failed`, or `blocked` outcome is ready for the owning `CardNodeActor`.
+- `done`: accepted done outcome is ready for the owning `CardNodeActor`.
+- `blocked`: accepted blocked outcome is ready for the owning `CardNodeActor`.
+- `failed`: failed outcome is ready for the owning `CardNodeActor`.
 
 Calls:
 
@@ -221,7 +225,9 @@ Terminal internal actors own terminal-card semantic execution for one activation
 States:
 
 - `executing`: executor `LLMActor` is active with a card-scoped capability registry.
-- `completed`: accepted `done`, `failed`, or `blocked` outcome is ready for the owning `CardNodeActor`.
+- `done`: accepted done outcome is ready for the owning `CardNodeActor`.
+- `blocked`: accepted blocked outcome is ready for the owning `CardNodeActor`.
+- `failed`: failed outcome is ready for the owning `CardNodeActor`.
 
 Calls:
 
@@ -250,7 +256,7 @@ States:
 
 - `thinking`: one LLM/provider call is active, or the actor is ready to start the next provider call with accumulated context.
 - `running_tool`: exactly one requested tool/capability is active.
-- `completed`: an accepted outcome or response is ready for the owning actor.
+- `done`: an accepted outcome or response is ready for the owning actor.
 - `failed`: provider, protocol, tool, timeout, or budget failure.
 
 Calls:
@@ -328,7 +334,7 @@ Changed-state propagation updates durable card status and queues context, but it
 
 ## 12. Cancellation And Quiescence
 
-Inactive cancellation is handled by the canonical card service. It can directly mark non-running cards/subtrees `cancelled`, preserving descendants already `done`, and terminate runtime-owned processes attached to inactive cancelled cards.
+Inactive cancellation is handled by the canonical card service. It can directly mark non-running cards/subtrees `canceled`, preserving descendants already `done`, and terminate runtime-owned processes attached to inactive canceled cards.
 
 Running cancellation is cooperative:
 
@@ -336,7 +342,7 @@ Running cancellation is cooperative:
 - In-flight provider calls, tool calls, and bounded process waits finish or time out.
 - Future LLM/provider admission for the requested card/subtree is limited to cancellation/cooperative-finish context.
 - Active agents stop at safe points and report `failed` through the normal activation outcome path.
-- The runtime applies `cancelled` as card status when the cancellation request is fulfilled.
+- The runtime applies `canceled` as card status when the cancellation request is fulfilled.
 - Failed outcomes unwind through activation barriers so parent planners handle interrupted work in context.
 
 Project-card cancellation is coordinated by the supervisor because there is no parent planner to receive a `failed` activation outcome.
@@ -365,7 +371,7 @@ Examples:
 - A `ProcessActor` in `running` may be `reconcile_then_resume` if the OS process can be found through the process registry.
 - A provider call in progress at crash time is `abandon_with_diagnostic` because the external request cannot be safely reattached.
 - A planner `LLMActor` waiting on `activate_card` is `reconcile_then_resume` if the active child actor and durable card state can be rebuilt from the active card chain and activation edge.
-- A committed `done`, `failed`, `blocked`, or `cancelled` actor state is `terminal`.
+- A committed `done`, `failed`, `blocked`, or `canceled` actor state is `terminal`.
 
 ## 14. Projections And Events
 
