@@ -55,14 +55,14 @@ class Foo extends BaseActor {
       idle: {
         on: {
           start: "running",
-          error: "failed",
+          failed: "failed",
         },
       },
 
       running: {
         on: {
           done: "done",
-          error: "failed",
+          failed: "failed",
         },
       },
 
@@ -84,7 +84,7 @@ class Foo extends BaseActor {
       },
       onFailed: error => {
         this.error = error;
-        this.send("error");
+        this.send("failed");
       },
     });
   }
@@ -190,11 +190,11 @@ class CardActor extends BaseActor {
     this.runtime.startExecutor(this.cardId, {
       onSucceeded: report => {
         this.executorReport = report;
-        this.send("executor_succeeded");
+        this.send("done");
       },
       onFailed: error => {
         this.error = error;
-        this.send("executor_failed");
+        this.send("failed");
       },
     });
   }
@@ -377,15 +377,16 @@ This separates invocation from transition. For example, `call("run")` can valida
 These conventions keep common actors terse without adding a general workflow framework.
 
 - `initial` defaults to the first state key when omitted.
+- `done` is the normal event for successful completion of the task owned by the current state.
+- `failed` is the normal event for failed completion of the task owned by the current state.
 - `done` advances to the next state only inside an explicitly declared `sequence`.
-- `error` transitions to `failed` only when the current state declares `error: "failed"`.
 - `enter` starts or admits state-scoped work.
 - `leave` stops, cancels, or detaches state-scoped work.
 - Unhandled events are ignored by default.
 - Unhandled calls throw by default.
 - Events carry no payload by framework design; event-specific data lives on actor fields before `send(name)` is called.
 - Call arguments are `unknown` by framework design.
-- Specific event names are preferred for externally meaningful completions, such as `provider_call_succeeded`, `tool_call_failed`, and `process_wait_timed_out`.
+- Specific event names are reserved for externally meaningful intermediate facts. State-local work should normally write result/error fields on the actor and then send `done` or `failed`.
 
 ## 10. Async Work And Completion
 
@@ -405,16 +406,16 @@ class LlmActor extends BaseActor {
       onSucceeded: output => {
         this.providerRequestId = requestId;
         this.providerOutput = output;
-        this.send("provider_call_succeeded");
+        this.send("done");
       },
       onFailed: error => {
         this.providerRequestId = requestId;
         this.error = error;
-        this.send("provider_call_failed");
+        this.send("failed");
       },
       onTimedOut: () => {
         this.providerRequestId = requestId;
-        this.send("provider_call_timed_out");
+        this.send("failed");
       },
     });
   }
@@ -468,7 +469,7 @@ class SupervisorActor extends BaseActor {
           project_completed: "idle",
           pause_requested: "paused",
           shutdown_requested: "shutting_down",
-          error: "failed",
+          failed: "failed",
         },
       },
 
@@ -482,7 +483,7 @@ class SupervisorActor extends BaseActor {
       shutting_down: {
         on: {
           processes_terminated: "idle",
-          error: "failed",
+          failed: "failed",
         },
       },
 
@@ -509,7 +510,7 @@ class SupervisorActor extends BaseActor {
       },
       onFailed: error => {
         this.error = error;
-        this.send("error");
+        this.send("failed");
       },
     });
   }
@@ -520,7 +521,7 @@ class SupervisorActor extends BaseActor {
       onCompleted: () => this.send("processes_terminated"),
       onFailed: error => {
         this.error = error;
-        this.send("error");
+        this.send("failed");
       },
     });
   }
@@ -545,9 +546,8 @@ class LlmLoopActor extends BaseActor {
 
       calling_provider: {
         on: {
-          provider_call_succeeded: "running_tool",
-          provider_call_failed: "failed",
-          provider_call_timed_out: "failed",
+          done: "running_tool",
+          failed: "failed",
           model_completed: "completed",
           cancel_requested: "failed",
         },
@@ -555,8 +555,8 @@ class LlmLoopActor extends BaseActor {
 
       running_tool: {
         on: {
-          tool_call_succeeded: "calling_provider",
-          tool_call_failed: "failed",
+          done: "calling_provider",
+          failed: "failed",
           cancel_requested: "failed",
         },
       },
@@ -583,31 +583,31 @@ class LlmLoopActor extends BaseActor {
         }
 
         this.pendingTools = parsed.toolCalls;
-        this.send("provider_call_succeeded");
+        this.send("done");
       },
       onFailed: error => {
         this.error = error;
-        this.send("provider_call_failed");
+        this.send("failed");
       },
-      onTimedOut: () => this.send("provider_call_timed_out"),
+      onTimedOut: () => this.send("failed"),
     });
   }
 
   _on_enter__running_tool() {
     const nextTool = this.pendingTools.shift();
     if (!nextTool) {
-      this.send("tool_call_succeeded");
+      this.send("done");
       return;
     }
 
     this.runtime.runTool(nextTool, {
       onSucceeded: result => {
         this.toolResults.push(result);
-        this.send("tool_call_succeeded");
+        this.send("done");
       },
       onFailed: error => {
         this.error = error;
-        this.send("tool_call_failed");
+        this.send("failed");
       },
     });
   }

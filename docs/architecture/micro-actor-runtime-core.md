@@ -42,6 +42,8 @@ The implementation must preserve these functional invariants:
 - Every external operation admitted by the runtime has a timeout or inactivity timeout.
 - Operator APIs and UI expose Saivage read models, never raw actor internals.
 
+Most task states use the same local completion protocol: the state starts or admits work, stores any result/error data on actor fields, sends `done` when that work completes successfully, and sends `failed` when that work fails. Use more specific events only for intermediate facts that a state must distinguish before deciding whether its own task is done or failed.
+
 ## 3. Actor Tree
 
 The runtime actor tree has one root supervisor actor. The supervisor owns the parentless project `CardNodeActor`. `CardNodeActor`s are the durable card status/projection boundary. Each card node delegates type-specific behavior to a `CardInternalActor`. Project and goal internal actors own their child `CardNodeActor` references. Planner and executor `LLMActor`s own the LLM/tool loop for one card activation. Tool handling is a card-scoped capability registry; a capability becomes an actor only when it owns durable state, cancellation, recovery, or long-lived resources.
@@ -130,7 +132,7 @@ Events:
 - `project_completed`
 - `process_termination_completed`
 - `recovery_reconciled`
-- `error`
+- `failed`
 
 Responsibilities:
 
@@ -169,7 +171,7 @@ Events:
 - `internal_completed`
 - `cancellation_requested`
 - `status_committed`
-- `error`
+- `failed`
 
 Responsibilities:
 
@@ -201,7 +203,7 @@ Events:
 - `reviewer_approved`
 - `reviewer_rejected`
 - `changed_context_received`
-- `error`
+- `failed`
 
 Responsibilities:
 
@@ -230,7 +232,7 @@ Events:
 
 - `executor_completed`
 - `changed_context_received`
-- `error`
+- `failed`
 
 Responsibilities:
 
@@ -258,6 +260,8 @@ Calls:
 
 Events:
 
+- `done`
+- `failed`
 - `provider_succeeded`
 - `provider_failed`
 - `provider_timed_out`
@@ -303,7 +307,7 @@ Events:
 - `exited`
 - `wait_timed_out`
 - `termination_completed`
-- `error`
+- `failed`
 
 Responsibilities:
 
