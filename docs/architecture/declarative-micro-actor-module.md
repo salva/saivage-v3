@@ -12,7 +12,7 @@ The module supports:
 
 - class-level actor definitions;
 - declarative state and transition definitions;
-- actor-local pump queues for serialized actor work;
+- actor-local mailbox queues only for `SlaveActor` command delivery;
 - one pending internal event slot per actor turn;
 - synchronous transition dispatch;
 - convention-based `enter`, `leave`, and `call` methods;
@@ -30,24 +30,24 @@ The module has five concepts:
 - **Internal event**: a string fact set by actor code with `_send_event(name)` and consumed by the pump through the state's `on` table.
 - **Mailbox command**: queued method invocation delivered through `SlaveActor.mailbox.deliver(name, args?)` and handled by state-scoped convention methods.
 - **State task**: async work started by `_on_enter__...` or `_on_recover__...` through `_start_task(...)`; unfinished tasks are canceled when the actor leaves that state.
-- **Pump queue**: one actor-local async queue that serializes mailbox command delivery and state-task completions.
+- **Actor turn**: one synchronous call into actor code followed by draining pending internal events.
 
 The core flow is:
 
 ```text
-actor.mailbox.deliver(name, args) -> pump queue -> state-scoped call method
+actor.mailbox.deliver(name, args) -> SlaveActor mailbox queue -> actor turn -> state-scoped call method
 call/enter/recover hook mutates actor fields -> _send_event(name)
 pump consumes pending event -> state-table dispatch -> leave -> state change -> enter
-_start_task(...) completion -> pump queue -> task completion handler -> actor fields -> _send_event(name)
+_start_task(...) completion -> actor turn -> task completion handler -> actor fields -> _send_event(name)
 ```
 
 The micro-actor module never awaits inside transition dispatch. If work requires I/O, timers, LLM calls, process waits, file operations, or network requests, an actor method calls the appropriate runtime service and returns. External runtime services later report completion through the actor mailbox, while actor code may emit internal events.
 
-Creating an actor makes it live: the runtime initializes the `BaseActor` private fields, creates the actor-local pump queue, and starts the actor pump. From that point, external advancement happens only through `SlaveActor.mailbox.deliver(...)`. Internal advancement happens through `_send_event(...)` and `_start_task(...)` inside actor code. Low-level dispatch functions are actor-pump internals, not application APIs.
+Creating an actor makes it live: the runtime initializes the `BaseActor` private fields and starts optional delivery owned by subclasses such as `SlaveActor`. From that point, external advancement happens only through `SlaveActor.mailbox.deliver(...)`. Internal advancement happens through `_send_event(...)` and `_start_task(...)` inside actor code. Low-level dispatch functions are actor-turn internals, not application APIs.
 
 Module layout stays intentionally small:
 
-- `micro-actor.ts`: `BaseActor`, construction/recovery, pending events, state tasks, and the pump.
+- `micro-actor.ts`: `BaseActor`, construction/recovery, pending events, state tasks, and actor-turn execution.
 - `slave-actor.ts`: `SlaveActor` mailbox boundary.
 - `simple-slave-actor.ts`: optional serial worker specialization.
 
@@ -141,7 +141,6 @@ abstract class BaseActor {
   #definition: ActorDefinition | undefined;
   #state: string | undefined;
   #nextEvent: string | undefined;
-  #pumpQueue: ActorPumpQueue;
   #stateTasks: Map<number, ActiveStateTask>;
 
   state(): string;
@@ -271,44 +270,41 @@ class CardActor extends BaseActor {
 }
 ```
 
-## 6. Mailbox Queue And Pump Delivery
+## 6. Mailbox Delivery And Actor Turns
 
-The actor pump owns the internal queue. `SlaveActor` owns the mailbox boundary and translates mailbox deliveries into pump work. The pump queue carries work items, not state-transition events:
+`BaseActor` has no queue. `SlaveActor` owns the mailbox boundary and translates mailbox deliveries into actor turns. The mailbox queue carries external commands, not state-transition events:
 
 ```ts
-type ActorPumpWork = {
-  run(): void;
-  subject: unknown;
-};
+type MailboxCommand = { kind: "call"; name: string; args?: unknown };
 ```
 
 Delivery rules:
 
-- `actor.mailbox.deliver(name, args)` enqueues pump work that dispatches a state-scoped call.
+- `actor.mailbox.deliver(name, args)` enqueues a mailbox command owned by `SlaveActor`.
 - External objects cannot send events. Events are actor-internal facts emitted by `_send_event(name)`.
 - Mailbox delivery never dispatches inline. Delivery occurs through the actor pump.
-- State-task completion never dispatches inline. Completion handlers run through the actor pump.
-- The work item is target-free because the queue is actor-local.
+- State-task completion re-enters through an actor turn and is not a queued event.
+- The command item is target-free because the queue is actor-local to `SlaveActor`.
 - One actor pump processes one actor serially.
 - Different actor pumps may run concurrently.
 - Events that are not declared for the current state are ignored by default.
 - Calls that have no current-state handler throw by default.
 - Durable delivery records, when needed, are a runtime responsibility outside the micro-actor module.
 
-Minimal pump shape:
+Minimal mailbox shape:
 
 ```ts
-class ActorPumpQueue {
-  private items: ActorPumpWork[] = [];
+class MailboxQueue {
+  private items: MailboxCommand[] = [];
   private wake: (() => void) | undefined;
 
-  push(work: ActorPumpWork) {
-    this.items.push(work);
+  push(command: MailboxCommand) {
+    this.items.push(command);
     this.wake?.();
     this.wake = undefined;
   }
 
-  async shift(): Promise<ActorPumpWork> {
+  async shift(): Promise<MailboxCommand> {
     while (this.items.length === 0) {
       await new Promise<void>((resolve) => {
         this.wake = resolve;
@@ -318,7 +314,7 @@ class ActorPumpQueue {
     return this.items.shift()!;
   }
 
-  drain(): ActorPumpWork[] {
+  drain(): MailboxCommand[] {
     const batch = this.items;
     this.items = [];
     return batch;
@@ -327,16 +323,15 @@ class ActorPumpQueue {
 
 async function runActorPump(actor: RuntimeActor) {
   for (;;) {
-    const first = await actor.queue.shift();
-    const batch = [first, ...actor.queue.drain()];
+    const first = await actor.mailboxQueue.shift();
+    const batch = [first, ...actor.mailboxQueue.drain()];
 
-    for (const work of batch) {
+    for (const command of batch) {
       try {
-        work.run();
-        drainPendingEvents(actor);
+        actor.runTurn(() => dispatchCall(actor, command));
         actor.persist();
       } catch (error) {
-        actor.reportError(error, work.subject);
+        actor.reportError(error, command);
       }
     }
   }
@@ -345,7 +340,7 @@ async function runActorPump(actor: RuntimeActor) {
 
 The `drain()` implementation assumes single-threaded JavaScript: between `shift()` returning the first item and `drain()` being called, no other `push()` can interleave within the same microtask. This is safe in Node.js but would need synchronization in a multi-threaded environment.
 
-The pending event slot is not a queue. `_send_event(name)` fails if an event is already pending in the same actor turn. After each command handler, task completion handler, enter hook, leave hook, or recover hook, the pump consumes the pending event and applies it through the state table. If that transition's hooks emit another event, the pump consumes that event next.
+The pending event slot is not a queue. `_send_event(name)` fails if an event is already pending in the same actor turn. After each command handler, task completion handler, enter hook, leave hook, or recover hook, the actor turn consumes the pending event and applies it through the state table. If that transition's hooks emit another event, the same turn consumes that event next.
 
 ## 7. Event Dispatch Semantics
 
@@ -462,8 +457,8 @@ Recommended runtime sequence:
 
 ```text
 1. external code delivers a command through `actor.mailbox.deliver(...)`
-2. actor pump queue wakes that actor's pump through a stored promise resolver
-3. actor pump drains queued commands before awaiting the queue again
+2. `SlaveActor` mailbox queue wakes that actor's mailbox pump through a stored promise resolver
+3. `SlaveActor` mailbox pump drains queued commands before awaiting the queue again
 4. actor pump loads or reconstructs the actor instance when needed
 5. actor pump dispatches one command synchronously
 6. actor pump persists updated actor state when needed
@@ -700,7 +695,7 @@ Test the micro-actor module independently:
 
 - `static _actor` declares a definition for a class;
 - `_compiled_actor` is initialized lazily on first actor creation;
-- `startActor(...)` initializes `BaseActor` private slots, `state()`, pending event slot, state task set, pump queue, and pump;
+- `startActor(...)` initializes `BaseActor` private slots, `state()`, pending event slot, and state task set;
 - `recoverActor(...)` initializes `BaseActor` private slots with a restored state and runs `_on_recover__{state}` or `_on_enter__{state}` fallback;
 - `initial` defaults to the first state;
 - direct transition works;
@@ -716,14 +711,14 @@ Test the micro-actor module independently:
 
 Test the runtime delivery subsystem separately:
 
-- pump queues store serialized work, not events;
-- `SlaveActor.mailbox.deliver(...)` enqueues pump work and does not dispatch inline;
+- `BaseActor` has no queue;
+- `SlaveActor.mailbox.deliver(...)` enqueues mailbox commands and does not dispatch inline;
 - `_send_event(...)` sets exactly one pending event for the current actor turn;
 - `_start_task(...)` runs completion handlers through the pump;
 - state changes abort unfinished tasks for the old state;
-- queue wakeups happen through stored promise resolvers;
+- mailbox queue wakeups happen through stored promise resolvers;
 - delivery runs from the actor pump after the current JavaScript call stack has unwound;
-- the actor pump drains queued work before awaiting the queue again;
+- `SlaveActor` drains queued mailbox commands before awaiting the mailbox queue again;
 - delivery for one actor is serial;
 - different actor pumps may process messages in parallel;
 - async completion callbacks deliver mailbox commands or complete state tasks rather than calling low-level dispatch;

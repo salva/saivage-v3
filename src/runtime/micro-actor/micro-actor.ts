@@ -28,60 +28,13 @@ type ActiveStateTask<Result = unknown> = ActorStateTask<Result> & {
   controller: AbortController;
 };
 
-type ActorPumpWork = {
-  run(): void;
-  subject: unknown;
-};
-
-class ActorPumpQueue {
-  private items: ActorPumpWork[] = [];
-  private wake: (() => void) | undefined;
-  private closed = false;
-
-  push(work: ActorPumpWork): void {
-    if (this.closed) return;
-    this.items.push(work);
-    this.wake?.();
-    this.wake = undefined;
-  }
-
-  async shift(): Promise<ActorPumpWork> {
-    while (this.items.length === 0) {
-      if (this.closed) throw new Error('Actor pump queue closed');
-      await new Promise<void>((resolve) => {
-        this.wake = resolve;
-      });
-      if (this.closed) throw new Error('Actor pump queue closed');
-    }
-
-    return this.items.shift()!;
-  }
-
-  drain(): ActorPumpWork[] {
-    const batch = this.items;
-    this.items = [];
-    return batch;
-  }
-
-  close(): void {
-    this.closed = true;
-    this.wake?.();
-    this.wake = undefined;
-  }
-
-  isClosed(): boolean {
-    return this.closed;
-  }
-}
-
 // BaseActor owns only the generic micro-actor machinery: compiled definition,
-// current state, pending event, state tasks, pump queue, and state waiters. Concrete actors own all domain
+// current state, pending event, state tasks, and state waiters. Concrete actors own all domain
 // fields and behavior. External callers should not instantiate BaseActor directly.
 export abstract class BaseActor {
   #definition: CompiledActorDefinition | undefined;
   #state: string | undefined;
   #nextEvent: string | undefined;
-  #pumpQueue = new ActorPumpQueue();
   #nextTaskId = 1;
   #stateTasks = new Map<number, ActiveStateTask>();
   #stateWaiters: Array<{ predicate: (state: string) => boolean; resolve: (state: string) => void }> = [];
@@ -91,7 +44,7 @@ export abstract class BaseActor {
   }
 
   // Internal event emission. This records the one event the current actor turn
-  // wants the pump to process next; it is not an event queue.
+  // should process next; it is not an event queue.
   protected _send_event(name: string): void {
     this.#requireInternals();
     if (this.#nextEvent !== undefined) {
@@ -109,16 +62,10 @@ export abstract class BaseActor {
     Promise.resolve()
       .then(() => task.run({ signal: controller.signal }))
       .then((result) => {
-        this.#enqueuePumpWork(
-          () => this.#completeTask(id, 'done', result),
-          { kind: 'task_done', id },
-        );
+        this._runActorTurnForRuntime(() => this.#completeTask(id, 'done', result));
       })
       .catch((error) => {
-        this.#enqueuePumpWork(
-          () => this.#completeTask(id, 'failed', error),
-          { kind: 'task_failed', id },
-        );
+        this._runActorTurnForRuntime(() => this.#completeTask(id, 'failed', error));
       });
   }
 
@@ -167,14 +114,14 @@ export abstract class BaseActor {
     return event;
   }
 
-  _enqueuePumpWorkForRuntime(run: () => void, subject: unknown): void {
+  _runActorTurnForRuntime(run: () => void): void {
     this.#requireInternals();
-    this.#enqueuePumpWork(run, subject);
-  }
-
-  _pumpQueueForRuntime(): ActorPumpQueue {
-    this.#requireInternals();
-    return this.#pumpQueue;
+    const result = run() as unknown;
+    if (isPromiseLike(result)) {
+      void Promise.resolve(result).catch(() => undefined);
+      throw new InternalActorError('Actor turn work must be synchronous');
+    }
+    drainActorEvents(this);
   }
 
   // waitForState is used by adapters/controllers that need to observe when the
@@ -204,10 +151,6 @@ export abstract class BaseActor {
     };
   }
 
-  #enqueuePumpWork(run: () => void, subject: unknown): void {
-    this.#pumpQueue.push({ run, subject });
-  }
-
   #completeTask(id: number, status: 'done' | 'failed', value: unknown): void {
     const task = this.#stateTasks.get(id);
     if (!task) return;
@@ -231,7 +174,7 @@ export abstract class BaseActor {
   }
 }
 
-// Construct a fresh actor at its declaration's initial state and start its pump.
+// Construct a fresh actor at its declaration's initial state.
 export function startActor<T extends BaseActor>(
   ctor: ActorConstructor<T>,
   ...args: ConstructorParameters<ActorConstructor<T>>
@@ -255,8 +198,7 @@ export function recoverActor<T extends BaseActor>(
   return installActor(ctor, state, dispatchRecover, ...args);
 }
 
-// Shared construction path for start and recovery. The pump is the only place that
-// delivers mailbox commands and internal events to actor code.
+// Shared construction path for start and recovery.
 function installActor<T extends BaseActor>(
   ctor: ActorConstructor<T>,
   state: string,
@@ -271,15 +213,19 @@ function installActor<T extends BaseActor>(
     state,
   });
 
-  // Recovery needs hooks to run before the pump starts accepting later mailbox
+  // Recovery needs hooks to run before accepting later mailbox
   // commands; fresh starts do not need an after-install hook.
-  afterInstall?.(actor);
-  drainActorEvents(actor);
-
-  // The pump serializes mailbox commands, task completions, and internal events.
-  void runActorPump(actor);
+  if (afterInstall) {
+    actor._runActorTurnForRuntime(() => afterInstall(actor));
+  }
+  startOptionalMailboxPump(actor);
 
   return actor;
+}
+
+function startOptionalMailboxPump(actor: BaseActor): void {
+  const maybeMailboxActor = actor as BaseActor & { _startMailboxPumpForRuntime?: () => void };
+  maybeMailboxActor._startMailboxPumpForRuntime?.();
 }
 
 function drainActorEvents(actor: BaseActor): void {
@@ -289,31 +235,6 @@ function drainActorEvents(actor: BaseActor): void {
     dispatchEvent(actor, event);
   }
   throw new InternalActorError('Actor produced too many internal events in one turn');
-}
-
-async function runActorPump(actor: BaseActor): Promise<void> {
-  const queue = actor._pumpQueueForRuntime();
-  try {
-    for (;;) {
-      const first = await queue.shift();
-      const batch = [first, ...queue.drain()];
-      for (const work of batch) {
-        try {
-          const result = work.run() as unknown;
-          if (isPromiseLike(result)) {
-            void Promise.resolve(result).catch(() => undefined);
-            throw new InternalActorError('Actor pump work must be synchronous');
-          }
-          drainActorEvents(actor);
-        } catch (error) {
-          throw error;
-        }
-      }
-    }
-  } catch (error) {
-    if (queue.isClosed()) return;
-    throw error;
-  }
 }
 
 function isPromiseLike(value: unknown): value is PromiseLike<unknown> {

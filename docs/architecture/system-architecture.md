@@ -156,7 +156,7 @@ Provider diagnostics, account details, runtime internals, and raw error metadata
 
 ## 13. Implementation Direction
 
-The runtime implementation direction is micro-actor-centered: actor states and queued mailbox commands/internal events drive behavior, not imperative orchestration loops. The micro-actor module contract, state ownership, delivery model, and persistence boundary are defined in [Declarative micro-actor module architecture](./declarative-micro-actor-module.md). The full runtime actor tree is defined in [Micro-Actor Runtime Core Architecture](./micro-actor-runtime-core.md).
+The runtime implementation direction is micro-actor-centered: actor states, mailbox commands, and pending internal events drive behavior, not imperative orchestration loops. The micro-actor module contract, state ownership, delivery model, and persistence boundary are defined in [Declarative micro-actor module architecture](./declarative-micro-actor-module.md). The full runtime actor tree is defined in [Micro-Actor Runtime Core Architecture](./micro-actor-runtime-core.md).
 
 Target actor ownership:
 
