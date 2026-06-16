@@ -40,14 +40,12 @@ export abstract class BaseActor {
   #stateWaiters: Array<{ predicate: (state: string) => boolean; resolve: (state: string) => void }> = [];
 
   state(): string {
-    if (this.#state === undefined) throw new Error('Actor internals are not installed');
-    return this.#state;
+    return this.#state!;
   }
 
   // Internal event emission. This records the one event the current actor turn
   // should process next; it is not an event queue.
   protected _send_event(name: string): void {
-    if (this.#state === undefined) throw new Error('Actor internals are not installed');
     if (this.#nextEvent !== undefined) {
       throw new InternalActorError(`Actor already has pending event "${this.#nextEvent}", cannot send "${name}"`);
     }
@@ -55,8 +53,7 @@ export abstract class BaseActor {
   }
 
   protected _start_task<Result>(task: ActorStateTask<Result>): void {
-    if (this.#state === undefined) throw new Error('Actor internals are not installed');
-    const state = this.#state;
+    const state = this.#state!;
     const controller = new AbortController();
     const id = this.#nextTaskId++;
     this.#stateTasks.set(id, { ...task, id, state, controller } as ActiveStateTask);
@@ -72,8 +69,7 @@ export abstract class BaseActor {
   }
 
   waitForState(predicate: (state: string) => boolean): Promise<string> {
-    if (this.#state === undefined) throw new Error('Actor internals are not installed');
-    const current = this.#state;
+    const current = this.#state!;
     if (predicate(current)) return Promise.resolve(current);
     return new Promise<string>((resolve) => {
       this.#stateWaiters.push({ predicate, resolve });
@@ -94,18 +90,15 @@ export abstract class BaseActor {
   // The following _*ForRuntime methods are intentionally narrow escape hatches for
   // the dispatcher. They avoid exposing private slots as public actor API.
   _actorDefinitionForRuntime(): CompiledActorDefinition {
-    if (this.#definition === undefined) throw new Error('Actor internals are not installed');
-    return this.#definition;
+    return this.#definition!;
   }
 
   _stateForRuntime(): string {
-    if (this.#state === undefined) throw new Error('Actor internals are not installed');
-    return this.#state;
+    return this.#state!;
   }
 
   _setStateForRuntime(state: string): void {
-    if (this.#state === undefined) throw new Error('Actor internals are not installed');
-    const current = this.#state;
+    const current = this.#state!;
     if (current !== state) {
       this.#cancelTasksForState(current);
     }
@@ -114,14 +107,12 @@ export abstract class BaseActor {
   }
 
   _consumeNextEventForRuntime(): string | undefined {
-    if (this.#state === undefined) throw new Error('Actor internals are not installed');
     const event = this.#nextEvent;
     this.#nextEvent = undefined;
     return event;
   }
 
   _runActorTurnForRuntime(run: () => void): void {
-    if (this.#state === undefined || this.#definition === undefined) throw new Error('Actor internals are not installed');
     const result = run() as unknown;
     if (isPromiseLike(result)) {
       void Promise.resolve(result).catch(() => undefined);
