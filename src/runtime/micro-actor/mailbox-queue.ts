@@ -1,38 +1,38 @@
-import type { ActorMessage } from './types.js';
+import type { MailboxCommand } from './types.js';
 
-export type ActorMessageHandler = (message: ActorMessage) => void;
-export type ActorMessageErrorHandler = (error: unknown, message: ActorMessage) => void;
+export type MailboxCommandHandler = (command: MailboxCommand) => void;
+export type MailboxCommandErrorHandler = (error: unknown, command: MailboxCommand) => void;
 
-export class EventQueue {
-  private items: ActorMessage[] = [];
+export class MailboxQueue {
+  private items: MailboxCommand[] = [];
   private wake: (() => void) | undefined;
   private closed = false;
   private closeResolve: (() => void) | undefined;
 
-  push(message: ActorMessage): void {
+  push(command: MailboxCommand): void {
     if (this.closed) return;
-    this.items.push(message);
+    this.items.push(command);
     this.wake?.();
     this.wake = undefined;
   }
 
-  async shift(): Promise<ActorMessage> {
+  async shift(): Promise<MailboxCommand> {
     while (this.items.length === 0) {
       if (this.closed) {
-        throw new Error('Actor queue closed');
+        throw new Error('Actor mailbox queue closed');
       }
       await new Promise<void>((resolve) => {
         this.wake = resolve;
       });
       if (this.closed) {
-        throw new Error('Actor queue closed');
+        throw new Error('Actor mailbox queue closed');
       }
     }
 
     return this.items.shift()!;
   }
 
-  drain(): ActorMessage[] {
+  drain(): MailboxCommand[] {
     const batch = this.items;
     this.items = [];
     return batch;
@@ -52,23 +52,23 @@ export class EventQueue {
   }
 }
 
-export async function runActorBatch(
-  queue: EventQueue,
-  handleMessage: ActorMessageHandler,
-  onError: ActorMessageErrorHandler,
+export async function runMailboxBatch(
+  queue: MailboxQueue,
+  handleCommand: MailboxCommandHandler,
+  onError: MailboxCommandErrorHandler,
 ): Promise<number> {
   const first = await queue.shift();
   const batch = [first, ...queue.drain()];
 
-  for (const message of batch) {
+  for (const command of batch) {
     try {
-      const result = handleMessage(message) as unknown;
+      const result = handleCommand(command) as unknown;
       if (isPromiseLike(result)) {
         void Promise.resolve(result).catch(() => undefined);
-        onError(new Error('Actor message handlers must be synchronous'), message);
+        onError(new Error('Actor mailbox command handlers must be synchronous'), command);
       }
     } catch (error) {
-      onError(error, message);
+      onError(error, command);
     }
   }
 
@@ -76,13 +76,13 @@ export async function runActorBatch(
 }
 
 export async function runActorPump(
-  queue: EventQueue,
-  handleMessage: ActorMessageHandler,
-  onError: ActorMessageErrorHandler,
+  queue: MailboxQueue,
+  handleCommand: MailboxCommandHandler,
+  onError: MailboxCommandErrorHandler,
 ): Promise<void> {
   try {
     for (;;) {
-      await runActorBatch(queue, handleMessage, onError);
+      await runMailboxBatch(queue, handleCommand, onError);
     }
   } catch (error) {
     if (queue.isClosed()) return;

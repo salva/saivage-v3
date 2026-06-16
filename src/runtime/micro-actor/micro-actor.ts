@@ -1,7 +1,14 @@
 import { dispatchCall, dispatchEvent, dispatchRecover } from './dispatch.js';
 import { getCompiledActorDefinition } from './define-machine.js';
-import { EventQueue, runActorPump } from './event-queue.js';
+import { MailboxQueue, runActorPump } from './mailbox-queue.js';
 import type { ActorDefinition, ActorInternals, CompiledActorDefinition } from './types.js';
+
+export class InternalActorError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InternalActorError';
+  }
+}
 
 // Runtime constructor shape for concrete actor classes. The static _actor table is
 // the declarative state/transition contract compiled once per class.
@@ -16,18 +23,22 @@ export type ActorConstructor<T extends BaseActor = BaseActor> = (new (...args: a
 export abstract class BaseActor {
   #definition: CompiledActorDefinition | undefined;
   #state: string | undefined;
-  #queue: EventQueue | undefined;
+  #nextEvent: string | undefined;
+  #queue: MailboxQueue | undefined;
   #stateWaiters: Array<{ predicate: (state: string) => boolean; resolve: (state: string) => void }> = [];
 
   state(): string {
     return this.#requireInternals().state;
   }
 
-  // Internal event emission. Actor methods use this to report facts such as
-  // done/failed after synchronously updating their own fields. External objects
-  // cannot call send directly; they must use a SlaveActor mailbox command.
-  protected send(name: string): void {
-    this.#requireInternals().queue.push({ kind: 'event', name });
+  // Internal event emission. This records the one event the current actor turn
+  // wants the pump to process next; it is not an event queue.
+  protected _send_event(name: string): void {
+    this.#requireInternals();
+    if (this.#nextEvent !== undefined) {
+      throw new InternalActorError(`Actor already has pending event "${this.#nextEvent}", cannot send "${name}"`);
+    }
+    this.#nextEvent = name;
   }
 
   waitForState(predicate: (state: string) => boolean): Promise<string> {
@@ -66,8 +77,15 @@ export abstract class BaseActor {
     this.#notifyStateWaiters(state);
   }
 
-  _queueForRuntime(): EventQueue {
+  _queueForRuntime(): MailboxQueue {
     return this.#requireInternals().queue;
+  }
+
+  _consumeNextEventForRuntime(): string | undefined {
+    this.#requireInternals();
+    const event = this.#nextEvent;
+    this.#nextEvent = undefined;
+    return event;
   }
 
   // waitForState is used by adapters/controllers that need to observe when the
@@ -214,7 +232,7 @@ export abstract class SimpleSlaveActor extends SlaveActor {
   enqueueCommand(args: SimpleSlaveQueuedCommand): void {
     this.queuedCommands.push(args);
     if (this.state() === 'idle') {
-      this.send('work_available');
+      this._send_event('work_available');
     }
   }
 
@@ -231,7 +249,7 @@ export abstract class SimpleSlaveActor extends SlaveActor {
       this.runningCommand = null;
       command.controller.abort();
       command.callbacks?.on_failed?.(new SimpleSlaveCommandCancelledError(args.id));
-      this.send('failed');
+      this._send_event('failed');
     }
   }
 
@@ -240,7 +258,7 @@ export abstract class SimpleSlaveActor extends SlaveActor {
     const command = this.runningCommand;
     this.runningCommand = null;
     command.callbacks?.on_done?.(args.result);
-    this.send('done');
+    this._send_event('done');
   }
 
   commandFailed(args: SimpleSlaveTaskFailed): void {
@@ -248,12 +266,12 @@ export abstract class SimpleSlaveActor extends SlaveActor {
     const command = this.runningCommand;
     this.runningCommand = null;
     command.callbacks?.on_failed?.(args.error);
-    this.send('failed');
+    this._send_event('failed');
   }
 
   _on_enter__idle(): void {
     if (this.queuedCommands.length > 0) {
-      this.send('work_available');
+      this._send_event('work_available');
     }
   }
 
@@ -307,7 +325,7 @@ function installActor<T extends BaseActor>(
 ): T {
   const definition = getCompiledActorDefinition(ctor);
   const actor = new ctor(...args);
-  const queue = new EventQueue();
+  const queue = new MailboxQueue();
 
   actor._installActorInternals({
     definition,
@@ -318,17 +336,15 @@ function installActor<T extends BaseActor>(
   // Recovery needs hooks to run before the pump starts accepting later mailbox
   // commands; fresh starts do not need an after-install hook.
   afterInstall?.(actor);
+  drainActorEvents(actor);
 
   // The pump serializes all command/event delivery for this actor. Dispatch stays
   // internal to the pump; external objects interact through SlaveActor.mailbox.
   void runActorPump(
     queue,
     (message) => {
-      if (message.kind === 'event') {
-        dispatchEvent(actor, message);
-        return;
-      }
       dispatchCall(actor, message);
+      drainActorEvents(actor);
     },
     (error, _message) => {
       throw error;
@@ -336,4 +352,13 @@ function installActor<T extends BaseActor>(
   );
 
   return actor;
+}
+
+function drainActorEvents(actor: BaseActor): void {
+  for (let i = 0; i < 100; i++) {
+    const event = actor._consumeNextEventForRuntime();
+    if (event === undefined) return;
+    dispatchEvent(actor, event);
+  }
+  throw new InternalActorError('Actor produced too many internal events in one turn');
 }

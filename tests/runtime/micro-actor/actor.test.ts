@@ -14,17 +14,17 @@ class CounterActor extends SlaveActor {
 
   _on_call__idle__start() {
     this.count += 1;
-    this.send('start');
+    this._send_event('start');
   }
 
   _on_call__active__increment() {
     this.count += 1;
-    this.send('incremented');
+    this._send_event('incremented');
   }
 }
 
 describe('startActor', () => {
-  it('creates a live actor with initial state and send(event)', async () => {
+  it('creates a live actor with initial state and internal events', async () => {
     const actor = startActor(CounterActor);
 
     expect(actor.state()).toBe('idle');

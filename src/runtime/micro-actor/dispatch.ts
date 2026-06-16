@@ -1,8 +1,8 @@
-import type { CallMessage, EventMessage, StateDefinition } from './types.js';
+import type { MailboxCommand, StateDefinition } from './types.js';
 import { InvalidTransitionError, MissingCallHandlerError } from './define-machine.js';
 import type { BaseActor } from './micro-actor.js';
 
-export function dispatchEvent(actor: BaseActor, event: EventMessage): string {
+export function dispatchEvent(actor: BaseActor, eventName: string): string {
   const definition = actor._actorDefinitionForRuntime();
   const currentState = actor._stateForRuntime();
   const stateDef = definition.states.get(currentState);
@@ -11,8 +11,8 @@ export function dispatchEvent(actor: BaseActor, event: EventMessage): string {
     throw new InvalidTransitionError(`Unknown current state "${currentState}"`);
   }
 
-  const targetState = stateDef.on?.[event.name]
-    ?? implicitDoneTarget(definition.sequence, currentState, event.name);
+  const targetState = stateDef.on?.[eventName]
+    ?? implicitDoneTarget(definition.sequence, currentState, eventName);
 
   if (targetState === undefined) {
     return currentState;
@@ -20,7 +20,7 @@ export function dispatchEvent(actor: BaseActor, event: EventMessage): string {
 
   if (!definition.states.has(targetState)) {
     throw new InvalidTransitionError(
-      `Invalid target state "${targetState}" for event "${event.name}" in state "${currentState}"`,
+      `Invalid target state "${targetState}" for event "${eventName}" in state "${currentState}"`,
     );
   }
 
@@ -35,7 +35,7 @@ export function dispatchEvent(actor: BaseActor, event: EventMessage): string {
   return targetState;
 }
 
-export function dispatchCall(actor: BaseActor, call: CallMessage): void {
+export function dispatchCall(actor: BaseActor, call: MailboxCommand): void {
   const definition = actor._actorDefinitionForRuntime();
   const currentState = actor._stateForRuntime();
   const stateDef = definition.states.get(currentState);

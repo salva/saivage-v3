@@ -69,17 +69,17 @@ export class LlmRunnerActor extends SlaveActor {
   recordRun(input: LlmInvocationInput): void {
     this.input = input;
     this.output = null;
-    this.send('run');
+    this._send_event('run');
   }
 
   recordProviderResult(args: ProviderResultArgs): void {
     this.output = outputFromProviderResult(this.agentId, args.result);
-    this.send('done');
+    this._send_event('done');
   }
 
   recordProviderError(args: ProviderErrorArgs): void {
     this.output = { type: 'LLM_ERROR', agentId: this.agentId, error: args.error };
-    this.send('failed');
+    this._send_event('failed');
   }
 
   _on_enter__running(): void {

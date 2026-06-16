@@ -5,6 +5,7 @@ import {
   InvalidActorDefinitionError,
   InvalidTransitionError,
   MissingCallHandlerError,
+  InternalActorError,
   startActor,
 } from '../../../src/runtime/micro-actor/index.js';
 import { dispatchCall, dispatchEvent } from '../../../src/runtime/micro-actor/dispatch.js';
@@ -72,7 +73,7 @@ describe('dispatchEvent', () => {
   it('handles direct string transition', () => {
     const actor = startActor(LightActor);
 
-    dispatchEvent(actor, { kind: 'event', name: 'toggle' });
+    dispatchEvent(actor, 'toggle');
 
     expect(actor.state()).toBe('on');
   });
@@ -80,7 +81,7 @@ describe('dispatchEvent', () => {
   it('ignores unknown events', () => {
     const actor = startActor(LightActor);
 
-    dispatchEvent(actor, { kind: 'event', name: 'unknown_event' });
+    dispatchEvent(actor, 'unknown_event');
 
     expect(actor.state()).toBe('off');
   });
@@ -88,7 +89,7 @@ describe('dispatchEvent', () => {
   it('fires enter on transition', () => {
     const actor = startActor(LightActor);
 
-    dispatchEvent(actor, { kind: 'event', name: 'toggle' });
+    dispatchEvent(actor, 'toggle');
 
     expect(actor.log).toEqual(['entered on, state now on']);
   });
@@ -96,9 +97,9 @@ describe('dispatchEvent', () => {
   it('fires leave on transition', () => {
     const actor = startActor(LightActor);
 
-    dispatchEvent(actor, { kind: 'event', name: 'toggle' });
-    dispatchEvent(actor, { kind: 'event', name: 'flicker' });
-    dispatchEvent(actor, { kind: 'event', name: 'replace' });
+    dispatchEvent(actor, 'toggle');
+    dispatchEvent(actor, 'flicker');
+    dispatchEvent(actor, 'replace');
 
     expect(actor.log).toContain('leaving broken after 1 flickers');
   });
@@ -113,7 +114,7 @@ describe('dispatchEvent', () => {
     }
 
     const actor = startActor(DoorActor);
-    dispatchEvent(actor, { kind: 'event', name: 'stay' });
+    dispatchEvent(actor, 'stay');
 
     expect(actor.entered).toBe(0);
     expect(actor.left).toBe(0);
@@ -126,11 +127,11 @@ describe('dispatchEvent', () => {
 
     const actor = startActor(StepActor);
 
-    dispatchEvent(actor, { kind: 'event', name: 'done' });
+    dispatchEvent(actor, 'done');
     expect(actor.state()).toBe('b');
-    dispatchEvent(actor, { kind: 'event', name: 'done' });
+    dispatchEvent(actor, 'done');
     expect(actor.state()).toBe('c');
-    dispatchEvent(actor, { kind: 'event', name: 'done' });
+    dispatchEvent(actor, 'done');
     expect(actor.state()).toBe('c');
   });
 
@@ -138,7 +139,7 @@ describe('dispatchEvent', () => {
     const actor = startActor(LightActor);
     actor._setStateForRuntime('nonexistent');
 
-    expect(() => dispatchEvent(actor, { kind: 'event', name: 'toggle' }))
+    expect(() => dispatchEvent(actor, 'toggle'))
       .toThrow(InvalidTransitionError);
   });
 
@@ -149,7 +150,7 @@ describe('dispatchEvent', () => {
     }
 
     const actor = startActor(BadActor);
-    expect(() => dispatchEvent(actor, { kind: 'event', name: 'start' }))
+    expect(() => dispatchEvent(actor, 'start'))
       .toThrow(InvalidTransitionError);
   });
 });
@@ -161,7 +162,7 @@ describe('dispatchCall', () => {
       reason = '';
       _on_call__idle__run(args: { reason: string }) {
         this.reason = args.reason;
-        this.send('started');
+        this._send_event('started');
       }
     }
 
@@ -169,6 +170,21 @@ describe('dispatchCall', () => {
     dispatchCall(actor, { kind: 'call', name: 'run', args: { reason: 'test' } });
 
     expect(actor.reason).toBe('test');
+  });
+
+  it('rejects multiple internal events in one actor turn', async () => {
+    class BadActor extends BaseActor {
+      static _actor = { states: { idle: { calls: { run: 'run' } } } };
+      run() {
+        this._send_event('one');
+        this._send_event('two');
+      }
+    }
+
+    const actor = startActor(BadActor);
+
+    expect(() => dispatchCall(actor, { kind: 'call', name: 'run' }))
+      .toThrow(InternalActorError);
   });
 
   it('supports explicit call method override', () => {

@@ -44,15 +44,15 @@ export class RuntimeSupervisorActor extends SlaveActor {
   }
 
   stop(): void {
-    this.send('stop');
+    this._send_event('stop');
   }
 
   pause(): void {
-    this.send('pause');
+    this._send_event('pause');
   }
 
   resume(): void {
-    this.send('resume');
+    this._send_event('resume');
   }
 
   requestProviderCall(args: ProviderCallArgs): void {

@@ -1,15 +1,8 @@
-export type EventMessage = {
-  kind: 'event';
-  name: string;
-};
-
-export type CallMessage = {
+export type MailboxCommand = {
   kind: 'call';
   name: string;
   args?: unknown;
 };
-
-export type ActorMessage = EventMessage | CallMessage;
 
 export type StateDefinition = {
   on?: Record<string, string>;
@@ -33,5 +26,5 @@ export type CompiledActorDefinition = {
 export type ActorInternals = {
   definition: CompiledActorDefinition;
   state: string;
-  queue: import('./event-queue.js').EventQueue;
+  queue: import('./mailbox-queue.js').MailboxQueue;
 };
