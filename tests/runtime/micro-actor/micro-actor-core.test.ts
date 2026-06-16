@@ -137,7 +137,7 @@ describe('dispatchEvent', () => {
 
   it('throws InvalidTransitionError for unknown current state', () => {
     const actor = startActor(LightActor);
-    actor._setStateForRuntime('nonexistent');
+    actor._state = 'nonexistent';
 
     expect(() => dispatchEvent(actor, 'toggle'))
       .toThrow(InvalidTransitionError);
