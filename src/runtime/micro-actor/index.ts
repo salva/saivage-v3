@@ -7,22 +7,23 @@ export {
 } from './define-machine.js';
 export {
   BaseActor,
-  SimpleSlaveActor,
-  SimpleSlaveCommandCancelledError,
-  SlaveActor,
   startActor,
   recoverActor,
   InternalActorError,
 } from './micro-actor.js';
+export { SlaveActor } from './slave-actor.js';
+export { SimpleSlaveActor, SimpleSlaveCommandCancelledError } from './simple-slave-actor.js';
 export { MailboxQueue, runMailboxBatch, runActorPump } from './mailbox-queue.js';
 export type {
-  ActorCommandMailbox,
   ActorConstructor,
   ActorStateTask,
+} from './micro-actor.js';
+export type { ActorCommandMailbox } from './slave-actor.js';
+export type {
   SimpleSlaveCommandCallbacks,
   SimpleSlaveCommandHandle,
   SimpleSlaveMailbox,
-} from './micro-actor.js';
+} from './simple-slave-actor.js';
 export type { MailboxCommandHandler, MailboxCommandErrorHandler } from './mailbox-queue.js';
 export type { ActorClassWithDefinition } from './define-machine.js';
 export type {

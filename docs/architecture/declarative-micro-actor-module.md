@@ -45,6 +45,12 @@ The micro-actor module never awaits inside transition dispatch. If work requires
 
 Creating an actor makes it live: the runtime initializes the `BaseActor` private fields, creates the actor-local pump queue, and starts the actor pump. From that point, external advancement happens only through `SlaveActor.mailbox.deliver(...)`. Internal advancement happens through `_send_event(...)` and `_start_task(...)` inside actor code. Low-level dispatch functions are actor-pump internals, not application APIs.
 
+Module layout stays intentionally small:
+
+- `micro-actor.ts`: `BaseActor`, construction/recovery, pending events, state tasks, and the pump.
+- `slave-actor.ts`: `SlaveActor` mailbox boundary.
+- `simple-slave-actor.ts`: optional serial worker specialization.
+
 ## 3. Actor Definition
 
 Actor definitions are pure transition data. They do not contain handler functions by default.
