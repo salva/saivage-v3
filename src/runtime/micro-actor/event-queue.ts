@@ -3,7 +3,7 @@ import type { ActorMessage } from './types.js';
 export type ActorMessageHandler = (message: ActorMessage) => void;
 export type ActorMessageErrorHandler = (error: unknown, message: ActorMessage) => void;
 
-export class AsyncActorQueue {
+export class EventQueue {
   private items: ActorMessage[] = [];
   private wake: (() => void) | undefined;
   private closed = false;
@@ -53,7 +53,7 @@ export class AsyncActorQueue {
 }
 
 export async function runActorBatch(
-  queue: AsyncActorQueue,
+  queue: EventQueue,
   handleMessage: ActorMessageHandler,
   onError: ActorMessageErrorHandler,
 ): Promise<number> {
@@ -76,7 +76,7 @@ export async function runActorBatch(
 }
 
 export async function runActorPump(
-  queue: AsyncActorQueue,
+  queue: EventQueue,
   handleMessage: ActorMessageHandler,
   onError: ActorMessageErrorHandler,
 ): Promise<void> {

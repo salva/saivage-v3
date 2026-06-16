@@ -1,10 +1,10 @@
 import { describe, expect, it } from '@jest/globals';
-import { AsyncActorQueue, runActorBatch } from '../../../src/runtime/micro-actor/index.js';
+import { EventQueue, runActorBatch } from '../../../src/runtime/micro-actor/index.js';
 import type { ActorMessage } from '../../../src/runtime/micro-actor/index.js';
 
-describe('AsyncActorQueue', () => {
+describe('EventQueue', () => {
   it('delivers queued messages in batch order', async () => {
-    const queue = new AsyncActorQueue();
+    const queue = new EventQueue();
     const delivered: ActorMessage[] = [];
     const errors: unknown[] = [];
 
@@ -25,7 +25,7 @@ describe('AsyncActorQueue', () => {
   });
 
   it('waits while empty and wakes when a message is pushed', async () => {
-    const queue = new AsyncActorQueue();
+    const queue = new EventQueue();
     const delivered: string[] = [];
 
     const batch = runActorBatch(
@@ -43,7 +43,7 @@ describe('AsyncActorQueue', () => {
   });
 
   it('reports sync handler errors and continues through the batch', async () => {
-    const queue = new AsyncActorQueue();
+    const queue = new EventQueue();
     const delivered: string[] = [];
     const errors: Array<{ error: unknown; message: ActorMessage }> = [];
 
@@ -67,7 +67,7 @@ describe('AsyncActorQueue', () => {
   });
 
   it('reports promise-returning handlers as invalid sync handlers', async () => {
-    const queue = new AsyncActorQueue();
+    const queue = new EventQueue();
     const errors: Array<{ error: unknown; message: ActorMessage }> = [];
 
     queue.push({ kind: 'event', name: 'async_handler' });

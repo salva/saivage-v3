@@ -1,6 +1,6 @@
 import { dispatchCall, dispatchEvent, dispatchRecover } from './dispatch.js';
 import { getCompiledActorDefinition } from './define-machine.js';
-import { AsyncActorQueue, runActorPump } from './event-queue.js';
+import { EventQueue, runActorPump } from './event-queue.js';
 import type { ActorDefinition, ActorInternals, CompiledActorDefinition } from './types.js';
 
 // Runtime constructor shape for concrete actor classes. The static _actor table is
@@ -16,7 +16,7 @@ export type ActorConstructor<T extends BaseActor = BaseActor> = (new (...args: a
 export abstract class BaseActor {
   #definition: CompiledActorDefinition | undefined;
   #state: string | undefined;
-  #queue: AsyncActorQueue | undefined;
+  #queue: EventQueue | undefined;
   #stateWaiters: Array<{ predicate: (state: string) => boolean; resolve: (state: string) => void }> = [];
 
   state(): string {
@@ -66,7 +66,7 @@ export abstract class BaseActor {
     this.#notifyStateWaiters(state);
   }
 
-  _queueForRuntime(): AsyncActorQueue {
+  _queueForRuntime(): EventQueue {
     return this.#requireInternals().queue;
   }
 
@@ -307,7 +307,7 @@ function installActor<T extends BaseActor>(
 ): T {
   const definition = getCompiledActorDefinition(ctor);
   const actor = new ctor(...args);
-  const queue = new AsyncActorQueue();
+  const queue = new EventQueue();
 
   actor._installActorInternals({
     definition,

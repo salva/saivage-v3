@@ -33,5 +33,5 @@ export type CompiledActorDefinition = {
 export type ActorInternals = {
   definition: CompiledActorDefinition;
   state: string;
-  queue: import('./event-queue.js').AsyncActorQueue;
+  queue: import('./event-queue.js').EventQueue;
 };

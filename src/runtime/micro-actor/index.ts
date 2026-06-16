@@ -13,7 +13,7 @@ export {
   startActor,
   recoverActor,
 } from './micro-actor.js';
-export { AsyncActorQueue, runActorBatch, runActorPump } from './event-queue.js';
+export { EventQueue, runActorBatch, runActorPump } from './event-queue.js';
 export type {
   ActorCommandMailbox,
   ActorConstructor,
