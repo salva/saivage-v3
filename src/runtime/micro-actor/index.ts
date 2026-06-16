@@ -10,10 +10,13 @@ export {
   startActor,
   recoverActor,
   InternalActorError,
+  dispatchCall,
+  dispatchEvent,
+  dispatchRecover,
 } from './micro-actor.js';
 export { SlaveActor } from './slave-actor.js';
 export { SimpleSlaveActor, SimpleSlaveCommandCancelledError } from './simple-slave-actor.js';
-export { MailboxQueue, runMailboxBatch, runActorPump } from './mailbox-queue.js';
+export { MailboxQueue } from './mailbox-queue.js';
 export type {
   ActorConstructor,
   ActorStateTask,
@@ -24,7 +27,6 @@ export type {
   SimpleSlaveCommandHandle,
   SimpleSlaveMailbox,
 } from './simple-slave-actor.js';
-export type { MailboxCommandHandler, MailboxCommandErrorHandler } from './mailbox-queue.js';
 export type { ActorClassWithDefinition } from './define-machine.js';
 export type {
   MailboxCommand,

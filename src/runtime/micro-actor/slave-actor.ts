@@ -1,4 +1,4 @@
-import { dispatchCall } from './dispatch.js';
+import { dispatchCall } from './micro-actor.js';
 import { MailboxQueue } from './mailbox-queue.js';
 import { BaseActor } from './micro-actor.js';
 

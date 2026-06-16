@@ -8,7 +8,7 @@ import {
   InternalActorError,
   startActor,
 } from '../../../src/runtime/micro-actor/index.js';
-import { dispatchCall, dispatchEvent } from '../../../src/runtime/micro-actor/dispatch.js';
+import { dispatchCall, dispatchEvent } from '../../../src/runtime/micro-actor/index.js';
 import type { ActorDefinition, CompiledActorDefinition } from '../../../src/runtime/micro-actor/index.js';
 
 class LightActor extends BaseActor {
