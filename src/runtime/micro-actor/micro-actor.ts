@@ -40,13 +40,14 @@ export abstract class BaseActor {
   #stateWaiters: Array<{ predicate: (state: string) => boolean; resolve: (state: string) => void }> = [];
 
   state(): string {
-    return this.#requireInternals().state;
+    if (this.#state === undefined) throw new Error('Actor internals are not installed');
+    return this.#state;
   }
 
   // Internal event emission. This records the one event the current actor turn
   // should process next; it is not an event queue.
   protected _send_event(name: string): void {
-    this.#requireInternals();
+    if (this.#state === undefined) throw new Error('Actor internals are not installed');
     if (this.#nextEvent !== undefined) {
       throw new InternalActorError(`Actor already has pending event "${this.#nextEvent}", cannot send "${name}"`);
     }
@@ -54,7 +55,8 @@ export abstract class BaseActor {
   }
 
   protected _start_task<Result>(task: ActorStateTask<Result>): void {
-    const state = this.#requireInternals().state;
+    if (this.#state === undefined) throw new Error('Actor internals are not installed');
+    const state = this.#state;
     const controller = new AbortController();
     const id = this.#nextTaskId++;
     this.#stateTasks.set(id, { ...task, id, state, controller } as ActiveStateTask);
@@ -70,7 +72,8 @@ export abstract class BaseActor {
   }
 
   waitForState(predicate: (state: string) => boolean): Promise<string> {
-    const current = this.#requireInternals().state;
+    if (this.#state === undefined) throw new Error('Actor internals are not installed');
+    const current = this.#state;
     if (predicate(current)) return Promise.resolve(current);
     return new Promise<string>((resolve) => {
       this.#stateWaiters.push({ predicate, resolve });
@@ -91,15 +94,18 @@ export abstract class BaseActor {
   // The following _*ForRuntime methods are intentionally narrow escape hatches for
   // the dispatcher. They avoid exposing private slots as public actor API.
   _actorDefinitionForRuntime(): CompiledActorDefinition {
-    return this.#requireInternals().definition;
+    if (this.#definition === undefined) throw new Error('Actor internals are not installed');
+    return this.#definition;
   }
 
   _stateForRuntime(): string {
-    return this.#requireInternals().state;
+    if (this.#state === undefined) throw new Error('Actor internals are not installed');
+    return this.#state;
   }
 
   _setStateForRuntime(state: string): void {
-    const current = this.#requireInternals().state;
+    if (this.#state === undefined) throw new Error('Actor internals are not installed');
+    const current = this.#state;
     if (current !== state) {
       this.#cancelTasksForState(current);
     }
@@ -108,14 +114,14 @@ export abstract class BaseActor {
   }
 
   _consumeNextEventForRuntime(): string | undefined {
-    this.#requireInternals();
+    if (this.#state === undefined) throw new Error('Actor internals are not installed');
     const event = this.#nextEvent;
     this.#nextEvent = undefined;
     return event;
   }
 
   _runActorTurnForRuntime(run: () => void): void {
-    this.#requireInternals();
+    if (this.#state === undefined || this.#definition === undefined) throw new Error('Actor internals are not installed');
     const result = run() as unknown;
     if (isPromiseLike(result)) {
       void Promise.resolve(result).catch(() => undefined);
@@ -138,24 +144,11 @@ export abstract class BaseActor {
     this.#stateWaiters = remaining;
   }
 
-  // Fail loudly if actor code is used before startActor/recoverActor installed the
-  // runtime machinery. Actor classes should not be manually new'ed for execution.
-  #requireInternals(): ActorInternals {
-    if (this.#definition === undefined || this.#state === undefined) {
-      throw new Error('Actor internals are not installed');
-    }
-
-    return {
-      definition: this.#definition,
-      state: this.#state,
-    };
-  }
-
   #completeTask(id: number, status: 'done' | 'failed', value: unknown): void {
     const task = this.#stateTasks.get(id);
     if (!task) return;
     this.#stateTasks.delete(id);
-    if (task.controller.signal.aborted || task.state !== this.#requireInternals().state) return;
+    if (task.controller.signal.aborted || task.state !== this.#state) return;
 
     const result = status === 'done'
       ? task.on_done?.(value)
