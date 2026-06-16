@@ -18,6 +18,7 @@ export { MailboxQueue, runMailboxBatch, runActorPump } from './mailbox-queue.js'
 export type {
   ActorCommandMailbox,
   ActorConstructor,
+  ActorStateTask,
   SimpleSlaveCommandCallbacks,
   SimpleSlaveCommandHandle,
   SimpleSlaveMailbox,

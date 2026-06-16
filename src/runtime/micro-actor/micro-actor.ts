@@ -1,7 +1,6 @@
 import { dispatchCall, dispatchEvent, dispatchRecover } from './dispatch.js';
 import { getCompiledActorDefinition } from './define-machine.js';
-import { MailboxQueue, runActorPump } from './mailbox-queue.js';
-import type { ActorDefinition, ActorInternals, CompiledActorDefinition } from './types.js';
+import type { ActorDefinition, ActorInternals, CompiledActorDefinition, MailboxCommand } from './types.js';
 
 export class InternalActorError extends Error {
   constructor(message: string) {
@@ -17,14 +16,74 @@ export type ActorConstructor<T extends BaseActor = BaseActor> = (new (...args: a
   _compiled_actor?: CompiledActorDefinition;
 };
 
+export type ActorStateTask<Result = unknown> = {
+  run(context: { signal: AbortSignal }): Promise<Result>;
+  on_done?: (result: Result) => void;
+  on_failed?: (error: unknown) => void;
+};
+
+type ActiveStateTask<Result = unknown> = ActorStateTask<Result> & {
+  id: number;
+  state: string;
+  controller: AbortController;
+};
+
+type ActorPumpWork = {
+  run(): void;
+  subject: unknown;
+};
+
+class ActorPumpQueue {
+  private items: ActorPumpWork[] = [];
+  private wake: (() => void) | undefined;
+  private closed = false;
+
+  push(work: ActorPumpWork): void {
+    if (this.closed) return;
+    this.items.push(work);
+    this.wake?.();
+    this.wake = undefined;
+  }
+
+  async shift(): Promise<ActorPumpWork> {
+    while (this.items.length === 0) {
+      if (this.closed) throw new Error('Actor pump queue closed');
+      await new Promise<void>((resolve) => {
+        this.wake = resolve;
+      });
+      if (this.closed) throw new Error('Actor pump queue closed');
+    }
+
+    return this.items.shift()!;
+  }
+
+  drain(): ActorPumpWork[] {
+    const batch = this.items;
+    this.items = [];
+    return batch;
+  }
+
+  close(): void {
+    this.closed = true;
+    this.wake?.();
+    this.wake = undefined;
+  }
+
+  isClosed(): boolean {
+    return this.closed;
+  }
+}
+
 // BaseActor owns only the generic micro-actor machinery: compiled definition,
-// current state, mailbox queue, and state waiters. Concrete actors own all domain
+// current state, pending event, state tasks, pump queue, and state waiters. Concrete actors own all domain
 // fields and behavior. External callers should not instantiate BaseActor directly.
 export abstract class BaseActor {
   #definition: CompiledActorDefinition | undefined;
   #state: string | undefined;
   #nextEvent: string | undefined;
-  #queue: MailboxQueue | undefined;
+  #pumpQueue = new ActorPumpQueue();
+  #nextTaskId = 1;
+  #stateTasks = new Map<number, ActiveStateTask>();
   #stateWaiters: Array<{ predicate: (state: string) => boolean; resolve: (state: string) => void }> = [];
 
   state(): string {
@@ -41,6 +100,28 @@ export abstract class BaseActor {
     this.#nextEvent = name;
   }
 
+  protected _start_task<Result>(task: ActorStateTask<Result>): void {
+    const state = this.#requireInternals().state;
+    const controller = new AbortController();
+    const id = this.#nextTaskId++;
+    this.#stateTasks.set(id, { ...task, id, state, controller } as ActiveStateTask);
+
+    Promise.resolve()
+      .then(() => task.run({ signal: controller.signal }))
+      .then((result) => {
+        this.#enqueuePumpWork(
+          () => this.#completeTask(id, 'done', result),
+          { kind: 'task_done', id },
+        );
+      })
+      .catch((error) => {
+        this.#enqueuePumpWork(
+          () => this.#completeTask(id, 'failed', error),
+          { kind: 'task_failed', id },
+        );
+      });
+  }
+
   waitForState(predicate: (state: string) => boolean): Promise<string> {
     const current = this.#requireInternals().state;
     if (predicate(current)) return Promise.resolve(current);
@@ -53,12 +134,11 @@ export abstract class BaseActor {
   // slots exist, so startActor/recoverActor installs these slots immediately after
   // construction.
   _installActorInternals(internals: ActorInternals): void {
-    if (this.#queue !== undefined) {
+    if (this.#definition !== undefined || this.#state !== undefined) {
       throw new Error('Actor internals already installed');
     }
     this.#definition = internals.definition;
     this.#state = internals.state;
-    this.#queue = internals.queue;
   }
 
   // The following _*ForRuntime methods are intentionally narrow escape hatches for
@@ -72,13 +152,12 @@ export abstract class BaseActor {
   }
 
   _setStateForRuntime(state: string): void {
-    this.#requireInternals();
+    const current = this.#requireInternals().state;
+    if (current !== state) {
+      this.#cancelTasksForState(current);
+    }
     this.#state = state;
     this.#notifyStateWaiters(state);
-  }
-
-  _queueForRuntime(): MailboxQueue {
-    return this.#requireInternals().queue;
   }
 
   _consumeNextEventForRuntime(): string | undefined {
@@ -86,6 +165,16 @@ export abstract class BaseActor {
     const event = this.#nextEvent;
     this.#nextEvent = undefined;
     return event;
+  }
+
+  _enqueuePumpWorkForRuntime(run: () => void, subject: unknown): void {
+    this.#requireInternals();
+    this.#enqueuePumpWork(run, subject);
+  }
+
+  _pumpQueueForRuntime(): ActorPumpQueue {
+    this.#requireInternals();
+    return this.#pumpQueue;
   }
 
   // waitForState is used by adapters/controllers that need to observe when the
@@ -105,15 +194,40 @@ export abstract class BaseActor {
   // Fail loudly if actor code is used before startActor/recoverActor installed the
   // runtime machinery. Actor classes should not be manually new'ed for execution.
   #requireInternals(): ActorInternals {
-    if (this.#definition === undefined || this.#state === undefined || this.#queue === undefined) {
+    if (this.#definition === undefined || this.#state === undefined) {
       throw new Error('Actor internals are not installed');
     }
 
     return {
       definition: this.#definition,
       state: this.#state,
-      queue: this.#queue,
     };
+  }
+
+  #enqueuePumpWork(run: () => void, subject: unknown): void {
+    this.#pumpQueue.push({ run, subject });
+  }
+
+  #completeTask(id: number, status: 'done' | 'failed', value: unknown): void {
+    const task = this.#stateTasks.get(id);
+    if (!task) return;
+    this.#stateTasks.delete(id);
+    if (task.controller.signal.aborted || task.state !== this.#requireInternals().state) return;
+
+    const result = status === 'done'
+      ? task.on_done?.(value)
+      : task.on_failed?.(value);
+    if (isPromiseLike(result)) {
+      throw new InternalActorError(`State task ${status} handler must be synchronous`);
+    }
+  }
+
+  #cancelTasksForState(state: string): void {
+    for (const [id, task] of this.#stateTasks) {
+      if (task.state !== state) continue;
+      this.#stateTasks.delete(id);
+      task.controller.abort();
+    }
   }
 }
 
@@ -126,12 +240,19 @@ export type ActorCommandMailbox = {
 export abstract class SlaveActor extends BaseActor {
   readonly mailbox: ActorCommandMailbox = {
     deliver: (name, args) => {
-      const message = args === undefined
-        ? { kind: 'call' as const, name }
-        : { kind: 'call' as const, name, args };
-      this._queueForRuntime().push(message);
+      this._enqueueMailboxCommand(name, args);
     },
   };
+
+  protected _enqueueMailboxCommand(name: string, args?: unknown): void {
+    const command = args === undefined
+      ? { kind: 'call' as const, name }
+      : { kind: 'call' as const, name, args };
+    this._enqueuePumpWorkForRuntime(
+      () => dispatchCall(this, command),
+      command,
+    );
+  }
 }
 
 export type SimpleSlaveCommandCallbacks<Result = unknown> = {
@@ -213,14 +334,14 @@ export abstract class SimpleSlaveActor extends SlaveActor {
   override readonly mailbox: SimpleSlaveMailbox = {
     deliver: (name, args, callbacks) => {
       const id = `command-${SimpleSlaveActor.nextCommandId++}`;
-      this._queueForRuntime().push({ kind: 'call', name: 'enqueue_command', args: { id, name, args, callbacks } });
+      this._enqueueMailboxCommand('enqueue_command', { id, name, args, callbacks });
       return {
         id,
         cancel: () => this.mailbox.cancel(id),
       };
     },
     cancel: (id) => {
-      this._queueForRuntime().push({ kind: 'call', name: 'cancel_command', args: { id } });
+      this._enqueueMailboxCommand('cancel_command', { id });
     },
   };
 
@@ -283,10 +404,10 @@ export abstract class SimpleSlaveActor extends SlaveActor {
 
     this._runCommand(next, { signal: controller.signal })
       .then((result) => {
-        this._queueForRuntime().push({ kind: 'call', name: 'command_done', args: { id: next.id, result } });
+        this._enqueueMailboxCommand('command_done', { id: next.id, result });
       })
       .catch((error) => {
-        this._queueForRuntime().push({ kind: 'call', name: 'command_failed', args: { id: next.id, error } });
+        this._enqueueMailboxCommand('command_failed', { id: next.id, error });
       });
   }
 }
@@ -325,12 +446,10 @@ function installActor<T extends BaseActor>(
 ): T {
   const definition = getCompiledActorDefinition(ctor);
   const actor = new ctor(...args);
-  const queue = new MailboxQueue();
 
   actor._installActorInternals({
     definition,
     state,
-    queue,
   });
 
   // Recovery needs hooks to run before the pump starts accepting later mailbox
@@ -338,18 +457,8 @@ function installActor<T extends BaseActor>(
   afterInstall?.(actor);
   drainActorEvents(actor);
 
-  // The pump serializes all command/event delivery for this actor. Dispatch stays
-  // internal to the pump; external objects interact through SlaveActor.mailbox.
-  void runActorPump(
-    queue,
-    (message) => {
-      dispatchCall(actor, message);
-      drainActorEvents(actor);
-    },
-    (error, _message) => {
-      throw error;
-    },
-  );
+  // The pump serializes mailbox commands, task completions, and internal events.
+  void runActorPump(actor);
 
   return actor;
 }
@@ -361,4 +470,36 @@ function drainActorEvents(actor: BaseActor): void {
     dispatchEvent(actor, event);
   }
   throw new InternalActorError('Actor produced too many internal events in one turn');
+}
+
+async function runActorPump(actor: BaseActor): Promise<void> {
+  const queue = actor._pumpQueueForRuntime();
+  try {
+    for (;;) {
+      const first = await queue.shift();
+      const batch = [first, ...queue.drain()];
+      for (const work of batch) {
+        try {
+          const result = work.run() as unknown;
+          if (isPromiseLike(result)) {
+            void Promise.resolve(result).catch(() => undefined);
+            throw new InternalActorError('Actor pump work must be synchronous');
+          }
+          drainActorEvents(actor);
+        } catch (error) {
+          throw error;
+        }
+      }
+    }
+  } catch (error) {
+    if (queue.isClosed()) return;
+    throw error;
+  }
+}
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return typeof value === 'object'
+    && value !== null
+    && 'then' in value
+    && typeof (value as { then?: unknown }).then === 'function';
 }

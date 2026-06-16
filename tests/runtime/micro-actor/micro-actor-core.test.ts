@@ -222,3 +222,87 @@ describe('dispatchCall', () => {
     expect(() => dispatchCall(actor, { kind: 'call', name: 'noop' })).not.toThrow();
   });
 });
+
+describe('state tasks', () => {
+  it('runs task completion handlers through the actor pump', async () => {
+    class TaskActor extends BaseActor {
+      static _actor = { states: { idle: { on: { done: 'done' } }, done: {} } };
+      result = '';
+      task!: Deferred<string>;
+
+      _on_recover__idle() {
+        this.task = createDeferred<string>();
+        this._start_task({
+          run: () => this.task.promise,
+          on_done: (result) => {
+            this.result = result;
+            this._send_event('done');
+          },
+        });
+      }
+    }
+
+    const actor = startActor(TaskActor);
+    actor._on_recover__idle();
+
+    actor.task.resolve('ok');
+
+    await eventually(() => expect(actor.state()).toBe('done'));
+    expect(actor.result).toBe('ok');
+  });
+
+  it('aborts unfinished state tasks when the actor leaves the state', async () => {
+    class TaskActor extends BaseActor {
+      static _actor = { states: { idle: { on: { leave: 'done' } }, done: {} } };
+      signal: AbortSignal | undefined;
+      task = createDeferred<void>();
+
+      _on_enter__idle() {
+        this._start_task({
+          run: ({ signal }) => {
+            this.signal = signal;
+            return this.task.promise;
+          },
+        });
+      }
+    }
+
+    const actor = startActor(TaskActor);
+    actor._on_enter__idle();
+
+    await eventually(() => expect(actor.signal?.aborted).toBe(false));
+    dispatchEvent(actor, 'leave');
+
+    expect(actor.signal?.aborted).toBe(true);
+  });
+});
+
+type Deferred<T> = {
+  promise: Promise<T>;
+  resolve(value: T): void;
+  reject(error: unknown): void;
+};
+
+function createDeferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+async function eventually(assertion: () => void): Promise<void> {
+  let lastError: unknown;
+  for (let i = 0; i < 30; i++) {
+    try {
+      assertion();
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  }
+  throw lastError;
+}
