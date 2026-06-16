@@ -1,5 +1,6 @@
 import type { LlmCompleteResult } from '../../agents/llm-contracts.js';
 import { BaseActor, startActor } from '../fsm/index.js';
+import type { ActorDefinition } from '../fsm/index.js';
 import { cardActorId, executorActorId } from './ids.js';
 import { LlmRunnerController } from './llm-runner.js';
 import { saveActorSnapshot } from './snapshots.js';
@@ -30,12 +31,12 @@ export interface TerminalCardRunnerContext {
 }
 
 export class TerminalCardRunnerActor extends BaseActor {
-  static _actor = {
+  static _actor: ActorDefinition = {
     initial: 'done',
     states: {
       done: {
-        on: { start: 'executing', cancel: 'done' },
-        calls: { start: 'recordStart', cancel: 'recordCancel' },
+        on: { start: 'executing' },
+        calls: { start: 'recordStart', cancel: false },
       },
       executing: {
         on: { done: 'done', failed: 'done', cancel: 'done' },
@@ -60,15 +61,18 @@ export class TerminalCardRunnerActor extends BaseActor {
   recordStart(): void {
     this.publicStatus = 'running';
     this.outcome = null;
+    this.send('start');
   }
 
   recordOutcome(outcome: TerminalOutcome): void {
     this.publicStatus = outcome.status;
     this.outcome = outcome;
+    this.send(outcome.status === 'done' ? 'done' : 'failed');
   }
 
   recordCancel(): void {
     this.publicStatus = 'cancelled';
+    this.send('cancel');
   }
 
   _on_enter__executing(): void {
@@ -122,7 +126,6 @@ export class TerminalCardRunnerController {
 
   async start(input: Omit<LlmInvocationInput, 'agentId'>): Promise<TerminalOutcome> {
     this.actor.call('start');
-    this.actor.send('start');
     await this.actor.waitForState((s) => s === 'executing');
     await this.statusPort?.markRunning(this.cardId);
     let currentInput = input;
@@ -175,7 +178,6 @@ export class TerminalCardRunnerController {
 
   private async complete(outcome: TerminalOutcome): Promise<TerminalOutcome> {
     this.actor.call('outcome', outcome);
-    this.actor.send(outcome.status === 'done' ? 'done' : 'failed');
     await this.actor.waitForState((s) => s === 'done');
     await this.statusPort?.commitTerminalOutcome(this.cardId, outcome);
     return outcome;
@@ -233,8 +235,8 @@ export class TerminalCardRunnerController {
   }
 
   async cancel(): Promise<void> {
+    if (this.phase === 'done') return;
     this.actor.call('cancel');
-    this.actor.send('cancel');
     await this.actor.waitForState((s) => s === 'done');
     await this.statusPort?.markCancelled(this.cardId);
   }

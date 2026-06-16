@@ -1,5 +1,6 @@
 import { buildXStateReviewerInput } from './actor-input-builders.js';
 import { BaseActor, startActor } from '../fsm/index.js';
+import type { ActorDefinition } from '../fsm/index.js';
 import { cardActorId, plannerActorId, reviewerActorId } from './ids.js';
 import { LlmRunnerController } from './llm-runner.js';
 import { saveActorSnapshot } from './snapshots.js';
@@ -44,12 +45,12 @@ export interface GoalCardRunnerContext {
 }
 
 export class GoalCardRunnerActor extends BaseActor {
-  static _actor = {
+  static _actor: ActorDefinition = {
     initial: 'done',
     states: {
       done: {
-        on: { start: 'planning', cancel: 'done' },
-        calls: { start: 'recordStart', cancel: 'recordCancel' },
+        on: { start: 'planning' },
+        calls: { start: 'recordStart', cancel: false },
       },
       planning: {
         on: { review_ready: 'reviewing', done: 'done', failed: 'done', cancel: 'done' },
@@ -78,15 +79,18 @@ export class GoalCardRunnerActor extends BaseActor {
   recordStart(): void {
     this.publicStatus = 'running';
     this.outcome = null;
+    this.send('start');
   }
 
   recordOutcome(outcome: GoalOutcome): void {
     this.publicStatus = outcome.status;
     this.outcome = outcome;
+    this.send(outcome.status === 'done' ? 'done' : 'failed');
   }
 
   recordCancel(): void {
     this.publicStatus = 'cancelled';
+    this.send('cancel');
   }
 
   _on_enter__planning(): void {
@@ -164,7 +168,6 @@ export class GoalCardRunnerController {
 
   async start(input: Omit<LlmInvocationInput, 'agentId'>): Promise<GoalOutcome> {
     this.actor.call('start');
-    this.actor.send('start');
     await this.actor.waitForState((s) => s === 'planning');
     await this.statusPort?.markRunning(this.cardId);
     const noteSinks = getActiveGoalNoteSinks(this.actor.projectRoot);
@@ -251,8 +254,8 @@ export class GoalCardRunnerController {
   }
 
   async cancel(): Promise<void> {
+    if (this.phase === 'done') return;
     this.actor.call('cancel');
-    this.actor.send('cancel');
     await this.actor.waitForState((s) => s === 'done');
     await this.statusPort?.markCancelled(this.cardId);
   }
@@ -279,7 +282,6 @@ export class GoalCardRunnerController {
 
   private async complete(outcome: GoalOutcome): Promise<GoalOutcome> {
     this.actor.call('outcome', outcome);
-    this.actor.send(outcome.status === 'done' ? 'done' : 'failed');
     await this.actor.waitForState((s) => s === 'done');
     await this.statusPort?.commitGoalOutcome(this.cardId, outcome);
     this.persist();

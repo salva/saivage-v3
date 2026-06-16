@@ -648,7 +648,7 @@ describe('XState minimal runtime core', () => {
     });
   }));
 
-  it('terminal CardRunner cancellation is a simple terminal transition', () => withTempProject(async (projectRoot) => {
+  it('terminal CardRunner cancellation is a no-op after completion', () => withTempProject(async (projectRoot) => {
     const provider: ProviderTurnPort = {
       completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'unused' })),
     };
@@ -657,10 +657,10 @@ describe('XState minimal runtime core', () => {
     await runner.cancel();
 
     expect(runner.phase).toBe('done');
-    expect(runner.publicStatus).toBe('cancelled');
+    expect(runner.publicStatus).toBe('backlog');
   }));
 
-  it('GoalCardRunner cancellation is a simple terminal transition with status publication', async () => withTempProject(async (projectRoot) => {
+  it('GoalCardRunner cancellation is a no-op after completion', async () => withTempProject(async (projectRoot) => {
     const provider: ProviderTurnPort = {
       completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'unused' })),
     };
@@ -680,8 +680,8 @@ describe('XState minimal runtime core', () => {
     await runner.cancel();
 
     expect(runner.phase).toBe('done');
-    expect(runner.publicStatus).toBe('cancelled');
-    expect(statusPort.markCancelled).toHaveBeenCalledWith('G-cancel');
+    expect(runner.publicStatus).toBe('backlog');
+    expect(statusPort.markCancelled).not.toHaveBeenCalled();
   }));
 
   it('ProcessRunner timeout returns control without killing the process', async () => withTempProject(async (projectRoot) => {

@@ -70,6 +70,7 @@ export class ProcessRunnerActor extends BaseActor {
     this.signal = null;
     this.stdout = '';
     this.stderr = '';
+    this.send('started');
   }
 
   recordOutput(args: OutputArgs): void {
@@ -81,6 +82,7 @@ export class ProcessRunnerActor extends BaseActor {
     this.exitCode = args.exitCode;
     this.signal = args.signal;
     this.pid = null;
+    this.send('exited');
   }
 
   _on_enter__running(): void {
@@ -145,14 +147,13 @@ export class ProcessRunnerController {
       this.actor.call('output', { stderr: chunk });
     });
     this.exitPromise = new Promise((resolve) => {
-      this.child?.once('exit', (exitCode, signal) => {
+      this.child?.once('exit', async (exitCode, signal) => {
         this.actor.call('exited', { exitCode, signal });
-        this.actor.send('exited');
+        await this.actor.waitForState((s) => s === 'done');
         resolve({ status: 'done', exitCode, signal, output: this.readOutput() });
       });
     });
     this.actor.call('started', { command: input.command, args: input.args ?? [], pid: this.child.pid ?? null });
-    this.actor.send('started');
     await this.actor.waitForState((s) => s === 'running');
   }
 

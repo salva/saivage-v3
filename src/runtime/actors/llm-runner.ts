@@ -69,14 +69,17 @@ export class LlmRunnerActor extends BaseActor {
   recordRun(input: LlmInvocationInput): void {
     this.input = input;
     this.output = null;
+    this.send('run');
   }
 
   recordProviderResult(args: ProviderResultArgs): void {
     this.output = outputFromProviderResult(this.agentId, args.result);
+    this.send('done');
   }
 
   recordProviderError(args: ProviderErrorArgs): void {
     this.output = { type: 'LLM_ERROR', agentId: this.agentId, error: args.error };
+    this.send('failed');
   }
 
   _on_enter__running(): void {
@@ -148,15 +151,13 @@ export class LlmRunnerController {
   async runTurn(input: LlmInvocationInput): Promise<LlmRunnerOutput> {
     if (input.agentId !== this.agentId) throw new Error(`Input ${input.inputId} targets ${input.agentId}, not ${this.agentId}`);
     this.actor.call('run', input);
-    this.actor.send('run');
+    await this.actor.waitForState((s) => s === 'running');
     appendLlmTurnStarted(this.actor.projectRoot, input);
     const callId = `${this.agentId}:${input.inputId}`;
     if (this.admission && !this.admission.requestProviderCall(callId)) {
       const error = `Provider admission denied for ${callId}.`;
       appendLlmTurnError(this.actor.projectRoot, input, error);
       this.actor.call('provider_error', { error });
-      this.actor.send('failed');
-      await this.actor.waitForState((s) => s === 'running');
       await this.actor.waitForState((s) => s === 'done');
       const output = this.actor.output;
       if (!output) throw new Error(`LLMRunner ${this.agentId} completed without output.`);
@@ -166,12 +167,10 @@ export class LlmRunnerController {
       const result = await this.providerTurn.completeTurn(input);
       appendLlmTurnFinished(this.actor.projectRoot, input, result);
       this.actor.call('provider_result', { result });
-      this.actor.send('done');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       appendLlmTurnError(this.actor.projectRoot, input, message);
       this.actor.call('provider_error', { error: message });
-      this.actor.send('failed');
     } finally {
       this.admission?.releaseProviderCall(callId);
     }
