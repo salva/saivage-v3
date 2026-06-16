@@ -30,15 +30,6 @@ export abstract class BaseActor {
     this.#requireInternals().queue.push({ kind: 'event', name });
   }
 
-  // Internal command enqueue primitive used by SlaveActor.mailbox. Kept protected
-  // so outside objects cannot bypass the mailbox boundary.
-  protected _enqueueCallForRuntime(name: string, args?: unknown): void {
-    const message = args === undefined
-      ? { kind: 'call' as const, name }
-      : { kind: 'call' as const, name, args };
-    this.#requireInternals().queue.push(message);
-  }
-
   waitForState(predicate: (state: string) => boolean): Promise<string> {
     const current = this.#requireInternals().state;
     if (predicate(current)) return Promise.resolve(current);
@@ -117,7 +108,10 @@ export type ActorCommandMailbox = {
 export abstract class SlaveActor extends BaseActor {
   readonly mailbox: ActorCommandMailbox = {
     deliver: (name, args) => {
-      this._enqueueCallForRuntime(name, args);
+      const message = args === undefined
+        ? { kind: 'call' as const, name }
+        : { kind: 'call' as const, name, args };
+      this._queueForRuntime().push(message);
     },
   };
 }
