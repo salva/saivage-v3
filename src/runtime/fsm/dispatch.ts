@@ -1,6 +1,6 @@
 import type { CallMessage, EventMessage, StateDefinition } from './types.js';
 import { InvalidTransitionError, MissingCallHandlerError } from './define-machine.js';
-import type { BaseActor } from './base-actor.js';
+import type { BaseActor } from './micro-actor.js';
 
 export function dispatchEvent(actor: BaseActor, event: EventMessage): string {
   const definition = actor._actorDefinitionForRuntime();
