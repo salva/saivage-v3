@@ -151,14 +151,14 @@ export class LlmRunnerController {
   async runTurn(input: LlmInvocationInput): Promise<LlmRunnerOutput> {
     if (input.agentId !== this.agentId) throw new Error(`Input ${input.inputId} targets ${input.agentId}, not ${this.agentId}`);
     this.actor.mailbox.deliver('run', input);
-    await this.actor.waitForState((s) => s === 'running');
+    await waitForActorState(this.actor, 'running');
     appendLlmTurnStarted(this.actor.projectRoot, input);
     const callId = `${this.agentId}:${input.inputId}`;
     if (this.admission && !this.admission.requestProviderCall(callId)) {
       const error = `Provider admission denied for ${callId}.`;
       appendLlmTurnError(this.actor.projectRoot, input, error);
       this.actor.mailbox.deliver('provider_error', { error });
-      await this.actor.waitForState((s) => s === 'done');
+      await waitForActorState(this.actor, 'done');
       const output = this.actor.output;
       if (!output) throw new Error(`LLMRunner ${this.agentId} completed without output.`);
       return output;
@@ -174,7 +174,7 @@ export class LlmRunnerController {
     } finally {
       this.admission?.releaseProviderCall(callId);
     }
-    await this.actor.waitForState((s) => s === 'done');
+    await waitForActorState(this.actor, 'done');
     const output = this.actor.output;
     if (!output) throw new Error(`LLMRunner ${this.agentId} completed without output.`);
     return output;
@@ -192,5 +192,11 @@ export class LlmRunnerController {
       context: this.actor.context() as unknown as Record<string, unknown>,
       updated_at: new Date().toISOString(),
     };
+  }
+}
+
+async function waitForActorState(actor: { state(): string }, state: string): Promise<void> {
+  while (actor.state() !== state) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
   }
 }

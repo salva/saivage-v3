@@ -176,7 +176,7 @@ export class GoalCardRunnerController {
 
   async start(input: Omit<LlmInvocationInput, 'agentId'>): Promise<GoalOutcome> {
     this.actor.mailbox.deliver('start');
-    await this.actor.waitForState((s) => s === 'planning');
+    await waitForActorState(this.actor, 'planning');
     await this.statusPort?.markRunning(this.cardId);
     const noteSinks = getActiveGoalNoteSinks(this.actor.projectRoot);
     noteSinks.register(this.cardId, this);
@@ -190,7 +190,7 @@ export class GoalCardRunnerController {
           if (review.kind === 'passed') return this.complete({ status: 'done', statusText: output.result.content });
           if (review.kind === 'failed') return this.complete({ status: 'failed', statusText: review.reason });
           this.actor.mailbox.deliver('needs_corrections');
-          await this.actor.waitForState((s) => s === 'planning');
+          await waitForActorState(this.actor, 'planning');
           currentInput = {
             ...currentInput,
             inputId: `${input.inputId}:review:${turn + 1}`,
@@ -264,7 +264,7 @@ export class GoalCardRunnerController {
   async cancel(): Promise<void> {
     if (this.phase === 'done') return;
     this.actor.mailbox.deliver('cancel');
-    await this.actor.waitForState((s) => s === 'done');
+    await waitForActorState(this.actor, 'done');
     await this.statusPort?.markCancelled(this.cardId);
   }
 
@@ -290,7 +290,7 @@ export class GoalCardRunnerController {
 
   private async complete(outcome: GoalOutcome): Promise<GoalOutcome> {
     this.actor.mailbox.deliver('outcome', outcome);
-    await this.actor.waitForState((s) => s === 'done');
+    await waitForActorState(this.actor, 'done');
     await this.statusPort?.commitGoalOutcome(this.cardId, outcome);
     this.persist();
     return outcome;
@@ -314,7 +314,7 @@ export class GoalCardRunnerController {
   > {
     if (!this.reviewerRunner) return { kind: 'passed' };
     this.actor.mailbox.deliver('review_ready');
-    await this.actor.waitForState((s) => s === 'reviewing');
+    await waitForActorState(this.actor, 'reviewing');
     const reviewerInput = buildXStateReviewerInput({
       inputId: `${input.inputId}:reviewer:${turn + 1}`,
       card: this.card,
@@ -343,6 +343,12 @@ export class GoalCardRunnerController {
         deliveredNoteIds: [...this.deliveredNoteIds].sort(),
       },
     };
+  }
+}
+
+async function waitForActorState(actor: { state(): string }, state: string): Promise<void> {
+  while (actor.state() !== state) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
   }
 }
 

@@ -37,7 +37,6 @@ export abstract class BaseActor {
   #nextEvent: string | undefined;
   #nextTaskId = 1;
   #stateTasks = new Map<number, ActiveStateTask>();
-  #stateWaiters: Array<{ predicate: (state: string) => boolean; resolve: (state: string) => void }> = [];
 
   state(): string {
     return this.#state!;
@@ -68,14 +67,6 @@ export abstract class BaseActor {
       });
   }
 
-  waitForState(predicate: (state: string) => boolean): Promise<string> {
-    const current = this.#state!;
-    if (predicate(current)) return Promise.resolve(current);
-    return new Promise<string>((resolve) => {
-      this.#stateWaiters.push({ predicate, resolve });
-    });
-  }
-
   // Runtime-only installation hook. Actor constructors run before private runtime
   // slots exist, so startActor/recoverActor installs these slots immediately after
   // construction.
@@ -103,7 +94,6 @@ export abstract class BaseActor {
       this.#cancelTasksForState(current);
     }
     this.#state = state;
-    this.#notifyStateWaiters(state);
   }
 
   _consumeNextEventForRuntime(): string | undefined {
@@ -119,20 +109,6 @@ export abstract class BaseActor {
       throw new InternalActorError('Actor turn work must be synchronous');
     }
     drainActorEvents(this);
-  }
-
-  // waitForState is used by adapters/controllers that need to observe when the
-  // pump has processed a command. Waiters resolve on actual state changes.
-  #notifyStateWaiters(state: string): void {
-    const remaining: Array<{ predicate: (state: string) => boolean; resolve: (state: string) => void }> = [];
-    for (const waiter of this.#stateWaiters) {
-      if (waiter.predicate(state)) {
-        waiter.resolve(state);
-      } else {
-        remaining.push(waiter);
-      }
-    }
-    this.#stateWaiters = remaining;
   }
 
   #completeTask(id: number, status: 'done' | 'failed', value: unknown): void {

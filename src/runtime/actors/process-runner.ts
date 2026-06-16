@@ -149,17 +149,17 @@ export class ProcessRunnerController {
     this.exitPromise = new Promise((resolve) => {
       this.child?.once('exit', async (exitCode, signal) => {
         this.actor.mailbox.deliver('exited', { exitCode, signal });
-        await this.actor.waitForState((s) => s === 'done');
+        await waitForActorState(this.actor, 'done');
         resolve({ status: 'done', exitCode, signal, output: this.readOutput() });
       });
     });
     this.actor.mailbox.deliver('started', { command: input.command, args: input.args ?? [], pid: this.child.pid ?? null });
-    await this.actor.waitForState((s) => s === 'running');
+    await waitForActorState(this.actor, 'running');
   }
 
   async wait(timeoutMs: number): Promise<ProcessWaitResult> {
     if (this.state !== 'running') {
-      await this.actor.waitForState((s) => s === 'done');
+      await waitForActorState(this.actor, 'done');
       const context = this.actor.context();
       return { status: 'done', exitCode: context.exitCode, signal: context.signal, output: this.readOutput() };
     }
@@ -195,5 +195,11 @@ export class ProcessRunnerController {
 
   private persist(): void {
     saveActorSnapshot(this.actor.projectRoot, this.snapshot());
+  }
+}
+
+async function waitForActorState(actor: { state(): string }, state: string): Promise<void> {
+  while (actor.state() !== state) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
   }
 }

@@ -126,7 +126,7 @@ export class TerminalCardRunnerController {
 
   async start(input: Omit<LlmInvocationInput, 'agentId'>): Promise<TerminalOutcome> {
     this.actor.mailbox.deliver('start');
-    await this.actor.waitForState((s) => s === 'executing');
+    await waitForActorState(this.actor, 'executing');
     await this.statusPort?.markRunning(this.cardId);
     let currentInput = input;
     for (let turn = 0; turn < 10; turn++) {
@@ -178,7 +178,7 @@ export class TerminalCardRunnerController {
 
   private async complete(outcome: TerminalOutcome): Promise<TerminalOutcome> {
     this.actor.mailbox.deliver('outcome', outcome);
-    await this.actor.waitForState((s) => s === 'done');
+    await waitForActorState(this.actor, 'done');
     await this.statusPort?.commitTerminalOutcome(this.cardId, outcome);
     return outcome;
   }
@@ -237,7 +237,7 @@ export class TerminalCardRunnerController {
   async cancel(): Promise<void> {
     if (this.phase === 'done') return;
     this.actor.mailbox.deliver('cancel');
-    await this.actor.waitForState((s) => s === 'done');
+    await waitForActorState(this.actor, 'done');
     await this.statusPort?.markCancelled(this.cardId);
   }
 
@@ -251,6 +251,12 @@ export class TerminalCardRunnerController {
 
   snapshot() {
     return this.actor.snapshot();
+  }
+}
+
+async function waitForActorState(actor: { state(): string }, state: string): Promise<void> {
+  while (actor.state() !== state) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
   }
 }
 
