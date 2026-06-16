@@ -23,11 +23,12 @@ export class MissingCallHandlerError extends Error {
 
 export type ActorClassWithDefinition = Function & {
   _actor?: ActorDefinition;
+  _allow_inherited_actor?: boolean;
   _compiled_actor?: CompiledActorDefinition;
 };
 
 export function getCompiledActorDefinition(ctor: ActorClassWithDefinition): CompiledActorDefinition {
-  if (!Object.hasOwn(ctor, '_actor')) {
+  if (!Object.hasOwn(ctor, '_actor') && !ctor._allow_inherited_actor) {
     throw new InvalidActorDefinitionError(
       `${ctor.name || '<anonymous>'} must declare static _actor`,
     );
