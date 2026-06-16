@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
-import { AsyncActorQueue, runActorBatch } from '../../../src/runtime/fsm/index.js';
-import type { ActorMessage } from '../../../src/runtime/fsm/index.js';
+import { AsyncActorQueue, runActorBatch } from '../../../src/runtime/micro-actor/index.js';
+import type { ActorMessage } from '../../../src/runtime/micro-actor/index.js';
 
 describe('AsyncActorQueue', () => {
   it('delivers queued messages in batch order', async () => {

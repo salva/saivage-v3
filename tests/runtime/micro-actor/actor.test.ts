@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { BaseActor, recoverActor, SlaveActor, startActor } from '../../../src/runtime/fsm/index.js';
+import { BaseActor, recoverActor, SlaveActor, startActor } from '../../../src/runtime/micro-actor/index.js';
 
 class CounterActor extends SlaveActor {
   static _actor = {

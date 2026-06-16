@@ -1,6 +1,6 @@
 import { buildXStateReviewerInput } from './actor-input-builders.js';
-import { SlaveActor, startActor } from '../fsm/index.js';
-import type { ActorDefinition } from '../fsm/index.js';
+import { SlaveActor, startActor } from '../micro-actor/index.js';
+import type { ActorDefinition } from '../micro-actor/index.js';
 import { cardActorId, plannerActorId, reviewerActorId } from './ids.js';
 import { LlmRunnerController } from './llm-runner.js';
 import { saveActorSnapshot } from './snapshots.js';

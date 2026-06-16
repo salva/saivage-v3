@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { SlaveActor, startActor } from '../fsm/index.js';
+import { SlaveActor, startActor } from '../micro-actor/index.js';
 import { processActorId } from './ids.js';
 import { saveActorSnapshot } from './snapshots.js';
 

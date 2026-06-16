@@ -8,4 +8,4 @@ Current architecture documents:
 
 - [System architecture](./system-architecture.md)
 - [Micro-actor runtime core architecture](./micro-actor-runtime-core.md)
-- [Declarative FSM module architecture](./declarative-fsm-module.md)
+- [Declarative micro-actor module architecture](./declarative-micro-actor-module.md)

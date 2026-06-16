@@ -6,12 +6,12 @@ Last updated: 2026-06-15.
 
 ## 1. Purpose
 
-This document defines how the Saivage v3 autonomous runtime core is built on the local micro-actor FSM module:
+This document defines how the Saivage v3 autonomous runtime core is built on the local micro-actor module:
 
 - [System functional specification](../spec/system-specification.md)
 - [Operator UI specification](../spec/operator-ui.md)
 - [System architecture](./system-architecture.md)
-- [Declarative FSM module architecture](./declarative-fsm-module.md)
+- [Declarative micro-actor module architecture](./declarative-micro-actor-module.md)
 
 The runtime is a tree of `BaseActor` subclasses. Each actor declares a static `_actor` transition table, receives queued `send(event)` and `call(name, args?)` messages, and owns its own current state through `BaseActor` private slots.
 
@@ -350,7 +350,7 @@ Classify recovery at durable boundaries:
 - `abandon_with_diagnostic`: cannot safely reattach to external work;
 - `terminal`: no recovery work needed.
 
-Actor restoration uses the FSM module's native recovery path. The runtime reconstructs the actor instance from persisted domain data, calls `recoverActor(ActorClass, persistedState, ...)`, and lets the actor run `_on_recover__{state}`. When no recover hook exists, the FSM module falls back to `_on_enter__{state}`. Recovery hooks rebuild runtime-owned live resources, restart safe idempotent work, reconcile external process/provider state, or record diagnostics and send `failed`.
+Actor restoration uses the micro-actor module's native recovery path. The runtime reconstructs the actor instance from persisted domain data, calls `recoverActor(ActorClass, persistedState, ...)`, and lets the actor run `_on_recover__{state}`. When no recover hook exists, the micro-actor module falls back to `_on_enter__{state}`. Recovery hooks rebuild runtime-owned live resources, restart safe idempotent work, reconcile external process/provider state, or record diagnostics and send `failed`.
 
 Examples:
 

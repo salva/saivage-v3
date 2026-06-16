@@ -1,4 +1,4 @@
-import { SlaveActor, startActor } from '../fsm/index.js';
+import { SlaveActor, startActor } from '../micro-actor/index.js';
 import { saveActorSnapshot } from './snapshots.js';
 import { supervisorActorId } from './ids.js';
 

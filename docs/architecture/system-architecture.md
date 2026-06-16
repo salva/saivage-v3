@@ -27,7 +27,7 @@ Runtime is infrastructure. Operator UI and HTTP/WebSocket transport are infrastr
 
 This distinction matters: the runtime should not be described as a peer of planner/executor/reviewer. It owns dispatch and persistence. Worker agents perform card work under runtime control. The Analyst controls the system on behalf of the user through canonical services.
 
-The detailed FSM module architecture is specified in [Declarative FSM module architecture](./declarative-fsm-module.md).
+The detailed micro-actor module architecture is specified in [Declarative micro-actor module architecture](./declarative-micro-actor-module.md).
 
 ## 3. Ownership Boundaries
 
@@ -156,7 +156,7 @@ Provider diagnostics, account details, runtime internals, and raw error metadata
 
 ## 13. Implementation Direction
 
-The runtime implementation direction is micro-actor-centered: actor states and queued `send`/`call` messages drive behavior, not imperative orchestration loops. The FSM module contract, state ownership, delivery model, and persistence boundary are defined in [Declarative FSM module architecture](./declarative-fsm-module.md). The full runtime actor tree is defined in [Micro-Actor Runtime Core Architecture](./micro-actor-runtime-core.md).
+The runtime implementation direction is micro-actor-centered: actor states and queued mailbox commands/internal events drive behavior, not imperative orchestration loops. The micro-actor module contract, state ownership, delivery model, and persistence boundary are defined in [Declarative micro-actor module architecture](./declarative-micro-actor-module.md). The full runtime actor tree is defined in [Micro-Actor Runtime Core Architecture](./micro-actor-runtime-core.md).
 
 Target actor ownership:
 

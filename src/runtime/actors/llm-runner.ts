@@ -1,7 +1,7 @@
 import type { OperationalAgentRole } from '../../schemas/index.js';
 import type { LlmCompleteResult, ToolDefinition } from '../../agents/llm-contracts.js';
 import type { CapabilityRequest } from '../../agents/provider-capabilities.js';
-import { SlaveActor, startActor } from '../fsm/index.js';
+import { SlaveActor, startActor } from '../micro-actor/index.js';
 import { saveActorSnapshot } from './snapshots.js';
 import { actorKindFromId } from './ids.js';
 import { appendLlmTurnError, appendLlmTurnFinished, appendLlmTurnStarted } from './llm-delivery-log.js';

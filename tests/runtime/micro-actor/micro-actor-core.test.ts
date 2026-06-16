@@ -6,9 +6,9 @@ import {
   InvalidTransitionError,
   MissingCallHandlerError,
   startActor,
-} from '../../../src/runtime/fsm/index.js';
-import { dispatchCall, dispatchEvent } from '../../../src/runtime/fsm/dispatch.js';
-import type { ActorDefinition, CompiledActorDefinition } from '../../../src/runtime/fsm/index.js';
+} from '../../../src/runtime/micro-actor/index.js';
+import { dispatchCall, dispatchEvent } from '../../../src/runtime/micro-actor/dispatch.js';
+import type { ActorDefinition, CompiledActorDefinition } from '../../../src/runtime/micro-actor/index.js';
 
 class LightActor extends BaseActor {
   static _actor: ActorDefinition = {

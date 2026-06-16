@@ -1,4 +1,4 @@
-# Declarative FSM Module Architecture
+# Declarative Micro-Actor Module Architecture
 
 Date: 2026-06-15.
 
@@ -19,14 +19,14 @@ The module supports:
 - runtime-owned async work started by actor methods;
 - explicit completion events returned through actor queues.
 
-The FSM module is the deterministic core. Actor methods may start runtime-owned async work directly by calling runtime services. Async completions must return to the actor through queued events.
+The micro-actor module is the deterministic core. Actor methods may start runtime-owned async work directly by calling runtime services. Async completions must return to the actor through queued mailbox commands or internal events.
 
 ## 2. Core Model
 
 The module has five concepts:
 
 - **Actor definition**: static `_actor` declaration of states and event transitions on each concrete actor class.
-- **Actor**: a regular JS/TS class instance with domain fields and methods. Runtime/FSM bookkeeping lives in JavaScript private fields on `BaseActor`.
+- **Actor**: a regular JS/TS class instance with domain fields and methods. Runtime bookkeeping lives in JavaScript private fields on `BaseActor`.
 - **Event**: queued state-transition input, delivered by `send(name)`.
 - **Call**: queued method invocation, delivered by `call(name, args?)` and handled by state-scoped convention methods.
 - **Actor queue**: one actor-local mailbox that serializes events and calls for one actor instance.
@@ -39,7 +39,7 @@ actor.call(name, args) -> actor queue -> actor pump -> state-scoped call method
 async completion callback -> actor fields -> actor.send(name)
 ```
 
-The FSM never awaits inside transition dispatch. If work requires I/O, timers, LLM calls, process waits, file operations, or network requests, an actor method calls the appropriate runtime service and returns. The runtime service later reports completion by calling `actor.send(...)`.
+The micro-actor module never awaits inside transition dispatch. If work requires I/O, timers, LLM calls, process waits, file operations, or network requests, an actor method calls the appropriate runtime service and returns. External runtime services later report completion through the actor mailbox, while actor code may emit internal events.
 
 Creating an actor makes it live: the runtime initializes the `BaseActor` private fields, creates the actor-local queue, and starts the actor pump. From that point, supported advancement happens only through queued `send` and `call` delivery. Low-level dispatch functions are actor-pump internals, not application APIs.
 
@@ -220,7 +220,7 @@ Lookup rules:
 - Recover hooks are optional. Missing recover methods fall back to the state enter hook when it exists.
 - Call handlers are strict. A missing call handler throws a runtime error unless the state definition disables that call explicitly.
 - Convention methods are called with `this` bound to the actor instance.
-- Methods must be synchronous with respect to FSM mutation. They may start async runtime work, but they must not `await` before returning to the pump.
+- Methods must be synchronous with respect to actor mutation. They may start async runtime work, but they must not `await` before returning to the pump.
 - If a convention method returns a promise, the actor pump treats it as a programming error.
 
 Recovery rules:
@@ -287,7 +287,7 @@ Delivery rules:
 - Different actor pumps may run concurrently.
 - Events that are not declared for the current state are ignored by default.
 - Calls that have no current-state handler throw by default.
-- Durable delivery records, when needed, are a runtime responsibility outside the FSM module.
+- Durable delivery records, when needed, are a runtime responsibility outside the micro-actor module.
 
 Minimal queue/pump shape:
 
@@ -363,11 +363,11 @@ Rules:
 
 State-machine bookkeeping rules:
 
-- All FSM module instance data lives in JavaScript private fields on `BaseActor`.
+- All micro-actor module instance data lives in JavaScript private fields on `BaseActor`.
 - Domain data, runtime references, and actor behavior live on the concrete subclass.
 - Actor objects expose `state()` to read the current private state slot.
 - Actor objects expose `send(name)` and `call(name, args?)` methods.
-- Application code cannot and should not read private FSM slots directly.
+- Application code cannot and should not read private actor slots directly.
 
 ## 8. Call Dispatch Semantics
 
@@ -404,7 +404,7 @@ These conventions keep common actors terse without adding a general workflow fra
 
 ## 10. Async Work And Completion
 
-The FSM module does not define commands. Actor methods call runtime services directly.
+The micro-actor module defines a mailbox command delivery boundary for `SlaveActor`s. Actor methods call runtime services directly.
 
 Example:
 
@@ -446,7 +446,7 @@ Async work rules:
 
 ## 11. Persistence Boundary
 
-The FSM module does not persist anything itself. The caller owns persistence.
+The micro-actor module does not persist anything itself. The caller owns persistence.
 
 Recommended runtime sequence:
 
@@ -460,7 +460,7 @@ Recommended runtime sequence:
 7. async runtime callbacks later call actor.send(...)
 ```
 
-The FSM module does not define a snapshot type. The runtime must be able to serialize and reconstruct actor objects from persisted domain data plus the actor's current state string.
+The micro-actor module does not define a snapshot type. The runtime must be able to serialize and reconstruct actor objects from persisted domain data plus the actor's current state string.
 
 ## 12. Example: Supervisor Actor
 
@@ -685,7 +685,7 @@ At delivery time:
 
 ## 16. Testing Strategy
 
-Test the FSM module independently:
+Test the micro-actor module independently:
 
 - `static _actor` declares a definition for a class;
 - `_compiled_actor` is initialized lazily on first actor creation;
