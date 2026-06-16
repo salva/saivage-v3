@@ -1,5 +1,5 @@
 import { buildXStateReviewerInput } from './actor-input-builders.js';
-import { BaseActor, startActor } from '../fsm/index.js';
+import { SlaveActor, startActor } from '../fsm/index.js';
 import type { ActorDefinition } from '../fsm/index.js';
 import { cardActorId, plannerActorId, reviewerActorId } from './ids.js';
 import { LlmRunnerController } from './llm-runner.js';
@@ -44,7 +44,7 @@ export interface GoalCardRunnerContext {
   outcome: GoalOutcome | null;
 }
 
-export class GoalCardRunnerActor extends BaseActor {
+export class GoalCardRunnerActor extends SlaveActor {
   static _actor: ActorDefinition = {
     initial: 'done',
     states: {
@@ -54,11 +54,11 @@ export class GoalCardRunnerActor extends BaseActor {
       },
       planning: {
         on: { review_ready: 'reviewing', done: 'done', failed: 'done', cancel: 'done' },
-        calls: { outcome: 'recordOutcome', cancel: 'recordCancel' },
+        calls: { review_ready: 'recordReviewReady', outcome: 'recordOutcome', cancel: 'recordCancel' },
       },
       reviewing: {
         on: { needs_corrections: 'planning', done: 'done', failed: 'done', cancel: 'done' },
-        calls: { outcome: 'recordOutcome', cancel: 'recordCancel' },
+        calls: { needs_corrections: 'recordNeedsCorrections', outcome: 'recordOutcome', cancel: 'recordCancel' },
       },
     },
   };
@@ -86,6 +86,14 @@ export class GoalCardRunnerActor extends BaseActor {
     this.publicStatus = outcome.status;
     this.outcome = outcome;
     this.send(outcome.status === 'done' ? 'done' : 'failed');
+  }
+
+  recordReviewReady(): void {
+    this.send('review_ready');
+  }
+
+  recordNeedsCorrections(): void {
+    this.send('needs_corrections');
   }
 
   recordCancel(): void {
@@ -167,7 +175,7 @@ export class GoalCardRunnerController {
   private readonly statusPort?: GoalCardStatusPort;
 
   async start(input: Omit<LlmInvocationInput, 'agentId'>): Promise<GoalOutcome> {
-    this.actor.call('start');
+    this.actor.mailbox.deliver('start');
     await this.actor.waitForState((s) => s === 'planning');
     await this.statusPort?.markRunning(this.cardId);
     const noteSinks = getActiveGoalNoteSinks(this.actor.projectRoot);
@@ -181,7 +189,7 @@ export class GoalCardRunnerController {
           const review = await this.reviewPlannerResult(currentInput, output.result.content, turn);
           if (review.kind === 'passed') return this.complete({ status: 'done', statusText: output.result.content });
           if (review.kind === 'failed') return this.complete({ status: 'failed', statusText: review.reason });
-          this.actor.send('needs_corrections');
+          this.actor.mailbox.deliver('needs_corrections');
           await this.actor.waitForState((s) => s === 'planning');
           currentInput = {
             ...currentInput,
@@ -255,7 +263,7 @@ export class GoalCardRunnerController {
 
   async cancel(): Promise<void> {
     if (this.phase === 'done') return;
-    this.actor.call('cancel');
+    this.actor.mailbox.deliver('cancel');
     await this.actor.waitForState((s) => s === 'done');
     await this.statusPort?.markCancelled(this.cardId);
   }
@@ -281,7 +289,7 @@ export class GoalCardRunnerController {
   }
 
   private async complete(outcome: GoalOutcome): Promise<GoalOutcome> {
-    this.actor.call('outcome', outcome);
+    this.actor.mailbox.deliver('outcome', outcome);
     await this.actor.waitForState((s) => s === 'done');
     await this.statusPort?.commitGoalOutcome(this.cardId, outcome);
     this.persist();
@@ -305,7 +313,7 @@ export class GoalCardRunnerController {
     | { kind: 'failed'; reason: string }
   > {
     if (!this.reviewerRunner) return { kind: 'passed' };
-    this.actor.send('review_ready');
+    this.actor.mailbox.deliver('review_ready');
     await this.actor.waitForState((s) => s === 'reviewing');
     const reviewerInput = buildXStateReviewerInput({
       inputId: `${input.inputId}:reviewer:${turn + 1}`,

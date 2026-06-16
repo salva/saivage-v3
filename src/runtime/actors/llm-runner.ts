@@ -1,7 +1,7 @@
 import type { OperationalAgentRole } from '../../schemas/index.js';
 import type { LlmCompleteResult, ToolDefinition } from '../../agents/llm-contracts.js';
 import type { CapabilityRequest } from '../../agents/provider-capabilities.js';
-import { BaseActor, startActor } from '../fsm/index.js';
+import { SlaveActor, startActor } from '../fsm/index.js';
 import { saveActorSnapshot } from './snapshots.js';
 import { actorKindFromId } from './ids.js';
 import { appendLlmTurnError, appendLlmTurnFinished, appendLlmTurnStarted } from './llm-delivery-log.js';
@@ -44,7 +44,7 @@ export interface LlmRunnerContext {
 type ProviderResultArgs = { result: LlmCompleteResult };
 type ProviderErrorArgs = { error: string };
 
-export class LlmRunnerActor extends BaseActor {
+export class LlmRunnerActor extends SlaveActor {
   static _actor = {
     initial: 'done',
     states: {
@@ -150,14 +150,14 @@ export class LlmRunnerController {
 
   async runTurn(input: LlmInvocationInput): Promise<LlmRunnerOutput> {
     if (input.agentId !== this.agentId) throw new Error(`Input ${input.inputId} targets ${input.agentId}, not ${this.agentId}`);
-    this.actor.call('run', input);
+    this.actor.mailbox.deliver('run', input);
     await this.actor.waitForState((s) => s === 'running');
     appendLlmTurnStarted(this.actor.projectRoot, input);
     const callId = `${this.agentId}:${input.inputId}`;
     if (this.admission && !this.admission.requestProviderCall(callId)) {
       const error = `Provider admission denied for ${callId}.`;
       appendLlmTurnError(this.actor.projectRoot, input, error);
-      this.actor.call('provider_error', { error });
+      this.actor.mailbox.deliver('provider_error', { error });
       await this.actor.waitForState((s) => s === 'done');
       const output = this.actor.output;
       if (!output) throw new Error(`LLMRunner ${this.agentId} completed without output.`);
@@ -166,11 +166,11 @@ export class LlmRunnerController {
     try {
       const result = await this.providerTurn.completeTurn(input);
       appendLlmTurnFinished(this.actor.projectRoot, input, result);
-      this.actor.call('provider_result', { result });
+      this.actor.mailbox.deliver('provider_result', { result });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       appendLlmTurnError(this.actor.projectRoot, input, message);
-      this.actor.call('provider_error', { error: message });
+      this.actor.mailbox.deliver('provider_error', { error: message });
     } finally {
       this.admission?.releaseProviderCall(callId);
     }

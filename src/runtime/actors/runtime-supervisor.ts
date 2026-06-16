@@ -1,4 +1,4 @@
-import { BaseActor, startActor } from '../fsm/index.js';
+import { SlaveActor, startActor } from '../fsm/index.js';
 import { saveActorSnapshot } from './snapshots.js';
 import { supervisorActorId } from './ids.js';
 
@@ -13,17 +13,17 @@ export interface RuntimeSupervisorContext {
 type StartArgs = { projectRoot: string };
 type ProviderCallArgs = { callId: string };
 
-export class RuntimeSupervisorActor extends BaseActor {
+export class RuntimeSupervisorActor extends SlaveActor {
   static _actor = {
     initial: 'running',
     states: {
       running: {
         on: { pause: 'paused', stop: 'stopping' },
-        calls: { start: 'setProjectRoot', request_provider_call: 'requestProviderCall', release_provider_call: 'releaseProviderCall' },
+        calls: { start: 'setProjectRoot', stop: 'stop', pause: 'pause', request_provider_call: 'requestProviderCall', release_provider_call: 'releaseProviderCall' },
       },
       paused: {
         on: { resume: 'running', stop: 'stopping' },
-        calls: { start: 'setProjectRoot', request_provider_call: 'requestProviderCall', release_provider_call: 'releaseProviderCall' },
+        calls: { start: 'setProjectRoot', stop: 'stop', resume: 'resume', request_provider_call: 'requestProviderCall', release_provider_call: 'releaseProviderCall' },
       },
       stopping: {
         calls: { start: 'setProjectRoot', request_provider_call: 'requestProviderCall', release_provider_call: 'releaseProviderCall' },
@@ -41,6 +41,18 @@ export class RuntimeSupervisorActor extends BaseActor {
   setProjectRoot(args: StartArgs): void {
     this.projectRoot = args.projectRoot;
     this.persist();
+  }
+
+  stop(): void {
+    this.send('stop');
+  }
+
+  pause(): void {
+    this.send('pause');
+  }
+
+  resume(): void {
+    this.send('resume');
   }
 
   requestProviderCall(args: ProviderCallArgs): void {
@@ -87,29 +99,29 @@ export class RuntimeSupervisorController {
   private readonly actor = startActor(RuntimeSupervisorActor);
 
   start(projectRoot: string): void {
-    this.actor.call('start', { projectRoot });
+    this.actor.mailbox.deliver('start', { projectRoot });
   }
 
   stop(): void {
-    this.actor.send('stop');
+    this.actor.mailbox.deliver('stop');
   }
 
   pause(): void {
-    this.actor.send('pause');
+    this.actor.mailbox.deliver('pause');
   }
 
   resume(): void {
-    this.actor.send('resume');
+    this.actor.mailbox.deliver('resume');
   }
 
   requestProviderCall(callId: string): boolean {
     if (this.work !== 'ready' || this.mode !== 'running') return false;
-    this.actor.call('request_provider_call', { callId });
+    this.actor.mailbox.deliver('request_provider_call', { callId });
     return true;
   }
 
   releaseProviderCall(callId: string): void {
-    this.actor.call('release_provider_call', { callId });
+    this.actor.mailbox.deliver('release_provider_call', { callId });
   }
 
   get mode(): RuntimeSupervisorMode {

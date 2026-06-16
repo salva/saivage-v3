@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { BaseActor, startActor } from '../fsm/index.js';
+import { SlaveActor, startActor } from '../fsm/index.js';
 import { processActorId } from './ids.js';
 import { saveActorSnapshot } from './snapshots.js';
 
@@ -35,7 +35,7 @@ type StartedArgs = { command: string; args: string[]; pid: number | null };
 type OutputArgs = { stdout?: string; stderr?: string };
 type ExitedArgs = { exitCode: number | null; signal: NodeJS.Signals | null };
 
-export class ProcessRunnerActor extends BaseActor {
+export class ProcessRunnerActor extends SlaveActor {
   static _actor = {
     initial: 'done',
     states: {
@@ -141,19 +141,19 @@ export class ProcessRunnerController {
     this.child.stdout.setEncoding('utf8');
     this.child.stderr.setEncoding('utf8');
     this.child.stdout.on('data', (chunk: string) => {
-      this.actor.call('output', { stdout: chunk });
+      this.actor.mailbox.deliver('output', { stdout: chunk });
     });
     this.child.stderr.on('data', (chunk: string) => {
-      this.actor.call('output', { stderr: chunk });
+      this.actor.mailbox.deliver('output', { stderr: chunk });
     });
     this.exitPromise = new Promise((resolve) => {
       this.child?.once('exit', async (exitCode, signal) => {
-        this.actor.call('exited', { exitCode, signal });
+        this.actor.mailbox.deliver('exited', { exitCode, signal });
         await this.actor.waitForState((s) => s === 'done');
         resolve({ status: 'done', exitCode, signal, output: this.readOutput() });
       });
     });
-    this.actor.call('started', { command: input.command, args: input.args ?? [], pid: this.child.pid ?? null });
+    this.actor.mailbox.deliver('started', { command: input.command, args: input.args ?? [], pid: this.child.pid ?? null });
     await this.actor.waitForState((s) => s === 'running');
   }
 

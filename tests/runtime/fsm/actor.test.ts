@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
-import { BaseActor, recoverActor, startActor } from '../../../src/runtime/fsm/index.js';
+import { BaseActor, recoverActor, SlaveActor, startActor } from '../../../src/runtime/fsm/index.js';
 
-class CounterActor extends BaseActor {
+class CounterActor extends SlaveActor {
   static _actor = {
     initial: 'idle',
     states: {
@@ -30,7 +30,7 @@ describe('startActor', () => {
     expect(actor.state()).toBe('idle');
     expect(actor.count).toBe(0);
 
-    actor.call('start');
+    actor.mailbox.deliver('start');
     await eventually(() => expect(actor.state()).toBe('active'));
 
     expect(actor.count).toBe(1);
@@ -39,10 +39,10 @@ describe('startActor', () => {
   it('serializes messages through the actor queue', async () => {
     const actor = startActor(CounterActor);
 
-    actor.call('start');
+    actor.mailbox.deliver('start');
     await eventually(() => expect(actor.state()).toBe('active'));
-    actor.call('increment');
-    actor.call('increment');
+    actor.mailbox.deliver('increment');
+    actor.mailbox.deliver('increment');
 
     await eventually(() => expect(actor.count).toBe(3));
     expect(actor.state()).toBe('active');

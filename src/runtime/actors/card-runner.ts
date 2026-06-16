@@ -1,5 +1,5 @@
 import type { LlmCompleteResult } from '../../agents/llm-contracts.js';
-import { BaseActor, startActor } from '../fsm/index.js';
+import { SlaveActor, startActor } from '../fsm/index.js';
 import type { ActorDefinition } from '../fsm/index.js';
 import { cardActorId, executorActorId } from './ids.js';
 import { LlmRunnerController } from './llm-runner.js';
@@ -30,7 +30,7 @@ export interface TerminalCardRunnerContext {
   outcome: TerminalOutcome | null;
 }
 
-export class TerminalCardRunnerActor extends BaseActor {
+export class TerminalCardRunnerActor extends SlaveActor {
   static _actor: ActorDefinition = {
     initial: 'done',
     states: {
@@ -125,7 +125,7 @@ export class TerminalCardRunnerController {
   }
 
   async start(input: Omit<LlmInvocationInput, 'agentId'>): Promise<TerminalOutcome> {
-    this.actor.call('start');
+    this.actor.mailbox.deliver('start');
     await this.actor.waitForState((s) => s === 'executing');
     await this.statusPort?.markRunning(this.cardId);
     let currentInput = input;
@@ -177,7 +177,7 @@ export class TerminalCardRunnerController {
   }
 
   private async complete(outcome: TerminalOutcome): Promise<TerminalOutcome> {
-    this.actor.call('outcome', outcome);
+    this.actor.mailbox.deliver('outcome', outcome);
     await this.actor.waitForState((s) => s === 'done');
     await this.statusPort?.commitTerminalOutcome(this.cardId, outcome);
     return outcome;
@@ -236,7 +236,7 @@ export class TerminalCardRunnerController {
 
   async cancel(): Promise<void> {
     if (this.phase === 'done') return;
-    this.actor.call('cancel');
+    this.actor.mailbox.deliver('cancel');
     await this.actor.waitForState((s) => s === 'done');
     await this.statusPort?.markCancelled(this.cardId);
   }

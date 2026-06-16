@@ -18,11 +18,11 @@ export abstract class BaseActor {
     return this.#requireInternals().state;
   }
 
-  send(name: string): void {
+  protected send(name: string): void {
     this.#requireInternals().queue.push({ kind: 'event', name });
   }
 
-  call(name: string, args?: unknown): void {
+  protected _enqueueCallForRuntime(name: string, args?: unknown): void {
     const message = args === undefined
       ? { kind: 'call' as const, name }
       : { kind: 'call' as const, name, args };
@@ -87,6 +87,18 @@ export abstract class BaseActor {
       queue: this.#queue,
     };
   }
+}
+
+export type ActorCommandMailbox = {
+  deliver(name: string, args?: unknown): void;
+};
+
+export abstract class SlaveActor extends BaseActor {
+  readonly mailbox: ActorCommandMailbox = {
+    deliver: (name, args) => {
+      this._enqueueCallForRuntime(name, args);
+    },
+  };
 }
 
 export function startActor<T extends BaseActor>(
