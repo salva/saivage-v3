@@ -1,6 +1,6 @@
 import { dispatchCall } from './dispatch.js';
-import { MailboxQueue, runActorPump } from './mailbox-queue.js';
-import { BaseActor, runActorTurn } from './micro-actor.js';
+import { MailboxQueue } from './mailbox-queue.js';
+import { BaseActor } from './micro-actor.js';
 
 export type ActorCommandMailbox = {
   deliver(name: string, args?: unknown): void;
@@ -25,10 +25,16 @@ export abstract class SlaveActor extends BaseActor {
   }
 
   _startMailboxPumpForRuntime(): void {
-    void runActorPump(
-      this.#mailboxQueue,
-      (command) => runActorTurn(this, () => dispatchCall(this, command)),
-      (error) => { throw error; },
-    );
+    this._startMailboxTask();
+  }
+
+  private _startMailboxTask(): void {
+    this._start_actor_task({
+      run: () => this.#mailboxQueue.shift(),
+      on_done: (command) => {
+        dispatchCall(this, command);
+        this._startMailboxTask();
+      },
+    });
   }
 }

@@ -22,10 +22,17 @@ export type ActorStateTask<Result = unknown> = {
   on_failed?: (error: unknown) => void;
 };
 
+type FinishedTask = {
+  id: number;
+  ok: boolean;
+  value: unknown;
+};
+
 type ActiveStateTask<Result = unknown> = ActorStateTask<Result> & {
   id: number;
-  state: string;
+  state: string | null;
   controller: AbortController;
+  finished: Promise<FinishedTask>;
 };
 
 // BaseActor owns only the generic micro-actor machinery: compiled definition,
@@ -37,6 +44,7 @@ export abstract class BaseActor {
   _nextEvent: string | undefined;
   _nextTaskId = 1;
   _stateTasks = new Map<number, ActiveStateTask>();
+  _actorMainPromise: Promise<void> | undefined;
 
   state(): string {
     return this._state!;
@@ -52,19 +60,18 @@ export abstract class BaseActor {
   }
 
   protected _start_task<Result>(task: ActorStateTask<Result>): void {
-    const state = this._state!;
+    this._start_task_in_state(task, this._state!);
+  }
+
+  protected _start_actor_task<Result>(task: ActorStateTask<Result>): void {
+    this._start_task_in_state(task, null);
+  }
+
+  private _start_task_in_state<Result>(task: ActorStateTask<Result>, state: string | null): void {
     const controller = new AbortController();
     const id = this._nextTaskId++;
-    this._stateTasks.set(id, { ...task, id, state, controller } as ActiveStateTask);
-
-    Promise.resolve()
-      .then(() => task.run({ signal: controller.signal }))
-      .then((result) => {
-        runActorTurn(this, () => completeTask(this, id, 'done', result));
-      })
-      .catch((error) => {
-        runActorTurn(this, () => completeTask(this, id, 'failed', error));
-      });
+    const finished = runTask(id, task, controller);
+    this._stateTasks.set(id, { ...task, id, state, controller, finished } as ActiveStateTask);
   }
 
   // Runtime-only installation hook. Actor constructors run before private runtime
@@ -121,9 +128,10 @@ function installActor<T extends BaseActor>(
   // Recovery needs hooks to run before accepting later mailbox
   // commands; fresh starts do not need an after-install hook.
   if (afterInstall) {
-    runActorTurn(actor, () => afterInstall(actor));
+    afterInstall(actor);
   }
   startOptionalMailboxPump(actor);
+  actor._actorMainPromise = actorMain(actor);
 
   return actor;
 }
@@ -131,15 +139,6 @@ function installActor<T extends BaseActor>(
 function startOptionalMailboxPump(actor: BaseActor): void {
   const maybeMailboxActor = actor as BaseActor & { _startMailboxPumpForRuntime?: () => void };
   maybeMailboxActor._startMailboxPumpForRuntime?.();
-}
-
-export function runActorTurn(actor: BaseActor, run: () => void): void {
-  const result = run() as unknown;
-  if (isPromiseLike(result)) {
-    void Promise.resolve(result).catch(() => undefined);
-    throw new InternalActorError('Actor turn work must be synchronous');
-  }
-  drainActorEvents(actor);
 }
 
 export function dispatchEvent(actor: BaseActor, eventName: string): string {
@@ -200,6 +199,10 @@ export function dispatchCall(actor: BaseActor, call: MailboxCommand): void {
   assertSyncResult(method.call(actor, call.args), methodName);
 }
 
+export function runActorCall(actor: BaseActor, call: MailboxCommand): void {
+  dispatchCall(actor, call);
+}
+
 export function dispatchRecover(actor: BaseActor): void {
   const currentState = actor._state!;
   const stateDef = actor._definition!.states.get(currentState);
@@ -228,18 +231,42 @@ function drainActorEvents(actor: BaseActor): void {
   throw new InternalActorError('Actor produced too many internal events in one turn');
 }
 
-function completeTask(actor: BaseActor, id: number, status: 'done' | 'failed', value: unknown): void {
-  const task = actor._stateTasks.get(id);
-  if (!task) return;
-  actor._stateTasks.delete(id);
-  if (task.controller.signal.aborted || task.state !== actor._state) return;
+async function actorMain(actor: BaseActor): Promise<void> {
+  for (;;) {
+    drainActorEvents(actor);
 
-  const result = status === 'done'
-    ? task.on_done?.(value)
-    : task.on_failed?.(value);
-  if (isPromiseLike(result)) {
-    throw new InternalActorError(`State task ${status} handler must be synchronous`);
+    const finished = await waitForOneTask(actor);
+    const task = actor._stateTasks.get(finished.id);
+    if (!task) continue;
+    actor._stateTasks.delete(finished.id);
+    if (task.controller.signal.aborted || (task.state !== null && task.state !== actor._state)) continue;
+
+    runTaskCallback(task, finished);
   }
+}
+
+async function waitForOneTask(actor: BaseActor): Promise<FinishedTask> {
+  while (actor._stateTasks.size === 0) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  return Promise.race([...actor._stateTasks.values()].map((task) => task.finished));
+}
+
+async function runTask<Result>(taskId: number, task: ActorStateTask<Result>, controller: AbortController): Promise<FinishedTask> {
+  try {
+    const value = await task.run({ signal: controller.signal });
+    return { id: taskId, ok: true, value };
+  } catch (value) {
+    return { id: taskId, ok: false, value };
+  }
+}
+
+function runTaskCallback(task: ActiveStateTask, finished: FinishedTask): void {
+  const result = finished.ok
+    ? task.on_done?.(finished.value)
+    : task.on_failed?.(finished.value);
+  assertSyncResult(result, finished.ok ? 'task on_done' : 'task on_failed');
 }
 
 function cancelTasksForState(actor: BaseActor, state: string): void {
