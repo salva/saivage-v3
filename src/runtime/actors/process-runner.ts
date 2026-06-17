@@ -139,19 +139,19 @@ export class ProcessRunnerController {
     this.child.stdout.setEncoding('utf8');
     this.child.stderr.setEncoding('utf8');
     this.child.stdout.on('data', (chunk: string) => {
-      this.actor.mailbox.deliver('output', { stdout: chunk });
+      this.actor.recordOutput({ stdout: chunk });
     });
     this.child.stderr.on('data', (chunk: string) => {
-      this.actor.mailbox.deliver('output', { stderr: chunk });
+      this.actor.recordOutput({ stderr: chunk });
     });
     this.exitPromise = new Promise((resolve) => {
       this.child?.once('exit', async (exitCode, signal) => {
-        this.actor.mailbox.deliver('exited', { exitCode, signal });
+        this.actor.recordExited({ exitCode, signal });
         await waitForActorState(this.actor, 'done');
         resolve({ status: 'done', exitCode, signal, output: this.readOutput() });
       });
     });
-    this.actor.mailbox.deliver('started', { command: input.command, args: input.args ?? [], pid: this.child.pid ?? null });
+    this.actor.recordStarted({ command: input.command, args: input.args ?? [], pid: this.child.pid ?? null });
     await waitForActorState(this.actor, 'running');
   }
 

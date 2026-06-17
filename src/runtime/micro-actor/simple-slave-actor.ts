@@ -63,14 +63,15 @@ export abstract class SimpleSlaveActor extends SlaveActor {
   override readonly mailbox: SimpleSlaveMailbox = {
     deliver: (name, args, callbacks) => {
       const id = `command-${SimpleSlaveActor.nextCommandId++}`;
-      this._enqueueMailboxCommand('enqueue_command', { id, name, args, callbacks: callbacks as SimpleSlaveCommandCallbacks | undefined });
+      const command: SimpleSlaveQueuedCommand = { id, name, args, callbacks: callbacks as SimpleSlaveCommandCallbacks | undefined };
+      this.enqueueCommand(command);
       return {
         id,
         cancel: () => this.cancelCommand(id),
       };
     },
     cancel: (id) => {
-      this._enqueueMailboxCommand('cancel_command', { id });
+      this.cancelCommand(id);
     },
   };
 
@@ -78,22 +79,6 @@ export abstract class SimpleSlaveActor extends SlaveActor {
     command: { id: string; name: string; args?: unknown },
     context: { signal: AbortSignal },
   ): Promise<unknown>;
-
-  _on_call__idle__enqueue_command(args: SimpleSlaveQueuedCommand): void {
-    this.enqueueCommand(args);
-  }
-
-  _on_call__working__enqueue_command(args: SimpleSlaveQueuedCommand): void {
-    this.enqueueCommand(args);
-  }
-
-  _on_call__idle__cancel_command(args: { id: string }): void {
-    this.cancelCommand(args.id);
-  }
-
-  _on_call__working__cancel_command(args: { id: string }): void {
-    this.cancelCommand(args.id);
-  }
 
   enqueueCommand(command: SimpleSlaveQueuedCommand): void {
     this.queuedCommands.push(command);

@@ -7,10 +7,8 @@ export type ActorCommandMailbox = {
 };
 
 // SlaveActor is the externally addressable actor base. Other objects can deliver
-// commands to the mailbox. Commands are queued and dispatched through the
-// actor's mailbox task, invoking _on_call__{state}__{name}(args) handlers.
-// All tasks are cancelled on state transitions, so the mailbox task restarts
-// automatically via _restartOnStateChange after each transition.
+// commands to the mailbox. Derived classes dequeue commands in their own state
+// handlers.
 export abstract class SlaveActor extends BaseActor {
   readonly #mailboxQueue = new MailboxQueue();
 
@@ -23,44 +21,15 @@ export abstract class SlaveActor extends BaseActor {
     },
   };
 
-  protected _enqueueMailboxCommand(name: string, args?: unknown): void {
-    const command = args === undefined
-      ? { kind: 'call' as const, name }
-      : { kind: 'call' as const, name, args };
-    this.#mailboxQueue.push(command);
+  protected _dequeueCommand(): Promise<MailboxCommand> {
+    return this.#mailboxQueue.shift();
+  }
+
+  protected _drainCommands(): MailboxCommand[] {
+    return this.#mailboxQueue.drain();
   }
 
   protected _closeMailbox(): void {
     this.#mailboxQueue.close();
-  }
-
-  _startMailboxPumpForRuntime(): void {
-    this._startMailboxTask();
-  }
-
-  _restartOnStateChange(): void {
-    this._startMailboxTask();
-  }
-
-  private _startMailboxTask(): void {
-    this._start_task({
-      run: () => this.#mailboxQueue.shift(),
-      on_done: (command: MailboxCommand) => {
-        this._dispatchMailboxCommand(command);
-        this._startMailboxTask();
-      },
-      on_failed: () => {
-        this._startMailboxTask();
-      },
-    });
-  }
-
-  private _dispatchMailboxCommand(command: MailboxCommand): void {
-    const currentState = this._state!;
-    const handlerName = `_on_call__${currentState}__${command.name}`;
-    const handler = (this as unknown as Record<string, unknown>)[handlerName];
-    if (typeof handler === 'function') {
-      handler.call(this, command.args);
-    }
   }
 }

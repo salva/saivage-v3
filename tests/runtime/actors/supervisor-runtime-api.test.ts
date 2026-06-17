@@ -31,8 +31,10 @@ describe('SupervisorRuntimeApi', () => {
     await api.start();
     expect(api.getStatus()).toMatchObject({ status: 'idle', paused: false, currentCardId: null });
     api.pause();
+    await eventually(() => expect(api.getStatus().paused).toBe(true));
     expect(api.getStatus()).toMatchObject({ status: 'paused', paused: true });
     api.resume();
+    await eventually(() => expect(api.getStatus().paused).toBe(false));
     expect(api.getStatus()).toMatchObject({ status: 'idle', paused: false });
     await api.shutdown();
 
@@ -231,3 +233,17 @@ describe('SupervisorRuntimeApi', () => {
     ]);
   }));
 });
+
+async function eventually(assertion: () => void, attempts = 20): Promise<void> {
+  let lastError: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      assertion();
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  }
+  throw lastError;
+}

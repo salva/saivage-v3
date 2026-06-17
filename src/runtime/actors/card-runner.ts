@@ -123,7 +123,7 @@ export class TerminalCardRunnerController {
   }
 
   async start(input: Omit<LlmInvocationInput, 'agentId'>): Promise<TerminalOutcome> {
-    this.actor.mailbox.deliver('start');
+    this.actor.recordStart();
     await waitForActorState(this.actor, 'executing');
     await this.statusPort?.markRunning(this.cardId);
     let currentInput = input;
@@ -175,7 +175,7 @@ export class TerminalCardRunnerController {
   }
 
   private async complete(outcome: TerminalOutcome): Promise<TerminalOutcome> {
-    this.actor.mailbox.deliver('outcome', outcome);
+    this.actor.recordOutcome(outcome);
     await waitForActorState(this.actor, 'done');
     await this.statusPort?.commitTerminalOutcome(this.cardId, outcome);
     return outcome;
@@ -234,7 +234,7 @@ export class TerminalCardRunnerController {
 
   async cancel(): Promise<void> {
     if (this.phase === 'done') return;
-    this.actor.mailbox.deliver('cancel');
+    this.actor.recordCancel();
     await waitForActorState(this.actor, 'done');
     await this.statusPort?.markCancelled(this.cardId);
   }

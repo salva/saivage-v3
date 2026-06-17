@@ -96,29 +96,29 @@ export class RuntimeSupervisorController {
   private readonly actor = startActor(RuntimeSupervisorActor);
 
   start(projectRoot: string): void {
-    this.actor.mailbox.deliver('start', { projectRoot });
+    this.actor.setProjectRoot({ projectRoot });
   }
 
   stop(): void {
-    this.actor.mailbox.deliver('stop');
+    this.actor.stop();
   }
 
   pause(): void {
-    this.actor.mailbox.deliver('pause');
+    this.actor.pause();
   }
 
   resume(): void {
-    this.actor.mailbox.deliver('resume');
+    this.actor.resume();
   }
 
   requestProviderCall(callId: string): boolean {
     if (this.work !== 'ready' || this.mode !== 'running') return false;
-    this.actor.mailbox.deliver('request_provider_call', { callId });
+    this.actor.requestProviderCall({ callId });
     return true;
   }
 
   releaseProviderCall(callId: string): void {
-    this.actor.mailbox.deliver('release_provider_call', { callId });
+    this.actor.releaseProviderCall({ callId });
   }
 
   get mode(): RuntimeSupervisorMode {

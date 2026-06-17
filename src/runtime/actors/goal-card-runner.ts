@@ -172,7 +172,7 @@ export class GoalCardRunnerController {
   private readonly statusPort?: GoalCardStatusPort;
 
   async start(input: Omit<LlmInvocationInput, 'agentId'>): Promise<GoalOutcome> {
-    this.actor.mailbox.deliver('start');
+    this.actor.recordStart();
     await waitForActorState(this.actor, 'planning');
     await this.statusPort?.markRunning(this.cardId);
     const noteSinks = getActiveGoalNoteSinks(this.actor.projectRoot);
@@ -186,7 +186,7 @@ export class GoalCardRunnerController {
           const review = await this.reviewPlannerResult(currentInput, output.result.content, turn);
           if (review.kind === 'passed') return this.complete({ status: 'done', statusText: output.result.content });
           if (review.kind === 'failed') return this.complete({ status: 'failed', statusText: review.reason });
-          this.actor.mailbox.deliver('needs_corrections');
+          this.actor.recordNeedsCorrections();
           await waitForActorState(this.actor, 'planning');
           currentInput = {
             ...currentInput,
@@ -260,7 +260,7 @@ export class GoalCardRunnerController {
 
   async cancel(): Promise<void> {
     if (this.phase === 'done') return;
-    this.actor.mailbox.deliver('cancel');
+    this.actor.recordCancel();
     await waitForActorState(this.actor, 'done');
     await this.statusPort?.markCancelled(this.cardId);
   }
@@ -286,7 +286,7 @@ export class GoalCardRunnerController {
   }
 
   private async complete(outcome: GoalOutcome): Promise<GoalOutcome> {
-    this.actor.mailbox.deliver('outcome', outcome);
+    this.actor.recordOutcome(outcome);
     await waitForActorState(this.actor, 'done');
     await this.statusPort?.commitGoalOutcome(this.cardId, outcome);
     this.persist();
@@ -310,7 +310,7 @@ export class GoalCardRunnerController {
     | { kind: 'failed'; reason: string }
   > {
     if (!this.reviewerRunner) return { kind: 'passed' };
-    this.actor.mailbox.deliver('review_ready');
+    this.actor.recordReviewReady();
     await waitForActorState(this.actor, 'reviewing');
     const reviewerInput = buildXStateReviewerInput({
       inputId: `${input.inputId}:reviewer:${turn + 1}`,

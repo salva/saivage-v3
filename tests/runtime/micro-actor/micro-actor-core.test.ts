@@ -159,16 +159,26 @@ describe('dispatchEvent', () => {
       .toThrow(InvalidTransitionError);
   });
 
-  it('rejects multiple internal events in one actor turn', async () => {
-    class BadActor extends BaseActor {
-      static _actor = { states: { idle: {} } };
+  it('queues multiple events sent in one actor turn', async () => {
+    class QueuingActor extends BaseActor {
+      static _actor: ActorDefinition = {
+        initial: 'idle',
+        states: {
+          idle: { on: { go: 'active' } },
+          active: { on: { done: 'finished' } },
+          finished: { terminal: true },
+        },
+      };
+      log: string[] = [];
       _on_enter__idle() {
-        this._send_event('one');
-        this._send_event('two');
+        this._send_event('go');
+        this._send_event('done');
       }
     }
 
-    expect(() => startActor(BadActor)).toThrow(InternalActorError);
+    const actor = startActor(QueuingActor);
+    await eventually(() => expect(actor.state()).toBe('finished'));
+    expect(actor.log).toEqual([]);
   });
 });
 
@@ -223,13 +233,18 @@ describe('state tasks', () => {
     expect(actor.signal?.aborted).toBe(true);
   });
 
-  it('rejects when a non-terminal state has no tasks or events', async () => {
-    class StuckActor extends BaseActor {
+  it('idles in a non-terminal state when no tasks or events are pending', async () => {
+    class IdleActor extends BaseActor {
       static _actor = { states: { idle: {} } };
     }
 
-    const actor = startActor(StuckActor);
-    await expect(actor._actorMainPromise).rejects.toThrow(InternalActorError);
+    const actor = startActor(IdleActor);
+
+    expect(actor.state()).toBe('idle');
+
+    (actor as any)._send_event('any_unknown_event');
+
+    expect(actor.state()).toBe('idle');
   });
 
   it('exits the main loop when entering a terminal state', async () => {

@@ -34,20 +34,19 @@ type ActiveStateTask<Result = unknown> = ActorStateTask<Result> & {
 export abstract class BaseActor {
   _definition: CompiledActorDefinition | undefined;
   _state: string | undefined;
-  _nextEvent: string | undefined;
+  _nextEvents: string[] = [];
   _nextTaskId = 1;
   _stateTasks = new Map<number, ActiveStateTask>();
   _actorMainPromise: Promise<void> | undefined;
+  _eventResolve: (() => void) | undefined;
 
   state(): string {
     return this._state!;
   }
 
   protected _send_event(name: string): void {
-    if (this._nextEvent !== undefined) {
-      throw new InternalActorError(`Actor already has pending event "${this._nextEvent}", cannot send "${name}"`);
-    }
-    this._nextEvent = name;
+    this._nextEvents.push(name);
+    this._eventResolve?.();
   }
 
   protected _start_task<Result>(task: ActorStateTask<Result>): void {
@@ -108,7 +107,6 @@ function installActor<T extends BaseActor>(
     callHandler(actor, 'enter');
   }
 
-  (actor as BaseActor & { _startMailboxPumpForRuntime?: () => void })._startMailboxPumpForRuntime?.();
   actor._actorMainPromise = actorMain(actor);
 
   return actor;
@@ -150,7 +148,6 @@ export function dispatchEvent(actor: BaseActor, eventName: string): string {
   actor._stateTasks.clear();
   actor._state = targetState;
   callHandler(actor, 'enter');
-  (actor as BaseActor & { _restartOnStateChange?: () => void })._restartOnStateChange?.();
 
   return targetState;
 }
@@ -163,20 +160,13 @@ export function dispatchRecover(actor: BaseActor): void {
     throw new InvalidTransitionError(`Unknown current state "${currentState}"`);
   }
 
-  const recoverMethod = getMethod(actor, `_on_recover__${currentState}`);
-  if (recoverMethod) {
-    recoverMethod.call(actor);
-    return;
-  }
-
-  callHandler(actor, 'enter');
+  callHandler(actor, 'recover') || callHandler(actor, 'enter');
 }
 
 async function actorMain(actor: BaseActor): Promise<void> {
-  for (;;) {      
-    const event = actor._nextEvent;
+  for (;;) {
+    const event = actor._nextEvents.shift();
     if (event !== undefined) {
-      actor._nextEvent = undefined;
       dispatchEvent(actor, event);
       continue;
     }
@@ -186,21 +176,30 @@ async function actorMain(actor: BaseActor): Promise<void> {
     }
 
     if (actor._stateTasks.size === 0) {
-      const state = actor._state!;
-      actor._state = 'failed';
-      throw new InternalActorError(
-        `Actor stuck in non-terminal state "${state}" with no pending tasks or events`,
-      );
+      await new Promise<void>(resolve => { actor._eventResolve = resolve; });
+      actor._eventResolve = undefined;
+      continue;
     }
 
-    const finished = await Promise.race([...actor._stateTasks.values()].map((t) => t.finished));
-    const task = actor._stateTasks.get(finished.id);
-    if (!task) continue;
-    actor._stateTasks.delete(finished.id);
-    if (task.controller.signal.aborted) {
-      task.on_failed?.(null);
-    } else {
-      finished.ok ? task.on_done?.(finished.value) : task.on_failed?.(finished.value);
+    const finished = await Promise.race([
+      ...[...actor._stateTasks.values()].map((t) => t.finished),
+      new Promise<void>(resolve => { actor._eventResolve = resolve; }),
+    ]);
+    actor._eventResolve = undefined;
+
+    if (actor._nextEvents.length > 0) continue;
+
+    if (finished && typeof finished === 'object' && 'id' in finished) {
+      const task = actor._stateTasks.get((finished as FinishedTask).id);
+      if (!task) continue;
+      actor._stateTasks.delete((finished as FinishedTask).id);
+      if (task.controller.signal.aborted) {
+        task.on_failed?.(null);
+      } else {
+        (finished as FinishedTask).ok
+          ? task.on_done?.((finished as FinishedTask).value)
+          : task.on_failed?.((finished as FinishedTask).value);
+      }
     }
   }
 }
@@ -214,9 +213,13 @@ async function runTask<Result>(taskId: number, task: ActorStateTask<Result>, con
   }
 }
 
-function callHandler(actor: BaseActor, hook: 'enter' | 'leave'): void {
+function callHandler(actor: BaseActor, hook: 'enter' | 'leave' | 'recover'): boolean {
   const method = getMethod(actor, `_on_${hook}__${actor._state!}`);
-  if (method) method.call(actor);
+  if (method) {
+    method.call(actor);
+    return true;
+  }
+  return false
 }
 
 function getMethod(actor: BaseActor, methodName: string): Function | undefined {
