@@ -197,24 +197,20 @@ export function dispatchRecover(actor: BaseActor): void {
 }
 
 async function actorMain(actor: BaseActor): Promise<void> {
-  for (;;) {
-    for (let i = 0; i < 100; i++) {
-      const event = actor._nextEvent;
+  for (;;) {      
+    const event = actor._nextEvent;
+    if (event !== undefined) {
       actor._nextEvent = undefined;
-      if (event === undefined) break;
       dispatchEvent(actor, event);
+      continue;
     }
 
-    const stateDef = actor._definition!.states.get(actor._state!);
-    if (stateDef?.terminal) {
-      for (const task of actor._stateTasks.values()) {
-        task.controller.abort();
-      }
-      actor._stateTasks.clear();
-      return;
+    if (actor._definition!.states.get(actor._state!)!.terminal) {
+        return;
     }
 
     if (actor._stateTasks.size === 0) {
+      actor._state = 'failed';
       throw new InternalActorError(
         `Actor stuck in non-terminal state "${actor._state}" with no pending tasks or events`,
       );
@@ -224,10 +220,12 @@ async function actorMain(actor: BaseActor): Promise<void> {
     const task = actor._stateTasks.get(finished.id);
     if (!task) continue;
     actor._stateTasks.delete(finished.id);
-    if (task.controller.signal.aborted || (task.state !== null && task.state !== actor._state)) continue;
-
-    const result = finished.ok ? task.on_done?.(finished.value) : task.on_failed?.(finished.value);
-    assertSync(result, finished.ok ? 'task on_done' : 'task on_failed');
+    if (task.controller.signal.aborted) {
+      task.on_failed?.(null);
+    } else {
+      const result = finished.ok ? task.on_done?.(finished.value) : task.on_failed?.(finished.value);
+      assertSync(result, finished.ok ? 'task on_done' : 'task on_failed');
+    }
   }
 }
 
