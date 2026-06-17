@@ -88,10 +88,28 @@ export function compileActorDefinition(definition: ActorDefinition): CompiledAct
           `Sequence state "${stateName}" does not exist in states`,
         );
       }
+      if (definition.states[stateName]?.terminal) {
+        throw new InvalidActorDefinitionError(
+          `Terminal state "${stateName}" cannot be in a sequence`,
+        );
+      }
     }
   }
 
   for (const [stateName, stateDef] of Object.entries(definition.states)) {
+    if (stateDef.terminal) {
+      if (stateDef.on && Object.keys(stateDef.on).length > 0) {
+        throw new InvalidActorDefinitionError(
+          `Terminal state "${stateName}" cannot have transitions`,
+        );
+      }
+      if (stateDef.calls && Object.keys(stateDef.calls).length > 0) {
+        throw new InvalidActorDefinitionError(
+          `Terminal state "${stateName}" cannot have call handlers`,
+        );
+      }
+    }
+
     validateMethodOverride(stateDef.enter, `enter override in state "${stateName}"`);
     validateMethodOverride(stateDef.leave, `leave override in state "${stateName}"`);
 

@@ -8,8 +8,15 @@ import {
   InternalActorError,
   startActor,
 } from '../../../src/runtime/micro-actor/index.js';
-import { dispatchCall, dispatchEvent } from '../../../src/runtime/micro-actor/index.js';
-import type { ActorDefinition, CompiledActorDefinition } from '../../../src/runtime/micro-actor/index.js';
+import { dispatchCall, dispatchEvent, getCompiledActorDefinition } from '../../../src/runtime/micro-actor/index.js';
+import type { ActorDefinition, ActorConstructor, CompiledActorDefinition } from '../../../src/runtime/micro-actor/index.js';
+
+function setupActor<T extends BaseActor>(ctor: ActorConstructor<T>): T {
+  const definition = getCompiledActorDefinition(ctor);
+  const actor = new ctor();
+  actor._installActorInternals({ definition, state: definition.initial });
+  return actor;
+}
 
 class LightActor extends BaseActor {
   static _actor: ActorDefinition = {
@@ -43,7 +50,7 @@ describe('actor definition compilation', () => {
     const ctor = LightActor as typeof LightActor & { _compiled_actor?: CompiledActorDefinition };
     delete ctor._compiled_actor;
     expect(ctor._compiled_actor).toBeUndefined();
-    const actor = startActor(ctor);
+    const actor = setupActor(ctor);
     expect(actor.state()).toBe('off');
     const compiled = (ctor as { _compiled_actor?: CompiledActorDefinition })._compiled_actor;
     expect(compiled?.initial).toBe('off');
@@ -67,11 +74,26 @@ describe('actor definition compilation', () => {
     expect(() => compileActorDefinition({ states: { off: { on: { go: 'missing' } } } }))
       .toThrow(InvalidActorDefinitionError);
   });
+
+  it('rejects transitions on terminal states', () => {
+    expect(() => compileActorDefinition({ states: { done: { on: { restart: 'idle' }, terminal: true } } }))
+      .toThrow(InvalidActorDefinitionError);
+  });
+
+  it('rejects call handlers on terminal states', () => {
+    expect(() => compileActorDefinition({ states: { done: { calls: { ping: 'pong' }, terminal: true } } }))
+      .toThrow(InvalidActorDefinitionError);
+  });
+
+  it('rejects terminal states in sequences', () => {
+    expect(() => compileActorDefinition({ sequence: ['a', 'b'], states: { a: {}, b: { terminal: true } } }))
+      .toThrow(InvalidActorDefinitionError);
+  });
 });
 
 describe('dispatchEvent', () => {
   it('handles direct string transition', () => {
-    const actor = startActor(LightActor);
+    const actor = setupActor(LightActor);
 
     dispatchEvent(actor, 'toggle');
 
@@ -79,7 +101,7 @@ describe('dispatchEvent', () => {
   });
 
   it('ignores unknown events', () => {
-    const actor = startActor(LightActor);
+    const actor = setupActor(LightActor);
 
     dispatchEvent(actor, 'unknown_event');
 
@@ -87,7 +109,7 @@ describe('dispatchEvent', () => {
   });
 
   it('fires enter on transition', () => {
-    const actor = startActor(LightActor);
+    const actor = setupActor(LightActor);
 
     dispatchEvent(actor, 'toggle');
 
@@ -95,7 +117,7 @@ describe('dispatchEvent', () => {
   });
 
   it('fires leave on transition', () => {
-    const actor = startActor(LightActor);
+    const actor = setupActor(LightActor);
 
     dispatchEvent(actor, 'toggle');
     dispatchEvent(actor, 'flicker');
@@ -113,7 +135,7 @@ describe('dispatchEvent', () => {
       _on_leave__closed() { this.left += 1; }
     }
 
-    const actor = startActor(DoorActor);
+    const actor = setupActor(DoorActor);
     dispatchEvent(actor, 'stay');
 
     expect(actor.entered).toBe(0);
@@ -125,7 +147,7 @@ describe('dispatchEvent', () => {
       static _actor = { sequence: ['a', 'b', 'c'], states: { a: {}, b: {}, c: {} } };
     }
 
-    const actor = startActor(StepActor);
+    const actor = setupActor(StepActor);
 
     dispatchEvent(actor, 'done');
     expect(actor.state()).toBe('b');
@@ -136,7 +158,7 @@ describe('dispatchEvent', () => {
   });
 
   it('throws InvalidTransitionError for unknown current state', () => {
-    const actor = startActor(LightActor);
+    const actor = setupActor(LightActor);
     actor._state = 'nonexistent';
 
     expect(() => dispatchEvent(actor, 'toggle'))
@@ -149,7 +171,7 @@ describe('dispatchEvent', () => {
       _on_enter__running() { return Promise.resolve(); }
     }
 
-    const actor = startActor(BadActor);
+    const actor = setupActor(BadActor);
     expect(() => dispatchEvent(actor, 'start'))
       .toThrow(InvalidTransitionError);
   });
@@ -166,7 +188,7 @@ describe('dispatchCall', () => {
       }
     }
 
-    const actor = startActor(WorkerActor);
+    const actor = setupActor(WorkerActor);
     dispatchCall(actor, { kind: 'call', name: 'run', args: { reason: 'test' } });
 
     expect(actor.reason).toBe('test');
@@ -181,7 +203,7 @@ describe('dispatchCall', () => {
       }
     }
 
-    const actor = startActor(BadActor);
+    const actor = setupActor(BadActor);
 
     expect(() => dispatchCall(actor, { kind: 'call', name: 'run' }))
       .toThrow(InternalActorError);
@@ -199,14 +221,14 @@ describe('dispatchCall', () => {
       handleRun() { this.called = true; }
     }
 
-    const actor = startActor(WorkerActor);
+    const actor = setupActor(WorkerActor);
     dispatchCall(actor, { kind: 'call', name: 'run' });
 
     expect(actor.called).toBe(true);
   });
 
   it('throws for missing call handlers', () => {
-    const actor = startActor(LightActor);
+    const actor = setupActor(LightActor);
 
     expect(() => dispatchCall(actor, { kind: 'call', name: 'missing' }))
       .toThrow(MissingCallHandlerError);
@@ -217,7 +239,7 @@ describe('dispatchCall', () => {
       static _actor: ActorDefinition = { states: { idle: { calls: { noop: false } } } };
     }
 
-    const actor = startActor(WorkerActor);
+    const actor = setupActor(WorkerActor);
 
     expect(() => dispatchCall(actor, { kind: 'call', name: 'noop' })).not.toThrow();
   });
@@ -226,11 +248,11 @@ describe('dispatchCall', () => {
 describe('state tasks', () => {
   it('runs task completion handlers through the actor pump', async () => {
     class TaskActor extends BaseActor {
-      static _actor = { states: { idle: { on: { done: 'done' } }, done: {} } };
+      static _actor = { states: { idle: { on: { done: 'done' } }, done: { terminal: true } } };
       result = '';
       task!: Deferred<string>;
 
-      _on_recover__idle() {
+      _on_enter__idle() {
         this.task = createDeferred<string>();
         this._start_task({
           run: () => this.task.promise,
@@ -243,7 +265,6 @@ describe('state tasks', () => {
     }
 
     const actor = startActor(TaskActor);
-    actor._on_recover__idle();
 
     actor.task.resolve('ok');
 
@@ -253,7 +274,7 @@ describe('state tasks', () => {
 
   it('aborts unfinished state tasks when the actor leaves the state', async () => {
     class TaskActor extends BaseActor {
-      static _actor = { states: { idle: { on: { leave: 'done' } }, done: {} } };
+      static _actor = { states: { idle: { on: { leave: 'done' } }, done: { terminal: true } } };
       signal: AbortSignal | undefined;
       task = createDeferred<void>();
 
@@ -268,12 +289,53 @@ describe('state tasks', () => {
     }
 
     const actor = startActor(TaskActor);
-    actor._on_enter__idle();
 
     await eventually(() => expect(actor.signal?.aborted).toBe(false));
     dispatchEvent(actor, 'leave');
 
     expect(actor.signal?.aborted).toBe(true);
+  });
+
+  it('rejects when a non-terminal state has no tasks or events', async () => {
+    class StuckActor extends BaseActor {
+      static _actor = { states: { idle: {} } };
+    }
+
+    const actor = startActor(StuckActor);
+    await expect(actor._actorMainPromise).rejects.toThrow(InternalActorError);
+  });
+
+  it('exits the main loop when entering a terminal state', async () => {
+    class FiniteActor extends BaseActor {
+      static _actor = {
+        states: {
+          idle: { on: { finish: 'done' } },
+          done: { terminal: true },
+        },
+      };
+      finished = false;
+      task = createDeferred<void>();
+
+      _on_enter__idle() {
+        this._start_task({
+          run: () => this.task.promise,
+          on_done: () => {
+            this.finished = true;
+            this._send_event('finish');
+          },
+        });
+      }
+    }
+
+    const actor = startActor(FiniteActor);
+
+    actor.task.resolve(undefined);
+
+    await eventually(() => expect(actor.state()).toBe('done'));
+
+    const mainResult = await actor._actorMainPromise;
+    expect(mainResult).toBeUndefined();
+    expect(actor.finished).toBe(true);
   });
 });
 

@@ -103,7 +103,11 @@ function installActor<T extends BaseActor>(
 
   actor._installActorInternals({ definition, state });
 
-  if (afterInstall) afterInstall(actor);
+  if (afterInstall) {
+    afterInstall(actor);
+  } else {
+    callHook(actor, definition.states.get(state)!, 'enter', `_on_enter__${state}`);
+  }
 
   (actor as BaseActor & { _startMailboxPumpForRuntime?: () => void })._startMailboxPumpForRuntime?.();
   actor._actorMainPromise = actorMain(actor);
@@ -201,8 +205,19 @@ async function actorMain(actor: BaseActor): Promise<void> {
       dispatchEvent(actor, event);
     }
 
-    while (actor._stateTasks.size === 0) {
-      await new Promise((resolve) => setTimeout(resolve, 0));
+    const stateDef = actor._definition!.states.get(actor._state!);
+    if (stateDef?.terminal) {
+      for (const task of actor._stateTasks.values()) {
+        task.controller.abort();
+      }
+      actor._stateTasks.clear();
+      return;
+    }
+
+    if (actor._stateTasks.size === 0) {
+      throw new InternalActorError(
+        `Actor stuck in non-terminal state "${actor._state}" with no pending tasks or events`,
+      );
     }
 
     const finished = await Promise.race([...actor._stateTasks.values()].map((t) => t.finished));

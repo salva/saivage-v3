@@ -9,6 +9,7 @@ export type StateDefinition = {
   enter?: string | false;
   leave?: string | false;
   calls?: Record<string, string | false>;
+  terminal?: boolean;
 };
 
 export type ActorDefinition = {

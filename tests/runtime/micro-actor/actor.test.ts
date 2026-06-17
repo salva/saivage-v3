@@ -1,5 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
-import { BaseActor, recoverActor, SlaveActor, startActor } from '../../../src/runtime/micro-actor/index.js';
+import { BaseActor, InternalActorError, recoverActor, SlaveActor, startActor } from '../../../src/runtime/micro-actor/index.js';
+import { getCompiledActorDefinition } from '../../../src/runtime/micro-actor/index.js';
+import type { ActorDefinition, CompiledActorDefinition } from '../../../src/runtime/micro-actor/index.js';
 
 class CounterActor extends SlaveActor {
   static _actor = {
@@ -47,11 +49,27 @@ describe('startActor', () => {
     await eventually(() => expect(actor.count).toBe(3));
     expect(actor.state()).toBe('active');
   });
+
+  it('calls the initial state enter hook', () => {
+    class EnterActor extends SlaveActor {
+      static _actor = {
+        initial: 'ready',
+        states: {
+          ready: {},
+        },
+      };
+      entered = false;
+      _on_enter__ready() { this.entered = true; }
+    }
+
+    const actor = startActor(EnterActor);
+    expect(actor.entered).toBe(true);
+  });
 });
 
 describe('recoverActor', () => {
-  it('restores the requested state and calls the state recover hook', () => {
-    class RecoverableActor extends BaseActor {
+  it('restores the requested state and calls the state recover hook', async () => {
+    class RecoverableActor extends SlaveActor {
       static _actor = {
         initial: 'idle',
         states: {
@@ -77,8 +95,8 @@ describe('recoverActor', () => {
     expect(actor.log).toEqual(['recover:running']);
   });
 
-  it('falls back to enter hook when recover hook is missing', () => {
-    class RecoverableActor extends BaseActor {
+  it('falls back to enter hook when recover hook is missing', async () => {
+    class RecoverableActor extends SlaveActor {
       static _actor = {
         initial: 'idle',
         states: {
