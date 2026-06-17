@@ -60,6 +60,10 @@ export abstract class BaseActor {
   }
 
   private _start_task_in_state<Result>(task: ActorStateTask<Result>, state: string | null): void {
+    const currentState = this._state!;
+    if (this._definition!.states.get(currentState)?.terminal) {
+      throw new InternalActorError(`Cannot start task in terminal state "${currentState}"`);
+    }
     const controller = new AbortController();
     const id = this._nextTaskId++;
     const finished = runTask(id, task, controller);
@@ -205,14 +209,15 @@ async function actorMain(actor: BaseActor): Promise<void> {
       continue;
     }
 
-    if (actor._definition!.states.get(actor._state!)!.terminal) {
-        return;
+    if (actor._definition!.states.get(actor._state!)?.terminal) {
+      return;
     }
 
     if (actor._stateTasks.size === 0) {
+      const state = actor._state!;
       actor._state = 'failed';
       throw new InternalActorError(
-        `Actor stuck in non-terminal state "${actor._state}" with no pending tasks or events`,
+        `Actor stuck in non-terminal state "${state}" with no pending tasks or events`,
       );
     }
 

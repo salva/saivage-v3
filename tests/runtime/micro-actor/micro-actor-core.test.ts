@@ -337,6 +337,23 @@ describe('state tasks', () => {
     expect(mainResult).toBeUndefined();
     expect(actor.finished).toBe(true);
   });
+
+  it('rejects starting a task in a terminal state', () => {
+    class TerminalActor extends BaseActor {
+      static _actor = {
+        states: {
+          idle: { on: { finish: 'done' } },
+          done: { terminal: true },
+        },
+      };
+    }
+
+    const actor = setupActor(TerminalActor);
+    actor._state = 'done';
+
+    expect(() => actor._start_task({ run: () => Promise.resolve() }))
+      .toThrow(InternalActorError);
+  });
 });
 
 type Deferred<T> = {
