@@ -9,6 +9,8 @@ export type ActorCommandMailbox = {
 // SlaveActor is the externally addressable actor base. Other objects can deliver
 // commands to the mailbox. Commands are queued and dispatched through the
 // actor's mailbox task, invoking _on_call__{state}__{name}(args) handlers.
+// All tasks are cancelled on state transitions, so the mailbox task restarts
+// automatically via _restartOnStateChange after each transition.
 export abstract class SlaveActor extends BaseActor {
   readonly #mailboxQueue = new MailboxQueue();
 
@@ -36,8 +38,12 @@ export abstract class SlaveActor extends BaseActor {
     this._startMailboxTask();
   }
 
+  _restartOnStateChange(): void {
+    this._startMailboxTask();
+  }
+
   private _startMailboxTask(): void {
-    this._start_actor_task({
+    this._start_task({
       run: () => this.#mailboxQueue.shift(),
       on_done: (command: MailboxCommand) => {
         this._dispatchMailboxCommand(command);

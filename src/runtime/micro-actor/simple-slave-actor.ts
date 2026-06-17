@@ -95,14 +95,6 @@ export abstract class SimpleSlaveActor extends SlaveActor {
     this.cancelCommand(args.id);
   }
 
-  _on_call__working__command_done(args: { id: string; result: unknown }): void {
-    this.commandDone(args);
-  }
-
-  _on_call__working__command_failed(args: { id: string; error: unknown }): void {
-    this.commandFailed(args);
-  }
-
   enqueueCommand(command: SimpleSlaveQueuedCommand): void {
     this.queuedCommands.push(command);
     if (this.state() === 'idle') {

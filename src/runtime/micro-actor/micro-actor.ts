@@ -27,7 +27,6 @@ type FinishedTask = {
 
 type ActiveStateTask<Result = unknown> = ActorStateTask<Result> & {
   id: number;
-  state: string | null;
   controller: AbortController;
   finished: Promise<FinishedTask>;
 };
@@ -52,14 +51,6 @@ export abstract class BaseActor {
   }
 
   protected _start_task<Result>(task: ActorStateTask<Result>): void {
-    this._start_task_in_state(task, this._state!);
-  }
-
-  protected _start_actor_task<Result>(task: ActorStateTask<Result>): void {
-    this._start_task_in_state(task, null);
-  }
-
-  private _start_task_in_state<Result>(task: ActorStateTask<Result>, state: string | null): void {
     const currentState = this._state!;
     if (this._definition!.states.get(currentState)?.terminal) {
       throw new InternalActorError(`Cannot start task in terminal state "${currentState}"`);
@@ -67,7 +58,11 @@ export abstract class BaseActor {
     const controller = new AbortController();
     const id = this._nextTaskId++;
     const finished = runTask(id, task, controller);
-    this._stateTasks.set(id, { ...task, id, state, controller, finished } as ActiveStateTask);
+    this._stateTasks.set(id, { ...task, id, controller, finished } as ActiveStateTask);
+  }
+
+  protected _start_actor_task<Result>(task: ActorStateTask<Result>): void {
+    this._start_task(task);
   }
 
   _installActorInternals(internals: ActorInternals): void {
@@ -149,14 +144,13 @@ export function dispatchEvent(actor: BaseActor, eventName: string): string {
   if (targetState === currentState) return currentState;
 
   callHook(actor, stateDef, 'leave', `_on_leave__${currentState}`);
-  for (const [id, task] of actor._stateTasks) {
-    if (task.state === currentState) {
-      actor._stateTasks.delete(id);
-      task.controller.abort();
-    }
+  for (const task of actor._stateTasks.values()) {
+    task.controller.abort();
   }
+  actor._stateTasks.clear();
   actor._state = targetState;
   callHook(actor, definition.states.get(targetState)!, 'enter', `_on_enter__${targetState}`);
+  (actor as BaseActor & { _restartOnStateChange?: () => void })._restartOnStateChange?.();
 
   return targetState;
 }
