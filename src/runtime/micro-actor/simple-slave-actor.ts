@@ -31,16 +31,6 @@ type SimpleSlaveRunningCommand = SimpleSlaveQueuedCommand & {
   controller: AbortController;
 };
 
-type SimpleSlaveTaskSucceeded = {
-  id: string;
-  result: unknown;
-};
-
-type SimpleSlaveTaskFailed = {
-  id: string;
-  error: unknown;
-};
-
 export class SimpleSlaveCommandCancelledError extends Error {
   constructor(readonly commandId: string) {
     super(`Command ${commandId} was cancelled`);
@@ -59,16 +49,9 @@ export abstract class SimpleSlaveActor extends SlaveActor {
     states: {
       idle: {
         on: { work_available: 'working' },
-        calls: { enqueue_command: 'enqueueCommand', cancel_command: 'cancelCommand' },
       },
       working: {
         on: { done: 'idle', failed: 'idle' },
-        calls: {
-          enqueue_command: 'enqueueCommand',
-          command_done: 'commandDone',
-          command_failed: 'commandFailed',
-          cancel_command: 'cancelCommand',
-        },
       },
     },
   };
@@ -80,10 +63,10 @@ export abstract class SimpleSlaveActor extends SlaveActor {
   override readonly mailbox: SimpleSlaveMailbox = {
     deliver: (name, args, callbacks) => {
       const id = `command-${SimpleSlaveActor.nextCommandId++}`;
-      this._enqueueMailboxCommand('enqueue_command', { id, name, args, callbacks });
+      this._enqueueMailboxCommand('enqueue_command', { id, name, args, callbacks: callbacks as SimpleSlaveCommandCallbacks | undefined });
       return {
         id,
-        cancel: () => this.mailbox.cancel(id),
+        cancel: () => this.cancelCommand(id),
       };
     },
     cancel: (id) => {
@@ -96,44 +79,52 @@ export abstract class SimpleSlaveActor extends SlaveActor {
     context: { signal: AbortSignal },
   ): Promise<unknown>;
 
-  enqueueCommand(args: SimpleSlaveQueuedCommand): void {
-    this.queuedCommands.push(args);
+  _on_call__idle__enqueue_command(args: SimpleSlaveQueuedCommand): void {
+    this.enqueueCommand(args);
+  }
+
+  _on_call__working__enqueue_command(args: SimpleSlaveQueuedCommand): void {
+    this.enqueueCommand(args);
+  }
+
+  _on_call__idle__cancel_command(args: { id: string }): void {
+    this.cancelCommand(args.id);
+  }
+
+  _on_call__working__cancel_command(args: { id: string }): void {
+    this.cancelCommand(args.id);
+  }
+
+  _on_call__working__command_done(args: { id: string; result: unknown }): void {
+    this.commandDone(args);
+  }
+
+  _on_call__working__command_failed(args: { id: string; error: unknown }): void {
+    this.commandFailed(args);
+  }
+
+  enqueueCommand(command: SimpleSlaveQueuedCommand): void {
+    this.queuedCommands.push(command);
     if (this.state() === 'idle') {
       this._send_event('work_available');
     }
   }
 
-  cancelCommand(args: { id: string }): void {
-    const queuedIndex = this.queuedCommands.findIndex((command) => command.id === args.id);
+  cancelCommand(id: string): void {
+    const queuedIndex = this.queuedCommands.findIndex((command) => command.id === id);
     if (queuedIndex >= 0) {
       const [command] = this.queuedCommands.splice(queuedIndex, 1);
-      command?.callbacks?.on_failed?.(new SimpleSlaveCommandCancelledError(args.id));
+      command?.callbacks?.on_failed?.(new SimpleSlaveCommandCancelledError(id));
       return;
     }
 
-    if (this.runningCommand?.id === args.id) {
+    if (this.runningCommand?.id === id) {
       const command = this.runningCommand;
       this.runningCommand = null;
       command.controller.abort();
-      command.callbacks?.on_failed?.(new SimpleSlaveCommandCancelledError(args.id));
+      command.callbacks?.on_failed?.(new SimpleSlaveCommandCancelledError(id));
       this._send_event('failed');
     }
-  }
-
-  commandDone(args: SimpleSlaveTaskSucceeded): void {
-    if (this.runningCommand?.id !== args.id) return;
-    const command = this.runningCommand;
-    this.runningCommand = null;
-    command.callbacks?.on_done?.(args.result);
-    this._send_event('done');
-  }
-
-  commandFailed(args: SimpleSlaveTaskFailed): void {
-    if (this.runningCommand?.id !== args.id) return;
-    const command = this.runningCommand;
-    this.runningCommand = null;
-    command.callbacks?.on_failed?.(args.error);
-    this._send_event('failed');
   }
 
   _on_enter__idle(): void {
@@ -150,10 +141,20 @@ export abstract class SimpleSlaveActor extends SlaveActor {
 
     this._runCommand(next, { signal: controller.signal })
       .then((result) => {
-        this._enqueueMailboxCommand('command_done', { id: next.id, result });
+        if (this.runningCommand?.id === next.id) {
+          const command = this.runningCommand;
+          this.runningCommand = null;
+          command.callbacks?.on_done?.(result);
+          this._send_event('done');
+        }
       })
       .catch((error) => {
-        this._enqueueMailboxCommand('command_failed', { id: next.id, error });
+        if (this.runningCommand?.id === next.id) {
+          const command = this.runningCommand;
+          this.runningCommand = null;
+          command.callbacks?.on_failed?.(error);
+          this._send_event('failed');
+        }
       });
   }
 }

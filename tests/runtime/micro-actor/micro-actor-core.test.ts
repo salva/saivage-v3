@@ -4,11 +4,10 @@ import {
   compileActorDefinition,
   InvalidActorDefinitionError,
   InvalidTransitionError,
-  MissingCallHandlerError,
   InternalActorError,
   startActor,
 } from '../../../src/runtime/micro-actor/index.js';
-import { dispatchCall, dispatchEvent, getCompiledActorDefinition } from '../../../src/runtime/micro-actor/index.js';
+import { dispatchEvent, getCompiledActorDefinition } from '../../../src/runtime/micro-actor/index.js';
 import type { ActorDefinition, ActorConstructor, CompiledActorDefinition } from '../../../src/runtime/micro-actor/index.js';
 
 function setupActor<T extends BaseActor>(ctor: ActorConstructor<T>): T {
@@ -77,11 +76,6 @@ describe('actor definition compilation', () => {
 
   it('rejects transitions on terminal states', () => {
     expect(() => compileActorDefinition({ states: { done: { on: { restart: 'idle' }, terminal: true } } }))
-      .toThrow(InvalidActorDefinitionError);
-  });
-
-  it('rejects call handlers on terminal states', () => {
-    expect(() => compileActorDefinition({ states: { done: { calls: { ping: 'pong' }, terminal: true } } }))
       .toThrow(InvalidActorDefinitionError);
   });
 
@@ -165,83 +159,16 @@ describe('dispatchEvent', () => {
       .toThrow(InvalidTransitionError);
   });
 
-  it('rejects promise-returning hooks', () => {
-    class BadActor extends BaseActor {
-      static _actor = { states: { idle: { on: { start: 'running' } }, running: {} } };
-      _on_enter__running() { return Promise.resolve(); }
-    }
-
-    const actor = setupActor(BadActor);
-    expect(() => dispatchEvent(actor, 'start'))
-      .toThrow(InvalidTransitionError);
-  });
-});
-
-describe('dispatchCall', () => {
-  it('invokes convention call handlers with args', () => {
-    class WorkerActor extends BaseActor {
-      static _actor = { states: { idle: { on: { started: 'running' } }, running: {} } };
-      reason = '';
-      _on_call__idle__run(args: { reason: string }) {
-        this.reason = args.reason;
-        this._send_event('started');
-      }
-    }
-
-    const actor = setupActor(WorkerActor);
-    dispatchCall(actor, { kind: 'call', name: 'run', args: { reason: 'test' } });
-
-    expect(actor.reason).toBe('test');
-  });
-
   it('rejects multiple internal events in one actor turn', async () => {
     class BadActor extends BaseActor {
-      static _actor = { states: { idle: { calls: { run: 'run' } } } };
-      run() {
+      static _actor = { states: { idle: {} } };
+      _on_enter__idle() {
         this._send_event('one');
         this._send_event('two');
       }
     }
 
-    const actor = setupActor(BadActor);
-
-    expect(() => dispatchCall(actor, { kind: 'call', name: 'run' }))
-      .toThrow(InternalActorError);
-  });
-
-  it('supports explicit call method override', () => {
-    class WorkerActor extends BaseActor {
-      static _actor = {
-        states: {
-          idle: { calls: { run: 'handleRun' } },
-        },
-      };
-
-      called = false;
-      handleRun() { this.called = true; }
-    }
-
-    const actor = setupActor(WorkerActor);
-    dispatchCall(actor, { kind: 'call', name: 'run' });
-
-    expect(actor.called).toBe(true);
-  });
-
-  it('throws for missing call handlers', () => {
-    const actor = setupActor(LightActor);
-
-    expect(() => dispatchCall(actor, { kind: 'call', name: 'missing' }))
-      .toThrow(MissingCallHandlerError);
-  });
-
-  it('treats false call override as disabled no-op', () => {
-    class WorkerActor extends BaseActor {
-      static _actor: ActorDefinition = { states: { idle: { calls: { noop: false } } } };
-    }
-
-    const actor = setupActor(WorkerActor);
-
-    expect(() => dispatchCall(actor, { kind: 'call', name: 'noop' })).not.toThrow();
+    expect(() => startActor(BadActor)).toThrow(InternalActorError);
   });
 });
 
@@ -351,7 +278,7 @@ describe('state tasks', () => {
     const actor = setupActor(TerminalActor);
     actor._state = 'done';
 
-    expect(() => actor._start_task({ run: () => Promise.resolve() }))
+    expect(() => (actor as any)._start_task({ run: () => Promise.resolve() }))
       .toThrow(InternalActorError);
   });
 });

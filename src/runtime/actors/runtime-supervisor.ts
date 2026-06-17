@@ -19,14 +19,11 @@ export class RuntimeSupervisorActor extends SlaveActor {
     states: {
       running: {
         on: { pause: 'paused', stop: 'stopping' },
-        calls: { start: 'setProjectRoot', stop: 'stop', pause: 'pause', request_provider_call: 'requestProviderCall', release_provider_call: 'releaseProviderCall' },
       },
       paused: {
         on: { resume: 'running', stop: 'stopping' },
-        calls: { start: 'setProjectRoot', stop: 'stop', resume: 'resume', request_provider_call: 'requestProviderCall', release_provider_call: 'releaseProviderCall' },
       },
       stopping: {
-        calls: { start: 'setProjectRoot', request_provider_call: 'requestProviderCall', release_provider_call: 'releaseProviderCall' },
       },
     },
   };

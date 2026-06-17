@@ -3,14 +3,12 @@ export {
   getCompiledActorDefinition,
   InvalidActorDefinitionError,
   InvalidTransitionError,
-  MissingCallHandlerError,
 } from './define-machine.js';
 export {
   BaseActor,
   startActor,
   recoverActor,
   InternalActorError,
-  dispatchCall,
   dispatchEvent,
   dispatchRecover,
 } from './micro-actor.js';

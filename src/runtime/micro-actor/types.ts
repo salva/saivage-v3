@@ -8,7 +8,6 @@ export type StateDefinition = {
   on?: Record<string, string>;
   enter?: string | false;
   leave?: string | false;
-  calls?: Record<string, string | false>;
   terminal?: boolean;
 };
 

@@ -36,11 +36,9 @@ export class TerminalCardRunnerActor extends SlaveActor {
     states: {
       done: {
         on: { start: 'executing' },
-        calls: { start: 'recordStart', cancel: false },
       },
       executing: {
         on: { done: 'done', failed: 'done', cancel: 'done' },
-        calls: { outcome: 'recordOutcome', cancel: 'recordCancel' },
       },
     },
   };

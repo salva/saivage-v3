@@ -50,15 +50,12 @@ export class GoalCardRunnerActor extends SlaveActor {
     states: {
       done: {
         on: { start: 'planning' },
-        calls: { start: 'recordStart', cancel: false },
       },
       planning: {
         on: { review_ready: 'reviewing', done: 'done', failed: 'done', cancel: 'done' },
-        calls: { review_ready: 'recordReviewReady', outcome: 'recordOutcome', cancel: 'recordCancel' },
       },
       reviewing: {
         on: { needs_corrections: 'planning', done: 'done', failed: 'done', cancel: 'done' },
-        calls: { needs_corrections: 'recordNeedsCorrections', outcome: 'recordOutcome', cancel: 'recordCancel' },
       },
     },
   };

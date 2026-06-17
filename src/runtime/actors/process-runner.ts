@@ -41,11 +41,9 @@ export class ProcessRunnerActor extends SlaveActor {
     states: {
       done: {
         on: { started: 'running' },
-        calls: { started: 'recordStarted' },
       },
       running: {
         on: { exited: 'done' },
-        calls: { output: 'recordOutput', exited: 'recordExited' },
       },
     },
   };

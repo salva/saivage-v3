@@ -14,13 +14,6 @@ export class InvalidActorDefinitionError extends Error {
   }
 }
 
-export class MissingCallHandlerError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'MissingCallHandlerError';
-  }
-}
-
 export type ActorClassWithDefinition = Function & {
   _actor?: ActorDefinition;
   _allow_inherited_actor?: boolean;
@@ -97,17 +90,10 @@ export function compileActorDefinition(definition: ActorDefinition): CompiledAct
   }
 
   for (const [stateName, stateDef] of Object.entries(definition.states)) {
-    if (stateDef.terminal) {
-      if (stateDef.on && Object.keys(stateDef.on).length > 0) {
-        throw new InvalidActorDefinitionError(
-          `Terminal state "${stateName}" cannot have transitions`,
-        );
-      }
-      if (stateDef.calls && Object.keys(stateDef.calls).length > 0) {
-        throw new InvalidActorDefinitionError(
-          `Terminal state "${stateName}" cannot have call handlers`,
-        );
-      }
+    if (stateDef.terminal && stateDef.on && Object.keys(stateDef.on).length > 0) {
+      throw new InvalidActorDefinitionError(
+        `Terminal state "${stateName}" cannot have transitions`,
+      );
     }
 
     validateMethodOverride(stateDef.enter, `enter override in state "${stateName}"`);
@@ -124,15 +110,6 @@ export function compileActorDefinition(definition: ActorDefinition): CompiledAct
           `Transition target "${targetState}" in state "${stateName}" for event "${eventName}" does not exist in states`,
         );
       }
-    }
-
-    for (const [callName, methodName] of Object.entries(stateDef.calls ?? {})) {
-      if (callName === '') {
-        throw new InvalidActorDefinitionError(
-          `Call name must be non-empty in state "${stateName}"`,
-        );
-      }
-      validateMethodOverride(methodName, `call override "${callName}" in state "${stateName}"`);
     }
   }
 

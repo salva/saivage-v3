@@ -1,5 +1,5 @@
-import { getCompiledActorDefinition, InvalidTransitionError, MissingCallHandlerError } from './define-machine.js';
-import type { ActorDefinition, ActorInternals, CompiledActorDefinition, MailboxCommand, StateDefinition } from './types.js';
+import { getCompiledActorDefinition, InvalidTransitionError } from './define-machine.js';
+import type { ActorDefinition, ActorInternals, CompiledActorDefinition, StateDefinition } from './types.js';
 
 export class InternalActorError extends Error {
   constructor(message: string) {
@@ -161,28 +161,6 @@ export function dispatchEvent(actor: BaseActor, eventName: string): string {
   return targetState;
 }
 
-export function dispatchCall(actor: BaseActor, call: MailboxCommand): void {
-  const currentState = actor._state!;
-  const stateDef = actor._definition!.states.get(currentState);
-
-  if (!stateDef) {
-    throw new InvalidTransitionError(`Unknown current state "${currentState}"`);
-  }
-
-  const override = stateDef.calls?.[call.name];
-  if (override === false) return;
-
-  const methodName = override ?? `_on_call__${currentState}__${call.name}`;
-  const method = getMethod(actor, methodName);
-  if (!method) {
-    throw new MissingCallHandlerError(
-      `Missing call handler "${methodName}" for call "${call.name}" in state "${currentState}"`,
-    );
-  }
-
-  assertSync(method.call(actor, call.args), methodName);
-}
-
 export function dispatchRecover(actor: BaseActor): void {
   const currentState = actor._state!;
   const stateDef = actor._definition!.states.get(currentState);
@@ -193,7 +171,7 @@ export function dispatchRecover(actor: BaseActor): void {
 
   const recoverMethod = getMethod(actor, `_on_recover__${currentState}`);
   if (recoverMethod) {
-    assertSync(recoverMethod.call(actor), `_on_recover__${currentState}`);
+    recoverMethod.call(actor);
     return;
   }
 
@@ -228,8 +206,7 @@ async function actorMain(actor: BaseActor): Promise<void> {
     if (task.controller.signal.aborted) {
       task.on_failed?.(null);
     } else {
-      const result = finished.ok ? task.on_done?.(finished.value) : task.on_failed?.(finished.value);
-      assertSync(result, finished.ok ? 'task on_done' : 'task on_failed');
+      finished.ok ? task.on_done?.(finished.value) : task.on_failed?.(finished.value);
     }
   }
 }
@@ -251,16 +228,10 @@ function callHook(actor: BaseActor, stateDef: StateDefinition, hook: 'enter' | '
   const method = getMethod(actor, methodName);
   if (!method) return;
 
-  assertSync(method.call(actor), methodName);
+  method.call(actor);
 }
 
 function getMethod(actor: BaseActor, methodName: string): Function | undefined {
   const value = (actor as unknown as Record<string, unknown>)[methodName];
   return typeof value === 'function' ? value : undefined;
-}
-
-function assertSync(value: unknown, label: string): void {
-  if (typeof value === 'object' && value !== null && 'then' in value && typeof (value as { then?: unknown }).then === 'function') {
-    throw new InvalidTransitionError(`${label} must be synchronous`);
-  }
 }

@@ -50,11 +50,9 @@ export class LlmRunnerActor extends SlaveActor {
     states: {
       done: {
         on: { run: 'running' },
-        calls: { run: 'recordRun' },
       },
       running: {
         on: { done: 'done', failed: 'done' },
-        calls: { provider_result: 'recordProviderResult', provider_error: 'recordProviderError' },
       },
     },
   };
