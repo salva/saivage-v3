@@ -1,5 +1,5 @@
 import { getCompiledActorDefinition, InvalidTransitionError } from './define-machine.js';
-import type { ActorDefinition, ActorInternals, CompiledActorDefinition, StateDefinition } from './types.js';
+import type { ActorDefinition, ActorInternals, CompiledActorDefinition } from './types.js';
 
 export class InternalActorError extends Error {
   constructor(message: string) {
@@ -105,7 +105,7 @@ function installActor<T extends BaseActor>(
   if (afterInstall) {
     afterInstall(actor);
   } else {
-    callHook(actor, definition.states.get(state)!, 'enter', `_on_enter__${state}`);
+    tryMethod(actor, `_on_enter__${state}`);
   }
 
   (actor as BaseActor & { _startMailboxPumpForRuntime?: () => void })._startMailboxPumpForRuntime?.();
@@ -143,13 +143,13 @@ export function dispatchEvent(actor: BaseActor, eventName: string): string {
 
   if (targetState === currentState) return currentState;
 
-  callHook(actor, stateDef, 'leave', `_on_leave__${currentState}`);
+  tryMethod(actor, `_on_leave__${currentState}`);
   for (const task of actor._stateTasks.values()) {
     task.controller.abort();
   }
   actor._stateTasks.clear();
   actor._state = targetState;
-  callHook(actor, definition.states.get(targetState)!, 'enter', `_on_enter__${targetState}`);
+  tryMethod(actor, `_on_enter__${targetState}`);
   (actor as BaseActor & { _restartOnStateChange?: () => void })._restartOnStateChange?.();
 
   return targetState;
@@ -169,7 +169,7 @@ export function dispatchRecover(actor: BaseActor): void {
     return;
   }
 
-  callHook(actor, stateDef, 'enter', `_on_enter__${currentState}`);
+  tryMethod(actor, `_on_enter__${currentState}`);
 }
 
 async function actorMain(actor: BaseActor): Promise<void> {
@@ -214,15 +214,9 @@ async function runTask<Result>(taskId: number, task: ActorStateTask<Result>, con
   }
 }
 
-function callHook(actor: BaseActor, stateDef: StateDefinition, hook: 'enter' | 'leave', conventionName: string): void {
-  const override = stateDef[hook];
-  if (override === false) return;
-
-  const methodName = override ?? conventionName;
+function tryMethod(actor: BaseActor, methodName: string): void {
   const method = getMethod(actor, methodName);
-  if (!method) return;
-
-  method.call(actor);
+  if (method) method.call(actor);
 }
 
 function getMethod(actor: BaseActor, methodName: string): Function | undefined {

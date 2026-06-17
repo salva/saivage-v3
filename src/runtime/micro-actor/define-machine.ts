@@ -96,9 +96,6 @@ export function compileActorDefinition(definition: ActorDefinition): CompiledAct
       );
     }
 
-    validateMethodOverride(stateDef.enter, `enter override in state "${stateName}"`);
-    validateMethodOverride(stateDef.leave, `leave override in state "${stateName}"`);
-
     for (const [eventName, targetState] of Object.entries(stateDef.on ?? {})) {
       if (eventName === '') {
         throw new InvalidActorDefinitionError(
@@ -127,11 +124,4 @@ function compileSequence(sequence: string[] | undefined): ReadonlyMap<string, nu
     compiled.set(sequence[i]!, i);
   }
   return compiled;
-}
-
-function validateMethodOverride(value: string | false | undefined, label: string): void {
-  if (value === undefined || value === false) return;
-  if (value === '') {
-    throw new InvalidActorDefinitionError(`${label} must be a non-empty method name or false`);
-  }
 }

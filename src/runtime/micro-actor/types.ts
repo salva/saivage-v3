@@ -6,8 +6,6 @@ export type MailboxCommand = {
 
 export type StateDefinition = {
   on?: Record<string, string>;
-  enter?: string | false;
-  leave?: string | false;
   terminal?: boolean;
 };
 
