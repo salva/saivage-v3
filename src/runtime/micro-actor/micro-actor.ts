@@ -105,7 +105,7 @@ function installActor<T extends BaseActor>(
   if (afterInstall) {
     afterInstall(actor);
   } else {
-    tryMethod(actor, `_on_enter__${state}`);
+    callHandler(actor, 'enter');
   }
 
   (actor as BaseActor & { _startMailboxPumpForRuntime?: () => void })._startMailboxPumpForRuntime?.();
@@ -143,13 +143,13 @@ export function dispatchEvent(actor: BaseActor, eventName: string): string {
 
   if (targetState === currentState) return currentState;
 
-  tryMethod(actor, `_on_leave__${currentState}`);
+  callHandler(actor, 'leave');
   for (const task of actor._stateTasks.values()) {
     task.controller.abort();
   }
   actor._stateTasks.clear();
   actor._state = targetState;
-  tryMethod(actor, `_on_enter__${targetState}`);
+  callHandler(actor, 'enter');
   (actor as BaseActor & { _restartOnStateChange?: () => void })._restartOnStateChange?.();
 
   return targetState;
@@ -169,7 +169,7 @@ export function dispatchRecover(actor: BaseActor): void {
     return;
   }
 
-  tryMethod(actor, `_on_enter__${currentState}`);
+  callHandler(actor, 'enter');
 }
 
 async function actorMain(actor: BaseActor): Promise<void> {
@@ -214,8 +214,8 @@ async function runTask<Result>(taskId: number, task: ActorStateTask<Result>, con
   }
 }
 
-function tryMethod(actor: BaseActor, methodName: string): void {
-  const method = getMethod(actor, methodName);
+function callHandler(actor: BaseActor, hook: 'enter' | 'leave'): void {
+  const method = getMethod(actor, `_on_${hook}__${actor._state!}`);
   if (method) method.call(actor);
 }
 
