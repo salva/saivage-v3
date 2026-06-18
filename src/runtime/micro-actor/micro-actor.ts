@@ -94,7 +94,8 @@ export abstract class BaseActor {
     }
     const controller = new AbortController();
     const id = this._nextTaskId++;
-    const promise = safeTask(id, run, controller, options?.timeout);
+    const timeout = options?.timeout === 0 ? undefined : options?.timeout;
+    const promise = safeTask(id, run, controller, timeout);
     const on_done = options?.on_done ?? (() => this._send_event(options?.on_done_event ?? 'done'));
     const on_failed = options?.on_failed ?? (() => this._send_event(options?.on_failed_event ?? 'failed'));
     const on_timeout = options?.on_timeout ?? (options?.on_timeout_event ? (() => this._send_event(options.on_timeout_event!)) : undefined);
@@ -155,28 +156,29 @@ async function actorMain(actor: BaseActor): Promise<void> {
 }
 
 async function safeTask(taskId: number, run: (signal: AbortSignal) => Promise<unknown>, controller: AbortController, timeout?: number): Promise<TaskResult> {
-  if (timeout !== undefined && timeout > 0) {
-    let timer: ReturnType<typeof setTimeout>;
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => {
-        controller.abort(new TimeoutError(`Task timed out after ${timeout}ms`));
-        reject(new TimeoutError(`Task timed out after ${timeout}ms`));
-      }, timeout);
-    });
+  if (timeout === undefined) {
     try {
-      const value = await Promise.race([run(controller.signal), timeoutPromise]);
-      clearTimeout(timer!);
+      const value = await run(controller.signal);
       return { id: taskId, ok: true, value };
     } catch (error) {
-      clearTimeout(timer!);
-      return { id: taskId, ok: false, value: error, timedOut: error instanceof TimeoutError };
+      return { id: taskId, ok: false, value: error };
     }
   }
+
+  let timer: ReturnType<typeof setTimeout>;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort(new TimeoutError(`Task timed out after ${timeout}ms`));
+      reject(new TimeoutError(`Task timed out after ${timeout}ms`));
+    }, timeout);
+  });
   try {
-    const value = await run(controller.signal);
+    const value = await Promise.race([run(controller.signal), timeoutPromise]);
+    clearTimeout(timer!);
     return { id: taskId, ok: true, value };
   } catch (error) {
-    return { id: taskId, ok: false, value: error };
+    clearTimeout(timer!);
+    return { id: taskId, ok: false, value: error, timedOut: error instanceof TimeoutError };
   }
 }
 
