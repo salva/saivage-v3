@@ -1,7 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { BaseActor, InternalActorError, TimeoutError } from '../../../src/runtime/micro-actor/index.js';
-import { dispatchEvent, getCompiledActorDefinition } from '../../../src/runtime/micro-actor/index.js';
-import type { ActorDefinition, ActorConstructor } from '../../../src/runtime/micro-actor/index.js';
+import { BaseActor, InternalActorError } from '../../../src/runtime/micro-actor/index.js';
 
 describe('start', () => {
   it('creates a live actor and processes events from task completions', async () => {
@@ -79,15 +77,54 @@ describe('start', () => {
     expect(actor.entered).toBe(true);
   });
 
-  it('rejects starting in a terminal state', () => {
-    class TerminalActor extends BaseActor {
+  it('can restart from a terminal state', async () => {
+    class RestartableActor extends BaseActor {
       static _actor = {
-        initial: 'done',
-        states: { done: { terminal: true } },
+        initial: 'ready',
+        states: {
+          ready: { on: { finish: 'done' } },
+          done: { terminal: true },
+        },
       };
+      entered = 0;
+
+      _on_enter__ready() {
+        this.entered += 1;
+        this._run_task(
+          () => Promise.resolve(undefined),
+          { on_done_event: 'finish' },
+        );
+      }
     }
 
-    const actor = new TerminalActor();
+    const actor = new RestartableActor();
+    actor.start();
+    await eventually(() => expect(actor.state()).toBe('done'));
+
+    actor.start();
+
+    expect(actor.state()).toBe('ready');
+    expect(actor.entered).toBe(2);
+  });
+
+  it('rejects starting from a non-terminal state', () => {
+    class RunningActor extends BaseActor {
+      static _actor = {
+        initial: 'running',
+        states: {
+          running: { on: { finish: 'done' } },
+          done: { terminal: true },
+        },
+      };
+
+      _on_enter__running() {
+        this._run_task(() => new Promise(() => {}));
+      }
+    }
+
+    const actor = new RunningActor();
+    actor.start();
+
     expect(() => actor.start()).toThrow(InternalActorError);
   });
 });

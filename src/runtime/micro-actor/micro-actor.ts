@@ -1,5 +1,6 @@
 import { getCompiledActorDefinition, InvalidTransitionError } from './define-machine.js';
-import type { ActorDefinition, CompiledActorDefinition } from './types.js';
+import type { ActorClassWithDefinition } from './define-machine.js';
+import type { CompiledActorDefinition } from './types.js';
 
 export class InternalActorError extends Error {
   constructor(message: string) {
@@ -14,11 +15,6 @@ export class TimeoutError extends Error {
     this.name = 'TimeoutError';
   }
 }
-
-export type ActorConstructor<T extends BaseActor = BaseActor> = (new (...args: any[]) => T) & {
-  _actor: ActorDefinition;
-  _compiled_actor?: CompiledActorDefinition;
-};
 
 export type RunTaskOptions<Result = unknown> = {
   on_done?: (result: Result) => void;
@@ -59,10 +55,10 @@ export abstract class BaseActor {
   }
 
   start(): void {
-    const definition = getCompiledActorDefinition(this.constructor as ActorConstructor);
-    if (definition.states.get(definition.initial)?.terminal) {
-      throw new InternalActorError(`Cannot start actor in terminal state "${definition.initial}"`);
+    if (this._state !== undefined && !this._definition!.states.get(this._state)?.terminal) {
+      throw new InternalActorError(`Cannot start actor from non-terminal state "${this._state}"`);
     }
+    const definition = getCompiledActorDefinition(this.constructor as ActorClassWithDefinition);
     this._definition = definition;
     this._state = definition.initial;
     callHandler(this, 'enter');
@@ -70,7 +66,7 @@ export abstract class BaseActor {
   }
 
   recover(state: string): void {
-    const definition = getCompiledActorDefinition(this.constructor as ActorConstructor);
+    const definition = getCompiledActorDefinition(this.constructor as ActorClassWithDefinition);
     if (!definition.states.has(state)) {
       throw new InternalActorError(`Cannot recover actor to unknown state "${state}"`);
     }
