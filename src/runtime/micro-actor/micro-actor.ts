@@ -141,9 +141,8 @@ async function actorMain(actor: BaseActor): Promise<void> {
     }
 
     const result = await Promise.race([...actor._stateTasks.values()].map((t) => t.promise));
-    const task = actor._stateTasks.get(result.id);
+    const task = actor._stateTasks.get(result.id)!;
     actor._stateTasks.delete(result.id);
-    if (!task) continue;
 
     if (result.timedOut && task.on_timeout) {
       task.on_timeout(result.value as TimeoutError);
@@ -156,30 +155,27 @@ async function actorMain(actor: BaseActor): Promise<void> {
 }
 
 async function safeTask(taskId: number, run: (signal: AbortSignal) => Promise<unknown>, controller: AbortController, timeout?: number): Promise<TaskResult> {
-  if (timeout === undefined) {
-    try {
-      const value = await run(controller.signal);
-      return { id: taskId, ok: true, value };
-    } catch (error) {
-      return { id: taskId, ok: false, value: error };
-    }
-  }
-
-  let timer: ReturnType<typeof setTimeout>;
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
-      controller.abort(new TimeoutError(`Task timed out after ${timeout}ms`));
-      reject(new TimeoutError(`Task timed out after ${timeout}ms`));
-    }, timeout);
-  });
   try {
-    const value = await Promise.race([run(controller.signal), timeoutPromise]);
-    clearTimeout(timer!);
+    const task = run(controller.signal);
+    const value = timeout === undefined
+      ? await task
+      : await withTimeout(task, controller, timeout);
     return { id: taskId, ok: true, value };
   } catch (error) {
-    clearTimeout(timer!);
     return { id: taskId, ok: false, value: error, timedOut: error instanceof TimeoutError };
   }
+}
+
+async function withTimeout<T>(task: Promise<T>, controller: AbortController, timeout: number): Promise<T> {
+  const error = new TimeoutError(`Task timed out after ${timeout}ms`);
+  let timer!: ReturnType<typeof setTimeout>;
+  const timeoutTask = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      controller.abort(error);
+      reject(error);
+    }, timeout);
+  });
+  return Promise.race([task, timeoutTask]).finally(() => clearTimeout(timer));
 }
 
 function callHandler(actor: BaseActor, hook: 'enter' | 'leave' | 'recover'): boolean {
