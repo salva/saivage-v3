@@ -53,7 +53,6 @@ export abstract class BaseActor {
   _nextTaskId = 1;
   _stateTasks = new Map<number, Task>();
   _actorMainPromise: Promise<void> | undefined;
-  _wakeResolve: (() => void) | undefined;
 
   state(): string {
     return this._state!;
@@ -81,17 +80,11 @@ export abstract class BaseActor {
     this._actorMainPromise = actorMain(this);
   }
 
-  _wake(): void {
-    this._wakeResolve?.();
-    this._wakeResolve = undefined;
-  }
-
   _send_event(name: string): void {
     if (this._nextEvent !== undefined) {
       throw new InternalActorError(`Actor already has pending event "${this._nextEvent}", cannot send "${name}"`);
     }
     this._nextEvent = name;
-    this._wake();
   }
 
   protected _run_task<Result>(run: (signal: AbortSignal) => Promise<Result>, options?: RunTaskOptions<Result>): void {
@@ -106,7 +99,6 @@ export abstract class BaseActor {
     const on_failed = options?.on_failed ?? (() => this._send_event(options?.on_failed_event ?? 'failed'));
     const on_timeout = options?.on_timeout ?? (options?.on_timeout_event ? (() => this._send_event(options.on_timeout_event!)) : undefined);
     this._stateTasks.set(id, { id, controller, promise, on_done: on_done as Task['on_done'], on_failed: on_failed as Task['on_failed'], on_timeout });
-    this._wake();
   }
 }
 
@@ -126,7 +118,6 @@ export function dispatchEvent(actor: BaseActor, eventName: string): string {
   actor._stateTasks.clear();
   actor._state = targetState;
   callHandler(actor, 'enter');
-  actor._wake();
 
   return targetState;
 }
@@ -145,14 +136,10 @@ async function actorMain(actor: BaseActor): Promise<void> {
     }
 
     if (actor._stateTasks.size === 0) {
-      await new Promise<void>((resolve) => { actor._wakeResolve = resolve; });
-      continue;
+      throw new InternalActorError(`Actor stuck in non-terminal state "${actor._state!}" with no pending tasks or events`);
     }
 
-    const wakePromise = new Promise<void>((resolve) => { actor._wakeResolve = resolve; });
-    const taskPromises = [...actor._stateTasks.values()].map((t) => t.promise);
-    const result = await Promise.race([wakePromise.then(() => null), ...taskPromises]);
-    if (result === null) continue;
+    const result = await Promise.race([...actor._stateTasks.values()].map((t) => t.promise));
     const task = actor._stateTasks.get(result.id);
     actor._stateTasks.delete(result.id);
     if (!task) continue;

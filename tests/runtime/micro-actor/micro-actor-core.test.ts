@@ -200,21 +200,15 @@ describe('state tasks', () => {
     expect(actor.signal?.aborted).toBe(true);
   });
 
-  it('suspends when a non-terminal state has no tasks or events', async () => {
-    class SuspendedActor extends BaseActor {
+  it('throws when a non-terminal state has no tasks or events', async () => {
+    class StuckActor extends BaseActor {
       static _actor = { states: { idle: { on: { go: 'done' } }, done: { terminal: true } } };
-
-      sendGo() { this._send_event('go'); }
     }
 
-    const actor = new SuspendedActor(); actor.start();
-    await new Promise((resolve) => setTimeout(resolve, 5));
-    expect(actor.state()).toBe('idle');
-    expect(actor._actorMainPromise).toBeDefined();
+    const actor = new StuckActor();
+    actor.start();
 
-    actor.sendGo();
-    await eventually(() => expect(actor.state()).toBe('done'));
-    await actor._actorMainPromise;
+    await expect(actor._actorMainPromise).rejects.toThrow(InternalActorError);
   });
 
   it('exits the main loop when entering a terminal state', async () => {

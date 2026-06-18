@@ -28,7 +28,7 @@ type SimpleSlaveQueuedCommand = {
 };
 
 type SimpleSlaveRunningCommand = SimpleSlaveQueuedCommand & {
-  controller: AbortController;
+  cancel: () => void;
 };
 
 export class SimpleSlaveCommandCancelledError extends Error {
@@ -59,6 +59,7 @@ export abstract class SimpleSlaveActor extends SlaveActor {
   private static nextCommandId = 1;
   private readonly queuedCommands: SimpleSlaveQueuedCommand[] = [];
   private runningCommand: SimpleSlaveRunningCommand | null = null;
+  private workAvailable: (() => void) | null = null;
 
   override readonly mailbox: SimpleSlaveMailbox = {
     deliver: (name, args, callbacks) => {
@@ -82,9 +83,8 @@ export abstract class SimpleSlaveActor extends SlaveActor {
 
   enqueueCommand(command: SimpleSlaveQueuedCommand): void {
     this.queuedCommands.push(command);
-    if (this.state() === 'idle' && this._nextEvent === undefined) {
-      this._send_event('work_available');
-    }
+    this.workAvailable?.();
+    this.workAvailable = null;
   }
 
   cancelCommand(id: string): void {
@@ -97,26 +97,35 @@ export abstract class SimpleSlaveActor extends SlaveActor {
 
     if (this.runningCommand?.id === id) {
       const command = this.runningCommand;
-      this.runningCommand = null;
-      command.controller.abort();
-      command.callbacks?.on_failed?.(new SimpleSlaveCommandCancelledError(id));
-      this._send_event('failed');
+      command.cancel();
     }
   }
 
   _on_enter__idle(): void {
-    if (this.queuedCommands.length > 0) {
-      this._send_event('work_available');
-    }
+    this._run_task(
+      (signal) => this._waitForWork(signal),
+      { on_done_event: 'work_available' },
+    );
   }
 
   _on_enter__working(): void {
     if (this.runningCommand || this.queuedCommands.length === 0) return;
     const next = this.queuedCommands.shift()!;
     const controller = new AbortController();
+    let cancel!: () => void;
 
     this._run_task(
-      (signal) => this._runCommand(next, { signal }),
+      (signal) => {
+        signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true });
+        const cancelled = new Promise<never>((_resolve, reject) => {
+          cancel = () => {
+            const error = new SimpleSlaveCommandCancelledError(next.id);
+            controller.abort(error);
+            reject(error);
+          };
+        });
+        return Promise.race([this._runCommand(next, { signal: controller.signal }), cancelled]);
+      },
       {
         on_done: (result) => {
           const command = this.runningCommand;
@@ -137,6 +146,17 @@ export abstract class SimpleSlaveActor extends SlaveActor {
       },
     );
 
-    this.runningCommand = { ...next, controller };
+    this.runningCommand = { ...next, cancel };
+  }
+
+  private _waitForWork(signal: AbortSignal): Promise<void> {
+    if (this.queuedCommands.length > 0) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      this.workAvailable = resolve;
+      signal.addEventListener('abort', () => {
+        if (this.workAvailable === resolve) this.workAvailable = null;
+        reject(signal.reason);
+      }, { once: true });
+    });
   }
 }
