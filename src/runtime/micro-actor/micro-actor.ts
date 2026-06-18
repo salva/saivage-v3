@@ -144,16 +144,7 @@ export function dispatchEvent(actor: BaseActor, eventName: string): string {
     throw new InvalidTransitionError(`Unknown current state "${currentState}"`);
   }
 
-  let targetState: string | undefined = stateDef.on?.[eventName];
-
-  if (targetState === undefined && eventName === 'done' && definition.sequence.has(currentState)) {
-    const sequenceList = Array.from(definition.sequence.keys());
-    const index = definition.sequence.get(currentState)!;
-    if (index < sequenceList.length - 1) {
-      targetState = sequenceList[index + 1];
-    }
-  }
-
+  const targetState = stateDef.on?.[eventName];
   if (targetState === undefined) return currentState;
 
   if (!definition.states.has(targetState)) {

@@ -17,7 +17,6 @@ export type ActorDefinition = {
 
 export type CompiledActorDefinition = {
   initial: string;
-  sequence: ReadonlyMap<string, number>;
   states: ReadonlyMap<string, StateDefinition>;
 };
 

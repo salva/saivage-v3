@@ -49,12 +49,12 @@ export function getCompiledActorDefinition(ctor: ActorClassWithDefinition): Comp
 }
 
 export function compileActorDefinition(definition: ActorDefinition): CompiledActorDefinition {
-  const states = Object.keys(definition.states);
-  if (states.length === 0) {
+  const stateNames = Object.keys(definition.states);
+  if (stateNames.length === 0) {
     throw new InvalidActorDefinitionError('Actor definition must declare at least one state');
   }
 
-  for (const stateName of states) {
+  for (const stateName of stateNames) {
     if (stateName === '') {
       throw new InvalidActorDefinitionError('State names must be non-empty');
     }
@@ -110,18 +110,27 @@ export function compileActorDefinition(definition: ActorDefinition): CompiledAct
     }
   }
 
-  return {
-    initial: definition.initial ?? states[0]!,
-    sequence: compileSequence(definition.sequence),
-    states: new Map<string, StateDefinition>(Object.entries(definition.states)),
-  };
-}
+  const compiledStates = new Map<string, StateDefinition>();
+  for (const [stateName, stateDef] of Object.entries(definition.states)) {
+    const on: Record<string, string> = { ...(stateDef.on ?? {}) };
 
-function compileSequence(sequence: string[] | undefined): ReadonlyMap<string, number> {
-  const compiled = new Map<string, number>();
-  if (!sequence) return compiled;
-  for (let i = 0; i < sequence.length; i++) {
-    compiled.set(sequence[i]!, i);
+    if (definition.sequence) {
+      const index = definition.sequence.indexOf(stateName);
+      if (index >= 0 && index < definition.sequence.length - 1) {
+        if (!('done' in on)) {
+          on.done = definition.sequence[index + 1]!;
+        }
+      }
+    }
+
+    compiledStates.set(stateName, {
+      on: Object.keys(on).length > 0 ? on : undefined,
+      terminal: stateDef.terminal,
+    });
   }
-  return compiled;
+
+  return {
+    initial: definition.initial ?? stateNames[0]!,
+    states: compiledStates,
+  };
 }
