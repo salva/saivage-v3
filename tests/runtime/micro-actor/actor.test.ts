@@ -1,63 +1,55 @@
 import { describe, expect, it } from '@jest/globals';
-import { BaseActor, recoverActor, startActor } from '../../../src/runtime/micro-actor/index.js';
-import type { ActorDefinition } from '../../../src/runtime/micro-actor/index.js';
-
-class CounterActor extends BaseActor {
-  static _actor = {
-    initial: 'idle',
-    states: {
-      idle: { on: { start: 'active' } },
-      active: { on: { stop: 'done' } },
-      done: {} as Record<string, string>,
-    },
-  };
-
-  count = 0;
-
-  _on_enter__active() {
-    this.count += 1;
-  }
-}
+import { BaseActor, InternalActorError, recoverActor, startActor } from '../../../src/runtime/micro-actor/index.js';
 
 describe('startActor', () => {
-  it('creates a live actor with initial state and processes events', async () => {
-    const actor = startActor(CounterActor);
-
-    expect(actor.state()).toBe('idle');
-    expect(actor.count).toBe(0);
-
-    (actor as any)._send_event('start');
-    await eventually(() => expect(actor.state()).toBe('active'));
-
-    expect(actor.count).toBe(1);
-  });
-
-  it('processes multiple events sequentially', async () => {
+  it('creates a live actor and processes events from task completions', async () => {
     class StepActor extends BaseActor {
       static _actor = {
         initial: 'a',
         states: {
           a: { on: { go: 'b' } },
           b: { on: { go: 'c' } },
-          c: { on: { go: 'a' } },
+          c: { on: { go: 'done' } },
+          done: { terminal: true },
         },
       };
       log: string[] = [];
-      _on_enter__a() { this.log.push('a'); }
-      _on_enter__b() { this.log.push('b'); }
-      _on_enter__c() { this.log.push('c'); }
+
+      _on_enter__a() {
+        this.log.push('enter:a');
+        this._run_task(
+          () => Promise.resolve(undefined),
+          { on_done: () => { this._send_event('go'); } },
+        );
+      }
+
+      _on_enter__b() {
+        this.log.push('enter:b');
+        this._run_task(
+          () => Promise.resolve(undefined),
+          { on_done: () => { this._send_event('go'); } },
+        );
+      }
+
+      _on_enter__c() {
+        this.log.push('enter:c');
+        this._run_task(
+          () => Promise.resolve(undefined),
+          { on_done: () => { this._send_event('go'); } },
+        );
+      }
+
+      _on_enter__done() {
+        this.log.push('enter:done');
+      }
     }
 
     const actor = startActor(StepActor);
     expect(actor.state()).toBe('a');
-    expect(actor.log).toEqual(['a']);
+    expect(actor.log).toEqual(['enter:a']);
 
-    (actor as any)._send_event('go');
-    (actor as any)._send_event('go');
-    (actor as any)._send_event('go');
-
-    await eventually(() => expect(actor.state()).toBe('a'));
-    expect(actor.log).toEqual(['a', 'b', 'c', 'a']);
+    await eventually(() => expect(actor.state()).toBe('done'));
+    expect(actor.log).toEqual(['enter:a', 'enter:b', 'enter:c', 'enter:done']);
   });
 
   it('calls the initial state enter hook', () => {
@@ -65,11 +57,18 @@ describe('startActor', () => {
       static _actor = {
         initial: 'ready',
         states: {
-          ready: {},
+          ready: { on: { go: 'done' } },
+          done: { terminal: true },
         },
       };
       entered = false;
-      _on_enter__ready() { this.entered = true; }
+      _on_enter__ready() {
+        this.entered = true;
+        this._run_task(
+          () => Promise.resolve(undefined),
+          { on_done: () => { this._send_event('go'); } },
+        );
+      }
     }
 
     const actor = startActor(EnterActor);
@@ -78,13 +77,13 @@ describe('startActor', () => {
 });
 
 describe('recoverActor', () => {
-  it('restores the requested state and calls the state recover hook', async () => {
+  it('restores the requested state and calls the recover hook', () => {
     class RecoverableActor extends BaseActor {
       static _actor = {
         initial: 'idle',
         states: {
-          idle: {},
-          running: {},
+          idle: { terminal: true },
+          running: { on: { done: 'idle' } },
         },
       };
 
@@ -92,10 +91,10 @@ describe('recoverActor', () => {
 
       _on_recover__running() {
         this.log.push(`recover:${this.state()}`);
-      }
-
-      _on_enter__running() {
-        this.log.push('enter fallback should not run');
+        this._run_task(
+          () => Promise.resolve(undefined),
+          { on_done: () => { this._send_event('done'); } },
+        );
       }
     }
 
@@ -105,13 +104,13 @@ describe('recoverActor', () => {
     expect(actor.log).toEqual(['recover:running']);
   });
 
-  it('falls back to enter hook when recover hook is missing', async () => {
+  it('falls back to enter hook when recover hook is missing', () => {
     class RecoverableActor extends BaseActor {
       static _actor = {
         initial: 'idle',
         states: {
-          idle: {},
-          running: {},
+          idle: { terminal: true },
+          running: { on: { done: 'idle' } },
         },
       };
 
@@ -119,6 +118,10 @@ describe('recoverActor', () => {
 
       _on_enter__running() {
         this.log.push(`enter:${this.state()}`);
+        this._run_task(
+          () => Promise.resolve(undefined),
+          { on_done: () => { this._send_event('done'); } },
+        );
       }
     }
 
@@ -144,7 +147,7 @@ describe('recoverActor', () => {
     class RecoverableActor extends BaseActor {
       static _actor = {
         states: {
-          idle: {},
+          idle: { on: { done: 'idle' } },
         },
       };
 

@@ -17,7 +17,7 @@ export { SimpleSlaveActor, SimpleSlaveCommandCancelledError } from './simple-sla
 export { MailboxQueue } from './mailbox-queue.js';
 export type {
   ActorConstructor,
-  ActorStateTask,
+  RunTaskOptions,
 } from './micro-actor.js';
 export type { ActorCommandMailbox } from './slave-actor.js';
 export type {

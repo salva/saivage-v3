@@ -158,28 +158,6 @@ describe('dispatchEvent', () => {
     expect(() => dispatchEvent(actor, 'toggle'))
       .toThrow(InvalidTransitionError);
   });
-
-  it('queues multiple events sent in one actor turn', async () => {
-    class QueuingActor extends BaseActor {
-      static _actor: ActorDefinition = {
-        initial: 'idle',
-        states: {
-          idle: { on: { go: 'active' } },
-          active: { on: { done: 'finished' } },
-          finished: { terminal: true },
-        },
-      };
-      log: string[] = [];
-      _on_enter__idle() {
-        this._send_event('go');
-        this._send_event('done');
-      }
-    }
-
-    const actor = startActor(QueuingActor);
-    await eventually(() => expect(actor.state()).toBe('finished'));
-    expect(actor.log).toEqual([]);
-  });
 });
 
 describe('state tasks', () => {
@@ -191,13 +169,13 @@ describe('state tasks', () => {
 
       _on_enter__idle() {
         this.task = createDeferred<string>();
-        this._start_task({
-          run: () => this.task.promise,
-          on_done: (result) => {
+        this._run_task(
+          () => this.task.promise,
+          { on_done: (result) => {
             this.result = result;
             this._send_event('done');
-          },
-        });
+          } },
+        );
       }
     }
 
@@ -212,39 +190,35 @@ describe('state tasks', () => {
   it('aborts unfinished state tasks when the actor leaves the state', async () => {
     class TaskActor extends BaseActor {
       static _actor = { states: { idle: { on: { leave: 'done' } }, done: { terminal: true } } };
-      signal: AbortSignal | undefined;
-      task = createDeferred<void>();
+      controller: AbortController | undefined;
 
       _on_enter__idle() {
-        this._start_task({
-          run: ({ signal }) => {
-            this.signal = signal;
-            return this.task.promise;
-          },
-        });
+        this._run_task(() => Promise.resolve(undefined), { on_done_event: 'leave' });
+        this.controller = this._run_task((signal) => new Promise<void>(() => {}));
       }
     }
 
     const actor = startActor(TaskActor);
 
-    await eventually(() => expect(actor.signal?.aborted).toBe(false));
-    dispatchEvent(actor, 'leave');
-
-    expect(actor.signal?.aborted).toBe(true);
+    await eventually(() => expect(actor.state()).toBe('done'));
+    expect(actor.controller?.signal.aborted).toBe(true);
   });
 
-  it('idles in a non-terminal state when no tasks or events are pending', async () => {
-    class IdleActor extends BaseActor {
-      static _actor = { states: { idle: {} } };
+  it('suspends when a non-terminal state has no tasks or events', async () => {
+    class SuspendedActor extends BaseActor {
+      static _actor = { states: { idle: { on: { go: 'done' } }, done: { terminal: true } } };
+
+      sendGo() { this._send_event('go'); }
     }
 
-    const actor = startActor(IdleActor);
-
+    const actor = startActor(SuspendedActor);
+    await new Promise((resolve) => setTimeout(resolve, 5));
     expect(actor.state()).toBe('idle');
+    expect(actor._actorMainPromise).toBeDefined();
 
-    (actor as any)._send_event('any_unknown_event');
-
-    expect(actor.state()).toBe('idle');
+    actor.sendGo();
+    await eventually(() => expect(actor.state()).toBe('done'));
+    await actor._actorMainPromise;
   });
 
   it('exits the main loop when entering a terminal state', async () => {
@@ -259,13 +233,13 @@ describe('state tasks', () => {
       task = createDeferred<void>();
 
       _on_enter__idle() {
-        this._start_task({
-          run: () => this.task.promise,
-          on_done: () => {
+        this._run_task(
+          () => this.task.promise,
+          { on_done: () => {
             this.finished = true;
             this._send_event('finish');
-          },
-        });
+          } },
+        );
       }
     }
 
@@ -293,7 +267,7 @@ describe('state tasks', () => {
     const actor = setupActor(TerminalActor);
     actor._state = 'done';
 
-    expect(() => (actor as any)._start_task({ run: () => Promise.resolve() }))
+    expect(() => (actor as any)._run_task(() => Promise.resolve()))
       .toThrow(InternalActorError);
   });
 });

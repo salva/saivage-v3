@@ -82,7 +82,7 @@ export abstract class SimpleSlaveActor extends SlaveActor {
 
   enqueueCommand(command: SimpleSlaveQueuedCommand): void {
     this.queuedCommands.push(command);
-    if (this.state() === 'idle') {
+    if (this.state() === 'idle' && this._nextEvent === undefined) {
       this._send_event('work_available');
     }
   }
@@ -113,25 +113,29 @@ export abstract class SimpleSlaveActor extends SlaveActor {
   _on_enter__working(): void {
     if (this.runningCommand || this.queuedCommands.length === 0) return;
     const next = this.queuedCommands.shift()!;
-    const controller = new AbortController();
-    this.runningCommand = { ...next, controller };
 
-    this._runCommand(next, { signal: controller.signal })
-      .then((result) => {
-        if (this.runningCommand?.id === next.id) {
+    const controller = this._run_task(
+      (signal) => this._runCommand(next, { signal }),
+      {
+        on_done: (result) => {
           const command = this.runningCommand;
-          this.runningCommand = null;
-          command.callbacks?.on_done?.(result);
-          this._send_event('done');
-        }
-      })
-      .catch((error) => {
-        if (this.runningCommand?.id === next.id) {
+          if (command?.id === next.id) {
+            this.runningCommand = null;
+            command.callbacks?.on_done?.(result);
+            this._send_event('done');
+          }
+        },
+        on_failed: (error) => {
           const command = this.runningCommand;
-          this.runningCommand = null;
-          command.callbacks?.on_failed?.(error);
-          this._send_event('failed');
-        }
-      });
+          if (command?.id === next.id) {
+            this.runningCommand = null;
+            command.callbacks?.on_failed?.(error);
+            this._send_event('failed');
+          }
+        },
+      },
+    );
+
+    this.runningCommand = { ...next, controller };
   }
 }

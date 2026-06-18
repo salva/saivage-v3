@@ -13,55 +13,66 @@ export type ActorConstructor<T extends BaseActor = BaseActor> = (new (...args: a
   _compiled_actor?: CompiledActorDefinition;
 };
 
-export type ActorStateTask<Result = unknown> = {
-  run(context: { signal: AbortSignal }): Promise<Result>;
+export type RunTaskOptions<Result = unknown> = {
   on_done?: (result: Result) => void;
   on_failed?: (error: unknown) => void;
+  on_done_event?: string;
+  on_failed_event?: string;
 };
 
-type FinishedTask = {
+type TaskResult = {
   id: number;
   ok: boolean;
   value: unknown;
 };
 
-type ActiveStateTask<Result = unknown> = ActorStateTask<Result> & {
+type Task = {
   id: number;
   controller: AbortController;
-  finished: Promise<FinishedTask>;
+  promise: Promise<TaskResult>;
+  on_done?: (result: unknown) => void;
+  on_failed?: (error: unknown) => void;
 };
 
 export abstract class BaseActor {
   _definition: CompiledActorDefinition | undefined;
   _state: string | undefined;
-  _nextEvents: string[] = [];
+  _nextEvent: string | undefined;
   _nextTaskId = 1;
-  _stateTasks = new Map<number, ActiveStateTask>();
+  _stateTasks = new Map<number, Task>();
   _actorMainPromise: Promise<void> | undefined;
-  _eventResolve: (() => void) | undefined;
+  _wakeResolve: (() => void) | undefined;
 
   state(): string {
     return this._state!;
   }
 
-  protected _send_event(name: string): void {
-    this._nextEvents.push(name);
-    this._eventResolve?.();
+  _wake(): void {
+    this._wakeResolve?.();
+    this._wakeResolve = undefined;
   }
 
-  protected _start_task<Result>(task: ActorStateTask<Result>): void {
+  protected _send_event(name: string): void {
+    if (this._nextEvent !== undefined) {
+      throw new InternalActorError(`Actor already has pending event "${this._nextEvent}", cannot send "${name}"`);
+    }
+    this._nextEvent = name;
+    this._wake();
+  }
+
+  protected _run_task<Result>(run: (signal: AbortSignal) => Promise<Result>, options?: RunTaskOptions<Result>): AbortController {
     const currentState = this._state!;
     if (this._definition!.states.get(currentState)?.terminal) {
       throw new InternalActorError(`Cannot start task in terminal state "${currentState}"`);
     }
     const controller = new AbortController();
     const id = this._nextTaskId++;
-    const finished = runTask(id, task, controller);
-    this._stateTasks.set(id, { ...task, id, controller, finished } as ActiveStateTask);
-  }
-
-  protected _start_actor_task<Result>(task: ActorStateTask<Result>): void {
-    this._start_task(task);
+    const promise = safeTask(id, run, controller);
+    const on_done = options?.on_done ?? (options?.on_done_event ? (() => this._send_event(options.on_done_event!)) : undefined);
+    const on_failed = options?.on_failed ?? (options?.on_failed_event ? (() => this._send_event(options.on_failed_event!)) : undefined);
+    this._stateTasks.set(id, { id, controller, promise, on_done: on_done as Task['on_done'], on_failed: on_failed as Task['on_failed'] });
+    this._wake();
+    return controller;
   }
 
   _installActorInternals(internals: ActorInternals): void {
@@ -148,6 +159,7 @@ export function dispatchEvent(actor: BaseActor, eventName: string): string {
   actor._stateTasks.clear();
   actor._state = targetState;
   callHandler(actor, 'enter');
+  actor._wake();
 
   return targetState;
 }
@@ -165,8 +177,9 @@ export function dispatchRecover(actor: BaseActor): void {
 
 async function actorMain(actor: BaseActor): Promise<void> {
   for (;;) {
-    const event = actor._nextEvents.shift();
+    const event = actor._nextEvent;
     if (event !== undefined) {
+      actor._nextEvent = undefined;
       dispatchEvent(actor, event);
       continue;
     }
@@ -176,37 +189,24 @@ async function actorMain(actor: BaseActor): Promise<void> {
     }
 
     if (actor._stateTasks.size === 0) {
-      await new Promise<void>(resolve => { actor._eventResolve = resolve; });
-      actor._eventResolve = undefined;
+      await new Promise<void>((resolve) => { actor._wakeResolve = resolve; });
       continue;
     }
 
-    const finished = await Promise.race([
-      ...[...actor._stateTasks.values()].map((t) => t.finished),
-      new Promise<void>(resolve => { actor._eventResolve = resolve; }),
-    ]);
-    actor._eventResolve = undefined;
-
-    if (actor._nextEvents.length > 0) continue;
-
-    if (finished && typeof finished === 'object' && 'id' in finished) {
-      const task = actor._stateTasks.get((finished as FinishedTask).id);
-      if (!task) continue;
-      actor._stateTasks.delete((finished as FinishedTask).id);
-      if (task.controller.signal.aborted) {
-        task.on_failed?.(null);
-      } else {
-        (finished as FinishedTask).ok
-          ? task.on_done?.((finished as FinishedTask).value)
-          : task.on_failed?.((finished as FinishedTask).value);
-      }
-    }
+    const wakePromise = new Promise<void>((resolve) => { actor._wakeResolve = resolve; });
+    const taskPromises = [...actor._stateTasks.values()].map((t) => t.promise);
+    const result = await Promise.race([wakePromise.then(() => null), ...taskPromises]);
+    if (result === null) continue;
+    const task = actor._stateTasks.get(result.id);
+    actor._stateTasks.delete(result.id);
+    if (!task) continue;
+    result.ok ? task.on_done?.(result.value) : task.on_failed?.(result.value);
   }
 }
 
-async function runTask<Result>(taskId: number, task: ActorStateTask<Result>, controller: AbortController): Promise<FinishedTask> {
+async function safeTask(taskId: number, run: (signal: AbortSignal) => Promise<unknown>, controller: AbortController): Promise<TaskResult> {
   try {
-    const value = await task.run({ signal: controller.signal });
+    const value = await run(controller.signal);
     return { id: taskId, ok: true, value };
   } catch (value) {
     return { id: taskId, ok: false, value };
@@ -219,7 +219,7 @@ function callHandler(actor: BaseActor, hook: 'enter' | 'leave' | 'recover'): boo
     method.call(actor);
     return true;
   }
-  return false
+  return false;
 }
 
 function getMethod(actor: BaseActor, methodName: string): Function | undefined {
