@@ -199,6 +199,36 @@ describe('recover', () => {
     expect(() => actor.recover('missing')).toThrow('unknown state');
   });
 
+  it('rejects recovery after start', () => {
+    class RecoverableActor extends BaseActor {
+      static _actor = {
+        states: {
+          idle: { terminal: true },
+        },
+      };
+    }
+
+    const actor = new RecoverableActor();
+    actor.start();
+
+    expect(() => actor.recover('idle')).toThrow(InternalActorError);
+  });
+
+  it('rejects recovery after recovery', () => {
+    class RecoverableActor extends BaseActor {
+      static _actor = {
+        states: {
+          idle: { terminal: true },
+        },
+      };
+    }
+
+    const actor = new RecoverableActor();
+    actor.recover('idle');
+
+    expect(() => actor.recover('idle')).toThrow(InternalActorError);
+  });
+
   it('reports recover hook errors through actor recovery', () => {
     class RecoverableActor extends BaseActor {
       static _actor = {

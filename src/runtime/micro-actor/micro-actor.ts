@@ -66,6 +66,9 @@ export abstract class BaseActor {
   }
 
   recover(state: string): void {
+    if (this._state !== undefined) {
+      throw new InternalActorError(`Cannot recover actor after it has entered state "${this._state}"`);
+    }
     const definition = getCompiledActorDefinition(this.constructor as ActorClassWithDefinition);
     if (!definition.states.has(state)) {
       throw new InternalActorError(`Cannot recover actor to unknown state "${state}"`);
