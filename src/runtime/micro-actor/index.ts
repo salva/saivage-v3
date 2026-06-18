@@ -6,12 +6,9 @@ export {
 } from './define-machine.js';
 export {
   BaseActor,
-  startActor,
-  recoverActor,
   InternalActorError,
   TimeoutError,
   dispatchEvent,
-  dispatchRecover,
 } from './micro-actor.js';
 export { SlaveActor } from './slave-actor.js';
 export { SimpleSlaveActor, SimpleSlaveCommandCancelledError } from './simple-slave-actor.js';
@@ -32,5 +29,4 @@ export type {
   StateDefinition,
   ActorDefinition,
   CompiledActorDefinition,
-  ActorInternals,
 } from './types.js';

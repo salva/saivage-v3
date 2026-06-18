@@ -1,5 +1,5 @@
 import type { LlmCompleteResult } from '../../agents/llm-contracts.js';
-import { SlaveActor, startActor } from '../micro-actor/index.js';
+import { SlaveActor } from '../micro-actor/index.js';
 import type { ActorDefinition } from '../micro-actor/index.js';
 import { cardActorId, executorActorId } from './ids.js';
 import { LlmRunnerController } from './llm-runner.js';
@@ -118,7 +118,9 @@ export class TerminalCardRunnerController {
     publicStatus: TerminalCardPublicStatus = 'backlog',
     private readonly statusPort?: TerminalCardStatusPort,
   ) {
-    this.actor = startActor(TerminalCardRunnerActor, projectRoot, cardId, publicStatus);
+    const actor = new TerminalCardRunnerActor(projectRoot, cardId, publicStatus);
+    actor.start();
+    this.actor = actor;
     this.llmRunner = new LlmRunnerController(projectRoot, executorActorId(cardId), providerTurn, admission);
   }
 

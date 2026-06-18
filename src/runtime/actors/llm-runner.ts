@@ -1,7 +1,7 @@
 import type { OperationalAgentRole } from '../../schemas/index.js';
 import type { LlmCompleteResult, ToolDefinition } from '../../agents/llm-contracts.js';
 import type { CapabilityRequest } from '../../agents/provider-capabilities.js';
-import { SlaveActor, startActor } from '../micro-actor/index.js';
+import { SlaveActor } from '../micro-actor/index.js';
 import { saveActorSnapshot } from './snapshots.js';
 import { actorKindFromId } from './ids.js';
 import { appendLlmTurnError, appendLlmTurnFinished, appendLlmTurnStarted } from './llm-delivery-log.js';
@@ -143,7 +143,9 @@ export class LlmRunnerController {
     private readonly admission?: AdmissionPort,
   ) {
     if (actorKindFromId(agentId) !== 'llm') throw new Error(`LLMRunner requires an LLM actor id: ${agentId}`);
-    this.actor = startActor(LlmRunnerActor, projectRoot, agentId);
+    const actor = new LlmRunnerActor(projectRoot, agentId);
+    actor.start();
+    this.actor = actor;
   }
 
   async runTurn(input: LlmInvocationInput): Promise<LlmRunnerOutput> {

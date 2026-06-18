@@ -1,5 +1,5 @@
 import { buildXStateReviewerInput } from './actor-input-builders.js';
-import { SlaveActor, startActor } from '../micro-actor/index.js';
+import { SlaveActor } from '../micro-actor/index.js';
 import type { ActorDefinition } from '../micro-actor/index.js';
 import { cardActorId, plannerActorId, reviewerActorId } from './ids.js';
 import { LlmRunnerController } from './llm-runner.js';
@@ -159,7 +159,9 @@ export class GoalCardRunnerController {
     private readonly childActivation: ChildActivationPort,
     options: GoalCardRunnerOptions = {},
   ) {
-    this.actor = startActor(GoalCardRunnerActor, projectRoot, cardId, options.publicStatus);
+    const actor = new GoalCardRunnerActor(projectRoot, cardId, options.publicStatus);
+    actor.start();
+    this.actor = actor;
     this.plannerRunner = new LlmRunnerController(projectRoot, plannerActorId(cardId), providerTurn, options.admission);
     this.reviewerRunner = options.reviewerProviderTurn
       ? new LlmRunnerController(projectRoot, reviewerActorId(cardId), options.reviewerProviderTurn, options.admission)

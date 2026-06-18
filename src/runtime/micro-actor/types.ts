@@ -19,8 +19,3 @@ export type CompiledActorDefinition = {
   initial: string;
   states: ReadonlyMap<string, StateDefinition>;
 };
-
-export type ActorInternals = {
-  definition: CompiledActorDefinition;
-  state: string;
-};

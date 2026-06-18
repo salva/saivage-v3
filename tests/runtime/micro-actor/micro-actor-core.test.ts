@@ -5,15 +5,15 @@ import {
   InvalidActorDefinitionError,
   InternalActorError,
   TimeoutError,
-  startActor,
 } from '../../../src/runtime/micro-actor/index.js';
 import { dispatchEvent, getCompiledActorDefinition } from '../../../src/runtime/micro-actor/index.js';
-import type { ActorDefinition, ActorConstructor, CompiledActorDefinition } from '../../../src/runtime/micro-actor/index.js';
+import type { ActorDefinition, CompiledActorDefinition } from '../../../src/runtime/micro-actor/index.js';
 
-function setupActor<T extends BaseActor>(ctor: ActorConstructor<T>): T {
-  const definition = getCompiledActorDefinition(ctor);
+function setupActor<T extends BaseActor>(ctor: new (...args: any[]) => T): T {
+  const definition = getCompiledActorDefinition(ctor as any);
   const actor = new ctor();
-  actor._installActorInternals({ definition, state: definition.initial });
+  actor['_definition'] = definition;
+  actor['_state'] = definition.initial;
   return actor;
 }
 
@@ -172,7 +172,7 @@ describe('state tasks', () => {
       }
     }
 
-    const actor = startActor(TaskActor);
+    const actor = new TaskActor(); actor.start();
 
     actor.task.resolve('ok');
 
@@ -194,7 +194,7 @@ describe('state tasks', () => {
       }
     }
 
-    const actor = startActor(TaskActor);
+    const actor = new TaskActor(); actor.start();
 
     await eventually(() => expect(actor.state()).toBe('done'));
     expect(actor.signal?.aborted).toBe(true);
@@ -207,7 +207,7 @@ describe('state tasks', () => {
       sendGo() { this._send_event('go'); }
     }
 
-    const actor = startActor(SuspendedActor);
+    const actor = new SuspendedActor(); actor.start();
     await new Promise((resolve) => setTimeout(resolve, 5));
     expect(actor.state()).toBe('idle');
     expect(actor._actorMainPromise).toBeDefined();
@@ -239,7 +239,7 @@ describe('state tasks', () => {
       }
     }
 
-    const actor = startActor(FiniteActor);
+    const actor = new FiniteActor(); actor.start();
 
     actor.task.resolve(undefined);
 
@@ -276,7 +276,7 @@ describe('state tasks', () => {
       }
     }
 
-    const actor = startActor(TaskActor);
+    const actor = new TaskActor(); actor.start();
     await eventually(() => expect(actor.state()).toBe('done'));
   });
 
@@ -289,7 +289,7 @@ describe('state tasks', () => {
       }
     }
 
-    const actor = startActor(FailActor);
+    const actor = new FailActor(); actor.start();
     await eventually(() => expect(actor.state()).toBe('done'));
   });
 
@@ -305,7 +305,7 @@ describe('state tasks', () => {
       }
     }
 
-    const actor = startActor(TimeoutActor);
+    const actor = new TimeoutActor(); actor.start();
     await eventually(() => expect(actor.state()).toBe('done'));
   });
 
@@ -328,7 +328,7 @@ describe('state tasks', () => {
       }
     }
 
-    const actor = startActor(TimeoutActor);
+    const actor = new TimeoutActor(); actor.start();
     await eventually(() => expect(actor.state()).toBe('done'));
     expect(actor.timeoutError).toBeInstanceOf(TimeoutError);
   });
@@ -345,7 +345,7 @@ describe('state tasks', () => {
       }
     }
 
-    const actor = startActor(TimeoutActor);
+    const actor = new TimeoutActor(); actor.start();
     await eventually(() => expect(actor.state()).toBe('done'));
   });
 
@@ -368,7 +368,7 @@ describe('state tasks', () => {
       }
     }
 
-    const actor = startActor(FailActor);
+    const actor = new FailActor(); actor.start();
     await eventually(() => expect(actor.state()).toBe('done'));
     expect(actor.failedError).toBeInstanceOf(TimeoutError);
   });
@@ -385,7 +385,7 @@ describe('state tasks', () => {
       }
     }
 
-    const actor = startActor(FastActor);
+    const actor = new FastActor(); actor.start();
     await eventually(() => expect(actor.state()).toBe('done'));
   });
 });

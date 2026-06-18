@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { SlaveActor, startActor } from '../micro-actor/index.js';
+import { SlaveActor } from '../micro-actor/index.js';
 import { processActorId } from './ids.js';
 import { saveActorSnapshot } from './snapshots.js';
 
@@ -126,7 +126,9 @@ export class ProcessRunnerController {
   private exitPromise: Promise<ProcessWaitResult> | null = null;
 
   constructor(projectRoot: string, readonly processId: string) {
-    this.actor = startActor(ProcessRunnerActor, projectRoot, processId);
+    const actor = new ProcessRunnerActor(projectRoot, processId);
+    actor.start();
+    this.actor = actor;
   }
 
   async start(input: ProcessRunnerStartInput): Promise<void> {

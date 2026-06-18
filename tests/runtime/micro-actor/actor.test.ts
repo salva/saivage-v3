@@ -1,7 +1,9 @@
 import { describe, expect, it } from '@jest/globals';
-import { BaseActor, InternalActorError, recoverActor, startActor } from '../../../src/runtime/micro-actor/index.js';
+import { BaseActor, InternalActorError, TimeoutError } from '../../../src/runtime/micro-actor/index.js';
+import { dispatchEvent, getCompiledActorDefinition } from '../../../src/runtime/micro-actor/index.js';
+import type { ActorDefinition, ActorConstructor } from '../../../src/runtime/micro-actor/index.js';
 
-describe('startActor', () => {
+describe('start', () => {
   it('creates a live actor and processes events from task completions', async () => {
     class StepActor extends BaseActor {
       static _actor = {
@@ -44,7 +46,8 @@ describe('startActor', () => {
       }
     }
 
-    const actor = startActor(StepActor);
+    const actor = new StepActor();
+    actor.start();
     expect(actor.state()).toBe('a');
     expect(actor.log).toEqual(['enter:a']);
 
@@ -71,12 +74,25 @@ describe('startActor', () => {
       }
     }
 
-    const actor = startActor(EnterActor);
+    const actor = new EnterActor();
+    actor.start();
     expect(actor.entered).toBe(true);
+  });
+
+  it('rejects starting in a terminal state', () => {
+    class TerminalActor extends BaseActor {
+      static _actor = {
+        initial: 'done',
+        states: { done: { terminal: true } },
+      };
+    }
+
+    const actor = new TerminalActor();
+    expect(() => actor.start()).toThrow(InternalActorError);
   });
 });
 
-describe('recoverActor', () => {
+describe('recover', () => {
   it('restores the requested state and calls the recover hook', () => {
     class RecoverableActor extends BaseActor {
       static _actor = {
@@ -98,7 +114,8 @@ describe('recoverActor', () => {
       }
     }
 
-    const actor = recoverActor(RecoverableActor, 'running');
+    const actor = new RecoverableActor();
+    actor.recover('running');
 
     expect(actor.state()).toBe('running');
     expect(actor.log).toEqual(['recover:running']);
@@ -125,7 +142,8 @@ describe('recoverActor', () => {
       }
     }
 
-    const actor = recoverActor(RecoverableActor, 'running');
+    const actor = new RecoverableActor();
+    actor.recover('running');
 
     expect(actor.state()).toBe('running');
     expect(actor.log).toEqual(['enter:running']);
@@ -140,7 +158,8 @@ describe('recoverActor', () => {
       };
     }
 
-    expect(() => recoverActor(RecoverableActor, 'missing')).toThrow('unknown state');
+    const actor = new RecoverableActor();
+    expect(() => actor.recover('missing')).toThrow('unknown state');
   });
 
   it('reports recover hook errors through actor recovery', () => {
@@ -156,7 +175,8 @@ describe('recoverActor', () => {
       }
     }
 
-    expect(() => recoverActor(RecoverableActor, 'idle')).toThrow('recover failed');
+    const actor = new RecoverableActor();
+    expect(() => actor.recover('idle')).toThrow('recover failed');
   });
 });
 

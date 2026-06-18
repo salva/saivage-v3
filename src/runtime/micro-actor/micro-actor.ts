@@ -1,5 +1,5 @@
 import { getCompiledActorDefinition, InvalidTransitionError } from './define-machine.js';
-import type { ActorDefinition, ActorInternals, CompiledActorDefinition } from './types.js';
+import type { ActorDefinition, CompiledActorDefinition } from './types.js';
 
 export class InternalActorError extends Error {
   constructor(message: string) {
@@ -59,6 +59,28 @@ export abstract class BaseActor {
     return this._state!;
   }
 
+  start(): void {
+    const definition = getCompiledActorDefinition(this.constructor as ActorConstructor);
+    if (definition.states.get(definition.initial)?.terminal) {
+      throw new InternalActorError(`Cannot start actor in terminal state "${definition.initial}"`);
+    }
+    this._definition = definition;
+    this._state = definition.initial;
+    callHandler(this, 'enter');
+    this._actorMainPromise = actorMain(this);
+  }
+
+  recover(state: string): void {
+    const definition = getCompiledActorDefinition(this.constructor as ActorConstructor);
+    if (!definition.states.has(state)) {
+      throw new InternalActorError(`Cannot recover actor to unknown state "${state}"`);
+    }
+    this._definition = definition;
+    this._state = state;
+    callHandler(this, 'recover') || callHandler(this, 'enter');
+    this._actorMainPromise = actorMain(this);
+  }
+
   _wake(): void {
     this._wakeResolve?.();
     this._wakeResolve = undefined;
@@ -86,53 +108,6 @@ export abstract class BaseActor {
     this._stateTasks.set(id, { id, controller, promise, on_done: on_done as Task['on_done'], on_failed: on_failed as Task['on_failed'], on_timeout });
     this._wake();
   }
-
-  _installActorInternals(internals: ActorInternals): void {
-    this._definition = internals.definition;
-    this._state = internals.state;
-  }
-}
-
-export function startActor<T extends BaseActor>(
-  ctor: ActorConstructor<T>,
-  ...args: ConstructorParameters<ActorConstructor<T>>
-): T {
-  const definition = getCompiledActorDefinition(ctor);
-  return installActor(ctor, definition.initial, undefined, ...args);
-}
-
-export function recoverActor<T extends BaseActor>(
-  ctor: ActorConstructor<T>,
-  state: string,
-  ...args: ConstructorParameters<ActorConstructor<T>>
-): T {
-  const definition = getCompiledActorDefinition(ctor);
-  if (!definition.states.has(state)) {
-    throw new Error(`Cannot recover ${ctor.name || '<anonymous>'} to unknown state "${state}"`);
-  }
-  return installActor(ctor, state, dispatchRecover, ...args);
-}
-
-function installActor<T extends BaseActor>(
-  ctor: ActorConstructor<T>,
-  state: string,
-  afterInstall: ((actor: T) => void) | undefined,
-  ...args: ConstructorParameters<ActorConstructor<T>>
-): T {
-  const definition = getCompiledActorDefinition(ctor);
-  const actor = new ctor(...args);
-
-  actor._installActorInternals({ definition, state });
-
-  if (afterInstall) {
-    afterInstall(actor);
-  } else {
-    callHandler(actor, 'enter');
-  }
-
-  actor._actorMainPromise = actorMain(actor);
-
-  return actor;
 }
 
 export function dispatchEvent(actor: BaseActor, eventName: string): string {
@@ -154,17 +129,6 @@ export function dispatchEvent(actor: BaseActor, eventName: string): string {
   actor._wake();
 
   return targetState;
-}
-
-export function dispatchRecover(actor: BaseActor): void {
-  const currentState = actor._state!;
-  const stateDef = actor._definition!.states.get(currentState);
-
-  if (!stateDef) {
-    throw new InvalidTransitionError(`Unknown current state "${currentState}"`);
-  }
-
-  callHandler(actor, 'recover') || callHandler(actor, 'enter');
 }
 
 async function actorMain(actor: BaseActor): Promise<void> {

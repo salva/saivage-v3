@@ -1,4 +1,4 @@
-import { SlaveActor, startActor } from '../micro-actor/index.js';
+import { SlaveActor } from '../micro-actor/index.js';
 import { saveActorSnapshot } from './snapshots.js';
 import { supervisorActorId } from './ids.js';
 
@@ -93,7 +93,13 @@ export class RuntimeSupervisorActor extends SlaveActor {
 }
 
 export class RuntimeSupervisorController {
-  private readonly actor = startActor(RuntimeSupervisorActor);
+  private actor: RuntimeSupervisorActor;
+
+  constructor() {
+    const actor = new RuntimeSupervisorActor();
+    actor.start();
+    this.actor = actor;
+  }
 
   start(projectRoot: string): void {
     this.actor.setProjectRoot({ projectRoot });

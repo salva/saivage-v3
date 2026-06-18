@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { SimpleSlaveActor, SimpleSlaveCommandCancelledError, startActor } from '../../../src/runtime/micro-actor/index.js';
+import { SimpleSlaveActor, SimpleSlaveCommandCancelledError } from '../../../src/runtime/micro-actor/index.js';
 
 class TestSimpleSlaveActor extends SimpleSlaveActor {
   started: string[] = [];
@@ -17,7 +17,8 @@ class TestSimpleSlaveActor extends SimpleSlaveActor {
 
 describe('SimpleSlaveActor', () => {
   it('runs mailbox commands serially and calls on_done callbacks', async () => {
-    const actor = startActor(TestSimpleSlaveActor);
+    const actor = new TestSimpleSlaveActor();
+    actor.start();
     const done: unknown[] = [];
 
     actor.mailbox.deliver('first', undefined, { on_done: (result) => { done.push(result); } });
@@ -34,7 +35,8 @@ describe('SimpleSlaveActor', () => {
   });
 
   it('cancels queued commands before they run', async () => {
-    const actor = startActor(TestSimpleSlaveActor);
+    const actor = new TestSimpleSlaveActor();
+    actor.start();
     const failed: unknown[] = [];
 
     actor.mailbox.deliver('first');
@@ -51,7 +53,8 @@ describe('SimpleSlaveActor', () => {
   });
 
   it('aborts and fails a running command when cancelled', async () => {
-    const actor = startActor(TestSimpleSlaveActor);
+    const actor = new TestSimpleSlaveActor();
+    actor.start();
     const failed: unknown[] = [];
 
     const running = actor.mailbox.deliver('first', undefined, { on_failed: (error) => { failed.push(error); } });
