@@ -41,12 +41,9 @@ type Task = {
   id: number;
   controller: AbortController;
   promise: Promise<TaskResult>;
-  on_done?: (result: unknown) => void;
-  on_failed?: (error: Error) => void;
+  on_done: (result: unknown) => void;
+  on_failed: (error: Error) => void;
   on_timeout?: (error: TimeoutError) => void;
-  on_done_event: string;
-  on_failed_event: string;
-  on_timeout_event?: string;
 };
 
 export abstract class BaseActor {
@@ -83,13 +80,10 @@ export abstract class BaseActor {
     const controller = new AbortController();
     const id = this._nextTaskId++;
     const promise = safeTask(id, run, controller, options?.timeout);
-    const on_done = options?.on_done;
-    const on_failed = options?.on_failed;
-    const on_timeout = options?.on_timeout;
-    const on_done_event = options?.on_done_event ?? 'done';
-    const on_failed_event = options?.on_failed_event ?? 'failed';
-    const on_timeout_event = options?.on_timeout_event;
-    this._stateTasks.set(id, { id, controller, promise, on_done: on_done as Task['on_done'], on_failed, on_timeout, on_done_event, on_failed_event, on_timeout_event });
+    const on_done = options?.on_done ?? (() => this._send_event(options?.on_done_event ?? 'done'));
+    const on_failed = options?.on_failed ?? (() => this._send_event(options?.on_failed_event ?? 'failed'));
+    const on_timeout = options?.on_timeout ?? (options?.on_timeout_event ? (() => this._send_event(options.on_timeout_event!)) : undefined);
+    this._stateTasks.set(id, { id, controller, promise, on_done: on_done as Task['on_done'], on_failed: on_failed as Task['on_failed'], on_timeout });
     this._wake();
     return controller;
   }
@@ -220,15 +214,12 @@ async function actorMain(actor: BaseActor): Promise<void> {
     actor._stateTasks.delete(result.id);
     if (!task) continue;
 
-    if (result.ok) {
-      task.on_done?.(result.value);
-      if (!task.on_done) actor._send_event(task.on_done_event);
-    } else if (result.timedOut && (task.on_timeout || task.on_timeout_event)) {
-      task.on_timeout?.(result.value as TimeoutError);
-      if (!task.on_timeout) actor._send_event(task.on_timeout_event!);
+    if (result.timedOut && task.on_timeout) {
+      task.on_timeout(result.value as TimeoutError);
+    } else if (result.ok) {
+      task.on_done(result.value);
     } else {
-      task.on_failed?.(result.value as Error);
-      if (!task.on_failed) actor._send_event(task.on_failed_event);
+      task.on_failed(result.value as Error);
     }
   }
 }
