@@ -167,15 +167,20 @@ async function safeTask(taskId: number, run: (signal: AbortSignal) => Promise<un
 }
 
 async function withTimeout<T>(task: Promise<T>, controller: AbortController, timeout: number): Promise<T> {
-  const error = new TimeoutError(`Task timed out after ${timeout}ms`);
-  let timer!: ReturnType<typeof setTimeout>;
-  const timeoutTask = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => {
-      controller.abort(error);
-      reject(error);
-    }, timeout);
-  });
-  return Promise.race([task, timeoutTask]).finally(() => clearTimeout(timer));
+  let timeoutError: TimeoutError | undefined;
+  const timer = setTimeout(() => {
+    timeoutError = new TimeoutError(`Task timed out after ${timeout}ms`);
+    controller.abort(timeoutError);
+  }, timeout);
+  try {
+    const value = await task;
+    if (timeoutError) throw timeoutError;
+    return value;
+  } catch (error) {
+    throw timeoutError ?? error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function callHandler(actor: BaseActor, hook: 'enter' | 'leave' | 'recover'): boolean {

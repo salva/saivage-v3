@@ -293,7 +293,7 @@ describe('state tasks', () => {
 
       _on_enter__idle() {
         this._run_task(
-          () => new Promise(() => {}),
+          (signal) => waitForAbort(signal),
           { timeout: 10 },
         );
       }
@@ -310,7 +310,7 @@ describe('state tasks', () => {
 
       _on_enter__idle() {
         this._run_task(
-          () => new Promise(() => {}),
+          (signal) => waitForAbort(signal),
           {
             timeout: 10,
             on_timeout: (error) => {
@@ -333,7 +333,7 @@ describe('state tasks', () => {
 
       _on_enter__idle() {
         this._run_task(
-          () => new Promise(() => {}),
+          (signal) => waitForAbort(signal),
           { timeout: 10, on_timeout_event: 'timed_out' },
         );
       }
@@ -350,7 +350,7 @@ describe('state tasks', () => {
 
       _on_enter__idle() {
         this._run_task(
-          () => new Promise(() => {}),
+          (signal) => waitForAbort(signal),
           {
             timeout: 10,
             on_failed: (error) => {
@@ -365,6 +365,42 @@ describe('state tasks', () => {
     const actor = new FailActor(); actor.start();
     await eventually(() => expect(actor.state()).toBe('done'));
     expect(actor.failedError).toBeInstanceOf(TimeoutError);
+  });
+
+  it('waits for timed out task to finish after abort', async () => {
+    class TimeoutActor extends BaseActor {
+      static _actor = { states: { idle: { on: { timeout: 'done' } }, done: { terminal: true } } };
+      cleanup = createDeferred<void>();
+      aborted = false;
+      timeoutError: TimeoutError | undefined;
+
+      _on_enter__idle() {
+        this._run_task(
+          (signal) => new Promise<void>((resolve, reject) => {
+            signal.addEventListener('abort', () => {
+              this.aborted = true;
+              this.cleanup.promise.then(resolve, reject);
+            }, { once: true });
+          }),
+          {
+            timeout: 10,
+            on_timeout: (error) => {
+              this.timeoutError = error;
+              this._send_event('timeout');
+            },
+          },
+        );
+      }
+    }
+
+    const actor = new TimeoutActor(); actor.start();
+    await eventually(() => expect(actor.aborted).toBe(true));
+    expect(actor.timeoutError).toBeUndefined();
+
+    actor.cleanup.resolve(undefined);
+
+    await eventually(() => expect(actor.state()).toBe('done'));
+    expect(actor.timeoutError).toBeInstanceOf(TimeoutError);
   });
 
   it('completes a task before timeout', async () => {
@@ -398,6 +434,12 @@ function createDeferred<T>(): Deferred<T> {
     reject = rej;
   });
   return { promise, resolve, reject };
+}
+
+function waitForAbort(signal: AbortSignal): Promise<never> {
+  return new Promise((_resolve, reject) => {
+    signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+  });
 }
 
 async function eventually(assertion: () => void): Promise<void> {
