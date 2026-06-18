@@ -191,18 +191,21 @@ describe('state tasks', () => {
   it('aborts unfinished state tasks when the actor leaves the state', async () => {
     class TaskActor extends BaseActor {
       static _actor = { states: { idle: { on: { leave: 'done' } }, done: { terminal: true } } };
-      controller: AbortController | undefined;
+      signal: AbortSignal | undefined;
 
       _on_enter__idle() {
         this._run_task(() => Promise.resolve(undefined), { on_done_event: 'leave' });
-        this.controller = this._run_task((signal) => new Promise<void>(() => {}));
+        this._run_task((signal) => {
+          this.signal = signal;
+          return new Promise<void>(() => {});
+        });
       }
     }
 
     const actor = startActor(TaskActor);
 
     await eventually(() => expect(actor.state()).toBe('done'));
-    expect(actor.controller?.signal.aborted).toBe(true);
+    expect(actor.signal?.aborted).toBe(true);
   });
 
   it('suspends when a non-terminal state has no tasks or events', async () => {

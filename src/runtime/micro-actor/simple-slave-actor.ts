@@ -113,8 +113,9 @@ export abstract class SimpleSlaveActor extends SlaveActor {
   _on_enter__working(): void {
     if (this.runningCommand || this.queuedCommands.length === 0) return;
     const next = this.queuedCommands.shift()!;
+    const controller = new AbortController();
 
-    const controller = this._run_task(
+    this._run_task(
       (signal) => this._runCommand(next, { signal }),
       {
         on_done: (result) => {

@@ -72,7 +72,7 @@ export abstract class BaseActor {
     this._wake();
   }
 
-  protected _run_task<Result>(run: (signal: AbortSignal) => Promise<Result>, options?: RunTaskOptions<Result>): AbortController {
+  protected _run_task<Result>(run: (signal: AbortSignal) => Promise<Result>, options?: RunTaskOptions<Result>): void {
     const currentState = this._state!;
     if (this._definition!.states.get(currentState)?.terminal) {
       throw new InternalActorError(`Cannot start task in terminal state "${currentState}"`);
@@ -85,7 +85,6 @@ export abstract class BaseActor {
     const on_timeout = options?.on_timeout ?? (options?.on_timeout_event ? (() => this._send_event(options.on_timeout_event!)) : undefined);
     this._stateTasks.set(id, { id, controller, promise, on_done: on_done as Task['on_done'], on_failed: on_failed as Task['on_failed'], on_timeout });
     this._wake();
-    return controller;
   }
 
   _installActorInternals(internals: ActorInternals): void {
