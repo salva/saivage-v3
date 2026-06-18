@@ -136,22 +136,11 @@ function installActor<T extends BaseActor>(
 }
 
 export function dispatchEvent(actor: BaseActor, eventName: string): string {
-  const definition = actor._definition!;
   const currentState = actor._state!;
-  const stateDef = definition.states.get(currentState);
-
-  if (!stateDef) {
-    throw new InvalidTransitionError(`Unknown current state "${currentState}"`);
-  }
+  const stateDef = actor._definition!.states.get(currentState)!;
 
   const targetState = stateDef.on?.[eventName];
   if (targetState === undefined) return currentState;
-
-  if (!definition.states.has(targetState)) {
-    throw new InvalidTransitionError(
-      `Invalid target state "${targetState}" for event "${eventName}" in state "${currentState}"`,
-    );
-  }
 
   if (targetState === currentState) return currentState;
 

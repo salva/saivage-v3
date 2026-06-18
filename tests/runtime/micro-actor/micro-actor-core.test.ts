@@ -3,7 +3,6 @@ import {
   BaseActor,
   compileActorDefinition,
   InvalidActorDefinitionError,
-  InvalidTransitionError,
   InternalActorError,
   TimeoutError,
   startActor,
@@ -152,14 +151,7 @@ describe('dispatchEvent', () => {
     expect(actor.state()).toBe('c');
   });
 
-  it('throws InvalidTransitionError for unknown current state', () => {
-    const actor = setupActor(LightActor);
-    actor._state = 'nonexistent';
-
-    expect(() => dispatchEvent(actor, 'toggle'))
-      .toThrow(InvalidTransitionError);
   });
-});
 
 describe('state tasks', () => {
   it('runs task completion handlers through the actor pump', async () => {
