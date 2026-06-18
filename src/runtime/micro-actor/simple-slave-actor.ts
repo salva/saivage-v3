@@ -3,7 +3,7 @@ import type { ActorDefinition } from './types.js';
 
 export type SimpleSlaveCommandCallbacks<Result = unknown> = {
   on_done?: (result: Result) => void;
-  on_failed?: (error: unknown) => void;
+  on_failed?: (error: Error) => void;
 };
 
 export type SimpleSlaveCommandHandle = {
@@ -122,7 +122,6 @@ export abstract class SimpleSlaveActor extends SlaveActor {
           if (command?.id === next.id) {
             this.runningCommand = null;
             command.callbacks?.on_done?.(result);
-            this._send_event('done');
           }
         },
         on_failed: (error) => {
@@ -130,7 +129,6 @@ export abstract class SimpleSlaveActor extends SlaveActor {
           if (command?.id === next.id) {
             this.runningCommand = null;
             command.callbacks?.on_failed?.(error);
-            this._send_event('failed');
           }
         },
       },

@@ -15,7 +15,7 @@ export type ActorConstructor<T extends BaseActor = BaseActor> = (new (...args: a
 
 export type RunTaskOptions<Result = unknown> = {
   on_done?: (result: Result) => void;
-  on_failed?: (error: unknown) => void;
+  on_failed?: (error: Error) => void;
   on_done_event?: string;
   on_failed_event?: string;
 };
@@ -31,7 +31,9 @@ type Task = {
   controller: AbortController;
   promise: Promise<TaskResult>;
   on_done?: (result: unknown) => void;
-  on_failed?: (error: unknown) => void;
+  on_failed?: (error: Error) => void;
+  on_done_event: string;
+  on_failed_event: string;
 };
 
 export abstract class BaseActor {
@@ -52,7 +54,7 @@ export abstract class BaseActor {
     this._wakeResolve = undefined;
   }
 
-  protected _send_event(name: string): void {
+  _send_event(name: string): void {
     if (this._nextEvent !== undefined) {
       throw new InternalActorError(`Actor already has pending event "${this._nextEvent}", cannot send "${name}"`);
     }
@@ -68,9 +70,11 @@ export abstract class BaseActor {
     const controller = new AbortController();
     const id = this._nextTaskId++;
     const promise = safeTask(id, run, controller);
-    const on_done = options?.on_done ?? (options?.on_done_event ? (() => this._send_event(options.on_done_event!)) : undefined);
-    const on_failed = options?.on_failed ?? (options?.on_failed_event ? (() => this._send_event(options.on_failed_event!)) : undefined);
-    this._stateTasks.set(id, { id, controller, promise, on_done: on_done as Task['on_done'], on_failed: on_failed as Task['on_failed'] });
+    const on_done = options?.on_done;
+    const on_failed = options?.on_failed;
+    const on_done_event = options?.on_done_event ?? 'done';
+    const on_failed_event = options?.on_failed_event ?? 'failed';
+    this._stateTasks.set(id, { id, controller, promise, on_done: on_done as Task['on_done'], on_failed, on_done_event, on_failed_event });
     this._wake();
     return controller;
   }
@@ -200,7 +204,15 @@ async function actorMain(actor: BaseActor): Promise<void> {
     const task = actor._stateTasks.get(result.id);
     actor._stateTasks.delete(result.id);
     if (!task) continue;
-    result.ok ? task.on_done?.(result.value) : task.on_failed?.(result.value);
+    if (result.ok) {
+      task.on_done?.(result.value);
+    } else {
+      task.on_failed?.(result.value as Error);
+    }
+    if (actor._nextEvent === undefined) {
+      actor._nextEvent = result.ok ? task.on_done_event : task.on_failed_event;
+      actor._wake();
+    }
   }
 }
 
