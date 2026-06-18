@@ -122,6 +122,7 @@ export abstract class SimpleSlaveActor extends SlaveActor {
           if (command?.id === next.id) {
             this.runningCommand = null;
             command.callbacks?.on_done?.(result);
+            this._send_event('done');
           }
         },
         on_failed: (error) => {
@@ -129,6 +130,7 @@ export abstract class SimpleSlaveActor extends SlaveActor {
           if (command?.id === next.id) {
             this.runningCommand = null;
             command.callbacks?.on_failed?.(error);
+            this._send_event('failed');
           }
         },
       },

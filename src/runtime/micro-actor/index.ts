@@ -9,6 +9,7 @@ export {
   startActor,
   recoverActor,
   InternalActorError,
+  TimeoutError,
   dispatchEvent,
   dispatchRecover,
 } from './micro-actor.js';

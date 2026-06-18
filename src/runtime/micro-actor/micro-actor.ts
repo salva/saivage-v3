@@ -8,6 +8,13 @@ export class InternalActorError extends Error {
   }
 }
 
+export class TimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'TimeoutError';
+  }
+}
+
 export type ActorConstructor<T extends BaseActor = BaseActor> = (new (...args: any[]) => T) & {
   _actor: ActorDefinition;
   _compiled_actor?: CompiledActorDefinition;
@@ -16,14 +23,18 @@ export type ActorConstructor<T extends BaseActor = BaseActor> = (new (...args: a
 export type RunTaskOptions<Result = unknown> = {
   on_done?: (result: Result) => void;
   on_failed?: (error: Error) => void;
+  on_timeout?: (error: TimeoutError) => void;
   on_done_event?: string;
   on_failed_event?: string;
+  on_timeout_event?: string;
+  timeout?: number;
 };
 
 type TaskResult = {
   id: number;
   ok: boolean;
   value: unknown;
+  timedOut?: boolean;
 };
 
 type Task = {
@@ -32,8 +43,10 @@ type Task = {
   promise: Promise<TaskResult>;
   on_done?: (result: unknown) => void;
   on_failed?: (error: Error) => void;
+  on_timeout?: (error: TimeoutError) => void;
   on_done_event: string;
   on_failed_event: string;
+  on_timeout_event?: string;
 };
 
 export abstract class BaseActor {
@@ -69,12 +82,14 @@ export abstract class BaseActor {
     }
     const controller = new AbortController();
     const id = this._nextTaskId++;
-    const promise = safeTask(id, run, controller);
+    const promise = safeTask(id, run, controller, options?.timeout);
     const on_done = options?.on_done;
     const on_failed = options?.on_failed;
+    const on_timeout = options?.on_timeout;
     const on_done_event = options?.on_done_event ?? 'done';
     const on_failed_event = options?.on_failed_event ?? 'failed';
-    this._stateTasks.set(id, { id, controller, promise, on_done: on_done as Task['on_done'], on_failed, on_done_event, on_failed_event });
+    const on_timeout_event = options?.on_timeout_event;
+    this._stateTasks.set(id, { id, controller, promise, on_done: on_done as Task['on_done'], on_failed, on_timeout, on_done_event, on_failed_event, on_timeout_event });
     this._wake();
     return controller;
   }
@@ -204,24 +219,43 @@ async function actorMain(actor: BaseActor): Promise<void> {
     const task = actor._stateTasks.get(result.id);
     actor._stateTasks.delete(result.id);
     if (!task) continue;
+
     if (result.ok) {
       task.on_done?.(result.value);
+      if (!task.on_done) actor._send_event(task.on_done_event);
+    } else if (result.timedOut && (task.on_timeout || task.on_timeout_event)) {
+      task.on_timeout?.(result.value as TimeoutError);
+      if (!task.on_timeout) actor._send_event(task.on_timeout_event!);
     } else {
       task.on_failed?.(result.value as Error);
-    }
-    if (actor._nextEvent === undefined) {
-      actor._nextEvent = result.ok ? task.on_done_event : task.on_failed_event;
-      actor._wake();
+      if (!task.on_failed) actor._send_event(task.on_failed_event);
     }
   }
 }
 
-async function safeTask(taskId: number, run: (signal: AbortSignal) => Promise<unknown>, controller: AbortController): Promise<TaskResult> {
+async function safeTask(taskId: number, run: (signal: AbortSignal) => Promise<unknown>, controller: AbortController, timeout?: number): Promise<TaskResult> {
+  if (timeout !== undefined && timeout > 0) {
+    let timer: ReturnType<typeof setTimeout>;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort(new TimeoutError(`Task timed out after ${timeout}ms`));
+        reject(new TimeoutError(`Task timed out after ${timeout}ms`));
+      }, timeout);
+    });
+    try {
+      const value = await Promise.race([run(controller.signal), timeoutPromise]);
+      clearTimeout(timer!);
+      return { id: taskId, ok: true, value };
+    } catch (error) {
+      clearTimeout(timer!);
+      return { id: taskId, ok: false, value: error, timedOut: error instanceof TimeoutError };
+    }
+  }
   try {
     const value = await run(controller.signal);
     return { id: taskId, ok: true, value };
-  } catch (value) {
-    return { id: taskId, ok: false, value };
+  } catch (error) {
+    return { id: taskId, ok: false, value: error };
   }
 }
 

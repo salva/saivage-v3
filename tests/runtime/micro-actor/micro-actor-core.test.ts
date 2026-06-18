@@ -5,6 +5,7 @@ import {
   InvalidActorDefinitionError,
   InvalidTransitionError,
   InternalActorError,
+  TimeoutError,
   startActor,
 } from '../../../src/runtime/micro-actor/index.js';
 import { dispatchEvent, getCompiledActorDefinition } from '../../../src/runtime/micro-actor/index.js';
@@ -269,6 +270,128 @@ describe('state tasks', () => {
 
     expect(() => (actor as any)._run_task(() => Promise.resolve()))
       .toThrow(InternalActorError);
+  });
+
+  it('sends default done event when no on_done callback', async () => {
+    class TaskActor extends BaseActor {
+      static _actor = { states: { idle: { on: { done: 'done' } }, done: { terminal: true } } };
+
+      _on_enter__idle() {
+        this._run_task(() => Promise.resolve('ok'));
+      }
+    }
+
+    const actor = startActor(TaskActor);
+    await eventually(() => expect(actor.state()).toBe('done'));
+  });
+
+  it('sends default failed event when no on_failed callback', async () => {
+    class FailActor extends BaseActor {
+      static _actor = { states: { idle: { on: { failed: 'done' } }, done: { terminal: true } } };
+
+      _on_enter__idle() {
+        this._run_task(() => Promise.reject(new Error('boom')));
+      }
+    }
+
+    const actor = startActor(FailActor);
+    await eventually(() => expect(actor.state()).toBe('done'));
+  });
+
+  it('times out a task and sends default failed event', async () => {
+    class TimeoutActor extends BaseActor {
+      static _actor = { states: { idle: { on: { failed: 'done' } }, done: { terminal: true } } };
+
+      _on_enter__idle() {
+        this._run_task(
+          () => new Promise(() => {}),
+          { timeout: 10 },
+        );
+      }
+    }
+
+    const actor = startActor(TimeoutActor);
+    await eventually(() => expect(actor.state()).toBe('done'));
+  });
+
+  it('times out a task and calls on_timeout callback', async () => {
+    class TimeoutActor extends BaseActor {
+      static _actor = { states: { idle: { on: { timeout: 'done' } }, done: { terminal: true } } };
+      timeoutError: TimeoutError | undefined;
+
+      _on_enter__idle() {
+        this._run_task(
+          () => new Promise(() => {}),
+          {
+            timeout: 10,
+            on_timeout: (error) => {
+              this.timeoutError = error;
+              this._send_event('timeout');
+            },
+          },
+        );
+      }
+    }
+
+    const actor = startActor(TimeoutActor);
+    await eventually(() => expect(actor.state()).toBe('done'));
+    expect(actor.timeoutError).toBeInstanceOf(TimeoutError);
+  });
+
+  it('times out a task and sends on_timeout_event', async () => {
+    class TimeoutActor extends BaseActor {
+      static _actor = { states: { idle: { on: { timed_out: 'done' } }, done: { terminal: true } } };
+
+      _on_enter__idle() {
+        this._run_task(
+          () => new Promise(() => {}),
+          { timeout: 10, on_timeout_event: 'timed_out' },
+        );
+      }
+    }
+
+    const actor = startActor(TimeoutActor);
+    await eventually(() => expect(actor.state()).toBe('done'));
+  });
+
+  it('falls through timeout to on_failed when no on_timeout handler', async () => {
+    class FailActor extends BaseActor {
+      static _actor = { states: { idle: { on: { failed: 'done' } }, done: { terminal: true } } };
+      failedError: Error | undefined;
+
+      _on_enter__idle() {
+        this._run_task(
+          () => new Promise(() => {}),
+          {
+            timeout: 10,
+            on_failed: (error) => {
+              this.failedError = error;
+              this._send_event('failed');
+            },
+          },
+        );
+      }
+    }
+
+    const actor = startActor(FailActor);
+    await eventually(() => expect(actor.state()).toBe('done'));
+    expect(actor.failedError).toBeInstanceOf(TimeoutError);
+  });
+
+  it('completes a task before timeout', async () => {
+    class FastActor extends BaseActor {
+      static _actor = { states: { idle: { on: { done: 'done' } }, done: { terminal: true } } };
+
+      _on_enter__idle() {
+        this._run_task(
+          () => Promise.resolve('fast'),
+          { timeout: 1000 },
+        );
+      }
+    }
+
+    const actor = startActor(FastActor);
+    await eventually(() => expect(actor.state()).toBe('done'));
   });
 });
 
