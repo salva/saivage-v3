@@ -1,9 +1,3 @@
-export type MailboxCommand = {
-  kind: 'call';
-  name: string;
-  args?: unknown;
-};
-
 export type StateDefinition = {
   on?: Record<string, string>;
   terminal?: boolean;

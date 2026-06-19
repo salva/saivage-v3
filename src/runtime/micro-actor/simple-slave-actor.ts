@@ -1,18 +1,11 @@
-import { SlaveActor, SlaveJobCancelledError, type SlaveJob, type SlaveJobCallbacks } from './slave-actor.js';
+import { SlaveActor, SlaveJobCancelledError, type SlaveJob } from './slave-actor.js';
 import type { ActorDefinition } from './types.js';
-
-export type SimpleSlaveJobCallbacks<Result = unknown> = SlaveJobCallbacks<Result>;
-
-export type SimpleSlaveMailbox<Load = unknown> = {
-  deliver<Result = unknown>(load: Load, callbacks?: SimpleSlaveJobCallbacks<Result>): string;
-  cancel(id: string): boolean;
-};
 
 type RunningJob = SlaveJob<unknown, unknown> & {
   cancel(): void;
 };
 
-// SimpleSlaveActor is a serial worker. It waits for mailbox jobs in `waiting`,
+// SimpleSlaveActor is a serial worker. It waits for submitted jobs in `waiting`,
 // then runs exactly one job in `running` before returning to `waiting`.
 export abstract class SimpleSlaveActor<Load = unknown> extends SlaveActor {
   static _actor: ActorDefinition = {
@@ -24,13 +17,6 @@ export abstract class SimpleSlaveActor<Load = unknown> extends SlaveActor {
   };
 
   #runningJob: RunningJob | null = null;
-
-  readonly mailbox: SimpleSlaveMailbox<Load> = {
-    deliver: <Result = unknown>(load: Load, callbacks?: SimpleSlaveJobCallbacks<Result>) => {
-      return this.submitJob<Load, Result>(load, callbacks);
-    },
-    cancel: (id) => this.cancelJob(id),
-  };
 
   protected abstract runJob(job: { id: string; load: Load }, context: { signal: AbortSignal }): Promise<unknown>;
 

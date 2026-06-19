@@ -24,20 +24,17 @@ describe('SimpleSlaveActor', () => {
     const first = actor.submitJob('first', { on_done: (result) => { done.push(result); } });
     const second = actor.submitJob('second', { on_done: (result) => { done.push(result); } });
 
-    expect(actor.getJobState(first)).toBe('queued');
-    expect(actor.getJobState(second)).toBe('queued');
+    expect(first).toMatch(/^job-/);
+    expect(second).toMatch(/^job-/);
+    expect(second).not.toBe(first);
 
     await eventually(() => expect(actor.started).toEqual(['first']));
-    await eventually(() => expect(actor.getJobState(first)).toBe('running'));
     actor.completions[0]!.resolve('one');
     await eventually(() => expect(done).toEqual(['one']));
-    await eventually(() => expect(actor.getJobState(first)).toBe('done'));
     await eventually(() => expect(actor.started).toEqual(['first', 'second']));
-    await eventually(() => expect(actor.getJobState(second)).toBe('running'));
 
     actor.completions[1]!.resolve('two');
     await eventually(() => expect(done).toEqual(['one', 'two']));
-    await eventually(() => expect(actor.getJobState(second)).toBe('done'));
     await eventually(() => expect(actor.state()).toBe('waiting'));
   });
 
@@ -53,7 +50,6 @@ describe('SimpleSlaveActor', () => {
     expect(actor.cancelJob(queued)).toBe(true);
 
     await eventually(() => expect(failed[0]).toBeInstanceOf(SlaveJobCancelledError));
-    expect(actor.getJobState(queued)).toBe('cancelled');
     actor.completions[0]!.resolve('one');
 
     await eventually(() => expect(actor.state()).toBe('waiting'));
@@ -73,7 +69,6 @@ describe('SimpleSlaveActor', () => {
 
     await eventually(() => expect(actor.signals[0]!.aborted).toBe(true));
     await eventually(() => expect(failed[0]).toBeInstanceOf(SlaveJobCancelledError));
-    expect(actor.getJobState(running)).toBe('cancelled');
     await eventually(() => expect(actor.state()).toBe('waiting'));
   });
 
@@ -82,25 +77,13 @@ describe('SimpleSlaveActor', () => {
     actor.start();
     const failed: unknown[] = [];
 
-    const running = actor.submitJob('first', { on_failed: (error) => { failed.push(error); } });
+    actor.submitJob('first', { on_failed: (error) => { failed.push(error); } });
 
     await eventually(() => expect(actor.started).toEqual(['first']));
     actor.completions[0]!.reject(new Error('boom'));
 
     await eventually(() => expect(failed[0]).toBeInstanceOf(Error));
-    await eventually(() => expect(actor.getJobState(running)).toBe('failed'));
     await eventually(() => expect(actor.state()).toBe('waiting'));
-  });
-
-  it('keeps mailbox delivery as an id-returning convenience wrapper', () => {
-    const actor = new TestSimpleSlaveActor();
-
-    const jobId = actor.mailbox.deliver('first');
-
-    expect(jobId).toMatch(/^job-/);
-    expect(actor.getJobState(jobId)).toBe('queued');
-    expect(actor.mailbox.cancel(jobId)).toBe(true);
-    expect(actor.getJobState(jobId)).toBe('cancelled');
   });
 });
 

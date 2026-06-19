@@ -13,7 +13,7 @@ This document defines how the Saivage v3 autonomous runtime core is built on the
 - [System architecture](./system-architecture.md)
 - [Declarative micro-actor module architecture](./declarative-micro-actor-module.md)
 
-The runtime is a tree of `BaseActor` subclasses. Each actor declares a static `_actor` transition table, accepts external work through actor-owned public methods or a subclass mailbox, emits internal state-transition events through protected `sendEvent(name)`, and owns its own current state through JavaScript `#private` `BaseActor` slots.
+The runtime is a tree of `BaseActor` subclasses. Each actor declares a static `_actor` transition table, accepts external work through actor-owned public methods, emits internal state-transition events through protected `sendEvent(name)`, and owns its own current state through JavaScript `#private` `BaseActor` slots.
 
 ## 2. Core Invariants
 

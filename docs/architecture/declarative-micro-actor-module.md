@@ -18,8 +18,7 @@ The core module does not persist state and does not own domain storage. Callers 
 
 - `micro-actor.ts`: frozen core implementation, definition compiler, `BaseActor`, `TimeoutError`, `InternalActorError`, and actor definition validation.
 - `slave-actor.ts`: job-queue helper base for externally addressable actors.
-- `simple-slave-actor.ts`: optional serial mailbox worker specialization built on `SlaveActor`.
-- `mailbox-queue.ts`: standalone async FIFO utility covered by focused tests.
+- `simple-slave-actor.ts`: optional serial worker specialization built on `SlaveActor`.
 
 ## Actor Definitions
 
@@ -133,11 +132,10 @@ Recovery hooks are synchronous actor hooks. They may rebuild live in-memory reso
 
 ```ts
 actor.submitJob(load, callbacks?) // returns jobId
-actor.getJobState(jobId)
 actor.cancelJob(jobId)
 ```
 
-The returned job ID is the stable handle external code uses for later state inquiry or cancellation. The protected actor-task side is deliberately small:
+The returned job ID is the stable handle external code uses for later cancellation. The protected actor-task side is deliberately small:
 
 ```ts
 this.waitForJob(signal)
@@ -146,10 +144,10 @@ this.dequeueJob()
 
 `waitForJob(signal)` is the method intended to be run through `runTask(...)` while the actor is in a waiting state.
 
-`SlaveActor` is not an actor definition by itself; subclasses own their states and decide how queued jobs map onto state transitions. `SimpleSlaveActor` provides the default serial worker shape and keeps a convenience mailbox whose `deliver(load, callbacks?)` also returns a job ID.
+`SlaveActor` is not an actor definition by itself; subclasses own their states and decide how queued jobs map onto state transitions. `SimpleSlaveActor` provides the default serial worker shape.
 
-Mailbox jobs are external work items, not state-transition events. Actor code remains responsible for translating job availability and work outcomes into internal events.
+Jobs are external work items, not state-transition events. Actor code remains responsible for translating job availability and work outcomes into internal events.
 
 ## Tests
 
-Focused coverage lives under `tests/runtime/micro-actor/` and covers definition compilation, lifecycle start/recover, task completion, timeout behavior, mailbox queue behavior, and `SimpleSlaveActor` serial job behavior.
+Focused coverage lives under `tests/runtime/micro-actor/` and covers definition compilation, lifecycle start/recover, task completion, timeout behavior, and `SimpleSlaveActor` serial job behavior.

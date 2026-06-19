@@ -6,8 +6,6 @@ export type SlaveJobCallbacks<Result = unknown> = {
   on_cancelled?: (error: SlaveJobCancelledError) => void;
 };
 
-export type SlaveJobState = 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
-
 export type SlaveJob<Load = unknown, Result = unknown> = {
   id: string;
   load: Load;
@@ -27,20 +25,14 @@ export class SlaveJobCancelledError extends Error {
 export abstract class SlaveActor extends BaseActor {
   static #nextJobId = 1;
   readonly #queuedJobs: Array<SlaveJob<any, any>> = [];
-  readonly #jobStates = new Map<string, SlaveJobState>();
   #jobAvailable: (() => void) | null = null;
 
   submitJob<Load, Result = unknown>(load: Load, callbacks?: SlaveJobCallbacks<Result>): string {
     const id = `job-${SlaveActor.#nextJobId++}`;
     this.#queuedJobs.push({ id, load, callbacks });
-    this.#jobStates.set(id, 'queued');
     this.#jobAvailable?.();
     this.#jobAvailable = null;
     return id;
-  }
-
-  getJobState(id: string): SlaveJobState | undefined {
-    return this.#jobStates.get(id);
   }
 
   cancelJob(id: string): boolean {
@@ -49,9 +41,7 @@ export abstract class SlaveActor extends BaseActor {
   }
 
   protected dequeueJob<Load = unknown, Result = unknown>(): SlaveJob<Load, Result> | undefined {
-    const job = this.#queuedJobs.shift() as SlaveJob<Load, Result> | undefined;
-    if (job) this.#jobStates.set(job.id, 'running');
-    return job;
+    return this.#queuedJobs.shift() as SlaveJob<Load, Result> | undefined;
   }
 
   protected hasQueuedJobs(): boolean {
@@ -82,17 +72,14 @@ export abstract class SlaveActor extends BaseActor {
   }
 
   protected completeJob<Result>(job: SlaveJob<unknown, Result>, result: Result): void {
-    this.#jobStates.set(job.id, 'done');
     job.callbacks?.on_done?.(result);
   }
 
   protected failJob(job: SlaveJob, error: Error): void {
-    this.#jobStates.set(job.id, 'failed');
     job.callbacks?.on_failed?.(error);
   }
 
   protected markJobCancelled(job: SlaveJob, error = new SlaveJobCancelledError(job.id)): void {
-    this.#jobStates.set(job.id, 'cancelled');
     if (job.callbacks?.on_cancelled) {
       job.callbacks.on_cancelled(error);
     } else {
