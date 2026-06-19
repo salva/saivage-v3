@@ -1,11 +1,9 @@
 export {
+  BaseActor,
   compileActorDefinition,
   getCompiledActorDefinition,
   InvalidActorDefinitionError,
   InvalidTransitionError,
-} from './define-machine.js';
-export {
-  BaseActor,
   InternalActorError,
   TimeoutError,
 } from './micro-actor.js';
@@ -19,7 +17,7 @@ export type {
   SimpleSlaveCommandHandle,
   SimpleSlaveMailbox,
 } from './simple-slave-actor.js';
-export type { ActorClassWithDefinition } from './define-machine.js';
+export type { ActorClassWithDefinition } from './micro-actor.js';
 export type {
   MailboxCommand,
   StateDefinition,

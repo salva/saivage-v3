@@ -43,7 +43,6 @@ export class SimpleSlaveCommandCancelledError extends Error {
 // time, keeps later commands queued, and supports cancelling queued or running
 // commands.
 export abstract class SimpleSlaveActor extends SlaveActor {
-  static _allow_inherited_actor = true;
   static _actor: ActorDefinition = {
     initial: 'idle',
     states: {
