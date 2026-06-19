@@ -68,6 +68,7 @@ export abstract class BaseActor {
   #nextTaskId = 1;
   #stateTasks = new Map<number, Task<any>>();
   #actorMainPromise: Promise<void> | undefined;
+  #actorMainRunning = false;
 
   state(): string {
     return this.#currentState!;
@@ -81,7 +82,7 @@ export abstract class BaseActor {
     this.#definition = definition;
     this.#currentState = definition.initial;
     this.#callHandler('enter');
-    this.#actorMainPromise = this.#actorMain();
+    this.#ensureActorMain();
   }
 
   recover(state: string): void {
@@ -95,7 +96,7 @@ export abstract class BaseActor {
     this.#definition = definition;
     this.#currentState = state;
     this.#callHandler('recover') || this.#callHandler('enter');
-    this.#actorMainPromise = this.#actorMain();
+    this.#ensureActorMain();
   }
 
   protected sendEvent(name: string): void {
@@ -105,10 +106,25 @@ export abstract class BaseActor {
     this.#nextEvent = name;
   }
 
+  protected parkedSendEvent(name: string): void {
+    const currentState = this.#currentState;
+    if (currentState === undefined) {
+      throw new InternalActorError('Cannot send parked event before actor has started or recovered');
+    }
+    if (!this.#definition!.states.get(currentState)?.parked) {
+      throw new InternalActorError(`Cannot send parked event from non-parked state "${currentState}"`);
+    }
+    this.sendEvent(name);
+    this.#ensureActorMain();
+  }
+
   protected runTask<Result>(run: (signal: AbortSignal) => Promise<Result>, options?: RunTaskOptions<Result>): void {
     const currentState = this.#currentState!;
     if (this.#definition!.states.get(currentState)?.terminal) {
       throw new InternalActorError(`Cannot start task in terminal state "${currentState}"`);
+    }
+    if (this.#definition!.states.get(currentState)?.parked) {
+      throw new InternalActorError(`Cannot start task in parked state "${currentState}"`);
     }
     const controller = new AbortController();
     const id = this.#nextTaskId++;
@@ -154,6 +170,10 @@ export abstract class BaseActor {
           return;
         }
 
+        if (this.#definition!.states.get(this.#currentState!)?.parked) {
+          return;
+        }
+
         if (this.#stateTasks.size === 0) {
           throw new InternalActorError(`Actor stuck in non-terminal state "${this.#currentState!}" with no pending tasks or events`);
         }
@@ -172,7 +192,15 @@ export abstract class BaseActor {
       }
     } catch (error) {
       console.error('BaseActor main loop failed', error);
+    } finally {
+      this.#actorMainRunning = false;
     }
+  }
+
+  #ensureActorMain(): void {
+    if (this.#actorMainRunning) return;
+    this.#actorMainRunning = true;
+    this.#actorMainPromise = this.#actorMain();
   }
 
   async #safeTask<Result>(taskId: number, run: (signal: AbortSignal) => Promise<Result>, controller: AbortController, timeout?: number): Promise<TaskResult<Result>> {
@@ -300,6 +328,12 @@ export function compileActorDefinition(definition: ActorDefinition): CompiledAct
       );
     }
 
+    if (stateDef.terminal && stateDef.parked) {
+      throw new InvalidActorDefinitionError(
+        `State "${stateName}" cannot be both terminal and parked`,
+      );
+    }
+
     for (const [eventName, targetState] of Object.entries(stateDef.on ?? {})) {
       if (eventName === '') {
         throw new InvalidActorDefinitionError(
@@ -330,6 +364,7 @@ export function compileActorDefinition(definition: ActorDefinition): CompiledAct
     compiledStates.set(stateName, {
       on,
       terminal: stateDef.terminal,
+      parked: stateDef.parked,
     });
   }
 

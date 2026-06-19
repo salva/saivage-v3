@@ -1,12 +1,12 @@
-# Micro-Actor Runtime Redesign Draft
+# Micro-Actor Runtime Design
 
-Status: first draft.
+Status: forward-looking target design.
 
 Date: 2026-06-19.
 
 ## Purpose
 
-This document is the fresh runtime design draft for introducing the local micro-actor framework into the Saivage v3 application.
+This document is the target runtime design for introducing the local micro-actor framework into the Saivage v3 application. It describes the design to build, not the current production implementation.
 
 The old XState plans are provenance only. They were reviewed for reusable product and ownership ideas, not for implementation structure. This draft does not preserve XState concepts, event names, snapshots, controller seams, compatibility bridges, or machine hierarchy as baggage.
 
@@ -43,13 +43,46 @@ Ideas intentionally discarded:
 - Runtime behavior is owned by `BaseActor` subclasses and their explicit public methods.
 - Micro-actor does not know or enforce ownership. Ownership is defined only by concrete `BaseActor` subclasses, their fields, and their public methods.
 - Public methods accept external work and may return command/job IDs or immediate command acceptance results.
+- Concrete actors are instantiated with parent references where they need to report completion. They do not need per-call completion callbacks in `start(...)` or `recover(...)`.
+- Completion is reported by calling hard-coded parent methods, such as `onChildCardDone(...)`, `onProcessorDone(...)`, or `onLlmDone(...)`, when the child actor reaches an activation or work outcome state.
+- When a parent needs to wait for a child, the parent creates and stores the promise, calls the child's domain method such as `activate(...)` or `startTurn(...)`, then uses `runTask(...)` to wait for that promise. The hard-coded child completion method resolves or rejects the stored promise.
 - Internal state changes are string events sent with `sendEvent(...)`.
+- Parked states represent externally controlled idle lifecycle states. Public actor methods advance them through protected `parkedSendEvent(...)`, not direct state assignment.
 - Long work is run through `runTask(...)`; task completion callbacks store results and then send `done` unless a specific branch fact is needed.
 - Actor state names are small and product-meaningful. Do not create a state for every helper function.
 - Use `SlaveActor.submitJob(...)` only for externally queued work where a caller needs a returned job ID and cancellation handle.
 - Do not expose actor state, task IDs, private fields, compiled definitions, or internal events through API/UI contracts.
 - Persist Saivage domain facts and actor reconstruction data, not in-memory queues.
 - If recovery cannot prove a safe continuation, fail or block explicitly with operator-visible diagnostics.
+
+## Functional Invariants
+
+The target implementation must preserve these invariants:
+
+- The runtime is the only autonomous dispatcher.
+- The Analyst is the user-facing mutation surface; UI mutation controls remain projection-only except authentication/bootstrap.
+- At most one leaf card does real work at a time.
+- A running chain may contain several `running` cards, but only the leaf receives scheduling, LLM turns, or process work.
+- Parent planners activate only immediate children through `activate_card`.
+- `activate_card` is a synchronous logical barrier from the parent planner perspective.
+- Activatable child statuses are `backlog`, `changed`, `blocked`, and `failed`.
+- Activating a child transitions it to `running`.
+- Child activation outcomes update the child card to `done`, `failed`, or `blocked` before the parent receives the tool result.
+- The Analyst cannot directly set a card to `blocked`; `blocked` is a main-agent activation outcome.
+- Only `done` and `canceled` descendants are completion-compatible for parent `done`.
+- `changed`, `blocked`, `backlog`, `running`, and `failed` descendants block parent `done` until handled.
+- `working_status` is free text for agents attached to the card.
+- `result` is attached only from accepted main-agent results.
+- Reviewer-negative results are stored with the card and injected into planner context; positive reviewer text is only attached to the card.
+- Notifications are card-addressed, immutable, ephemeral delivery items, not user-managed note objects.
+- Run starts idle work or resumes paused work; duplicate Run returns an already-running warning.
+- Pause is a scheduling gate and does not mutate card/session/process state.
+- Shutdown pauses first, then terminates runtime-owned running processes.
+- Process handling uses launch, inspect, bounded wait, and explicit termination; wait timeout does not kill the process.
+- Every external operation admitted by the runtime has a timeout or inactivity timeout.
+- Operator APIs and UI expose Saivage read models, never raw actor internals.
+
+Most task states use the same local completion protocol: the state starts or admits work, stores any result/error data on actor fields, sends `done` when that work completes successfully, and sends `failed` when that work fails. Use specific event names only for branch facts, such as `tool_calls_ready`, that are not success/failure signals.
 
 ## System Shape
 
@@ -73,9 +106,27 @@ RuntimeSupervisorActor
           ProcessActor(... as needed)
 ```
 
-`CardActor` has the public card states: `backlog`, `running`, `done`, `blocked`, `failed`, `canceled`, and `changed`. This is the public card lifecycle layer. `CardProcessorActor` has card-type-dependent behavior. `LLMActor` interacts with remote LLM providers.
+`CardActor` has the public card states: `backlog`, `running`, `done`, `blocked`, `failed`, `canceled`, and `changed`. This is the public card lifecycle layer. Public idle card states such as `backlog`, `done`, `blocked`, `failed`, and `changed` are parked because external commands may later activate, change, or cancel them. `canceled` is terminal. `CardProcessorActor` has card-type-dependent behavior. `LLMActor` interacts with remote LLM providers.
 
 The active chain may contain several public `running` cards, but only the leaf actor receives provider/process scheduling at a time.
+
+Ownership conventions are deliberately narrow:
+
+- `CardActor` owns its direct child `CardActor` instances and its associated `CardProcessorActor`.
+- `CardProcessorActor` owns and caches its role-specific `LLMActor` instances.
+- `ProcessActor` instances are created and controlled by the `CardProcessorActor` that launched or attached to the process record.
+- Other references are dependencies, services, or data references unless a concrete actor class explicitly stores and controls them.
+
+Parent-child waiting follows one pattern:
+
+1. Parent creates an activation/wait record containing a promise and its resolver.
+2. Parent calls the child's domain method, such as `activate(...)`, after creating or recovering the child actor if needed.
+3. Parent enters a waiting state and runs a task that awaits the promise.
+4. Child reaches an activation outcome state and calls a hard-coded parent method.
+5. Parent method validates the child/wait identity and resolves or rejects the promise.
+6. Parent task callback stores the result and sends `done`.
+
+This keeps the micro-actor framework out of ownership and out of cross-actor waiting. The parent owns the wait. The child only reports activation outcomes to its known parent.
 
 ## Actor Inventory
 
@@ -85,10 +136,10 @@ Purpose: root runtime control, pause gate, shutdown, recovery, and parentless pr
 
 Suggested states:
 
-- `idle`: no root work is active.
-- `running`: root project exists and admission is open.
-- `paused`: root project may exist, but no new model/provider calls are admitted.
-- `shutting_down`: pause gate is closed and runtime-owned processes are being terminated.
+- `idle`: parked; no root work is active.
+- `running`: active; root project exists and admission is open.
+- `paused`: parked; root project may exist, but no new model/provider calls are admitted.
+- `shutting_down`: active; pause gate is closed and runtime-owned processes are being terminated, then the supervisor returns to `idle`.
 
 Public methods:
 
@@ -96,16 +147,15 @@ Public methods:
 - `pause()`: close model/provider admission.
 - `shutdown()`: close admission, terminate runtime-owned running processes, and settle.
 - `cancelProject()`: cooperatively cancel the active root chain.
-- `recover()`: rebuild actor tree from persisted state.
 
 Responsibilities:
 
 - Hold the parentless project `CardActor` reference as supervisor runtime data.
 - Enforce duplicate-run behavior: return already-running warning, no duplicate root run.
-- Own admission policy for provider calls.
+- Manage admission policy for provider calls.
 - Coordinate shutdown process termination.
 - Project runtime status for API/UI.
-- Rebuild or explicitly fail unsafe runtime state during startup recovery.
+- Rebuild or explicitly fail unsafe runtime state during startup recovery before normal runtime commands are accepted.
 
 Non-responsibilities:
 
@@ -119,13 +169,13 @@ Purpose: durable public card lifecycle boundary.
 
 States mirror public card status:
 
-- `backlog`
-- `changed`
-- `running`
-- `blocked`
-- `canceled`
-- `failed`
-- `done`
+- `backlog`: parked.
+- `changed`: parked.
+- `running`: active processor work is in progress.
+- `blocked`: parked.
+- `canceled`: terminal.
+- `failed`: parked.
+- `done`: parked.
 
 Public methods:
 
@@ -134,12 +184,25 @@ Public methods:
 - `cancel(reason)`: cancel inactive card or coordinate active cancellation.
 - `markChanged(change)`: apply card/subtree change semantics.
 
+Parked public methods use `parkedSendEvent(...)` after validating authority and recording any event-specific data on actor fields. Allowed movements are the normal `on` transitions declared on each parked state.
+
+Minimum events:
+
+- `activate`: parked activatable card enters `running`.
+- `done`: running card commits an accepted done result.
+- `blocked`: running card commits a blocked outcome.
+- `failed`: running card commits a failed outcome.
+- `changed`: parked or running card records changed context.
+- `canceled`: inactive cancellation or completed cooperative cancellation reaches `canceled`.
+
 Responsibilities:
 
 - Write public status through CardStore.
-- Hold the associated `CardProcessorActor` reference as card runtime data.
+- Own direct child `CardActor` instances.
+- Own the associated `CardProcessorActor`.
 - Enforce direct-child activation authority.
 - Commit exactly one activation outcome before returning it to the parent.
+- Call the parent card's hard-coded child-completion method when this card reaches an activation outcome.
 - Deliver card-addressed notifications to the card's main agent at safe boundaries.
 - Keep `changed` as public card state, not a generic actor phase.
 
@@ -158,16 +221,18 @@ There is one conceptual processor layer. Concrete processors may have different 
 
 Project and goal processor states:
 
-- `planning`: planner main agent is active or can receive another turn.
-- `waiting_child`: planner is blocked on an `activate_card` tool call.
-- `waiting_process`: planner is blocked on a process-backed tool call.
-- `reviewing`: reviewer is assessing a candidate done outcome.
-- `settled`: one public outcome is ready for the owning `CardActor`.
+- `planning`: active; planner main agent is active or can receive another turn.
+- `waiting_child`: active; planner is blocked on an `activate_card` tool call.
+- `waiting_process`: active; planner is blocked on a process-backed tool call.
+- `reviewing`: active; reviewer is assessing a candidate done outcome.
+- `settled`: parked; one public outcome is ready for the owning `CardActor` and the processor may be reused for a later activation.
 
 Important actor fields:
 
 - Active planner session id.
 - Active reviewer session id, when reviewing.
+- Cached planner `LLMActor`.
+- Cached reviewer `LLMActor`, when reviewer work has been needed.
 - Active child activation metadata, when waiting on a child.
 - Active process wait metadata, when waiting on a process.
 - Pending notifications for planner delivery.
@@ -176,7 +241,8 @@ Important actor fields:
 Responsibilities:
 
 - Build planner invocation context.
-- Own the planner capability registry.
+- Own and cache planner/reviewer `LLMActor` instances.
+- Build the planner capability registry.
 - Validate planner tool authority.
 - Start immediate child cards through `CardActor` references held by the processor.
 - Treat child activation as a synchronous logical barrier from the planner perspective.
@@ -184,7 +250,17 @@ Responsibilities:
 - Enforce readiness and evidence gates before review.
 - Invoke reviewer only after gates pass.
 - Store negative reviewer findings for planner context.
+- Call the associated `CardActor`'s hard-coded processor-completion method when it reaches `settled`.
 - Return exactly one `done`, `failed`, or `blocked` activation outcome.
+
+Minimum events:
+
+- `tool_calls_ready`: planner/reviewer LLM produced tool calls requiring runtime work.
+- `child_done`: child activation result is ready.
+- `process_done`: process tool result is ready.
+- `review_ready`: readiness/evidence gates passed.
+- `done`: accepted done or blocked outcome is classified.
+- `failed`: planner, reviewer, process, or protocol failure is classified.
 
 Reviewer rules:
 
@@ -194,18 +270,27 @@ Reviewer rules:
 
 Terminal processor states:
 
-- `executing`: executor main agent is active or can receive another turn.
-- `waiting_process`: executor is blocked on a process-backed tool call.
-- `settled`: one public outcome is ready for the owning `CardActor`.
+- `executing`: active; executor main agent is active or can receive another turn.
+- `waiting_process`: active; executor is blocked on a process-backed tool call.
+- `settled`: parked; one public outcome is ready for the owning `CardActor` and the processor may be reused for a later activation.
 
 Terminal responsibilities:
 
 - Build executor invocation context.
-- Own terminal tool capability registry.
+- Own and cache the executor `LLMActor`.
+- Build terminal tool capability registry.
 - Route process tools to `ProcessActor` or process services.
 - Validate executor terminal/reporting results.
 - Commit terminal result data only from accepted executor results.
-- Return exactly one `done` or `failed` outcome to the owning `CardActor`.
+- Call the associated `CardActor`'s hard-coded processor-completion method when it reaches `settled`.
+- Return exactly one `done` or `failed` outcome to the associated `CardActor`.
+
+Minimum events:
+
+- `tool_calls_ready`: executor LLM produced tool calls requiring runtime work.
+- `process_done`: process tool result is ready.
+- `done`: accepted done outcome is classified.
+- `failed`: executor, process, or protocol failure is classified.
 
 Terminal actors do not own children.
 
@@ -215,15 +300,16 @@ Purpose: generic LLM/provider turn and tool-loop mechanics for planner, reviewer
 
 Suggested states:
 
-- `idle`: no provider call is active; another turn may be requested by owner.
-- `requesting_admission`: waiting for supervisor admission to call provider.
-- `calling_provider`: provider request is in flight.
-- `waiting_tool`: a runtime tool result is required before another provider turn.
-- `settled`: this episode is done and control returns to owner.
+- `idle`: parked; no provider call is active and another turn may be requested by owner.
+- `requesting_admission`: active; waiting for supervisor admission to call provider.
+- `calling_provider`: active; provider request is in flight.
+- `waiting_tool`: parked; a runtime tool result is required before another provider turn.
+- `settled`: parked; this episode is done and control returns to owner.
 
 Public methods:
 
-- `submitTurn(inputRef)`: run a model turn from persisted input context.
+- `startTurn(inputRef)`: run a model turn from persisted input context.
+- `recoverTurn(state)`: recover a persisted LLM turn or tool wait.
 - `appendToolResult(toolCallId, result)`: continue after tool success.
 - `appendToolError(toolCallId, error)`: continue after tool failure.
 - `cancel(reason)`: cancel or refuse future admission.
@@ -231,11 +317,11 @@ Public methods:
 Responsibilities:
 
 - Append durable invocation context before provider calls.
-- Request/release provider admission through supervisor-owned policy.
+- Request/release provider admission through the parent `CardProcessorActor`, which delegates to the supervisor-owned admission policy.
 - Persist provider responses before owner interpretation.
 - Persist every assistant tool call before routing it.
 - Enforce one result/error per tool call.
-- Forward raw terminal/reporting objects to the owning card actor.
+- Call the parent `CardProcessorActor`'s hard-coded LLM completion/tool-call methods when the LLM turn reaches `settled` or needs a runtime tool.
 - Stay generic: do not decide public card outcomes.
 
 Provider output rules:
@@ -249,9 +335,9 @@ Purpose: durable external process lifecycle.
 
 Suggested states:
 
-- `running`: process exists or is being reconciled.
-- `killing`: explicit termination is in progress.
-- `settled`: process terminal result, failure, or abandonment is recorded.
+- `running`: active; process exists or is being reconciled.
+- `killing`: active; explicit termination is in progress.
+- `settled`: terminal; process terminal result, failure, or abandonment is recorded.
 
 Public methods:
 
@@ -264,7 +350,7 @@ Responsibilities:
 
 - Persist process identity and ownership.
 - Persist terminal result/failure.
-- Return process tool results to the waiting `LLMActor` exactly once.
+- Return process tool results to the owning `CardProcessorActor` exactly once; the processor forwards the tool result to the waiting `LLMActor`.
 - Reattach to running processes after restart when safe.
 - Treat late results after cancellation as diagnostics, not second tool results.
 
@@ -287,6 +373,8 @@ Initial command mapping:
 
 The adapter may wait for projected state when an existing API contract requires a completion response. Waiting must observe actor/card projections, not execute workflow itself.
 
+Runtime adapters must serialize concurrent external commands per actor. `parkedSendEvent(...)` intentionally has a single pending event slot and rejects a second command before the first is pumped.
+
 ## Tool Protocol
 
 Every assistant tool call persisted in an agent session has one durable terminal delivery:
@@ -305,7 +393,7 @@ Tool routing groups:
 Rules:
 
 - LLM actor persists the tool call before routing.
-- Owning card actor validates role-specific semantics.
+- Owning `CardProcessorActor` validates role-specific semantics.
 - Process waits and child activations put the LLM actor into `waiting_tool`.
 - Reporting tools are interpreted by the owning card processor, not by `LLMActor`.
 - Rejected tool calls append a tool error and may allow another turn.
@@ -386,7 +474,7 @@ Recovery procedure:
 4. Recreate LLM actors only when a recoverable active/waiting session exists.
 5. Recreate process actors for running or undelivered process records.
 6. Reconnect deterministic IDs.
-7. Run actor-specific recovery public methods or `recover(state)` where safe.
+7. Call `recover(state)` on fresh actor instances where safe, or run actor-specific startup reconstruction before accepting runtime commands.
 8. Repair forward or fail explicitly when state is ambiguous.
 
 Recovery classifications for each actor state must be designed before implementation:
@@ -394,7 +482,14 @@ Recovery classifications for each actor state must be designed before implementa
 - `resume_safe`: continue from durable boundary.
 - `reconcile_then_resume`: inspect child/process/tool record first.
 - `abandon_with_diagnostic`: no safe continuation; record failed/blocked outcome.
-- `terminal`: no live actor needed.
+- `complete_no_live_actor`: no live actor needed.
+
+Examples:
+
+- A `ProcessActor` in `running` may be `reconcile_then_resume` if the OS process can be found through the process registry.
+- A provider call in progress at crash time is `abandon_with_diagnostic` because the external request cannot be safely reattached.
+- A planner `LLMActor` waiting on `activate_card` is `reconcile_then_resume` if the active child actor and durable card state can be rebuilt from the active card chain and activation edge.
+- A committed `canceled` card or settled process is `complete_no_live_actor`; parked card outcomes such as `done`, `failed`, and `blocked` may still need a live parked actor when future changes or activation are allowed.
 
 ## API And Projection
 
@@ -415,6 +510,8 @@ Forbidden responsibilities:
 - Synthesize child activation outcomes.
 - Call protected actor methods.
 - Expose raw actor internals, task IDs, or transition-table state.
+- Run workflow loops or branch over runtime phases.
+- Expose raw actor private state or compiled transition tables over public APIs.
 
 Projection requirements:
 
@@ -565,15 +662,17 @@ Minimum focused test families:
 
 - Micro-actor definition/task/cancellation tests.
 - Supervisor run/pause/resume/shutdown tests.
-- CardActor activation/status/changed-state tests.
-- LLMActor provider admission/tool-call protocol tests.
-- Goal actor child activation barrier tests.
-- Goal actor process wait tests.
-- Terminal actor executor/process tests.
+- `CardActor` activation validation, status commit ordering, cancellation, notification delivery, and changed-state tests.
+- Goal/project `CardProcessorActor` tests for child activation success/failure/blocked, invalid activation, changed handling, readiness rejection, reviewer pass/correction/invalidation, and process waits.
+- Terminal `CardProcessorActor` tests proving it constructs tool capabilities, invokes executor `LLMActor`, returns accepted outcomes, and does not own tool-loop states.
+- `LLMActor` provider admission, cooperative cancellation, provider failure, serial tool execution, capability invocation, tool-result context, barrier ordering for `activate_card`, tool failure, turn budget exhaustion, and accepted outcome tests.
+- Process actor launch, wait-timeout-without-kill, inspect, terminate, failure diagnostics, and startup reconciliation tests.
 - Reviewer structured verdict tests.
 - Recovery classification tests.
 - RuntimeApi boundary tests proving it does not import or drive child workflows.
 - Projection tests for idle/running/paused/shutting-down and active chain.
+- API/projection tests proving public responses expose Saivage read models, not raw actor internals.
+- UI smoke tests when projection contracts change.
 
 Delete tests that only protect old XState/controller behavior once replacement coverage exists.
 

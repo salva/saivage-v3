@@ -1,6 +1,6 @@
 # Micro-Actor Runtime Core Architecture
 
-Status: current runtime-core implementation architecture.
+Status: archived. Superseded by `docs/architecture/micro-actor-runtime-design.md` as the forward-looking design.
 
 Last updated: 2026-06-19.
 
@@ -44,9 +44,13 @@ The implementation must preserve these functional invariants:
 
 Most task states use the same local completion protocol: the state starts or admits work, stores any result/error data on actor fields, sends `done` when that work completes successfully, and sends `failed` when that work fails. Use specific event names only for branch facts, such as `tool_calls_ready`, that are not success/failure signals.
 
+Concrete runtime actors are instantiated with parent references when they need to report completion. They do not need per-call completion callbacks in `start(...)` or `recover(...)`. Child actors call hard-coded parent methods, such as `onChildCardDone(...)`, `onProcessorDone(...)`, or `onLlmDone(...)`, when they reach terminal states.
+
+When a parent needs to wait for a child, the parent creates and stores a promise, calls the child's `start(...)` or `recover(...)`, and runs a state task that awaits the promise. The hard-coded child completion method validates the active wait and resolves or rejects that promise. This keeps cross-actor waiting in the parent actor class rather than in the micro-actor framework.
+
 ## 3. Actor Tree
 
-The runtime actor tree has one root supervisor actor. The supervisor holds the parentless project `CardActor`. `CardActor`s are the durable public card status/projection boundary. Each card actor delegates type-dependent behavior to a `CardProcessorActor`. `CardProcessorActor`s hold child `CardActor` references when the card type can have children. `LLMActor`s own remote LLM/provider interaction. Tool handling is a card-scoped capability registry; a capability becomes an actor only when it needs durable state, cancellation, recovery, or long-lived resource ownership.
+The runtime actor tree has one root supervisor actor. The supervisor holds the parentless project `CardActor`. `CardActor`s are the durable public card status/projection boundary and own direct child `CardActor` instances plus their associated `CardProcessorActor`. `CardProcessorActor`s own and cache role-specific `LLMActor` instances. `LLMActor`s interact with remote LLM providers. Tool handling is a card-scoped capability registry; a capability becomes an actor only when it needs durable state, cancellation, recovery, or long-lived resource ownership.
 
 ```mermaid
 graph TD
@@ -82,13 +86,12 @@ graph TD
 
 Actor ownership:
 
-- `SupervisorActor` holds runtime mode, root run intent, pause gate, shutdown state, the parentless project `CardActor`, and recovery coordination.
-- `CardActor`s hold durable card identity, public card status projection, and the associated `CardProcessorActor` for that card.
-- Project and goal `CardProcessorActor`s hold child `CardActor` references, child activation authority, readiness/review gates, planning diary updates, and construction of card-scoped capabilities.
-- Terminal `CardProcessorActor`s hold terminal-card semantic execution and construction of terminal capabilities for one activation; they do not hold children.
-- `LLMActor`s own remote LLM/provider calls, tool-call loop states, tool-result waits, turn budgets, provider admission/cancellation intent, and tool-result context passed into later LLM calls.
+- `CardActor`s own direct child `CardActor` instances and the associated `CardProcessorActor` for that card.
+- Project and goal `CardProcessorActor`s own and cache planner/reviewer `LLMActor` instances; they hold child activation authority, readiness/review gates, planning diary updates, and construction of card-scoped capabilities.
+- Terminal `CardProcessorActor`s own and cache the executor `LLMActor`; they hold terminal-card semantic execution and terminal capabilities for one activation, and they do not own child cards.
+- `LLMActor`s manage remote LLM/provider calls, tool-call loop states, tool-result waits, turn budgets, provider admission/cancellation intent, and tool-result context passed into later LLM calls.
 - Capabilities are registered async operations. Promote a capability to an actor only when it needs durable state, cancellation boundaries, recovery semantics, or long-lived resource ownership.
-- `ProcessActor`s own OS process lifecycle, process status, termination, and safe log read models.
+- `ProcessActor`s manage OS process lifecycle, process status, termination, and safe log read models.
 
 ## 4. RuntimeApi Boundary
 
@@ -111,7 +114,7 @@ Forbidden responsibilities:
 
 ## 5. SupervisorActor
 
-`SupervisorActor` owns runtime-level control.
+`SupervisorActor` manages runtime-level control.
 
 States:
 
@@ -147,7 +150,7 @@ The supervisor does not know planner, executor, reviewer, or tool semantics.
 
 ## 6. CardActor
 
-`CardActor` is the durable public card runtime boundary. Its actor state is the public card state. Micro-actor does not know about ownership; this class defines card-level ownership by holding the card id, projection data, and associated `CardProcessorActor` reference.
+`CardActor` is the durable public card runtime boundary. Its actor state is the public card state. Micro-actor does not know about ownership; this class defines card-level ownership by holding the card id, projection data, direct child `CardActor` instances, and associated `CardProcessorActor` reference.
 
 States:
 
@@ -177,7 +180,8 @@ Responsibilities:
 
 - Validate immediate-child activation through parent-provided authority before entering `running`.
 - Commit public card state changes before returning activation outcomes upward.
-- Instantiate or reconnect the correct `CardProcessorActor` for project, goal, or terminal cards.
+- Instantiate or reconnect direct child `CardActor`s and the correct `CardProcessorActor` for project, goal, or terminal cards.
+- Call hard-coded parent completion methods when this card reaches a terminal activation outcome.
 - Deliver queued notifications to the main agent session at LLM admission boundaries.
 - Keep lifecycle bookkeeping in actor fields rather than transitional states unless the work becomes independently recoverable asynchronous work.
 
@@ -207,9 +211,11 @@ Events:
 Responsibilities:
 
 - Build the planner capability registry, including direct-child activation, direct-child mutation, process tools, and working-status update paths.
+- Cache planner/reviewer `LLMActor` instances.
 - Invoke or reconstruct planner session data using deterministic identity derived from the goal card.
 - Run readiness and evidence gates before review.
 - Invoke reviewer work after readiness/evidence gates pass.
+- Call the associated `CardActor`'s hard-coded processor-completion method when it reaches a terminal processor outcome.
 - Return exactly one `done`, `failed`, or `blocked` outcome to the associated `CardActor`.
 - Keep planner/reviewer LLM tool-loop states inside `LLMActor`, not in this actor.
 
@@ -238,7 +244,9 @@ Events:
 Responsibilities:
 
 - Build terminal tool capabilities.
+- Cache the executor `LLMActor`.
 - Invoke one executor `LLMActor` with the capability registry.
+- Call the associated `CardActor`'s hard-coded processor-completion method when it reaches a terminal processor outcome.
 - Return accepted executor outcomes to the associated `CardActor`.
 - Keep executor tool-call states inside `LLMActor`.
 - Preserve raw diagnostics in logs/read models, not in model-visible context.
@@ -278,7 +286,7 @@ Responsibilities:
 
 ## 10. ProcessActor
 
-`ProcessActor` owns one runtime-started OS process. Its state tracks durable process outcome, not transient launch, wait, or termination operations.
+`ProcessActor` manages one runtime-started OS process. Its state tracks durable process outcome, not transient launch, wait, or termination operations.
 
 States:
 

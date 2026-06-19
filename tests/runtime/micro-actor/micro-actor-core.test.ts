@@ -1,4 +1,4 @@
-import { describe, it, expect } from '@jest/globals';
+import { describe, it, expect, jest } from '@jest/globals';
 import {
   BaseActor,
   compileActorDefinition,
@@ -82,6 +82,17 @@ describe('actor definition compilation', () => {
   it('rejects transitions on terminal states', () => {
     expect(() => compileActorDefinition({ states: { done: { on: { restart: 'idle' }, terminal: true } } }))
       .toThrow(InvalidActorDefinitionError);
+  });
+
+  it('rejects states that are both terminal and parked', () => {
+    expect(() => compileActorDefinition({ states: { done: { terminal: true, parked: true } } }))
+      .toThrow(InvalidActorDefinitionError);
+  });
+
+  it('preserves parked state declarations', () => {
+    const definition = compileActorDefinition({ states: { idle: { parked: true, on: { run: 'running' } }, running: {} } });
+
+    expect(definition.states.get('idle')?.parked).toBe(true);
   });
 
   it('rejects terminal states in sequences', () => {
@@ -346,6 +357,127 @@ describe('state tasks', () => {
 
     const actor = new FastActor(); actor.start();
     await eventually(() => expect(actor.state()).toBe('done'));
+  });
+});
+
+describe('parked states', () => {
+  it('allows an actor to park without pending tasks', async () => {
+    class ParkedActor extends BaseActor {
+      static _actor = {
+        states: {
+          idle: { parked: true },
+        },
+      };
+    }
+
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const actor = new ParkedActor();
+      actor.start();
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(actor.state()).toBe('idle');
+      expect(errorSpy).not.toHaveBeenCalled();
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('delivers parked events through normal transitions and restarts the pump', async () => {
+    class ParkedActor extends BaseActor {
+      static _actor = {
+        states: {
+          idle: { parked: true, on: { run: 'running' } },
+          running: { on: { done: 'idle' } },
+        },
+      };
+      log: string[] = [];
+
+      run() {
+        this.parkedSendEvent('run');
+      }
+
+      _on_leave__idle() {
+        this.log.push('leave:idle');
+      }
+
+      _on_enter__running() {
+        this.log.push('enter:running');
+        this.runTask(() => Promise.resolve(undefined), { on_done_event: 'done' });
+      }
+
+      _on_enter__idle() {
+        this.log.push('enter:idle');
+      }
+    }
+
+    const actor = new ParkedActor();
+    actor.start();
+    expect(actor.state()).toBe('idle');
+
+    actor.run();
+
+    await eventually(() => expect(actor.log).toEqual(['enter:idle', 'leave:idle', 'enter:running', 'enter:idle']));
+    expect(actor.state()).toBe('idle');
+    expect(actor.log).toEqual(['enter:idle', 'leave:idle', 'enter:running', 'enter:idle']);
+  });
+
+  it('rejects starting tasks in parked states', () => {
+    class ParkedActor extends BaseActor {
+      static _actor = {
+        states: {
+          idle: { parked: true },
+        },
+      };
+
+      startTaskFromParked() {
+        this.runTask(() => Promise.resolve(undefined));
+      }
+    }
+
+    const actor = new ParkedActor();
+    actor.start();
+
+    expect(() => actor.startTaskFromParked()).toThrow(InternalActorError);
+  });
+
+  it('rejects parked event delivery from non-parked states', () => {
+    class RunningActor extends BaseActor {
+      static _actor = {
+        states: {
+          running: { on: { done: 'done' } },
+          done: { terminal: true },
+        },
+      };
+
+      sendWhileRunning() {
+        this.parkedSendEvent('done');
+      }
+
+      _on_enter__running() {
+        this.runTask(() => new Promise(() => {}));
+      }
+    }
+
+    const actor = new RunningActor();
+    actor.start();
+
+    expect(() => actor.sendWhileRunning()).toThrow(InternalActorError);
+  });
+
+  it('rejects parked event delivery before start or recover', () => {
+    class ParkedActor extends BaseActor {
+      static _actor = { states: { idle: { parked: true } } };
+
+      sendBeforeStart() {
+        this.parkedSendEvent('run');
+      }
+    }
+
+    const actor = new ParkedActor();
+
+    expect(() => actor.sendBeforeStart()).toThrow(InternalActorError);
   });
 });
 

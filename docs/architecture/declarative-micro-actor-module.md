@@ -10,7 +10,7 @@ Status: current frozen implementation contract.
 
 ## Purpose
 
-The micro-actor module provides a small deterministic state-machine core for local TypeScript actor objects. It owns only actor-local runtime mechanics: compiled transition tables, current state, one pending internal event, state-scoped tasks, lifecycle entry points, and convention-based hooks.
+The micro-actor module provides a small deterministic state-machine core for local TypeScript actor objects. It owns only actor-local runtime mechanics: compiled transition tables, current state, one pending internal event, parked-state wakeups, state-scoped tasks, lifecycle entry points, and convention-based hooks.
 
 The core module does not persist state and does not own domain storage. Callers persist domain data and reconstruct actor instances as needed.
 
@@ -47,10 +47,13 @@ Compilation validates:
 - `initial`, when declared, exists;
 - sequence states exist, are unique, and are not terminal;
 - terminal states declare no transitions;
+- states are not both terminal and parked;
 - event names are non-empty;
 - all transition targets exist.
 
 The source `StateDefinition.on` field may be omitted. The compiled state always has an `on` object, possibly empty, so runtime dispatch is a direct lookup: `stateDef.on[eventName]`.
+
+`StateDefinition.parked` declares a state that is idle but externally advanceable. Parked states may declare normal `on` transitions. The actor pump stops when it reaches a parked state, and actor public methods can later wake it through protected `parkedSendEvent(...)`.
 
 `sequence: ['a', 'b', 'c']` is compiled into default `done` transitions. A state-owned `on.done` declaration overrides the sequence default.
 
@@ -67,10 +70,11 @@ Runtime state is held in JavaScript `#private` fields on `BaseActor`. The public
 
 ## Subclass API
 
-Actor subclasses may use two protected methods:
+Actor subclasses may use three protected methods:
 
 ```ts
 protected sendEvent(name: string): void;
+protected parkedSendEvent(name: string): void;
 protected runTask<Result>(
   run: (signal: AbortSignal) => Promise<Result>,
   options?: RunTaskOptions<Result>,
@@ -79,7 +83,9 @@ protected runTask<Result>(
 
 `sendEvent(name)` sets the single pending internal event. It throws if another event is already pending. Events are strings and carry no payload; event-specific data belongs on actor fields.
 
-`runTask(...)` starts state-scoped async work. It returns `void`. Task completion is routed back through the actor main loop.
+`parkedSendEvent(name)` is for actor public methods that need to advance from a parked state. It verifies the current state is parked, queues the event with the same single-slot event rules as `sendEvent(name)`, and ensures the actor pump is running so the transition is handled. It is still protected; external callers use domain-specific actor methods rather than raw event names.
+
+`runTask(...)` starts state-scoped async work. It returns `void`. Task completion is routed back through the actor main loop. It rejects tasks started from terminal or parked states.
 
 ## Task Options
 
@@ -114,9 +120,10 @@ The main loop repeatedly:
 1. consumes one pending event, if present;
 2. dispatches by direct compiled transition-table lookup;
 3. exits if the current state is terminal;
-4. throws and logs an `InternalActorError` if a non-terminal state has no pending event and no state tasks;
-5. awaits the first state task completion;
-6. invokes the task completion callback or event shortcut.
+4. parks if the current state is parked;
+5. throws and logs an `InternalActorError` if a non-terminal, non-parked state has no pending event and no state tasks;
+6. awaits the first state task completion;
+7. invokes the task completion callback or event shortcut.
 
 Main-loop errors are logged with `console.error('BaseActor main loop failed', error)` and the loop exits.
 

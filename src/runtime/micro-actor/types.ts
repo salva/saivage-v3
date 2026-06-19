@@ -1,6 +1,7 @@
 export type StateDefinition = {
   on?: Record<string, string>;
   terminal?: boolean;
+  parked?: boolean;
 };
 
 export type ActorDefinition = {
@@ -12,6 +13,7 @@ export type ActorDefinition = {
 export type CompiledStateDefinition = {
   on: Readonly<Record<string, string>>;
   terminal?: boolean;
+  parked?: boolean;
 };
 
 export type CompiledActorDefinition = {

@@ -7,6 +7,5 @@ Use these documents to understand how the functional specification is realized. 
 Current architecture documents:
 
 - [System architecture](./system-architecture.md)
-- [Micro-actor runtime core architecture](./micro-actor-runtime-core.md)
-- [Micro-actor runtime redesign draft](./micro-actor-runtime-redesign-draft.md)
+- [Micro-actor runtime design](./micro-actor-runtime-design.md)
 - [Declarative micro-actor module architecture](./declarative-micro-actor-module.md)
