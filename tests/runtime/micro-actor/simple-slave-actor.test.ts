@@ -77,6 +77,21 @@ describe('SimpleSlaveActor', () => {
     await eventually(() => expect(actor.state()).toBe('waiting'));
   });
 
+  it('fails a running job and returns to waiting through done', async () => {
+    const actor = new TestSimpleSlaveActor();
+    actor.start();
+    const failed: unknown[] = [];
+
+    const running = actor.submitJob('first', { on_failed: (error) => { failed.push(error); } });
+
+    await eventually(() => expect(actor.started).toEqual(['first']));
+    actor.completions[0]!.reject(new Error('boom'));
+
+    await eventually(() => expect(failed[0]).toBeInstanceOf(Error));
+    await eventually(() => expect(actor.getJobState(running)).toBe('failed'));
+    await eventually(() => expect(actor.state()).toBe('waiting'));
+  });
+
   it('keeps mailbox delivery as an id-returning convenience wrapper', () => {
     const actor = new TestSimpleSlaveActor();
 

@@ -19,7 +19,7 @@ export abstract class SimpleSlaveActor<Load = unknown> extends SlaveActor {
     initial: 'waiting',
     states: {
       waiting: { on: { done: 'running' } },
-      running: { on: { done: 'waiting', failed: 'waiting', cancelled: 'waiting' } },
+      running: { on: { done: 'waiting' } },
     },
   };
 
@@ -83,11 +83,10 @@ export abstract class SimpleSlaveActor<Load = unknown> extends SlaveActor {
           this.#runningJob = null;
           if (error instanceof SlaveJobCancelledError) {
             this.markJobCancelled(running, error);
-            this.sendEvent('cancelled');
-            return;
+          } else {
+            this.failJob(running, error);
           }
-          this.failJob(running, error);
-          this.sendEvent('failed');
+          this.sendEvent('done');
         },
       },
     );
