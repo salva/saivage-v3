@@ -36,18 +36,23 @@ export type RunTaskOptions<Result = unknown> = {
   timeout?: number;
 };
 
-type TaskResult = {
+type TaskResult<Result = unknown> = {
   id: number;
-  ok: boolean;
-  value: unknown;
+  ok: true;
+  value: Result;
+  timedOut?: false;
+} | {
+  id: number;
+  ok: false;
+  value: Error;
   timedOut?: boolean;
 };
 
-type Task = {
+type Task<Result = unknown> = {
   id: number;
   controller: AbortController;
-  promise: Promise<TaskResult>;
-  on_done: (result: unknown) => void;
+  promise: Promise<TaskResult<Result>>;
+  on_done: (result: Result) => void;
   on_failed: (error: Error) => void;
   on_timeout?: (error: TimeoutError) => void;
 };
@@ -57,7 +62,7 @@ export abstract class BaseActor {
   #currentState: string | undefined;
   #nextEvent: string | undefined;
   #nextTaskId = 1;
-  #stateTasks = new Map<number, Task>();
+  #stateTasks = new Map<number, Task<any>>();
   #actorMainPromise: Promise<void> | undefined;
 
   state(): string {
@@ -105,10 +110,10 @@ export abstract class BaseActor {
     const id = this.#nextTaskId++;
     const timeout = options?.timeout === 0 ? undefined : options?.timeout;
     const promise = this.#safeTask(id, run, controller, timeout);
-    const on_done = options?.on_done ?? (() => this.sendEvent(options?.on_done_event ?? 'done'));
+    const on_done: (result: Result) => void = options?.on_done ?? (() => this.sendEvent(options?.on_done_event ?? 'done'));
     const on_failed = options?.on_failed ?? (() => this.sendEvent(options?.on_failed_event ?? 'failed'));
     const on_timeout = options?.on_timeout ?? (options?.on_timeout_event ? (() => this.sendEvent(options.on_timeout_event!)) : undefined);
-    this.#stateTasks.set(id, { id, controller, promise, on_done: on_done as Task['on_done'], on_failed: on_failed as Task['on_failed'], on_timeout });
+    this.#stateTasks.set(id, { id, controller, promise, on_done, on_failed, on_timeout });
   }
 
   #dispatchEvent(eventName: string): string {
@@ -158,7 +163,7 @@ export abstract class BaseActor {
         } else if (result.ok) {
           task.on_done(result.value);
         } else {
-          task.on_failed(result.value as Error);
+          task.on_failed(result.value);
         }
       }
     } catch (error) {
@@ -166,7 +171,7 @@ export abstract class BaseActor {
     }
   }
 
-  async #safeTask(taskId: number, run: (signal: AbortSignal) => Promise<unknown>, controller: AbortController, timeout?: number): Promise<TaskResult> {
+  async #safeTask<Result>(taskId: number, run: (signal: AbortSignal) => Promise<Result>, controller: AbortController, timeout?: number): Promise<TaskResult<Result>> {
     try {
       const task = run(controller.signal);
       const value = timeout === undefined
@@ -174,7 +179,7 @@ export abstract class BaseActor {
         : await this.#withTimeout(task, controller, timeout);
       return { id: taskId, ok: true, value };
     } catch (error) {
-      return { id: taskId, ok: false, value: error, timedOut: error instanceof TimeoutError };
+      return { id: taskId, ok: false, value: error as Error, timedOut: error instanceof TimeoutError };
     }
   }
 
