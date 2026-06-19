@@ -24,5 +24,6 @@ export type {
   MailboxCommand,
   StateDefinition,
   ActorDefinition,
+  CompiledStateDefinition,
   CompiledActorDefinition,
 } from './types.js';

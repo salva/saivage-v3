@@ -15,7 +15,12 @@ export type ActorDefinition = {
   states: Record<string, StateDefinition>;
 };
 
+export type CompiledStateDefinition = {
+  on: Readonly<Record<string, string>>;
+  terminal?: boolean;
+};
+
 export type CompiledActorDefinition = {
   initial: string;
-  states: ReadonlyMap<string, StateDefinition>;
+  states: ReadonlyMap<string, CompiledStateDefinition>;
 };

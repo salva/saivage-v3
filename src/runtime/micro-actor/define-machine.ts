@@ -1,4 +1,4 @@
-import type { ActorDefinition, CompiledActorDefinition, StateDefinition } from './types.js';
+import type { ActorDefinition, CompiledActorDefinition, CompiledStateDefinition } from './types.js';
 
 export class InvalidTransitionError extends Error {
   constructor(message: string) {
@@ -110,7 +110,7 @@ export function compileActorDefinition(definition: ActorDefinition): CompiledAct
     }
   }
 
-  const compiledStates = new Map<string, StateDefinition>();
+  const compiledStates = new Map<string, CompiledStateDefinition>();
   for (const [stateName, stateDef] of Object.entries(definition.states)) {
     const on: Record<string, string> = { ...(stateDef.on ?? {}) };
 
@@ -124,7 +124,7 @@ export function compileActorDefinition(definition: ActorDefinition): CompiledAct
     }
 
     compiledStates.set(stateName, {
-      on: Object.keys(on).length > 0 ? on : undefined,
+      on,
       terminal: stateDef.terminal,
     });
   }

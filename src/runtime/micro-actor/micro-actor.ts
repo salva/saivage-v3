@@ -105,7 +105,7 @@ export abstract class BaseActor {
     const currentState = this.currentState!;
     const stateDef = this.definition!.states.get(currentState)!;
 
-    const targetState = stateDef.on?.[eventName];
+    const targetState = stateDef.on[eventName];
     if (targetState === undefined) return currentState;
 
     if (targetState === currentState) return currentState;
