@@ -1,736 +1,142 @@
 # Declarative Micro-Actor Module Architecture
 
-Date: 2026-06-15.
+Date: 2026-06-19.
 
-Status: current runtime-core implementation direction.
+Status: current frozen implementation contract.
 
-## 1. Goal
+## Freeze Policy
 
-Define a small TypeScript module for actor-local stateful workers. The module gives Saivage explicit states, deterministic transitions, per-actor command delivery, and conventional lifecycle methods.
+`src/runtime/micro-actor/micro-actor.ts` is frozen. Do not modify the `BaseActor` design or implementation directly. If a limitation or bug is found, report it to the user; the user decides whether and how the frozen core changes.
 
-The module supports:
+## Purpose
 
-- class-level actor definitions;
-- declarative state and transition definitions;
-- actor-local mailbox queues only for `SlaveActor` command delivery;
-- one pending internal event slot per actor turn;
-- synchronous transition dispatch;
-- convention-based `enter`, `leave`, and `call` methods;
-- runtime-owned async work started by actor methods;
-- explicit completion events emitted by actor code through `_send_event(name)`.
+The micro-actor module provides a small deterministic state-machine core for local TypeScript actor objects. It owns only actor-local runtime mechanics: compiled transition tables, current state, one pending internal event, state-scoped tasks, lifecycle entry points, and convention-based hooks.
 
-The micro-actor module is the deterministic core. Actor methods may start runtime-owned async work directly by calling runtime services or `_start_task(...)`. Async completions return through the actor pump; actor code may then emit one internal event for the pump to apply through the state table.
+The core module does not persist state and does not own domain storage. Callers persist domain data and reconstruct actor instances as needed.
 
-## 2. Core Model
+## Module Layout
 
-The module has five concepts:
+- `micro-actor.ts`: frozen core implementation, definition compiler, `BaseActor`, `TimeoutError`, `InternalActorError`, and actor definition validation.
+- `slave-actor.ts`: mailbox queue boundary for externally delivered commands.
+- `simple-slave-actor.ts`: optional serial worker specialization built on `SlaveActor`.
+- `mailbox-queue.ts`: async FIFO used by `SlaveActor`.
 
-- **Actor definition**: static `_actor` declaration of states and event transitions on each concrete actor class.
-- **Actor**: a regular JS/TS class instance with domain fields and methods. Runtime bookkeeping lives in JavaScript private fields on `BaseActor`.
-- **Internal event**: a string fact set by actor code with `_send_event(name)` and consumed by the pump through the state's `on` table.
-- **Mailbox command**: queued method invocation delivered through `SlaveActor.mailbox.deliver(name, args?)` and handled by state-scoped convention methods.
-- **State task**: async work started by `_on_enter__...` or `_on_recover__...` through `_start_task(...)`; unfinished tasks are canceled when the actor leaves that state.
-- **Actor turn**: one synchronous call into actor code followed by draining pending internal events.
+## Actor Definitions
 
-The core flow is:
-
-```text
-actor.mailbox.deliver(name, args) -> SlaveActor mailbox queue -> actor turn -> state-scoped call method
-call/enter/recover hook mutates actor fields -> _send_event(name)
-pump consumes pending event -> state-table dispatch -> leave -> state change -> enter
-_start_task(...) completion -> actor turn -> task completion handler -> actor fields -> _send_event(name)
-```
-
-The micro-actor module never awaits inside transition dispatch. If work requires I/O, timers, LLM calls, process waits, file operations, or network requests, an actor method calls the appropriate runtime service and returns. External runtime services later report completion through the actor mailbox, while actor code may emit internal events.
-
-Creating an actor makes it live: the runtime initializes the `BaseActor` private fields and starts optional delivery owned by subclasses such as `SlaveActor`. From that point, external advancement happens only through `SlaveActor.mailbox.deliver(...)`. Internal advancement happens through `_send_event(...)` and `_start_task(...)` inside actor code. Low-level dispatch functions are actor-turn internals, not application APIs.
-
-Module layout stays intentionally small:
-
-- `micro-actor.ts`: `BaseActor`, construction/recovery, pending events, state tasks, and actor-turn execution.
-- `slave-actor.ts`: `SlaveActor` mailbox boundary.
-- `simple-slave-actor.ts`: optional serial worker specialization.
-
-## 3. Actor Definition
-
-Actor definitions are pure transition data. They do not contain handler functions by default.
+Actor classes declare static `_actor` transition data:
 
 ```ts
-class Foo extends BaseActor {
+class ExampleActor extends BaseActor {
   static _actor = {
-    initial: "idle",
+    initial: 'idle',
     states: {
-      idle: {
-        on: {
-          start: "running",
-          failed: "failed",
-        },
-      },
-
-      running: {
-        on: {
-          done: "done",
-          failed: "failed",
-        },
-      },
-
-      done: {},
-      failed: {},
+      idle: { on: { start: 'running' } },
+      running: { on: { done: 'done', failed: 'failed' } },
+      done: { terminal: true },
+      failed: { terminal: true },
     },
   };
-
-  _on_call__idle__start_work(args: StartArgs) {
-    this.prepare(args);
-    this._send_event("start");
-  }
-
-  _on_enter__running() {
-    this.runtime.startWork({
-      onSucceeded: result => {
-        this.result = result;
-        this._send_event("done");
-      },
-      onFailed: error => {
-        this.error = error;
-        this._send_event("failed");
-      },
-    });
-  }
-
-  _on_leave__running() {
-    this.runtime.detachRunningWork();
-  }
 }
 ```
 
-Every concrete actor must explicitly extend `BaseActor` and declare its own static `_actor` slot. The runtime rejects classes that inherit `_actor` without declaring their own slot, using `Object.hasOwn(ctor, "_actor")`; this avoids accidentally running a subclass with a parent actor declaration.
+Definitions are compiled lazily the first time a class is started or recovered. Compilation is cached on the concrete constructor as `_compiled_actor`. Lookup uses the nearest constructor in the JavaScript static inheritance chain that owns `_actor`; a subclass-owned `_actor` overrides an ancestor definition.
 
-The runtime compiles `_actor` lazily when the first instance of that class is created. The compiled jump tables are cached in a non-enumerable static `_compiled_actor` slot on the class.
+Compilation validates:
+
+- at least one state exists;
+- state names are non-empty;
+- `initial`, when declared, exists;
+- sequence states exist, are unique, and are not terminal;
+- terminal states declare no transitions;
+- event names are non-empty;
+- all transition targets exist.
+
+The source `StateDefinition.on` field may be omitted. The compiled state always has an `on` object, possibly empty, so runtime dispatch is a direct lookup: `stateDef.on[eventName]`.
+
+`sequence: ['a', 'b', 'c']` is compiled into default `done` transitions. A state-owned `on.done` declaration overrides the sequence default.
+
+## BaseActor Lifecycle
+
+Actors are regular class instances. They become live through one of two methods:
+
+- `start()`: allowed on a never-started actor, or on an actor whose current state is terminal. It compiles the class definition, moves the actor to the declared initial state, calls `_on_enter__{initial}` when present, and starts the main loop.
+- `recover(state)`: allowed only on an actor that has never been run (`state()` has not been initialized). It compiles the class definition, validates `state`, moves the actor to that state, calls `_on_recover__{state}` when present, otherwise `_on_enter__{state}`, and starts the main loop.
+
+`recover()` cannot be called after `start()` or after another `recover()`.
+
+Runtime state is held in JavaScript `#private` fields on `BaseActor`. The public read API is `state()`.
+
+## Subclass API
+
+Actor subclasses may use two protected methods:
 
 ```ts
-class Foo extends BaseActor {
-  static _actor = { /* raw declaration */ };
-  static _compiled_actor?: CompiledActorDefinition;
-}
-
-function getCompiledActorDefinition(ctor: ActorConstructor) {
-  if (!Object.hasOwn(ctor, "_actor")) {
-    throw new InvalidActorDefinitionError(`${ctor.name} must declare static _actor`);
-  }
-
-  if (!ctor._compiled_actor) {
-    ctor._compiled_actor = compileActorDefinition(ctor._actor);
-  }
-
-  return ctor._compiled_actor;
-}
+protected sendEvent(name: string): void;
+protected runTask<Result>(
+  run: (signal: AbortSignal) => Promise<Result>,
+  options?: RunTaskOptions<Result>,
+): void;
 ```
 
-`startActor(Foo, args...)` compiles or reuses `Foo._compiled_actor`, constructs the class, initializes `BaseActor` private runtime slots to the initial state, and starts the actor pump.
+`sendEvent(name)` sets the single pending internal event. It throws if another event is already pending. Events are strings and carry no payload; event-specific data belongs on actor fields.
 
-`recoverActor(Foo, state, args...)` compiles or reuses `Foo._compiled_actor`, constructs the class, initializes `BaseActor` private runtime slots to the recovered state, runs the state recovery hook, and starts the actor pump.
+`runTask(...)` starts state-scoped async work. It returns `void`. Task completion is routed back through the actor main loop.
 
-## 4. Definition Shape
+## Task Options
 
-Example API sketch:
+`RunTaskOptions<Result>`:
 
 ```ts
-type MailboxCommand = { kind: "call"; name: string; args?: unknown };
-
-abstract class BaseActor {
-  #definition: ActorDefinition | undefined;
-  #state: string | undefined;
-  #nextEvent: string | undefined;
-  #stateTasks: Map<number, ActiveStateTask>;
-
-  state(): string;
-  protected _send_event(name: string): void;
-  protected _start_task<Result>(task: ActorStateTask<Result>): void;
-}
-
-abstract class SlaveActor extends BaseActor {
-  readonly mailbox: {
-    deliver(name: string, args?: unknown): void;
-  };
-}
-
-type StateDefinition = {
-  on?: Record<string, string>;
-
-  // Optional escape hatches. Omit these for convention lookup.
-  enter?: string | false;
-  leave?: string | false;
-  calls?: Record<string, string | false>;
-};
-
-type ActorDefinition = {
-  initial?: string;
-  sequence?: string[];
-  states: Record<string, StateDefinition>;
-};
-
-type CompiledActorDefinition = {
-  initial: string;
-  sequence: ReadonlyMap<string, number>;
-  states: ReadonlyMap<string, StateDefinition>;
+type RunTaskOptions<Result = unknown> = {
+  on_done?: (result: Result) => void;
+  on_failed?: (error: Error) => void;
+  on_timeout?: (error: TimeoutError) => void;
+  on_done_event?: string;
+  on_failed_event?: string;
+  on_timeout_event?: string;
+  timeout?: number;
 };
 ```
 
-Rules:
+Callbacks and event shortcuts are alternatives:
 
-- `initial` defaults to the first key in `states` when omitted.
-- `states` declares the complete state set.
-- `on` maps event names to target states.
-- `sequence` is optional and exists only for the local `done`-means-advance convention.
-- `enter`, `leave`, and `calls` are optional overrides for convention method lookup.
-- `false` disables a convention hook or call for that state.
+- success calls `on_done(result)` when present; otherwise it sends `on_done_event ?? 'done'`;
+- failure calls `on_failed(error)` when present; otherwise it sends `on_failed_event ?? 'failed'`;
+- timeout calls `on_timeout(error)` when present; otherwise sends `on_timeout_event` when present; otherwise falls through to failure handling.
 
-Actor definitions do not store anonymous handlers. Behavior lives on the actor class through convention methods, or through explicit method-name overrides when a convention name is undesirable.
+`timeout: 0` is normalized to no timeout. A non-zero timeout aborts the task signal with `TimeoutError` and waits for the task promise to settle cooperatively before reporting timeout.
 
-## 5. Convention Methods
+`TaskResult` stores successful values and errors in separate fields internally (`result` vs `error`). The `runTask<Result>` generic links the task promise result to `on_done(result)`.
 
-The default method names are:
+## Actor Main Loop
 
-```text
-_on_enter__{state}              // after entering a state
-_on_leave__{state}              // before leaving a state
-_on_recover__{state}            // after restoring an actor in a state
-_on_call__{state}__{callName}   // state-scoped call handler
-```
+The main loop repeatedly:
 
-Examples:
+1. consumes one pending event, if present;
+2. dispatches by direct compiled transition-table lookup;
+3. exits if the current state is terminal;
+4. throws and logs an `InternalActorError` if a non-terminal state has no pending event and no state tasks;
+5. awaits the first state task completion;
+6. invokes the task completion callback or event shortcut.
 
-```ts
-class CardActor extends BaseActor {
-  _on_enter__executing() {
-    this.runtime.startExecutor(this.cardId, {
-      onSucceeded: report => {
-        this.executorReport = report;
-        this._send_event("done");
-      },
-      onFailed: error => {
-        this.error = error;
-        this._send_event("failed");
-      },
-    });
-  }
+Main-loop errors are logged with `console.error('BaseActor main loop failed', error)` and the loop exits.
 
-  _on_leave__executing() {
-    this.runtime.detachExecutor(this.cardId);
-  }
+State changes call `_on_leave__{oldState}` before changing state, abort and clear all state tasks, then call `_on_enter__{newState}`.
 
-  _on_call__ready__run(args: { reason: string }) {
-    this.runReason = args.reason;
-    this._send_event("run_requested");
-  }
-}
-```
+## Recovery Hooks
 
-Lookup rules:
+Recovery hooks are synchronous actor hooks. They may rebuild live in-memory resources and may start tasks or emit one event through the protected subclass API. If `_on_recover__{state}` is absent, `BaseActor` falls back to `_on_enter__{state}`.
 
-- Enter hooks are optional. Missing enter methods are no-ops.
-- Leave hooks are optional. Missing leave methods are no-ops.
-- Recover hooks are optional. Missing recover methods fall back to the state enter hook when it exists.
-- Call handlers are strict. A missing call handler throws a runtime error unless the state definition disables that call explicitly.
-- Convention methods are called with `this` bound to the actor instance.
-- Methods must be synchronous with respect to actor mutation. They may start async runtime work, but they must not `await` before returning to the pump.
-- If a convention method returns a promise, the actor pump treats it as a programming error.
+## SlaveActor Boundary
 
-Recovery rules:
-
-- Recovery is a construction mode, not a queued event.
-- `recoverActor(ctor, state, ...)` validates that `state` exists in the compiled actor definition.
-- The recovered state is installed before recovery hooks run, so `this.state()` returns the restored state.
-- `_on_recover__{state}` runs when present.
-- If `_on_recover__{state}` is missing, `_on_enter__{state}` runs when present.
-- If the state definition sets `recover: false`, no recover or enter fallback hook runs.
-- Recovery hooks must be synchronous. They may start runtime work and set a pending event through `_send_event()`.
-
-Override example:
+`BaseActor` has no external command queue. `SlaveActor` adds the mailbox boundary:
 
 ```ts
-class CardActor extends BaseActor {
-  static _actor = {
-    states: {
-      ready: {
-        calls: {
-          run: "handleRunFromReady",
-          debug_noop: false,
-        },
-        on: { run_requested: "running" },
-      },
-      running: {},
-    },
-  };
-
-  handleRunFromReady(args: { reason: string }) {
-    this.runReason = args.reason;
-    this._send_event("run_requested");
-  }
-}
+actor.mailbox.deliver(name, args?)
 ```
 
-## 6. Mailbox Delivery And Actor Turns
+Mailbox commands are external commands, not state-transition events. Actor code remains responsible for translating commands/work outcomes into internal events.
 
-`BaseActor` has no queue. `SlaveActor` owns the mailbox boundary and translates mailbox deliveries into actor turns. The mailbox queue carries external commands, not state-transition events:
+## Tests
 
-```ts
-type MailboxCommand = { kind: "call"; name: string; args?: unknown };
-```
-
-Delivery rules:
-
-- `actor.mailbox.deliver(name, args)` enqueues a mailbox command owned by `SlaveActor`.
-- External objects cannot send events. Events are actor-internal facts emitted by `_send_event(name)`.
-- Mailbox delivery never dispatches inline. Delivery occurs through the actor pump.
-- State-task completion re-enters through an actor turn and is not a queued event.
-- The command item is target-free because the queue is actor-local to `SlaveActor`.
-- One actor pump processes one actor serially.
-- Different actor pumps may run concurrently.
-- Events that are not declared for the current state are ignored by default.
-- Calls that have no current-state handler throw by default.
-- Durable delivery records, when needed, are a runtime responsibility outside the micro-actor module.
-
-Minimal mailbox shape:
-
-```ts
-class MailboxQueue {
-  private items: MailboxCommand[] = [];
-  private wake: (() => void) | undefined;
-
-  push(command: MailboxCommand) {
-    this.items.push(command);
-    this.wake?.();
-    this.wake = undefined;
-  }
-
-  async shift(): Promise<MailboxCommand> {
-    while (this.items.length === 0) {
-      await new Promise<void>((resolve) => {
-        this.wake = resolve;
-      });
-    }
-
-    return this.items.shift()!;
-  }
-
-  drain(): MailboxCommand[] {
-    const batch = this.items;
-    this.items = [];
-    return batch;
-  }
-}
-
-async function runActorPump(actor: RuntimeActor) {
-  for (;;) {
-    const first = await actor.mailboxQueue.shift();
-    const batch = [first, ...actor.mailboxQueue.drain()];
-
-    for (const command of batch) {
-      try {
-        actor.runTurn(() => dispatchCall(actor, command));
-        actor.persist();
-      } catch (error) {
-        actor.reportError(error, command);
-      }
-    }
-  }
-}
-```
-
-The `drain()` implementation assumes single-threaded JavaScript: between `shift()` returning the first item and `drain()` being called, no other `push()` can interleave within the same microtask. This is safe in Node.js but would need synchronization in a multi-threaded environment.
-
-The pending event slot is not a queue. `_send_event(name)` fails if an event is already pending in the same actor turn. After each command handler, task completion handler, enter hook, leave hook, or recover hook, the actor turn consumes the pending event and applies it through the state table. If that transition's hooks emit another event, the same turn consumes that event next.
-
-## 7. Event Dispatch Semantics
-
-Event dispatch is synchronous and deterministic.
-
-Rules:
-
-- Event dispatch mutates the actor instance in place.
-- Unknown current state throws.
-- Invalid target state throws.
-- Unknown event for the current state is ignored, except for implicit `done` advance in `sequence`.
-- Direct transitions are the only event transition form in the definition.
-- If an event maps to the current state, no leave or enter hook runs.
-- On actual state change, leave runs before the `BaseActor` private state slot changes.
-- On actual state change, enter runs after the `BaseActor` private state slot changes.
-- Leave and enter hooks must not directly call low-level dispatch.
-- Leave and enter hooks may call `_send_event()` to request the next state-table event.
-- Leave and enter hooks may start async runtime work directly.
-- Leave and enter hooks must not return promises.
-
-State-machine bookkeeping rules:
-
-- All micro-actor module instance data lives in JavaScript private fields on `BaseActor`.
-- Domain data, runtime references, and actor behavior live on the concrete subclass.
-- Actor objects expose `state()` to read the current private state slot.
-- Actor objects expose `state()` publicly. `BaseActor._send_event(name)` is protected and only actor code may call it. `SlaveActor.mailbox.deliver(...)` is the external command surface.
-- Application code cannot and should not read private actor slots directly.
-
-## 8. Call Dispatch Semantics
-
-Calls are state-scoped method invocations. They are for external or parent/runtime requests that should run actor code without first modeling the request as a transition event.
-
-Rules:
-
-- Calls are queued and serial.
-- A call does not transition state by itself.
-- A call handler may update actor fields synchronously.
-- A call handler may start async runtime work.
-- A call handler may set one pending internal event by calling `_send_event()`.
-- A call handler should not enqueue other mailbox commands to itself. If it needs follow-up state work, it should emit an internal event.
-- Missing call handlers throw by default.
-- Call handlers must not return promises.
-
-This separates invocation from transition. For example, mailbox command `run` can validate input and emit `run_requested`; the transition remains explicit in `states.ready.on.run_requested`.
-
-## 9. Minimal Conventions
-
-These conventions keep common actors terse without adding a general workflow framework.
-
-- `initial` defaults to the first state key when omitted.
-- `done` is the normal event for successful completion of the task owned by the current state.
-- `failed` is the normal event for failed completion of the task owned by the current state.
-- `done` advances to the next state only inside an explicitly declared `sequence`.
-- `enter` starts or admits state-scoped work.
-- `leave` stops, cancels, or detaches state-scoped work.
-- Unhandled events are ignored by default.
-- Unhandled calls throw by default.
-- Events carry no payload by framework design; event-specific data lives on actor fields before `_send_event(name)` is called.
-- Call arguments are `unknown` by framework design.
-- Specific event names are reserved for externally meaningful intermediate facts. State-local work should normally write result/error fields on the actor and then send `done` or `failed`.
-
-## 10. Async Work And Completion
-
-The micro-actor module defines a mailbox command delivery boundary for `SlaveActor`s and a state-scoped task helper on `BaseActor`. Actor methods either call runtime services directly or start state-scoped async work with `_start_task(...)`.
-
-Example:
-
-```ts
-class LlmActor extends BaseActor {
-  _on_enter__calling_provider() {
-    const requestId = this.requestId;
-
-    this.runtime.callProvider({
-      requestId,
-      prompt: this.prompt,
-      timeoutMs: 60_000,
-      onSucceeded: output => {
-        this.providerRequestId = requestId;
-        this.providerOutput = output;
-        this._send_event("done");
-      },
-      onFailed: error => {
-        this.providerRequestId = requestId;
-        this.error = error;
-        this._send_event("failed");
-      },
-      onTimedOut: () => {
-        this.providerRequestId = requestId;
-        this._send_event("failed");
-      },
-    });
-  }
-}
-```
-
-Async work rules:
-
-- Every external operation must have a timeout or inactivity timeout.
-- `_on_enter__...` and `_on_recover__...` start state-owned async work by calling `_start_task(...)`; hooks do not receive task arguments.
-- `_start_task(...)` records the current state and gives the task an `AbortSignal`.
-- When the actor leaves a state, unfinished tasks started in that state are aborted and stale completions are ignored.
-- State-task `on_done` and `on_failed` handlers run synchronously through the actor pump. They may mutate actor fields and may call `_send_event(...)`.
-- State-task completion handlers may also do nothing; no transition occurs unless they emit an event.
-- Completion callbacks for work outside `_start_task(...)` must deliver a mailbox command; actor code then calls `_send_event(...)`. They must not call low-level dispatch directly.
-- Completion callbacks must store enough correlation data on actor fields for the actor to reject stale or duplicate completions.
-- Live callbacks are not persisted. Recovery code reconstructs safe work from durable actor/domain state or emits diagnostics/failure events.
-- Cancellation is modeled as events and runtime service calls. Already-running jobs normally finish or time out and then deliver their callback event.
-
-## 11. Persistence Boundary
-
-The micro-actor module does not persist anything itself. The caller owns persistence.
-
-Recommended runtime sequence:
-
-```text
-1. external code delivers a command through `actor.mailbox.deliver(...)`
-2. `SlaveActor` mailbox queue wakes that actor's mailbox pump through a stored promise resolver
-3. `SlaveActor` mailbox pump drains queued commands before awaiting the queue again
-4. actor pump loads or reconstructs the actor instance when needed
-5. actor pump dispatches one command synchronously
-6. actor pump persists updated actor state when needed
-7. actor code emits internal events through `_send_event(...)`, which the pump consumes immediately after the current hook
-8. async runtime callbacks later deliver mailbox commands or complete state tasks
-```
-
-The micro-actor module does not define a snapshot type. The runtime must be able to serialize and reconstruct actor objects from persisted domain data plus the actor's current state string.
-
-## 12. Example: Supervisor Actor
-
-```ts
-type SupervisorState = "idle" | "running" | "paused" | "shutting_down" | "failed";
-
-class SupervisorActor extends BaseActor {
-  static _actor = {
-    initial: "idle",
-    states: {
-      idle: {
-        on: {
-          run_requested: "running",
-          shutdown_requested: "shutting_down",
-        },
-      },
-
-      running: {
-        on: {
-          done: "idle",
-          pause_requested: "paused",
-          shutdown_requested: "shutting_down",
-          failed: "failed",
-        },
-      },
-
-      paused: {
-        on: {
-          run_requested: "running",
-          shutdown_requested: "shutting_down",
-        },
-      },
-
-      shutting_down: {
-        on: {
-          processes_terminated: "idle",
-          failed: "failed",
-        },
-      },
-
-      failed: {},
-    },
-  };
-
-  projectId: string;
-  lastOutcome?: "done" | "failed" | "blocked" | "canceled";
-
-  _on_call__idle__run() {
-    this._send_event("run_requested");
-  }
-
-  _on_call__running__run() {
-    this.runtime.warnAlreadyRunning(this.projectId);
-  }
-
-  _on_enter__running() {
-    this.runtime.startProject(this.projectId, {
-      onCompleted: outcome => {
-        this.lastOutcome = outcome;
-        this._send_event("done");
-      },
-      onFailed: error => {
-        this.error = error;
-        this._send_event("failed");
-      },
-    });
-  }
-
-  _on_enter__shutting_down() {
-    this.runtime.terminateRuntimeProcesses({
-      timeoutMs: 30_000,
-      onCompleted: () => this._send_event("processes_terminated"),
-      onFailed: error => {
-        this.error = error;
-        this._send_event("failed");
-      },
-    });
-  }
-}
-```
-
-## 13. Example: LLM Loop Actor
-
-```ts
-type LlmState = "ready" | "calling_provider" | "interpreting_provider_output" | "running_tool" | "done" | "failed";
-
-class LlmLoopActor extends BaseActor {
-  static _actor = {
-    initial: "ready",
-    states: {
-      ready: {
-        on: {
-          start_requested: "calling_provider",
-          cancel_requested: "failed",
-        },
-      },
-
-      calling_provider: {
-        on: {
-          done: "interpreting_provider_output",
-          failed: "failed",
-          cancel_requested: "failed",
-        },
-      },
-
-      interpreting_provider_output: {
-        on: {
-          outcome_accepted: "done",
-          tool_calls_ready: "running_tool",
-          failed: "failed",
-          cancel_requested: "failed",
-        },
-      },
-
-      running_tool: {
-        on: {
-          done: "calling_provider",
-          failed: "failed",
-          cancel_requested: "failed",
-        },
-      },
-
-      done: {},
-      failed: {},
-    },
-  };
-
-  _on_call__ready__start(args: StartArgs) {
-    this.prompt = args.prompt;
-    this._send_event("start_requested");
-  }
-
-  _on_enter__calling_provider() {
-    this.runtime.callProvider({
-      prompt: this.prompt,
-      onSucceeded: output => {
-        this.providerOutput = output;
-        this._send_event("done");
-      },
-      onFailed: error => {
-        this.error = error;
-        this._send_event("failed");
-      },
-      onTimedOut: () => this._send_event("failed"),
-    });
-  }
-
-  _on_enter__interpreting_provider_output() {
-    const parsed = parseModelOutput(this.providerOutput);
-    if (parsed.kind === "outcome") {
-      this.outcome = parsed.outcome;
-      this._send_event("outcome_accepted");
-      return;
-    }
-
-    this.pendingTools = parsed.toolCalls;
-    this._send_event("tool_calls_ready");
-  }
-
-  _on_enter__running_tool() {
-    const nextTool = this.pendingTools.shift();
-    if (!nextTool) {
-      this._send_event("done");
-      return;
-    }
-
-    this.runtime.runTool(nextTool, {
-      onSucceeded: result => {
-        this.toolResults.push(result);
-        this._send_event("done");
-      },
-      onFailed: error => {
-        this.error = error;
-        this._send_event("failed");
-      },
-    });
-  }
-}
-```
-
-The `calling_provider`, `interpreting_provider_output`, and `running_tool` states separate provider-call, output interpretation, tool-call, cancellation, timeout, and recovery behavior by phase. `done` and `failed` still report whether the current state's work completed successfully; fact events such as `outcome_accepted` and `tool_calls_ready` are branch decisions, not success/failure signals.
-
-## 14. API Surface
-
-Minimal exported API:
-
-```ts
-export function startActor<T extends BaseActor>(ctor: ActorConstructor<T>, ...args: unknown[]): T;
-export function recoverActor<T extends BaseActor>(ctor: ActorConstructor<T>, state: string, ...args: unknown[]): T;
-
-export function compileActorDefinition(definition: ActorDefinition): CompiledActorDefinition;
-export function getCompiledActorDefinition(ctor: ActorConstructor): CompiledActorDefinition;
-
-export class InvalidActorDefinitionError extends Error {}
-export class InvalidTransitionError extends Error {}
-export class MissingCallHandlerError extends Error {}
-```
-
-Internal helpers include `dispatchEvent`, `dispatchCall`, actor runtime installation, and `runActorPump`.
-
-## 15. Validation Rules
-
-At definition time:
-
-- `states` must be non-empty.
-- `initial`, when present, must exist in `states`.
-- Every `sequence` state must exist in `states`.
-- A state must not appear more than once in `sequence`.
-- Every direct transition target must exist.
-- State names and event names must be non-empty strings.
-- `enter`, `leave`, and `calls` overrides must be method-name strings or `false`.
-- Concrete actor classes must declare their own static `_actor`; inherited `_actor` is rejected.
-
-At delivery time:
-
-- Unknown current state throws.
-- Unknown events for the current state are ignored.
-- Missing call handlers throw.
-- Invalid transition target throws.
-- Convention methods throwing exceptions become caller/runtime-visible delivery failures; the module does not swallow them.
-- Convention methods returning promises throw a programming error.
-
-## 16. Testing Strategy
-
-Test the micro-actor module independently:
-
-- `static _actor` declares a definition for a class;
-- `_compiled_actor` is initialized lazily on first actor creation;
-- `startActor(...)` initializes `BaseActor` private slots, `state()`, pending event slot, and state task set;
-- `recoverActor(...)` initializes `BaseActor` private slots with a restored state and runs `_on_recover__{state}` or `_on_enter__{state}` fallback;
-- `initial` defaults to the first state;
-- direct transition works;
-- `leave` runs before transition;
-- `enter` runs after transition;
-- `call` invokes `_on_call__{state}__{name}`;
-- missing call handler throws;
-- missing enter/leave hooks are no-ops;
-- `done` advances within an explicitly declared sequence;
-- unknown event is ignored;
-- invalid target throws;
-- promise-returning convention methods are rejected.
-
-Test the runtime delivery subsystem separately:
-
-- `BaseActor` has no queue;
-- `SlaveActor.mailbox.deliver(...)` enqueues mailbox commands and does not dispatch inline;
-- `_send_event(...)` sets exactly one pending event for the current actor turn;
-- `_start_task(...)` runs completion handlers through the pump;
-- state changes abort unfinished tasks for the old state;
-- mailbox queue wakeups happen through stored promise resolvers;
-- delivery runs from the actor pump after the current JavaScript call stack has unwound;
-- `SlaveActor` drains queued mailbox commands before awaiting the mailbox queue again;
-- delivery for one actor is serial;
-- different actor pumps may process messages in parallel;
-- async completion callbacks deliver mailbox commands or complete state tasks rather than calling low-level dispatch;
-- duplicate durable delivery records are ignored or rejected deterministically;
-- stale completion events are rejected by actor fields;
-- timeout callbacks produce timeout events.
-
-Test Saivage actors separately by asserting domain invariants:
-
-- duplicate Run emits warning and stays `running`;
-- Shutdown starts process termination;
-- LLM loop executes tools serially;
-- `activate_card` behaves as a barrier;
-- cancellation waits for bounded operation completion events;
-- project completion returns supervisor to `idle` while preserving project card outcome.
+Focused coverage lives under `tests/runtime/micro-actor/` and covers definition compilation, lifecycle start/recover, task completion, timeout behavior, mailbox queue behavior, and `SimpleSlaveActor` serial command behavior.

@@ -1,3 +1,7 @@
+// BaseActor design and implementation are frozen. Do not modify this file.
+// If a limitation or bug is found, report it to the user so they can decide
+// whether and how the frozen micro-actor core should change.
+
 import type { ActorDefinition, CompiledActorDefinition, CompiledStateDefinition } from './types.js';
 
 export class InternalActorError extends Error {

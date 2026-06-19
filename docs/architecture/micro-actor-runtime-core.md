@@ -2,7 +2,7 @@
 
 Status: current runtime-core implementation architecture.
 
-Last updated: 2026-06-15.
+Last updated: 2026-06-19.
 
 ## 1. Purpose
 
@@ -13,7 +13,7 @@ This document defines how the Saivage v3 autonomous runtime core is built on the
 - [System architecture](./system-architecture.md)
 - [Declarative micro-actor module architecture](./declarative-micro-actor-module.md)
 
-The runtime is a tree of `BaseActor` subclasses. Each actor declares a static `_actor` transition table, receives external commands through `SlaveActor.mailbox.deliver(...)`, emits internal state-transition events through protected `_send_event(name)`, and owns its own current state through `BaseActor` private slots.
+The runtime is a tree of `BaseActor` subclasses. Each actor declares a static `_actor` transition table, receives external commands through `SlaveActor.mailbox.deliver(...)`, emits internal state-transition events through protected `sendEvent(name)`, and owns its own current state through JavaScript `#private` `BaseActor` slots.
 
 ## 2. Core Invariants
 
@@ -350,7 +350,7 @@ Classify recovery at durable boundaries:
 - `abandon_with_diagnostic`: cannot safely reattach to external work;
 - `terminal`: no recovery work needed.
 
-Actor restoration uses the micro-actor module's native recovery path. The runtime reconstructs the actor instance from persisted domain data, calls `recoverActor(ActorClass, persistedState, ...)`, and lets the actor run `_on_recover__{state}`. When no recover hook exists, the micro-actor module falls back to `_on_enter__{state}`. Recovery hooks rebuild runtime-owned live resources, restart safe idempotent work, reconcile external process/provider state, or record diagnostics and send `failed`.
+Actor restoration uses the micro-actor module's native recovery path. The runtime reconstructs the actor instance from persisted domain data, calls `actor.recover(persistedState)` before the actor has ever been started, and lets the actor run `_on_recover__{state}`. When no recover hook exists, the micro-actor module falls back to `_on_enter__{state}`. Recovery hooks rebuild runtime-owned live resources, restart safe idempotent work, reconcile external process/provider state, or record diagnostics and send `failed`.
 
 Examples:
 
