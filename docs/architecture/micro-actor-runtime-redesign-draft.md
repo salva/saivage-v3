@@ -41,6 +41,7 @@ Ideas intentionally discarded:
 ## Design Rules
 
 - Runtime behavior is owned by `BaseActor` subclasses and their explicit public methods.
+- Micro-actor does not know or enforce ownership. Ownership is defined only by concrete `BaseActor` subclasses, their fields, and their public methods.
 - Public methods accept external work and may return command/job IDs or immediate command acceptance results.
 - Internal state changes are string events sent with `sendEvent(...)`.
 - Long work is run through `runTask(...)`; task completion callbacks store results and then send `done` unless a specific branch fact is needed.
@@ -52,27 +53,27 @@ Ideas intentionally discarded:
 
 ## System Shape
 
-The runtime actor tree has one root supervisor and a deterministic card actor tree:
+The runtime has one root supervisor and a deterministic card actor tree:
 
 ```text
 RuntimeSupervisorActor
-  CardNodeActor(project)
-    ProjectCardActor
-      LlmActor(planner:project)
-      LlmActor(reviewer:project)
+  CardActor(project)
+    CardProcessorActor(project)
+      LLMActor(planner:project)
+      LLMActor(reviewer:project)
       ProcessActor(... as needed)
-    CardNodeActor(goal)
-      GoalCardActor
-        LlmActor(planner:goal)
-        LlmActor(reviewer:goal)
+    CardActor(goal)
+      CardProcessorActor(goal)
+        LLMActor(planner:goal)
+        LLMActor(reviewer:goal)
         ProcessActor(... as needed)
-      CardNodeActor(terminal)
-        TerminalCardActor
-          LlmActor(executor:terminal)
+      CardActor(terminal)
+        CardProcessorActor(terminal)
+          LLMActor(executor:terminal)
           ProcessActor(... as needed)
 ```
 
-`CardNodeActor` owns public card lifecycle and projection. Type-specific actors own planner, reviewer, executor, tool, and process semantics.
+`CardActor` has the public card states: `backlog`, `running`, `done`, `blocked`, `failed`, `canceled`, and `changed`. This is the public card lifecycle layer. `CardProcessorActor` has card-type-dependent behavior. `LLMActor` interacts with remote LLM providers.
 
 The active chain may contain several public `running` cards, but only the leaf actor receives provider/process scheduling at a time.
 
@@ -99,7 +100,7 @@ Public methods:
 
 Responsibilities:
 
-- Own the parentless project `CardNodeActor`.
+- Hold the parentless project `CardActor` reference as supervisor runtime data.
 - Enforce duplicate-run behavior: return already-running warning, no duplicate root run.
 - Own admission policy for provider calls.
 - Coordinate shutdown process termination.
@@ -112,7 +113,7 @@ Non-responsibilities:
 - Tool-call interpretation.
 - Direct card mutation outside canonical services.
 
-### CardNodeActor
+### CardActor
 
 Purpose: durable public card lifecycle boundary.
 
@@ -136,7 +137,7 @@ Public methods:
 Responsibilities:
 
 - Write public status through CardStore.
-- Own the type-specific internal actor for project, goal, or terminal cards.
+- Hold the associated `CardProcessorActor` reference as card runtime data.
 - Enforce direct-child activation authority.
 - Commit exactly one activation outcome before returning it to the parent.
 - Deliver card-addressed notifications to the card's main agent at safe boundaries.
@@ -149,17 +150,19 @@ Changed-state rules:
 - A goal cannot report `done` while executable descendants remain `backlog`, `changed`, `blocked`, `failed`, or `running`.
 - `canceled` descendants are completion-compatible.
 
-### ProjectCardActor And GoalCardActor
+### CardProcessorActor
 
-Purpose: planner/reviewer semantics for project and goal cards.
+Purpose: card-type-dependent behavior for project, goal, and terminal cards.
 
-Suggested states:
+There is one conceptual processor layer. Concrete processors may have different state definitions for project/goal cards and terminal cards, but that is a class/design choice, not a framework ownership feature.
+
+Project and goal processor states:
 
 - `planning`: planner main agent is active or can receive another turn.
 - `waiting_child`: planner is blocked on an `activate_card` tool call.
 - `waiting_process`: planner is blocked on a process-backed tool call.
 - `reviewing`: reviewer is assessing a candidate done outcome.
-- `settled`: one public outcome is ready for the owning `CardNodeActor`.
+- `settled`: one public outcome is ready for the owning `CardActor`.
 
 Important actor fields:
 
@@ -175,7 +178,7 @@ Responsibilities:
 - Build planner invocation context.
 - Own the planner capability registry.
 - Validate planner tool authority.
-- Start immediate child cards through owned `CardNodeActor` references.
+- Start immediate child cards through `CardActor` references held by the processor.
 - Treat child activation as a synchronous logical barrier from the planner perspective.
 - Route process tools to `ProcessActor` or process services.
 - Enforce readiness and evidence gates before review.
@@ -189,28 +192,24 @@ Reviewer rules:
 - Ambiguous prose is a failure or tool error, not a guessed pass/fail.
 - If notifications or changes arrive while reviewing, reviewer success must be invalidated or diverted back to planning when those changes affect the assessed subtree.
 
-### TerminalCardActor
-
-Purpose: executor semantics for one terminal activation.
-
-Suggested states:
+Terminal processor states:
 
 - `executing`: executor main agent is active or can receive another turn.
 - `waiting_process`: executor is blocked on a process-backed tool call.
-- `settled`: one public outcome is ready for the owning `CardNodeActor`.
+- `settled`: one public outcome is ready for the owning `CardActor`.
 
-Responsibilities:
+Terminal responsibilities:
 
 - Build executor invocation context.
 - Own terminal tool capability registry.
 - Route process tools to `ProcessActor` or process services.
 - Validate executor terminal/reporting results.
 - Commit terminal result data only from accepted executor results.
-- Return exactly one `done` or `failed` outcome to the owning `CardNodeActor`.
+- Return exactly one `done` or `failed` outcome to the owning `CardActor`.
 
 Terminal actors do not own children.
 
-### LlmActor
+### LLMActor
 
 Purpose: generic LLM/provider turn and tool-loop mechanics for planner, reviewer, and executor sessions.
 
@@ -265,7 +264,7 @@ Responsibilities:
 
 - Persist process identity and ownership.
 - Persist terminal result/failure.
-- Return process tool results to the waiting `LlmActor` exactly once.
+- Return process tool results to the waiting `LLMActor` exactly once.
 - Reattach to running processes after restart when safe.
 - Treat late results after cancellation as diagnostics, not second tool results.
 
@@ -282,9 +281,9 @@ Initial command mapping:
 | resume runtime | `RuntimeSupervisorActor.run()` | Reopens admission from paused. |
 | shutdown | `RuntimeSupervisorActor.shutdown()` | Pauses admission and terminates runtime-owned processes. |
 | cancel project | `RuntimeSupervisorActor.cancelProject()` | Cooperatively cancels active root chain. |
-| cancel card/subtree | `CardNodeActor.cancel()` through canonical service/runtime adapter | Cancels inactive subtree or coordinates active cancellation if supported. |
-| mark needs correction/change | `CardNodeActor.notify()` / `markChanged()` | Queues notification and updates public changed state where applicable. |
-| activate child | Owning `GoalCardActor` capability | Validates direct-child authority and starts child card. |
+| cancel card/subtree | `CardActor.cancel()` through canonical service/runtime adapter | Cancels inactive subtree or coordinates active cancellation if supported. |
+| mark needs correction/change | `CardActor.notify()` / `markChanged()` | Queues notification and updates public changed state where applicable. |
+| activate child | Owning goal/project `CardProcessorActor` capability | Validates direct-child authority and starts child card. |
 
 The adapter may wait for projected state when an existing API contract requires a completion response. Waiting must observe actor/card projections, not execute workflow itself.
 
@@ -308,7 +307,7 @@ Rules:
 - LLM actor persists the tool call before routing.
 - Owning card actor validates role-specific semantics.
 - Process waits and child activations put the LLM actor into `waiting_tool`.
-- Reporting tools are interpreted by the owning card actor, not by `LlmActor`.
+- Reporting tools are interpreted by the owning card processor, not by `LLMActor`.
 - Rejected tool calls append a tool error and may allow another turn.
 - Recovery repairs tool delivery from durable tool-call records and message logs.
 
@@ -437,10 +436,8 @@ src/runtime/micro-actor/
 
 src/runtime/actors/
   runtime-supervisor.ts
-  card-node-actor.ts
-  project-card-actor.ts
-  goal-card-actor.ts
-  terminal-card-actor.ts
+  card-actor.ts
+  card-processor-actor.ts
   llm-actor.ts
   process-actor.ts
 
@@ -475,10 +472,10 @@ Acceptance:
 - Pause blocks new provider admission.
 - API tests prove no lower-level actor/controller imports in `RuntimeApi`.
 
-### Slice 2: CardNodeActor Lifecycle Boundary
+### Slice 2: CardActor Lifecycle Boundary
 
 - Implement public card lifecycle actor states.
-- Route activation through `CardNodeActor.activate(...)`.
+- Route activation through `CardActor.activate(...)`.
 - Keep public status writes centralized.
 - Add changed-state and notification enqueue behavior.
 
@@ -488,11 +485,11 @@ Acceptance:
 - Direct-child activation authority is enforced.
 - Changed descendants block parent `done`.
 
-### Slice 3: Generic LlmActor
+### Slice 3: Generic LLMActor
 
 - Implement provider admission, provider call, tool-call persistence, and terminal output forwarding.
 - Fail fast on unsupported provider output such as multiple tool calls if not yet supported.
-- Keep role interpretation out of `LlmActor`.
+- Keep role interpretation out of `LLMActor`.
 
 Acceptance:
 
@@ -500,9 +497,9 @@ Acceptance:
 - Every tool call gets a durable pending record.
 - Raw result is forwarded to owner for interpretation.
 
-### Slice 4: TerminalCardActor
+### Slice 4: Terminal CardProcessorActor
 
-- Use `LlmActor` for executor turns.
+- Use `LLMActor` for executor turns.
 - Implement executor reporting and process tools.
 - Commit accepted terminal results through CardStore.
 
@@ -514,7 +511,7 @@ Acceptance:
 
 ### Slice 5: Goal/Project Planner Flow
 
-- Use `LlmActor` for planner turns.
+- Use `LLMActor` for planner turns.
 - Implement direct-child activation and process waits.
 - Implement planner terminal reports and readiness/evidence gates.
 
@@ -568,8 +565,8 @@ Minimum focused test families:
 
 - Micro-actor definition/task/cancellation tests.
 - Supervisor run/pause/resume/shutdown tests.
-- CardNode activation/status/changed-state tests.
-- LlmActor provider admission/tool-call protocol tests.
+- CardActor activation/status/changed-state tests.
+- LLMActor provider admission/tool-call protocol tests.
 - Goal actor child activation barrier tests.
 - Goal actor process wait tests.
 - Terminal actor executor/process tests.

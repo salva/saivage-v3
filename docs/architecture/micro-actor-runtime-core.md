@@ -46,22 +46,22 @@ Most task states use the same local completion protocol: the state starts or adm
 
 ## 3. Actor Tree
 
-The runtime actor tree has one root supervisor actor. The supervisor owns the parentless project `CardNodeActor`. `CardNodeActor`s are the durable card status/projection boundary. Each card node delegates type-specific behavior to a `CardInternalActor`. Project and goal internal actors own their child `CardNodeActor` references. Planner and executor `LLMActor`s own the LLM/tool loop for one card activation. Tool handling is a card-scoped capability registry; a capability becomes an actor only when it owns durable state, cancellation, recovery, or long-lived resources.
+The runtime actor tree has one root supervisor actor. The supervisor holds the parentless project `CardActor`. `CardActor`s are the durable public card status/projection boundary. Each card actor delegates type-dependent behavior to a `CardProcessorActor`. `CardProcessorActor`s hold child `CardActor` references when the card type can have children. `LLMActor`s own remote LLM/provider interaction. Tool handling is a card-scoped capability registry; a capability becomes an actor only when it needs durable state, cancellation, recovery, or long-lived resource ownership.
 
 ```mermaid
 graph TD
   api[RuntimeApi adapter] --> supervisor[SupervisorActor]
   supervisor --> projectNode
 
-  projectNode[Project CardNodeActor] --> projectInternal[Project CardInternalActor]
+  projectNode[Project CardActor] --> projectInternal[Project CardProcessorActor]
   projectInternal --> projectChildren[children array]
-  projectChildren --> goalNode[Goal CardNodeActor]
+  projectChildren --> goalNode[Goal CardActor]
 
-  goalNode --> goalInternal[Goal CardInternalActor]
+  goalNode --> goalInternal[Goal CardProcessorActor]
   goalInternal --> goalChildren[children array]
-  goalChildren --> terminalNode[Terminal CardNodeActor]
+  goalChildren --> terminalNode[Terminal CardActor]
 
-  terminalNode --> terminalInternal[Terminal CardInternalActor]
+  terminalNode --> terminalInternal[Terminal CardProcessorActor]
 
   projectInternal --> projectLlm[Planner LLMActor]
   goalInternal --> goalLlm[Planner LLMActor]
@@ -82,11 +82,11 @@ graph TD
 
 Actor ownership:
 
-- `SupervisorActor` owns runtime mode, root run intent, pause gate, shutdown, the parentless project `CardNodeActor`, and recovery coordination.
-- `CardNodeActor`s own durable card identity, public card status projection, and the type-specific `CardInternalActor` for that card.
-- Project and goal `CardInternalActor`s own child-node references, child activation authority, readiness/review gates, planning diary updates, and construction of card-scoped capabilities.
-- Terminal `CardInternalActor`s own terminal-card semantic execution and construction of terminal capabilities for one activation; they do not own children.
-- Planner and executor `LLMActor`s own LLM/provider calls, tool-call loop states, the passed capability registry, tool-result waits, turn budgets, provider admission/cancellation intent, and tool-result context passed into later LLM calls.
+- `SupervisorActor` holds runtime mode, root run intent, pause gate, shutdown state, the parentless project `CardActor`, and recovery coordination.
+- `CardActor`s hold durable card identity, public card status projection, and the associated `CardProcessorActor` for that card.
+- Project and goal `CardProcessorActor`s hold child `CardActor` references, child activation authority, readiness/review gates, planning diary updates, and construction of card-scoped capabilities.
+- Terminal `CardProcessorActor`s hold terminal-card semantic execution and construction of terminal capabilities for one activation; they do not hold children.
+- `LLMActor`s own remote LLM/provider calls, tool-call loop states, tool-result waits, turn budgets, provider admission/cancellation intent, and tool-result context passed into later LLM calls.
 - Capabilities are registered async operations. Promote a capability to an actor only when it needs durable state, cancellation boundaries, recovery semantics, or long-lived resource ownership.
 - `ProcessActor`s own OS process lifecycle, process status, termination, and safe log read models.
 
@@ -116,8 +116,8 @@ Forbidden responsibilities:
 States:
 
 - `idle`: no root actor is running.
-- `running`: the root project `CardNodeActor` exists and the pause gate is open.
-- `paused`: the root project `CardNodeActor` may exist, but no new LLM/provider calls are admitted.
+- `running`: the root project `CardActor` exists and the pause gate is open.
+- `paused`: the root project `CardActor` may exist, but no new LLM/provider calls are admitted.
 - `shutting_down`: pause gate is closed and runtime-owned processes are being terminated.
 
 Calls:
@@ -134,7 +134,7 @@ Events:
 
 Responsibilities:
 
-- Run starts the parentless project `CardNodeActor` when idle.
+- Run starts the parentless project `CardActor` when idle.
 - Run from `paused` lifts the pause gate.
 - Run from `running` returns an already-running warning and creates no duplicate root run.
 - Pause blocks new LLM/provider-call admission without killing running processes or mutating card status.
@@ -145,9 +145,9 @@ Responsibilities:
 
 The supervisor does not know planner, executor, reviewer, or tool semantics.
 
-## 6. CardNodeActor
+## 6. CardActor
 
-`CardNodeActor` is the durable card runtime boundary. Its actor state is the card state. Activation, status commits, and completion handling are synchronous actions or delegated internal actor work; they do not get separate transitional actor states.
+`CardActor` is the durable public card runtime boundary. Its actor state is the public card state. Micro-actor does not know about ownership; this class defines card-level ownership by holding the card id, projection data, and associated `CardProcessorActor` reference.
 
 States:
 
@@ -177,21 +177,21 @@ Responsibilities:
 
 - Validate immediate-child activation through parent-provided authority before entering `running`.
 - Commit public card state changes before returning activation outcomes upward.
-- Instantiate the correct `CardInternalActor` for project, goal, or terminal cards.
+- Instantiate or reconnect the correct `CardProcessorActor` for project, goal, or terminal cards.
 - Deliver queued notifications to the main agent session at LLM admission boundaries.
 - Keep lifecycle bookkeeping in actor fields rather than transitional states unless the work becomes independently recoverable asynchronous work.
 
-## 7. Goal CardInternalActor
+## 7. Goal CardProcessorActor
 
-Goal and project internal actors own goal-card semantics. They do not expose public card status directly.
+Goal and project processors hold goal-card behavior. They do not expose public card status directly.
 
 States:
 
 - `planning`: planner `LLMActor` is active with a card-scoped capability registry.
 - `reviewing`: reviewer assessment is active.
-- `done`: accepted done outcome is ready for the owning `CardNodeActor`.
-- `blocked`: accepted blocked outcome is ready for the owning `CardNodeActor`.
-- `failed`: failed outcome is ready for the owning `CardNodeActor`.
+- `done`: accepted done outcome is ready for the associated `CardActor`.
+- `blocked`: accepted blocked outcome is ready for the associated `CardActor`.
+- `failed`: failed outcome is ready for the associated `CardActor`.
 
 Calls:
 
@@ -210,19 +210,19 @@ Responsibilities:
 - Invoke or reconstruct planner session data using deterministic identity derived from the goal card.
 - Run readiness and evidence gates before review.
 - Invoke reviewer work after readiness/evidence gates pass.
-- Return exactly one `done`, `failed`, or `blocked` outcome to the owning `CardNodeActor`.
+- Return exactly one `done`, `failed`, or `blocked` outcome to the associated `CardActor`.
 - Keep planner/reviewer LLM tool-loop states inside `LLMActor`, not in this actor.
 
-## 8. Terminal CardInternalActor
+## 8. Terminal CardProcessorActor
 
-Terminal internal actors own terminal-card semantic execution for one activation.
+Terminal processors hold terminal-card semantic execution for one activation.
 
 States:
 
 - `executing`: executor `LLMActor` is active with a card-scoped capability registry.
-- `done`: accepted done outcome is ready for the owning `CardNodeActor`.
-- `blocked`: accepted blocked outcome is ready for the owning `CardNodeActor`.
-- `failed`: failed outcome is ready for the owning `CardNodeActor`.
+- `done`: accepted done outcome is ready for the associated `CardActor`.
+- `blocked`: accepted blocked outcome is ready for the associated `CardActor`.
+- `failed`: failed outcome is ready for the associated `CardActor`.
 
 Calls:
 
@@ -239,7 +239,7 @@ Responsibilities:
 
 - Build terminal tool capabilities.
 - Invoke one executor `LLMActor` with the capability registry.
-- Return accepted executor outcomes to the owning `CardNodeActor`.
+- Return accepted executor outcomes to the associated `CardActor`.
 - Keep executor tool-call states inside `LLMActor`.
 - Preserve raw diagnostics in logs/read models, not in model-visible context.
 
@@ -370,10 +370,9 @@ Projection modules translate actor/card/session/process state into operator-faci
 Prefer cohesive actor modules over controller classes:
 
 - `src/runtime/actors/supervisor.ts`
-- `src/runtime/actors/card-node.ts`
-- `src/runtime/actors/goal-card-internal.ts`
-- `src/runtime/actors/terminal-card-internal.ts`
-- `src/runtime/actors/llm-loop.ts`
+- `src/runtime/actors/card-actor.ts`
+- `src/runtime/actors/card-processor-actor.ts`
+- `src/runtime/actors/llm-actor.ts`
 - `src/runtime/actors/process.ts`
 - `src/runtime/actors/capabilities/*.ts`
 
@@ -384,9 +383,9 @@ Actor modules extend `BaseActor`, declare static `_actor`, implement convention 
 Required test groups:
 
 - direct actor transition tests for supervisor Run/Pause/Shutdown;
-- `CardNodeActor` tests for activation validation, status commit ordering, cancellation, and notification delivery;
-- goal `CardInternalActor` tests for child activation success/failure/blocked, invalid activation, changed handling, readiness rejection, reviewer pass/correction/invalidation;
-- terminal `CardInternalActor` tests proving it constructs tool capabilities, invokes executor `LLMActor`, returns accepted outcomes, and does not own tool-loop states;
+- `CardActor` tests for activation validation, status commit ordering, cancellation, and notification delivery;
+- goal/project `CardProcessorActor` tests for child activation success/failure/blocked, invalid activation, changed handling, readiness rejection, reviewer pass/correction/invalidation;
+- terminal `CardProcessorActor` tests proving it constructs tool capabilities, invokes executor `LLMActor`, returns accepted outcomes, and does not own tool-loop states;
 - planner/executor `LLMActor` tests for provider admission, cooperative cancellation delivery, provider failure, serial tool execution, capability invocation, tool-result context, barrier ordering for `activate_card`, tool failure, turn budget exhaustion, and accepted outcomes;
 - process actor tests for launch, wait timeout without kill, inspect, terminate, failure diagnostics, and startup reconciliation;
 - `RuntimeApi` boundary tests proving it sends actor messages and projects read models but does not advance workflow itself;
@@ -397,18 +396,18 @@ Required test groups:
 
 ### P0: Actor Contracts And RuntimeApi Boundary
 
-- Define static `_actor` declarations, calls, events, and outcomes for supervisor, `CardNodeActor`, goal `CardInternalActor`, terminal `CardInternalActor`, `LLMActor`, card-scoped capabilities, and `ProcessActor`.
+- Define static `_actor` declarations, calls, events, and outcomes for supervisor, `CardActor`, `CardProcessorActor`, `LLMActor`, card-scoped capabilities, and `ProcessActor`.
 - Collapse `RuntimeApi` into message sender, state/projection waiter, and projection adapter.
 - Add boundary tests proving runtime behavior cannot advance through wrapper-owned orchestration methods.
 
-### P1: Supervisor And CardNodeActor
+### P1: Supervisor And CardActor
 
 - Implement supervisor Run/Pause/Shutdown/Cancellation states and projections.
-- Implement `CardNodeActor` activation validation, durable status commit, internal actor delegation, and outcome commit.
+- Implement `CardActor` activation validation, durable status commit, processor delegation, and outcome commit.
 
 ### P2: Vertical Terminal Slice
 
-- Implement one terminal card activation end to end: `CardNodeActor`, terminal `CardInternalActor`, executor `LLMActor`, one simple capability, and accepted outcome commit.
+- Implement one terminal card activation end to end: `CardActor`, terminal `CardProcessorActor`, executor `LLMActor`, one simple capability, and accepted outcome commit.
 - Prove actor boundaries with working behavior before expanding to goal/planner/reviewer complexity.
 
 ### P3: Process And Tool Loop Expansion
@@ -419,7 +418,7 @@ Required test groups:
 
 ### P4: Goal Planning And Review
 
-- Implement goal `CardInternalActor` child activation capabilities, planner invocation, readiness guards, reviewer turns, reviewer corrections, and returned outcomes.
+- Implement goal/project `CardProcessorActor` child activation capabilities, planner invocation, readiness guards, reviewer turns, reviewer corrections, and returned outcomes.
 - Keep planning diary on goal/project card fields.
 
 ### P5: Changed Context And Notifications
