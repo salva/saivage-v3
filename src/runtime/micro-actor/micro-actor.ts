@@ -218,11 +218,11 @@ export abstract class BaseActor {
 }
 
 export function getCompiledActorDefinition(ctor: ActorClassWithDefinition): CompiledActorDefinition {
-  if (ctor._compiled_actor) {
+  if (Object.hasOwn(ctor, '_compiled_actor') && ctor._compiled_actor) {
     return ctor._compiled_actor;
   }
 
-  const definition = ctor._actor;
+  const definition = getActorDefinition(ctor);
   if (!definition) {
     throw new InvalidActorDefinitionError(
       `${ctor.name || '<anonymous>'} must provide static _actor`,
@@ -237,6 +237,17 @@ export function getCompiledActorDefinition(ctor: ActorClassWithDefinition): Comp
     writable: true,
   });
   return compiled;
+}
+
+function getActorDefinition(ctor: ActorClassWithDefinition): ActorDefinition | undefined {
+  let current: Function | null = ctor;
+  while (current && current !== Function.prototype) {
+    if (Object.hasOwn(current, '_actor')) {
+      return (current as ActorClassWithDefinition)._actor;
+    }
+    current = Object.getPrototypeOf(current);
+  }
+  return undefined;
 }
 
 export function compileActorDefinition(definition: ActorDefinition): CompiledActorDefinition {

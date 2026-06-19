@@ -47,6 +47,19 @@ describe('actor definition compilation', () => {
     expect(compiled?.initial).toBe('off');
   });
 
+  it('uses the nearest class-owned actor definition', () => {
+    class ParentActor extends BaseActor {
+      static _actor: ActorDefinition = { states: { parent: {} } };
+    }
+
+    class ChildActor extends ParentActor {
+      static _actor: ActorDefinition = { states: { child: {} } };
+    }
+
+    expect(getCompiledActorDefinition(ParentActor).initial).toBe('parent');
+    expect(getCompiledActorDefinition(ChildActor).initial).toBe('child');
+  });
+
   it('rejects empty definitions', () => {
     expect(() => compileActorDefinition({ states: {} })).toThrow(InvalidActorDefinitionError);
   });
