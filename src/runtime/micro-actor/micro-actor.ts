@@ -39,12 +39,12 @@ export type RunTaskOptions<Result = unknown> = {
 type TaskResult<Result = unknown> = {
   id: number;
   ok: true;
-  value: Result;
+  result: Result;
   timedOut?: false;
 } | {
   id: number;
   ok: false;
-  value: Error;
+  error: Error;
   timedOut?: boolean;
 };
 
@@ -159,11 +159,11 @@ export abstract class BaseActor {
         this.#stateTasks.delete(result.id);
 
         if (result.timedOut && task.on_timeout) {
-          task.on_timeout(result.value as TimeoutError);
+          task.on_timeout(result.error as TimeoutError);
         } else if (result.ok) {
-          task.on_done(result.value);
+          task.on_done(result.result);
         } else {
-          task.on_failed(result.value);
+          task.on_failed(result.error);
         }
       }
     } catch (error) {
@@ -174,12 +174,12 @@ export abstract class BaseActor {
   async #safeTask<Result>(taskId: number, run: (signal: AbortSignal) => Promise<Result>, controller: AbortController, timeout?: number): Promise<TaskResult<Result>> {
     try {
       const task = run(controller.signal);
-      const value = timeout === undefined
+      const result = timeout === undefined
         ? await task
         : await this.#withTimeout(task, controller, timeout);
-      return { id: taskId, ok: true, value };
+      return { id: taskId, ok: true, result };
     } catch (error) {
-      return { id: taskId, ok: false, value: error as Error, timedOut: error instanceof TimeoutError };
+      return { id: taskId, ok: false, error: error as Error, timedOut: error instanceof TimeoutError };
     }
   }
 
