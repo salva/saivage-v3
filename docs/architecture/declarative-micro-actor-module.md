@@ -138,10 +138,11 @@ actor.cancelJob(jobId)
 The returned job ID is the stable handle external code uses for later cancellation. The protected actor-task side is deliberately small:
 
 ```ts
-this.dequeueJob(signal)
+this.waitForJob(signal)
+this.dequeueJob()
 ```
 
-`dequeueJob(signal)` is the method intended to be run through `runTask(...)` while the actor is in a waiting state. It returns an already queued job immediately or waits until a submitted job can be dequeued.
+`waitForJob(signal)` is the method intended to be run through `runTask(...)` while the actor is in a waiting state. Completion means a job may be available; actor code should synchronously call `dequeueJob()` from the task callback. If the job was cancelled before the callback runs, `dequeueJob()` returns `undefined` and the actor can wait again.
 
 `SlaveActor` is not an actor definition by itself; subclasses own their states and decide how queued jobs map onto state transitions. `SimpleSlaveActor` provides the default serial worker shape.
 

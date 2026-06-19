@@ -33,10 +33,19 @@ export abstract class SimpleSlaveActor<Load = unknown> extends SlaveActor {
   }
 
   _on_enter__waiting(): void {
+    this.#waitForNextJob();
+  }
+
+  #waitForNextJob(): void {
     this.runTask(
-      (signal) => this.dequeueJob<Load>(signal),
+      (signal) => this.waitForJob(signal),
       {
-        on_done: (job) => {
+        on_done: () => {
+          const job = this.dequeueJob<Load>();
+          if (!job) {
+            this.#waitForNextJob();
+            return;
+          }
           this.#currentJob = job;
           this.sendEvent('done');
         },

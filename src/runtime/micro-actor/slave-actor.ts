@@ -40,13 +40,13 @@ export abstract class SlaveActor extends BaseActor {
     return this.cancelRunningJob(id);
   }
 
-  protected async dequeueJob<Load = unknown, Result = unknown>(signal: AbortSignal): Promise<SlaveJob<Load, Result>> {
-    while (true) {
-      if (signal.aborted) throw signal.reason;
-      const job = this.#queuedJobs.shift() as SlaveJob<Load, Result> | undefined;
-      if (job) return job;
-      await this.#waitForSubmittedJob(signal);
-    }
+  protected dequeueJob<Load = unknown, Result = unknown>(): SlaveJob<Load, Result> | undefined {
+    return this.#queuedJobs.shift() as SlaveJob<Load, Result> | undefined;
+  }
+
+  protected waitForJob(signal: AbortSignal): Promise<void> {
+    if (this.#queuedJobs.length > 0) return Promise.resolve();
+    return this.#waitForSubmittedJob(signal);
   }
 
   protected cancelQueuedJob(id: string): boolean {
