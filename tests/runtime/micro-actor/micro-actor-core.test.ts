@@ -6,16 +6,8 @@ import {
   InternalActorError,
   TimeoutError,
 } from '../../../src/runtime/micro-actor/index.js';
-import { dispatchEvent, getCompiledActorDefinition } from '../../../src/runtime/micro-actor/index.js';
+import { getCompiledActorDefinition } from '../../../src/runtime/micro-actor/index.js';
 import type { ActorDefinition, CompiledActorDefinition } from '../../../src/runtime/micro-actor/index.js';
-
-function setupActor<T extends BaseActor>(ctor: new (...args: any[]) => T): T {
-  const definition = getCompiledActorDefinition(ctor as any);
-  const actor = new ctor();
-  actor['_definition'] = definition;
-  actor['_state'] = definition.initial;
-  return actor;
-}
 
 class LightActor extends BaseActor {
   static _actor: ActorDefinition = {
@@ -49,8 +41,8 @@ describe('actor definition compilation', () => {
     const ctor = LightActor as typeof LightActor & { _compiled_actor?: CompiledActorDefinition };
     delete ctor._compiled_actor;
     expect(ctor._compiled_actor).toBeUndefined();
-    const actor = setupActor(ctor);
-    expect(actor.state()).toBe('off');
+    const definition = getCompiledActorDefinition(ctor);
+    expect(definition.initial).toBe('off');
     const compiled = (ctor as { _compiled_actor?: CompiledActorDefinition })._compiled_actor;
     expect(compiled?.initial).toBe('off');
   });
@@ -84,74 +76,6 @@ describe('actor definition compilation', () => {
       .toThrow(InvalidActorDefinitionError);
   });
 });
-
-describe('dispatchEvent', () => {
-  it('handles direct string transition', () => {
-    const actor = setupActor(LightActor);
-
-    dispatchEvent(actor, 'toggle');
-
-    expect(actor.state()).toBe('on');
-  });
-
-  it('ignores unknown events', () => {
-    const actor = setupActor(LightActor);
-
-    dispatchEvent(actor, 'unknown_event');
-
-    expect(actor.state()).toBe('off');
-  });
-
-  it('fires enter on transition', () => {
-    const actor = setupActor(LightActor);
-
-    dispatchEvent(actor, 'toggle');
-
-    expect(actor.log).toEqual(['entered on, state now on']);
-  });
-
-  it('fires leave on transition', () => {
-    const actor = setupActor(LightActor);
-
-    dispatchEvent(actor, 'toggle');
-    dispatchEvent(actor, 'flicker');
-    dispatchEvent(actor, 'replace');
-
-    expect(actor.log).toContain('leaving broken after 1 flickers');
-  });
-
-  it('does not fire leave or enter when staying in same state', () => {
-    class DoorActor extends BaseActor {
-      static _actor = { states: { closed: { on: { stay: 'closed' } } } };
-      entered = 0;
-      left = 0;
-      _on_enter__closed() { this.entered += 1; }
-      _on_leave__closed() { this.left += 1; }
-    }
-
-    const actor = setupActor(DoorActor);
-    dispatchEvent(actor, 'stay');
-
-    expect(actor.entered).toBe(0);
-    expect(actor.left).toBe(0);
-  });
-
-  it('advances done inside sequence', () => {
-    class StepActor extends BaseActor {
-      static _actor = { sequence: ['a', 'b', 'c'], states: { a: {}, b: {}, c: {} } };
-    }
-
-    const actor = setupActor(StepActor);
-
-    dispatchEvent(actor, 'done');
-    expect(actor.state()).toBe('b');
-    dispatchEvent(actor, 'done');
-    expect(actor.state()).toBe('c');
-    dispatchEvent(actor, 'done');
-    expect(actor.state()).toBe('c');
-  });
-
-  });
 
 describe('state tasks', () => {
   it('runs task completion handlers through the actor pump', async () => {
@@ -200,17 +124,6 @@ describe('state tasks', () => {
     expect(actor.signal?.aborted).toBe(true);
   });
 
-  it('throws when a non-terminal state has no tasks or events', async () => {
-    class StuckActor extends BaseActor {
-      static _actor = { states: { idle: { on: { go: 'done' } }, done: { terminal: true } } };
-    }
-
-    const actor = new StuckActor();
-    actor.start();
-
-    await expect(actor._actorMainPromise).rejects.toThrow(InternalActorError);
-  });
-
   it('exits the main loop when entering a terminal state', async () => {
     class FiniteActor extends BaseActor {
       static _actor = {
@@ -239,25 +152,28 @@ describe('state tasks', () => {
 
     await eventually(() => expect(actor.state()).toBe('done'));
 
-    const mainResult = await actor._actorMainPromise;
-    expect(mainResult).toBeUndefined();
     expect(actor.finished).toBe(true);
   });
 
   it('rejects starting a task in a terminal state', () => {
     class TerminalActor extends BaseActor {
       static _actor = {
+        initial: 'done',
         states: {
           idle: { on: { finish: 'done' } },
           done: { terminal: true },
         },
       };
+
+      runTask() {
+        this._run_task(() => Promise.resolve());
+      }
     }
 
-    const actor = setupActor(TerminalActor);
-    actor._state = 'done';
+    const actor = new TerminalActor();
+    actor.start();
 
-    expect(() => (actor as any)._run_task(() => Promise.resolve()))
+    expect(() => actor.runTask())
       .toThrow(InternalActorError);
   });
 

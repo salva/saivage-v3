@@ -8,7 +8,6 @@ export {
   BaseActor,
   InternalActorError,
   TimeoutError,
-  dispatchEvent,
 } from './micro-actor.js';
 export { SlaveActor } from './slave-actor.js';
 export { SimpleSlaveActor, SimpleSlaveCommandCancelledError } from './simple-slave-actor.js';
