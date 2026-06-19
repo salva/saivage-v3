@@ -51,23 +51,8 @@ export abstract class SimpleSlaveActor<Load = unknown> extends SlaveActor {
       return;
     }
 
-    const controller = new AbortController();
-    let cancel!: () => void;
     this.runTask(
-      (signal) => {
-        signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true });
-        const cancelled = new Promise<never>((_resolve, reject) => {
-          cancel = () => {
-            const error = new SlaveJobCancelledError(job.id);
-            controller.abort(error);
-            reject(error);
-          };
-        });
-        return Promise.race([
-          this.runJob({ id: job.id, load: job.load }, { signal: controller.signal }),
-          cancelled,
-        ]);
-      },
+      (signal) => this.#runCurrentJob(job, signal),
       {
         on_done: (result) => {
           const running = this.#currentJob;
@@ -89,7 +74,26 @@ export abstract class SimpleSlaveActor<Load = unknown> extends SlaveActor {
         },
       },
     );
+  }
 
-    this.#currentJob = { ...job, cancel };
+  #runCurrentJob(job: SlaveJob<Load>, signal: AbortSignal): Promise<unknown> {
+    const controller = new AbortController();
+    signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true });
+
+    const cancelled = new Promise<never>((_resolve, reject) => {
+      this.#currentJob = {
+        ...job,
+        cancel: () => {
+          const error = new SlaveJobCancelledError(job.id);
+          controller.abort(error);
+          reject(error);
+        },
+      };
+    });
+
+    return Promise.race([
+      this.runJob({ id: job.id, load: job.load }, { signal: controller.signal }),
+      cancelled,
+    ]);
   }
 }
