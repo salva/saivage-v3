@@ -56,6 +56,20 @@ describe('SimpleSlaveActor', () => {
     expect(actor.started).toEqual(['first']);
   });
 
+  it('does not run a job cancelled after it wakes the waiting actor', async () => {
+    const actor = new TestSimpleSlaveActor();
+    actor.start();
+    const failed: unknown[] = [];
+
+    const jobId = actor.submitJob('first', { on_failed: (error) => { failed.push(error); } });
+    expect(actor.cancelJob(jobId)).toBe(true);
+
+    await eventually(() => expect(failed[0]).toBeInstanceOf(SlaveJobCancelledError));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(actor.started).toEqual([]);
+    expect(actor.state()).toBe('waiting');
+  });
+
   it('aborts and fails a running job when cancelled', async () => {
     const actor = new TestSimpleSlaveActor();
     actor.start();

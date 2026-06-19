@@ -40,23 +40,13 @@ export abstract class SlaveActor extends BaseActor {
     return this.cancelRunningJob(id);
   }
 
-  protected dequeueJob<Load = unknown, Result = unknown>(): SlaveJob<Load, Result> | undefined {
-    return this.#queuedJobs.shift() as SlaveJob<Load, Result> | undefined;
-  }
-
-  protected hasQueuedJobs(): boolean {
-    return this.#queuedJobs.length > 0;
-  }
-
-  protected waitForJob(signal: AbortSignal): Promise<void> {
-    if (this.hasQueuedJobs()) return Promise.resolve();
-    return new Promise((resolve, reject) => {
-      this.#jobAvailable = resolve;
-      signal.addEventListener('abort', () => {
-        if (this.#jobAvailable === resolve) this.#jobAvailable = null;
-        reject(signal.reason);
-      }, { once: true });
-    });
+  protected async dequeueJob<Load = unknown, Result = unknown>(signal: AbortSignal): Promise<SlaveJob<Load, Result>> {
+    while (true) {
+      if (signal.aborted) throw signal.reason;
+      const job = this.#queuedJobs.shift() as SlaveJob<Load, Result> | undefined;
+      if (job) return job;
+      await this.#waitForSubmittedJob(signal);
+    }
   }
 
   protected cancelQueuedJob(id: string): boolean {
@@ -69,6 +59,22 @@ export abstract class SlaveActor extends BaseActor {
 
   protected cancelRunningJob(_id: string): boolean {
     return false;
+  }
+
+  #waitForSubmittedJob(signal: AbortSignal): Promise<void> {
+    if (this.#jobAvailable) throw new Error('SlaveActor already has a pending job wait');
+    return new Promise((resolve, reject) => {
+      const onAbort = () => {
+        if (this.#jobAvailable === onJobAvailable) this.#jobAvailable = null;
+        reject(signal.reason);
+      };
+      const onJobAvailable = () => {
+        signal.removeEventListener('abort', onAbort);
+        resolve();
+      };
+      this.#jobAvailable = onJobAvailable;
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
   }
 
   protected completeJob<Result>(job: SlaveJob<unknown, Result>, result: Result): void {

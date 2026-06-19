@@ -17,6 +17,7 @@ export abstract class SimpleSlaveActor<Load = unknown> extends SlaveActor {
   };
 
   #runningJob: RunningJob | null = null;
+  #nextJob: SlaveJob<Load> | null = null;
 
   protected abstract runJob(job: { id: string; load: Load }, context: { signal: AbortSignal }): Promise<unknown>;
 
@@ -27,12 +28,21 @@ export abstract class SimpleSlaveActor<Load = unknown> extends SlaveActor {
   }
 
   _on_enter__waiting(): void {
-    this.runTask((signal) => this.waitForJob(signal));
+    this.runTask(
+      (signal) => this.dequeueJob<Load>(signal),
+      {
+        on_done: (job) => {
+          this.#nextJob = job;
+          this.sendEvent('done');
+        },
+      },
+    );
   }
 
   _on_enter__running(): void {
     if (this.#runningJob) return;
-    const job = this.dequeueJob<Load>();
+    const job = this.#nextJob;
+    this.#nextJob = null;
     if (!job) {
       this.sendEvent('done');
       return;
