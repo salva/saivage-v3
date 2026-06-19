@@ -18,7 +18,7 @@ export abstract class SimpleSlaveActor<Load = unknown> extends SlaveActor {
   static _actor: ActorDefinition = {
     initial: 'waiting',
     states: {
-      waiting: { on: { job_available: 'running' } },
+      waiting: { on: { done: 'running' } },
       running: { on: { done: 'waiting', failed: 'waiting', cancelled: 'waiting' } },
     },
   };
@@ -41,10 +41,7 @@ export abstract class SimpleSlaveActor<Load = unknown> extends SlaveActor {
   }
 
   _on_enter__waiting(): void {
-    this.runTask(
-      (signal) => this.waitForJob(signal),
-      { on_done_event: 'job_available' },
-    );
+    this.runTask((signal) => this.waitForJob(signal));
   }
 
   _on_enter__running(): void {
