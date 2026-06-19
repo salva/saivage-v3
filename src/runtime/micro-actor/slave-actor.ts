@@ -37,7 +37,7 @@ export abstract class SlaveActor extends BaseActor {
 
   cancelJob(id: string): boolean {
     if (this.cancelQueuedJob(id)) return true;
-    return this.cancelRunningJob(id);
+    return this.cancelCurrentJob(id);
   }
 
   protected dequeueJob<Load = unknown, Result = unknown>(): SlaveJob<Load, Result> | undefined {
@@ -57,7 +57,7 @@ export abstract class SlaveActor extends BaseActor {
     return true;
   }
 
-  protected cancelRunningJob(_id: string): boolean {
+  protected cancelCurrentJob(_id: string): boolean {
     return false;
   }
 

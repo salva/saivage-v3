@@ -31,10 +31,12 @@ describe('SimpleSlaveActor', () => {
     await eventually(() => expect(actor.started).toEqual(['first']));
     actor.completions[0]!.resolve('one');
     await eventually(() => expect(done).toEqual(['one']));
+    expect(actor.cancelJob(first)).toBe(false);
     await eventually(() => expect(actor.started).toEqual(['first', 'second']));
 
     actor.completions[1]!.resolve('two');
     await eventually(() => expect(done).toEqual(['one', 'two']));
+    expect(actor.cancelJob(second)).toBe(false);
     await eventually(() => expect(actor.state()).toBe('waiting'));
   });
 
@@ -80,6 +82,7 @@ describe('SimpleSlaveActor', () => {
     await eventually(() => expect(actor.started).toEqual(['first']));
     expect(actor.signals[0]!.aborted).toBe(false);
     expect(actor.cancelJob(running)).toBe(true);
+    expect(actor.cancelJob(running)).toBe(false);
 
     await eventually(() => expect(actor.signals[0]!.aborted).toBe(true));
     await eventually(() => expect(failed[0]).toBeInstanceOf(SlaveJobCancelledError));

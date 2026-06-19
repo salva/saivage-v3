@@ -2,7 +2,7 @@ import { SlaveActor, SlaveJobCancelledError, type SlaveJob } from './slave-actor
 import type { ActorDefinition } from './types.js';
 
 type CurrentJob = SlaveJob<unknown, unknown> & {
-  cancel?: () => void;
+  cancel?: () => boolean;
 };
 
 // SimpleSlaveActor is a serial worker. It waits for submitted jobs in `waiting`,
@@ -20,15 +20,14 @@ export abstract class SimpleSlaveActor<Load = unknown> extends SlaveActor {
 
   protected abstract runJob(job: { id: string; load: Load }, context: { signal: AbortSignal }): Promise<unknown>;
 
-  protected override cancelRunningJob(id: string): boolean {
+  protected override cancelCurrentJob(id: string): boolean {
     const job = this.#currentJob;
     if (job?.id !== id) return false;
     if (job.cancel) {
-      job.cancel();
-    } else {
-      this.#currentJob = null;
-      this.markJobCancelled(job, new SlaveJobCancelledError(id));
+      return job.cancel();
     }
+    this.#currentJob = null;
+    this.markJobCancelled(job, new SlaveJobCancelledError(id));
     return true;
   }
 
@@ -88,20 +87,37 @@ export abstract class SimpleSlaveActor<Load = unknown> extends SlaveActor {
   #runCurrentJob(job: SlaveJob<Load>, signal: AbortSignal): Promise<unknown> {
     const controller = new AbortController();
     signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true });
+    let settled = false;
+    let cancellationAccepted = false;
 
     const cancelled = new Promise<never>((_resolve, reject) => {
       this.#currentJob = {
         ...job,
         cancel: () => {
+          if (settled || cancellationAccepted) return false;
+          cancellationAccepted = true;
           const error = new SlaveJobCancelledError(job.id);
           controller.abort(error);
           reject(error);
+          return true;
         },
       };
     });
 
+    const running = this.runJob({ id: job.id, load: job.load }, { signal: controller.signal })
+      .then(
+        (result) => {
+          settled = true;
+          return result;
+        },
+        (error) => {
+          settled = true;
+          throw error;
+        },
+      );
+
     return Promise.race([
-      this.runJob({ id: job.id, load: job.load }, { signal: controller.signal }),
+      running,
       cancelled,
     ]);
   }
