@@ -86,11 +86,11 @@ describe('state tasks', () => {
 
       _on_enter__idle() {
         this.task = createDeferred<string>();
-        this._run_task(
+        this.runTask(
           () => this.task.promise,
           { on_done: (result) => {
             this.result = result;
-            this._send_event('done');
+            this.sendEvent('done');
           } },
         );
       }
@@ -110,8 +110,8 @@ describe('state tasks', () => {
       signal: AbortSignal | undefined;
 
       _on_enter__idle() {
-        this._run_task(() => Promise.resolve(undefined), { on_done_event: 'leave' });
-        this._run_task((signal) => {
+        this.runTask(() => Promise.resolve(undefined), { on_done_event: 'leave' });
+        this.runTask((signal) => {
           this.signal = signal;
           return new Promise<void>(() => {});
         });
@@ -136,11 +136,11 @@ describe('state tasks', () => {
       task = createDeferred<void>();
 
       _on_enter__idle() {
-        this._run_task(
+        this.runTask(
           () => this.task.promise,
           { on_done: () => {
             this.finished = true;
-            this._send_event('finish');
+            this.sendEvent('finish');
           } },
         );
       }
@@ -165,15 +165,15 @@ describe('state tasks', () => {
         },
       };
 
-      runTask() {
-        this._run_task(() => Promise.resolve());
+      startTaskFromTerminal() {
+        this.runTask(() => Promise.resolve());
       }
     }
 
     const actor = new TerminalActor();
     actor.start();
 
-    expect(() => actor.runTask())
+    expect(() => actor.startTaskFromTerminal())
       .toThrow(InternalActorError);
   });
 
@@ -182,7 +182,7 @@ describe('state tasks', () => {
       static _actor = { states: { idle: { on: { done: 'done' } }, done: { terminal: true } } };
 
       _on_enter__idle() {
-        this._run_task(() => Promise.resolve('ok'));
+        this.runTask(() => Promise.resolve('ok'));
       }
     }
 
@@ -195,7 +195,7 @@ describe('state tasks', () => {
       static _actor = { states: { idle: { on: { failed: 'done' } }, done: { terminal: true } } };
 
       _on_enter__idle() {
-        this._run_task(() => Promise.reject(new Error('boom')));
+        this.runTask(() => Promise.reject(new Error('boom')));
       }
     }
 
@@ -208,7 +208,7 @@ describe('state tasks', () => {
       static _actor = { states: { idle: { on: { failed: 'done' } }, done: { terminal: true } } };
 
       _on_enter__idle() {
-        this._run_task(
+        this.runTask(
           (signal) => waitForAbort(signal),
           { timeout: 10 },
         );
@@ -225,13 +225,13 @@ describe('state tasks', () => {
       timeoutError: TimeoutError | undefined;
 
       _on_enter__idle() {
-        this._run_task(
+        this.runTask(
           (signal) => waitForAbort(signal),
           {
             timeout: 10,
             on_timeout: (error) => {
               this.timeoutError = error;
-              this._send_event('timeout');
+              this.sendEvent('timeout');
             },
           },
         );
@@ -248,7 +248,7 @@ describe('state tasks', () => {
       static _actor = { states: { idle: { on: { timed_out: 'done' } }, done: { terminal: true } } };
 
       _on_enter__idle() {
-        this._run_task(
+        this.runTask(
           (signal) => waitForAbort(signal),
           { timeout: 10, on_timeout_event: 'timed_out' },
         );
@@ -265,13 +265,13 @@ describe('state tasks', () => {
       failedError: Error | undefined;
 
       _on_enter__idle() {
-        this._run_task(
+        this.runTask(
           (signal) => waitForAbort(signal),
           {
             timeout: 10,
             on_failed: (error) => {
               this.failedError = error;
-              this._send_event('failed');
+              this.sendEvent('failed');
             },
           },
         );
@@ -291,7 +291,7 @@ describe('state tasks', () => {
       timeoutError: TimeoutError | undefined;
 
       _on_enter__idle() {
-        this._run_task(
+        this.runTask(
           (signal) => new Promise<void>((resolve, reject) => {
             signal.addEventListener('abort', () => {
               this.aborted = true;
@@ -302,7 +302,7 @@ describe('state tasks', () => {
             timeout: 10,
             on_timeout: (error) => {
               this.timeoutError = error;
-              this._send_event('timeout');
+              this.sendEvent('timeout');
             },
           },
         );
@@ -324,7 +324,7 @@ describe('state tasks', () => {
       static _actor = { states: { idle: { on: { done: 'done' } }, done: { terminal: true } } };
 
       _on_enter__idle() {
-        this._run_task(
+        this.runTask(
           () => Promise.resolve('fast'),
           { timeout: 1000 },
         );

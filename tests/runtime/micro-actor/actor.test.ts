@@ -17,25 +17,25 @@ describe('start', () => {
 
       _on_enter__a() {
         this.log.push('enter:a');
-        this._run_task(
+        this.runTask(
           () => Promise.resolve(undefined),
-          { on_done: () => { this._send_event('go'); } },
+          { on_done: () => { this.sendEvent('go'); } },
         );
       }
 
       _on_enter__b() {
         this.log.push('enter:b');
-        this._run_task(
+        this.runTask(
           () => Promise.resolve(undefined),
-          { on_done: () => { this._send_event('go'); } },
+          { on_done: () => { this.sendEvent('go'); } },
         );
       }
 
       _on_enter__c() {
         this.log.push('enter:c');
-        this._run_task(
+        this.runTask(
           () => Promise.resolve(undefined),
-          { on_done: () => { this._send_event('go'); } },
+          { on_done: () => { this.sendEvent('go'); } },
         );
       }
 
@@ -65,9 +65,9 @@ describe('start', () => {
       entered = false;
       _on_enter__ready() {
         this.entered = true;
-        this._run_task(
+        this.runTask(
           () => Promise.resolve(undefined),
-          { on_done: () => { this._send_event('go'); } },
+          { on_done: () => { this.sendEvent('go'); } },
         );
       }
     }
@@ -90,7 +90,7 @@ describe('start', () => {
 
       _on_enter__ready() {
         this.entered += 1;
-        this._run_task(
+        this.runTask(
           () => Promise.resolve(undefined),
           { on_done_event: 'finish' },
         );
@@ -118,7 +118,7 @@ describe('start', () => {
       };
 
       _on_enter__running() {
-        this._run_task(() => new Promise(() => {}));
+        this.runTask(() => new Promise(() => {}));
       }
     }
 
@@ -144,9 +144,9 @@ describe('recover', () => {
 
       _on_recover__running() {
         this.log.push(`recover:${this.state()}`);
-        this._run_task(
+        this.runTask(
           () => Promise.resolve(undefined),
-          { on_done: () => { this._send_event('done'); } },
+          { on_done: () => { this.sendEvent('done'); } },
         );
       }
     }
@@ -172,9 +172,9 @@ describe('recover', () => {
 
       _on_enter__running() {
         this.log.push(`enter:${this.state()}`);
-        this._run_task(
+        this.runTask(
           () => Promise.resolve(undefined),
-          { on_done: () => { this._send_event('done'); } },
+          { on_done: () => { this.sendEvent('done'); } },
         );
       }
     }

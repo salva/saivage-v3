@@ -59,18 +59,18 @@ export class TerminalCardRunnerActor extends SlaveActor {
   recordStart(): void {
     this.publicStatus = 'running';
     this.outcome = null;
-    this._send_event('start');
+    this.sendEvent('start');
   }
 
   recordOutcome(outcome: TerminalOutcome): void {
     this.publicStatus = outcome.status;
     this.outcome = outcome;
-    this._send_event(outcome.status === 'done' ? 'done' : 'failed');
+    this.sendEvent(outcome.status === 'done' ? 'done' : 'failed');
   }
 
   recordCancel(): void {
     this.publicStatus = 'cancelled';
-    this._send_event('cancel');
+    this.sendEvent('cancel');
   }
 
   _on_enter__executing(): void {

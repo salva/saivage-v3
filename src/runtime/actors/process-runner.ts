@@ -68,7 +68,7 @@ export class ProcessRunnerActor extends SlaveActor {
     this.signal = null;
     this.stdout = '';
     this.stderr = '';
-    this._send_event('started');
+    this.sendEvent('started');
   }
 
   recordOutput(args: OutputArgs): void {
@@ -80,7 +80,7 @@ export class ProcessRunnerActor extends SlaveActor {
     this.exitCode = args.exitCode;
     this.signal = args.signal;
     this.pid = null;
-    this._send_event('exited');
+    this.sendEvent('exited');
   }
 
   _on_enter__running(): void {

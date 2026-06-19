@@ -102,7 +102,7 @@ export abstract class SimpleSlaveActor extends SlaveActor {
   }
 
   _on_enter__idle(): void {
-    this._run_task(
+    this.runTask(
       (signal) => this._waitForWork(signal),
       { on_done_event: 'work_available' },
     );
@@ -114,7 +114,7 @@ export abstract class SimpleSlaveActor extends SlaveActor {
     const controller = new AbortController();
     let cancel!: () => void;
 
-    this._run_task(
+    this.runTask(
       (signal) => {
         signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true });
         const cancelled = new Promise<never>((_resolve, reject) => {
@@ -132,7 +132,7 @@ export abstract class SimpleSlaveActor extends SlaveActor {
           if (command?.id === next.id) {
             this.runningCommand = null;
             command.callbacks?.on_done?.(result);
-            this._send_event('done');
+            this.sendEvent('done');
           }
         },
         on_failed: (error) => {
@@ -140,7 +140,7 @@ export abstract class SimpleSlaveActor extends SlaveActor {
           if (command?.id === next.id) {
             this.runningCommand = null;
             command.callbacks?.on_failed?.(error);
-            this._send_event('failed');
+            this.sendEvent('failed');
           }
         },
       },

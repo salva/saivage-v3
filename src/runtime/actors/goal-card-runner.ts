@@ -76,26 +76,26 @@ export class GoalCardRunnerActor extends SlaveActor {
   recordStart(): void {
     this.publicStatus = 'running';
     this.outcome = null;
-    this._send_event('start');
+    this.sendEvent('start');
   }
 
   recordOutcome(outcome: GoalOutcome): void {
     this.publicStatus = outcome.status;
     this.outcome = outcome;
-    this._send_event(outcome.status === 'done' ? 'done' : 'failed');
+    this.sendEvent(outcome.status === 'done' ? 'done' : 'failed');
   }
 
   recordReviewReady(): void {
-    this._send_event('review_ready');
+    this.sendEvent('review_ready');
   }
 
   recordNeedsCorrections(): void {
-    this._send_event('needs_corrections');
+    this.sendEvent('needs_corrections');
   }
 
   recordCancel(): void {
     this.publicStatus = 'cancelled';
-    this._send_event('cancel');
+    this.sendEvent('cancel');
   }
 
   _on_enter__planning(): void {
