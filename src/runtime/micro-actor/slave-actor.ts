@@ -1,35 +1,85 @@
-import { MailboxQueue } from './mailbox-queue.js';
 import { BaseActor } from './micro-actor.js';
-import type { MailboxCommand } from './types.js';
 
-export type ActorCommandMailbox = {
-  deliver(name: string, args?: unknown): void;
+export type SlaveJobCallbacks<Result = unknown> = {
+  on_done?: (result: Result) => void;
+  on_failed?: (error: Error) => void;
+  on_cancelled?: (error: SlaveJobCancelledError) => void;
 };
 
-// SlaveActor is the externally addressable actor base. Other objects can deliver
-// commands to the mailbox. Derived classes dequeue commands in their own state
-// handlers.
+export type SlaveJobHandle = {
+  id: string;
+  cancel(): void;
+};
+
+export type SlaveJob<Load = unknown, Result = unknown> = {
+  id: string;
+  load: Load;
+  callbacks?: SlaveJobCallbacks<Result>;
+};
+
+export class SlaveJobCancelledError extends Error {
+  constructor(readonly jobId: string) {
+    super(`Job ${jobId} was cancelled`);
+    this.name = 'SlaveJobCancelledError';
+  }
+}
+
+// SlaveActor is a helper base for externally-addressable actors. It is not an
+// actor definition by itself; subclasses own their states and decide how queued
+// jobs map onto state transitions.
 export abstract class SlaveActor extends BaseActor {
-  readonly #mailboxQueue = new MailboxQueue();
+  static #nextJobId = 1;
+  readonly #queuedJobs: Array<SlaveJob<any, any>> = [];
+  #jobAvailable: (() => void) | null = null;
 
-  readonly mailbox: ActorCommandMailbox = {
-    deliver: (name, args) => {
-      const command = args === undefined
-        ? { kind: 'call' as const, name }
-        : { kind: 'call' as const, name, args };
-      this.#mailboxQueue.push(command);
-    },
-  };
-
-  protected _dequeueCommand(): Promise<MailboxCommand> {
-    return this.#mailboxQueue.shift();
+  protected enqueueJob<Load, Result = unknown>(load: Load, callbacks?: SlaveJobCallbacks<Result>): SlaveJobHandle {
+    const id = `job-${SlaveActor.#nextJobId++}`;
+    this.#queuedJobs.push({ id, load, callbacks });
+    this.#jobAvailable?.();
+    this.#jobAvailable = null;
+    return { id, cancel: () => this.cancelQueuedJob(id) };
   }
 
-  protected _drainCommands(): MailboxCommand[] {
-    return this.#mailboxQueue.drain();
+  protected dequeueJob<Load = unknown, Result = unknown>(): SlaveJob<Load, Result> | undefined {
+    return this.#queuedJobs.shift() as SlaveJob<Load, Result> | undefined;
   }
 
-  protected _closeMailbox(): void {
-    this.#mailboxQueue.close();
+  protected hasQueuedJobs(): boolean {
+    return this.#queuedJobs.length > 0;
+  }
+
+  protected waitForQueuedJob(signal: AbortSignal): Promise<void> {
+    if (this.hasQueuedJobs()) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      this.#jobAvailable = resolve;
+      signal.addEventListener('abort', () => {
+        if (this.#jobAvailable === resolve) this.#jobAvailable = null;
+        reject(signal.reason);
+      }, { once: true });
+    });
+  }
+
+  protected cancelQueuedJob(id: string): boolean {
+    const index = this.#queuedJobs.findIndex((job) => job.id === id);
+    if (index < 0) return false;
+    const [job] = this.#queuedJobs.splice(index, 1);
+    if (job) this.cancelJob(job, new SlaveJobCancelledError(id));
+    return true;
+  }
+
+  protected completeJob<Result>(job: SlaveJob<unknown, Result>, result: Result): void {
+    job.callbacks?.on_done?.(result);
+  }
+
+  protected failJob(job: SlaveJob, error: Error): void {
+    job.callbacks?.on_failed?.(error);
+  }
+
+  protected cancelJob(job: SlaveJob, error = new SlaveJobCancelledError(job.id)): void {
+    if (job.callbacks?.on_cancelled) {
+      job.callbacks.on_cancelled(error);
+    } else {
+      job.callbacks?.on_failed?.(error);
+    }
   }
 }

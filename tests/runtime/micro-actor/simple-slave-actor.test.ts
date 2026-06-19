@@ -1,13 +1,13 @@
 import { describe, expect, it } from '@jest/globals';
-import { SimpleSlaveActor, SimpleSlaveCommandCancelledError } from '../../../src/runtime/micro-actor/index.js';
+import { SimpleSlaveActor, SlaveJobCancelledError } from '../../../src/runtime/micro-actor/index.js';
 
-class TestSimpleSlaveActor extends SimpleSlaveActor {
+class TestSimpleSlaveActor extends SimpleSlaveActor<string> {
   started: string[] = [];
   completions: Array<Deferred<unknown>> = [];
   signals: AbortSignal[] = [];
 
-  protected _runCommand(command: { id: string; name: string; args?: unknown }, context: { signal: AbortSignal }): Promise<unknown> {
-    this.started.push(command.name);
+  protected runJob(job: { id: string; load: string }, context: { signal: AbortSignal }): Promise<unknown> {
+    this.started.push(job.load);
     this.signals.push(context.signal);
     const deferred = createDeferred<unknown>();
     this.completions.push(deferred);
@@ -21,8 +21,8 @@ describe('SimpleSlaveActor', () => {
     actor.start();
     const done: unknown[] = [];
 
-    actor.mailbox.deliver('first', undefined, { on_done: (result) => { done.push(result); } });
-    actor.mailbox.deliver('second', undefined, { on_done: (result) => { done.push(result); } });
+    actor.mailbox.deliver('first', { on_done: (result) => { done.push(result); } });
+    actor.mailbox.deliver('second', { on_done: (result) => { done.push(result); } });
 
     await eventually(() => expect(actor.started).toEqual(['first']));
     actor.completions[0]!.resolve('one');
@@ -31,7 +31,7 @@ describe('SimpleSlaveActor', () => {
 
     actor.completions[1]!.resolve('two');
     await eventually(() => expect(done).toEqual(['one', 'two']));
-    await eventually(() => expect(actor.state()).toBe('idle'));
+    await eventually(() => expect(actor.state()).toBe('waiting'));
   });
 
   it('cancels queued commands before they run', async () => {
@@ -40,15 +40,15 @@ describe('SimpleSlaveActor', () => {
     const failed: unknown[] = [];
 
     actor.mailbox.deliver('first');
-    const queued = actor.mailbox.deliver('second', undefined, { on_failed: (error) => { failed.push(error); } });
+    const queued = actor.mailbox.deliver('second', { on_failed: (error) => { failed.push(error); } });
 
     await eventually(() => expect(actor.started).toEqual(['first']));
     queued.cancel();
 
-    await eventually(() => expect(failed[0]).toBeInstanceOf(SimpleSlaveCommandCancelledError));
+    await eventually(() => expect(failed[0]).toBeInstanceOf(SlaveJobCancelledError));
     actor.completions[0]!.resolve('one');
 
-    await eventually(() => expect(actor.state()).toBe('idle'));
+    await eventually(() => expect(actor.state()).toBe('waiting'));
     expect(actor.started).toEqual(['first']);
   });
 
@@ -57,15 +57,15 @@ describe('SimpleSlaveActor', () => {
     actor.start();
     const failed: unknown[] = [];
 
-    const running = actor.mailbox.deliver('first', undefined, { on_failed: (error) => { failed.push(error); } });
+    const running = actor.mailbox.deliver('first', { on_failed: (error) => { failed.push(error); } });
 
     await eventually(() => expect(actor.started).toEqual(['first']));
     expect(actor.signals[0]!.aborted).toBe(false);
     running.cancel();
 
     await eventually(() => expect(actor.signals[0]!.aborted).toBe(true));
-    await eventually(() => expect(failed[0]).toBeInstanceOf(SimpleSlaveCommandCancelledError));
-    await eventually(() => expect(actor.state()).toBe('idle'));
+    await eventually(() => expect(failed[0]).toBeInstanceOf(SlaveJobCancelledError));
+    await eventually(() => expect(actor.state()).toBe('waiting'));
   });
 });
 

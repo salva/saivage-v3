@@ -13,7 +13,7 @@ This document defines how the Saivage v3 autonomous runtime core is built on the
 - [System architecture](./system-architecture.md)
 - [Declarative micro-actor module architecture](./declarative-micro-actor-module.md)
 
-The runtime is a tree of `BaseActor` subclasses. Each actor declares a static `_actor` transition table, receives external commands through `SlaveActor.mailbox.deliver(...)`, emits internal state-transition events through protected `sendEvent(name)`, and owns its own current state through JavaScript `#private` `BaseActor` slots.
+The runtime is a tree of `BaseActor` subclasses. Each actor declares a static `_actor` transition table, accepts external work through actor-owned public methods or a subclass mailbox, emits internal state-transition events through protected `sendEvent(name)`, and owns its own current state through JavaScript `#private` `BaseActor` slots.
 
 ## 2. Core Invariants
 
@@ -98,7 +98,7 @@ Allowed responsibilities:
 
 - construct or attach to the supervisor actor;
 - validate external command shape and authority before messages enter the actor tree;
-- deliver accepted lifecycle requests through `supervisor.mailbox.deliver(...)`;
+- deliver accepted lifecycle requests through supervisor-owned public methods;
 - optionally wait for a state condition through runtime projections;
 - project supervisor/card/session/process state into Saivage read models.
 
