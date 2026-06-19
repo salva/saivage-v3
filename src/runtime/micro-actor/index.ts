@@ -3,7 +3,6 @@ export {
   compileActorDefinition,
   getCompiledActorDefinition,
   InvalidActorDefinitionError,
-  InvalidTransitionError,
   InternalActorError,
   TimeoutError,
 } from './micro-actor.js';
