@@ -1,8 +1,8 @@
 import { SlaveActor, SlaveJobCancelledError, type SlaveJob } from './slave-actor.js';
 import type { ActorDefinition } from './types.js';
 
-type RunningJob = SlaveJob<unknown, unknown> & {
-  cancel(): void;
+type CurrentJob = SlaveJob<unknown, unknown> & {
+  cancel?: () => void;
 };
 
 // SimpleSlaveActor is a serial worker. It waits for submitted jobs in `waiting`,
@@ -16,14 +16,19 @@ export abstract class SimpleSlaveActor<Load = unknown> extends SlaveActor {
     },
   };
 
-  #runningJob: RunningJob | null = null;
-  #nextJob: SlaveJob<Load> | null = null;
+  #currentJob: CurrentJob | null = null;
 
   protected abstract runJob(job: { id: string; load: Load }, context: { signal: AbortSignal }): Promise<unknown>;
 
   protected override cancelRunningJob(id: string): boolean {
-    if (this.#runningJob?.id !== id) return false;
-    this.#runningJob.cancel();
+    const job = this.#currentJob;
+    if (job?.id !== id) return false;
+    if (job.cancel) {
+      job.cancel();
+    } else {
+      this.#currentJob = null;
+      this.markJobCancelled(job, new SlaveJobCancelledError(id));
+    }
     return true;
   }
 
@@ -32,7 +37,7 @@ export abstract class SimpleSlaveActor<Load = unknown> extends SlaveActor {
       (signal) => this.dequeueJob<Load>(signal),
       {
         on_done: (job) => {
-          this.#nextJob = job;
+          this.#currentJob = job;
           this.sendEvent('done');
         },
       },
@@ -40,9 +45,7 @@ export abstract class SimpleSlaveActor<Load = unknown> extends SlaveActor {
   }
 
   _on_enter__running(): void {
-    if (this.#runningJob) return;
-    const job = this.#nextJob;
-    this.#nextJob = null;
+    const job = this.#currentJob as SlaveJob<Load> | null;
     if (!job) {
       this.sendEvent('done');
       return;
@@ -67,16 +70,16 @@ export abstract class SimpleSlaveActor<Load = unknown> extends SlaveActor {
       },
       {
         on_done: (result) => {
-          const running = this.#runningJob;
+          const running = this.#currentJob;
           if (running?.id !== job.id) return;
-          this.#runningJob = null;
+          this.#currentJob = null;
           this.completeJob(running, result);
           this.sendEvent('done');
         },
         on_failed: (error) => {
-          const running = this.#runningJob;
+          const running = this.#currentJob;
           if (running?.id !== job.id) return;
-          this.#runningJob = null;
+          this.#currentJob = null;
           if (error instanceof SlaveJobCancelledError) {
             this.markJobCancelled(running, error);
           } else {
@@ -87,6 +90,6 @@ export abstract class SimpleSlaveActor<Load = unknown> extends SlaveActor {
       },
     );
 
-    this.#runningJob = { ...job, cancel };
+    this.#currentJob = { ...job, cancel };
   }
 }
