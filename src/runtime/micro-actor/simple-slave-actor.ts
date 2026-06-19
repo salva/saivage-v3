@@ -1,12 +1,11 @@
-import { SlaveActor, SlaveJobCancelledError, type SlaveJob, type SlaveJobCallbacks, type SlaveJobHandle } from './slave-actor.js';
+import { SlaveActor, SlaveJobCancelledError, type SlaveJob, type SlaveJobCallbacks } from './slave-actor.js';
 import type { ActorDefinition } from './types.js';
 
 export type SimpleSlaveJobCallbacks<Result = unknown> = SlaveJobCallbacks<Result>;
-export type SimpleSlaveJobHandle = SlaveJobHandle;
 
 export type SimpleSlaveMailbox<Load = unknown> = {
-  deliver<Result = unknown>(load: Load, callbacks?: SimpleSlaveJobCallbacks<Result>): SimpleSlaveJobHandle;
-  cancel(id: string): void;
+  deliver<Result = unknown>(load: Load, callbacks?: SimpleSlaveJobCallbacks<Result>): string;
+  cancel(id: string): boolean;
 };
 
 type RunningJob = SlaveJob<unknown, unknown> & {
@@ -28,22 +27,22 @@ export abstract class SimpleSlaveActor<Load = unknown> extends SlaveActor {
 
   readonly mailbox: SimpleSlaveMailbox<Load> = {
     deliver: <Result = unknown>(load: Load, callbacks?: SimpleSlaveJobCallbacks<Result>) => {
-      const handle = this.enqueueJob<Load, Result>(load, callbacks);
-      return { id: handle.id, cancel: () => this.cancel(handle.id) };
+      return this.submitJob<Load, Result>(load, callbacks);
     },
-    cancel: (id) => this.cancel(id),
+    cancel: (id) => this.cancelJob(id),
   };
 
   protected abstract runJob(job: { id: string; load: Load }, context: { signal: AbortSignal }): Promise<unknown>;
 
-  cancel(id: string): void {
-    if (this.cancelQueuedJob(id)) return;
-    if (this.#runningJob?.id === id) this.#runningJob.cancel();
+  protected override cancelRunningJob(id: string): boolean {
+    if (this.#runningJob?.id !== id) return false;
+    this.#runningJob.cancel();
+    return true;
   }
 
   _on_enter__waiting(): void {
     this.runTask(
-      (signal) => this.waitForQueuedJob(signal),
+      (signal) => this.waitForJob(signal),
       { on_done_event: 'job_available' },
     );
   }
@@ -86,7 +85,7 @@ export abstract class SimpleSlaveActor<Load = unknown> extends SlaveActor {
           if (running?.id !== job.id) return;
           this.#runningJob = null;
           if (error instanceof SlaveJobCancelledError) {
-            this.cancelJob(running, error);
+            this.markJobCancelled(running, error);
             this.sendEvent('cancelled');
             return;
           }

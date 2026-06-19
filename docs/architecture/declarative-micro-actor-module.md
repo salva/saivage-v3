@@ -129,19 +129,24 @@ Recovery hooks are synchronous actor hooks. They may rebuild live in-memory reso
 
 ## SlaveActor Boundary
 
-`BaseActor` has no external command queue. `SlaveActor` adds protected job-queue helpers for subclasses that need an external delivery boundary:
+`BaseActor` has no external command queue. `SlaveActor` adds the public job-queue boundary for subclasses that need external work delivery:
 
 ```ts
-this.enqueueJob(load, callbacks?)
-this.waitForQueuedJob(signal)
+actor.submitJob(load, callbacks?) // returns jobId
+actor.getJobState(jobId)
+actor.cancelJob(jobId)
+```
+
+The returned job ID is the stable handle external code uses for later state inquiry or cancellation. The protected actor-task side is deliberately small:
+
+```ts
+this.waitForJob(signal)
 this.dequeueJob()
 ```
 
-`SlaveActor` is not an actor definition by itself; subclasses own their states and decide how queued jobs map onto state transitions. `SimpleSlaveActor` provides the default serial worker shape with a public mailbox:
+`waitForJob(signal)` is the method intended to be run through `runTask(...)` while the actor is in a waiting state.
 
-```ts
-actor.mailbox.deliver(load, callbacks?)
-```
+`SlaveActor` is not an actor definition by itself; subclasses own their states and decide how queued jobs map onto state transitions. `SimpleSlaveActor` provides the default serial worker shape and keeps a convenience mailbox whose `deliver(load, callbacks?)` also returns a job ID.
 
 Mailbox jobs are external work items, not state-transition events. Actor code remains responsible for translating job availability and work outcomes into internal events.
 
