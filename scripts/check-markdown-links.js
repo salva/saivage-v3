@@ -15,6 +15,7 @@ const IGNORED_DIRS = new Set([
   '.vitepress/dist',
   'web/dist',
   'old-documents',
+  'docs-old',
   'SPEC/v1/review-2026-05',
   'SPEC/v0.2/review-2026-05-agent-autonomy',
   'SPEC/review-2026-05',
@@ -67,6 +68,7 @@ function markdownFiles(root) {
     return execFileSync('git', ['ls-files', '*.md'], { cwd: root, encoding: 'utf8' })
       .split('\n')
       .filter(Boolean)
+      .filter((file) => existsSync(path.join(root, file)))
       .filter((file) => !isIgnoredDirectory(path.dirname(file)))
       .sort((a, b) => a.localeCompare(b));
   } catch {

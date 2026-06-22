@@ -2,7 +2,7 @@
 
 This directory contains current system design documents for Saivage v3.
 
-Use these documents to understand how the functional specification is realized. Superseded designs and prior generations of documentation are in `docs/old/`.
+Use these documents to understand how the functional specification is realized.
 
 Current architecture documents:
 
