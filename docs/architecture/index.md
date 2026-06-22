@@ -8,4 +8,5 @@ Current architecture documents:
 
 - [System architecture](./system-architecture.md)
 - [Micro-actor runtime design](./micro-actor-runtime-design.md)
+- [Micro-actor runtime implementation plan](./micro-actor-runtime-implementation-plan.md)
 - [Declarative micro-actor module architecture](./declarative-micro-actor-module.md)
