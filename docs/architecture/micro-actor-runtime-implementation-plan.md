@@ -57,8 +57,8 @@ Goal: centralize public card lifecycle state in `CardActor`.
 
 Implementation:
 
-- Add `CardActor` with public states `backlog`, `changed`, `running`, `blocked`, `failed`, `done`, and `canceled`.
-- Mark inactive reactivatable states as parked and `canceled` as terminal.
+- Add `CardActor` with public states `backlog`, `changed`, `running`, `blocked`, `failed`, `done`, and `cancelled`.
+- Mark inactive reactivatable states as parked and `cancelled` as terminal.
 - Implement public methods `activate(caller)`, `notify(notification)`, `cancel(reason)`, and `markChanged(change)`.
 - Persist public card status changes through the canonical card store before reporting outcomes upward.
 - Instantiate or reconnect direct child `CardActor` instances from card data.
@@ -75,7 +75,7 @@ Tests:
 - Activation transitions to `running` and starts the processor.
 - Processor `done`, `failed`, and `blocked` outcomes update card state before parent notification.
 - `markChanged(...)` moves inactive cards to `changed` and leaves running cards `running`.
-- `cancel(...)` marks cards/subtrees `canceled`, preserves descendants already `done`, and records late active-work results as diagnostics.
+- `cancel(...)` marks cards/subtrees `cancelled`, preserves descendants already `done`, and records late active-work results as diagnostics.
 
 Acceptance:
 
@@ -168,7 +168,7 @@ Tests:
 - Invalid executor report appends tool error or fails visibly according to protocol.
 - Process wait timeout returns a timeout tool result and does not kill the process.
 - Explicit process kill records termination details.
-- Terminal cancellation marks the card/subtree canceled, stops future LLM admission, and records late results as diagnostics.
+- Terminal cancellation marks the card/subtree `cancelled`, stops future LLM admission, and records late results as diagnostics.
 
 Acceptance:
 
@@ -197,7 +197,7 @@ Tests:
 - Invalid child activation appends tool error and does not dispatch work.
 - Child `done`, `failed`, and `blocked` outcomes return exactly one planner tool result.
 - Changed, blocked, backlog, running, or failed descendants block parent `done`.
-- Canceled descendants are completion-compatible.
+- `cancelled` descendants are completion-compatible.
 - Planner process tools route through ProcessActor and return bounded results.
 - Pending notifications are delivered before the next planner turn.
 

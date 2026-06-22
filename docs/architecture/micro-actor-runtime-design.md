@@ -70,7 +70,7 @@ The target implementation must preserve these invariants:
 - Activating a child transitions it to `running`.
 - Child activation outcomes update the child card to `done`, `failed`, or `blocked` before the parent receives the tool result.
 - The Analyst cannot directly set a card to `blocked`; `blocked` is a main-agent activation outcome.
-- Only `done` and `canceled` descendants are completion-compatible for parent `done`.
+- Only `done` and `cancelled` descendants are completion-compatible for parent `done`.
 - `changed`, `blocked`, `backlog`, `running`, and `failed` descendants block parent `done` until handled.
 - `working_status` is free text for agents attached to the card.
 - `result` is attached only from accepted main-agent results.
@@ -107,7 +107,7 @@ RuntimeSupervisorActor
           ProcessActor(... as needed)
 ```
 
-`CardActor` has the public card states: `backlog`, `running`, `done`, `blocked`, `failed`, `canceled`, and `changed`. This is the public card lifecycle layer. New card actors start in `backlog`; recovered actors use the persisted card state. Public idle card states such as `backlog`, `done`, `blocked`, `failed`, and `changed` are parked because external commands may later activate, change, or cancel them. `canceled` is terminal: the actor exits, and any later reactivation creates a fresh actor instance for the new durable card state. Each card type has its own concrete processor actor class. `LLMActor` interacts with remote LLM providers.
+`CardActor` has the public card states: `backlog`, `running`, `done`, `blocked`, `failed`, `cancelled`, and `changed`. This is the public card lifecycle layer. New card actors start in `backlog`; recovered actors use the persisted card state. Public idle card states such as `backlog`, `done`, `blocked`, `failed`, and `changed` are parked because external commands may later activate, change, or cancel them. `cancelled` is terminal: the actor exits, and any later reactivation creates a fresh actor instance for the new durable card state. Each card type has its own concrete processor actor class. `LLMActor` interacts with remote LLM providers.
 
 The active chain may contain several public `running` cards, but only the leaf actor receives provider/process scheduling at a time.
 
@@ -179,7 +179,7 @@ States mirror public card status:
 - `changed`: parked.
 - `running`: active processor work is in progress.
 - `blocked`: parked.
-- `canceled`: terminal.
+- `cancelled`: terminal.
 - `failed`: parked.
 - `done`: parked.
 
@@ -187,14 +187,14 @@ Public methods:
 
 - `activate(caller)`: validate authority and start the card.
 - `notify(notification)`: enqueue card-addressed context.
-- `cancel(reason)`: mark this card/subtree canceled through canonical card rules.
+- `cancel(reason)`: mark this card/subtree `cancelled` through canonical card rules.
 - `markChanged(change)`: apply card/subtree change semantics.
 
 Parked public methods use `parkedSendEvent(...)` after validating authority and recording any event-specific data on actor fields. Allowed movements are the normal `on` transitions declared on each parked state.
 
 Event guidance:
 
-- Public methods may queue command events such as `activate`, `changed`, and `canceled` from parked states.
+- Public methods may queue command events such as `activate`, `changed`, and `cancel` from parked states.
 - Running activation work normally completes with `done` or `failed` after storing the outcome on actor fields.
 - `blocked` is a domain outcome. It may be a distinct event only if the static transition table needs to route it separately from `done`.
 - Running cards receive notification/context without leaving `running`.
@@ -215,7 +215,7 @@ Changed-state rules:
 - Inactive modified cards become `changed`.
 - Running modified cards remain `running` and receive notifications/context.
 - A goal cannot report `done` while executable descendants remain `backlog`, `changed`, `blocked`, `failed`, or `running`.
-- `canceled` descendants are completion-compatible.
+- `cancelled` descendants are completion-compatible.
 
 ### Card Processor Actors
 
@@ -388,7 +388,7 @@ Initial command mapping:
 | resume runtime | `RuntimeSupervisorActor.run()` | Reopens admission from paused. |
 | shutdown | `RuntimeSupervisorActor.shutdown()` | Pauses admission and terminates runtime-owned processes. |
 | cancel project | `RuntimeSupervisorActor.cancelProject()` | Cancels the project card/subtree and returns to idle. |
-| cancel card/subtree | `CardActor.cancel()` through the runtime command boundary | Marks the requested card/subtree canceled through canonical card rules. |
+| cancel card/subtree | `CardActor.cancel()` through the runtime command boundary | Marks the requested card/subtree `cancelled` through canonical card rules. |
 | mark needs correction/change | `CardActor.notify()` / `markChanged()` | Queues notification and updates public changed state where applicable. |
 | activate child | Owning goal/project processor capability | Validates direct-child authority and starts child card. |
 
@@ -454,10 +454,10 @@ Pause:
 
 Cancellation:
 
-- Cancellation marks the requested card/subtree `canceled` through canonical card rules.
-- Active LLM actors refuse future admission for the canceled subtree.
+- Cancellation marks the requested card/subtree `cancelled` through canonical card rules.
+- Active LLM actors refuse future admission for the `cancelled` subtree.
 - Runtime-owned processes are killed or marked abandoned according to process policy.
-- Late provider, tool, process, or child results for a canceled wait are recorded as diagnostics and must not create a second activation or tool result.
+- Late provider, tool, process, or child results for a `cancelled` wait are recorded as diagnostics and must not create a second activation or tool result.
 
 Shutdown:
 
@@ -510,7 +510,7 @@ Examples:
 - A `ProcessActor` in `running` may be `reconcile_then_resume` if the OS process can be found through the process registry.
 - A provider call in progress at crash time is `abandon_with_diagnostic` because the external request cannot be safely reattached.
 - A planner `LLMActor` waiting on `activate_card` is `reconcile_then_resume` if the active child actor and durable card state can be rebuilt from the active card chain and activation edge.
-- A committed `canceled` card or settled process is `complete_no_live_actor`; parked card outcomes such as `done`, `failed`, and `blocked` may still need a live parked actor when future changes or activation are allowed.
+- A committed `cancelled` card or settled process is `complete_no_live_actor`; parked card outcomes such as `done`, `failed`, and `blocked` may still need a live parked actor when future changes or activation are allowed.
 
 ## API And Projection
 

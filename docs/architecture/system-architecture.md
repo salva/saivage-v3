@@ -105,15 +105,15 @@ Analyst mutation or parent-planner mutation sets a non-active card to `changed`.
 
 When a modification affects an inactive descendant, inactive ancestors on the direct path to the project root receive changed-subtree context and become `changed` until the first running ancestor. Running ancestors stay `running` and receive notification/context instead of status overwrite. In practice, deep propagation is most often needed for Analyst edits because parent-planner edits target direct children of the active goal. Ancestors are not automatically dispatched by the status change.
 
-The acceptance gate prevents a planner from closing a goal while any executable descendant is not in a completion-compatible state. This forces the planner to observe and handle changed, blocked, backlog, running, failed, or otherwise incomplete executable descendants before claiming completion. Done and canceled descendants are completion-compatible and do not block `done`. Goal cards carry their own planning diary state.
+The acceptance gate prevents a planner from closing a goal while any executable descendant is not in a completion-compatible state. This forces the planner to observe and handle changed, blocked, backlog, running, failed, or otherwise incomplete executable descendants before claiming completion. Done and `cancelled` descendants are completion-compatible and do not block `done`. Goal cards carry their own planning diary state.
 
 `result` is attached from accepted main-agent results only. It is not updated from progress chatter, rejected reports, or reviewer correction requests. `working_status` is separate free text for agents attached to the card.
 
 ## 9. Cancellation
 
-Cancellation is a card-state operation. Recursive cancellation preserves descendants that are already `done` and converts non-completion-compatible descendants, including `failed`, `blocked`, `backlog`, `changed`, and `running`, to `canceled`. Runtime-owned processes attached to canceled cards are terminated or marked abandoned through canonical process controls.
+Cancellation is a card-state operation. Recursive cancellation preserves descendants that are already `done` and converts non-completion-compatible descendants, including `failed`, `blocked`, `backlog`, `changed`, and `running`, to `cancelled`. Runtime-owned processes attached to `cancelled` cards are terminated or marked abandoned through canonical process controls.
 
-Canceling a running card closes future LLM admission for that card/subtree and marks late provider, tool, or process results as diagnostics rather than second outcomes. It does not add a separate workflow phase. Shutdown remains the hard operation for stopping the runtime itself.
+Cancelling a running card closes future LLM admission for that card/subtree and marks late provider, tool, or process results as diagnostics rather than second outcomes. It does not add a separate workflow phase. Shutdown remains the hard operation for stopping the runtime itself.
 
 Project-card cancellation is the root case of the same operation: the supervisor cancels the project card/subtree through the project `CardActor`, returns to idle, and leaves the next project-level action to the user through the Analyst.
 
