@@ -51,23 +51,24 @@ export function readActorSnapshots(projectRoot: string): ActorSnapshotRecord[] {
     .sort((a, b) => a.actor_id.localeCompare(b.actor_id));
 }
 
-export function saveActorSnapshot(projectRoot: string, snapshot: ActorSnapshotRecord): ActorSnapshotRecord[] {
+export function saveActorSnapshot(projectRoot: string, snapshot: ActorSnapshotRecord): ActorSnapshotRecord {
   assertSnapshotKind(snapshot);
   const lock = actorSnapshotsLock(projectRoot);
   const file = actorSnapshotFile(projectRoot, snapshot.actor_id, lock);
   return lock.withLockSync((handle) => {
     file.writeSync(handle, snapshot);
-    return readActorSnapshots(projectRoot);
+    return snapshot;
   });
 }
 
-export function removeActorSnapshot(projectRoot: string, actorId: string): ActorSnapshotRecord[] {
+export function removeActorSnapshot(projectRoot: string, actorId: string): boolean {
   const lock = actorSnapshotsLock(projectRoot);
   return lock.withLockSync((handle) => {
     lock.assertOwns(handle);
     const path = actorSnapshotPath(projectRoot, actorId);
-    if (existsSync(path)) unlinkSync(path);
-    return readActorSnapshots(projectRoot);
+    if (!existsSync(path)) return false;
+    unlinkSync(path);
+    return true;
   });
 }
 

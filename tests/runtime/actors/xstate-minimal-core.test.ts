@@ -118,7 +118,7 @@ describe('actor runtime components', () => {
   });
 
   it('persists actor snapshots in per-actor files with schema version envelope', () => withTempProject((projectRoot) => {
-    saveActorSnapshot(projectRoot, {
+    const saved = saveActorSnapshot(projectRoot, {
       actor_id: 'card:T-1',
       actor_kind: 'card',
       state_value: 'done',
@@ -126,6 +126,7 @@ describe('actor runtime components', () => {
       updated_at: new Date().toISOString(),
     });
 
+    expect(saved).toMatchObject({ actor_id: 'card:T-1', actor_kind: 'card', state_value: 'done' });
     expect(readActorSnapshots(projectRoot)).toMatchObject([
       { actor_id: 'card:T-1', actor_kind: 'card', state_value: 'done' },
     ]);
@@ -161,7 +162,8 @@ describe('actor runtime components', () => {
       'executor:T-1:done',
     ]);
 
-    removeActorSnapshot(projectRoot, 'card:T-1');
+    expect(removeActorSnapshot(projectRoot, 'card:T-1')).toBe(true);
+    expect(removeActorSnapshot(projectRoot, 'card:T-1')).toBe(false);
     expect(readActorSnapshots(projectRoot).map((item) => item.actor_id)).toEqual(['executor:T-1']);
   }));
 
