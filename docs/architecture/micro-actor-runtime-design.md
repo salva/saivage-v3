@@ -45,7 +45,7 @@ Ideas intentionally discarded:
 - Public methods accept external work and may return command/job IDs or immediate command acceptance results.
 - Concrete actors are instantiated with parent references where they need to report completion. They do not need per-call completion callbacks in `start(...)` or `recover(...)`.
 - Completion is reported by calling hard-coded parent methods, such as `onChildCardDone(...)`, `onProcessorDone(...)`, or `onLlmDone(...)`, when the child actor reaches an activation or work outcome state.
-- When a parent needs to wait for a child, the parent creates and stores the promise, calls the child's domain method such as `activate(...)` or `startTurn(...)`, then uses `runTask(...)` to wait for that promise. The hard-coded child completion method resolves or rejects the stored promise.
+- When a parent needs to wait for a child, the parent creates and stores the promise, calls the child's domain method such as `activate(...)` or `turn(...)`, then uses `runTask(...)` to wait for that promise. The hard-coded child completion method resolves or rejects the stored promise.
 - Internal state changes are string events sent with `sendEvent(...)`.
 - Parked states represent externally controlled idle lifecycle states. Public actor methods advance them through protected `parkedSendEvent(...)`, not direct state assignment.
 - Public methods that are valid from both parked and active states validate the current state and use `parkedSendEvent(...)` only from parked states; from active states they use `sendEvent(...)` or update actor fields directly when no state transition is needed.
@@ -239,7 +239,7 @@ Project and goal processor states:
 
 Public methods:
 
-- `startActivation(input)`: start or resume one card activation.
+- `activate(input)`: start or resume one card activation.
 - `cancel(reason)`: deliver cancellation intent to active processor work.
 
 Important actor fields:
@@ -291,7 +291,7 @@ Terminal processor states:
 
 Public methods:
 
-- `startActivation(input)`: start one terminal card activation.
+- `activate(input)`: start one terminal card activation.
 - `cancel(reason)`: deliver cancellation intent to active executor work.
 
 Terminal responsibilities:
@@ -329,8 +329,8 @@ Completed turns return to `idle`; completion data is stored on actor fields befo
 
 Public methods:
 
-- `startTurn(inputRef)`: run a model turn from persisted input context.
-- `resumeTurn(state)`: resume a persisted LLM turn or tool wait after actor recovery.
+- `turn(inputRef)`: run a model turn from persisted input context.
+- `resume(state)`: resume a persisted LLM turn or tool wait after actor recovery.
 - `appendToolResult(toolCallId, result)`: continue after tool success.
 - `appendToolError(toolCallId, error)`: continue after tool failure.
 - `cancel(reason)`: cancel or refuse future admission.
@@ -372,8 +372,8 @@ Minimum events:
 
 Public methods:
 
-- `startProcess(spec)`: launch a process and create its process record.
-- `attachProcess(record)`: reattach to a persisted process record during recovery.
+- `launch(spec)`: launch a process and create its process record.
+- `attach(record)`: reattach to a persisted process record during recovery.
 - `wait(timeout)`: bounded wait for completion.
 - `inspect(range)`: safe status/log projection.
 - `kill(reason)`: terminate or mark abandoned.
