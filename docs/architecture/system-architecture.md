@@ -2,7 +2,7 @@
 
 Status: current design summary.
 
-Last updated: 2026-06-15.
+Last updated: 2026-06-22.
 
 ## 1. Architectural Shape
 
@@ -16,7 +16,7 @@ The major subsystems are:
 - Canonical card service: Analyst-owned card mutation validation, durable tree updates, audit/projection events, and active-runtime change notification.
 - Card store: durable project hierarchy and card history.
 - Agent sessions: planner, executor, reviewer, and analyst transcripts.
-- Agent adapter: LLM invocation, tool dispatch, model-visible message construction, and transcript persistence.
+- Agent services: LLM invocation, tool dispatch, model-visible message construction, and transcript persistence.
 - Process registry: durable process records, safe process read models, restart reconciliation.
 - Notification queue: card-addressed ephemeral context delivery.
 - HTTP/WebSocket server: authenticated projections, chat transport, and invalidate/event delivery.

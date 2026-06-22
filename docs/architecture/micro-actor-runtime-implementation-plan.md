@@ -8,7 +8,7 @@ Date: 2026-06-22.
 
 This plan introduces the micro-actor runtime core described in [Micro-Actor Runtime Design](./micro-actor-runtime-design.md). It is intentionally direct: replace controller/workflow orchestration with concrete `BaseActor` subclasses, keep public API responses as projections, and delete superseded paths as each slice lands.
 
-No compatibility layer is planned. If old controller behavior conflicts with the actor design, replace it.
+No compatibility layer is planned. If old controller behavior conflicts with the actor design, replace it. In most slices, rewriting implementation files from scratch is expected to be simpler and safer than adapting old XState/controller code.
 
 ## Ground Rules
 
@@ -19,6 +19,7 @@ No compatibility layer is planned. If old controller behavior conflicts with the
 - Keep orchestration inside actor classes. `RuntimeApi` may validate commands, call public methods, wait on projections, and project state.
 - Persist domain facts and reconstruction records, not in-memory queues, function closures, or actor internals.
 - Delete replaced controller/XState-era code during the slice that makes it obsolete.
+- Do not add adapters, bridges, shims, or compatibility tests for old runtime behavior. Tests should protect the new actor design, not legacy contracts.
 
 ## Slice 1: RuntimeApi Boundary And Supervisor Shell
 
@@ -26,13 +27,13 @@ Goal: make the runtime entry point actor-centered before changing card execution
 
 Implementation:
 
-- Introduce `RuntimeSupervisorActor` under `src/runtime/actors/`.
+- Replace the existing supervisor/controller shell with a new `RuntimeSupervisorActor`; do not adapt `RuntimeSupervisorController` as a bridge.
 - Add states `idle`, `running`, `paused`, and `shutting_down`.
 - Implement public methods `run()`, `pause()`, `shutdown()`, and `cancelProject()`.
 - Keep duplicate `run()` simple: if already running, return an already-running warning and do not create new work.
-- Make `RuntimeApi` construct or attach to the supervisor and call only supervisor/card public methods.
+- Keep the existing public `RuntimeApi` surface where operators/tools already call it, but replace the implementation so it constructs or attaches to the supervisor and calls only supervisor/card public methods.
 - Move runtime mode projection into projection/read-model code.
-- Delete or bypass any `RuntimeApi` path that advances planner/executor/reviewer workflow directly once replacement is in place.
+- Delete any `RuntimeApi` path that advances planner/executor/reviewer workflow directly once replacement is in place.
 
 Tests:
 
@@ -42,6 +43,7 @@ Tests:
 - `run()` from `paused` resumes admission.
 - `shutdown()` transitions through shutdown and returns to `idle` with diagnostics.
 - RuntimeApi boundary test proves it does not import or instantiate child workflow actors.
+- No `RuntimeSupervisorController` compatibility wrapper remains.
 
 Acceptance:
 
@@ -113,7 +115,37 @@ Acceptance:
 - Provider and tool diagnostics are stored, not injected raw into model-visible context.
 - Focused LLMActor tests pass with fake provider/admission services.
 
-## Slice 4: Terminal CardProcessorActor Vertical Slice
+## Slice 4: ProcessActor And Process Capabilities
+
+Goal: make process execution durable and separately observable before terminal cards need process tools.
+
+Implementation:
+
+- Add `ProcessActor` with `running`, `killing`, and terminal `settled` states.
+- Implement `launch(spec)`, `wait(timeout)`, `inspect(range)`, and `kill(reason)`.
+- Start a monitoring task while `running` so process exit is recorded even when no one is waiting.
+- Keep wait timeout non-destructive: timeout returns a tool result but does not kill the process.
+- Persist command metadata, working directory, timestamps, rendered command, status, exit/termination details, and safe logs.
+- Reconcile persisted running process records during recovery.
+- Delete or replace old process runner/controller code when this actor owns process lifecycle.
+
+Tests:
+
+- Launch records process metadata and exposes safe projection.
+- Process exit records terminal result and transitions to `settled`.
+- `wait(timeout)` times out without killing the process.
+- `inspect(range)` returns bounded safe output.
+- `kill(reason)` terminates or marks abandoned with diagnostics.
+- Recovery of a running process reconciles live process status or marks abandoned.
+
+Acceptance:
+
+- Process tools route through ProcessActor or a deliberately small process service used by ProcessActor.
+- Process read models are available to API/UI without exposing unsafe raw output.
+- Focused process actor tests pass.
+- No process-runner controller bridge remains in production code.
+
+## Slice 5: Terminal CardProcessorActor Vertical Slice
 
 Goal: prove the full actor path with the simplest useful card execution.
 
@@ -124,7 +156,7 @@ Implementation:
 - Implement public methods `activate(input)` and `cancel(reason)`.
 - Build executor invocation context from card data, notifications, and relevant project context.
 - Own/cache one executor `LLMActor` for the terminal activation path.
-- Provide terminal capabilities: reporting result/failure, process launch/wait/inspect/kill, and safe file inspection if already supported.
+- Provide terminal capabilities: reporting result/failure, process launch/wait/inspect/kill through `ProcessActor`, and safe file inspection if already supported.
 - Validate executor terminal report before committing card result data.
 - Return exactly one `done` or `failed` outcome to the associated `CardActor`.
 
@@ -141,35 +173,7 @@ Acceptance:
 
 - One terminal card can run end-to-end without controller workflow.
 - Terminal result data is attached only from accepted executor output.
-- Old terminal execution controller paths are deleted or bypassed.
-
-## Slice 5: ProcessActor And Process Capabilities
-
-Goal: make process execution durable and separately observable.
-
-Implementation:
-
-- Add `ProcessActor` with `running`, `killing`, and terminal `settled` states.
-- Implement `launch(spec)`, `wait(timeout)`, `inspect(range)`, and `kill(reason)`.
-- Start a monitoring task while `running` so process exit is recorded even when no one is waiting.
-- Keep wait timeout non-destructive: timeout returns a tool result but does not kill the process.
-- Persist command metadata, working directory, timestamps, rendered command, status, exit/termination details, and safe logs.
-- Reconcile persisted running process records during recovery.
-
-Tests:
-
-- Launch records process metadata and exposes safe projection.
-- Process exit records terminal result and transitions to `settled`.
-- `wait(timeout)` times out without killing the process.
-- `inspect(range)` returns bounded safe output.
-- `kill(reason)` terminates or marks abandoned with diagnostics.
-- Recovery of a running process reconciles live process status or marks abandoned.
-
-Acceptance:
-
-- Process tools route through ProcessActor or a deliberately small process service used by ProcessActor.
-- Process read models are available to API/UI without exposing unsafe raw output.
-- Focused process actor tests pass.
+- Old terminal execution controller paths are deleted, not bypassed through adapters.
 
 ## Slice 6: Goal/Project Planner Flow
 
@@ -199,7 +203,7 @@ Tests:
 Acceptance:
 
 - Project/goal planning can execute a child terminal card through the actor chain.
-- No planner controller owns child dispatch outside CardProcessorActor/CardActor.
+- No planner controller owns child dispatch outside CardProcessorActor/CardActor, and no planner bridge remains.
 
 ## Slice 7: Reviewer Flow
 
@@ -265,8 +269,9 @@ Implementation:
 - Delete XState-era factories, machine definitions, wrappers, and tests once actor coverage replaces them.
 - Delete controller classes that still own runtime workflow.
 - Remove imports from superseded runtime paths.
-- Keep projection/API adapters only when they call actor public methods or read projections.
+- Keep only projection/API code that calls actor public methods or reads projections.
 - Update docs to point to current actor design and remove stale implementation references from current docs.
+- Remove obsolete runtime dependencies such as XState when no production import remains.
 
 Tests:
 
@@ -277,6 +282,8 @@ Acceptance:
 
 - No production `*Controller` owns autonomous runtime workflow.
 - No production XState runtime path remains.
+- No compatibility, adapter, bridge, or legacy-contract test remains for old runtime behavior.
+- Obsolete runtime dependencies are removed from package manifests.
 - Focused actor, API boundary, projection, and routine validation pass.
 
 ## Cross-Slice Test Matrix
@@ -296,7 +303,7 @@ Acceptance:
 
 - Completed actor-record retention: delete, archive, or bounded history.
 - Exact parent-visible outcome for active subtree cancellation.
-- Whether reviewer structured output is tool-based immediately or strict JSON as a temporary bridge.
+- Whether reviewer structured output is tool-based immediately or strict JSON in the first implementation.
 - Exact public projection fields for active chain and runtime activity.
 
 These decisions should be made when their implementation slice starts, not before.

@@ -36,7 +36,7 @@ Ideas intentionally discarded:
 - Promise-returning child-activation facades that hide runtime ownership.
 - Process-global note sinks.
 - Public or persisted framework snapshots as authoritative runtime state.
-- Compatibility shims for old runtime state unless a live deployment requires one and the user explicitly asks for it.
+- Compatibility shims for old runtime state.
 
 ## Design Rules
 
@@ -387,13 +387,13 @@ Initial command mapping:
 | resume runtime | `RuntimeSupervisorActor.run()` | Reopens admission from paused. |
 | shutdown | `RuntimeSupervisorActor.shutdown()` | Pauses admission and terminates runtime-owned processes. |
 | cancel project | `RuntimeSupervisorActor.cancelProject()` | Cooperatively cancels active root chain. |
-| cancel card/subtree | `CardActor.cancel()` through canonical service/runtime adapter | Cancels inactive subtree or coordinates active cancellation if supported. |
+| cancel card/subtree | `CardActor.cancel()` through the runtime command boundary | Cancels inactive subtree or coordinates active cancellation if supported. |
 | mark needs correction/change | `CardActor.notify()` / `markChanged()` | Queues notification and updates public changed state where applicable. |
 | activate child | Owning goal/project `CardProcessorActor` capability | Validates direct-child authority and starts child card. |
 
-The adapter may wait for projected state when an existing API contract requires a completion response. Waiting must observe actor/card projections, not execute workflow itself.
+The runtime command boundary may wait for projected state when an API contract requires a completion response. Waiting must observe actor/card projections, not execute workflow itself.
 
-Runtime adapters must serialize concurrent external commands per actor. `parkedSendEvent(...)` intentionally has a single pending event slot and rejects a second command before the first is pumped.
+Runtime command delivery must serialize concurrent external commands per actor. `parkedSendEvent(...)` intentionally has a single pending event slot and rejects a second command before the first is pumped.
 
 ## Tool Protocol
 
@@ -513,7 +513,7 @@ Examples:
 
 ## API And Projection
 
-`RuntimeApi` remains the external adapter if useful.
+`RuntimeApi` remains the external command and projection boundary if useful.
 
 Allowed responsibilities:
 
@@ -583,7 +583,7 @@ The detailed rollout plan lives in [Micro-Actor Runtime Implementation Plan](./m
 - Exact completed actor-record retention policy: delete, archive, or keep bounded history.
 - Exact cancellation outcome surfaced to parent planner for active subtree cancellation.
 - Whether process tools share one `ProcessActor` per process record or use direct process-service tasks for short operations.
-- Whether reviewer structured output is tool-based immediately or strict JSON as a temporary bridge.
+- Whether reviewer structured output is tool-based immediately or strict JSON in the first implementation.
 - Exact public schema fields for active-chain and runtime activity projection.
 
 These are implementation decisions, not reasons to keep old XState or controller design.
