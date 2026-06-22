@@ -114,7 +114,30 @@ export class CardActor extends BaseActor {
   }
 
   notify(notification: CardNotification): void {
+    this.enqueueNotification(notification);
+  }
+
+  enqueueNotification(notification: CardNotification): void {
     this.notifications.push(notification);
+    this.persist();
+  }
+
+  hasPendingNotifications(): boolean {
+    return this.notifications.length > 0;
+  }
+
+  listPendingNotifications(): CardNotification[] {
+    return [...this.notifications];
+  }
+
+  drainDeliverableNotifications(): CardNotification[] {
+    if (this.notifications.length === 0) return [];
+    const notifications = this.notifications.splice(0);
+    this.persist();
+    return notifications;
+  }
+
+  recordNotificationsDelivered(_notifications: CardNotification[]): void {
     this.persist();
   }
 
@@ -127,9 +150,13 @@ export class CardActor extends BaseActor {
   }
 
   cancel(reason: CardCancelReason): void {
+    const card = this.requireCard();
+    if (card.status === 'running' || this.state() === 'running') {
+      this.enqueueNotification(cancellationNotification(this.cardId, reason));
+      return;
+    }
     this.cancelReason = reason;
     this.cancelDescendants();
-    const card = this.requireCard();
     if (card.status !== 'done') this.writeStatus('cancelled');
     if (this.#pendingActivation) {
       this.#pendingActivation.resolve({ status: 'cancelled', summary: reason.reason });
@@ -145,7 +172,8 @@ export class CardActor extends BaseActor {
     this.writeStatus('running');
     const pending = this.#pendingActivation;
     if (!pending) throw new Error(`Card '${this.cardId}' entered running without pending activation.`);
-    const input: CardActivationInput = { card: this.requireCard(), caller: pending.caller, notifications: [...this.notifications] };
+    const notifications = this.drainDeliverableNotifications();
+    const input: CardActivationInput = { card: this.requireCard(), caller: pending.caller, notifications };
     this.runTask((signal) => this.processor.activate(input, signal), {
       on_done: (outcome) => this.commitOutcome(outcome),
       on_failed: (error) => this.commitOutcome({
@@ -246,4 +274,14 @@ export function isActivatable(status: CardStatus): boolean {
 function cardActorState(status: CardStatus): CardActorStatus {
   if (status === 'needs_verification') return 'blocked';
   return status as CardActorStatus;
+}
+
+function cancellationNotification(cardId: string, reason: CardCancelReason): CardNotification {
+  const createdAt = reason.cancelled_at ?? new Date().toISOString();
+  return {
+    id: `cancel:${cardId}:${createdAt}`,
+    message: `Cancellation requested: ${reason.reason}`,
+    created_at: createdAt,
+    reason: 'cancel_requested',
+  };
 }

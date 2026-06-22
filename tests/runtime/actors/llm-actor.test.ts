@@ -118,7 +118,7 @@ describe('LLMActor', () => {
     await expect(pending).resolves.toMatchObject({ type: 'tool_call' });
   }));
 
-  it('can be cancelled before provider work settles', async () => withTempProject(async (projectRoot) => {
+  it('continues to accept late provider results because cancellation is card-owned', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     let finish!: () => void;
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => new Promise<LlmCompleteResult>((resolve) => { finish = () => resolve({ kind: 'message' as const, content: 'late' }); })) };
@@ -127,10 +127,9 @@ describe('LLMActor', () => {
 
     const pending = actor.turn(input());
     await eventually(() => expect(actor.state()).toBe('calling_provider'));
-    actor.cancel('operator cancelled');
-
-    await expect(pending).resolves.toEqual({ type: 'cancelled', agentId: 'planner:project', reason: 'operator cancelled' });
     finish();
-    await eventually(() => expect(actor.state()).toBe('cancelled'));
+
+    await expect(pending).resolves.toMatchObject({ type: 'result', result: { content: 'late' } });
+    await eventually(() => expect(actor.state()).toBe('idle'));
   }));
 });

@@ -9,8 +9,7 @@ import { appendLlmTurnError, appendLlmTurnFinished, appendLlmTurnStarted, append
 export type LLMActorOutcome =
   | { type: 'result'; agentId: string; result: Extract<LlmCompleteResult, { kind: 'message' }> }
   | { type: 'tool_call'; agentId: string; inputId: string; toolCallId: string; toolName: string; args: unknown }
-  | { type: 'error'; agentId: string; error: string }
-  | { type: 'cancelled'; agentId: string; reason: string };
+  | { type: 'error'; agentId: string; error: string };
 
 export interface LLMProviderPort {
   completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<LlmCompleteResult>;
@@ -51,7 +50,6 @@ export class LLMActor extends BaseActor {
   outcome: LLMActorOutcome | null = null;
   waitingToolCall: WaitingToolCall | null = null;
   deliveredToolCallIds = new Set<string>();
-  #cancelRequested: string | null = null;
   #pendingTurn: PendingTurn | null = null;
   #toolDeliveryCounter = 0;
 
@@ -130,19 +128,6 @@ export class LLMActor extends BaseActor {
     return this.continueAfterTool();
   }
 
-  cancel(reason: string): void {
-    this.#cancelRequested = reason;
-    this.outcome = { type: 'cancelled', agentId: this.agentId, reason };
-    this.#pendingTurn?.resolve(this.outcome);
-    this.#pendingTurn = null;
-    if (this.state() === 'calling_provider') {
-      this.persist();
-      return;
-    }
-    else if (this.state() === 'idle' || this.state() === 'waiting_tool') this.parkedSendEvent('cancel');
-    this.persist();
-  }
-
   _on_enter__calling_provider(): void {
     const input = this.requireInput();
     appendLlmTurnStarted(this.projectRoot, input);
@@ -154,10 +139,6 @@ export class LLMActor extends BaseActor {
     this.runTask((signal) => this.provider.completeTurn(input, signal), {
       on_done: (result) => {
         try {
-          if (this.#cancelRequested) {
-            this.sendEvent('cancel');
-            return;
-          }
           appendLlmTurnFinished(this.projectRoot, input, result);
           this.completeWithProviderResult(input, result);
         } finally {
@@ -166,10 +147,6 @@ export class LLMActor extends BaseActor {
       },
       on_failed: (error) => {
         try {
-          if (this.#cancelRequested) {
-            this.sendEvent('cancel');
-            return;
-          }
           this.completeWithError(input, error.message);
         } finally {
           this.admission?.releaseProviderCall(callId);

@@ -73,6 +73,30 @@ describe('CardActor', () => {
     expect(readActorSnapshots(projectRoot).map((item) => item.actor_id)).toContain('card:project');
   }));
 
+  it('owns and drains card-addressed notifications for activation input', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    const fakeProcessor = processor({ status: 'done', summary: 'done', result: { kind: 'planner_done', summary: 'done' } });
+    const actor = CardActor.fromCard({ projectRoot, card: project, store, processor: fakeProcessor });
+
+    actor.enqueueNotification({ id: 'n1', message: 'first', created_at: '2026-06-12T00:00:00.000Z' });
+    actor.enqueueNotification({ id: 'n2', message: 'second', created_at: '2026-06-12T00:00:01.000Z' });
+
+    expect(actor.hasPendingNotifications()).toBe(true);
+    expect(actor.listPendingNotifications().map((item) => item.id)).toEqual(['n1', 'n2']);
+
+    await actor.activate({ kind: 'root' });
+
+    expect(fakeProcessor.activate).toHaveBeenCalledWith(expect.objectContaining({
+      notifications: [
+        expect.objectContaining({ id: 'n1' }),
+        expect.objectContaining({ id: 'n2' }),
+      ],
+    }), expect.any(AbortSignal));
+    expect(actor.hasPendingNotifications()).toBe(false);
+  }));
+
   it('marks inactive cards changed while running cards stay running and receive notifications', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
@@ -122,5 +146,34 @@ describe('CardActor', () => {
     expect(store.read(goal.id)?.status).toBe('cancelled');
     expect(store.read(doneChild.id)?.status).toBe('done');
     expect(store.read(backlogChild.id)?.status).toBe('cancelled');
+  }));
+
+  it('best-effort cancels running cards by queuing notification only', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    createProject(store);
+    const runningGoal = createGoal(store);
+    let finish!: (outcome: Exclude<CardActivationOutcome, { status: 'cancelled' }>) => void;
+    const runningProcessor: CardProcessorActor = {
+      activate: jest.fn(async () => new Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>((resolve) => { finish = resolve; })),
+    };
+    const actor = CardActor.fromCard({ projectRoot, card: runningGoal, store, processor: runningProcessor });
+    const activation = actor.activate({ kind: 'parent', cardId: 'project' });
+    await eventually(() => expect(store.read(runningGoal.id)?.status).toBe('running'));
+
+    actor.cancel({ reason: 'operator requested stop', cancelled_at: '2026-06-12T00:00:00.000Z' });
+
+    expect(actor.state()).toBe('running');
+    expect(store.read(runningGoal.id)?.status).toBe('running');
+    expect(actor.listPendingNotifications()).toEqual([expect.objectContaining({
+      id: `cancel:${runningGoal.id}:2026-06-12T00:00:00.000Z`,
+      reason: 'cancel_requested',
+      message: 'Cancellation requested: operator requested stop',
+    })]);
+    await expect(Promise.race([activation.then(() => 'settled'), new Promise((resolve) => setTimeout(() => resolve('pending'), 0))])).resolves.toBe('pending');
+
+    finish({ status: 'blocked', summary: 'stopped later', result: { kind: 'planner_blocked', blocked_reason: 'stopped later', resume_reason: 'manual resume' } });
+    await expect(activation).resolves.toMatchObject({ status: 'blocked', summary: 'stopped later' });
+    expect(store.read(runningGoal.id)?.status).toBe('blocked');
   }));
 });

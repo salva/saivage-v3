@@ -104,7 +104,6 @@ export class TerminalCardProcessorActor extends BaseActor implements CardProcess
       if (signal.aborted) throw new Error('Terminal activation cancelled.');
       if (outcome.type === 'result') return { status: 'done', summary: outcome.result.content, result: executorSuccess(outcome.result.content) };
       if (outcome.type === 'error') return { status: 'failed', summary: outcome.error, result: executorFailure(outcome.error) };
-      if (outcome.type === 'cancelled') return { status: 'failed', summary: outcome.reason, result: executorFailure(outcome.reason) };
       const toolResult = await this.handleToolCall(outcome);
       outcome = await llm.appendToolResult(outcome.toolCallId, toolResult);
     }
