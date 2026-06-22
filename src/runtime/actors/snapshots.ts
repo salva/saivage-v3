@@ -9,7 +9,7 @@ export const ACTOR_SNAPSHOT_SCHEMA_VERSION = 1;
 
 const actorSnapshotSchema = z.object({
   actor_id: z.string().min(1),
-  actor_kind: z.enum(['supervisor', 'card', 'llm', 'process']),
+  actor_kind: z.enum(['supervisor', 'card', 'llm', 'process', 'processor']),
   state_value: z.unknown(),
   context: z.record(z.unknown()),
   updated_at: z.string().datetime(),
@@ -76,7 +76,7 @@ function actorSnapshotFilePaths(projectRoot: string): string[] {
   const paths: string[] = [];
   const supervisorPath = join(root, 'supervisor.json');
   if (existsSync(supervisorPath)) paths.push(supervisorPath);
-  for (const kind of ['card', 'llm', 'process'] as const) {
+  for (const kind of ['card', 'llm', 'process', 'processor'] as const) {
     const dir = join(root, kind);
     if (!existsSync(dir)) continue;
     for (const entry of readdirSync(dir, { withFileTypes: true })) {

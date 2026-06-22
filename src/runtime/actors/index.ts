@@ -11,6 +11,7 @@ export * from './llm-actor.js';
 export * from './invocation-provider-turn.js';
 export * from './card-runner.js';
 export * from './card-actor.js';
+export * from './terminal-card-processor-actor.js';
 export * from './terminal-card-status-port.js';
 export * from './xstate-child-activation.js';
 export * from './process-runner.js';
