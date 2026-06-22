@@ -48,6 +48,7 @@ Ideas intentionally discarded:
 - When a parent needs to wait for a child, the parent creates and stores the promise, calls the child's domain method such as `activate(...)` or `startTurn(...)`, then uses `runTask(...)` to wait for that promise. The hard-coded child completion method resolves or rejects the stored promise.
 - Internal state changes are string events sent with `sendEvent(...)`.
 - Parked states represent externally controlled idle lifecycle states. Public actor methods advance them through protected `parkedSendEvent(...)`, not direct state assignment.
+- Public methods that are valid from both parked and active states validate the current state and use `parkedSendEvent(...)` only from parked states; from active states they use `sendEvent(...)` or update actor fields directly when no state transition is needed.
 - Long work is run through `runTask(...)`; task completion callbacks store results and then send `done` unless a specific branch fact is needed.
 - Actor state names are small and product-meaningful. Do not create a state for every helper function.
 - Use `SlaveActor.submitJob(...)` only for externally queued work where a caller needs a returned job ID and cancellation handle.
@@ -148,6 +149,15 @@ Public methods:
 - `shutdown()`: close admission, terminate runtime-owned running processes, and settle.
 - `cancelProject()`: cooperatively cancel the active root chain.
 
+Minimum events:
+
+- `run`: idle or paused supervisor enters `running`.
+- `pause`: running supervisor enters `paused`.
+- `shutdown`: running or paused supervisor enters `shutting_down`.
+- `cancel`: running supervisor starts cooperative project cancellation.
+- `done`: shutdown or root work completion returns the supervisor to `idle`.
+- `failed`: unrecoverable runtime failure returns the supervisor to `idle` with diagnostics.
+
 Responsibilities:
 
 - Hold the parentless project `CardActor` reference as supervisor runtime data.
@@ -192,7 +202,7 @@ Minimum events:
 - `done`: running card commits an accepted done result.
 - `blocked`: running card commits a blocked outcome.
 - `failed`: running card commits a failed outcome.
-- `changed`: parked or running card records changed context.
+- `changed`: parked card records changed context and enters `changed`; running cards receive notification/context without leaving `running`.
 - `canceled`: inactive cancellation or completed cooperative cancellation reaches `canceled`.
 
 Responsibilities:
@@ -226,6 +236,11 @@ Project and goal processor states:
 - `waiting_process`: active; planner is blocked on a process-backed tool call.
 - `reviewing`: active; reviewer is assessing a candidate done outcome.
 - `settled`: parked; one public outcome is ready for the owning `CardActor` and the processor may be reused for a later activation.
+
+Public methods:
+
+- `startActivation(input)`: start or resume one card activation.
+- `cancel(reason)`: deliver cancellation intent to active processor work.
 
 Important actor fields:
 
@@ -274,6 +289,11 @@ Terminal processor states:
 - `waiting_process`: active; executor is blocked on a process-backed tool call.
 - `settled`: parked; one public outcome is ready for the owning `CardActor` and the processor may be reused for a later activation.
 
+Public methods:
+
+- `startActivation(input)`: start one terminal card activation.
+- `cancel(reason)`: deliver cancellation intent to active executor work.
+
 Terminal responsibilities:
 
 - Build executor invocation context.
@@ -304,12 +324,13 @@ Suggested states:
 - `requesting_admission`: active; waiting for supervisor admission to call provider.
 - `calling_provider`: active; provider request is in flight.
 - `waiting_tool`: parked; a runtime tool result is required before another provider turn.
-- `settled`: parked; this episode is done and control returns to owner.
+
+Completed turns return to `idle`; completion data is stored on actor fields before notifying the owning `CardProcessorActor`.
 
 Public methods:
 
 - `startTurn(inputRef)`: run a model turn from persisted input context.
-- `recoverTurn(state)`: recover a persisted LLM turn or tool wait.
+- `resumeTurn(state)`: resume a persisted LLM turn or tool wait after actor recovery.
 - `appendToolResult(toolCallId, result)`: continue after tool success.
 - `appendToolError(toolCallId, error)`: continue after tool failure.
 - `cancel(reason)`: cancel or refuse future admission.
@@ -318,16 +339,18 @@ Responsibilities:
 
 - Append durable invocation context before provider calls.
 - Request/release provider admission through the parent `CardProcessorActor`, which delegates to the supervisor-owned admission policy.
+- Treat admission as task-owned async work: `requesting_admission` runs a task that awaits the processor/supervisor admission promise, then sends the event that starts the provider call.
 - Persist provider responses before owner interpretation.
 - Persist every assistant tool call before routing it.
 - Enforce one result/error per tool call.
-- Call the parent `CardProcessorActor`'s hard-coded LLM completion/tool-call methods when the LLM turn reaches `settled` or needs a runtime tool.
+- Call the parent `CardProcessorActor`'s hard-coded LLM completion/tool-call methods when the LLM turn completes or needs a runtime tool.
 - Stay generic: do not decide public card outcomes.
 
 Provider output rules:
 
 - Multiple tool calls must follow an explicit documented protocol. The first implementation may fail fast rather than silently picking the first.
 - Provider/account diagnostics remain outside model context unless deliberately sanitized into actionable recovery context.
+- `waiting_tool` is parked; tool execution must own its timeout or bounded wait and eventually call `appendToolResult(...)` or `appendToolError(...)`.
 
 ### ProcessActor
 
@@ -339,9 +362,18 @@ Suggested states:
 - `killing`: active; explicit termination is in progress.
 - `settled`: terminal; process terminal result, failure, or abandonment is recorded.
 
+Minimum events:
+
+- `started`: launch or attach succeeded and process is `running`.
+- `done`: process exited successfully or terminal process result was recorded.
+- `failed`: launch, wait, inspect, or reconciliation failed.
+- `kill`: explicit termination enters `killing`.
+- `killed`: termination or abandonment is recorded and process enters `settled`.
+
 Public methods:
 
-- `startOrAttach(spec)`: create or reattach to a process record.
+- `startProcess(spec)`: launch a process and create its process record.
+- `attachProcess(record)`: reattach to a persisted process record during recovery.
 - `wait(timeout)`: bounded wait for completion.
 - `inspect(range)`: safe status/log projection.
 - `kill(reason)`: terminate or mark abandoned.
