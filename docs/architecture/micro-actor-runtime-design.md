@@ -330,7 +330,6 @@ Completed turns return to `idle`; completion data is stored on actor fields befo
 Public methods:
 
 - `turn(inputRef)`: run a model turn from persisted input context.
-- `resume(state)`: resume a persisted LLM turn or tool wait after actor recovery.
 - `appendToolResult(toolCallId, result)`: continue after tool success.
 - `appendToolError(toolCallId, error)`: continue after tool failure.
 - `cancel(reason)`: cancel or refuse future admission.
@@ -373,7 +372,6 @@ Minimum events:
 Public methods:
 
 - `launch(spec)`: launch a process and create its process record.
-- `attach(record)`: reattach to a persisted process record during recovery.
 - `wait(timeout)`: bounded wait for completion.
 - `inspect(range)`: safe status/log projection.
 - `kill(reason)`: terminate or mark abandoned.
@@ -506,7 +504,7 @@ Recovery procedure:
 4. Recreate LLM actors only when a recoverable active/waiting session exists.
 5. Recreate process actors for running or undelivered process records.
 6. Reconnect deterministic IDs.
-7. Call `recover(state)` on fresh actor instances where safe, or run actor-specific startup reconstruction before accepting runtime commands.
+7. Call `BaseActor.recover(state)` on fresh actor instances where safe. Actor-specific `_on_recover__{state}` hooks rebuild in-memory references from persisted reconstruction records.
 8. Repair forward or fail explicitly when state is ambiguous.
 
 Recovery classifications for each actor state must be designed before implementation:
