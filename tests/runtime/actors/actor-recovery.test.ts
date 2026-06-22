@@ -16,7 +16,7 @@ function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promis
   return result;
 }
 
-function saveSnapshot(projectRoot: string, actorId: string, actorKind: 'supervisor' | 'card' | 'llm' | 'process', stateValue: unknown, context: Record<string, unknown> = {}): void {
+function saveSnapshot(projectRoot: string, actorId: string, actorKind: 'supervisor' | 'card' | 'llm' | 'process' | 'processor', stateValue: unknown, context: Record<string, unknown> = {}): void {
   saveActorSnapshot(projectRoot, {
     actor_id: actorId,
     actor_kind: actorKind,
@@ -28,7 +28,7 @@ function saveSnapshot(projectRoot: string, actorId: string, actorKind: 'supervis
 
 describe('actor recovery plan', () => {
   it('builds an empty plan when no actor snapshots exist', () => withTempProject((projectRoot) => {
-    expect(buildActorRecoveryPlan(projectRoot)).toEqual({ supervisor: null, cards: [], llms: [], processes: [] });
+    expect(buildActorRecoveryPlan(projectRoot)).toEqual({ supervisor: null, cards: [], llms: [], processors: [], processes: [], diagnostics: [] });
   }));
 
   it('builds a deterministic plan for supervisor, active goal card, and planner LLM snapshots', () => withTempProject((projectRoot) => {
@@ -40,7 +40,8 @@ describe('actor recovery plan', () => {
 
     expect(plan.supervisor?.actor_id).toBe('supervisor');
     expect(plan.cards).toMatchObject([{ cardId: 'G-1', active: true }]);
-    expect(plan.llms).toMatchObject([{ actorId: 'planner:G-1', role: 'planner', cardId: 'G-1', active: true }]);
+    expect(plan.llms).toMatchObject([{ actorId: 'planner:G-1', role: 'planner', cardId: 'G-1', active: true, action: 'none' }]);
+    expect(plan.processors).toEqual([]);
     expect(plan.processes).toEqual([]);
   }));
 
@@ -56,6 +57,27 @@ describe('actor recovery plan', () => {
     expect(plan.processes).toMatchObject([
       { processId: 'build-1', requiresReconciliation: true },
       { processId: 'done-1', requiresReconciliation: false },
+    ]);
+    expect(plan.diagnostics).toEqual([expect.objectContaining({ actorId: 'process:build-1', severity: 'warning' })]);
+  }));
+
+  it('classifies processor snapshots and active LLM recovery actions', () => withTempProject((projectRoot) => {
+    saveSnapshot(projectRoot, 'card:G-1', 'card', 'running', { cardId: 'G-1' });
+    saveSnapshot(projectRoot, 'processor:G-1', 'processor', 'planning', { cardId: 'G-1' });
+    saveSnapshot(projectRoot, 'planner:G-1', 'llm', 'calling_provider', { cardId: 'G-1' });
+    saveSnapshot(projectRoot, 'reviewer:G-1', 'llm', 'waiting_tool', { cardId: 'G-1' });
+
+    const plan = buildActorRecoveryPlan(projectRoot);
+
+    expect(plan.processors).toMatchObject([{ actorId: 'processor:G-1', cardId: 'G-1', active: true }]);
+    expect(plan.llms).toMatchObject([
+      { actorId: 'planner:G-1', action: 'abandon_provider_call', active: true },
+      { actorId: 'reviewer:G-1', action: 'resume_tool_wait', active: true },
+    ]);
+    expect(plan.diagnostics).toEqual([
+      expect.objectContaining({ actorId: 'planner:G-1', severity: 'warning' }),
+      expect.objectContaining({ actorId: 'processor:G-1', severity: 'warning' }),
+      expect.objectContaining({ actorId: 'reviewer:G-1', severity: 'info' }),
     ]);
   }));
 

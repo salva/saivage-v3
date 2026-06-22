@@ -18,17 +18,36 @@ export interface LlmActorRecoveryRecord {
   active: boolean;
 }
 
+export type LlmActorRecoveryPlanRecord = LlmActorRecoveryRecord & { action: LlmRecoveryAction };
+
 export interface ProcessActorRecoveryRecord {
   processId: string;
   snapshot: ActorSnapshotRecord;
   requiresReconciliation: boolean;
 }
 
+export type LlmRecoveryAction = 'none' | 'abandon_provider_call' | 'resume_tool_wait';
+
+export interface ProcessorActorRecoveryRecord {
+  actorId: string;
+  cardId: string;
+  snapshot: ActorSnapshotRecord;
+  active: boolean;
+}
+
+export interface ActorRecoveryDiagnostic {
+  actorId: string;
+  severity: 'info' | 'warning' | 'error';
+  message: string;
+}
+
 export interface ActorRecoveryPlan {
   supervisor: ActorSnapshotRecord | null;
   cards: CardActorRecoveryRecord[];
-  llms: LlmActorRecoveryRecord[];
+  llms: LlmActorRecoveryPlanRecord[];
+  processors: ProcessorActorRecoveryRecord[];
   processes: ProcessActorRecoveryRecord[];
+  diagnostics: ActorRecoveryDiagnostic[];
 }
 
 export function buildActorRecoveryPlan(projectRoot: string, cards?: XStateChildCardReader): ActorRecoveryPlan {
@@ -43,14 +62,22 @@ export function buildActorRecoveryPlan(projectRoot: string, cards?: XStateChildC
   });
   const llms = snapshots
     .filter((snapshot) => snapshot.actor_kind === 'llm')
-    .map((snapshot): LlmActorRecoveryRecord => {
+    .map((snapshot): LlmActorRecoveryPlanRecord => {
       const parsed = parseLlmActorId(snapshot.actor_id);
-      const active = snapshot.state_value !== 'done';
+      const active = isActiveLlmSnapshot(snapshot);
       if (active && !knownCardIds.has(parsed.cardId) && !cards?.read(parsed.cardId)) {
         throw new Error(`Cannot recover active LLM actor '${snapshot.actor_id}': owner card '${parsed.cardId}' was not found.`);
       }
-      return { actorId: snapshot.actor_id, role: parsed.role, cardId: parsed.cardId, snapshot, active };
+      return { actorId: snapshot.actor_id, role: parsed.role, cardId: parsed.cardId, snapshot, active, action: llmRecoveryAction(snapshot) };
     });
+  const processors = snapshots
+    .filter((snapshot) => snapshot.actor_kind === 'processor')
+    .map((snapshot): ProcessorActorRecoveryRecord => ({
+      actorId: snapshot.actor_id,
+      cardId: parseProcessorActorId(snapshot.actor_id),
+      snapshot,
+      active: isActiveProcessorSnapshot(snapshot),
+    }));
   const processes = snapshots
     .filter((snapshot) => snapshot.actor_kind === 'process')
     .map((snapshot): ProcessActorRecoveryRecord => ({
@@ -62,13 +89,29 @@ export function buildActorRecoveryPlan(projectRoot: string, cards?: XStateChildC
     supervisor,
     cards: cardRecords.sort((a, b) => a.cardId.localeCompare(b.cardId)),
     llms: llms.sort((a, b) => a.actorId.localeCompare(b.actorId)),
+    processors: processors.sort((a, b) => a.actorId.localeCompare(b.actorId)),
     processes: processes.sort((a, b) => a.processId.localeCompare(b.processId)),
+    diagnostics: recoveryDiagnostics(llms, processors, processes),
   };
 }
 
 function isActiveCardSnapshot(snapshot: ActorSnapshotRecord): boolean {
-  if (snapshot.state_value !== 'done') return true;
+  if (snapshot.state_value !== 'done' && snapshot.state_value !== 'cancelled') return true;
   return snapshot.context.publicStatus === 'running';
+}
+
+function isActiveLlmSnapshot(snapshot: ActorSnapshotRecord): boolean {
+  return snapshot.state_value !== 'idle' && snapshot.state_value !== 'done' && snapshot.state_value !== 'cancelled';
+}
+
+function isActiveProcessorSnapshot(snapshot: ActorSnapshotRecord): boolean {
+  return snapshot.state_value !== 'idle' && snapshot.state_value !== 'settled' && snapshot.state_value !== 'cancelled';
+}
+
+function llmRecoveryAction(snapshot: ActorSnapshotRecord): LlmRecoveryAction {
+  if (snapshot.state_value === 'calling_provider') return 'abandon_provider_call';
+  if (snapshot.state_value === 'waiting_tool') return 'resume_tool_wait';
+  return 'none';
 }
 
 function parseCardActorId(actorId: string): string {
@@ -87,4 +130,22 @@ function parseLlmActorId(actorId: string): { role: LlmRecoveryRole; cardId: stri
 function parseProcessActorId(actorId: string): string {
   if (!actorId.startsWith('process:')) throw new Error(`Expected process actor id, received '${actorId}'.`);
   return actorId.slice('process:'.length);
+}
+
+function parseProcessorActorId(actorId: string): string {
+  if (!actorId.startsWith('processor:')) throw new Error(`Expected processor actor id, received '${actorId}'.`);
+  return actorId.slice('processor:'.length);
+}
+
+function recoveryDiagnostics(
+  llms: LlmActorRecoveryPlanRecord[],
+  processors: ProcessorActorRecoveryRecord[],
+  processes: ProcessActorRecoveryRecord[],
+): ActorRecoveryDiagnostic[] {
+  return [
+    ...llms.filter((llm) => llm.action === 'abandon_provider_call').map((llm) => ({ actorId: llm.actorId, severity: 'warning' as const, message: 'In-flight provider call cannot be reattached and must be abandoned with a planner-visible diagnostic.' })),
+    ...llms.filter((llm) => llm.action === 'resume_tool_wait').map((llm) => ({ actorId: llm.actorId, severity: 'info' as const, message: 'LLM actor is waiting for a persisted tool result and can resume delivery repair.' })),
+    ...processors.filter((processor) => processor.active).map((processor) => ({ actorId: processor.actorId, severity: 'warning' as const, message: 'Active processor snapshot requires reconstruction of activation/tool waits before autonomous execution resumes.' })),
+    ...processes.filter((process) => process.requiresReconciliation).map((process) => ({ actorId: process.snapshot.actor_id, severity: 'warning' as const, message: 'Running process snapshot requires live process reconciliation.' })),
+  ].sort((a, b) => a.actorId.localeCompare(b.actorId));
 }
