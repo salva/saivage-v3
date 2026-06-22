@@ -83,7 +83,7 @@ The target implementation must preserve these invariants:
 - Every external operation admitted by the runtime has a timeout or inactivity timeout.
 - Operator APIs and UI expose Saivage read models, never raw actor internals.
 
-Most task states use the same local completion protocol: the state starts or admits work, stores any result/error data on actor fields, sends `done` when that work completes successfully, and sends `failed` when that work fails. Use specific event names only for branch facts, such as `tool_calls_ready`, that are not success/failure signals.
+Most task states use the same local completion protocol: the state starts or admits work, stores any result/error data on actor fields, sends `done` when that work completes successfully, and sends `failed` when that work fails. Do not invent one event per state or helper step. Use specific event names only for external commands (`run`, `pause`, `activate`, `cancel`) or true branch facts that cannot be represented by fields plus `done`/`failed`.
 
 ## System Shape
 
@@ -149,14 +149,10 @@ Public methods:
 - `shutdown()`: close admission, terminate runtime-owned running processes, and settle.
 - `cancelProject()`: cooperatively cancel the active root chain.
 
-Minimum events:
+Event guidance:
 
-- `run`: idle or paused supervisor enters `running`.
-- `pause`: running supervisor enters `paused`.
-- `shutdown`: running or paused supervisor enters `shutting_down`.
-- `cancel`: running supervisor starts cooperative project cancellation.
-- `done`: shutdown or root work completion returns the supervisor to `idle`.
-- `failed`: unrecoverable runtime failure returns the supervisor to `idle` with diagnostics.
+- Public lifecycle methods may queue command events such as `run`, `pause`, `shutdown`, and `cancel`.
+- Supervisor async work completes with `done` or `failed` after storing result/diagnostic fields.
 
 Responsibilities:
 
@@ -196,14 +192,12 @@ Public methods:
 
 Parked public methods use `parkedSendEvent(...)` after validating authority and recording any event-specific data on actor fields. Allowed movements are the normal `on` transitions declared on each parked state.
 
-Minimum events:
+Event guidance:
 
-- `activate`: parked activatable card enters `running`.
-- `done`: running card commits an accepted done result.
-- `blocked`: running card commits a blocked outcome.
-- `failed`: running card commits a failed outcome.
-- `changed`: parked card records changed context and enters `changed`; running cards receive notification/context without leaving `running`.
-- `canceled`: inactive cancellation or completed cooperative cancellation reaches `canceled`.
+- Public methods may queue command events such as `activate`, `changed`, and `canceled` from parked states.
+- Running activation work normally completes with `done` or `failed` after storing the outcome on actor fields.
+- `blocked` is a domain outcome. It may be a distinct event only if the static transition table needs to route it separately from `done`.
+- Running cards receive notification/context without leaving `running`.
 
 Responsibilities:
 
@@ -268,14 +262,11 @@ Responsibilities:
 - Call the associated `CardActor`'s hard-coded processor-completion method when it reaches `settled`.
 - Return exactly one `done`, `failed`, or `blocked` activation outcome.
 
-Minimum events:
+Event guidance:
 
-- `tool_calls_ready`: planner/reviewer LLM produced tool calls requiring runtime work.
-- `child_done`: child activation result is ready.
-- `process_done`: process tool result is ready.
-- `review_ready`: readiness/evidence gates passed.
-- `done`: accepted done or blocked outcome is classified.
-- `failed`: planner, reviewer, process, or protocol failure is classified.
+- `activate` wakes `settled` and starts a new activation.
+- Planner, reviewer, child, and process waits normally complete with `done` or `failed` after storing result/diagnostic fields.
+- Use specific branch events only when a single state needs different static transition targets that cannot be derived by entering an intermediate state.
 
 Reviewer rules:
 
@@ -305,12 +296,11 @@ Terminal responsibilities:
 - Call the associated `CardActor`'s hard-coded processor-completion method when it reaches `settled`.
 - Return exactly one `done` or `failed` outcome to the associated `CardActor`.
 
-Minimum events:
+Event guidance:
 
-- `tool_calls_ready`: executor LLM produced tool calls requiring runtime work.
-- `process_done`: process tool result is ready.
-- `done`: accepted done outcome is classified.
-- `failed`: executor, process, or protocol failure is classified.
+- `activate` wakes `settled` and starts a new terminal activation.
+- Executor and process waits normally complete with `done` or `failed` after storing result/diagnostic fields.
+- Use specific branch events only when one state needs different static transition targets.
 
 Terminal actors do not own children.
 
@@ -326,6 +316,8 @@ Suggested states:
 - `waiting_tool`: parked; a runtime tool result is required before another provider turn.
 
 Completed turns return to `idle`; completion data is stored on actor fields before notifying the owning `CardProcessorActor`.
+
+LLMActor event names are intentionally left to implementation. Provider/tool-loop requirements should drive the final transition table. The default rule still applies: provider admission, provider calls, and tool waits report local completion through `done` or `failed` unless a real branch fact needs a distinct event.
 
 Public methods:
 
@@ -361,13 +353,11 @@ Suggested states:
 - `killing`: active; explicit termination is in progress.
 - `settled`: terminal; process terminal result, failure, or abandonment is recorded.
 
-Minimum events:
+Event guidance:
 
-- `started`: launch or attach succeeded and process is `running`.
-- `done`: process exited successfully or terminal process result was recorded.
-- `failed`: launch, wait, inspect, or reconciliation failed.
-- `kill`: explicit termination enters `killing`.
-- `killed`: termination or abandonment is recorded and process enters `settled`.
+- `launch(...)` starts the process and enters `running` when the process record exists.
+- Process monitoring, waits, and termination normally complete with `done` or `failed` after storing process result/diagnostic fields.
+- `kill` is a command event because it is an external operation, not task completion.
 
 Public methods:
 
