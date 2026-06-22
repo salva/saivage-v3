@@ -50,6 +50,8 @@ Ideas intentionally discarded:
 - Parked states represent externally controlled idle lifecycle states. Public actor methods advance them through protected `parkedSendEvent(...)`, not direct state assignment.
 - Public methods that are valid from both parked and active states validate the current state and use `parkedSendEvent(...)` only from parked states; from active states they use `sendEvent(...)` or update actor fields directly when no state transition is needed.
 - Long work is run through `runTask(...)`; task completion callbacks store results and then send `done` unless a specific branch fact is needed.
+- `BaseActor._on_state_changed(oldState, newState)` is the standard cross-cutting hook for transition snapshot persistence. `BaseActor` calls it after assigning the new state and before the matching `_on_enter__{state}` hook. It runs for `start()` and normal state transitions, but not for `recover(...)` because recovery reconstructs already-persisted state.
+- Concrete actors should use `_on_state_changed(...)` to save actor reconstruction records for state transitions instead of adding empty `_on_enter__{state}` hooks that only call `persist()`. Keep explicit persistence in public methods or task callbacks when actor context changes without a state transition, such as queued notifications, process output, provider admission fields, cancellation metadata, or terminal outcome fields.
 - Actor state names are small and product-meaningful. Do not create a state for every helper function.
 - Use `SlaveActor.submitJob(...)` only for externally queued work where a caller needs a returned job ID and cancellation handle.
 - Do not expose actor state, task IDs, private fields, compiled definitions, or internal events through API/UI contracts.
@@ -479,6 +481,13 @@ Persist Saivage-owned data at explicit boundaries:
 - Notification delivery records.
 - Runtime event and error timelines.
 
+State-transition persistence rule:
+
+- Actor reconstruction records are persisted from `_on_state_changed(oldState, newState)` when a fresh actor starts or a normal transition changes state.
+- `_on_state_changed(...)` captures the new actor state before `_on_enter__{state}` starts entry work. Entry hooks should therefore focus on state-specific behavior such as starting tasks or writing domain facts, not on generic snapshot persistence.
+- If `_on_enter__{state}` mutates fields that must be reflected in the same actor snapshot, either move that mutation before the transition is requested or perform an explicit `persist()` after the mutation. Do not preserve per-state `persist()` calls merely to record the new state.
+- Public methods and task callbacks still persist non-transition context changes explicitly. Examples include notification queues, cancellation reasons, `activeProviderCallId`, process stdout/stderr, tool-delivery metadata, and completed outcome fields.
+
 Do not persist:
 
 - `BaseActor` private fields.
@@ -495,7 +504,7 @@ Recovery procedure:
 4. Recreate LLM actors only when a recoverable active/waiting session exists.
 5. Recreate process actors for running or undelivered process records.
 6. Reconnect deterministic IDs.
-7. Call `BaseActor.recover(state)` on fresh actor instances where safe. Actor-specific `_on_recover__{state}` hooks rebuild in-memory references from persisted reconstruction records.
+7. Call `BaseActor.recover(state)` on fresh actor instances where safe. Actor-specific `_on_recover__{state}` hooks rebuild in-memory references from persisted reconstruction records. `recover(...)` does not call `_on_state_changed(...)` and must not re-run transition persistence or transition side effects.
 8. Repair forward or fail explicitly when state is ambiguous.
 
 Recovery classifications for each actor state must be designed before implementation:
