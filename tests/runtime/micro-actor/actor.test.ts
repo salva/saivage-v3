@@ -247,6 +247,120 @@ describe('recover', () => {
   });
 });
 
+describe('_on_state_changed', () => {
+  it('fires on start with oldState undefined before _on_enter', () => {
+    class TestActor extends BaseActor {
+      static _actor = {
+        initial: 'idle',
+        states: {
+          idle: { terminal: true },
+        },
+      };
+      log: string[] = [];
+
+      protected _on_state_changed(oldState: string | undefined, newState: string): void {
+        this.log.push(`changed:${oldState ?? 'undefined'}:${newState}`);
+      }
+
+      _on_enter__idle() {
+        this.log.push('enter:idle');
+      }
+    }
+
+    const actor = new TestActor();
+    actor.start();
+
+    expect(actor.log).toEqual(['changed:undefined:idle', 'enter:idle']);
+  });
+
+  it('does not fire on recover', () => {
+    class TestActor extends BaseActor {
+      static _actor = {
+        states: {
+          idle: { terminal: true },
+          running: { parked: true, on: { done: 'idle' } },
+        },
+      };
+      changes = 0;
+
+      protected _on_state_changed(): void {
+        this.changes++;
+      }
+
+      _on_recover__running() {}
+    }
+
+    const actor = new TestActor();
+    actor.recover('running');
+
+    expect(actor.changes).toBe(0);
+  });
+
+  it('fires on state transition with old and new state before _on_enter', async () => {
+    class TestActor extends BaseActor {
+      static _actor = {
+        initial: 'idle',
+        states: {
+          idle: { parked: true, on: { go: 'active' } },
+          active: { terminal: true },
+        },
+      };
+      log: string[] = [];
+
+      protected _on_state_changed(oldState: string | undefined, newState: string): void {
+        this.log.push(`changed:${oldState}:${newState}`);
+      }
+
+      _on_enter__idle() {
+        this.log.push('enter:idle');
+      }
+
+      _on_enter__active() {
+        this.log.push('enter:active');
+      }
+
+      go() {
+        this.parkedSendEvent('go');
+      }
+    }
+
+    const actor = new TestActor();
+    actor.start();
+    actor.log = [];
+    actor.go();
+
+    await eventually(() => expect(actor.log).toEqual(['changed:idle:active', 'enter:active']));
+  });
+
+  it('does not fire when dispatch returns the same state', async () => {
+    class TestActor extends BaseActor {
+      static _actor = {
+        initial: 'idle',
+        states: {
+          idle: { parked: true, on: { noop: 'idle' } },
+        },
+      };
+      changes = 0;
+
+      protected _on_state_changed(): void {
+        this.changes++;
+      }
+
+      noop() {
+        this.parkedSendEvent('noop');
+      }
+    }
+
+    const actor = new TestActor();
+    actor.start();
+    const initial = actor.changes;
+    actor.noop();
+
+    await eventually(() => expect(actor.state()).toBe('idle'));
+    expect(actor.changes).toBe(initial);
+  });
+});
+
 async function eventually(assertion: () => void): Promise<void> {
   let lastError: unknown;
   for (let i = 0; i < 20; i++) {

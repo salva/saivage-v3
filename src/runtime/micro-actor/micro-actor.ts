@@ -80,7 +80,9 @@ export abstract class BaseActor {
     }
     const definition = getCompiledActorDefinition(this.constructor as ActorClassWithDefinition);
     this.#definition = definition;
+    const oldState = this.#currentState;
     this.#currentState = definition.initial;
+    this._on_state_changed(oldState, this.#currentState);
     this.#callHandler('enter');
     this.#ensureActorMain();
   }
@@ -136,6 +138,9 @@ export abstract class BaseActor {
     this.#stateTasks.set(id, { id, controller, promise, on_done, on_failed, on_timeout });
   }
 
+  protected _on_state_changed(_oldState: string | undefined, _newState: string): void {
+  }
+
   #dispatchEvent(eventName: string): string {
     const currentState = this.#currentState!;
     const stateDef = this.#definition!.states.get(currentState)!;
@@ -151,6 +156,7 @@ export abstract class BaseActor {
     }
     this.#stateTasks.clear();
     this.#currentState = targetState;
+    this._on_state_changed(currentState, targetState);
     this.#callHandler('enter');
 
     return targetState;
