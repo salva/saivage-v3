@@ -24,7 +24,7 @@ Reusable ideas found in the XState-era material:
 - Enforce exactly-one tool result or tool error for every assistant tool call.
 - Keep process execution durable and separately observable.
 - Make pause a scheduling/admission gate, not a card state.
-- Make cancellation explicit and status-driven.
+- Make cancellation explicit: inactive cancellation is status-driven, while running cancellation is best-effort notification-driven.
 - Route notifications to cards, then deliver them to that card's main agent session at a safe LLM admission boundary.
 - Prefer deletion of old controller/decorator layers over preserving old tests or APIs.
 
@@ -51,7 +51,7 @@ Ideas intentionally discarded:
 - Public methods that are valid from both parked and active states validate the current state and use `parkedSendEvent(...)` only from parked states; from active states they use `sendEvent(...)` or update actor fields directly when no state transition is needed.
 - Long work is run through `runTask(...)`; task completion callbacks store results and then send `done` unless a specific branch fact is needed.
 - `BaseActor._on_state_changed(oldState, newState)` is the standard cross-cutting hook for transition snapshot persistence. `BaseActor` calls it after assigning the new state and before the matching `_on_enter__{state}` hook. It runs for `start()` and normal state transitions, but not for `recover(...)` because recovery reconstructs already-persisted state.
-- Concrete actors should use `_on_state_changed(...)` to save actor reconstruction records for state transitions instead of adding empty `_on_enter__{state}` hooks that only call `persist()`. Keep explicit persistence in public methods or task callbacks when actor context changes without a state transition, such as queued notifications, process output, provider admission fields, cancellation metadata, or terminal outcome fields.
+- Concrete actors should use `_on_state_changed(...)` to save actor reconstruction records for state transitions instead of adding empty `_on_enter__{state}` hooks that only call `persist()`. Keep explicit persistence in public methods or task callbacks when actor context changes without a state transition, such as queued notifications, process output, provider admission fields, or terminal outcome fields.
 - Actor state names are small and product-meaningful. Do not create a state for every helper function.
 - Use `SlaveActor.submitJob(...)` only for externally queued work where a caller needs a returned job ID and cancellation handle.
 - Do not expose actor state, task IDs, private fields, compiled definitions, or internal events through API/UI contracts.
@@ -78,6 +78,7 @@ The target implementation must preserve these invariants:
 - `result` is attached only from accepted main-agent results.
 - Reviewer-negative results are stored with the card and injected into planner context; positive reviewer text is only attached to the card.
 - Notifications are card-addressed, immutable, ephemeral delivery items, not user-managed note objects.
+- Best-effort cancellation for running cards is represented as a card-addressed notification; it does not change status or runtime scheduling by itself.
 - Run starts idle work or resumes paused work; duplicate Run returns an already-running warning.
 - Pause is a scheduling gate and does not mutate card/session/process state.
 - Shutdown pauses first, then terminates runtime-owned running processes.
@@ -149,7 +150,7 @@ Public methods:
 - `run()`: start idle project work or resume from paused.
 - `pause()`: close model/provider admission.
 - `shutdown()`: close admission, terminate runtime-owned running processes, and settle.
-- `cancelProject()`: cancel the project card/subtree and return the supervisor to idle.
+- `cancelProject()`: cancel inactive project work immediately, or enqueue a best-effort cancellation notification for running project work.
 
 Event guidance:
 
@@ -329,13 +330,15 @@ Public methods:
 - `turn(inputRef)`: run a model turn from persisted input context.
 - `appendToolResult(toolCallId, result)`: continue after tool success.
 - `appendToolError(toolCallId, error)`: continue after tool failure.
-- `cancel(reason)`: cancel or refuse future admission.
+
+`LLMActor` has no public card-cancellation API. Running-card cancellation reaches the main agent as card-owned notification context in the next `turn(...)` input.
 
 Responsibilities:
 
 - Append durable invocation context before provider calls.
 - Request/release provider admission through the parent processor actor, which delegates to the supervisor-owned admission policy. A paused processor does not request new LLM turns.
 - Treat admission as task-owned async work: `requesting_admission` runs a task that awaits the processor/supervisor admission promise, then sends the event that starts the provider call.
+- Receive already-built `LlmInvocationInput` from the owning processor. `LLMActor` does not own card notification queues and does not decide which notifications are deliverable.
 - Persist provider responses before owner interpretation.
 - Persist every assistant tool call before routing it.
 - Enforce one result/error per tool call.
@@ -392,8 +395,8 @@ Initial command mapping:
 | pause runtime | `RuntimeSupervisorActor.pause()` | Closes admission gate; does not mutate card statuses. |
 | resume runtime | `RuntimeSupervisorActor.run()` | Reopens admission from paused. |
 | shutdown | `RuntimeSupervisorActor.shutdown()` | Pauses admission and terminates runtime-owned processes. |
-| cancel project | `RuntimeSupervisorActor.cancelProject()` | Cancels the project card/subtree and returns to idle. |
-| cancel card/subtree | `CardActor.cancel()` through the runtime command boundary | Marks the requested card/subtree `cancelled` through canonical card rules. |
+| cancel project | `RuntimeSupervisorActor.cancelProject()` | Cancels inactive project work immediately or sends best-effort cancellation notification to running project work. |
+| cancel card/subtree | `CardActor.cancel()` through the runtime command boundary | Marks inactive cards/subtrees `cancelled`; enqueues best-effort cancellation notifications for running cards. |
 | mark needs correction/change | `CardActor.notify()` / `markChanged()` | Queues notification and updates public changed state where applicable. |
 | activate child | Owning goal/project processor capability | Validates direct-child authority and starts child card. |
 
@@ -407,7 +410,7 @@ Every assistant tool call persisted in an agent session has one durable terminal
 
 - `delivered`: tool result appended.
 - `errored`: tool error appended.
-- `abandoned`: cancellation/recovery recorded no normal result.
+- `abandoned`: recovery or shutdown recorded no normal result.
 
 Tool routing groups:
 
@@ -433,7 +436,9 @@ Rules:
 
 - Analyst and runtime services enqueue notifications to cards.
 - The card runtime decides when to append pending notifications to the main agent session.
-- `CardActor` owns the pending card-addressed queue and hands deliverable notifications to its processor actor at activation or before the next safe turn.
+- `CardActor` owns the pending card-addressed queue. Processor actors inspect and drain deliverable notifications from their owning `CardActor` when preparing activation input or the next main-agent turn.
+- `LLMActor` is deliberately queue-free. It receives notification content only as part of the `LlmInvocationInput` built by the owning processor, preserving generic provider/tool-loop mechanics and keeping card semantics in card/processor actors.
+- `CardActor` exposes enough domain methods for its processor to check whether undelivered notifications exist, drain the notifications deliverable to the main agent, and record delivery markers after the processor appends them to the next model-visible turn.
 - Project/goal main agent is the planner.
 - Terminal main agent is the executor.
 - Reviewer is not the main agent for notification delivery.
@@ -444,7 +449,7 @@ Notifications can affect flow:
 
 - While planning/executing, append before the next turn.
 - While waiting on child/process, keep pending until the tool result is appended and the next turn is prepared.
-- While reviewing, hold pending notifications; if they affect the reviewed subtree, divert back to planning after reviewer completion or invalidate reviewer success.
+- While reviewing, hold pending main-agent notifications. Change notifications that affect the reviewed subtree divert back to planning after reviewer completion or invalidate reviewer success. Best-effort cancellation notifications are held for the planner and do not by themselves invalidate reviewer success.
 - While settled/inactive, keep pending until reactivation or discard/archive by domain policy.
 
 ## Pause, Cancellation, And Shutdown
@@ -489,7 +494,7 @@ State-transition persistence rule:
 - Actor reconstruction records are persisted from `_on_state_changed(oldState, newState)` when a fresh actor starts or a normal transition changes state.
 - `_on_state_changed(...)` captures the new actor state before `_on_enter__{state}` starts entry work. Entry hooks should therefore focus on state-specific behavior such as starting tasks or writing domain facts, not on generic snapshot persistence.
 - If `_on_enter__{state}` mutates fields that must be reflected in the same actor snapshot, either move that mutation before the transition is requested or perform an explicit `persist()` after the mutation. Do not preserve per-state `persist()` calls merely to record the new state.
-- Public methods and task callbacks still persist non-transition context changes explicitly. Examples include notification queues, cancellation reasons, `activeProviderCallId`, process stdout/stderr, tool-delivery metadata, and completed outcome fields.
+- Public methods and task callbacks still persist non-transition context changes explicitly. Examples include notification queues, `activeProviderCallId`, process stdout/stderr, tool-delivery metadata, and completed outcome fields.
 
 Do not persist:
 

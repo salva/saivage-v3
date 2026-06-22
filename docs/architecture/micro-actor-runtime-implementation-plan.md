@@ -33,6 +33,7 @@ Implementation:
 - Add states `idle`, `running`, `paused`, and `shutting_down`.
 - Implement public methods `run()`, `pause()`, `shutdown()`, and `cancelProject()`.
 - Persist supervisor state transitions from `_on_state_changed(...)`; keep explicit persistence for non-transition context changes such as provider admission/release fields or initialization data.
+- Implement `cancelProject()` with the same two-path cancellation semantics as `CardActor`: inactive project work is cancelled immediately, while running project work receives a best-effort cancellation notification and remains under normal runtime flow.
 - Keep duplicate `run()` simple: if already running, return an already-running warning and do not create new work.
 - Keep the existing public `RuntimeApi` surface where operators/tools already call it, but replace the implementation so it constructs or attaches to the supervisor and calls only supervisor/card public methods.
 - Move runtime mode projection into projection/read-model code.
@@ -64,10 +65,11 @@ Implementation:
 - Mark inactive reactivatable states as parked and `cancelled` as terminal.
 - Implement public methods `activate(caller)`, `notify(notification)`, `cancel(reason)`, and `markChanged(change)`.
 - Persist card actor state transitions from `_on_state_changed(...)` and remove empty `_on_enter__{state}` hooks that only save snapshots.
-- Keep explicit persistence for card context changes that do not transition state, including queued notifications, change metadata, cancellation metadata, and accepted activation outcomes.
+- Keep explicit persistence for card context changes that do not transition state, including queued notifications, change metadata, inactive-cancellation writes, and accepted activation outcomes.
 - Persist public card status changes through the canonical card store before reporting outcomes upward.
 - Implement cancellation as two paths: inactive cards/subtrees are marked `cancelled` immediately, while running cards only receive a best-effort cancellation notification downstream and remain `running`.
 - Do not use running cancellation to close provider admission, abort active tools, kill processes, or reinterpret later agent reports. Those are shutdown or process-control responsibilities, not best-effort cancellation behavior.
+- Keep notification queue ownership in `CardActor`. Provide card/processor-facing methods to check pending notifications, drain notifications deliverable to the main agent, and record delivery markers after those notifications are appended to the next model-visible turn.
 - Instantiate or reconnect direct child `CardActor` instances from card data.
 - Instantiate or reconnect the associated processor actor for the card type.
 - Use `BaseActor.recover(state)` when reconnecting a fresh actor instance to an existing durable card state.
@@ -99,8 +101,9 @@ Goal: isolate provider calls and tool-call loop mechanics from planner/executor/
 Implementation:
 
 - Add `LLMActor` with states needed by implementation, starting from `idle`, `requesting_admission`, `calling_provider`, and `waiting_tool` unless implementation proves a simpler table.
-- Implement public methods `turn(inputRef)`, `appendToolResult(toolCallId, result)`, `appendToolError(toolCallId, error)`, and `cancel(reason)`.
-- Persist LLM actor state transitions from `_on_state_changed(...)`; keep explicit persistence for input, outcome, waiting-tool, delivered-tool, and cancellation fields that change outside a state transition.
+- Implement public methods `turn(inputRef)`, `appendToolResult(toolCallId, result)`, and `appendToolError(toolCallId, error)`.
+- Persist LLM actor state transitions from `_on_state_changed(...)`; keep explicit persistence for input, outcome, waiting-tool, and delivered-tool fields that change outside a state transition.
+- Keep `LLMActor` generic and queue-free. It receives notification content only through `LlmInvocationInput` prepared by the owning processor.
 - Persist model-visible input context before provider calls.
 - Request provider admission through the parent processor actor and supervisor policy; paused processors do not request new LLM turns.
 - Persist provider responses before interpretation by the owner.
@@ -117,8 +120,7 @@ Tests:
 - Tool calls are persisted before routing.
 - `appendToolResult(...)` and `appendToolError(...)` continue from `waiting_tool`.
 - Duplicate tool result/error for the same tool call is rejected.
-- Cancellation before admission prevents future provider calls.
-- Cancellation during provider work is observed at the next safe boundary.
+- Notification-bearing turns include processor-supplied notification context without `LLMActor` owning or mutating card notification queues.
 
 Acceptance:
 
@@ -166,7 +168,7 @@ Implementation:
 - Implement terminal processor behavior in `TerminalCardProcessorActor`.
 - Add terminal states `executing`, `waiting_process`, and parked `settled` or simpler equivalents if implementation allows.
 - Implement public methods `activate(input)` and `cancel(reason)`.
-- Persist terminal processor state transitions from `_on_state_changed(...)`; keep explicit persistence for activation inputs, process ids, cancellation metadata, and terminal outcomes when those fields change outside transition entry.
+- Persist terminal processor state transitions from `_on_state_changed(...)`; keep explicit persistence for activation inputs, process ids, queued cancellation notifications, and terminal outcomes when those fields change outside transition entry.
 - Build executor invocation context from card data, notifications, and relevant project context.
 - Own/cache one executor `LLMActor` for the terminal activation path.
 - Provide terminal capabilities: reporting result/failure, process launch/wait/inspect/kill through `ProcessActor`, and safe file inspection if already supported.
@@ -197,6 +199,8 @@ Implementation:
 - Implement project and goal processor behavior in `ProjectCardProcessorActor` and `GoalCardProcessorActor`.
 - Build planner invocation context from card tree, planning diary, pending notifications, prior reviewer findings, and direct child status.
 - Own/cache planner `LLMActor` and reviewer `LLMActor` as needed.
+- Before each planner provider turn, inspect/drain the owning card's deliverable main-agent notifications and append them to the model-visible planner context; record delivery markers after successful append.
+- Best-effort cancellation of a running project/goal is delivered through the same notification path and does not alter planner admission, child activation, process tools, or later planner reports by itself.
 - Build planner capabilities for direct-child activation, direct-child mutation, process tools, working status, and planner terminal reports.
 - Implement `activate_card` as a synchronous logical barrier from the planner perspective.
 - For child activation, call the child `CardActor.activate(...)`, wait on a parent-owned promise, then append exactly one tool result/error to the planner LLMActor.
@@ -212,6 +216,7 @@ Tests:
 - `cancelled` descendants are completion-compatible.
 - Planner process tools route through ProcessActor and return bounded results.
 - Pending notifications are delivered before the next planner turn.
+- Best-effort cancellation notification is delivered before the next planner turn and does not otherwise change planner control flow.
 
 Acceptance:
 
@@ -231,6 +236,7 @@ Implementation:
 - Store negative reviewer findings with the card and inject them into the next planner context.
 - Attach positive reviewer text to the card only after the reviewed snapshot is still current.
 - If relevant changes/notifications arrive while reviewing, invalidate reviewer success or divert back to planning.
+- Cancellation notifications are main-agent notifications. If one arrives while reviewer work is active, hold it with other pending main-agent notifications until planner ownership resumes; do not deliver cancellation to the reviewer unless a separate reviewer-cancellation feature is explicitly designed.
 
 Tests:
 
@@ -238,6 +244,7 @@ Tests:
 - Reviewer approval commits reviewed done only for the assessed snapshot.
 - Reviewer correction returns to planning with stored findings.
 - Relevant change during review invalidates success.
+- Cancellation notification during review is held for planner delivery and does not by itself invalidate reviewer success unless paired with a real card/tree change.
 - Ambiguous reviewer output fails visibly.
 
 Acceptance:
@@ -307,7 +314,7 @@ Acceptance:
 - Micro-actor definition, parked state, task, timeout, cancellation, and recovery tests.
 - Supervisor run/pause/resume/shutdown/cancel tests.
 - CardActor activation, status commit ordering, changed state, cancellation, and notification tests.
-- LLMActor provider admission, provider failure, cancellation, tool protocol, duplicate tool delivery, and diagnostics tests.
+- LLMActor provider admission, provider failure, tool protocol, duplicate tool delivery, and diagnostics tests.
 - ProcessActor launch, wait timeout, inspect, kill, exit, and recovery tests.
 - Terminal processor executor/report/process tests.
 - Goal/project processor child activation, planner report, completion gate, process, notification, and reviewer tests.
