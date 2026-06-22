@@ -9,7 +9,7 @@ import { operatorApiContracts } from '../../src/contracts/operator-api.js';
 import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from '../../src/runtime/state.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
-import { createSupervisorRuntimeApi, readActorSnapshots, type GoalCardStatusPort, type ProviderTurnPort } from '../../src/runtime/actors/index.js';
+import { createSupervisorRuntimeApi, readActorSnapshots } from '../../src/runtime/actors/index.js';
 
 function tempRoot(prefix: string): string { return mkdtempSync(join(tmpdir(), prefix)); }
 
@@ -41,19 +41,9 @@ describe('runtime redesign final golden behavior', () => {
       expect(ANALYST_TOOL_NAMES).not.toContain('lets_dance');
       expect(Object.keys(TOOL_REGISTRY)).not.toContain('lets_dance');
 
-      const providerTurn: ProviderTurnPort = {
-        completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'project complete' })),
-      };
-      const goalStatusPort: GoalCardStatusPort = {
-        markRunning: jest.fn<(cardId: string) => void>(),
-        markCancelled: jest.fn<(cardId: string) => void>(),
-        commitGoalOutcome: jest.fn<GoalCardStatusPort['commitGoalOutcome']>(),
-      };
       const api = createSupervisorRuntimeApi({
         projectRoot,
-        providerTurn,
         rootCards: { read: jest.fn(() => ({ id: 'project', type: 'project' })) },
-        goalStatusPort,
         now: () => '2026-06-12T00:00:00.000Z',
       });
       expect('requestProjectDirectiveWakeup' in api).toBe(false);
@@ -61,20 +51,17 @@ describe('runtime redesign final golden behavior', () => {
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.command).toMatchObject({ command: 'start_project', status: 'completed', source: 'operator' });
-        expect(result.intent).toMatchObject({ status: 'stopped', reason: 'xstate_project_done' });
+        expect(result.intent).toMatchObject({ status: 'running', reason: null });
         expect(result.run).toMatchObject({
           kind: 'root',
           card_id: 'project',
           ownership: { kind: 'direct', source: 'project_root' },
-          phase: 'completed',
-          runtime_status: 'idle',
+          phase: 'pending',
+          runtime_status: 'running',
           session_id: 'planner:project',
         });
       }
-      expect(providerTurn.completeTurn).toHaveBeenCalledWith(expect.objectContaining({ agentId: 'planner:project', role: 'planner', sessionId: 'planner:project' }));
-      expect(goalStatusPort.markRunning).toHaveBeenCalledWith('project');
-      expect(goalStatusPort.commitGoalOutcome).toHaveBeenCalledWith('project', { status: 'done', statusText: 'project complete' });
-      expect(readActorSnapshots(projectRoot).map((item) => item.actor_id).sort()).toEqual(['card:project', 'planner:project', 'supervisor']);
+      expect(readActorSnapshots(projectRoot).map((item) => item.actor_id).sort()).toEqual(['supervisor']);
       await api.shutdown();
     } finally { rmSync(projectRoot, { recursive: true, force: true }); }
   });
@@ -109,14 +96,14 @@ describe('runtime redesign final golden behavior', () => {
     expect('cards.delete' in operatorApiContracts).toBe(false);
   });
 
-  it('active docs and prompts teach Runtime Console versus Planning Tree and no obsolete execution ritual remains active', () => {
+  it('active docs and prompts teach Analyst-controlled runtime/card work and no obsolete execution ritual remains active', () => {
     const activeFiles = [
-      'docs/agents.md',
-      'docs/analyst.md',
-      'docs/goal-planning-runtime.md',
-      'docs/operation.md',
-      'docs/v3-planner-control-mcp-contract.md',
-      'docs/runbook/operations.md',
+      'docs/architecture/micro-actor-runtime-design.md',
+      'docs/architecture/micro-actor-runtime-implementation-plan.md',
+      'docs/architecture/declarative-micro-actor-module.md',
+      'docs/architecture/system-architecture.md',
+      'docs/spec/operator-ui.md',
+      'docs/spec/system-specification.md',
       'src/agents/system-prompt.ts',
       'src/agents/analyst-prompt.ts',
       'src/tools/definitions/index.ts',
@@ -125,9 +112,10 @@ describe('runtime redesign final golden behavior', () => {
     expect(combined).toContain('start_project');
     expect(combined).toContain('stop_project');
     expect(combined).toContain('activate_card');
-    expect(combined).toContain('Runtime Console');
-    expect(combined).toContain('Planning Tree');
-    expect(combined).toMatch(/status[^.]+not[^.]+execution trigger|status[^.]+never an execution trigger|status changes?[^.]+never enqueue/i);
+    expect(combined).toContain('Analyst');
+    expect(combined).toContain('operator UI');
+    expect(combined).toContain('card tree');
+    expect(combined).toMatch(/status[^.]+not[^.]+execution trigger|status[^.]+never an execution trigger|status changes?[^.]+never enqueue|not automatically dispatched by the status change/i);
     expect(combined).not.toMatch(/lets_dance/);
     expect(combined).not.toMatch(/project-directive/);
     expect(combined).not.toMatch(/pending-confirmation/);

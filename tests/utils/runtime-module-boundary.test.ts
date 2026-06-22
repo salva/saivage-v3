@@ -221,7 +221,7 @@ describe('runtime module ownership boundary', () => {
   it('keeps application extras outside the RuntimeApi shape', () => {
     const source = readFileSync(join(process.cwd(), 'src/application/runtime-composition.ts'), 'utf8');
     expect(source).toContain('readonly runtimeApi: RuntimeApi');
-    expect(source).toContain('createXStateRuntimeApi');
+    expect(source).toContain('createMicroActorRuntimeApi');
     expect(source).not.toContain('createRuntimeCoreContainer');
     expect(source).not.toContain('core-composition.js');
     expect(source).not.toContain('runtime-planner-dispatcher');

@@ -16,7 +16,7 @@ import type { RuntimeApi } from '../runtime/control-api.js';
 import { SessionStampCounter } from '../runtime/session-stamp-counter.js';
 import { CardStore } from '../cards/card-store.js';
 import type { InvocationService } from '../agents/invocation-service.js';
-import { createXStateRuntimeApi } from './xstate-runtime-api-factory.js';
+import { createMicroActorRuntimeApi } from './micro-actor-runtime-api-factory.js';
 
 export interface RuntimeApiFactoryDeps {
   projectRoot: string;
@@ -96,7 +96,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   });
   agentAdapter.setSkillsEngine(skillsEngine);
 
-  const runtimeFactory = services.runtimeApiFactory ?? createXStateRuntimeApi;
+  const runtimeFactory = services.runtimeApiFactory ?? createMicroActorRuntimeApi;
   const runtimeComposition = createComposedRuntimeApi({
     runtimeApi: runtimeFactory({ projectRoot, eventBus, cardStore, invocationService: agentAdapter.getInvocationService() }),
     candidateAvailability,

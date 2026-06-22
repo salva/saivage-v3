@@ -1,70 +1,94 @@
-import { SlaveActor } from '../micro-actor/index.js';
+import { BaseActor } from '../micro-actor/index.js';
 import { saveActorSnapshot } from './snapshots.js';
 import { supervisorActorId } from './ids.js';
 
-export type RuntimeSupervisorMode = 'running' | 'paused' | 'stopping';
-export type RuntimeSupervisorWork = 'ready' | 'model_invocation_active';
+export type RuntimeSupervisorMode = 'idle' | 'running' | 'paused' | 'shutting_down';
+export type RuntimeSupervisorWork = 'ready' | 'model_invocation_active' | 'shutdown_active';
 
 export interface RuntimeSupervisorContext {
   projectRoot: string | null;
   activeProviderCallId: string | null;
 }
 
-type StartArgs = { projectRoot: string };
 type ProviderCallArgs = { callId: string };
 
-export class RuntimeSupervisorActor extends SlaveActor {
+export class RuntimeSupervisorActor extends BaseActor {
   static _actor = {
-    initial: 'running',
+    initial: 'idle',
     states: {
-      running: {
-        on: { pause: 'paused', stop: 'stopping' },
-      },
-      paused: {
-        on: { resume: 'running', stop: 'stopping' },
-      },
-      stopping: {
-      },
+      idle: { parked: true, on: { run: 'running', shutdown: 'shutting_down' } },
+      running: { parked: true, on: { pause: 'paused', cancel: 'idle', shutdown: 'shutting_down' } },
+      paused: { parked: true, on: { run: 'running', shutdown: 'shutting_down', cancel: 'idle' } },
+      shutting_down: { on: { done: 'idle', failed: 'idle' } },
     },
   };
 
   projectRoot: string | null = null;
   activeProviderCallId: string | null = null;
 
+  initialize(projectRoot: string): void {
+    if (this.projectRoot !== null && this.projectRoot !== projectRoot) {
+      throw new Error(`RuntimeSupervisorActor already initialized for '${this.projectRoot}'`);
+    }
+    this.projectRoot = projectRoot;
+    this.persist();
+  }
+
+  get mode(): RuntimeSupervisorMode {
+    return this.state() as RuntimeSupervisorMode;
+  }
+
   get work(): RuntimeSupervisorWork {
+    if (this.mode === 'shutting_down') return 'shutdown_active';
     return this.activeProviderCallId === null ? 'ready' : 'model_invocation_active';
   }
 
-  setProjectRoot(args: StartArgs): void {
-    this.projectRoot = args.projectRoot;
-    this.persist();
+  run(): boolean {
+    if (this.mode === 'running') return false;
+    if (this.mode !== 'idle' && this.mode !== 'paused') return false;
+    this.parkedSendEvent('run');
+    return true;
   }
 
-  stop(): void {
-    this.sendEvent('stop');
+  pause(): boolean {
+    if (this.mode !== 'running') return false;
+    this.parkedSendEvent('pause');
+    return true;
   }
 
-  pause(): void {
-    this.sendEvent('pause');
-  }
-
-  resume(): void {
-    this.sendEvent('resume');
-  }
-
-  requestProviderCall(args: ProviderCallArgs): void {
-    this.activeProviderCallId = args.callId;
-    this.persist();
-  }
-
-  releaseProviderCall(args: ProviderCallArgs): void {
-    if (this.activeProviderCallId === args.callId) {
-      this.activeProviderCallId = null;
+  shutdown(): boolean {
+    if (this.mode === 'shutting_down') return false;
+    if (this.mode === 'idle' || this.mode === 'running' || this.mode === 'paused') {
+      this.parkedSendEvent('shutdown');
+      return true;
     }
-    this.persist();
+    return false;
   }
 
-  _on_enter__paused(): void {
+  cancelProject(): boolean {
+    if (this.mode === 'idle' || this.mode === 'shutting_down') return false;
+    this.parkedSendEvent('cancel');
+    return true;
+  }
+
+  requestProviderCall(args: ProviderCallArgs | string): boolean {
+    const callId = typeof args === 'string' ? args : args.callId;
+    if (this.mode !== 'running' || this.activeProviderCallId !== null) return false;
+    this.activeProviderCallId = callId;
+    this.persist();
+    return true;
+  }
+
+  releaseProviderCall(args: ProviderCallArgs | string): void {
+    const callId = typeof args === 'string' ? args : args.callId;
+    if (this.activeProviderCallId === callId) {
+      this.activeProviderCallId = null;
+      this.persist();
+    }
+  }
+
+  _on_enter__idle(): void {
+    this.activeProviderCallId = null;
     this.persist();
   }
 
@@ -72,15 +96,20 @@ export class RuntimeSupervisorActor extends SlaveActor {
     this.persist();
   }
 
-  _on_enter__stopping(): void {
+  _on_enter__paused(): void {
     this.persist();
+  }
+
+  _on_enter__shutting_down(): void {
+    this.persist();
+    this.runTask(async () => undefined);
   }
 
   snapshot() {
     return {
       actor_id: supervisorActorId(),
       actor_kind: 'supervisor' as const,
-      state_value: { mode: this.state() as RuntimeSupervisorMode, work: this.work },
+      state_value: { mode: this.mode, work: this.work },
       context: { projectRoot: this.projectRoot, activeProviderCallId: this.activeProviderCallId } as unknown as Record<string, unknown>,
       updated_at: new Date().toISOString(),
     };
@@ -89,66 +118,5 @@ export class RuntimeSupervisorActor extends SlaveActor {
   private persist(): void {
     if (!this.projectRoot) return;
     saveActorSnapshot(this.projectRoot, this.snapshot());
-  }
-}
-
-export class RuntimeSupervisorController {
-  private actor: RuntimeSupervisorActor;
-
-  constructor() {
-    const actor = new RuntimeSupervisorActor();
-    actor.start();
-    this.actor = actor;
-  }
-
-  start(projectRoot: string): void {
-    this.actor.setProjectRoot({ projectRoot });
-  }
-
-  stop(): void {
-    this.actor.stop();
-  }
-
-  pause(): void {
-    this.actor.pause();
-  }
-
-  resume(): void {
-    this.actor.resume();
-  }
-
-  requestProviderCall(callId: string): boolean {
-    if (this.work !== 'ready' || this.mode !== 'running') return false;
-    this.actor.requestProviderCall({ callId });
-    return true;
-  }
-
-  releaseProviderCall(callId: string): void {
-    this.actor.releaseProviderCall({ callId });
-  }
-
-  get mode(): RuntimeSupervisorMode {
-    return this.actor.state() as RuntimeSupervisorMode;
-  }
-
-  get work(): RuntimeSupervisorWork {
-    return this.actor.work;
-  }
-
-  get context(): RuntimeSupervisorContext {
-    return {
-      projectRoot: this.actor.projectRoot,
-      activeProviderCallId: this.actor.activeProviderCallId,
-    };
-  }
-
-  snapshot() {
-    return {
-      actor_id: supervisorActorId(),
-      actor_kind: 'supervisor' as const,
-      state_value: { mode: this.mode, work: this.work },
-      context: this.context as unknown as Record<string, unknown>,
-      updated_at: new Date().toISOString(),
-    };
   }
 }

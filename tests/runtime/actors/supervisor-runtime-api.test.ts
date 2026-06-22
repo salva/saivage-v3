@@ -1,11 +1,10 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it, jest } from '@jest/globals';
+import { describe, expect, it } from '@jest/globals';
 import { existsSync, readFileSync } from 'node:fs';
 import { createSupervisorRuntimeApi, readActorSnapshots, saveActorSnapshot, SupervisorRuntimeApi } from '../../../src/runtime/actors/index.js';
 import { actorToolCallStatusesPath, appendToolCallStatus } from '../../../src/runtime/actors/index.js';
-import type { GoalCardStatusPort, LlmInvocationInput, ProviderTurnPort, XStateChildCard } from '../../../src/runtime/actors/index.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-supervisor-api-'));
@@ -25,17 +24,20 @@ function readJsonl(path: string): Array<Record<string, unknown>> {
 }
 
 describe('SupervisorRuntimeApi', () => {
-  it('implements start, pause, resume, status, and shutdown through RuntimeSupervisor', async () => withTempProject(async (projectRoot) => {
+  it('implements start, pause, resume, status, and shutdown through RuntimeSupervisorActor', async () => withTempProject(async (projectRoot) => {
     const api = createSupervisorRuntimeApi({ projectRoot, now: () => '2026-06-12T00:00:00.000Z' });
 
     await api.start();
     expect(api.getStatus()).toMatchObject({ status: 'idle', paused: false, currentCardId: null });
     api.pause();
-    await eventually(() => expect(api.getStatus().paused).toBe(true));
-    expect(api.getStatus()).toMatchObject({ status: 'paused', paused: true });
-    api.resume();
-    await eventually(() => expect(api.getStatus().paused).toBe(false));
     expect(api.getStatus()).toMatchObject({ status: 'idle', paused: false });
+
+    await api.startProject('operator');
+    expect(api.getStatus()).toMatchObject({ status: 'running', paused: false, currentCardId: 'project' });
+    api.pause();
+    expect(api.getStatus()).toMatchObject({ status: 'paused', paused: true, currentCardId: 'project' });
+    api.resume();
+    expect(api.getStatus()).toMatchObject({ status: 'running', paused: false, currentCardId: 'project' });
     await api.shutdown();
 
     expect(readActorSnapshots(projectRoot).some((item) => item.actor_id === 'supervisor')).toBe(true);
@@ -97,33 +99,10 @@ describe('SupervisorRuntimeApi', () => {
     expect(readJsonl(actorToolCallStatusesPath(projectRoot, 'planner:G-delivered')).map((entry) => entry.status)).toEqual(['pending', 'delivered']);
   }));
 
-  it('fails startProject clearly until goal execution is wired', async () => withTempProject(async (projectRoot) => {
-    const api = createSupervisorRuntimeApi({ projectRoot, now: () => '2026-06-12T00:00:00.000Z' });
-    await api.start();
-
-    const result = await api.startProject('operator');
-
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(result.command.status).toBe('rejected');
-      expect(result.error.code).toBe('xstate_runtime_not_wired');
-    }
-  }));
-
-  it('runs the project root through GoalCardRunner when provider wiring is supplied', async () => withTempProject(async (projectRoot) => {
-    const providerTurn: ProviderTurnPort = {
-      completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'project complete' })),
-    };
-    const goalStatusPort: GoalCardStatusPort = {
-      markRunning: jest.fn<(cardId: string) => void>(),
-      markCancelled: jest.fn<(cardId: string) => void>(),
-      commitGoalOutcome: jest.fn<GoalCardStatusPort['commitGoalOutcome']>(),
-    };
+  it('starts project work at the runtime boundary without invoking lower-level workflow', async () => withTempProject(async (projectRoot) => {
     const api = createSupervisorRuntimeApi({
       projectRoot,
-      providerTurn,
-      rootCards: { read: jest.fn(() => ({ id: 'project', type: 'project' })) },
-      goalStatusPort,
+      rootCards: { read: () => ({ id: 'project', type: 'project' }) },
       now: () => '2026-06-12T00:00:00.000Z',
     });
 
@@ -131,119 +110,41 @@ describe('SupervisorRuntimeApi', () => {
 
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.command.status).toBe('completed');
-      expect(result.run).toMatchObject({ card_id: 'project', phase: 'completed', runtime_status: 'idle' });
-      expect(result.intent.reason).toBe('xstate_project_done');
+      expect(result.command).toMatchObject({ command: 'start_project', status: 'completed', command_id: 'runtime-command-1' });
+      expect(result.intent).toEqual({ status: 'running', updated_at: '2026-06-12T00:00:00.000Z', source_command_id: 'runtime-command-1', reason: null });
+      expect(result.run).toMatchObject({ run_id: 'runtime-run-1', card_id: 'project', phase: 'pending', runtime_status: 'running' });
     }
-    expect(providerTurn.completeTurn).toHaveBeenCalledWith(expect.objectContaining({
-      agentId: 'planner:project',
-      role: 'planner',
-      sessionId: 'planner:project',
-      tools: [expect.objectContaining({ function: expect.objectContaining({ name: 'activate_card' }) })],
-    }));
-    expect(goalStatusPort.markRunning).toHaveBeenCalledWith('project');
-    expect(goalStatusPort.commitGoalOutcome).toHaveBeenCalledWith('project', { status: 'done', statusText: 'project complete' });
-    expect(readActorSnapshots(projectRoot).map((item) => item.actor_id).sort()).toEqual([
-      'card:project',
-      'planner:project',
-      'supervisor',
-    ]);
   }));
 
-  it('rejects startProject when provider exists but the project card is missing', async () => withTempProject(async (projectRoot) => {
+  it('rejects startProject when the project card is missing', async () => withTempProject(async (projectRoot) => {
     const api = createSupervisorRuntimeApi({
       projectRoot,
-      providerTurn: { completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'unused' })) },
-      rootCards: { read: jest.fn(() => null) },
+      rootCards: { read: () => null },
       now: () => '2026-06-12T00:00:00.000Z',
     });
 
     const result = await api.startProject('operator');
 
     expect(result.success).toBe(false);
-    if (!result.success) expect(result.error.code).toBe('xstate_project_card_missing');
+    if (!result.success) expect(result.error.code).toBe('runtime_project_card_missing');
   }));
 
-  it('stopProject returns a completed stop command and stopped intent', async () => withTempProject(async (projectRoot) => {
-    const api = createSupervisorRuntimeApi({ projectRoot, now: () => '2026-06-12T00:00:00.000Z' });
+  it('stopProject cancels the active project run and returns a stopped intent', async () => withTempProject(async (projectRoot) => {
+    const api = createSupervisorRuntimeApi({
+      projectRoot,
+      rootCards: { read: () => ({ id: 'project', type: 'project' }) },
+      now: () => '2026-06-12T00:00:00.000Z',
+    });
+    await api.startProject('operator');
 
     const result = await api.stopProject('operator');
 
     expect(result).toEqual({
       success: true,
-      command: expect.objectContaining({
-        command: 'stop_project',
-        status: 'completed',
-        source: 'operator',
-      }),
-      intent: {
-        status: 'stopped',
-        updated_at: '2026-06-12T00:00:00.000Z',
-        source_command_id: null,
-        reason: 'xstate_runtime_shell_stop',
-      },
+      command: expect.objectContaining({ command: 'stop_project', status: 'completed', source: 'operator' }),
+      intent: { status: 'stopped', updated_at: '2026-06-12T00:00:00.000Z', source_command_id: 'runtime-command-2', reason: 'runtime_project_cancelled' },
+      run: expect.objectContaining({ phase: 'cancelled', runtime_status: 'cancelled' }),
     });
-  }));
-
-  it('activates terminal children through XState child activation', async () => withTempProject(async (projectRoot) => {
-    const providerTurn: ProviderTurnPort = {
-      completeTurn: jest.fn(async (input: LlmInvocationInput) => {
-        if (input.role === 'executor') return { kind: 'message' as const, content: 'child executed' };
-        if (!input.episodeContext.lastToolResult) {
-          return {
-            kind: 'tool_calls' as const,
-            tool_calls: [{
-              id: 'activate-terminal-child',
-              type: 'function' as const,
-              function: { name: 'activate_card', arguments: JSON.stringify({ cardId: 'T-child' }) },
-            }],
-          };
-        }
-        return { kind: 'message' as const, content: 'project complete after child' };
-      }),
-    };
-    const cards = new Map<string, XStateChildCard>([
-      ['project', { id: 'project', type: 'project' }],
-      ['T-child', { id: 'T-child', type: 'code' }],
-    ]);
-    const api = createSupervisorRuntimeApi({
-      projectRoot,
-      providerTurn,
-      rootCards: { read: jest.fn((cardId: string) => cards.get(cardId) ?? null) },
-      now: () => '2026-06-12T00:00:00.000Z',
-    });
-
-    const result = await api.startProject('operator');
-
-    expect(result.success).toBe(true);
-    expect(providerTurn.completeTurn).toHaveBeenCalledWith(expect.objectContaining({ agentId: 'planner:project' }));
-    expect(providerTurn.completeTurn).toHaveBeenCalledWith(expect.objectContaining({
-      agentId: 'executor:T-child',
-      tools: expect.arrayContaining([
-        expect.objectContaining({ function: expect.objectContaining({ name: 'run_process' }) }),
-        expect.objectContaining({ function: expect.objectContaining({ name: 'wait_process' }) }),
-      ]),
-    }));
-    expect(readActorSnapshots(projectRoot).map((item) => item.actor_id).sort()).toEqual([
-      'card:T-child',
-      'card:project',
-      'executor:T-child',
-      'planner:project',
-      'supervisor',
-    ]);
+    expect(api.getStatus()).toMatchObject({ status: 'idle', currentCardId: null });
   }));
 });
-
-async function eventually(assertion: () => void, attempts = 20): Promise<void> {
-  let lastError: unknown;
-  for (let i = 0; i < attempts; i++) {
-    try {
-      assertion();
-      return;
-    } catch (error) {
-      lastError = error;
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    }
-  }
-  throw lastError;
-}

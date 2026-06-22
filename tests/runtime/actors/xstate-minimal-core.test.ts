@@ -10,7 +10,7 @@ import {
   plannerActorId,
   readActorSnapshots,
   removeActorSnapshot,
-  RuntimeSupervisorController,
+  RuntimeSupervisorActor,
   saveActorSnapshot,
   actorSnapshotPath,
   actorMessagesPath,
@@ -106,7 +106,7 @@ async function eventually(assertion: () => void, timeoutMs = 1000): Promise<void
   throw lastError;
 }
 
-describe('XState minimal runtime core', () => {
+describe('actor runtime components', () => {
   it('derives deterministic actor ids and kinds', () => {
     expect(supervisorActorId()).toBe('supervisor');
     expect(cardActorId('T-1')).toBe('card:T-1');
@@ -166,15 +166,17 @@ describe('XState minimal runtime core', () => {
   }));
 
   it('supervisor owns one provider-call admission permit', () => withTempProject(async (projectRoot) => {
-    const supervisor = new RuntimeSupervisorController();
-    supervisor.start(projectRoot);
+    const supervisor = new RuntimeSupervisorActor();
+    supervisor.start();
+    supervisor.initialize(projectRoot);
+    supervisor.run();
 
     await eventually(() => { expect(supervisor.mode).toBe('running'); });
     expect(supervisor.work).toBe('ready');
-    expect(supervisor.requestProviderCall('call-1')).toBe(true);
+    expect(supervisor.requestProviderCall({ callId: 'call-1' })).toBe(true);
     await eventually(() => { expect(supervisor.work).toBe('model_invocation_active'); });
-    expect(supervisor.requestProviderCall('call-2')).toBe(false);
-    supervisor.releaseProviderCall('call-1');
+    expect(supervisor.requestProviderCall({ callId: 'call-2' })).toBe(false);
+    supervisor.releaseProviderCall({ callId: 'call-1' });
     await eventually(() => { expect(supervisor.work).toBe('ready'); });
 
     const snapshots = readActorSnapshots(projectRoot);
@@ -316,10 +318,12 @@ describe('XState minimal runtime core', () => {
   }));
 
   it('LLMRunner respects supervisor provider-call admission', async () => withTempProject(async (projectRoot) => {
-    const supervisor = new RuntimeSupervisorController();
-    supervisor.start(projectRoot);
+    const supervisor = new RuntimeSupervisorActor();
+    supervisor.start();
+    supervisor.initialize(projectRoot);
+    supervisor.run();
     await eventually(() => { expect(supervisor.mode).toBe('running'); });
-    expect(supervisor.requestProviderCall('external-call')).toBe(true);
+    expect(supervisor.requestProviderCall({ callId: 'external-call' })).toBe(true);
     await eventually(() => { expect(supervisor.work).toBe('model_invocation_active'); });
     const provider: ProviderTurnPort = {
       completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'should not run' })),
@@ -338,12 +342,14 @@ describe('XState minimal runtime core', () => {
       'activity',
       'model_issue',
     ]);
-    supervisor.releaseProviderCall('external-call');
+    supervisor.releaseProviderCall({ callId: 'external-call' });
   }));
 
   it('LLMRunner releases supervisor admission after provider completion', async () => withTempProject(async (projectRoot) => {
-    const supervisor = new RuntimeSupervisorController();
-    supervisor.start(projectRoot);
+    const supervisor = new RuntimeSupervisorActor();
+    supervisor.start();
+    supervisor.initialize(projectRoot);
+    supervisor.run();
     await eventually(() => { expect(supervisor.mode).toBe('running'); });
     const provider: ProviderTurnPort = {
       completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'done' })),
@@ -354,8 +360,8 @@ describe('XState minimal runtime core', () => {
 
     expect(output.type).toBe('LLM_RESULT');
     await eventually(() => { expect(supervisor.work).toBe('ready'); });
-    expect(supervisor.requestProviderCall('next-call')).toBe(true);
-    supervisor.releaseProviderCall('next-call');
+    expect(supervisor.requestProviderCall({ callId: 'next-call' })).toBe(true);
+    supervisor.releaseProviderCall({ callId: 'next-call' });
   }));
 
   it('terminal CardRunner fails clearly on unsupported executor tool calls', async () => withTempProject(async (projectRoot) => {

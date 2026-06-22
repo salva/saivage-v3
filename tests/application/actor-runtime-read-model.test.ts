@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from '@jest/globals';
 import { buildActorRuntimeReadModel } from '../../src/application/read-models/actor-runtime-read-model.js';
-import { RuntimeSupervisorController, saveActorSnapshot } from '../../src/runtime/actors/index.js';
+import { RuntimeSupervisorActor, saveActorSnapshot } from '../../src/runtime/actors/index.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-actor-read-model-'));
@@ -31,8 +31,10 @@ async function eventually(assertion: () => void, timeoutMs = 1000): Promise<void
 
 describe('actor runtime read model', () => {
   it('projects supervisor, card runner, and LLM runner snapshots without raw XState details', () => withTempProject(async (projectRoot) => {
-    const supervisor = new RuntimeSupervisorController();
-    supervisor.start(projectRoot);
+    const supervisor = new RuntimeSupervisorActor();
+    supervisor.start();
+    supervisor.initialize(projectRoot);
+    supervisor.run();
     await eventually(() => { expect(supervisor.mode).toBe('running'); });
     supervisor.pause();
     await eventually(() => { expect(supervisor.mode).toBe('paused'); });

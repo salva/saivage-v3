@@ -1,26 +1,20 @@
 import { EventBus } from '../../events/index.js';
 import { createActionableErrorEnvelope } from '../../schemas/index.js';
 import { PROJECT_CARD_ID } from '../../cards/project-card.js';
-import { buildXStatePlannerInput } from './actor-input-builders.js';
 import { buildActorRecoveryPlan } from './actor-recovery.js';
-import { GoalCardRunnerController } from './goal-card-runner.js';
 import { abandonStalePendingToolCalls } from './llm-delivery-log.js';
 import { plannerActorId } from './ids.js';
-import { RuntimeSupervisorController } from './runtime-supervisor.js';
-import { createXStateChildActivation } from './xstate-child-activation.js';
+import { RuntimeSupervisorActor } from './runtime-supervisor.js';
 import type { RuntimeApi, RuntimeCommandSource, StartProjectResult, StopProjectResult } from '../runtime-api.js';
 import type { RuntimeCommandRecord, RuntimeRunRecord, RuntimeState, RuntimeStatus } from '../../schemas/index.js';
 import type { SessionActivity } from '../session-stamper.js';
 import type { Subscription, SubscriptionOptions } from '../../events/index.js';
-import type { ChildActivationPort } from './goal-card-runner.js';
-import type { GoalCardStatusPort } from './goal-card-runner.js';
-import type { ProviderTurnPort } from './llm-runner.js';
-import type { TerminalCardStatusPort } from './card-runner.js';
-import type { XStateChildCardReader } from './xstate-child-activation.js';
 import type { RuntimeContextCardReader } from '../context-builder.js';
 import type { ActorRecoveryPlan } from './actor-recovery.js';
 
-export type ProjectRootCardReader = XStateChildCardReader;
+export interface ProjectRootCardReader {
+  read(cardId: string): { id: string; type: string } | null;
+}
 
 export interface SupervisorRuntimeApiOptions {
   projectRoot: string;
@@ -28,21 +22,17 @@ export interface SupervisorRuntimeApiOptions {
   now?: () => string;
   rootCards?: ProjectRootCardReader;
   contextCards?: RuntimeContextCardReader;
-  providerTurn?: ProviderTurnPort;
-  reviewerProviderTurn?: ProviderTurnPort;
-  childActivation?: ChildActivationPort;
-  goalStatusPort?: GoalCardStatusPort;
-  terminalStatusPort?: TerminalCardStatusPort;
 }
 
 export class SupervisorRuntimeApi implements RuntimeApi {
-  private readonly supervisor = new RuntimeSupervisorController();
+  private readonly supervisor = new RuntimeSupervisorActor();
   private readonly eventBus: EventBus;
   private readonly now: () => string;
   private started = false;
   private commandCounter = 0;
   private runCounter = 0;
   private currentCardId: string | null = null;
+  private activeRun: RuntimeRunRecord | null = null;
   private recoveryPlan: ActorRecoveryPlan | null = null;
 
   constructor(private readonly options: SupervisorRuntimeApiOptions) {
@@ -54,99 +44,80 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     if (this.started) return;
     this.recoveryPlan = buildActorRecoveryPlan(this.options.projectRoot, this.options.rootCards);
     abandonStalePendingToolCalls(this.options.projectRoot);
-    this.supervisor.start(this.options.projectRoot);
+    this.supervisor.start();
+    this.supervisor.initialize(this.options.projectRoot);
     this.started = true;
   }
 
   async shutdown(): Promise<void> {
     if (!this.started) return;
-    this.supervisor.stop();
+    this.supervisor.shutdown();
     this.started = false;
+    this.currentCardId = null;
+    this.activeRun = null;
   }
 
   pause(): void {
+    if (!this.started) return;
     this.supervisor.pause();
   }
 
   resume(): void {
-    this.supervisor.resume();
+    if (!this.started) return;
+    this.supervisor.run();
   }
 
   async startProject(source: RuntimeCommandSource = 'operator'): Promise<StartProjectResult> {
     await this.start();
-    if (!this.options.providerTurn) {
-      const command = this.command('start_project', 'rejected', source);
-      const error = createActionableErrorEnvelope({
-        code: 'xstate_runtime_not_wired',
-        message: 'The XState runtime shell is available but project execution is not wired yet.',
-        currentState: { mode: this.supervisor.mode, work: this.supervisor.work },
-        nextAction: 'Provide a ProviderTurnPort before starting project execution through the XState runtime shell.',
-        docsRef: 'docs/design/card-runner-xstate-porting-plan.md',
-      });
-      return { success: false, command: { ...command, error }, error };
-    }
     const rootCard = this.options.rootCards?.read(PROJECT_CARD_ID) ?? null;
-    if (!rootCard) {
+    if (this.options.rootCards && !rootCard) {
       const command = this.command('start_project', 'rejected', source);
       const error = createActionableErrorEnvelope({
-        code: 'xstate_project_card_missing',
-        message: `Cannot start XState runtime: project card '${PROJECT_CARD_ID}' was not found.`,
+        code: 'runtime_project_card_missing',
+        message: `Cannot start runtime: project card '${PROJECT_CARD_ID}' was not found.`,
         cardId: PROJECT_CARD_ID,
         currentState: { mode: this.supervisor.mode, work: this.supervisor.work },
         nextAction: `Create or repair the canonical project card '${PROJECT_CARD_ID}' before starting runtime execution.`,
-        docsRef: 'docs/design/card-runner-xstate-porting-plan.md',
+        docsRef: 'docs/architecture/micro-actor-runtime-design.md',
       });
       return { success: false, command: { ...command, error }, error };
     }
+
     const command = this.command('start_project', 'completed', source);
     const startedAt = this.now();
+    this.supervisor.run();
     this.currentCardId = PROJECT_CARD_ID;
-    const childActivation = this.options.childActivation ?? (this.options.rootCards
-      ? createXStateChildActivation({
-        projectRoot: this.options.projectRoot,
-        cards: this.options.rootCards,
-        contextCards: this.options.contextCards,
-        providerTurn: this.options.providerTurn,
-        admission: this.supervisor,
-        reviewerProviderTurn: this.options.reviewerProviderTurn,
-        goalStatusPort: this.options.goalStatusPort,
-        terminalStatusPort: this.options.terminalStatusPort,
-      })
-      : missingChildActivation());
-    const runner = new GoalCardRunnerController(
-      this.options.projectRoot,
-      PROJECT_CARD_ID,
-      this.options.providerTurn,
-      childActivation,
-      {
-        admission: this.supervisor,
-        reviewerProviderTurn: this.options.reviewerProviderTurn,
-        statusPort: this.options.goalStatusPort,
-        card: { id: PROJECT_CARD_ID, type: 'project' },
-        context: { cards: this.options.contextCards },
-      },
-    );
-    const outcome = await runner.start(buildXStatePlannerInput({
-      inputId: `start-project:${command.command_id}`,
-      card: { id: PROJECT_CARD_ID, type: 'project' },
-      sourceCommandId: command.command_id,
-      context: { cards: this.options.contextCards },
-    }));
-    const finishedAt = this.now();
-    this.currentCardId = null;
+    this.activeRun = this.runRecord(command.command_id, startedAt, null, 'pending', 'running');
     return {
       success: true,
       command,
-      intent: { status: 'stopped', updated_at: finishedAt, source_command_id: command.command_id, reason: `xstate_project_${outcome.status}` },
-      run: this.runRecord(command.command_id, startedAt, finishedAt, outcome.status, outcome.statusText),
+      intent: { status: 'running', updated_at: startedAt, source_command_id: command.command_id, reason: null },
+      run: this.activeRun,
     };
   }
 
   async stopProject(source: RuntimeCommandSource = 'operator'): Promise<StopProjectResult> {
+    await this.start();
+    const command = this.command('stop_project', 'completed', source);
+    const stoppedAt = this.now();
+    this.supervisor.cancelProject();
+    const run = this.activeRun
+      ? {
+          ...this.activeRun,
+          phase: 'cancelled' as const,
+          runtime_status: 'cancelled' as const,
+          updated_at: stoppedAt,
+          finished_at: stoppedAt,
+          outcome: { kind: 'completed' as const, result: 'cancelled' as const, finished_at: stoppedAt },
+        }
+      : undefined;
+    this.currentCardId = null;
+    this.activeRun = null;
     return {
       success: true,
-      command: this.command('stop_project', 'completed', source),
-      intent: { status: 'stopped', updated_at: this.now(), source_command_id: null, reason: 'xstate_runtime_shell_stop' },
+      command,
+      intent: { status: 'stopped', updated_at: stoppedAt, source_command_id: command.command_id, reason: 'runtime_project_cancelled' },
+      run,
     };
   }
 
@@ -155,9 +126,12 @@ export class SupervisorRuntimeApi implements RuntimeApi {
   }
 
   getStatus(): { status: RuntimeStatus; paused: boolean; currentCardId: string | null; goalCount: number; lastTickAt: string | null } {
-    const mode = this.started ? this.supervisor.mode : 'stopping';
+    if (!this.started) {
+      return { status: 'idle', paused: false, currentCardId: null, goalCount: 0, lastTickAt: null };
+    }
+    const mode = this.supervisor.mode;
     return {
-      status: mode === 'paused' ? 'paused' : this.started ? 'idle' : 'idle',
+      status: mode === 'paused' ? 'paused' : mode === 'running' ? 'running' : 'idle',
       paused: mode === 'paused',
       currentCardId: this.currentCardId,
       goalCount: this.currentCardId ? 1 : 0,
@@ -173,11 +147,19 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     return this.recoveryPlan;
   }
 
+  requestProviderCall(callId: string): boolean {
+    return this.supervisor.requestProviderCall({ callId });
+  }
+
+  releaseProviderCall(callId: string): void {
+    this.supervisor.releaseProviderCall({ callId });
+  }
+
   private command(command: RuntimeCommandRecord['command'], status: RuntimeCommandRecord['status'], source: RuntimeCommandSource): RuntimeCommandRecord {
     this.commandCounter++;
     const at = this.now();
     return {
-      command_id: `xstate-command-${this.commandCounter}`,
+      command_id: `runtime-command-${this.commandCounter}`,
       command,
       status,
       requested_at: at,
@@ -187,36 +169,25 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     };
   }
 
-  private runRecord(commandId: string, startedAt: string, finishedAt: string, status: string, statusText: string): RuntimeRunRecord {
+  private runRecord(commandId: string, startedAt: string, finishedAt: string | null, phase: RuntimeRunRecord['phase'], runtimeStatus: RuntimeRunRecord['runtime_status']): RuntimeRunRecord {
     this.runCounter++;
-    const failed = status !== 'done';
     return {
-      run_id: `xstate-run-${this.runCounter}`,
+      run_id: `runtime-run-${this.runCounter}`,
       kind: 'root',
       card_id: PROJECT_CARD_ID,
       ownership: { kind: 'direct', source: 'project_root' },
       parent_run_id: null,
       command_id: commandId,
       activation_id: null,
-      phase: failed ? 'failed' : 'completed',
-      runtime_status: 'idle',
+      phase,
+      runtime_status: runtimeStatus,
       session_id: plannerActorId(PROJECT_CARD_ID),
       started_at: startedAt,
-      updated_at: finishedAt,
+      updated_at: finishedAt ?? startedAt,
       finished_at: finishedAt,
-      outcome: failed
-        ? { kind: 'completed', result: 'failed', error: statusText, finished_at: finishedAt }
-        : { kind: 'completed', result: 'done', finished_at: finishedAt },
+      outcome: null,
     };
   }
-}
-
-function missingChildActivation(): ChildActivationPort {
-  return {
-    async startChild(cardId: string) {
-      return { status: 'blocked', statusText: `No XState child activation port is configured for '${cardId}'.` };
-    },
-  };
 }
 
 export function createSupervisorRuntimeApi(options: SupervisorRuntimeApiOptions): RuntimeApi {
