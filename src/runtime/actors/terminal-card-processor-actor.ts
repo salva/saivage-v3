@@ -80,12 +80,11 @@ export class TerminalCardProcessorActor extends BaseActor implements CardProcess
         this.sendEvent('failed');
       },
     });
-    this.persist();
   }
 
-  _on_enter__idle(): void { this.persist(); }
-  _on_enter__settled(): void { this.persist(); }
-  _on_enter__cancelled(): void { this.persist(); }
+  protected override _on_state_changed(_oldState: string | undefined, _newState: string): void {
+    this.persist();
+  }
 
   snapshot() {
     return {

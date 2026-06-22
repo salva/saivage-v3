@@ -87,22 +87,13 @@ export class RuntimeSupervisorActor extends BaseActor {
     }
   }
 
-  _on_enter__idle(): void {
-    this.activeProviderCallId = null;
-    this.persist();
-  }
-
-  _on_enter__running(): void {
-    this.persist();
-  }
-
-  _on_enter__paused(): void {
-    this.persist();
-  }
-
   _on_enter__shutting_down(): void {
-    this.persist();
     this.runTask(async () => undefined);
+  }
+
+  protected override _on_state_changed(_oldState: string | undefined, newState: string): void {
+    if (newState === 'idle') this.activeProviderCallId = null;
+    this.persist();
   }
 
   snapshot() {

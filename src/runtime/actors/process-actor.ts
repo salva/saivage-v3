@@ -123,16 +123,16 @@ export class ProcessActor extends BaseActor {
         else this.recordExit(outcome);
       },
     });
-    this.persist();
   }
 
   _on_enter__killing(): void {
     this.#exitPromise = this.#childExitPromise;
     this.runTask(async () => this.requireExitPromise(), { on_done: (outcome) => this.recordExit(outcome) });
-    this.persist();
   }
 
-  _on_enter__settled(): void { this.persist(); }
+  protected override _on_state_changed(_oldState: string | undefined, _newState: string): void {
+    this.persist();
+  }
 
   snapshot() {
     return {

@@ -154,15 +154,11 @@ export class CardActor extends BaseActor {
         result: { kind: 'planner_failure', error: error.message },
       }),
     });
-    this.persist();
   }
 
-  _on_enter__backlog(): void { this.persist(); }
-  _on_enter__changed(): void { this.persist(); }
-  _on_enter__blocked(): void { this.persist(); }
-  _on_enter__failed(): void { this.persist(); }
-  _on_enter__done(): void { this.persist(); }
-  _on_enter__cancelled(): void { this.persist(); }
+  protected override _on_state_changed(_oldState: string | undefined, _newState: string): void {
+    this.persist();
+  }
 
   snapshot() {
     return {
