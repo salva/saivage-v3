@@ -5,7 +5,6 @@ import { describe, expect, it, jest } from '@jest/globals';
 import {
   buildActorRecoveryPlan,
   saveActorSnapshot,
-  type XStateChildCard,
 } from '../../../src/runtime/actors/index.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
@@ -82,7 +81,7 @@ describe('actor recovery plan', () => {
   }));
 
   it('allows an active LLM snapshot when the owner card exists in the domain reader', () => withTempProject((projectRoot) => {
-    const cards = new Map<string, XStateChildCard>([['G-domain', { id: 'G-domain', type: 'goal' }]]);
+    const cards = new Map<string, { id: string; type: string }>([['G-domain', { id: 'G-domain', type: 'goal' }]]);
     saveSnapshot(projectRoot, 'planner:G-domain', 'llm', 'running', { cardId: 'G-domain' });
 
     const plan = buildActorRecoveryPlan(projectRoot, { read: jest.fn((cardId: string) => cards.get(cardId) ?? null) });

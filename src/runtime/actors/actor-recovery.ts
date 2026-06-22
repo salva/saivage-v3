@@ -1,6 +1,9 @@
 import { readActorSnapshots } from './snapshots.js';
 import type { ActorSnapshotRecord } from './snapshots.js';
-import type { XStateChildCardReader } from './xstate-child-activation.js';
+
+export interface ActorRecoveryCardReader {
+  read(cardId: string): unknown | null;
+}
 
 export type LlmRecoveryRole = 'planner' | 'reviewer' | 'executor';
 
@@ -50,7 +53,7 @@ export interface ActorRecoveryPlan {
   diagnostics: ActorRecoveryDiagnostic[];
 }
 
-export function buildActorRecoveryPlan(projectRoot: string, cards?: XStateChildCardReader): ActorRecoveryPlan {
+export function buildActorRecoveryPlan(projectRoot: string, cards?: ActorRecoveryCardReader): ActorRecoveryPlan {
   const snapshots = readActorSnapshots(projectRoot);
   const supervisor = snapshots.find((snapshot) => snapshot.actor_id === 'supervisor') ?? null;
   const cardSnapshots = snapshots.filter((snapshot) => snapshot.actor_kind === 'card');
