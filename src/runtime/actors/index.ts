@@ -7,6 +7,7 @@ export * from './active-goal-note-sinks.js';
 export * from './actor-recovery.js';
 export * from './runtime-supervisor.js';
 export * from './llm-runner.js';
+export * from './llm-actor.js';
 export * from './invocation-provider-turn.js';
 export * from './card-runner.js';
 export * from './card-actor.js';
