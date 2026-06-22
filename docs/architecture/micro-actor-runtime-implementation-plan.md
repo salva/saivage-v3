@@ -62,7 +62,8 @@ Implementation:
 - Implement public methods `activate(caller)`, `notify(notification)`, `cancel(reason)`, and `markChanged(change)`.
 - Persist public card status changes through the canonical card store before reporting outcomes upward.
 - Instantiate or reconnect direct child `CardActor` instances from card data.
-- Instantiate or reconnect the associated `CardProcessorActor` for the card type.
+- Instantiate or reconnect the associated processor actor for the card type.
+- Use `BaseActor.recover(state)` when reconnecting a fresh actor instance to an existing durable card state.
 - In `running`, call the processor's `activate(input)` method and wait on a parent-owned promise.
 - Call hard-coded parent completion methods when activation outcomes are committed.
 - Keep running-card change handling simple: running cards stay `running` and receive notification/context.
@@ -74,7 +75,7 @@ Tests:
 - Activation transitions to `running` and starts the processor.
 - Processor `done`, `failed`, and `blocked` outcomes update card state before parent notification.
 - `markChanged(...)` moves inactive cards to `changed` and leaves running cards `running`.
-- `cancel(...)` marks inactive cards/subtrees `canceled` and preserves descendants already `done`.
+- `cancel(...)` marks cards/subtrees `canceled`, preserves descendants already `done`, and records late active-work results as diagnostics.
 
 Acceptance:
 
@@ -91,7 +92,7 @@ Implementation:
 - Add `LLMActor` with states needed by implementation, starting from `idle`, `requesting_admission`, `calling_provider`, and `waiting_tool` unless implementation proves a simpler table.
 - Implement public methods `turn(inputRef)`, `appendToolResult(toolCallId, result)`, `appendToolError(toolCallId, error)`, and `cancel(reason)`.
 - Persist model-visible input context before provider calls.
-- Request provider admission through the parent `CardProcessorActor` and supervisor policy.
+- Request provider admission through the parent processor actor and supervisor policy; paused processors do not request new LLM turns.
 - Persist provider responses before interpretation by the owner.
 - Persist assistant tool calls before routing them.
 - Enforce exactly one tool result or tool error per tool call.
@@ -101,7 +102,7 @@ Implementation:
 Tests:
 
 - `turn(...)` persists invocation context before provider call.
-- Pause/admission denial prevents a provider call from starting.
+- A paused processor does not request a new LLM turn, so no provider call starts while paused.
 - Provider failure returns a failed LLM outcome to the parent processor.
 - Tool calls are persisted before routing.
 - `appendToolResult(...)` and `appendToolError(...)` continue from `waiting_tool`.
@@ -145,13 +146,13 @@ Acceptance:
 - Focused process actor tests pass.
 - No process-runner controller bridge remains in production code.
 
-## Slice 5: Terminal CardProcessorActor Vertical Slice
+## Slice 5: TerminalCardProcessorActor Vertical Slice
 
 Goal: prove the full actor path with the simplest useful card execution.
 
 Implementation:
 
-- Implement terminal processor behavior in `CardProcessorActor`.
+- Implement terminal processor behavior in `TerminalCardProcessorActor`.
 - Add terminal states `executing`, `waiting_process`, and parked `settled` or simpler equivalents if implementation allows.
 - Implement public methods `activate(input)` and `cancel(reason)`.
 - Build executor invocation context from card data, notifications, and relevant project context.
@@ -167,7 +168,7 @@ Tests:
 - Invalid executor report appends tool error or fails visibly according to protocol.
 - Process wait timeout returns a timeout tool result and does not kill the process.
 - Explicit process kill records termination details.
-- Terminal cancellation stops future LLM admission and returns a normal failed/canceled path as designed.
+- Terminal cancellation marks the card/subtree canceled, stops future LLM admission, and records late results as diagnostics.
 
 Acceptance:
 
@@ -181,7 +182,7 @@ Goal: implement planner child activation and goal completion around the actor bo
 
 Implementation:
 
-- Implement project/goal processor behavior in `CardProcessorActor`.
+- Implement project and goal processor behavior in `ProjectCardProcessorActor` and `GoalCardProcessorActor`.
 - Build planner invocation context from card tree, planning diary, pending notifications, prior reviewer findings, and direct child status.
 - Own/cache planner `LLMActor` and reviewer `LLMActor` as needed.
 - Build planner capabilities for direct-child activation, direct-child mutation, process tools, working status, and planner terminal reports.
@@ -203,7 +204,7 @@ Tests:
 Acceptance:
 
 - Project/goal planning can execute a child terminal card through the actor chain.
-- No planner controller owns child dispatch outside CardProcessorActor/CardActor, and no planner bridge remains.
+- No planner controller owns child dispatch outside processor actors/CardActor, and no planner bridge remains.
 
 ## Slice 7: Reviewer Flow
 
@@ -230,7 +231,7 @@ Tests:
 Acceptance:
 
 - Goal/project `done` requires planner report, gates, and valid reviewer approval unless the card type explicitly skips review.
-- Reviewer logic stays inside CardProcessorActor/LLMActor boundaries.
+- Reviewer logic stays inside processor actor/LLMActor boundaries.
 
 ## Slice 8: Recovery
 
@@ -276,7 +277,7 @@ Implementation:
 Tests:
 
 - Static/boundary tests prove production runtime does not import removed controller/XState paths.
-- Routine validation passes except known unrelated archived-doc failures.
+- Routine validation passes.
 
 Acceptance:
 
@@ -302,7 +303,7 @@ Acceptance:
 ## Open Decisions
 
 - Completed actor-record retention: delete, archive, or bounded history.
-- Exact parent-visible outcome for active subtree cancellation.
+- Whether process tools share one `ProcessActor` per process record or use direct process-service tasks for short operations.
 - Whether reviewer structured output is tool-based immediately or strict JSON in the first implementation.
 - Exact public projection fields for active chain and runtime activity.
 

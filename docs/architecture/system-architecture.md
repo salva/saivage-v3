@@ -105,17 +105,17 @@ Analyst mutation or parent-planner mutation sets a non-active card to `changed`.
 
 When a modification affects an inactive descendant, inactive ancestors on the direct path to the project root receive changed-subtree context and become `changed` until the first running ancestor. Running ancestors stay `running` and receive notification/context instead of status overwrite. In practice, deep propagation is most often needed for Analyst edits because parent-planner edits target direct children of the active goal. Ancestors are not automatically dispatched by the status change.
 
-The acceptance gate prevents a planner from closing a goal while any executable descendant is not in a completion-compatible state. This forces the planner to observe and handle changed, blocked, backlog, running, failed, or otherwise incomplete executable descendants before claiming completion. Canceled descendants are completion-compatible and do not block `done`. Goal cards carry their own planning diary state.
+The acceptance gate prevents a planner from closing a goal while any executable descendant is not in a completion-compatible state. This forces the planner to observe and handle changed, blocked, backlog, running, failed, or otherwise incomplete executable descendants before claiming completion. Done and canceled descendants are completion-compatible and do not block `done`. Goal cards carry their own planning diary state.
 
 `result` is attached from accepted main-agent results only. It is not updated from progress chatter, rejected reports, or reviewer correction requests. `working_status` is separate free text for agents attached to the card.
 
-## 9. Collaborative Cancellation
+## 9. Cancellation
 
-Direct cancellation is safe for cards that are not `running`. Recursive cancellation preserves descendants that are already `done` and converts non-completion-compatible descendants, including `failed` and `blocked`, to `canceled`. Runtime-owned processes attached to non-running canceled cards are terminated through canonical process controls.
+Cancellation is a card-state operation. Recursive cancellation preserves descendants that are already `done` and converts non-completion-compatible descendants, including `failed`, `blocked`, `backlog`, `changed`, and `running`, to `canceled`. Runtime-owned processes attached to canceled cards are terminated or marked abandoned through canonical process controls.
 
-For running cards or subtrees containing the active leaf, cancellation is cooperative and bounded. The runtime sends notifications to the requested card and downstream active cards, limits future LLM admission for that subtree to cancellation/cooperative-finish context, and waits for in-flight provider calls, tool calls, or bounded process waits to complete or time out. Agents observe the cancellation at the next LLM admission boundary and report `failed`; `canceled` is applied as runtime card status, not as a parent-visible activation outcome. Failed outcomes unwind through normal activation barriers until they reach the planner responsible for the originally requested cancellation. Shutdown remains the hard operation that directly terminates runtime-owned running processes.
+Canceling a running card closes future LLM admission for that card/subtree and marks late provider, tool, or process results as diagnostics rather than second outcomes. It does not add a separate workflow phase. Shutdown remains the hard operation for stopping the runtime itself.
 
-Project-card cancellation is the root special case. The supervisor coordinates cooperative cancellation of the active chain, marks the project card `canceled` when fulfilled, returns to idle, and leaves the next project-level action to the user through the Analyst.
+Project-card cancellation is the root case of the same operation: the supervisor cancels the project card/subtree through the project `CardActor`, returns to idle, and leaves the next project-level action to the user through the Analyst.
 
 ## 10. Persistence
 
@@ -160,11 +160,11 @@ The runtime implementation direction is micro-actor-centered: actor states, subm
 
 Target actor ownership:
 
-- `CardActor`s own direct child `CardActor` instances and the associated `CardProcessorActor` for that card;
-- project and goal `CardProcessorActor`s own and cache planner/reviewer `LLMActor` instances; they hold child activation authority, readiness/review gates, and card-scoped capability construction;
-- terminal `CardProcessorActor`s own and cache the executor `LLMActor`; they hold terminal-card semantic execution for one active terminal activation, construct card-scoped capabilities, and do not own child cards;
+- `CardActor`s own direct child `CardActor` instances and the associated processor actor for that card type;
+- `ProjectCardProcessorActor` and `GoalCardProcessorActor` own and cache planner/reviewer `LLMActor` instances; they hold child activation authority, readiness/review gates, and card-scoped capability construction;
+- `TerminalCardProcessorActor` owns and caches the executor `LLMActor`; it holds terminal-card semantic execution for one active terminal activation, constructs card-scoped capabilities, and does not own child cards;
 - process actors manage OS process lifecycle.
 
 Process execution follows a launch-and-monitor model. Agents launch project commands through runtime-owned process actors, inspect status/logs over time, use bounded waits for completion, and explicitly terminate processes when needed. The functional specification does not impose process concurrency limits for now.
 
-Controllers that advance runtime behavior are disallowed by default. A retained `RuntimeApi` may accept commands, send events, wait on snapshots, and project read models; it must not execute workflow logic itself.
+Controllers that advance runtime behavior are disallowed by default. A retained `RuntimeApi` may accept commands, call actor public methods, wait on projections, and project read models; it must not execute workflow logic itself.

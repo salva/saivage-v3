@@ -24,7 +24,7 @@ Reusable ideas found in the XState-era material:
 - Enforce exactly-one tool result or tool error for every assistant tool call.
 - Keep process execution durable and separately observable.
 - Make pause a scheduling/admission gate, not a card state.
-- Make cancellation cooperative, bounded, and explicit.
+- Make cancellation explicit and status-driven.
 - Route notifications to cards, then deliver them to that card's main agent session at a safe LLM admission boundary.
 - Prefer deletion of old controller/decorator layers over preserving old tests or APIs.
 
@@ -92,30 +92,30 @@ The runtime has one root supervisor and a deterministic card actor tree:
 ```text
 RuntimeSupervisorActor
   CardActor(project)
-    CardProcessorActor(project)
+    ProjectCardProcessorActor
       LLMActor(planner:project)
       LLMActor(reviewer:project)
       ProcessActor(... as needed)
     CardActor(goal)
-      CardProcessorActor(goal)
+      GoalCardProcessorActor
         LLMActor(planner:goal)
         LLMActor(reviewer:goal)
         ProcessActor(... as needed)
       CardActor(terminal)
-        CardProcessorActor(terminal)
+        TerminalCardProcessorActor
           LLMActor(executor:terminal)
           ProcessActor(... as needed)
 ```
 
-`CardActor` has the public card states: `backlog`, `running`, `done`, `blocked`, `failed`, `canceled`, and `changed`. This is the public card lifecycle layer. Public idle card states such as `backlog`, `done`, `blocked`, `failed`, and `changed` are parked because external commands may later activate, change, or cancel them. `canceled` is terminal. `CardProcessorActor` has card-type-dependent behavior. `LLMActor` interacts with remote LLM providers.
+`CardActor` has the public card states: `backlog`, `running`, `done`, `blocked`, `failed`, `canceled`, and `changed`. This is the public card lifecycle layer. New card actors start in `backlog`; recovered actors use the persisted card state. Public idle card states such as `backlog`, `done`, `blocked`, `failed`, and `changed` are parked because external commands may later activate, change, or cancel them. `canceled` is terminal: the actor exits, and any later reactivation creates a fresh actor instance for the new durable card state. Each card type has its own concrete processor actor class. `LLMActor` interacts with remote LLM providers.
 
 The active chain may contain several public `running` cards, but only the leaf actor receives provider/process scheduling at a time.
 
 Ownership conventions are deliberately narrow:
 
-- `CardActor` owns its direct child `CardActor` instances and its associated `CardProcessorActor`.
-- `CardProcessorActor` owns and caches its role-specific `LLMActor` instances.
-- `ProcessActor` instances are created and controlled by the `CardProcessorActor` that launched or attached to the process record.
+- `CardActor` owns its direct child `CardActor` instances and its associated processor actor.
+- `ProjectCardProcessorActor`, `GoalCardProcessorActor`, and `TerminalCardProcessorActor` own and cache their role-specific `LLMActor` instances.
+- `ProcessActor` instances are created and controlled by the processor actor that launched or attached to the process record.
 - Other references are dependencies, services, or data references unless a concrete actor class explicitly stores and controls them.
 
 Parent-child waiting follows one pattern:
@@ -127,7 +127,7 @@ Parent-child waiting follows one pattern:
 5. Parent method validates the child/wait identity and resolves or rejects the promise.
 6. Parent task callback stores the result and sends `done`.
 
-This keeps the micro-actor framework out of ownership and out of cross-actor waiting. The parent owns the wait. The child only reports activation outcomes to its known parent.
+This keeps the micro-actor framework out of ownership and out of cross-actor waiting. The parent owns the wait. The child only reports activation outcomes to its known parent. If the parent leaves the waiting state before the child reports, the parent invalidates the wait record; a later child report is ignored as a diagnostic no-op, not treated as a second outcome.
 
 ## Actor Inventory
 
@@ -147,7 +147,7 @@ Public methods:
 - `run()`: start idle project work or resume from paused.
 - `pause()`: close model/provider admission.
 - `shutdown()`: close admission, terminate runtime-owned running processes, and settle.
-- `cancelProject()`: cooperatively cancel the active root chain.
+- `cancelProject()`: cancel the project card/subtree and return the supervisor to idle.
 
 Event guidance:
 
@@ -187,7 +187,7 @@ Public methods:
 
 - `activate(caller)`: validate authority and start the card.
 - `notify(notification)`: enqueue card-addressed context.
-- `cancel(reason)`: cancel inactive card or coordinate active cancellation.
+- `cancel(reason)`: mark this card/subtree canceled through canonical card rules.
 - `markChanged(change)`: apply card/subtree change semantics.
 
 Parked public methods use `parkedSendEvent(...)` after validating authority and recording any event-specific data on actor fields. Allowed movements are the normal `on` transitions declared on each parked state.
@@ -203,7 +203,7 @@ Responsibilities:
 
 - Write public status through CardStore.
 - Own direct child `CardActor` instances.
-- Own the associated `CardProcessorActor`.
+- Own the associated processor actor for this card type.
 - Enforce direct-child activation authority.
 - Commit exactly one activation outcome before returning it to the parent.
 - Call the parent card's hard-coded child-completion method when this card reaches an activation outcome.
@@ -217,11 +217,11 @@ Changed-state rules:
 - A goal cannot report `done` while executable descendants remain `backlog`, `changed`, `blocked`, `failed`, or `running`.
 - `canceled` descendants are completion-compatible.
 
-### CardProcessorActor
+### Card Processor Actors
 
 Purpose: card-type-dependent behavior for project, goal, and terminal cards.
 
-There is one conceptual processor layer. Concrete processors may have different state definitions for project/goal cards and terminal cards, but that is a class/design choice, not a framework ownership feature.
+There is one concrete processor actor class per card type: `ProjectCardProcessorActor`, `GoalCardProcessorActor`, and `TerminalCardProcessorActor`. Shared helper functions are fine when they keep code smaller, but no generic processor framework or compatibility layer is required.
 
 Project and goal processor states:
 
@@ -234,7 +234,7 @@ Project and goal processor states:
 Public methods:
 
 - `activate(input)`: start or resume one card activation.
-- `cancel(reason)`: deliver cancellation intent to active processor work.
+- `cancel(reason)`: stop future work for this processor and mark late results as diagnostics.
 
 Important actor fields:
 
@@ -283,7 +283,7 @@ Terminal processor states:
 Public methods:
 
 - `activate(input)`: start one terminal card activation.
-- `cancel(reason)`: deliver cancellation intent to active executor work.
+- `cancel(reason)`: stop future executor work and mark late results as diagnostics.
 
 Terminal responsibilities:
 
@@ -315,7 +315,7 @@ Suggested states:
 - `calling_provider`: active; provider request is in flight.
 - `waiting_tool`: parked; a runtime tool result is required before another provider turn.
 
-Completed turns return to `idle`; completion data is stored on actor fields before notifying the owning `CardProcessorActor`.
+Completed turns return to `idle`; completion data is stored on actor fields before notifying the owning processor actor.
 
 LLMActor event names are intentionally left to implementation. Provider/tool-loop requirements should drive the final transition table. The default rule still applies: provider admission, provider calls, and tool waits report local completion through `done` or `failed` unless a real branch fact needs a distinct event.
 
@@ -329,12 +329,12 @@ Public methods:
 Responsibilities:
 
 - Append durable invocation context before provider calls.
-- Request/release provider admission through the parent `CardProcessorActor`, which delegates to the supervisor-owned admission policy.
+- Request/release provider admission through the parent processor actor, which delegates to the supervisor-owned admission policy. A paused processor does not request new LLM turns.
 - Treat admission as task-owned async work: `requesting_admission` runs a task that awaits the processor/supervisor admission promise, then sends the event that starts the provider call.
 - Persist provider responses before owner interpretation.
 - Persist every assistant tool call before routing it.
 - Enforce one result/error per tool call.
-- Call the parent `CardProcessorActor`'s hard-coded LLM completion/tool-call methods when the LLM turn completes or needs a runtime tool.
+- Call the parent processor actor's hard-coded LLM completion/tool-call methods when the LLM turn completes or needs a runtime tool.
 - Stay generic: do not decide public card outcomes.
 
 Provider output rules:
@@ -370,7 +370,8 @@ Responsibilities:
 
 - Persist process identity and ownership.
 - Persist terminal result/failure.
-- Return process tool results to the owning `CardProcessorActor` exactly once; the processor forwards the tool result to the waiting `LLMActor`.
+- Return process tool results to the owning processor actor exactly once; the processor forwards the tool result to the waiting `LLMActor`.
+- `inspect(...)` and `wait(...)` on an already settled process read the persisted process record directly and do not require a live actor loop.
 - Reattach to running processes after restart when safe.
 - Treat late results after cancellation as diagnostics, not second tool results.
 
@@ -386,10 +387,10 @@ Initial command mapping:
 | pause runtime | `RuntimeSupervisorActor.pause()` | Closes admission gate; does not mutate card statuses. |
 | resume runtime | `RuntimeSupervisorActor.run()` | Reopens admission from paused. |
 | shutdown | `RuntimeSupervisorActor.shutdown()` | Pauses admission and terminates runtime-owned processes. |
-| cancel project | `RuntimeSupervisorActor.cancelProject()` | Cooperatively cancels active root chain. |
-| cancel card/subtree | `CardActor.cancel()` through the runtime command boundary | Cancels inactive subtree or coordinates active cancellation if supported. |
+| cancel project | `RuntimeSupervisorActor.cancelProject()` | Cancels the project card/subtree and returns to idle. |
+| cancel card/subtree | `CardActor.cancel()` through the runtime command boundary | Marks the requested card/subtree canceled through canonical card rules. |
 | mark needs correction/change | `CardActor.notify()` / `markChanged()` | Queues notification and updates public changed state where applicable. |
-| activate child | Owning goal/project `CardProcessorActor` capability | Validates direct-child authority and starts child card. |
+| activate child | Owning goal/project processor capability | Validates direct-child authority and starts child card. |
 
 The runtime command boundary may wait for projected state when an API contract requires a completion response. Waiting must observe actor/card projections, not execute workflow itself.
 
@@ -413,7 +414,7 @@ Tool routing groups:
 Rules:
 
 - LLM actor persists the tool call before routing.
-- Owning `CardProcessorActor` validates role-specific semantics.
+- Owning processor actor validates role-specific semantics.
 - Process waits and child activations put the LLM actor into `waiting_tool`.
 - Reporting tools are interpreted by the owning card processor, not by `LLMActor`.
 - Rejected tool calls append a tool error and may allow another turn.
@@ -427,6 +428,7 @@ Rules:
 
 - Analyst and runtime services enqueue notifications to cards.
 - The card runtime decides when to append pending notifications to the main agent session.
+- `CardActor` owns the pending card-addressed queue and hands deliverable notifications to its processor actor at activation or before the next safe turn.
 - Project/goal main agent is the planner.
 - Terminal main agent is the executor.
 - Reviewer is not the main agent for notification delivery.
@@ -452,11 +454,10 @@ Pause:
 
 Cancellation:
 
-- Inactive cards/subtrees can be marked `canceled` synchronously through CardStore rules.
-- Active cancellation is cooperative and bounded.
-- Active LLM actors refuse future admission and receive cancellation context at safe boundaries.
+- Cancellation marks the requested card/subtree `canceled` through canonical card rules.
+- Active LLM actors refuse future admission for the canceled subtree.
 - Runtime-owned processes are killed or marked abandoned according to process policy.
-- Parent planners receive a normal failed/blocked/done activation result or tool error according to the owning card's policy; do not invent a second activation result.
+- Late provider, tool, process, or child results for a canceled wait are recorded as diagnostics and must not create a second activation or tool result.
 
 Shutdown:
 
@@ -581,7 +582,6 @@ The detailed rollout plan lives in [Micro-Actor Runtime Implementation Plan](./m
 ## Open Questions
 
 - Exact completed actor-record retention policy: delete, archive, or keep bounded history.
-- Exact cancellation outcome surfaced to parent planner for active subtree cancellation.
 - Whether process tools share one `ProcessActor` per process record or use direct process-service tasks for short operations.
 - Whether reviewer structured output is tool-based immediately or strict JSON in the first implementation.
 - Exact public schema fields for active-chain and runtime activity projection.

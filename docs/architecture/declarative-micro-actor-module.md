@@ -147,6 +147,11 @@ The returned job ID is the stable handle external code uses for later cancellati
 ```ts
 this.waitForJob(signal)
 this.dequeueJob()
+this.completeJob(job, result)
+this.failJob(job, error)
+this.markJobCancelled(job, error)
+this.cancelCurrentJob(jobId)
+this.cancelQueuedJob(jobId)
 ```
 
 `waitForJob(signal)` is the method intended to be run through `runTask(...)` while the actor is in a waiting state. Completion means a job may be available; actor code should synchronously call `dequeueJob()` from the task callback. If the job was cancelled before the callback runs, `dequeueJob()` returns `undefined` and the actor can wait again.
