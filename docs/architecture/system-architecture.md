@@ -111,11 +111,11 @@ The acceptance gate prevents a planner from closing a goal while any executable 
 
 ## 9. Cancellation
 
-Cancellation is a card-state operation. Recursive cancellation preserves descendants that are already `done` and converts non-completion-compatible descendants, including `failed`, `blocked`, `backlog`, `changed`, and `running`, to `cancelled`. Runtime-owned processes attached to `cancelled` cards are terminated or marked abandoned through canonical process controls.
+Cancellation is immediate only for inactive cards. Recursive cancellation preserves descendants that are already `done` and converts inactive non-completion-compatible descendants, including `failed`, `blocked`, `backlog`, and `changed`, to `cancelled`.
 
-Cancelling a running card closes future LLM admission for that card/subtree and marks late provider, tool, or process results as diagnostics rather than second outcomes. It does not add a separate workflow phase. Shutdown remains the hard operation for stopping the runtime itself.
+Cancelling a running card is best-effort: the runtime queues a downstream cancellation notification for the card's main agent and otherwise leaves the card `running`. It does not close LLM admission, kill processes, abort tools, reinterpret late results, or add a separate workflow phase. Shutdown remains the hard operation for stopping runtime-owned work regardless of agent cooperation.
 
-Project-card cancellation is the root case of the same operation: the supervisor cancels the project card/subtree through the project `CardActor`, returns to idle, and leaves the next project-level action to the user through the Analyst.
+Project-card cancellation is the root case of the same operation. Inactive project work is cancelled immediately; running project work receives the same best-effort downstream cancellation notification and remains under normal runtime flow until the active agent reports an outcome or the operator uses shutdown.
 
 ## 10. Persistence
 

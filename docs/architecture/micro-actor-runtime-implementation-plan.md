@@ -66,6 +66,8 @@ Implementation:
 - Persist card actor state transitions from `_on_state_changed(...)` and remove empty `_on_enter__{state}` hooks that only save snapshots.
 - Keep explicit persistence for card context changes that do not transition state, including queued notifications, change metadata, cancellation metadata, and accepted activation outcomes.
 - Persist public card status changes through the canonical card store before reporting outcomes upward.
+- Implement cancellation as two paths: inactive cards/subtrees are marked `cancelled` immediately, while running cards only receive a best-effort cancellation notification downstream and remain `running`.
+- Do not use running cancellation to close provider admission, abort active tools, kill processes, or reinterpret later agent reports. Those are shutdown or process-control responsibilities, not best-effort cancellation behavior.
 - Instantiate or reconnect direct child `CardActor` instances from card data.
 - Instantiate or reconnect the associated processor actor for the card type.
 - Use `BaseActor.recover(state)` when reconnecting a fresh actor instance to an existing durable card state.
@@ -80,7 +82,8 @@ Tests:
 - Activation transitions to `running` and starts the processor.
 - Processor `done`, `failed`, and `blocked` outcomes update card state before parent notification.
 - `markChanged(...)` moves inactive cards to `changed` and leaves running cards `running`.
-- `cancel(...)` marks cards/subtrees `cancelled`, preserves descendants already `done`, and records late active-work results as diagnostics.
+- `cancel(...)` marks inactive cards/subtrees `cancelled`, preserves descendants already `done`, and enqueues best-effort cancellation notifications for running cards without changing their status.
+- Running-card cancellation tests prove the card stays `running`, downstream notification is queued, and no provider/process/tool hard-cancel side effect is triggered.
 - `_on_state_changed(...)` records card actor state transitions, while `recover(...)` does not emit a new transition snapshot.
 
 Acceptance:
@@ -177,7 +180,7 @@ Tests:
 - Invalid executor report appends tool error or fails visibly according to protocol.
 - Process wait timeout returns a timeout tool result and does not kill the process.
 - Explicit process kill records termination details.
-- Terminal cancellation marks the card/subtree `cancelled`, stops future LLM admission, and records late results as diagnostics.
+- Terminal cancellation while inactive marks the card/subtree `cancelled`; terminal cancellation while running is a best-effort notification to the executor and does not stop future LLM admission, kill processes, or rewrite later executor reports.
 
 Acceptance:
 

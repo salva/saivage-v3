@@ -189,17 +189,17 @@ Public methods:
 
 - `activate(caller)`: validate authority and start the card.
 - `notify(notification)`: enqueue card-addressed context.
-- `cancel(reason)`: mark this card/subtree `cancelled` through canonical card rules.
+- `cancel(reason)`: cancel inactive cards immediately, or send a best-effort downstream cancellation notification for running cards.
 - `markChanged(change)`: apply card/subtree change semantics.
 
 Parked public methods use `parkedSendEvent(...)` after validating authority and recording any event-specific data on actor fields. Allowed movements are the normal `on` transitions declared on each parked state.
 
 Event guidance:
 
-- Public methods may queue command events such as `activate`, `changed`, and `cancel` from parked states.
+- Public methods may queue command events such as `activate`, `changed`, and inactive `cancel` from parked states.
 - Running activation work normally completes with `done` or `failed` after storing the outcome on actor fields.
 - `blocked` is a domain outcome. It may be a distinct event only if the static transition table needs to route it separately from `done`.
-- Running cards receive notification/context without leaving `running`.
+- Running cards receive notification/context without leaving `running`. Cancellation for running cards follows this path only: enqueue a card-addressed cancellation notification for downstream delivery to the running main agent.
 
 Responsibilities:
 
@@ -210,12 +210,15 @@ Responsibilities:
 - Commit exactly one activation outcome before returning it to the parent.
 - Call the parent card's hard-coded child-completion method when this card reaches an activation outcome.
 - Deliver card-addressed notifications to the card's main agent at safe boundaries.
+- Represent running cancellation only as a card-addressed cancellation notification. Do not synchronously move a running card to `cancelled`, close admission, kill work, or add a separate cancellation-request state merely because an operator requested cancellation.
 - Keep `changed` as public card state, not a generic actor phase.
 
 Changed-state rules:
 
 - Inactive modified cards become `changed`.
 - Running modified cards remain `running` and receive notifications/context.
+- Inactive cancelled cards and inactive non-completion-compatible descendants become `cancelled` immediately, preserving descendants already `done`.
+- Running cards targeted by cancellation remain `running`; the only runtime action is to notify the running main agent downstream that cancellation was requested. The agent decides how to respond through the normal report/tool protocol.
 - A goal cannot report `done` while executable descendants remain `backlog`, `changed`, `blocked`, `failed`, or `running`.
 - `cancelled` descendants are completion-compatible.
 
@@ -236,7 +239,7 @@ Project and goal processor states:
 Public methods:
 
 - `activate(input)`: start or resume one card activation.
-- `cancel(reason)`: stop future work for this processor and mark late results as diagnostics.
+- `cancel(reason)`: send a best-effort cancellation notification to the running planner or reviewer when active; parked processors may settle through the owning card's inactive cancellation path.
 
 Important actor fields:
 
@@ -285,7 +288,7 @@ Terminal processor states:
 Public methods:
 
 - `activate(input)`: start one terminal card activation.
-- `cancel(reason)`: stop future executor work and mark late results as diagnostics.
+- `cancel(reason)`: send a best-effort cancellation notification to the running executor when active; parked processors may settle through the owning card's inactive cancellation path.
 
 Terminal responsibilities:
 
@@ -375,7 +378,7 @@ Responsibilities:
 - Return process tool results to the owning processor actor exactly once; the processor forwards the tool result to the waiting `LLMActor`.
 - `inspect(...)` and `wait(...)` on an already settled process read the persisted process record directly and do not require a live actor loop.
 - Reattach to running processes after restart when safe.
-- Treat late results after cancellation as diagnostics, not second tool results.
+- Treat process results according to the normal process/tool protocol. Best-effort running cancellation does not reinterpret process results; shutdown or explicit `kill_process` handles forced process termination.
 
 ## External Command Mapping
 
@@ -456,10 +459,10 @@ Pause:
 
 Cancellation:
 
-- Cancellation marks the requested card/subtree `cancelled` through canonical card rules.
-- Active LLM actors refuse future admission for the `cancelled` subtree.
-- Runtime-owned processes are killed or marked abandoned according to process policy.
-- Late provider, tool, process, or child results for a `cancelled` wait are recorded as diagnostics and must not create a second activation or tool result.
+- Cancellation is immediate only for inactive cards. The requested inactive card/subtree is marked `cancelled` through canonical card rules, while descendants already `done` remain `done`.
+- Cancellation for running cards and running agents is best-effort only. The runtime enqueues a downstream cancellation notification asking the running main agent to cancel if it can do so safely. The public card status remains `running`, and no separate cancellation-request state is introduced.
+- Best-effort running cancellation does not close provider admission, block child activation, kill processes, abort tool waits, or reinterpret late results. The running agent continues through the normal protocol and may report `done`, `failed`, `blocked`, or `cancelled` according to what it actually did after seeing the notification.
+- Hard shutdown remains the operation for forcibly terminating runtime-owned work regardless of agent cooperation.
 
 Shutdown:
 
