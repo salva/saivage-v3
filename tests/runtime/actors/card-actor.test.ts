@@ -160,6 +160,27 @@ describe('CardActor', () => {
     await expect(activation).resolves.toMatchObject({ status: 'blocked' });
   }));
 
+  it('reopens done cards as changed when notifications remain undelivered at settlement', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    let actor!: CardActor;
+    const fakeProcessor: CardProcessorActor = {
+      activate: jest.fn(async () => {
+        actor.notify({ id: 'n-late', message: 'late running context', created_at: '2026-06-12T00:00:00.000Z' });
+        return { status: 'done', summary: 'done', result: { kind: 'planner_done', summary: 'done' } };
+      }) as (input: CardActivationInput, signal: AbortSignal) => Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>,
+    };
+    actor = CardActor.fromCard({ projectRoot, card: project, store, processor: fakeProcessor });
+
+    const outcome = await actor.activate({ kind: 'root' });
+
+    expect(outcome).toMatchObject({ status: 'done', summary: 'done' });
+    await eventually(() => expect(actor.state()).toBe('changed'));
+    expect(store.read(project.id)).toMatchObject({ status: 'changed', lifecycle: { result: { kind: 'planner_done', summary: 'done' } } });
+    expect(actor.listPendingNotifications()).toEqual([expect.objectContaining({ id: 'n-late' })]);
+  }));
+
   it('marks inactive cards changed while running cards stay running and receive notifications', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);

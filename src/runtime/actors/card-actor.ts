@@ -197,6 +197,10 @@ export class CardActor extends BaseActor {
     });
   }
 
+  _on_enter__done(): void {
+    this.reopenDoneWithPendingNotifications();
+  }
+
   protected override _on_state_changed(_oldState: string | undefined, _newState: string): void {
     this.persist();
   }
@@ -236,6 +240,17 @@ export class CardActor extends BaseActor {
     this.#pendingActivation?.resolve(outcome);
     this.#pendingActivation = null;
     this.sendEvent(outcome.status);
+  }
+
+  private reopenDoneWithPendingNotifications(): void {
+    if (this.notifications.length === 0) return;
+    const card = this.requireCard();
+    this.store.commitTerminalLifecyclePatch(this.cardId, {
+      status: 'changed',
+      lifecycle: { status: 'changed', result: card.lifecycle.result, error: card.lifecycle.error, completed_at: null },
+    });
+    if (this.state() === 'done') this.parkedSendEvent('changed');
+    this.persist();
   }
 
   private writeStatus(status: CardStatus): void {
