@@ -3,7 +3,7 @@ import { agentMessageSchema } from '../../schemas/index.js';
 import type { AgentMessage } from '../../schemas/index.js';
 import type { InvocationRequest } from '../../agents/invocation-service.js';
 import type { LlmCompleteResult } from '../../agents/llm-contracts.js';
-import type { LlmInvocationInput, ProviderTurnPort } from './llm-runner.js';
+import type { LlmInvocationInput, ProviderTurnPort } from './llm-invocation.js';
 
 export interface InvocationTurnService {
   invokeWithRecovery(request: InvocationRequest): Promise<LlmCompleteResult>;

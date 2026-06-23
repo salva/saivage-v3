@@ -6,7 +6,7 @@ import { appendSyncIdempotentByKey } from '../../persistence/index.js';
 import { agentMessageSchema } from '../../schemas/index.js';
 import type { AgentMessage } from '../../schemas/index.js';
 import type { LlmCompleteResult, ToolCall } from '../../agents/llm-contracts.js';
-import type { LlmInvocationInput } from './llm-runner.js';
+import type { LlmInvocationInput } from './llm-invocation.js';
 
 const toolDeliveryRecordSchema = z.object({
   delivery_id: z.string().min(1),

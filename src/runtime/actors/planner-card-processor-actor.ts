@@ -6,7 +6,7 @@ import { plannerActorId, processorActorId } from './ids.js';
 import { XSTATE_PLANNER_TOOL_DEFINITIONS } from './actor-tool-definitions.js';
 import { saveActorSnapshot } from './snapshots.js';
 import type { CardActivationInput, CardActivationOutcome, CardActor, CardActorStorePort, CardProcessorActor } from './card-actor.js';
-import type { LlmInvocationInput } from './llm-runner.js';
+import type { LlmInvocationInput } from './llm-invocation.js';
 
 type PlannerProcessorOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
 

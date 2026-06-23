@@ -6,7 +6,7 @@ import { LLMActor, type LLMAdmissionPort, type LLMProviderPort } from './llm-act
 import { processorActorId, reviewerActorId } from './ids.js';
 import { saveActorSnapshot } from './snapshots.js';
 import type { CardActivationInput, CardActivationOutcome, CardActorStorePort, CardProcessorActor } from './card-actor.js';
-import type { LlmInvocationInput } from './llm-runner.js';
+import type { LlmInvocationInput } from './llm-invocation.js';
 
 type ReviewerProcessorOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
 

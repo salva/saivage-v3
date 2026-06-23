@@ -6,7 +6,7 @@ import { saveActorSnapshot } from './snapshots.js';
 import { LLMActor, type LLMActorOutcome, type LLMAdmissionPort, type LLMProviderPort } from './llm-actor.js';
 import { ProcessActor } from './process-actor.js';
 import { XSTATE_PROCESS_TOOL_DEFINITIONS } from './actor-tool-definitions.js';
-import type { LlmInvocationInput } from './llm-runner.js';
+import type { LlmInvocationInput } from './llm-invocation.js';
 
 type TerminalProcessorOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
 

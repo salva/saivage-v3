@@ -17,17 +17,15 @@ import {
   actorToolDeliveriesPath,
   actorToolCallStatusesPath,
   supervisorActorId,
-  TerminalCardRunnerController,
-  ProcessRunnerController,
-  LlmRunnerController,
-  GoalCardRunnerController,
-  createTerminalCardStatusPort,
-  createGoalCardStatusPort,
   type LlmInvocationInput,
   type ProviderTurnPort,
-  type GoalCardStatusPort,
-  type TerminalCardStatusPort,
 } from '../../../src/runtime/actors/index.js';
+import { TerminalCardRunnerController, type TerminalCardStatusPort } from '../../../src/runtime/actors/card-runner.js';
+import { GoalCardRunnerController, type GoalCardStatusPort } from '../../../src/runtime/actors/goal-card-runner.js';
+import { LlmRunnerController } from '../../../src/runtime/actors/llm-runner.js';
+import { ProcessRunnerController } from '../../../src/runtime/actors/process-runner.js';
+import { createTerminalCardStatusPort } from '../../../src/runtime/actors/terminal-card-status-port.js';
+import { createGoalCardStatusPort } from '../../../src/runtime/actors/goal-card-status-port.js';
 import type { LlmCompleteResult } from '../../../src/agents/llm-contracts.js';
 import type { CardRecord } from '../../../src/schemas/index.js';
 

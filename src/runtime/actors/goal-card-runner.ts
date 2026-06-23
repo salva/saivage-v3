@@ -5,7 +5,7 @@ import { cardActorId, plannerActorId, reviewerActorId } from './ids.js';
 import { LlmRunnerController } from './llm-runner.js';
 import { saveActorSnapshot } from './snapshots.js';
 import { appendToolCallStatus, appendToolDelivery } from './llm-delivery-log.js';
-import { getActiveGoalNoteSinks } from './active-goal-note-sinks.js';
+import { getActiveGoalNoteSinks, type GoalNote } from './active-goal-note-sinks.js';
 import type { AdmissionPort, LlmInvocationInput, ProviderTurnPort } from './llm-runner.js';
 import type { XStateActorInputContext } from './actor-input-builders.js';
 import type { XStateChildCard } from './xstate-child-activation.js';
@@ -30,11 +30,6 @@ export interface GoalCardStatusPort {
   markRunning(cardId: string): void | Promise<void>;
   markCancelled(cardId: string): void | Promise<void>;
   commitGoalOutcome(cardId: string, outcome: GoalOutcome): void | Promise<void>;
-}
-
-export interface GoalNote {
-  id: string;
-  content: string;
 }
 
 export interface GoalCardRunnerContext {

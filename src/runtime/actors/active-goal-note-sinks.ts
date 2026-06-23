@@ -1,4 +1,7 @@
-import type { GoalNote } from './goal-card-runner.js';
+export interface GoalNote {
+  id: string;
+  content: string;
+}
 
 export interface GoalNoteSink {
   addNote(note: GoalNote): void;

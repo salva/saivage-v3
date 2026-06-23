@@ -1,33 +1,15 @@
-import type { OperationalAgentRole } from '../../schemas/index.js';
-import type { LlmCompleteResult, ToolDefinition } from '../../agents/llm-contracts.js';
-import type { CapabilityRequest } from '../../agents/provider-capabilities.js';
+import type { LlmCompleteResult } from '../../agents/llm-contracts.js';
 import { SlaveActor } from '../micro-actor/index.js';
 import { saveActorSnapshot } from './snapshots.js';
 import { actorKindFromId } from './ids.js';
 import { appendLlmTurnError, appendLlmTurnFinished, appendLlmTurnStarted } from './llm-delivery-log.js';
-
-export interface LlmInvocationInput {
-  inputId: string;
-  agentId: string;
-  role: OperationalAgentRole;
-  sessionId: string;
-  systemPrompt: string;
-  contextMessages: unknown[];
-  tools: ToolDefinition[];
-  terminalToolNames: string[];
-  modelParams: { temperature?: number; maxTokens?: number };
-  capabilityRequest: CapabilityRequest;
-  episodeContext: Record<string, unknown>;
-}
+import type { LlmInvocationInput, ProviderTurnPort } from './llm-invocation.js';
+export type { LlmInvocationInput, ProviderTurnPort } from './llm-invocation.js';
 
 export type LlmRunnerOutput =
   | { type: 'LLM_RESULT'; agentId: string; result: Extract<LlmCompleteResult, { kind: 'message' }> }
   | { type: 'LLM_TOOL_CALL'; agentId: string; toolCallId: string; toolName: string; args: unknown }
   | { type: 'LLM_ERROR'; agentId: string; error: string };
-
-export interface ProviderTurnPort {
-  completeTurn(input: LlmInvocationInput): Promise<LlmCompleteResult>;
-}
 
 export interface AdmissionPort {
   requestProviderCall(callId: string): boolean;

@@ -5,7 +5,7 @@ import { createReviewerContract } from '../../contracts/reviewer-contract.js';
 import { buildCardContextBlock, buildGoalContextBlock, buildGoalContextPayload, buildGoalEvidenceContext } from '../context-builder.js';
 import { executorActorId, plannerActorId, reviewerActorId } from './ids.js';
 import { XSTATE_PLANNER_TOOL_DEFINITIONS, XSTATE_PROCESS_TOOL_DEFINITIONS } from './actor-tool-definitions.js';
-import type { LlmInvocationInput } from './llm-runner.js';
+import type { LlmInvocationInput } from './llm-invocation.js';
 import type { RuntimeContextCardReader } from '../context-builder.js';
 import type { XStateChildCard } from './xstate-child-activation.js';
 

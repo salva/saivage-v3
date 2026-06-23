@@ -1,7 +1,7 @@
 import { BaseActor } from '../micro-actor/index.js';
 import type { ActorDefinition } from '../micro-actor/index.js';
 import type { LlmCompleteResult } from '../../agents/llm-contracts.js';
-import type { LlmInvocationInput } from './llm-runner.js';
+import type { LlmInvocationInput } from './llm-invocation.js';
 import { actorKindFromId } from './ids.js';
 import { saveActorSnapshot } from './snapshots.js';
 import { appendLlmTurnError, appendLlmTurnFinished, appendLlmTurnStarted, appendToolCallStatus, appendToolDelivery } from './llm-delivery-log.js';
