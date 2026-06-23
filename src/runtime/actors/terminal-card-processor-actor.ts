@@ -3,7 +3,7 @@ import type { CardActivationInput, CardActivationOutcome, CardProcessorActor } f
 import { executorActorId } from './ids.js';
 import type { LLMActorOutcome, LLMAdmissionPort, LLMProviderPort } from './llm-actor.js';
 import { ProcessActor } from './process-actor.js';
-import { XSTATE_PROCESS_TOOL_DEFINITIONS } from './actor-tool-definitions.js';
+import { TERMINAL_CARD_PROCESSOR_TOOL_DEFINITIONS } from './actor-tool-definitions.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
 import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
 import { createExecutorContract } from '../../contracts/executor-contract.js';
@@ -61,7 +61,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
       sessionId: executorActorId(this.cardId),
       systemPrompt: `Execute terminal card ${input.card.id}: ${input.card.title}\n\n${input.card.description}\n\nAcceptance:\n${input.card.acceptance}\n\nUse process tools when needed. End by calling emit_executor_result; plain text or JSON messages are not accepted as terminal reports.`,
       contextMessages: this.notificationContextMessages(input, inputId),
-      tools: [...XSTATE_PROCESS_TOOL_DEFINITIONS, ...contract.terminals.map((terminal) => terminal.toolDefinition)],
+      tools: [...TERMINAL_CARD_PROCESSOR_TOOL_DEFINITIONS, ...contract.terminals.map((terminal) => terminal.toolDefinition)],
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),
       modelParams: {},
       capabilityRequest: { requiresTools: true },

@@ -2,7 +2,7 @@ import type { ActorDefinition } from '../micro-actor/index.js';
 import type { CardRecord, CardStatus, PlannerDoneResult } from '../../schemas/index.js';
 import type { LLMActorOutcome, LLMAdmissionPort, LLMProviderPort } from './llm-actor.js';
 import { plannerActorId, reviewerActorId } from './ids.js';
-import { XSTATE_PLANNER_TOOL_DEFINITIONS } from './actor-tool-definitions.js';
+import { PLANNER_CARD_PROCESSOR_TOOL_DEFINITIONS } from './actor-tool-definitions.js';
 import type { CardActivationInput, CardActivationOutcome, CardActor, CardActorStorePort, CardProcessorActor } from './card-actor.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
 import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
@@ -66,7 +66,7 @@ export class PlannerCardProcessorActor extends BaseMainLLMCardProcessorActor imp
       sessionId: plannerActorId(this.cardId),
       systemPrompt: this.plannerPrompt(input.card),
       contextMessages: this.notificationContextMessages(input, inputId),
-      tools: [...XSTATE_PLANNER_TOOL_DEFINITIONS, ...contract.terminals.map((terminal) => terminal.toolDefinition)],
+      tools: [...PLANNER_CARD_PROCESSOR_TOOL_DEFINITIONS, ...contract.terminals.map((terminal) => terminal.toolDefinition)],
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),
       modelParams: {},
       capabilityRequest: { requiresTools: true },

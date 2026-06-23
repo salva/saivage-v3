@@ -4,9 +4,9 @@ import type { ToolDefinition } from '../../agents/llm-contracts.js';
 const activateCardTool = ALL_TOOL_DEFINITIONS_BY_NAME.get('activate_card');
 if (!activateCardTool) throw new Error("Missing required planner tool definition 'activate_card'.");
 
-export const XSTATE_PLANNER_TOOL_DEFINITIONS: ToolDefinition[] = [activateCardTool];
+export const PLANNER_CARD_PROCESSOR_TOOL_DEFINITIONS: ToolDefinition[] = [activateCardTool];
 
-export const XSTATE_PROCESS_TOOL_DEFINITIONS: ToolDefinition[] = [
+export const TERMINAL_CARD_PROCESSOR_TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     type: 'function',
     function: {
