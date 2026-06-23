@@ -50,7 +50,7 @@ export interface ActorRecoveryDiagnostic {
 
 export interface ActorRecoveryDiagnosticAction {
   actorId: string;
-  kind: 'active_card' | 'active_llm' | 'llm_recovery_action' | 'active_processor' | 'running_process';
+  kind: 'active_card' | 'active_llm' | 'llm_recovery_action' | 'active_processor' | 'running_process' | 'discarded_supervisor';
   action: string;
   cardId?: string;
   processId?: string;
@@ -113,7 +113,7 @@ export function buildActorRecoveryPlan(projectRoot: string, cards?: ActorRecover
     llms: llms.sort((a, b) => a.actorId.localeCompare(b.actorId)),
     processors: processors.sort((a, b) => a.actorId.localeCompare(b.actorId)),
     processes: processes.sort((a, b) => a.processId.localeCompare(b.processId)),
-    diagnostics: recoveryDiagnostics(llms, processors, processes),
+    diagnostics: recoveryDiagnostics(supervisor, llms, processors, processes),
   };
 }
 
@@ -125,7 +125,7 @@ const recoveryDiagnosticSchema = z.object({
 
 const recoveryDiagnosticActionSchema = z.object({
   actorId: z.string().min(1),
-  kind: z.enum(['active_card', 'active_llm', 'llm_recovery_action', 'active_processor', 'running_process']),
+  kind: z.enum(['active_card', 'active_llm', 'llm_recovery_action', 'active_processor', 'running_process', 'discarded_supervisor']),
   action: z.string().min(1),
   cardId: z.string().optional(),
   processId: z.string().optional(),
@@ -173,12 +173,20 @@ function recoveryDiagnosticsFile(projectRoot: string, lock: ProjectLock = recove
 
 function recoveryDiagnosticActions(plan: ActorRecoveryPlan): ActorRecoveryDiagnosticAction[] {
   return [
+    ...(isNonIdleSupervisorSnapshot(plan.supervisor) ? [{ actorId: 'supervisor', kind: 'discarded_supervisor' as const, action: 'discard_stale_supervisor' }] : []),
     ...plan.cards.filter((card) => card.active).map((card) => ({ actorId: card.snapshot.actor_id, kind: 'active_card' as const, action: 'diagnose_active_card', cardId: card.cardId })),
     ...plan.llms.filter((llm) => llm.active).map((llm) => ({ actorId: llm.actorId, kind: 'active_llm' as const, action: 'diagnose_active_llm', cardId: llm.cardId })),
     ...plan.llms.filter((llm) => llm.action !== 'none').map((llm) => ({ actorId: llm.actorId, kind: 'llm_recovery_action' as const, action: llm.action, cardId: llm.cardId })),
     ...plan.processors.filter((processor) => processor.active).map((processor) => ({ actorId: processor.actorId, kind: 'active_processor' as const, action: 'diagnose_active_processor', cardId: processor.cardId })),
     ...plan.processes.filter((process) => process.requiresReconciliation).map((process) => ({ actorId: process.snapshot.actor_id, kind: 'running_process' as const, action: 'diagnose_running_process', processId: process.processId })),
   ].sort((a, b) => a.actorId.localeCompare(b.actorId) || a.kind.localeCompare(b.kind));
+}
+
+function isNonIdleSupervisorSnapshot(snapshot: ActorSnapshotRecord | null): boolean {
+  if (!snapshot) return false;
+  const state = snapshot.state_value;
+  if (typeof state !== 'object' || state === null || !('mode' in state)) return false;
+  return (state as { mode?: unknown }).mode !== 'idle';
 }
 
 function isActiveCardSnapshot(snapshot: ActorSnapshotRecord): boolean {
@@ -224,11 +232,13 @@ function parseProcessorActorId(actorId: string): string {
 }
 
 function recoveryDiagnostics(
+  supervisor: ActorSnapshotRecord | null,
   llms: LlmActorRecoveryPlanRecord[],
   processors: ProcessorActorRecoveryRecord[],
   processes: ProcessActorRecoveryRecord[],
 ): ActorRecoveryDiagnostic[] {
   return [
+    ...(isNonIdleSupervisorSnapshot(supervisor) ? [{ actorId: 'supervisor', severity: 'warning' as const, message: 'Non-idle supervisor snapshot is not resumed; startup creates a fresh supervisor and records this discard.' }] : []),
     ...llms.filter((llm) => llm.action === 'abandon_provider_call').map((llm) => ({ actorId: llm.actorId, severity: 'warning' as const, message: 'In-flight provider call cannot be reattached and must be abandoned with a planner-visible diagnostic.' })),
     ...llms.filter((llm) => llm.action === 'resume_tool_wait').map((llm) => ({ actorId: llm.actorId, severity: 'info' as const, message: 'LLM actor is waiting for a persisted tool result and can resume delivery repair.' })),
     ...processors.filter((processor) => processor.active).map((processor) => ({ actorId: processor.actorId, severity: 'warning' as const, message: 'Active processor snapshot requires reconstruction of activation/tool waits before autonomous execution resumes.' })),

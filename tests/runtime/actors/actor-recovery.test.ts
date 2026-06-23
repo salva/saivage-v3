@@ -122,4 +122,15 @@ describe('actor recovery plan', () => {
     expect(readRecoveryDiagnostics(projectRoot)).toEqual(written);
     expect(JSON.stringify(readRecoveryDiagnostics(projectRoot))).not.toContain('not persisted');
   }));
+
+  it('diagnoses non-idle supervisor snapshots as discarded on startup', () => withTempProject((projectRoot) => {
+    saveSnapshot(projectRoot, 'supervisor', 'supervisor', { mode: 'running', work: 'model_invocation_active' }, { projectRoot, activeProviderCallId: 'call-1' });
+
+    const written = writeRecoveryDiagnostics(projectRoot, buildActorRecoveryPlan(projectRoot), '2026-06-12T00:00:00.000Z');
+
+    expect(written).toMatchObject({
+      diagnostics: [expect.objectContaining({ actorId: 'supervisor', severity: 'warning' })],
+      actions: [expect.objectContaining({ actorId: 'supervisor', kind: 'discarded_supervisor', action: 'discard_stale_supervisor' })],
+    });
+  }));
 });
