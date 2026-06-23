@@ -1,6 +1,6 @@
 import { createReviewerContract } from '../../contracts/reviewer-contract.js';
 import type { ReviewerResult } from '../../contracts/agent-execution.js';
-import type { CardRecord, PlannerBlockedResult, PlannerDoneResult, ReviewAssessment, ReviewerPassResult } from '../../schemas/index.js';
+import type { CardRecord, PlannerDoneResult, ReviewAssessment, ReviewerPassResult } from '../../schemas/index.js';
 import { validateReviewerAssessment } from '../reviewer-assessment.js';
 import { verifyTerminalToolOutcome } from './contract-terminal-tools.js';
 import type { CardActivationOutcome, CardActorStorePort } from './card-actor.js';
@@ -10,7 +10,7 @@ type ReviewerTerminalEvaluationOutcome = Exclude<CardActivationOutcome, { status
 
 export interface ReviewerTerminalEvaluationInput {
   card: CardRecord;
-  planning: PlannerDoneResult | PlannerBlockedResult;
+  candidatePlanning: PlannerDoneResult;
   assessmentId: string;
   sessionId: string;
   outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>;
@@ -26,10 +26,10 @@ export function evaluateReviewerTerminalOutcome(input: ReviewerTerminalEvaluatio
     return { status: 'failed', summary: message, result: { kind: 'planner_failure', error: message } };
   }
   const assessment = buildReviewAssessment(reviewerResult, input.assessmentId, input.sessionId, input.card.id);
-  const validation = validateReviewerAssessment({ goalId: input.card.id, assessment, readCard: (id) => input.store.read(id) });
+  const validation = validateReviewerAssessment({ goalId: input.card.id, assessment, candidatePlannerResult: input.candidatePlanning, readCard: (id) => input.store.read(id) });
   if (!validation.valid) return correctionOutcome(input.assessmentId, validation.reason ?? 'Reviewer assessment is invalid.');
   if (assessment.result === 'needs_corrections') return correctionOutcome(input.assessmentId, assessment.summary, assessment.issues.map((issue) => ({ ...issue })));
-  const passResult: ReviewerPassResult = { kind: 'reviewer_pass', planning: input.planning, review_summary: assessment.summary, assessment_id: input.assessmentId };
+  const passResult: ReviewerPassResult = { kind: 'reviewer_pass', planning: input.candidatePlanning, review_summary: assessment.summary, assessment_id: input.assessmentId };
   return { status: 'done', summary: assessment.summary, result: passResult };
 }
 

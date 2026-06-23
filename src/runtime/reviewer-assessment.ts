@@ -1,4 +1,4 @@
-import type { CardRecord, CardLifecycleState, ReviewAssessment } from '../schemas/index.js';
+import type { CardRecord, CardLifecycleState, PlannerDoneResult, ReviewAssessment } from '../schemas/index.js';
 import type { ReviewerResult } from '../contracts/index.js';
 
 export function nextReviewerAssessmentId(goalId: string, existingResult: CardLifecycleState['result'] | undefined): string {
@@ -40,11 +40,15 @@ export function buildReviewAssessment(input: {
 export function validateReviewerAssessment(input: {
   goalId: string;
   assessment: ReviewerResult['assessment'];
+  candidatePlannerResult: PlannerDoneResult;
   readCard(evidenceId: string): CardRecord | null | undefined;
 }): { valid: boolean; reason?: string } {
   const { goalId, assessment, readCard } = input;
   if (assessment.evidence_card_ids.length === 0) {
     return { valid: false, reason: 'Reviewer assessment must cite at least one evidence_card_id.' };
+  }
+  if (input.candidatePlannerResult.kind !== 'planner_done') {
+    return { valid: false, reason: 'Reviewer assessment can only approve a candidate planner_done result.' };
   }
   for (const evidenceId of assessment.evidence_card_ids) {
     const card = readCard(evidenceId);

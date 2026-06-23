@@ -21,6 +21,11 @@ function createProject(store: CardStore): CardRecord {
   return store.create({ type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
 }
 
+function createDoneChild(store: CardStore, parent: string): CardRecord {
+  const child = store.create({ type: 'goal', parent, depth: 1, title: 'child', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
+  return store.commitTerminalLifecyclePatch(child.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'planner_done', summary: 'child done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' } });
+}
+
 function reviewerOutcome(overrides: Record<string, unknown> = {}): Extract<LLMActorOutcome, { type: 'tool_call' }> {
   return {
     type: 'tool_call',
@@ -34,24 +39,35 @@ function reviewerOutcome(overrides: Record<string, unknown> = {}): Extract<LLMAc
 
 function evaluate(store: CardStore, card: CardRecord, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>) {
   const planning: PlannerDoneResult = { kind: 'planner_done', summary: 'planned' };
-  const reviewedCard: CardRecord = { ...card, status: 'done', lifecycle: { status: 'done', result: planning, error: null, completed_at: '2026-06-12T00:00:00.000Z' } };
   return evaluateReviewerTerminalOutcome({
     card,
-    planning,
+    candidatePlanning: planning,
     assessmentId: 'assessment-card-1-1',
     sessionId: 'reviewer:card-1:assessment-card-1-1',
     outcome,
-    store: { read: (id) => id === card.id ? reviewedCard : store.read(id) },
+    store,
   });
 }
 
 describe('evaluateReviewerTerminalOutcome', () => {
-  it('returns reviewer_pass when assessment passes validation', () => withTempProject((projectRoot) => {
+  it('blocks self-citation when the reviewed card has no durable evidence', () => withTempProject((projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     const card = createProject(store);
 
     const outcome = evaluate(store, card, reviewerOutcome({ evidence_card_ids: [card.id] }));
+
+    expect(outcome).toMatchObject({ status: 'blocked', result: { kind: 'planner_blocked', reviewer_correction: { kind: 'reviewer_correction', assessment_id: 'assessment-card-1-1' } } });
+    expect(outcome.summary).toContain('without durable result');
+  }));
+
+  it('returns reviewer_pass when assessment cites done descendant evidence', () => withTempProject((projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const card = createProject(store);
+    const child = createDoneChild(store, card.id);
+
+    const outcome = evaluate(store, card, reviewerOutcome({ evidence_card_ids: [child.id] }));
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'ok', result: { kind: 'reviewer_pass', planning: { kind: 'planner_done', summary: 'planned' }, review_summary: 'ok', assessment_id: 'assessment-card-1-1' } });
   }));
@@ -60,8 +76,9 @@ describe('evaluateReviewerTerminalOutcome', () => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     const card = createProject(store);
+    const child = createDoneChild(store, card.id);
 
-    const outcome = evaluate(store, card, reviewerOutcome({ result: 'needs_corrections', summary: 'fix it', issues: [{ summary: 'missing proof', severity: 'blocker' }], evidence_card_ids: [card.id] }));
+    const outcome = evaluate(store, card, reviewerOutcome({ result: 'needs_corrections', summary: 'fix it', issues: [{ summary: 'missing proof', severity: 'blocker' }], evidence_card_ids: [child.id] }));
 
     expect(outcome).toMatchObject({ status: 'blocked', summary: 'fix it', result: { kind: 'planner_blocked', resume_reason: 'reviewer_needs_corrections', reviewer_correction: { kind: 'reviewer_correction', assessment_id: 'assessment-card-1-1', summary: 'fix it', issues: [{ summary: 'missing proof', severity: 'blocker' }] } } });
   }));

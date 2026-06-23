@@ -52,12 +52,14 @@ describe('reviewer assessment helpers', () => {
   it('validates reviewer evidence cards', () => {
     const cards = new Map([['goal-a', card()], ['child-a', card({ id: 'child-a', status: 'done' })]]);
     const readCard = (id: string) => cards.get(id) ?? null;
-    expect(validateReviewerAssessment({ goalId: 'goal-a', assessment: assessment({ evidence_card_ids: ['child-a'] }), readCard })).toEqual({ valid: true });
-    expect(validateReviewerAssessment({ goalId: 'goal-a', assessment: assessment({ evidence_card_ids: [] }), readCard }).valid).toBe(false);
-    expect(validateReviewerAssessment({ goalId: 'goal-a', assessment: assessment({ evidence_card_ids: ['missing'] }), readCard }).reason).toContain('missing');
+    const candidatePlannerResult = { kind: 'planner_done' as const, summary: 'candidate done' };
+    expect(validateReviewerAssessment({ goalId: 'goal-a', assessment: assessment({ evidence_card_ids: ['goal-a'] }), candidatePlannerResult, readCard })).toEqual({ valid: true });
+    expect(validateReviewerAssessment({ goalId: 'goal-a', assessment: assessment({ evidence_card_ids: ['child-a'] }), candidatePlannerResult, readCard })).toEqual({ valid: true });
+    expect(validateReviewerAssessment({ goalId: 'goal-a', assessment: assessment({ evidence_card_ids: [] }), candidatePlannerResult, readCard }).valid).toBe(false);
+    expect(validateReviewerAssessment({ goalId: 'goal-a', assessment: assessment({ evidence_card_ids: ['missing'] }), candidatePlannerResult, readCard }).reason).toContain('missing');
     cards.set('child-blocked', card({ id: 'child-blocked', status: 'blocked' }));
-    expect(validateReviewerAssessment({ goalId: 'goal-a', assessment: assessment({ evidence_card_ids: ['child-blocked'] }), readCard }).reason).toContain('non-complete');
+    expect(validateReviewerAssessment({ goalId: 'goal-a', assessment: assessment({ evidence_card_ids: ['child-blocked'] }), candidatePlannerResult, readCard }).reason).toContain('non-complete');
     cards.set('empty', card({ id: 'empty', artifacts: [], attachments: [], lifecycle: { status: 'done', result: { kind: 'planner_done', summary: 'done' }, error: null, completed_at: '2026-01-01T00:00:00.000Z' } }));
-    expect(validateReviewerAssessment({ goalId: 'goal-a', assessment: assessment({ evidence_card_ids: ['empty'] }), readCard }).valid).toBe(true);
+    expect(validateReviewerAssessment({ goalId: 'goal-a', assessment: assessment({ evidence_card_ids: ['empty'] }), candidatePlannerResult, readCard }).valid).toBe(true);
   });
 });

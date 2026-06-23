@@ -122,14 +122,13 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     if (outcome.type === 'error') return { status: 'failed', summary: outcome.error, result: { kind: 'planner_failure', error: outcome.error } };
     if (outcome.type === 'result') return this.plannerFailure(`${expectedTerminalToolMessage(createReviewerContract())} Plain reviewer messages are not accepted as terminal results.`);
     if (!createReviewerContract().isTerminalToolName(outcome.toolName)) return this.plannerFailure(`Reviewer returned unsupported tool call '${outcome.toolName}'.`);
-    const reviewedCard: CardRecord = { ...input.card, status: 'done', lifecycle: { status: 'done', result: planning, error: null, completed_at: new Date().toISOString() } };
     return evaluateReviewerTerminalOutcome({
       card: input.card,
-      planning,
+      candidatePlanning: planning,
       assessmentId,
       sessionId,
       outcome,
-      store: { read: (id) => id === input.card.id ? reviewedCard : this.store.read(id) },
+      store: this.store,
     });
   }
 
