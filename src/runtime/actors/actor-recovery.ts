@@ -7,6 +7,7 @@ import type { ActorSnapshotRecord } from './snapshots.js';
 
 export interface ActorRecoveryCardReader {
   read(cardId: string): unknown | null;
+  listChildren?(cardId: string): string[];
 }
 
 export type LlmRecoveryRole = 'planner' | 'reviewer' | 'executor';
@@ -113,7 +114,7 @@ export function buildActorRecoveryPlan(projectRoot: string, cards?: ActorRecover
     llms: llms.sort((a, b) => a.actorId.localeCompare(b.actorId)),
     processors: processors.sort((a, b) => a.actorId.localeCompare(b.actorId)),
     processes: processes.sort((a, b) => a.processId.localeCompare(b.processId)),
-    diagnostics: recoveryDiagnostics(supervisor, llms, processors, processes),
+    diagnostics: recoveryDiagnostics(supervisor, cardRecords, llms, processors, processes, cards),
   };
 }
 
@@ -190,7 +191,7 @@ function isNonIdleSupervisorSnapshot(snapshot: ActorSnapshotRecord | null): bool
 }
 
 function isActiveCardSnapshot(snapshot: ActorSnapshotRecord): boolean {
-  if (snapshot.state_value !== 'done' && snapshot.state_value !== 'cancelled') return true;
+  if (snapshot.state_value === 'running') return true;
   return snapshot.context.publicStatus === 'running';
 }
 
@@ -233,15 +234,42 @@ function parseProcessorActorId(actorId: string): string {
 
 function recoveryDiagnostics(
   supervisor: ActorSnapshotRecord | null,
+  cards: CardActorRecoveryRecord[],
   llms: LlmActorRecoveryPlanRecord[],
   processors: ProcessorActorRecoveryRecord[],
   processes: ProcessActorRecoveryRecord[],
+  cardReader?: ActorRecoveryCardReader,
 ): ActorRecoveryDiagnostic[] {
   return [
     ...(isNonIdleSupervisorSnapshot(supervisor) ? [{ actorId: 'supervisor', severity: 'warning' as const, message: 'Non-idle supervisor snapshot is not resumed; startup creates a fresh supervisor and records this discard.' }] : []),
+    ...cards.filter(isAmbiguousActiveCard).map((card) => ({ actorId: card.snapshot.actor_id, severity: 'warning' as const, message: `Active card snapshot has ambiguous state '${String(card.snapshot.state_value)}' and requires explicit recovery reconciliation.` })),
+    ...cards.filter((card) => isStrandedActiveCard(card, cards, llms, processors, cardReader)).map((card) => ({ actorId: card.snapshot.actor_id, severity: 'warning' as const, message: 'Active card snapshot has no active processor, LLM, or active child evidence and cannot be safely reconstructed yet.' })),
     ...llms.filter((llm) => llm.action === 'abandon_provider_call').map((llm) => ({ actorId: llm.actorId, severity: 'warning' as const, message: 'In-flight provider call cannot be reattached and must be abandoned with a planner-visible diagnostic.' })),
     ...llms.filter((llm) => llm.action === 'resume_tool_wait').map((llm) => ({ actorId: llm.actorId, severity: 'info' as const, message: 'LLM actor is waiting for a persisted tool result and can resume delivery repair.' })),
+    ...llms.filter((llm) => llm.active && llm.action === 'none').map((llm) => ({ actorId: llm.actorId, severity: 'warning' as const, message: `Active LLM snapshot state '${String(llm.snapshot.state_value)}' has no concrete recovery action yet.` })),
     ...processors.filter((processor) => processor.active).map((processor) => ({ actorId: processor.actorId, severity: 'warning' as const, message: 'Active processor snapshot requires reconstruction of activation/tool waits before autonomous execution resumes.' })),
     ...processes.filter((process) => process.requiresReconciliation).map((process) => ({ actorId: process.snapshot.actor_id, severity: 'warning' as const, message: 'Running process snapshot requires live process reconciliation.' })),
   ].sort((a, b) => a.actorId.localeCompare(b.actorId));
+}
+
+function isAmbiguousActiveCard(card: CardActorRecoveryRecord): boolean {
+  return card.active && !isKnownCardActorState(card.snapshot.state_value);
+}
+
+function isKnownCardActorState(state: unknown): boolean {
+  return state === 'backlog' || state === 'changed' || state === 'blocked' || state === 'failed' || state === 'done' || state === 'cancelled' || state === 'running';
+}
+
+function isStrandedActiveCard(
+  card: CardActorRecoveryRecord,
+  cards: CardActorRecoveryRecord[],
+  llms: LlmActorRecoveryPlanRecord[],
+  processors: ProcessorActorRecoveryRecord[],
+  cardReader?: ActorRecoveryCardReader,
+): boolean {
+  if (!card.active) return false;
+  if (processors.some((processor) => processor.active && processor.cardId === card.cardId)) return false;
+  if (llms.some((llm) => llm.active && llm.cardId === card.cardId)) return false;
+  const childIds = cardReader?.listChildren?.(card.cardId) ?? [];
+  return !childIds.some((childId) => cards.some((candidate) => candidate.cardId === childId && candidate.active));
 }

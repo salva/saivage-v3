@@ -60,7 +60,24 @@ describe('actor recovery plan', () => {
       { processId: 'build-1', requiresReconciliation: true },
       { processId: 'done-1', requiresReconciliation: false },
     ]);
-    expect(plan.diagnostics).toEqual([expect.objectContaining({ actorId: 'process:build-1', severity: 'warning' })]);
+    expect(plan.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actorId: 'card:T-1', severity: 'warning' }),
+      expect.objectContaining({ actorId: 'process:build-1', severity: 'warning' }),
+    ]));
+  }));
+
+  it('does not treat parked card snapshots as active unless public status is running', () => withTempProject((projectRoot) => {
+    saveSnapshot(projectRoot, 'card:G-backlog', 'card', 'backlog', { cardId: 'G-backlog' });
+    saveSnapshot(projectRoot, 'card:G-blocked', 'card', 'blocked', { cardId: 'G-blocked' });
+    saveSnapshot(projectRoot, 'card:G-changed', 'card', 'changed', { cardId: 'G-changed', publicStatus: 'running' });
+
+    const plan = buildActorRecoveryPlan(projectRoot);
+
+    expect(plan.cards).toMatchObject([
+      { cardId: 'G-backlog', active: false },
+      { cardId: 'G-blocked', active: false },
+      { cardId: 'G-changed', active: true },
+    ]);
   }));
 
   it('classifies processor snapshots and active LLM recovery actions', () => withTempProject((projectRoot) => {
@@ -90,6 +107,49 @@ describe('actor recovery plan', () => {
     const plan = buildActorRecoveryPlan(projectRoot, { read: jest.fn((cardId: string) => cards.get(cardId) ?? null) });
 
     expect(plan.llms).toMatchObject([{ actorId: 'planner:G-domain', cardId: 'G-domain', active: true }]);
+  }));
+
+  it('diagnoses active LLM snapshots without a concrete recovery action', () => withTempProject((projectRoot) => {
+    saveSnapshot(projectRoot, 'card:G-1', 'card', 'running', { cardId: 'G-1' });
+    saveSnapshot(projectRoot, 'planner:G-1', 'llm', 'running', { cardId: 'G-1' });
+
+    const plan = buildActorRecoveryPlan(projectRoot);
+
+    expect(plan.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actorId: 'planner:G-1', severity: 'warning' }),
+    ]));
+  }));
+
+  it('diagnoses active cards without active processor, LLM, or active child evidence', () => withTempProject((projectRoot) => {
+    saveSnapshot(projectRoot, 'card:G-stranded', 'card', 'running', { cardId: 'G-stranded' });
+
+    const plan = buildActorRecoveryPlan(projectRoot, { read: jest.fn(() => null), listChildren: jest.fn(() => []) });
+
+    expect(plan.diagnostics).toEqual([expect.objectContaining({ actorId: 'card:G-stranded', severity: 'warning' })]);
+    expect(plan.diagnostics[0].message).toContain('no active processor');
+  }));
+
+  it('does not diagnose active cards as stranded when processor or active child evidence exists', () => withTempProject((projectRoot) => {
+    saveSnapshot(projectRoot, 'card:G-processor', 'card', 'running', { cardId: 'G-processor' });
+    saveSnapshot(projectRoot, 'processor:G-processor', 'processor', 'planning', { cardId: 'G-processor' });
+    saveSnapshot(projectRoot, 'card:G-parent', 'card', 'running', { cardId: 'G-parent' });
+    saveSnapshot(projectRoot, 'card:G-child', 'card', 'running', { cardId: 'G-child' });
+    const children = new Map<string, string[]>([['G-parent', ['G-child']]]);
+
+    const plan = buildActorRecoveryPlan(projectRoot, { read: jest.fn(() => null), listChildren: jest.fn((cardId: string) => children.get(cardId) ?? []) });
+
+    expect(plan.diagnostics.filter((diagnostic) => diagnostic.message.includes('no active processor')).map((diagnostic) => diagnostic.actorId)).toEqual(['card:G-child']);
+  }));
+
+  it('diagnoses ambiguous active card states', () => withTempProject((projectRoot) => {
+    saveSnapshot(projectRoot, 'card:G-old', 'card', 'planning', { cardId: 'G-old', publicStatus: 'running' });
+
+    const plan = buildActorRecoveryPlan(projectRoot);
+
+    expect(plan.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actorId: 'card:G-old', severity: 'warning' }),
+    ]));
+    expect(plan.diagnostics.map((diagnostic) => diagnostic.message).join('\n')).toContain("ambiguous state 'planning'");
   }));
 
   it('throws on orphan active LLM snapshots without a snapshot or domain card owner', () => withTempProject((projectRoot) => {

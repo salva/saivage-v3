@@ -47,7 +47,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
 
   async start(): Promise<void> {
     if (this.started) return;
-    this.recoveryPlan = buildActorRecoveryPlan(this.options.projectRoot, this.options.rootCards);
+    this.recoveryPlan = buildActorRecoveryPlan(this.options.projectRoot, this.options.actorStore);
     abandonStalePendingToolCalls(this.options.projectRoot);
     writeRecoveryDiagnostics(this.options.projectRoot, this.recoveryPlan, this.now());
     this.supervisor.start();
