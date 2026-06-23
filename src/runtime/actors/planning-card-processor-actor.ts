@@ -22,10 +22,9 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   static _actor: ActorDefinition = {
     initial: 'idle',
     states: {
-      idle: { parked: true, on: { activate: 'planning', cancel: 'cancelled' } },
-      planning: { on: { done: 'settled', failed: 'settled', blocked: 'settled', cancel: 'cancelled' } },
-      settled: { parked: true, on: { activate: 'planning', cancel: 'cancelled' } },
-      cancelled: { terminal: true },
+      idle: { parked: true, on: { activate: 'planning' } },
+      planning: { on: { done: 'settled', failed: 'settled', blocked: 'settled' } },
+      settled: { parked: true, on: { activate: 'planning' } },
     },
   };
 

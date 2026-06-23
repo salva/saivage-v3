@@ -15,7 +15,6 @@ export abstract class BaseCardProcessorActor extends BaseActor implements CardPr
   readonly projectRoot: string;
   readonly cardId: string;
   outcome: CardProcessorOutcome | null = null;
-  cancelReason: string | null = null;
   #pending: PendingActivation | null = null;
 
   protected constructor(args: { projectRoot: string; cardId: string }) {
@@ -31,14 +30,6 @@ export abstract class BaseCardProcessorActor extends BaseActor implements CardPr
       this.#pending = { input, resolve, reject };
       this.parkedSendEvent('activate');
     });
-  }
-
-  cancel(reason: string): void {
-    this.cancelReason = reason;
-    this.#pending?.reject(new Error(reason));
-    this.#pending = null;
-    if (this.state() === 'idle' || this.state() === 'settled') this.parkedSendEvent('cancel');
-    this.persist();
   }
 
   protected runPendingActivation(stateLabel: string, run: (input: CardActivationInput, signal: AbortSignal) => Promise<CardProcessorOutcome>): void {
@@ -69,7 +60,7 @@ export abstract class BaseCardProcessorActor extends BaseActor implements CardPr
   }
 
   protected processorSnapshotContext(): Record<string, unknown> {
-    return { projectRoot: this.projectRoot, cardId: this.cardId, outcome: this.outcome, cancelReason: this.cancelReason };
+    return { projectRoot: this.projectRoot, cardId: this.cardId, outcome: this.outcome };
   }
 
   protected persist(): void {

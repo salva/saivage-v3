@@ -31,6 +31,11 @@ function createProject(store: CardStore): CardRecord {
   return store.create({ type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
 }
 
+function createDoneEvidence(store: CardStore, parent = 'project'): CardRecord {
+  const card = store.create({ type: 'goal', parent, depth: 1, title: 'evidence', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
+  return store.commitTerminalLifecyclePatch(card.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'planner_done', summary: 'evidence done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' } });
+}
+
 const inertStore: CardActorStorePort = {
   read: () => null,
   setStatus: () => { throw new Error('Unexpected setStatus call.'); },
@@ -41,9 +46,9 @@ function blockedPlannerProvider(): LLMProviderPort {
   return { completeTurn: jest.fn(async () => ({ kind: 'tool_calls' as const, tool_calls: [{ id: 'planner-result-1', type: 'function' as const, function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'blocked', blocked_reason: 'waiting for operator', summary: 'waiting for operator' }) } }] })) };
 }
 
-function doneProjectProvider(): LLMProviderPort {
+function doneProjectProvider(evidenceId: string): LLMProviderPort {
   return { completeTurn: jest.fn(async (input: LlmInvocationInput) => input.role === 'reviewer'
-    ? { kind: 'tool_calls' as const, tool_calls: [{ id: 'reviewer-result-1', type: 'function' as const, function: { name: 'emit_reviewer_result', arguments: JSON.stringify({ assessment: { result: 'pass', summary: 'project reviewed', achieved: ['project completed'], issues: [], evidence_card_ids: ['project'] } }) } }] }
+    ? { kind: 'tool_calls' as const, tool_calls: [{ id: 'reviewer-result-1', type: 'function' as const, function: { name: 'emit_reviewer_result', arguments: JSON.stringify({ assessment: { result: 'pass', summary: 'project reviewed', achieved: ['project completed'], issues: [], evidence_card_ids: [evidenceId] } }) } }] }
     : { kind: 'tool_calls' as const, tool_calls: [{ id: 'planner-result-1', type: 'function' as const, function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'done', summary: 'project completed' }) } }] }) };
 }
 
@@ -210,7 +215,8 @@ describe('SupervisorRuntimeApi', () => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     createProject(store);
-    const provider = doneProjectProvider();
+    const evidence = createDoneEvidence(store);
+    const provider = doneProjectProvider(evidence.id);
     const api = createSupervisorRuntimeApi({
       projectRoot,
       rootCards: store,

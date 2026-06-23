@@ -16,10 +16,9 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
   static _actor: ActorDefinition = {
     initial: 'idle',
     states: {
-      idle: { parked: true, on: { activate: 'executing', cancel: 'cancelled' } },
-      executing: { on: { done: 'settled', failed: 'settled', cancel: 'cancelled' } },
-      settled: { parked: true, on: { activate: 'executing', cancel: 'cancelled' } },
-      cancelled: { terminal: true },
+      idle: { parked: true, on: { activate: 'executing' } },
+      executing: { on: { done: 'settled', failed: 'settled' } },
+      settled: { parked: true, on: { activate: 'executing' } },
     },
   };
 

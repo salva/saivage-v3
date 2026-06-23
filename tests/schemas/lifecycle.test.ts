@@ -23,6 +23,7 @@ const now = '2026-01-01T00:00:00.000Z';
 const selfReport = { result: 'done', outcome: 'done', summary: 'ok', status_text: 'done', at: now };
 const plannerDone: PlannerDoneResult = { kind: 'planner_done', summary: 'done' };
 const plannerBlocked: PlannerBlockedResult = { kind: 'planner_blocked', blocked_reason: 'input needed', resume_reason: 'operator_input' };
+const reviewerBlocked: PlannerBlockedResult = { kind: 'planner_blocked', blocked_reason: 'fix it', resume_reason: 'reviewer_needs_corrections', reviewer_correction: { kind: 'reviewer_correction', assessment_id: 'assessment-card-1-1', summary: 'fix it', issues: [{ summary: 'missing proof' }] } };
 const executorFailure: ExecutorFailureResult = { kind: 'executor_failure', error: 'boom', partial_result: null, latest_self_report: { ...selfReport, result: 'failed', outcome: 'failed', summary: 'boom', status_text: 'failed' } };
 const executorNeedsVerification: ExecutorNeedsVerificationResult = { kind: 'executor_needs_verification', reason: 'check output', preserved_result: {}, fallback_reason: null, latest_self_report: { ...selfReport, result: 'needs_verification', outcome: 'needs_verification', summary: 'check output', status_text: 'verify' } };
 
@@ -77,9 +78,10 @@ describe('card lifecycle schemas', () => {
     const done: CardLifecycleState = { status: 'done', result: plannerDone, error: null, completed_at: now };
     const failed: CardLifecycleState = { status: 'failed', result: executorFailure, error: 'boom', completed_at: now };
     const blocked: CardLifecycleState = { status: 'blocked', result: plannerBlocked, error: 'input needed', completed_at: null };
+    const blockedByReviewer: CardLifecycleState = { status: 'blocked', result: reviewerBlocked, error: 'fix it', completed_at: null };
     const needsVerification: CardLifecycleState = { status: 'needs_verification', result: executorNeedsVerification, error: null, completed_at: null };
 
-    for (const state of [done, failed, blocked, needsVerification]) {
+    for (const state of [done, failed, blocked, blockedByReviewer, needsVerification]) {
       expect(cardLifecycleStateSchema.safeParse(state).success).toBe(true);
     }
   });

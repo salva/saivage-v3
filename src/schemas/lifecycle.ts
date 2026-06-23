@@ -47,6 +47,7 @@ export interface PlannerBlockedResult extends Record<string, unknown> {
   blocked_reason: string;
   resume_reason: string;
   blocker_cause?: 'reviewer_unavailable' | 'token_budget_exceeded' | 'non_actionable_continue' | 'generic';
+  reviewer_correction?: ReviewerCorrectionResult;
 }
 
 export interface PlannerFailureResult extends Record<string, unknown> {
@@ -144,11 +145,19 @@ export const plannerDoneResultSchema: z.ZodType<PlannerDoneResult> = z.object({
   summary: z.string(),
 }).strict();
 
+export const reviewerCorrectionResultSchema: z.ZodType<ReviewerCorrectionResult> = z.object({
+  kind: z.literal('reviewer_correction'),
+  issues: z.array(arbitraryRecordSchema),
+  summary: z.string(),
+  assessment_id: nonEmptyStringSchema,
+}).strict();
+
 export const plannerBlockedResultSchema: z.ZodType<PlannerBlockedResult> = z.object({
   kind: z.literal('planner_blocked'),
   blocked_reason: nonEmptyStringSchema,
   resume_reason: nonEmptyStringSchema,
   blocker_cause: z.enum(['reviewer_unavailable', 'token_budget_exceeded', 'non_actionable_continue', 'generic']).optional(),
+  reviewer_correction: reviewerCorrectionResultSchema.optional(),
 }).strict();
 
 export const plannerFailureResultSchema: z.ZodType<PlannerFailureResult> = z.object({
@@ -160,13 +169,6 @@ export const reviewerPassResultSchema: z.ZodType<ReviewerPassResult> = z.object(
   kind: z.literal('reviewer_pass'),
   planning: z.union([plannerDoneResultSchema, plannerBlockedResultSchema]),
   review_summary: z.string(),
-  assessment_id: nonEmptyStringSchema,
-}).strict();
-
-export const reviewerCorrectionResultSchema: z.ZodType<ReviewerCorrectionResult> = z.object({
-  kind: z.literal('reviewer_correction'),
-  issues: z.array(arbitraryRecordSchema),
-  summary: z.string(),
   assessment_id: nonEmptyStringSchema,
 }).strict();
 

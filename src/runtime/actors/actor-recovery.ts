@@ -188,7 +188,7 @@ function isActiveLlmSnapshot(snapshot: ActorSnapshotRecord): boolean {
 }
 
 function isActiveProcessorSnapshot(snapshot: ActorSnapshotRecord): boolean {
-  return snapshot.state_value !== 'idle' && snapshot.state_value !== 'settled' && snapshot.state_value !== 'cancelled';
+  return snapshot.state_value !== 'idle' && snapshot.state_value !== 'settled';
 }
 
 function llmRecoveryAction(snapshot: ActorSnapshotRecord): LlmRecoveryAction {
