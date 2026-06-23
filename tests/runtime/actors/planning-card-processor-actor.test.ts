@@ -100,6 +100,27 @@ describe('PlanningCardProcessorActor', () => {
     }), expect.any(AbortSignal));
   }));
 
+  it('returns malformed activate_card arguments as a recoverable tool result', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    const provider: LLMProviderPort = {
+      completeTurn: jest.fn(async (input: LlmInvocationInput) => input.episodeContext.lastToolResult
+        ? plannerResult('blocked', 'tool args rejected')
+        : { kind: 'tool_calls' as const, tool_calls: [{ id: 'call-1', type: 'function' as const, function: { name: 'activate_card', arguments: JSON.stringify({ card_id: '' }) } }] }),
+    };
+    const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
+    actor.start();
+
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notifications: [] });
+
+    expect(outcome).toMatchObject({ status: 'blocked', summary: 'tool args rejected', result: { kind: 'planner_blocked' } });
+    expect(provider.completeTurn).toHaveBeenCalledTimes(2);
+    expect(provider.completeTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      episodeContext: expect.objectContaining({ lastToolResult: expect.objectContaining({ result: { success: false, error: 'activate_card requires card_id.' } }) }),
+    }), expect.any(AbortSignal));
+  }));
+
   it('delivers card notifications to planner continuation turns by input id', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);

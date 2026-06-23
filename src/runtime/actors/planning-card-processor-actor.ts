@@ -75,7 +75,9 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
 
   private async handleToolCall(parent: CardRecord, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): Promise<unknown> {
     if (outcome.toolName !== 'activate_card') return { success: false, error: `Unsupported planner tool call '${outcome.toolName}'.` };
-    const childId = parseChildCardId(outcome.args);
+    const parsed = parseChildCardId(outcome.args);
+    if (!parsed.success) return { success: false, error: parsed.error };
+    const childId = parsed.cardId;
     const child = this.store.read(childId);
     if (!child) return { success: false, error: `Child card '${childId}' not found.` };
     if (child.parent !== parent.id) return { success: false, error: `Planner can activate only immediate children of '${parent.id}'.` };
@@ -174,12 +176,12 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 }
 
-function parseChildCardId(args: unknown): string {
-  if (!args || typeof args !== 'object') throw new Error('activate_card requires an object argument.');
+function parseChildCardId(args: unknown): { success: true; cardId: string } | { success: false; error: string } {
+  if (!args || typeof args !== 'object') return { success: false, error: 'activate_card requires an object argument.' };
   const maybe = args as { card_id?: unknown; cardId?: unknown; id?: unknown };
   const childId = maybe.card_id ?? maybe.cardId ?? maybe.id;
-  if (typeof childId !== 'string' || childId.length === 0) throw new Error('activate_card requires card_id.');
-  return childId;
+  if (typeof childId !== 'string' || childId.length === 0) return { success: false, error: 'activate_card requires card_id.' };
+  return { success: true, cardId: childId };
 }
 
 function firstIncompleteDescendant(cardId: string, store: CardActorStorePort): { id: string; status: CardStatus } | null {
