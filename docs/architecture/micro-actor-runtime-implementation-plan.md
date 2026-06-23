@@ -337,22 +337,23 @@ Completed:
 - Recovery plan construction classifies supervisor, card, LLM, processor, and process snapshots.
 - In-flight provider calls are classified for abandonment.
 - Waiting-tool, active processor, active card, and running process states are surfaced as recovery actions/diagnostics.
+- Ambiguous active card states, active LLM states without concrete recovery actions, and stranded active cards are surfaced as human-readable diagnostics.
+- Persisted running/killing process snapshots use the default `abandon_running_process` recovery action instead of implying live process reconciliation.
 - Startup persists sanitized recovery diagnostics without including actor snapshot context payloads.
 - Persisted recovery diagnostics are versioned with `schema_version: 1`.
 - Discarded non-idle supervisor snapshots are surfaced as human-readable diagnostics and actions.
+- Clean startup recovery clears stale `.saivage/runtime/recovery-diagnostics.json` files.
+- `actorRuntime.recovery` projects sanitized recovery diagnostics through the runtime status read model/API contract.
 - Startup still exposes `getRecoveryPlan()` for tests and operator-facing follow-up work.
 
 Remaining:
 
-- Emit diagnostics for ambiguous active states and active cards without active children/processors. Actions without human-readable diagnostics are not enough.
 - Add `_on_recover__{state}` hooks for safe parked states first, then active states only where durable reconstruction data is sufficient.
 - Reconstruct active card chains, processor ownership, unresolved child activation waits, LLM waiting-tool state, and process waits where safe.
-- Decide the running-process restart strategy before implementing process-wait reconstruction. The simple default should be to abandon persisted running processes on restart with explicit diagnostics; implement live process reconciliation and PID-reuse safeguards only if preserving in-flight process results is a concrete requirement.
 - Convert abandoned or ambiguous active work into explicit card/operator outcomes where appropriate, not just diagnostics files.
 - Resume safe `waiting_tool` paths without double-delivering tool results or duplicating provider turns as part of active LLM/processor reconstruction, not as a separate disconnected feature.
 - Repair interrupted reviewer/planner chains with stored correction context or explicit diagnostics as part of active card/processor reconstruction.
 - Remove or reconcile actor snapshots after successful reconstruction or outcome conversion so handled recovery work is not reported again on the next restart.
-- Add operator/API projections for recovery diagnostics if they are needed outside filesystem inspection.
 
 Implementation:
 
@@ -375,6 +376,7 @@ Tests:
 - Startup handles interrupted reviewer with correction context or visible diagnostic.
 - Startup persists sanitized recovery diagnostics for any active snapshot that is not yet safely resumable.
 - Startup diagnostics cover unknown active LLM states, active cards without active owner records, running process abandonment, and discarded non-idle supervisor snapshots.
+- Recovery diagnostics read-model tests prove the runtime status projection remains sanitized and stale diagnostics are cleared after clean recovery.
 - Recovery tests prove `recover(...)` hooks do not trigger transition snapshot writes through `_on_state_changed(...)`.
 - Recovery tests prove handled snapshots are removed or reconciled so the same recovery work is not reported again after restart.
 
@@ -426,7 +428,7 @@ These items are not blockers for the core actor replacement, but should be compl
 - Run and triage the full Jest suite. Earlier full-suite attempts exposed unrelated missing-doc failures; keep those separate from actor-runtime regressions.
 - Run broader Saivage validation profiles when the release target requires them, especially `npm run validate:ui-smoke`, `npm run validate:ui`, and `npm run validate:release`.
 - Update operator-facing docs to describe the implemented planner-owned reviewer phase, terminal-tool-only report behavior, card-owned notification delivery markers, and conservative recovery diagnostics.
-- Decide whether `.saivage/runtime/recovery-diagnostics.json` needs an API/read-model projection or remains a filesystem/operator artifact.
+- `.saivage/runtime/recovery-diagnostics.json` is now projected through `actorRuntime.recovery`; decide later whether a dedicated recovery endpoint or UI treatment is needed.
 - Review generated/runtime artifact ownership separately from this runtime redesign if repository hygiene remains an open release concern.
 - Focused tests now cover the confirmed post-review gaps: reviewer self-citation rejection, malformed `activate_card` args, running cancellation notification delivery/leftover handling, real `CardActor` to processor notification-marker wiring, and bounded marker/process-map retention. Keep adding focused recovery tests for newly implemented reconstruction/reconciliation behavior.
 
