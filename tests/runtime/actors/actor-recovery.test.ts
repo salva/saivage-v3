@@ -57,8 +57,8 @@ describe('actor recovery plan', () => {
 
     expect(plan.llms).toMatchObject([{ actorId: 'executor:T-1', role: 'executor', cardId: 'T-1', active: false }]);
     expect(plan.processes).toMatchObject([
-      { processId: 'build-1', requiresReconciliation: true },
-      { processId: 'done-1', requiresReconciliation: false },
+      { processId: 'build-1', action: 'abandon_running_process' },
+      { processId: 'done-1', action: 'none' },
     ]);
     expect(plan.diagnostics).toEqual(expect.arrayContaining([
       expect.objectContaining({ actorId: 'card:T-1', severity: 'warning' }),
@@ -192,5 +192,26 @@ describe('actor recovery plan', () => {
       diagnostics: [expect.objectContaining({ actorId: 'supervisor', severity: 'warning' })],
       actions: [expect.objectContaining({ actorId: 'supervisor', kind: 'discarded_supervisor', action: 'discard_stale_supervisor' })],
     });
+  }));
+
+  it('persists running process abandonment diagnostics instead of reconciliation requests', () => withTempProject((projectRoot) => {
+    saveSnapshot(projectRoot, 'process:build-1', 'process', 'running', { processId: 'build-1' });
+    saveSnapshot(projectRoot, 'process:kill-1', 'process', 'killing', { processId: 'kill-1' });
+
+    const written = writeRecoveryDiagnostics(projectRoot, buildActorRecoveryPlan(projectRoot), '2026-06-12T00:00:00.000Z');
+
+    expect(written).toMatchObject({
+      actions: expect.arrayContaining([
+        expect.objectContaining({ actorId: 'process:build-1', kind: 'running_process', action: 'abandon_running_process', processId: 'build-1' }),
+        expect.objectContaining({ actorId: 'process:kill-1', kind: 'running_process', action: 'abandon_running_process', processId: 'kill-1' }),
+      ]),
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({ actorId: 'process:build-1', severity: 'warning' }),
+        expect.objectContaining({ actorId: 'process:kill-1', severity: 'warning' }),
+      ]),
+    });
+    const messages = written?.diagnostics.map((diagnostic) => diagnostic.message).join('\n') ?? '';
+    expect(messages).toContain('abandoned on startup');
+    expect(messages).not.toContain('requires live process reconciliation');
   }));
 });

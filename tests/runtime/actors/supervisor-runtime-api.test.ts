@@ -138,7 +138,7 @@ describe('SupervisorRuntimeApi', () => {
       cards: [{ cardId: 'G-recover', active: true }],
       llms: [{ actorId: 'planner:G-recover', action: 'abandon_provider_call', active: true }],
       processors: [{ actorId: 'processor:G-recover', active: true }],
-      processes: [{ processId: 'build-1', requiresReconciliation: true }],
+      processes: [{ processId: 'build-1', action: 'abandon_running_process' }],
     });
     expect(readRecoveryDiagnostics(projectRoot)).toMatchObject({
       generated_at: '2026-06-12T00:00:00.000Z',
@@ -152,7 +152,7 @@ describe('SupervisorRuntimeApi', () => {
         expect.objectContaining({ actorId: 'planner:G-recover', kind: 'active_llm', cardId: 'G-recover' }),
         expect.objectContaining({ actorId: 'planner:G-recover', kind: 'llm_recovery_action', action: 'abandon_provider_call', cardId: 'G-recover' }),
         expect.objectContaining({ actorId: 'processor:G-recover', kind: 'active_processor', cardId: 'G-recover' }),
-        expect.objectContaining({ actorId: 'process:build-1', kind: 'running_process', processId: 'build-1' }),
+        expect.objectContaining({ actorId: 'process:build-1', kind: 'running_process', action: 'abandon_running_process', processId: 'build-1' }),
       ]),
     });
   }));

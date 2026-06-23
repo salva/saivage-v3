@@ -31,8 +31,10 @@ export type LlmActorRecoveryPlanRecord = LlmActorRecoveryRecord & { action: LlmR
 export interface ProcessActorRecoveryRecord {
   processId: string;
   snapshot: ActorSnapshotRecord;
-  requiresReconciliation: boolean;
+  action: ProcessRecoveryAction;
 }
+
+export type ProcessRecoveryAction = 'none' | 'abandon_running_process';
 
 export type LlmRecoveryAction = 'none' | 'abandon_provider_call' | 'resume_tool_wait';
 
@@ -106,7 +108,7 @@ export function buildActorRecoveryPlan(projectRoot: string, cards?: ActorRecover
     .map((snapshot): ProcessActorRecoveryRecord => ({
       processId: parseProcessActorId(snapshot.actor_id),
       snapshot,
-      requiresReconciliation: snapshot.state_value === 'running',
+      action: processRecoveryAction(snapshot),
     }));
   return {
     supervisor,
@@ -179,7 +181,7 @@ function recoveryDiagnosticActions(plan: ActorRecoveryPlan): ActorRecoveryDiagno
     ...plan.llms.filter((llm) => llm.active).map((llm) => ({ actorId: llm.actorId, kind: 'active_llm' as const, action: 'diagnose_active_llm', cardId: llm.cardId })),
     ...plan.llms.filter((llm) => llm.action !== 'none').map((llm) => ({ actorId: llm.actorId, kind: 'llm_recovery_action' as const, action: llm.action, cardId: llm.cardId })),
     ...plan.processors.filter((processor) => processor.active).map((processor) => ({ actorId: processor.actorId, kind: 'active_processor' as const, action: 'diagnose_active_processor', cardId: processor.cardId })),
-    ...plan.processes.filter((process) => process.requiresReconciliation).map((process) => ({ actorId: process.snapshot.actor_id, kind: 'running_process' as const, action: 'diagnose_running_process', processId: process.processId })),
+    ...plan.processes.filter((process) => process.action !== 'none').map((process) => ({ actorId: process.snapshot.actor_id, kind: 'running_process' as const, action: process.action, processId: process.processId })),
   ].sort((a, b) => a.actorId.localeCompare(b.actorId) || a.kind.localeCompare(b.kind));
 }
 
@@ -206,6 +208,11 @@ function isActiveProcessorSnapshot(snapshot: ActorSnapshotRecord): boolean {
 function llmRecoveryAction(snapshot: ActorSnapshotRecord): LlmRecoveryAction {
   if (snapshot.state_value === 'calling_provider') return 'abandon_provider_call';
   if (snapshot.state_value === 'waiting_tool') return 'resume_tool_wait';
+  return 'none';
+}
+
+function processRecoveryAction(snapshot: ActorSnapshotRecord): ProcessRecoveryAction {
+  if (snapshot.state_value === 'running' || snapshot.state_value === 'killing') return 'abandon_running_process';
   return 'none';
 }
 
@@ -248,7 +255,7 @@ function recoveryDiagnostics(
     ...llms.filter((llm) => llm.action === 'resume_tool_wait').map((llm) => ({ actorId: llm.actorId, severity: 'info' as const, message: 'LLM actor is waiting for a persisted tool result and can resume delivery repair.' })),
     ...llms.filter((llm) => llm.active && llm.action === 'none').map((llm) => ({ actorId: llm.actorId, severity: 'warning' as const, message: `Active LLM snapshot state '${String(llm.snapshot.state_value)}' has no concrete recovery action yet.` })),
     ...processors.filter((processor) => processor.active).map((processor) => ({ actorId: processor.actorId, severity: 'warning' as const, message: 'Active processor snapshot requires reconstruction of activation/tool waits before autonomous execution resumes.' })),
-    ...processes.filter((process) => process.requiresReconciliation).map((process) => ({ actorId: process.snapshot.actor_id, severity: 'warning' as const, message: 'Running process snapshot requires live process reconciliation.' })),
+    ...processes.filter((process) => process.action === 'abandon_running_process').map((process) => ({ actorId: process.snapshot.actor_id, severity: 'warning' as const, message: 'Running process snapshot is abandoned on startup because live process reattachment is not implemented; rerun the owning tool if the result is still needed.' })),
   ].sort((a, b) => a.actorId.localeCompare(b.actorId));
 }
 
