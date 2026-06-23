@@ -1,14 +1,14 @@
 import type { ActorDefinition } from '../micro-actor/index.js';
-import type { CardRecord, PlannerBlockedResult, PlannerDoneResult, ReviewAssessment, ReviewerPassResult } from '../../schemas/index.js';
-import { nextReviewerAssessmentId, reviewerSessionId, validateReviewerAssessment } from '../reviewer-assessment.js';
+import type { CardRecord, PlannerBlockedResult, PlannerDoneResult } from '../../schemas/index.js';
+import { nextReviewerAssessmentId, reviewerSessionId } from '../reviewer-assessment.js';
 import type { LLMActorOutcome, LLMAdmissionPort, LLMProviderPort } from './llm-actor.js';
 import { processorActorId, reviewerActorId } from './ids.js';
 import type { CardActivationInput, CardActivationOutcome, CardActorStorePort, CardProcessorActor } from './card-actor.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
 import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
 import { createReviewerContract } from '../../contracts/reviewer-contract.js';
-import type { ReviewerResult } from '../../contracts/agent-execution.js';
-import { expectedTerminalToolMessage, verifyTerminalToolOutcome } from './contract-terminal-tools.js';
+import { expectedTerminalToolMessage } from './contract-terminal-tools.js';
+import { evaluateReviewerTerminalOutcome } from './reviewer-terminal-evaluation.js';
 
 type ReviewerProcessorOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
 
@@ -71,19 +71,7 @@ export class ReviewerCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private reviewOutcome(card: CardRecord, planning: PlannerDoneResult | PlannerBlockedResult, assessmentId: string, sessionId: string, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): ReviewerProcessorOutcome {
-    let reviewerResult: ReviewerResult;
-    try {
-      reviewerResult = verifyTerminalToolOutcome(createReviewerContract(), outcome).result;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return { status: 'failed', summary: message, result: { kind: 'planner_failure', error: message } };
-    }
-    const assessment = buildReviewAssessment(reviewerResult, assessmentId, sessionId, card.id);
-    const validation = validateReviewerAssessment({ goalId: card.id, assessment, readCard: (id) => this.store.read(id) });
-    if (!validation.valid) return correctionOutcome(assessmentId, validation.reason ?? 'Reviewer assessment is invalid.');
-    if (assessment.result === 'needs_corrections') return correctionOutcome(assessmentId, assessment.summary, assessment.issues.map((issue) => ({ ...issue })));
-    const passResult: ReviewerPassResult = { kind: 'reviewer_pass', planning, review_summary: assessment.summary, assessment_id: assessmentId };
-    return { status: 'done', summary: assessment.summary, result: passResult };
+    return evaluateReviewerTerminalOutcome({ card, planning, assessmentId, sessionId, outcome, store: this.store });
   }
 
   private reviewerPrompt(card: CardRecord, assessmentId: string): string {
@@ -104,17 +92,4 @@ function plannerResult(card: CardRecord): PlannerDoneResult | PlannerBlockedResu
   if (result?.kind === 'planner_done' || result?.kind === 'planner_blocked') return result;
   if (result?.kind === 'reviewer_pass') return result.planning;
   return null;
-}
-
-function correctionOutcome(assessmentId: string, summary: string, issues: Array<Record<string, unknown>> = []): ReviewerProcessorOutcome {
-  return {
-    status: 'blocked',
-    summary,
-    result: { kind: 'planner_blocked', blocked_reason: summary, resume_reason: 'reviewer_needs_corrections', reviewer_correction: { kind: 'reviewer_correction', assessment_id: assessmentId, summary, issues } },
-  };
-}
-
-function buildReviewAssessment(result: ReviewerResult, assessmentId: string, sessionId: string, goalId: string): ReviewAssessment {
-  const now = new Date().toISOString();
-  return { ...result.assessment, assessment_id: assessmentId, at: now, created_at: now, reviewer_session_id: sessionId, goal_card_id: goalId };
 }
