@@ -30,7 +30,7 @@ async function eventually(assertion: () => void, timeoutMs = 1000): Promise<void
 }
 
 describe('actor runtime read model', () => {
-  it('projects supervisor, card runner, and LLM runner snapshots without raw XState details', () => withTempProject(async (projectRoot) => {
+  it('projects supervisor, card actor, and LLM actor snapshots without raw state details', () => withTempProject(async (projectRoot) => {
     const supervisor = new RuntimeSupervisorActor();
     supervisor.start();
     supervisor.initialize(projectRoot);
@@ -41,7 +41,7 @@ describe('actor runtime read model', () => {
     saveActorSnapshot(projectRoot, {
       actor_id: 'card:T-1',
       actor_kind: 'card',
-      state_value: 'executing',
+      state_value: 'running',
       context: { privateField: 'not projected' },
       updated_at: new Date().toISOString(),
     });
@@ -55,7 +55,7 @@ describe('actor runtime read model', () => {
 
     expect(buildActorRuntimeReadModel(projectRoot)).toEqual({
       pauseMode: 'paused',
-      cards: [{ cardId: 'T-1', runnerPhase: 'executing' }],
+      cards: [{ cardId: 'T-1', actorState: 'running' }],
       agents: [{ agentId: 'executor:T-1', agentPhase: 'running' }],
       diagnostics: [],
     });
@@ -93,10 +93,10 @@ describe('actor runtime read model', () => {
     });
 
     expect(buildActorRuntimeReadModel(projectRoot)).toMatchObject({
-      cards: [{ cardId: 'G-unknown', runnerPhase: 'unknown' }],
+      cards: [{ cardId: 'G-unknown', actorState: 'unknown' }],
       agents: [{ agentId: 'planner:G-unknown', agentPhase: 'unknown' }],
       diagnostics: [
-        "card actor 'card:G-unknown' has unknown runner phase '[object Object]'",
+        "card actor 'card:G-unknown' has unknown state '[object Object]'",
         "agent actor 'planner:G-unknown' has unknown phase 'waiting_for_tool'",
       ],
     });

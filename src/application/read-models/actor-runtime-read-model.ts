@@ -2,9 +2,9 @@ import { readActorSnapshots } from '../../runtime/actors/index.js';
 
 export type ActorPauseMode = 'running' | 'paused' | 'stopping' | 'unknown';
 
-export interface CardRunnerProjection {
+export interface CardActorProjection {
   cardId: string;
-  runnerPhase: string;
+  actorState: string;
 }
 
 export interface AgentRunnerProjection {
@@ -14,7 +14,7 @@ export interface AgentRunnerProjection {
 
 export interface ActorRuntimeReadModel {
   pauseMode: ActorPauseMode;
-  cards: CardRunnerProjection[];
+  cards: CardActorProjection[];
   agents: AgentRunnerProjection[];
   diagnostics: string[];
 }
@@ -23,7 +23,7 @@ export function buildActorRuntimeReadModel(projectRoot: string): ActorRuntimeRea
   const snapshots = readActorSnapshots(projectRoot);
   const diagnostics: string[] = [];
   let pauseMode: ActorPauseMode = 'unknown';
-  const cards: CardRunnerProjection[] = [];
+  const cards: CardActorProjection[] = [];
   const agents: AgentRunnerProjection[] = [];
 
   for (const snapshot of snapshots) {
@@ -32,7 +32,7 @@ export function buildActorRuntimeReadModel(projectRoot: string): ActorRuntimeRea
       continue;
     }
     if (snapshot.actor_kind === 'card') {
-      cards.push({ cardId: stripRequiredPrefix(snapshot.actor_id, 'card:', diagnostics), runnerPhase: readCardRunnerPhase(snapshot.actor_id, snapshot.state_value, diagnostics) });
+      cards.push({ cardId: stripRequiredPrefix(snapshot.actor_id, 'card:', diagnostics), actorState: readCardActorState(snapshot.actor_id, snapshot.state_value, diagnostics) });
       continue;
     }
     if (snapshot.actor_kind === 'llm') {
@@ -48,9 +48,9 @@ export function buildActorRuntimeReadModel(projectRoot: string): ActorRuntimeRea
   };
 }
 
-function readCardRunnerPhase(actorId: string, value: unknown, diagnostics: string[]): string {
-  if (value === 'planning' || value === 'reviewing' || value === 'executing' || value === 'done') return value;
-  diagnostics.push(`card actor '${actorId}' has unknown runner phase '${String(value)}'`);
+function readCardActorState(actorId: string, value: unknown, diagnostics: string[]): string {
+  if (value === 'backlog' || value === 'changed' || value === 'running' || value === 'blocked' || value === 'failed' || value === 'done' || value === 'cancelled') return value;
+  diagnostics.push(`card actor '${actorId}' has unknown state '${String(value)}'`);
   return 'unknown';
 }
 

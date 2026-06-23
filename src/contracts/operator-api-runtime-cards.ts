@@ -101,7 +101,7 @@ export const RuntimeStatusResponseSchema = z.object({
   pid: z.number().int().positive(),
   actorRuntime: z.object({
     pauseMode: z.enum(['running', 'paused', 'stopping', 'unknown']),
-    cards: z.array(z.object({ cardId: z.string(), runnerPhase: z.string() })),
+    cards: z.array(z.object({ cardId: z.string(), actorState: z.string() })),
     agents: z.array(z.object({ agentId: z.string(), agentPhase: z.string() })),
     diagnostics: z.array(z.string()),
   }),
