@@ -46,20 +46,21 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
       if (outcome.type === 'error') return { status: 'failed', summary: outcome.error, result: executorFailure(outcome.error) };
       if (createExecutorContract().isTerminalToolName(outcome.toolName)) return this.projectExecutorTerminal(outcome);
       const toolResult = await this.handleToolCall(outcome);
-      outcome = await llm.appendToolResult(outcome.toolCallId, toolResult);
+      outcome = await llm.appendToolResult(outcome.toolCallId, toolResult, (inputId) => this.notificationContextMessages(input, inputId));
     }
     return { status: 'failed', summary: 'Executor exceeded terminal turn budget.', result: executorFailure('Executor exceeded terminal turn budget.') };
   }
 
   private buildLlmInput(input: CardActivationInput): LlmInvocationInput {
     const contract = createExecutorContract();
+    const inputId = this.nextInvocationInputId('terminal');
     return {
-      inputId: this.nextInvocationInputId('terminal'),
+      inputId,
       agentId: executorActorId(this.cardId),
       role: 'executor',
       sessionId: executorActorId(this.cardId),
       systemPrompt: `Execute terminal card ${input.card.id}: ${input.card.title}\n\n${input.card.description}\n\nAcceptance:\n${input.card.acceptance}\n\nUse process tools when needed. End by calling emit_executor_result; plain text or JSON messages are not accepted as terminal reports.`,
-      contextMessages: input.notifications.map((notification) => ({ role: 'user', content: notification.message })),
+      contextMessages: this.notificationContextMessages(input, inputId),
       tools: [...XSTATE_PROCESS_TOOL_DEFINITIONS, ...contract.terminals.map((terminal) => terminal.toolDefinition)],
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),
       modelParams: {},

@@ -31,6 +31,8 @@ type WaitingToolCall = {
   toolName: string;
 };
 
+export type LLMToolContinuationContextHook = (deliveryInputId: string) => unknown[] | undefined;
+
 export class LLMActor extends BaseActor {
   static _actor: ActorDefinition = {
     initial: 'idle',
@@ -74,7 +76,7 @@ export class LLMActor extends BaseActor {
     });
   }
 
-  appendToolResult(toolCallId: string, result: unknown): Promise<LLMActorOutcome> {
+  appendToolResult(toolCallId: string, result: unknown, continuationContextHook?: LLMToolContinuationContextHook): Promise<LLMActorOutcome> {
     let waiting: WaitingToolCall;
     try {
       waiting = this.requireWaitingTool(toolCallId);
@@ -84,6 +86,7 @@ export class LLMActor extends BaseActor {
     this.recordToolSettled(toolCallId);
     const input = this.requireInput();
     const deliveryInputId = this.nextDeliveryInputId(input.inputId);
+    const contextMessages = this.continuationContextMessages(input, deliveryInputId, continuationContextHook);
     appendToolDelivery(this.projectRoot, {
       agent_id: this.agentId,
       source_input_id: waiting.sourceInputId,
@@ -95,13 +98,14 @@ export class LLMActor extends BaseActor {
     this.input = {
       ...input,
       inputId: deliveryInputId,
+      contextMessages,
       episodeContext: { ...input.episodeContext, lastToolResult: { toolCallId, toolName: waiting.toolName, result } },
     };
     this.waitingToolCall = null;
     return this.continueAfterTool();
   }
 
-  appendToolError(toolCallId: string, error: string): Promise<LLMActorOutcome> {
+  appendToolError(toolCallId: string, error: string, continuationContextHook?: LLMToolContinuationContextHook): Promise<LLMActorOutcome> {
     let waiting: WaitingToolCall;
     try {
       waiting = this.requireWaitingTool(toolCallId);
@@ -119,9 +123,11 @@ export class LLMActor extends BaseActor {
     });
     const input = this.requireInput();
     const deliveryInputId = this.nextDeliveryInputId(input.inputId);
+    const contextMessages = this.continuationContextMessages(input, deliveryInputId, continuationContextHook);
     this.input = {
       ...input,
       inputId: deliveryInputId,
+      contextMessages,
       episodeContext: { ...input.episodeContext, lastToolResult: { toolCallId, toolName: waiting.toolName, error } },
     };
     this.waitingToolCall = null;
@@ -226,6 +232,11 @@ export class LLMActor extends BaseActor {
   private nextDeliveryInputId(inputId: string): string {
     this.#toolDeliveryCounter++;
     return `${inputId}:tool:${this.#toolDeliveryCounter}`;
+  }
+
+  private continuationContextMessages(input: LlmInvocationInput, deliveryInputId: string, continuationContextHook?: LLMToolContinuationContextHook): unknown[] {
+    const extraMessages = continuationContextHook?.(deliveryInputId) ?? [];
+    return [...input.contextMessages, ...extraMessages];
   }
 
   private requireInput(): LlmInvocationInput {

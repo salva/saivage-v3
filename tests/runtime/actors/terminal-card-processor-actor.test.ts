@@ -88,12 +88,18 @@ describe('TerminalCardProcessorActor', () => {
         ? executorResult(card.id, 'saw running process')
         : { kind: 'tool_calls' as const, tool_calls: [{ id: 'run-1', type: 'function' as const, function: { name: 'run_process', arguments: JSON.stringify({ processId: 'P-timeout', command: process.execPath, args: ['-e', 'setTimeout(() => console.log("late"), 80)'], timeoutMs: 5 }) } }] }),
     };
+    const delivery = { deliverNotificationsForInput: jest.fn((inputId: string) => inputId.endsWith(':tool:1') ? [{ id: 'n-mid', message: 'executor mid-turn notice', created_at: '2026-06-12T00:00:00.000Z' }] : []) };
     const processor = new TerminalCardProcessorActor({ projectRoot, cardId: card.id, provider });
     processor.start();
 
-    const outcome = await processor.activate({ card, caller: { kind: 'parent', cardId: 'project' }, notifications: [] });
+    const outcome = await processor.activate({ card, caller: { kind: 'parent', cardId: 'project' }, notifications: [], notificationDelivery: delivery });
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'saw running process' });
+    expect(delivery.deliverNotificationsForInput).toHaveBeenCalledWith(`terminal:${card.id}:1`);
+    expect(delivery.deliverNotificationsForInput).toHaveBeenCalledWith(`terminal:${card.id}:1:tool:1`);
+    expect(provider.completeTurn).toHaveBeenLastCalledWith(expect.objectContaining({
+      contextMessages: [{ role: 'user', content: 'executor mid-turn notice' }],
+    }), expect.any(AbortSignal));
     const processActor = processor.processes.get('P-timeout');
     expect(processActor).toBeDefined();
     expect(processActor?.pid).not.toBeNull();

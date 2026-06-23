@@ -16,6 +16,7 @@ export interface CardActivationInput {
   card: CardRecord;
   caller: CardActivationCaller;
   notifications: CardNotification[];
+  notificationDelivery?: CardNotificationDeliveryPort;
 }
 
 export interface CardActivationCaller {
@@ -29,6 +30,16 @@ export interface CardNotification {
   message: string;
   created_at: string;
   reason?: string;
+}
+
+export interface CardNotificationDeliveryMarker {
+  notification_id: string;
+  delivered_to_input_id: string;
+  delivered_at: string;
+}
+
+export interface CardNotificationDeliveryPort {
+  deliverNotificationsForInput(inputId: string): CardNotification[];
 }
 
 export interface CardChange {
@@ -77,6 +88,7 @@ export class CardActor extends BaseActor {
   readonly store: CardActorStorePort;
   readonly processor: CardProcessorActor;
   notifications: CardNotification[] = [];
+  notificationDeliveryMarkers: CardNotificationDeliveryMarker[] = [];
   lastOutcome: CardActivationOutcome | null = null;
   lastChange: CardChange | null = null;
   cancelReason: CardCancelReason | null = null;
@@ -137,6 +149,19 @@ export class CardActor extends BaseActor {
     return notifications;
   }
 
+  deliverNotificationsForInput(inputId: string): CardNotification[] {
+    if (this.notifications.length === 0) return [];
+    const deliveredAt = new Date().toISOString();
+    const notifications = this.notifications.splice(0);
+    this.notificationDeliveryMarkers.push(...notifications.map((notification) => ({
+      notification_id: notification.id,
+      delivered_to_input_id: inputId,
+      delivered_at: deliveredAt,
+    })));
+    this.persist();
+    return notifications;
+  }
+
   recordNotificationsDelivered(_notifications: CardNotification[]): void {
     this.persist();
   }
@@ -172,8 +197,7 @@ export class CardActor extends BaseActor {
     this.writeStatus('running');
     const pending = this.#pendingActivation;
     if (!pending) throw new Error(`Card '${this.cardId}' entered running without pending activation.`);
-    const notifications = this.drainDeliverableNotifications();
-    const input: CardActivationInput = { card: this.requireCard(), caller: pending.caller, notifications };
+    const input: CardActivationInput = { card: this.requireCard(), caller: pending.caller, notifications: [], notificationDelivery: this };
     this.runTask((signal) => this.processor.activate(input, signal), {
       on_done: (outcome) => this.commitOutcome(outcome),
       on_failed: (error) => this.commitOutcome({
@@ -197,6 +221,7 @@ export class CardActor extends BaseActor {
         projectRoot: this.projectRoot,
         cardId: this.cardId,
         notifications: this.notifications,
+        notificationDeliveryMarkers: this.notificationDeliveryMarkers,
         lastOutcome: this.lastOutcome,
         lastChange: this.lastChange,
         cancelReason: this.cancelReason,

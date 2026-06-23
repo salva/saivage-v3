@@ -45,13 +45,15 @@ describe('ReviewerCardProcessorActor', () => {
     createProject(store);
     const goal = createGoalWithPlannerResult(store);
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => reviewerResult({ evidence_card_ids: [goal.id] })) };
+    const delivery = { deliverNotificationsForInput: jest.fn(() => [{ id: 'n-review', message: 'review notice', created_at: '2026-06-12T00:00:00.000Z' }]) };
     const actor = new ReviewerCardProcessorActor({ projectRoot, cardId: goal.id, store, provider });
     actor.start();
 
-    const outcome = await actor.activate({ card: goal, caller: { kind: 'parent', cardId: 'project' }, notifications: [] });
+    const outcome = await actor.activate({ card: goal, caller: { kind: 'parent', cardId: 'project' }, notifications: [], notificationDelivery: delivery });
 
     expect(outcome).toMatchObject({ status: 'done', result: { kind: 'reviewer_pass', planning: { kind: 'planner_done' }, review_summary: 'ok' } });
-    expect(provider.completeTurn).toHaveBeenCalledWith(expect.objectContaining({ sessionId: expect.stringContaining('assessment-card-1-1'), terminalToolNames: ['emit_reviewer_result'], tools: expect.arrayContaining([expect.objectContaining({ function: expect.objectContaining({ name: 'emit_reviewer_result' }) })]) }), expect.any(AbortSignal));
+    expect(delivery.deliverNotificationsForInput).toHaveBeenCalledWith(`reviewer:${goal.id}:1`);
+    expect(provider.completeTurn).toHaveBeenCalledWith(expect.objectContaining({ sessionId: expect.stringContaining('assessment-card-1-1'), contextMessages: [{ role: 'user', content: 'review notice' }], terminalToolNames: ['emit_reviewer_result'], tools: expect.arrayContaining([expect.objectContaining({ function: expect.objectContaining({ name: 'emit_reviewer_result' }) })]) }), expect.any(AbortSignal));
   }));
 
   it('returns blocked reviewer correction when reviewer asks for corrections', async () => withTempProject(async (projectRoot) => {

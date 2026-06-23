@@ -54,13 +54,14 @@ export class ReviewerCardProcessorActor extends BaseMainLLMCardProcessorActor im
 
   private buildLlmInput(input: CardActivationInput, assessmentId: string, sessionId: string): LlmInvocationInput {
     const contract = createReviewerContract();
+    const inputId = this.nextInvocationInputId('reviewer');
     return {
-      inputId: this.nextInvocationInputId('reviewer'),
+      inputId,
       agentId: reviewerActorId(this.cardId),
       role: 'reviewer',
       sessionId,
       systemPrompt: this.reviewerPrompt(input.card, assessmentId),
-      contextMessages: input.notifications.map((notification) => ({ role: 'user', content: notification.message })),
+      contextMessages: this.notificationContextMessages(input, inputId),
       tools: contract.terminals.map((terminal) => terminal.toolDefinition),
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),
       modelParams: {},

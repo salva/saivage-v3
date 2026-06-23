@@ -78,6 +78,31 @@ describe('PlannerCardProcessorActor', () => {
     }), expect.any(AbortSignal));
   }));
 
+  it('delivers card notifications to planner continuation turns by input id', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    const goal = createGoal(store);
+    const childActor = CardActor.fromCard({ projectRoot, card: goal, store, processor: terminalProcessor({ status: 'done', summary: 'child done', result: { kind: 'planner_done', summary: 'child done' } }) });
+    const provider: LLMProviderPort = {
+      completeTurn: jest.fn(async (input: LlmInvocationInput) => input.episodeContext.lastToolResult
+        ? plannerResult('done', 'project done')
+        : { kind: 'tool_calls' as const, tool_calls: [{ id: 'call-1', type: 'function' as const, function: { name: 'activate_card', arguments: JSON.stringify({ card_id: goal.id }) } }] }),
+    };
+    const delivery = { deliverNotificationsForInput: jest.fn((inputId: string) => inputId.endsWith(':tool:1') ? [{ id: 'n-mid', message: 'mid-turn notice', created_at: '2026-06-12T00:00:00.000Z' }] : []) };
+    const actor = new PlannerCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: (id) => id === goal.id ? childActor : null }, provider });
+    actor.start();
+
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notifications: [], notificationDelivery: delivery });
+
+    expect(outcome).toMatchObject({ status: 'done' });
+    expect(delivery.deliverNotificationsForInput).toHaveBeenCalledWith('planner:project:1');
+    expect(delivery.deliverNotificationsForInput).toHaveBeenCalledWith('planner:project:1:tool:1');
+    expect(provider.completeTurn).toHaveBeenLastCalledWith(expect.objectContaining({
+      contextMessages: [{ role: 'user', content: 'mid-turn notice' }],
+    }), expect.any(AbortSignal));
+  }));
+
   it('blocks done reports while descendants remain incomplete', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);

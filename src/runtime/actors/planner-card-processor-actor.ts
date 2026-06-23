@@ -48,20 +48,21 @@ export class PlannerCardProcessorActor extends BaseMainLLMCardProcessorActor imp
       if (outcome.type === 'error') return { status: 'failed', summary: outcome.error, result: { kind: 'planner_failure', error: outcome.error } };
       if (createPlannerContract().isTerminalToolName(outcome.toolName)) return this.projectPlannerTerminal(outcome);
       const toolResult = await this.handleToolCall(input.card, outcome);
-      outcome = await llm.appendToolResult(outcome.toolCallId, toolResult);
+      outcome = await llm.appendToolResult(outcome.toolCallId, toolResult, (inputId) => this.notificationContextMessages(input, inputId));
     }
     return { status: 'failed', summary: 'Planner exceeded turn budget.', result: { kind: 'planner_failure', error: 'Planner exceeded turn budget.' } };
   }
 
   private buildLlmInput(input: CardActivationInput): LlmInvocationInput {
     const contract = createPlannerContract();
+    const inputId = this.nextInvocationInputId('planner');
     return {
-      inputId: this.nextInvocationInputId('planner'),
+      inputId,
       agentId: plannerActorId(this.cardId),
       role: 'planner',
       sessionId: plannerActorId(this.cardId),
       systemPrompt: this.plannerPrompt(input.card),
-      contextMessages: input.notifications.map((notification) => ({ role: 'user', content: notification.message })),
+      contextMessages: this.notificationContextMessages(input, inputId),
       tools: [...XSTATE_PLANNER_TOOL_DEFINITIONS, ...contract.terminals.map((terminal) => terminal.toolDefinition)],
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),
       modelParams: {},
