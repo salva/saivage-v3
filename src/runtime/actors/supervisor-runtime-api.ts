@@ -1,7 +1,7 @@
 import { EventBus } from '../../events/index.js';
 import { createActionableErrorEnvelope } from '../../schemas/index.js';
 import { PROJECT_CARD_ID } from '../../cards/project-card.js';
-import { buildActorRecoveryPlan, writeRecoveryDiagnostics } from './actor-recovery.js';
+import { buildActorRecoveryPlan, cleanupHandledRecoverySnapshots, writeRecoveryDiagnostics } from './actor-recovery.js';
 import { abandonStalePendingToolCalls } from './llm-delivery-log.js';
 import { plannerActorId } from './ids.js';
 import { RuntimeSupervisorActor } from './runtime-supervisor.js';
@@ -50,6 +50,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     this.recoveryPlan = buildActorRecoveryPlan(this.options.projectRoot, this.options.actorStore);
     abandonStalePendingToolCalls(this.options.projectRoot);
     writeRecoveryDiagnostics(this.options.projectRoot, this.recoveryPlan, this.now());
+    cleanupHandledRecoverySnapshots(this.options.projectRoot, this.recoveryPlan);
     this.supervisor.start();
     this.supervisor.initialize(this.options.projectRoot);
     this.started = true;

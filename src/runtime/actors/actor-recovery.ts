@@ -2,7 +2,7 @@ import { existsSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { AtomicJsonFile, ProjectLock } from '../../persistence/index.js';
-import { readActorSnapshots } from './snapshots.js';
+import { readActorSnapshots, removeActorSnapshot } from './snapshots.js';
 import type { ActorSnapshotRecord } from './snapshots.js';
 
 export interface ActorRecoveryCardReader {
@@ -176,6 +176,12 @@ export function clearRecoveryDiagnostics(projectRoot: string): void {
   lock.withLockSync(() => {
     if (existsSync(path)) unlinkSync(path);
   });
+}
+
+export function cleanupHandledRecoverySnapshots(projectRoot: string, plan: ActorRecoveryPlan): void {
+  for (const process of plan.processes) {
+    if (process.action === 'abandon_running_process') removeActorSnapshot(projectRoot, process.snapshot.actor_id);
+  }
 }
 
 function recoveryDiagnosticsLock(projectRoot: string): ProjectLock {

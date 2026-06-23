@@ -155,6 +155,7 @@ describe('SupervisorRuntimeApi', () => {
         expect.objectContaining({ actorId: 'process:build-1', kind: 'running_process', action: 'abandon_running_process', processId: 'build-1' }),
       ]),
     });
+    expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).not.toContain('process:build-1');
   }));
 
   it('abandons stale pending tool calls during startup recovery', async () => withTempProject(async (projectRoot) => {

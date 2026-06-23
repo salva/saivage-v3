@@ -4,7 +4,9 @@ import { join } from 'node:path';
 import { describe, expect, it, jest } from '@jest/globals';
 import {
   buildActorRecoveryPlan,
+  cleanupHandledRecoverySnapshots,
   readRecoveryDiagnostics,
+  readActorSnapshots,
   recoveryDiagnosticsPath,
   removeActorSnapshot,
   saveActorSnapshot,
@@ -224,5 +226,21 @@ describe('actor recovery plan', () => {
     const messages = written?.diagnostics.map((diagnostic) => diagnostic.message).join('\n') ?? '';
     expect(messages).toContain('abandoned on startup');
     expect(messages).not.toContain('requires live process reconciliation');
+  }));
+
+  it('cleans up only abandoned process snapshots after diagnostics are written', () => withTempProject((projectRoot) => {
+    saveSnapshot(projectRoot, 'process:build-1', 'process', 'running', { processId: 'build-1' });
+    saveSnapshot(projectRoot, 'process:done-1', 'process', 'settled', { processId: 'done-1' });
+    saveSnapshot(projectRoot, 'card:G-1', 'card', 'running', { cardId: 'G-1' });
+    const plan = buildActorRecoveryPlan(projectRoot);
+    writeRecoveryDiagnostics(projectRoot, plan, '2026-06-12T00:00:00.000Z');
+
+    cleanupHandledRecoverySnapshots(projectRoot, plan);
+
+    expect(readRecoveryDiagnostics(projectRoot)?.actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actorId: 'process:build-1', action: 'abandon_running_process' }),
+    ]));
+    expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toEqual(expect.arrayContaining(['card:G-1', 'process:done-1']));
+    expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).not.toContain('process:build-1');
   }));
 });
