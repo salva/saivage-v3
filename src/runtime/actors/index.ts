@@ -13,6 +13,5 @@ export * from './base-card-processor-actor.js';
 export * from './base-main-llm-card-processor-actor.js';
 export * from './terminal-card-processor-actor.js';
 export * from './planning-card-processor-actor.js';
-export * from './reviewer-card-processor-actor.js';
 export * from './process-actor.js';
 export * from './supervisor-runtime-api.js';
