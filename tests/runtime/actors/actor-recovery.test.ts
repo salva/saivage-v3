@@ -1,10 +1,13 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, jest } from '@jest/globals';
 import {
   buildActorRecoveryPlan,
+  readRecoveryDiagnostics,
+  recoveryDiagnosticsPath,
   saveActorSnapshot,
+  writeRecoveryDiagnostics,
 } from '../../../src/runtime/actors/index.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
@@ -95,5 +98,27 @@ describe('actor recovery plan', () => {
     expect(() => buildActorRecoveryPlan(projectRoot, { read: jest.fn(() => null) })).toThrow(
       "Cannot recover active LLM actor 'planner:G-orphan': owner card 'G-orphan' was not found.",
     );
+  }));
+
+  it('persists sanitized recovery diagnostics only when recovery work exists', () => withTempProject((projectRoot) => {
+    expect(readRecoveryDiagnostics(projectRoot)).toBeNull();
+    expect(writeRecoveryDiagnostics(projectRoot, buildActorRecoveryPlan(projectRoot), '2026-06-12T00:00:00.000Z')).toBeNull();
+    expect(existsSync(recoveryDiagnosticsPath(projectRoot))).toBe(false);
+
+    saveSnapshot(projectRoot, 'card:G-1', 'card', 'running', { cardId: 'G-1', publicStatus: 'running', secretLike: 'not persisted' });
+    saveSnapshot(projectRoot, 'planner:G-1', 'llm', 'calling_provider', { cardId: 'G-1', providerPayload: 'not persisted' });
+    const written = writeRecoveryDiagnostics(projectRoot, buildActorRecoveryPlan(projectRoot), '2026-06-12T00:00:00.000Z');
+
+    expect(written).toMatchObject({
+      generated_at: '2026-06-12T00:00:00.000Z',
+      diagnostics: [expect.objectContaining({ actorId: 'planner:G-1', severity: 'warning' })],
+      actions: expect.arrayContaining([
+        expect.objectContaining({ actorId: 'card:G-1', kind: 'active_card', cardId: 'G-1' }),
+        expect.objectContaining({ actorId: 'planner:G-1', kind: 'active_llm', cardId: 'G-1' }),
+        expect.objectContaining({ actorId: 'planner:G-1', kind: 'llm_recovery_action', action: 'abandon_provider_call', cardId: 'G-1' }),
+      ]),
+    });
+    expect(readRecoveryDiagnostics(projectRoot)).toEqual(written);
+    expect(JSON.stringify(readRecoveryDiagnostics(projectRoot))).not.toContain('not persisted');
   }));
 });

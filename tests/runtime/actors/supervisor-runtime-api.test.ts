@@ -5,7 +5,7 @@ import { describe, expect, it, jest } from '@jest/globals';
 import { existsSync, readFileSync } from 'node:fs';
 import { CardStore } from '../../../src/cards/card-store.js';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { createSupervisorRuntimeApi, readActorSnapshots, saveActorSnapshot, SupervisorRuntimeApi, type CardActorStorePort, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
+import { createSupervisorRuntimeApi, readActorSnapshots, readRecoveryDiagnostics, saveActorSnapshot, SupervisorRuntimeApi, type CardActorStorePort, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
 import { actorToolCallStatusesPath, appendToolCallStatus } from '../../../src/runtime/actors/index.js';
 import type { CardRecord } from '../../../src/schemas/index.js';
@@ -92,6 +92,63 @@ describe('SupervisorRuntimeApi', () => {
     expect(api.getRecoveryPlan()).toMatchObject({
       cards: [{ cardId: 'G-recover', active: true }],
       llms: [{ actorId: 'planner:G-recover', active: true }],
+    });
+  }));
+
+  it('persists startup recovery diagnostics for active actors without resuming them', async () => withTempProject(async (projectRoot) => {
+    saveActorSnapshot(projectRoot, {
+      actor_id: 'card:G-recover',
+      actor_kind: 'card',
+      state_value: 'planning',
+      context: { cardId: 'G-recover', publicStatus: 'running' },
+      updated_at: '2026-06-12T00:00:00.000Z',
+    });
+    saveActorSnapshot(projectRoot, {
+      actor_id: 'planner:G-recover',
+      actor_kind: 'llm',
+      state_value: 'calling_provider',
+      context: { cardId: 'G-recover' },
+      updated_at: '2026-06-12T00:00:00.000Z',
+    });
+    saveActorSnapshot(projectRoot, {
+      actor_id: 'processor:G-recover',
+      actor_kind: 'processor',
+      state_value: 'planning',
+      context: { cardId: 'G-recover' },
+      updated_at: '2026-06-12T00:00:00.000Z',
+    });
+    saveActorSnapshot(projectRoot, {
+      actor_id: 'process:build-1',
+      actor_kind: 'process',
+      state_value: 'running',
+      context: { processId: 'build-1' },
+      updated_at: '2026-06-12T00:00:00.000Z',
+    });
+    const api = new SupervisorRuntimeApi({ projectRoot, actorStore: inertStore, provider: blockedPlannerProvider(), now: () => '2026-06-12T00:00:00.000Z' });
+
+    await api.start();
+
+    expect(api.getStatus()).toMatchObject({ status: 'idle', currentCardId: null });
+    expect(api.getRecoveryPlan()).toMatchObject({
+      cards: [{ cardId: 'G-recover', active: true }],
+      llms: [{ actorId: 'planner:G-recover', action: 'abandon_provider_call', active: true }],
+      processors: [{ actorId: 'processor:G-recover', active: true }],
+      processes: [{ processId: 'build-1', requiresReconciliation: true }],
+    });
+    expect(readRecoveryDiagnostics(projectRoot)).toMatchObject({
+      generated_at: '2026-06-12T00:00:00.000Z',
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({ actorId: 'planner:G-recover', severity: 'warning' }),
+        expect.objectContaining({ actorId: 'processor:G-recover', severity: 'warning' }),
+        expect.objectContaining({ actorId: 'process:build-1', severity: 'warning' }),
+      ]),
+      actions: expect.arrayContaining([
+        expect.objectContaining({ actorId: 'card:G-recover', kind: 'active_card', cardId: 'G-recover' }),
+        expect.objectContaining({ actorId: 'planner:G-recover', kind: 'active_llm', cardId: 'G-recover' }),
+        expect.objectContaining({ actorId: 'planner:G-recover', kind: 'llm_recovery_action', action: 'abandon_provider_call', cardId: 'G-recover' }),
+        expect.objectContaining({ actorId: 'processor:G-recover', kind: 'active_processor', cardId: 'G-recover' }),
+        expect.objectContaining({ actorId: 'process:build-1', kind: 'running_process', processId: 'build-1' }),
+      ]),
     });
   }));
 
