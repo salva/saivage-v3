@@ -20,13 +20,11 @@ The core micro-actor runtime replacement has landed:
 
 The remaining implementation work is intentionally narrower than the original replacement plan:
 
-1. Correct the remaining review/notification/cancellation issues discovered after the core implementation landed.
-2. Remove dead or misleading actor APIs that are no longer part of the simple runtime path.
-3. Full recovery reconstruction and reconciliation.
-4. Operator-facing recovery diagnostics and outcome projection polish.
-5. Recovery-specific `_on_recover__{state}` hooks for safe parked/active states.
-6. Broader validation beyond the focused actor and routine gates.
-7. Operator-facing docs that describe the implemented reviewer phase and recovery diagnostics behavior.
+1. Full recovery reconstruction and reconciliation.
+2. Operator-facing recovery diagnostics and outcome projection polish.
+3. Recovery-specific `_on_recover__{state}` hooks for safe parked/active states.
+4. Broader validation beyond the focused actor and routine gates.
+5. Operator-facing docs that describe the implemented reviewer phase and recovery diagnostics behavior.
 
 The detailed remaining recovery work is tracked in [Slice 8: Recovery](#slice-8-recovery).
 
@@ -34,14 +32,19 @@ The detailed remaining recovery work is tracked in [Slice 8: Recovery](#slice-8-
 
 The post-implementation review found a few real issues that should be fixed before expanding recovery. These are not reasons to reintroduce controller workflows or compatibility layers; they are small corrections to keep the actor design clean.
 
-Priority fixes:
+Completed post-review fixes:
 
-- Remove the candidate-review self-citation loophole. The planner-owned reviewer currently validates a candidate done result by presenting a temporary done view of the same card to evidence validation. That must not allow the card to cite itself as its only evidence unless the rule is made explicit and backed by durable evidence. Prefer validating the candidate planner result through a dedicated candidate-review input rather than an inline fake store shim.
-- Clarify running cancellation. The accepted behavior remains best-effort notification-only for running cards: it must not abort provider calls, kill processes, or reinterpret later reports. Therefore processor `cancel(...)`, processor `cancelled` states, unused abort-signal checks, and `cancelReason` fields should either be wired to a separate shutdown/force-cancel feature or removed from the normal running-cancel path.
-- Make notification delivery a single explicit contract. Production activation should use a required card notification delivery port and a single marker-writing method such as `deliverNotificationsForInput(inputId)`. Remove untracked drain/record methods if they are not used. Add a simple leftover-notification diagnostic or assertion at activation settlement so terminal turns do not silently strand notifications.
+- Candidate-review self-citation is rejected unless backed by durable evidence outside the reviewed card candidate result.
+- Running cancellation is notification-only; processor cancellation states and processor `cancel(...)` APIs were removed from the normal path.
+- Notification delivery uses the card-owned `deliverNotificationsForInput(inputId)` contract, and done cards with leftover notifications reopen as `changed` so pending context is not stranded.
+- Non-terminal planner `activate_card` argument failures are returned as recoverable tool results instead of crashing activation.
+- Dead actor APIs/options such as untracked notification drain/record methods, production-dead `LLMActor.appendToolError`, and unused runtime construction inputs were removed.
+- Notification delivery markers and terminal processor process actor records are bounded/compacted.
+
+Remaining priority fixes:
+
 - Keep terminal contract handling simple and fail-fast unless a concrete repair requirement exists. Do not add a general terminal-output repair loop just because it is possible. Do, however, make non-terminal tool argument failures recoverable as tool results instead of crashing an activation.
-- Remove dead options and duplicated types/helpers: `contextCards` if it remains unused, duplicate reviewer assessment builders, duplicate `ReviewerResult` naming, and any production-dead LLM or processor APIs.
-- Bound or compact long-lived in-memory/snapshot collections such as notification delivery markers and terminal processor process maps.
+- Remove any newly discovered dead options, duplicated types/helpers, or production-dead LLM/processor APIs as they appear during recovery work.
 
 Deferred or optional improvements:
 
@@ -335,13 +338,13 @@ Completed:
 - In-flight provider calls are classified for abandonment.
 - Waiting-tool, active processor, active card, and running process states are surfaced as recovery actions/diagnostics.
 - Startup persists sanitized recovery diagnostics without including actor snapshot context payloads.
+- Persisted recovery diagnostics are versioned with `schema_version: 1`.
+- Discarded non-idle supervisor snapshots are surfaced as human-readable diagnostics and actions.
 - Startup still exposes `getRecoveryPlan()` for tests and operator-facing follow-up work.
 
 Remaining:
 
-- Remove or justify unused recovery/runtime construction inputs such as `contextCards` before adding more recovery dependencies.
-- Version the persisted recovery diagnostics file before adding more fields.
-- Emit diagnostics for ambiguous active states, active cards without active children/processors, and discarded non-idle supervisor snapshots. Actions without human-readable diagnostics are not enough.
+- Emit diagnostics for ambiguous active states and active cards without active children/processors. Actions without human-readable diagnostics are not enough.
 - Add `_on_recover__{state}` hooks for safe parked states first, then active states only where durable reconstruction data is sufficient.
 - Reconstruct active card chains, processor ownership, unresolved child activation waits, LLM waiting-tool state, and process waits where safe.
 - Decide the running-process restart strategy before implementing process-wait reconstruction. The simple default should be to abandon persisted running processes on restart with explicit diagnostics; implement live process reconciliation and PID-reuse safeguards only if preserving in-flight process results is a concrete requirement.
@@ -425,7 +428,7 @@ These items are not blockers for the core actor replacement, but should be compl
 - Update operator-facing docs to describe the implemented planner-owned reviewer phase, terminal-tool-only report behavior, card-owned notification delivery markers, and conservative recovery diagnostics.
 - Decide whether `.saivage/runtime/recovery-diagnostics.json` needs an API/read-model projection or remains a filesystem/operator artifact.
 - Review generated/runtime artifact ownership separately from this runtime redesign if repository hygiene remains an open release concern.
-- Add focused tests for the confirmed gaps before broad recovery work: reviewer self-citation rejection, wrong reviewer terminal tool, non-object terminal tool args, malformed `activate_card` args, running cancellation notification delivery or leftover recording, real `CardActor` to `PlanningCardProcessorActor` notification-marker wiring, and bounded marker/process-map retention.
+- Focused tests now cover the confirmed post-review gaps: reviewer self-citation rejection, malformed `activate_card` args, running cancellation notification delivery/leftover handling, real `CardActor` to processor notification-marker wiring, and bounded marker/process-map retention. Keep adding focused recovery tests for newly implemented reconstruction/reconciliation behavior.
 
 ## Cross-Slice Test Matrix
 
