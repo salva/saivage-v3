@@ -20,13 +20,33 @@ The core micro-actor runtime replacement has landed:
 
 The remaining implementation work is intentionally narrower than the original replacement plan:
 
-1. Full recovery reconstruction and reconciliation.
-2. Operator-facing recovery diagnostics and outcome projection polish.
-3. Recovery-specific `_on_recover__{state}` hooks for safe parked/active states.
-4. Broader validation beyond the focused actor and routine gates.
-5. Operator-facing docs that describe the implemented reviewer phase and recovery diagnostics behavior.
+1. Correct the remaining review/notification/cancellation issues discovered after the core implementation landed.
+2. Remove dead or misleading actor APIs that are no longer part of the simple runtime path.
+3. Full recovery reconstruction and reconciliation.
+4. Operator-facing recovery diagnostics and outcome projection polish.
+5. Recovery-specific `_on_recover__{state}` hooks for safe parked/active states.
+6. Broader validation beyond the focused actor and routine gates.
+7. Operator-facing docs that describe the implemented reviewer phase and recovery diagnostics behavior.
 
 The detailed remaining recovery work is tracked in [Slice 8: Recovery](#slice-8-recovery).
+
+## Confirmed Follow-Up Corrections
+
+The post-implementation review found a few real issues that should be fixed before expanding recovery. These are not reasons to reintroduce controller workflows or compatibility layers; they are small corrections to keep the actor design clean.
+
+Priority fixes:
+
+- Remove the candidate-review self-citation loophole. The planner-owned reviewer currently validates a candidate done result by presenting a temporary done view of the same card to evidence validation. That must not allow the card to cite itself as its only evidence unless the rule is made explicit and backed by durable evidence. Prefer validating the candidate planner result through a dedicated candidate-review input rather than an inline fake store shim.
+- Clarify running cancellation. The accepted behavior remains best-effort notification-only for running cards: it must not abort provider calls, kill processes, or reinterpret later reports. Therefore processor `cancel(...)`, processor `cancelled` states, unused abort-signal checks, and `cancelReason` fields should either be wired to a separate shutdown/force-cancel feature or removed from the normal running-cancel path.
+- Make notification delivery a single explicit contract. Production activation should use a required card notification delivery port and a single marker-writing method such as `deliverNotificationsForInput(inputId)`. Remove untracked drain/record methods if they are not used. Add a simple leftover-notification diagnostic or assertion at activation settlement so terminal turns do not silently strand notifications.
+- Keep terminal contract handling simple and fail-fast unless a concrete repair requirement exists. Do not add a general terminal-output repair loop just because it is possible. Do, however, make non-terminal tool argument failures recoverable as tool results instead of crashing an activation.
+- Remove dead options and duplicated types/helpers: `contextCards` if it remains unused, duplicate reviewer assessment builders, duplicate `ReviewerResult` naming, and any production-dead LLM or processor APIs.
+- Bound or compact long-lived in-memory/snapshot collections such as notification delivery markers and terminal processor process maps.
+
+Deferred or optional improvements:
+
+- A one-turn terminal contract repair loop may be added later if model behavior proves it is needed. Until then, explicit failure on invalid terminal tools is simpler and easier to reason about.
+- Parallel provider tool calls remain unsupported by design. Keep the one-tool-call invariant until a full protocol is designed.
 
 ## Purpose
 
@@ -98,13 +118,14 @@ Implementation:
 - Persist public card status changes through the canonical card store before reporting outcomes upward.
 - Implement cancellation as two paths: inactive cards/subtrees are marked `cancelled` immediately, while running cards only receive a best-effort cancellation notification downstream and remain `running`.
 - Do not use running cancellation to close provider admission, abort active tools, kill processes, or reinterpret later agent reports. Those are shutdown or process-control responsibilities, not best-effort cancellation behavior.
-- Keep notification queue ownership in `CardActor`. Provide card/processor-facing methods to check pending notifications, drain notifications deliverable to the main agent, and record delivery markers after those notifications are appended to the next model-visible turn.
+- Keep notification queue ownership in `CardActor`. Provide one processor-facing delivery method that atomically drains notifications for a specific model input id and records delivery markers. Do not keep separate untracked drain/record methods unless a production caller needs them.
 - Instantiate or reconnect direct child `CardActor` instances from card data.
 - Instantiate or reconnect the associated processor actor for the card type.
 - Use `BaseActor.recover(state)` when reconnecting a fresh actor instance to an existing durable card state.
 - In `running`, call the processor's `activate(input)` method and wait on a parent-owned promise.
 - Call hard-coded parent completion methods when activation outcomes are committed.
 - Keep running-card change handling simple: running cards stay `running` and receive notification/context.
+- On activation settlement, handle leftover queued notifications explicitly. The simplest acceptable behavior is a diagnostic or durable marker showing notifications were not delivered before the terminal outcome; do not silently discard or indefinitely hide them.
 
 Tests:
 
@@ -115,6 +136,7 @@ Tests:
 - `markChanged(...)` moves inactive cards to `changed` and leaves running cards `running`.
 - `cancel(...)` marks inactive cards/subtrees `cancelled`, preserves descendants already `done`, and enqueues best-effort cancellation notifications for running cards without changing their status.
 - Running-card cancellation tests prove the card stays `running`, downstream notification is queued, and no provider/process/tool hard-cancel side effect is triggered.
+- Running-card cancellation tests prove the cancellation notification reaches a later model-visible turn when one exists, or is recorded as leftover/undelivered when the activation settles before another turn.
 - `_on_state_changed(...)` records card actor state transitions, while `recover(...)` does not emit a new transition snapshot.
 
 Acceptance:
@@ -130,7 +152,7 @@ Goal: isolate provider calls and tool-call loop mechanics from planner/executor/
 Implementation:
 
 - Add `LLMActor` with states needed by implementation, starting from `idle`, `requesting_admission`, `calling_provider`, and `waiting_tool` unless implementation proves a simpler table.
-- Implement public methods `turn(inputRef)`, `appendToolResult(toolCallId, result)`, and `appendToolError(toolCallId, error)`.
+- Implement public methods needed by production call sites. `turn(inputRef)` and `appendToolResult(toolCallId, result, continuationContext)` are required. Keep `appendToolError(...)` only if a production caller uses a distinct tool-error protocol; otherwise deliver structured tool errors through `appendToolResult(...)` and delete the unused method.
 - Persist LLM actor state transitions from `_on_state_changed(...)`; keep explicit persistence for input, outcome, waiting-tool, and delivered-tool fields that change outside a state transition.
 - Keep `LLMActor` generic and queue-free. It receives notification content only through `LlmInvocationInput` prepared by the owning processor.
 - Persist model-visible input context before provider calls.
@@ -148,7 +170,7 @@ Tests:
 - A paused processor does not request a new LLM turn, so no provider call starts while paused.
 - Provider failure returns a failed LLM outcome to the parent processor.
 - Tool calls are persisted before routing.
-- `appendToolResult(...)` and `appendToolError(...)` continue from `waiting_tool`.
+- `appendToolResult(...)` continues from `waiting_tool`; any retained `appendToolError(...)` path has production coverage.
 - Duplicate tool result/error for the same tool call is rejected.
 - Notification-bearing turns include processor-supplied notification context without `LLMActor` owning or mutating card notification queues.
 - Terminal-report tool calls are returned to the owning processor without role-specific interpretation inside `LLMActor`.
@@ -208,6 +230,7 @@ Implementation:
 - Provide terminal capabilities: reporting result/failure, process launch/wait/inspect/kill through `ProcessActor`, and safe file inspection if already supported.
 - Offer the executor contract terminal tool and validate accepted executor terminal reports through that contract before committing card result data. Do not accept free-form executor prose or ad-hoc JSON as a terminal card result.
 - Return exactly one `done` or `failed` outcome to the associated `CardActor`.
+- Clean up or archive terminal processor child `ProcessActor` references after the activation no longer needs them. Long-lived processor instances must not accumulate completed process actors indefinitely.
 
 Tests:
 
@@ -217,6 +240,7 @@ Tests:
 - Free-form executor messages do not commit terminal card outcomes.
 - Process wait timeout returns a timeout tool result and does not kill the process.
 - Explicit process kill records termination details.
+- Completed/killed process actors do not leak indefinitely through the terminal processor's process map.
 - Terminal cancellation while inactive marks the card/subtree `cancelled`; terminal cancellation while running is a best-effort notification to the executor and does not stop future LLM admission, kill processes, or rewrite later executor reports.
 - Base processor tests prove activation, cancellation, settlement, parent promise resolution, and transition snapshot persistence are shared and not duplicated in concrete processors.
 
@@ -242,6 +266,7 @@ Implementation:
 - Build planner capabilities for direct-child activation, direct-child mutation, process tools, working status, and the planner contract terminal report tool. Do not accept free-form planner prose or ad-hoc JSON as a terminal planner report.
 - Implement `activate_card` as a synchronous logical barrier from the planner perspective.
 - For child activation, call the child `CardActor.activate(...)`, wait on a parent-owned promise, then append exactly one tool result/error to the planner LLMActor.
+- Treat invalid non-terminal planner tool arguments as recoverable tool results. Bad `activate_card` arguments, missing children, non-immediate descendants, and missing child actors should not throw out of the activation loop.
 - Enforce the completion gate: a goal cannot report `done` while executable descendants are incomplete.
 - Store blocked/failed/done outcome facts before reporting to the associated CardActor.
 
@@ -249,6 +274,7 @@ Tests:
 
 - Planner can activate only immediate children.
 - Invalid child activation appends tool error and does not dispatch work.
+- Malformed `activate_card` arguments append a tool error/result and do not fail the whole planner activation unless the planner exhausts its turn budget.
 - Child `done`, `failed`, and `blocked` outcomes return exactly one planner tool result.
 - Changed, blocked, backlog, running, or failed descendants block parent `done`.
 - `cancelled` descendants are completion-compatible.
@@ -274,15 +300,17 @@ Implementation:
 - Invoke reviewer only after gates pass; the reviewer is a phase owned by the project/goal processor, not a standalone card processor that can independently settle the card.
 - Require reviewer output through the reviewer contract terminal tool. Do not accept ambiguous reviewer prose or ad-hoc JSON as a reviewer assessment.
 - Treat ambiguous reviewer prose as failed/invalid output, not as guessed approval.
+- Review the candidate planner result directly. Do not validate reviewer evidence by fabricating a committed done card through an inline fake store. If the reviewer may cite the reviewed card itself, define that as an explicit evidence rule and require durable evidence on that card; otherwise reject self-citation and require done descendant evidence.
 - Store negative reviewer findings with the card and inject them into the next planner context.
 - Attach positive reviewer text to the card only after the reviewed snapshot is still current.
 - If relevant changes/notifications arrive while reviewing, invalidate reviewer success or divert back to planning.
-- Cancellation notifications are main-agent notifications. If one arrives while reviewer work is active, hold it with other pending main-agent notifications until planner ownership resumes; do not deliver cancellation to the reviewer unless a separate reviewer-cancellation feature is explicitly designed.
+- Cancellation notifications are main-agent notifications. If one arrives while reviewer work is active, hold it with other pending main-agent notifications until planner ownership resumes or record it as undelivered if the activation settles first; do not deliver cancellation to the reviewer unless a separate reviewer-cancellation feature is explicitly designed.
 
 Tests:
 
 - Reviewer is not invoked until readiness/evidence gates pass.
 - Reviewer approval commits reviewed done only for the assessed snapshot.
+- Reviewer approval cannot be based solely on the reviewed card citing its own uncommitted candidate result.
 - Reviewer correction returns to planning with stored findings.
 - Reviewer terminal reports are accepted only through the reviewer contract terminal tool.
 - Relevant change during review invalidates success.
@@ -311,12 +339,16 @@ Completed:
 
 Remaining:
 
+- Remove or justify unused recovery/runtime construction inputs such as `contextCards` before adding more recovery dependencies.
+- Version the persisted recovery diagnostics file before adding more fields.
+- Emit diagnostics for ambiguous active states, active cards without active children/processors, and discarded non-idle supervisor snapshots. Actions without human-readable diagnostics are not enough.
 - Add `_on_recover__{state}` hooks for safe parked states first, then active states only where durable reconstruction data is sufficient.
 - Reconstruct active card chains, processor ownership, unresolved child activation waits, LLM waiting-tool state, and process waits where safe.
-- Reconcile persisted running process records against live OS process state, including PID reuse safeguards.
+- Decide the running-process restart strategy before implementing process-wait reconstruction. The simple default should be to abandon persisted running processes on restart with explicit diagnostics; implement live process reconciliation and PID-reuse safeguards only if preserving in-flight process results is a concrete requirement.
 - Convert abandoned or ambiguous active work into explicit card/operator outcomes where appropriate, not just diagnostics files.
-- Resume safe `waiting_tool` paths without double-delivering tool results or duplicating provider turns.
-- Repair interrupted reviewer/planner chains with stored correction context or explicit diagnostics.
+- Resume safe `waiting_tool` paths without double-delivering tool results or duplicating provider turns as part of active LLM/processor reconstruction, not as a separate disconnected feature.
+- Repair interrupted reviewer/planner chains with stored correction context or explicit diagnostics as part of active card/processor reconstruction.
+- Remove or reconcile actor snapshots after successful reconstruction or outcome conversion so handled recovery work is not reported again on the next restart.
 - Add operator/API projections for recovery diagnostics if they are needed outside filesystem inspection.
 
 Implementation:
@@ -326,10 +358,10 @@ Implementation:
 - Use `_on_recover__{state}` hooks to rebuild in-memory references from persisted reconstruction records. Recovery must not call `_on_state_changed(...)` and must not re-persist already-recorded transition snapshots unless repair logic deliberately writes a diagnostic or reconciled state.
 - Reconstruct active card chains and unresolved waits where the durable records are complete enough to resume safely.
 - Keep consuming the recovery plan during runtime startup. Persisted diagnostics are the conservative fallback; resumable chains should be reconstructed instead of only diagnosed.
-- Reconcile running process records.
+- Abandon persisted running process records with diagnostics by default. Reconcile live running processes only if a later slice explicitly chooses that more complex path.
 - Abandon provider calls in progress with diagnostics because they cannot be safely reattached.
 - Repair tool delivery from persisted tool-call/message records.
-- Fail or block explicitly when state is ambiguous.
+- Fail or block explicitly when state is ambiguous, and clean up/reconcile stale actor snapshots after the ambiguity is handled.
 
 Tests:
 
@@ -339,7 +371,9 @@ Tests:
 - Startup abandons in-flight provider request with planner-visible diagnostic.
 - Startup handles interrupted reviewer with correction context or visible diagnostic.
 - Startup persists sanitized recovery diagnostics for any active snapshot that is not yet safely resumable.
+- Startup diagnostics cover unknown active LLM states, active cards without active owner records, running process abandonment, and discarded non-idle supervisor snapshots.
 - Recovery tests prove `recover(...)` hooks do not trigger transition snapshot writes through `_on_state_changed(...)`.
+- Recovery tests prove handled snapshots are removed or reconciled so the same recovery work is not reported again after restart.
 
 Acceptance:
 
@@ -391,6 +425,7 @@ These items are not blockers for the core actor replacement, but should be compl
 - Update operator-facing docs to describe the implemented planner-owned reviewer phase, terminal-tool-only report behavior, card-owned notification delivery markers, and conservative recovery diagnostics.
 - Decide whether `.saivage/runtime/recovery-diagnostics.json` needs an API/read-model projection or remains a filesystem/operator artifact.
 - Review generated/runtime artifact ownership separately from this runtime redesign if repository hygiene remains an open release concern.
+- Add focused tests for the confirmed gaps before broad recovery work: reviewer self-citation rejection, wrong reviewer terminal tool, non-object terminal tool args, malformed `activate_card` args, running cancellation notification delivery or leftover recording, real `CardActor` to `PlanningCardProcessorActor` notification-marker wiring, and bounded marker/process-map retention.
 
 ## Cross-Slice Test Matrix
 
@@ -406,11 +441,14 @@ These items are not blockers for the core actor replacement, but should be compl
 - RuntimeApi boundary tests proving it calls public methods and projects read models only.
 - Projection tests for runtime mode, active chain, active leaf, provider/process waits, and diagnostics.
 - UI smoke tests when projection contracts change.
+- Regression tests for removing dead actor APIs so they do not reappear without a production caller.
 
 ## Open Decisions
 
-- Completed actor-record retention: delete, archive, or bounded history.
+- Completed actor-record retention: delete, archive, or bounded history. This must include post-recovery snapshot cleanup so already-handled recovery work does not repeat.
+- Running process restart strategy: default to abandon-with-diagnostics; choose live process reconciliation only if preserving in-flight process results is required.
 - Whether process tools share one `ProcessActor` per process record or use direct process-service tasks for short operations.
 - Exact public projection fields for active chain and runtime activity.
+- Whether recovery diagnostics remain filesystem-only or get API/read-model projection; version the file before expanding it.
 
 These decisions should be made when their implementation slice starts, not before.
