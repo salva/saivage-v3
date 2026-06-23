@@ -87,7 +87,6 @@
     "@fastify/websocket": "^11.2.0",
     "ajv": "8.20.0",
     "fastify": "^5.8.5",
-    "xstate": "5.32.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {
