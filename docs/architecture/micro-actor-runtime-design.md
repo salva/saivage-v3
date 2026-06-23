@@ -424,7 +424,7 @@ Rules:
 - LLM actor persists the tool call before routing.
 - Owning processor actor validates role-specific semantics.
 - Process waits and child activations put the LLM actor into `waiting_tool`.
-- Reporting tools are interpreted by the owning card processor, not by `LLMActor`.
+- Reporting tools are role-contract terminal tools interpreted by the owning card processor, not by `LLMActor`. Planner, executor, and reviewer terminal outcomes must be accepted only after their contract payload validates; free-form prose or ad-hoc JSON messages do not commit card outcomes.
 - Rejected tool calls append a tool error and may allow another turn.
 - Recovery repairs tool delivery from durable tool-call records and message logs.
 
@@ -444,6 +444,7 @@ Rules:
 - Reviewer is not the main agent for notification delivery.
 - Delivery happens before the next provider call, not by interrupting an in-flight call.
 - Delivery evidence is the agent session transcript and a small durable delivery marker.
+- Project/goal processors must have access to their owning `CardActor` so they can drain newly queued main-agent notifications before every planner provider turn, not only at activation.
 
 Notifications can affect flow:
 
@@ -540,6 +541,7 @@ Allowed responsibilities:
 - Call supervisor/card public methods.
 - Subscribe or wait on projected state.
 - Project cards, agents, processes, runtime mode, diagnostics, and timelines.
+- Start the root card through the actor stack using the real card store and provider invocation port. There is no production projection-only runtime mode.
 
 Forbidden responsibilities:
 

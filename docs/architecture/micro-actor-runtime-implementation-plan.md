@@ -19,9 +19,11 @@ No compatibility layer is planned. If old controller behavior conflicts with the
 - Use `BaseActor._on_state_changed(oldState, newState)` for generic actor snapshot persistence after `start()` and normal state transitions. It is called after assigning the new state and before `_on_enter__{state}`, and it is intentionally not called by `recover(...)`.
 - Do not add `_on_enter__{state}` hooks whose only purpose is saving the actor snapshot. Keep explicit `persist()` calls only where actor context changes without a state transition or where entry logic mutates fields that must be persisted after the transition snapshot.
 - Keep orchestration inside actor classes. `RuntimeApi` may validate commands, call public methods, wait on projections, and project state.
+- Runtime construction has one production path: create the supervisor/root card actor stack with the real card store and provider invocation port. Do not keep projection-only or legacy-compatible execution modes.
 - Persist domain facts and reconstruction records, not in-memory queues, function closures, or actor internals.
 - Delete replaced controller/XState-era code during the slice that makes it obsolete.
 - Do not add adapters, bridges, shims, or compatibility tests for old runtime behavior. Tests should protect the new actor design, not legacy contracts.
+- Planner, executor, and reviewer terminal reports are contract terminal tools, not free-form prose or ad-hoc JSON messages. Processor actors validate terminal tool payloads through the role contract before committing card outcomes.
 
 ## Slice 1: RuntimeApi Boundary And Supervisor Shell
 
@@ -36,8 +38,9 @@ Implementation:
 - Implement `cancelProject()` with the same two-path cancellation semantics as `CardActor`: inactive project work is cancelled immediately, while running project work receives a best-effort cancellation notification and remains under normal runtime flow.
 - Keep duplicate `run()` simple: if already running, return an already-running warning and do not create new work.
 - Keep the existing public `RuntimeApi` surface where operators/tools already call it, but replace the implementation so it constructs or attaches to the supervisor and calls only supervisor/card public methods.
+- `RuntimeApi` must always run through the actor stack. It may start the root `CardActor` and wait on projections or the root activation promise, but it must not have an alternate path that only fabricates runtime records without actor execution.
 - Move runtime mode projection into projection/read-model code.
-- Delete any `RuntimeApi` path that advances planner/executor/reviewer workflow directly once replacement is in place.
+- Delete any `RuntimeApi` path that branches over planner/executor/reviewer workflow directly once replacement is in place.
 
 Tests:
 
@@ -46,13 +49,14 @@ Tests:
 - `pause()` closes admission and does not mutate card status.
 - `run()` from `paused` resumes admission.
 - `shutdown()` transitions through shutdown and returns to `idle` with diagnostics.
-- RuntimeApi boundary test proves it does not import or instantiate child workflow actors.
+- RuntimeApi boundary test proves it starts only the supervisor/root card actor path and does not branch over child workflow phases.
 - No `RuntimeSupervisorController` compatibility wrapper remains.
 
 Acceptance:
 
 - Public runtime mode projections show idle/running/paused/shutting-down truthfully.
-- No lower-level planner/executor/reviewer workflow is run by `RuntimeApi`.
+- No optional projection-only runtime execution path remains.
+- No lower-level planner/executor/reviewer workflow branch is run by `RuntimeApi`.
 - Focused supervisor/API tests pass.
 
 ## Slice 2: CardActor Lifecycle Boundary
@@ -111,6 +115,7 @@ Implementation:
 - Enforce exactly one tool result or tool error per tool call.
 - Return raw provider outcome/tool-call facts to the parent processor through hard-coded methods.
 - Fail fast on unsupported provider output such as multiple parallel tool calls until a deliberate protocol is implemented.
+- Keep terminal-report tool calls generic at the `LLMActor` boundary. `LLMActor` persists and returns them like any other tool call; the owning processor decides whether a tool call is a terminal report, validates the contract payload, and settles the card.
 
 Tests:
 
@@ -121,6 +126,7 @@ Tests:
 - `appendToolResult(...)` and `appendToolError(...)` continue from `waiting_tool`.
 - Duplicate tool result/error for the same tool call is rejected.
 - Notification-bearing turns include processor-supplied notification context without `LLMActor` owning or mutating card notification queues.
+- Terminal-report tool calls are returned to the owning processor without role-specific interpretation inside `LLMActor`.
 
 Acceptance:
 
@@ -172,7 +178,7 @@ Implementation:
 - Build executor invocation context from card data, notifications, and relevant project context.
 - Own/cache one executor `LLMActor` for the terminal activation path.
 - Provide terminal capabilities: reporting result/failure, process launch/wait/inspect/kill through `ProcessActor`, and safe file inspection if already supported.
-- Validate executor terminal report before committing card result data.
+- Offer the executor contract terminal tool and validate accepted executor terminal reports through that contract before committing card result data. Do not accept free-form executor prose or ad-hoc JSON as a terminal card result.
 - Return exactly one `done` or `failed` outcome to the associated `CardActor`.
 
 Tests:
@@ -180,6 +186,7 @@ Tests:
 - Terminal card executes via executor `LLMActor` and commits accepted `done` result.
 - Executor `failed` report commits failed outcome without result data.
 - Invalid executor report appends tool error or fails visibly according to protocol.
+- Free-form executor messages do not commit terminal card outcomes.
 - Process wait timeout returns a timeout tool result and does not kill the process.
 - Explicit process kill records termination details.
 - Terminal cancellation while inactive marks the card/subtree `cancelled`; terminal cancellation while running is a best-effort notification to the executor and does not stop future LLM admission, kill processes, or rewrite later executor reports.
@@ -198,10 +205,10 @@ Implementation:
 
 - Implement project and goal processor behavior in `ProjectCardProcessorActor` and `GoalCardProcessorActor`.
 - Build planner invocation context from card tree, planning diary, pending notifications, prior reviewer findings, and direct child status.
-- Own/cache planner `LLMActor` and reviewer `LLMActor` as needed.
-- Before each planner provider turn, inspect/drain the owning card's deliverable main-agent notifications and append them to the model-visible planner context; record delivery markers after successful append.
+- Own/cache the planner `LLMActor`; own the reviewer invocation as a phase of the same project/goal processor rather than as a separate card processor.
+- Give the project/goal processor access to its owning `CardActor` so it can inspect/drain deliverable main-agent notifications before activation and before every subsequent planner provider turn; record delivery markers after successful append.
 - Best-effort cancellation of a running project/goal is delivered through the same notification path and does not alter planner admission, child activation, process tools, or later planner reports by itself.
-- Build planner capabilities for direct-child activation, direct-child mutation, process tools, working status, and planner terminal reports.
+- Build planner capabilities for direct-child activation, direct-child mutation, process tools, working status, and the planner contract terminal report tool. Do not accept free-form planner prose or ad-hoc JSON as a terminal planner report.
 - Implement `activate_card` as a synchronous logical barrier from the planner perspective.
 - For child activation, call the child `CardActor.activate(...)`, wait on a parent-owned promise, then append exactly one tool result/error to the planner LLMActor.
 - Enforce the completion gate: a goal cannot report `done` while executable descendants are incomplete.
@@ -217,10 +224,11 @@ Tests:
 - Planner process tools route through ProcessActor and return bounded results.
 - Pending notifications are delivered before the next planner turn.
 - Best-effort cancellation notification is delivered before the next planner turn and does not otherwise change planner control flow.
+- Planner terminal reports are accepted only through the planner contract terminal tool.
 
 Acceptance:
 
-- Project/goal planning can execute a child terminal card through the actor chain.
+- Project/goal planning can execute a child terminal card through the actor chain, continue the same planner session after the child result, and receive newly queued notifications before the next provider call.
 - No planner controller owns child dispatch outside processor actors/CardActor, and no planner bridge remains.
 
 ## Slice 7: Reviewer Flow
@@ -229,9 +237,9 @@ Goal: add reviewer assessment after planner reports candidate done.
 
 Implementation:
 
-- Run readiness and evidence gates before reviewer invocation.
-- Invoke reviewer only after gates pass.
-- Require structured reviewer output sufficient for control-plane decisions.
+- Run readiness and evidence gates inside the same project/goal processor after the planner contract terminal report proposes `done`.
+- Invoke reviewer only after gates pass; the reviewer is a phase owned by the project/goal processor, not a standalone card processor that can independently settle the card.
+- Require reviewer output through the reviewer contract terminal tool. Do not accept ambiguous reviewer prose or ad-hoc JSON as a reviewer assessment.
 - Treat ambiguous reviewer prose as failed/invalid output, not as guessed approval.
 - Store negative reviewer findings with the card and inject them into the next planner context.
 - Attach positive reviewer text to the card only after the reviewed snapshot is still current.
@@ -243,6 +251,7 @@ Tests:
 - Reviewer is not invoked until readiness/evidence gates pass.
 - Reviewer approval commits reviewed done only for the assessed snapshot.
 - Reviewer correction returns to planning with stored findings.
+- Reviewer terminal reports are accepted only through the reviewer contract terminal tool.
 - Relevant change during review invalidates success.
 - Cancellation notification during review is held for planner delivery and does not by itself invalidate reviewer success unless paired with a real card/tree change.
 - Ambiguous reviewer output fails visibly.
@@ -251,6 +260,7 @@ Acceptance:
 
 - Goal/project `done` requires planner report, gates, and valid reviewer approval unless the card type explicitly skips review.
 - Reviewer logic stays inside processor actor/LLMActor boundaries.
+- No standalone reviewer card processor is required for the normal project/goal flow.
 
 ## Slice 8: Recovery
 
@@ -262,6 +272,7 @@ Implementation:
 - Create fresh actor instances and call `BaseActor.recover(state)` where safe.
 - Use `_on_recover__{state}` hooks to rebuild in-memory references from persisted reconstruction records. Recovery must not call `_on_state_changed(...)` and must not re-persist already-recorded transition snapshots unless repair logic deliberately writes a diagnostic or reconciled state.
 - Reconstruct active card chains and unresolved waits.
+- Consume the recovery plan during runtime startup. A recovery plan that is only computed and exposed is incomplete.
 - Reconcile running process records.
 - Abandon provider calls in progress with diagnostics because they cannot be safely reattached.
 - Repair tool delivery from persisted tool-call/message records.
@@ -279,6 +290,7 @@ Acceptance:
 
 - Recovery never relies on in-memory queues or raw actor internals.
 - Unsafe states become explicit diagnostics, not silent restarts.
+- Startup either reconstructs recoverable active actor chains or records explicit blocked/failed diagnostics for abandoned work.
 
 ## Slice 9: Cleanup
 
@@ -298,6 +310,7 @@ Implementation:
 Tests:
 
 - Static/boundary tests prove production runtime does not import removed controller/XState paths.
+- Static/boundary tests prove production runtime does not import removed controller/XState paths and that public actor barrels do not export legacy runner/controller modules.
 - Routine validation passes.
 
 Acceptance:
@@ -305,6 +318,7 @@ Acceptance:
 - No production `*Controller` owns autonomous runtime workflow.
 - No production XState runtime path remains.
 - No compatibility, adapter, bridge, or legacy-contract test remains for old runtime behavior.
+- No `XSTATE_*` implementation names remain in current runtime code.
 - Transition snapshot persistence is centralized through `_on_state_changed(...)`; per-state `_on_enter__{state}` hooks exist only for state-specific behavior.
 - Obsolete runtime dependencies are removed from package manifests.
 - Focused actor, API boundary, projection, and routine validation pass.
@@ -318,6 +332,7 @@ Acceptance:
 - ProcessActor launch, wait timeout, inspect, kill, exit, and recovery tests.
 - Terminal processor executor/report/process tests.
 - Goal/project processor child activation, planner report, completion gate, process, notification, and reviewer tests.
+- Contract-terminal tests for planner, executor, and reviewer reports.
 - RuntimeApi boundary tests proving it calls public methods and projects read models only.
 - Projection tests for runtime mode, active chain, active leaf, provider/process waits, and diagnostics.
 - UI smoke tests when projection contracts change.
@@ -326,7 +341,6 @@ Acceptance:
 
 - Completed actor-record retention: delete, archive, or bounded history.
 - Whether process tools share one `ProcessActor` per process record or use direct process-service tasks for short operations.
-- Whether reviewer structured output is tool-based immediately or strict JSON in the first implementation.
 - Exact public projection fields for active chain and runtime activity.
 
 These decisions should be made when their implementation slice starts, not before.
