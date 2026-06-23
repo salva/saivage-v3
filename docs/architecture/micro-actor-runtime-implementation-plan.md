@@ -344,6 +344,7 @@ Completed:
 - Discarded non-idle supervisor snapshots are surfaced as human-readable diagnostics and actions.
 - Clean startup recovery clears stale `.saivage/runtime/recovery-diagnostics.json` files.
 - `actorRuntime.recovery` projects sanitized recovery diagnostics through the runtime status read model/API contract.
+- Startup removes handled abandoned running/killing process snapshots after writing recovery diagnostics, so the same process abandonment is not reported on every restart.
 - Startup still exposes `getRecoveryPlan()` for tests and operator-facing follow-up work.
 
 Remaining:
@@ -353,7 +354,7 @@ Remaining:
 - Convert abandoned or ambiguous active work into explicit card/operator outcomes where appropriate, not just diagnostics files.
 - Resume safe `waiting_tool` paths without double-delivering tool results or duplicating provider turns as part of active LLM/processor reconstruction, not as a separate disconnected feature.
 - Repair interrupted reviewer/planner chains with stored correction context or explicit diagnostics as part of active card/processor reconstruction.
-- Remove or reconcile actor snapshots after successful reconstruction or outcome conversion so handled recovery work is not reported again on the next restart.
+- Remove or reconcile remaining card/LLM/processor actor snapshots after successful reconstruction or outcome conversion so handled recovery work is not reported again on the next restart.
 
 Implementation:
 
@@ -377,6 +378,7 @@ Tests:
 - Startup persists sanitized recovery diagnostics for any active snapshot that is not yet safely resumable.
 - Startup diagnostics cover unknown active LLM states, active cards without active owner records, running process abandonment, and discarded non-idle supervisor snapshots.
 - Recovery diagnostics read-model tests prove the runtime status projection remains sanitized and stale diagnostics are cleared after clean recovery.
+- Recovery cleanup tests prove handled abandoned process snapshots are removed only after diagnostics are written.
 - Recovery tests prove `recover(...)` hooks do not trigger transition snapshot writes through `_on_state_changed(...)`.
 - Recovery tests prove handled snapshots are removed or reconciled so the same recovery work is not reported again after restart.
 
