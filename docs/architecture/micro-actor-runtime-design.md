@@ -95,12 +95,12 @@ The runtime has one root supervisor and a deterministic card actor tree:
 ```text
 RuntimeSupervisorActor
   CardActor(project)
-    ProjectCardProcessorActor extends PlanningCardProcessorActor
+    PlanningCardProcessorActor
       LLMActor(planner:project)
       LLMActor(reviewer:project)
       ProcessActor(... as needed)
     CardActor(goal)
-      GoalCardProcessorActor extends PlanningCardProcessorActor
+      PlanningCardProcessorActor
         LLMActor(planner:goal)
         LLMActor(reviewer:goal)
         ProcessActor(... as needed)
@@ -119,7 +119,7 @@ Ownership conventions are deliberately narrow:
 - `CardActor` owns its direct child `CardActor` instances and its associated processor actor.
 - `BaseCardProcessorActor` owns common processor mechanics: activation, cancellation, pending activation resolution, settlement, snapshots, and parent outcome reporting.
 - `BaseMainLLMCardProcessorActor` owns the shared main-agent LLM loop for processors driven by one main LLM session. It handles per-turn notification injection and common tool continuation mechanics, but no planner/executor/reviewer policy.
-- `PlanningCardProcessorActor` owns project/goal planner/reviewer semantics. `ProjectCardProcessorActor` and `GoalCardProcessorActor` should be thin subclasses only when project and goal behavior actually diverges.
+- `PlanningCardProcessorActor` owns project/goal planner/reviewer semantics.
 - `TerminalCardProcessorActor` owns executor semantics.
 - `ProcessActor` instances are created and controlled by the processor actor that launched or attached to the process record.
 - Other references are dependencies, services, or data references unless a concrete actor class explicitly stores and controls them.
@@ -237,7 +237,7 @@ Processor actors use a small inheritance hierarchy for shared mechanics, not a g
 - `PlanningCardProcessorActor`: project/goal semantics around planner, child activation, completion gate, reviewer phase, and planner/reviewer terminal contracts.
 - `TerminalCardProcessorActor`: terminal-card executor semantics around executor terminal contract and process tools.
 
-Prefer one `PlanningCardProcessorActor` for both project and goal behavior. Add `ProjectCardProcessorActor` and `GoalCardProcessorActor` only as thin subclasses that override small, named hooks when their behavior truly differs.
+Use one `PlanningCardProcessorActor` for both project and goal behavior. Add distinct processor classes only when project and goal behavior truly differs.
 
 Shared processor states from `BaseCardProcessorActor`:
 

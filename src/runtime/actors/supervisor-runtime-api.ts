@@ -6,7 +6,7 @@ import { abandonStalePendingToolCalls } from './llm-delivery-log.js';
 import { plannerActorId } from './ids.js';
 import { RuntimeSupervisorActor } from './runtime-supervisor.js';
 import { CardActor, type CardActorStorePort } from './card-actor.js';
-import { GoalCardProcessorActor, ProjectCardProcessorActor, type PlannerChildActorPort } from './planner-card-processor-actor.js';
+import { PlanningCardProcessorActor, type PlannerChildActorPort } from './planning-card-processor-actor.js';
 import { TerminalCardProcessorActor } from './terminal-card-processor-actor.js';
 import type { LLMProviderPort } from './llm-actor.js';
 import type { RuntimeApi, RuntimeCommandSource, StartProjectResult, StopProjectResult } from '../runtime-api.js';
@@ -231,12 +231,12 @@ export class SupervisorRuntimeApi implements RuntimeApi {
 
   private processorFor(card: CardRecord) {
     if (card.type === 'project') {
-      const processor = new ProjectCardProcessorActor({ projectRoot: this.options.projectRoot, cardId: card.id, store: this.options.actorStore, children: this.childrenPort(), provider: this.options.provider, admission: this });
+      const processor = new PlanningCardProcessorActor({ projectRoot: this.options.projectRoot, cardId: card.id, store: this.options.actorStore, children: this.childrenPort(), provider: this.options.provider, admission: this });
       processor.start();
       return processor;
     }
     if (card.type === 'goal') {
-      const processor = new GoalCardProcessorActor({ projectRoot: this.options.projectRoot, cardId: card.id, store: this.options.actorStore, children: this.childrenPort(), provider: this.options.provider, admission: this });
+      const processor = new PlanningCardProcessorActor({ projectRoot: this.options.projectRoot, cardId: card.id, store: this.options.actorStore, children: this.childrenPort(), provider: this.options.provider, admission: this });
       processor.start();
       return processor;
     }

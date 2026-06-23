@@ -210,7 +210,7 @@ Goal: implement planner child activation and goal completion around the actor bo
 Implementation:
 
 - Implement project and goal processor behavior in `PlanningCardProcessorActor`, extending `BaseMainLLMCardProcessorActor`.
-- Add `ProjectCardProcessorActor` and `GoalCardProcessorActor` only as thin subclasses when project and goal behavior truly diverges; otherwise use `PlanningCardProcessorActor` directly.
+- Use `PlanningCardProcessorActor` directly for both project and goal cards unless their behavior truly diverges.
 - Build planner invocation context from card tree, planning diary, pending notifications, prior reviewer findings, and direct child status.
 - Own/cache the planner `LLMActor`; own the reviewer invocation as a phase of the same project/goal processor rather than as a separate card processor.
 - Give the project/goal processor access to its owning `CardActor` so it can inspect/drain deliverable main-agent notifications before activation and before every subsequent planner provider turn; record delivery markers after successful append.

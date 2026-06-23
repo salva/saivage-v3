@@ -18,7 +18,7 @@ export interface PlannerChildActorPort {
   get(cardId: string): CardActor | null;
 }
 
-export class PlannerCardProcessorActor extends BaseMainLLMCardProcessorActor implements CardProcessorActor {
+export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor implements CardProcessorActor {
   static _actor: ActorDefinition = {
     initial: 'idle',
     states: {
@@ -175,9 +175,6 @@ export class PlannerCardProcessorActor extends BaseMainLLMCardProcessorActor imp
     return { status: 'failed', summary: error, result: { kind: 'planner_failure', error } };
   }
 }
-
-export class ProjectCardProcessorActor extends PlannerCardProcessorActor {}
-export class GoalCardProcessorActor extends PlannerCardProcessorActor {}
 
 function parseChildCardId(args: unknown): string {
   if (!args || typeof args !== 'object') throw new Error('activate_card requires an object argument.');

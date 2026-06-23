@@ -163,7 +163,7 @@ Target actor ownership:
 - `CardActor`s own direct child `CardActor` instances and the associated processor actor for that card type;
 - `BaseCardProcessorActor` owns shared activation, cancellation, settlement, parent outcome reporting, and processor snapshot mechanics;
 - `BaseMainLLMCardProcessorActor` owns shared main-agent LLM loop mechanics and per-turn notification delivery without role-specific policy;
-- `PlanningCardProcessorActor` owns project/goal planner and reviewer semantics; project/goal subclasses should stay thin and override only real behavioral differences;
+- `PlanningCardProcessorActor` owns project/goal planner and reviewer semantics;
 - `TerminalCardProcessorActor` owns executor semantics for terminal cards; it constructs card-scoped capabilities and does not own child cards;
 - process actors manage OS process lifecycle.
 
