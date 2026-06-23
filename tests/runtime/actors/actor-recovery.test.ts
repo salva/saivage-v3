@@ -110,6 +110,7 @@ describe('actor recovery plan', () => {
     const written = writeRecoveryDiagnostics(projectRoot, buildActorRecoveryPlan(projectRoot), '2026-06-12T00:00:00.000Z');
 
     expect(written).toMatchObject({
+      schema_version: 1,
       generated_at: '2026-06-12T00:00:00.000Z',
       diagnostics: [expect.objectContaining({ actorId: 'planner:G-1', severity: 'warning' })],
       actions: expect.arrayContaining([

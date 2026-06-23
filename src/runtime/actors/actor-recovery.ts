@@ -57,6 +57,7 @@ export interface ActorRecoveryDiagnosticAction {
 }
 
 export interface ActorRecoveryDiagnosticsSnapshot {
+  schema_version: 1;
   generated_at: string;
   diagnostics: ActorRecoveryDiagnostic[];
   actions: ActorRecoveryDiagnosticAction[];
@@ -131,6 +132,7 @@ const recoveryDiagnosticActionSchema = z.object({
 });
 
 const recoveryDiagnosticsSnapshotSchema = z.object({
+  schema_version: z.literal(1),
   generated_at: z.string().datetime(),
   diagnostics: z.array(recoveryDiagnosticSchema),
   actions: z.array(recoveryDiagnosticActionSchema),
@@ -150,6 +152,7 @@ export function writeRecoveryDiagnostics(projectRoot: string, plan: ActorRecover
   const actions = recoveryDiagnosticActions(plan);
   if (plan.diagnostics.length === 0 && actions.length === 0) return null;
   const snapshot: ActorRecoveryDiagnosticsSnapshot = {
+    schema_version: 1,
     generated_at: generatedAt,
     diagnostics: plan.diagnostics,
     actions,
