@@ -6,6 +6,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { CardStore } from '../../../src/cards/card-store.js';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
 import { createSupervisorRuntimeApi, readActorSnapshots, saveActorSnapshot, SupervisorRuntimeApi, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
+import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
 import { actorToolCallStatusesPath, appendToolCallStatus } from '../../../src/runtime/actors/index.js';
 import type { CardRecord } from '../../../src/schemas/index.js';
 
@@ -127,7 +128,9 @@ describe('SupervisorRuntimeApi', () => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     createProject(store);
-    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: JSON.stringify({ status: 'done', summary: 'project completed' }) })) };
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async (input: LlmInvocationInput) => input.role === 'reviewer'
+      ? { kind: 'tool_calls' as const, tool_calls: [{ id: 'reviewer-result-1', type: 'function' as const, function: { name: 'emit_reviewer_result', arguments: JSON.stringify({ assessment: { result: 'pass', summary: 'project reviewed', achieved: ['project completed'], issues: [], evidence_card_ids: ['project'] } }) } }] }
+      : { kind: 'tool_calls' as const, tool_calls: [{ id: 'planner-result-1', type: 'function' as const, function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'done', summary: 'project completed' }) } }] }) };
     const api = createSupervisorRuntimeApi({
       projectRoot,
       rootCards: store,
@@ -140,8 +143,8 @@ describe('SupervisorRuntimeApi', () => {
 
     expect(result.success).toBe(true);
     if (result.success) expect(result.run).toMatchObject({ phase: 'completed', runtime_status: 'idle', outcome: { kind: 'completed', result: 'done' } });
-    expect(store.read('project')).toMatchObject({ status: 'done', status_text: 'project completed' });
-    expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toEqual(expect.arrayContaining(['card:project', 'planner:project', 'processor:project', 'supervisor']));
+    expect(store.read('project')).toMatchObject({ status: 'done', status_text: 'project reviewed', lifecycle: { result: { kind: 'reviewer_pass', planning: { kind: 'planner_done', summary: 'project completed' } } } });
+    expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toEqual(expect.arrayContaining(['card:project', 'planner:project', 'reviewer:project', 'processor:project', 'supervisor']));
   }));
 
   it('rejects startProject when the project card is missing', async () => withTempProject(async (projectRoot) => {

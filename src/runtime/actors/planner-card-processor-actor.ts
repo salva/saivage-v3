@@ -1,13 +1,16 @@
 import type { ActorDefinition } from '../micro-actor/index.js';
-import type { CardRecord, CardStatus } from '../../schemas/index.js';
+import type { CardRecord, CardStatus, PlannerDoneResult } from '../../schemas/index.js';
 import type { LLMActorOutcome, LLMAdmissionPort, LLMProviderPort } from './llm-actor.js';
-import { plannerActorId } from './ids.js';
+import { plannerActorId, reviewerActorId } from './ids.js';
 import { XSTATE_PLANNER_TOOL_DEFINITIONS } from './actor-tool-definitions.js';
 import type { CardActivationInput, CardActivationOutcome, CardActor, CardActorStorePort, CardProcessorActor } from './card-actor.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
 import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
 import { createPlannerContract, type PlannerTypedResult } from '../../contracts/planner-contract.js';
+import { createReviewerContract } from '../../contracts/reviewer-contract.js';
 import { expectedTerminalToolMessage, verifyTerminalToolOutcome } from './contract-terminal-tools.js';
+import { nextReviewerAssessmentId, reviewerSessionId } from '../reviewer-assessment.js';
+import { evaluateReviewerTerminalOutcome } from './reviewer-terminal-evaluation.js';
 
 type PlannerProcessorOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
 
@@ -46,7 +49,7 @@ export class PlannerCardProcessorActor extends BaseMainLLMCardProcessorActor imp
       if (signal.aborted) throw new Error('Planner activation cancelled.');
       if (outcome.type === 'result') return this.plannerFailure(`${expectedTerminalToolMessage(createPlannerContract())} Plain planner messages are not accepted as terminal results.`);
       if (outcome.type === 'error') return { status: 'failed', summary: outcome.error, result: { kind: 'planner_failure', error: outcome.error } };
-      if (createPlannerContract().isTerminalToolName(outcome.toolName)) return this.projectPlannerTerminal(outcome);
+      if (createPlannerContract().isTerminalToolName(outcome.toolName)) return this.projectPlannerTerminal(input, outcome, signal);
       const toolResult = await this.handleToolCall(input.card, outcome);
       outcome = await llm.appendToolResult(outcome.toolCallId, toolResult, (inputId) => this.notificationContextMessages(input, inputId));
     }
@@ -87,7 +90,7 @@ export class PlannerCardProcessorActor extends BaseMainLLMCardProcessorActor imp
     }
   }
 
-  private projectPlannerTerminal(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): PlannerProcessorOutcome {
+  private async projectPlannerTerminal(input: CardActivationInput, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, signal: AbortSignal): Promise<PlannerProcessorOutcome> {
     let typed: PlannerTypedResult;
     try {
       typed = verifyTerminalToolOutcome(createPlannerContract(), outcome).result;
@@ -100,7 +103,7 @@ export class PlannerCardProcessorActor extends BaseMainLLMCardProcessorActor imp
       const blocker = firstIncompleteDescendant(this.cardId, this.store);
       if (blocker) return { status: 'blocked', summary: `Cannot complete while descendant '${blocker.id}' is ${blocker.status}.`, result: { kind: 'planner_blocked', blocked_reason: `Descendant '${blocker.id}' is ${blocker.status}.`, resume_reason: 'complete executable descendants before retrying' } };
       const summary = parsed.summary ?? 'Planner completed.';
-      return { status: 'done', summary, result: { kind: 'planner_done', summary } };
+      return this.reviewPlannerDone(input, { kind: 'planner_done', summary }, signal);
     }
     if (parsed.status === 'blocked') {
       const summary = parsed.summary ?? parsed.blocked_reason ?? 'Planner blocked.';
@@ -108,6 +111,44 @@ export class PlannerCardProcessorActor extends BaseMainLLMCardProcessorActor imp
     }
     const summary = parsed.summary ?? 'Planner requested continuation without an action tool.';
     return { status: 'blocked', summary, result: { kind: 'planner_blocked', blocked_reason: summary, resume_reason: 'non_actionable_continue', blocker_cause: 'non_actionable_continue' } };
+  }
+
+  private async reviewPlannerDone(input: CardActivationInput, planning: PlannerDoneResult, signal: AbortSignal): Promise<PlannerProcessorOutcome> {
+    const assessmentId = nextReviewerAssessmentId(input.card.id, input.card.lifecycle.result);
+    const sessionId = reviewerSessionId(input.card.id, assessmentId);
+    const llm = this.createMainLlm(reviewerActorId(input.card.id));
+    const outcome = await llm.turn(this.buildReviewerLlmInput(input, assessmentId, sessionId));
+    if (signal.aborted) throw new Error('Planner reviewer activation cancelled.');
+    if (outcome.type === 'error') return { status: 'failed', summary: outcome.error, result: { kind: 'planner_failure', error: outcome.error } };
+    if (outcome.type === 'result') return this.plannerFailure(`${expectedTerminalToolMessage(createReviewerContract())} Plain reviewer messages are not accepted as terminal results.`);
+    if (!createReviewerContract().isTerminalToolName(outcome.toolName)) return this.plannerFailure(`Reviewer returned unsupported tool call '${outcome.toolName}'.`);
+    const reviewedCard: CardRecord = { ...input.card, status: 'done', lifecycle: { status: 'done', result: planning, error: null, completed_at: new Date().toISOString() } };
+    return evaluateReviewerTerminalOutcome({
+      card: input.card,
+      planning,
+      assessmentId,
+      sessionId,
+      outcome,
+      store: { read: (id) => id === input.card.id ? reviewedCard : this.store.read(id) },
+    });
+  }
+
+  private buildReviewerLlmInput(input: CardActivationInput, assessmentId: string, sessionId: string): LlmInvocationInput {
+    const contract = createReviewerContract();
+    const inputId = this.nextInvocationInputId('reviewer');
+    return {
+      inputId,
+      agentId: reviewerActorId(input.card.id),
+      role: 'reviewer',
+      sessionId,
+      systemPrompt: this.reviewerPrompt(input.card, assessmentId),
+      contextMessages: this.notificationContextMessages(input, inputId),
+      tools: contract.terminals.map((terminal) => terminal.toolDefinition),
+      terminalToolNames: contract.terminals.map((terminal) => terminal.name),
+      modelParams: {},
+      capabilityRequest: { requiresTools: true },
+      episodeContext: { cardId: input.card.id, caller: input.caller, assessmentId },
+    };
   }
 
   private plannerFailure(error: string): PlannerProcessorOutcome {
@@ -120,6 +161,10 @@ export class PlannerCardProcessorActor extends BaseMainLLMCardProcessorActor imp
 
   private plannerPrompt(card: CardRecord): string {
     return `Plan and coordinate card ${card.id}: ${card.title}\n\n${card.description}\n\nAcceptance:\n${card.acceptance}\n\nUse activate_card for immediate children only. End by calling emit_planner_result with status done, blocked, or continue; plain text or JSON messages are not accepted as terminal reports.`;
+  }
+
+  private reviewerPrompt(card: CardRecord, assessmentId: string): string {
+    return `Review card ${card.id}: ${card.title}\n\n${card.description}\n\nAssessment id: ${assessmentId}\n\nEnd by calling emit_reviewer_result with the assessment envelope; plain text or JSON messages are not accepted as terminal reports.`;
   }
 
   protected get processorLabel(): string {

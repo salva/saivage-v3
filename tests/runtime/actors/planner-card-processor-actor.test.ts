@@ -35,22 +35,37 @@ function plannerResult(status: 'done' | 'blocked' | 'continue', summary: string)
   };
 }
 
+function reviewerResult(overrides: Record<string, unknown> = {}) {
+  return {
+    kind: 'tool_calls' as const,
+    tool_calls: [{ id: 'reviewer-result-1', type: 'function' as const, function: { name: 'emit_reviewer_result', arguments: JSON.stringify({ assessment: { result: 'pass', summary: 'review ok', achieved: ['planned'], issues: [], evidence_card_ids: ['card-1'], ...overrides } }) } }],
+  };
+}
+
 describe('PlannerCardProcessorActor', () => {
   it('delivers pending notifications in the planner turn context', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     const project = createProject(store);
-    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => plannerResult('done', 'done')) };
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async (input: LlmInvocationInput) => input.role === 'reviewer' ? reviewerResult({ evidence_card_ids: [project.id] }) : plannerResult('done', 'done')) };
     const actor = new PlannerCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notifications: [{ id: 'n1', message: 'Cancellation requested: stop', created_at: '2026-06-12T00:00:00.000Z' }] });
 
-    expect(outcome).toMatchObject({ status: 'done', summary: 'done' });
+    expect(outcome).toMatchObject({ status: 'done', summary: 'review ok', result: { kind: 'reviewer_pass', planning: { kind: 'planner_done', summary: 'done' } } });
     expect(provider.completeTurn).toHaveBeenCalledWith(expect.objectContaining({
+      role: 'planner',
       contextMessages: [{ role: 'user', content: 'Cancellation requested: stop' }],
       terminalToolNames: ['emit_planner_result'],
       tools: expect.arrayContaining([expect.objectContaining({ function: expect.objectContaining({ name: 'emit_planner_result' }) })]),
+    }), expect.any(AbortSignal));
+    expect(provider.completeTurn).toHaveBeenCalledWith(expect.objectContaining({
+      agentId: `reviewer:${project.id}`,
+      role: 'reviewer',
+      sessionId: `reviewer:${project.id}:assessment-${project.id}-1`,
+      terminalToolNames: ['emit_reviewer_result'],
+      tools: expect.arrayContaining([expect.objectContaining({ function: expect.objectContaining({ name: 'emit_reviewer_result' }) })]),
     }), expect.any(AbortSignal));
   }));
 
@@ -61,7 +76,9 @@ describe('PlannerCardProcessorActor', () => {
     const goal = createGoal(store);
     const childActor = CardActor.fromCard({ projectRoot, card: goal, store, processor: terminalProcessor({ status: 'done', summary: 'child done', result: { kind: 'planner_done', summary: 'child done' } }) });
     const provider: LLMProviderPort = {
-      completeTurn: jest.fn(async (input: LlmInvocationInput) => input.episodeContext.lastToolResult
+      completeTurn: jest.fn(async (input: LlmInvocationInput) => input.role === 'reviewer'
+        ? reviewerResult({ evidence_card_ids: [project.id] })
+        : input.episodeContext.lastToolResult
         ? plannerResult('done', 'project done')
         : { kind: 'tool_calls' as const, tool_calls: [{ id: 'call-1', type: 'function' as const, function: { name: 'activate_card', arguments: JSON.stringify({ card_id: goal.id }) } }] }),
     };
@@ -70,10 +87,10 @@ describe('PlannerCardProcessorActor', () => {
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notifications: [] });
 
-    expect(outcome).toMatchObject({ status: 'done', summary: 'project done' });
+    expect(outcome).toMatchObject({ status: 'done', summary: 'review ok', result: { kind: 'reviewer_pass', planning: { kind: 'planner_done', summary: 'project done' } } });
     expect(store.read(goal.id)?.status).toBe('done');
-    expect(provider.completeTurn).toHaveBeenCalledTimes(2);
-    expect(provider.completeTurn).toHaveBeenLastCalledWith(expect.objectContaining({
+    expect(provider.completeTurn).toHaveBeenCalledTimes(3);
+    expect(provider.completeTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({
       episodeContext: expect.objectContaining({ lastToolResult: expect.objectContaining({ result: expect.objectContaining({ outcome: 'done', card_id: goal.id }) }) }),
     }), expect.any(AbortSignal));
   }));
@@ -85,7 +102,9 @@ describe('PlannerCardProcessorActor', () => {
     const goal = createGoal(store);
     const childActor = CardActor.fromCard({ projectRoot, card: goal, store, processor: terminalProcessor({ status: 'done', summary: 'child done', result: { kind: 'planner_done', summary: 'child done' } }) });
     const provider: LLMProviderPort = {
-      completeTurn: jest.fn(async (input: LlmInvocationInput) => input.episodeContext.lastToolResult
+      completeTurn: jest.fn(async (input: LlmInvocationInput) => input.role === 'reviewer'
+        ? reviewerResult({ evidence_card_ids: [project.id] })
+        : input.episodeContext.lastToolResult
         ? plannerResult('done', 'project done')
         : { kind: 'tool_calls' as const, tool_calls: [{ id: 'call-1', type: 'function' as const, function: { name: 'activate_card', arguments: JSON.stringify({ card_id: goal.id }) } }] }),
     };
@@ -98,9 +117,51 @@ describe('PlannerCardProcessorActor', () => {
     expect(outcome).toMatchObject({ status: 'done' });
     expect(delivery.deliverNotificationsForInput).toHaveBeenCalledWith('planner:project:1');
     expect(delivery.deliverNotificationsForInput).toHaveBeenCalledWith('planner:project:1:tool:1');
-    expect(provider.completeTurn).toHaveBeenLastCalledWith(expect.objectContaining({
+    expect(provider.completeTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({
       contextMessages: [{ role: 'user', content: 'mid-turn notice' }],
     }), expect.any(AbortSignal));
+  }));
+
+  it('returns blocked reviewer correction when planner-owned review asks for corrections', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async (input: LlmInvocationInput) => input.role === 'reviewer' ? reviewerResult({ result: 'needs_corrections', summary: 'fix it', issues: [{ summary: 'missing proof', severity: 'blocker' }], evidence_card_ids: [project.id] }) : plannerResult('done', 'done')) };
+    const actor = new PlannerCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
+    actor.start();
+
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notifications: [] });
+
+    expect(outcome).toMatchObject({ status: 'blocked', summary: 'fix it', result: { kind: 'planner_blocked', reviewer_correction: { kind: 'reviewer_correction', summary: 'fix it' } } });
+  }));
+
+  it('invokes reviewer for goal done outcomes', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    createProject(store);
+    const goal = createGoal(store);
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async (input: LlmInvocationInput) => input.role === 'reviewer' ? reviewerResult({ evidence_card_ids: [goal.id] }) : plannerResult('done', 'goal done')) };
+    const actor = new PlannerCardProcessorActor({ projectRoot, cardId: goal.id, store, children: { get: () => null }, provider });
+    actor.start();
+
+    const outcome = await actor.activate({ card: goal, caller: { kind: 'parent', cardId: 'project' }, notifications: [] });
+
+    expect(outcome).toMatchObject({ status: 'done', result: { kind: 'reviewer_pass', planning: { kind: 'planner_done', summary: 'goal done' } } });
+    expect(provider.completeTurn).toHaveBeenCalledWith(expect.objectContaining({ agentId: `reviewer:${goal.id}`, role: 'reviewer', sessionId: `reviewer:${goal.id}:assessment-${goal.id}-1` }), expect.any(AbortSignal));
+  }));
+
+  it('blocks planner done when planner-owned reviewer cites invalid evidence', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async (input: LlmInvocationInput) => input.role === 'reviewer' ? reviewerResult({ evidence_card_ids: ['missing'] }) : plannerResult('done', 'done')) };
+    const actor = new PlannerCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
+    actor.start();
+
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notifications: [] });
+
+    expect(outcome).toMatchObject({ status: 'blocked', result: { kind: 'planner_blocked', reviewer_correction: { kind: 'reviewer_correction' } } });
+    expect(outcome.summary).toContain('missing');
   }));
 
   it('blocks done reports while descendants remain incomplete', async () => withTempProject(async (projectRoot) => {
@@ -116,6 +177,38 @@ describe('PlannerCardProcessorActor', () => {
 
     expect(outcome).toMatchObject({ status: 'blocked', result: { kind: 'planner_blocked' } });
     expect(outcome.summary).toContain(goal.id);
+    expect(provider.completeTurn).toHaveBeenCalledTimes(1);
+  }));
+
+  it('does not invoke reviewer for blocked or continue planner outcomes', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => plannerResult('blocked', 'blocked')) };
+    const actor = new PlannerCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
+    actor.start();
+
+    const blocked = await actor.activate({ card: project, caller: { kind: 'root' }, notifications: [] });
+    provider.completeTurn = jest.fn(async () => plannerResult('continue', 'continue'));
+    const continued = await actor.activate({ card: project, caller: { kind: 'root' }, notifications: [] });
+
+    expect(blocked).toMatchObject({ status: 'blocked', result: { kind: 'planner_blocked' } });
+    expect(continued).toMatchObject({ status: 'blocked', result: { kind: 'planner_blocked', blocker_cause: 'non_actionable_continue' } });
+    expect(provider.completeTurn).toHaveBeenCalledTimes(1);
+  }));
+
+  it('does not accept plain reviewer message JSON as terminal assessment', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async (input: LlmInvocationInput) => input.role === 'reviewer' ? { kind: 'message' as const, content: JSON.stringify({ result: 'pass', summary: 'ok', achieved: ['planned'], issues: [], evidence_card_ids: [project.id] }) } : plannerResult('done', 'done')) };
+    const actor = new PlannerCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
+    actor.start();
+
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notifications: [] });
+
+    expect(outcome).toMatchObject({ status: 'failed', result: { kind: 'planner_failure' } });
+    expect(outcome.summary).toContain('emit_reviewer_result');
   }));
 
   it('does not accept plain planner message JSON as terminal result', async () => withTempProject(async (projectRoot) => {
