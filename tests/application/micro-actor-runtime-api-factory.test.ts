@@ -1,4 +1,4 @@
-import { describe, expect, it } from '@jest/globals';
+import { describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -6,6 +6,7 @@ import { EventBus } from '../../src/events/index.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import { createMicroActorRuntimeApi } from '../../src/application/micro-actor-runtime-api-factory.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
+import type { InvocationService } from '../../src/agents/invocation-service.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-micro-actor-runtime-factory-'));
@@ -19,11 +20,15 @@ describe('createMicroActorRuntimeApi', () => {
   it('constructs a RuntimeApi backed by the shared CardStore', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const cardStore = new CardStore(projectRoot);
-    cardStore.create({ type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'running', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
+    cardStore.create({ type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
+    const invocationService = {
+      invokeWithRecovery: jest.fn(async () => ({ kind: 'tool_calls' as const, tool_calls: [{ id: 'planner-result-1', type: 'function' as const, function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'blocked', blocked_reason: 'waiting for operator', summary: 'waiting for operator' }) } }] })),
+    } as unknown as InvocationService;
     const api = createMicroActorRuntimeApi({
       projectRoot,
       eventBus: new EventBus(),
       cardStore,
+      invocationService,
       now: () => '2026-06-12T00:00:00.000Z',
     });
 
@@ -32,7 +37,7 @@ describe('createMicroActorRuntimeApi', () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.intent.status).toBe('running');
-      expect(result.run).toMatchObject({ card_id: 'project', phase: 'pending', runtime_status: 'running' });
+      expect(result.run).toMatchObject({ card_id: 'project', phase: 'blocked', runtime_status: 'running' });
     }
     expect(api.getStatus()).toMatchObject({ status: 'running', currentCardId: 'project' });
   }));

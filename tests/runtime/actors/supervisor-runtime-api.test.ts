@@ -5,7 +5,7 @@ import { describe, expect, it, jest } from '@jest/globals';
 import { existsSync, readFileSync } from 'node:fs';
 import { CardStore } from '../../../src/cards/card-store.js';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { createSupervisorRuntimeApi, readActorSnapshots, saveActorSnapshot, SupervisorRuntimeApi, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
+import { createSupervisorRuntimeApi, readActorSnapshots, saveActorSnapshot, SupervisorRuntimeApi, type CardActorStorePort, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
 import { actorToolCallStatusesPath, appendToolCallStatus } from '../../../src/runtime/actors/index.js';
 import type { CardRecord } from '../../../src/schemas/index.js';
@@ -31,9 +31,28 @@ function createProject(store: CardStore): CardRecord {
   return store.create({ type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
 }
 
+const inertStore: CardActorStorePort = {
+  read: () => null,
+  setStatus: () => { throw new Error('Unexpected setStatus call.'); },
+  commitTerminalLifecyclePatch: () => { throw new Error('Unexpected commitTerminalLifecyclePatch call.'); },
+};
+
+function blockedPlannerProvider(): LLMProviderPort {
+  return { completeTurn: jest.fn(async () => ({ kind: 'tool_calls' as const, tool_calls: [{ id: 'planner-result-1', type: 'function' as const, function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'blocked', blocked_reason: 'waiting for operator', summary: 'waiting for operator' }) } }] })) };
+}
+
+function doneProjectProvider(): LLMProviderPort {
+  return { completeTurn: jest.fn(async (input: LlmInvocationInput) => input.role === 'reviewer'
+    ? { kind: 'tool_calls' as const, tool_calls: [{ id: 'reviewer-result-1', type: 'function' as const, function: { name: 'emit_reviewer_result', arguments: JSON.stringify({ assessment: { result: 'pass', summary: 'project reviewed', achieved: ['project completed'], issues: [], evidence_card_ids: ['project'] } }) } }] }
+    : { kind: 'tool_calls' as const, tool_calls: [{ id: 'planner-result-1', type: 'function' as const, function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'done', summary: 'project completed' }) } }] }) };
+}
+
 describe('SupervisorRuntimeApi', () => {
   it('implements start, pause, resume, status, and shutdown through RuntimeSupervisorActor', async () => withTempProject(async (projectRoot) => {
-    const api = createSupervisorRuntimeApi({ projectRoot, now: () => '2026-06-12T00:00:00.000Z' });
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    createProject(store);
+    const api = createSupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), now: () => '2026-06-12T00:00:00.000Z' });
 
     await api.start();
     expect(api.getStatus()).toMatchObject({ status: 'idle', paused: false, currentCardId: null });
@@ -66,7 +85,7 @@ describe('SupervisorRuntimeApi', () => {
       context: { cardId: 'G-recover' },
       updated_at: '2026-06-12T00:00:00.000Z',
     });
-    const api = new SupervisorRuntimeApi({ projectRoot, now: () => '2026-06-12T00:00:00.000Z' });
+    const api = new SupervisorRuntimeApi({ projectRoot, actorStore: inertStore, provider: blockedPlannerProvider(), now: () => '2026-06-12T00:00:00.000Z' });
 
     await api.start();
 
@@ -99,7 +118,7 @@ describe('SupervisorRuntimeApi', () => {
       status: 'delivered',
       delivery_input_id: 'input:G-delivered:child:1',
     });
-    const api = new SupervisorRuntimeApi({ projectRoot, now: () => '2026-06-12T00:00:00.000Z' });
+    const api = new SupervisorRuntimeApi({ projectRoot, actorStore: inertStore, provider: blockedPlannerProvider(), now: () => '2026-06-12T00:00:00.000Z' });
 
     await api.start();
 
@@ -107,10 +126,15 @@ describe('SupervisorRuntimeApi', () => {
     expect(readJsonl(actorToolCallStatusesPath(projectRoot, 'planner:G-delivered')).map((entry) => entry.status)).toEqual(['pending', 'delivered']);
   }));
 
-  it('starts project work at the runtime boundary without invoking lower-level workflow', async () => withTempProject(async (projectRoot) => {
+  it('starts project work by executing the root CardActor', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    createProject(store);
     const api = createSupervisorRuntimeApi({
       projectRoot,
-      rootCards: { read: () => ({ id: 'project', type: 'project' }) },
+      rootCards: store,
+      actorStore: store,
+      provider: blockedPlannerProvider(),
       now: () => '2026-06-12T00:00:00.000Z',
     });
 
@@ -120,17 +144,16 @@ describe('SupervisorRuntimeApi', () => {
     if (result.success) {
       expect(result.command).toMatchObject({ command: 'start_project', status: 'completed', command_id: 'runtime-command-1' });
       expect(result.intent).toEqual({ status: 'running', updated_at: '2026-06-12T00:00:00.000Z', source_command_id: 'runtime-command-1', reason: null });
-      expect(result.run).toMatchObject({ run_id: 'runtime-run-1', card_id: 'project', phase: 'pending', runtime_status: 'running' });
+      expect(result.run).toMatchObject({ run_id: 'runtime-run-1', card_id: 'project', phase: 'blocked', runtime_status: 'running', outcome: { kind: 'blocked', error: 'waiting for operator' } });
     }
+    expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toEqual(expect.arrayContaining(['card:project', 'planner:project', 'processor:project', 'supervisor']));
   }));
 
   it('executes the project card through CardActor when actor dependencies are supplied', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     createProject(store);
-    const provider: LLMProviderPort = { completeTurn: jest.fn(async (input: LlmInvocationInput) => input.role === 'reviewer'
-      ? { kind: 'tool_calls' as const, tool_calls: [{ id: 'reviewer-result-1', type: 'function' as const, function: { name: 'emit_reviewer_result', arguments: JSON.stringify({ assessment: { result: 'pass', summary: 'project reviewed', achieved: ['project completed'], issues: [], evidence_card_ids: ['project'] } }) } }] }
-      : { kind: 'tool_calls' as const, tool_calls: [{ id: 'planner-result-1', type: 'function' as const, function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'done', summary: 'project completed' }) } }] }) };
+    const provider = doneProjectProvider();
     const api = createSupervisorRuntimeApi({
       projectRoot,
       rootCards: store,
@@ -150,7 +173,8 @@ describe('SupervisorRuntimeApi', () => {
   it('rejects startProject when the project card is missing', async () => withTempProject(async (projectRoot) => {
     const api = createSupervisorRuntimeApi({
       projectRoot,
-      rootCards: { read: () => null },
+      actorStore: inertStore,
+      provider: blockedPlannerProvider(),
       now: () => '2026-06-12T00:00:00.000Z',
     });
 
@@ -161,9 +185,14 @@ describe('SupervisorRuntimeApi', () => {
   }));
 
   it('stopProject cancels the active project run and returns a stopped intent', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    createProject(store);
     const api = createSupervisorRuntimeApi({
       projectRoot,
-      rootCards: { read: () => ({ id: 'project', type: 'project' }) },
+      rootCards: store,
+      actorStore: store,
+      provider: blockedPlannerProvider(),
       now: () => '2026-06-12T00:00:00.000Z',
     });
     await api.startProject('operator');

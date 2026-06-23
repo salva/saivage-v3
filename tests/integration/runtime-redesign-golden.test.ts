@@ -10,6 +10,7 @@ import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from '../
 import { CardStore } from '../../src/cards/card-store.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { createSupervisorRuntimeApi, readActorSnapshots } from '../../src/runtime/actors/index.js';
+import type { LLMProviderPort } from '../../src/runtime/actors/index.js';
 
 function tempRoot(prefix: string): string { return mkdtempSync(join(tmpdir(), prefix)); }
 
@@ -20,6 +21,10 @@ function setupCards() {
   const goal = cardStore.create({ type: 'goal', parent: 'project', depth: 1, title: 'Goal A', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
   const code = cardStore.create({ type: 'code', parent: goal.id, depth: 2, title: 'Code A', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
   return { projectRoot, cardStore, goalId: goal.id, codeId: code.id };
+}
+
+function blockedPlannerProvider(): LLMProviderPort {
+  return { completeTurn: jest.fn(async () => ({ kind: 'tool_calls' as const, tool_calls: [{ id: 'planner-result-1', type: 'function' as const, function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'blocked', blocked_reason: 'waiting for operator', summary: 'waiting for operator' }) } }] })) };
 }
 
 
@@ -36,6 +41,8 @@ describe('runtime redesign final golden behavior', () => {
     const projectRoot = tempRoot('saivage-runtime-golden-start-');
     try {
       initProjectTree(projectRoot);
+      const cardStore = new CardStore(projectRoot);
+      cardStore.create({ type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
       expect('runtime.startProject' in operatorApiContracts).toBe(false);
       expect('runtime.stopProject' in operatorApiContracts).toBe(false);
       expect(ANALYST_TOOL_NAMES).not.toContain('lets_dance');
@@ -43,7 +50,9 @@ describe('runtime redesign final golden behavior', () => {
 
       const api = createSupervisorRuntimeApi({
         projectRoot,
-        rootCards: { read: jest.fn(() => ({ id: 'project', type: 'project' })) },
+        rootCards: cardStore,
+        actorStore: cardStore,
+        provider: blockedPlannerProvider(),
         now: () => '2026-06-12T00:00:00.000Z',
       });
       expect('requestProjectDirectiveWakeup' in api).toBe(false);
@@ -56,12 +65,12 @@ describe('runtime redesign final golden behavior', () => {
           kind: 'root',
           card_id: 'project',
           ownership: { kind: 'direct', source: 'project_root' },
-          phase: 'pending',
+          phase: 'blocked',
           runtime_status: 'running',
           session_id: 'planner:project',
         });
       }
-      expect(readActorSnapshots(projectRoot).map((item) => item.actor_id).sort()).toEqual(['supervisor']);
+      expect(readActorSnapshots(projectRoot).map((item) => item.actor_id).sort()).toEqual(['card:project', 'planner:project', 'processor:project', 'supervisor']);
       await api.shutdown();
     } finally { rmSync(projectRoot, { recursive: true, force: true }); }
   });

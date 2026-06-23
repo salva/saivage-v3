@@ -11,7 +11,7 @@ export interface MicroActorRuntimeApiFactoryDeps {
   projectRoot: string;
   eventBus: EventBus;
   cardStore: CardStore & ProjectRootCardReader & RuntimeContextCardReader;
-  invocationService?: InvocationService;
+  invocationService: InvocationService;
   now?: () => string;
 }
 
@@ -21,8 +21,8 @@ export function createMicroActorRuntimeApi(deps: MicroActorRuntimeApiFactoryDeps
     eventBus: deps.eventBus,
     rootCards: deps.cardStore,
     contextCards: deps.cardStore,
-    actorStore: deps.invocationService ? deps.cardStore : undefined,
-    provider: deps.invocationService ? invocationServiceProvider(deps.invocationService) : undefined,
+    actorStore: deps.cardStore,
+    provider: invocationServiceProvider(deps.invocationService),
     now: deps.now,
   });
 }
