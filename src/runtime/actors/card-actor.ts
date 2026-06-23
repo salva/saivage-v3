@@ -142,13 +142,6 @@ export class CardActor extends BaseActor {
     return [...this.notifications];
   }
 
-  drainDeliverableNotifications(): CardNotification[] {
-    if (this.notifications.length === 0) return [];
-    const notifications = this.notifications.splice(0);
-    this.persist();
-    return notifications;
-  }
-
   deliverNotificationsForInput(inputId: string): CardNotification[] {
     if (this.notifications.length === 0) return [];
     const deliveredAt = new Date().toISOString();
@@ -160,10 +153,6 @@ export class CardActor extends BaseActor {
     })));
     this.persist();
     return notifications;
-  }
-
-  recordNotificationsDelivered(_notifications: CardNotification[]): void {
-    this.persist();
   }
 
   markChanged(change: CardChange): void {

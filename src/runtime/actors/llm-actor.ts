@@ -4,7 +4,7 @@ import type { LlmCompleteResult } from '../../agents/llm-contracts.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
 import { actorKindFromId } from './ids.js';
 import { saveActorSnapshot } from './snapshots.js';
-import { appendLlmTurnError, appendLlmTurnFinished, appendLlmTurnStarted, appendToolCallStatus, appendToolDelivery } from './llm-delivery-log.js';
+import { appendLlmTurnError, appendLlmTurnFinished, appendLlmTurnStarted, appendToolDelivery } from './llm-delivery-log.js';
 
 export type LLMActorOutcome =
   | { type: 'result'; agentId: string; result: Extract<LlmCompleteResult, { kind: 'message' }> }
@@ -100,35 +100,6 @@ export class LLMActor extends BaseActor {
       inputId: deliveryInputId,
       contextMessages,
       episodeContext: { ...input.episodeContext, lastToolResult: { toolCallId, toolName: waiting.toolName, result } },
-    };
-    this.waitingToolCall = null;
-    return this.continueAfterTool();
-  }
-
-  appendToolError(toolCallId: string, error: string, continuationContextHook?: LLMToolContinuationContextHook): Promise<LLMActorOutcome> {
-    let waiting: WaitingToolCall;
-    try {
-      waiting = this.requireWaitingTool(toolCallId);
-    } catch (caught) {
-      return Promise.reject(caught);
-    }
-    this.recordToolSettled(toolCallId);
-    appendToolCallStatus(this.projectRoot, {
-      agent_id: this.agentId,
-      source_input_id: waiting.sourceInputId,
-      tool_call_id: toolCallId,
-      tool_name: waiting.toolName,
-      status: 'errored',
-      error,
-    });
-    const input = this.requireInput();
-    const deliveryInputId = this.nextDeliveryInputId(input.inputId);
-    const contextMessages = this.continuationContextMessages(input, deliveryInputId, continuationContextHook);
-    this.input = {
-      ...input,
-      inputId: deliveryInputId,
-      contextMessages,
-      episodeContext: { ...input.episodeContext, lastToolResult: { toolCallId, toolName: waiting.toolName, error } },
     };
     this.waitingToolCall = null;
     return this.continueAfterTool();

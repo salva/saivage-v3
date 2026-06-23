@@ -125,28 +125,6 @@ describe('LLMActor', () => {
     ]);
   }));
 
-  it('adds error continuation context from the delivery input hook', async () => withTempProject(async (projectRoot) => {
-    initProjectTree(projectRoot);
-    const completeTurn = jest.fn(async (turnInput: LlmInvocationInput) => turnInput.episodeContext.lastToolResult
-      ? { kind: 'message' as const, content: 'continued after error' }
-      : { kind: 'tool_calls' as const, tool_calls: [{ id: 'call-1', type: 'function' as const, function: { name: 'inspect', arguments: '{}' } }] });
-    const provider: LLMProviderPort = { completeTurn };
-    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
-    actor.start();
-
-    await actor.turn({ ...input(), contextMessages: [{ role: 'user', content: 'base' }] });
-    await eventually(() => expect(actor.state()).toBe('waiting_tool'));
-    const hook = jest.fn((deliveryInputId: string) => [{ role: 'user', content: `error notification for ${deliveryInputId}` }]);
-
-    await expect(actor.appendToolError('call-1', 'tool failed', hook)).resolves.toMatchObject({ type: 'result' });
-
-    expect(hook).toHaveBeenCalledWith('turn-1:tool:1');
-    expect(completeTurn.mock.calls[1]?.[0].contextMessages).toEqual([
-      { role: 'user', content: 'base' },
-      { role: 'user', content: 'error notification for turn-1:tool:1' },
-    ]);
-  }));
-
   it('rejects duplicate tool settlement for the same call', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const provider: LLMProviderPort = {
@@ -157,7 +135,7 @@ describe('LLMActor', () => {
 
     await actor.turn(input());
     await eventually(() => expect(actor.state()).toBe('waiting_tool'));
-    const pending = actor.appendToolError('call-1', 'tool failed');
+    const pending = actor.appendToolResult('call-1', {});
     await expect(actor.appendToolResult('call-1', {})).rejects.toThrow(/not waiting|already/);
     await expect(pending).resolves.toMatchObject({ type: 'tool_call' });
   }));

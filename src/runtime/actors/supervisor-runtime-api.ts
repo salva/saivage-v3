@@ -13,7 +13,6 @@ import type { RuntimeApi, RuntimeCommandSource, StartProjectResult, StopProjectR
 import type { CardRecord, RuntimeCommandRecord, RuntimeRunRecord, RuntimeState, RuntimeStatus } from '../../schemas/index.js';
 import type { SessionActivity } from '../session-stamper.js';
 import type { Subscription, SubscriptionOptions } from '../../events/index.js';
-import type { RuntimeContextCardReader } from '../context-builder.js';
 import type { ActorRecoveryPlan } from './actor-recovery.js';
 
 export interface ProjectRootCardReader {
@@ -25,7 +24,6 @@ export interface SupervisorRuntimeApiOptions {
   eventBus?: EventBus;
   now?: () => string;
   rootCards?: ProjectRootCardReader;
-  contextCards?: RuntimeContextCardReader;
   actorStore: CardActorStorePort;
   provider: LLMProviderPort;
 }
