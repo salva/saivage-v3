@@ -5,8 +5,12 @@ import { buildActorRecoveryPlan } from './actor-recovery.js';
 import { abandonStalePendingToolCalls } from './llm-delivery-log.js';
 import { plannerActorId } from './ids.js';
 import { RuntimeSupervisorActor } from './runtime-supervisor.js';
+import { CardActor, type CardActorStorePort } from './card-actor.js';
+import { GoalCardProcessorActor, ProjectCardProcessorActor, type PlannerChildActorPort } from './planner-card-processor-actor.js';
+import { TerminalCardProcessorActor } from './terminal-card-processor-actor.js';
+import type { LLMProviderPort } from './llm-actor.js';
 import type { RuntimeApi, RuntimeCommandSource, StartProjectResult, StopProjectResult } from '../runtime-api.js';
-import type { RuntimeCommandRecord, RuntimeRunRecord, RuntimeState, RuntimeStatus } from '../../schemas/index.js';
+import type { CardRecord, RuntimeCommandRecord, RuntimeRunRecord, RuntimeState, RuntimeStatus } from '../../schemas/index.js';
 import type { SessionActivity } from '../session-stamper.js';
 import type { Subscription, SubscriptionOptions } from '../../events/index.js';
 import type { RuntimeContextCardReader } from '../context-builder.js';
@@ -22,6 +26,8 @@ export interface SupervisorRuntimeApiOptions {
   now?: () => string;
   rootCards?: ProjectRootCardReader;
   contextCards?: RuntimeContextCardReader;
+  actorStore?: CardActorStorePort;
+  provider?: LLMProviderPort;
 }
 
 export class SupervisorRuntimeApi implements RuntimeApi {
@@ -34,6 +40,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
   private currentCardId: string | null = null;
   private activeRun: RuntimeRunRecord | null = null;
   private recoveryPlan: ActorRecoveryPlan | null = null;
+  private readonly cardActors = new Map<string, CardActor>();
 
   constructor(private readonly options: SupervisorRuntimeApiOptions) {
     this.eventBus = options.eventBus ?? new EventBus();
@@ -88,6 +95,29 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     this.supervisor.run();
     this.currentCardId = PROJECT_CARD_ID;
     this.activeRun = this.runRecord(command.command_id, startedAt, null, 'pending', 'running');
+    if (this.options.actorStore && this.options.provider) {
+      const actor = this.cardActor(PROJECT_CARD_ID);
+      const outcome = await actor.activate({ kind: 'root' });
+      const finishedAt = this.now();
+      this.activeRun = {
+        ...this.activeRun,
+        phase: outcome.status === 'done' ? 'completed' : outcome.status,
+        runtime_status: outcome.status === 'done' ? 'idle' : outcome.status === 'cancelled' ? 'cancelled' : 'running',
+        updated_at: finishedAt,
+        finished_at: outcome.status === 'blocked' ? null : finishedAt,
+        outcome: outcome.status === 'done'
+          ? { kind: 'completed', result: 'done', finished_at: finishedAt }
+          : outcome.status === 'failed'
+            ? { kind: 'completed', result: 'failed', error: outcome.summary, finished_at: finishedAt }
+            : outcome.status === 'cancelled'
+              ? { kind: 'completed', result: 'cancelled', finished_at: finishedAt }
+              : { kind: 'blocked', error: outcome.summary },
+      };
+      if (outcome.status === 'done' || outcome.status === 'failed' || outcome.status === 'cancelled') {
+        this.currentCardId = null;
+        this.supervisor.cancelProject();
+      }
+    }
     return {
       success: true,
       command,
@@ -100,6 +130,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     await this.start();
     const command = this.command('stop_project', 'completed', source);
     const stoppedAt = this.now();
+    this.cardActors.get(PROJECT_CARD_ID)?.cancel({ reason: 'runtime_project_cancelled', cancelled_at: stoppedAt });
     this.supervisor.cancelProject();
     const run = this.activeRun
       ? {
@@ -187,6 +218,38 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       finished_at: finishedAt,
       outcome: null,
     };
+  }
+
+  private cardActor(cardId: string): CardActor {
+    const existing = this.cardActors.get(cardId);
+    if (existing) return existing;
+    if (!this.options.actorStore || !this.options.provider) throw new Error('SupervisorRuntimeApi actor execution requires actorStore and provider.');
+    const card = this.options.actorStore.read(cardId);
+    if (!card) throw new Error(`Card '${cardId}' not found.`);
+    const actor = CardActor.fromCard({ projectRoot: this.options.projectRoot, card, store: this.options.actorStore, processor: this.processorFor(card) });
+    this.cardActors.set(cardId, actor);
+    return actor;
+  }
+
+  private processorFor(card: CardRecord) {
+    if (!this.options.actorStore || !this.options.provider) throw new Error('SupervisorRuntimeApi actor execution requires actorStore and provider.');
+    if (card.type === 'project') {
+      const processor = new ProjectCardProcessorActor({ projectRoot: this.options.projectRoot, cardId: card.id, store: this.options.actorStore, children: this.childrenPort(), provider: this.options.provider, admission: this });
+      processor.start();
+      return processor;
+    }
+    if (card.type === 'goal') {
+      const processor = new GoalCardProcessorActor({ projectRoot: this.options.projectRoot, cardId: card.id, store: this.options.actorStore, children: this.childrenPort(), provider: this.options.provider, admission: this });
+      processor.start();
+      return processor;
+    }
+    const processor = new TerminalCardProcessorActor({ projectRoot: this.options.projectRoot, cardId: card.id, provider: this.options.provider, admission: this });
+    processor.start();
+    return processor;
+  }
+
+  private childrenPort(): PlannerChildActorPort {
+    return { get: (cardId) => this.cardActor(cardId) };
   }
 }
 

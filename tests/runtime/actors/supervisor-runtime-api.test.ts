@@ -1,10 +1,13 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from '@jest/globals';
+import { describe, expect, it, jest } from '@jest/globals';
 import { existsSync, readFileSync } from 'node:fs';
-import { createSupervisorRuntimeApi, readActorSnapshots, saveActorSnapshot, SupervisorRuntimeApi } from '../../../src/runtime/actors/index.js';
+import { CardStore } from '../../../src/cards/card-store.js';
+import { initProjectTree } from '../../../src/persistence/file-tree.js';
+import { createSupervisorRuntimeApi, readActorSnapshots, saveActorSnapshot, SupervisorRuntimeApi, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import { actorToolCallStatusesPath, appendToolCallStatus } from '../../../src/runtime/actors/index.js';
+import type { CardRecord } from '../../../src/schemas/index.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-supervisor-api-'));
@@ -21,6 +24,10 @@ function readJsonl(path: string): Array<Record<string, unknown>> {
     .split('\n')
     .filter(Boolean)
     .map((line) => JSON.parse(line) as Record<string, unknown>);
+}
+
+function createProject(store: CardStore): CardRecord {
+  return store.create({ type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
 }
 
 describe('SupervisorRuntimeApi', () => {
@@ -114,6 +121,27 @@ describe('SupervisorRuntimeApi', () => {
       expect(result.intent).toEqual({ status: 'running', updated_at: '2026-06-12T00:00:00.000Z', source_command_id: 'runtime-command-1', reason: null });
       expect(result.run).toMatchObject({ run_id: 'runtime-run-1', card_id: 'project', phase: 'pending', runtime_status: 'running' });
     }
+  }));
+
+  it('executes the project card through CardActor when actor dependencies are supplied', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    createProject(store);
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: JSON.stringify({ status: 'done', summary: 'project completed' }) })) };
+    const api = createSupervisorRuntimeApi({
+      projectRoot,
+      rootCards: store,
+      actorStore: store,
+      provider,
+      now: () => '2026-06-12T00:00:00.000Z',
+    });
+
+    const result = await api.startProject('operator');
+
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.run).toMatchObject({ phase: 'completed', runtime_status: 'idle', outcome: { kind: 'completed', result: 'done' } });
+    expect(store.read('project')).toMatchObject({ status: 'done', status_text: 'project completed' });
+    expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toEqual(expect.arrayContaining(['card:project', 'planner:project', 'processor:project', 'supervisor']));
   }));
 
   it('rejects startProject when the project card is missing', async () => withTempProject(async (projectRoot) => {
