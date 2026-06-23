@@ -1,22 +1,15 @@
-import { BaseActor } from '../micro-actor/index.js';
 import type { ActorDefinition } from '../micro-actor/index.js';
 import type { CardRecord, PlannerBlockedResult, PlannerDoneResult, ReviewAssessment, ReviewerIssue, ReviewerPassResult } from '../../schemas/index.js';
 import { nextReviewerAssessmentId, reviewerSessionId, validateReviewerAssessment } from '../reviewer-assessment.js';
-import { LLMActor, type LLMAdmissionPort, type LLMProviderPort } from './llm-actor.js';
+import type { LLMAdmissionPort, LLMProviderPort } from './llm-actor.js';
 import { processorActorId, reviewerActorId } from './ids.js';
-import { saveActorSnapshot } from './snapshots.js';
 import type { CardActivationInput, CardActivationOutcome, CardActorStorePort, CardProcessorActor } from './card-actor.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
+import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
 
 type ReviewerProcessorOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
 
-type PendingActivation = {
-  input: CardActivationInput;
-  resolve: (outcome: ReviewerProcessorOutcome) => void;
-  reject: (error: Error) => void;
-};
-
-export class ReviewerCardProcessorActor extends BaseActor implements CardProcessorActor {
+export class ReviewerCardProcessorActor extends BaseMainLLMCardProcessorActor implements CardProcessorActor {
   static _actor: ActorDefinition = {
     initial: 'idle',
     states: {
@@ -27,74 +20,19 @@ export class ReviewerCardProcessorActor extends BaseActor implements CardProcess
     },
   };
 
-  readonly projectRoot: string;
-  readonly cardId: string;
   readonly store: CardActorStorePort;
-  readonly provider: LLMProviderPort;
-  readonly admission?: LLMAdmissionPort;
-  outcome: ReviewerProcessorOutcome | null = null;
-  cancelReason: string | null = null;
-  #pending: PendingActivation | null = null;
-  #activationCounter = 0;
 
   constructor(args: { projectRoot: string; cardId: string; store: CardActorStorePort; provider: LLMProviderPort; admission?: LLMAdmissionPort }) {
-    super();
-    this.projectRoot = args.projectRoot;
-    this.cardId = args.cardId;
+    super(args);
     this.store = args.store;
-    this.provider = args.provider;
-    this.admission = args.admission;
-  }
-
-  activate(input: CardActivationInput): Promise<ReviewerProcessorOutcome> {
-    if (this.#pending) return Promise.reject(new Error(`Reviewer processor '${this.cardId}' already has a pending activation.`));
-    if (this.state() !== 'idle' && this.state() !== 'settled') return Promise.reject(new Error(`Reviewer processor '${this.cardId}' cannot activate from '${this.state()}'.`));
-    return new Promise<ReviewerProcessorOutcome>((resolve, reject) => {
-      this.#pending = { input, resolve, reject };
-      this.parkedSendEvent('activate');
-    });
-  }
-
-  cancel(reason: string): void {
-    this.cancelReason = reason;
-    this.#pending?.reject(new Error(reason));
-    this.#pending = null;
-    if (this.state() === 'idle' || this.state() === 'settled') this.parkedSendEvent('cancel');
-    this.persist();
   }
 
   _on_enter__reviewing(): void {
-    const pending = this.#pending;
-    if (!pending) throw new Error(`Reviewer processor '${this.cardId}' entered reviewing without activation input.`);
-    this.runTask((signal) => this.runActivation(pending.input, signal), {
-      on_done: (outcome) => {
-        this.outcome = outcome;
-        pending.resolve(outcome);
-        this.#pending = null;
-        this.sendEvent(outcome.status);
-      },
-      on_failed: (error) => {
-        const outcome: ReviewerProcessorOutcome = { status: 'failed', summary: error.message, result: { kind: 'planner_failure', error: error.message } };
-        this.outcome = outcome;
-        pending.resolve(outcome);
-        this.#pending = null;
-        this.sendEvent('failed');
-      },
-    });
+    this.runPendingActivation('reviewing', (input, signal) => this.runActivation(input, signal));
   }
 
-  protected override _on_state_changed(_oldState: string | undefined, _newState: string): void {
-    this.persist();
-  }
-
-  snapshot() {
-    return {
-      actor_id: processorActorId(`${this.cardId}:reviewer`),
-      actor_kind: 'processor' as const,
-      state_value: this.state(),
-      context: { projectRoot: this.projectRoot, cardId: this.cardId, outcome: this.outcome, cancelReason: this.cancelReason },
-      updated_at: new Date().toISOString(),
-    };
+  protected override processorSnapshotId(): string {
+    return processorActorId(`${this.cardId}:reviewer`);
   }
 
   private async runActivation(input: CardActivationInput, signal: AbortSignal): Promise<ReviewerProcessorOutcome> {
@@ -102,8 +40,7 @@ export class ReviewerCardProcessorActor extends BaseActor implements CardProcess
     if (!planning) return { status: 'failed', summary: `Card '${input.card.id}' has no planner result to review.`, result: { kind: 'planner_failure', error: `Card '${input.card.id}' has no planner result to review.` } };
     const assessmentId = nextReviewerAssessmentId(input.card.id, input.card.lifecycle.result);
     const sessionId = reviewerSessionId(input.card.id, assessmentId);
-    const llm = new LLMActor({ projectRoot: this.projectRoot, agentId: reviewerActorId(input.card.id), provider: this.provider, admission: this.admission });
-    llm.start();
+    const llm = this.createMainLlm(reviewerActorId(input.card.id));
     const outcome = await llm.turn(this.buildLlmInput(input, assessmentId, sessionId));
     if (signal.aborted) throw new Error('Reviewer activation cancelled.');
     if (outcome.type === 'error') return { status: 'failed', summary: outcome.error, result: { kind: 'planner_failure', error: outcome.error } };
@@ -112,9 +49,8 @@ export class ReviewerCardProcessorActor extends BaseActor implements CardProcess
   }
 
   private buildLlmInput(input: CardActivationInput, assessmentId: string, sessionId: string): LlmInvocationInput {
-    this.#activationCounter++;
     return {
-      inputId: `reviewer:${this.cardId}:${this.#activationCounter}`,
+      inputId: this.nextInvocationInputId('reviewer'),
       agentId: reviewerActorId(this.cardId),
       role: 'reviewer',
       sessionId,
@@ -141,8 +77,12 @@ export class ReviewerCardProcessorActor extends BaseActor implements CardProcess
     return `Review card ${card.id}: ${card.title}\n\n${card.description}\n\nAssessment id: ${assessmentId}\n\nReturn JSON only: {"result":"pass|needs_corrections","summary":"...","achieved":[],"issues":[],"evidence_card_ids":[]}.`;
   }
 
-  private persist(): void {
-    saveActorSnapshot(this.projectRoot, this.snapshot());
+  protected get processorLabel(): string {
+    return 'Reviewer processor';
+  }
+
+  protected activationFailureOutcome(error: string): ReviewerProcessorOutcome {
+    return { status: 'failed', summary: error, result: { kind: 'planner_failure', error } };
   }
 }
 

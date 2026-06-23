@@ -1,26 +1,19 @@
-import { BaseActor } from '../micro-actor/index.js';
 import type { ActorDefinition } from '../micro-actor/index.js';
 import type { CardRecord, CardStatus } from '../../schemas/index.js';
-import { LLMActor, type LLMActorOutcome, type LLMAdmissionPort, type LLMProviderPort } from './llm-actor.js';
-import { plannerActorId, processorActorId } from './ids.js';
+import type { LLMActorOutcome, LLMAdmissionPort, LLMProviderPort } from './llm-actor.js';
+import { plannerActorId } from './ids.js';
 import { XSTATE_PLANNER_TOOL_DEFINITIONS } from './actor-tool-definitions.js';
-import { saveActorSnapshot } from './snapshots.js';
 import type { CardActivationInput, CardActivationOutcome, CardActor, CardActorStorePort, CardProcessorActor } from './card-actor.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
+import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
 
 type PlannerProcessorOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
-
-type PendingActivation = {
-  input: CardActivationInput;
-  resolve: (outcome: PlannerProcessorOutcome) => void;
-  reject: (error: Error) => void;
-};
 
 export interface PlannerChildActorPort {
   get(cardId: string): CardActor | null;
 }
 
-export class PlannerCardProcessorActor extends BaseActor implements CardProcessorActor {
+export class PlannerCardProcessorActor extends BaseMainLLMCardProcessorActor implements CardProcessorActor {
   static _actor: ActorDefinition = {
     initial: 'idle',
     states: {
@@ -31,81 +24,21 @@ export class PlannerCardProcessorActor extends BaseActor implements CardProcesso
     },
   };
 
-  readonly projectRoot: string;
-  readonly cardId: string;
   readonly store: CardActorStorePort;
   readonly children: PlannerChildActorPort;
-  readonly provider: LLMProviderPort;
-  readonly admission?: LLMAdmissionPort;
-  outcome: PlannerProcessorOutcome | null = null;
-  cancelReason: string | null = null;
-  #pending: PendingActivation | null = null;
-  #activationCounter = 0;
 
   constructor(args: { projectRoot: string; cardId: string; store: CardActorStorePort; children: PlannerChildActorPort; provider: LLMProviderPort; admission?: LLMAdmissionPort }) {
-    super();
-    this.projectRoot = args.projectRoot;
-    this.cardId = args.cardId;
+    super(args);
     this.store = args.store;
     this.children = args.children;
-    this.provider = args.provider;
-    this.admission = args.admission;
-  }
-
-  activate(input: CardActivationInput): Promise<PlannerProcessorOutcome> {
-    if (this.#pending) return Promise.reject(new Error(`Planner processor '${this.cardId}' already has a pending activation.`));
-    if (this.state() !== 'idle' && this.state() !== 'settled') return Promise.reject(new Error(`Planner processor '${this.cardId}' cannot activate from '${this.state()}'.`));
-    return new Promise<PlannerProcessorOutcome>((resolve, reject) => {
-      this.#pending = { input, resolve, reject };
-      this.parkedSendEvent('activate');
-    });
-  }
-
-  cancel(reason: string): void {
-    this.cancelReason = reason;
-    this.#pending?.reject(new Error(reason));
-    this.#pending = null;
-    if (this.state() === 'idle' || this.state() === 'settled') this.parkedSendEvent('cancel');
-    this.persist();
   }
 
   _on_enter__planning(): void {
-    const pending = this.#pending;
-    if (!pending) throw new Error(`Planner processor '${this.cardId}' entered planning without activation input.`);
-    this.runTask((signal) => this.runActivation(pending.input, signal), {
-      on_done: (outcome) => {
-        this.outcome = outcome;
-        pending.resolve(outcome);
-        this.#pending = null;
-        this.sendEvent(outcome.status);
-      },
-      on_failed: (error) => {
-        const outcome: PlannerProcessorOutcome = { status: 'failed', summary: error.message, result: { kind: 'planner_failure', error: error.message } };
-        this.outcome = outcome;
-        pending.resolve(outcome);
-        this.#pending = null;
-        this.sendEvent('failed');
-      },
-    });
-  }
-
-  protected override _on_state_changed(_oldState: string | undefined, _newState: string): void {
-    this.persist();
-  }
-
-  snapshot() {
-    return {
-      actor_id: processorActorId(this.cardId),
-      actor_kind: 'processor' as const,
-      state_value: this.state(),
-      context: { projectRoot: this.projectRoot, cardId: this.cardId, outcome: this.outcome, cancelReason: this.cancelReason },
-      updated_at: new Date().toISOString(),
-    };
+    this.runPendingActivation('planning', (input, signal) => this.runActivation(input, signal));
   }
 
   private async runActivation(input: CardActivationInput, signal: AbortSignal): Promise<PlannerProcessorOutcome> {
-    const llm = new LLMActor({ projectRoot: this.projectRoot, agentId: plannerActorId(this.cardId), provider: this.provider, admission: this.admission });
-    llm.start();
+    const llm = this.createMainLlm(plannerActorId(this.cardId));
     let outcome = await llm.turn(this.buildLlmInput(input));
     for (let turn = 0; turn < 20; turn++) {
       if (signal.aborted) throw new Error('Planner activation cancelled.');
@@ -118,9 +51,8 @@ export class PlannerCardProcessorActor extends BaseActor implements CardProcesso
   }
 
   private buildLlmInput(input: CardActivationInput): LlmInvocationInput {
-    this.#activationCounter++;
     return {
-      inputId: `planner:${this.cardId}:${this.#activationCounter}`,
+      inputId: this.nextInvocationInputId('planner'),
       agentId: plannerActorId(this.cardId),
       role: 'planner',
       sessionId: plannerActorId(this.cardId),
@@ -169,8 +101,12 @@ export class PlannerCardProcessorActor extends BaseActor implements CardProcesso
     return `Plan and coordinate card ${card.id}: ${card.title}\n\n${card.description}\n\nAcceptance:\n${card.acceptance}\n\nReturn terminal reports as JSON: {"status":"done|blocked|failed","summary":"...","resume_reason":"..."}. Use activate_card for immediate children only.`;
   }
 
-  private persist(): void {
-    saveActorSnapshot(this.projectRoot, this.snapshot());
+  protected get processorLabel(): string {
+    return 'Planner processor';
+  }
+
+  protected activationFailureOutcome(error: string): PlannerProcessorOutcome {
+    return { status: 'failed', summary: error, result: { kind: 'planner_failure', error } };
   }
 }
 

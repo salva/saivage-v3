@@ -9,6 +9,8 @@ export * from './llm-invocation.js';
 export * from './llm-actor.js';
 export * from './invocation-provider-turn.js';
 export * from './card-actor.js';
+export * from './base-card-processor-actor.js';
+export * from './base-main-llm-card-processor-actor.js';
 export * from './terminal-card-processor-actor.js';
 export * from './planner-card-processor-actor.js';
 export * from './reviewer-card-processor-actor.js';

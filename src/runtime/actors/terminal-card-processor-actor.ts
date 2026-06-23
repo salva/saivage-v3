@@ -1,22 +1,15 @@
-import { BaseActor } from '../micro-actor/index.js';
 import type { ActorDefinition } from '../micro-actor/index.js';
 import type { CardActivationInput, CardActivationOutcome, CardProcessorActor } from './card-actor.js';
-import { executorActorId, processorActorId } from './ids.js';
-import { saveActorSnapshot } from './snapshots.js';
-import { LLMActor, type LLMActorOutcome, type LLMAdmissionPort, type LLMProviderPort } from './llm-actor.js';
+import { executorActorId } from './ids.js';
+import type { LLMActorOutcome, LLMAdmissionPort, LLMProviderPort } from './llm-actor.js';
 import { ProcessActor } from './process-actor.js';
 import { XSTATE_PROCESS_TOOL_DEFINITIONS } from './actor-tool-definitions.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
+import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
 
 type TerminalProcessorOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
 
-type PendingActivation = {
-  input: CardActivationInput;
-  resolve: (outcome: TerminalProcessorOutcome) => void;
-  reject: (error: Error) => void;
-};
-
-export class TerminalCardProcessorActor extends BaseActor implements CardProcessorActor {
+export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor implements CardProcessorActor {
   static _actor: ActorDefinition = {
     initial: 'idle',
     states: {
@@ -27,78 +20,22 @@ export class TerminalCardProcessorActor extends BaseActor implements CardProcess
     },
   };
 
-  readonly projectRoot: string;
-  readonly cardId: string;
-  readonly provider: LLMProviderPort;
-  readonly admission?: LLMAdmissionPort;
   readonly processes = new Map<string, ProcessActor>();
-  outcome: TerminalProcessorOutcome | null = null;
-  cancelReason: string | null = null;
-  #pending: PendingActivation | null = null;
-  #activationCounter = 0;
 
   constructor(args: { projectRoot: string; cardId: string; provider: LLMProviderPort; admission?: LLMAdmissionPort }) {
-    super();
-    this.projectRoot = args.projectRoot;
-    this.cardId = args.cardId;
-    this.provider = args.provider;
-    this.admission = args.admission;
-  }
-
-  activate(input: CardActivationInput): Promise<TerminalProcessorOutcome> {
-    if (this.#pending) return Promise.reject(new Error(`Terminal processor '${this.cardId}' already has a pending activation.`));
-    if (this.state() !== 'idle' && this.state() !== 'settled') return Promise.reject(new Error(`Terminal processor '${this.cardId}' cannot activate from '${this.state()}'.`));
-    return new Promise<TerminalProcessorOutcome>((resolve, reject) => {
-      this.#pending = { input, resolve, reject };
-      this.parkedSendEvent('activate');
-    });
-  }
-
-  cancel(reason: string): void {
-    this.cancelReason = reason;
-    this.#pending?.reject(new Error(reason));
-    this.#pending = null;
-    if (this.state() === 'idle' || this.state() === 'settled') this.parkedSendEvent('cancel');
-    this.persist();
+    super(args);
   }
 
   _on_enter__executing(): void {
-    const pending = this.#pending;
-    if (!pending) throw new Error(`Terminal processor '${this.cardId}' entered executing without activation input.`);
-    this.runTask(async (signal) => this.runActivation(pending.input, signal), {
-      on_done: (outcome) => {
-        this.outcome = outcome;
-        pending.resolve(outcome);
-        this.#pending = null;
-        this.sendEvent(outcome.status === 'done' ? 'done' : 'failed');
-      },
-      on_failed: (error) => {
-        const outcome: TerminalProcessorOutcome = { status: 'failed', summary: error.message, result: executorFailure(error.message) };
-        this.outcome = outcome;
-        pending.resolve(outcome);
-        this.#pending = null;
-        this.sendEvent('failed');
-      },
-    });
+    this.runPendingActivation('executing', (input, signal) => this.runActivation(input, signal));
   }
 
-  protected override _on_state_changed(_oldState: string | undefined, _newState: string): void {
-    this.persist();
-  }
-
-  snapshot() {
-    return {
-      actor_id: processorActorId(this.cardId),
-      actor_kind: 'processor' as const,
-      state_value: this.state(),
-      context: { projectRoot: this.projectRoot, cardId: this.cardId, outcome: this.outcome, cancelReason: this.cancelReason, processIds: [...this.processes.keys()] },
-      updated_at: new Date().toISOString(),
-    };
+  protected override processorSnapshotContext(): Record<string, unknown> {
+    return { ...super.processorSnapshotContext(), processIds: [...this.processes.keys()] };
   }
 
   private async runActivation(input: CardActivationInput, signal: AbortSignal): Promise<TerminalProcessorOutcome> {
-    const llm = new LLMActor({ projectRoot: this.projectRoot, agentId: executorActorId(this.cardId), provider: this.provider, admission: this.admission });
-    llm.start();
+    const llm = this.createMainLlm(executorActorId(this.cardId));
     let outcome = await llm.turn(this.buildLlmInput(input));
     for (let turn = 0; turn < 10; turn++) {
       if (signal.aborted) throw new Error('Terminal activation cancelled.');
@@ -111,9 +48,8 @@ export class TerminalCardProcessorActor extends BaseActor implements CardProcess
   }
 
   private buildLlmInput(input: CardActivationInput): LlmInvocationInput {
-    this.#activationCounter++;
     return {
-      inputId: `terminal:${this.cardId}:${this.#activationCounter}`,
+      inputId: this.nextInvocationInputId('terminal'),
       agentId: executorActorId(this.cardId),
       role: 'executor',
       sessionId: executorActorId(this.cardId),
@@ -173,8 +109,16 @@ export class TerminalCardProcessorActor extends BaseActor implements CardProcess
     return actor;
   }
 
-  private persist(): void {
-    saveActorSnapshot(this.projectRoot, this.snapshot());
+  protected override transitionEventForOutcome(outcome: TerminalProcessorOutcome): string {
+    return outcome.status === 'done' ? 'done' : 'failed';
+  }
+
+  protected get processorLabel(): string {
+    return 'Terminal processor';
+  }
+
+  protected activationFailureOutcome(error: string): TerminalProcessorOutcome {
+    return { status: 'failed', summary: error, result: executorFailure(error) };
   }
 }
 
