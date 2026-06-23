@@ -104,6 +104,21 @@ export const RuntimeStatusResponseSchema = z.object({
     cards: z.array(z.object({ cardId: z.string(), actorState: z.string() })),
     agents: z.array(z.object({ agentId: z.string(), agentPhase: z.string() })),
     diagnostics: z.array(z.string()),
+    recovery: z.object({
+      generated_at: z.string().datetime(),
+      diagnostics: z.array(z.object({
+        actorId: z.string(),
+        severity: z.enum(['info', 'warning', 'error']),
+        message: z.string(),
+      })),
+      actions: z.array(z.object({
+        actorId: z.string(),
+        kind: z.enum(['active_card', 'active_llm', 'llm_recovery_action', 'active_processor', 'running_process', 'discarded_supervisor']),
+        action: z.string(),
+        cardId: z.string().optional(),
+        processId: z.string().optional(),
+      })),
+    }).nullable(),
   }),
   serverAvailability: ServerAvailabilitySchema.optional(),
 });

@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { AtomicJsonFile, ProjectLock } from '../../persistence/index.js';
@@ -153,7 +153,10 @@ export function readRecoveryDiagnostics(projectRoot: string): ActorRecoveryDiagn
 
 export function writeRecoveryDiagnostics(projectRoot: string, plan: ActorRecoveryPlan, generatedAt = new Date().toISOString()): ActorRecoveryDiagnosticsSnapshot | null {
   const actions = recoveryDiagnosticActions(plan);
-  if (plan.diagnostics.length === 0 && actions.length === 0) return null;
+  if (plan.diagnostics.length === 0 && actions.length === 0) {
+    clearRecoveryDiagnostics(projectRoot);
+    return null;
+  }
   const snapshot: ActorRecoveryDiagnosticsSnapshot = {
     schema_version: 1,
     generated_at: generatedAt,
@@ -164,6 +167,15 @@ export function writeRecoveryDiagnostics(projectRoot: string, plan: ActorRecover
   const file = recoveryDiagnosticsFile(projectRoot, lock);
   lock.withLockSync((handle) => file.writeSync(handle, snapshot));
   return snapshot;
+}
+
+export function clearRecoveryDiagnostics(projectRoot: string): void {
+  const path = recoveryDiagnosticsPath(projectRoot);
+  if (!existsSync(path)) return;
+  const lock = recoveryDiagnosticsLock(projectRoot);
+  lock.withLockSync(() => {
+    if (existsSync(path)) unlinkSync(path);
+  });
 }
 
 function recoveryDiagnosticsLock(projectRoot: string): ProjectLock {

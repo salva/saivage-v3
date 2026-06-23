@@ -6,6 +6,7 @@ import {
   buildActorRecoveryPlan,
   readRecoveryDiagnostics,
   recoveryDiagnosticsPath,
+  removeActorSnapshot,
   saveActorSnapshot,
   writeRecoveryDiagnostics,
 } from '../../../src/runtime/actors/index.js';
@@ -181,6 +182,16 @@ describe('actor recovery plan', () => {
     });
     expect(readRecoveryDiagnostics(projectRoot)).toEqual(written);
     expect(JSON.stringify(readRecoveryDiagnostics(projectRoot))).not.toContain('not persisted');
+  }));
+
+  it('clears stale recovery diagnostics when recovery work is clean', () => withTempProject((projectRoot) => {
+    saveSnapshot(projectRoot, 'process:build-1', 'process', 'running', { processId: 'build-1' });
+    expect(writeRecoveryDiagnostics(projectRoot, buildActorRecoveryPlan(projectRoot), '2026-06-12T00:00:00.000Z')).not.toBeNull();
+    expect(existsSync(recoveryDiagnosticsPath(projectRoot))).toBe(true);
+
+    removeActorSnapshot(projectRoot, 'process:build-1');
+    expect(writeRecoveryDiagnostics(projectRoot, buildActorRecoveryPlan(projectRoot), '2026-06-12T00:00:01.000Z')).toBeNull();
+    expect(existsSync(recoveryDiagnosticsPath(projectRoot))).toBe(false);
   }));
 
   it('diagnoses non-idle supervisor snapshots as discarded on startup', () => withTempProject((projectRoot) => {

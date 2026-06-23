@@ -1,4 +1,4 @@
-import { readActorSnapshots } from '../../runtime/actors/index.js';
+import { readActorSnapshots, readRecoveryDiagnostics, type ActorRecoveryDiagnostic, type ActorRecoveryDiagnosticAction } from '../../runtime/actors/index.js';
 
 export type ActorPauseMode = 'running' | 'paused' | 'stopping' | 'unknown';
 
@@ -12,11 +12,18 @@ export interface AgentRunnerProjection {
   agentPhase: string;
 }
 
+export interface RecoveryDiagnosticsProjection {
+  generated_at: string;
+  diagnostics: ActorRecoveryDiagnostic[];
+  actions: ActorRecoveryDiagnosticAction[];
+}
+
 export interface ActorRuntimeReadModel {
   pauseMode: ActorPauseMode;
   cards: CardActorProjection[];
   agents: AgentRunnerProjection[];
   diagnostics: string[];
+  recovery: RecoveryDiagnosticsProjection | null;
 }
 
 export function buildActorRuntimeReadModel(projectRoot: string): ActorRuntimeReadModel {
@@ -45,7 +52,14 @@ export function buildActorRuntimeReadModel(projectRoot: string): ActorRuntimeRea
     cards: cards.sort((a, b) => a.cardId.localeCompare(b.cardId)),
     agents: agents.sort((a, b) => a.agentId.localeCompare(b.agentId)),
     diagnostics,
+    recovery: recoveryProjection(projectRoot),
   };
+}
+
+function recoveryProjection(projectRoot: string): RecoveryDiagnosticsProjection | null {
+  const snapshot = readRecoveryDiagnostics(projectRoot);
+  if (!snapshot) return null;
+  return { generated_at: snapshot.generated_at, diagnostics: snapshot.diagnostics, actions: snapshot.actions };
 }
 
 function readCardActorState(actorId: string, value: unknown, diagnostics: string[]): string {

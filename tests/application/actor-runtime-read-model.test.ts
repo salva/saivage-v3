@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from '@jest/globals';
 import { buildActorRuntimeReadModel } from '../../src/application/read-models/actor-runtime-read-model.js';
-import { RuntimeSupervisorActor, saveActorSnapshot } from '../../src/runtime/actors/index.js';
+import { RuntimeSupervisorActor, buildActorRecoveryPlan, saveActorSnapshot, writeRecoveryDiagnostics } from '../../src/runtime/actors/index.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-actor-read-model-'));
@@ -58,6 +58,7 @@ describe('actor runtime read model', () => {
       cards: [{ cardId: 'T-1', actorState: 'running' }],
       agents: [{ agentId: 'executor:T-1', agentPhase: 'running' }],
       diagnostics: [],
+      recovery: null,
     });
   }));
 
@@ -85,7 +86,7 @@ describe('actor runtime read model', () => {
       updated_at: new Date().toISOString(),
     });
 
-    expect(buildActorRuntimeReadModel(projectRoot)).toMatchObject({ pauseMode: 'running', diagnostics: [] });
+    expect(buildActorRuntimeReadModel(projectRoot)).toMatchObject({ pauseMode: 'running', diagnostics: [], recovery: null });
   }));
 
   it('maps unknown actor phases to diagnostics instead of exposing raw state values', () => withTempProject((projectRoot) => {
@@ -111,6 +112,27 @@ describe('actor runtime read model', () => {
         "card actor 'card:G-unknown' has unknown state '[object Object]'",
         "agent actor 'planner:G-unknown' has unknown phase 'waiting_for_tool'",
       ],
+      recovery: null,
     });
+  }));
+
+  it('projects sanitized recovery diagnostics', () => withTempProject((projectRoot) => {
+    saveActorSnapshot(projectRoot, {
+      actor_id: 'process:build-1',
+      actor_kind: 'process',
+      state_value: 'running',
+      context: { providerPayload: 'not projected' },
+      updated_at: '2026-06-12T00:00:00.000Z',
+    });
+    writeRecoveryDiagnostics(projectRoot, buildActorRecoveryPlan(projectRoot), '2026-06-12T00:00:00.000Z');
+
+    const model = buildActorRuntimeReadModel(projectRoot);
+
+    expect(model.recovery).toMatchObject({
+      generated_at: '2026-06-12T00:00:00.000Z',
+      diagnostics: [expect.objectContaining({ actorId: 'process:build-1', severity: 'warning' })],
+      actions: [expect.objectContaining({ actorId: 'process:build-1', kind: 'running_process', action: 'abandon_running_process', processId: 'build-1' })],
+    });
+    expect(JSON.stringify(model.recovery)).not.toContain('not projected');
   }));
 });
