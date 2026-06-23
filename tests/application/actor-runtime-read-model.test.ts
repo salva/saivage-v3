@@ -76,6 +76,18 @@ describe('actor runtime read model', () => {
     });
   }));
 
+  it('maps idle supervisor snapshots to non-paused runtime availability', () => withTempProject((projectRoot) => {
+    saveActorSnapshot(projectRoot, {
+      actor_id: 'supervisor',
+      actor_kind: 'supervisor',
+      state_value: { mode: 'idle', work: 'ready' },
+      context: {},
+      updated_at: new Date().toISOString(),
+    });
+
+    expect(buildActorRuntimeReadModel(projectRoot)).toMatchObject({ pauseMode: 'running', diagnostics: [] });
+  }));
+
   it('maps unknown actor phases to diagnostics instead of exposing raw state values', () => withTempProject((projectRoot) => {
     saveActorSnapshot(projectRoot, {
       actor_id: 'card:G-unknown',

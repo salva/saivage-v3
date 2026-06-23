@@ -66,6 +66,7 @@ function readSupervisorMode(value: unknown, diagnostics: string[]): ActorPauseMo
     return 'unknown';
   }
   const mode = (value as { mode: unknown }).mode;
+  if (mode === 'idle') return 'running';
   if (mode === 'running' || mode === 'paused' || mode === 'stopping') return mode;
   diagnostics.push(`supervisor snapshot has unknown mode '${String(mode)}'`);
   return 'unknown';
