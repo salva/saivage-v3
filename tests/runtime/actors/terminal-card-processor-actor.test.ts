@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardStore } from '../../../src/cards/card-store.js';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { CardActor, TerminalCardProcessorActor, readActorSnapshots, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
+import { CardActor, MAX_TERMINAL_PROCESS_ACTORS, ProcessActor, TerminalCardProcessorActor, readActorSnapshots, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
@@ -126,5 +126,21 @@ describe('TerminalCardProcessorActor', () => {
     expect(processActor?.killReason).toBe('executor requested kill');
     await eventually(() => expect(processActor?.state()).toBe('settled'));
     expect(processActor?.signal).toBe('SIGTERM');
+  }));
+
+  it('compacts old settled process actors', () => withTempProject((projectRoot) => {
+    const { card } = setup(projectRoot);
+    const processor = new TerminalCardProcessorActor({ projectRoot, cardId: card.id, provider: { completeTurn: jest.fn(async () => executorResult(card.id, 'unused')) } });
+    for (let index = 0; index < MAX_TERMINAL_PROCESS_ACTORS + 3; index++) {
+      const processActor = new ProcessActor({ projectRoot, processId: `P-${index}` });
+      processActor.recover('settled');
+      processor.processes.set(processActor.processId, processActor);
+    }
+
+    (processor as unknown as { compactProcessActors: () => void }).compactProcessActors();
+
+    expect([...processor.processes.keys()]).toHaveLength(MAX_TERMINAL_PROCESS_ACTORS);
+    expect([...processor.processes.keys()][0]).toBe('P-3');
+    expect([...processor.processes.keys()].at(-1)).toBe(`P-${MAX_TERMINAL_PROCESS_ACTORS + 2}`);
   }));
 });

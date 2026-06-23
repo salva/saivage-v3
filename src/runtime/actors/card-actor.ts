@@ -4,6 +4,8 @@ import type { BlockedResult, CardRecord, CardStatus, DoneResult, FailureResult }
 import { cardActorId } from './ids.js';
 import { saveActorSnapshot } from './snapshots.js';
 
+export const MAX_NOTIFICATION_DELIVERY_MARKERS = 200;
+
 export type CardActorStatus = Extract<CardStatus, 'backlog' | 'changed' | 'running' | 'blocked' | 'failed' | 'done' | 'cancelled'>;
 
 export type CardActivationOutcome =
@@ -151,6 +153,7 @@ export class CardActor extends BaseActor {
       delivered_to_input_id: inputId,
       delivered_at: deliveredAt,
     })));
+    compactNotificationDeliveryMarkers(this.notificationDeliveryMarkers);
     this.persist();
     return notifications;
   }
@@ -313,4 +316,9 @@ function cancellationNotification(cardId: string, reason: CardCancelReason): Car
     created_at: createdAt,
     reason: 'cancel_requested',
   };
+}
+
+function compactNotificationDeliveryMarkers(markers: CardNotificationDeliveryMarker[]): void {
+  if (markers.length <= MAX_NOTIFICATION_DELIVERY_MARKERS) return;
+  markers.splice(0, markers.length - MAX_NOTIFICATION_DELIVERY_MARKERS);
 }

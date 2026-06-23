@@ -12,6 +12,8 @@ import { expectedTerminalToolMessage, verifyTerminalToolOutcome } from './contra
 
 type TerminalProcessorOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
 
+export const MAX_TERMINAL_PROCESS_ACTORS = 20;
+
 export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor implements CardProcessorActor {
   static _actor: ActorDefinition = {
     initial: 'idle',
@@ -87,7 +89,16 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     actor.start();
     actor.launch({ command: parsed.command, args: parsed.args });
     this.processes.set(processId, actor);
+    this.compactProcessActors();
     return actor.wait(parsed.timeoutMs);
+  }
+
+  private compactProcessActors(): void {
+    if (this.processes.size <= MAX_TERMINAL_PROCESS_ACTORS) return;
+    for (const [processId, actor] of this.processes) {
+      if (this.processes.size <= MAX_TERMINAL_PROCESS_ACTORS) return;
+      if (actor.state() === 'settled') this.processes.delete(processId);
+    }
   }
 
   private async waitProcess(args: unknown): Promise<unknown> {

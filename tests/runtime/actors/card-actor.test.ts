@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardStore } from '../../../src/cards/card-store.js';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { CardActor, isActivatable, readActorSnapshots, type CardActivationInput, type CardActivationOutcome, type CardProcessorActor } from '../../../src/runtime/actors/index.js';
+import { CardActor, MAX_NOTIFICATION_DELIVERY_MARKERS, isActivatable, readActorSnapshots, type CardActivationInput, type CardActivationOutcome, type CardProcessorActor } from '../../../src/runtime/actors/index.js';
 import type { CardRecord } from '../../../src/schemas/index.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
@@ -131,6 +131,22 @@ describe('CardActor', () => {
         expect.objectContaining({ notification_id: 'n2', delivered_to_input_id: 'input:project:1' }),
       ],
     });
+  }));
+
+  it('keeps only the latest notification delivery markers', () => withTempProject((projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    const actor = CardActor.fromCard({ projectRoot, card: project, store, processor: processor({ status: 'done', summary: 'done', result: { kind: 'planner_done', summary: 'done' } }) });
+
+    for (let index = 0; index < MAX_NOTIFICATION_DELIVERY_MARKERS + 3; index++) {
+      actor.notify({ id: `n${index}`, message: `notice ${index}`, created_at: '2026-06-12T00:00:00.000Z' });
+      actor.deliverNotificationsForInput(`input:${index}`);
+    }
+
+    expect(actor.notificationDeliveryMarkers).toHaveLength(MAX_NOTIFICATION_DELIVERY_MARKERS);
+    expect(actor.notificationDeliveryMarkers[0]).toMatchObject({ notification_id: 'n3' });
+    expect(actor.notificationDeliveryMarkers.at(-1)).toMatchObject({ notification_id: `n${MAX_NOTIFICATION_DELIVERY_MARKERS + 2}` });
   }));
 
   it('delivers notifications queued while a card is running', async () => withTempProject(async (projectRoot) => {
