@@ -1,8 +1,32 @@
 # Micro-Actor Runtime Implementation Plan
 
-Status: target implementation plan.
+Status: core implementation complete; remaining work is tracked below.
 
-Date: 2026-06-22.
+Date: 2026-06-23.
+
+## Current Status
+
+The core micro-actor runtime replacement has landed:
+
+- `RuntimeApi` now uses the actor execution path and no longer has a projection-only startup branch.
+- Legacy actor runner/XState runtime paths and the `xstate` package dependency have been removed.
+- `CardActor`, `LLMActor`, `ProcessActor`, processor base classes, `TerminalCardProcessorActor`, and `PlanningCardProcessorActor` are the active runtime path.
+- Planner, executor, and reviewer reports are accepted only through role contract terminal tools.
+- Card-owned notifications are delivered per LLM turn with durable delivery markers; `LLMActor` remains queue-free.
+- Reviewer execution is a phase of `PlanningCardProcessorActor`; the standalone reviewer card processor was removed.
+- Recovery startup now persists sanitized diagnostics for unsafe active snapshots, but does not yet reconstruct/resume active actor chains.
+
+## Remaining Work
+
+The remaining implementation work is intentionally narrower than the original replacement plan:
+
+1. Full recovery reconstruction and reconciliation.
+2. Operator-facing recovery diagnostics and outcome projection polish.
+3. Recovery-specific `_on_recover__{state}` hooks for safe parked/active states.
+4. Broader validation beyond the focused actor and routine gates.
+5. Operator-facing docs that describe the implemented reviewer phase and recovery diagnostics behavior.
+
+The detailed remaining recovery work is tracked in [Slice 8: Recovery](#slice-8-recovery).
 
 ## Purpose
 
@@ -275,13 +299,33 @@ Acceptance:
 
 Goal: rebuild safe actor state from durable records after restart.
 
+Current status: partially implemented. Startup builds an `ActorRecoveryPlan`, abandons stale pending tool calls, and persists sanitized recovery diagnostics/actions to `.saivage/runtime/recovery-diagnostics.json`. This satisfies the minimum requirement that unsafe active snapshots are not silently ignored, but it is not yet full reconstruction/resume.
+
+Completed:
+
+- Recovery plan construction classifies supervisor, card, LLM, processor, and process snapshots.
+- In-flight provider calls are classified for abandonment.
+- Waiting-tool, active processor, active card, and running process states are surfaced as recovery actions/diagnostics.
+- Startup persists sanitized recovery diagnostics without including actor snapshot context payloads.
+- Startup still exposes `getRecoveryPlan()` for tests and operator-facing follow-up work.
+
+Remaining:
+
+- Add `_on_recover__{state}` hooks for safe parked states first, then active states only where durable reconstruction data is sufficient.
+- Reconstruct active card chains, processor ownership, unresolved child activation waits, LLM waiting-tool state, and process waits where safe.
+- Reconcile persisted running process records against live OS process state, including PID reuse safeguards.
+- Convert abandoned or ambiguous active work into explicit card/operator outcomes where appropriate, not just diagnostics files.
+- Resume safe `waiting_tool` paths without double-delivering tool results or duplicating provider turns.
+- Repair interrupted reviewer/planner chains with stored correction context or explicit diagnostics.
+- Add operator/API projections for recovery diagnostics if they are needed outside filesystem inspection.
+
 Implementation:
 
 - Define actor reconstruction records for supervisor, cards, processors, LLM turns, process records, activation waits, and tool waits.
 - Create fresh actor instances and call `BaseActor.recover(state)` where safe.
 - Use `_on_recover__{state}` hooks to rebuild in-memory references from persisted reconstruction records. Recovery must not call `_on_state_changed(...)` and must not re-persist already-recorded transition snapshots unless repair logic deliberately writes a diagnostic or reconciled state.
-- Reconstruct active card chains and unresolved waits.
-- Consume the recovery plan during runtime startup. A recovery plan that is only computed and exposed is incomplete.
+- Reconstruct active card chains and unresolved waits where the durable records are complete enough to resume safely.
+- Keep consuming the recovery plan during runtime startup. Persisted diagnostics are the conservative fallback; resumable chains should be reconstructed instead of only diagnosed.
 - Reconcile running process records.
 - Abandon provider calls in progress with diagnostics because they cannot be safely reattached.
 - Repair tool delivery from persisted tool-call/message records.
@@ -294,16 +338,21 @@ Tests:
 - Startup handles terminal process result awaiting delivery.
 - Startup abandons in-flight provider request with planner-visible diagnostic.
 - Startup handles interrupted reviewer with correction context or visible diagnostic.
+- Startup persists sanitized recovery diagnostics for any active snapshot that is not yet safely resumable.
+- Recovery tests prove `recover(...)` hooks do not trigger transition snapshot writes through `_on_state_changed(...)`.
 
 Acceptance:
 
 - Recovery never relies on in-memory queues or raw actor internals.
 - Unsafe states become explicit diagnostics, not silent restarts.
 - Startup either reconstructs recoverable active actor chains or records explicit blocked/failed diagnostics for abandoned work.
+- Recovery diagnostics do not include provider payloads, auth data, prompts, raw snapshot context, or other secret-bearing fields.
 
 ## Slice 9: Cleanup
 
 Goal: remove replaced runtime machinery.
+
+Current status: complete for current runtime source. Legacy actor runner/XState paths are deleted, `xstate` is removed, stale `XSTATE_*` runtime identifiers are gone from current TypeScript source, the single planning processor is used for project/goal cards, and the standalone reviewer processor is deleted.
 
 Implementation:
 
@@ -332,6 +381,16 @@ Acceptance:
 - Transition snapshot persistence is centralized through `_on_state_changed(...)`; per-state `_on_enter__{state}` hooks exist only for state-specific behavior.
 - Obsolete runtime dependencies are removed from package manifests.
 - Focused actor, API boundary, projection, and routine validation pass.
+
+## Remaining Validation And Documentation Follow-Up
+
+These items are not blockers for the core actor replacement, but should be completed before treating the redesign as release-ready:
+
+- Run and triage the full Jest suite. Earlier full-suite attempts exposed unrelated missing-doc failures; keep those separate from actor-runtime regressions.
+- Run broader Saivage validation profiles when the release target requires them, especially `npm run validate:ui-smoke`, `npm run validate:ui`, and `npm run validate:release`.
+- Update operator-facing docs to describe the implemented planner-owned reviewer phase, terminal-tool-only report behavior, card-owned notification delivery markers, and conservative recovery diagnostics.
+- Decide whether `.saivage/runtime/recovery-diagnostics.json` needs an API/read-model projection or remains a filesystem/operator artifact.
+- Review generated/runtime artifact ownership separately from this runtime redesign if repository hygiene remains an open release concern.
 
 ## Cross-Slice Test Matrix
 
