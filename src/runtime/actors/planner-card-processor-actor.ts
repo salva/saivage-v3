@@ -6,6 +6,8 @@ import { XSTATE_PLANNER_TOOL_DEFINITIONS } from './actor-tool-definitions.js';
 import type { CardActivationInput, CardActivationOutcome, CardActor, CardActorStorePort, CardProcessorActor } from './card-actor.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
 import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
+import { createPlannerContract, type PlannerTypedResult } from '../../contracts/planner-contract.js';
+import { expectedTerminalToolMessage, verifyTerminalToolOutcome } from './contract-terminal-tools.js';
 
 type PlannerProcessorOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
 
@@ -42,8 +44,9 @@ export class PlannerCardProcessorActor extends BaseMainLLMCardProcessorActor imp
     let outcome = await llm.turn(this.buildLlmInput(input));
     for (let turn = 0; turn < 20; turn++) {
       if (signal.aborted) throw new Error('Planner activation cancelled.');
-      if (outcome.type === 'result') return this.parsePlannerMessage(outcome.result.content);
+      if (outcome.type === 'result') return this.plannerFailure(`${expectedTerminalToolMessage(createPlannerContract())} Plain planner messages are not accepted as terminal results.`);
       if (outcome.type === 'error') return { status: 'failed', summary: outcome.error, result: { kind: 'planner_failure', error: outcome.error } };
+      if (createPlannerContract().isTerminalToolName(outcome.toolName)) return this.projectPlannerTerminal(outcome);
       const toolResult = await this.handleToolCall(input.card, outcome);
       outcome = await llm.appendToolResult(outcome.toolCallId, toolResult);
     }
@@ -51,6 +54,7 @@ export class PlannerCardProcessorActor extends BaseMainLLMCardProcessorActor imp
   }
 
   private buildLlmInput(input: CardActivationInput): LlmInvocationInput {
+    const contract = createPlannerContract();
     return {
       inputId: this.nextInvocationInputId('planner'),
       agentId: plannerActorId(this.cardId),
@@ -58,8 +62,8 @@ export class PlannerCardProcessorActor extends BaseMainLLMCardProcessorActor imp
       sessionId: plannerActorId(this.cardId),
       systemPrompt: this.plannerPrompt(input.card),
       contextMessages: input.notifications.map((notification) => ({ role: 'user', content: notification.message })),
-      tools: XSTATE_PLANNER_TOOL_DEFINITIONS,
-      terminalToolNames: [],
+      tools: [...XSTATE_PLANNER_TOOL_DEFINITIONS, ...contract.terminals.map((terminal) => terminal.toolDefinition)],
+      terminalToolNames: contract.terminals.map((terminal) => terminal.name),
       modelParams: {},
       capabilityRequest: { requiresTools: true },
       episodeContext: { cardId: input.card.id, caller: input.caller, children: this.directChildren(input.card.id).map((card) => ({ id: card.id, status: card.status, type: card.type, title: card.title })) },
@@ -82,15 +86,31 @@ export class PlannerCardProcessorActor extends BaseMainLLMCardProcessorActor imp
     }
   }
 
-  private parsePlannerMessage(content: string): PlannerProcessorOutcome {
-    const parsed = parsePlannerTerminal(content);
+  private projectPlannerTerminal(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): PlannerProcessorOutcome {
+    let typed: PlannerTypedResult;
+    try {
+      typed = verifyTerminalToolOutcome(createPlannerContract(), outcome).result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return this.plannerFailure(message);
+    }
+    const parsed = typed.result;
     if (parsed.status === 'done') {
       const blocker = firstIncompleteDescendant(this.cardId, this.store);
       if (blocker) return { status: 'blocked', summary: `Cannot complete while descendant '${blocker.id}' is ${blocker.status}.`, result: { kind: 'planner_blocked', blocked_reason: `Descendant '${blocker.id}' is ${blocker.status}.`, resume_reason: 'complete executable descendants before retrying' } };
-      return { status: 'done', summary: parsed.summary, result: { kind: 'planner_done', summary: parsed.summary } };
+      const summary = parsed.summary ?? 'Planner completed.';
+      return { status: 'done', summary, result: { kind: 'planner_done', summary } };
     }
-    if (parsed.status === 'blocked') return { status: 'blocked', summary: parsed.summary, result: { kind: 'planner_blocked', blocked_reason: parsed.summary, resume_reason: parsed.resume_reason ?? parsed.summary } };
-    return { status: 'failed', summary: parsed.summary, result: { kind: 'planner_failure', error: parsed.summary } };
+    if (parsed.status === 'blocked') {
+      const summary = parsed.summary ?? parsed.blocked_reason ?? 'Planner blocked.';
+      return { status: 'blocked', summary, result: { kind: 'planner_blocked', blocked_reason: parsed.blocked_reason ?? summary, resume_reason: parsed.blocked_reason ?? summary } };
+    }
+    const summary = parsed.summary ?? 'Planner requested continuation without an action tool.';
+    return { status: 'blocked', summary, result: { kind: 'planner_blocked', blocked_reason: summary, resume_reason: 'non_actionable_continue', blocker_cause: 'non_actionable_continue' } };
+  }
+
+  private plannerFailure(error: string): PlannerProcessorOutcome {
+    return { status: 'failed', summary: error, result: { kind: 'planner_failure', error } };
   }
 
   private directChildren(cardId: string): CardRecord[] {
@@ -98,7 +118,7 @@ export class PlannerCardProcessorActor extends BaseMainLLMCardProcessorActor imp
   }
 
   private plannerPrompt(card: CardRecord): string {
-    return `Plan and coordinate card ${card.id}: ${card.title}\n\n${card.description}\n\nAcceptance:\n${card.acceptance}\n\nReturn terminal reports as JSON: {"status":"done|blocked|failed","summary":"...","resume_reason":"..."}. Use activate_card for immediate children only.`;
+    return `Plan and coordinate card ${card.id}: ${card.title}\n\n${card.description}\n\nAcceptance:\n${card.acceptance}\n\nUse activate_card for immediate children only. End by calling emit_planner_result with status done, blocked, or continue; plain text or JSON messages are not accepted as terminal reports.`;
   }
 
   protected get processorLabel(): string {
@@ -119,20 +139,6 @@ function parseChildCardId(args: unknown): string {
   const childId = maybe.card_id ?? maybe.cardId ?? maybe.id;
   if (typeof childId !== 'string' || childId.length === 0) throw new Error('activate_card requires card_id.');
   return childId;
-}
-
-function parsePlannerTerminal(content: string): { status: 'done' | 'blocked' | 'failed'; summary: string; resume_reason?: string } {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    throw new Error('Planner terminal message must be JSON.');
-  }
-  if (!parsed || typeof parsed !== 'object') throw new Error('Planner terminal message must be a JSON object.');
-  const record = parsed as { status?: unknown; summary?: unknown; resume_reason?: unknown };
-  if (record.status !== 'done' && record.status !== 'blocked' && record.status !== 'failed') throw new Error('Planner terminal status must be done, blocked, or failed.');
-  if (typeof record.summary !== 'string' || record.summary.length === 0) throw new Error('Planner terminal summary is required.');
-  return { status: record.status, summary: record.summary, resume_reason: typeof record.resume_reason === 'string' ? record.resume_reason : undefined };
 }
 
 function firstIncompleteDescendant(cardId: string, store: CardActorStorePort): { id: string; status: CardStatus } | null {

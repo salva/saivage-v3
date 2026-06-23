@@ -31,20 +31,27 @@ function reviewerMessage(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({ result: 'pass', summary: 'ok', achieved: ['planned'], issues: [], evidence_card_ids: ['card-1'], ...overrides });
 }
 
+function reviewerResult(overrides: Record<string, unknown> = {}) {
+  return {
+    kind: 'tool_calls' as const,
+    tool_calls: [{ id: 'reviewer-result-1', type: 'function' as const, function: { name: 'emit_reviewer_result', arguments: JSON.stringify({ assessment: { result: 'pass', summary: 'ok', achieved: ['planned'], issues: [], evidence_card_ids: ['card-1'], ...overrides } }) } }],
+  };
+}
+
 describe('ReviewerCardProcessorActor', () => {
   it('returns reviewer_pass when assessment passes validation', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     createProject(store);
     const goal = createGoalWithPlannerResult(store);
-    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: reviewerMessage({ evidence_card_ids: [goal.id] }) })) };
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => reviewerResult({ evidence_card_ids: [goal.id] })) };
     const actor = new ReviewerCardProcessorActor({ projectRoot, cardId: goal.id, store, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: goal, caller: { kind: 'parent', cardId: 'project' }, notifications: [] });
 
     expect(outcome).toMatchObject({ status: 'done', result: { kind: 'reviewer_pass', planning: { kind: 'planner_done' }, review_summary: 'ok' } });
-    expect(provider.completeTurn).toHaveBeenCalledWith(expect.objectContaining({ sessionId: expect.stringContaining('assessment-card-1-1') }), expect.any(AbortSignal));
+    expect(provider.completeTurn).toHaveBeenCalledWith(expect.objectContaining({ sessionId: expect.stringContaining('assessment-card-1-1'), terminalToolNames: ['emit_reviewer_result'], tools: expect.arrayContaining([expect.objectContaining({ function: expect.objectContaining({ name: 'emit_reviewer_result' }) })]) }), expect.any(AbortSignal));
   }));
 
   it('returns blocked reviewer correction when reviewer asks for corrections', async () => withTempProject(async (projectRoot) => {
@@ -52,7 +59,7 @@ describe('ReviewerCardProcessorActor', () => {
     const store = new CardStore(projectRoot);
     createProject(store);
     const goal = createGoalWithPlannerResult(store);
-    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: reviewerMessage({ result: 'needs_corrections', summary: 'fix it', issues: [{ summary: 'missing proof', severity: 'blocker' }], evidence_card_ids: [goal.id] }) })) };
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => reviewerResult({ result: 'needs_corrections', summary: 'fix it', issues: [{ summary: 'missing proof', severity: 'blocker' }], evidence_card_ids: [goal.id] })) };
     const actor = new ReviewerCardProcessorActor({ projectRoot, cardId: goal.id, store, provider });
     actor.start();
 
@@ -66,7 +73,7 @@ describe('ReviewerCardProcessorActor', () => {
     const store = new CardStore(projectRoot);
     createProject(store);
     const goal = createGoalWithPlannerResult(store);
-    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: reviewerMessage({ evidence_card_ids: ['missing'] }) })) };
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => reviewerResult({ evidence_card_ids: ['missing'] })) };
     const actor = new ReviewerCardProcessorActor({ projectRoot, cardId: goal.id, store, provider });
     actor.start();
 
@@ -74,5 +81,20 @@ describe('ReviewerCardProcessorActor', () => {
 
     expect(outcome).toMatchObject({ status: 'blocked', result: { kind: 'planner_blocked' } });
     expect(outcome.summary).toContain('missing');
+  }));
+
+  it('does not accept plain reviewer JSON as terminal assessment', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    createProject(store);
+    const goal = createGoalWithPlannerResult(store);
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: reviewerMessage({ evidence_card_ids: [goal.id] }) })) };
+    const actor = new ReviewerCardProcessorActor({ projectRoot, cardId: goal.id, store, provider });
+    actor.start();
+
+    const outcome = await actor.activate({ card: goal, caller: { kind: 'parent', cardId: 'project' }, notifications: [] });
+
+    expect(outcome).toMatchObject({ status: 'failed', result: { kind: 'planner_failure' } });
+    expect(outcome.summary).toContain('emit_reviewer_result');
   }));
 });

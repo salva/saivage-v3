@@ -6,6 +6,9 @@ import { ProcessActor } from './process-actor.js';
 import { XSTATE_PROCESS_TOOL_DEFINITIONS } from './actor-tool-definitions.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
 import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
+import { createExecutorContract } from '../../contracts/executor-contract.js';
+import type { ExecutorResult } from '../../contracts/agent-execution.js';
+import { expectedTerminalToolMessage, verifyTerminalToolOutcome } from './contract-terminal-tools.js';
 
 type TerminalProcessorOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
 
@@ -39,8 +42,9 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     let outcome = await llm.turn(this.buildLlmInput(input));
     for (let turn = 0; turn < 10; turn++) {
       if (signal.aborted) throw new Error('Terminal activation cancelled.');
-      if (outcome.type === 'result') return { status: 'done', summary: outcome.result.content, result: executorSuccess(outcome.result.content) };
+      if (outcome.type === 'result') return { status: 'failed', summary: `${expectedTerminalToolMessage(createExecutorContract())} Plain executor messages are not accepted as terminal results.`, result: executorFailure(`${expectedTerminalToolMessage(createExecutorContract())} Plain executor messages are not accepted as terminal results.`) };
       if (outcome.type === 'error') return { status: 'failed', summary: outcome.error, result: executorFailure(outcome.error) };
+      if (createExecutorContract().isTerminalToolName(outcome.toolName)) return this.projectExecutorTerminal(outcome);
       const toolResult = await this.handleToolCall(outcome);
       outcome = await llm.appendToolResult(outcome.toolCallId, toolResult);
     }
@@ -48,15 +52,16 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private buildLlmInput(input: CardActivationInput): LlmInvocationInput {
+    const contract = createExecutorContract();
     return {
       inputId: this.nextInvocationInputId('terminal'),
       agentId: executorActorId(this.cardId),
       role: 'executor',
       sessionId: executorActorId(this.cardId),
-      systemPrompt: `Execute terminal card ${input.card.id}: ${input.card.title}\n\n${input.card.description}\n\nAcceptance:\n${input.card.acceptance}`,
+      systemPrompt: `Execute terminal card ${input.card.id}: ${input.card.title}\n\n${input.card.description}\n\nAcceptance:\n${input.card.acceptance}\n\nUse process tools when needed. End by calling emit_executor_result; plain text or JSON messages are not accepted as terminal reports.`,
       contextMessages: input.notifications.map((notification) => ({ role: 'user', content: notification.message })),
-      tools: XSTATE_PROCESS_TOOL_DEFINITIONS,
-      terminalToolNames: [],
+      tools: [...XSTATE_PROCESS_TOOL_DEFINITIONS, ...contract.terminals.map((terminal) => terminal.toolDefinition)],
+      terminalToolNames: contract.terminals.map((terminal) => terminal.name),
       modelParams: {},
       capabilityRequest: { requiresTools: true },
       episodeContext: { cardId: input.card.id, caller: input.caller },
@@ -109,6 +114,20 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     return actor;
   }
 
+  private projectExecutorTerminal(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): TerminalProcessorOutcome {
+    let result: ExecutorResult;
+    try {
+      result = verifyTerminalToolOutcome(createExecutorContract(), outcome).result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { status: 'failed', summary: message, result: executorFailure(message) };
+    }
+    const summary = result.summary ?? result.status_text;
+    if (result.status === 'done') return { status: 'done', summary, result: executorSuccess(result) };
+    const error = result.error ?? summary;
+    return { status: 'failed', summary: error, result: executorFailure(error, result.result ?? null, result.status_text) };
+  }
+
   protected override transitionEventForOutcome(outcome: TerminalProcessorOutcome): string {
     return outcome.status === 'done' ? 'done' : 'failed';
   }
@@ -122,14 +141,15 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 }
 
-function executorSuccess(summary: string) {
+function executorSuccess(result: ExecutorResult) {
   const at = new Date().toISOString();
-  return { kind: 'executor_success' as const, executor: { summary }, generated_files: [], verified_at: at, latest_self_report: { result: 'done', outcome: 'done', summary, status_text: summary, at }, warnings: [] };
+  const summary = result.summary ?? result.status_text;
+  return { kind: 'executor_success' as const, executor: result.result ?? { summary }, generated_files: [], verified_at: at, latest_self_report: { result: 'done', outcome: 'done', summary, status_text: result.status_text, at }, warnings: [] };
 }
 
-function executorFailure(error: string) {
+function executorFailure(error: string, partialResult: Record<string, unknown> | null = null, statusText = error) {
   const at = new Date().toISOString();
-  return { kind: 'executor_failure' as const, error, partial_result: null, latest_self_report: { result: 'failed', outcome: 'failed', summary: error, status_text: error, at } };
+  return { kind: 'executor_failure' as const, error, partial_result: partialResult, latest_self_report: { result: 'failed', outcome: 'failed', summary: error, status_text: statusText, at } };
 }
 
 function parseProcessStartArgs(args: unknown): { command: string; args: string[]; timeoutMs: number; processId?: string } {
