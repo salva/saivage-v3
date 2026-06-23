@@ -161,8 +161,10 @@ The runtime implementation direction is micro-actor-centered: actor states, subm
 Target actor ownership:
 
 - `CardActor`s own direct child `CardActor` instances and the associated processor actor for that card type;
-- `ProjectCardProcessorActor` and `GoalCardProcessorActor` own and cache planner/reviewer `LLMActor` instances; they hold child activation authority, readiness/review gates, and card-scoped capability construction;
-- `TerminalCardProcessorActor` owns and caches the executor `LLMActor`; it holds terminal-card semantic execution for one active terminal activation, constructs card-scoped capabilities, and does not own child cards;
+- `BaseCardProcessorActor` owns shared activation, cancellation, settlement, parent outcome reporting, and processor snapshot mechanics;
+- `BaseMainLLMCardProcessorActor` owns shared main-agent LLM loop mechanics and per-turn notification delivery without role-specific policy;
+- `PlanningCardProcessorActor` owns project/goal planner and reviewer semantics; project/goal subclasses should stay thin and override only real behavioral differences;
+- `TerminalCardProcessorActor` owns executor semantics for terminal cards; it constructs card-scoped capabilities and does not own child cards;
 - process actors manage OS process lifecycle.
 
 Process execution follows a launch-and-monitor model. Agents launch project commands through runtime-owned process actors, inspect status/logs over time, use bounded waits for completion, and explicitly terminate processes when needed. The functional specification does not impose process concurrency limits for now.

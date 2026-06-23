@@ -24,6 +24,7 @@ No compatibility layer is planned. If old controller behavior conflicts with the
 - Delete replaced controller/XState-era code during the slice that makes it obsolete.
 - Do not add adapters, bridges, shims, or compatibility tests for old runtime behavior. Tests should protect the new actor design, not legacy contracts.
 - Planner, executor, and reviewer terminal reports are contract terminal tools, not free-form prose or ad-hoc JSON messages. Processor actors validate terminal tool payloads through the role contract before committing card outcomes.
+- Use inheritance only for stable mechanics. `BaseCardProcessorActor` owns processor activation/settlement/persistence mechanics; `BaseMainLLMCardProcessorActor` owns main-agent LLM loop mechanics. Planner, reviewer, executor, and card-type policy belong in concrete subclasses.
 
 ## Slice 1: RuntimeApi Boundary And Supervisor Shell
 
@@ -171,8 +172,11 @@ Goal: prove the full actor path with the simplest useful card execution.
 
 Implementation:
 
+- Add `BaseCardProcessorActor` before adding or refactoring concrete processors. It owns the shared processor states `idle`, `running`, `settled`, and `cancelled`; public `activate(input)` and `cancel(reason)`; pending activation promise handling; `settle(outcome)`; `_on_state_changed(...)` persistence; and common snapshot fields. It must not know planner, reviewer, executor, process-tool, or card-type policy.
+- Add `BaseMainLLMCardProcessorActor` for processors whose main card agent is one LLM session. It owns/caches the main `LLMActor`, runs the main turn loop, injects owning-card notifications before each main-agent provider turn, records delivery markers, and provides hook methods for concrete tool routing and terminal-report handling. It must not decide role-specific semantics.
 - Implement terminal processor behavior in `TerminalCardProcessorActor`.
-- Add terminal states `executing`, `waiting_process`, and parked `settled` or simpler equivalents if implementation allows.
+- Make `TerminalCardProcessorActor` extend `BaseMainLLMCardProcessorActor`.
+- Represent terminal-specific phases such as `executing` and `waiting_process` on processor fields unless a distinct state is needed for task ownership; keep the shared top-level processor states in `BaseCardProcessorActor`.
 - Implement public methods `activate(input)` and `cancel(reason)`.
 - Persist terminal processor state transitions from `_on_state_changed(...)`; keep explicit persistence for activation inputs, process ids, queued cancellation notifications, and terminal outcomes when those fields change outside transition entry.
 - Build executor invocation context from card data, notifications, and relevant project context.
@@ -190,11 +194,13 @@ Tests:
 - Process wait timeout returns a timeout tool result and does not kill the process.
 - Explicit process kill records termination details.
 - Terminal cancellation while inactive marks the card/subtree `cancelled`; terminal cancellation while running is a best-effort notification to the executor and does not stop future LLM admission, kill processes, or rewrite later executor reports.
+- Base processor tests prove activation, cancellation, settlement, parent promise resolution, and transition snapshot persistence are shared and not duplicated in concrete processors.
 
 Acceptance:
 
 - One terminal card can run end-to-end without controller workflow.
 - Terminal result data is attached only from accepted executor output.
+- Common processor mechanics live in the base classes; terminal-specific code contains executor/process semantics only.
 - Old terminal execution controller paths are deleted, not bypassed through adapters.
 
 ## Slice 6: Goal/Project Planner Flow
@@ -203,7 +209,8 @@ Goal: implement planner child activation and goal completion around the actor bo
 
 Implementation:
 
-- Implement project and goal processor behavior in `ProjectCardProcessorActor` and `GoalCardProcessorActor`.
+- Implement project and goal processor behavior in `PlanningCardProcessorActor`, extending `BaseMainLLMCardProcessorActor`.
+- Add `ProjectCardProcessorActor` and `GoalCardProcessorActor` only as thin subclasses when project and goal behavior truly diverges; otherwise use `PlanningCardProcessorActor` directly.
 - Build planner invocation context from card tree, planning diary, pending notifications, prior reviewer findings, and direct child status.
 - Own/cache the planner `LLMActor`; own the reviewer invocation as a phase of the same project/goal processor rather than as a separate card processor.
 - Give the project/goal processor access to its owning `CardActor` so it can inspect/drain deliverable main-agent notifications before activation and before every subsequent planner provider turn; record delivery markers after successful append.
@@ -225,10 +232,12 @@ Tests:
 - Pending notifications are delivered before the next planner turn.
 - Best-effort cancellation notification is delivered before the next planner turn and does not otherwise change planner control flow.
 - Planner terminal reports are accepted only through the planner contract terminal tool.
+- Project/goal subclass tests, if any, cover only real overridden behavior and do not duplicate base or shared planning behavior.
 
 Acceptance:
 
 - Project/goal planning can execute a child terminal card through the actor chain, continue the same planner session after the child result, and receive newly queued notifications before the next provider call.
+- Shared planner behavior is implemented once in `PlanningCardProcessorActor`.
 - No planner controller owns child dispatch outside processor actors/CardActor, and no planner bridge remains.
 
 ## Slice 7: Reviewer Flow
@@ -319,6 +328,7 @@ Acceptance:
 - No production XState runtime path remains.
 - No compatibility, adapter, bridge, or legacy-contract test remains for old runtime behavior.
 - No `XSTATE_*` implementation names remain in current runtime code.
+- Concrete processor classes do not duplicate activation, settlement, cancellation, main LLM loop, or notification-delivery mechanics already owned by the base classes.
 - Transition snapshot persistence is centralized through `_on_state_changed(...)`; per-state `_on_enter__{state}` hooks exist only for state-specific behavior.
 - Obsolete runtime dependencies are removed from package manifests.
 - Focused actor, API boundary, projection, and routine validation pass.
@@ -328,6 +338,7 @@ Acceptance:
 - Micro-actor definition, parked state, task, timeout, cancellation, and recovery tests.
 - Supervisor run/pause/resume/shutdown/cancel tests.
 - CardActor activation, status commit ordering, changed state, cancellation, and notification tests.
+- BaseCardProcessorActor and BaseMainLLMCardProcessorActor mechanical tests.
 - LLMActor provider admission, provider failure, tool protocol, duplicate tool delivery, and diagnostics tests.
 - ProcessActor launch, wait timeout, inspect, kill, exit, and recovery tests.
 - Terminal processor executor/report/process tests.

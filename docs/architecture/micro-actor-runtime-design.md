@@ -95,29 +95,32 @@ The runtime has one root supervisor and a deterministic card actor tree:
 ```text
 RuntimeSupervisorActor
   CardActor(project)
-    ProjectCardProcessorActor
+    ProjectCardProcessorActor extends PlanningCardProcessorActor
       LLMActor(planner:project)
       LLMActor(reviewer:project)
       ProcessActor(... as needed)
     CardActor(goal)
-      GoalCardProcessorActor
+      GoalCardProcessorActor extends PlanningCardProcessorActor
         LLMActor(planner:goal)
         LLMActor(reviewer:goal)
         ProcessActor(... as needed)
       CardActor(terminal)
-        TerminalCardProcessorActor
+        TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor
           LLMActor(executor:terminal)
           ProcessActor(... as needed)
 ```
 
-`CardActor` has the public card states: `backlog`, `running`, `done`, `blocked`, `failed`, `cancelled`, and `changed`. This is the public card lifecycle layer. New card actors start in `backlog`; recovered actors use the persisted card state. Public idle card states such as `backlog`, `done`, `blocked`, `failed`, and `changed` are parked because external commands may later activate, change, or cancel them. `cancelled` is terminal: the actor exits, and any later reactivation creates a fresh actor instance for the new durable card state. Each card type has its own concrete processor actor class. `LLMActor` interacts with remote LLM providers.
+`CardActor` has the public card states: `backlog`, `running`, `done`, `blocked`, `failed`, `cancelled`, and `changed`. This is the public card lifecycle layer. New card actors start in `backlog`; recovered actors use the persisted card state. Public idle card states such as `backlog`, `done`, `blocked`, `failed`, and `changed` are parked because external commands may later activate, change, or cancel them. `cancelled` is terminal: the actor exits, and any later reactivation creates a fresh actor instance for the new durable card state. Processor actors share mechanical base classes but keep role/card policy in concrete subclasses. `LLMActor` interacts with remote LLM providers.
 
 The active chain may contain several public `running` cards, but only the leaf actor receives provider/process scheduling at a time.
 
 Ownership conventions are deliberately narrow:
 
 - `CardActor` owns its direct child `CardActor` instances and its associated processor actor.
-- `ProjectCardProcessorActor`, `GoalCardProcessorActor`, and `TerminalCardProcessorActor` own and cache their role-specific `LLMActor` instances.
+- `BaseCardProcessorActor` owns common processor mechanics: activation, cancellation, pending activation resolution, settlement, snapshots, and parent outcome reporting.
+- `BaseMainLLMCardProcessorActor` owns the shared main-agent LLM loop for processors driven by one main LLM session. It handles per-turn notification injection and common tool continuation mechanics, but no planner/executor/reviewer policy.
+- `PlanningCardProcessorActor` owns project/goal planner/reviewer semantics. `ProjectCardProcessorActor` and `GoalCardProcessorActor` should be thin subclasses only when project and goal behavior actually diverges.
+- `TerminalCardProcessorActor` owns executor semantics.
 - `ProcessActor` instances are created and controlled by the processor actor that launched or attached to the process record.
 - Other references are dependencies, services, or data references unless a concrete actor class explicitly stores and controls them.
 
@@ -227,15 +230,30 @@ Changed-state rules:
 
 Purpose: card-type-dependent behavior for project, goal, and terminal cards.
 
-There is one concrete processor actor class per card type: `ProjectCardProcessorActor`, `GoalCardProcessorActor`, and `TerminalCardProcessorActor`. Shared helper functions are fine when they keep code smaller, but no generic processor framework or compatibility layer is required.
+Processor actors use a small inheritance hierarchy for shared mechanics, not a generic policy framework:
 
-Project and goal processor states:
+- `BaseCardProcessorActor`: common to all processor actors. It defines the shared processor state machine, `activate(input)`, `cancel(reason)`, pending activation promise, `settle(outcome)`, generic snapshot persistence, and parent outcome reporting. It must not know planner, reviewer, executor, process-tool, or card-type policy.
+- `BaseMainLLMCardProcessorActor`: common to processors driven by a card's main agent LLM. It owns/caches the main `LLMActor`, runs the turn loop, drains the owning `CardActor` notifications before each main-agent turn, records notification delivery markers, and forwards tool results/errors back into the same main LLM session. It must not decide role-specific tool semantics.
+- `PlanningCardProcessorActor`: project/goal semantics around planner, child activation, completion gate, reviewer phase, and planner/reviewer terminal contracts.
+- `TerminalCardProcessorActor`: terminal-card executor semantics around executor terminal contract and process tools.
 
-- `planning`: active; planner main agent is active or can receive another turn.
-- `waiting_child`: active; planner is blocked on an `activate_card` tool call.
-- `waiting_process`: active; planner is blocked on a process-backed tool call.
-- `reviewing`: active; reviewer is assessing a candidate done outcome.
-- `settled`: parked; one public outcome is ready for the owning `CardActor` and the processor may be reused for a later activation.
+Prefer one `PlanningCardProcessorActor` for both project and goal behavior. Add `ProjectCardProcessorActor` and `GoalCardProcessorActor` only as thin subclasses that override small, named hooks when their behavior truly differs.
+
+Shared processor states from `BaseCardProcessorActor`:
+
+- `idle`: parked; no activation is in progress.
+- `running`: active; subclass-specific work is in progress.
+- `settled`: parked; one public outcome is ready for or has been returned to the owning `CardActor`, and the processor may be reused for a later activation.
+- `cancelled`: terminal.
+
+Subclass-specific phase fields, not extra top-level actor states, should represent details such as planning, waiting on a child, waiting on a process, or reviewing unless a distinct state is needed for task ownership.
+
+Project and goal processor phases:
+
+- `planning`: planner main agent is active or can receive another turn.
+- `waiting_child`: planner is blocked on an `activate_card` tool call.
+- `waiting_process`: planner is blocked on a process-backed tool call.
+- `reviewing`: reviewer is assessing a candidate done outcome.
 
 Public methods:
 
@@ -265,12 +283,12 @@ Responsibilities:
 - Enforce readiness and evidence gates before review.
 - Invoke reviewer only after gates pass.
 - Store negative reviewer findings for planner context.
-- Call the associated `CardActor`'s hard-coded processor-completion method when it reaches `settled`.
+- Settle through `BaseCardProcessorActor.settle(...)` so the owning `CardActor` receives exactly one activation outcome.
 - Return exactly one `done`, `failed`, or `blocked` activation outcome.
 
 Event guidance:
 
-- `activate` wakes `settled` and starts a new activation.
+- `activate` wakes `idle` or `settled` and starts a new activation.
 - Planner, reviewer, child, and process waits normally complete with `done` or `failed` after storing result/diagnostic fields.
 - Use specific branch events only when a single state needs different static transition targets that cannot be derived by entering an intermediate state.
 
@@ -280,11 +298,10 @@ Reviewer rules:
 - Ambiguous prose is a failure or tool error, not a guessed pass/fail.
 - If notifications or changes arrive while reviewing, reviewer success must be invalidated or diverted back to planning when those changes affect the assessed subtree.
 
-Terminal processor states:
+Terminal processor phases:
 
-- `executing`: active; executor main agent is active or can receive another turn.
-- `waiting_process`: active; executor is blocked on a process-backed tool call.
-- `settled`: parked; one public outcome is ready for the owning `CardActor` and the processor may be reused for a later activation.
+- `executing`: executor main agent is active or can receive another turn.
+- `waiting_process`: executor is blocked on a process-backed tool call.
 
 Public methods:
 
@@ -299,12 +316,12 @@ Terminal responsibilities:
 - Route process tools to `ProcessActor` or process services.
 - Validate executor terminal/reporting results.
 - Commit terminal result data only from accepted executor results.
-- Call the associated `CardActor`'s hard-coded processor-completion method when it reaches `settled`.
+- Settle through `BaseCardProcessorActor.settle(...)` so the owning `CardActor` receives exactly one activation outcome.
 - Return exactly one `done` or `failed` outcome to the associated `CardActor`.
 
 Event guidance:
 
-- `activate` wakes `settled` and starts a new terminal activation.
+- `activate` wakes `idle` or `settled` and starts a new terminal activation.
 - Executor and process waits normally complete with `done` or `failed` after storing result/diagnostic fields.
 - Use specific branch events only when one state needs different static transition targets.
 
@@ -574,7 +591,10 @@ src/runtime/micro-actor/
 src/runtime/actors/
   runtime-supervisor.ts
   card-actor.ts
-  card-processor-actor.ts
+  base-card-processor-actor.ts
+  base-main-llm-card-processor-actor.ts
+  planning-card-processor-actor.ts
+  terminal-card-processor-actor.ts
   llm-actor.ts
   process-actor.ts
 
