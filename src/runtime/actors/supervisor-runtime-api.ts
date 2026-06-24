@@ -13,7 +13,6 @@ import type { RuntimeApi, RuntimeCommandSource, StartProjectResult, StopProjectR
 import type { CardRecord, RuntimeCommandRecord, RuntimeRunRecord, RuntimeState, RuntimeStatus } from '../../schemas/index.js';
 import type { SessionActivity } from '../session-stamper.js';
 import type { Subscription, SubscriptionOptions } from '../../events/index.js';
-import type { ActorRecoveryPlan } from './actor-recovery.js';
 
 export interface ProjectRootCardReader {
   read(cardId: string): { id: string; type: string } | null;
@@ -37,7 +36,6 @@ export class SupervisorRuntimeApi implements RuntimeApi {
   private runCounter = 0;
   private currentCardId: string | null = null;
   private activeRun: RuntimeRunRecord | null = null;
-  private recoveryPlan: ActorRecoveryPlan | null = null;
   private readonly cardActors = new Map<string, CardActor>();
 
   constructor(private readonly options: SupervisorRuntimeApiOptions) {
@@ -47,8 +45,8 @@ export class SupervisorRuntimeApi implements RuntimeApi {
 
   async start(): Promise<void> {
     if (this.started) return;
-    this.recoveryPlan = buildActorRecoveryPlan(this.options.projectRoot, this.options.actorStore);
-    const recoveries = recoverActorStartupOutcomes(this.recoveryPlan, {
+    const recoveryPlan = buildActorRecoveryPlan(this.options.projectRoot, this.options.actorStore);
+    const recoveries = recoverActorStartupOutcomes(recoveryPlan, {
       projectRoot: this.options.projectRoot,
       store: this.options.actorStore,
       generatedAt: this.now(),
@@ -56,10 +54,9 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       makeTerminalProcessor: (cardId) => new TerminalCardProcessorActor({ projectRoot: this.options.projectRoot, cardId, provider: this.options.provider, admission: this }),
     });
     cleanupConvertedRecoverySnapshots(this.options.projectRoot, recoveries);
-    cleanupHandledRecoverySnapshots(this.options.projectRoot, this.recoveryPlan);
+    cleanupHandledRecoverySnapshots(this.options.projectRoot, recoveryPlan);
     abandonStalePendingToolCalls(this.options.projectRoot);
-    this.recoveryPlan = buildActorRecoveryPlan(this.options.projectRoot, this.options.actorStore);
-    writeRecoveryDiagnostics(this.options.projectRoot, this.recoveryPlan, this.now());
+    writeRecoveryDiagnostics(this.options.projectRoot, buildActorRecoveryPlan(this.options.projectRoot, this.options.actorStore), this.now());
     this.supervisor.start();
     this.supervisor.initialize(this.options.projectRoot);
     this.started = true;
@@ -179,10 +176,6 @@ export class SupervisorRuntimeApi implements RuntimeApi {
 
   getActivityStatus(_sessionId: string): SessionActivity {
     return { status: 'idle', pending_calls: [], updated_at: this.now() };
-  }
-
-  getRecoveryPlan(): ActorRecoveryPlan | null {
-    return this.recoveryPlan;
   }
 
   requestProviderCall(callId: string): boolean {

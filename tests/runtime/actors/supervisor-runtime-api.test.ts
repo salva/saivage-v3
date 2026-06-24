@@ -129,10 +129,10 @@ describe('SupervisorRuntimeApi', () => {
 
     await api.start();
 
-    expect(api.getRecoveryPlan()).toMatchObject({
-      cards: [{ cardId: 'G-recover', active: true }],
-      llms: [{ actorId: 'planner:G-recover', active: true }],
-    });
+    expect(readRecoveryDiagnostics(projectRoot)?.actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actorId: 'card:G-recover', kind: 'active_card', cardId: 'G-recover' }),
+      expect.objectContaining({ actorId: 'planner:G-recover', kind: 'active_llm', cardId: 'G-recover' }),
+    ]));
   }));
 
   it('persists only outstanding recovery diagnostics after handled cleanup', async () => withTempProject(async (projectRoot) => {
@@ -169,12 +169,6 @@ describe('SupervisorRuntimeApi', () => {
     await api.start();
 
     expect(api.getStatus()).toMatchObject({ status: 'idle', currentCardId: null });
-    expect(api.getRecoveryPlan()).toMatchObject({
-      cards: [{ cardId: 'G-recover', active: true }],
-      llms: [{ actorId: 'planner:G-recover', action: 'abandon_provider_call', active: true }],
-      processors: [{ actorId: 'processor:G-recover', active: true }],
-      processes: [],
-    });
     expect(readRecoveryDiagnostics(projectRoot)).toMatchObject({
       generated_at: '2026-06-12T00:00:00.000Z',
       diagnostics: expect.arrayContaining([
@@ -254,7 +248,6 @@ describe('SupervisorRuntimeApi', () => {
     await api.start();
 
     expect(readRecoveryDiagnostics(projectRoot)).toBeNull();
-    expect(api.getRecoveryPlan()).toMatchObject({ cards: [], llms: [], processors: [] });
     expect(store.read(project.id)).toMatchObject({ status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'planner_blocked' } } });
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).not.toEqual(expect.arrayContaining(['card:project', 'planner:project', 'processor:project']));
   }));

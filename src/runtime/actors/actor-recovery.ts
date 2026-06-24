@@ -69,7 +69,7 @@ export interface ProcessActorRecoveryRecord {
 
 export type ProcessRecoveryAction = 'none' | 'abandon_running_process';
 
-export type LlmRecoveryDiagnosticAction = 'none' | 'abandon_provider_call' | 'resume_tool_wait';
+export type LlmRecoveryDiagnosticAction = 'none' | 'abandon_provider_call' | 'block_tool_wait';
 
 export interface ProcessorActorRecoveryRecord {
   actorId: string;
@@ -423,7 +423,7 @@ function isNonIdleSupervisorSnapshot(snapshot: ActorSnapshotRecord | null): bool
 function llmRecoveryDiagnosticAction(snapshot: ActorSnapshotRecord, active: boolean): LlmRecoveryDiagnosticAction {
   if (!active) return 'none';
   if (snapshot.state_value === 'calling_provider') return 'abandon_provider_call';
-  if (snapshot.state_value === 'waiting_tool') return 'resume_tool_wait';
+  if (snapshot.state_value === 'waiting_tool') return 'block_tool_wait';
   return 'none';
 }
 
@@ -475,7 +475,7 @@ function recoveryDiagnostics(
     ...cards.filter(isAmbiguousActiveCard).map((card) => ({ actorId: card.snapshot.actor_id, severity: 'warning' as const, message: `Active card snapshot has ambiguous state '${String(card.snapshot.state_value)}' and requires explicit recovery reconciliation.` })),
     ...cards.filter((card) => isStrandedActiveCard(card, cards, llms, processors, cardReader)).map((card) => ({ actorId: card.snapshot.actor_id, severity: 'warning' as const, message: 'Active card snapshot has no active processor, LLM, or active child evidence and cannot be safely reconstructed yet.' })),
     ...llms.filter((llm) => llm.action === 'abandon_provider_call').map((llm) => ({ actorId: llm.actorId, severity: 'warning' as const, message: 'In-flight provider call cannot be reattached and must be abandoned with a planner-visible diagnostic.' })),
-    ...llms.filter((llm) => llm.action === 'resume_tool_wait').map((llm) => ({ actorId: llm.actorId, severity: 'info' as const, message: 'LLM actor is waiting for a persisted tool result and can resume delivery repair.' })),
+    ...llms.filter((llm) => llm.action === 'block_tool_wait').map((llm) => ({ actorId: llm.actorId, severity: 'warning' as const, message: 'LLM actor is waiting for a persisted tool result and will be blocked unless terminal recovery can safely project the outcome.' })),
     ...llms.filter((llm) => llm.active && llm.action === 'none').map((llm) => ({ actorId: llm.actorId, severity: 'warning' as const, message: `Active LLM snapshot state '${String(llm.snapshot.state_value)}' has no concrete recovery action yet.` })),
     ...processors.filter((processor) => processor.active).map((processor) => ({ actorId: processor.actorId, severity: 'warning' as const, message: 'Active processor snapshot requires reconstruction of activation/tool waits before autonomous execution resumes.' })),
     ...processes.filter((process) => process.action === 'abandon_running_process').map((process) => ({ actorId: process.snapshot.actor_id, severity: 'warning' as const, message: 'Running process snapshot is abandoned on startup because live process reattachment is not implemented; rerun the owning tool if the result is still needed.' })),

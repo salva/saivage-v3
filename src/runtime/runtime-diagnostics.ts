@@ -1,5 +1,9 @@
 import type { RuntimeDisposeReportEntry } from './lifecycle.js';
-import type { RuntimeDiagnosticsObserver } from './runtime-config.js';
+
+export interface RuntimeDiagnosticsObserver {
+  setBackgroundDispatchCount(count: number): void;
+  setLastLifecycleDisposeReport(report: RuntimeDisposeReportEntry[]): void;
+}
 
 export interface RuntimeDiagnostics {
   publish(): void;

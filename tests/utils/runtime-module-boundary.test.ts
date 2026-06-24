@@ -136,7 +136,9 @@ describe('runtime module ownership boundary', () => {
   });
 
   it('removes obsolete concrete runtime composition files', () => {
+    expect(existsSync(join(process.cwd(), 'src/runtime/agent-runtime-factory.ts'))).toBe(false);
     expect(existsSync(join(process.cwd(), 'src/runtime/core-composition.ts'))).toBe(false);
+    expect(existsSync(join(process.cwd(), 'src/runtime/runtime-config.ts'))).toBe(false);
     expect(existsSync(join(process.cwd(), 'src/runtime/runtime.ts'))).toBe(false);
     expect(existsSync(join(process.cwd(), 'src/runtime/runtime-dispatch-composition.ts'))).toBe(false);
     expect(existsSync(join(process.cwd(), 'src/runtime/runtime-planner-dispatcher.ts'))).toBe(false);
@@ -173,49 +175,7 @@ describe('runtime module ownership boundary', () => {
     expect(existsSync(join(process.cwd(), 'src/runtime/state-machine.ts'))).toBe(false);
     expect(existsSync(join(process.cwd(), 'src/runtime/startup-blocked-planning.ts'))).toBe(false);
     expect(existsSync(join(process.cwd(), 'src/runtime/startup-run-reconciliation.ts'))).toBe(false);
-  });
-
-  it('keeps production runtime core parts free of concrete card mutation authority', () => {
-    const source = readFileSync(join(process.cwd(), 'src/runtime/runtime-config.ts'), 'utf8');
-    const start = source.indexOf('export interface RuntimeCoreParts');
-    const end = source.indexOf('export type RuntimeCardTestStore');
-    expect(start).toBeGreaterThanOrEqual(0);
-    expect(end).toBeGreaterThan(start);
-    const coreParts = source.slice(start, end);
-    expect(coreParts).not.toContain('CardStore');
-    expect(coreParts).not.toContain('cards:');
-    expect(coreParts).not.toContain('EventBus');
-    expect(coreParts).toContain('countGoals');
-  });
-
-  it('keeps RuntimeConfig free of composition sinks', () => {
-    const source = readFileSync(join(process.cwd(), 'src/runtime/runtime-config.ts'), 'utf8');
-    const start = source.indexOf('export interface RuntimeConfig');
-    expect(start).toBeGreaterThanOrEqual(0);
-    const runtimeConfig = source.slice(start);
-    expect(runtimeConfig).not.toContain('Sink');
-    expect(runtimeConfig).not.toContain('setRuntime');
-    expect(runtimeConfig).not.toContain('setDispatchGoal');
-    expect(source).not.toContain('RuntimeStampSource');
-  });
-
-  it('keeps construction parts explicit and diagnostics observer-only', () => {
-    const source = readFileSync(join(process.cwd(), 'src/runtime/runtime-config.ts'), 'utf8');
-    expect(source).not.toContain('RuntimeCompositionHooks');
-    expect(source).not.toContain('RuntimeTestHooks');
-    expect(source).not.toContain('corePartsSink');
-    expect(source).not.toContain('controlSink');
-    expect(source).not.toContain('testPartsSink');
-
-    const assemblyStart = source.indexOf('export interface RuntimeAssembly');
-    const configStart = source.indexOf('export interface RuntimeConfig');
-    expect(assemblyStart).toBeGreaterThanOrEqual(0);
-    expect(configStart).toBeGreaterThan(assemblyStart);
-    const assembly = source.slice(assemblyStart, configStart);
-    expect(assembly).toContain('controls: RuntimeControls');
-    expect(assembly).toContain('coreParts: RuntimeCoreParts');
-    expect(assembly).toContain('testParts?: RuntimeTestAssemblyParts');
-    expect(assembly).not.toContain('Diagnostics');
+    expect(existsSync(join(process.cwd(), 'src/runtime/stuck-agent-supervisor.ts'))).toBe(false);
   });
 
   it('keeps application extras outside the RuntimeApi shape', () => {
@@ -244,12 +204,6 @@ describe('runtime module ownership boundary', () => {
 
     for (const filePath of listTypeScriptFiles(join(process.cwd(), 'src'))) {
       const relativePath = filePath.slice(process.cwd().length + 1);
-      if (
-        relativePath === 'src/runtime/runtime-config.ts'
-      ) {
-        continue;
-      }
-
       const source = readFileSync(filePath, 'utf8');
       for (const forbiddenImport of forbiddenRuntimeCoreImports) {
         expect(source).not.toContain(forbiddenImport);

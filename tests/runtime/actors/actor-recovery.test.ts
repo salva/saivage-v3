@@ -178,12 +178,12 @@ describe('actor recovery plan', () => {
     expect(plan.processors).toMatchObject([{ actorId: 'processor:G-1', cardId: 'G-1', active: true, activeReconstruction: expect.objectContaining({ kind: 'processor_activation' }) }]);
     expect(plan.llms).toMatchObject([
       { actorId: 'planner:G-1', action: 'abandon_provider_call', active: true },
-      { actorId: 'reviewer:G-1', action: 'resume_tool_wait', active: true },
+      { actorId: 'reviewer:G-1', action: 'block_tool_wait', active: true },
     ]);
     expect(plan.diagnostics).toEqual([
       expect.objectContaining({ actorId: 'planner:G-1', severity: 'warning' }),
       expect.objectContaining({ actorId: 'processor:G-1', severity: 'warning' }),
-      expect.objectContaining({ actorId: 'reviewer:G-1', severity: 'info' }),
+      expect.objectContaining({ actorId: 'reviewer:G-1', severity: 'warning' }),
     ]);
   }));
 

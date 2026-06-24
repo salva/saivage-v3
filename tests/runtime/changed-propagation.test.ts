@@ -144,7 +144,7 @@ describe('changed propagation', () => {
     ]);
   });
 
-  it('delivers changed notes to active XState goal NoteBox before synthetic fallback', () => {
+  it('delivers changed notes to active actor goal note sink before synthetic fallback', () => {
     const deliveredNotes: GoalNote[] = [];
     getActiveGoalNoteSinks(projectRoot).register(goalBId, { addNote: (note) => deliveredNotes.push(note) });
     setStatus(store, goalBId, 'running');
