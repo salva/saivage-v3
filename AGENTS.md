@@ -7,12 +7,12 @@ Read `/home/salva/g/ml/CODEX_PROJECT_MEMORY.md` and the current docs before subs
 
 ## Current Authority
 
-- `docs/agents.md` for agent/runtime architecture.
-- `docs/runbook/index.md` for operator procedures.
-- `docs/operation.md` for API, auth, runtime control, evidence, and file browsing.
+- `docs/spec/system-specification.md` for functional behavior.
+- `docs/spec/operator-ui.md` for operator UI behavior.
+- `docs/architecture/system-architecture.md` for system architecture.
 - `README.md` for validation profiles and documentation authority status.
 
-See historical: docs under `docs/historical/` and stale design docs are provenance, not implementation authority.
+See historical: docs under `docs-old/` and stale design docs are provenance, not implementation authority.
 
 ## Validation
 
