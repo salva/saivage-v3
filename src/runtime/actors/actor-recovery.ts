@@ -59,7 +59,7 @@ export interface LlmActorRecoveryRecord {
   activeReconstruction: LlmActiveReconstructionRecord | null;
 }
 
-export type LlmActorRecoveryPlanRecord = LlmActorRecoveryRecord & { action: LlmRecoveryAction };
+export type LlmActorRecoveryPlanRecord = LlmActorRecoveryRecord & { action: LlmRecoveryDiagnosticAction };
 
 export interface ProcessActorRecoveryRecord {
   processId: string;
@@ -69,7 +69,7 @@ export interface ProcessActorRecoveryRecord {
 
 export type ProcessRecoveryAction = 'none' | 'abandon_running_process';
 
-export type LlmRecoveryAction = 'none' | 'abandon_provider_call' | 'resume_tool_wait';
+export type LlmRecoveryDiagnosticAction = 'none' | 'abandon_provider_call' | 'resume_tool_wait';
 
 export interface ProcessorActorRecoveryRecord {
   actorId: string;
@@ -129,7 +129,7 @@ export function buildActorRecoveryPlan(projectRoot: string, cards?: ActorRecover
       if (active && !knownCardIds.has(parsed.cardId) && !cards?.read(parsed.cardId)) {
         throw new Error(`Cannot recover active LLM actor '${snapshot.actor_id}': owner card '${parsed.cardId}' was not found.`);
       }
-      return { actorId: snapshot.actor_id, role: parsed.role, cardId: parsed.cardId, snapshot, active, activeReconstruction, action: llmRecoveryAction(snapshot, active) };
+      return { actorId: snapshot.actor_id, role: parsed.role, cardId: parsed.cardId, snapshot, active, activeReconstruction, action: llmRecoveryDiagnosticAction(snapshot, active) };
     });
   const processors = snapshots
     .filter((snapshot) => snapshot.actor_kind === 'processor')
@@ -420,7 +420,7 @@ function isNonIdleSupervisorSnapshot(snapshot: ActorSnapshotRecord | null): bool
   return (state as { mode?: unknown }).mode !== 'idle';
 }
 
-function llmRecoveryAction(snapshot: ActorSnapshotRecord, active: boolean): LlmRecoveryAction {
+function llmRecoveryDiagnosticAction(snapshot: ActorSnapshotRecord, active: boolean): LlmRecoveryDiagnosticAction {
   if (!active) return 'none';
   if (snapshot.state_value === 'calling_provider') return 'abandon_provider_call';
   if (snapshot.state_value === 'waiting_tool') return 'resume_tool_wait';

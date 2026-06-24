@@ -48,7 +48,6 @@ export class SupervisorRuntimeApi implements RuntimeApi {
   async start(): Promise<void> {
     if (this.started) return;
     this.recoveryPlan = buildActorRecoveryPlan(this.options.projectRoot, this.options.actorStore);
-    writeRecoveryDiagnostics(this.options.projectRoot, this.recoveryPlan, this.now());
     const recoveries = recoverActorStartupOutcomes(this.recoveryPlan, {
       projectRoot: this.options.projectRoot,
       store: this.options.actorStore,
@@ -59,6 +58,8 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     cleanupConvertedRecoverySnapshots(this.options.projectRoot, recoveries);
     cleanupHandledRecoverySnapshots(this.options.projectRoot, this.recoveryPlan);
     abandonStalePendingToolCalls(this.options.projectRoot);
+    this.recoveryPlan = buildActorRecoveryPlan(this.options.projectRoot, this.options.actorStore);
+    writeRecoveryDiagnostics(this.options.projectRoot, this.recoveryPlan, this.now());
     this.supervisor.start();
     this.supervisor.initialize(this.options.projectRoot);
     this.started = true;

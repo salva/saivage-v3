@@ -135,7 +135,7 @@ describe('SupervisorRuntimeApi', () => {
     });
   }));
 
-  it('persists startup recovery diagnostics for active actors without resuming them', async () => withTempProject(async (projectRoot) => {
+  it('persists only outstanding recovery diagnostics after handled cleanup', async () => withTempProject(async (projectRoot) => {
     saveActorSnapshot(projectRoot, {
       actor_id: 'card:G-recover',
       actor_kind: 'card',
@@ -173,23 +173,22 @@ describe('SupervisorRuntimeApi', () => {
       cards: [{ cardId: 'G-recover', active: true }],
       llms: [{ actorId: 'planner:G-recover', action: 'abandon_provider_call', active: true }],
       processors: [{ actorId: 'processor:G-recover', active: true }],
-      processes: [{ processId: 'build-1', action: 'abandon_running_process' }],
+      processes: [],
     });
     expect(readRecoveryDiagnostics(projectRoot)).toMatchObject({
       generated_at: '2026-06-12T00:00:00.000Z',
       diagnostics: expect.arrayContaining([
         expect.objectContaining({ actorId: 'planner:G-recover', severity: 'warning' }),
         expect.objectContaining({ actorId: 'processor:G-recover', severity: 'warning' }),
-        expect.objectContaining({ actorId: 'process:build-1', severity: 'warning' }),
       ]),
       actions: expect.arrayContaining([
         expect.objectContaining({ actorId: 'card:G-recover', kind: 'active_card', cardId: 'G-recover' }),
         expect.objectContaining({ actorId: 'planner:G-recover', kind: 'active_llm', cardId: 'G-recover' }),
         expect.objectContaining({ actorId: 'planner:G-recover', kind: 'llm_recovery_action', action: 'abandon_provider_call', cardId: 'G-recover' }),
         expect.objectContaining({ actorId: 'processor:G-recover', kind: 'active_processor', cardId: 'G-recover' }),
-        expect.objectContaining({ actorId: 'process:build-1', kind: 'running_process', action: 'abandon_running_process', processId: 'build-1' }),
       ]),
     });
+    expect(readRecoveryDiagnostics(projectRoot)?.diagnostics.map((item) => item.actorId)).not.toContain('process:build-1');
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).not.toContain('process:build-1');
   }));
 
@@ -254,11 +253,8 @@ describe('SupervisorRuntimeApi', () => {
 
     await api.start();
 
-    expect(readRecoveryDiagnostics(projectRoot)?.actions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ actorId: 'card:project', kind: 'active_card', cardId: 'project' }),
-      expect.objectContaining({ actorId: 'planner:project', kind: 'llm_recovery_action', action: 'abandon_provider_call', cardId: 'project' }),
-      expect.objectContaining({ actorId: 'processor:project', kind: 'active_processor', cardId: 'project' }),
-    ]));
+    expect(readRecoveryDiagnostics(projectRoot)).toBeNull();
+    expect(api.getRecoveryPlan()).toMatchObject({ cards: [], llms: [], processors: [] });
     expect(store.read(project.id)).toMatchObject({ status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'planner_blocked' } } });
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).not.toEqual(expect.arrayContaining(['card:project', 'planner:project', 'processor:project']));
   }));
@@ -297,9 +293,7 @@ describe('SupervisorRuntimeApi', () => {
     expect(store.read(project.id)).toMatchObject({ status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'planner_blocked', blocked_reason: 'needs operator' } } });
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).not.toEqual(expect.arrayContaining(['card:project', 'planner:project', 'processor:project']));
     expect(readToolCallStatuses(projectRoot, 'planner:project').map((record) => record.status)).toEqual(['pending', 'terminal_projected']);
-    expect(readRecoveryDiagnostics(projectRoot)?.actions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ actorId: 'planner:project', kind: 'active_llm', cardId: 'project' }),
-    ]));
+    expect(readRecoveryDiagnostics(projectRoot)).toBeNull();
   }));
 
   it('projects paired planner done and reviewer pass outcomes during startup recovery', async () => withTempProject(async (projectRoot) => {
@@ -382,6 +376,7 @@ describe('SupervisorRuntimeApi', () => {
     expect(store.read(project.id)).toMatchObject({ status: 'blocked', status_text: expect.stringContaining('cannot be safely resumed') });
     expect(readToolCallStatuses(projectRoot, 'planner:project').map((record) => record.status)).toEqual(['pending', 'abandoned']);
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).not.toEqual(expect.arrayContaining(['card:project', 'planner:project', 'processor:project']));
+    expect(readRecoveryDiagnostics(projectRoot)).toBeNull();
   }));
 
   it('starts project work by executing the root CardActor', async () => withTempProject(async (projectRoot) => {
