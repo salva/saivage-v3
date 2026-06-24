@@ -18,7 +18,7 @@ The dedicated v2-on-v3 harness (`saivage.service` in the `saivage-v3` LXC contai
   - `rejected/<YYYY-MM-DD>-<basename>` + sibling `<basename>.decision.md` — proposals the harness declined
 - Ignored by scanner: `README.md`, hidden files, anything under `done/` or `rejected/`
 
-The active objectives that bind this behavior live in [saivage-v3/.saivage/config.json](../../../saivage-v3/.saivage/config.json) under the "Mailbox" objective clause. Do not edit that clause when filing a proposal; just drop the file in.
+The active objectives that bind this behavior live in `saivage-v3/.saivage/config.json` under the "Mailbox" objective clause. Do not edit that clause when filing a proposal; just drop the file in.
 
 ## Filename convention
 
@@ -143,7 +143,7 @@ The two branches behave very differently:
 
 The **nothing-lost invariant** for design-included proposals: the union of executed stages must exactly equal the design's deliverable set (every file listed, every deletion, every validation gate). If the harness believes a part is unsafe or has been preempted by prior work in a different shape, it must report-and-stop, not silently substitute.
 
-This protocol is binding in [saivage-v3/.saivage/config.json](../../../saivage-v3/.saivage/config.json) under the "Mailbox" objective clause.
+This protocol is binding in `saivage-v3/.saivage/config.json` under the "Mailbox" objective clause.
 
 ## Choosing the template for an operator request
 

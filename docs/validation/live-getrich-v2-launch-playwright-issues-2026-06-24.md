@@ -22,6 +22,17 @@ npx playwright test -c tests/playwright/live-getrich-v2.config.ts
 - `/health` returned `{"status":"ok","version":"0.1.0","project":"saivage-v3"}`.
 - `/health/ready` returned `status: "ready"` with `api`, `runtime`, and `mcp` available.
 
+## Node Runtime Fix
+
+Updated on 2026-06-24 after the initial report:
+
+- Installed the official Node.js `v24.16.0` runtime inside the container under `/opt/node-v24.16.0`.
+- Added `/usr/local/bin/node`, `/usr/local/bin/npm`, and `/usr/local/bin/npx` symlinks to the Node 24 installation.
+- Added a systemd drop-in at `/etc/systemd/system/saivage-v3-getrich.service.d/node24.conf` so `saivage-v3-getrich.service` runs with `/opt/node-v24.16.0/bin/node`.
+- Restarted the service and verified `/proc/<MainPID>/exe` resolves to `/opt/node-v24.16.0/bin/node`.
+- Verified `node --version` is `v24.16.0` and `npm --version` is `11.13.0` for both `root` and `salva` inside the container.
+- Verified `/health` and `/health/ready` still return healthy responses.
+
 ## Playwright Result
 
 The live Playwright suite ran 66 tests:
@@ -52,19 +63,19 @@ Impact: all API endpoints are reachable without authentication on the container 
 
 Likely fix: configure the deployment service with an environment file or systemd `Environment=SAIVAGE_API_TOKEN=...`, then restart and verify protected routes require bearer auth. Do not place bearer tokens in URLs.
 
-### 2. Container runtime Node version does not match repo engines
+### 2. Resolved: container runtime Node version did not match repo engines
 
 The service unit runs:
 
 ```text
-ExecStart=/usr/bin/node /opt/saivage-v3/bin/saivage.js start --host 0.0.0.0 --port 8080
+ExecStart=/opt/node-v24.16.0/bin/node /opt/saivage-v3/bin/saivage.js start --host 0.0.0.0 --port 8080
 ```
 
 Inside the container:
 
 ```text
-node v20.19.4
-npm 9.2.0
+node v24.16.0
+npm 11.13.0
 ```
 
 But `package.json` requires:
@@ -74,9 +85,7 @@ But `package.json` requires:
 "npm": ">=10 <12"
 ```
 
-Impact: the current build boots, but the deployment is outside the supported runtime profile and may fail as the codebase adopts Node 24 APIs.
-
-Likely fix: install Node 24/npm 10-11 in the container and update the unit to use that binary.
+Status: fixed for the live deployment. The Ubuntu package `nodejs` remains installed, but `/usr/local/bin` and the service drop-in now point the deployment at Node 24.
 
 ### 3. Live providers API returns shortened `opencode-go` model ids while the test expects provider-qualified ids
 
