@@ -20,11 +20,13 @@ The core micro-actor runtime replacement has landed:
 
 The remaining implementation work is intentionally narrower than the original replacement plan:
 
-1. Full recovery reconstruction and reconciliation.
-2. Operator-facing recovery diagnostics and outcome projection polish.
-3. Recovery-specific `_on_recover__{state}` hooks for safe parked/active states.
-4. Broader validation beyond the focused actor and routine gates.
-5. Operator-facing docs that describe the implemented reviewer phase and recovery diagnostics behavior.
+1. Projection and contract polish for the actor runtime read model, especially state-name mismatches that can make healthy actors look unknown.
+2. Reviewer notification/change invalidation: reviewer approval must not ignore card changes or main-agent notifications that arrive while review is running.
+3. Recovery outcome conversion for abandoned or ambiguous active work where a safe card/operator-visible result can be written.
+4. Recovery-specific `_on_recover__{state}` hooks for safe parked states first, then active states only after durable reconstruction records exist.
+5. Full active-chain recovery reconstruction, sequenced one resumable path at a time.
+6. Broader validation beyond the focused actor and routine gates.
+7. Operator-facing docs that describe the implemented reviewer phase, terminal-tool-only reports, notification delivery, and recovery behavior.
 
 The detailed remaining recovery work is tracked in [Slice 8: Recovery](#slice-8-recovery).
 
@@ -43,6 +45,8 @@ Completed post-review fixes:
 
 Remaining priority fixes:
 
+- Fix actor runtime projection state-name drift. The runtime read model should recognize current actor states such as `LLMActor` `idle`, `calling_provider`, `waiting_tool`, and `cancelled`, and `RuntimeSupervisorActor` `shutting_down`; otherwise healthy snapshots can appear as unknown.
+- Define and implement the remaining reviewer invalidation policy. Current reviewer execution is planner-owned, but approval still needs a current-card/tree check, and main-agent notifications queued during review should be held for planner delivery or explicitly recorded rather than drained into reviewer context unless that policy is deliberately changed.
 - Keep terminal contract handling simple and fail-fast unless a concrete repair requirement exists. Do not add a general terminal-output repair loop just because it is possible. Do, however, make non-terminal tool argument failures recoverable as tool results instead of crashing an activation.
 - Remove any newly discovered dead options, duplicated types/helpers, or production-dead LLM/processor APIs as they appear during recovery work.
 
@@ -196,7 +200,7 @@ Implementation:
 - Start a monitoring task while `running` so process exit is recorded even when no one is waiting.
 - Keep wait timeout non-destructive: timeout returns a tool result but does not kill the process.
 - Persist command metadata, working directory, timestamps, rendered command, status, exit/termination details, and safe logs.
-- Reconcile persisted running process records during recovery.
+- Recovery abandons persisted `running`/`killing` process records with sanitized diagnostics by default. Do not add live process/PID reconciliation unless preserving in-flight process results becomes a concrete requirement.
 - Delete or replace old process runner/controller code when this actor owns process lifecycle.
 
 Tests:
@@ -206,7 +210,7 @@ Tests:
 - `wait(timeout)` times out without killing the process.
 - `inspect(range)` returns bounded safe output.
 - `kill(reason)` terminates or marks abandoned with diagnostics.
-- Recovery of a running process reconciles live process status or marks abandoned.
+- Recovery of a running/killing process marks it abandoned with diagnostics; live process reattachment is deferred unless explicitly required.
 
 Acceptance:
 
@@ -221,13 +225,13 @@ Goal: prove the full actor path with the simplest useful card execution.
 
 Implementation:
 
-- Add `BaseCardProcessorActor` before adding or refactoring concrete processors. It owns the shared processor states `idle`, `running`, `settled`, and `cancelled`; public `activate(input)` and `cancel(reason)`; pending activation promise handling; `settle(outcome)`; `_on_state_changed(...)` persistence; and common snapshot fields. It must not know planner, reviewer, executor, process-tool, or card-type policy.
+- Add `BaseCardProcessorActor` before adding or refactoring concrete processors. It owns the shared processor states, public `activate(input)`, pending activation promise handling, settlement, `_on_state_changed(...)` persistence, and common snapshot fields. It must not know planner, reviewer, executor, process-tool, or card-type policy. Processor-level `cancel(...)` and `cancelled` states are intentionally absent from the normal running-cancel path; running cancellation is delivered as card-owned notification context.
 - Add `BaseMainLLMCardProcessorActor` for processors whose main card agent is one LLM session. It owns/caches the main `LLMActor`, runs the main turn loop, injects owning-card notifications before each main-agent provider turn, records delivery markers, and provides hook methods for concrete tool routing and terminal-report handling. It must not decide role-specific semantics.
 - Implement terminal processor behavior in `TerminalCardProcessorActor`.
 - Make `TerminalCardProcessorActor` extend `BaseMainLLMCardProcessorActor`.
 - Represent terminal-specific phases such as `executing` and `waiting_process` on processor fields unless a distinct state is needed for task ownership; keep the shared top-level processor states in `BaseCardProcessorActor`.
-- Implement public methods `activate(input)` and `cancel(reason)`.
-- Persist terminal processor state transitions from `_on_state_changed(...)`; keep explicit persistence for activation inputs, process ids, queued cancellation notifications, and terminal outcomes when those fields change outside transition entry.
+- Implement public `activate(input)`. Do not add processor `cancel(reason)` unless a separate shutdown/force-cancel feature is deliberately designed.
+- Persist terminal processor state transitions from `_on_state_changed(...)`; keep explicit persistence for activation inputs, process ids, and terminal outcomes when those fields change outside transition entry. Queued cancellation notifications remain owned by `CardActor`, not by processors.
 - Build executor invocation context from card data, notifications, and relevant project context.
 - Own/cache one executor `LLMActor` for the terminal activation path.
 - Provide terminal capabilities: reporting result/failure, process launch/wait/inspect/kill through `ProcessActor`, and safe file inspection if already supported.
@@ -244,8 +248,8 @@ Tests:
 - Process wait timeout returns a timeout tool result and does not kill the process.
 - Explicit process kill records termination details.
 - Completed/killed process actors do not leak indefinitely through the terminal processor's process map.
-- Terminal cancellation while inactive marks the card/subtree `cancelled`; terminal cancellation while running is a best-effort notification to the executor and does not stop future LLM admission, kill processes, or rewrite later executor reports.
-- Base processor tests prove activation, cancellation, settlement, parent promise resolution, and transition snapshot persistence are shared and not duplicated in concrete processors.
+- Terminal cancellation while inactive marks the card/subtree `cancelled`; terminal cancellation while running is a best-effort card notification to the executor and does not stop future LLM admission, kill processes, or rewrite later executor reports.
+- Base processor tests prove activation, settlement, parent promise resolution, and transition snapshot persistence are shared and not duplicated in concrete processors.
 
 Acceptance:
 
@@ -297,6 +301,8 @@ Acceptance:
 
 Goal: add reviewer assessment after planner reports candidate done.
 
+Current status: partially implemented. Reviewer execution is planner-owned and contract-terminal-only, self-citation without durable evidence is rejected, and corrections return a blocked planner outcome. Remaining work is snapshot/currentness and notification/change invalidation during the reviewer phase.
+
 Implementation:
 
 - Run readiness and evidence gates inside the same project/goal processor after the planner contract terminal report proposes `done`.
@@ -308,6 +314,12 @@ Implementation:
 - Attach positive reviewer text to the card only after the reviewed snapshot is still current.
 - If relevant changes/notifications arrive while reviewing, invalidate reviewer success or divert back to planning.
 - Cancellation notifications are main-agent notifications. If one arrives while reviewer work is active, hold it with other pending main-agent notifications until planner ownership resumes or record it as undelivered if the activation settles first; do not deliver cancellation to the reviewer unless a separate reviewer-cancellation feature is explicitly designed.
+
+Remaining:
+
+- Capture enough reviewed-card/tree identity before reviewer invocation to prove reviewer approval still applies at commit time.
+- Ensure reviewer LLM input does not accidentally drain main-agent notification queues unless reviewer-visible notifications are intentionally designed.
+- Add focused tests for card changes and cancellation/main-agent notifications arriving while reviewer work is active.
 
 Tests:
 
@@ -349,18 +361,22 @@ Completed:
 
 Remaining:
 
-- Add `_on_recover__{state}` hooks for safe parked states first, then active states only where durable reconstruction data is sufficient.
-- Reconstruct active card chains, processor ownership, unresolved child activation waits, LLM waiting-tool state, and process waits where safe.
+- Fix actor runtime projection state names before deeper recovery work, so diagnostics are not polluted by known healthy states.
 - Convert abandoned or ambiguous active work into explicit card/operator outcomes where appropriate, not just diagnostics files.
+- Add `_on_recover__{state}` hooks for safe parked states first. Do not add active-state recovery hooks until durable reconstruction data is complete.
+- Define minimal durable reconstruction records for activation input, processor phase, child activation waits, LLM tool waits, reviewer session/candidate identity, and process ownership.
+- Reconstruct active card chains, processor ownership, unresolved child activation waits, LLM waiting-tool state, and process waits one path at a time where safe.
 - Resume safe `waiting_tool` paths without double-delivering tool results or duplicating provider turns as part of active LLM/processor reconstruction, not as a separate disconnected feature.
 - Repair interrupted reviewer/planner chains with stored correction context or explicit diagnostics as part of active card/processor reconstruction.
 - Remove or reconcile remaining card/LLM/processor actor snapshots after successful reconstruction or outcome conversion so handled recovery work is not reported again on the next restart.
 
 Implementation:
 
-- Define actor reconstruction records for supervisor, cards, processors, LLM turns, process records, activation waits, and tool waits.
-- Create fresh actor instances and call `BaseActor.recover(state)` where safe.
+- First fix projection drift in `actor-runtime-read-model.ts` and its API contract/tests.
+- For unrecoverable active work, write explicit blocked/failed card/operator outcomes where the owner card is known and the transition is valid; otherwise keep sanitized diagnostics.
+- For safe parked states, create fresh actor instances and call `BaseActor.recover(state)` only when snapshot context is sufficient to hydrate public fields without starting work.
 - Use `_on_recover__{state}` hooks to rebuild in-memory references from persisted reconstruction records. Recovery must not call `_on_state_changed(...)` and must not re-persist already-recorded transition snapshots unless repair logic deliberately writes a diagnostic or reconciled state.
+- Before any active resume path, define actor reconstruction records for supervisor, cards, processors, LLM turns, process records, activation waits, and tool waits.
 - Reconstruct active card chains and unresolved waits where the durable records are complete enough to resume safely.
 - Keep consuming the recovery plan during runtime startup. Persisted diagnostics are the conservative fallback; resumable chains should be reconstructed instead of only diagnosed.
 - Abandon persisted running process records with diagnostics by default. Reconcile live running processes only if a later slice explicitly chooses that more complex path.
@@ -370,6 +386,9 @@ Implementation:
 
 Tests:
 
+- Actor runtime read-model tests recognize current supervisor, card, LLM, processor, and process actor states without exposing raw state values.
+- Startup converts known unrecoverable active work to explicit blocked/failed card/operator outcomes only when the owning card and valid lifecycle transition are available.
+- Safe parked-state recovery hooks hydrate actor fields without triggering `_on_state_changed(...)` transition snapshot writes.
 - Startup handles active planner waiting on child activation.
 - Startup handles LLM waiting for a process tool result.
 - Startup handles terminal process result awaiting delivery.
@@ -452,10 +471,10 @@ These items are not blockers for the core actor replacement, but should be compl
 
 ## Open Decisions
 
-- Completed actor-record retention: delete, archive, or bounded history. This must include post-recovery snapshot cleanup so already-handled recovery work does not repeat.
-- Running process restart strategy: default to abandon-with-diagnostics; choose live process reconciliation only if preserving in-flight process results is required.
+- Remaining card/LLM/processor actor-record retention: delete, archive, or bounded history after reconstruction/outcome conversion. Abandoned process snapshot cleanup is already implemented.
 - Whether process tools share one `ProcessActor` per process record or use direct process-service tasks for short operations.
 - Exact public projection fields for active chain and runtime activity.
-- Whether recovery diagnostics remain filesystem-only or get API/read-model projection; version the file before expanding it.
+- Whether `actorRuntime.recovery` is sufficient for operator recovery visibility or a dedicated recovery endpoint/UI treatment is needed.
+- Whether reviewer-phase notifications should ever be reviewer-visible. The current safe default should be to hold main-agent notifications for planner delivery unless a concrete reviewer-cancellation feature is designed.
 
 These decisions should be made when their implementation slice starts, not before.
