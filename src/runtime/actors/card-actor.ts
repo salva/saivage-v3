@@ -41,6 +41,7 @@ export interface CardNotificationDeliveryMarker {
 }
 
 export interface CardNotificationDeliveryPort {
+  hasPendingNotifications?(): boolean;
   deliverNotificationsForInput(inputId: string): CardNotification[];
 }
 
@@ -161,7 +162,8 @@ export class CardActor extends BaseActor {
   markChanged(change: CardChange): void {
     this.lastChange = change;
     const card = this.requireCard();
-    if (card.status !== 'running') this.writeStatus('changed');
+    if (card.status === 'running' || this.state() === 'running') this.notifications.push(changeNotification(this.cardId, change));
+    else this.writeStatus('changed');
     if (this.state() !== 'running' && this.state() !== 'changed') this.parkedSendEvent('changed');
     this.persist();
   }
@@ -315,6 +317,16 @@ function cancellationNotification(cardId: string, reason: CardCancelReason): Car
     message: `Cancellation requested: ${reason.reason}`,
     created_at: createdAt,
     reason: 'cancel_requested',
+  };
+}
+
+function changeNotification(cardId: string, change: CardChange): CardNotification {
+  const createdAt = change.changed_at ?? new Date().toISOString();
+  return {
+    id: `change:${cardId}:${createdAt}`,
+    message: `Card changed: ${change.reason}`,
+    created_at: createdAt,
+    reason: 'card_changed',
   };
 }
 

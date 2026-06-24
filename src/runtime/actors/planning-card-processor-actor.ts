@@ -123,7 +123,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     if (outcome.type === 'error') return { status: 'failed', summary: outcome.error, result: { kind: 'planner_failure', error: outcome.error } };
     if (outcome.type === 'result') return this.plannerFailure(`${expectedTerminalToolMessage(createReviewerContract())} Plain reviewer messages are not accepted as terminal results.`);
     if (!createReviewerContract().isTerminalToolName(outcome.toolName)) return this.plannerFailure(`Reviewer returned unsupported tool call '${outcome.toolName}'.`);
-    return evaluateReviewerTerminalOutcome({
+    const reviewed = evaluateReviewerTerminalOutcome({
       card: input.card,
       candidatePlanning: planning,
       assessmentId,
@@ -131,6 +131,8 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
       outcome,
       store: this.store,
     });
+    if (reviewed.status === 'done' && input.notificationDelivery?.hasPendingNotifications?.()) return reviewerInvalidatedOutcome(assessmentId);
+    return reviewed;
   }
 
   private buildReviewerLlmInput(input: CardActivationInput, assessmentId: string, sessionId: string): LlmInvocationInput {
@@ -142,7 +144,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
       role: 'reviewer',
       sessionId,
       systemPrompt: this.reviewerPrompt(input.card, assessmentId),
-      contextMessages: this.notificationContextMessages(input, inputId),
+      contextMessages: [],
       tools: contract.terminals.map((terminal) => terminal.toolDefinition),
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),
       modelParams: {},
@@ -174,6 +176,11 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   protected activationFailureOutcome(error: string): PlannerProcessorOutcome {
     return { status: 'failed', summary: error, result: { kind: 'planner_failure', error } };
   }
+}
+
+function reviewerInvalidatedOutcome(assessmentId: string): PlannerProcessorOutcome {
+  const summary = 'Reviewer approval invalidated by pending card notifications.';
+  return { status: 'blocked', summary, result: { kind: 'planner_blocked', blocked_reason: summary, resume_reason: 'reviewer_invalidated_by_notifications', reviewer_correction: { kind: 'reviewer_correction', assessment_id: assessmentId, summary, issues: [{ summary }] } } };
 }
 
 function parseChildCardId(args: unknown): { success: true; cardId: string } | { success: false; error: string } {

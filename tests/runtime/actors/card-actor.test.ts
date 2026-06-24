@@ -224,7 +224,10 @@ describe('CardActor', () => {
     runningActor.notify({ id: 'n2', message: 'running context', created_at: '2026-06-12T00:00:00.000Z' });
 
     expect(store.read(runningGoal.id)?.status).toBe('running');
-    expect(runningActor.notifications).toHaveLength(1);
+    expect(runningActor.notifications).toEqual([
+      expect.objectContaining({ reason: 'card_changed', message: 'Card changed: running edit' }),
+      expect.objectContaining({ id: 'n2', message: 'running context' }),
+    ]);
     finish({ status: 'blocked', summary: 'blocked', result: { kind: 'planner_blocked', blocked_reason: 'blocked', resume_reason: 'blocked' } });
     await expect(activation).resolves.toMatchObject({ status: 'blocked' });
   }));

@@ -148,6 +148,49 @@ describe('PlanningCardProcessorActor', () => {
     }), expect.any(AbortSignal));
   }));
 
+  it('does not drain main-agent notifications into reviewer turns', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    const child = markDone(store, createGoal(store, project.id));
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async (input: LlmInvocationInput) => input.role === 'reviewer' ? reviewerResult({ evidence_card_ids: [child.id] }) : plannerResult('done', 'done')) };
+    const delivery = { hasPendingNotifications: jest.fn(() => false), deliverNotificationsForInput: jest.fn(() => []) };
+    const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
+    actor.start();
+
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notifications: [], notificationDelivery: delivery });
+
+    expect(outcome).toMatchObject({ status: 'done' });
+    expect(delivery.deliverNotificationsForInput).toHaveBeenCalledTimes(1);
+    expect(delivery.deliverNotificationsForInput).toHaveBeenCalledWith('planner:project:1');
+    expect(provider.completeTurn).toHaveBeenCalledWith(expect.objectContaining({ role: 'reviewer', contextMessages: [] }), expect.any(AbortSignal));
+  }));
+
+  it('blocks reviewer approval when main-agent notifications arrive during review', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    const child = markDone(store, createGoal(store, project.id));
+    const delivery = { hasPendingNotifications: jest.fn(() => false), deliverNotificationsForInput: jest.fn(() => []) };
+    const provider: LLMProviderPort = {
+      completeTurn: jest.fn(async (input: LlmInvocationInput) => {
+        if (input.role === 'reviewer') {
+          delivery.hasPendingNotifications.mockReturnValue(true);
+          return reviewerResult({ evidence_card_ids: [child.id] });
+        }
+        return plannerResult('done', 'done');
+      }),
+    };
+    const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
+    actor.start();
+
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notifications: [], notificationDelivery: delivery });
+
+    expect(outcome).toMatchObject({ status: 'blocked', result: { kind: 'planner_blocked', reviewer_correction: { kind: 'reviewer_correction' } } });
+    expect(outcome.summary).toContain('pending card notifications');
+    expect(delivery.deliverNotificationsForInput).toHaveBeenCalledTimes(1);
+  }));
+
   it('returns blocked reviewer correction when planner-owned review asks for corrections', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
