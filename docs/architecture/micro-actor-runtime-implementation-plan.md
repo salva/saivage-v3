@@ -14,19 +14,15 @@ The core micro-actor runtime replacement has landed:
 - Planner, executor, and reviewer reports are accepted only through role contract terminal tools.
 - Card-owned notifications are delivered per LLM turn with durable delivery markers; `LLMActor` remains queue-free.
 - Reviewer execution is a phase of `PlanningCardProcessorActor`; the standalone reviewer card processor was removed.
-- Recovery startup now persists sanitized diagnostics for unsafe active snapshots, but does not yet reconstruct/resume active actor chains.
+- Recovery startup now persists sanitized diagnostics for unsafe active snapshots, converts known interrupted running card work into blocked card outcomes, and avoids parked-state recovery side effects. It does not yet reconstruct/resume active actor chains.
 
 ## Remaining Work
 
 The remaining implementation work is intentionally narrower than the original replacement plan:
 
-1. Projection and contract polish for the actor runtime read model, especially state-name mismatches that can make healthy actors look unknown.
-2. Reviewer notification/change invalidation: reviewer approval must not ignore card changes or main-agent notifications that arrive while review is running.
-3. Recovery outcome conversion for abandoned or ambiguous active work where a safe card/operator-visible result can be written.
-4. Recovery-specific `_on_recover__{state}` hooks for safe parked states first, then active states only after durable reconstruction records exist.
-5. Full active-chain recovery reconstruction, sequenced one resumable path at a time.
-6. Broader validation beyond the focused actor and routine gates.
-7. Operator-facing docs that describe the implemented reviewer phase, terminal-tool-only reports, notification delivery, and recovery behavior.
+1. Full active-chain recovery reconstruction, sequenced one resumable path at a time.
+2. Broader validation beyond the focused actor and routine gates.
+3. Operator-facing docs that describe the implemented reviewer phase, terminal-tool-only reports, notification delivery, and recovery behavior.
 
 The detailed remaining recovery work is tracked in [Slice 8: Recovery](#slice-8-recovery).
 
@@ -42,12 +38,14 @@ Completed post-review fixes:
 - Non-terminal planner `activate_card` argument failures are returned as recoverable tool results instead of crashing activation.
 - Dead actor APIs/options such as untracked notification drain/record methods, production-dead `LLMActor.appendToolError`, and unused runtime construction inputs were removed.
 - Notification delivery markers and terminal processor process actor records are bounded/compacted.
+- Actor runtime read-model state names are aligned with current actor states.
+- Reviewer approval is invalidated when main-agent notifications remain pending after the reviewer turn; reviewer turns do not drain main-agent notification queues.
+- Startup converts known interrupted running card work into explicit blocked card outcomes when the owner card and transition are valid.
+- Safe parked-state recovery hooks avoid normal-entry side effects where needed.
 
 Remaining priority fixes:
 
-- Fix actor runtime projection state-name drift. The runtime read model should recognize current actor states such as `LLMActor` `idle`, `calling_provider`, `waiting_tool`, and `cancelled`, and `RuntimeSupervisorActor` `shutting_down`; otherwise healthy snapshots can appear as unknown.
-- Define and implement the remaining reviewer invalidation policy. Current reviewer execution is planner-owned, but approval still needs a current-card/tree check, and main-agent notifications queued during review should be held for planner delivery or explicitly recorded rather than drained into reviewer context unless that policy is deliberately changed.
-- Keep terminal contract handling simple and fail-fast unless a concrete repair requirement exists. Do not add a general terminal-output repair loop just because it is possible. Do, however, make non-terminal tool argument failures recoverable as tool results instead of crashing an activation.
+- Keep terminal contract handling simple and fail-fast unless a concrete repair requirement exists. Do not add a general terminal-output repair loop just because it is possible.
 - Remove any newly discovered dead options, duplicated types/helpers, or production-dead LLM/processor APIs as they appear during recovery work.
 
 Deferred or optional improvements:
@@ -301,7 +299,7 @@ Acceptance:
 
 Goal: add reviewer assessment after planner reports candidate done.
 
-Current status: partially implemented. Reviewer execution is planner-owned and contract-terminal-only, self-citation without durable evidence is rejected, and corrections return a blocked planner outcome. Remaining work is snapshot/currentness and notification/change invalidation during the reviewer phase.
+Current status: implemented for the current actor path. Reviewer execution is planner-owned and contract-terminal-only, self-citation without durable evidence is rejected, corrections return a blocked planner outcome, and pending main-agent notifications invalidate reviewer approval instead of being drained into reviewer context.
 
 Implementation:
 
@@ -317,9 +315,7 @@ Implementation:
 
 Remaining:
 
-- Capture enough reviewed-card/tree identity before reviewer invocation to prove reviewer approval still applies at commit time.
-- Ensure reviewer LLM input does not accidentally drain main-agent notification queues unless reviewer-visible notifications are intentionally designed.
-- Add focused tests for card changes and cancellation/main-agent notifications arriving while reviewer work is active.
+- Keep adding focused tests if new reviewer currentness cases appear during active recovery reconstruction.
 
 Tests:
 
@@ -342,7 +338,7 @@ Acceptance:
 
 Goal: rebuild safe actor state from durable records after restart.
 
-Current status: partially implemented. Startup builds an `ActorRecoveryPlan`, abandons stale pending tool calls, and persists sanitized recovery diagnostics/actions to `.saivage/runtime/recovery-diagnostics.json`. This satisfies the minimum requirement that unsafe active snapshots are not silently ignored, but it is not yet full reconstruction/resume.
+Current status: partially implemented. Startup builds an `ActorRecoveryPlan`, abandons stale pending tool calls, persists sanitized recovery diagnostics/actions to `.saivage/runtime/recovery-diagnostics.json`, converts known interrupted running card work into blocked outcomes, and cleans handled snapshots. This satisfies the minimum requirement that unsafe active snapshots are not silently ignored, but it is not yet full reconstruction/resume.
 
 Completed:
 
@@ -357,13 +353,13 @@ Completed:
 - Clean startup recovery clears stale `.saivage/runtime/recovery-diagnostics.json` files.
 - `actorRuntime.recovery` projects sanitized recovery diagnostics through the runtime status read model/API contract.
 - Startup removes handled abandoned running/killing process snapshots after writing recovery diagnostics, so the same process abandonment is not reported on every restart.
+- Startup converts known interrupted running card work to explicit blocked card outcomes when the owning card and valid lifecycle transition are available.
+- Startup removes converted card, LLM, and processor snapshots after writing diagnostics and card outcomes, so handled interrupted work is not reported on every restart.
+- `CardActor` recovery to `done` does not run normal `done` entry side effects that reopen cards with pending notifications.
 - Startup still exposes `getRecoveryPlan()` for tests and operator-facing follow-up work.
 
 Remaining:
 
-- Fix actor runtime projection state names before deeper recovery work, so diagnostics are not polluted by known healthy states.
-- Convert abandoned or ambiguous active work into explicit card/operator outcomes where appropriate, not just diagnostics files.
-- Add `_on_recover__{state}` hooks for safe parked states first. Do not add active-state recovery hooks until durable reconstruction data is complete.
 - Define minimal durable reconstruction records for activation input, processor phase, child activation waits, LLM tool waits, reviewer session/candidate identity, and process ownership.
 - Reconstruct active card chains, processor ownership, unresolved child activation waits, LLM waiting-tool state, and process waits one path at a time where safe.
 - Resume safe `waiting_tool` paths without double-delivering tool results or duplicating provider turns as part of active LLM/processor reconstruction, not as a separate disconnected feature.
@@ -372,10 +368,6 @@ Remaining:
 
 Implementation:
 
-- First fix projection drift in `actor-runtime-read-model.ts` and its API contract/tests.
-- For unrecoverable active work, write explicit blocked/failed card/operator outcomes where the owner card is known and the transition is valid; otherwise keep sanitized diagnostics.
-- For safe parked states, create fresh actor instances and call `BaseActor.recover(state)` only when snapshot context is sufficient to hydrate public fields without starting work.
-- Use `_on_recover__{state}` hooks to rebuild in-memory references from persisted reconstruction records. Recovery must not call `_on_state_changed(...)` and must not re-persist already-recorded transition snapshots unless repair logic deliberately writes a diagnostic or reconciled state.
 - Before any active resume path, define actor reconstruction records for supervisor, cards, processors, LLM turns, process records, activation waits, and tool waits.
 - Reconstruct active card chains and unresolved waits where the durable records are complete enough to resume safely.
 - Keep consuming the recovery plan during runtime startup. Persisted diagnostics are the conservative fallback; resumable chains should be reconstructed instead of only diagnosed.
