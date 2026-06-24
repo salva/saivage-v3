@@ -206,6 +206,9 @@ export class CardActor extends BaseActor {
     this.reopenDoneWithPendingNotifications();
   }
 
+  _on_recover__done(): void {
+  }
+
   protected override _on_state_changed(_oldState: string | undefined, _newState: string): void {
     this.persist();
   }

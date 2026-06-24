@@ -197,6 +197,21 @@ describe('CardActor', () => {
     expect(actor.listPendingNotifications()).toEqual([expect.objectContaining({ id: 'n-late' })]);
   }));
 
+  it('does not reopen a done card during recovery', () => withTempProject((projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    store.commitTerminalLifecyclePatch(project.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'planner_done', summary: 'done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' } });
+    const actor = new CardActor({ projectRoot, cardId: project.id, store, processor: processor({ status: 'done', summary: 'unused', result: { kind: 'planner_done', summary: 'unused' } }) });
+    actor.notifications = [{ id: 'n-recover', message: 'pending context', created_at: '2026-06-12T00:00:00.000Z' }];
+
+    actor.recover('done');
+
+    expect(actor.state()).toBe('done');
+    expect(store.read(project.id)?.status).toBe('done');
+    expect(actor.listPendingNotifications()).toEqual([expect.objectContaining({ id: 'n-recover' })]);
+  }));
+
   it('marks inactive cards changed while running cards stay running and receive notifications', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
