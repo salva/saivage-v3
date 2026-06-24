@@ -358,7 +358,7 @@ Completed:
 - `CardActor` recovery to `done` does not run normal `done` entry side effects that reopen cards with pending notifications.
 - Card, processor, and LLM snapshots persist explicit `active_reconstruction` records for active card activation, processor activation, provider calls, and LLM tool waits.
 - Recovery planning exposes active reconstruction records and derives card/LLM/processor active status from those records rather than public-status or state-name heuristics.
-- Startup projects persisted terminal tool calls for safe executor terminal outcomes and planner blocked/continue outcomes before broad interrupted-work conversion. Planner `done` remains unrecovered until reviewer reconstruction exists.
+- Startup projects persisted terminal tool calls for safe executor terminal outcomes, planner blocked/continue outcomes, and planner `done` outcomes paired with a matching persisted reviewer terminal result before broad interrupted-work conversion.
 - Projected terminal tool calls are marked `terminal_projected`, so stale pending tool-call cleanup does not abandon already-recovered terminal decisions.
 - Startup still exposes `getRecoveryPlan()` for tests and operator-facing follow-up work.
 

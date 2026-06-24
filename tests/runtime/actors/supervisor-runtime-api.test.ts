@@ -70,10 +70,21 @@ function plannerWaitingActive(cardId: string, toolName: string, toolCallId = 'ca
   return { ...llmActive(cardId), input_id: inputId, input: { inputId, agentId: `planner:${cardId}`, role: 'planner', sessionId: `planner:${cardId}`, systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: { cardId } }, waiting_tool_call: { sourceInputId: inputId, toolCallId, toolName } };
 }
 
+function reviewerWaitingActive(cardId: string, toolName: string, toolCallId = 'call-1', assessmentId = `assessment-${cardId}-1`): Record<string, unknown> {
+  const inputId = `reviewer:${cardId}:1`;
+  return { ...llmActive(cardId), agent_id: `reviewer:${cardId}`, role: 'reviewer', input_id: inputId, input: { inputId, agentId: `reviewer:${cardId}`, role: 'reviewer', sessionId: `reviewer:${cardId}:${assessmentId}`, systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: { cardId, assessmentId } }, waiting_tool_call: { sourceInputId: inputId, toolCallId, toolName } };
+}
+
 function appendPlannerToolCall(projectRoot: string, cardId: string, toolName: string, args: unknown, toolCallId = 'call-1'): void {
   const inputId = `planner:${cardId}:1`;
   const agentId = `planner:${cardId}`;
   appendLlmTurnFinished(projectRoot, { inputId, agentId, role: 'planner', sessionId: agentId, systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: { cardId } }, { kind: 'tool_calls', tool_calls: [{ id: toolCallId, type: 'function', function: { name: toolName, arguments: JSON.stringify(args) } }] });
+}
+
+function appendReviewerToolCall(projectRoot: string, cardId: string, args: unknown, toolCallId = 'call-1'): void {
+  const inputId = `reviewer:${cardId}:1`;
+  const agentId = `reviewer:${cardId}`;
+  appendLlmTurnFinished(projectRoot, { inputId, agentId, role: 'reviewer', sessionId: agentId, systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: { cardId } }, { kind: 'tool_calls', tool_calls: [{ id: toolCallId, type: 'function', function: { name: 'emit_reviewer_result', arguments: JSON.stringify(args) } }] });
 }
 
 describe('SupervisorRuntimeApi', () => {
@@ -289,6 +300,51 @@ describe('SupervisorRuntimeApi', () => {
     expect(readRecoveryDiagnostics(projectRoot)?.actions).toEqual(expect.arrayContaining([
       expect.objectContaining({ actorId: 'planner:project', kind: 'active_llm', cardId: 'project' }),
     ]));
+  }));
+
+  it('projects paired planner done and reviewer pass outcomes during startup recovery', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    const evidence = createDoneEvidence(store, project.id);
+    store.setStatus(project.id, 'running');
+    saveActorSnapshot(projectRoot, {
+      actor_id: 'card:project',
+      actor_kind: 'card',
+      state_value: 'running',
+      context: { cardId: 'project', active_reconstruction: cardActive('project') },
+      updated_at: '2026-06-12T00:00:00.000Z',
+    });
+    saveActorSnapshot(projectRoot, {
+      actor_id: 'planner:project',
+      actor_kind: 'llm',
+      state_value: 'waiting_tool',
+      context: { cardId: 'project', active_reconstruction: plannerWaitingActive('project', 'emit_planner_result') },
+      updated_at: '2026-06-12T00:00:00.000Z',
+    });
+    saveActorSnapshot(projectRoot, {
+      actor_id: 'reviewer:project',
+      actor_kind: 'llm',
+      state_value: 'waiting_tool',
+      context: { cardId: 'project', active_reconstruction: reviewerWaitingActive('project', 'emit_reviewer_result') },
+      updated_at: '2026-06-12T00:00:00.000Z',
+    });
+    saveActorSnapshot(projectRoot, {
+      actor_id: 'processor:project',
+      actor_kind: 'processor',
+      state_value: 'planning',
+      context: { cardId: 'project', active_reconstruction: processorActive('project') },
+      updated_at: '2026-06-12T00:00:00.000Z',
+    });
+    appendPlannerToolCall(projectRoot, 'project', 'emit_planner_result', { status: 'done', summary: 'project done' });
+    appendReviewerToolCall(projectRoot, 'project', { assessment: { result: 'pass', summary: 'review ok', achieved: ['project done'], issues: [], evidence_card_ids: [evidence.id] } });
+    const api = new SupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), now: () => '2026-06-12T00:00:00.000Z' });
+
+    await api.start();
+
+    expect(store.read(project.id)).toMatchObject({ status: 'done', lifecycle: { status: 'done', result: { kind: 'reviewer_pass', planning: { kind: 'planner_done', summary: 'project done' } } } });
+    expect(readToolCallStatuses(projectRoot).filter((record) => record.status === 'terminal_projected').map((record) => record.agent_id).sort()).toEqual(['planner:project', 'reviewer:project']);
+    expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).not.toEqual(expect.arrayContaining(['card:project', 'planner:project', 'processor:project', 'reviewer:project']));
   }));
 
   it('starts project work by executing the root CardActor', async () => withTempProject(async (projectRoot) => {

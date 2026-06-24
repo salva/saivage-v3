@@ -9,8 +9,11 @@ import type { CardActiveReconstructionRecord, LlmActiveReconstructionRecord, Pro
 import { cardActivationOutcomePatch, type CardActivationInput, type CardActivationOutcome } from './card-actor.js';
 import type { LLMActorOutcome } from './llm-actor.js';
 import { appendTerminalToolProjectedStatus, readLoggedToolCall } from './llm-delivery-log.js';
-import { createPlannerContract } from '../../contracts/planner-contract.js';
+import { createPlannerContract, type PlannerTypedResult } from '../../contracts/planner-contract.js';
 import { createExecutorContract } from '../../contracts/executor-contract.js';
+import { createReviewerContract } from '../../contracts/reviewer-contract.js';
+import { evaluateReviewerTerminalOutcome } from './reviewer-terminal-evaluation.js';
+import { verifyTerminalToolOutcome } from './contract-terminal-tools.js';
 
 export interface ActorRecoveryCardReader {
   read(cardId: string): unknown | null;
@@ -19,6 +22,7 @@ export interface ActorRecoveryCardReader {
 
 export interface ActorRecoveryOutcomeStore {
   read(cardId: string): CardRecord | null;
+  listChildren?(cardId: string): string[];
   commitTerminalLifecyclePatch(cardId: string, changes: Partial<CardRecord>): CardRecord;
 }
 
@@ -258,6 +262,11 @@ export function recoverProjectedTerminalToolOutcomes(plan: ActorRecoveryPlan, de
     const logged = readLoggedToolCall(deps.projectRoot, llm.actorId, waiting.sourceInputId, waiting.toolCallId);
     if (logged.tool_name !== waiting.toolName) throw new Error(`Logged tool call '${waiting.toolCallId}' tool name changed from '${waiting.toolName}' to '${logged.tool_name}'.`);
     const outcome: Extract<LLMActorOutcome, { type: 'tool_call' }> = { type: 'tool_call', agentId: llm.actorId, inputId: waiting.sourceInputId, toolCallId: waiting.toolCallId, toolName: waiting.toolName, args: logged.args };
+    const reviewerProjected = projectReviewerRecoveryOutcome(plan, deps, llm, processor, cardSnapshot, card, outcome, generatedAt);
+    if (reviewerProjected) {
+      recovered.push(reviewerProjected);
+      continue;
+    }
     const projected = projectTerminalRecoveryOutcome(deps, processor.activeReconstruction, card, cardSnapshot.activeReconstruction, outcome);
     if (!projected) continue;
     deps.store.commitTerminalLifecyclePatch(llm.cardId, cardActivationOutcomePatch(projected, generatedAt));
@@ -275,6 +284,54 @@ export function recoverProjectedTerminalToolOutcomes(plan: ActorRecoveryPlan, de
     });
   }
   return recovered;
+}
+
+function projectReviewerRecoveryOutcome(
+  plan: ActorRecoveryPlan,
+  deps: ActorRecoveryTerminalProjectionDeps,
+  planner: LlmActorRecoveryPlanRecord,
+  processor: ProcessorActorRecoveryRecord,
+  cardSnapshot: CardActorRecoveryRecord,
+  card: CardRecord,
+  plannerOutcome: Extract<LLMActorOutcome, { type: 'tool_call' }>,
+  generatedAt: string,
+): ActorRecoveryOutcomeConversion | null {
+  if (planner.role !== 'planner' || processor.activeReconstruction?.processor_kind !== 'planning') return null;
+  if (!createPlannerContract().isTerminalToolName(plannerOutcome.toolName)) return null;
+  let plannerResult: PlannerTypedResult;
+  try {
+    plannerResult = verifyTerminalToolOutcome(createPlannerContract(), plannerOutcome).result;
+  } catch {
+    return null;
+  }
+  if (plannerResult.kind !== 'result' || plannerResult.result.status !== 'done') return null;
+  if (!descendantsAreComplete(card.id, deps.store)) return null;
+  const reviewer = plan.llms.find((candidate) => candidate.active && candidate.role === 'reviewer' && candidate.cardId === card.id && candidate.snapshot.state_value === 'waiting_tool' && candidate.activeReconstruction?.waiting_tool_call);
+  if (!reviewer?.activeReconstruction?.waiting_tool_call) return null;
+  const assessmentId = reviewer.activeReconstruction.input.episodeContext.assessmentId;
+  if (typeof assessmentId !== 'string' || assessmentId.length === 0) return null;
+  const reviewerWaiting = reviewer.activeReconstruction.waiting_tool_call;
+  const reviewerLogged = readLoggedToolCall(deps.projectRoot, reviewer.actorId, reviewerWaiting.sourceInputId, reviewerWaiting.toolCallId);
+  if (reviewerLogged.tool_name !== reviewerWaiting.toolName || !createReviewerContract().isTerminalToolName(reviewerWaiting.toolName)) return null;
+  const reviewerOutcome: Extract<LLMActorOutcome, { type: 'tool_call' }> = { type: 'tool_call', agentId: reviewer.actorId, inputId: reviewerWaiting.sourceInputId, toolCallId: reviewerWaiting.toolCallId, toolName: reviewerWaiting.toolName, args: reviewerLogged.args };
+  const projected = evaluateReviewerTerminalOutcome({
+    card,
+    candidatePlanning: { kind: 'planner_done', summary: plannerResult.result.summary ?? 'Planner completed.' },
+    assessmentId,
+    sessionId: reviewer.activeReconstruction.input.sessionId,
+    outcome: reviewerOutcome,
+    store: deps.store,
+  });
+  deps.store.commitTerminalLifecyclePatch(card.id, cardActivationOutcomePatch(projected, generatedAt));
+  const plannerWaiting = planner.activeReconstruction!.waiting_tool_call!;
+  appendTerminalToolProjectedStatus(deps.projectRoot, { agent_id: planner.actorId, source_input_id: plannerWaiting.sourceInputId, tool_call_id: plannerWaiting.toolCallId, tool_name: plannerWaiting.toolName });
+  appendTerminalToolProjectedStatus(deps.projectRoot, { agent_id: reviewer.actorId, source_input_id: reviewerWaiting.sourceInputId, tool_call_id: reviewerWaiting.toolCallId, tool_name: reviewerWaiting.toolName });
+  return {
+    cardId: card.id,
+    actorIds: [cardSnapshot.snapshot.actor_id, processor.actorId, planner.actorId, reviewer.actorId].sort(),
+    status: projected.status,
+    reason: 'Startup recovery projected persisted planner and reviewer terminal tool call outcomes.',
+  };
 }
 
 function recoveryOutcomeCandidates(plan: ActorRecoveryPlan): Map<string, Set<string>> {
@@ -302,6 +359,16 @@ function projectTerminalRecoveryOutcome(
   }
   if (!createExecutorContract().isTerminalToolName(outcome.toolName)) return null;
   return deps.makeTerminalProcessor(card.id).recoverTerminalToolOutcome(outcome);
+}
+
+function descendantsAreComplete(cardId: string, store: ActorRecoveryOutcomeStore): boolean {
+  if (!store.listChildren) return false;
+  for (const childId of store.listChildren(cardId)) {
+    const child = store.read(childId);
+    if (!child || (child.status !== 'done' && child.status !== 'cancelled')) return false;
+    if (!descendantsAreComplete(childId, store)) return false;
+  }
+  return true;
 }
 
 function addRecoveryOutcomeCandidate(candidates: Map<string, Set<string>>, cardId: string, actorId: string): void {
