@@ -20,9 +20,9 @@ The core micro-actor runtime replacement has landed:
 
 The remaining implementation work is intentionally narrower than the original replacement plan:
 
-1. Full active-chain recovery reconstruction, sequenced one resumable path at a time.
-2. Broader validation beyond the focused actor and routine gates.
-3. Operator-facing docs that describe the implemented reviewer phase, terminal-tool-only reports, notification delivery, and recovery behavior.
+1. Remaining active recovery reconstruction for nonterminal waits, especially child activation waits and process/tool wait ownership.
+2. Broader release validation when needed, especially UI smoke/UI/release profiles beyond the full Jest and routine gates already run.
+3. Ongoing documentation cleanup as recovery behavior expands beyond the implemented terminal-projection paths.
 
 The detailed remaining recovery work is tracked in [Slice 8: Recovery](#slice-8-recovery).
 
@@ -42,6 +42,8 @@ Completed post-review fixes:
 - Reviewer approval is invalidated when main-agent notifications remain pending after the reviewer turn; reviewer turns do not drain main-agent notification queues.
 - Startup converts known interrupted running card work into explicit blocked card outcomes when the owner card and transition are valid.
 - Safe parked-state recovery hooks avoid normal-entry side effects where needed.
+- Terminal tool-call recovery projects safe executor terminal outcomes, planner blocked/continue outcomes, and planner `done` outcomes paired with matching persisted reviewer terminal results.
+- Full Jest, focused actor suites, routine validation, and current operator-facing spec updates have been run after the recovery slices landed.
 
 Remaining priority fixes:
 
@@ -338,7 +340,7 @@ Acceptance:
 
 Goal: rebuild safe actor state from durable records after restart.
 
-Current status: partially implemented. Startup builds an `ActorRecoveryPlan`, persists sanitized recovery diagnostics/actions to `.saivage/runtime/recovery-diagnostics.json`, projects safe persisted terminal tool-call outcomes, abandons stale pending tool calls, converts known interrupted running card work into blocked outcomes, and cleans handled snapshots. This satisfies the minimum requirement that unsafe active snapshots are not silently ignored, but it is not yet full reconstruction/resume.
+Current status: partially implemented. Startup builds an `ActorRecoveryPlan`, persists sanitized recovery diagnostics/actions to `.saivage/runtime/recovery-diagnostics.json`, projects safe persisted terminal tool-call outcomes, abandons stale pending tool calls, converts known interrupted running card work into blocked outcomes, and cleans handled snapshots. This now handles terminal outcome reconciliation, but it is not yet full active-chain reconstruction/resume.
 
 Completed:
 
@@ -360,14 +362,15 @@ Completed:
 - Recovery planning exposes active reconstruction records and derives card/LLM/processor active status from those records rather than public-status or state-name heuristics.
 - Startup projects persisted terminal tool calls for safe executor terminal outcomes, planner blocked/continue outcomes, and planner `done` outcomes paired with a matching persisted reviewer terminal result before broad interrupted-work conversion.
 - Projected terminal tool calls are marked `terminal_projected`, so stale pending tool-call cleanup does not abandon already-recovered terminal decisions.
+- Startup refuses planner `done` projection unless reviewer reconstruction identity, reviewer terminal output, and descendant readiness are all available from durable records.
 - Startup still exposes `getRecoveryPlan()` for tests and operator-facing follow-up work.
 
 Remaining:
 
-- Extend durable reconstruction records for child activation waits, reviewer session/candidate identity, and process ownership.
+- Extend durable reconstruction records for child activation waits, process ownership, and any nonterminal reviewer/planner wait that cannot be projected from terminal tool logs.
 - Reconstruct active card chains, processor ownership, unresolved child activation waits, LLM waiting-tool state, and process waits one path at a time where safe.
-- Resume remaining safe `waiting_tool` paths without double-delivering tool results or duplicating provider turns as part of active LLM/processor reconstruction, not as a separate disconnected feature.
-- Repair interrupted reviewer/planner chains with stored correction context or explicit diagnostics as part of active card/processor reconstruction.
+- Resume remaining safe nonterminal `waiting_tool` paths without double-delivering tool results or duplicating provider turns as part of active LLM/processor reconstruction, not as a separate disconnected feature.
+- Repair interrupted nonterminal reviewer/planner chains with stored correction context or explicit diagnostics as part of active card/processor reconstruction.
 - Remove or reconcile remaining card/LLM/processor actor snapshots after successful reconstruction or outcome conversion so handled recovery work is not reported again on the next restart.
 
 Implementation:
@@ -384,13 +387,13 @@ Tests:
 
 - Actor runtime read-model tests recognize current supervisor, card, LLM, processor, and process actor states without exposing raw state values.
 - Startup converts known unrecoverable active work to explicit blocked/failed card/operator outcomes only when the owning card and valid lifecycle transition are available.
-- Startup projects persisted terminal tool calls only when active card, processor, LLM reconstruction records, and a matching logged tool-call message all agree.
+- Startup projects persisted terminal tool calls only when active card, processor, LLM reconstruction records, reviewer reconstruction records where required, and matching logged tool-call messages all agree.
 - Safe parked-state recovery hooks hydrate actor fields without triggering `_on_state_changed(...)` transition snapshot writes.
 - Startup handles active planner waiting on child activation.
 - Startup handles LLM waiting for a process tool result.
 - Startup handles terminal process result awaiting delivery.
 - Startup abandons in-flight provider request with planner-visible diagnostic.
-- Startup handles interrupted reviewer with correction context or visible diagnostic.
+- Startup handles terminal interrupted reviewer/planner completion with correction/pass context, and nonterminal reviewer interruptions with visible diagnostics.
 - Startup persists sanitized recovery diagnostics for any active snapshot that is not yet safely resumable.
 - Startup diagnostics cover unknown active LLM states, active cards without active owner records, running process abandonment, and discarded non-idle supervisor snapshots.
 - Recovery diagnostics read-model tests prove the runtime status projection remains sanitized and stale diagnostics are cleared after clean recovery.
@@ -443,10 +446,9 @@ Acceptance:
 
 These items are not blockers for the core actor replacement, but should be completed before treating the redesign as release-ready:
 
-- Run and triage the full Jest suite. Earlier full-suite attempts exposed unrelated missing-doc failures; keep those separate from actor-runtime regressions.
-- When broad validation exposes tests that require old controller/XState/runtime structure, remove or rewrite those tests around the new actor architecture. Do not add adapter, bridge, shim, migration, or compatibility code to satisfy stale tests.
+- Full Jest has been run and stale docs-parity tests were rewritten around the current docs/source authority. Continue removing or rewriting stale tests around the new actor architecture rather than adding adapter, bridge, shim, migration, or compatibility code.
 - Run broader Saivage validation profiles when the release target requires them, especially `npm run validate:ui-smoke`, `npm run validate:ui`, and `npm run validate:release`.
-- Update operator-facing docs to describe the implemented planner-owned reviewer phase, terminal-tool-only report behavior, card-owned notification delivery markers, and conservative recovery diagnostics.
+- Operator-facing docs now describe planner-owned reviewer phase, terminal-tool-only report behavior, card-owned notification delivery markers, and conservative recovery diagnostics. Keep them updated as nonterminal active recovery expands.
 - `.saivage/runtime/recovery-diagnostics.json` is now projected through `actorRuntime.recovery`; decide later whether a dedicated recovery endpoint or UI treatment is needed.
 - Review generated/runtime artifact ownership separately from this runtime redesign if repository hygiene remains an open release concern.
 - Focused tests now cover the confirmed post-review gaps: reviewer self-citation rejection, malformed `activate_card` args, running cancellation notification delivery/leftover handling, real `CardActor` to processor notification-marker wiring, and bounded marker/process-map retention. Keep adding focused recovery tests for newly implemented reconstruction/reconciliation behavior.
