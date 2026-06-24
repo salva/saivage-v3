@@ -9,7 +9,7 @@ import {
   convertActorRecoveryOutcomes,
   appendLlmTurnFinished,
   PlanningCardProcessorActor,
-  recoverCompletedChildActivationWaits,
+  recoverActorStartupOutcomes,
   recoverProjectedTerminalToolOutcomes,
   TerminalCardProcessorActor,
   readRecoveryDiagnostics,
@@ -371,7 +371,7 @@ describe('actor recovery plan', () => {
     const plan = buildActorRecoveryPlan(projectRoot, store);
 
     expect(recoverProjectedTerminalToolOutcomes(plan, recoveryProcessorDeps(projectRoot, store))).toEqual([]);
-    expect(convertActorRecoveryOutcomes(plan, store)).toEqual([{ cardId, status: 'blocked', reason: expect.stringContaining('cannot be safely resumed'), actorIds: [`card:${cardId}`, `processor:${cardId}`].sort() }]);
+    expect(convertActorRecoveryOutcomes(plan, store)).toEqual([{ cardId, status: 'blocked', reason: expect.stringContaining('cannot be safely resumed'), actorIds: [`card:${cardId}`, `planner:${cardId}`, `processor:${cardId}`].sort() }]);
   }));
 
   it('recovers paired planner done and reviewer pass terminal tool calls', () => withTempProject((projectRoot) => {
@@ -451,7 +451,7 @@ describe('actor recovery plan', () => {
     expect(store.read(cardId)).toMatchObject({ status: 'done', lifecycle: { status: 'done', result: { kind: 'executor_success' } }, status_text: 'implemented' });
   }));
 
-  it('does not recover nonterminal waiting tool calls', () => withTempProject((projectRoot) => {
+  it('converts nonterminal waiting tool calls through the generic blocked path', () => withTempProject((projectRoot) => {
     const { store, cardId } = createRunningGoal(projectRoot);
     saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, active_reconstruction: cardActive(cardId) });
     saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId, active_reconstruction: processorActive(cardId) });
@@ -460,30 +460,27 @@ describe('actor recovery plan', () => {
     const plan = buildActorRecoveryPlan(projectRoot, store);
 
     expect(recoverProjectedTerminalToolOutcomes(plan, recoveryProcessorDeps(projectRoot, store))).toEqual([]);
-    expect(convertActorRecoveryOutcomes(plan, store)).toEqual([{ cardId, status: 'blocked', reason: expect.stringContaining('cannot be safely resumed'), actorIds: [`card:${cardId}`, `processor:${cardId}`].sort() }]);
+    expect(convertActorRecoveryOutcomes(plan, store)).toEqual([{ cardId, status: 'blocked', reason: expect.stringContaining('cannot be safely resumed'), actorIds: [`card:${cardId}`, `planner:${cardId}`, `processor:${cardId}`].sort() }]);
   }));
 
-  it('blocks and cleans completed child activation waits', () => withTempProject((projectRoot) => {
+  it('recovers startup outcomes in a single pass without converting projected cards again', () => withTempProject((projectRoot) => {
     const { store, cardId } = createRunningGoal(projectRoot);
-    const childId = createDoneEvidence(store, cardId);
     saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, active_reconstruction: cardActive(cardId) });
     saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId, active_reconstruction: processorActive(cardId) });
-    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'planner', 'activate_card') });
-    appendLoggedToolCall(projectRoot, cardId, 'planner', 'activate_card', { card_id: childId });
+    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'planner', 'emit_planner_result') });
+    appendLoggedToolCall(projectRoot, cardId, 'planner', 'emit_planner_result', { status: 'blocked', blocked_reason: 'needs operator', summary: 'needs operator' });
 
-    const recoveries = recoverCompletedChildActivationWaits(buildActorRecoveryPlan(projectRoot, store), { projectRoot, store, generatedAt: '2026-06-12T00:00:00.000Z' });
+    const recoveries = recoverActorStartupOutcomes(buildActorRecoveryPlan(projectRoot, store), recoveryProcessorDeps(projectRoot, store));
     cleanupConvertedRecoverySnapshots(projectRoot, recoveries);
 
-    expect(recoveries).toEqual([{ cardId, status: 'blocked', reason: expect.stringContaining(`child '${childId}' finished as done`), actorIds: [`card:${cardId}`, `planner:${cardId}`, `processor:${cardId}`].sort() }]);
-    expect(store.read(cardId)).toMatchObject({ status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'planner_blocked', blocker_cause: 'generic' } } });
-    expect(readToolCallStatuses(projectRoot, `planner:${cardId}`).map((record) => record.status)).toEqual(['pending', 'abandoned']);
+    expect(recoveries).toEqual([{ cardId, status: 'blocked', reason: expect.stringContaining('terminal tool call'), actorIds: [`card:${cardId}`, `planner:${cardId}`, `processor:${cardId}`].sort() }]);
+    expect(store.read(cardId)).toMatchObject({ status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'planner_blocked', blocked_reason: 'needs operator' } } });
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toEqual([]);
     expect(convertActorRecoveryOutcomes(buildActorRecoveryPlan(projectRoot, store), store)).toEqual([]);
   }));
 
-  it('does not convert repairable tool waits, process-only work, or non-running cards', () => withTempProject((projectRoot) => {
+  it('does not convert process-only work or non-running cards', () => withTempProject((projectRoot) => {
     const { store, cardId } = createRunningGoal(projectRoot);
-    saveSnapshot(projectRoot, `reviewer:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: { ...llmActive(cardId), agent_id: `reviewer:${cardId}`, role: 'reviewer', waiting_tool_call: { sourceInputId: 'reviewer:input:1', toolCallId: 'call-1', toolName: 'tool' } } });
     saveSnapshot(projectRoot, 'process:build-1', 'process', 'running', { processId: 'build-1' });
     const done = store.create({ type: 'goal', parent: 'project', depth: 1, title: 'done', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
     store.commitTerminalLifecyclePatch(done.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'planner_done', summary: 'done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' } });

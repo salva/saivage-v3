@@ -347,7 +347,7 @@ describe('SupervisorRuntimeApi', () => {
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).not.toEqual(expect.arrayContaining(['card:project', 'planner:project', 'processor:project', 'reviewer:project']));
   }));
 
-  it('blocks completed child activation waits during startup recovery', async () => withTempProject(async (projectRoot) => {
+  it('blocks nonterminal waiting tool calls during startup recovery', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     const project = createProject(store);
@@ -379,7 +379,7 @@ describe('SupervisorRuntimeApi', () => {
 
     await api.start();
 
-    expect(store.read(project.id)).toMatchObject({ status: 'blocked', status_text: expect.stringContaining(`child '${child.id}' finished as done`) });
+    expect(store.read(project.id)).toMatchObject({ status: 'blocked', status_text: expect.stringContaining('cannot be safely resumed') });
     expect(readToolCallStatuses(projectRoot, 'planner:project').map((record) => record.status)).toEqual(['pending', 'abandoned']);
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).not.toEqual(expect.arrayContaining(['card:project', 'planner:project', 'processor:project']));
   }));
