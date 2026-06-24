@@ -356,7 +356,7 @@ Completed:
 - Clean startup recovery clears stale `.saivage/runtime/recovery-diagnostics.json` files.
 - `actorRuntime.recovery` projects sanitized recovery diagnostics through the runtime status read model/API contract.
 - Startup removes handled abandoned running/killing process snapshots after writing recovery diagnostics, so the same process abandonment is not reported on every restart.
-- Startup converts known interrupted running card work to explicit blocked card outcomes when the owning card and valid lifecycle transition are available.
+- Startup converts known interrupted running card work to explicit blocked card outcomes when the owning card is still `running`.
 - Startup removes converted card, LLM, and processor snapshots after writing diagnostics and card outcomes, so handled interrupted work is not reported on every restart.
 - `CardActor` recovery to `done` does not run normal `done` entry side effects that reopen cards with pending notifications.
 - Card, processor, and LLM snapshots persist explicit `active_reconstruction` records for active card activation, processor activation, provider calls, and LLM tool waits.
@@ -366,7 +366,7 @@ Completed:
 - Startup refuses planner `done` projection unless reviewer reconstruction identity, reviewer terminal output, and descendant readiness are all available from durable records.
 - Startup handles completed child `activate_card` waits through generic interrupted-work conversion instead of a dedicated child-activation recovery function.
 - Startup recovery is a single-pass plan consumption path: project terminal outcomes, block remaining active card work, clean handled snapshots once, remove handled process snapshots, then abandon stale pending tool calls.
-- Nonterminal `resume_tool_wait` LLM actors participate in generic blocked conversion until genuine tool-wait resume is implemented.
+- Nonterminal `resume_tool_wait` LLM actors participate in generic blocked conversion until genuine tool-wait resume is implemented. `LlmRecoveryAction` and `llmRecoveryAction` are now diagnostic-label producers only; they no longer drive recovery control flow.
 - Recovery diagnostics are still written from the initial startup plan before cleanup. This intentionally preserves startup findings, but can read as stale if interpreted as the current outstanding recovery queue.
 - Startup still exposes `getRecoveryPlan()` for tests and operator-facing follow-up work.
 
@@ -384,13 +384,14 @@ Do not add adapters or bridge commit paths to get eager commit quickly. If eager
 Remaining:
 
 - Decide and document whether `.saivage/runtime/recovery-diagnostics.json` is a startup findings report or an outstanding-recovery report. If it should be outstanding-only, rewrite diagnostics after handled snapshot cleanup and update read-model/API tests accordingly.
+- Optional: simplify `LlmRecoveryAction`/`llmRecoveryAction` into direct diagnostic-severity derivation from `state_value` since they no longer drive control flow. This is a cleanup, not a defect.
 - Implement genuine mid-flight resume only if it becomes a concrete requirement: re-attach to in-flight provider calls (still abandoned by default), process waits, and unresolved child activation waits where the child is still active. This is the only truly hard recovery work.
 - Repair interrupted nonterminal reviewer/planner chains with stored correction context or explicit diagnostics only if reviewer-phase resume is required; otherwise the discard-and-reactivate model handles it by re-running planning.
 - Keep diagnostics for truly orphaned state (ambiguous card states, stranded active cards, discarded non-idle supervisor) regardless of which simplification is chosen.
 
 Implementation:
 
-- Keep startup recovery as one pass over the initial recovery plan: classify each active card once, apply the highest-priority outcome (projection where valid, otherwise block), clean handled snapshots once, then abandon stale tool calls once.
+- Keep startup recovery as one pass over the initial recovery plan: project safe terminal outcomes from waiting-tool LLM records first, then generically block all remaining active card work (including `resume_tool_wait` actors), clean handled snapshots once, then abandon stale tool calls once. Projection and conversion share the same plan; projected cards are excluded from conversion candidates.
 - Keep writing diagnostics before cleanup unless the diagnostics contract changes from startup-findings to outstanding-only. Do not silently mix both semantics in the same projection.
 - Keep recovery-side terminal projection until a deliberate `CardActor`-owned eager commit refactor exists.
 - Keep block-on-restart until a deliberate discard-and-reactivate runtime policy exists. Keep diagnostics for truly orphaned state either way.
@@ -401,14 +402,13 @@ Implementation:
 Tests:
 
 - Actor runtime read-model tests recognize current supervisor, card, LLM, processor, and process actor states without exposing raw state values.
-- Startup converts known unrecoverable active work to explicit blocked/failed card/operator outcomes only when the owning card and valid lifecycle transition are available.
+- Startup converts known unrecoverable active work to explicit blocked card outcomes when the owning card is still `running`. Conversion always emits `blocked`; `failed` outcomes come only from terminal projection, not from generic conversion.
 - Startup projects persisted terminal tool calls only when active card, processor, LLM reconstruction records, reviewer reconstruction records where required, and matching logged tool-call messages all agree.
 - Safe parked-state recovery hooks hydrate actor fields without triggering `_on_state_changed(...)` transition snapshot writes.
-- Startup handles active planner waiting on child activation.
-- Startup handles LLM waiting for a process tool result.
-- Startup handles terminal process result awaiting delivery.
-- Startup abandons in-flight provider request with planner-visible diagnostic.
-- Startup handles terminal interrupted reviewer/planner completion with correction/pass context, and nonterminal reviewer interruptions with visible diagnostics.
+- Generic blocked conversion covers planner `activate_card` waits and all other nonterminal `waiting_tool` states; there is no distinct child-activation or process-tool-wait recovery path.
+- Generic blocked conversion covers LLM waiting for a process tool result and terminal process result awaiting delivery; these have no distinct recovery handling and are blocked like any other interrupted wait.
+- Startup abandons in-flight provider requests with operator/runtime-visible diagnostics projected through `actorRuntime.recovery`.
+- Startup handles terminal interrupted reviewer/planner completion with correction/pass context. Nonterminal reviewer interruptions fall under generic blocked conversion with diagnostics.
 - Startup persists sanitized recovery diagnostics for any active snapshot that is not yet safely resumable.
 - Startup diagnostics cover unknown active LLM states, active cards without active owner records, running process abandonment, and discarded non-idle supervisor snapshots.
 - Recovery diagnostics read-model tests prove the runtime status projection remains sanitized and stale diagnostics are cleared after clean recovery.
@@ -420,7 +420,7 @@ Acceptance:
 
 - Recovery never relies on in-memory queues or raw actor internals.
 - Unsafe states become explicit diagnostics, not silent restarts.
-- Startup either reconstructs recoverable active actor chains or records explicit blocked/failed diagnostics for abandoned work.
+- Startup either reconstructs recoverable active actor chains or records explicit blocked diagnostics for abandoned work.
 - Recovery diagnostics do not include provider payloads, auth data, prompts, raw snapshot context, or other secret-bearing fields.
 
 ## Slice 9: Cleanup
