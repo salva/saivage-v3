@@ -187,7 +187,7 @@ The `changed` state does not by itself dispatch work. For activation and cancell
 
 ## 10. Planner Completion Gates
 
-A planner can report a goal `done`, `failed`, or `blocked`.
+A planner can report a goal `done`, `failed`, or `blocked`. Planner, executor, and reviewer terminal reports are accepted only through their role-specific terminal tools. Plain prose, ad-hoc JSON, or unsupported tool calls must not be treated as accepted card outcomes.
 
 Before accepting `done`, the runtime must verify:
 
@@ -239,6 +239,8 @@ A notification is queued onto a card. The card runtime delivers it to that card'
 Notifications are immutable after queueing. To correct one, queue another notification that supersedes it.
 
 Notifications are forgotten as queue items after delivery. The platform does not expose a notification inbox, list, get, edit, delete, acknowledge, clear-all, or management UI.
+
+The runtime records delivery markers for delivered notifications so operators can distinguish delivered context from still-pending context in runtime diagnostics. If a card settles while notifications remain pending, the runtime must not silently discard that context. A settled `done` card with pending notifications becomes `changed` so the pending context can be observed on a later activation.
 
 If a card is deleted or archived with undelivered notifications, those notifications remain with the deleted or archived card representation and are no longer deliverable through the active runtime.
 
@@ -299,7 +301,17 @@ Process handling uses a launch-and-monitor model rather than unbounded synchrono
 
 The specification does not impose a process concurrency limit for now. Future runtime settings may add per-card, per-goal, or per-runtime limits.
 
-## 17. Reviewer Assessment
+## 17. Recovery
+
+Startup recovery is conservative. If the runtime cannot prove a safe active-chain continuation, it records sanitized recovery diagnostics instead of silently resuming ambiguous work.
+
+Recovery diagnostics are persisted under runtime state and projected through `actorRuntime.recovery` in the runtime status read model. They must not include provider payloads, auth data, prompts, raw actor context, or other secret-bearing fields.
+
+Known interrupted running card work may be converted into an explicit blocked card outcome when the owning card and valid transition are known. Running or killing process snapshots are abandoned with diagnostics by default; live process reattachment is not required unless a later design explicitly adds it.
+
+Actor snapshots may include `active_reconstruction` records for active card, processor, and LLM work. Those records exist so future active recovery can be implemented from durable facts rather than in-memory queues or raw actor internals. They do not by themselves mean active provider calls or process waits are automatically resumed.
+
+## 18. Reviewer Assessment
 
 Reviewer assessment happens after the planner reports a goal ready for completion and after runtime readiness and evidence gates pass. For now, the reviewer receives the project card data, the goal subtree being assessed, and the return value from the planner agent. The reviewer records an assessment for that snapshot.
 
@@ -307,13 +319,13 @@ Reviewer approval is valid only for the card tree snapshot it assessed. The inva
 
 Reviewer results are stored locally with the assessed card. If the reviewer result is negative, it is injected back into the planner context through the response to the planner's completion-return tool call. If the reviewer result is positive, the reviewer text is attached to the card for recordkeeping but is otherwise ignored by the planner flow.
 
-## 18. Agent Session Resumption
+## 19. Agent Session Resumption
 
 Planner sessions are goal-lived. A goal planner uses deterministic identity derived from the goal card, is created lazily the first time the goal needs an LLM agent, and receives multiple activation requests over that goal's lifetime as the same logical agent session. When reactivated, the planner resumes with its prior session context plus new runtime-provided activation, notification, correction, and changed-subtree context. Future implementations may unload dormant planner agents from memory and recover them from durable session/card storage; that is not a user-facing restart/reset capability.
 
 Executor sessions are activation-lived for terminal cards. Reviewer sessions are assessment-lived. Analyst sessions are user-facing conversation sessions.
 
-## 19. Configuration
+## 20. Configuration
 
 The Analyst can reconfigure:
 
@@ -325,7 +337,7 @@ The Analyst can reconfigure:
 
 Configuration changes apply to subsequent relevant work without server restart unless the specific change requires a restart. Runtime components should reevaluate dynamically changeable settings at their relevant use/admission boundaries rather than requiring restart or long-lived cached configuration. If a restart is required, the Analyst must say so and ask before restarting.
 
-## 20. Failure Modes
+## 21. Failure Modes
 
 If the Analyst provider is unavailable, mutation is unavailable. The system must report that the Analyst is offline and must not fall back to a keyword parser or degraded non-LLM mutation mode.
 
@@ -335,7 +347,7 @@ If a multi-step action partially succeeds, the Analyst reports which steps succe
 
 If the user confirms a destructive action after context has gone stale, the Analyst must restate and reconfirm before executing.
 
-## 21. Acceptance Criteria
+## 22. Acceptance Criteria
 
 The system satisfies this specification when:
 
