@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -12,8 +12,6 @@ import type { SaivageConfig } from '../../src/agents/config-schema.js';
 import { MCP_WRAPPER_TOOL_NAMES, SKILL_TOOL_NAMES, WORKSPACE_TOOL_NAMES } from '../../src/tools/definitions/index.js';
 
 const NON_PLANNER_AGENT_ROLES: AgentRole[] = ['analyst', 'executor', 'reviewer'];
-const MATRIX_DOC = join(process.cwd(), 'docs', 'agents.md');
-
 const RETIRED_NOTE_TOOLS = ['add_note', '\x6cist_notes', 'get_note', '\x6dark_note_handled'];
 const tmpDirs: string[] = [];
 
@@ -54,32 +52,6 @@ function uniqueSorted(values: string[]): string[] {
   return [...new Set(values)].sort((a, b) => a.localeCompare(b));
 }
 
-function extractAgentToolMatrix(): Map<string, string[]> {
-  const docs = readFileSync(MATRIX_DOC, 'utf-8');
-  const section = docs.match(
-    /<!-- saivage:agent-tools:start -->(?<body>[\s\S]*?)<!-- saivage:agent-tools:end -->/,
-  );
-  if (!section?.groups?.body)
-    throw new Error('Unable to find docs/agents.md source-verified agent tool matrix block.');
-
-  const rows = new Map<string, string[]>();
-  for (const match of section.groups.body.matchAll(
-    /^\| `([^`]+)` \| `([^`]+)` \| `([^`]+)` \|$/gm,
-  )) {
-    const [, role, tools] = match;
-    rows.set(
-      role,
-      uniqueSorted(
-        tools
-          .split(',')
-          .map((toolName) => toolName.trim())
-          .filter(Boolean),
-      ),
-    );
-  }
-  return rows;
-}
-
 function processToolCallRoutedToolNames(): string[] {
   return uniqueSorted([
     ...Object.keys(TOOL_REGISTRY),
@@ -90,13 +62,10 @@ function processToolCallRoutedToolNames(): string[] {
 }
 
 describe('AgentAdapter non-planner tool surface parity', () => {
-  it('matches documented analyst/executor/reviewer tool matrices to exported AgentAdapter definitions', () => {
-    const docsMatrix = extractAgentToolMatrix();
+  it('exports stable analyst/executor/reviewer tool surfaces without retired note tools', () => {
     const adapter = createMinimalAdapter();
 
     for (const role of NON_PLANNER_AGENT_ROLES) {
-      const documented = docsMatrix.get(role);
-      expect(documented).toBeDefined();
       expect(adapter.getToolNamesForRole(role)).not.toEqual(
         expect.arrayContaining(RETIRED_NOTE_TOOLS),
       );
@@ -106,13 +75,10 @@ describe('AgentAdapter non-planner tool surface parity', () => {
     }
   });
 
-  it('matches documented card-scoped analyst tools to web analyst definitions and handler routing', () => {
-    const docsMatrix = extractAgentToolMatrix();
-    const documented = docsMatrix.get('card-scoped analyst');
+  it('keeps card-scoped analyst tools aligned with handler routing', () => {
     const exported = uniqueSorted(ANALYST_TOOL_DEFINITIONS.map((tool) => tool.function.name));
     const routed = uniqueSorted(Object.keys(TOOL_REGISTRY));
 
-    expect(documented).toBeDefined();
     expect(exported).toContain('queue_notification');
     expect(exported).not.toEqual(expect.arrayContaining(RETIRED_NOTE_TOOLS));
     expect(routed).toEqual(exported);

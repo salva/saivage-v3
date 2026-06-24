@@ -9,21 +9,20 @@ function readDoc(relativePath: string): string {
 }
 
 describe('release-readiness documentation', () => {
-  it('install guide documents the current root build and CLI startup path', () => {
-    const install = readDoc('docs/install.md');
+  it('README documents the current release validation commands', () => {
+    const readme = readDoc('README.md');
 
-    expect(install).toContain('npm run build');
-    expect(install).toContain('./bin/saivage.js start');
-    expect(install).not.toContain('There is no `npm run build` script in the root package');
-    expect(install).not.toContain('node dist/src/server/server.js');
+    expect(readme).toContain('npm run validate:routine');
+    expect(readme).toContain('npm run validate:release');
+    expect(readme).toContain('npm run build');
+    expect(readme).toContain('npm test');
   });
 
-  it('release checklist clean-checkout flow uses the current build and startup commands', () => {
-    const checklist = readDoc('docs/release-checklist.md');
+  it('README records the current reconstructed documentation tree', () => {
+    const readme = readDoc('README.md');
 
-    expect(checklist).toContain('npm run build');
-    expect(checklist).toContain('./bin/saivage.js start');
-    expect(checklist).not.toContain('npx tsc');
-    expect(checklist).not.toContain('node dist/src/server/server.js');
+    expect(readme).toContain('docs/spec/');
+    expect(readme).toContain('docs/architecture/');
+    expect(readme).toContain('documentation tree is being reconstructed');
   });
 });

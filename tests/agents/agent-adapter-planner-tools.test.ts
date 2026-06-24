@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { rmSync, mkdtempSync, mkdirSync, readFileSync } from 'node:fs';
+import { rmSync, mkdtempSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -96,21 +96,6 @@ function unique(values: string[]): string[] {
   return [...new Set(values)];
 }
 
-function plannerToolNamesFromAgentsDoc(): string[] {
-  const docs = readFileSync(join(process.cwd(), 'docs', 'agents.md'), 'utf-8');
-  const section = docs.match(
-    /## 7\. Planner Tools(?<body>[\s\S]*?)### 7\.1 Destructive Card Operations/,
-  );
-  if (!section?.groups?.body)
-    throw new Error('Unable to find docs/agents.md §7 Planner Tools section.');
-  const names = [...section.groups.body.matchAll(/^- `([a-z_]+)(?:\(|`)/gm)].map(
-    (match) => match[1],
-  );
-  if (names.length === 0)
-    throw new Error('Unable to extract any planner tools from docs/agents.md §7.');
-  return unique(names);
-}
-
 function processToolCallHandledPlannerTools(): string[] {
   return AgentToolCatalog.roleToolNames('planner');
 }
@@ -133,8 +118,7 @@ describe('AgentAdapter planner tool surface', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('matches docs/agents.md §7 planner tools to exported definitions and processToolCall routing', () => {
-    const documentedToolNames = plannerToolNamesFromAgentsDoc();
+  it('keeps exported planner tools aligned with processToolCall routing', () => {
     const TERMINAL_TOOLS = new Set([
       'emit_planner_result',
       'emit_executor_result',
@@ -147,9 +131,7 @@ describe('AgentAdapter planner tool surface', () => {
       (n) => !TERMINAL_TOOLS.has(n),
     );
 
-    expect(exportedToolNames).toEqual(expect.arrayContaining(documentedToolNames));
-    expect(documentedToolNames).toEqual(expect.arrayContaining(exportedToolNames));
-    expect(handledToolNames).toEqual(expect.arrayContaining(documentedToolNames));
+    expect(unique(exportedToolNames)).toEqual(unique(handledToolNames));
   });
 
   it('keeps the exported planner tool definition order stable for prompt reproducibility', () => {
