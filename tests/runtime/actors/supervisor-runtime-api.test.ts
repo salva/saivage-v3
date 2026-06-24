@@ -86,7 +86,7 @@ describe('SupervisorRuntimeApi', () => {
     saveActorSnapshot(projectRoot, {
       actor_id: 'planner:G-recover',
       actor_kind: 'llm',
-      state_value: 'running',
+      state_value: 'calling_provider',
       context: { cardId: 'G-recover' },
       updated_at: '2026-06-12T00:00:00.000Z',
     });

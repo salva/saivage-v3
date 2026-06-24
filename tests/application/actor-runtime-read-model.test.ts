@@ -48,7 +48,7 @@ describe('actor runtime read model', () => {
     saveActorSnapshot(projectRoot, {
       actor_id: 'executor:T-1',
       actor_kind: 'llm',
-      state_value: 'running',
+      state_value: 'calling_provider',
       context: { privateField: 'not projected' },
       updated_at: new Date().toISOString(),
     });
@@ -56,10 +56,30 @@ describe('actor runtime read model', () => {
     expect(buildActorRuntimeReadModel(projectRoot)).toEqual({
       pauseMode: 'paused',
       cards: [{ cardId: 'T-1', actorState: 'running' }],
-      agents: [{ agentId: 'executor:T-1', agentPhase: 'running' }],
+      agents: [{ agentId: 'executor:T-1', agentPhase: 'calling_provider' }],
       diagnostics: [],
       recovery: null,
     });
+  }));
+
+  it('accepts current actor states without diagnostics', () => withTempProject((projectRoot) => {
+    const cardStates = ['backlog', 'changed', 'blocked', 'failed', 'done', 'running', 'cancelled'];
+    const llmStates = ['idle', 'calling_provider', 'waiting_tool', 'cancelled'];
+    cardStates.forEach((state) => saveActorSnapshot(projectRoot, { actor_id: `card:${state}`, actor_kind: 'card', state_value: state, context: {}, updated_at: new Date().toISOString() }));
+    llmStates.forEach((state) => saveActorSnapshot(projectRoot, { actor_id: `planner:${state}`, actor_kind: 'llm', state_value: state, context: {}, updated_at: new Date().toISOString() }));
+
+    const model = buildActorRuntimeReadModel(projectRoot);
+
+    expect(model.diagnostics).toEqual([]);
+    expect(model.cards.map((card) => card.actorState).sort()).toEqual([...cardStates].sort());
+    expect(model.agents.map((agent) => agent.agentPhase).sort()).toEqual([...llmStates].sort());
+  }));
+
+  it('accepts current supervisor modes without unknown-mode diagnostics', () => withTempProject((projectRoot) => {
+    for (const [mode, expected] of [['idle', 'running'], ['running', 'running'], ['paused', 'paused'], ['shutting_down', 'stopping']] as const) {
+      saveActorSnapshot(projectRoot, { actor_id: 'supervisor', actor_kind: 'supervisor', state_value: { mode, work: mode === 'shutting_down' ? 'shutdown_active' : 'ready' }, context: {}, updated_at: new Date().toISOString() });
+      expect(buildActorRuntimeReadModel(projectRoot)).toMatchObject({ pauseMode: expected, diagnostics: [] });
+    }
   }));
 
   it('reports unknown supervisor snapshot shape as diagnostics', () => withTempProject((projectRoot) => {

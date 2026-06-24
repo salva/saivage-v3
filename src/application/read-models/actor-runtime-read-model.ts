@@ -69,7 +69,7 @@ function readCardActorState(actorId: string, value: unknown, diagnostics: string
 }
 
 function readAgentPhase(actorId: string, value: unknown, diagnostics: string[]): string {
-  if (value === 'running' || value === 'done') return value;
+  if (value === 'idle' || value === 'calling_provider' || value === 'waiting_tool' || value === 'cancelled') return value;
   diagnostics.push(`agent actor '${actorId}' has unknown phase '${String(value)}'`);
   return 'unknown';
 }
@@ -81,7 +81,8 @@ function readSupervisorMode(value: unknown, diagnostics: string[]): ActorPauseMo
   }
   const mode = (value as { mode: unknown }).mode;
   if (mode === 'idle') return 'running';
-  if (mode === 'running' || mode === 'paused' || mode === 'stopping') return mode;
+  if (mode === 'running' || mode === 'paused') return mode;
+  if (mode === 'shutting_down') return 'stopping';
   diagnostics.push(`supervisor snapshot has unknown mode '${String(mode)}'`);
   return 'unknown';
 }

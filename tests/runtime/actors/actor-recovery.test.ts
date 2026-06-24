@@ -37,7 +37,7 @@ describe('actor recovery plan', () => {
   }));
 
   it('builds a deterministic plan for supervisor, active goal card, and planner LLM snapshots', () => withTempProject((projectRoot) => {
-    saveSnapshot(projectRoot, 'planner:G-1', 'llm', 'running', { cardId: 'G-1' });
+    saveSnapshot(projectRoot, 'planner:G-1', 'llm', 'calling_provider', { cardId: 'G-1' });
     saveSnapshot(projectRoot, 'supervisor', 'supervisor', { mode: 'running', work: 'ready' }, { projectRoot });
     saveSnapshot(projectRoot, 'card:G-1', 'card', 'planning', { cardId: 'G-1', publicStatus: 'running' });
 
@@ -45,16 +45,16 @@ describe('actor recovery plan', () => {
 
     expect(plan.supervisor?.actor_id).toBe('supervisor');
     expect(plan.cards).toMatchObject([{ cardId: 'G-1', active: true }]);
-    expect(plan.llms).toMatchObject([{ actorId: 'planner:G-1', role: 'planner', cardId: 'G-1', active: true, action: 'none' }]);
+    expect(plan.llms).toMatchObject([{ actorId: 'planner:G-1', role: 'planner', cardId: 'G-1', active: true, action: 'abandon_provider_call' }]);
     expect(plan.processors).toEqual([]);
     expect(plan.processes).toEqual([]);
   }));
 
-  it('includes terminal executor and process snapshots with reconciliation requirements', () => withTempProject((projectRoot) => {
+  it('includes terminal executor and process snapshots with abandonment requirements', () => withTempProject((projectRoot) => {
     saveSnapshot(projectRoot, 'card:T-1', 'card', 'executing', { cardId: 'T-1', publicStatus: 'running' });
-    saveSnapshot(projectRoot, 'executor:T-1', 'llm', 'done', { cardId: 'T-1' });
+    saveSnapshot(projectRoot, 'executor:T-1', 'llm', 'idle', { cardId: 'T-1' });
     saveSnapshot(projectRoot, 'process:build-1', 'process', 'running', { processId: 'build-1' });
-    saveSnapshot(projectRoot, 'process:done-1', 'process', 'done', { processId: 'done-1' });
+    saveSnapshot(projectRoot, 'process:done-1', 'process', 'settled', { processId: 'done-1' });
 
     const plan = buildActorRecoveryPlan(projectRoot);
 
@@ -105,7 +105,7 @@ describe('actor recovery plan', () => {
 
   it('allows an active LLM snapshot when the owner card exists in the domain reader', () => withTempProject((projectRoot) => {
     const cards = new Map<string, { id: string; type: string }>([['G-domain', { id: 'G-domain', type: 'goal' }]]);
-    saveSnapshot(projectRoot, 'planner:G-domain', 'llm', 'running', { cardId: 'G-domain' });
+    saveSnapshot(projectRoot, 'planner:G-domain', 'llm', 'calling_provider', { cardId: 'G-domain' });
 
     const plan = buildActorRecoveryPlan(projectRoot, { read: jest.fn((cardId: string) => cards.get(cardId) ?? null) });
 
@@ -114,7 +114,7 @@ describe('actor recovery plan', () => {
 
   it('diagnoses active LLM snapshots without a concrete recovery action', () => withTempProject((projectRoot) => {
     saveSnapshot(projectRoot, 'card:G-1', 'card', 'running', { cardId: 'G-1' });
-    saveSnapshot(projectRoot, 'planner:G-1', 'llm', 'running', { cardId: 'G-1' });
+    saveSnapshot(projectRoot, 'planner:G-1', 'llm', 'unknown_active_phase', { cardId: 'G-1' });
 
     const plan = buildActorRecoveryPlan(projectRoot);
 
