@@ -1,7 +1,7 @@
 import { EventBus } from '../../events/index.js';
 import { createActionableErrorEnvelope } from '../../schemas/index.js';
 import { PROJECT_CARD_ID } from '../../cards/project-card.js';
-import { buildActorRecoveryPlan, cleanupConvertedRecoverySnapshots, cleanupHandledRecoverySnapshots, convertActorRecoveryOutcomes, recoverProjectedTerminalToolOutcomes, writeRecoveryDiagnostics } from './actor-recovery.js';
+import { buildActorRecoveryPlan, cleanupConvertedRecoverySnapshots, cleanupHandledRecoverySnapshots, convertActorRecoveryOutcomes, recoverCompletedChildActivationWaits, recoverProjectedTerminalToolOutcomes, writeRecoveryDiagnostics } from './actor-recovery.js';
 import { abandonStalePendingToolCalls } from './llm-delivery-log.js';
 import { plannerActorId } from './ids.js';
 import { RuntimeSupervisorActor } from './runtime-supervisor.js';
@@ -57,7 +57,10 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       makeTerminalProcessor: (cardId) => new TerminalCardProcessorActor({ projectRoot: this.options.projectRoot, cardId, provider: this.options.provider, admission: this }),
     });
     cleanupConvertedRecoverySnapshots(this.options.projectRoot, terminalRecoveries);
-    const conversionPlan = terminalRecoveries.length > 0 ? buildActorRecoveryPlan(this.options.projectRoot, this.options.actorStore) : this.recoveryPlan;
+    const childActivationPlan = terminalRecoveries.length > 0 ? buildActorRecoveryPlan(this.options.projectRoot, this.options.actorStore) : this.recoveryPlan;
+    const childActivationRecoveries = recoverCompletedChildActivationWaits(childActivationPlan, { projectRoot: this.options.projectRoot, store: this.options.actorStore, generatedAt: this.now() });
+    cleanupConvertedRecoverySnapshots(this.options.projectRoot, childActivationRecoveries);
+    const conversionPlan = terminalRecoveries.length > 0 || childActivationRecoveries.length > 0 ? buildActorRecoveryPlan(this.options.projectRoot, this.options.actorStore) : this.recoveryPlan;
     const conversions = convertActorRecoveryOutcomes(conversionPlan, this.options.actorStore, this.now());
     cleanupConvertedRecoverySnapshots(this.options.projectRoot, conversions);
     cleanupHandledRecoverySnapshots(this.options.projectRoot, conversionPlan);

@@ -43,6 +43,7 @@ Completed post-review fixes:
 - Startup converts known interrupted running card work into explicit blocked card outcomes when the owner card and transition are valid.
 - Safe parked-state recovery hooks avoid normal-entry side effects where needed.
 - Terminal tool-call recovery projects safe executor terminal outcomes, planner blocked/continue outcomes, and planner `done` outcomes paired with matching persisted reviewer terminal results.
+- Completed child activation waits are reconciled conservatively: if a parent planner was interrupted waiting on `activate_card` and the child is already terminal, startup blocks the parent with targeted resume guidance and cleans parent actor snapshots.
 - Full Jest, focused actor suites, routine validation, and current operator-facing spec updates have been run after the recovery slices landed.
 
 Remaining priority fixes:
@@ -363,12 +364,13 @@ Completed:
 - Startup projects persisted terminal tool calls for safe executor terminal outcomes, planner blocked/continue outcomes, and planner `done` outcomes paired with a matching persisted reviewer terminal result before broad interrupted-work conversion.
 - Projected terminal tool calls are marked `terminal_projected`, so stale pending tool-call cleanup does not abandon already-recovered terminal decisions.
 - Startup refuses planner `done` projection unless reviewer reconstruction identity, reviewer terminal output, and descendant readiness are all available from durable records.
+- Startup recognizes completed child `activate_card` waits, blocks the interrupted parent with targeted guidance, abandons the stale pending tool status, and cleans parent card/processor/planner snapshots.
 - Startup still exposes `getRecoveryPlan()` for tests and operator-facing follow-up work.
 
 Remaining:
 
-- Extend durable reconstruction records for child activation waits, process ownership, and any nonterminal reviewer/planner wait that cannot be projected from terminal tool logs.
-- Reconstruct active card chains, processor ownership, unresolved child activation waits, LLM waiting-tool state, and process waits one path at a time where safe.
+- Extend durable reconstruction records for unresolved child activation waits, process ownership, and any nonterminal reviewer/planner wait that cannot be projected from terminal tool logs.
+- Reconstruct active card chains, processor ownership, unresolved child activation waits where the child is still active/nonterminal, LLM waiting-tool state, and process waits one path at a time where safe.
 - Resume remaining safe nonterminal `waiting_tool` paths without double-delivering tool results or duplicating provider turns as part of active LLM/processor reconstruction, not as a separate disconnected feature.
 - Repair interrupted nonterminal reviewer/planner chains with stored correction context or explicit diagnostics as part of active card/processor reconstruction.
 - Remove or reconcile remaining card/LLM/processor actor snapshots after successful reconstruction or outcome conversion so handled recovery work is not reported again on the next restart.

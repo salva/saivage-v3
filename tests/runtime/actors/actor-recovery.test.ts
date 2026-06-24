@@ -9,6 +9,7 @@ import {
   convertActorRecoveryOutcomes,
   appendLlmTurnFinished,
   PlanningCardProcessorActor,
+  recoverCompletedChildActivationWaits,
   recoverProjectedTerminalToolOutcomes,
   TerminalCardProcessorActor,
   readRecoveryDiagnostics,
@@ -460,6 +461,24 @@ describe('actor recovery plan', () => {
 
     expect(recoverProjectedTerminalToolOutcomes(plan, recoveryProcessorDeps(projectRoot, store))).toEqual([]);
     expect(convertActorRecoveryOutcomes(plan, store)).toEqual([{ cardId, status: 'blocked', reason: expect.stringContaining('cannot be safely resumed'), actorIds: [`card:${cardId}`, `processor:${cardId}`].sort() }]);
+  }));
+
+  it('blocks and cleans completed child activation waits', () => withTempProject((projectRoot) => {
+    const { store, cardId } = createRunningGoal(projectRoot);
+    const childId = createDoneEvidence(store, cardId);
+    saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, active_reconstruction: cardActive(cardId) });
+    saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId, active_reconstruction: processorActive(cardId) });
+    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'planner', 'activate_card') });
+    appendLoggedToolCall(projectRoot, cardId, 'planner', 'activate_card', { card_id: childId });
+
+    const recoveries = recoverCompletedChildActivationWaits(buildActorRecoveryPlan(projectRoot, store), { projectRoot, store, generatedAt: '2026-06-12T00:00:00.000Z' });
+    cleanupConvertedRecoverySnapshots(projectRoot, recoveries);
+
+    expect(recoveries).toEqual([{ cardId, status: 'blocked', reason: expect.stringContaining(`child '${childId}' finished as done`), actorIds: [`card:${cardId}`, `planner:${cardId}`, `processor:${cardId}`].sort() }]);
+    expect(store.read(cardId)).toMatchObject({ status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'planner_blocked', blocker_cause: 'generic' } } });
+    expect(readToolCallStatuses(projectRoot, `planner:${cardId}`).map((record) => record.status)).toEqual(['pending', 'abandoned']);
+    expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toEqual([]);
+    expect(convertActorRecoveryOutcomes(buildActorRecoveryPlan(projectRoot, store), store)).toEqual([]);
   }));
 
   it('does not convert repairable tool waits, process-only work, or non-running cards', () => withTempProject((projectRoot) => {

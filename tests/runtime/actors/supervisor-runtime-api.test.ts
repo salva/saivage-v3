@@ -347,6 +347,43 @@ describe('SupervisorRuntimeApi', () => {
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).not.toEqual(expect.arrayContaining(['card:project', 'planner:project', 'processor:project', 'reviewer:project']));
   }));
 
+  it('blocks completed child activation waits during startup recovery', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    const child = createDoneEvidence(store, project.id);
+    store.setStatus(project.id, 'running');
+    saveActorSnapshot(projectRoot, {
+      actor_id: 'card:project',
+      actor_kind: 'card',
+      state_value: 'running',
+      context: { cardId: 'project', active_reconstruction: cardActive('project') },
+      updated_at: '2026-06-12T00:00:00.000Z',
+    });
+    saveActorSnapshot(projectRoot, {
+      actor_id: 'planner:project',
+      actor_kind: 'llm',
+      state_value: 'waiting_tool',
+      context: { cardId: 'project', active_reconstruction: plannerWaitingActive('project', 'activate_card') },
+      updated_at: '2026-06-12T00:00:00.000Z',
+    });
+    saveActorSnapshot(projectRoot, {
+      actor_id: 'processor:project',
+      actor_kind: 'processor',
+      state_value: 'planning',
+      context: { cardId: 'project', active_reconstruction: processorActive('project') },
+      updated_at: '2026-06-12T00:00:00.000Z',
+    });
+    appendPlannerToolCall(projectRoot, 'project', 'activate_card', { card_id: child.id });
+    const api = new SupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), now: () => '2026-06-12T00:00:00.000Z' });
+
+    await api.start();
+
+    expect(store.read(project.id)).toMatchObject({ status: 'blocked', status_text: expect.stringContaining(`child '${child.id}' finished as done`) });
+    expect(readToolCallStatuses(projectRoot, 'planner:project').map((record) => record.status)).toEqual(['pending', 'abandoned']);
+    expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).not.toEqual(expect.arrayContaining(['card:project', 'planner:project', 'processor:project']));
+  }));
+
   it('starts project work by executing the root CardActor', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
