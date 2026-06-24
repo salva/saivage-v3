@@ -4,7 +4,9 @@ import { join } from 'node:path';
 import { describe, expect, it, jest } from '@jest/globals';
 import {
   buildActorRecoveryPlan,
+  cleanupConvertedRecoverySnapshots,
   cleanupHandledRecoverySnapshots,
+  convertActorRecoveryOutcomes,
   readRecoveryDiagnostics,
   readActorSnapshots,
   recoveryDiagnosticsPath,
@@ -12,6 +14,8 @@ import {
   saveActorSnapshot,
   writeRecoveryDiagnostics,
 } from '../../../src/runtime/actors/index.js';
+import { initProjectTree } from '../../../src/persistence/file-tree.js';
+import { CardStore } from '../../../src/cards/card-store.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-actor-recovery-'));
@@ -29,6 +33,15 @@ function saveSnapshot(projectRoot: string, actorId: string, actorKind: 'supervis
     context,
     updated_at: '2026-06-12T00:00:00.000Z',
   });
+}
+
+function createRunningGoal(projectRoot: string): { store: CardStore; cardId: string } {
+  initProjectTree(projectRoot);
+  const store = new CardStore(projectRoot);
+  store.create({ type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
+  const card = store.create({ type: 'goal', parent: 'project', depth: 1, title: 'goal', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
+  store.setStatus(card.id, 'running');
+  return { store, cardId: card.id };
 }
 
 describe('actor recovery plan', () => {
@@ -242,5 +255,49 @@ describe('actor recovery plan', () => {
     ]));
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toEqual(expect.arrayContaining(['card:G-1', 'process:done-1']));
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).not.toContain('process:build-1');
+  }));
+
+  it('converts interrupted running card work into a blocked card outcome', () => withTempProject((projectRoot) => {
+    const { store, cardId } = createRunningGoal(projectRoot);
+    saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, publicStatus: 'running' });
+    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'calling_provider', { cardId });
+    saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId });
+    const plan = buildActorRecoveryPlan(projectRoot, store);
+
+    const conversions = convertActorRecoveryOutcomes(plan, store, '2026-06-12T00:00:00.000Z');
+
+    expect(conversions).toEqual([{ cardId, status: 'blocked', reason: expect.stringContaining('cannot be safely resumed'), actorIds: [`card:${cardId}`, `planner:${cardId}`, `processor:${cardId}`].sort() }]);
+    expect(store.read(cardId)).toMatchObject({
+      status: 'blocked',
+      lifecycle: { status: 'blocked', result: { kind: 'planner_blocked', blocker_cause: 'generic' } },
+      status_text: expect.stringContaining('cannot be safely resumed'),
+    });
+  }));
+
+  it('does not convert repairable tool waits, process-only work, or non-running cards', () => withTempProject((projectRoot) => {
+    const { store, cardId } = createRunningGoal(projectRoot);
+    saveSnapshot(projectRoot, `reviewer:${cardId}`, 'llm', 'waiting_tool', { cardId });
+    saveSnapshot(projectRoot, 'process:build-1', 'process', 'running', { processId: 'build-1' });
+    const done = store.create({ type: 'goal', parent: 'project', depth: 1, title: 'done', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
+    store.commitTerminalLifecyclePatch(done.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'planner_done', summary: 'done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' } });
+    saveSnapshot(projectRoot, `planner:${done.id}`, 'llm', 'calling_provider', { cardId: done.id });
+    const plan = buildActorRecoveryPlan(projectRoot, store);
+
+    expect(convertActorRecoveryOutcomes(plan, store, '2026-06-12T00:00:00.000Z')).toEqual([]);
+    expect(store.read(cardId)?.status).toBe('running');
+    expect(store.read(done.id)?.status).toBe('done');
+  }));
+
+  it('cleans up converted card, LLM, and processor snapshots', () => withTempProject((projectRoot) => {
+    const { store, cardId } = createRunningGoal(projectRoot);
+    saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, publicStatus: 'running' });
+    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'calling_provider', { cardId });
+    saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId });
+    const plan = buildActorRecoveryPlan(projectRoot, store);
+    const conversions = convertActorRecoveryOutcomes(plan, store, '2026-06-12T00:00:00.000Z');
+
+    cleanupConvertedRecoverySnapshots(projectRoot, conversions);
+
+    expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toEqual([]);
   }));
 });

@@ -4,10 +4,23 @@ import { z } from 'zod';
 import { AtomicJsonFile, ProjectLock } from '../../persistence/index.js';
 import { readActorSnapshots, removeActorSnapshot } from './snapshots.js';
 import type { ActorSnapshotRecord } from './snapshots.js';
+import type { CardRecord } from '../../schemas/index.js';
 
 export interface ActorRecoveryCardReader {
   read(cardId: string): unknown | null;
   listChildren?(cardId: string): string[];
+}
+
+export interface ActorRecoveryOutcomeStore {
+  read(cardId: string): CardRecord | null;
+  commitTerminalLifecyclePatch(cardId: string, changes: Partial<CardRecord>): CardRecord;
+}
+
+export interface ActorRecoveryOutcomeConversion {
+  cardId: string;
+  actorIds: string[];
+  status: 'blocked';
+  reason: string;
 }
 
 export type LlmRecoveryRole = 'planner' | 'reviewer' | 'executor';
@@ -182,6 +195,47 @@ export function cleanupHandledRecoverySnapshots(projectRoot: string, plan: Actor
   for (const process of plan.processes) {
     if (process.action === 'abandon_running_process') removeActorSnapshot(projectRoot, process.snapshot.actor_id);
   }
+}
+
+export function convertActorRecoveryOutcomes(plan: ActorRecoveryPlan, store: ActorRecoveryOutcomeStore, generatedAt = new Date().toISOString()): ActorRecoveryOutcomeConversion[] {
+  const candidates = recoveryOutcomeCandidates(plan);
+  const conversions: ActorRecoveryOutcomeConversion[] = [];
+  for (const [cardId, actorIds] of candidates) {
+    const card = store.read(cardId);
+    if (!card || card.status !== 'running') continue;
+    const reason = 'Startup recovery blocked this card because its previous actor activation was interrupted and cannot be safely resumed.';
+    store.commitTerminalLifecyclePatch(cardId, {
+      status: 'blocked',
+      lifecycle: { status: 'blocked', result: { kind: 'planner_blocked', blocked_reason: reason, resume_reason: 'Inspect recovery diagnostics, then reactivate the card if the work should continue.', blocker_cause: 'generic' }, error: reason, completed_at: null },
+      status_text: reason,
+      status_text_updated_at: generatedAt,
+    });
+    conversions.push({ cardId, actorIds: [...actorIds].sort(), status: 'blocked', reason });
+  }
+  return conversions;
+}
+
+export function cleanupConvertedRecoverySnapshots(projectRoot: string, conversions: ActorRecoveryOutcomeConversion[]): void {
+  for (const conversion of conversions) {
+    for (const actorId of conversion.actorIds) removeActorSnapshot(projectRoot, actorId);
+  }
+}
+
+function recoveryOutcomeCandidates(plan: ActorRecoveryPlan): Map<string, Set<string>> {
+  const candidates = new Map<string, Set<string>>();
+  for (const card of plan.cards) if (card.active) addRecoveryOutcomeCandidate(candidates, card.cardId, card.snapshot.actor_id);
+  for (const llm of plan.llms) {
+    if (!llm.active || llm.action === 'resume_tool_wait') continue;
+    addRecoveryOutcomeCandidate(candidates, llm.cardId, llm.actorId);
+  }
+  for (const processor of plan.processors) if (processor.active) addRecoveryOutcomeCandidate(candidates, processor.cardId, processor.actorId);
+  return candidates;
+}
+
+function addRecoveryOutcomeCandidate(candidates: Map<string, Set<string>>, cardId: string, actorId: string): void {
+  const actorIds = candidates.get(cardId) ?? new Set<string>();
+  actorIds.add(actorId);
+  candidates.set(cardId, actorIds);
 }
 
 function recoveryDiagnosticsLock(projectRoot: string): ProjectLock {
