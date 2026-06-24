@@ -447,6 +447,7 @@ Acceptance:
 These items are not blockers for the core actor replacement, but should be completed before treating the redesign as release-ready:
 
 - Run and triage the full Jest suite. Earlier full-suite attempts exposed unrelated missing-doc failures; keep those separate from actor-runtime regressions.
+- When broad validation exposes tests that require old controller/XState/runtime structure, remove or rewrite those tests around the new actor architecture. Do not add adapter, bridge, shim, migration, or compatibility code to satisfy stale tests.
 - Run broader Saivage validation profiles when the release target requires them, especially `npm run validate:ui-smoke`, `npm run validate:ui`, and `npm run validate:release`.
 - Update operator-facing docs to describe the implemented planner-owned reviewer phase, terminal-tool-only report behavior, card-owned notification delivery markers, and conservative recovery diagnostics.
 - `.saivage/runtime/recovery-diagnostics.json` is now projected through `actorRuntime.recovery`; decide later whether a dedicated recovery endpoint or UI treatment is needed.
