@@ -25,7 +25,7 @@ const toolCallStatusRecordSchema = z.object({
   source_input_id: z.string().min(1),
   tool_call_id: z.string().min(1),
   tool_name: z.string().min(1),
-  status: z.enum(['pending', 'delivered', 'errored', 'abandoned']),
+  status: z.enum(['pending', 'delivered', 'errored', 'abandoned', 'terminal_projected']),
   delivery_input_id: z.string().min(1).optional(),
   error: z.string().min(1).optional(),
   created_at: z.string().datetime(),
@@ -33,6 +33,14 @@ const toolCallStatusRecordSchema = z.object({
 
 export type ToolDeliveryRecord = z.infer<typeof toolDeliveryRecordSchema>;
 export type ToolCallStatusRecord = z.infer<typeof toolCallStatusRecordSchema>;
+
+export interface LoggedToolCall {
+  agent_id: string;
+  source_input_id: string;
+  tool_call_id: string;
+  tool_name: string;
+  args: unknown;
+}
 
 export function actorMessagesPath(projectRoot: string, agentId: string): string {
   return join(projectRoot, '.saivage', 'agents', 'messages', `${encodeURIComponent(agentId)}.jsonl`);
@@ -153,10 +161,35 @@ export function readToolCallStatuses(projectRoot: string, agentId?: string): Too
   return paths.flatMap((path) => readToolCallStatusPath(path));
 }
 
+export function readLoggedToolCall(projectRoot: string, agentId: string, sourceInputId: string, toolCallId: string): LoggedToolCall {
+  const path = actorMessagesPath(projectRoot, agentId);
+  if (!existsSync(path)) throw new Error(`Logged tool call '${toolCallId}' for '${agentId}' was not found.`);
+  const matches = readFileSync(path, 'utf-8')
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => agentMessageSchema.parse(JSON.parse(line)))
+    .filter((message) => message.kind === 'tool_call' && message.id === `${sourceInputId}:tool-call:${toolCallId}` && message.tool_call_id === toolCallId);
+  if (matches.length === 0) throw new Error(`Logged tool call '${toolCallId}' for '${agentId}' input '${sourceInputId}' was not found.`);
+  if (matches.length > 1) throw new Error(`Logged tool call '${toolCallId}' for '${agentId}' input '${sourceInputId}' is duplicated.`);
+  const [message] = matches;
+  if (!message.tool) throw new Error(`Logged tool call '${toolCallId}' for '${agentId}' is missing a tool name.`);
+  let args: unknown;
+  try {
+    args = JSON.parse(message.content);
+  } catch {
+    throw new Error(`Logged tool call '${toolCallId}' for '${agentId}' has malformed JSON arguments.`);
+  }
+  return { agent_id: agentId, source_input_id: sourceInputId, tool_call_id: toolCallId, tool_name: message.tool, args };
+}
+
+export function appendTerminalToolProjectedStatus(projectRoot: string, record: Omit<ToolCallStatusRecord, 'transition_id' | 'created_at' | 'status'>): ToolCallStatusRecord {
+  return appendToolCallStatus(projectRoot, { ...record, status: 'terminal_projected' });
+}
+
 export function abandonStalePendingToolCalls(projectRoot: string, reason = 'Runtime restarted before the pending tool call reached a terminal delivery state.'): ToolCallStatusRecord[] {
   const records = readToolCallStatuses(projectRoot);
   const terminalKeys = new Set(records
-    .filter((record) => record.status === 'delivered' || record.status === 'errored' || record.status === 'abandoned')
+    .filter((record) => record.status === 'delivered' || record.status === 'errored' || record.status === 'abandoned' || record.status === 'terminal_projected')
     .map(toolCallKey));
   const abandoned: ToolCallStatusRecord[] = [];
   for (const record of records) {

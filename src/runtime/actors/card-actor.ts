@@ -244,17 +244,7 @@ export class CardActor extends BaseActor {
 
   private commitOutcome(outcome: Exclude<CardActivationOutcome, { status: 'cancelled' }>): void {
     const stamp = new Date().toISOString();
-    const lifecycle = outcome.status === 'done'
-      ? { status: 'done' as const, result: outcome.result, error: null, completed_at: stamp }
-      : outcome.status === 'failed'
-        ? { status: 'failed' as const, result: outcome.result, error: outcome.summary, completed_at: stamp }
-        : { status: 'blocked' as const, result: outcome.result, error: outcome.summary, completed_at: null };
-    this.store.commitTerminalLifecyclePatch(this.cardId, {
-      status: outcome.status,
-      lifecycle,
-      status_text: outcome.summary,
-      status_text_updated_at: stamp,
-    });
+    this.store.commitTerminalLifecyclePatch(this.cardId, cardActivationOutcomePatch(outcome, stamp));
     this.lastOutcome = outcome;
     this.activeReconstruction = null;
     this.#pendingActivation?.resolve(outcome);
@@ -314,6 +304,20 @@ export class CardActor extends BaseActor {
   private persist(): void {
     saveActorSnapshot(this.projectRoot, this.snapshot());
   }
+}
+
+export function cardActivationOutcomePatch(outcome: Exclude<CardActivationOutcome, { status: 'cancelled' }>, completedAt: string): Partial<CardRecord> {
+  const lifecycle = outcome.status === 'done'
+    ? { status: 'done' as const, result: outcome.result, error: null, completed_at: completedAt }
+    : outcome.status === 'failed'
+      ? { status: 'failed' as const, result: outcome.result, error: outcome.summary, completed_at: completedAt }
+      : { status: 'blocked' as const, result: outcome.result, error: outcome.summary, completed_at: null };
+  return {
+    status: outcome.status,
+    lifecycle,
+    status_text: outcome.summary,
+    status_text_updated_at: completedAt,
+  };
 }
 
 export function isActivatable(status: CardStatus): boolean {

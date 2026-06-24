@@ -6,6 +6,11 @@ import { readActorSnapshots, removeActorSnapshot } from './snapshots.js';
 import type { ActorSnapshotRecord } from './snapshots.js';
 import type { CardRecord } from '../../schemas/index.js';
 import type { CardActiveReconstructionRecord, LlmActiveReconstructionRecord, ProcessorActiveReconstructionRecord } from './active-reconstruction.js';
+import { cardActivationOutcomePatch, type CardActivationInput, type CardActivationOutcome } from './card-actor.js';
+import type { LLMActorOutcome } from './llm-actor.js';
+import { appendTerminalToolProjectedStatus, readLoggedToolCall } from './llm-delivery-log.js';
+import { createPlannerContract } from '../../contracts/planner-contract.js';
+import { createExecutorContract } from '../../contracts/executor-contract.js';
 
 export interface ActorRecoveryCardReader {
   read(cardId: string): unknown | null;
@@ -20,8 +25,16 @@ export interface ActorRecoveryOutcomeStore {
 export interface ActorRecoveryOutcomeConversion {
   cardId: string;
   actorIds: string[];
-  status: 'blocked';
+  status: Exclude<CardActivationOutcome, { status: 'cancelled' }>['status'];
   reason: string;
+}
+
+export interface ActorRecoveryTerminalProjectionDeps {
+  projectRoot: string;
+  store: ActorRecoveryOutcomeStore;
+  makePlanningProcessor(cardId: string): { recoverTerminalToolOutcome(input: CardActivationInput, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): Exclude<CardActivationOutcome, { status: 'cancelled' }> | null };
+  makeTerminalProcessor(cardId: string): { recoverTerminalToolOutcome(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): Exclude<CardActivationOutcome, { status: 'cancelled' }> };
+  generatedAt?: string;
 }
 
 export type LlmRecoveryRole = 'planner' | 'reviewer' | 'executor';
@@ -231,6 +244,39 @@ export function cleanupConvertedRecoverySnapshots(projectRoot: string, conversio
   }
 }
 
+export function recoverProjectedTerminalToolOutcomes(plan: ActorRecoveryPlan, deps: ActorRecoveryTerminalProjectionDeps): ActorRecoveryOutcomeConversion[] {
+  const recovered: ActorRecoveryOutcomeConversion[] = [];
+  const generatedAt = deps.generatedAt ?? new Date().toISOString();
+  for (const llm of plan.llms) {
+    if (!llm.active || llm.snapshot.state_value !== 'waiting_tool' || !llm.activeReconstruction?.waiting_tool_call) continue;
+    const processor = plan.processors.find((candidate) => candidate.active && candidate.cardId === llm.cardId);
+    const cardSnapshot = plan.cards.find((candidate) => candidate.active && candidate.cardId === llm.cardId);
+    if (!processor?.activeReconstruction || !cardSnapshot?.activeReconstruction) continue;
+    const card = deps.store.read(llm.cardId);
+    if (!card || card.status !== 'running') continue;
+    const waiting = llm.activeReconstruction.waiting_tool_call;
+    const logged = readLoggedToolCall(deps.projectRoot, llm.actorId, waiting.sourceInputId, waiting.toolCallId);
+    if (logged.tool_name !== waiting.toolName) throw new Error(`Logged tool call '${waiting.toolCallId}' tool name changed from '${waiting.toolName}' to '${logged.tool_name}'.`);
+    const outcome: Extract<LLMActorOutcome, { type: 'tool_call' }> = { type: 'tool_call', agentId: llm.actorId, inputId: waiting.sourceInputId, toolCallId: waiting.toolCallId, toolName: waiting.toolName, args: logged.args };
+    const projected = projectTerminalRecoveryOutcome(deps, processor.activeReconstruction, card, cardSnapshot.activeReconstruction, outcome);
+    if (!projected) continue;
+    deps.store.commitTerminalLifecyclePatch(llm.cardId, cardActivationOutcomePatch(projected, generatedAt));
+    appendTerminalToolProjectedStatus(deps.projectRoot, {
+      agent_id: llm.actorId,
+      source_input_id: waiting.sourceInputId,
+      tool_call_id: waiting.toolCallId,
+      tool_name: waiting.toolName,
+    });
+    recovered.push({
+      cardId: llm.cardId,
+      actorIds: [cardSnapshot.snapshot.actor_id, processor.actorId, llm.actorId].sort(),
+      status: projected.status,
+      reason: 'Startup recovery projected a persisted terminal tool call outcome.',
+    });
+  }
+  return recovered;
+}
+
 function recoveryOutcomeCandidates(plan: ActorRecoveryPlan): Map<string, Set<string>> {
   const candidates = new Map<string, Set<string>>();
   for (const card of plan.cards) if (card.active) addRecoveryOutcomeCandidate(candidates, card.cardId, card.snapshot.actor_id);
@@ -240,6 +286,22 @@ function recoveryOutcomeCandidates(plan: ActorRecoveryPlan): Map<string, Set<str
   }
   for (const processor of plan.processors) if (processor.active) addRecoveryOutcomeCandidate(candidates, processor.cardId, processor.actorId);
   return candidates;
+}
+
+function projectTerminalRecoveryOutcome(
+  deps: ActorRecoveryTerminalProjectionDeps,
+  processor: ProcessorActiveReconstructionRecord,
+  card: CardRecord,
+  cardReconstruction: CardActiveReconstructionRecord,
+  outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>,
+): Exclude<CardActivationOutcome, { status: 'cancelled' }> | null {
+  const input: CardActivationInput = { card, caller: cardReconstruction.caller, notifications: [] };
+  if (processor.processor_kind === 'planning') {
+    if (!createPlannerContract().isTerminalToolName(outcome.toolName)) return null;
+    return deps.makePlanningProcessor(card.id).recoverTerminalToolOutcome(input, outcome);
+  }
+  if (!createExecutorContract().isTerminalToolName(outcome.toolName)) return null;
+  return deps.makeTerminalProcessor(card.id).recoverTerminalToolOutcome(outcome);
 }
 
 function addRecoveryOutcomeCandidate(candidates: Map<string, Set<string>>, cardId: string, actorId: string): void {

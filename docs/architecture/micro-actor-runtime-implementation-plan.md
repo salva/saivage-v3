@@ -14,7 +14,7 @@ The core micro-actor runtime replacement has landed:
 - Planner, executor, and reviewer reports are accepted only through role contract terminal tools.
 - Card-owned notifications are delivered per LLM turn with durable delivery markers; `LLMActor` remains queue-free.
 - Reviewer execution is a phase of `PlanningCardProcessorActor`; the standalone reviewer card processor was removed.
-- Recovery startup now persists sanitized diagnostics for unsafe active snapshots, records explicit active reconstruction facts in actor snapshots, converts known interrupted running card work into blocked card outcomes, and avoids parked-state recovery side effects. It does not yet reconstruct/resume active actor chains.
+- Recovery startup now persists sanitized diagnostics for unsafe active snapshots, records explicit active reconstruction facts in actor snapshots, projects safe persisted terminal tool-call outcomes, converts known interrupted running card work into blocked card outcomes, and avoids parked-state recovery side effects. It does not yet reconstruct/resume active actor chains.
 
 ## Remaining Work
 
@@ -338,7 +338,7 @@ Acceptance:
 
 Goal: rebuild safe actor state from durable records after restart.
 
-Current status: partially implemented. Startup builds an `ActorRecoveryPlan`, abandons stale pending tool calls, persists sanitized recovery diagnostics/actions to `.saivage/runtime/recovery-diagnostics.json`, converts known interrupted running card work into blocked outcomes, and cleans handled snapshots. This satisfies the minimum requirement that unsafe active snapshots are not silently ignored, but it is not yet full reconstruction/resume.
+Current status: partially implemented. Startup builds an `ActorRecoveryPlan`, persists sanitized recovery diagnostics/actions to `.saivage/runtime/recovery-diagnostics.json`, projects safe persisted terminal tool-call outcomes, abandons stale pending tool calls, converts known interrupted running card work into blocked outcomes, and cleans handled snapshots. This satisfies the minimum requirement that unsafe active snapshots are not silently ignored, but it is not yet full reconstruction/resume.
 
 Completed:
 
@@ -358,13 +358,15 @@ Completed:
 - `CardActor` recovery to `done` does not run normal `done` entry side effects that reopen cards with pending notifications.
 - Card, processor, and LLM snapshots persist explicit `active_reconstruction` records for active card activation, processor activation, provider calls, and LLM tool waits.
 - Recovery planning exposes active reconstruction records and derives card/LLM/processor active status from those records rather than public-status or state-name heuristics.
+- Startup projects persisted terminal tool calls for safe executor terminal outcomes and planner blocked/continue outcomes before broad interrupted-work conversion. Planner `done` remains unrecovered until reviewer reconstruction exists.
+- Projected terminal tool calls are marked `terminal_projected`, so stale pending tool-call cleanup does not abandon already-recovered terminal decisions.
 - Startup still exposes `getRecoveryPlan()` for tests and operator-facing follow-up work.
 
 Remaining:
 
 - Extend durable reconstruction records for child activation waits, reviewer session/candidate identity, and process ownership.
 - Reconstruct active card chains, processor ownership, unresolved child activation waits, LLM waiting-tool state, and process waits one path at a time where safe.
-- Resume safe `waiting_tool` paths without double-delivering tool results or duplicating provider turns as part of active LLM/processor reconstruction, not as a separate disconnected feature.
+- Resume remaining safe `waiting_tool` paths without double-delivering tool results or duplicating provider turns as part of active LLM/processor reconstruction, not as a separate disconnected feature.
 - Repair interrupted reviewer/planner chains with stored correction context or explicit diagnostics as part of active card/processor reconstruction.
 - Remove or reconcile remaining card/LLM/processor actor snapshots after successful reconstruction or outcome conversion so handled recovery work is not reported again on the next restart.
 
@@ -382,6 +384,7 @@ Tests:
 
 - Actor runtime read-model tests recognize current supervisor, card, LLM, processor, and process actor states without exposing raw state values.
 - Startup converts known unrecoverable active work to explicit blocked/failed card/operator outcomes only when the owning card and valid lifecycle transition are available.
+- Startup projects persisted terminal tool calls only when active card, processor, LLM reconstruction records, and a matching logged tool-call message all agree.
 - Safe parked-state recovery hooks hydrate actor fields without triggering `_on_state_changed(...)` transition snapshot writes.
 - Startup handles active planner waiting on child activation.
 - Startup handles LLM waiting for a process tool result.

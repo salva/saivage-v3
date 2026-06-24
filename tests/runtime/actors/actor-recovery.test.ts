@@ -7,12 +7,17 @@ import {
   cleanupConvertedRecoverySnapshots,
   cleanupHandledRecoverySnapshots,
   convertActorRecoveryOutcomes,
+  appendLlmTurnFinished,
+  PlanningCardProcessorActor,
+  recoverProjectedTerminalToolOutcomes,
+  TerminalCardProcessorActor,
   readRecoveryDiagnostics,
   readActorSnapshots,
   recoveryDiagnosticsPath,
   removeActorSnapshot,
   saveActorSnapshot,
   writeRecoveryDiagnostics,
+  type LLMProviderPort,
 } from '../../../src/runtime/actors/index.js';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
 import { CardStore } from '../../../src/cards/card-store.js';
@@ -43,8 +48,35 @@ function processorActive(cardId: string): Record<string, unknown> {
   return { schema_version: 1, kind: 'processor_activation', processor_kind: 'planning', card_id: cardId, caller: { kind: 'root' }, activation_counter: 1, started_at: '2026-06-12T00:00:00.000Z' };
 }
 
+function terminalProcessorActive(cardId: string): Record<string, unknown> {
+  return { schema_version: 1, kind: 'processor_activation', processor_kind: 'terminal', card_id: cardId, caller: { kind: 'parent', cardId: 'project' }, activation_counter: 1, started_at: '2026-06-12T00:00:00.000Z' };
+}
+
 function llmActive(cardId: string, inputId = 'planner:input:1'): Record<string, unknown> {
   return { schema_version: 1, kind: 'llm_turn', agent_id: `planner:${cardId}`, role: 'planner', card_id: cardId, input_id: inputId, input: { inputId, agentId: `planner:${cardId}`, role: 'planner', sessionId: `planner:${cardId}`, systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: { cardId } }, provider_call_id: null, waiting_tool_call: null, delivered_tool_call_ids: [], tool_delivery_counter: 0, started_at: '2026-06-12T00:00:00.000Z' };
+}
+
+function llmWaitingActive(cardId: string, role: 'planner' | 'executor', toolName: string, toolCallId = 'call-1'): Record<string, unknown> {
+  const agentId = `${role}:${cardId}`;
+  const inputId = `${role}:${cardId}:1`;
+  return { ...llmActive(cardId, inputId), agent_id: agentId, role, input_id: inputId, input: { inputId, agentId, role, sessionId: agentId, systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: { cardId } }, waiting_tool_call: { sourceInputId: inputId, toolCallId, toolName } };
+}
+
+function appendLoggedToolCall(projectRoot: string, cardId: string, role: 'planner' | 'executor', toolName: string, args: unknown, toolCallId = 'call-1'): void {
+  const agentId = `${role}:${cardId}`;
+  const inputId = `${role}:${cardId}:1`;
+  appendLlmTurnFinished(projectRoot, { inputId, agentId, role, sessionId: agentId, systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: { cardId } }, { kind: 'tool_calls', tool_calls: [{ id: toolCallId, type: 'function', function: { name: toolName, arguments: JSON.stringify(args) } }] });
+}
+
+function recoveryProcessorDeps(projectRoot: string, store: CardStore) {
+  const provider: LLMProviderPort = { completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'unused' })) };
+  return {
+    projectRoot,
+    store,
+    generatedAt: '2026-06-12T00:00:00.000Z',
+    makePlanningProcessor: (cardId: string) => new PlanningCardProcessorActor({ projectRoot, cardId, store, children: { get: () => null }, provider }),
+    makeTerminalProcessor: (cardId: string) => new TerminalCardProcessorActor({ projectRoot, cardId, provider }),
+  };
 }
 
 function createRunningGoal(projectRoot: string): { store: CardStore; cardId: string } {
@@ -52,6 +84,15 @@ function createRunningGoal(projectRoot: string): { store: CardStore; cardId: str
   const store = new CardStore(projectRoot);
   store.create({ type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
   const card = store.create({ type: 'goal', parent: 'project', depth: 1, title: 'goal', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
+  store.setStatus(card.id, 'running');
+  return { store, cardId: card.id };
+}
+
+function createRunningTerminalCard(projectRoot: string): { store: CardStore; cardId: string } {
+  initProjectTree(projectRoot);
+  const store = new CardStore(projectRoot);
+  store.create({ type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
+  const card = store.create({ type: 'code', parent: 'project', depth: 1, title: 'code', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
   store.setStatus(card.id, 'running');
   return { store, cardId: card.id };
 }
@@ -286,6 +327,60 @@ describe('actor recovery plan', () => {
       lifecycle: { status: 'blocked', result: { kind: 'planner_blocked', blocker_cause: 'generic' } },
       status_text: expect.stringContaining('cannot be safely resumed'),
     });
+  }));
+
+  it('recovers a persisted planner blocked terminal tool call', () => withTempProject((projectRoot) => {
+    const { store, cardId } = createRunningGoal(projectRoot);
+    saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, active_reconstruction: cardActive(cardId) });
+    saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId, active_reconstruction: processorActive(cardId) });
+    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'planner', 'emit_planner_result') });
+    appendLoggedToolCall(projectRoot, cardId, 'planner', 'emit_planner_result', { status: 'blocked', blocked_reason: 'needs operator', summary: 'needs operator' });
+    const plan = buildActorRecoveryPlan(projectRoot, store);
+
+    const recoveries = recoverProjectedTerminalToolOutcomes(plan, recoveryProcessorDeps(projectRoot, store));
+    cleanupConvertedRecoverySnapshots(projectRoot, recoveries);
+
+    expect(recoveries).toEqual([{ cardId, status: 'blocked', reason: expect.stringContaining('terminal tool call'), actorIds: [`card:${cardId}`, `planner:${cardId}`, `processor:${cardId}`].sort() }]);
+    expect(store.read(cardId)).toMatchObject({ status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'planner_blocked', blocked_reason: 'needs operator' } } });
+    expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toEqual([]);
+    expect(convertActorRecoveryOutcomes(buildActorRecoveryPlan(projectRoot, store), store)).toEqual([]);
+  }));
+
+  it('does not recover planner done terminal tool calls before reviewer reconstruction exists', () => withTempProject((projectRoot) => {
+    const { store, cardId } = createRunningGoal(projectRoot);
+    saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, active_reconstruction: cardActive(cardId) });
+    saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId, active_reconstruction: processorActive(cardId) });
+    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'planner', 'emit_planner_result') });
+    appendLoggedToolCall(projectRoot, cardId, 'planner', 'emit_planner_result', { status: 'done', summary: 'done' });
+    const plan = buildActorRecoveryPlan(projectRoot, store);
+
+    expect(recoverProjectedTerminalToolOutcomes(plan, recoveryProcessorDeps(projectRoot, store))).toEqual([]);
+    expect(convertActorRecoveryOutcomes(plan, store)).toEqual([{ cardId, status: 'blocked', reason: expect.stringContaining('cannot be safely resumed'), actorIds: [`card:${cardId}`, `processor:${cardId}`].sort() }]);
+  }));
+
+  it('recovers a persisted executor terminal success tool call', () => withTempProject((projectRoot) => {
+    const { store, cardId } = createRunningTerminalCard(projectRoot);
+    saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, active_reconstruction: cardActive(cardId) });
+    saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'executing', { cardId, active_reconstruction: terminalProcessorActive(cardId) });
+    saveSnapshot(projectRoot, `executor:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'executor', 'emit_executor_result') });
+    appendLoggedToolCall(projectRoot, cardId, 'executor', 'emit_executor_result', { card_id: cardId, status: 'done', status_text: 'implemented', summary: 'implemented', artifacts: [], attachments: [] });
+
+    const recoveries = recoverProjectedTerminalToolOutcomes(buildActorRecoveryPlan(projectRoot, store), recoveryProcessorDeps(projectRoot, store));
+
+    expect(recoveries).toEqual([{ cardId, status: 'done', reason: expect.stringContaining('terminal tool call'), actorIds: [`card:${cardId}`, `executor:${cardId}`, `processor:${cardId}`].sort() }]);
+    expect(store.read(cardId)).toMatchObject({ status: 'done', lifecycle: { status: 'done', result: { kind: 'executor_success' } }, status_text: 'implemented' });
+  }));
+
+  it('does not recover nonterminal waiting tool calls', () => withTempProject((projectRoot) => {
+    const { store, cardId } = createRunningGoal(projectRoot);
+    saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, active_reconstruction: cardActive(cardId) });
+    saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId, active_reconstruction: processorActive(cardId) });
+    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'planner', 'activate_card') });
+    appendLoggedToolCall(projectRoot, cardId, 'planner', 'activate_card', { card_id: 'child' });
+    const plan = buildActorRecoveryPlan(projectRoot, store);
+
+    expect(recoverProjectedTerminalToolOutcomes(plan, recoveryProcessorDeps(projectRoot, store))).toEqual([]);
+    expect(convertActorRecoveryOutcomes(plan, store)).toEqual([{ cardId, status: 'blocked', reason: expect.stringContaining('cannot be safely resumed'), actorIds: [`card:${cardId}`, `processor:${cardId}`].sort() }]);
   }));
 
   it('does not convert repairable tool waits, process-only work, or non-running cards', () => withTempProject((projectRoot) => {

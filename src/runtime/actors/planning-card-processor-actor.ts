@@ -41,6 +41,24 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     this.runPendingActivation('planning', (input, signal) => this.runActivation(input, signal));
   }
 
+  recoverTerminalToolOutcome(_input: CardActivationInput, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): PlannerProcessorOutcome | null {
+    let typed: PlannerTypedResult;
+    try {
+      typed = verifyTerminalToolOutcome(createPlannerContract(), outcome).result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return this.plannerFailure(message);
+    }
+    const parsed = typed.result;
+    if (parsed.status === 'done') return null;
+    if (parsed.status === 'blocked') {
+      const summary = parsed.summary ?? parsed.blocked_reason ?? 'Planner blocked.';
+      return { status: 'blocked', summary, result: { kind: 'planner_blocked', blocked_reason: parsed.blocked_reason ?? summary, resume_reason: parsed.blocked_reason ?? summary } };
+    }
+    const summary = parsed.summary ?? 'Planner requested continuation without an action tool.';
+    return { status: 'blocked', summary, result: { kind: 'planner_blocked', blocked_reason: summary, resume_reason: 'non_actionable_continue', blocker_cause: 'non_actionable_continue' } };
+  }
+
   private async runActivation(input: CardActivationInput, signal: AbortSignal): Promise<PlannerProcessorOutcome> {
     const llm = this.createMainLlm(plannerActorId(this.cardId));
     let outcome = await llm.turn(this.buildLlmInput(input));

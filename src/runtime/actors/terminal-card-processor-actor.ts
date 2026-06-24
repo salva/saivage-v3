@@ -34,6 +34,10 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     this.runPendingActivation('executing', (input, signal) => this.runActivation(input, signal));
   }
 
+  recoverTerminalToolOutcome(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): TerminalProcessorOutcome {
+    return this.projectExecutorTerminal(outcome);
+  }
+
   protected override processorSnapshotContext(): Record<string, unknown> {
     return { ...super.processorSnapshotContext(), processIds: [...this.processes.keys()] };
   }
