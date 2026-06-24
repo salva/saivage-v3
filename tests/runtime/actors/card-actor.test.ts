@@ -73,6 +73,33 @@ describe('CardActor', () => {
     expect(readActorSnapshots(projectRoot).map((item) => item.actor_id)).toContain('card:project');
   }));
 
+  it('persists active reconstruction during card activation and clears it on settlement', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    let finish!: () => void;
+    const fakeProcessor: CardProcessorActor = {
+      activate: jest.fn(async () => new Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>((resolve) => {
+        finish = () => resolve({ status: 'done', summary: 'project done', result: { kind: 'planner_done', summary: 'project done' } });
+      })),
+    };
+    const actor = CardActor.fromCard({ projectRoot, card: project, store, processor: fakeProcessor });
+
+    const pending = actor.activate({ kind: 'root' });
+    await eventually(() => expect(actor.state()).toBe('running'));
+    expect(readActorSnapshots(projectRoot).find((item) => item.actor_id === 'card:project')?.context.active_reconstruction).toMatchObject({
+      schema_version: 1,
+      kind: 'card_activation',
+      card_id: 'project',
+      processor_actor_id: 'processor:project',
+      caller: { kind: 'root' },
+    });
+
+    finish();
+    await expect(pending).resolves.toMatchObject({ status: 'done' });
+    await eventually(() => expect(readActorSnapshots(projectRoot).find((item) => item.actor_id === 'card:project')?.context.active_reconstruction).toBeNull());
+  }));
+
   it('passes a card-owned notification delivery port to activation input', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);

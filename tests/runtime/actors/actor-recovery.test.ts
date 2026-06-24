@@ -35,6 +35,18 @@ function saveSnapshot(projectRoot: string, actorId: string, actorKind: 'supervis
   });
 }
 
+function cardActive(cardId: string): Record<string, unknown> {
+  return { schema_version: 1, kind: 'card_activation', card_id: cardId, processor_actor_id: `processor:${cardId}`, caller: { kind: 'root' }, started_at: '2026-06-12T00:00:00.000Z' };
+}
+
+function processorActive(cardId: string): Record<string, unknown> {
+  return { schema_version: 1, kind: 'processor_activation', processor_kind: 'planning', card_id: cardId, caller: { kind: 'root' }, activation_counter: 1, started_at: '2026-06-12T00:00:00.000Z' };
+}
+
+function llmActive(cardId: string, inputId = 'planner:input:1'): Record<string, unknown> {
+  return { schema_version: 1, kind: 'llm_turn', agent_id: `planner:${cardId}`, role: 'planner', card_id: cardId, input_id: inputId, input: { inputId, agentId: `planner:${cardId}`, role: 'planner', sessionId: `planner:${cardId}`, systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: { cardId } }, provider_call_id: null, waiting_tool_call: null, delivered_tool_call_ids: [], tool_delivery_counter: 0, started_at: '2026-06-12T00:00:00.000Z' };
+}
+
 function createRunningGoal(projectRoot: string): { store: CardStore; cardId: string } {
   initProjectTree(projectRoot);
   const store = new CardStore(projectRoot);
@@ -50,21 +62,21 @@ describe('actor recovery plan', () => {
   }));
 
   it('builds a deterministic plan for supervisor, active goal card, and planner LLM snapshots', () => withTempProject((projectRoot) => {
-    saveSnapshot(projectRoot, 'planner:G-1', 'llm', 'calling_provider', { cardId: 'G-1' });
+    saveSnapshot(projectRoot, 'planner:G-1', 'llm', 'calling_provider', { cardId: 'G-1', active_reconstruction: llmActive('G-1') });
     saveSnapshot(projectRoot, 'supervisor', 'supervisor', { mode: 'running', work: 'ready' }, { projectRoot });
-    saveSnapshot(projectRoot, 'card:G-1', 'card', 'planning', { cardId: 'G-1', publicStatus: 'running' });
+    saveSnapshot(projectRoot, 'card:G-1', 'card', 'running', { cardId: 'G-1', active_reconstruction: cardActive('G-1') });
 
     const plan = buildActorRecoveryPlan(projectRoot);
 
     expect(plan.supervisor?.actor_id).toBe('supervisor');
-    expect(plan.cards).toMatchObject([{ cardId: 'G-1', active: true }]);
-    expect(plan.llms).toMatchObject([{ actorId: 'planner:G-1', role: 'planner', cardId: 'G-1', active: true, action: 'abandon_provider_call' }]);
+    expect(plan.cards).toMatchObject([{ cardId: 'G-1', active: true, activeReconstruction: expect.objectContaining({ kind: 'card_activation' }) }]);
+    expect(plan.llms).toMatchObject([{ actorId: 'planner:G-1', role: 'planner', cardId: 'G-1', active: true, activeReconstruction: expect.objectContaining({ kind: 'llm_turn' }), action: 'abandon_provider_call' }]);
     expect(plan.processors).toEqual([]);
     expect(plan.processes).toEqual([]);
   }));
 
   it('includes terminal executor and process snapshots with abandonment requirements', () => withTempProject((projectRoot) => {
-    saveSnapshot(projectRoot, 'card:T-1', 'card', 'executing', { cardId: 'T-1', publicStatus: 'running' });
+    saveSnapshot(projectRoot, 'card:T-1', 'card', 'running', { cardId: 'T-1', active_reconstruction: cardActive('T-1') });
     saveSnapshot(projectRoot, 'executor:T-1', 'llm', 'idle', { cardId: 'T-1' });
     saveSnapshot(projectRoot, 'process:build-1', 'process', 'running', { processId: 'build-1' });
     saveSnapshot(projectRoot, 'process:done-1', 'process', 'settled', { processId: 'done-1' });
@@ -82,29 +94,31 @@ describe('actor recovery plan', () => {
     ]));
   }));
 
-  it('does not treat parked card snapshots as active unless public status is running', () => withTempProject((projectRoot) => {
+  it('treats card snapshots as active only when active reconstruction is present', () => withTempProject((projectRoot) => {
     saveSnapshot(projectRoot, 'card:G-backlog', 'card', 'backlog', { cardId: 'G-backlog' });
     saveSnapshot(projectRoot, 'card:G-blocked', 'card', 'blocked', { cardId: 'G-blocked' });
-    saveSnapshot(projectRoot, 'card:G-changed', 'card', 'changed', { cardId: 'G-changed', publicStatus: 'running' });
+    saveSnapshot(projectRoot, 'card:G-running', 'card', 'running', { cardId: 'G-running' });
+    saveSnapshot(projectRoot, 'card:G-active', 'card', 'running', { cardId: 'G-active', active_reconstruction: cardActive('G-active') });
 
     const plan = buildActorRecoveryPlan(projectRoot);
 
     expect(plan.cards).toMatchObject([
+      { cardId: 'G-active', active: true },
       { cardId: 'G-backlog', active: false },
       { cardId: 'G-blocked', active: false },
-      { cardId: 'G-changed', active: true },
+      { cardId: 'G-running', active: false },
     ]);
   }));
 
   it('classifies processor snapshots and active LLM recovery actions', () => withTempProject((projectRoot) => {
-    saveSnapshot(projectRoot, 'card:G-1', 'card', 'running', { cardId: 'G-1' });
-    saveSnapshot(projectRoot, 'processor:G-1', 'processor', 'planning', { cardId: 'G-1' });
-    saveSnapshot(projectRoot, 'planner:G-1', 'llm', 'calling_provider', { cardId: 'G-1' });
-    saveSnapshot(projectRoot, 'reviewer:G-1', 'llm', 'waiting_tool', { cardId: 'G-1' });
+    saveSnapshot(projectRoot, 'card:G-1', 'card', 'running', { cardId: 'G-1', active_reconstruction: cardActive('G-1') });
+    saveSnapshot(projectRoot, 'processor:G-1', 'processor', 'planning', { cardId: 'G-1', active_reconstruction: processorActive('G-1') });
+    saveSnapshot(projectRoot, 'planner:G-1', 'llm', 'calling_provider', { cardId: 'G-1', active_reconstruction: llmActive('G-1') });
+    saveSnapshot(projectRoot, 'reviewer:G-1', 'llm', 'waiting_tool', { cardId: 'G-1', active_reconstruction: { ...llmActive('G-1'), agent_id: 'reviewer:G-1', role: 'reviewer', waiting_tool_call: { sourceInputId: 'reviewer:G-1:1', toolCallId: 'call-1', toolName: 'tool' } } });
 
     const plan = buildActorRecoveryPlan(projectRoot);
 
-    expect(plan.processors).toMatchObject([{ actorId: 'processor:G-1', cardId: 'G-1', active: true }]);
+    expect(plan.processors).toMatchObject([{ actorId: 'processor:G-1', cardId: 'G-1', active: true, activeReconstruction: expect.objectContaining({ kind: 'processor_activation' }) }]);
     expect(plan.llms).toMatchObject([
       { actorId: 'planner:G-1', action: 'abandon_provider_call', active: true },
       { actorId: 'reviewer:G-1', action: 'resume_tool_wait', active: true },
@@ -118,7 +132,7 @@ describe('actor recovery plan', () => {
 
   it('allows an active LLM snapshot when the owner card exists in the domain reader', () => withTempProject((projectRoot) => {
     const cards = new Map<string, { id: string; type: string }>([['G-domain', { id: 'G-domain', type: 'goal' }]]);
-    saveSnapshot(projectRoot, 'planner:G-domain', 'llm', 'calling_provider', { cardId: 'G-domain' });
+    saveSnapshot(projectRoot, 'planner:G-domain', 'llm', 'calling_provider', { cardId: 'G-domain', active_reconstruction: llmActive('G-domain') });
 
     const plan = buildActorRecoveryPlan(projectRoot, { read: jest.fn((cardId: string) => cards.get(cardId) ?? null) });
 
@@ -126,8 +140,8 @@ describe('actor recovery plan', () => {
   }));
 
   it('diagnoses active LLM snapshots without a concrete recovery action', () => withTempProject((projectRoot) => {
-    saveSnapshot(projectRoot, 'card:G-1', 'card', 'running', { cardId: 'G-1' });
-    saveSnapshot(projectRoot, 'planner:G-1', 'llm', 'unknown_active_phase', { cardId: 'G-1' });
+    saveSnapshot(projectRoot, 'card:G-1', 'card', 'running', { cardId: 'G-1', active_reconstruction: cardActive('G-1') });
+    saveSnapshot(projectRoot, 'planner:G-1', 'llm', 'unknown_active_phase', { cardId: 'G-1', active_reconstruction: llmActive('G-1') });
 
     const plan = buildActorRecoveryPlan(projectRoot);
 
@@ -137,7 +151,7 @@ describe('actor recovery plan', () => {
   }));
 
   it('diagnoses active cards without active processor, LLM, or active child evidence', () => withTempProject((projectRoot) => {
-    saveSnapshot(projectRoot, 'card:G-stranded', 'card', 'running', { cardId: 'G-stranded' });
+    saveSnapshot(projectRoot, 'card:G-stranded', 'card', 'running', { cardId: 'G-stranded', active_reconstruction: cardActive('G-stranded') });
 
     const plan = buildActorRecoveryPlan(projectRoot, { read: jest.fn(() => null), listChildren: jest.fn(() => []) });
 
@@ -146,10 +160,10 @@ describe('actor recovery plan', () => {
   }));
 
   it('does not diagnose active cards as stranded when processor or active child evidence exists', () => withTempProject((projectRoot) => {
-    saveSnapshot(projectRoot, 'card:G-processor', 'card', 'running', { cardId: 'G-processor' });
-    saveSnapshot(projectRoot, 'processor:G-processor', 'processor', 'planning', { cardId: 'G-processor' });
-    saveSnapshot(projectRoot, 'card:G-parent', 'card', 'running', { cardId: 'G-parent' });
-    saveSnapshot(projectRoot, 'card:G-child', 'card', 'running', { cardId: 'G-child' });
+    saveSnapshot(projectRoot, 'card:G-processor', 'card', 'running', { cardId: 'G-processor', active_reconstruction: cardActive('G-processor') });
+    saveSnapshot(projectRoot, 'processor:G-processor', 'processor', 'planning', { cardId: 'G-processor', active_reconstruction: processorActive('G-processor') });
+    saveSnapshot(projectRoot, 'card:G-parent', 'card', 'running', { cardId: 'G-parent', active_reconstruction: cardActive('G-parent') });
+    saveSnapshot(projectRoot, 'card:G-child', 'card', 'running', { cardId: 'G-child', active_reconstruction: cardActive('G-child') });
     const children = new Map<string, string[]>([['G-parent', ['G-child']]]);
 
     const plan = buildActorRecoveryPlan(projectRoot, { read: jest.fn(() => null), listChildren: jest.fn((cardId: string) => children.get(cardId) ?? []) });
@@ -158,7 +172,7 @@ describe('actor recovery plan', () => {
   }));
 
   it('diagnoses ambiguous active card states', () => withTempProject((projectRoot) => {
-    saveSnapshot(projectRoot, 'card:G-old', 'card', 'planning', { cardId: 'G-old', publicStatus: 'running' });
+    saveSnapshot(projectRoot, 'card:G-old', 'card', 'planning', { cardId: 'G-old', active_reconstruction: cardActive('G-old') });
 
     const plan = buildActorRecoveryPlan(projectRoot);
 
@@ -169,7 +183,7 @@ describe('actor recovery plan', () => {
   }));
 
   it('throws on orphan active LLM snapshots without a snapshot or domain card owner', () => withTempProject((projectRoot) => {
-    saveSnapshot(projectRoot, 'planner:G-orphan', 'llm', 'running', { cardId: 'G-orphan' });
+    saveSnapshot(projectRoot, 'planner:G-orphan', 'llm', 'running', { cardId: 'G-orphan', active_reconstruction: llmActive('G-orphan') });
 
     expect(() => buildActorRecoveryPlan(projectRoot, { read: jest.fn(() => null) })).toThrow(
       "Cannot recover active LLM actor 'planner:G-orphan': owner card 'G-orphan' was not found.",
@@ -181,8 +195,8 @@ describe('actor recovery plan', () => {
     expect(writeRecoveryDiagnostics(projectRoot, buildActorRecoveryPlan(projectRoot), '2026-06-12T00:00:00.000Z')).toBeNull();
     expect(existsSync(recoveryDiagnosticsPath(projectRoot))).toBe(false);
 
-    saveSnapshot(projectRoot, 'card:G-1', 'card', 'running', { cardId: 'G-1', publicStatus: 'running', secretLike: 'not persisted' });
-    saveSnapshot(projectRoot, 'planner:G-1', 'llm', 'calling_provider', { cardId: 'G-1', providerPayload: 'not persisted' });
+    saveSnapshot(projectRoot, 'card:G-1', 'card', 'running', { cardId: 'G-1', secretLike: 'not persisted', active_reconstruction: cardActive('G-1') });
+    saveSnapshot(projectRoot, 'planner:G-1', 'llm', 'calling_provider', { cardId: 'G-1', providerPayload: 'not persisted', active_reconstruction: llmActive('G-1') });
     const written = writeRecoveryDiagnostics(projectRoot, buildActorRecoveryPlan(projectRoot), '2026-06-12T00:00:00.000Z');
 
     expect(written).toMatchObject({
@@ -244,7 +258,7 @@ describe('actor recovery plan', () => {
   it('cleans up only abandoned process snapshots after diagnostics are written', () => withTempProject((projectRoot) => {
     saveSnapshot(projectRoot, 'process:build-1', 'process', 'running', { processId: 'build-1' });
     saveSnapshot(projectRoot, 'process:done-1', 'process', 'settled', { processId: 'done-1' });
-    saveSnapshot(projectRoot, 'card:G-1', 'card', 'running', { cardId: 'G-1' });
+    saveSnapshot(projectRoot, 'card:G-1', 'card', 'running', { cardId: 'G-1', active_reconstruction: cardActive('G-1') });
     const plan = buildActorRecoveryPlan(projectRoot);
     writeRecoveryDiagnostics(projectRoot, plan, '2026-06-12T00:00:00.000Z');
 
@@ -259,9 +273,9 @@ describe('actor recovery plan', () => {
 
   it('converts interrupted running card work into a blocked card outcome', () => withTempProject((projectRoot) => {
     const { store, cardId } = createRunningGoal(projectRoot);
-    saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, publicStatus: 'running' });
-    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'calling_provider', { cardId });
-    saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId });
+    saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, active_reconstruction: cardActive(cardId) });
+    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'calling_provider', { cardId, active_reconstruction: llmActive(cardId) });
+    saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId, active_reconstruction: processorActive(cardId) });
     const plan = buildActorRecoveryPlan(projectRoot, store);
 
     const conversions = convertActorRecoveryOutcomes(plan, store, '2026-06-12T00:00:00.000Z');
@@ -276,11 +290,11 @@ describe('actor recovery plan', () => {
 
   it('does not convert repairable tool waits, process-only work, or non-running cards', () => withTempProject((projectRoot) => {
     const { store, cardId } = createRunningGoal(projectRoot);
-    saveSnapshot(projectRoot, `reviewer:${cardId}`, 'llm', 'waiting_tool', { cardId });
+    saveSnapshot(projectRoot, `reviewer:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: { ...llmActive(cardId), agent_id: `reviewer:${cardId}`, role: 'reviewer', waiting_tool_call: { sourceInputId: 'reviewer:input:1', toolCallId: 'call-1', toolName: 'tool' } } });
     saveSnapshot(projectRoot, 'process:build-1', 'process', 'running', { processId: 'build-1' });
     const done = store.create({ type: 'goal', parent: 'project', depth: 1, title: 'done', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
     store.commitTerminalLifecyclePatch(done.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'planner_done', summary: 'done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' } });
-    saveSnapshot(projectRoot, `planner:${done.id}`, 'llm', 'calling_provider', { cardId: done.id });
+    saveSnapshot(projectRoot, `planner:${done.id}`, 'llm', 'calling_provider', { cardId: done.id, active_reconstruction: llmActive(done.id) });
     const plan = buildActorRecoveryPlan(projectRoot, store);
 
     expect(convertActorRecoveryOutcomes(plan, store, '2026-06-12T00:00:00.000Z')).toEqual([]);
@@ -290,9 +304,9 @@ describe('actor recovery plan', () => {
 
   it('cleans up converted card, LLM, and processor snapshots', () => withTempProject((projectRoot) => {
     const { store, cardId } = createRunningGoal(projectRoot);
-    saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, publicStatus: 'running' });
-    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'calling_provider', { cardId });
-    saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId });
+    saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, active_reconstruction: cardActive(cardId) });
+    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'calling_provider', { cardId, active_reconstruction: llmActive(cardId) });
+    saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId, active_reconstruction: processorActive(cardId) });
     const plan = buildActorRecoveryPlan(projectRoot, store);
     const conversions = convertActorRecoveryOutcomes(plan, store, '2026-06-12T00:00:00.000Z');
 

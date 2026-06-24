@@ -5,6 +5,7 @@ import type { LlmInvocationInput } from './llm-invocation.js';
 import { actorKindFromId } from './ids.js';
 import { saveActorSnapshot } from './snapshots.js';
 import { appendLlmTurnError, appendLlmTurnFinished, appendLlmTurnStarted, appendToolDelivery } from './llm-delivery-log.js';
+import type { LlmActiveReconstructionRecord } from './active-reconstruction.js';
 
 export type LLMActorOutcome =
   | { type: 'result'; agentId: string; result: Extract<LlmCompleteResult, { kind: 'message' }> }
@@ -51,6 +52,7 @@ export class LLMActor extends BaseActor {
   input: LlmInvocationInput | null = null;
   outcome: LLMActorOutcome | null = null;
   waitingToolCall: WaitingToolCall | null = null;
+  activeReconstruction: LlmActiveReconstructionRecord | null = null;
   deliveredToolCallIds = new Set<string>();
   #pendingTurn: PendingTurn | null = null;
   #toolDeliveryCounter = 0;
@@ -70,6 +72,7 @@ export class LLMActor extends BaseActor {
     if (this.state() !== 'idle') return Promise.reject(new Error(`LLMActor '${this.agentId}' cannot start a new turn from '${this.state()}'.`));
     this.input = input;
     this.outcome = null;
+    this.activeReconstruction = this.createActiveReconstruction(input);
     return new Promise<LLMActorOutcome>((resolve, reject) => {
       this.#pendingTurn = { resolve, reject };
       this.parkedSendEvent('turn');
@@ -102,6 +105,7 @@ export class LLMActor extends BaseActor {
       episodeContext: { ...input.episodeContext, lastToolResult: { toolCallId, toolName: waiting.toolName, result } },
     };
     this.waitingToolCall = null;
+    this.updateActiveReconstruction({ input: this.input, input_id: deliveryInputId, waiting_tool_call: null, delivered_tool_call_ids: [...this.deliveredToolCallIds], tool_delivery_counter: this.#toolDeliveryCounter });
     return this.continueAfterTool();
   }
 
@@ -109,6 +113,8 @@ export class LLMActor extends BaseActor {
     const input = this.requireInput();
     appendLlmTurnStarted(this.projectRoot, input);
     const callId = `${this.agentId}:${input.inputId}`;
+    this.updateActiveReconstruction({ provider_call_id: callId });
+    this.persist();
     if (this.admission && !this.admission.requestProviderCall(callId)) {
       this.completeWithError(input, `Provider admission denied for ${callId}.`);
       return;
@@ -148,6 +154,8 @@ export class LLMActor extends BaseActor {
         outcome: this.outcome,
         waitingToolCall: this.waitingToolCall,
         deliveredToolCallIds: [...this.deliveredToolCallIds],
+        toolDeliveryCounter: this.#toolDeliveryCounter,
+        active_reconstruction: this.activeReconstruction,
       },
       updated_at: new Date().toISOString(),
     };
@@ -156,6 +164,7 @@ export class LLMActor extends BaseActor {
   private completeWithProviderResult(input: LlmInvocationInput, result: LlmCompleteResult): void {
     if (result.kind === 'message') {
       this.outcome = { type: 'result', agentId: this.agentId, result };
+      this.activeReconstruction = null;
       this.#pendingTurn?.resolve(this.outcome);
       this.#pendingTurn = null;
       this.sendEvent('done');
@@ -167,6 +176,7 @@ export class LLMActor extends BaseActor {
     }
     const [call] = result.tool_calls;
     this.waitingToolCall = { sourceInputId: input.inputId, toolCallId: call.id, toolName: call.function.name };
+    this.updateActiveReconstruction({ waiting_tool_call: this.waitingToolCall, provider_call_id: null });
     this.outcome = { type: 'tool_call', agentId: this.agentId, inputId: input.inputId, toolCallId: call.id, toolName: call.function.name, args: parseToolArguments(call.function.arguments) };
     this.#pendingTurn?.resolve(this.outcome);
     this.#pendingTurn = null;
@@ -176,6 +186,7 @@ export class LLMActor extends BaseActor {
   private completeWithError(input: LlmInvocationInput, error: string): void {
     appendLlmTurnError(this.projectRoot, input, error);
     this.outcome = { type: 'error', agentId: this.agentId, error };
+    this.activeReconstruction = null;
     this.#pendingTurn?.resolve(this.outcome);
     this.#pendingTurn = null;
     this.sendEvent('failed');
@@ -217,6 +228,30 @@ export class LLMActor extends BaseActor {
 
   private persist(): void {
     saveActorSnapshot(this.projectRoot, this.snapshot());
+  }
+
+  private createActiveReconstruction(input: LlmInvocationInput): LlmActiveReconstructionRecord {
+    const cardId = input.episodeContext.cardId;
+    if (typeof cardId !== 'string' || cardId.length === 0) throw new Error(`LLMActor '${this.agentId}' input '${input.inputId}' has no cardId reconstruction context.`);
+    return {
+      schema_version: 1,
+      kind: 'llm_turn',
+      agent_id: this.agentId,
+      role: input.role,
+      card_id: cardId,
+      input_id: input.inputId,
+      input,
+      provider_call_id: null,
+      waiting_tool_call: null,
+      delivered_tool_call_ids: [...this.deliveredToolCallIds],
+      tool_delivery_counter: this.#toolDeliveryCounter,
+      started_at: new Date().toISOString(),
+    };
+  }
+
+  private updateActiveReconstruction(changes: Partial<LlmActiveReconstructionRecord>): void {
+    if (!this.activeReconstruction) throw new Error(`LLMActor '${this.agentId}' has no active reconstruction record.`);
+    this.activeReconstruction = { ...this.activeReconstruction, ...changes };
   }
 }
 

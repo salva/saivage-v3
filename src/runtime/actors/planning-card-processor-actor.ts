@@ -173,6 +173,10 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     return 'Planner processor';
   }
 
+  protected get processorKind(): 'planning' {
+    return 'planning';
+  }
+
   protected activationFailureOutcome(error: string): PlannerProcessorOutcome {
     return { status: 'failed', summary: error, result: { kind: 'planner_failure', error } };
   }

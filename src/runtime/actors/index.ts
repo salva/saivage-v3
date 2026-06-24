@@ -4,6 +4,7 @@ export * from './actor-tool-definitions.js';
 export * from './llm-delivery-log.js';
 export * from './active-goal-note-sinks.js';
 export * from './actor-recovery.js';
+export * from './active-reconstruction.js';
 export * from './runtime-supervisor.js';
 export * from './llm-invocation.js';
 export * from './llm-actor.js';

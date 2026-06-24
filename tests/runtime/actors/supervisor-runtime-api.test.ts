@@ -52,6 +52,19 @@ function doneProjectProvider(evidenceId: string): LLMProviderPort {
     : { kind: 'tool_calls' as const, tool_calls: [{ id: 'planner-result-1', type: 'function' as const, function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'done', summary: 'project completed' }) } }] }) };
 }
 
+function cardActive(cardId: string): Record<string, unknown> {
+  return { schema_version: 1, kind: 'card_activation', card_id: cardId, processor_actor_id: `processor:${cardId}`, caller: { kind: 'root' }, started_at: '2026-06-12T00:00:00.000Z' };
+}
+
+function processorActive(cardId: string): Record<string, unknown> {
+  return { schema_version: 1, kind: 'processor_activation', processor_kind: 'planning', card_id: cardId, caller: { kind: 'root' }, activation_counter: 1, started_at: '2026-06-12T00:00:00.000Z' };
+}
+
+function llmActive(cardId: string): Record<string, unknown> {
+  const inputId = `planner:${cardId}:1`;
+  return { schema_version: 1, kind: 'llm_turn', agent_id: `planner:${cardId}`, role: 'planner', card_id: cardId, input_id: inputId, input: { inputId, agentId: `planner:${cardId}`, role: 'planner', sessionId: `planner:${cardId}`, systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: { cardId } }, provider_call_id: null, waiting_tool_call: null, delivered_tool_call_ids: [], tool_delivery_counter: 0, started_at: '2026-06-12T00:00:00.000Z' };
+}
+
 describe('SupervisorRuntimeApi', () => {
   it('implements start, pause, resume, status, and shutdown through RuntimeSupervisorActor', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
@@ -79,15 +92,15 @@ describe('SupervisorRuntimeApi', () => {
     saveActorSnapshot(projectRoot, {
       actor_id: 'card:G-recover',
       actor_kind: 'card',
-      state_value: 'planning',
-      context: { cardId: 'G-recover', publicStatus: 'running' },
+      state_value: 'running',
+      context: { cardId: 'G-recover', active_reconstruction: cardActive('G-recover') },
       updated_at: '2026-06-12T00:00:00.000Z',
     });
     saveActorSnapshot(projectRoot, {
       actor_id: 'planner:G-recover',
       actor_kind: 'llm',
       state_value: 'calling_provider',
-      context: { cardId: 'G-recover' },
+      context: { cardId: 'G-recover', active_reconstruction: llmActive('G-recover') },
       updated_at: '2026-06-12T00:00:00.000Z',
     });
     const api = new SupervisorRuntimeApi({ projectRoot, actorStore: inertStore, provider: blockedPlannerProvider(), now: () => '2026-06-12T00:00:00.000Z' });
@@ -104,22 +117,22 @@ describe('SupervisorRuntimeApi', () => {
     saveActorSnapshot(projectRoot, {
       actor_id: 'card:G-recover',
       actor_kind: 'card',
-      state_value: 'planning',
-      context: { cardId: 'G-recover', publicStatus: 'running' },
+      state_value: 'running',
+      context: { cardId: 'G-recover', active_reconstruction: cardActive('G-recover') },
       updated_at: '2026-06-12T00:00:00.000Z',
     });
     saveActorSnapshot(projectRoot, {
       actor_id: 'planner:G-recover',
       actor_kind: 'llm',
       state_value: 'calling_provider',
-      context: { cardId: 'G-recover' },
+      context: { cardId: 'G-recover', active_reconstruction: llmActive('G-recover') },
       updated_at: '2026-06-12T00:00:00.000Z',
     });
     saveActorSnapshot(projectRoot, {
       actor_id: 'processor:G-recover',
       actor_kind: 'processor',
       state_value: 'planning',
-      context: { cardId: 'G-recover' },
+      context: { cardId: 'G-recover', active_reconstruction: processorActive('G-recover') },
       updated_at: '2026-06-12T00:00:00.000Z',
     });
     saveActorSnapshot(projectRoot, {
@@ -198,21 +211,21 @@ describe('SupervisorRuntimeApi', () => {
       actor_id: 'card:project',
       actor_kind: 'card',
       state_value: 'running',
-      context: { cardId: 'project', publicStatus: 'running' },
+      context: { cardId: 'project', active_reconstruction: cardActive('project') },
       updated_at: '2026-06-12T00:00:00.000Z',
     });
     saveActorSnapshot(projectRoot, {
       actor_id: 'planner:project',
       actor_kind: 'llm',
       state_value: 'calling_provider',
-      context: { cardId: 'project' },
+      context: { cardId: 'project', active_reconstruction: llmActive('project') },
       updated_at: '2026-06-12T00:00:00.000Z',
     });
     saveActorSnapshot(projectRoot, {
       actor_id: 'processor:project',
       actor_kind: 'processor',
       state_value: 'planning',
-      context: { cardId: 'project' },
+      context: { cardId: 'project', active_reconstruction: processorActive('project') },
       updated_at: '2026-06-12T00:00:00.000Z',
     });
     const api = new SupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), now: () => '2026-06-12T00:00:00.000Z' });

@@ -2,6 +2,7 @@ import { BaseActor } from '../micro-actor/index.js';
 import type { CardActivationInput, CardActivationOutcome, CardProcessorActor } from './card-actor.js';
 import { processorActorId } from './ids.js';
 import { saveActorSnapshot } from './snapshots.js';
+import type { ProcessorActiveReconstructionRecord } from './active-reconstruction.js';
 
 export type CardProcessorOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
 
@@ -15,7 +16,9 @@ export abstract class BaseCardProcessorActor extends BaseActor implements CardPr
   readonly projectRoot: string;
   readonly cardId: string;
   outcome: CardProcessorOutcome | null = null;
+  activeReconstruction: ProcessorActiveReconstructionRecord | null = null;
   #pending: PendingActivation | null = null;
+  #activationCounter = 0;
 
   protected constructor(args: { projectRoot: string; cardId: string }) {
     super();
@@ -27,7 +30,17 @@ export abstract class BaseCardProcessorActor extends BaseActor implements CardPr
     if (this.#pending) return Promise.reject(new Error(`${this.processorLabel} '${this.cardId}' already has a pending activation.`));
     if (!this.canActivateFrom(this.state())) return Promise.reject(new Error(`${this.processorLabel} '${this.cardId}' cannot activate from '${this.state()}'.`));
     return new Promise<CardProcessorOutcome>((resolve, reject) => {
+      this.#activationCounter++;
       this.#pending = { input, resolve, reject };
+      this.activeReconstruction = {
+        schema_version: 1,
+        kind: 'processor_activation',
+        processor_kind: this.processorKind,
+        card_id: this.cardId,
+        caller: input.caller,
+        activation_counter: this.#activationCounter,
+        started_at: new Date().toISOString(),
+      };
       this.parkedSendEvent('activate');
     });
   }
@@ -60,7 +73,7 @@ export abstract class BaseCardProcessorActor extends BaseActor implements CardPr
   }
 
   protected processorSnapshotContext(): Record<string, unknown> {
-    return { projectRoot: this.projectRoot, cardId: this.cardId, outcome: this.outcome };
+    return { projectRoot: this.projectRoot, cardId: this.cardId, outcome: this.outcome, active_reconstruction: this.activeReconstruction };
   }
 
   protected persist(): void {
@@ -73,6 +86,8 @@ export abstract class BaseCardProcessorActor extends BaseActor implements CardPr
 
   protected abstract get processorLabel(): string;
 
+  protected abstract get processorKind(): ProcessorActiveReconstructionRecord['processor_kind'];
+
   protected abstract activationFailureOutcome(error: string): CardProcessorOutcome;
 
   private canActivateFrom(state: string): boolean {
@@ -81,6 +96,7 @@ export abstract class BaseCardProcessorActor extends BaseActor implements CardPr
 
   private settlePending(pending: PendingActivation, outcome: CardProcessorOutcome, event: string): void {
     this.outcome = outcome;
+    this.activeReconstruction = null;
     pending.resolve(outcome);
     this.#pending = null;
     this.sendEvent(event);

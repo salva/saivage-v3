@@ -4,8 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardStore } from '../../../src/cards/card-store.js';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { CardActor, PlanningCardProcessorActor, type CardActivationInput, type CardActivationOutcome, type CardProcessorActor, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
+import { CardActor, PlanningCardProcessorActor, readActorSnapshots, type CardActivationInput, type CardActivationOutcome, type CardProcessorActor, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
+import type { LlmCompleteResult } from '../../../src/agents/llm-contracts.js';
 import type { CardRecord } from '../../../src/schemas/index.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
@@ -46,6 +47,14 @@ function reviewerResult(overrides: Record<string, unknown> = {}) {
   };
 }
 
+async function eventually(assertion: () => void, attempts = 40): Promise<void> {
+  let lastError: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try { assertion(); return; } catch (error) { lastError = error; await new Promise((resolve) => setTimeout(resolve, 5)); }
+  }
+  throw lastError;
+}
+
 describe('PlanningCardProcessorActor', () => {
   it('delivers pending notifications in the planner turn context', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
@@ -72,6 +81,34 @@ describe('PlanningCardProcessorActor', () => {
       terminalToolNames: ['emit_reviewer_result'],
       tools: expect.arrayContaining([expect.objectContaining({ function: expect.objectContaining({ name: 'emit_reviewer_result' }) })]),
     }), expect.any(AbortSignal));
+  }));
+
+  it('persists active reconstruction during planning processor activation and clears it on settlement', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    const child = markDone(store, createGoal(store, project.id));
+    let finish!: () => void;
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async (input: LlmInvocationInput) => input.role === 'reviewer'
+      ? reviewerResult({ evidence_card_ids: [child.id] })
+      : new Promise<LlmCompleteResult>((resolve) => { finish = () => resolve(plannerResult('done', 'done')); })) };
+    const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
+    actor.start();
+
+    const pending = actor.activate({ card: project, caller: { kind: 'root' }, notifications: [] });
+    await eventually(() => expect(actor.state()).toBe('planning'));
+    expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === 'processor:project')?.context.active_reconstruction).toMatchObject({
+      schema_version: 1,
+      kind: 'processor_activation',
+      processor_kind: 'planning',
+      card_id: 'project',
+      caller: { kind: 'root' },
+      activation_counter: 1,
+    });
+
+    finish();
+    await expect(pending).resolves.toMatchObject({ status: 'done' });
+    await eventually(() => expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === 'processor:project')?.context.active_reconstruction).toBeNull());
   }));
 
   it('activates only immediate children and returns the child result to the planner', async () => withTempProject(async (projectRoot) => {

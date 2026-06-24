@@ -147,6 +147,10 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     return 'Terminal processor';
   }
 
+  protected get processorKind(): 'terminal' {
+    return 'terminal';
+  }
+
   protected activationFailureOutcome(error: string): TerminalProcessorOutcome {
     return { status: 'failed', summary: error, result: executorFailure(error) };
   }

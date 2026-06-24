@@ -6,6 +6,7 @@ import { CardStore } from '../../../src/cards/card-store.js';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
 import { CardActor, MAX_TERMINAL_PROCESS_ACTORS, ProcessActor, TerminalCardProcessorActor, readActorSnapshots, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
+import type { LlmCompleteResult } from '../../../src/agents/llm-contracts.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-terminal-processor-'));
@@ -66,6 +67,29 @@ describe('TerminalCardProcessorActor', () => {
 
     expect(outcome).toMatchObject({ status: 'failed', summary: 'model unavailable' });
     expect(store.read(card.id)?.lifecycle.result).toMatchObject({ kind: 'executor_failure', error: 'model unavailable' });
+  }));
+
+  it('persists active reconstruction during terminal processor activation and clears it on settlement', async () => withTempProject(async (projectRoot) => {
+    const { card } = setup(projectRoot);
+    let finish!: () => void;
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => new Promise<LlmCompleteResult>((resolve) => { finish = () => resolve(executorResult(card.id, 'implemented')); })) };
+    const processor = new TerminalCardProcessorActor({ projectRoot, cardId: card.id, provider });
+    processor.start();
+
+    const pending = processor.activate({ card, caller: { kind: 'parent', cardId: 'project' }, notifications: [] });
+    await eventually(() => expect(processor.state()).toBe('executing'));
+    expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === `processor:${card.id}`)?.context.active_reconstruction).toMatchObject({
+      schema_version: 1,
+      kind: 'processor_activation',
+      processor_kind: 'terminal',
+      card_id: card.id,
+      caller: { kind: 'parent', cardId: 'project' },
+      activation_counter: 1,
+    });
+
+    finish();
+    await expect(pending).resolves.toMatchObject({ status: 'done' });
+    await eventually(() => expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === `processor:${card.id}`)?.context.active_reconstruction).toBeNull());
   }));
 
   it('does not accept plain executor prose as terminal result', async () => withTempProject(async (projectRoot) => {

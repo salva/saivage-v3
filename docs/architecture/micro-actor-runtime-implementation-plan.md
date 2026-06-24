@@ -14,7 +14,7 @@ The core micro-actor runtime replacement has landed:
 - Planner, executor, and reviewer reports are accepted only through role contract terminal tools.
 - Card-owned notifications are delivered per LLM turn with durable delivery markers; `LLMActor` remains queue-free.
 - Reviewer execution is a phase of `PlanningCardProcessorActor`; the standalone reviewer card processor was removed.
-- Recovery startup now persists sanitized diagnostics for unsafe active snapshots, converts known interrupted running card work into blocked card outcomes, and avoids parked-state recovery side effects. It does not yet reconstruct/resume active actor chains.
+- Recovery startup now persists sanitized diagnostics for unsafe active snapshots, records explicit active reconstruction facts in actor snapshots, converts known interrupted running card work into blocked card outcomes, and avoids parked-state recovery side effects. It does not yet reconstruct/resume active actor chains.
 
 ## Remaining Work
 
@@ -356,11 +356,13 @@ Completed:
 - Startup converts known interrupted running card work to explicit blocked card outcomes when the owning card and valid lifecycle transition are available.
 - Startup removes converted card, LLM, and processor snapshots after writing diagnostics and card outcomes, so handled interrupted work is not reported on every restart.
 - `CardActor` recovery to `done` does not run normal `done` entry side effects that reopen cards with pending notifications.
+- Card, processor, and LLM snapshots persist explicit `active_reconstruction` records for active card activation, processor activation, provider calls, and LLM tool waits.
+- Recovery planning exposes active reconstruction records and derives card/LLM/processor active status from those records rather than public-status or state-name heuristics.
 - Startup still exposes `getRecoveryPlan()` for tests and operator-facing follow-up work.
 
 Remaining:
 
-- Define minimal durable reconstruction records for activation input, processor phase, child activation waits, LLM tool waits, reviewer session/candidate identity, and process ownership.
+- Extend durable reconstruction records for child activation waits, reviewer session/candidate identity, and process ownership.
 - Reconstruct active card chains, processor ownership, unresolved child activation waits, LLM waiting-tool state, and process waits one path at a time where safe.
 - Resume safe `waiting_tool` paths without double-delivering tool results or duplicating provider turns as part of active LLM/processor reconstruction, not as a separate disconnected feature.
 - Repair interrupted reviewer/planner chains with stored correction context or explicit diagnostics as part of active card/processor reconstruction.
@@ -368,7 +370,7 @@ Remaining:
 
 Implementation:
 
-- Before any active resume path, define actor reconstruction records for supervisor, cards, processors, LLM turns, process records, activation waits, and tool waits.
+- Before any active resume path, complete any missing actor reconstruction records for supervisor, process records, activation waits, and tool waits not yet covered by `active_reconstruction`.
 - Reconstruct active card chains and unresolved waits where the durable records are complete enough to resume safely.
 - Keep consuming the recovery plan during runtime startup. Persisted diagnostics are the conservative fallback; resumable chains should be reconstructed instead of only diagnosed.
 - Abandon persisted running process records with diagnostics by default. Reconcile live running processes only if a later slice explicitly chooses that more complex path.

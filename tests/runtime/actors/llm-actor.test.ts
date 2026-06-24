@@ -27,7 +27,7 @@ function input(inputId = 'turn-1'): LlmInvocationInput {
     terminalToolNames: [],
     modelParams: {},
     capabilityRequest: {},
-    episodeContext: {},
+    episodeContext: { cardId: 'project' },
   };
 }
 
@@ -64,6 +64,34 @@ describe('LLMActor', () => {
     await eventually(() => expect(actor.state()).toBe('idle'));
     expect(jsonl(actorMessagesPath(projectRoot, 'planner:project')).map((entry) => entry.kind)).toEqual(['activity', 'text']);
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toContain('planner:project');
+    expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === 'planner:project')?.context.active_reconstruction).toBeNull();
+  }));
+
+  it('persists active reconstruction while calling the provider', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    let finish!: () => void;
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => new Promise<LlmCompleteResult>((resolve) => { finish = () => resolve({ kind: 'message' as const, content: 'done' }); })) };
+    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
+    actor.start();
+
+    const pending = actor.turn(input());
+    await eventually(() => expect(actor.state()).toBe('calling_provider'));
+    const active = readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === 'planner:project')?.context.active_reconstruction;
+
+    expect(active).toMatchObject({
+      schema_version: 1,
+      kind: 'llm_turn',
+      agent_id: 'planner:project',
+      role: 'planner',
+      card_id: 'project',
+      input_id: 'turn-1',
+      provider_call_id: 'planner:project:turn-1',
+      waiting_tool_call: null,
+      delivered_tool_call_ids: [],
+      tool_delivery_counter: 0,
+    });
+    finish();
+    await expect(pending).resolves.toMatchObject({ type: 'result' });
   }));
 
   it('returns provider admission denial without calling the provider', async () => withTempProject(async (projectRoot) => {
@@ -95,6 +123,14 @@ describe('LLMActor', () => {
     expect(first).toEqual({ type: 'tool_call', agentId: 'planner:project', inputId: 'turn-1', toolCallId: 'call-1', toolName: 'inspect', args: { ok: true } });
     await eventually(() => expect(actor.state()).toBe('waiting_tool'));
     expect(jsonl(actorToolCallStatusesPath(projectRoot, 'planner:project')).map((entry) => entry.status)).toEqual(['pending']);
+    expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === 'planner:project')?.context.active_reconstruction).toMatchObject({
+      kind: 'llm_turn',
+      input_id: 'turn-1',
+      provider_call_id: null,
+      waiting_tool_call: { sourceInputId: 'turn-1', toolCallId: 'call-1', toolName: 'inspect' },
+      delivered_tool_call_ids: [],
+      tool_delivery_counter: 0,
+    });
 
     const second = await actor.appendToolResult('call-1', { inspected: true });
 

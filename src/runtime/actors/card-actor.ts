@@ -1,8 +1,9 @@
 import { BaseActor } from '../micro-actor/index.js';
 import type { ActorDefinition } from '../micro-actor/index.js';
 import type { BlockedResult, CardRecord, CardStatus, DoneResult, FailureResult } from '../../schemas/index.js';
-import { cardActorId } from './ids.js';
+import { cardActorId, processorActorId } from './ids.js';
 import { saveActorSnapshot } from './snapshots.js';
+import type { CardActiveReconstructionRecord } from './active-reconstruction.js';
 
 export const MAX_NOTIFICATION_DELIVERY_MARKERS = 200;
 
@@ -95,6 +96,7 @@ export class CardActor extends BaseActor {
   lastOutcome: CardActivationOutcome | null = null;
   lastChange: CardChange | null = null;
   cancelReason: CardCancelReason | null = null;
+  activeReconstruction: CardActiveReconstructionRecord | null = null;
   #pendingActivation: PendingActivation | null = null;
 
   constructor(args: { projectRoot: string; cardId: string; store: CardActorStorePort; processor: CardProcessorActor }) {
@@ -124,6 +126,14 @@ export class CardActor extends BaseActor {
     }
     return new Promise<CardActivationOutcome>((resolve, reject) => {
       this.#pendingActivation = { caller, resolve, reject };
+      this.activeReconstruction = {
+        schema_version: 1,
+        kind: 'card_activation',
+        card_id: this.cardId,
+        processor_actor_id: processorActorId(this.cardId),
+        caller,
+        started_at: new Date().toISOString(),
+      };
       this.parkedSendEvent('activate');
     });
   }
@@ -226,6 +236,7 @@ export class CardActor extends BaseActor {
         lastOutcome: this.lastOutcome,
         lastChange: this.lastChange,
         cancelReason: this.cancelReason,
+        active_reconstruction: this.activeReconstruction,
       },
       updated_at: new Date().toISOString(),
     };
@@ -245,6 +256,7 @@ export class CardActor extends BaseActor {
       status_text_updated_at: stamp,
     });
     this.lastOutcome = outcome;
+    this.activeReconstruction = null;
     this.#pendingActivation?.resolve(outcome);
     this.#pendingActivation = null;
     this.sendEvent(outcome.status);

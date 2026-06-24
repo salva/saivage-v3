@@ -5,6 +5,7 @@ import { AtomicJsonFile, ProjectLock } from '../../persistence/index.js';
 import { readActorSnapshots, removeActorSnapshot } from './snapshots.js';
 import type { ActorSnapshotRecord } from './snapshots.js';
 import type { CardRecord } from '../../schemas/index.js';
+import type { CardActiveReconstructionRecord, LlmActiveReconstructionRecord, ProcessorActiveReconstructionRecord } from './active-reconstruction.js';
 
 export interface ActorRecoveryCardReader {
   read(cardId: string): unknown | null;
@@ -29,6 +30,7 @@ export interface CardActorRecoveryRecord {
   cardId: string;
   snapshot: ActorSnapshotRecord;
   active: boolean;
+  activeReconstruction: CardActiveReconstructionRecord | null;
 }
 
 export interface LlmActorRecoveryRecord {
@@ -37,6 +39,7 @@ export interface LlmActorRecoveryRecord {
   cardId: string;
   snapshot: ActorSnapshotRecord;
   active: boolean;
+  activeReconstruction: LlmActiveReconstructionRecord | null;
 }
 
 export type LlmActorRecoveryPlanRecord = LlmActorRecoveryRecord & { action: LlmRecoveryAction };
@@ -56,6 +59,7 @@ export interface ProcessorActorRecoveryRecord {
   cardId: string;
   snapshot: ActorSnapshotRecord;
   active: boolean;
+  activeReconstruction: ProcessorActiveReconstructionRecord | null;
 }
 
 export interface ActorRecoveryDiagnostic {
@@ -95,27 +99,33 @@ export function buildActorRecoveryPlan(projectRoot: string, cards?: ActorRecover
   const knownCardIds = new Set<string>();
   const cardRecords = cardSnapshots.map((snapshot): CardActorRecoveryRecord => {
     const cardId = parseCardActorId(snapshot.actor_id);
+    const activeReconstruction = readActiveReconstruction<CardActiveReconstructionRecord>(snapshot);
     knownCardIds.add(cardId);
-    return { cardId, snapshot, active: isActiveCardSnapshot(snapshot) };
+    return { cardId, snapshot, active: activeReconstruction !== null, activeReconstruction };
   });
   const llms = snapshots
     .filter((snapshot) => snapshot.actor_kind === 'llm')
     .map((snapshot): LlmActorRecoveryPlanRecord => {
       const parsed = parseLlmActorId(snapshot.actor_id);
-      const active = isActiveLlmSnapshot(snapshot);
+      const activeReconstruction = readActiveReconstruction<LlmActiveReconstructionRecord>(snapshot);
+      const active = activeReconstruction !== null;
       if (active && !knownCardIds.has(parsed.cardId) && !cards?.read(parsed.cardId)) {
         throw new Error(`Cannot recover active LLM actor '${snapshot.actor_id}': owner card '${parsed.cardId}' was not found.`);
       }
-      return { actorId: snapshot.actor_id, role: parsed.role, cardId: parsed.cardId, snapshot, active, action: llmRecoveryAction(snapshot) };
+      return { actorId: snapshot.actor_id, role: parsed.role, cardId: parsed.cardId, snapshot, active, activeReconstruction, action: llmRecoveryAction(snapshot, active) };
     });
   const processors = snapshots
     .filter((snapshot) => snapshot.actor_kind === 'processor')
-    .map((snapshot): ProcessorActorRecoveryRecord => ({
-      actorId: snapshot.actor_id,
-      cardId: parseProcessorActorId(snapshot.actor_id),
-      snapshot,
-      active: isActiveProcessorSnapshot(snapshot),
-    }));
+    .map((snapshot): ProcessorActorRecoveryRecord => {
+      const activeReconstruction = readActiveReconstruction<ProcessorActiveReconstructionRecord>(snapshot);
+      return {
+        actorId: snapshot.actor_id,
+        cardId: parseProcessorActorId(snapshot.actor_id),
+        snapshot,
+        active: activeReconstruction !== null,
+        activeReconstruction,
+      };
+    });
   const processes = snapshots
     .filter((snapshot) => snapshot.actor_kind === 'process')
     .map((snapshot): ProcessActorRecoveryRecord => ({
@@ -264,23 +274,18 @@ function isNonIdleSupervisorSnapshot(snapshot: ActorSnapshotRecord | null): bool
   return (state as { mode?: unknown }).mode !== 'idle';
 }
 
-function isActiveCardSnapshot(snapshot: ActorSnapshotRecord): boolean {
-  if (snapshot.state_value === 'running') return true;
-  return snapshot.context.publicStatus === 'running';
-}
-
-function isActiveLlmSnapshot(snapshot: ActorSnapshotRecord): boolean {
-  return snapshot.state_value !== 'idle' && snapshot.state_value !== 'done' && snapshot.state_value !== 'cancelled';
-}
-
-function isActiveProcessorSnapshot(snapshot: ActorSnapshotRecord): boolean {
-  return snapshot.state_value !== 'idle' && snapshot.state_value !== 'settled';
-}
-
-function llmRecoveryAction(snapshot: ActorSnapshotRecord): LlmRecoveryAction {
+function llmRecoveryAction(snapshot: ActorSnapshotRecord, active: boolean): LlmRecoveryAction {
+  if (!active) return 'none';
   if (snapshot.state_value === 'calling_provider') return 'abandon_provider_call';
   if (snapshot.state_value === 'waiting_tool') return 'resume_tool_wait';
   return 'none';
+}
+
+function readActiveReconstruction<T extends CardActiveReconstructionRecord | LlmActiveReconstructionRecord | ProcessorActiveReconstructionRecord>(snapshot: ActorSnapshotRecord): T | null {
+  const record = snapshot.context.active_reconstruction;
+  if (record === null || record === undefined) return null;
+  if (typeof record !== 'object') throw new Error(`Actor snapshot '${snapshot.actor_id}' has invalid active_reconstruction.`);
+  return record as T;
 }
 
 function processRecoveryAction(snapshot: ActorSnapshotRecord): ProcessRecoveryAction {
