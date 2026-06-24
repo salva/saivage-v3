@@ -2,7 +2,7 @@
 
 Status: core implementation complete; remaining work is tracked below.
 
-Date: 2026-06-23.
+Date: 2026-06-24.
 
 ## Current Status
 
@@ -20,8 +20,9 @@ The core micro-actor runtime replacement has landed:
 
 The remaining implementation work is now genuinely hard deferred resume plus broader release validation:
 
-1. Only if mid-flight resume becomes a concrete requirement: re-attach to in-flight provider calls (still abandoned by default), process waits, and unresolved nonterminal child activation waits.
-2. Broader release validation when needed, especially UI smoke/UI/release profiles beyond the full Jest and routine gates already run.
+1. Decide recovery diagnostics semantics after startup cleanup: keep `actorRuntime.recovery` as a startup findings report, or rewrite diagnostics after cleanup so it shows only currently outstanding recovery work.
+2. Only if mid-flight resume becomes a concrete requirement: re-attach to in-flight provider calls (still abandoned by default), process waits, and unresolved nonterminal child activation waits.
+3. Broader release validation only when release criteria change; the current focused, routine, UI, and release profiles have passed after the single-pass recovery simplification.
 
 The detailed recovery work and simplification direction is tracked in [Slice 8: Recovery](#slice-8-recovery).
 
@@ -50,6 +51,7 @@ Remaining priority fixes:
 
 - Keep terminal contract handling simple and fail-fast unless a concrete repair requirement exists. Do not add a general terminal-output repair loop just because it is possible.
 - Remove any newly discovered dead options, duplicated types/helpers, or production-dead LLM/processor APIs as they appear during recovery work.
+- Clarify recovery diagnostics semantics. Today diagnostics are written from the initial startup plan before recovery cleanup, so they preserve what startup found even after handled snapshots are removed. Decide whether that is the intended operator-facing contract or whether `actorRuntime.recovery` should be rewritten after cleanup to show only outstanding work.
 
 Deferred or optional improvements:
 
@@ -365,6 +367,7 @@ Completed:
 - Startup handles completed child `activate_card` waits through generic interrupted-work conversion instead of a dedicated child-activation recovery function.
 - Startup recovery is a single-pass plan consumption path: project terminal outcomes, block remaining active card work, clean handled snapshots once, remove handled process snapshots, then abandon stale pending tool calls.
 - Nonterminal `resume_tool_wait` LLM actors participate in generic blocked conversion until genuine tool-wait resume is implemented.
+- Recovery diagnostics are still written from the initial startup plan before cleanup. This intentionally preserves startup findings, but can read as stale if interpreted as the current outstanding recovery queue.
 - Startup still exposes `getRecoveryPlan()` for tests and operator-facing follow-up work.
 
 ### Deferred simplification direction
@@ -380,6 +383,7 @@ Do not add adapters or bridge commit paths to get eager commit quickly. If eager
 
 Remaining:
 
+- Decide and document whether `.saivage/runtime/recovery-diagnostics.json` is a startup findings report or an outstanding-recovery report. If it should be outstanding-only, rewrite diagnostics after handled snapshot cleanup and update read-model/API tests accordingly.
 - Implement genuine mid-flight resume only if it becomes a concrete requirement: re-attach to in-flight provider calls (still abandoned by default), process waits, and unresolved child activation waits where the child is still active. This is the only truly hard recovery work.
 - Repair interrupted nonterminal reviewer/planner chains with stored correction context or explicit diagnostics only if reviewer-phase resume is required; otherwise the discard-and-reactivate model handles it by re-running planning.
 - Keep diagnostics for truly orphaned state (ambiguous card states, stranded active cards, discarded non-idle supervisor) regardless of which simplification is chosen.
@@ -387,6 +391,7 @@ Remaining:
 Implementation:
 
 - Keep startup recovery as one pass over the initial recovery plan: classify each active card once, apply the highest-priority outcome (projection where valid, otherwise block), clean handled snapshots once, then abandon stale tool calls once.
+- Keep writing diagnostics before cleanup unless the diagnostics contract changes from startup-findings to outstanding-only. Do not silently mix both semantics in the same projection.
 - Keep recovery-side terminal projection until a deliberate `CardActor`-owned eager commit refactor exists.
 - Keep block-on-restart until a deliberate discard-and-reactivate runtime policy exists. Keep diagnostics for truly orphaned state either way.
 - Abandon persisted running/killing process records and in-flight provider calls with diagnostics by default. Reconcile live processes or re-attach provider calls only if a later slice explicitly chooses that more complex path.
@@ -454,10 +459,10 @@ Acceptance:
 
 ## Remaining Validation And Documentation Follow-Up
 
-These items are not blockers for the core actor replacement, but should be completed before treating the redesign as release-ready:
+These items are not blockers for the core actor replacement. Current validation is complete for this recovery simplification; rerun the broader profiles when release criteria or affected surfaces change:
 
 - Full Jest has been run and stale docs-parity tests were rewritten around the current docs/source authority. Continue removing or rewriting stale tests around the new actor architecture rather than adding adapter, bridge, shim, migration, or compatibility code.
-- Run broader Saivage validation profiles when the release target requires them, especially `npm run validate:ui-smoke`, `npm run validate:ui`, and `npm run validate:release`.
+- `npm run validate:ui-smoke`, `npm run validate:ui`, and `npm run validate:release` passed after the single-pass recovery simplification.
 - Operator-facing docs now describe planner-owned reviewer phase, terminal-tool-only report behavior, card-owned notification delivery markers, and conservative recovery diagnostics. Keep them updated as nonterminal active recovery expands.
 - `.saivage/runtime/recovery-diagnostics.json` is now projected through `actorRuntime.recovery`; decide later whether a dedicated recovery endpoint or UI treatment is needed.
 - Review generated/runtime artifact ownership separately from this runtime redesign if repository hygiene remains an open release concern.
@@ -482,6 +487,7 @@ These items are not blockers for the core actor replacement, but should be compl
 ## Open Decisions
 
 - Remaining card/LLM/processor actor-record retention: delete, archive, or bounded history after reconstruction/outcome conversion. Abandoned process snapshot cleanup is already implemented. If discard-snapshots-on-restart is chosen, this becomes moot for restart recovery.
+- Whether `actorRuntime.recovery` should expose startup findings or only currently outstanding recovery work after startup cleanup.
 - Whether mid-flight LLM/process resume is ever a concrete requirement. If not, the recovery pipeline shrinks to diagnostics + cleanup only.
 - Exact public projection fields for active chain and runtime activity.
 - Whether reviewer-phase notifications should ever be reviewer-visible. The current safe default is to hold main-agent notifications for planner delivery unless a concrete reviewer-cancellation feature is designed.
