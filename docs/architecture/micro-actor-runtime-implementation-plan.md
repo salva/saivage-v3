@@ -18,13 +18,14 @@ The core micro-actor runtime replacement has landed:
 
 ## Remaining Work
 
-The remaining implementation work is intentionally narrower than the original replacement plan:
+The remaining implementation work is recovery simplification plus genuinely hard deferred resume, plus broader release validation:
 
-1. Remaining active recovery reconstruction for nonterminal waits, especially child activation waits and process/tool wait ownership.
-2. Broader release validation when needed, especially UI smoke/UI/release profiles beyond the full Jest and routine gates already run.
-3. Ongoing documentation cleanup as recovery behavior expands beyond the implemented terminal-projection paths.
+1. Collapse the recovery pipeline into a single pass and remove the redundant special-case functions and multi-pass plan rebuilds. See [Slice 8: Recovery](#slice-8-recovery) for the known issues and preferred direction.
+2. Decide between eager terminal commit and recovery-side projection, and between block-on-restart and discard-snapshots-on-reactivate, before adding any new recovery path.
+3. Only if mid-flight resume becomes a concrete requirement: re-attach to in-flight provider calls (still abandoned by default), process waits, and unresolved nonterminal child activation waits.
+4. Broader release validation when needed, especially UI smoke/UI/release profiles beyond the full Jest and routine gates already run.
 
-The detailed remaining recovery work is tracked in [Slice 8: Recovery](#slice-8-recovery).
+The detailed recovery work and simplification direction is tracked in [Slice 8: Recovery](#slice-8-recovery).
 
 ## Confirmed Follow-Up Corrections
 
@@ -43,13 +44,14 @@ Completed post-review fixes:
 - Startup converts known interrupted running card work into explicit blocked card outcomes when the owner card and transition are valid.
 - Safe parked-state recovery hooks avoid normal-entry side effects where needed.
 - Terminal tool-call recovery projects safe executor terminal outcomes, planner blocked/continue outcomes, and planner `done` outcomes paired with matching persisted reviewer terminal results.
-- Completed child activation waits are reconciled conservatively: if a parent planner was interrupted waiting on `activate_card` and the child is already terminal, startup blocks the parent with targeted resume guidance and cleans parent actor snapshots.
+- Completed child activation waits are reconciled conservatively: if a parent planner was interrupted waiting on `activate_card` and the child is already terminal, startup blocks the parent with targeted resume guidance and cleans parent actor snapshots. This special case is a workaround for the `resume_tool_wait` exclusion in `recoveryOutcomeCandidates` and should be removed when the single-pass simplification lands.
 - Full Jest, focused actor suites, routine validation, and current operator-facing spec updates have been run after the recovery slices landed.
 
 Remaining priority fixes:
 
 - Keep terminal contract handling simple and fail-fast unless a concrete repair requirement exists. Do not add a general terminal-output repair loop just because it is possible.
 - Remove any newly discovered dead options, duplicated types/helpers, or production-dead LLM/processor APIs as they appear during recovery work.
+- Collapse the recovery pipeline into a single pass before adding new recovery paths. Remove the redundant special-case functions and the multi-pass plan rebuilds. See [Slice 8: Recovery](#slice-8-recovery) for the known issues and preferred direction.
 
 Deferred or optional improvements:
 
@@ -316,9 +318,7 @@ Implementation:
 - If relevant changes/notifications arrive while reviewing, invalidate reviewer success or divert back to planning.
 - Cancellation notifications are main-agent notifications. If one arrives while reviewer work is active, hold it with other pending main-agent notifications until planner ownership resumes or record it as undelivered if the activation settles first; do not deliver cancellation to the reviewer unless a separate reviewer-cancellation feature is explicitly designed.
 
-Remaining:
-
-- Keep adding focused tests if new reviewer currentness cases appear during active recovery reconstruction.
+No remaining implementation work for this slice. Add focused tests only if new reviewer currentness cases appear during active recovery reconstruction.
 
 Tests:
 
@@ -341,7 +341,7 @@ Acceptance:
 
 Goal: rebuild safe actor state from durable records after restart.
 
-Current status: partially implemented. Startup builds an `ActorRecoveryPlan`, persists sanitized recovery diagnostics/actions to `.saivage/runtime/recovery-diagnostics.json`, projects safe persisted terminal tool-call outcomes, abandons stale pending tool calls, converts known interrupted running card work into blocked outcomes, and cleans handled snapshots. This now handles terminal outcome reconciliation, but it is not yet full active-chain reconstruction/resume.
+Current status: partially implemented, but with accumulated complexity that should be simplified before extending. Startup builds an `ActorRecoveryPlan`, persists sanitized recovery diagnostics/actions to `.saivage/runtime/recovery-diagnostics.json`, projects safe persisted terminal tool-call outcomes, abandons stale pending tool calls, converts known interrupted running card work into blocked outcomes, and cleans handled snapshots. This handles terminal outcome reconciliation, but the pipeline is now multi-pass with redundant special-case functions; see "Known issues and simplification direction" below before adding any new recovery path. Mid-flight active-chain resume is still not implemented.
 
 Completed:
 
@@ -367,22 +367,36 @@ Completed:
 - Startup recognizes completed child `activate_card` waits, blocks the interrupted parent with targeted guidance, abandons the stale pending tool status, and cleans parent card/processor/planner snapshots.
 - Startup still exposes `getRecoveryPlan()` for tests and operator-facing follow-up work.
 
+### Known issues and simplification direction
+
+The current recovery pipeline accumulated one special-case function per recovery slice (`recoverProjectedTerminalToolOutcomes`, `recoverCompletedChildActivationWaits`, `convertActorRecoveryOutcomes`), each with its own deps interface and cleanup pass. Startup now rebuilds `buildActorRecoveryPlan` two to three times per restart to reclassify handled work. This multi-pass shape is a known smell and must be replaced with a single-pass model before adding more recovery paths.
+
+Specific known issues:
+
+- **Redundant special cases.** `recoverCompletedChildActivationWaits` duplicates `convertActorRecoveryOutcomes` (parent blocking) and `abandonStalePendingToolCalls` (pending tool abandonment). It exists only because `recoveryOutcomeCandidates` excludes `resume_tool_wait` LLMs, which orphans the planner snapshot. Until tool-wait resume is implemented, `resume_tool_wait` should not be excluded from generic conversion; that single change removes the need for the child-activation special case and its tests.
+- **Multi-pass plan rebuilds.** Each new recovery step rebuilds the recovery plan to reclassify handled snapshots. A single-pass design that classifies each active card once, applies the highest-priority outcome, and cleans once is simpler and less error-prone.
+- **Restart treated as anomaly.** For an autonomous long-running agent, restart is a normal event. The current model blocks every non-terminal in-flight card and requires manual reactivation. A simpler model is to discard actor runtime snapshots on restart, keep the card store as the source of truth for card status, and let the operator or an auto-resume policy re-activate running cards. Actor snapshots only add value if mid-flight LLM turns are resumed, which is not implemented.
+- **Terminal projection is recovery-side replay.** `recoverProjectedTerminalToolOutcomes` recomputes card outcomes from logged tool-call args on restart. An eager-commit alternative commits the card outcome when the terminal tool call arrives in the normal path, so recovery only cleans snapshots and never recomputes outcomes. This moves complexity from recovery (many paths) into the normal path (one commit point).
+
+Preferred direction: before adding any new recovery path, collapse the existing pipeline into a single pass. The most aggressive simplification is **eager terminal commit + discard-snapshots-on-restart**: commit outcomes when terminal calls arrive, and on restart throw away actor snapshots and re-activate running cards. That eliminates terminal projection, child-activation recovery, generic conversion, and the multi-pass pipeline, leaving only diagnostics for truly orphaned state and the genuinely hard deferred work of mid-flight LLM/process resume.
+
 Remaining:
 
-- Extend durable reconstruction records for unresolved child activation waits, process ownership, and any nonterminal reviewer/planner wait that cannot be projected from terminal tool logs.
-- Reconstruct active card chains, processor ownership, unresolved child activation waits where the child is still active/nonterminal, LLM waiting-tool state, and process waits one path at a time where safe.
-- Resume remaining safe nonterminal `waiting_tool` paths without double-delivering tool results or duplicating provider turns as part of active LLM/processor reconstruction, not as a separate disconnected feature.
-- Repair interrupted nonterminal reviewer/planner chains with stored correction context or explicit diagnostics as part of active card/processor reconstruction.
-- Remove or reconcile remaining card/LLM/processor actor snapshots after successful reconstruction or outcome conversion so handled recovery work is not reported again on the next restart.
+- Collapse the recovery pipeline into a single pass before adding new recovery paths. Remove the multi-pass plan rebuilds and the redundant special-case functions.
+- Remove the `resume_tool_wait` exclusion from `recoveryOutcomeCandidates` (or replace it with eager commit) so generic conversion handles non-terminal in-flight waits and the `recoverCompletedChildActivationWaits` special case is no longer needed.
+- Decide between eager terminal commit (outcome committed in the normal path when the terminal tool call arrives) and recovery-side projection. Prefer eager commit because it removes recomputation from recovery.
+- Decide whether non-terminal in-flight work should be blocked on restart (current behavior) or re-activated from the card store after discarding actor snapshots. Prefer the discard-and-reactivate model for autonomous operation.
+- Only after the above simplifications, implement genuine mid-flight resume if it becomes a concrete requirement: re-attach to in-flight provider calls (still abandoned by default), process waits, and unresolved child activation waits where the child is still active. This is the only truly hard recovery work.
+- Repair interrupted nonterminal reviewer/planner chains with stored correction context or explicit diagnostics only if reviewer-phase resume is required; otherwise the discard-and-reactivate model handles it by re-running planning.
+- Keep diagnostics for truly orphaned state (ambiguous card states, stranded active cards, discarded non-idle supervisor) regardless of which simplification is chosen.
 
 Implementation:
 
-- Before any active resume path, complete any missing actor reconstruction records for supervisor, process records, activation waits, and tool waits not yet covered by `active_reconstruction`.
-- Reconstruct active card chains and unresolved waits where the durable records are complete enough to resume safely.
-- Keep consuming the recovery plan during runtime startup. Persisted diagnostics are the conservative fallback; resumable chains should be reconstructed instead of only diagnosed.
-- Abandon persisted running process records with diagnostics by default. Reconcile live running processes only if a later slice explicitly chooses that more complex path.
-- Abandon provider calls in progress with diagnostics because they cannot be safely reattached.
-- Repair tool delivery from persisted tool-call/message records.
+- First, collapse the existing pipeline into a single pass: classify each active card once, apply the highest-priority outcome (eager/projection where valid, otherwise block), clean handled snapshots once, then abandon stale tool calls once. Remove the per-slice special-case functions and their deps interfaces.
+- Prefer eager terminal commit in the normal path so recovery only cleans snapshots and never recomputes outcomes. If eager commit is deferred, keep projection but fold it into the single pass instead of a separate function.
+- Prefer discarding actor runtime snapshots on restart and re-activating running cards from the card store, rather than blocking every non-terminal in-flight card. Keep diagnostics for truly orphaned state either way.
+- Abandon persisted running/killing process records and in-flight provider calls with diagnostics by default. Reconcile live processes or re-attach provider calls only if a later slice explicitly chooses that more complex path.
+- Only after the single-pass simplification, implement genuine mid-flight resume where durable records are complete enough: unresolved child activation waits where the child is still active, process waits, and LLM waiting-tool state. Do not double-deliver tool results or duplicate provider turns.
 - Fail or block explicitly when state is ambiguous, and clean up/reconcile stale actor snapshots after the ambiguity is handled.
 
 Tests:
@@ -473,10 +487,16 @@ These items are not blockers for the core actor replacement, but should be compl
 
 ## Open Decisions
 
-- Remaining card/LLM/processor actor-record retention: delete, archive, or bounded history after reconstruction/outcome conversion. Abandoned process snapshot cleanup is already implemented.
-- Whether process tools share one `ProcessActor` per process record or use direct process-service tasks for short operations.
+- **Eager terminal commit vs recovery-side projection.** Prefer eager commit (outcome committed in the normal path when the terminal tool call arrives) because it removes outcome recomputation from recovery. Decide during the single-pass simplification.
+- **Block-on-restart vs discard-snapshots-on-reactivate.** Prefer discard-and-reactivate for autonomous operation. Decide during the single-pass simplification.
+- Remaining card/LLM/processor actor-record retention: delete, archive, or bounded history after reconstruction/outcome conversion. Abandoned process snapshot cleanup is already implemented. If discard-snapshots-on-restart is chosen, this becomes moot for restart recovery.
+- Whether mid-flight LLM/process resume is ever a concrete requirement. If not, the recovery pipeline shrinks to diagnostics + cleanup only.
 - Exact public projection fields for active chain and runtime activity.
-- Whether `actorRuntime.recovery` is sufficient for operator recovery visibility or a dedicated recovery endpoint/UI treatment is needed.
-- Whether reviewer-phase notifications should ever be reviewer-visible. The current safe default should be to hold main-agent notifications for planner delivery unless a concrete reviewer-cancellation feature is designed.
+- Whether reviewer-phase notifications should ever be reviewer-visible. The current safe default is to hold main-agent notifications for planner delivery unless a concrete reviewer-cancellation feature is designed.
+
+Resolved decisions (kept for provenance):
+
+- Process tools share one `ProcessActor` per process record; the implementation already does this.
+- `actorRuntime.recovery` is the current recovery visibility surface. A dedicated recovery endpoint/UI treatment is optional polish, not a separate decision.
 
 These decisions should be made when their implementation slice starts, not before.
