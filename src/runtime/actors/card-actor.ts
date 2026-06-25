@@ -197,8 +197,7 @@ export class CardActor extends BaseActor {
       this.#pendingActivation.resolve({ status: 'cancelled', summary: reason.reason });
       this.#pendingActivation = null;
     }
-    if (this.state() === 'running') this.sendEvent('cancel');
-    else if (this.state() !== 'cancelled') this.parkedSendEvent('cancel');
+    if (this.state() !== 'cancelled') this.parkedSendEvent('cancel');
     this.persist();
   }
 

@@ -45,10 +45,10 @@ export abstract class BaseCardProcessorActor extends BaseActor implements CardPr
     });
   }
 
-  protected runPendingActivation(stateLabel: string, run: (input: CardActivationInput, signal: AbortSignal) => Promise<CardProcessorOutcome>): void {
+  protected runPendingActivation(stateLabel: string, run: (input: CardActivationInput) => Promise<CardProcessorOutcome>): void {
     const pending = this.#pending;
     if (!pending) throw new Error(`${this.processorLabel} '${this.cardId}' entered ${stateLabel} without activation input.`);
-    this.runTask((signal) => run(pending.input, signal), {
+    this.runTask(() => run(pending.input), {
       on_done: (outcome) => this.settlePending(pending, outcome, outcome.status),
       on_failed: (error) => this.settlePending(pending, this.activationFailureOutcome(error.message), 'failed'),
     });

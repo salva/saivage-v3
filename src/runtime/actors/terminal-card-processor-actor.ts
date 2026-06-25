@@ -34,7 +34,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   _on_enter__executing(): void {
-    this.runPendingActivation('executing', (input, signal) => this.runActivation(input, signal));
+    this.runPendingActivation('executing', (input) => this.runActivation(input));
   }
 
   _on_recover__executing(): void {
@@ -49,23 +49,21 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     return { ...super.processorSnapshotContext(), processIds: [...this.processes.keys()] };
   }
 
-  private async runActivation(input: CardActivationInput, signal: AbortSignal): Promise<TerminalProcessorOutcome> {
+  private async runActivation(input: CardActivationInput): Promise<TerminalProcessorOutcome> {
     const contract = createExecutorContract();
     const llm = this.createMainLlm(executorActorId(this.cardId));
     let outcome = await llm.turn(this.buildLlmInput(input, contract));
     for (let turn = 0; turn < 10; turn++) {
-      if (signal.aborted) throw new Error('Terminal activation cancelled.');
       if (outcome.type === 'result') return { status: 'failed', summary: `${expectedTerminalToolMessage(contract)} Plain executor messages are not accepted as terminal results.`, result: executorFailure(`${expectedTerminalToolMessage(contract)} Plain executor messages are not accepted as terminal results.`) };
       if (outcome.type === 'error') return { status: 'failed', summary: outcome.error, result: executorFailure(outcome.error) };
       if (contract.isTerminalToolName(outcome.toolName)) return this.projectExecutorTerminal(outcome, contract);
       const toolResult = await this.handleToolCall(outcome);
       outcome = await llm.appendToolResult(outcome.toolCallId, toolResult, (inputId) => this.notificationContextMessages(input, inputId));
     }
-    return this.projectExecutorBudgetExit(outcome, signal, contract);
+    return this.projectExecutorBudgetExit(outcome, contract);
   }
 
-  private projectExecutorBudgetExit(outcome: LLMActorOutcome, signal: AbortSignal, contract = createExecutorContract()): TerminalProcessorOutcome {
-    if (signal.aborted) throw new Error('Terminal activation cancelled.');
+  private projectExecutorBudgetExit(outcome: LLMActorOutcome, contract = createExecutorContract()): TerminalProcessorOutcome {
     if (outcome.type === 'error') return { status: 'failed', summary: outcome.error, result: executorFailure(outcome.error) };
     if (outcome.type === 'result') return { status: 'failed', summary: `${expectedTerminalToolMessage(contract)} Plain executor messages are not accepted as terminal results.`, result: executorFailure(`${expectedTerminalToolMessage(contract)} Plain executor messages are not accepted as terminal results.`) };
     if (contract.isTerminalToolName(outcome.toolName)) return this.projectExecutorTerminal(outcome, contract);

@@ -142,6 +142,7 @@ export class ProcessActor extends BaseActor {
     if (this.state() === 'settled') return;
     if (!this.#child || this.#child.killed) return;
     this.killReason = reason;
+    this.persist();
     this.#child.kill(signal);
     this.#requestKill?.();
   }
@@ -166,7 +167,8 @@ export class ProcessActor extends BaseActor {
     this.releaseRuntimeHandles();
   }
 
-  protected override _on_state_changed(_oldState: string | undefined, _newState: string): void {
+  protected override _on_state_changed(_oldState: string | undefined, newState: string): void {
+    if (newState === 'settled') return;
     this.persist();
   }
 

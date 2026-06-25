@@ -38,7 +38,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   _on_enter__planning(): void {
-    this.runPendingActivation('planning', (input, signal) => this.runActivation(input, signal));
+    this.runPendingActivation('planning', (input) => this.runActivation(input));
   }
 
   _on_recover__planning(): void {
@@ -63,26 +63,24 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     return { status: 'blocked', summary, result: { kind: 'planner_blocked', blocked_reason: summary, resume_reason: 'non_actionable_continue', blocker_cause: 'non_actionable_continue' } };
   }
 
-  private async runActivation(input: CardActivationInput, signal: AbortSignal): Promise<PlannerProcessorOutcome> {
+  private async runActivation(input: CardActivationInput): Promise<PlannerProcessorOutcome> {
     const contract = createPlannerContract();
     const llm = this.createMainLlm(plannerActorId(this.cardId));
     let outcome = await llm.turn(this.buildLlmInput(input, contract));
     for (let turn = 0; turn < 20; turn++) {
-      if (signal.aborted) throw new Error('Planner activation cancelled.');
       if (outcome.type === 'result') return this.plannerFailure(`${expectedTerminalToolMessage(contract)} Plain planner messages are not accepted as terminal results.`);
       if (outcome.type === 'error') return this.plannerFailure(outcome.error);
-      if (contract.isTerminalToolName(outcome.toolName)) return this.projectPlannerTerminal(input, outcome, signal, contract);
+      if (contract.isTerminalToolName(outcome.toolName)) return this.projectPlannerTerminal(input, outcome, contract);
       const toolResult = await this.handleToolCall(input.card, outcome);
       outcome = await llm.appendToolResult(outcome.toolCallId, toolResult, (inputId) => this.notificationContextMessages(input, inputId));
     }
-    return this.projectPlannerBudgetExit(input, outcome, signal, contract);
+    return this.projectPlannerBudgetExit(input, outcome, contract);
   }
 
-  private async projectPlannerBudgetExit(input: CardActivationInput, outcome: LLMActorOutcome, signal: AbortSignal, contract = createPlannerContract()): Promise<PlannerProcessorOutcome> {
-    if (signal.aborted) throw new Error('Planner activation cancelled.');
+  private async projectPlannerBudgetExit(input: CardActivationInput, outcome: LLMActorOutcome, contract = createPlannerContract()): Promise<PlannerProcessorOutcome> {
     if (outcome.type === 'error') return this.plannerFailure(outcome.error);
     if (outcome.type === 'result') return this.plannerFailure(`${expectedTerminalToolMessage(contract)} Plain planner messages are not accepted as terminal results.`);
-    if (contract.isTerminalToolName(outcome.toolName)) return this.projectPlannerTerminal(input, outcome, signal, contract);
+    if (contract.isTerminalToolName(outcome.toolName)) return this.projectPlannerTerminal(input, outcome, contract);
     return this.plannerFailure('Planner exceeded turn budget.');
   }
 
@@ -121,7 +119,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     }
   }
 
-  private async projectPlannerTerminal(input: CardActivationInput, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, signal: AbortSignal, contract = createPlannerContract()): Promise<PlannerProcessorOutcome> {
+  private async projectPlannerTerminal(input: CardActivationInput, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, contract = createPlannerContract()): Promise<PlannerProcessorOutcome> {
     let typed: PlannerTypedResult;
     try {
       typed = verifyTerminalToolOutcome(contract, outcome).result;
@@ -134,7 +132,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
       const blocker = firstIncompleteDescendant(this.cardId, this.store);
       if (blocker) return { status: 'blocked', summary: `Cannot complete while descendant '${blocker.id}' is ${blocker.status}.`, result: { kind: 'planner_blocked', blocked_reason: `Descendant '${blocker.id}' is ${blocker.status}.`, resume_reason: 'complete executable descendants before retrying' } };
       const summary = parsed.summary ?? 'Planner completed.';
-      return this.reviewPlannerDone(input, { kind: 'planner_done', summary }, signal);
+      return this.reviewPlannerDone(input, { kind: 'planner_done', summary });
     }
     if (parsed.status === 'blocked') {
       const summary = parsed.summary ?? parsed.blocked_reason ?? 'Planner blocked.';
@@ -144,12 +142,11 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     return { status: 'blocked', summary, result: { kind: 'planner_blocked', blocked_reason: summary, resume_reason: 'non_actionable_continue', blocker_cause: 'non_actionable_continue' } };
   }
 
-  private async reviewPlannerDone(input: CardActivationInput, planning: PlannerDoneResult, signal: AbortSignal): Promise<PlannerProcessorOutcome> {
+  private async reviewPlannerDone(input: CardActivationInput, planning: PlannerDoneResult): Promise<PlannerProcessorOutcome> {
     const assessmentId = nextReviewerAssessmentId(input.card.id, input.card.lifecycle.result);
     const sessionId = reviewerSessionId(input.card.id, assessmentId);
     const llm = this.createMainLlm(reviewerActorId(input.card.id));
     const outcome = await llm.turn(this.buildReviewerLlmInput(input, assessmentId, sessionId));
-    if (signal.aborted) throw new Error('Planner reviewer activation cancelled.');
     if (outcome.type === 'error') return { status: 'failed', summary: outcome.error, result: { kind: 'planner_failure', error: outcome.error } };
     if (outcome.type === 'result') return this.plannerFailure(`${expectedTerminalToolMessage(createReviewerContract())} Plain reviewer messages are not accepted as terminal results.`);
     if (!createReviewerContract().isTerminalToolName(outcome.toolName)) return this.plannerFailure(`Reviewer returned unsupported tool call '${outcome.toolName}'.`);
