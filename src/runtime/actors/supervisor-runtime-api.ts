@@ -1,18 +1,21 @@
 import { EventBus } from '../../events/index.js';
 import { createActionableErrorEnvelope } from '../../schemas/index.js';
 import { PROJECT_CARD_ID } from '../../cards/project-card.js';
-import { buildActorRecoveryPlan, cleanupConvertedRecoverySnapshots, cleanupHandledRecoverySnapshots, recoverActorStartupOutcomes, writeRecoveryDiagnostics } from './actor-recovery.js';
-import { abandonStalePendingToolCalls } from './llm-delivery-log.js';
+import { buildActorRecoveryPlan, runActorStartupRecovery, type ActorStartupRecoveryReport } from './actor-recovery.js';
 import { plannerActorId } from './ids.js';
 import { RuntimeSupervisorActor } from './runtime-supervisor.js';
 import { CardActor, type CardActorStorePort } from './card-actor.js';
 import { PlanningCardProcessorActor, type PlannerChildActorPort } from './planning-card-processor-actor.js';
 import { TerminalCardProcessorActor } from './terminal-card-processor-actor.js';
+import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
+import { toPublicAgentPhase, toPublicCardActorState } from './actor-vocabulary.js';
+import { parseLlmActorId } from './ids.js';
 import type { LLMProviderPort } from './llm-actor.js';
 import type { RuntimeApi, RuntimeCommandSource, StartProjectResult, StopProjectResult } from '../runtime-api.js';
 import type { CardRecord, RuntimeCommandRecord, RuntimeRunRecord, RuntimeState, RuntimeStatus } from '../../schemas/index.js';
 import type { SessionActivity } from '../session-stamper.js';
 import type { Subscription, SubscriptionOptions } from '../../events/index.js';
+import type { ActorActiveWork, ActorPauseMode, ActorRuntimeReadModel } from '../../application/read-models/actor-runtime-read-model.js';
 
 export interface ProjectRootCardReader {
   read(cardId: string): { id: string; type: string } | null;
@@ -36,6 +39,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
   private runCounter = 0;
   private currentCardId: string | null = null;
   private activeRun: RuntimeRunRecord | null = null;
+  private startupRecoveryReport: ActorStartupRecoveryReport | null = null;
   private readonly cardActors = new Map<string, CardActor>();
 
   constructor(private readonly options: SupervisorRuntimeApiOptions) {
@@ -46,24 +50,25 @@ export class SupervisorRuntimeApi implements RuntimeApi {
   async start(): Promise<void> {
     if (this.started) return;
     const recoveryPlan = buildActorRecoveryPlan(this.options.projectRoot, this.options.actorStore);
-    const recoveries = recoverActorStartupOutcomes(recoveryPlan, {
+    this.startupRecoveryReport = runActorStartupRecovery(recoveryPlan, {
       projectRoot: this.options.projectRoot,
       store: this.options.actorStore,
       generatedAt: this.now(),
       makePlanningProcessor: (cardId) => new PlanningCardProcessorActor({ projectRoot: this.options.projectRoot, cardId, store: this.options.actorStore, children: this.childrenPort(), provider: this.options.provider, admission: this }),
-      makeTerminalProcessor: (cardId) => new TerminalCardProcessorActor({ projectRoot: this.options.projectRoot, cardId, provider: this.options.provider, admission: this }),
+      makeTerminalProcessor: (cardId) => new TerminalCardProcessorActor({ projectRoot: this.options.projectRoot, cardId, provider: this.options.provider, admission: this, store: this.options.actorStore }),
     });
-    cleanupConvertedRecoverySnapshots(this.options.projectRoot, recoveries);
-    cleanupHandledRecoverySnapshots(this.options.projectRoot, recoveryPlan);
-    abandonStalePendingToolCalls(this.options.projectRoot);
-    writeRecoveryDiagnostics(this.options.projectRoot, buildActorRecoveryPlan(this.options.projectRoot, this.options.actorStore), this.now());
     this.supervisor.start();
     this.supervisor.initialize(this.options.projectRoot);
     this.started = true;
   }
 
+  getStartupRecoveryReport(): ActorStartupRecoveryReport | null {
+    return this.startupRecoveryReport;
+  }
+
   async shutdown(): Promise<void> {
     if (!this.started) return;
+    this.shutdownOwnedProcesses('runtime shutdown');
     this.supervisor.shutdown();
     this.started = false;
     this.currentCardId = null;
@@ -174,16 +179,41 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     };
   }
 
+  getActorRuntimeReadModel(): ActorRuntimeReadModel {
+    const cards = [...this.cardActors.values()].map((actor) => ({
+      cardId: actor.cardId,
+      actorState: toPublicCardActorState(actor.state()),
+    })).sort((a, b) => a.cardId.localeCompare(b.cardId));
+    const agents = [...this.cardActors.values()].flatMap((cardActor) => {
+      const processor = cardActor.processor;
+      if (!(processor instanceof BaseMainLLMCardProcessorActor)) return [];
+      return processor.listLlmActors().map((agent) => {
+        const identity = parseLlmActorId(agent.agentId);
+        return { agentId: agent.agentId, role: identity.role, cardId: identity.cardId, phase: toPublicAgentPhase(agent.state()) };
+      });
+    }).sort((a, b) => a.agentId.localeCompare(b.agentId));
+    return {
+      pauseMode: this.actorPauseMode(),
+      activeWork: this.actorActiveWork(),
+      cards,
+      agents,
+      diagnostics: [],
+      recovery: this.startupRecoveryReport?.outstanding
+        ? { generated_at: this.startupRecoveryReport.outstanding.generated_at, diagnostics: this.startupRecoveryReport.outstanding.diagnostics, actions: this.startupRecoveryReport.outstanding.actions }
+        : null,
+    };
+  }
+
   getActivityStatus(_sessionId: string): SessionActivity {
     return { status: 'idle', pending_calls: [], updated_at: this.now() };
   }
 
   requestProviderCall(callId: string): boolean {
-    return this.supervisor.requestProviderCall({ callId });
+    return this.supervisor.requestProviderCall(callId);
   }
 
   releaseProviderCall(callId: string): void {
-    this.supervisor.releaseProviderCall({ callId });
+    this.supervisor.releaseProviderCall(callId);
   }
 
   private command(command: RuntimeCommandRecord['command'], status: RuntimeCommandRecord['status'], source: RuntimeCommandSource): RuntimeCommandRecord {
@@ -241,13 +271,33 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       processor.start();
       return processor;
     }
-    const processor = new TerminalCardProcessorActor({ projectRoot: this.options.projectRoot, cardId: card.id, provider: this.options.provider, admission: this });
+    const processor = new TerminalCardProcessorActor({ projectRoot: this.options.projectRoot, cardId: card.id, provider: this.options.provider, admission: this, store: this.options.actorStore });
     processor.start();
     return processor;
   }
 
   private childrenPort(): PlannerChildActorPort {
     return { get: (cardId) => this.cardActor(cardId) };
+  }
+
+  private actorPauseMode(): ActorPauseMode {
+    const mode = this.supervisor.mode;
+    if (mode === 'paused') return 'paused';
+    if (mode === 'shutting_down') return 'stopping';
+    return 'running';
+  }
+
+  private actorActiveWork(): ActorActiveWork {
+    const work = this.supervisor.work;
+    if (work === 'model_invocation_active') return 'model_invocation';
+    if (work === 'shutdown_active') return 'shutdown';
+    return 'none';
+  }
+
+  private shutdownOwnedProcesses(reason: string): void {
+    for (const actor of this.cardActors.values()) {
+      if (actor.processor instanceof TerminalCardProcessorActor) actor.processor.shutdownOwnedProcesses(reason);
+    }
   }
 }
 

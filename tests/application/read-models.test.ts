@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { initRuntimeState, updateRuntimeState } from '../../src/runtime/state.js';
 import { CardStore } from '../../src/cards/store-api.js';
+import { saveActorSnapshot } from '../../src/runtime/actors/index.js';
 import {
   buildCardRunsResponse,
   buildRuntimeStatusReadModel,
@@ -32,19 +33,43 @@ afterEach(() => {
 });
 
 describe('application read models', () => {
-  it('builds runtime status from disk fallback with live pid', () => {
-    updateRuntimeState(root, { status: 'paused', paused: true, active_card_run: { card_id: 'card-1', card_type: 'goal', ownership: { kind: 'direct', source: 'project_root' },
-  runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:card-1', correction_attempts: 0, started_at: '2026-01-01T00:00:00.000Z', last_turn_at: '2026-01-01T00:00:00.000Z' }, last_tick_at: '2026-01-01T00:00:00.000Z' });
+  it('requires a runtime API for runtime status', () => {
+    expect(() => buildRuntimeStatusReadModel({ projectRoot: root } as never)).toThrow();
+  });
 
-    expect(buildRuntimeStatusReadModel({ projectRoot: root })).toEqual(expect.objectContaining({
+  it('builds runtime status from the live runtime API', () => {
+    const actorRuntime = { pauseMode: 'paused' as const, activeWork: 'model_invocation' as const, cards: [{ cardId: 'live-card', actorState: 'running' as const }], agents: [{ agentId: 'planner:live-card', role: 'planner' as const, cardId: 'live-card', phase: 'calling_provider' as const }], diagnostics: [], recovery: null };
+
+    expect(buildRuntimeStatusReadModel({
+      projectRoot: root,
+      runtimeApi: {
+        getStatus: () => ({ status: 'paused' as const, paused: true, currentCardId: 'live-card', goalCount: 1, lastTickAt: '2026-01-01T00:00:00.000Z' }),
+        getActorRuntimeReadModel: () => actorRuntime,
+      },
+    })).toEqual(expect.objectContaining({
       runtime: 'paused',
       paused: true,
-      currentCardId: 'card-1',
-      goalCount: 0,
+      currentCardId: 'live-card',
+      goalCount: 1,
       lastTickAt: '2026-01-01T00:00:00.000Z',
       pid: process.pid,
-      actorRuntime: { pauseMode: 'unknown', cards: [], agents: [], diagnostics: [], recovery: null },
+      actorRuntime,
     }));
+  });
+
+  it('runtime status uses live actor read model instead of snapshot files', () => {
+    saveActorSnapshot(root, { actor_id: 'card:disk-card', actor_kind: 'card', state_value: 'failed', context: {}, updated_at: new Date().toISOString() });
+    const liveActorRuntime = { pauseMode: 'running' as const, activeWork: 'none' as const, cards: [{ cardId: 'live-card', actorState: 'running' as const }], agents: [], diagnostics: [], recovery: null };
+
+    const model = buildRuntimeStatusReadModel({
+      projectRoot: root,
+      runtimeApi: {
+        getStatus: () => ({ status: 'running' as const, paused: false, currentCardId: 'live-card', goalCount: 1, lastTickAt: null }),
+        getActorRuntimeReadModel: () => liveActorRuntime,
+      },
+    });
+
+    expect(model.actorRuntime.cards).toEqual([{ cardId: 'live-card', actorState: 'running' }]);
   });
 
   it('owns card-runs breadcrumb projection outside the agents package', () => {

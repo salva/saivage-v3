@@ -230,14 +230,14 @@ Goal: prove the full actor path with the simplest useful card execution.
 Implementation:
 
 - Add `BaseCardProcessorActor` before adding or refactoring concrete processors. It owns the shared processor states, public `activate(input)`, pending activation promise handling, settlement, `_on_state_changed(...)` persistence, and common snapshot fields. It must not know planner, reviewer, executor, process-tool, or card-type policy. Processor-level `cancel(...)` and `cancelled` states are intentionally absent from the normal running-cancel path; running cancellation is delivered as card-owned notification context.
-- Add `BaseMainLLMCardProcessorActor` for processors whose main card agent is one LLM session. It owns/caches the main `LLMActor`, runs the main turn loop, injects owning-card notifications before each main-agent provider turn, records delivery markers, and provides hook methods for concrete tool routing and terminal-report handling. It must not decide role-specific semantics.
+- Add `BaseMainLLMCardProcessorActor` for processors whose main card agent is one LLM session. It creates the main `LLMActor` for the current invocation flow, runs the main turn loop, injects owning-card notifications before each main-agent provider turn, records delivery markers, and provides hook methods for concrete tool routing and terminal-report handling. It must not decide role-specific semantics.
 - Implement terminal processor behavior in `TerminalCardProcessorActor`.
 - Make `TerminalCardProcessorActor` extend `BaseMainLLMCardProcessorActor`.
 - Represent terminal-specific phases such as `executing` and `waiting_process` on processor fields unless a distinct state is needed for task ownership; keep the shared top-level processor states in `BaseCardProcessorActor`.
 - Implement public `activate(input)`. Do not add processor `cancel(reason)` unless a separate shutdown/force-cancel feature is deliberately designed.
 - Persist terminal processor state transitions from `_on_state_changed(...)`; keep explicit persistence for activation inputs, process ids, and terminal outcomes when those fields change outside transition entry. Queued cancellation notifications remain owned by `CardActor`, not by processors.
 - Build executor invocation context from card data, notifications, and relevant project context.
-- Own/cache one executor `LLMActor` for the terminal activation path.
+- Own one executor `LLMActor` for the terminal activation path; do not reuse it across activations until `LLMActor` has an explicit terminal-settlement API.
 - Provide terminal capabilities: reporting result/failure, process launch/wait/inspect/kill through `ProcessActor`, and safe file inspection if already supported.
 - Offer the executor contract terminal tool and validate accepted executor terminal reports through that contract before committing card result data. Do not accept free-form executor prose or ad-hoc JSON as a terminal card result.
 - Return exactly one `done` or `failed` outcome to the associated `CardActor`.
@@ -271,7 +271,7 @@ Implementation:
 - Implement project and goal processor behavior in `PlanningCardProcessorActor`, extending `BaseMainLLMCardProcessorActor`.
 - Use `PlanningCardProcessorActor` directly for both project and goal cards unless their behavior truly diverges.
 - Build planner invocation context from card tree, planning diary, pending notifications, prior reviewer findings, and direct child status.
-- Own/cache the planner `LLMActor`; own the reviewer invocation as a phase of the same project/goal processor rather than as a separate card processor.
+- Own the planner `LLMActor` for the current activation; own the reviewer invocation as a phase of the same project/goal processor rather than as a separate card processor. Do not reuse LLM actors across activations until `LLMActor` has an explicit terminal-settlement API.
 - Give the project/goal processor access to its owning `CardActor` so it can inspect/drain deliverable main-agent notifications before activation and before every subsequent planner provider turn; record delivery markers after successful append.
 - Best-effort cancellation of a running project/goal is delivered through the same notification path and does not alter planner admission, child activation, process tools, or later planner reports by itself.
 - Build planner capabilities for direct-child activation, direct-child mutation, process tools, working status, and the planner contract terminal report tool. Do not accept free-form planner prose or ad-hoc JSON as a terminal planner report.

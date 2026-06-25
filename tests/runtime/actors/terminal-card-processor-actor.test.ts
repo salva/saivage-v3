@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardStore } from '../../../src/cards/card-store.js';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { CardActor, MAX_TERMINAL_PROCESS_ACTORS, ProcessActor, TerminalCardProcessorActor, readActorSnapshots, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
+import { CardActor, MAX_TERMINAL_PROCESS_ACTORS, ProcessActor, TerminalCardProcessorActor, readActorSnapshots, readProcessEvidence, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
 import type { LlmCompleteResult } from '../../../src/agents/llm-contracts.js';
 
@@ -27,8 +27,19 @@ function setup(projectRoot: string) {
 function executorResult(cardId: string, statusText: string, status: 'done' | 'failed' = 'done') {
   return {
     kind: 'tool_calls' as const,
-    tool_calls: [{ id: `executor-${status}`, type: 'function' as const, function: { name: 'emit_executor_result', arguments: JSON.stringify({ card_id: cardId, status, status_text: statusText, summary: statusText, error: status === 'failed' ? statusText : undefined, artifacts: [], attachments: [] }) } }],
+    tool_calls: [{ id: `executor-${status}`, type: 'function' as const, function: { name: 'emit_executor_result', arguments: JSON.stringify({ card_id: cardId, status, status_text: statusText, summary: statusText, error: status === 'failed' ? statusText : undefined, result: { summary: statusText }, artifacts: [], attachments: [], generated_files: [`${cardId}.txt`], warnings: [] }) } }],
   };
+}
+
+function executorResultWithEvidence(cardId: string, artifactPath: string, attachmentPath: string) {
+  return {
+    kind: 'tool_calls' as const,
+    tool_calls: [{ id: 'executor-evidence', type: 'function' as const, function: { name: 'emit_executor_result', arguments: JSON.stringify({ card_id: cardId, status: 'done', status_text: 'implemented with evidence', summary: 'implemented with evidence', result: { summary: 'implemented with evidence' }, artifacts: [{ type: 'log', description: 'build log', retain: true, path: artifactPath }], attachments: [{ mime: 'text/plain', title: 'notes', path: attachmentPath }], generated_files: ['src/example.ts'], warnings: ['manual review advised'] }) } }],
+  };
+}
+
+function noopNotificationDelivery() {
+  return { deliverNotificationsForInput: () => [] };
 }
 
 async function eventually(assertion: () => void, attempts = 40): Promise<void> {
@@ -56,6 +67,20 @@ describe('TerminalCardProcessorActor', () => {
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_kind)).toEqual(expect.arrayContaining(['card', 'llm', 'processor']));
   }));
 
+  it('preserves executor artifacts and attachments through card evidence refs and schema-valid result fields', async () => withTempProject(async (projectRoot) => {
+    const { store, card } = setup(projectRoot);
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => executorResultWithEvidence(card.id, '.saivage-work/logs/build.log', '.saivage-work/logs/notes.txt')) };
+    const processor = new TerminalCardProcessorActor({ projectRoot, cardId: card.id, provider, store });
+    processor.start();
+
+    const outcome = await processor.activate({ card, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: noopNotificationDelivery() });
+
+    expect(outcome).toMatchObject({ status: 'done', result: { kind: 'executor_success', generated_files: ['src/example.ts'], warnings: ['manual review advised'] } });
+    expect(outcome.result.executor).toMatchObject({ artifact_refs: [expect.objectContaining({ path: '.saivage-work/logs/build.log' })], attachment_refs: [expect.objectContaining({ path: '.saivage-work/logs/notes.txt' })] });
+    expect(store.read(card.id)?.artifacts).toEqual([expect.objectContaining({ path: '.saivage-work/logs/build.log', type: 'log' })]);
+    expect(store.read(card.id)?.attachments).toEqual([expect.objectContaining({ path: '.saivage-work/logs/notes.txt', title: 'notes' })]);
+  }));
+
   it('commits provider failure as failed outcome', async () => withTempProject(async (projectRoot) => {
     const { store, card } = setup(projectRoot);
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => { throw new Error('model unavailable'); }) };
@@ -76,7 +101,7 @@ describe('TerminalCardProcessorActor', () => {
     const processor = new TerminalCardProcessorActor({ projectRoot, cardId: card.id, provider });
     processor.start();
 
-    const pending = processor.activate({ card, caller: { kind: 'parent', cardId: 'project' }, notifications: [] });
+    const pending = processor.activate({ card, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: noopNotificationDelivery() });
     await eventually(() => expect(processor.state()).toBe('executing'));
     expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === `processor:${card.id}`)?.context.active_reconstruction).toMatchObject({
       schema_version: 1,
@@ -105,7 +130,7 @@ describe('TerminalCardProcessorActor', () => {
     expect(outcome.summary).toContain('emit_executor_result');
   }));
 
-  it('returns process wait timeout without killing the process', async () => withTempProject(async (projectRoot) => {
+  it('cleans up a timed-out owned process when the terminal card settles', async () => withTempProject(async (projectRoot) => {
     const { card } = setup(projectRoot);
     const provider: LLMProviderPort = {
       completeTurn: jest.fn(async (input: LlmInvocationInput) => input.episodeContext.lastToolResult
@@ -116,7 +141,7 @@ describe('TerminalCardProcessorActor', () => {
     const processor = new TerminalCardProcessorActor({ projectRoot, cardId: card.id, provider });
     processor.start();
 
-    const outcome = await processor.activate({ card, caller: { kind: 'parent', cardId: 'project' }, notifications: [], notificationDelivery: delivery });
+    const outcome = await processor.activate({ card, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: delivery });
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'saw running process' });
     expect(delivery.deliverNotificationsForInput).toHaveBeenCalledWith(`terminal:${card.id}:1`);
@@ -124,10 +149,9 @@ describe('TerminalCardProcessorActor', () => {
     expect(provider.completeTurn).toHaveBeenLastCalledWith(expect.objectContaining({
       contextMessages: [{ role: 'user', content: 'executor mid-turn notice' }],
     }), expect.any(AbortSignal));
-    const processActor = processor.processes.get('P-timeout');
-    expect(processActor).toBeDefined();
-    expect(processActor?.pid).not.toBeNull();
-    await expect(processActor!.wait(1000)).resolves.toMatchObject({ status: 'settled', exitCode: 0 });
+    expect(processor.processes.size).toBe(0);
+    await eventually(() => expect(readProcessEvidence(projectRoot, 'P-timeout')).toMatchObject({ processId: 'P-timeout', killReason: 'terminal card settled' }));
+    expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).not.toContain('process:P-timeout');
   }));
 
   it('routes explicit process kill through ProcessActor', async () => withTempProject(async (projectRoot) => {
@@ -143,13 +167,48 @@ describe('TerminalCardProcessorActor', () => {
     const processor = new TerminalCardProcessorActor({ projectRoot, cardId: card.id, provider });
     processor.start();
 
-    const outcome = await processor.activate({ card, caller: { kind: 'parent', cardId: 'project' }, notifications: [] });
+    const outcome = await processor.activate({ card, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: noopNotificationDelivery() });
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'killed process' });
-    const processActor = processor.processes.get('P-kill');
-    expect(processActor?.killReason).toBe('executor requested kill');
-    await eventually(() => expect(processActor?.state()).toBe('settled'));
-    expect(processActor?.signal).toBe('SIGTERM');
+    expect(processor.processes.size).toBe(0);
+    await eventually(() => expect(readProcessEvidence(projectRoot, 'P-kill')).toMatchObject({ processId: 'P-kill', killReason: 'executor requested kill', signal: 'SIGTERM' }));
+  }));
+
+  it('accepts a terminal executor result produced by the final allowed tool append', async () => withTempProject(async (projectRoot) => {
+    const { card } = setup(projectRoot);
+    let executorTurns = 0;
+    const provider: LLMProviderPort = {
+      completeTurn: jest.fn(async () => {
+        executorTurns++;
+        if (executorTurns <= 10) return { kind: 'tool_calls' as const, tool_calls: [{ id: `inspect-${executorTurns}`, type: 'function' as const, function: { name: 'inspect_process', arguments: JSON.stringify({ processId: 'missing' }) } }] };
+        return executorResult(card.id, 'done at boundary');
+      }),
+    };
+    const processor = new TerminalCardProcessorActor({ projectRoot, cardId: card.id, provider });
+    processor.start();
+
+    const outcome = await processor.activate({ card, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: noopNotificationDelivery() });
+
+    expect(outcome).toMatchObject({ status: 'done', summary: 'done at boundary' });
+    expect(executorTurns).toBe(11);
+  }));
+
+  it('fails the executor budget when the final allowed tool append is non-terminal', async () => withTempProject(async (projectRoot) => {
+    const { card } = setup(projectRoot);
+    let executorTurns = 0;
+    const provider: LLMProviderPort = {
+      completeTurn: jest.fn(async () => {
+        executorTurns++;
+        return { kind: 'tool_calls' as const, tool_calls: [{ id: `inspect-${executorTurns}`, type: 'function' as const, function: { name: 'inspect_process', arguments: JSON.stringify({ processId: 'missing' }) } }] };
+      }),
+    };
+    const processor = new TerminalCardProcessorActor({ projectRoot, cardId: card.id, provider });
+    processor.start();
+
+    const outcome = await processor.activate({ card, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: noopNotificationDelivery() });
+
+    expect(outcome).toMatchObject({ status: 'failed', summary: 'Executor exceeded terminal turn budget.', result: { kind: 'executor_failure', error: 'Executor exceeded terminal turn budget.' } });
+    expect(executorTurns).toBe(11);
   }));
 
   it('compacts old settled process actors', () => withTempProject((projectRoot) => {
@@ -166,5 +225,12 @@ describe('TerminalCardProcessorActor', () => {
     expect([...processor.processes.keys()]).toHaveLength(MAX_TERMINAL_PROCESS_ACTORS);
     expect([...processor.processes.keys()][0]).toBe('P-3');
     expect([...processor.processes.keys()].at(-1)).toBe(`P-${MAX_TERMINAL_PROCESS_ACTORS + 2}`);
+  }));
+
+  it('throws a clear impossible-state error when recovering directly into executing', () => withTempProject((projectRoot) => {
+    const { card } = setup(projectRoot);
+    const processor = new TerminalCardProcessorActor({ projectRoot, cardId: card.id, provider: { completeTurn: jest.fn(async () => executorResult(card.id, 'unused')) } });
+
+    expect(() => processor.recover('executing')).toThrow(/cannot recover directly into active state 'executing'/);
   }));
 });

@@ -1,5 +1,5 @@
 import type { ActorDefinition } from '../micro-actor/index.js';
-import type { CardActivationInput, CardActivationOutcome, CardProcessorActor } from './card-actor.js';
+import type { CardActivationInput, CardActivationOutcome, CardActorStorePort, CardProcessorActor } from './card-actor.js';
 import { executorActorId } from './ids.js';
 import type { LLMActorOutcome, LLMAdmissionPort, LLMProviderPort } from './llm-actor.js';
 import { ProcessActor } from './process-actor.js';
@@ -7,10 +7,11 @@ import { TERMINAL_CARD_PROCESSOR_TOOL_DEFINITIONS } from './actor-tool-definitio
 import type { LlmInvocationInput } from './llm-invocation.js';
 import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
 import { createExecutorContract } from '../../contracts/executor-contract.js';
-import type { ExecutorResult } from '../../contracts/agent-execution.js';
+import type { ExecutorAttachmentDef, ExecutorArtifactDef, ExecutorResult } from '../../contracts/agent-execution.js';
 import { expectedTerminalToolMessage, verifyTerminalToolOutcome } from './contract-terminal-tools.js';
+import type { ArtifactRef, AttachmentRef } from '../../schemas/index.js';
 
-type TerminalProcessorOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
+type TerminalProcessorOutcome = Extract<CardActivationOutcome, { status: 'done' | 'failed' }>;
 
 export const MAX_TERMINAL_PROCESS_ACTORS = 20;
 
@@ -25,16 +26,22 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
   };
 
   readonly processes = new Map<string, ProcessActor>();
+  readonly store?: CardActorStorePort;
 
-  constructor(args: { projectRoot: string; cardId: string; provider: LLMProviderPort; admission?: LLMAdmissionPort }) {
+  constructor(args: { projectRoot: string; cardId: string; provider: LLMProviderPort; admission?: LLMAdmissionPort; store?: CardActorStorePort }) {
     super(args);
+    this.store = args.store;
   }
 
   _on_enter__executing(): void {
     this.runPendingActivation('executing', (input, signal) => this.runActivation(input, signal));
   }
 
-  recoverTerminalToolOutcome(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): TerminalProcessorOutcome {
+  _on_recover__executing(): void {
+    throw new Error(`Terminal processor '${this.cardId}' cannot recover directly into active state 'executing'; startup recovery must project or restart the activation.`);
+  }
+
+  recoverTerminalToolOutcome(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): TerminalProcessorOutcome | null {
     return this.projectExecutorTerminal(outcome);
   }
 
@@ -43,21 +50,29 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private async runActivation(input: CardActivationInput, signal: AbortSignal): Promise<TerminalProcessorOutcome> {
+    const contract = createExecutorContract();
     const llm = this.createMainLlm(executorActorId(this.cardId));
-    let outcome = await llm.turn(this.buildLlmInput(input));
+    let outcome = await llm.turn(this.buildLlmInput(input, contract));
     for (let turn = 0; turn < 10; turn++) {
       if (signal.aborted) throw new Error('Terminal activation cancelled.');
-      if (outcome.type === 'result') return { status: 'failed', summary: `${expectedTerminalToolMessage(createExecutorContract())} Plain executor messages are not accepted as terminal results.`, result: executorFailure(`${expectedTerminalToolMessage(createExecutorContract())} Plain executor messages are not accepted as terminal results.`) };
+      if (outcome.type === 'result') return { status: 'failed', summary: `${expectedTerminalToolMessage(contract)} Plain executor messages are not accepted as terminal results.`, result: executorFailure(`${expectedTerminalToolMessage(contract)} Plain executor messages are not accepted as terminal results.`) };
       if (outcome.type === 'error') return { status: 'failed', summary: outcome.error, result: executorFailure(outcome.error) };
-      if (createExecutorContract().isTerminalToolName(outcome.toolName)) return this.projectExecutorTerminal(outcome);
+      if (contract.isTerminalToolName(outcome.toolName)) return this.projectExecutorTerminal(outcome, contract);
       const toolResult = await this.handleToolCall(outcome);
       outcome = await llm.appendToolResult(outcome.toolCallId, toolResult, (inputId) => this.notificationContextMessages(input, inputId));
     }
+    return this.projectExecutorBudgetExit(outcome, signal, contract);
+  }
+
+  private projectExecutorBudgetExit(outcome: LLMActorOutcome, signal: AbortSignal, contract = createExecutorContract()): TerminalProcessorOutcome {
+    if (signal.aborted) throw new Error('Terminal activation cancelled.');
+    if (outcome.type === 'error') return { status: 'failed', summary: outcome.error, result: executorFailure(outcome.error) };
+    if (outcome.type === 'result') return { status: 'failed', summary: `${expectedTerminalToolMessage(contract)} Plain executor messages are not accepted as terminal results.`, result: executorFailure(`${expectedTerminalToolMessage(contract)} Plain executor messages are not accepted as terminal results.`) };
+    if (contract.isTerminalToolName(outcome.toolName)) return this.projectExecutorTerminal(outcome, contract);
     return { status: 'failed', summary: 'Executor exceeded terminal turn budget.', result: executorFailure('Executor exceeded terminal turn budget.') };
   }
 
-  private buildLlmInput(input: CardActivationInput): LlmInvocationInput {
-    const contract = createExecutorContract();
+  private buildLlmInput(input: CardActivationInput, contract = createExecutorContract()): LlmInvocationInput {
     const inputId = this.nextInvocationInputId('terminal');
     return {
       inputId,
@@ -89,6 +104,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
   private async runProcess(args: unknown, fallbackProcessId: string): Promise<unknown> {
     const parsed = parseProcessStartArgs(args);
     const processId = parsed.processId ?? fallbackProcessId;
+    this.releaseProcess(processId, 'executor replaced process actor');
     const actor = new ProcessActor({ projectRoot: this.projectRoot, processId });
     actor.start();
     actor.launch({ command: parsed.command, args: parsed.args });
@@ -98,11 +114,20 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private compactProcessActors(): void {
-    if (this.processes.size <= MAX_TERMINAL_PROCESS_ACTORS) return;
     for (const [processId, actor] of this.processes) {
       if (this.processes.size <= MAX_TERMINAL_PROCESS_ACTORS) return;
-      if (actor.state() === 'settled') this.processes.delete(processId);
+      if (actor.state() !== 'settled') actor.kill('executor process actor retention limit');
+      this.processes.delete(processId);
     }
+  }
+
+  shutdownOwnedProcesses(reason = 'terminal processor shutdown'): void {
+    for (const processId of [...this.processes.keys()]) this.releaseProcess(processId, reason);
+  }
+
+  protected override onActivationSettled(_outcome: TerminalProcessorOutcome): void {
+    super.onActivationSettled(_outcome);
+    this.shutdownOwnedProcesses('terminal card settled');
   }
 
   private async waitProcess(args: unknown): Promise<unknown> {
@@ -129,22 +154,41 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     return actor;
   }
 
-  private projectExecutorTerminal(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): TerminalProcessorOutcome {
+  private releaseProcess(processId: string, reason: string): void {
+    const actor = this.processes.get(processId);
+    if (!actor) return;
+    if (actor.state() !== 'settled') actor.kill(reason);
+    this.processes.delete(processId);
+  }
+
+  private appendExecutorEvidence(result: ExecutorResult): ExecutorEvidenceOutcome {
+    if (result.artifacts.length === 0 && result.attachments.length === 0) return { success: true, artifacts: [], attachments: [] };
+    if (!this.store?.appendEvidenceRefs) return { success: false, error: 'Executor returned artifacts or attachments but this processor has no card evidence boundary.' };
+    try {
+      const appended = this.store.appendEvidenceRefs(this.cardId, {
+        artifacts: result.artifacts.map((artifact) => toArtifactRefInput(artifact)),
+        attachments: result.attachments.map((attachment) => toAttachmentRefInput(attachment)),
+      });
+      return { success: true, artifacts: appended.artifacts, attachments: appended.attachments };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  private projectExecutorTerminal(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, contract = createExecutorContract()): TerminalProcessorOutcome {
     let result: ExecutorResult;
     try {
-      result = verifyTerminalToolOutcome(createExecutorContract(), outcome).result;
+      result = verifyTerminalToolOutcome(contract, outcome).result;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return { status: 'failed', summary: message, result: executorFailure(message) };
     }
     const summary = result.summary ?? result.status_text;
-    if (result.status === 'done') return { status: 'done', summary, result: executorSuccess(result) };
+    const evidence = this.appendExecutorEvidence(result);
+    if (!evidence.success) return { status: 'failed', summary: evidence.error, result: executorFailure(evidence.error, executorResultRecord(result), result.status_text) };
+    if (result.status === 'done') return { status: 'done', summary, result: executorSuccess(result, evidence) };
     const error = result.error ?? summary;
-    return { status: 'failed', summary: error, result: executorFailure(error, result.result ?? null, result.status_text) };
-  }
-
-  protected override transitionEventForOutcome(outcome: TerminalProcessorOutcome): string {
-    return outcome.status === 'done' ? 'done' : 'failed';
+    return { status: 'failed', summary: error, result: executorFailure(error, executorResultRecord(result), result.status_text) };
   }
 
   protected get processorLabel(): string {
@@ -160,15 +204,33 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 }
 
-function executorSuccess(result: ExecutorResult) {
+type ExecutorEvidenceOutcome = { success: true; artifacts: ArtifactRef[]; attachments: AttachmentRef[] } | { success: false; error: string };
+
+function executorSuccess(result: ExecutorResult, evidence: Extract<ExecutorEvidenceOutcome, { success: true }>) {
   const at = new Date().toISOString();
   const summary = result.summary ?? result.status_text;
-  return { kind: 'executor_success' as const, executor: result.result ?? { summary }, generated_files: [], verified_at: at, latest_self_report: { result: 'done', outcome: 'done', summary, status_text: result.status_text, at }, warnings: [] };
+  return { kind: 'executor_success' as const, executor: { ...executorResultRecord(result), artifact_refs: evidence.artifacts, attachment_refs: evidence.attachments }, generated_files: result.generated_files, verified_at: at, latest_self_report: { result: 'done', outcome: 'done', summary, status_text: result.status_text, at }, warnings: result.warnings };
 }
 
 function executorFailure(error: string, partialResult: Record<string, unknown> | null = null, statusText = error) {
   const at = new Date().toISOString();
   return { kind: 'executor_failure' as const, error, partial_result: partialResult, latest_self_report: { result: 'failed', outcome: 'failed', summary: error, status_text: statusText, at } };
+}
+
+function executorResultRecord(result: ExecutorResult): Record<string, unknown> {
+  return { ...(result.result ?? {}), artifacts: result.artifacts, attachments: result.attachments, generated_files: result.generated_files, warnings: result.warnings };
+}
+
+function toArtifactRefInput(artifact: ExecutorArtifactDef): Omit<ArtifactRef, 'id' | 'card_id'> {
+  const path = artifact.path ?? artifact.sourceFile;
+  if (!path) throw new Error(`Executor artifact '${artifact.description}' must include path or sourceFile.`);
+  return { path, type: artifact.type, description: artifact.description, retain: artifact.retain, created_at: new Date().toISOString() };
+}
+
+function toAttachmentRefInput(attachment: ExecutorAttachmentDef): Omit<AttachmentRef, 'id' | 'card_id'> {
+  const path = attachment.path ?? attachment.sourceFile;
+  if (!path) throw new Error(`Executor attachment '${attachment.title}' must include path or sourceFile.`);
+  return { path, mime: attachment.mime, title: attachment.title, description: attachment.description, created_at: new Date().toISOString() };
 }
 
 function parseProcessStartArgs(args: unknown): { command: string; args: string[]; timeoutMs: number; processId?: string } {

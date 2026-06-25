@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from '@jest/globals';
 import { buildActorRuntimeReadModel } from '../../src/application/read-models/actor-runtime-read-model.js';
-import { RuntimeSupervisorActor, buildActorRecoveryPlan, saveActorSnapshot, writeRecoveryDiagnostics } from '../../src/runtime/actors/index.js';
+import { RuntimeSupervisorActor, buildActorRecoveryPlan, cardActorStates, saveActorSnapshot, writeRecoveryDiagnostics } from '../../src/runtime/actors/index.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-actor-read-model-'));
@@ -36,6 +36,7 @@ describe('actor runtime read model', () => {
     supervisor.initialize(projectRoot);
     supervisor.run();
     await eventually(() => { expect(supervisor.mode).toBe('running'); });
+    expect(supervisor.requestProviderCall('provider-call-1')).toBe(true);
     supervisor.pause();
     await eventually(() => { expect(supervisor.mode).toBe('paused'); });
     saveActorSnapshot(projectRoot, {
@@ -55,16 +56,17 @@ describe('actor runtime read model', () => {
 
     expect(buildActorRuntimeReadModel(projectRoot)).toEqual({
       pauseMode: 'paused',
+      activeWork: 'model_invocation',
       cards: [{ cardId: 'T-1', actorState: 'running' }],
-      agents: [{ agentId: 'executor:T-1', agentPhase: 'calling_provider' }],
+      agents: [{ agentId: 'executor:T-1', role: 'executor', cardId: 'T-1', phase: 'calling_provider' }],
       diagnostics: [],
       recovery: null,
     });
   }));
 
   it('accepts current actor states without diagnostics', () => withTempProject((projectRoot) => {
-    const cardStates = ['backlog', 'changed', 'blocked', 'failed', 'done', 'running', 'cancelled'];
-    const llmStates = ['idle', 'calling_provider', 'waiting_tool', 'cancelled'];
+    const cardStates = cardActorStates;
+    const llmStates = ['idle', 'calling_provider', 'waiting_tool'];
     cardStates.forEach((state) => saveActorSnapshot(projectRoot, { actor_id: `card:${state}`, actor_kind: 'card', state_value: state, context: {}, updated_at: new Date().toISOString() }));
     llmStates.forEach((state) => saveActorSnapshot(projectRoot, { actor_id: `planner:${state}`, actor_kind: 'llm', state_value: state, context: {}, updated_at: new Date().toISOString() }));
 
@@ -72,13 +74,22 @@ describe('actor runtime read model', () => {
 
     expect(model.diagnostics).toEqual([]);
     expect(model.cards.map((card) => card.actorState).sort()).toEqual([...cardStates].sort());
-    expect(model.agents.map((agent) => agent.agentPhase).sort()).toEqual([...llmStates].sort());
+    expect(model.agents.map((agent) => agent.phase).sort()).toEqual(['calling_provider', 'idle', 'waiting_for_tool']);
+  }));
+
+  it('uses the shared card actor vocabulary for needs_verification snapshots', () => withTempProject((projectRoot) => {
+    saveActorSnapshot(projectRoot, { actor_id: 'card:needs-check', actor_kind: 'card', state_value: 'needs_verification', context: {}, updated_at: new Date().toISOString() });
+
+    expect(buildActorRuntimeReadModel(projectRoot)).toMatchObject({
+      cards: [{ cardId: 'needs-check', actorState: 'needs_verification' }],
+      diagnostics: [],
+    });
   }));
 
   it('accepts current supervisor modes without unknown-mode diagnostics', () => withTempProject((projectRoot) => {
     for (const [mode, expected] of [['idle', 'running'], ['running', 'running'], ['paused', 'paused'], ['shutting_down', 'stopping']] as const) {
       saveActorSnapshot(projectRoot, { actor_id: 'supervisor', actor_kind: 'supervisor', state_value: { mode, work: mode === 'shutting_down' ? 'shutdown_active' : 'ready' }, context: {}, updated_at: new Date().toISOString() });
-      expect(buildActorRuntimeReadModel(projectRoot)).toMatchObject({ pauseMode: expected, diagnostics: [] });
+      expect(buildActorRuntimeReadModel(projectRoot)).toMatchObject({ pauseMode: expected, activeWork: mode === 'shutting_down' ? 'shutdown' : 'none', diagnostics: [] });
     }
   }));
 
@@ -93,7 +104,8 @@ describe('actor runtime read model', () => {
 
     expect(buildActorRuntimeReadModel(projectRoot)).toMatchObject({
       pauseMode: 'unknown',
-      diagnostics: ['supervisor snapshot is missing mode region'],
+      activeWork: 'unknown',
+      diagnostics: ['supervisor snapshot is missing mode region', 'supervisor snapshot is missing active work region'],
     });
   }));
 
@@ -106,34 +118,7 @@ describe('actor runtime read model', () => {
       updated_at: new Date().toISOString(),
     });
 
-    expect(buildActorRuntimeReadModel(projectRoot)).toMatchObject({ pauseMode: 'running', diagnostics: [], recovery: null });
-  }));
-
-  it('maps unknown actor phases to diagnostics instead of exposing raw state values', () => withTempProject((projectRoot) => {
-    saveActorSnapshot(projectRoot, {
-      actor_id: 'card:G-unknown',
-      actor_kind: 'card',
-      state_value: { nested: 'xstate-node' },
-      context: {},
-      updated_at: new Date().toISOString(),
-    });
-    saveActorSnapshot(projectRoot, {
-      actor_id: 'planner:G-unknown',
-      actor_kind: 'llm',
-      state_value: 'waiting_for_tool',
-      context: {},
-      updated_at: new Date().toISOString(),
-    });
-
-    expect(buildActorRuntimeReadModel(projectRoot)).toMatchObject({
-      cards: [{ cardId: 'G-unknown', actorState: 'unknown' }],
-      agents: [{ agentId: 'planner:G-unknown', agentPhase: 'unknown' }],
-      diagnostics: [
-        "card actor 'card:G-unknown' has unknown state '[object Object]'",
-        "agent actor 'planner:G-unknown' has unknown phase 'waiting_for_tool'",
-      ],
-      recovery: null,
-    });
+    expect(buildActorRuntimeReadModel(projectRoot)).toMatchObject({ pauseMode: 'running', activeWork: 'none', diagnostics: [], recovery: null });
   }));
 
   it('projects sanitized recovery diagnostics', () => withTempProject((projectRoot) => {

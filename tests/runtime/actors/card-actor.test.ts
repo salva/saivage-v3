@@ -24,7 +24,7 @@ function createGoal(store: CardStore, parent = 'project'): CardRecord {
 }
 
 function processor(outcome: Exclude<CardActivationOutcome, { status: 'cancelled' }>): CardProcessorActor {
-  return { activate: jest.fn(async () => outcome) as (input: CardActivationInput, signal: AbortSignal) => Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>> };
+  return { activate: jest.fn(async () => outcome) as (input: CardActivationInput) => Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>> };
 }
 
 async function eventually(assertion: () => void, attempts = 20): Promise<void> {
@@ -67,7 +67,7 @@ describe('CardActor', () => {
     const outcome = await actor.activate({ kind: 'root' });
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'project done' });
-    expect(fakeProcessor.activate).toHaveBeenCalledWith(expect.objectContaining({ card: expect.objectContaining({ id: 'project' }) }), expect.any(AbortSignal));
+    expect(fakeProcessor.activate).toHaveBeenCalledWith(expect.objectContaining({ card: expect.objectContaining({ id: 'project' }) }));
     expect(store.read('project')).toMatchObject({ status: 'done', status_text: 'project done' });
     await eventually(() => expect(actor.state()).toBe('done'));
     expect(readActorSnapshots(projectRoot).map((item) => item.actor_id)).toContain('card:project');
@@ -107,9 +107,9 @@ describe('CardActor', () => {
     const deliveredIds: string[] = [];
     const fakeProcessor: CardProcessorActor = {
       activate: jest.fn(async (input: CardActivationInput) => {
-        deliveredIds.push(...(input.notificationDelivery?.deliverNotificationsForInput('planner:project:1') ?? []).map((item) => item.id));
+        deliveredIds.push(...input.notificationDelivery.deliverNotificationsForInput('planner:project:1').map((item) => item.id));
         return { status: 'done', summary: 'done', result: { kind: 'planner_done', summary: 'done' } };
-      }) as (input: CardActivationInput, signal: AbortSignal) => Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>,
+      }) as (input: CardActivationInput) => Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>,
     };
     const actor = CardActor.fromCard({ projectRoot, card: project, store, processor: fakeProcessor });
 
@@ -122,9 +122,8 @@ describe('CardActor', () => {
     await actor.activate({ kind: 'root' });
 
     expect(fakeProcessor.activate).toHaveBeenCalledWith(expect.objectContaining({
-      notifications: [],
       notificationDelivery: actor,
-    }), expect.any(AbortSignal));
+    }));
     expect(deliveredIds).toEqual(['n1', 'n2']);
     expect(actor.hasPendingNotifications()).toBe(false);
     expect(actor.notificationDeliveryMarkers).toEqual([
@@ -212,7 +211,7 @@ describe('CardActor', () => {
       activate: jest.fn(async () => {
         actor.notify({ id: 'n-late', message: 'late running context', created_at: '2026-06-12T00:00:00.000Z' });
         return { status: 'done', summary: 'done', result: { kind: 'planner_done', summary: 'done' } };
-      }) as (input: CardActivationInput, signal: AbortSignal) => Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>,
+      }) as (input: CardActivationInput) => Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>,
     };
     actor = CardActor.fromCard({ projectRoot, card: project, store, processor: fakeProcessor });
 
@@ -239,12 +238,37 @@ describe('CardActor', () => {
     expect(actor.listPendingNotifications()).toEqual([expect.objectContaining({ id: 'n-recover' })]);
   }));
 
+  it('treats done-card cancel as a no-op without actor or durable status changes', () => withTempProject((projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    store.commitTerminalLifecyclePatch(project.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'planner_done', summary: 'done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' } });
+    const actor = CardActor.fromCard({ projectRoot, card: store.read(project.id)!, store, processor: processor({ status: 'done', summary: 'unused', result: { kind: 'planner_done', summary: 'unused' } }) });
+
+    actor.cancel({ reason: 'too late' });
+
+    expect(actor.state()).toBe('done');
+    expect(actor.cancelReason).toBeNull();
+    expect(store.read(project.id)?.status).toBe('done');
+  }));
+
+  it('fails fast instead of mapping needs_verification into blocked actor state', () => withTempProject((projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    store.commitTerminalLifecyclePatch(project.id, { status: 'needs_verification', lifecycle: { status: 'needs_verification', result: { kind: 'executor_needs_verification', reason: 'verify', preserved_result: {}, fallback_reason: null, latest_self_report: { result: 'needs_verification', outcome: 'needs_verification', summary: 'verify', status_text: 'verify', at: '2026-06-12T00:00:00.000Z' } }, error: null, completed_at: null } });
+
+    expect(() => CardActor.fromCard({ projectRoot, card: store.read(project.id)!, store, processor: processor({ status: 'done', summary: 'unused', result: { kind: 'planner_done', summary: 'unused' } }) })).toThrow(/needs_verification/);
+  }));
+
   it('marks inactive cards changed while running cards stay running and receive notifications', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     createProject(store);
     const goal = createGoal(store);
-    const actor = CardActor.fromCard({ projectRoot, card: goal, store, processor: processor({ status: 'blocked', summary: 'blocked', result: { kind: 'planner_blocked', blocked_reason: 'blocked', resume_reason: 'blocked' } }) });
+    store.commitTerminalLifecyclePatch(goal.id, { status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'planner_blocked', blocked_reason: 'blocked', resume_reason: 'blocked' }, error: 'blocked', completed_at: null } });
+    const blockedGoal = store.read(goal.id)!;
+    const actor = CardActor.fromCard({ projectRoot, card: blockedGoal, store, processor: processor({ status: 'blocked', summary: 'blocked', result: { kind: 'planner_blocked', blocked_reason: 'blocked', resume_reason: 'blocked' } }) });
 
     actor.markChanged({ reason: 'operator edit' });
 

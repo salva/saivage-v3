@@ -1,15 +1,20 @@
 import { readActorSnapshots, readRecoveryDiagnostics, type ActorRecoveryDiagnostic, type ActorRecoveryDiagnosticAction } from '../../runtime/actors/index.js';
+import { parseCardActorId, parseLlmActorId, readSupervisorModeValue, readSupervisorWorkValue, toPublicAgentPhase, toPublicCardActorState } from '../../runtime/actors/index.js';
+import type { LlmActorRole, PublicAgentPhase, PublicCardActorState } from '../../runtime/actors/index.js';
 
 export type ActorPauseMode = 'running' | 'paused' | 'stopping' | 'unknown';
+export type ActorActiveWork = 'none' | 'model_invocation' | 'shutdown' | 'unknown';
 
 export interface CardActorProjection {
   cardId: string;
-  actorState: string;
+  actorState: PublicCardActorState;
 }
 
 export interface AgentRunnerProjection {
   agentId: string;
-  agentPhase: string;
+  role: LlmActorRole;
+  cardId: string;
+  phase: PublicAgentPhase;
 }
 
 export interface RecoveryDiagnosticsProjection {
@@ -20,6 +25,7 @@ export interface RecoveryDiagnosticsProjection {
 
 export interface ActorRuntimeReadModel {
   pauseMode: ActorPauseMode;
+  activeWork: ActorActiveWork;
   cards: CardActorProjection[];
   agents: AgentRunnerProjection[];
   diagnostics: string[];
@@ -30,25 +36,28 @@ export function buildActorRuntimeReadModel(projectRoot: string): ActorRuntimeRea
   const snapshots = readActorSnapshots(projectRoot);
   const diagnostics: string[] = [];
   let pauseMode: ActorPauseMode = 'unknown';
+  let activeWork: ActorActiveWork = 'unknown';
   const cards: CardActorProjection[] = [];
   const agents: AgentRunnerProjection[] = [];
 
   for (const snapshot of snapshots) {
     if (snapshot.actor_kind === 'supervisor') {
       pauseMode = readSupervisorMode(snapshot.state_value, diagnostics);
+      activeWork = readSupervisorActiveWork(snapshot.state_value, diagnostics);
       continue;
     }
     if (snapshot.actor_kind === 'card') {
-      cards.push({ cardId: stripRequiredPrefix(snapshot.actor_id, 'card:', diagnostics), actorState: readCardActorState(snapshot.actor_id, snapshot.state_value, diagnostics) });
+      cards.push({ cardId: readCardActorId(snapshot.actor_id, diagnostics), actorState: toPublicCardActorState(snapshot.state_value) });
       continue;
     }
     if (snapshot.actor_kind === 'llm') {
-      agents.push({ agentId: snapshot.actor_id, agentPhase: readAgentPhase(snapshot.actor_id, snapshot.state_value, diagnostics) });
+      agents.push(readAgent(snapshot.actor_id, snapshot.state_value));
     }
   }
 
   return {
     pauseMode,
+    activeWork,
     cards: cards.sort((a, b) => a.cardId.localeCompare(b.cardId)),
     agents: agents.sort((a, b) => a.agentId.localeCompare(b.agentId)),
     diagnostics,
@@ -62,16 +71,9 @@ function recoveryProjection(projectRoot: string): RecoveryDiagnosticsProjection 
   return { generated_at: snapshot.generated_at, diagnostics: snapshot.diagnostics, actions: snapshot.actions };
 }
 
-function readCardActorState(actorId: string, value: unknown, diagnostics: string[]): string {
-  if (value === 'backlog' || value === 'changed' || value === 'running' || value === 'blocked' || value === 'failed' || value === 'done' || value === 'cancelled') return value;
-  diagnostics.push(`card actor '${actorId}' has unknown state '${String(value)}'`);
-  return 'unknown';
-}
-
-function readAgentPhase(actorId: string, value: unknown, diagnostics: string[]): string {
-  if (value === 'idle' || value === 'calling_provider' || value === 'waiting_tool' || value === 'cancelled') return value;
-  diagnostics.push(`agent actor '${actorId}' has unknown phase '${String(value)}'`);
-  return 'unknown';
+function readAgent(actorId: string, value: unknown): AgentRunnerProjection {
+  const parsed = parseLlmActorId(actorId);
+  return { agentId: actorId, role: parsed.role, cardId: parsed.cardId, phase: toPublicAgentPhase(value) };
 }
 
 function readSupervisorMode(value: unknown, diagnostics: string[]): ActorPauseMode {
@@ -79,16 +81,32 @@ function readSupervisorMode(value: unknown, diagnostics: string[]): ActorPauseMo
     diagnostics.push('supervisor snapshot is missing mode region');
     return 'unknown';
   }
-  const mode = (value as { mode: unknown }).mode;
+  const mode = readSupervisorModeValue(value);
   if (mode === 'idle') return 'running';
   if (mode === 'running' || mode === 'paused') return mode;
   if (mode === 'shutting_down') return 'stopping';
-  diagnostics.push(`supervisor snapshot has unknown mode '${String(mode)}'`);
+  diagnostics.push(`supervisor snapshot has unknown mode '${String((value as { mode: unknown }).mode)}'`);
   return 'unknown';
 }
 
-function stripRequiredPrefix(value: string, prefix: string, diagnostics: string[]): string {
-  if (value.startsWith(prefix)) return value.slice(prefix.length);
-  diagnostics.push(`actor id '${value}' is missing expected '${prefix}' prefix`);
+function readSupervisorActiveWork(value: unknown, diagnostics: string[]): ActorActiveWork {
+  if (!value || typeof value !== 'object' || !('work' in value)) {
+    diagnostics.push('supervisor snapshot is missing active work region');
+    return 'unknown';
+  }
+  const work = readSupervisorWorkValue(value);
+  if (work === 'ready') return 'none';
+  if (work === 'model_invocation_active') return 'model_invocation';
+  if (work === 'shutdown_active') return 'shutdown';
+  diagnostics.push(`supervisor snapshot has unknown active work '${String((value as { work: unknown }).work)}'`);
+  return 'unknown';
+}
+
+function readCardActorId(value: string, diagnostics: string[]): string {
+  try {
+    return parseCardActorId(value);
+  } catch {
+    diagnostics.push(`actor id '${value}' is missing expected 'card:' prefix`);
+  }
   return value;
 }

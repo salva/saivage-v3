@@ -65,6 +65,7 @@ function createFlatTestAnalystRuntime(opts: { eventBus?: EventBus } = {}): TestA
     },
     subscribe: eventBus.subscribe.bind(eventBus),
     getStatus(): { status: 'idle'; paused: false; currentCardId: null; goalCount: 0; lastTickAt: null } { return { status: 'idle', paused: false, currentCardId: null, goalCount: 0, lastTickAt: null }; },
+    getActorRuntimeReadModel() { return { pauseMode: 'running', activeWork: 'none', cards: [], agents: [], diagnostics: [], recovery: null } as const; },
     emitAnalystToolInvoked(payload: Parameters<EventBus['emit']>[1]): void {
       eventBus.emit('analyst_tool_invoked', payload as never);
     },
@@ -145,6 +146,7 @@ export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardSt
       stopProject: (source) => analystRuntime.stopProject(source),
       subscribe: (options) => analystRuntime.subscribe(options),
       getStatus: () => analystRuntime.getStatus(),
+      getActorRuntimeReadModel: () => analystRuntime.getActorRuntimeReadModel(),
       getActivityStatus: (sessionId) => analystRuntime.getActivityStatus(sessionId),
     },
     get analystDeps() {

@@ -34,15 +34,6 @@ describe('GET /api/runtime/status pid overlay', () => {
     expect(body.pid).toBeGreaterThan(0);
   });
 
-  it('returns process.pid in the disk-fallback branch (no live runtime)', async () => {
-    server = await createServer(root);
-    const res = await server.fastify.inject({ method: 'GET', url: '/api/runtime/status' });
-    expect(res.statusCode).toBe(200);
-    const body = res.json<{ pid: number }>();
-    expect(body.pid).toBe(process.pid);
-    expect(body.pid).toBeGreaterThan(0);
-  });
-
   it('ignores stale pid persisted on disk and reports the live process.pid', async () => {
     // Write a runtime.json containing an extra pid key — the schema must
     // strip it on read, so /api/runtime/status must surface process.pid

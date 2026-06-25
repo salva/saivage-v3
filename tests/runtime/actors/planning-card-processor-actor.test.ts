@@ -30,7 +30,11 @@ function markDone(store: CardStore, card: CardRecord): CardRecord {
 }
 
 function terminalProcessor(outcome: Exclude<CardActivationOutcome, { status: 'cancelled' }>): CardProcessorActor {
-  return { activate: jest.fn(async () => outcome) as (input: CardActivationInput, signal: AbortSignal) => Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>> };
+  return { activate: jest.fn(async () => outcome) as (input: CardActivationInput) => Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>> };
+}
+
+function noopNotificationDelivery() {
+  return { hasPendingNotifications: () => false, deliverNotificationsForInput: () => [] };
 }
 
 function plannerResult(status: 'done' | 'blocked' | 'continue', summary: string) {
@@ -65,7 +69,8 @@ describe('PlanningCardProcessorActor', () => {
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
-    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notifications: [{ id: 'n1', message: 'Cancellation requested: stop', created_at: '2026-06-12T00:00:00.000Z' }] });
+    const delivery = { deliverNotificationsForInput: jest.fn(() => [{ id: 'n1', message: 'Cancellation requested: stop', created_at: '2026-06-12T00:00:00.000Z' }]) };
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: delivery });
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'review ok', result: { kind: 'reviewer_pass', planning: { kind: 'planner_done', summary: 'done' } } });
     expect(provider.completeTurn).toHaveBeenCalledWith(expect.objectContaining({
@@ -95,7 +100,7 @@ describe('PlanningCardProcessorActor', () => {
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
-    const pending = actor.activate({ card: project, caller: { kind: 'root' }, notifications: [] });
+    const pending = actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
     await eventually(() => expect(actor.state()).toBe('planning'));
     expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === 'processor:project')?.context.active_reconstruction).toMatchObject({
       schema_version: 1,
@@ -127,7 +132,7 @@ describe('PlanningCardProcessorActor', () => {
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: (id) => id === goal.id ? childActor : null }, provider });
     actor.start();
 
-    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notifications: [] });
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'review ok', result: { kind: 'reviewer_pass', planning: { kind: 'planner_done', summary: 'project done' } } });
     expect(store.read(goal.id)?.status).toBe('done');
@@ -149,10 +154,30 @@ describe('PlanningCardProcessorActor', () => {
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
-    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notifications: [] });
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
 
     expect(outcome).toMatchObject({ status: 'blocked', summary: 'tool args rejected', result: { kind: 'planner_blocked' } });
     expect(provider.completeTurn).toHaveBeenCalledTimes(2);
+    expect(provider.completeTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      episodeContext: expect.objectContaining({ lastToolResult: expect.objectContaining({ result: { success: false, error: 'activate_card requires card_id.' } }) }),
+    }), expect.any(AbortSignal));
+  }));
+
+  it('rejects old activate_card cardId alias instead of normalizing it', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    const provider: LLMProviderPort = {
+      completeTurn: jest.fn(async (input: LlmInvocationInput) => input.episodeContext.lastToolResult
+        ? plannerResult('blocked', 'alias rejected')
+        : { kind: 'tool_calls' as const, tool_calls: [{ id: 'call-1', type: 'function' as const, function: { name: 'activate_card', arguments: JSON.stringify({ cardId: 'old-alias' }) } }] }),
+    };
+    const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
+    actor.start();
+
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
+
+    expect(outcome).toMatchObject({ status: 'blocked', summary: 'alias rejected' });
     expect(provider.completeTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({
       episodeContext: expect.objectContaining({ lastToolResult: expect.objectContaining({ result: { success: false, error: 'activate_card requires card_id.' } }) }),
     }), expect.any(AbortSignal));
@@ -175,7 +200,7 @@ describe('PlanningCardProcessorActor', () => {
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: (id) => id === goal.id ? childActor : null }, provider });
     actor.start();
 
-    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notifications: [], notificationDelivery: delivery });
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: delivery });
 
     expect(outcome).toMatchObject({ status: 'done' });
     expect(delivery.deliverNotificationsForInput).toHaveBeenCalledWith('planner:project:1');
@@ -195,7 +220,7 @@ describe('PlanningCardProcessorActor', () => {
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
-    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notifications: [], notificationDelivery: delivery });
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: delivery });
 
     expect(outcome).toMatchObject({ status: 'done' });
     expect(delivery.deliverNotificationsForInput).toHaveBeenCalledTimes(1);
@@ -221,7 +246,7 @@ describe('PlanningCardProcessorActor', () => {
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
-    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notifications: [], notificationDelivery: delivery });
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: delivery });
 
     expect(outcome).toMatchObject({ status: 'blocked', result: { kind: 'planner_blocked', reviewer_correction: { kind: 'reviewer_correction' } } });
     expect(outcome.summary).toContain('pending card notifications');
@@ -237,7 +262,7 @@ describe('PlanningCardProcessorActor', () => {
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
-    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notifications: [] });
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
 
     expect(outcome).toMatchObject({ status: 'blocked', summary: 'fix it', result: { kind: 'planner_blocked', reviewer_correction: { kind: 'reviewer_correction', summary: 'fix it' } } });
   }));
@@ -252,7 +277,7 @@ describe('PlanningCardProcessorActor', () => {
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: goal.id, store, children: { get: () => null }, provider });
     actor.start();
 
-    const outcome = await actor.activate({ card: goal, caller: { kind: 'parent', cardId: 'project' }, notifications: [] });
+    const outcome = await actor.activate({ card: goal, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: noopNotificationDelivery() });
 
     expect(outcome).toMatchObject({ status: 'done', result: { kind: 'reviewer_pass', planning: { kind: 'planner_done', summary: 'goal done' } } });
     expect(provider.completeTurn).toHaveBeenCalledWith(expect.objectContaining({ agentId: `reviewer:${goal.id}`, role: 'reviewer', sessionId: `reviewer:${goal.id}:assessment-${goal.id}-1` }), expect.any(AbortSignal));
@@ -266,7 +291,7 @@ describe('PlanningCardProcessorActor', () => {
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
-    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notifications: [] });
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
 
     expect(outcome).toMatchObject({ status: 'blocked', result: { kind: 'planner_blocked', reviewer_correction: { kind: 'reviewer_correction' } } });
     expect(outcome.summary).toContain('missing');
@@ -280,7 +305,7 @@ describe('PlanningCardProcessorActor', () => {
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
-    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notifications: [] });
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
 
     expect(outcome).toMatchObject({ status: 'blocked', result: { kind: 'planner_blocked', reviewer_correction: { kind: 'reviewer_correction' } } });
     expect(outcome.summary).toContain('without durable result');
@@ -295,7 +320,7 @@ describe('PlanningCardProcessorActor', () => {
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
-    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notifications: [] });
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
 
     expect(outcome).toMatchObject({ status: 'blocked', result: { kind: 'planner_blocked' } });
     expect(outcome.summary).toContain(goal.id);
@@ -310,13 +335,56 @@ describe('PlanningCardProcessorActor', () => {
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
-    const blocked = await actor.activate({ card: project, caller: { kind: 'root' }, notifications: [] });
+    const blocked = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
     provider.completeTurn = jest.fn(async () => plannerResult('continue', 'continue'));
-    const continued = await actor.activate({ card: project, caller: { kind: 'root' }, notifications: [] });
+    const continued = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
 
     expect(blocked).toMatchObject({ status: 'blocked', result: { kind: 'planner_blocked' } });
     expect(continued).toMatchObject({ status: 'blocked', result: { kind: 'planner_blocked', blocker_cause: 'non_actionable_continue' } });
     expect(provider.completeTurn).toHaveBeenCalledTimes(1);
+  }));
+
+  it('accepts a terminal planner result produced by the final allowed tool append', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    let plannerTurns = 0;
+    const provider: LLMProviderPort = {
+      completeTurn: jest.fn(async (input: LlmInvocationInput) => {
+        if (input.role === 'reviewer') return reviewerResult({ evidence_card_ids: [] });
+        plannerTurns++;
+        if (plannerTurns <= 20) return { kind: 'tool_calls' as const, tool_calls: [{ id: `activate-${plannerTurns}`, type: 'function' as const, function: { name: 'activate_card', arguments: JSON.stringify({ card_id: '' }) } }] };
+        return plannerResult('blocked', 'blocked at boundary');
+      }),
+    };
+    const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
+    actor.start();
+
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
+
+    expect(outcome).toMatchObject({ status: 'blocked', summary: 'blocked at boundary', result: { kind: 'planner_blocked' } });
+    expect(plannerTurns).toBe(21);
+    expect(provider.completeTurn).toHaveBeenCalledTimes(21);
+  }));
+
+  it('fails the planner budget when the final allowed tool append is non-terminal', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    let plannerTurns = 0;
+    const provider: LLMProviderPort = {
+      completeTurn: jest.fn(async () => {
+        plannerTurns++;
+        return { kind: 'tool_calls' as const, tool_calls: [{ id: `activate-${plannerTurns}`, type: 'function' as const, function: { name: 'activate_card', arguments: JSON.stringify({ card_id: '' }) } }] };
+      }),
+    };
+    const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
+    actor.start();
+
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
+
+    expect(outcome).toMatchObject({ status: 'failed', summary: 'Planner exceeded turn budget.', result: { kind: 'planner_failure', error: 'Planner exceeded turn budget.' } });
+    expect(plannerTurns).toBe(21);
   }));
 
   it('does not accept plain reviewer message JSON as terminal assessment', async () => withTempProject(async (projectRoot) => {
@@ -327,7 +395,7 @@ describe('PlanningCardProcessorActor', () => {
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
-    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notifications: [] });
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
 
     expect(outcome).toMatchObject({ status: 'failed', result: { kind: 'planner_failure' } });
     expect(outcome.summary).toContain('emit_reviewer_result');
@@ -341,9 +409,18 @@ describe('PlanningCardProcessorActor', () => {
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
-    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notifications: [] });
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
 
     expect(outcome).toMatchObject({ status: 'failed', result: { kind: 'planner_failure' } });
     expect(outcome.summary).toContain('emit_planner_result');
+  }));
+
+  it('throws a clear impossible-state error when recovering directly into planning', () => withTempProject((projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider: { completeTurn: jest.fn(async () => plannerResult('blocked', 'unused')) } });
+
+    expect(() => actor.recover('planning')).toThrow(/cannot recover directly into active state 'planning'/);
   }));
 });

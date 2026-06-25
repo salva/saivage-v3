@@ -233,7 +233,7 @@ Purpose: card-type-dependent behavior for project, goal, and terminal cards.
 Processor actors use a small inheritance hierarchy for shared mechanics, not a generic policy framework:
 
 - `BaseCardProcessorActor`: common to all processor actors. It defines the shared processor state machine, `activate(input)`, `cancel(reason)`, pending activation promise, `settle(outcome)`, generic snapshot persistence, and parent outcome reporting. It must not know planner, reviewer, executor, process-tool, or card-type policy.
-- `BaseMainLLMCardProcessorActor`: common to processors driven by a card's main agent LLM. It owns/caches the main `LLMActor`, runs the turn loop, drains the owning `CardActor` notifications before each main-agent turn, records notification delivery markers, and forwards tool results/errors back into the same main LLM session. It must not decide role-specific tool semantics.
+- `BaseMainLLMCardProcessorActor`: common to processors driven by a card's main agent LLM. It creates one `LLMActor` per logical invocation flow, runs the turn loop, drains the owning `CardActor` notifications before each main-agent turn, records notification delivery markers, and forwards tool results/errors back into the same invocation flow. It must not decide role-specific tool semantics.
 - `PlanningCardProcessorActor`: project/goal semantics around planner, child activation, completion gate, reviewer phase, and planner/reviewer terminal contracts.
 - `TerminalCardProcessorActor`: terminal-card executor semantics around executor terminal contract and process tools.
 
@@ -264,8 +264,8 @@ Important actor fields:
 
 - Active planner session id.
 - Active reviewer session id, when reviewing.
-- Cached planner `LLMActor`.
-- Cached reviewer `LLMActor`, when reviewer work has been needed.
+- Planner `LLMActor` for the current invocation flow.
+- Reviewer `LLMActor` for the current review invocation, when reviewer work has been needed.
 - Active child activation metadata, when waiting on a child.
 - Active process wait metadata, when waiting on a process.
 - Pending notifications for planner delivery.
@@ -274,7 +274,7 @@ Important actor fields:
 Responsibilities:
 
 - Build planner invocation context.
-- Own and cache planner/reviewer `LLMActor` instances.
+- Own planner/reviewer `LLMActor` instances for the current activation; processors do not reuse actors across activations until `LLMActor` has an explicit terminal-settlement API.
 - Build the planner capability registry.
 - Validate planner tool authority.
 - Start immediate child cards through `CardActor` references held by the processor.
@@ -311,7 +311,7 @@ Public methods:
 Terminal responsibilities:
 
 - Build executor invocation context.
-- Own and cache the executor `LLMActor`.
+- Own the executor `LLMActor` for the current activation; processors do not reuse actors across activations until `LLMActor` has an explicit terminal-settlement API.
 - Build terminal tool capability registry.
 - Route process tools to `ProcessActor` or process services.
 - Validate executor terminal/reporting results.

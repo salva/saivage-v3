@@ -51,6 +51,8 @@ export function createExecutorContract(): Contract<ExecutorResultEnvelope, Execu
         result: envelope.result,
         artifacts: envelope.artifacts ?? [],
         attachments: envelope.attachments ?? [],
+        generated_files: envelope.generated_files ?? [],
+        warnings: envelope.warnings ?? [],
         summary: envelope.summary,
         fallback_with_evidence: null,
       };

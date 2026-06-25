@@ -26,7 +26,7 @@ export abstract class BaseCardProcessorActor extends BaseActor implements CardPr
     this.cardId = args.cardId;
   }
 
-  activate(input: CardActivationInput, _signal?: AbortSignal): Promise<CardProcessorOutcome> {
+  activate(input: CardActivationInput): Promise<CardProcessorOutcome> {
     if (this.#pending) return Promise.reject(new Error(`${this.processorLabel} '${this.cardId}' already has a pending activation.`));
     if (!this.canActivateFrom(this.state())) return Promise.reject(new Error(`${this.processorLabel} '${this.cardId}' cannot activate from '${this.state()}'.`));
     return new Promise<CardProcessorOutcome>((resolve, reject) => {
@@ -49,7 +49,7 @@ export abstract class BaseCardProcessorActor extends BaseActor implements CardPr
     const pending = this.#pending;
     if (!pending) throw new Error(`${this.processorLabel} '${this.cardId}' entered ${stateLabel} without activation input.`);
     this.runTask((signal) => run(pending.input, signal), {
-      on_done: (outcome) => this.settlePending(pending, outcome, this.transitionEventForOutcome(outcome)),
+      on_done: (outcome) => this.settlePending(pending, outcome, outcome.status),
       on_failed: (error) => this.settlePending(pending, this.activationFailureOutcome(error.message), 'failed'),
     });
   }
@@ -80,15 +80,14 @@ export abstract class BaseCardProcessorActor extends BaseActor implements CardPr
     saveActorSnapshot(this.projectRoot, this.snapshot());
   }
 
-  protected transitionEventForOutcome(outcome: CardProcessorOutcome): string {
-    return outcome.status;
-  }
-
   protected abstract get processorLabel(): string;
 
   protected abstract get processorKind(): ProcessorActiveReconstructionRecord['processor_kind'];
 
   protected abstract activationFailureOutcome(error: string): CardProcessorOutcome;
+
+  protected onActivationSettled(_outcome: CardProcessorOutcome): void {
+  }
 
   private canActivateFrom(state: string): boolean {
     return state === 'idle' || state === 'settled';
@@ -97,6 +96,7 @@ export abstract class BaseCardProcessorActor extends BaseActor implements CardPr
   private settlePending(pending: PendingActivation, outcome: CardProcessorOutcome, event: string): void {
     this.outcome = outcome;
     this.activeReconstruction = null;
+    this.onActivationSettled(outcome);
     pending.resolve(outcome);
     this.#pending = null;
     this.sendEvent(event);

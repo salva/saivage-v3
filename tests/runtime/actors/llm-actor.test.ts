@@ -1,7 +1,7 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
 import { actorMessagesPath, actorToolCallStatusesPath, LLMActor, readActorSnapshots, type LLMAdmissionPort, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
@@ -36,6 +36,12 @@ function jsonl(path: string): Array<Record<string, unknown>> {
   return readFileSync(path, 'utf-8').split('\n').filter(Boolean).map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 
+function corruptActorMessages(projectRoot: string): void {
+  const path = actorMessagesPath(projectRoot, 'planner:project');
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, '{"partial"', 'utf-8');
+}
+
 async function eventually(assertion: () => void, attempts = 20): Promise<void> {
   let lastError: unknown;
   for (let i = 0; i < attempts; i++) {
@@ -45,6 +51,14 @@ async function eventually(assertion: () => void, attempts = 20): Promise<void> {
 }
 
 describe('LLMActor', () => {
+  it('defines only live LLM turn states and transitions', () => {
+    expect(LLMActor._actor.states).toEqual({
+      idle: { parked: true, on: { turn: 'calling_provider' } },
+      calling_provider: { on: { done: 'idle', failed: 'idle', tool_call: 'waiting_tool' } },
+      waiting_tool: { parked: true, on: { turn: 'calling_provider' } },
+    });
+  });
+
   it('persists invocation context before provider call and records message results', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     let sawStartedMessage = false;
@@ -76,8 +90,14 @@ describe('LLMActor', () => {
 
     const pending = actor.turn(input());
     await eventually(() => expect(actor.state()).toBe('calling_provider'));
-    const active = readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === 'planner:project')?.context.active_reconstruction;
+    const snapshot = readActorSnapshots(projectRoot).find((candidate) => candidate.actor_id === 'planner:project');
+    const active = snapshot?.context.active_reconstruction;
 
+    expect(snapshot?.context).toEqual({
+      projectRoot,
+      agentId: 'planner:project',
+      active_reconstruction: expect.any(Object),
+    });
     expect(active).toMatchObject({
       schema_version: 1,
       kind: 'llm_turn',
@@ -90,6 +110,11 @@ describe('LLMActor', () => {
       delivered_tool_call_ids: [],
       tool_delivery_counter: 0,
     });
+    expect(snapshot?.context).not.toHaveProperty('input');
+    expect(snapshot?.context).not.toHaveProperty('outcome');
+    expect(snapshot?.context).not.toHaveProperty('waitingToolCall');
+    expect(snapshot?.context).not.toHaveProperty('deliveredToolCallIds');
+    expect(snapshot?.context).not.toHaveProperty('toolDeliveryCounter');
     finish();
     await expect(pending).resolves.toMatchObject({ type: 'result' });
   }));
@@ -176,7 +201,7 @@ describe('LLMActor', () => {
     await expect(pending).resolves.toMatchObject({ type: 'tool_call' });
   }));
 
-  it('continues to accept late provider results because cancellation is card-owned', async () => withTempProject(async (projectRoot) => {
+  it('settles late provider results for in-flight calls', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     let finish!: () => void;
     const provider: LLMProviderPort = { completeTurn: jest.fn(async () => new Promise<LlmCompleteResult>((resolve) => { finish = () => resolve({ kind: 'message' as const, content: 'late' }); })) };
@@ -189,5 +214,78 @@ describe('LLMActor', () => {
 
     await expect(pending).resolves.toMatchObject({ type: 'result', result: { content: 'late' } });
     await eventually(() => expect(actor.state()).toBe('idle'));
+  }));
+
+  it('rejects the pending turn when entering provider call throws before provider registration', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    corruptActorMessages(projectRoot);
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'unused' })) };
+    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
+    actor.start();
+
+    await expect(actor.turn(input())).rejects.toThrow(/partial tail|refusing to append/);
+
+    expect(provider.completeTurn).not.toHaveBeenCalled();
+    expect(consoleError).toHaveBeenCalledWith(expect.stringContaining("LLMActor 'planner:project' fatal handler failure"), expect.any(Error));
+    consoleError.mockRestore();
+  }));
+
+  it('rejects the pending turn when provider on_done throws', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    let finish!: () => void;
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => new Promise<LlmCompleteResult>((resolve) => { finish = () => resolve({ kind: 'message' as const, content: 'done' }); })) };
+    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
+    actor.start();
+
+    const pending = actor.turn(input());
+    await eventually(() => expect(provider.completeTurn).toHaveBeenCalledTimes(1));
+    corruptActorMessages(projectRoot);
+    finish();
+
+    await expect(pending).rejects.toThrow(/partial tail|refusing to append/);
+    expect(consoleError).toHaveBeenCalledWith(expect.stringContaining("LLMActor 'planner:project' fatal handler failure"), expect.any(Error));
+    consoleError.mockRestore();
+  }));
+
+  it('rejects the pending turn when provider on_failed throws', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    let fail!: () => void;
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => new Promise<LlmCompleteResult>((_resolve, reject) => { fail = () => reject(new Error('provider failed')); })) };
+    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
+    actor.start();
+
+    const pending = actor.turn(input());
+    await eventually(() => expect(provider.completeTurn).toHaveBeenCalledTimes(1));
+    corruptActorMessages(projectRoot);
+    fail();
+
+    await expect(pending).rejects.toThrow(/partial tail|refusing to append/);
+    expect(consoleError).toHaveBeenCalledWith(expect.stringContaining("LLMActor 'planner:project' fatal handler failure"), expect.any(Error));
+    consoleError.mockRestore();
+  }));
+
+  it('releases acquired provider admission when provider task registration throws', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'unused' })) };
+    const admission: LLMAdmissionPort = { requestProviderCall: jest.fn(() => true), releaseProviderCall: jest.fn() };
+    class ThrowingRunTaskLLMActor extends LLMActor {
+      protected override runTask(): void {
+        throw new Error('runTask exploded');
+      }
+    }
+    const actor = new ThrowingRunTaskLLMActor({ projectRoot, agentId: 'planner:project', provider, admission });
+    actor.start();
+
+    await expect(actor.turn(input())).rejects.toThrow('runTask exploded');
+
+    expect(admission.requestProviderCall).toHaveBeenCalledWith('planner:project:turn-1');
+    expect(admission.releaseProviderCall).toHaveBeenCalledWith('planner:project:turn-1');
+    expect(provider.completeTurn).not.toHaveBeenCalled();
+    expect(consoleError).toHaveBeenCalledWith(expect.stringContaining("LLMActor 'planner:project' fatal handler failure"), expect.any(Error));
+    consoleError.mockRestore();
   }));
 });

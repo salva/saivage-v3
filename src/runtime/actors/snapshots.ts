@@ -3,13 +3,14 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { AtomicJsonFile, ProjectLock } from '../../persistence/index.js';
 import { actorKindFromId } from './ids.js';
+import { actorKindSchema, actorKinds } from './actor-vocabulary.js';
 import type { ActorKind } from './ids.js';
 
 export const ACTOR_SNAPSHOT_SCHEMA_VERSION = 1;
 
 const actorSnapshotSchema = z.object({
   actor_id: z.string().min(1),
-  actor_kind: z.enum(['supervisor', 'card', 'llm', 'process', 'processor']),
+  actor_kind: actorKindSchema,
   state_value: z.unknown(),
   context: z.record(z.unknown()),
   updated_at: z.string().datetime(),
@@ -77,7 +78,8 @@ function actorSnapshotFilePaths(projectRoot: string): string[] {
   const paths: string[] = [];
   const supervisorPath = join(root, 'supervisor.json');
   if (existsSync(supervisorPath)) paths.push(supervisorPath);
-  for (const kind of ['card', 'llm', 'process', 'processor'] as const) {
+  for (const kind of actorKinds) {
+    if (kind === 'supervisor') continue;
     const dir = join(root, kind);
     if (!existsSync(dir)) continue;
     for (const entry of readdirSync(dir, { withFileTypes: true })) {

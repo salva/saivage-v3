@@ -5,12 +5,10 @@ import { supervisorActorId } from './ids.js';
 export type RuntimeSupervisorMode = 'idle' | 'running' | 'paused' | 'shutting_down';
 export type RuntimeSupervisorWork = 'ready' | 'model_invocation_active' | 'shutdown_active';
 
-export interface RuntimeSupervisorContext {
+export interface RuntimeSupervisorContext extends Record<string, unknown> {
   projectRoot: string | null;
   activeProviderCallId: string | null;
 }
-
-type ProviderCallArgs = { callId: string };
 
 export class RuntimeSupervisorActor extends BaseActor {
   static _actor = {
@@ -71,16 +69,14 @@ export class RuntimeSupervisorActor extends BaseActor {
     return true;
   }
 
-  requestProviderCall(args: ProviderCallArgs | string): boolean {
-    const callId = typeof args === 'string' ? args : args.callId;
+  requestProviderCall(callId: string): boolean {
     if (this.mode !== 'running' || this.activeProviderCallId !== null) return false;
     this.activeProviderCallId = callId;
     this.persist();
     return true;
   }
 
-  releaseProviderCall(args: ProviderCallArgs | string): void {
-    const callId = typeof args === 'string' ? args : args.callId;
+  releaseProviderCall(callId: string): void {
     if (this.activeProviderCallId === callId) {
       this.activeProviderCallId = null;
       this.persist();
@@ -88,7 +84,7 @@ export class RuntimeSupervisorActor extends BaseActor {
   }
 
   _on_enter__shutting_down(): void {
-    this.runTask(async () => undefined);
+    this.sendEvent('done');
   }
 
   protected override _on_state_changed(_oldState: string | undefined, newState: string): void {
@@ -96,12 +92,12 @@ export class RuntimeSupervisorActor extends BaseActor {
     this.persist();
   }
 
-  snapshot() {
+  snapshot(): { actor_id: string; actor_kind: 'supervisor'; state_value: { mode: RuntimeSupervisorMode; work: RuntimeSupervisorWork }; context: RuntimeSupervisorContext; updated_at: string } {
     return {
       actor_id: supervisorActorId(),
       actor_kind: 'supervisor' as const,
       state_value: { mode: this.mode, work: this.work },
-      context: { projectRoot: this.projectRoot, activeProviderCallId: this.activeProviderCallId } as unknown as Record<string, unknown>,
+      context: { projectRoot: this.projectRoot, activeProviderCallId: this.activeProviderCallId },
       updated_at: new Date().toISOString(),
     };
   }

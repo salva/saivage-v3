@@ -168,6 +168,22 @@ describe('operator API contract registry', () => {
   it('parses first-batch success examples', () => {
     expect(parseOperatorResponse('runtime.getState', { projectRoot: '/work/test', projectId: 'test', runtime: runtimeState, cardIndex: { total: 1, byStatus: { backlog: 1 }, byType: { code: 1 } } }).runtime).toEqual(runtimeState);
     expect(parseOperatorResponse('runtime.getState', { projectRoot: '/work/test', projectId: 'test', runtime: runtimeState, cardIndex: { total: 1, byStatus: { backlog: 1 }, byType: { code: 1 } }, serverAvailability }).serverAvailability?.components.mcp.state).toBe('idle');
+    expect(parseOperatorResponse('runtime.status', {
+      runtime: 'running',
+      paused: false,
+      currentCardId: 'card-1',
+      goalCount: 1,
+      lastTickAt: null,
+      pid: 123,
+      actorRuntime: {
+        pauseMode: 'running',
+        activeWork: 'model_invocation',
+        cards: [{ cardId: 'card-1', actorState: 'running' }],
+        agents: [{ agentId: 'planner:card-1', role: 'planner', cardId: 'card-1', phase: 'waiting_for_tool' }],
+        diagnostics: [],
+        recovery: null,
+      },
+    }).actorRuntime.agents[0]).toEqual({ agentId: 'planner:card-1', role: 'planner', cardId: 'card-1', phase: 'waiting_for_tool' });
     expect(parseOperatorResponse('cards.list', { cards: [card], total: 1 }).total).toBe(1);
     expect(parseOperatorResponse('cards.get', { card: { ...card, dependencyRefs: [], relatedRefs: [] }, children: [], ancestorIds: [], ancestorRefs: [] }).card.id).toBe('card-1');
     const chatSend = parseOperatorResponse('chats.send', {
@@ -190,6 +206,29 @@ describe('operator API contract registry', () => {
       cardIndex: { total: 0, byStatus: {}, byType: {} },
       serverAvailability: { ...serverAvailability, components: { ...serverAvailability.components, runtime: { ...serverAvailability.components.runtime, state: 'failed' } } },
     })).toThrow();
+  });
+
+  it('rejects legacy runtime status and unknown actor vocabulary', () => {
+    const response = {
+      runtime: 'running',
+      paused: false,
+      currentCardId: 'card-1',
+      goalCount: 1,
+      lastTickAt: null,
+      pid: 123,
+      actorRuntime: {
+        pauseMode: 'running',
+        activeWork: 'none',
+        cards: [{ cardId: 'card-1', actorState: 'running' }],
+        agents: [{ agentId: 'planner:card-1', role: 'planner', cardId: 'card-1', phase: 'idle' }],
+        diagnostics: [],
+        recovery: null,
+      },
+    };
+
+    expect(() => parseOperatorResponse('runtime.status', { ...response, runtime: 'unknown' })).toThrow();
+    expect(() => parseOperatorResponse('runtime.status', { ...response, actorRuntime: { ...response.actorRuntime, cards: [{ cardId: 'card-1', actorState: 'unknown' }] } })).toThrow();
+    expect(() => parseOperatorResponse('runtime.status', { ...response, actorRuntime: { ...response.actorRuntime, agents: [{ agentId: 'planner:card-1', role: 'planner', cardId: 'card-1', phase: 'waiting_tool' }] } })).toThrow();
   });
 
   it('rejects malformed migrated responses', () => {

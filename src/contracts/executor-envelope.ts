@@ -24,6 +24,8 @@ export const ExecutorResultEnvelopeSchema = z.object({
   result: z.record(z.string(), z.unknown()).optional(),
   artifacts: z.array(executorArtifactDefSchema).optional().default([]),
   attachments: z.array(executorAttachmentDefSchema).optional().default([]),
+  generated_files: z.array(z.string()).optional().default([]),
+  warnings: z.array(z.string()).optional().default([]),
   summary: z.string().optional(),
 });
 

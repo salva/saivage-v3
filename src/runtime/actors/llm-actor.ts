@@ -38,10 +38,9 @@ export class LLMActor extends BaseActor {
   static _actor: ActorDefinition = {
     initial: 'idle',
     states: {
-      idle: { parked: true, on: { turn: 'calling_provider', cancel: 'cancelled' } },
-      calling_provider: { on: { done: 'idle', failed: 'idle', tool_call: 'waiting_tool', cancel: 'cancelled' } },
-      waiting_tool: { parked: true, on: { turn: 'calling_provider', failed: 'idle', cancel: 'cancelled' } },
-      cancelled: { terminal: true },
+      idle: { parked: true, on: { turn: 'calling_provider' } },
+      calling_provider: { on: { done: 'idle', failed: 'idle', tool_call: 'waiting_tool' } },
+      waiting_tool: { parked: true, on: { turn: 'calling_provider' } },
     },
   };
 
@@ -55,6 +54,7 @@ export class LLMActor extends BaseActor {
   activeReconstruction: LlmActiveReconstructionRecord | null = null;
   deliveredToolCallIds = new Set<string>();
   #pendingTurn: PendingTurn | null = null;
+  #activeProviderCallId: string | null = null;
   #toolDeliveryCounter = 0;
 
   constructor(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; admission?: LLMAdmissionPort }) {
@@ -73,6 +73,7 @@ export class LLMActor extends BaseActor {
     this.input = input;
     this.outcome = null;
     this.activeReconstruction = this.createActiveReconstruction(input);
+    this.prepareProviderCallReconstruction(input);
     return new Promise<LLMActorOutcome>((resolve, reject) => {
       this.#pendingTurn = { resolve, reject };
       this.parkedSendEvent('turn');
@@ -106,36 +107,47 @@ export class LLMActor extends BaseActor {
     };
     this.waitingToolCall = null;
     this.updateActiveReconstruction({ input: this.input, input_id: deliveryInputId, waiting_tool_call: null, delivered_tool_call_ids: [...this.deliveredToolCallIds], tool_delivery_counter: this.#toolDeliveryCounter });
+    this.prepareProviderCallReconstruction(this.input);
     return this.continueAfterTool();
   }
 
   _on_enter__calling_provider(): void {
-    const input = this.requireInput();
-    appendLlmTurnStarted(this.projectRoot, input);
-    const callId = `${this.agentId}:${input.inputId}`;
-    this.updateActiveReconstruction({ provider_call_id: callId });
-    this.persist();
-    if (this.admission && !this.admission.requestProviderCall(callId)) {
-      this.completeWithError(input, `Provider admission denied for ${callId}.`);
-      return;
+    try {
+      const input = this.requireInput();
+      appendLlmTurnStarted(this.projectRoot, input);
+      const callId = `${this.agentId}:${input.inputId}`;
+      if (this.admission && !this.admission.requestProviderCall(callId)) {
+        this.completeWithError(input, `Provider admission denied for ${callId}.`);
+        return;
+      }
+      if (this.admission) this.#activeProviderCallId = callId;
+      this.runTask((signal) => this.provider.completeTurn(input, signal), {
+        on_done: (result) => {
+          try {
+            appendLlmTurnFinished(this.projectRoot, input, result);
+            this.completeWithProviderResult(input, result);
+          } catch (error) {
+            this.failPendingTurnFatally(error);
+            throw error;
+          } finally {
+            this.releaseProviderAdmission(callId);
+          }
+        },
+        on_failed: (error) => {
+          try {
+            this.completeWithError(input, error.message);
+          } catch (fatal) {
+            this.failPendingTurnFatally(fatal);
+            throw fatal;
+          } finally {
+            this.releaseProviderAdmission(callId);
+          }
+        },
+      });
+    } catch (error) {
+      this.failPendingTurnFatally(error);
+      throw error;
     }
-    this.runTask((signal) => this.provider.completeTurn(input, signal), {
-      on_done: (result) => {
-        try {
-          appendLlmTurnFinished(this.projectRoot, input, result);
-          this.completeWithProviderResult(input, result);
-        } finally {
-          this.admission?.releaseProviderCall(callId);
-        }
-      },
-      on_failed: (error) => {
-        try {
-          this.completeWithError(input, error.message);
-        } finally {
-          this.admission?.releaseProviderCall(callId);
-        }
-      },
-    });
   }
 
   protected override _on_state_changed(_oldState: string | undefined, _newState: string): void {
@@ -150,11 +162,6 @@ export class LLMActor extends BaseActor {
       context: {
         projectRoot: this.projectRoot,
         agentId: this.agentId,
-        input: this.input,
-        outcome: this.outcome,
-        waitingToolCall: this.waitingToolCall,
-        deliveredToolCallIds: [...this.deliveredToolCallIds],
-        toolDeliveryCounter: this.#toolDeliveryCounter,
         active_reconstruction: this.activeReconstruction,
       },
       updated_at: new Date().toISOString(),
@@ -190,6 +197,32 @@ export class LLMActor extends BaseActor {
     this.#pendingTurn?.resolve(this.outcome);
     this.#pendingTurn = null;
     this.sendEvent('failed');
+  }
+
+  private failPendingTurnFatally(error: unknown): void {
+    const fatal = error instanceof Error ? error : new Error(String(error));
+    const pending = this.#pendingTurn;
+    this.#pendingTurn = null;
+    this.releaseProviderAdmissionBestEffort();
+    if (pending) pending.reject(fatal);
+    console.error(`LLMActor '${this.agentId}' fatal handler failure`, fatal);
+  }
+
+  private releaseProviderAdmission(callId: string): void {
+    if (this.#activeProviderCallId !== callId) return;
+    this.#activeProviderCallId = null;
+    this.admission?.releaseProviderCall(callId);
+  }
+
+  private releaseProviderAdmissionBestEffort(): void {
+    const callId = this.#activeProviderCallId;
+    if (!callId) return;
+    this.#activeProviderCallId = null;
+    try {
+      this.admission?.releaseProviderCall(callId);
+    } catch (releaseError) {
+      console.error(`LLMActor '${this.agentId}' failed to release provider admission for ${callId}`, releaseError);
+    }
   }
 
   private continueAfterTool(): Promise<LLMActorOutcome> {
@@ -252,6 +285,10 @@ export class LLMActor extends BaseActor {
   private updateActiveReconstruction(changes: Partial<LlmActiveReconstructionRecord>): void {
     if (!this.activeReconstruction) throw new Error(`LLMActor '${this.agentId}' has no active reconstruction record.`);
     this.activeReconstruction = { ...this.activeReconstruction, ...changes };
+  }
+
+  private prepareProviderCallReconstruction(input: LlmInvocationInput): void {
+    this.updateActiveReconstruction({ provider_call_id: `${this.agentId}:${input.inputId}` });
   }
 }
 

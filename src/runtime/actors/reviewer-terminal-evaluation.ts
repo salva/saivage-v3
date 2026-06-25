@@ -25,7 +25,7 @@ export function evaluateReviewerTerminalOutcome(input: ReviewerTerminalEvaluatio
     const message = error instanceof Error ? error.message : String(error);
     return { status: 'failed', summary: message, result: { kind: 'planner_failure', error: message } };
   }
-  const assessment = buildReviewAssessment(reviewerResult, input.assessmentId, input.sessionId, input.card.id);
+  const assessment = buildReviewerAssessment(reviewerResult, input.assessmentId, input.sessionId, input.card.id);
   const validation = validateReviewerAssessment({ goalId: input.card.id, assessment, candidatePlannerResult: input.candidatePlanning, readCard: (id) => input.store.read(id) });
   if (!validation.valid) return correctionOutcome(input.assessmentId, validation.reason ?? 'Reviewer assessment is invalid.');
   if (assessment.result === 'needs_corrections') return correctionOutcome(input.assessmentId, assessment.summary, assessment.issues.map((issue) => ({ ...issue })));
@@ -41,7 +41,7 @@ function correctionOutcome(assessmentId: string, summary: string, issues: Array<
   };
 }
 
-function buildReviewAssessment(result: ReviewerResult, assessmentId: string, sessionId: string, goalId: string): ReviewAssessment {
+export function buildReviewerAssessment(result: ReviewerResult, assessmentId: string, sessionId: string, goalId: string): ReviewAssessment {
   const now = new Date().toISOString();
   return { ...result.assessment, assessment_id: assessmentId, at: now, created_at: now, reviewer_session_id: sessionId, goal_card_id: goalId };
 }

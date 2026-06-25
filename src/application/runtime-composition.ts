@@ -165,6 +165,7 @@ function createComposedRuntimeApi(input: {
       stopProject: (source) => input.runtimeApi.stopProject(source),
       subscribe: (options) => input.runtimeApi.subscribe(options),
       getStatus: () => input.runtimeApi.getStatus(),
+      getActorRuntimeReadModel: () => input.runtimeApi.getActorRuntimeReadModel(),
       getActivityStatus: (sessionId) => input.runtimeApi.getActivityStatus(sessionId),
     },
     emitAnalystToolInvoked(payload) {

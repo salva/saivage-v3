@@ -5,7 +5,7 @@ import { describe, expect, it, jest } from '@jest/globals';
 import { existsSync, readFileSync } from 'node:fs';
 import { CardStore } from '../../../src/cards/card-store.js';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { appendLlmTurnFinished, createSupervisorRuntimeApi, readActorSnapshots, readRecoveryDiagnostics, readToolCallStatuses, saveActorSnapshot, SupervisorRuntimeApi, type CardActorStorePort, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
+import { appendLlmTurnFinished, createSupervisorRuntimeApi, readActorSnapshots, readRecoveryDiagnostics, readToolCallStatuses, RuntimeSupervisorActor, saveActorSnapshot, SupervisorRuntimeApi, type CardActorStorePort, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
 import { actorToolCallStatusesPath, appendToolCallStatus } from '../../../src/runtime/actors/index.js';
 import type { CardRecord } from '../../../src/schemas/index.js';
@@ -88,6 +88,37 @@ function appendReviewerToolCall(projectRoot: string, cardId: string, args: unkno
 }
 
 describe('SupervisorRuntimeApi', () => {
+  it('accepts provider admission and release by call ID string only', () => withTempProject((projectRoot) => {
+    const supervisor = new RuntimeSupervisorActor();
+    supervisor.start();
+    supervisor.initialize(projectRoot);
+    supervisor.run();
+
+    expect(supervisor.requestProviderCall('provider-call-1')).toBe(true);
+    expect(supervisor.work).toBe('model_invocation_active');
+    supervisor.releaseProviderCall('provider-call-1');
+    expect(supervisor.work).toBe('ready');
+
+    if (false) {
+      // @ts-expect-error Provider admission no longer accepts legacy argument objects.
+      supervisor.requestProviderCall({ callId: 'provider-call-2' });
+      // @ts-expect-error Provider release no longer accepts legacy argument objects.
+      supervisor.releaseProviderCall({ callId: 'provider-call-2' });
+    }
+  }));
+
+  it('transitions shutdown directly to idle without fake asynchronous work', () => withTempProject((projectRoot) => {
+    const supervisor = new RuntimeSupervisorActor();
+    supervisor.start();
+    supervisor.initialize(projectRoot);
+    supervisor.run();
+
+    expect(supervisor.shutdown()).toBe(true);
+
+    expect(supervisor.mode).toBe('idle');
+    expect(supervisor.work).toBe('ready');
+  }));
+
   it('implements start, pause, resume, status, and shutdown through RuntimeSupervisorActor', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
@@ -105,6 +136,11 @@ describe('SupervisorRuntimeApi', () => {
     expect(api.getStatus()).toMatchObject({ status: 'paused', paused: true, currentCardId: 'project' });
     api.resume();
     expect(api.getStatus()).toMatchObject({ status: 'running', paused: false, currentCardId: 'project' });
+    expect(api.getActorRuntimeReadModel()).toMatchObject({
+      pauseMode: 'running',
+      cards: [{ cardId: 'project', actorState: 'blocked' }],
+      agents: [],
+    });
     await api.shutdown();
 
     expect(readActorSnapshots(projectRoot).some((item) => item.actor_id === 'supervisor')).toBe(true);
@@ -184,6 +220,9 @@ describe('SupervisorRuntimeApi', () => {
     });
     expect(readRecoveryDiagnostics(projectRoot)?.diagnostics.map((item) => item.actorId)).not.toContain('process:build-1');
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).not.toContain('process:build-1');
+    expect(api.getStartupRecoveryReport()?.incidents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actorId: 'process:build-1', kind: 'running_process', action: 'abandon_running_process', processId: 'build-1' }),
+    ]));
   }));
 
   it('abandons stale pending tool calls during startup recovery', async () => withTempProject(async (projectRoot) => {

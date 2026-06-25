@@ -51,6 +51,8 @@ export interface ExecutorResult {
   result?: Record<string, unknown>;
   artifacts: ExecutorArtifactDef[];
   attachments: ExecutorAttachmentDef[];
+  generated_files: string[];
+  warnings: string[];
   summary?: string;
   status_text: string;
   fallback_with_evidence: { reason: ExecutorFallbackReason } | null;

@@ -5,12 +5,14 @@ import { describe, expect, it, jest } from '@jest/globals';
 import {
   buildActorRecoveryPlan,
   cleanupConvertedRecoverySnapshots,
-  cleanupHandledRecoverySnapshots,
+  cleanupAbandonedProcessSnapshots,
   convertActorRecoveryOutcomes,
   appendLlmTurnFinished,
   PlanningCardProcessorActor,
+  projectActorRecovery,
   recoverActorStartupOutcomes,
   recoverProjectedTerminalToolOutcomes,
+  runActorStartupRecovery,
   TerminalCardProcessorActor,
   readRecoveryDiagnostics,
   readActorSnapshots,
@@ -55,13 +57,13 @@ function terminalProcessorActive(cardId: string): Record<string, unknown> {
 }
 
 function llmActive(cardId: string, inputId = 'planner:input:1'): Record<string, unknown> {
-  return { schema_version: 1, kind: 'llm_turn', agent_id: `planner:${cardId}`, role: 'planner', card_id: cardId, input_id: inputId, input: { inputId, agentId: `planner:${cardId}`, role: 'planner', sessionId: `planner:${cardId}`, systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: { cardId } }, provider_call_id: null, waiting_tool_call: null, delivered_tool_call_ids: [], tool_delivery_counter: 0, started_at: '2026-06-12T00:00:00.000Z' };
+  return { schema_version: 1, kind: 'llm_turn', agent_id: `planner:${cardId}`, role: 'planner', card_id: cardId, input_id: inputId, input: { inputId, agentId: `planner:${cardId}`, role: 'planner', sessionId: `planner:${cardId}`, systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: { cardId } }, provider_call_id: `planner:${cardId}:${inputId}`, waiting_tool_call: null, delivered_tool_call_ids: [], tool_delivery_counter: 0, started_at: '2026-06-12T00:00:00.000Z' };
 }
 
 function llmWaitingActive(cardId: string, role: 'planner' | 'reviewer' | 'executor', toolName: string, toolCallId = 'call-1', assessmentId = `assessment-${cardId}-1`): Record<string, unknown> {
   const agentId = `${role}:${cardId}`;
   const inputId = `${role}:${cardId}:1`;
-  return { ...llmActive(cardId, inputId), agent_id: agentId, role, input_id: inputId, input: { inputId, agentId, role, sessionId: role === 'reviewer' ? `reviewer:${cardId}:${assessmentId}` : agentId, systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: role === 'reviewer' ? { cardId, assessmentId } : { cardId } }, waiting_tool_call: { sourceInputId: inputId, toolCallId, toolName } };
+  return { ...llmActive(cardId, inputId), agent_id: agentId, role, input_id: inputId, input: { inputId, agentId, role, sessionId: role === 'reviewer' ? `reviewer:${cardId}:${assessmentId}` : agentId, systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: role === 'reviewer' ? { cardId, assessmentId } : { cardId } }, provider_call_id: null, waiting_tool_call: { sourceInputId: inputId, toolCallId, toolName } };
 }
 
 function appendLoggedToolCall(projectRoot: string, cardId: string, role: 'planner' | 'reviewer' | 'executor', toolName: string, args: unknown, toolCallId = 'call-1'): void {
@@ -85,7 +87,7 @@ function recoveryProcessorDeps(projectRoot: string, store: CardStore) {
     store,
     generatedAt: '2026-06-12T00:00:00.000Z',
     makePlanningProcessor: (cardId: string) => new PlanningCardProcessorActor({ projectRoot, cardId, store, children: { get: () => null }, provider }),
-    makeTerminalProcessor: (cardId: string) => new TerminalCardProcessorActor({ projectRoot, cardId, provider }),
+    makeTerminalProcessor: (cardId: string) => new TerminalCardProcessorActor({ projectRoot, cardId, provider, store }),
   };
 }
 
@@ -115,7 +117,7 @@ function createRunningTerminalCard(projectRoot: string): { store: CardStore; car
 
 describe('actor recovery plan', () => {
   it('builds an empty plan when no actor snapshots exist', () => withTempProject((projectRoot) => {
-    expect(buildActorRecoveryPlan(projectRoot)).toEqual({ supervisor: null, cards: [], llms: [], processors: [], processes: [], diagnostics: [] });
+    expect(buildActorRecoveryPlan(projectRoot)).toEqual({ supervisor: null, cards: [], llms: [], processors: [], processes: [] });
   }));
 
   it('builds a deterministic plan for supervisor, active goal card, and planner LLM snapshots', () => withTempProject((projectRoot) => {
@@ -127,7 +129,7 @@ describe('actor recovery plan', () => {
 
     expect(plan.supervisor?.actor_id).toBe('supervisor');
     expect(plan.cards).toMatchObject([{ cardId: 'G-1', active: true, activeReconstruction: expect.objectContaining({ kind: 'card_activation' }) }]);
-    expect(plan.llms).toMatchObject([{ actorId: 'planner:G-1', role: 'planner', cardId: 'G-1', active: true, activeReconstruction: expect.objectContaining({ kind: 'llm_turn' }), action: 'abandon_provider_call' }]);
+    expect(plan.llms).toMatchObject([{ actorId: 'planner:G-1', role: 'planner', cardId: 'G-1', active: true, activeReconstruction: expect.objectContaining({ kind: 'llm_turn' }) }]);
     expect(plan.processors).toEqual([]);
     expect(plan.processes).toEqual([]);
   }));
@@ -142,10 +144,10 @@ describe('actor recovery plan', () => {
 
     expect(plan.llms).toMatchObject([{ actorId: 'executor:T-1', role: 'executor', cardId: 'T-1', active: false }]);
     expect(plan.processes).toMatchObject([
-      { processId: 'build-1', action: 'abandon_running_process' },
-      { processId: 'done-1', action: 'none' },
+      { processId: 'build-1' },
+      { processId: 'done-1' },
     ]);
-    expect(plan.diagnostics).toEqual(expect.arrayContaining([
+    expect(projectActorRecovery(plan).diagnostics).toEqual(expect.arrayContaining([
       expect.objectContaining({ actorId: 'card:T-1', severity: 'warning' }),
       expect.objectContaining({ actorId: 'process:build-1', severity: 'warning' }),
     ]));
@@ -171,20 +173,39 @@ describe('actor recovery plan', () => {
     saveSnapshot(projectRoot, 'card:G-1', 'card', 'running', { cardId: 'G-1', active_reconstruction: cardActive('G-1') });
     saveSnapshot(projectRoot, 'processor:G-1', 'processor', 'planning', { cardId: 'G-1', active_reconstruction: processorActive('G-1') });
     saveSnapshot(projectRoot, 'planner:G-1', 'llm', 'calling_provider', { cardId: 'G-1', active_reconstruction: llmActive('G-1') });
-    saveSnapshot(projectRoot, 'reviewer:G-1', 'llm', 'waiting_tool', { cardId: 'G-1', active_reconstruction: { ...llmActive('G-1'), agent_id: 'reviewer:G-1', role: 'reviewer', waiting_tool_call: { sourceInputId: 'reviewer:G-1:1', toolCallId: 'call-1', toolName: 'tool' } } });
+    saveSnapshot(projectRoot, 'reviewer:G-1', 'llm', 'waiting_tool', { cardId: 'G-1', active_reconstruction: llmWaitingActive('G-1', 'reviewer', 'tool') });
 
     const plan = buildActorRecoveryPlan(projectRoot);
 
     expect(plan.processors).toMatchObject([{ actorId: 'processor:G-1', cardId: 'G-1', active: true, activeReconstruction: expect.objectContaining({ kind: 'processor_activation' }) }]);
     expect(plan.llms).toMatchObject([
-      { actorId: 'planner:G-1', action: 'abandon_provider_call', active: true },
-      { actorId: 'reviewer:G-1', action: 'block_tool_wait', active: true },
+      { actorId: 'planner:G-1', active: true },
+      { actorId: 'reviewer:G-1', active: true },
     ]);
-    expect(plan.diagnostics).toEqual([
+    expect(projectActorRecovery(plan).diagnostics).toEqual([
       expect.objectContaining({ actorId: 'planner:G-1', severity: 'warning' }),
       expect.objectContaining({ actorId: 'processor:G-1', severity: 'warning' }),
       expect.objectContaining({ actorId: 'reviewer:G-1', severity: 'warning' }),
     ]);
+    expect(projectActorRecovery(plan).actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actorId: 'planner:G-1', kind: 'llm_recovery_action', action: 'abandon_provider_call' }),
+      expect.objectContaining({ actorId: 'reviewer:G-1', kind: 'llm_recovery_action', action: 'block_tool_wait' }),
+    ]));
+  }));
+
+  it('keeps recovery plan facts free of eager diagnostics and projected actions', () => withTempProject((projectRoot) => {
+    saveSnapshot(projectRoot, 'process:build-1', 'process', 'running', { processId: 'build-1' });
+    saveSnapshot(projectRoot, 'planner:G-1', 'llm', 'calling_provider', { cardId: 'G-1', active_reconstruction: llmActive('G-1') });
+
+    const plan = buildActorRecoveryPlan(projectRoot, { read: jest.fn(() => ({ id: 'G-1', type: 'goal' })) });
+
+    expect(plan).not.toHaveProperty('diagnostics');
+    expect(plan.llms[0]).not.toHaveProperty('action');
+    expect(plan.processes[0]).not.toHaveProperty('action');
+    expect(projectActorRecovery(plan).actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actorId: 'planner:G-1', action: 'abandon_provider_call' }),
+      expect.objectContaining({ actorId: 'process:build-1', action: 'abandon_running_process' }),
+    ]));
   }));
 
   it('allows an active LLM snapshot when the owner card exists in the domain reader', () => withTempProject((projectRoot) => {
@@ -202,7 +223,7 @@ describe('actor recovery plan', () => {
 
     const plan = buildActorRecoveryPlan(projectRoot);
 
-    expect(plan.diagnostics).toEqual(expect.arrayContaining([
+    expect(projectActorRecovery(plan).diagnostics).toEqual(expect.arrayContaining([
       expect.objectContaining({ actorId: 'planner:G-1', severity: 'warning' }),
     ]));
   }));
@@ -212,8 +233,9 @@ describe('actor recovery plan', () => {
 
     const plan = buildActorRecoveryPlan(projectRoot, { read: jest.fn(() => null), listChildren: jest.fn(() => []) });
 
-    expect(plan.diagnostics).toEqual([expect.objectContaining({ actorId: 'card:G-stranded', severity: 'warning' })]);
-    expect(plan.diagnostics[0].message).toContain('no active processor');
+    const projection = projectActorRecovery(plan, { read: jest.fn(() => null), listChildren: jest.fn(() => []) });
+    expect(projection.diagnostics).toEqual([expect.objectContaining({ actorId: 'card:G-stranded', severity: 'warning' })]);
+    expect(projection.diagnostics[0].message).toContain('no active processor');
   }));
 
   it('does not diagnose active cards as stranded when processor or active child evidence exists', () => withTempProject((projectRoot) => {
@@ -225,7 +247,7 @@ describe('actor recovery plan', () => {
 
     const plan = buildActorRecoveryPlan(projectRoot, { read: jest.fn(() => null), listChildren: jest.fn((cardId: string) => children.get(cardId) ?? []) });
 
-    expect(plan.diagnostics.filter((diagnostic) => diagnostic.message.includes('no active processor')).map((diagnostic) => diagnostic.actorId)).toEqual(['card:G-child']);
+    expect(projectActorRecovery(plan, { read: jest.fn(() => null), listChildren: jest.fn((cardId: string) => children.get(cardId) ?? []) }).diagnostics.filter((diagnostic) => diagnostic.message.includes('no active processor')).map((diagnostic) => diagnostic.actorId)).toEqual(['card:G-child']);
   }));
 
   it('diagnoses ambiguous active card states', () => withTempProject((projectRoot) => {
@@ -233,10 +255,28 @@ describe('actor recovery plan', () => {
 
     const plan = buildActorRecoveryPlan(projectRoot);
 
-    expect(plan.diagnostics).toEqual(expect.arrayContaining([
+    expect(projectActorRecovery(plan).diagnostics).toEqual(expect.arrayContaining([
       expect.objectContaining({ actorId: 'card:G-old', severity: 'warning' }),
     ]));
-    expect(plan.diagnostics.map((diagnostic) => diagnostic.message).join('\n')).toContain("ambiguous state 'planning'");
+    expect(projectActorRecovery(plan).diagnostics.map((diagnostic) => diagnostic.message).join('\n')).toContain("ambiguous state 'planning'");
+  }));
+
+  it('uses the shared card actor vocabulary for needs_verification recovery diagnostics', () => withTempProject((projectRoot) => {
+    saveSnapshot(projectRoot, 'card:G-needs-check', 'card', 'needs_verification', { cardId: 'G-needs-check', active_reconstruction: cardActive('G-needs-check') });
+
+    const diagnostics = projectActorRecovery(buildActorRecoveryPlan(projectRoot)).diagnostics.map((diagnostic) => diagnostic.message);
+
+    expect(diagnostics).not.toEqual(expect.arrayContaining([expect.stringContaining('ambiguous state')]));
+    expect(diagnostics).toEqual(expect.arrayContaining([expect.stringContaining('no active processor')]));
+  }));
+
+  it('fails fast on corrupt or mismatched active reconstruction records', () => withTempProject((projectRoot) => {
+    saveSnapshot(projectRoot, 'card:G-corrupt', 'card', 'running', { cardId: 'G-corrupt', active_reconstruction: { schema_version: 1, kind: 'llm_turn' } });
+    expect(() => buildActorRecoveryPlan(projectRoot)).toThrow("active_reconstruction kind mismatch: expected 'card_activation', received 'llm_turn'");
+
+    removeActorSnapshot(projectRoot, 'card:G-corrupt');
+    saveSnapshot(projectRoot, 'planner:G-role', 'llm', 'calling_provider', { cardId: 'G-role', active_reconstruction: { ...llmActive('G-role'), role: 'reviewer' } });
+    expect(() => buildActorRecoveryPlan(projectRoot, { read: jest.fn(() => ({ id: 'G-role', type: 'goal' })) })).toThrow("role 'reviewer' does not match actor role 'planner'");
   }));
 
   it('throws on orphan active LLM snapshots without a snapshot or domain card owner', () => withTempProject((projectRoot) => {
@@ -312,20 +352,49 @@ describe('actor recovery plan', () => {
     expect(messages).not.toContain('requires live process reconciliation');
   }));
 
-  it('cleans up only abandoned process snapshots after diagnostics are written', () => withTempProject((projectRoot) => {
+  it('uses role-agnostic and fact-based recovery diagnostic messages', () => withTempProject((projectRoot) => {
+    saveSnapshot(projectRoot, 'planner:G-provider', 'llm', 'calling_provider', { cardId: 'G-provider', active_reconstruction: llmActive('G-provider') });
+    saveSnapshot(projectRoot, 'reviewer:G-tool', 'llm', 'waiting_tool', { cardId: 'G-tool', active_reconstruction: llmWaitingActive('G-tool', 'reviewer', 'emit_reviewer_result') });
+
+    const diagnostics = projectActorRecovery(buildActorRecoveryPlan(projectRoot, { read: jest.fn(() => ({ id: 'G', type: 'goal' })) })).diagnostics.map((diagnostic) => diagnostic.message).join('\n');
+
+    expect(diagnostics).toContain('operator-visible startup recovery action');
+    expect(diagnostics).toContain('waiting for a persisted tool call result that has not been projected to a terminal outcome');
+    expect(diagnostics).not.toContain('planner-visible');
+    expect(diagnostics).not.toContain('will be blocked unless');
+  }));
+
+  it('cleans up abandoned and settled process snapshots after diagnostics are written', () => withTempProject((projectRoot) => {
     saveSnapshot(projectRoot, 'process:build-1', 'process', 'running', { processId: 'build-1' });
     saveSnapshot(projectRoot, 'process:done-1', 'process', 'settled', { processId: 'done-1' });
     saveSnapshot(projectRoot, 'card:G-1', 'card', 'running', { cardId: 'G-1', active_reconstruction: cardActive('G-1') });
     const plan = buildActorRecoveryPlan(projectRoot);
     writeRecoveryDiagnostics(projectRoot, plan, '2026-06-12T00:00:00.000Z');
 
-    cleanupHandledRecoverySnapshots(projectRoot, plan);
+    cleanupAbandonedProcessSnapshots(projectRoot, plan);
 
     expect(readRecoveryDiagnostics(projectRoot)?.actions).toEqual(expect.arrayContaining([
       expect.objectContaining({ actorId: 'process:build-1', action: 'abandon_running_process' }),
     ]));
-    expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toEqual(expect.arrayContaining(['card:G-1', 'process:done-1']));
+    expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toEqual(expect.arrayContaining(['card:G-1']));
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).not.toContain('process:build-1');
+    expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).not.toContain('process:done-1');
+  }));
+
+  it('reports abandoned process startup incidents after cleanup while outstanding diagnostics stay unresolved-only', () => withTempProject((projectRoot) => {
+    const { store, cardId } = createRunningGoal(projectRoot);
+    store.commitTerminalLifecyclePatch(cardId, { status: 'done', lifecycle: { status: 'done', result: { kind: 'planner_done', summary: 'done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' } });
+    saveSnapshot(projectRoot, 'process:build-1', 'process', 'running', { processId: 'build-1' });
+    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'calling_provider', { cardId, active_reconstruction: llmActive(cardId) });
+    const report = runActorStartupRecovery(buildActorRecoveryPlan(projectRoot, store), recoveryProcessorDeps(projectRoot, store));
+
+    expect(report.incidents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actorId: 'process:build-1', kind: 'running_process', action: 'abandon_running_process', processId: 'build-1' }),
+    ]));
+    expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).not.toContain('process:build-1');
+    expect(report.outstanding?.diagnostics.map((diagnostic) => diagnostic.actorId)).not.toContain('process:build-1');
+    expect(readRecoveryDiagnostics(projectRoot)?.diagnostics.map((diagnostic) => diagnostic.actorId)).not.toContain('process:build-1');
+    expect(readRecoveryDiagnostics(projectRoot)?.diagnostics.map((diagnostic) => diagnostic.actorId)).toEqual(expect.arrayContaining([`planner:${cardId}`]));
   }));
 
   it('converts interrupted running card work into a blocked card outcome', () => withTempProject((projectRoot) => {
@@ -391,6 +460,21 @@ describe('actor recovery plan', () => {
     expect(store.read(cardId)).toMatchObject({ status: 'done', lifecycle: { status: 'done', result: { kind: 'reviewer_pass', planning: { kind: 'planner_done', summary: 'done' } } } });
     expect(readToolCallStatuses(projectRoot).filter((record) => record.status === 'terminal_projected').map((record) => record.agent_id).sort()).toEqual([`planner:${cardId}`, `reviewer:${cardId}`].sort());
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toEqual([]);
+  }));
+
+  it('fails fast when reviewer projection needs descendant traversal but store cannot list children', () => withTempProject((projectRoot) => {
+    const { store, cardId } = createRunningGoal(projectRoot);
+    const evidenceId = createDoneEvidence(store, cardId);
+    saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, active_reconstruction: cardActive(cardId) });
+    saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId, active_reconstruction: processorActive(cardId) });
+    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'planner', 'emit_planner_result') });
+    saveSnapshot(projectRoot, `reviewer:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'reviewer', 'emit_reviewer_result') });
+    appendLoggedToolCall(projectRoot, cardId, 'planner', 'emit_planner_result', { status: 'done', summary: 'done' });
+    appendLoggedToolCall(projectRoot, cardId, 'reviewer', 'emit_reviewer_result', reviewerPass(evidenceId));
+    const deps = recoveryProcessorDeps(projectRoot, store);
+    const traversalLessStore = { read: store.read.bind(store), commitTerminalLifecyclePatch: store.commitTerminalLifecyclePatch.bind(store) };
+
+    expect(() => recoverProjectedTerminalToolOutcomes(buildActorRecoveryPlan(projectRoot, store), { ...deps, store: traversalLessStore })).toThrow('must provide listChildren');
   }));
 
   it('recovers paired planner done and reviewer correction terminal tool calls as blocked', () => withTempProject((projectRoot) => {
@@ -477,6 +561,19 @@ describe('actor recovery plan', () => {
     expect(store.read(cardId)).toMatchObject({ status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'planner_blocked', blocked_reason: 'needs operator' } } });
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toEqual([]);
     expect(convertActorRecoveryOutcomes(buildActorRecoveryPlan(projectRoot, store), store)).toEqual([]);
+  }));
+
+  it('projects terminal calls before stale pending abandonment in startup recovery', () => withTempProject((projectRoot) => {
+    const { store, cardId } = createRunningGoal(projectRoot);
+    saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, active_reconstruction: cardActive(cardId) });
+    saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId, active_reconstruction: processorActive(cardId) });
+    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'planner', 'emit_planner_result') });
+    appendLoggedToolCall(projectRoot, cardId, 'planner', 'emit_planner_result', { status: 'blocked', blocked_reason: 'needs operator', summary: 'needs operator' });
+
+    runActorStartupRecovery(buildActorRecoveryPlan(projectRoot, store), recoveryProcessorDeps(projectRoot, store));
+
+    expect(readToolCallStatuses(projectRoot, `planner:${cardId}`).map((record) => record.status)).toEqual(['pending', 'terminal_projected']);
+    expect(readToolCallStatuses(projectRoot, `planner:${cardId}`).map((record) => record.status)).not.toContain('abandoned');
   }));
 
   it('does not convert process-only work or non-running cards', () => withTempProject((projectRoot) => {

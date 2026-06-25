@@ -41,7 +41,10 @@ export function buildRuntimeCardOperatorContractHandlers(options: RuntimeCardOpe
       return getCardsReadModel().getHistoryEntry(id, seq);
     },
     'cards.diff': ({ params, query }) => getCardsReadModel().diffCard((params as unknown as { id: string }).id, query as unknown as { from?: string; to?: string }),
-    'runtime.status': () => ({ body: buildRuntimeStatusReadModel({ projectRoot, runtimeApi: options.runtimeApplication?.runtimeApi, serverAvailability: options.serverAvailabilityProvider?.() }) }),
+    'runtime.status': () => {
+      if (!options.runtimeApplication) throw new Error('Runtime application is required for runtime status.');
+      return { body: buildRuntimeStatusReadModel({ projectRoot, runtimeApi: options.runtimeApplication.runtimeApi, serverAvailability: options.serverAvailabilityProvider?.() }) };
+    },
     'runtime.cardRuns': () => ({ body: buildCardRunsResponse(projectRoot, requireCardStore(options.cardStore)) }),
   };
 }

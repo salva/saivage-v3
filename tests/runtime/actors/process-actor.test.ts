@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { ProcessActor, readActorSnapshots } from '../../../src/runtime/actors/index.js';
+import { PROCESS_OUTPUT_TAIL_BYTES, ProcessActor, readActorSnapshots, readProcessEvidence } from '../../../src/runtime/actors/index.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-process-actor-'));
@@ -22,7 +22,7 @@ async function eventually(assertion: () => void, attempts = 50): Promise<void> {
 }
 
 describe('ProcessActor', () => {
-  it('launches a process, records metadata, output, and terminal exit', async () => withTempProject(async (projectRoot) => {
+  it('launches a process, records terminal evidence, and prunes the settled snapshot', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const actor = new ProcessActor({ projectRoot, processId: 'P-1' });
     actor.start();
@@ -36,7 +36,32 @@ describe('ProcessActor', () => {
     expect(result.output.stderr).toContain('warn');
     expect(actor.command).toBe(process.execPath);
     expect(actor.args).toEqual(['-e', 'console.log("hello"); console.error("warn")']);
-    expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toContain('process:P-1');
+    await eventually(() => expect(readProcessEvidence(projectRoot, 'P-1')).toMatchObject({
+      processId: 'P-1',
+      command: process.execPath,
+      exitCode: 0,
+      signal: null,
+      output: { stdout: expect.stringContaining('hello'), stderr: expect.stringContaining('warn') },
+    }));
+    expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).not.toContain('process:P-1');
+  }));
+
+  it('keeps active snapshots and terminal evidence bounded to configured output tails', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const actor = new ProcessActor({ projectRoot, processId: 'P-tail' });
+    actor.start();
+    const script = `process.stdout.write('x'.repeat(${PROCESS_OUTPUT_TAIL_BYTES + 100})); setInterval(() => {}, 1000);`;
+
+    actor.launch({ command: process.execPath, args: ['-e', script] });
+    await eventually(() => expect(actor.inspect().stdout).toHaveLength(PROCESS_OUTPUT_TAIL_BYTES));
+    expect(actor.snapshot().context.stdout).toHaveLength(PROCESS_OUTPUT_TAIL_BYTES);
+    const persistedStdout = readActorSnapshots(projectRoot).find((item) => item.actor_id === 'process:P-tail')?.context.stdout as string | undefined;
+    expect(persistedStdout).toBe('');
+
+    actor.kill('tail test cleanup');
+    await expect(actor.wait(1000)).resolves.toMatchObject({ status: 'settled' });
+    await eventually(() => expect(readProcessEvidence(projectRoot, 'P-tail')?.output.stdout).toHaveLength(PROCESS_OUTPUT_TAIL_BYTES));
+    expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).not.toContain('process:P-tail');
   }));
 
   it('wait timeout is non-destructive', async () => withTempProject(async (projectRoot) => {
