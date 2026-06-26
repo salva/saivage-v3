@@ -305,128 +305,209 @@ Plus:
 
 ## Implementation Design
 
-### Step 1: Wire Rich System Prompts
+The implementation should avoid both extremes:
 
-Replace inline one-liners with calls to `buildPlannerPrompt`/`buildExecutorPrompt`/`buildReviewerPrompt`.
+- Do **not** patch only `create_card` into `PlanningCardProcessorActor` as an isolated one-off. That would reimplement the same concepts again when executor/reviewer tools are expanded.
+- Do **not** dump the entire role tool catalog into the actor runtime at once. That would add capabilities before the actor runtime owns their semantics, process lifecycle, and validation boundaries.
 
-**Files:**
-- `src/runtime/actors/planning-card-processor-actor.ts` — `plannerPrompt(card)` and `reviewerPrompt(card, assessmentId)`
-- `src/runtime/actors/terminal-card-processor-actor.ts` — executor system prompt in `buildLlmInput`
+The balanced design is a small reusable **actor-owned tool surface** abstraction. It centralizes tool definition selection, argument validation, dispatch, and result wrapping, but each micro-actor processor still owns the semantics of its tools.
 
-**Planner prompt change:**
-```typescript
-private plannerPrompt(card: CardRecord): string {
-  return buildPlannerPrompt(createPlannerContract());
-}
-```
+### Actor-Owned Tool Surface
 
-The goal-specific context (id, title, description, acceptance) moves to `contextMessages` as a user message, so the system prompt stays generic and reusable.
-
-**Executor prompt change:**
-```typescript
-private buildSystemPrompt(input: CardActivationInput): string {
-  return buildExecutorPrompt(createExecutorContract(), input.card.type);
-}
-```
-
-The card-specific context (id, title, description, acceptance) moves to `contextMessages`.
-
-**Reviewer prompt change:**
-```typescript
-private reviewerPrompt(card: CardRecord, assessmentId: string): string {
-  return buildReviewerPrompt(createReviewerContract());
-}
-```
-
-The goal context and assessment id move to `contextMessages`.
-
-### Step 2: Add Planner Card Management Tools
-
-Add `create_card`, `edit_card`, `cancel_card`, `delete_card`, `restart_card` to the planner's tool surface and handle them in `handleToolCall`.
-
-**Tool definitions:** Use the planner variants from `src/tools/definitions/index.ts`. These already have restricted `plannerInput` schemas (e.g. `create_card` omits `parent` and restricts `type` to non-project types).
-
-**Handling:** The planner's `handleToolCall` currently only handles `activate_card`. Add handlers for the planner control tools. The simplest approach is to delegate to the card store directly (the `CardActorStorePort` already has `read`, `setStatus`, `commitTerminalLifecyclePatch`). But `create`, `update`, `delete`, `restart` need more store operations than `CardActorStorePort` currently exposes.
-
-**Store port expansion:** Expand `CardActorStorePort` to include `create`, `update`, `delete` operations, or create a `PlannerControlPort` that wraps the full `CardStore` and is passed to the planner actor.
-
-The cleaner design: create a `PlannerToolPort` interface that the planner actor uses for card mutations:
+Introduce a lightweight runtime helper, not a new orchestration layer:
 
 ```typescript
-export interface PlannerToolPort {
-  createChild(parentId: string, input: NewCardInput): CardRecord;
-  updateCard(cardId: string, changes: Partial<CardRecord>): CardRecord;
-  deleteCard(cardId: string): void;
-  cancelCard(cardId: string, reason: string): CardRecord;
-  restartCard(cardId: string): CardRecord;
-  readCard(cardId: string): CardRecord | null;
-  listChildren(cardId: string): string[];
-}
-```
-
-The runtime supervisor implements this port using `CardStore`. The planner actor's `handleToolCall` delegates to it.
-
-**Validation rules (enforced in the handler):**
-- `create_card`: `parent` must equal the current goal card id. `type` must not be `project`. Depth must not exceed max depth.
-- `edit_card`: target must be an immediate child of the current goal. Cannot change `parent` or `type`.
-- `cancel_card`/`delete_card`/`restart_card`: target must be an immediate child.
-- `activate_card`: already enforced (immediate child only).
-
-### Step 3: Add Workspace Tools To Executor
-
-Wire the catalog's executor-role workspace tools (`read`, `write`, `glob`, `grep`, `edit`, `apply_patch`, `run_project_command`, `start_and_wait`, `wait_for_process`, `kill_process`) into the terminal processor's tool surface.
-
-**Tool definitions:** Use `AGENT_TOOL_DEFINITIONS` from `src/tools/definitions/index.ts`, filtered for `roles.includes('executor')` and `!plannerControl && !skill && !mcpWrapper`. Keep the existing actor-local process tools (`run_process`, `wait_process`, `inspect_process`, `kill_process`) as the process management surface, since they use the local `ProcessActor` map. The catalog's `start_and_wait`/`run_project_command` can be added as alternatives or replacements.
-
-**Tool context:** The workspace tools need a `ToolContext` with `projectRoot`, `cardStore`, `cardId`, `processRegistry`, etc. The terminal processor already has `projectRoot` and `processes`. Build a `ToolContext` adapter that maps the actor's local state to the catalog's expected context.
-
-**Handling:** The terminal processor's `handleToolCall` currently handles only process tools. Add a delegation path for workspace tools: look up the tool by name in `AGENT_TOOL_DEFINITIONS`, call its `executor` with the `ToolContext`, and return the result.
-
-### Step 4: Add Reviewer Context And Tools
-
-**Descendant summary message:** Add a `buildReviewerDescendantSummaryMessage` function that walks the goal card's descendants and produces a compact JSON summary of each descendant's id, type, title, status, status_text, result kind, result summary/error, and generated_files.
-
-Add this message to `contextMessages` in `buildReviewerLlmInput`.
-
-**Reviewer tools:** Add read-only workspace tools (`read`, `glob`, `grep`, `list_card_history`, `get_card_history_entry`, `diff_card`, `websearch`, `webfetch`, `skill`, `mcp_tool_call`) to the reviewer's tool surface. Handle them by delegation to the catalog's tool executors, same as the executor.
-
-### Step 5: Add Planner Read-Only Workspace Tools
-
-Add `read`, `glob`, `grep`, `websearch`, `webfetch`, `list_card_history`, `get_card_history_entry`, `diff_card` to the planner's tool surface. Handle them by delegation to the catalog's tool executors, using the same `ToolContext` adapter as the executor.
-
-## Tool Context Adapter
-
-The catalog's workspace tools expect a `ToolContext` with:
-- `projectRoot`
-- `cardStore` (for card-history tools)
-- `cardId` (for card-scoped operations)
-- `processRegistry` (for process tools)
-- `mcpManager` (for MCP tools)
-- `skillsProvider` (for skill tools)
-
-The actor runtime has:
-- `this.projectRoot`
-- `this.store` (card store port)
-- `this.cardId`
-- `this.processes` (for executor process management)
-
-Create a `ToolContextAdapter` that maps actor runtime state to the catalog's `ToolContext`:
-
-```typescript
-function buildToolContext(args: {
+export interface ActorToolHandlerContext {
   projectRoot: string;
-  cardStore: CardActorStorePort;
   cardId: string;
-  processes?: Map<string, ProcessActor>;
-}): ToolContext {
-  return {
-    projectRoot: args.projectRoot,
-    cardStore: args.cardStore,
-    cardId: args.cardId,
-    // processRegistry and mcpManager adapters as needed
-  };
+  sessionId: string;
+}
+
+export interface ActorToolHandler {
+  name: string;
+  definition: ToolDefinition;
+  execute(args: unknown, context: ActorToolHandlerContext): Promise<unknown>;
+}
+
+export interface ActorToolSurface {
+  definitions(): ToolDefinition[];
+  handles(toolName: string): boolean;
+  execute(toolName: string, args: unknown, context: ActorToolHandlerContext): Promise<unknown>;
 }
 ```
+
+Rules:
+
+- The tool surface is owned by the processor actor that uses it.
+- It has no runtime loop, no activation ledger, and no lifecycle commits.
+- It does not call `LLMActor`; it only executes one non-terminal tool call and returns one tool result.
+- `CardActor` remains the only lifecycle commit boundary.
+- `PlanningCardProcessorActor` remains the owner of planner sequencing.
+- `TerminalCardProcessorActor` remains the owner of executor process actors.
+- `LLMActor` remains generic and queue-free.
+
+This gives us one reusable dispatch shape without creating a second runtime model on top of micro-actors.
+
+### Tool Surface Construction
+
+Use explicit curated surfaces, not unrestricted role dumps:
+
+```typescript
+plannerToolSurface = createPlannerActorToolSurface(...);
+executorToolSurface = createExecutorActorToolSurface(...);
+reviewerToolSurface = createReviewerActorToolSurface(...);
+```
+
+Each surface exports definitions and executes only the names it intentionally owns.
+
+The source of tool schemas can still be the existing catalog where appropriate, but actor runtime ownership is explicit. A tool is not available merely because `roles.includes(role)`.
+
+### Planner Actor Tool Surface
+
+Planner tools should be implemented first because this is the current blocker.
+
+Initial planner actor tools:
+
+| Tool | Purpose |
+|---|---|
+| `create_card` | Create an immediate child under the active planner card. |
+| `edit_card` | Fix/update an immediate child card before activation. |
+| `restart_card` | Restart an immediate failed/blocked/terminal child when retry is intended. |
+| `activate_card` | Activate an immediate child card. |
+
+`cancel_card` and `delete_card` are useful, but can follow after the initial decomposition path is stable. They are not required to unblock normal forward progress.
+
+Planner tool ownership rules:
+
+- `create_card` always creates under the active planner card; the model does not provide `parent`.
+- `create_card` cannot create `project` cards.
+- `edit_card`, `restart_card`, `activate_card` can operate only on immediate children of the active planner card.
+- Child creation uses the same card store mutation path as analyst-created cards, so new cards are visible to the runtime's actor registry immediately after creation.
+- Creating a card does not run it. The planner must call `activate_card` when it wants execution.
+- Returning `continue` without creating or activating useful work is non-actionable and should be discouraged in the prompt.
+
+Implementation options:
+
+- Reuse catalog `ToolDefinition` schemas for `create_card`, `edit_card`, `restart_card`, and `activate_card` where they exactly match actor semantics.
+- Implement actor-local handlers directly against `CardStore`/the card actor registry. Do not delegate to `PlannerControlExecutor`; it carries a separate control-surface/activation-ledger model and would blur micro-actor ownership.
+
+### Executor Actor Tool Surface
+
+Keep executor tools conservative at first.
+
+Current executor process tools fit the actor model because `TerminalCardProcessorActor` owns `ProcessActor` instances:
+
+| Tool | Purpose |
+|---|---|
+| `run_process` | Start a process owned by this terminal card activation. |
+| `wait_process` | Wait for an owned process. |
+| `inspect_process` | Inspect an owned process. |
+| `kill_process` | Kill an owned process. |
+
+Do not replace these with catalog `run_project_command`/`start_and_wait` until there is a single actor-owned process abstraction for both paths. Two process systems would be worse than one minimal process surface.
+
+Add project file tools later through the same `ActorToolSurface` abstraction if the process-only surface remains awkward:
+
+| Candidate tool | Purpose |
+|---|---|
+| `read` | Read project files/directories without shell commands. |
+| `write` | Create/replace files. |
+| `edit` | Exact text edit. |
+| `apply_patch` | Apply text diffs. |
+| `glob` | Find files. |
+| `grep` | Search files. |
+
+These are good eventual executor tools, but they are not required to solve planner decomposition and should not be mixed into the first runtime fix.
+
+### Reviewer Actor Tool Surface
+
+Do not begin by adding many reviewer tools. The reviewer first needs the right state.
+
+Initial reviewer surface:
+
+| Tool | Purpose |
+|---|---|
+| `emit_reviewer_result` | Terminal review assessment. |
+
+Add one reviewer context builder:
+
+```typescript
+buildReviewerDescendantSummaryMessage(goalCard, descendants)
+```
+
+The message should include compact structured summaries:
+
+- `id`
+- `type`
+- `title`
+- `status`
+- `status_text`
+- `lifecycle.result.kind`
+- concise summary/error fields
+- `generated_files`
+- artifact and attachment refs
+
+This keeps review deterministic and avoids requiring the reviewer to navigate the card tree. If later validation proves the reviewer needs file inspection, add read-only `read`, `glob`, and `grep` through `ActorToolSurface`.
+
+### Prompt Wiring
+
+Prompts must exactly match the offered actor tools. Do not wire the existing rich prompts unchanged if they mention unavailable tools.
+
+Update prompt builders to become the single source of runtime prompts, but make them parameterized by the actual tool surface:
+
+```typescript
+buildPlannerPrompt({ contract, tools: plannerToolSurface.definitions(), depthContext })
+buildExecutorPrompt({ contract, tools: executorToolSurface.definitions(), cardType })
+buildReviewerPrompt({ contract, tools: reviewerToolSurface.definitions() })
+```
+
+Guidelines:
+
+- System prompts contain generic role/tool behavior only.
+- Card-specific data moves to user context messages.
+- Planner state remains in `buildPlannerStateContextMessage`.
+- Reviewer descendant summaries live in a reviewer context message.
+- No prompt mentions tools not present in `tools`.
+
+### Context Message Builders
+
+Create small reusable context builders:
+
+```typescript
+buildCardWorkContextMessage(card, mode: 'plan' | 'execute' | 'review')
+buildPlannerStateContextMessage(...existing...)
+buildReviewerDescendantSummaryMessage(...)
+```
+
+This avoids repeating card id/title/description/acceptance assembly in each processor while keeping the information flow explicit.
+
+### Phased Implementation
+
+#### Phase 1: Planner Decomposition
+
+- Add `ActorToolSurface` helper.
+- Add planner surface with `create_card`, `edit_card`, `restart_card`, `activate_card`.
+- Update planner prompt builder to match that surface.
+- Move planner card-specific text into a context message.
+- Test: planner creates a missing child after an existing child completes and then activates it.
+
+#### Phase 2: Reviewer Context
+
+- Add `buildReviewerDescendantSummaryMessage`.
+- Use reviewer prompt builder with terminal-only surface.
+- Test: reviewer receives acceptance criteria and descendant summaries including generated files/evidence ids.
+
+#### Phase 3: Executor Prompt Cleanup
+
+- Use executor prompt builder with current process tools.
+- Move executor card-specific text into a context message.
+- Keep process tools unchanged.
+
+#### Phase 4: Optional File Tools
+
+- Add executor file tools through `ActorToolSurface` if shell-mediated file edits remain problematic.
+- Add reviewer read-only file tools only if descendant summaries are insufficient.
+- Add planner read-only file tools only if card descriptions/acceptance plus planner state are insufficient for decomposition.
 
 ## Validation Plan
 
