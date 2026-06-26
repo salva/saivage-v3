@@ -146,9 +146,11 @@ describe('TerminalCardProcessorActor', () => {
     expect(outcome).toMatchObject({ status: 'done', summary: 'saw running process' });
     expect(delivery.deliverNotificationsForInput).toHaveBeenCalledWith(`terminal:${card.id}:1`);
     expect(delivery.deliverNotificationsForInput).toHaveBeenCalledWith(`terminal:${card.id}:1:tool:1`);
-    expect(provider.completeTurn).toHaveBeenLastCalledWith(expect.objectContaining({
-      contextMessages: [{ role: 'user', content: 'executor mid-turn notice' }],
-    }), expect.any(AbortSignal));
+    const continuationContext = (provider.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls[1]?.[0].contextMessages as Array<Record<string, unknown>>;
+    expect(continuationContext).toHaveLength(3);
+    expect(continuationContext[0]).toMatchObject({ role: 'assistant', kind: 'tool_call', tool: 'run_process', tool_call_id: 'run-1' });
+    expect(continuationContext[1]).toMatchObject({ role: 'tool', kind: 'tool_result', tool: 'run_process', tool_call_id: 'run-1' });
+    expect(continuationContext[2]).toEqual({ role: 'user', content: 'executor mid-turn notice' });
     expect(processor.processes.size).toBe(0);
     await eventually(() => expect(readProcessEvidence(projectRoot, 'P-timeout')).toMatchObject({ processId: 'P-timeout', killReason: 'terminal card settled' }));
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).not.toContain('process:P-timeout');

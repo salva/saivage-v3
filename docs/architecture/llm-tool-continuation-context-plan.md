@@ -1,6 +1,6 @@
 # LLM Tool Continuation Context Design And Plan
 
-Status: proposed.
+Status: implemented.
 
 ## Problem
 
@@ -43,7 +43,7 @@ The gateways already serialize tool history correctly. No gateway changes are ne
 
 The message-building logic already exists in `llm-delivery-log.ts`:
 
-- `appendToolCallMessage(...)` builds an `AgentMessage` with `role: 'assistant'`, `kind: 'tool_call'`, `content: toolCall.function.arguments` (raw argument string), `tool: toolCall.function.name`, `tool_call_id: toolCall.id`, and persists it to `.saivage/agents/messages/`.
+- `appendToolCallMessage(...)` builds an `AgentMessage` with `role: 'assistant'`, `kind: 'tool_call'`, canonical `content: { role: 'assistant', tool_calls: [...] }`, `tool: toolCall.function.name`, `tool_call_id: toolCall.id`, and persists it to `.saivage/agents/messages/`.
 - `appendToolDelivery(...)` builds an `AgentMessage` with `role: 'tool'`, `kind: 'tool_result'`, `content: JSON.stringify(result)`, `tool: tool_name`, `tool_call_id: tool_call_id`, and persists it.
 
 Both functions currently persist to disk but return `void`. The message construction logic needs to be extracted into reusable helpers that return `AgentMessage` objects.
@@ -60,10 +60,10 @@ The active reconstruction schema already supports full context persistence:
 
 `this.input.contextMessages` is already the live provider context. It is already passed to `InvocationProviderTurnPort` for every provider call. It is already persisted in active reconstruction via `input`. Adding a parallel `modelContextMessages` field would duplicate state and violate the simple-architecture principle.
 
-The concrete change is:
+The concrete implemented change is:
 
-- In `completeWithProviderResult(...)`, when a nonterminal tool call is returned, append the assistant tool-call `AgentMessage` to `this.input.contextMessages` and call `updateActiveReconstruction({ input: this.input })`.
-- In `appendToolResult(...)`, before building the continuation input, append the tool-result `AgentMessage` to `this.input.contextMessages`. The existing `continuationContextMessages(...)` then naturally places notifications after the tool result.
+- In `completeWithProviderResult(...)`, when a nonterminal tool call is returned, preserve the waiting tool call id, name, and raw argument string.
+- In `appendToolResult(...)`, build the continuation transcript by appending the assistant tool-call `AgentMessage`, then the matching tool-result `AgentMessage`, then any notification hook messages.
 - Both `AgentMessage` objects are built using extracted helpers that share the same construction logic as `appendToolCallMessage(...)` and `appendToolDelivery(...)` in `llm-delivery-log.ts`.
 - `this.input.contextMessages` already holds `unknown[]`; the appended `AgentMessage` objects are validated by `agentMessageArraySchema` in `InvocationProviderTurnPort` before they reach the gateway.
 
@@ -92,34 +92,26 @@ Persisted `.saivage/agents/messages/*`, `.saivage/agents/tool-deliveries/*`, and
 
 ### Slice 1: Extract Reusable Message Builders From Delivery Log
 
+Status: implemented.
+
 Extract the `AgentMessage` construction logic from `llm-delivery-log.ts` into small role-neutral helpers that return `AgentMessage` objects:
 
-- `buildAssistantToolCallMessage(input, toolCall, index)`: returns the assistant tool-call `AgentMessage` using the same id, round_id, and field patterns currently in `appendToolCallMessage(...)`.
-- `buildToolResultMessage(agentId, sessionId, deliveryInputId, toolCallId, toolName, result)`: returns the tool-result `AgentMessage` using the same patterns currently in `appendToolDelivery(...)`.
+- `toolCallAgentMessage(input, toolCall, index)`: returns the assistant tool-call `AgentMessage` using the same id, round_id, and field patterns currently in `appendToolCallMessage(...)`.
+- `toolResultAgentMessage(delivery)`: returns the tool-result `AgentMessage` using the same patterns currently in `appendToolDelivery(...)`.
 
 Refactor `appendToolCallMessage(...)` and `appendToolDelivery(...)` to call these helpers and then persist the returned message. This centralizes message construction and avoids duplication.
 
 Acceptance:
 
 - `appendLlmTurnFinished(...)` and `appendToolDelivery(...)` still persist the same message shapes.
-- Existing delivery-log tests pass unchanged.
+- Delivery-log tests assert the canonical persisted tool-call content.
 - The new helpers produce messages accepted by `agentMessageSchema`.
 
 ### Slice 2: Append Tool History To LLMActor Context
 
-Update `LLMActor` to append model-visible messages to `this.input.contextMessages`:
+Status: implemented.
 
-In `completeWithProviderResult(...)`, after storing `waitingToolCall` for a nonterminal tool call:
-
-- Build the assistant tool-call `AgentMessage` using the extracted helper.
-- Set `this.input = { ...this.input, contextMessages: [...this.input.contextMessages, assistantToolCallMessage] }`.
-- Call `updateActiveReconstruction({ input: this.input, waiting_tool_call: this.waitingToolCall, provider_call_id: null })`.
-
-In `appendToolResult(...)`, after building the delivery record and before calling `continuationContextMessages(...)`:
-
-- Build the tool-result `AgentMessage` using the extracted helper.
-- Append it to `this.input.contextMessages` so that `continuationContextMessages(...)` returns `[...contextWithToolCallAndResult, ...notificationMessages]`.
-- The existing `updateActiveReconstruction({ input: this.input, ... })` call in `appendToolResult(...)` already persists the updated context.
+`LLMActor` appends model-visible messages to the continuation input in `appendToolResult(...)`. The waiting tool call keeps the raw argument string returned by the provider, so the assistant tool-call row can be built exactly once the matching tool result is ready. `continuationContextMessages(...)` returns `[...input.contextMessages, assistantToolCallMessage, toolResultMessage, ...notificationMessages]`.
 
 No changes to `abandonParkedTurn(...)`, `completeWithError(...)`, or message-result settlement: they already clear `this.input` or `activeReconstruction`.
 

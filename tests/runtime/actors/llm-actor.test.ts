@@ -164,7 +164,7 @@ describe('LLMActor', () => {
     expect(provider.completeTurn).toHaveBeenCalledTimes(2);
   }));
 
-  it('adds result continuation context from the delivery input hook', async () => withTempProject(async (projectRoot) => {
+  it('adds provider-visible tool history before hook continuation context', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const completeTurn = jest.fn(async (turnInput: LlmInvocationInput) => turnInput.episodeContext.lastToolResult
       ? { kind: 'message' as const, content: 'continued' }
@@ -180,10 +180,16 @@ describe('LLMActor', () => {
     await expect(actor.appendToolResult('call-1', { inspected: true }, hook)).resolves.toMatchObject({ type: 'result' });
 
     expect(hook).toHaveBeenCalledWith('turn-1:tool:1');
-    expect(completeTurn.mock.calls[1]?.[0].contextMessages).toEqual([
-      { role: 'user', content: 'base' },
-      { role: 'user', content: 'notification for turn-1:tool:1' },
-    ]);
+    const context = completeTurn.mock.calls[1]?.[0].contextMessages as Array<Record<string, unknown>>;
+    expect(context).toHaveLength(4);
+    expect(context[0]).toEqual({ role: 'user', content: 'base' });
+    expect(context[1]).toMatchObject({ role: 'assistant', kind: 'tool_call', tool: 'inspect', tool_call_id: 'call-1' });
+    expect(JSON.parse(String(context[1].content))).toEqual({
+      role: 'assistant',
+      tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'inspect', arguments: '{}' } }],
+    });
+    expect(context[2]).toMatchObject({ role: 'tool', kind: 'tool_result', tool: 'inspect', tool_call_id: 'call-1', content: JSON.stringify({ inspected: true }) });
+    expect(context[3]).toEqual({ role: 'user', content: 'notification for turn-1:tool:1' });
   }));
 
   it('rejects duplicate tool settlement for the same call', async () => withTempProject(async (projectRoot) => {

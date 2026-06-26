@@ -1,9 +1,9 @@
 import { describe, expect, it } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { abandonStalePendingToolCalls, appendLlmTurnFinished, appendTerminalToolProjectedStatus, readLoggedToolCall, readToolCallStatuses } from '../../../src/runtime/actors/index.js';
+import { abandonStalePendingToolCalls, actorMessagesPath, appendLlmTurnFinished, appendTerminalToolProjectedStatus, readLoggedToolCall, readToolCallStatuses } from '../../../src/runtime/actors/index.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => T): T {
@@ -32,6 +32,11 @@ function input(inputId = 'planner:G-1:1'): LlmInvocationInput {
   };
 }
 
+function jsonl(path: string): Array<Record<string, unknown>> {
+  if (!existsSync(path)) return [];
+  return readFileSync(path, 'utf-8').split('\n').filter(Boolean).map((line) => JSON.parse(line) as Record<string, unknown>);
+}
+
 describe('llm delivery log recovery helpers', () => {
   it('reads an exact logged tool call by agent, input, and call id', () => withTempProject((projectRoot) => {
     appendLlmTurnFinished(projectRoot, input(), { kind: 'tool_calls', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'blocked', summary: 'blocked' }) } }] });
@@ -42,6 +47,11 @@ describe('llm delivery log recovery helpers', () => {
       tool_call_id: 'call-1',
       tool_name: 'emit_planner_result',
       args: { status: 'blocked', summary: 'blocked' },
+    });
+    const toolCallMessage = jsonl(actorMessagesPath(projectRoot, 'planner:G-1')).find((entry) => entry.kind === 'tool_call');
+    expect(JSON.parse(String(toolCallMessage?.content))).toEqual({
+      role: 'assistant',
+      tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'blocked', summary: 'blocked' }) } }],
     });
   }));
 

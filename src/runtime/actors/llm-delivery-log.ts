@@ -6,6 +6,7 @@ import { appendSyncIdempotentByKey } from '../../persistence/index.js';
 import { agentMessageSchema } from '../../schemas/index.js';
 import type { AgentMessage } from '../../schemas/index.js';
 import type { LlmCompleteResult, ToolCall } from '../../agents/llm-contracts.js';
+import { parseToolCallMessage } from '../../contracts/persisted-tool-call.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
 
 const toolDeliveryRecordSchema = z.object({
@@ -121,19 +122,7 @@ export function appendToolDelivery(projectRoot: string, record: Omit<ToolDeliver
   };
   const parsed = toolDeliveryRecordSchema.parse(delivery);
   appendSyncIdempotentByKey(actorToolDeliveriesPath(projectRoot, parsed.agent_id), parsed, 'delivery_id');
-  appendActorMessage(projectRoot, parsed.agent_id, {
-    id: `${parsed.delivery_input_id}:tool-result:${parsed.tool_call_id}`,
-    session_id: parsed.agent_id,
-    role: 'tool',
-    kind: 'tool_result',
-    content: JSON.stringify(parsed.result),
-    tool: parsed.tool_name,
-    tool_call_id: parsed.tool_call_id,
-    round_id: roundId('user', parsed.delivery_input_id),
-    message_index: 2,
-    block_index: 0,
-    timestamp: parsed.created_at,
-  });
+  appendActorMessage(projectRoot, parsed.agent_id, toolResultAgentMessage(parsed));
   appendToolCallStatus(projectRoot, {
     agent_id: parsed.agent_id,
     source_input_id: parsed.source_input_id,
@@ -173,13 +162,12 @@ export function readLoggedToolCall(projectRoot: string, agentId: string, sourceI
   if (matches.length > 1) throw new Error(`Logged tool call '${toolCallId}' for '${agentId}' input '${sourceInputId}' is duplicated.`);
   const [message] = matches;
   if (!message.tool) throw new Error(`Logged tool call '${toolCallId}' for '${agentId}' is missing a tool name.`);
-  let args: unknown;
   try {
-    args = JSON.parse(message.content);
-  } catch {
-    throw new Error(`Logged tool call '${toolCallId}' for '${agentId}' has malformed JSON arguments.`);
+    const call = parseToolCallMessage(JSON.parse(message.content));
+    return { agent_id: agentId, source_input_id: sourceInputId, tool_call_id: call.id, tool_name: call.name, args: call.args };
+  } catch (error) {
+    throw new Error(`Logged tool call '${toolCallId}' for '${agentId}' has malformed JSON arguments: ${error instanceof Error ? error.message : String(error)}`);
   }
-  return { agent_id: agentId, source_input_id: sourceInputId, tool_call_id: toolCallId, tool_name: message.tool, args };
 }
 
 export function appendTerminalToolProjectedStatus(projectRoot: string, record: Omit<ToolCallStatusRecord, 'transition_id' | 'created_at' | 'status'>): ToolCallStatusRecord {
@@ -208,20 +196,56 @@ export function abandonStalePendingToolCalls(projectRoot: string, reason = 'Runt
   return abandoned;
 }
 
-function appendToolCallMessage(projectRoot: string, input: LlmInvocationInput, toolCall: ToolCall, index: number): void {
-  appendActorMessage(projectRoot, input.agentId, {
+export function toolCallAgentMessage(input: LlmInvocationInput, toolCall: ToolCall, index = 0, timestamp = new Date().toISOString()): AgentMessage {
+  return agentMessageSchema.parse({
     id: `${input.inputId}:tool-call:${toolCall.id}`,
     session_id: input.sessionId,
     role: 'assistant',
     kind: 'tool_call',
-    content: toolCall.function.arguments,
+    content: JSON.stringify(toolCallAgentContent(toolCall)),
     tool: toolCall.function.name,
     tool_call_id: toolCall.id,
     round_id: roundId('assistant', input.inputId),
     message_index: 1,
     block_index: index,
-    timestamp: new Date().toISOString(),
+    timestamp,
   });
+}
+
+export function toolResultAgentMessage(record: ToolDeliveryRecord): AgentMessage {
+  return agentMessageSchema.parse({
+    id: `${record.delivery_input_id}:tool-result:${record.tool_call_id}`,
+    session_id: record.agent_id,
+    role: 'tool',
+    kind: 'tool_result',
+    content: JSON.stringify(record.result),
+    tool: record.tool_name,
+    tool_call_id: record.tool_call_id,
+    round_id: roundId('user', record.delivery_input_id),
+    message_index: 2,
+    block_index: 0,
+    timestamp: record.created_at,
+  });
+}
+
+function appendToolCallMessage(projectRoot: string, input: LlmInvocationInput, toolCall: ToolCall, index: number): void {
+  appendActorMessage(projectRoot, input.agentId, toolCallAgentMessage(input, toolCall, index));
+}
+
+function toolCallAgentContent(toolCall: ToolCall): unknown {
+  return {
+    role: 'assistant',
+    tool_calls: [
+      {
+        id: toolCall.id,
+        type: 'function',
+        function: {
+          name: toolCall.function.name,
+          arguments: toolCall.function.arguments,
+        },
+      },
+    ],
+  };
 }
 
 function appendActorMessage(projectRoot: string, agentId: string, message: AgentMessage): void {

@@ -43,7 +43,7 @@ const SAMPLE_TOOL: ToolDefinition = {
 };
 
 describe('buildOpenAICodexRequest wire shape', () => {
-  it('terminal phase: flat tool shape, string tool_choice, parallel tool calls allowed, no response_format', () => {
+  it('terminal phase: flat tool shape, string tool_choice, disables parallel tool calls, no response_format', () => {
     const opts: LlmCompleteOptions = {
       phase: 'terminal',
       contract_id: 'test.v1',
@@ -56,7 +56,7 @@ describe('buildOpenAICodexRequest wire shape', () => {
 
     expect(JSON.stringify(body)).not.toContain('response_format');
     expect(Object.prototype.hasOwnProperty.call(body, 'response_format')).toBe(false);
-    expect(Object.prototype.hasOwnProperty.call(body, 'parallel_tool_calls')).toBe(false);
+    expect(body.parallel_tool_calls).toBe(false);
     // Codex Responses API uses a bare string tool_choice for required-named
     // selection (NOT the nested-function shape used by Chat Completions).
     expect(body.tool_choice).toBe('emit_planner_result');
@@ -84,7 +84,7 @@ describe('buildOpenAICodexRequest wire shape', () => {
     const body = buildOpenAICodexRequest(CANDIDATE, SYSTEM, MESSAGES, opts);
 
     expect(body.tool_choice).toBe('auto');
-    expect(Object.prototype.hasOwnProperty.call(body, 'parallel_tool_calls')).toBe(false);
+    expect(body.parallel_tool_calls).toBe(false);
     expect(JSON.stringify(body)).not.toContain('response_format');
   });
 

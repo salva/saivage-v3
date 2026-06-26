@@ -4,7 +4,7 @@ import type { LlmCompleteResult } from '../../agents/llm-contracts.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
 import { actorKindFromId } from './ids.js';
 import { saveActorSnapshot } from './snapshots.js';
-import { appendLlmTurnError, appendLlmTurnFinished, appendLlmTurnStarted, appendToolDelivery } from './llm-delivery-log.js';
+import { appendLlmTurnError, appendLlmTurnFinished, appendLlmTurnStarted, appendToolDelivery, toolCallAgentMessage, toolResultAgentMessage } from './llm-delivery-log.js';
 import type { LlmActiveReconstructionRecord } from './active-reconstruction.js';
 
 export type LLMActorOutcome =
@@ -30,6 +30,7 @@ type WaitingToolCall = {
   sourceInputId: string;
   toolCallId: string;
   toolName: string;
+  toolCallArguments: string;
 };
 
 export type LLMToolContinuationContextHook = (deliveryInputId: string) => unknown[] | undefined;
@@ -90,8 +91,7 @@ export class LLMActor extends BaseActor {
     this.recordToolSettled(toolCallId);
     const input = this.requireInput();
     const deliveryInputId = this.nextDeliveryInputId(input.inputId);
-    const contextMessages = this.continuationContextMessages(input, deliveryInputId, continuationContextHook);
-    appendToolDelivery(this.projectRoot, {
+    const delivery = appendToolDelivery(this.projectRoot, {
       agent_id: this.agentId,
       source_input_id: waiting.sourceInputId,
       delivery_input_id: deliveryInputId,
@@ -99,6 +99,7 @@ export class LLMActor extends BaseActor {
       tool_name: waiting.toolName,
       result,
     });
+    const contextMessages = this.continuationContextMessages(input, waiting, delivery, continuationContextHook);
     this.input = {
       ...input,
       inputId: deliveryInputId,
@@ -195,8 +196,8 @@ export class LLMActor extends BaseActor {
       return;
     }
     const [call] = result.tool_calls;
-    this.waitingToolCall = { sourceInputId: input.inputId, toolCallId: call.id, toolName: call.function.name };
-    this.updateActiveReconstruction({ waiting_tool_call: this.waitingToolCall, provider_call_id: null });
+    this.waitingToolCall = { sourceInputId: input.inputId, toolCallId: call.id, toolName: call.function.name, toolCallArguments: call.function.arguments };
+    this.updateActiveReconstruction({ waiting_tool_call: activeWaitingToolCall(this.waitingToolCall), provider_call_id: null });
     this.outcome = { type: 'tool_call', agentId: this.agentId, inputId: input.inputId, toolCallId: call.id, toolName: call.function.name, args: parseToolArguments(call.function.arguments) };
     this.#pendingTurn?.resolve(this.outcome);
     this.#pendingTurn = null;
@@ -262,9 +263,14 @@ export class LLMActor extends BaseActor {
     return `${inputId}:tool:${this.#toolDeliveryCounter}`;
   }
 
-  private continuationContextMessages(input: LlmInvocationInput, deliveryInputId: string, continuationContextHook?: LLMToolContinuationContextHook): unknown[] {
-    const extraMessages = continuationContextHook?.(deliveryInputId) ?? [];
-    return [...input.contextMessages, ...extraMessages];
+  private continuationContextMessages(input: LlmInvocationInput, waiting: WaitingToolCall, delivery: ReturnType<typeof appendToolDelivery>, continuationContextHook?: LLMToolContinuationContextHook): unknown[] {
+    const toolCallMessage = toolCallAgentMessage(input, {
+      id: waiting.toolCallId,
+      type: 'function',
+      function: { name: waiting.toolName, arguments: waiting.toolCallArguments },
+    });
+    const extraMessages = continuationContextHook?.(delivery.delivery_input_id) ?? [];
+    return [...input.contextMessages, toolCallMessage, toolResultAgentMessage(delivery), ...extraMessages];
   }
 
   private requireInput(): LlmInvocationInput {
@@ -311,4 +317,12 @@ function parseToolArguments(raw: string): unknown {
   } catch {
     return raw;
   }
+}
+
+function activeWaitingToolCall(waiting: WaitingToolCall): LlmActiveReconstructionRecord['waiting_tool_call'] {
+  return {
+    sourceInputId: waiting.sourceInputId,
+    toolCallId: waiting.toolCallId,
+    toolName: waiting.toolName,
+  };
 }
