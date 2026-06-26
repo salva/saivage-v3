@@ -1,10 +1,20 @@
-import { ALL_TOOL_DEFINITIONS_BY_NAME } from '../../tools/definitions/index.js';
+import { PLANNER_TOOL_DEFINITIONS } from '../../tools/definitions/index.js';
 import type { ToolDefinition } from '../../agents/llm-contracts.js';
 
-const activateCardTool = ALL_TOOL_DEFINITIONS_BY_NAME.get('activate_card');
-if (!activateCardTool) throw new Error("Missing required planner tool definition 'activate_card'.");
+function requiredPlannerTool(name: string): ToolDefinition {
+  const tool = PLANNER_TOOL_DEFINITIONS.find((candidate) => candidate.function.name === name);
+  if (!tool) throw new Error(`Missing required planner tool definition '${name}'.`);
+  return tool;
+}
 
-export const PLANNER_CARD_PROCESSOR_TOOL_DEFINITIONS: ToolDefinition[] = [activateCardTool];
+export const PLANNER_ACTOR_SURFACE_TOOL_DEFINITIONS: ToolDefinition[] = [
+  requiredPlannerTool('create_card'),
+];
+
+export const PLANNER_CARD_PROCESSOR_TOOL_DEFINITIONS: ToolDefinition[] = [
+  requiredPlannerTool('activate_card'),
+  ...PLANNER_ACTOR_SURFACE_TOOL_DEFINITIONS,
+];
 
 export const TERMINAL_CARD_PROCESSOR_TOOL_DEFINITIONS: ToolDefinition[] = [
   {

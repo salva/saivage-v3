@@ -1,6 +1,7 @@
 import { BaseActor } from '../micro-actor/index.js';
 import type { ActorDefinition } from '../micro-actor/index.js';
 import type { ArtifactRef, AttachmentRef, BlockedResult, CardRecord, CardStatus, DoneResult, FailureResult } from '../../schemas/index.js';
+import type { NewCardInput } from '../../cards/store-api.js';
 import { cardActorId, processorActorId } from './ids.js';
 import { saveActorSnapshot } from './snapshots.js';
 import type { CardActiveReconstructionRecord } from './active-reconstruction.js';
@@ -63,6 +64,7 @@ export interface CardProcessorActor {
 
 export interface CardActorStorePort {
   read(cardId: string): CardRecord | null;
+  create?(input: NewCardInput): CardRecord;
   setStatus(cardId: string, status: CardStatus): CardRecord;
   commitTerminalLifecyclePatch(cardId: string, changes: Partial<CardRecord>): CardRecord;
   appendEvidenceRefs?(cardId: string, refs: { artifacts?: Array<Omit<ArtifactRef, 'id' | 'card_id'>>; attachments?: Array<Omit<AttachmentRef, 'id' | 'card_id'>> }): { card: CardRecord; artifacts: ArtifactRef[]; attachments: AttachmentRef[] };
