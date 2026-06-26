@@ -287,6 +287,7 @@ export function buildOpenAIChatRequest(
   if (tools.length > 0) {
     body.tools = serializeToolsForChat(tools);
     body.tool_choice = toolChoice;
+    body.parallel_tool_calls = false;
   }
   return body;
 }

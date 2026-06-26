@@ -140,6 +140,7 @@ export function buildOpenAICodexRequest(
   if (tools.length > 0) {
     body.tools = serializeToolsForCodex(tools);
     body.tool_choice = toolChoice;
+    body.parallel_tool_calls = false;
   }
   return body;
 }

@@ -75,7 +75,9 @@ describe('PlanningCardProcessorActor', () => {
     expect(outcome).toMatchObject({ status: 'done', summary: 'review ok', result: { kind: 'reviewer_pass', planning: { kind: 'planner_done', summary: 'done' } } });
     expect(provider.completeTurn).toHaveBeenCalledWith(expect.objectContaining({
       role: 'planner',
-      contextMessages: [{ role: 'user', content: 'Cancellation requested: stop' }],
+      contextMessages: expect.arrayContaining([
+        expect.objectContaining({ role: 'user', content: 'Cancellation requested: stop' }),
+      ]),
       terminalToolNames: ['emit_planner_result'],
       tools: expect.arrayContaining([expect.objectContaining({ function: expect.objectContaining({ name: 'emit_planner_result' }) })]),
     }), expect.any(AbortSignal));
@@ -206,7 +208,9 @@ describe('PlanningCardProcessorActor', () => {
     expect(delivery.deliverNotificationsForInput).toHaveBeenCalledWith('planner:project:1');
     expect(delivery.deliverNotificationsForInput).toHaveBeenCalledWith('planner:project:1:tool:1');
     expect(provider.completeTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      contextMessages: [{ role: 'user', content: 'mid-turn notice' }],
+      contextMessages: expect.arrayContaining([
+        expect.objectContaining({ role: 'user', content: 'mid-turn notice' }),
+      ]),
     }), expect.any(AbortSignal));
   }));
 

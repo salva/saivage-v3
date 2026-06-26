@@ -11,6 +11,7 @@ import { createReviewerContract } from '../../contracts/reviewer-contract.js';
 import { expectedTerminalToolMessage, verifyTerminalToolOutcome } from './contract-terminal-tools.js';
 import { nextReviewerAssessmentId, reviewerSessionId } from '../reviewer-assessment.js';
 import { evaluateReviewerTerminalOutcome } from './reviewer-terminal-evaluation.js';
+import { buildPlannerStateContextMessage } from '../../agents/planner-state-context.js';
 
 type PlannerProcessorOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
 
@@ -92,7 +93,18 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
       role: 'planner',
       sessionId: plannerActorId(this.cardId),
       systemPrompt: this.plannerPrompt(input.card),
-      contextMessages: this.notificationContextMessages(input, inputId),
+      contextMessages: [
+        buildPlannerStateContextMessage({
+          projectRoot: this.projectRoot,
+          sessionId: plannerActorId(this.cardId),
+          goalId: this.cardId,
+          cardStore: {
+            read: (cardId) => this.store.read(cardId),
+            listChildren: (cardId) => this.store.listChildren?.(cardId) ?? [],
+          },
+        }),
+        ...this.notificationContextMessages(input, inputId),
+      ],
       tools: [...PLANNER_CARD_PROCESSOR_TOOL_DEFINITIONS, ...contract.terminals.map((terminal) => terminal.toolDefinition)],
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),
       modelParams: {},
