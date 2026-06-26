@@ -326,7 +326,7 @@ export function cardActivationOutcomePatch(outcome: Exclude<CardActivationOutcom
 }
 
 export function isActivatable(status: CardStatus): boolean {
-  return status === 'backlog' || status === 'changed' || status === 'blocked' || status === 'failed';
+  return status === 'backlog' || status === 'changed' || status === 'blocked';
 }
 
 function cardActorState(status: CardStatus): CardActorStatus {

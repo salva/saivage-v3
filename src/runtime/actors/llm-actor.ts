@@ -40,7 +40,7 @@ export class LLMActor extends BaseActor {
     states: {
       idle: { parked: true, on: { turn: 'calling_provider' } },
       calling_provider: { on: { done: 'idle', failed: 'idle', tool_call: 'waiting_tool' } },
-      waiting_tool: { parked: true, on: { turn: 'calling_provider' } },
+      waiting_tool: { parked: true, on: { turn: 'calling_provider', abandon: 'idle' } },
     },
   };
 
@@ -109,6 +109,19 @@ export class LLMActor extends BaseActor {
     this.updateActiveReconstruction({ input: this.input, input_id: deliveryInputId, waiting_tool_call: null, delivered_tool_call_ids: [...this.deliveredToolCallIds], tool_delivery_counter: this.#toolDeliveryCounter });
     this.prepareProviderCallReconstruction(this.input);
     return this.continueAfterTool();
+  }
+
+  abandonParkedTurn(): void {
+    if (this.state() === 'idle') return;
+    if (this.state() !== 'waiting_tool') throw new Error(`LLMActor '${this.agentId}' cannot abandon a turn from '${this.state()}'.`);
+    if (this.#pendingTurn) throw new Error(`LLMActor '${this.agentId}' cannot abandon a pending turn.`);
+    this.input = null;
+    this.outcome = null;
+    this.waitingToolCall = null;
+    this.activeReconstruction = null;
+    this.deliveredToolCallIds.clear();
+    this.#toolDeliveryCounter = 0;
+    this.parkedSendEvent('abandon');
   }
 
   _on_enter__calling_provider(): void {

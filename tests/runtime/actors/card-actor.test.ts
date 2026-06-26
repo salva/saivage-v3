@@ -40,7 +40,7 @@ describe('CardActor', () => {
     expect(isActivatable('backlog')).toBe(true);
     expect(isActivatable('changed')).toBe(true);
     expect(isActivatable('blocked')).toBe(true);
-    expect(isActivatable('failed')).toBe(true);
+    expect(isActivatable('failed')).toBe(false);
     expect(isActivatable('running')).toBe(false);
     expect(isActivatable('done')).toBe(false);
     expect(isActivatable('cancelled')).toBe(false);

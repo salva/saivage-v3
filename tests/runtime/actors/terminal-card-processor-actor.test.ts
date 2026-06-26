@@ -209,6 +209,8 @@ describe('TerminalCardProcessorActor', () => {
 
     expect(outcome).toMatchObject({ status: 'failed', summary: 'Executor exceeded terminal turn budget.', result: { kind: 'executor_failure', error: 'Executor exceeded terminal turn budget.' } });
     expect(executorTurns).toBe(11);
+    const llmSnapshot = readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === `executor:${card.id}`);
+    expect(llmSnapshot).toMatchObject({ state_value: 'idle', context: { active_reconstruction: null } });
   }));
 
   it('compacts old settled process actors', () => withTempProject((projectRoot) => {

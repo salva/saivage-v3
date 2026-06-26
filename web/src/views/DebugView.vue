@@ -175,6 +175,58 @@
         </template>
       </div>
 
+      <div v-if="localActiveTab === 'agents'" class="debug-tab-content">
+        <section class="debug-section">
+          <div class="debug-section-header operator-header">
+            <div>
+              <h4 class="debug-section-title">Persisted Agent Conversations</h4>
+              <p class="operator-subtitle">Debug-only view over .saivage/agents files, including micro-actor planner, executor, and reviewer sessions that may not appear in the main Agents page.</p>
+            </div>
+            <div class="operator-actions-inline">
+              <button class="sv-fetch-btn" :disabled="agentDebugLoading" @click="refreshAgentDebug">Refresh</button>
+            </div>
+          </div>
+
+          <div v-if="agentDebugError" class="operator-banner operator-banner-error" role="alert">{{ agentDebugError }}</div>
+          <div v-if="agentDebugLoading" class="debug-loading">Loading persisted agent conversations...</div>
+          <div v-else-if="agentDebugSessions.length === 0" class="debug-empty">No persisted agent conversation files found.</div>
+          <div v-else class="agent-debug-layout">
+            <aside class="agent-debug-sidebar" aria-label="Persisted agent sessions">
+              <button
+                v-for="session in agentDebugSessions"
+                :key="session.id"
+                type="button"
+                class="agent-debug-session"
+                :class="{ selected: selectedAgentDebugSessionId === session.id }"
+                @click="selectAgentDebugSession(session.id)"
+              >
+                <span class="agent-debug-session-id mono">{{ session.id }}</span>
+                <span class="agent-debug-session-meta">{{ agentDebugFileCount(session) }} file{{ agentDebugFileCount(session) === 1 ? '' : 's' }}</span>
+              </button>
+            </aside>
+            <div class="agent-debug-detail">
+              <div class="agent-debug-toolbar">
+                <button
+                  v-for="kind in agentDebugKinds"
+                  :key="kind.id"
+                  type="button"
+                  class="pill debug-tab-button"
+                  :aria-pressed="selectedAgentDebugKind === kind.id"
+                  :disabled="!selectedAgentDebugSession?.files[kind.id]"
+                  @click="selectAgentDebugKind(kind.id)"
+                >{{ kind.label }}</button>
+                <button v-if="selectedAgentDebugPath" class="sv-fetch-btn" :disabled="agentDebugContentLoading" @click="loadSelectedAgentDebugFile">Reload File</button>
+              </div>
+              <div v-if="selectedAgentDebugSession" class="agent-debug-path mono">{{ selectedAgentDebugPath || 'No file recorded for this view.' }}</div>
+              <div v-if="agentDebugContentLoading" class="debug-loading">Loading agent file...</div>
+              <div v-else-if="agentDebugContentError" class="debug-error">{{ agentDebugContentError }}</div>
+              <div v-else-if="!selectedAgentDebugPath" class="debug-empty">Select a session and an available file type.</div>
+              <CodeBlock v-else :code="formattedAgentDebugContent" language="json" copyable wrap max-height="70vh" />
+            </div>
+          </div>
+        </section>
+      </div>
+
       <div v-if="localActiveTab === 'mcp'" class="debug-tab-content">
         <div v-if="mcpStore.loading" class="debug-loading">Loading MCP tools...</div>
         <div v-else-if="mcpStore.error" class="debug-error">{{ mcpStore.error }}</div>
@@ -326,9 +378,10 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
+import { getFileContent, listFiles } from '../api/client';
 import { useDebugStore } from '../stores/debug';
 import { useSyncStore } from '../stores/sync';
 import { useCardStore } from '../stores/cards';
@@ -338,7 +391,7 @@ import { redactObservabilityValue } from '../utils/observabilityRedaction';
 import { useMcpStore } from '../stores/mcp';
 import { formatJson } from '../utils/format-json';
 import CodeBlock from '../components/content/CodeBlock.vue';
-import type { DebugTimelineEvent, ProcessView } from '../api/types';
+import type { DebugTimelineEvent, FileEntry, ProcessView } from '../api/types';
 
 const debugStore = useDebugStore();
 const syncStore = useSyncStore();
@@ -377,6 +430,30 @@ const {
   childrenForCard,
 } = useDebugReadModel(debugStore, cardsStore);
 
+type AgentDebugKind = 'messages' | 'toolDeliveries' | 'llmExchange';
+interface AgentDebugSession {
+  id: string;
+  files: Partial<Record<AgentDebugKind, string>>;
+}
+
+const agentDebugKinds: Array<{ id: AgentDebugKind; label: string }> = [
+  { id: 'messages', label: 'Messages' },
+  { id: 'toolDeliveries', label: 'Tool Deliveries' },
+  { id: 'llmExchange', label: 'Raw LLM Exchange' },
+];
+const agentDebugSessions = ref<AgentDebugSession[]>([]);
+const selectedAgentDebugSessionId = ref<string | null>(null);
+const selectedAgentDebugKind = ref<AgentDebugKind>('messages');
+const agentDebugLoading = ref(false);
+const agentDebugError = ref<string | null>(null);
+const agentDebugContent = ref('');
+const agentDebugContentLoading = ref(false);
+const agentDebugContentError = ref<string | null>(null);
+
+const selectedAgentDebugSession = computed(() => agentDebugSessions.value.find((session) => session.id === selectedAgentDebugSessionId.value) ?? null);
+const selectedAgentDebugPath = computed(() => selectedAgentDebugSession.value?.files[selectedAgentDebugKind.value] ?? null);
+const formattedAgentDebugContent = computed(() => formatAgentDebugContent(agentDebugContent.value, selectedAgentDebugPath.value));
+
 async function refreshOperatorControl(): Promise<void> { await debugStore.fetchOperatorControl().catch(() => {}); }
 
 function setTab(tab: typeof localActiveTab.value): void {
@@ -385,6 +462,7 @@ function setTab(tab: typeof localActiveTab.value): void {
   else if (tab === 'operator') debugStore.fetchOperatorControl().catch(() => {});
   else if (tab === 'errors') debugStore.fetchErrors().catch(() => {});
   else if (tab === 'timeline') debugStore.fetchTimeline().catch(() => {});
+  else if (tab === 'agents') refreshAgentDebug().catch(() => {});
   else if (tab === 'processes') debugStore.fetchProcesses().catch(() => {});
   else if (tab === 'supervision') { debugStore.fetchDoctor().catch(() => {}); debugStore.fetchSupervision().catch(() => {}); }
   else if (tab === 'mcp') mcpStore.fetchMcpData().catch(() => {});
@@ -394,6 +472,101 @@ function browseProcessLog(path: string): void { router.push({ name: 'files', que
 function processLogEntries(proc: ProcessView): Array<{ key: string; label: string; value: string | null }> { return [{ key: 'combined', label: 'Combined', value: proc.logs.combined }, { key: 'stdout', label: 'Stdout', value: proc.logs.stdout }, { key: 'stderr', label: 'Stderr', value: proc.logs.stderr }]; }
 function availabilityLabel(_proc: ProcessView): string { return 'Termination unavailable'; }
 function availabilityClass(proc: ProcessView): string { return proc.status === 'running' ? 'process-availability-warning' : 'process-availability-ended'; }
+
+async function refreshAgentDebug(): Promise<void> {
+  agentDebugLoading.value = true;
+  agentDebugError.value = null;
+  try {
+    const [messages, toolDeliveries, llmExchanges] = await Promise.all([
+      listAgentDebugFiles('.saivage/agents/messages'),
+      listAgentDebugFiles('.saivage/agents/tool-deliveries'),
+      listAgentDebugFiles('.saivage/agents/llm-exchanges'),
+    ]);
+    const bySession = new Map<string, AgentDebugSession>();
+    addAgentDebugFiles(bySession, messages, 'messages');
+    addAgentDebugFiles(bySession, toolDeliveries, 'toolDeliveries');
+    addAgentDebugFiles(bySession, llmExchanges, 'llmExchange');
+    agentDebugSessions.value = [...bySession.values()].sort((a, b) => a.id.localeCompare(b.id));
+    if (!selectedAgentDebugSessionId.value || !bySession.has(selectedAgentDebugSessionId.value)) selectedAgentDebugSessionId.value = agentDebugSessions.value[0]?.id ?? null;
+    normalizeSelectedAgentDebugKind();
+    await loadSelectedAgentDebugFile();
+  } catch (err) {
+    agentDebugError.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    agentDebugLoading.value = false;
+  }
+}
+
+async function listAgentDebugFiles(path: string): Promise<FileEntry[]> {
+  try {
+    const response = await listFiles(path);
+    return response.files.filter((file) => file.type === 'file');
+  } catch {
+    return [];
+  }
+}
+
+function addAgentDebugFiles(bySession: Map<string, AgentDebugSession>, files: FileEntry[], kind: AgentDebugKind): void {
+  for (const file of files) {
+    const id = sessionIdFromAgentDebugFile(file.name);
+    const session = bySession.get(id) ?? { id, files: {} };
+    session.files[kind] = file.path;
+    bySession.set(id, session);
+  }
+}
+
+function sessionIdFromAgentDebugFile(name: string): string {
+  const withoutExtension = name.replace(/\.jsonl?$/i, '');
+  try { return decodeURIComponent(withoutExtension); } catch { return withoutExtension; }
+}
+
+function selectAgentDebugSession(sessionId: string): void {
+  selectedAgentDebugSessionId.value = sessionId;
+  normalizeSelectedAgentDebugKind();
+  loadSelectedAgentDebugFile().catch(() => {});
+}
+
+function selectAgentDebugKind(kind: AgentDebugKind): void {
+  selectedAgentDebugKind.value = kind;
+  loadSelectedAgentDebugFile().catch(() => {});
+}
+
+function normalizeSelectedAgentDebugKind(): void {
+  const session = selectedAgentDebugSession.value;
+  if (!session) return;
+  if (session.files[selectedAgentDebugKind.value]) return;
+  selectedAgentDebugKind.value = agentDebugKinds.find((kind) => session.files[kind.id])?.id ?? 'messages';
+}
+
+async function loadSelectedAgentDebugFile(): Promise<void> {
+  agentDebugContent.value = '';
+  agentDebugContentError.value = null;
+  const path = selectedAgentDebugPath.value;
+  if (!path) return;
+  agentDebugContentLoading.value = true;
+  try {
+    const file = await getFileContent(path);
+    agentDebugContent.value = file.content;
+  } catch (err) {
+    agentDebugContentError.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    agentDebugContentLoading.value = false;
+  }
+}
+
+function agentDebugFileCount(session: AgentDebugSession): number {
+  return Object.keys(session.files).length;
+}
+
+function formatAgentDebugContent(content: string, path: string | null): string {
+  if (!content) return '';
+  if (path?.endsWith('.jsonl')) {
+    return content.split('\n').filter((line) => line.trim().length > 0).map((line) => {
+      try { return JSON.stringify(JSON.parse(line), null, 2); } catch { return line; }
+    }).join('\n\n');
+  }
+  try { return JSON.stringify(JSON.parse(content), null, 2); } catch { return content; }
+}
 
 function fmtDate(ts: string): string { return formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute'); }
 function formatEventKind(kind: string): string { return kind.replace(/_/g, ' '); }
@@ -523,6 +696,16 @@ onUnmounted(() => {
 .tl-event-card { font-size:10px; color:var(--text-muted); }
 .tl-event-time { font-size:10px; color:var(--border-strong); margin-left:auto; }
 .tl-event-terminal-tool { padding:1px 6px; background:var(--surface-3); border:1px solid var(--border); border-radius:8px; color:var(--accent-2); font-family:'SF Mono',monospace; font-size:10px; }
+.agent-debug-layout { display:grid; grid-template-columns:minmax(220px,280px) 1fr; gap:16px; align-items:start; }
+.agent-debug-sidebar { display:flex; flex-direction:column; gap:6px; max-height:70vh; overflow:auto; }
+.agent-debug-session { display:flex; flex-direction:column; align-items:flex-start; gap:4px; padding:9px 10px; background:var(--surface-1); border:1px solid var(--surface-3); border-radius:6px; color:var(--text); cursor:pointer; font-family:inherit; text-align:left; }
+.agent-debug-session:hover, .agent-debug-session.selected { border-color:var(--accent-2); background:var(--entry-user-bg); }
+.agent-debug-session-id { color:var(--accent-2); }
+.agent-debug-session-meta { font-size:11px; color:var(--text-muted); }
+.agent-debug-detail { min-width:0; }
+.agent-debug-toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
+.agent-debug-toolbar .debug-tab-button:disabled { opacity:.45; cursor:not-allowed; }
+.agent-debug-path { margin-bottom:10px; color:var(--text-muted); word-break:break-all; }
 .mcp-server-badge { font-size:10px; font-weight:600; padding:1px 5px; border-radius:4px; text-transform:uppercase; margin-left:8px; }
 .mcp-server-badge.mcp-status-running { background:var(--entry-accent-bg); color:var(--accent); }
 .mcp-server-badge.mcp-status-stopped { background:var(--surface-3); color:var(--text-muted); }

@@ -16,7 +16,7 @@ import {
 import { selectCurrentAgentSessionId, selectCurrentCardId } from '../stores/runtime-read-model';
 
 export interface ErrorSourceEntry { source: string; errors: DebugError[] }
-export type DebugTabId = 'state' | 'operator' | 'errors' | 'timeline' | 'mcp' | 'processes' | 'supervision';
+export type DebugTabId = 'state' | 'operator' | 'errors' | 'timeline' | 'agents' | 'mcp' | 'processes' | 'supervision';
 
 export function useDebugReadModel(debugStore: ReturnType<typeof useDebugStore>, cardsStore: ReturnType<typeof useCardStore>) {
   const localActiveTab = ref<DebugTabId>('state');
@@ -26,6 +26,7 @@ export function useDebugReadModel(debugStore: ReturnType<typeof useDebugStore>, 
     { id: 'operator' as const, label: 'Operator Control' },
     { id: 'errors' as const, label: 'Errors' },
     { id: 'timeline' as const, label: 'Timeline' },
+    { id: 'agents' as const, label: 'Agents' },
     { id: 'processes' as const, label: 'Processes' },
     { id: 'supervision' as const, label: 'Supervision' },
     { id: 'mcp' as const, label: 'MCP' },

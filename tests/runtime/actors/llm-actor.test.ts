@@ -55,7 +55,7 @@ describe('LLMActor', () => {
     expect(LLMActor._actor.states).toEqual({
       idle: { parked: true, on: { turn: 'calling_provider' } },
       calling_provider: { on: { done: 'idle', failed: 'idle', tool_call: 'waiting_tool' } },
-      waiting_tool: { parked: true, on: { turn: 'calling_provider' } },
+      waiting_tool: { parked: true, on: { turn: 'calling_provider', abandon: 'idle' } },
     });
   });
 

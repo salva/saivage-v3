@@ -26,6 +26,7 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
   }
 
   protected override onActivationSettled(_outcome: CardProcessorOutcome): void {
+    for (const llm of this.activeLlmActors.values()) llm.abandonParkedTurn();
     this.activeLlmActors.clear();
   }
 

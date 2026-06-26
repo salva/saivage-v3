@@ -29,6 +29,10 @@ function markDone(store: CardStore, card: CardRecord): CardRecord {
   return store.commitTerminalLifecyclePatch(card.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'planner_done', summary: `${card.id} done` }, error: null, completed_at: '2026-06-12T00:00:00.000Z' } });
 }
 
+function markFailed(store: CardStore, card: CardRecord): CardRecord {
+  return store.commitTerminalLifecyclePatch(card.id, { status: 'failed', lifecycle: { status: 'failed', result: { kind: 'planner_failure', error: `${card.id} failed` }, error: `${card.id} failed`, completed_at: '2026-06-12T00:00:00.000Z' } });
+}
+
 function terminalProcessor(outcome: Exclude<CardActivationOutcome, { status: 'cancelled' }>): CardProcessorActor {
   return { activate: jest.fn(async () => outcome) as (input: CardActivationInput) => Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>> };
 }
@@ -162,6 +166,34 @@ describe('PlanningCardProcessorActor', () => {
     expect(provider.completeTurn).toHaveBeenCalledTimes(2);
     expect(provider.completeTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({
       episodeContext: expect.objectContaining({ lastToolResult: expect.objectContaining({ result: { success: false, error: 'activate_card requires card_id.' } }) }),
+    }), expect.any(AbortSignal));
+  }));
+
+  it('returns failed child activation as a recoverable tool result', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    const failedGoal = markFailed(store, createGoal(store));
+    const childActor = CardActor.fromCard({ projectRoot, card: failedGoal, store, processor: terminalProcessor({ status: 'done', summary: 'not invoked', result: { kind: 'planner_done', summary: 'not invoked' } }) });
+    const provider: LLMProviderPort = {
+      completeTurn: jest.fn(async (input: LlmInvocationInput) => input.episodeContext.lastToolResult
+        ? plannerResult('blocked', 'child activation failed')
+        : { kind: 'tool_calls' as const, tool_calls: [{ id: 'call-1', type: 'function' as const, function: { name: 'activate_card', arguments: JSON.stringify({ card_id: failedGoal.id }) } }] }),
+    };
+    const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: (id) => id === failedGoal.id ? childActor : null }, provider });
+    actor.start();
+
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
+
+    expect(outcome).toMatchObject({ status: 'blocked', summary: 'child activation failed', result: { kind: 'planner_blocked' } });
+    expect(store.read(failedGoal.id)?.status).toBe('failed');
+    expect(provider.completeTurn).toHaveBeenCalledTimes(2);
+    expect(provider.completeTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      episodeContext: expect.objectContaining({
+        lastToolResult: expect.objectContaining({
+          result: { success: false, error: `Card '${failedGoal.id}' in status 'failed' is not activatable.`, card_id: failedGoal.id },
+        }),
+      }),
     }), expect.any(AbortSignal));
   }));
 
