@@ -73,24 +73,31 @@ For OpenAI Chat Completions, this serializes to:
 
 Provider-specific gateways already have serialization concepts for these entries. The runtime must ensure the correct `AgentMessage[]` is supplied to them.
 
-## Architecture Change
+## Architecture Decision
 
-Introduce a single role-neutral continuation transcript builder at the actor boundary.
+`LLMActor` owns the active model-visible transcript in memory for the lifetime of a live invocation.
 
-Preferred shape:
+This is the hot-path source for provider continuation calls. Persisted `.saivage/agents/messages/*`, `.saivage/agents/tool-deliveries/*`, and `.saivage/agents/llm-exchanges/*` remain audit, debug, and recovery evidence. They are not used to reconstruct the normal provider request on every turn.
+
+The concrete shape is:
 
 - `LLMActor` owns the in-memory model-visible turn transcript for its active invocation.
+- The transcript is initialized from the first `LlmInvocationInput.contextMessages`.
 - When a provider returns a tool call, `LLMActor` appends the assistant tool-call `AgentMessage` to that transcript using the same canonical shape persisted by `appendLlmTurnFinished(...)`.
 - When `appendToolResult(...)` is called, `LLMActor` appends the matching tool-result `AgentMessage` to that transcript before starting the continuation turn.
 - Notification context from the owning card is appended after the tool result for the continuation input.
-- `LlmInvocationInput.contextMessages` becomes the complete model-visible context for the next provider call.
+- `LlmInvocationInput.contextMessages` for continuation turns is derived from the actor-owned transcript, not from persisted file reconstruction.
+- The transcript is included in active reconstruction while the invocation is active so diagnostics can inspect what was in flight.
+- The transcript is cleared on message-result settlement, error settlement, terminal tool handoff, card settlement, and parked-turn abandonment.
 
-Alternative shape:
+Persisted-file reconstruction is explicitly not the primary design:
 
-- Reconstruct model-visible context from persisted session messages before every provider turn.
-- This reduces in-memory state but adds file I/O and makes the hot path depend on persistence reconstruction.
+- It adds file I/O to the hot path.
+- It makes live provider context depend on log reconstruction correctness.
+- It complicates eventual compaction and recovery policy.
+- It blurs the boundary between audit persistence and active actor state.
 
-Recommendation: use the in-memory transcript as the hot-path source and keep persisted logs as audit/recovery evidence. Tests can compare both paths for consistency where useful.
+Tests may compare persisted messages and actor-owned transcript entries for consistency, but production continuation turns should use the `LLMActor` transcript directly.
 
 ## Required Invariants
 
@@ -139,25 +146,43 @@ Acceptance:
 
 ### Slice 3: Make `LLMActor` Carry Model-Visible Tool History
 
-Update `LLMActor` so active invocation context includes accumulated model-visible messages.
+Update `LLMActor` so active invocation context includes accumulated model-visible messages in an actor-owned transcript.
+
+Add state similar to:
+
+- `modelContextMessages: AgentMessage[]`
+
+Initialization:
+
+- on `turn(input)`, parse and store `input.contextMessages` as `modelContextMessages`;
+- store the same transcript in active reconstruction.
 
 When provider returns a nonterminal tool call:
 
 - persist the existing message log as today;
 - append the assistant tool-call message to the active model-visible context;
+- persist active reconstruction with the updated transcript;
 - move to `waiting_tool`.
 
 When `appendToolResult(...)` is called:
 
 - append the tool-result message to the active model-visible context;
 - append notification messages for the continuation input after the tool result;
-- update active reconstruction with the new context;
+- set the next `LlmInvocationInput.contextMessages` to the full actor-owned transcript;
+- update active reconstruction with the new transcript and continuation input;
 - continue the provider turn.
+
+Settlement and abandonment:
+
+- clear `modelContextMessages` when the actor settles with a message result or error;
+- clear `modelContextMessages` when a processor consumes a terminal tool call and the card activation settles;
+- clear `modelContextMessages` in `abandonParkedTurn(...)`.
 
 Acceptance:
 
 - `episodeContext.lastToolResult` may remain for runtime policy, but provider-visible context no longer depends on it.
 - The second and later provider turns receive paired tool call/output messages.
+- Persisted files are not read to build normal continuation requests.
 
 ### Slice 4: Preserve Recovery And Settlement Behavior
 
