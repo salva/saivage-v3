@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardStore } from '../../../src/cards/card-store.js';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { CardActor, MAX_TERMINAL_PROCESS_ACTORS, ProcessActor, TerminalCardProcessorActor, readActorSnapshots, readProcessEvidence, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
+import { CardActor, MAX_TERMINAL_PROCESS_ACTORS, MAX_TERMINAL_TOOL_TURNS, ProcessActor, TerminalCardProcessorActor, readActorSnapshots, readProcessEvidence, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
 import type { LlmCompleteResult } from '../../../src/agents/llm-contracts.js';
 
@@ -182,7 +182,7 @@ describe('TerminalCardProcessorActor', () => {
     const provider: LLMProviderPort = {
       completeTurn: jest.fn(async () => {
         executorTurns++;
-        if (executorTurns <= 10) return { kind: 'tool_calls' as const, tool_calls: [{ id: `inspect-${executorTurns}`, type: 'function' as const, function: { name: 'inspect_process', arguments: JSON.stringify({ processId: 'missing' }) } }] };
+        if (executorTurns <= MAX_TERMINAL_TOOL_TURNS) return { kind: 'tool_calls' as const, tool_calls: [{ id: `inspect-${executorTurns}`, type: 'function' as const, function: { name: 'inspect_process', arguments: JSON.stringify({ processId: 'missing' }) } }] };
         return executorResult(card.id, 'done at boundary');
       }),
     };
@@ -192,7 +192,7 @@ describe('TerminalCardProcessorActor', () => {
     const outcome = await processor.activate({ card, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: noopNotificationDelivery() });
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'done at boundary' });
-    expect(executorTurns).toBe(11);
+    expect(executorTurns).toBe(MAX_TERMINAL_TOOL_TURNS + 1);
   }));
 
   it('fails the executor budget when the final allowed tool append is non-terminal', async () => withTempProject(async (projectRoot) => {
@@ -210,7 +210,7 @@ describe('TerminalCardProcessorActor', () => {
     const outcome = await processor.activate({ card, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: noopNotificationDelivery() });
 
     expect(outcome).toMatchObject({ status: 'failed', summary: 'Executor exceeded terminal turn budget.', result: { kind: 'executor_failure', error: 'Executor exceeded terminal turn budget.' } });
-    expect(executorTurns).toBe(11);
+    expect(executorTurns).toBe(MAX_TERMINAL_TOOL_TURNS + 1);
     const llmSnapshot = readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === `executor:${card.id}`);
     expect(llmSnapshot).toMatchObject({ state_value: 'idle', context: { active_reconstruction: null } });
   }));

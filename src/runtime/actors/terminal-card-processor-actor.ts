@@ -14,6 +14,7 @@ import type { ArtifactRef, AttachmentRef } from '../../schemas/index.js';
 type TerminalProcessorOutcome = Extract<CardActivationOutcome, { status: 'done' | 'failed' }>;
 
 export const MAX_TERMINAL_PROCESS_ACTORS = 20;
+export const MAX_TERMINAL_TOOL_TURNS = 20;
 
 export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor implements CardProcessorActor {
   static _actor: ActorDefinition = {
@@ -53,7 +54,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const contract = createExecutorContract();
     const llm = this.createMainLlm(executorActorId(this.cardId));
     let outcome = await llm.turn(this.buildLlmInput(input, contract));
-    for (let turn = 0; turn < 10; turn++) {
+    for (let turn = 0; turn < MAX_TERMINAL_TOOL_TURNS; turn++) {
       if (outcome.type === 'result') return { status: 'failed', summary: `${expectedTerminalToolMessage(contract)} Plain executor messages are not accepted as terminal results.`, result: executorFailure(`${expectedTerminalToolMessage(contract)} Plain executor messages are not accepted as terminal results.`) };
       if (outcome.type === 'error') return { status: 'failed', summary: outcome.error, result: executorFailure(outcome.error) };
       if (contract.isTerminalToolName(outcome.toolName)) return this.projectExecutorTerminal(outcome, contract);
