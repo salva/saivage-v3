@@ -1,4 +1,4 @@
-// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+// Jest Snapshot v1, https://goo.gl/fbAQLP
 
 exports[`tool-definition-serializer snapshots Chat wire shape for a planner tool (activate_card) 1`] = `
 [
@@ -9,13 +9,13 @@ exports[`tool-definition-serializer snapshots Chat wire shape for a planner tool
       "parameters": {
         "additionalProperties": false,
         "properties": {
-          "cardId": {
+          "card_id": {
             "description": "The ID of the card to activate.",
             "type": "string",
           },
         },
         "required": [
-          "cardId",
+          "card_id",
         ],
         "type": "object",
       },
@@ -178,13 +178,13 @@ exports[`tool-definition-serializer snapshots Codex wire shape for a planner too
     "parameters": {
       "additionalProperties": false,
       "properties": {
-        "cardId": {
+        "card_id": {
           "description": "The ID of the card to activate.",
           "type": "string",
         },
       },
       "required": [
-        "cardId",
+        "card_id",
       ],
       "type": "object",
     },

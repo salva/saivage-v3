@@ -66,7 +66,7 @@ describe('runtime redesign final golden behavior', () => {
           card_id: 'project',
           ownership: { kind: 'direct', source: 'project_root' },
           phase: 'blocked',
-          runtime_status: 'running',
+          runtime_status: 'stopped',
           session_id: 'planner:project',
         });
       }

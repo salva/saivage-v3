@@ -1,8 +1,9 @@
 import { readActorSnapshots, readRecoveryDiagnostics, type ActorRecoveryDiagnostic, type ActorRecoveryDiagnosticAction } from '../../runtime/actors/index.js';
 import { parseCardActorId, parseLlmActorId, readSupervisorModeValue, readSupervisorWorkValue, toPublicAgentPhase, toPublicCardActorState } from '../../runtime/actors/index.js';
 import type { LlmActorRole, PublicAgentPhase, PublicCardActorState } from '../../runtime/actors/index.js';
+import type { ActorPauseMode } from '../../runtime/actors/actor-vocabulary.js';
 
-export type ActorPauseMode = 'idle' | 'running' | 'paused' | 'stopping' | 'unknown';
+export type { ActorPauseMode };
 export type ActorActiveWork = 'none' | 'model_invocation' | 'shutdown' | 'unknown';
 
 export interface CardActorProjection {

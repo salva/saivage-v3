@@ -22,7 +22,7 @@ import {
   type OperatorRouteContract,
 } from './operator-api-core.js';
 import { ServerAvailabilitySchema } from './operator-api-availability.js';
-import { publicAgentPhaseSchema, publicCardActorStateSchema, llmActorRoleSchema } from '../runtime/actors/actor-vocabulary.js';
+import { actorPauseModeSchema, publicAgentPhaseSchema, publicCardActorStateSchema, llmActorRoleSchema } from '../runtime/actors/actor-vocabulary.js';
 import { runtimeStatusSchema } from '../schemas/index.js';
 
 export const CardNotFoundErrorSchema = ApiErrorSchema.extend({
@@ -102,7 +102,7 @@ export const RuntimeStatusResponseSchema = z.object({
   lastTickAt: z.string().nullable(),
   pid: z.number().int().positive(),
   actorRuntime: z.object({
-    pauseMode: z.enum(['running', 'paused', 'stopping', 'unknown']),
+    pauseMode: actorPauseModeSchema,
     activeWork: z.enum(['none', 'model_invocation', 'shutdown', 'unknown']),
     cards: z.array(z.object({ cardId: z.string(), actorState: publicCardActorStateSchema })),
     agents: z.array(z.object({ agentId: z.string(), role: llmActorRoleSchema, cardId: z.string(), phase: publicAgentPhaseSchema })),
