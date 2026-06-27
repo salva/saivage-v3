@@ -76,7 +76,7 @@ describe('LLMActor', () => {
     expect(sawStartedMessage).toBe(true);
     expect(outcome).toMatchObject({ type: 'result', result: { content: 'done' } });
     await eventually(() => expect(actor.state()).toBe('idle'));
-    expect(jsonl(actorMessagesPath(projectRoot, 'planner:project')).map((entry) => entry.kind)).toEqual(['activity', 'text']);
+    expect(jsonl(actorMessagesPath(projectRoot, 'planner:project')).map((entry) => entry.kind)).toEqual(['system_prompt', 'activity', 'text']);
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toContain('planner:project');
     expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === 'planner:project')?.context.active_reconstruction).toBeNull();
   }));

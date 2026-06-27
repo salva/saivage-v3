@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { abandonStalePendingToolCalls, actorMessagesPath, appendLlmTurnFinished, appendTerminalToolProjectedStatus, readLoggedToolCall, readToolCallStatuses } from '../../../src/runtime/actors/index.js';
+import { abandonStalePendingToolCalls, actorMessagesPath, appendLlmTurnFinished, appendLlmTurnStarted, appendTerminalToolProjectedStatus, readLoggedToolCall, readToolCallStatuses } from '../../../src/runtime/actors/index.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => T): T {
@@ -38,6 +38,15 @@ function jsonl(path: string): Array<Record<string, unknown>> {
 }
 
 describe('llm delivery log recovery helpers', () => {
+  it('logs the outbound system prompt before turn activity exactly once', () => withTempProject((projectRoot) => {
+    appendLlmTurnStarted(projectRoot, input());
+    appendLlmTurnStarted(projectRoot, input('planner:G-1:2'));
+
+    const rows = jsonl(actorMessagesPath(projectRoot, 'planner:G-1'));
+    expect(rows[0]).toMatchObject({ role: 'system', kind: 'system_prompt', content: 'system' });
+    expect(rows.filter((entry) => entry.kind === 'system_prompt')).toHaveLength(1);
+  }));
+
   it('reads an exact logged tool call by agent, input, and call id', () => withTempProject((projectRoot) => {
     appendLlmTurnFinished(projectRoot, input(), { kind: 'tool_calls', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'blocked', summary: 'blocked' }) } }] });
 

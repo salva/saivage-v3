@@ -60,6 +60,17 @@ export function actorToolCallStatusesPath(projectRoot: string, agentId: string):
 }
 
 export function appendLlmTurnStarted(projectRoot: string, input: LlmInvocationInput): void {
+  appendActorSystemPromptIfMissing(projectRoot, input.agentId, {
+    id: `${input.agentId}:system-prompt`,
+    session_id: input.sessionId,
+    role: 'system',
+    kind: 'system_prompt',
+    content: input.systemPrompt,
+    round_id: roundId('pre', `${input.agentId}:system-prompt`),
+    message_index: 0,
+    block_index: 0,
+    timestamp: new Date().toISOString(),
+  });
   appendActorMessage(projectRoot, input.agentId, {
     id: `${input.inputId}:started`,
     session_id: input.sessionId,
@@ -71,6 +82,25 @@ export function appendLlmTurnStarted(projectRoot: string, input: LlmInvocationIn
     block_index: 0,
     timestamp: new Date().toISOString(),
   });
+}
+
+function appendActorSystemPromptIfMissing(projectRoot: string, agentId: string, message: AgentMessage): void {
+  const path = actorMessagesPath(projectRoot, agentId);
+  if (existsSync(path)) {
+    const alreadyLogged = readFileSync(path, 'utf-8')
+      .split('\n')
+      .filter(Boolean)
+      .some((line) => {
+        try {
+          const parsed = JSON.parse(line) as { id?: unknown; kind?: unknown };
+          return parsed.id === message.id && parsed.kind === 'system_prompt';
+        } catch {
+          return false;
+        }
+      });
+    if (alreadyLogged) return;
+  }
+  appendActorMessage(projectRoot, agentId, message);
 }
 
 export function appendLlmTurnFinished(projectRoot: string, input: LlmInvocationInput, result: LlmCompleteResult): void {
