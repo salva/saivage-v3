@@ -4,7 +4,7 @@ import { PROJECT_CARD_ID } from '../../cards/project-card.js';
 import { buildActorRecoveryPlan, runActorStartupRecovery, type ActorStartupRecoveryReport } from './actor-recovery.js';
 import { plannerActorId } from './ids.js';
 import { RuntimeSupervisorActor } from './runtime-supervisor.js';
-import { CardActor, type CardActorStorePort } from './card-actor.js';
+import { CardActor, type CardActivationOutcome, type CardActorStorePort } from './card-actor.js';
 import { PlanningCardProcessorActor, type PlannerChildActorPort } from './planning-card-processor-actor.js';
 import { TerminalCardProcessorActor } from './terminal-card-processor-actor.js';
 import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
@@ -82,6 +82,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
 
   resume(): void {
     if (!this.started) return;
+    if (!this.currentCardId) return;
     this.supervisor.run();
   }
 
@@ -109,24 +110,10 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     const actor = this.cardActor(PROJECT_CARD_ID);
     const outcome = await actor.activate({ kind: 'root' });
     const finishedAt = this.now();
-    this.activeRun = {
-      ...this.activeRun,
-      phase: outcome.status === 'done' ? 'completed' : outcome.status,
-      runtime_status: outcome.status === 'done' ? 'idle' : outcome.status === 'cancelled' ? 'cancelled' : 'running',
-      updated_at: finishedAt,
-      finished_at: outcome.status === 'blocked' ? null : finishedAt,
-      outcome: outcome.status === 'done'
-        ? { kind: 'completed', result: 'done', finished_at: finishedAt }
-        : outcome.status === 'failed'
-          ? { kind: 'completed', result: 'failed', error: outcome.summary, finished_at: finishedAt }
-          : outcome.status === 'cancelled'
-            ? { kind: 'completed', result: 'cancelled', finished_at: finishedAt }
-            : { kind: 'blocked', error: outcome.summary },
-    };
-    if (outcome.status === 'done' || outcome.status === 'failed' || outcome.status === 'cancelled') {
-      this.currentCardId = null;
-      this.supervisor.cancelProject();
-    }
+    this.activeRun = this.finalizeRootRun(outcome, finishedAt);
+    this.currentCardId = null;
+    if (outcome.status === 'cancelled') this.supervisor.cancelProject();
+    else this.supervisor.settleProject();
     return {
       success: true,
       command,
@@ -250,6 +237,48 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     };
   }
 
+  private finalizeRootRun(outcome: CardActivationOutcome, finishedAt: string): RuntimeRunRecord {
+    if (!this.activeRun) throw new Error('Cannot finalize root run before active run is created.');
+    if (outcome.status === 'done') {
+      return {
+        ...this.activeRun,
+        phase: 'completed',
+        runtime_status: 'idle',
+        updated_at: finishedAt,
+        finished_at: finishedAt,
+        outcome: { kind: 'completed', result: 'done', finished_at: finishedAt },
+      };
+    }
+    if (outcome.status === 'failed') {
+      return {
+        ...this.activeRun,
+        phase: 'failed',
+        runtime_status: 'stopped',
+        updated_at: finishedAt,
+        finished_at: finishedAt,
+        outcome: { kind: 'completed', result: 'failed', error: outcome.summary, finished_at: finishedAt },
+      };
+    }
+    if (outcome.status === 'cancelled') {
+      return {
+        ...this.activeRun,
+        phase: 'cancelled',
+        runtime_status: 'cancelled',
+        updated_at: finishedAt,
+        finished_at: finishedAt,
+        outcome: { kind: 'completed', result: 'cancelled', finished_at: finishedAt },
+      };
+    }
+    return {
+      ...this.activeRun,
+      phase: 'blocked',
+      runtime_status: 'stopped',
+      updated_at: finishedAt,
+      finished_at: null,
+      outcome: { kind: 'blocked', error: outcome.summary },
+    };
+  }
+
   private cardActor(cardId: string): CardActor {
     const existing = this.cardActors.get(cardId);
     if (existing) return existing;
@@ -284,7 +313,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     const mode = this.supervisor.mode;
     if (mode === 'paused') return 'paused';
     if (mode === 'shutting_down') return 'stopping';
-    return 'running';
+    return mode === 'running' ? 'running' : 'idle';
   }
 
   private actorActiveWork(): ActorActiveWork {

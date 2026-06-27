@@ -204,7 +204,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private plannerPrompt(card: CardRecord): string {
-    return `Plan and coordinate card ${card.id}: ${card.title}\n\n${card.description}\n\nAcceptance:\n${card.acceptance}\n\nUse create_card for immediate children of this card. create_card creates a backlog child but does not run it. Use activate_card for immediate children only when work should execute. If this goal is incomplete and no existing child can make progress, create the next useful immediate child card instead of reporting blocked. End by calling emit_planner_result with status done, blocked, or continue; plain text or JSON messages are not accepted as terminal reports.`;
+    return `Plan and coordinate card ${card.id}: ${card.title}\n\n${card.description}\n\nAcceptance:\n${card.acceptance}\n\nUse create_card for new immediate children of this card. create_card creates a backlog child but does not run it. Use edit_card to correct or refine non-running immediate children. Use cancel_card for obsolete immediate children. Use activate_card for immediate children only when work should execute. If this goal is incomplete and no existing child can make progress, create or edit the next useful immediate child card instead of reporting blocked. End by calling emit_planner_result with status done, blocked, or continue; plain text or JSON messages are not accepted as terminal reports.`;
   }
 
   private reviewerPrompt(card: CardRecord, assessmentId: string): string {
@@ -219,20 +219,33 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
         definition: requiredDefinition(definitions, 'create_card'),
         execute: (args) => this.handleCreateCard(args),
       },
+      {
+        name: 'edit_card',
+        definition: requiredDefinition(definitions, 'edit_card'),
+        execute: (args) => this.handleEditCard(args),
+      },
+      {
+        name: 'cancel_card',
+        definition: requiredDefinition(definitions, 'cancel_card'),
+        execute: (args) => this.handleCancelCard(args),
+      },
     ]);
   }
 
   private handleCreateCard(args: unknown): unknown {
     const record = requireRecordArgs(args, 'create_card');
+    assertAllowedFields(record, 'create_card', ['type', 'title', 'description', 'status', 'tags', 'priority', 'urgency', 'acceptance', 'depends_on', 'related']);
     const type = requirePlannerCreatedType(record.type);
     const status = optionalString(record.status, 'status');
     if (status !== undefined && status !== 'backlog') throw new Error('create_card.status may only be backlog for planner-created child cards.');
     const dependsOn = optionalStringArray(record.depends_on, 'depends_on');
     this.assertImmediateChildDependencies(dependsOn);
+    const parent = this.store.read(this.cardId);
+    if (!parent) throw new Error(`Planner parent card '${this.cardId}' not found.`);
     const input: NewCardInput = {
       type,
       parent: this.cardId,
-      depth: 0,
+      depth: parent.depth + 1,
       title: requireNonEmptyString(record.title, 'title'),
       description: optionalString(record.description, 'description') ?? '',
       status: 'backlog',
@@ -250,6 +263,48 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     if (!this.store.create) throw new Error('Planner create_card requires a mutable card store.');
     const card = this.store.create(input);
     return { success: true, card: compactPlannerToolCard(card) };
+  }
+
+  private handleEditCard(args: unknown): unknown {
+    const record = requireRecordArgs(args, 'edit_card');
+    assertAllowedFields(record, 'edit_card', ['card_id', 'title', 'description', 'acceptance', 'tags', 'priority', 'urgency', 'related']);
+    const cardId = requireToolCardId(record, 'edit_card');
+    const child = this.requireImmediateChild(cardId, 'edit_card');
+    if (child.status === 'running') throw new Error(`edit_card cannot edit running child '${cardId}'.`);
+    if (child.status === 'done') throw new Error(`edit_card cannot edit done child '${cardId}'.`);
+    if (child.status === 'cancelled') throw new Error(`edit_card cannot edit cancelled child '${cardId}'.`);
+    if (child.status === 'needs_verification') throw new Error(`edit_card cannot edit needs_verification child '${cardId}'.`);
+    const patch = plannerEditablePatch(record);
+    if (Object.keys(patch).length === 0) throw new Error('edit_card requires at least one editable field.');
+    if (!this.store.mutateCard) throw new Error('Planner edit_card requires a mutable card store.');
+    if (child.status === 'failed' || child.status === 'blocked') this.store.setStatus(cardId, 'changed');
+    const updated = this.store.mutateCard(cardId, patch, { actor: 'planner', surface: 'runtime', reason: 'planner edit_card' });
+    return { success: true, card: compactPlannerToolCard(updated) };
+  }
+
+  private handleCancelCard(args: unknown): unknown {
+    const record = requireRecordArgs(args, 'cancel_card');
+    assertAllowedFields(record, 'cancel_card', ['card_id', 'reason']);
+    const cardId = requireToolCardId(record, 'cancel_card');
+    const child = this.requireImmediateChild(cardId, 'cancel_card');
+    if (child.status === 'done') throw new Error(`cancel_card cannot cancel done child '${cardId}'.`);
+    if (child.status === 'cancelled') throw new Error(`cancel_card cannot cancel already-cancelled child '${cardId}'.`);
+    if (child.status === 'needs_verification') throw new Error(`cancel_card cannot cancel needs_verification child '${cardId}'.`);
+    const actor = this.children.get(cardId);
+    if (!actor) throw new Error(`No CardActor is registered for child '${cardId}'.`);
+    const reason = optionalString(record.reason, 'reason') ?? 'planner_cancel_card';
+    actor.cancel({ reason, cancelled_at: new Date().toISOString() });
+    const updated = this.store.read(cardId);
+    if (!updated) throw new Error(`Child card '${cardId}' not found after cancellation.`);
+    return { success: true, card_id: cardId, status: updated.status, summary: updated.status === 'running' ? 'Cancellation requested.' : 'Cancelled.' };
+  }
+
+  private requireImmediateChild(cardId: string, toolName: string): CardRecord {
+    const child = this.store.read(cardId);
+    if (!child) throw new Error(`${toolName} target child '${cardId}' not found.`);
+    if (child.parent !== this.cardId) throw new Error(`${toolName} can target only immediate children of '${this.cardId}'.`);
+    if (child.type === 'project') throw new Error(`${toolName} cannot target project cards.`);
+    return child;
   }
 
   private assertImmediateChildDependencies(dependsOn: string[]): void {
@@ -295,6 +350,29 @@ function requiredDefinition(definitions: Map<string, (typeof PLANNER_ACTOR_SURFA
 function requireRecordArgs(args: unknown, toolName: string): Record<string, unknown> {
   if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error(`${toolName} requires an object argument.`);
   return args as Record<string, unknown>;
+}
+
+function assertAllowedFields(record: Record<string, unknown>, toolName: string, allowed: string[]): void {
+  const invalid = Object.keys(record).filter((key) => !allowed.includes(key));
+  if (invalid.length > 0) throw new Error(`${toolName} does not accept fields: ${invalid.join(', ')}.`);
+}
+
+function requireToolCardId(record: Record<string, unknown>, toolName: string): string {
+  const cardId = record.card_id;
+  if (typeof cardId !== 'string' || cardId.length === 0) throw new Error(`${toolName} requires card_id.`);
+  return cardId;
+}
+
+function plannerEditablePatch(record: Record<string, unknown>): Partial<CardRecord> {
+  const patch: Partial<CardRecord> = {};
+  if (record.title !== undefined) patch.title = requireNonEmptyString(record.title, 'title');
+  if (record.description !== undefined) patch.description = requireString(record.description, 'description');
+  if (record.acceptance !== undefined) patch.acceptance = requireString(record.acceptance, 'acceptance');
+  if (record.tags !== undefined) patch.tags = optionalStringArray(record.tags, 'tags');
+  if (record.priority !== undefined) patch.priority = optionalInteger(record.priority, 'priority') ?? 0;
+  if (record.urgency !== undefined) patch.urgency = requireUrgency(record.urgency);
+  if (record.related !== undefined) patch.related = optionalStringArray(record.related, 'related');
+  return patch;
 }
 
 function requirePlannerCreatedType(value: unknown): Exclude<CardType, 'project'> {

@@ -2,6 +2,7 @@ import { BaseActor } from '../micro-actor/index.js';
 import type { ActorDefinition } from '../micro-actor/index.js';
 import type { ArtifactRef, AttachmentRef, BlockedResult, CardRecord, CardStatus, DoneResult, FailureResult } from '../../schemas/index.js';
 import type { NewCardInput } from '../../cards/store-api.js';
+import type { CardMutationContext } from '../../cards/lifecycle.js';
 import { cardActorId, processorActorId } from './ids.js';
 import { saveActorSnapshot } from './snapshots.js';
 import type { CardActiveReconstructionRecord } from './active-reconstruction.js';
@@ -65,6 +66,7 @@ export interface CardProcessorActor {
 export interface CardActorStorePort {
   read(cardId: string): CardRecord | null;
   create?(input: NewCardInput): CardRecord;
+  mutateCard?(cardId: string, changes: Partial<CardRecord>, ctx: CardMutationContext): CardRecord;
   setStatus(cardId: string, status: CardStatus): CardRecord;
   commitTerminalLifecyclePatch(cardId: string, changes: Partial<CardRecord>): CardRecord;
   appendEvidenceRefs?(cardId: string, refs: { artifacts?: Array<Omit<ArtifactRef, 'id' | 'card_id'>>; attachments?: Array<Omit<AttachmentRef, 'id' | 'card_id'>> }): { card: CardRecord; artifacts: ArtifactRef[]; attachments: AttachmentRef[] };
@@ -74,7 +76,6 @@ export interface CardActorStorePort {
 type PendingActivation = {
   caller: CardActivationCaller;
   resolve: (outcome: CardActivationOutcome) => void;
-  reject: (error: Error) => void;
 };
 
 export class CardActor extends BaseActor {
@@ -128,8 +129,8 @@ export class CardActor extends BaseActor {
     if (this.#pendingActivation) {
       return Promise.reject(new Error(`Card '${this.cardId}' already has a pending activation.`));
     }
-    return new Promise<CardActivationOutcome>((resolve, reject) => {
-      this.#pendingActivation = { caller, resolve, reject };
+    return new Promise<CardActivationOutcome>((resolve) => {
+      this.#pendingActivation = { caller, resolve };
       this.activeReconstruction = {
         schema_version: 1,
         kind: 'card_activation',

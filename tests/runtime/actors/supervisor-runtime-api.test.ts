@@ -52,6 +52,10 @@ function doneProjectProvider(evidenceId: string): LLMProviderPort {
     : { kind: 'tool_calls' as const, tool_calls: [{ id: 'planner-result-1', type: 'function' as const, function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'done', summary: 'project completed' }) } }] }) };
 }
 
+function failedPlannerProvider(): LLMProviderPort {
+  return { completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'plain messages fail planner activation' })) };
+}
+
 function cardActive(cardId: string): Record<string, unknown> {
   return { schema_version: 1, kind: 'card_activation', card_id: cardId, processor_actor_id: `processor:${cardId}`, caller: { kind: 'root' }, started_at: '2026-06-12T00:00:00.000Z' };
 }
@@ -130,20 +134,53 @@ describe('SupervisorRuntimeApi', () => {
     api.pause();
     expect(api.getStatus()).toMatchObject({ status: 'idle', paused: false });
 
-    await api.startProject('operator');
-    expect(api.getStatus()).toMatchObject({ status: 'running', paused: false, currentCardId: 'project' });
+    const start = await api.startProject('operator');
+    expect(start.success).toBe(true);
+    if (!start.success) throw new Error('Expected startProject to succeed.');
+    expect(start.run).toMatchObject({ phase: 'blocked', runtime_status: 'stopped', finished_at: null, outcome: { kind: 'blocked', error: 'waiting for operator' } });
+    expect(api.getStatus()).toMatchObject({ status: 'idle', paused: false, currentCardId: null });
     api.pause();
-    expect(api.getStatus()).toMatchObject({ status: 'paused', paused: true, currentCardId: 'project' });
+    expect(api.getStatus()).toMatchObject({ status: 'idle', paused: false, currentCardId: null });
     api.resume();
-    expect(api.getStatus()).toMatchObject({ status: 'running', paused: false, currentCardId: 'project' });
+    expect(api.getStatus()).toMatchObject({ status: 'idle', paused: false, currentCardId: null });
     expect(api.getActorRuntimeReadModel()).toMatchObject({
-      pauseMode: 'running',
+      pauseMode: 'idle',
       cards: [{ cardId: 'project', actorState: 'blocked' }],
       agents: [],
     });
     await api.shutdown();
 
     expect(readActorSnapshots(projectRoot).some((item) => item.actor_id === 'supervisor')).toBe(true);
+  }));
+
+  it('settles blocked root project activations without projecting active runtime work', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    createProject(store);
+    const api = createSupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), now: () => '2026-06-12T00:00:00.000Z' });
+
+    const result = await api.startProject('operator');
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error('Expected startProject to succeed.');
+
+    expect(result.run).toMatchObject({ phase: 'blocked', runtime_status: 'stopped', finished_at: null, outcome: { kind: 'blocked', error: 'waiting for operator' } });
+    expect(api.getStatus()).toMatchObject({ status: 'idle', paused: false, currentCardId: null, goalCount: 0 });
+    expect(api.getActorRuntimeReadModel()).toMatchObject({ pauseMode: 'idle', activeWork: 'none' });
+  }));
+
+  it('settles failed root project activations without projecting active runtime work', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    createProject(store);
+    const api = createSupervisorRuntimeApi({ projectRoot, actorStore: store, provider: failedPlannerProvider(), now: () => '2026-06-12T00:00:00.000Z' });
+
+    const result = await api.startProject('operator');
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error('Expected startProject to succeed.');
+
+    expect(result.run).toMatchObject({ phase: 'failed', runtime_status: 'stopped', finished_at: '2026-06-12T00:00:00.000Z', outcome: { kind: 'completed', result: 'failed' } });
+    expect(api.getStatus()).toMatchObject({ status: 'idle', paused: false, currentCardId: null, goalCount: 0 });
+    expect(api.getActorRuntimeReadModel()).toMatchObject({ pauseMode: 'idle', activeWork: 'none' });
   }));
 
   it('captures the actor recovery plan before starting the supervisor', async () => withTempProject(async (projectRoot) => {
@@ -429,7 +466,7 @@ describe('SupervisorRuntimeApi', () => {
     if (result.success) {
       expect(result.command).toMatchObject({ command: 'start_project', status: 'completed', command_id: 'runtime-command-1' });
       expect(result.intent).toEqual({ status: 'running', updated_at: '2026-06-12T00:00:00.000Z', source_command_id: 'runtime-command-1', reason: null });
-      expect(result.run).toMatchObject({ run_id: 'runtime-run-1', card_id: 'project', phase: 'blocked', runtime_status: 'running', outcome: { kind: 'blocked', error: 'waiting for operator' } });
+      expect(result.run).toMatchObject({ run_id: 'runtime-run-1', card_id: 'project', phase: 'blocked', runtime_status: 'stopped', outcome: { kind: 'blocked', error: 'waiting for operator' } });
     }
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toEqual(expect.arrayContaining(['card:project', 'planner:project', 'processor:project', 'supervisor']));
   }));

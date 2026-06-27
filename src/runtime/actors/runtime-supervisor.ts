@@ -15,8 +15,8 @@ export class RuntimeSupervisorActor extends BaseActor {
     initial: 'idle',
     states: {
       idle: { parked: true, on: { run: 'running', shutdown: 'shutting_down' } },
-      running: { parked: true, on: { pause: 'paused', cancel: 'idle', shutdown: 'shutting_down' } },
-      paused: { parked: true, on: { run: 'running', shutdown: 'shutting_down', cancel: 'idle' } },
+      running: { parked: true, on: { pause: 'paused', cancel: 'idle', settle: 'idle', shutdown: 'shutting_down' } },
+      paused: { parked: true, on: { run: 'running', shutdown: 'shutting_down', cancel: 'idle', settle: 'idle' } },
       shutting_down: { on: { done: 'idle', failed: 'idle' } },
     },
   };
@@ -66,6 +66,12 @@ export class RuntimeSupervisorActor extends BaseActor {
   cancelProject(): boolean {
     if (this.mode === 'idle' || this.mode === 'shutting_down') return false;
     this.parkedSendEvent('cancel');
+    return true;
+  }
+
+  settleProject(): boolean {
+    if (this.mode === 'idle' || this.mode === 'shutting_down') return false;
+    this.parkedSendEvent('settle');
     return true;
   }
 

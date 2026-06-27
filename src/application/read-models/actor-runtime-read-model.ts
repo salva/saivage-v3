@@ -2,7 +2,7 @@ import { readActorSnapshots, readRecoveryDiagnostics, type ActorRecoveryDiagnost
 import { parseCardActorId, parseLlmActorId, readSupervisorModeValue, readSupervisorWorkValue, toPublicAgentPhase, toPublicCardActorState } from '../../runtime/actors/index.js';
 import type { LlmActorRole, PublicAgentPhase, PublicCardActorState } from '../../runtime/actors/index.js';
 
-export type ActorPauseMode = 'running' | 'paused' | 'stopping' | 'unknown';
+export type ActorPauseMode = 'idle' | 'running' | 'paused' | 'stopping' | 'unknown';
 export type ActorActiveWork = 'none' | 'model_invocation' | 'shutdown' | 'unknown';
 
 export interface CardActorProjection {
@@ -82,7 +82,7 @@ function readSupervisorMode(value: unknown, diagnostics: string[]): ActorPauseMo
     return 'unknown';
   }
   const mode = readSupervisorModeValue(value);
-  if (mode === 'idle') return 'running';
+  if (mode === 'idle') return 'idle';
   if (mode === 'running' || mode === 'paused') return mode;
   if (mode === 'shutting_down') return 'stopping';
   diagnostics.push(`supervisor snapshot has unknown mode '${String((value as { mode: unknown }).mode)}'`);

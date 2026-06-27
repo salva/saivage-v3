@@ -87,7 +87,7 @@ describe('actor runtime read model', () => {
   }));
 
   it('accepts current supervisor modes without unknown-mode diagnostics', () => withTempProject((projectRoot) => {
-    for (const [mode, expected] of [['idle', 'running'], ['running', 'running'], ['paused', 'paused'], ['shutting_down', 'stopping']] as const) {
+    for (const [mode, expected] of [['idle', 'idle'], ['running', 'running'], ['paused', 'paused'], ['shutting_down', 'stopping']] as const) {
       saveActorSnapshot(projectRoot, { actor_id: 'supervisor', actor_kind: 'supervisor', state_value: { mode, work: mode === 'shutting_down' ? 'shutdown_active' : 'ready' }, context: {}, updated_at: new Date().toISOString() });
       expect(buildActorRuntimeReadModel(projectRoot)).toMatchObject({ pauseMode: expected, activeWork: mode === 'shutting_down' ? 'shutdown' : 'none', diagnostics: [] });
     }
@@ -109,7 +109,7 @@ describe('actor runtime read model', () => {
     });
   }));
 
-  it('maps idle supervisor snapshots to non-paused runtime availability', () => withTempProject((projectRoot) => {
+  it('maps idle supervisor snapshots to idle runtime availability', () => withTempProject((projectRoot) => {
     saveActorSnapshot(projectRoot, {
       actor_id: 'supervisor',
       actor_kind: 'supervisor',
@@ -118,7 +118,7 @@ describe('actor runtime read model', () => {
       updated_at: new Date().toISOString(),
     });
 
-    expect(buildActorRuntimeReadModel(projectRoot)).toMatchObject({ pauseMode: 'running', activeWork: 'none', diagnostics: [], recovery: null });
+    expect(buildActorRuntimeReadModel(projectRoot)).toMatchObject({ pauseMode: 'idle', activeWork: 'none', diagnostics: [], recovery: null });
   }));
 
   it('projects sanitized recovery diagnostics', () => withTempProject((projectRoot) => {
