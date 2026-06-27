@@ -1,6 +1,7 @@
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentMessage, AgentRole, AgentSession } from '../schemas/index.js';
+import { agentMessageSchema } from '../schemas/index.js';
 import {
   completeSession,
   createSession,
@@ -51,7 +52,7 @@ export class AgentSessionRepository {
     if (!existsSync(messagesDir)) return [];
     return readdirSync(messagesDir)
       .filter((file) => file.endsWith('.jsonl'))
-      .map((file) => file.slice(0, -'.jsonl'.length))
+      .map((file) => decodeMessageSessionFilename(file.slice(0, -'.jsonl'.length)))
       .filter(isSafeAgentSessionId);
   }
 
@@ -61,7 +62,11 @@ export class AgentSessionRepository {
 
   getMessages(sessionId: string): AgentMessage[] {
     if (!isSafeAgentSessionId(sessionId)) return [];
-    return getSessionMessages(this.saivageDir, sessionId);
+    const messages = getSessionMessages(this.saivageDir, sessionId);
+    if (messages.length > 0) return messages;
+    const encoded = encodeURIComponent(sessionId);
+    if (encoded === sessionId) return messages;
+    return readEncodedSessionMessages(this.saivageDir, encoded);
   }
 
   replaceMessages(sessionId: string, messages: AgentMessage[]): void { replaceSessionMessages(this.saivageDir, sessionId, messages); }
@@ -70,4 +75,20 @@ export class AgentSessionRepository {
   setSessionStatus(sessionId: string, status: AgentSession['status']): AgentSession | null { return setSessionStatus(this.saivageDir, sessionId, status); }
   markSessionWaiting(sessionId: string): AgentSession | null { return markSessionWaiting(this.saivageDir, sessionId); }
   updateSessionModel(sessionId: string, model: string): AgentSession | null { return updateSessionModel(this.saivageDir, sessionId, model); }
+}
+
+function decodeMessageSessionFilename(name: string): string {
+  try {
+    return decodeURIComponent(name);
+  } catch {
+    return name;
+  }
+}
+
+function readEncodedSessionMessages(saivageDir: string, encodedSessionId: string): AgentMessage[] {
+  const path = join(saivageDir, 'agents', 'messages', `${encodedSessionId}.jsonl`);
+  if (!existsSync(path)) return [];
+  const raw = readFileSync(path, 'utf-8');
+  if (raw.trim() === '') return [];
+  return raw.split('\n').filter((line) => line.trim() !== '').map((line) => agentMessageSchema.parse(JSON.parse(line)));
 }

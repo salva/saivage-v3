@@ -188,12 +188,14 @@ const renderedTree = computed<TreeNode[]>(() => {
   width: 8px;
   height: 8px;
   border-radius: 50%;
+  background: var(--text-muted);
   flex-shrink: 0;
 }
 
 .status-backlog { background: var(--text-muted); }
 .status-running { background: var(--accent); }
 .status-blocked { background: var(--warn); }
+.status-changed { background: var(--accent-2); }
 .status-done { background: var(--accent); }
 .status-failed { background: var(--danger); }
 .status-cancelled { background: var(--border-strong); opacity: 0.5; }

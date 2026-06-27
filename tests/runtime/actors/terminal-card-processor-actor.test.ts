@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardStore } from '../../../src/cards/card-store.js';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { CardActor, MAX_TERMINAL_PROCESS_ACTORS, MAX_TERMINAL_TOOL_TURNS, ProcessActor, TerminalCardProcessorActor, readActorSnapshots, readProcessEvidence, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
+import { CardActor, MAX_TERMINAL_PROCESS_ACTORS, ProcessActor, TerminalCardProcessorActor, readActorSnapshots, readProcessEvidence, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
 import type { LlmCompleteResult } from '../../../src/agents/llm-contracts.js';
 
@@ -176,14 +176,14 @@ describe('TerminalCardProcessorActor', () => {
     await eventually(() => expect(readProcessEvidence(projectRoot, 'P-kill')).toMatchObject({ processId: 'P-kill', killReason: 'executor requested kill', signal: 'SIGTERM' }));
   }));
 
-  it('accepts a terminal executor result produced by the final allowed tool append', async () => withTempProject(async (projectRoot) => {
+  it('keeps processing executor tool calls until a terminal result is produced', async () => withTempProject(async (projectRoot) => {
     const { card } = setup(projectRoot);
     let executorTurns = 0;
     const provider: LLMProviderPort = {
       completeTurn: jest.fn(async () => {
         executorTurns++;
-        if (executorTurns <= MAX_TERMINAL_TOOL_TURNS) return { kind: 'tool_calls' as const, tool_calls: [{ id: `inspect-${executorTurns}`, type: 'function' as const, function: { name: 'inspect_process', arguments: JSON.stringify({ processId: 'missing' }) } }] };
-        return executorResult(card.id, 'done at boundary');
+        if (executorTurns <= 25) return { kind: 'tool_calls' as const, tool_calls: [{ id: `inspect-${executorTurns}`, type: 'function' as const, function: { name: 'inspect_process', arguments: JSON.stringify({ processId: 'missing' }) } }] };
+        return executorResult(card.id, 'done after many tools');
       }),
     };
     const processor = new TerminalCardProcessorActor({ projectRoot, cardId: card.id, provider });
@@ -191,26 +191,8 @@ describe('TerminalCardProcessorActor', () => {
 
     const outcome = await processor.activate({ card, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: noopNotificationDelivery() });
 
-    expect(outcome).toMatchObject({ status: 'done', summary: 'done at boundary' });
-    expect(executorTurns).toBe(MAX_TERMINAL_TOOL_TURNS + 1);
-  }));
-
-  it('fails the executor budget when the final allowed tool append is non-terminal', async () => withTempProject(async (projectRoot) => {
-    const { card } = setup(projectRoot);
-    let executorTurns = 0;
-    const provider: LLMProviderPort = {
-      completeTurn: jest.fn(async () => {
-        executorTurns++;
-        return { kind: 'tool_calls' as const, tool_calls: [{ id: `inspect-${executorTurns}`, type: 'function' as const, function: { name: 'inspect_process', arguments: JSON.stringify({ processId: 'missing' }) } }] };
-      }),
-    };
-    const processor = new TerminalCardProcessorActor({ projectRoot, cardId: card.id, provider });
-    processor.start();
-
-    const outcome = await processor.activate({ card, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: noopNotificationDelivery() });
-
-    expect(outcome).toMatchObject({ status: 'failed', summary: 'Executor exceeded terminal turn budget.', result: { kind: 'executor_failure', error: 'Executor exceeded terminal turn budget.' } });
-    expect(executorTurns).toBe(MAX_TERMINAL_TOOL_TURNS + 1);
+    expect(outcome).toMatchObject({ status: 'done', summary: 'done after many tools' });
+    expect(executorTurns).toBe(26);
     const llmSnapshot = readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === `executor:${card.id}`);
     expect(llmSnapshot).toMatchObject({ state_value: 'idle', context: { active_reconstruction: null } });
   }));

@@ -25,6 +25,21 @@ function writeMessages(projectRoot: string, sessionId: string, messages: Array<R
   writeFileSync(filePath, stamped.map((m) => JSON.stringify(m)).join('\n') + '\n');
 }
 
+function writeEncodedMessages(projectRoot: string, sessionId: string, messages: Array<Record<string, unknown>>): void {
+  mkdirSync(join(projectRoot, '.saivage', 'agents', 'messages'), { recursive: true });
+  const filePath = join(projectRoot, '.saivage', 'agents', 'messages', `${encodeURIComponent(sessionId)}.jsonl`);
+  const stamped = messages.map((message, index) => ({
+    id: `msg-${sessionId}-${index + 1}`,
+    session_id: sessionId,
+    kind: 'text',
+    round_id: `r-${message['role'] === 'system' ? 'pre' : 'assistant'}-${(index + 1).toString(16).padStart(32, '0')}`,
+    message_index: index,
+    block_index: 0,
+    ...message,
+  }));
+  writeFileSync(filePath, stamped.map((m) => JSON.stringify(m)).join('\n') + '\n');
+}
+
 function writeManifest(projectRoot: string, sessionId: string, manifest: Record<string, unknown>): void {
   mkdirSync(join(projectRoot, '.saivage', 'agents', 'sessions'), { recursive: true });
   writeFileSync(join(projectRoot, '.saivage', 'agents', 'sessions', `${sessionId}.json`), JSON.stringify({ id: sessionId, status: 'inactive', started_at: '2026-01-01T00:00:00.000Z', ...manifest }, null, 2));
@@ -272,6 +287,23 @@ describe('GET /api/agents/:id', () => {
       content: 'contract-backed entry',
     });
     expect(body['activity_status']).toEqual({ status: 'idle', pending_calls: [], updated_at: new Date(0).toISOString() });
+  });
+
+  it('exposes encoded actor-runtime message logs including initial system prompts', async () => {
+    const sessionId = 'planner:card-1';
+    writeEncodedMessages(projectRoot, sessionId, [
+      { timestamp: '2026-05-01T00:00:00.000Z', role: 'system', kind: 'system_prompt', content: 'Plan and coordinate card card-1' },
+      { timestamp: '2026-05-01T00:00:01.000Z', role: 'system', kind: 'activity', content: '{"event":"llm_turn_started"}' },
+    ]);
+
+    const listRes = await app.inject({ method: 'GET', url: '/api/agents', headers: authHdr() });
+    expect(listRes.statusCode).toBe(200);
+    expect(listRes.json<{ sessions: Array<{ id: string }> }>().sessions.map((session) => session.id)).toContain(sessionId);
+
+    const res = await app.inject({ method: 'GET', url: `/api/agents/${encodeURIComponent(sessionId)}/conversation`, headers: authHdr() });
+    expect(res.statusCode).toBe(200);
+    const entries = res.json<{ entries: Array<Record<string, unknown>> }>().entries;
+    expect(entries[0]).toMatchObject({ session_id: sessionId, role: 'system', kind: 'system_prompt', content: 'Plan and coordinate card card-1' });
   });
 
   it('returns 404 for missing canonical conversation sessions', async () => {
