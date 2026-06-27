@@ -68,7 +68,8 @@ describe('GET /api/agents/:id', () => {
     const res = await app.inject({ method: 'GET', url: '/api/agents', headers: authHdr() });
     expect(res.statusCode).toBe(200);
     const sessions = res.json<{ sessions: Array<Record<string, unknown>> }>().sessions;
-    expect(sessions.map((session) => session['id'])).toEqual(['reviewer-list-new', 'planner-list-old']);
+    const persisted = sessions.filter((session) => session['id'] !== 'analyst');
+    expect(persisted.map((session) => session['id'])).toEqual(['reviewer-list-new', 'planner-list-old']);
     expect(sessions.find((session) => session['id'] === 'planner-list-old')).toMatchObject({
       role: 'planner',
       status: 'inactive',
@@ -79,6 +80,33 @@ describe('GET /api/agents/:id', () => {
       status: 'inactive',
       started_at: '2026-01-02T00:00:00.000Z',
     });
+    expect(sessions.find((session) => session['id'] === 'analyst')).toMatchObject({
+      role: 'analyst',
+      status: 'inactive',
+      started_at: new Date(0).toISOString(),
+    });
+  });
+
+  it('exposes the canonical analyst session before any persisted messages exist', async () => {
+    const listRes = await app.inject({ method: 'GET', url: '/api/agents', headers: authHdr() });
+    expect(listRes.statusCode).toBe(200);
+    expect(listRes.json<{ sessions: Array<{ id: string }> }>().sessions.some((session) => session.id === 'analyst')).toBe(true);
+
+    const detailRes = await app.inject({ method: 'GET', url: '/api/agents/analyst', headers: authHdr() });
+    expect(detailRes.statusCode).toBe(200);
+    expect(detailRes.json<{ session: Record<string, unknown> }>().session).toMatchObject({
+      id: 'analyst',
+      role: 'analyst',
+      status: 'inactive',
+      message_count: 0,
+      last_activity_at: new Date(0).toISOString(),
+    });
+
+    const conversationRes = await app.inject({ method: 'GET', url: '/api/agents/analyst/conversation', headers: authHdr() });
+    expect(conversationRes.statusCode).toBe(200);
+    const conversation = conversationRes.json<{ entries: unknown[]; session: Record<string, unknown> }>();
+    expect(conversation.session['id']).toBe('analyst');
+    expect(conversation.entries).toEqual([]);
   });
 
   it('filters non-canonical analyst list sessions while preserving canonical analyst', async () => {

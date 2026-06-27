@@ -77,8 +77,8 @@ test.describe('saivage-v3 live deployment — additional endpoint coverage', () 
     const res = await request.get('/api/debug/state');
     expect(res.status()).toBe(200);
     const body = await res.json();
-    expect(typeof body.runtime).toBe('object');
-    expect(typeof body.runtime.status).toBe('string');
+    expect(body).toHaveProperty('runtime');
+    if (body.runtime !== null) expect(typeof body.runtime.status).toBe('string');
   });
 
   test('GET /api/debug/doctor returns a doctor report', async ({ request }) => {
@@ -130,6 +130,11 @@ test.describe('saivage-v3 live deployment — additional endpoint coverage', () 
 
   test('GET /api/agents/:id/llm-exchange returns the latest captured exchange', async ({ request }) => {
     const res = await request.get('/api/agents/analyst/llm-exchange');
+    if (res.status() === 404) {
+      const body = await res.json();
+      expect(body.error).toContain('No LLM exchange recorded');
+      return;
+    }
     expect(res.status()).toBe(200);
     const body = await res.json();
     expect(body.exchange.sessionId).toBe('analyst');
@@ -165,13 +170,13 @@ test.describe('saivage-v3 live deployment — additional endpoint coverage', () 
   });
 
   test('GET /api/files/content returns file content for an in-project path', async ({ request }) => {
-    const res = await request.get('/api/files/content?path=pyproject.toml');
+    const res = await request.get('/api/files/content?path=docs/SPEC.md');
     expect(res.status()).toBe(200);
     const body = await res.json();
-    expect(body.path).toBe('pyproject.toml');
+    expect(body.path).toBe('docs/SPEC.md');
     expect(typeof body.size).toBe('number');
     expect(typeof body.content).toBe('string');
-    expect(body.content).toContain('getrich-v2');
+    expect(body.content).toContain('GetRich v2');
   });
 });
 

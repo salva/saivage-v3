@@ -29,7 +29,7 @@ export class AgentOperatorReadModelService {
   }
 
   listSessions(): { sessions: AgentOperatorSessionSummary[] } {
-    const sessionIds = new Set<string>(this.repository.listKnownSessionIds());
+    const sessionIds = new Set<string>([GLOBAL_OPERATOR_AGENT_SESSION_ID, ...this.repository.listKnownSessionIds()]);
     const state = readRuntimeState(this.projectRoot);
     const sessions = Array.from(sessionIds)
       .map((sessionId) => this.buildSessionSummary(sessionId, state))
@@ -43,7 +43,7 @@ export class AgentOperatorReadModelService {
     const manifest = this.readManifest(sessionId);
     const messages = this.readConversationEntries(sessionId);
     if (this.isNonCanonicalAnalystSession(sessionId, manifest)) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
-    if (!manifest && messages.length === 0) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
+    if (!manifest && messages.length === 0 && sessionId !== GLOBAL_OPERATOR_AGENT_SESSION_ID) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
     const base = this.buildSessionSummary(sessionId, readRuntimeState(this.projectRoot)) ?? {
       id: sessionId,
       role: this.parseRole(sessionId),
@@ -62,7 +62,7 @@ export class AgentOperatorReadModelService {
     if (this.isNonCanonicalAnalystSession(sessionId, manifest)) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
     const messages = this.readConversationEntries(sessionId);
     const session = this.buildSessionSummary(sessionId, readRuntimeState(this.projectRoot));
-    if (!session || (messages.length === 0 && !manifest)) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
+    if (!session || (messages.length === 0 && !manifest && sessionId !== GLOBAL_OPERATOR_AGENT_SESSION_ID)) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
     const activity_status = this.runtimeApi?.getActivityStatus(sessionId) ?? { status: 'idle' as const, pending_calls: [], updated_at: new Date(0).toISOString() };
     return { body: { session, entries: messages, activity_status } };
   }

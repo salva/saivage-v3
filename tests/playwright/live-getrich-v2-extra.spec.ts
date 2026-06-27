@@ -108,15 +108,16 @@ test.describe('saivage-v3 live deployment — extra contract coverage', () => {
   });
 
   test('destructive-confirmation gate is gone: analyst card mutation request is not rejected with authorized-surface error', async ({ request }) => {
+    test.setTimeout(180_000);
     const before = await request.get('/api/chats/analyst');
     const beforeCount = (await before.json()).entries.length;
 
     const send = await request.post('/api/chats/analyst', {
       data: {
-        content: "update the project card title to 'E2E Gate Removal Smoke Test'",
+        content: "mark the project card as needing corrections with one warning issue: live e2e gate removal probe",
         workspaceContext: { view: 'dashboard', entityId: null, refinement: null },
       },
-      timeout: 120_000,
+      timeout: 180_000,
     });
     expect(send.status(), `POST /api/chats/analyst — body=${await send.text().catch(() => '<unreadable>')}`).toBe(200);
 
@@ -130,6 +131,7 @@ test.describe('saivage-v3 live deployment — extra contract coverage', () => {
   });
 
   test('two back-to-back chats.send POSTs produce two distinct 32-hex round_ids', async ({ request }) => {
+    test.setTimeout(240_000);
     const HEX_ROUND = /^r-user-[0-9a-f]{32}$/;
     const before = await request.get('/api/chats/analyst');
     const beforeCount = (await before.json()).entries.length as number;

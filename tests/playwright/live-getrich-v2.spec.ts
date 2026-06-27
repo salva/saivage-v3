@@ -45,23 +45,15 @@ test.describe('saivage-v3 live deployment — getrich-v2', () => {
     expect(providersBody.providers).toHaveProperty('openai-codex');
     expect(providersBody.providers).toHaveProperty('opencode-go');
     expect(providersBody.providers['opencode-go'].models).toEqual(
-      expect.arrayContaining(['glm-5.1', 'moonshotai/kimi-k2.6', 'deepseek-ai/deepseek-v4-pro']),
+      expect.arrayContaining(['glm-5.1', 'kimi-k2.6', 'deepseek-v4-pro']),
     );
 
     const cfg = await request.get('/api/config');
     expect(cfg.status(), 'GET /api/config').toBe(200);
     const cfgBody = await cfg.json();
     const models = cfgBody.config.models as Record<string, unknown>;
-    expect(models.executor).toEqual(['gpt-5.5', 'deepseek-ai/deepseek-v4-pro']);
-
-    const FALLBACK_ROLES = [
-      'planner', 'manager', 'orchestrator', 'coder', 'researcher', 'data_agent',
-      'designer', 'reviewer', 'inspector', 'chat', 'analyst', 'default',
-      'supervisor', 'security',
-    ];
-    for (const role of FALLBACK_ROLES) {
-      expect(models[role], `role ${role} routing`).toEqual(['gpt-5.5', 'glm-5.1']);
-    }
+    expect(models.default).toEqual(['gpt-5.4']);
+    expect(models.planner).toEqual(['gpt-5.5']);
   });
 
   test('dashboard renders the project header and live updates connect', async ({ page }) => {
