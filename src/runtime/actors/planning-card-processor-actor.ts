@@ -72,21 +72,13 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const contract = createPlannerContract();
     const llm = this.createMainLlm(plannerActorId(this.cardId));
     let outcome = await llm.turn(this.buildLlmInput(input, contract));
-    for (let turn = 0; turn < 20; turn++) {
+    while (true) {
       if (outcome.type === 'result') return this.plannerFailure(`${expectedTerminalToolMessage(contract)} Plain planner messages are not accepted as terminal results.`);
       if (outcome.type === 'error') return this.plannerFailure(outcome.error);
       if (contract.isTerminalToolName(outcome.toolName)) return this.projectPlannerTerminal(input, outcome, contract);
       const toolResult = await this.handleToolCall(input.card, outcome);
       outcome = await llm.appendToolResult(outcome.toolCallId, toolResult, (inputId) => this.notificationContextMessages(input, inputId));
     }
-    return this.projectPlannerBudgetExit(input, outcome, contract);
-  }
-
-  private async projectPlannerBudgetExit(input: CardActivationInput, outcome: LLMActorOutcome, contract = createPlannerContract()): Promise<PlannerProcessorOutcome> {
-    if (outcome.type === 'error') return this.plannerFailure(outcome.error);
-    if (outcome.type === 'result') return this.plannerFailure(`${expectedTerminalToolMessage(contract)} Plain planner messages are not accepted as terminal results.`);
-    if (contract.isTerminalToolName(outcome.toolName)) return this.projectPlannerTerminal(input, outcome, contract);
-    return this.plannerFailure('Planner exceeded turn budget.');
   }
 
   private buildLlmInput(input: CardActivationInput, contract = createPlannerContract()): LlmInvocationInput {

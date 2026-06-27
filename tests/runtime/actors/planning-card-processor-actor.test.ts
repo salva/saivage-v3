@@ -463,7 +463,7 @@ describe('PlanningCardProcessorActor', () => {
     expect(provider.completeTurn).toHaveBeenCalledTimes(1);
   }));
 
-  it('accepts a terminal planner result produced by the final allowed tool append', async () => withTempProject(async (projectRoot) => {
+  it('continues planner tool calls past the previous 20-turn budget', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     const project = createProject(store);
@@ -472,8 +472,8 @@ describe('PlanningCardProcessorActor', () => {
       completeTurn: jest.fn(async (input: LlmInvocationInput) => {
         if (input.role === 'reviewer') return reviewerResult({ evidence_card_ids: [] });
         plannerTurns++;
-        if (plannerTurns <= 20) return { kind: 'tool_calls' as const, tool_calls: [{ id: `activate-${plannerTurns}`, type: 'function' as const, function: { name: 'activate_card', arguments: JSON.stringify({ card_id: '' }) } }] };
-        return plannerResult('blocked', 'blocked at boundary');
+        if (plannerTurns <= 25) return { kind: 'tool_calls' as const, tool_calls: [{ id: `activate-${plannerTurns}`, type: 'function' as const, function: { name: 'activate_card', arguments: JSON.stringify({ card_id: '' }) } }] };
+        return plannerResult('blocked', 'blocked after extended planning');
       }),
     };
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
@@ -481,29 +481,9 @@ describe('PlanningCardProcessorActor', () => {
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
 
-    expect(outcome).toMatchObject({ status: 'blocked', summary: 'blocked at boundary', result: { kind: 'planner_blocked' } });
-    expect(plannerTurns).toBe(21);
-    expect(provider.completeTurn).toHaveBeenCalledTimes(21);
-  }));
-
-  it('fails the planner budget when the final allowed tool append is non-terminal', async () => withTempProject(async (projectRoot) => {
-    initProjectTree(projectRoot);
-    const store = new CardStore(projectRoot);
-    const project = createProject(store);
-    let plannerTurns = 0;
-    const provider: LLMProviderPort = {
-      completeTurn: jest.fn(async () => {
-        plannerTurns++;
-        return { kind: 'tool_calls' as const, tool_calls: [{ id: `activate-${plannerTurns}`, type: 'function' as const, function: { name: 'activate_card', arguments: JSON.stringify({ card_id: '' }) } }] };
-      }),
-    };
-    const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
-    actor.start();
-
-    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
-
-    expect(outcome).toMatchObject({ status: 'failed', summary: 'Planner exceeded turn budget.', result: { kind: 'planner_failure', error: 'Planner exceeded turn budget.' } });
-    expect(plannerTurns).toBe(21);
+    expect(outcome).toMatchObject({ status: 'blocked', summary: 'blocked after extended planning', result: { kind: 'planner_blocked' } });
+    expect(plannerTurns).toBe(26);
+    expect(provider.completeTurn).toHaveBeenCalledTimes(26);
   }));
 
   it('does not accept plain reviewer message JSON as terminal assessment', async () => withTempProject(async (projectRoot) => {
