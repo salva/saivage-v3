@@ -18,9 +18,10 @@ function message(kind: MessageKind): AgentMessage {
 }
 
 describe('agent message model visibility', () => {
-  it('keeps recovery, repair, compaction, and tool messages model-visible while excluding model_issue', () => {
+  it('keeps recovery, repair, compaction, and tool messages model-visible while excluding debug-only messages', () => {
     const messages = [
       message('model_issue'),
+      message('system_prompt'),
       message('model_recovered'),
       message('model_repair'),
       message('context_compaction'),
@@ -30,6 +31,7 @@ describe('agent message model visibility', () => {
     ];
 
     expect(isAgentMessageVisibleToModel(messages[0])).toBe(false);
+    expect(isAgentMessageVisibleToModel(messages[1])).toBe(false);
     expect(filterAgentMessagesForModel(messages).map((item) => item.kind)).toEqual([
       'model_recovered',
       'model_repair',

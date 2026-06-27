@@ -22,7 +22,7 @@ import {
 import type { EventLogger } from '../observability/index.js';
 import { createContractVerifier } from './contract-verifier.js';
 import { createAgentLoopDriver, type AgentLoopDriverIO } from './agent-loop-driver.js';
-import { appendMessage as appendPersistentMessage, assertNoActiveAgentSession } from './session-persistence.js';
+import { appendMessage as appendPersistentMessage, appendSystemPromptMessageIfMissing, assertNoActiveAgentSession } from './session-persistence.js';
 import { updateSessionModel } from './session-persistence.js';
 import { AttemptRecorder } from './attempt-recorder.js';
 import { PlannerEnvelopeTracker } from './planner-envelope-tracker.js';
@@ -122,6 +122,7 @@ export class AgentInvocationRunner {
     const session = this.config.sessionLifecycle.create(role as import('../schemas/types.js').AgentRole, goalId, cardId, requestedSessionId, assessmentId);
     await this.config.sessionLifecycle.notifyCreated(session.id);
     this.config.sessionLifecycle.publishStarted(session.id, role as import('../schemas/types.js').AgentRole, goalId, cardId);
+    appendSystemPromptMessageIfMissing(this.config.saivageDir, session.id, systemPrompt);
     for (const msg of contextMessages)
       appendPersistentMessage(
         this.config.saivageDir,

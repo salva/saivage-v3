@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import type { LlmCallFn } from '../../src/agents/llm-contracts.js';
-import { createSession, ConcurrentAgentSessionError, getSession, listSessions, markSessionWaiting } from '../../src/agents/session-persistence.js';
+import { createSession, ConcurrentAgentSessionError, getSession, getSessionMessages, listSessions, markSessionWaiting } from '../../src/agents/session-persistence.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import { createExecutorContract } from '../../src/contracts/executor-contract.js';
 import { createPlannerContract } from '../../src/contracts/planner-contract.js';
@@ -134,5 +134,14 @@ describe('AgentAdapter dispatch precondition', () => {
     expect(result.status).toBe('done');
     expect(llmCallFn).toHaveBeenCalledTimes(1);
     expect(listSessions(join(tmpDir, '.saivage'))).toHaveLength(1);
+  });
+
+  it('persists the outbound system prompt as the first debug-visible message without duplicating it into model context', async () => {
+    const result = await adapter.invokePlanner(plannerRequest('goal-1', 'planner system prompt'));
+
+    expect(result.status).toBe('done');
+    const messages = getSessionMessages(join(tmpDir, '.saivage'), 'planner:goal-1');
+    expect(messages[0]).toMatchObject({ role: 'system', kind: 'system_prompt', content: 'planner system prompt' });
+    expect(llmCallFn.mock.calls[0]?.[2].some((message) => message.kind === 'system_prompt')).toBe(false);
   });
 });

@@ -287,6 +287,22 @@ export function appendMessage(
   return msg;
 }
 
+export function appendSystemPromptMessageIfMissing(
+  saivageDir: string,
+  sessionId: string,
+  systemPrompt: string,
+  appendRecorder?: RuntimeAppendRecorder,
+): AgentMessage | null {
+  if (getSessionMessages(saivageDir, sessionId).some((message) => message.kind === 'system_prompt')) return null;
+  return appendMessage(
+    saivageDir,
+    sessionId,
+    { role: 'system', kind: 'system_prompt', content: systemPrompt },
+    { round_id: generateRoundId('pre'), message_index: 0, block_index: 0 },
+    appendRecorder,
+  );
+}
+
 export function getSessionMessages(
   saivageDir: string,
   sessionId: string,

@@ -20,7 +20,7 @@ import type { McpManager } from '../mcp/manager-api.js';
 import type { ActorRole } from './authz.js';
 import { sanitizeAnalystText } from '../agents/analyst-sanitization.js';
 import { ContextCompactor } from './context-compactor.js';
-import { appendMessage } from './session-persistence.js';
+import { appendMessage, appendSystemPromptMessageIfMissing } from './session-persistence.js';
 import { AgentSessionRepository, GLOBAL_ANALYST_SESSION_ID } from './agent-session-repository.js';
 import { generateRoundId } from '../schemas/round-id-server.js';
 import { ANALYST_PARTIAL_SUCCESS_TEMPLATE, ANALYST_UNSUPPORTED_ACTION_TEMPLATE } from './analyst-tool-runner.js';
@@ -251,6 +251,8 @@ export class AnalystHandler {
     this.runtimeDeps.stamper.openAssistantRound(sessionId);
     const toolInvocations: NonNullable<AnalystResponse['toolInvocations']> = [];
     const projectContext = this.buildProjectContext();
+    const systemPrompt = `${getAnalystSystemPrompt()}\n\n${projectContext}`;
+    appendSystemPromptMessageIfMissing(saivageDir(this.projectRoot), sessionId, systemPrompt, this.runtimeDeps.stamper);
     const ctx: ToolContext = { projectRoot: this.projectRoot, store: this.runtimeDeps.cardStore, sessionId, runtime: this.runtimeDeps.runtime, mcpManager: this.runtimeDeps.mcpManager, requestServerRestart: this.requestServerRestart, actor: this.actor, surface: this.surface, eventBus: this.runtimeDeps.eventBus };
     const previousToolCallFingerprints = new Set<string>();
 
@@ -286,7 +288,7 @@ export class AnalystHandler {
         llmResult = await this.invocationService.invokeWithRecovery({
           role: 'analyst',
           sessionId,
-          systemPrompt: `${getAnalystSystemPrompt()}\n\n${projectContext}`,
+          systemPrompt,
           contextMessages: modelInput,
           tools,
           terminalToolNames: [],
