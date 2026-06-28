@@ -74,7 +74,7 @@ For example:
 
 The slot name comes from the record filename without its extension. `review.md` writes to the `review/` slot, and `status.md` writes to the `status/` slot. This makes versions independent per record type: a new review does not advance the status slot, and a new status record does not advance the review slot.
 
-The current writable version is slot-local. A new version is created only when a write asks for `v=next` and the current version for that slot is already closed. Closing happens when an agent calls its terminal `emit_*` tool and the runtime accepts the declared record file as that agent's output. Blocked activations, parent retries, and missing-file repair attempts do not create new versions unless they need a fresh writable slot after a previous emitted version was closed.
+The current writable version is slot-local. A new version is created only when a write asks for `v=next` and the current version for that slot is already closed or discarded. Closing happens when an agent calls its terminal `emit_*` tool and the runtime accepts the declared record file as that agent's output. Blocked activations, parent retries, and missing-file repair attempts do not create new versions unless they need a fresh writable slot after a previous emitted version was closed or discarded.
 
 Examples:
 
@@ -374,7 +374,7 @@ runtime checks mandatory concrete record URL(s) exist and are non-empty
     for reviewer results, first check currentness:
       compare currentness snapshot with current subtree/record versions
       if anything changed during review, reject the result as stale
-      do not close the stale review slot version
+      discard the stale open review slot version without advancing latest
       relaunch reviewer with fresh context or route to planner
       if relaunch budget exhausted, fail activation with runtime diagnostic
     accept terminal result
@@ -403,12 +403,13 @@ Each slot index is persisted next to the slot files:
   "open": null,
   "versions": {
     "1": { "status": "closed", "closed_at": "..." },
-    "2": { "status": "closed", "closed_at": "..." }
+    "2": { "status": "discarded", "discarded_at": "...", "reason": "stale_review" },
+    "3": { "status": "open", "opened_at": "..." }
   }
 }
 ```
 
-When a write requests `v=next`, the runtime reads the slot index. If there is an open version, it returns that concrete URL. If there is no open version, it creates `latest + 1`, marks it open, and returns the concrete URL. It marks the version closed only after a terminal `emit_*` call selects an existing non-empty file as the accepted record. The files themselves are durable on disk under `.saivage/outputs/cards/{cardId}/{slot}/`.
+When a write requests `v=next`, the runtime reads the slot index. If there is an open version, it returns that concrete URL. If there is no open version, it creates the next unused version number, marks it open, and returns the concrete URL. It marks the version closed only after a terminal `emit_*` call selects an existing non-empty file as the accepted record. A stale reviewer record is marked `discarded`, clears `open`, and does not advance `latest`; the next `v=next` write creates the next unused version number instead of reusing stale content. The files themselves are durable on disk under `.saivage/outputs/cards/{cardId}/{slot}/`.
 
 ## Crash Recovery
 
@@ -527,9 +528,9 @@ This is simpler than the current artifacts/attachments UI.
 3. All file tools enforce `checkAgentWrite(url, role, currentCardId)` before writing.
 4. Reviewer can write only `record://review.md?v=next`, plus `tmp://{currentCardId}/...`; any other `record://` write or any `project://` write is hard-rejected.
 5. Planner can write `record://status.md?v=next` and `tmp://{currentCardId}/...`; it cannot write project files, another card's tmp dir, or another card's record.
-7. All roles can read any closed `record://`, any `tmp://`, and allowed `project://` paths. The owning agent may also read its own open slot version for in-place edits.
-8. Keep terminal tools role-specific.
-9. Tests: reviewer can write its declared `review` slot and receives a normalized concrete record URL; reviewer cannot write other record slots; reviewer cannot write `project://`; planner can read prior reviews by concrete `record://review.md?v=N&card=...` URL; planner cannot overwrite closed reviews; all roles can write only current-card `tmp://` scratch; owning agent can read its own open slot version.
+6. All roles can read any closed `record://`, any `tmp://`, and allowed `project://` paths. The owning agent may also read its own open slot version for in-place edits.
+7. Keep terminal tools role-specific.
+8. Tests: reviewer can write its declared `review` slot and receives a normalized concrete record URL; reviewer cannot write other record slots; reviewer cannot write `project://`; planner can read prior reviews by concrete `record://review.md?v=N&card=...` URL; planner cannot overwrite closed reviews; all roles can write only current-card `tmp://` scratch; owning agent can read its own open slot version.
 
 ### Phase 3: Reviewer mandatory output + descendant context
 
@@ -539,7 +540,7 @@ This is simpler than the current artifacts/attachments UI.
 4. Capture a reviewer currentness snapshot: reviewed subtree card versions/statuses and latest closed versions for the record slots included in context.
 5. After reviewer writes the file, capture the normalized concrete URL returned by the file tool.
 6. After reviewer terminal tool call, check `review.md` exists at the normalized concrete URL.
-7. Before accepting or closing the review, compare the currentness snapshot with current subtree/record versions. If anything changed, reject the result as stale and relaunch the reviewer with fresh context — do not close the stale slot version.
+7. Before accepting or closing the review, compare the currentness snapshot with current subtree/record versions. If anything changed, reject the result as stale, discard the stale open review slot version without advancing `latest`, and relaunch the reviewer with fresh context.
 8. Remove the existing standalone notification-pending invalidation logic; currentness subsumes it.
 9. If the review file is missing, use the existing `LLMToolContinuationContextHook` to inject: "Required file record://review.md?v=next was not created. Create it and call emit_reviewer_result again."
 10. Use separate budgets: repair budget (2) for missing-file same-session repair; relaunch budget (2) for currentness-driven fresh invocations. On exhaustion of the relevant budget, fail with runtime diagnostic.
