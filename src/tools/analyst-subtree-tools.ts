@@ -60,7 +60,7 @@ export async function restart_goal(ctx: ToolContext, params: { goalId: string })
 }
 
 export const analystSubtreeTools: readonly UnifiedToolDefinition<string, any>[] = [
-  { name: 'abort_goal_subtree', description: 'Abort a goal and all descendants.', input: z.object({ goalId: describe(z.string(), 'The ID of the goal card to abort.') }).strict(), roles: ['analyst'], executor: abort_goal_subtree },
-  { name: 'restart_card_or_subtree', description: 'Restart a completed, failed, or cancelled card or goal subtree.', input: z.object({ id: describe(z.string(), 'The ID of the card/goal to restart.') }).strict(), roles: ['analyst'], executor: restart_card_or_subtree },
-  { name: 'restart_goal', description: 'Restart a goal.', input: z.object({ goalId: describe(z.string(), 'The ID of the goal card to restart.') }).strict(), roles: ['analyst'], executor: restart_goal },
+  { name: 'abort_goal_subtree', description: 'Abort a goal and all descendants.', input: z.object({ goalId: describe(z.string(), 'The ID of the goal card to abort.') }).strict(), roles: [], executor: abort_goal_subtree },
+  { name: 'restart_card_or_subtree', description: 'Restart a completed, failed, or cancelled card or goal subtree.', input: z.object({ id: describe(z.string(), 'The ID of the card/goal to restart.') }).strict(), roles: [], executor: restart_card_or_subtree },
+  { name: 'restart_goal', description: 'Restart a goal.', input: z.object({ goalId: describe(z.string(), 'The ID of the goal card to restart.') }).strict(), roles: [], executor: restart_goal },
 ] as const;

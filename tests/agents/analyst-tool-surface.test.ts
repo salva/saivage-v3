@@ -64,9 +64,10 @@ describe('Tool inventory mirrors SPEC-r7 capability classes', () => {
     const names = Object.keys(TOOL_REGISTRY).sort();
     expect(ANALYST_TOOL_DEFINITIONS.map((tool) => tool.function.name).sort()).toEqual(names);
     for (const retired of RETIRED_NOTE_TOOLS) expect(names).not.toContain(retired);
-    for (const required of ['start_project','stop_project','terminate_process','queue_notification','reorder_child','navigate_workspace','navigate_back','show_config','restart_server','reconfigure','abort_goal_subtree','restart_card_or_subtree']) expect(names).toContain(required);
+    for (const required of ['start_project','stop_project','terminate_process','queue_notification','edit_card','navigate_workspace','navigate_back','show_config','restart_server','reconfigure']) expect(names).toContain(required);
+    for (const removed of ['create_card','delete_card','reorder_child','abort_goal_subtree','restart_card_or_subtree','restart_goal','mark_goal_needs_corrections']) expect(names).not.toContain(removed);
     const prompt = getAnalystSystemPrompt();
-    for (const capability of ['Inspect','Navigate the workspace area','Mutate cards','Queue notifications','Control the runtime','Reconfigure','Investigate and repair']) expect(prompt).toContain(capability);
+    for (const capability of ['Inspect','Navigate the workspace area','Edit card objectives','Queue notifications','Control the runtime','Reconfigure','Investigate and repair']) expect(prompt).toContain(capability);
   });
 });
 
@@ -105,7 +106,7 @@ describe('Contract C2 partial-success reporting', () => {
   });
 
   afterEach(() => { jest.restoreAllMocks(); });
-  it('emits the literal C2 text after destructive fan-out without an out-of-band confirmation', async () => {
+  it('rejects destructive card fan-out as unsupported for the Analyst', async () => {
     const root = setupRoot();
     let procId: string | undefined;
     try {
@@ -118,7 +119,8 @@ describe('Contract C2 partial-success reporting', () => {
       jest.spyOn(globalThis, 'fetch').mockImplementation(async () => toolResponse('delete_card', { ids: codeIds }));
       const handler = new AnalystHandler(root, createTestAnalystRuntime({ cardStore: new CardStore(root) }));
       const response = await handler.handleMessage('s-c2', 'delete code cards');
-      expect(response.message.content).toContain(`Partial success: 2 of 3 succeeded. Failed: ${codeIds[1]}. Reasons: delete_card denied by permission matrix`);
+      expect(response.message.content).toContain('That action is not supported by the Analyst on this surface.');
+      expect(response.toolInvocations ?? []).toHaveLength(0);
     } finally { if (procId) await killProcess(root, procId, 'SIGTERM'); rmSync(root, { recursive: true, force: true }); }
   });
 });

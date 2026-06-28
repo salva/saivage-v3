@@ -47,6 +47,8 @@ import {
   createTestRuntimeApplication,
 } from './helpers/test-runtime-application.js';
 import { markGoalNeedsCorrections } from '../src/agents/analyst-stage6.js';
+import { createSession } from '../src/runtime/session-persistence.js';
+import { getProjectNotificationCenter } from '../src/notifications/notification-delivery.js';
 
 function uniqueDir(): string {
   return join(
@@ -181,7 +183,13 @@ describe('Analyst Tool Definitions', () => {
     const toolNames = ANALYST_TOOL_DEFINITIONS.map((tool) => tool.function.name);
     expect(toolNames).not.toContain('create_plan');
     expect(toolNames).not.toContain('update_plan');
-    expect(toolNames).toContain('create_card');
+    expect(toolNames).not.toContain('create_card');
+    expect(toolNames).not.toContain('delete_card');
+    expect(toolNames).not.toContain('reorder_child');
+    expect(toolNames).not.toContain('restart_goal');
+    expect(toolNames).not.toContain('restart_card_or_subtree');
+    expect(toolNames).toContain('edit_card');
+    expect(toolNames).toContain('queue_notification');
     expect(toolNames).toContain('list_card_history');
   });
 
@@ -206,26 +214,12 @@ describe('Analyst Tool Definitions', () => {
     expect([...ANALYST_ISSUE_SEVERITY_VALUES]).toEqual(['info', 'warning', 'blocker']);
   });
 
-  it('emits enum JSON schema constraints and guidance for card, list, notification, and corrections tools', () => {
-    const createProps = propertiesFor('create_card');
-    expect(createProps.type.enum).toEqual([...CREATE_CARD_TYPE_VALUES]);
-    expect(createProps.type.enum).toContain('project');
-    expect(createProps.status.enum).toEqual([...CARD_STATUS_VALUES]);
-    expect(createProps.urgency.enum).toEqual([...URGENCY_VALUES]);
-    expect(createProps.parent.anyOf).toEqual([{ type: 'string' }, { type: 'null' }]);
-    expect(createProps.parent.description).toContain('Use null only when creating the root project card');
-    expect(createProps.status.description).toContain(
-      'Allowed values: backlog, running, blocked, changed, done, failed, cancelled, needs_verification.',
-    );
-    expect(toolByName('create_card').function.description).toContain('use edit_card');
-    expect(toolByName('create_card').function.description).toContain("parent 'project' for top-level goals");
-    expect(toolByName('create_card').function.description).toContain("There is no 'ready' status");
-
+  it('emits enum JSON schema constraints and guidance for card, list, and notification tools', () => {
     const editProps = propertiesFor('edit_card');
-    expect(editProps.status.enum).toEqual([...CARD_STATUS_VALUES]);
+    expect(editProps.status).toBeUndefined();
     expect(editProps.urgency.enum).toEqual([...URGENCY_VALUES]);
     expect(toolByName('edit_card').function.description).toContain(
-      "There is no 'ready' or 'todo' status",
+      'Edit the objectives/instructions of any existing card',
     );
 
     const listProps = propertiesFor('list_cards');
@@ -243,16 +237,6 @@ describe('Analyst Tool Definitions', () => {
     expect(listProps.type.enum).toBeUndefined();
 
     expect(toolByName('queue_notification').function.description).toContain('Queue a notification');
-
-    for (const name of ['mark_goal_needs_corrections']) {
-      const issues = propertiesFor(name).issues as {
-        items?: { properties?: Record<string, Record<string, unknown>> };
-      };
-      expect(issues.items?.properties?.severity.enum).toEqual([...ANALYST_ISSUE_SEVERITY_VALUES]);
-      expect(issues.items?.properties?.severity.description).toContain(
-        'Allowed values: info, warning, blocker.',
-      );
-    }
   });
 
   it('exports valid OpenAI-compatible ToolDefinition objects for LLM clients', () => {
@@ -505,6 +489,29 @@ describe('Analyst Tools', () => {
     expect(audit?.outcome).toBe('error');
     expect(audit?.outcome_summary).not.toContain('body that must not audit');
     expect(audit?.params_summary).not.toContain('body that must not audit');
+  });
+
+  it('allows analyst objective edits on any card and queues card-change notification', async () => {
+    createSession(join(projectRoot, '.saivage'), 'executor', 'card-1', 'card-2', undefined, 'executor-session');
+
+    const result = await edit_card(ctx(projectRoot, store), {
+      id: 'card-2',
+      description: 'Updated objective for this implementation card.',
+      acceptance: 'Updated acceptance criteria.',
+    });
+
+    expect(result.success).toBe(true);
+    expect(store.read('card-2')?.description).toBe('Updated objective for this implementation card.');
+    expect(getProjectNotificationCenter(projectRoot).drainPendingForSession('executor-session')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'analyst_edit', body: expect.stringContaining('description') }),
+    ]));
+  });
+
+  it('rejects analyst lifecycle/status edits while allowing objective edits', async () => {
+    const result = await edit_card(ctx(projectRoot, store), { id: 'card-2', status: 'done' });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Rejected fields: status');
   });
 
   it('audits analyst reorder_child with the calling surface', async () => {

@@ -9,6 +9,7 @@ import { processApi } from '../runtime/process-api.js';
 import { decide } from '../permissions/index.js';
 import { markGoalNeedsCorrections, normalizeAnalystIssues } from '../agents/analyst-stage6.js';
 import { propagateChange } from '../runtime/changed-propagation.js';
+import { queueNotification } from '../notifications/index.js';
 import { orderedCardsForTree, toCardView, computeCardDisplayPath } from '../application/read-models/card-view.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import {
@@ -51,16 +52,19 @@ const createCardInput = z.object({
   related: describe(cardIdArraySchema.optional(), 'Optional related-card list.'),
 }).strict();
 
-const editCardInput = z.object({
+const analystEditCardInput = z.object({
   id: describe(z.string(), 'The ID of the card to edit.'),
   title: describe(z.string().optional(), 'New title.'),
   description: describe(z.string().optional(), 'New description.'),
-  status: describe(cardStatusSchema.optional(), 'New status.'),
   tags: describe(z.array(describe(z.string(), 'A tag string')).optional(), 'New tags.'),
   priority: describe(z.number().int().optional(), 'New priority (0-100).'),
   urgency: describe(urgencySchema.optional(), 'New urgency level.'),
   acceptance: describe(z.string().optional(), 'New acceptance criteria.'),
   depends_on: describe(stringArraySchema.optional(), 'New dependency list.'),
+}).strict();
+
+const editCardInput = analystEditCardInput.extend({
+  status: describe(cardStatusSchema.optional(), 'New status.'),
 }).strict();
 
 const plannerCreateCardInput = z.object({
@@ -108,7 +112,8 @@ export async function create_card(ctx: ToolContext, params: { type: CardType; pa
   } });
 }
 
-const ALLOWED_EDIT_FIELDS = new Set(['title', 'description', 'status', 'tags', 'priority', 'urgency', 'acceptance', 'depends_on', 'related', 'estimate', 'subtype', 'assigned_to', 'result', 'metrics', 'started_at', 'completed_at', 'duration_ms', 'error', 'parent', 'type', 'instructions_file', 'attachments', 'artifacts']);
+const ANALYST_ALLOWED_EDIT_FIELDS = new Set(['title', 'description', 'tags', 'priority', 'urgency', 'acceptance', 'depends_on']);
+const PLANNER_ALLOWED_EDIT_FIELDS = new Set(['title', 'description', 'status', 'tags', 'priority', 'urgency', 'acceptance', 'depends_on', 'related', 'estimate', 'subtype', 'assigned_to', 'result', 'metrics', 'started_at', 'completed_at', 'duration_ms', 'error', 'parent', 'type', 'instructions_file', 'attachments', 'artifacts']);
 
 export async function edit_card(ctx: ToolContext, params: { id: string } & Record<string, unknown>): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, params, { action: 'card.update', safety_class: 'high', target_kind: 'card', getTargetId: (p) => p.id, preview: () => ({ type: 'edit_card', summary: `Edit card '${params.id}'.`, affectedCards: getStore(ctx).read(params.id) ? [cardSummary(getStore(ctx).read(params.id)!)] : [], affectedProcesses: [], warnings: [] }), run: async () => {
@@ -117,12 +122,15 @@ export async function edit_card(ctx: ToolContext, params: { id: string } & Recor
       const urgencyCheck = preflightEnum(params.urgency, URGENCY_VALUES, 'urgency', 'edit_card'); if (!urgencyCheck.ok) return { success: false, error: urgencyCheck.error, errorEnvelope: urgencyCheck.errorEnvelope };
       const typeCheck = preflightEnum(params.type, CARD_TYPE_VALUES, 'type', 'edit_card'); if (!typeCheck.ok) return { success: false, error: typeCheck.error, errorEnvelope: typeCheck.errorEnvelope };
       const store = getStore(ctx); const card = store.read(params.id); if (!card) return toolFailure('not_found', `Card '${params.id}' not found.`, { id: params.id });
+      const allowedFields = ctx.actor === 'analyst' ? ANALYST_ALLOWED_EDIT_FIELDS : PLANNER_ALLOWED_EDIT_FIELDS;
       const changes: Record<string, unknown> = {}; const rejected: string[] = [];
-      for (const [key, value] of Object.entries(params)) { if (key === 'id') continue; if (ALLOWED_EDIT_FIELDS.has(key)) changes[key] = value; else rejected.push(key); }
-      if (Object.keys(changes).length === 0) return toolFailure('validation', `edit_card failed: no allowed fields to update. Rejected fields: ${rejected.join(', ') || '(none)'}. Allowed fields include: ${Array.from(ALLOWED_EDIT_FIELDS).join(', ')}. See the 'edit_card' tool's parameter schema.`, { rejected });
+      for (const [key, value] of Object.entries(params)) { if (key === 'id') continue; if (allowedFields.has(key)) changes[key] = value; else rejected.push(key); }
+      if (Object.keys(changes).length === 0) return toolFailure('validation', `edit_card failed: no allowed fields to update. Rejected fields: ${rejected.join(', ') || '(none)'}. Allowed fields include: ${Array.from(allowedFields).join(', ')}. See the 'edit_card' tool's parameter schema.`, { rejected });
       const updated = store.mutateCard(params.id, changes as Partial<CardRecord>, { actor: ctx.actor, surface: ctx.surface, reason: 'analyst edit' });
       if (ctx.actor === 'analyst') {
-        try { propagateChange(ctx.projectRoot, store, params.id, { kind: 'analyst_edit', summary: `analyst edited card fields: ${Object.keys(changes).join(', ')}` }); } catch { /* best-effort planner notification; edit result remains authoritative */ }
+        const summary = `analyst edited card fields: ${Object.keys(changes).join(', ')}`;
+        try { queueNotification(ctx.projectRoot, { kind: 'card', cardId: params.id }, 'analyst_edit', summary, { actor: 'analyst', surface: ctx.surface }, store); } catch { /* best-effort notification; edit result remains authoritative */ }
+        try { propagateChange(ctx.projectRoot, store, params.id, { kind: 'analyst_edit', summary }); } catch { /* best-effort planner notification; edit result remains authoritative */ }
       }
       return { success: true, data: updated };
     } catch (err) { return toolFailureFromError(err, 'validation', humanizeToolError('edit_card', err instanceof Error ? err.message : String(err))); }
@@ -234,10 +242,10 @@ export async function reorder_child(ctx: ToolContext, params: { parentId: string
 }
 
 export const analystCardTools: readonly UnifiedToolDefinition<string, any>[] = [
-  { name: 'mark_goal_needs_corrections', description: 'Mark a goal/project subtree as needing corrections using canonical AnalystIssue entries.', input: markGoalNeedsCorrectionsInput, roles: ['analyst'], executor: mark_goal_needs_corrections },
-  { name: 'create_card', description: `Create a new card in the card tree. The first root project card must be created with type 'project' and parent null; after that, use edit_card with id 'project' to change project instructions. Use parent 'project' for top-level goals. Status defaults to 'backlog'. Card status is planner metadata only; it does not start runtime work. There is no 'ready' status.`, input: createCardInput, roles: ['analyst', 'planner'], executor: create_card, plannerControl: true, plannerInput: plannerCreateCardInput, plannerDescription: 'Create a direct child card under the current planner card. The parent is inferred from the planner session and cannot be supplied.' },
-  { name: 'edit_card', description: `Edit an existing card. Pass id plus only the fields you actually want to change. Card status is planner metadata only and never an execution trigger. Terminal statuses are done/failed/cancelled. There is no 'ready' or 'todo' status.`, input: editCardInput, roles: ['analyst', 'planner'], executor: edit_card, plannerControl: true, plannerInput: plannerEditCardInput, plannerDescription: 'Edit one immediate child of the current planner card. The target must be a direct child; parent/depth changes are not accepted.' },
-  { name: 'reorder_child', description: 'Reorder the children of a parent card.', input: z.object({ parentId: describe(z.string(), 'Parent whose children to reorder.'), orderedChildIds: describe(z.array(z.string()), 'New child id order; must be a permutation of the current child set.') }).strict(), roles: ['analyst', 'planner'], executor: reorder_child, plannerControl: true, plannerInput: z.object({ orderedChildIds: z.array(z.string()) }).strict(), plannerDescription: 'Reorder the immediate children of the current planner card. orderedChildIds must be a permutation of that child set.' },
+  { name: 'mark_goal_needs_corrections', description: 'Mark a goal/project subtree as needing corrections using canonical AnalystIssue entries.', input: markGoalNeedsCorrectionsInput, roles: [], executor: mark_goal_needs_corrections },
+  { name: 'create_card', description: `Create a new card in the card tree. The first root project card must be created with type 'project' and parent null; after that, use edit_card with id 'project' to change project instructions. Use parent 'project' for top-level goals. Status defaults to 'backlog'. Card status is planner metadata only; it does not start runtime work. There is no 'ready' status.`, input: createCardInput, roles: ['planner'], executor: create_card, plannerControl: true, plannerInput: plannerCreateCardInput, plannerDescription: 'Create a direct child card under the current planner card. The parent is inferred from the planner session and cannot be supplied.' },
+  { name: 'edit_card', description: `Edit the objectives/instructions of any existing card. Analyst edits are limited to objective text and metadata fields; they automatically queue change context to the edited card and upstream planner chain until active work observes it. Card status, type, parent, outputs, artifacts, and attachments are not directly editable by the Analyst.`, input: analystEditCardInput, roles: ['analyst', 'planner'], executor: edit_card, plannerControl: true, plannerInput: plannerEditCardInput, plannerDescription: 'Edit one immediate child of the current planner card. The target must be a direct child; parent/depth changes are not accepted.' },
+  { name: 'reorder_child', description: 'Reorder the children of a parent card.', input: z.object({ parentId: describe(z.string(), 'Parent whose children to reorder.'), orderedChildIds: describe(z.array(z.string()), 'New child id order; must be a permutation of the current child set.') }).strict(), roles: ['planner'], executor: reorder_child, plannerControl: true, plannerInput: z.object({ orderedChildIds: z.array(z.string()) }).strict(), plannerDescription: 'Reorder the immediate children of the current planner card. orderedChildIds must be a permutation of that child set.' },
   { name: 'list_cards', description: 'List and filter cards in the project.', input: listCardsInput, roles: ['analyst', 'planner'], executor: list_cards },
   { name: 'get_card', description: 'Get full details of a single card.', input: z.object({ id: describe(z.string(), 'The ID of the card to retrieve.') }).strict(), roles: ['analyst', 'planner'], executor: get_card },
   { name: 'get_tree', description: 'Show the card tree.', input: z.object({ rootId: describe(z.string().optional(), 'Optional root card ID.') }).strict(), roles: ['analyst', 'planner'], executor: get_tree },
@@ -247,5 +255,5 @@ export const analystCardTools: readonly UnifiedToolDefinition<string, any>[] = [
   { name: 'list_card_history', description: 'List card history headers for a card.', input: z.object({ cardId: describe(z.string(), 'The ID of the card whose history to list.') }).strict(), roles: ['planner', 'executor', 'reviewer', 'analyst'], executor: list_card_history },
   { name: 'get_card_history_entry', description: 'Get a specific card history entry snapshot.', input: z.object({ cardId: describe(z.string(), 'The ID of the card.'), version_seq: describe(z.number().int(), 'The historical version sequence to retrieve.') }).strict(), roles: ['planner', 'executor', 'reviewer', 'analyst'], executor: get_card_history_entry },
   { name: 'diff_card', description: 'Get a field-level diff between two card versions.', input: z.object({ cardId: describe(z.string(), 'The ID of the card.'), fromSeq: describe(z.number().int().optional(), 'Optional source version sequence. Defaults to previous version.'), toSeq: describe(z.number().int().optional(), 'Optional target version sequence. Defaults to current version.') }).strict(), roles: ['planner', 'executor', 'reviewer', 'analyst'], executor: diff_card },
-  { name: 'delete_card', description: 'Delete one or more cards (and all their descendants) in a single call.', input: z.object({ ids: describe(z.array(z.string()).min(1), 'Card ids to delete.') }).strict(), roles: ['analyst', 'planner'], executor: delete_card, plannerControl: true, plannerInput: z.object({ cardId: z.string() }).strict(), plannerDescription: 'Delete a backlog or terminal card and cascade through descendants.' },
+  { name: 'delete_card', description: 'Delete one or more cards (and all their descendants) in a single call.', input: z.object({ ids: describe(z.array(z.string()).min(1), 'Card ids to delete.') }).strict(), roles: ['planner'], executor: delete_card, plannerControl: true, plannerInput: z.object({ cardId: z.string() }).strict(), plannerDescription: 'Delete a backlog or terminal card and cascade through descendants.' },
 ] as const;

@@ -33,7 +33,7 @@ The Analyst is the user-facing control agent. It is an agent in the sense that i
 
 The Analyst can inspect anything the authenticated user is allowed to inspect, including secrets. Secret access is not hidden from the Analyst by default. The UI may still redact or avoid displaying secrets unnecessarily, and chat responses should avoid gratuitous disclosure, but the Analyst must be able to inspect secret-bearing files or configuration when the user's requested diagnosis, configuration, or repair requires it.
 
-The Analyst does not perform delivery work directly. It does not replace the executor by editing project source, running builds as delivery, or deploying. It creates/edits/cancels cards, queues notifications, changes configuration, controls lifecycle, and explains what happened.
+The Analyst does not perform delivery work directly. It does not replace the executor by editing project source, running builds as delivery, or deploying. It edits existing card objectives/instructions, queues notifications, changes configuration, controls runtime lifecycle, and explains what happened.
 
 ### Work Agent Layer
 
@@ -53,7 +53,8 @@ The system must support:
 
 - autonomous planner, executor, and reviewer work through cards;
 - explicit user lifecycle control through the Analyst;
-- card creation, editing, reordering, cancellation, deletion, and archival where supported;
+- planner-owned card creation, editing, reordering, cancellation, deletion, and archival where supported;
+- Analyst-owned objective/instruction edits to existing cards;
 - correction-aware goal revisiting through `changed` cards and correction context;
 - card-addressed notifications for delivering short-lived instructions/context to card agents;
 - process execution, process inspection, and process termination;
@@ -89,7 +90,7 @@ Card storage should preserve field-level history. Each durable field may be stor
 
 The project card is mostly a regular goal card. Its special properties are structural and activation-related: it has no parent, and the runtime activates it directly when the user asks the Analyst to run/continue the system. It carries project-level context, global constraints, and the user's top-level objective summary.
 
-If the user asks the Analyst to replace the project objective, the expected path is to cancel the current project card, archive or delete it, and create a new parentless project card. Replacement is a deliberate destructive project-level change and should be confirmed in conversation before execution. Direct replacement of a running project card is not required; the Analyst should guide the user through cancellation first.
+If the user asks the Analyst to replace the project objective, the expected path is to edit the existing project card objective/instructions and queue notifications so the active planner chain observes the change. Direct destructive replacement of the project card is not an Analyst capability.
 
 Archiving is not a card status. To archive a card, the system moves its on-disk representation to a card archive directory and removes it from the runtime's active card tree.
 
@@ -113,7 +114,7 @@ The durable card status records lifecycle state. `working_status` records ongoin
 
 Children under a parent form an explicit ordered list. Creation appends to the end by default.
 
-The Analyst has global card authority on behalf of the user. It may create, edit, reorder, cancel, delete, archive, or replace any card when the requested operation is supported and any required destructive-action confirmation has been satisfied. Cards cannot be moved from one parent to another; ordering changes are limited to reordering siblings under the same parent.
+The Analyst has limited card authority on behalf of the user. It may edit the objectives, instructions, acceptance criteria, and descriptive metadata of any existing card, and it may queue card-addressed notifications. It must not directly create, reorder, cancel, delete, restart, archive, replace, move, or rewrite lifecycle/output state for cards. Structural card management belongs to planners and runtime lifecycle controls.
 
 A planner's card authority is local to the goal it owns. It may directly target only that goal's direct children: create them, edit them, reorder them, cancel/delete them where supported, and activate them. Some supported operations, such as cancelling or deleting a direct child, may recursively affect that child's descendants. The planner still targets only the direct child; it may not directly mutate ancestors, siblings, unrelated cards, or descendants below one of its children. Larger tree changes are Analyst-owned, but cross-parent card movement is not a supported card operation.
 
@@ -139,7 +140,7 @@ Pause is a global scheduling gate. It stops the runtime from admitting new LLM t
 
 Already-running shell processes may continue while the system is paused. Tool dispatch that is already in flight reaches the next safe point. Pending process results are buffered until the runtime can safely deliver them.
 
-Pause is the normal intervention state. While paused, the Analyst can edit cards, queue notifications, change configuration, inspect state, or mark goals as needing corrections.
+Pause is the normal intervention state. While paused, the Analyst can edit card objectives/instructions, queue notifications, change configuration, and inspect state.
 
 ### Shutdown
 
@@ -165,7 +166,7 @@ The runtime may persist, recover, and resume the physical work across service re
 
 The main agent for every card type may report `done`, `failed`, or `blocked`. Before the parent planner receives the activation outcome, the child card first transitions to the matching card status.
 
-The Analyst does not directly set cards to `blocked`. `blocked` is reported by a card's main agent as an activation outcome. Analyst intervention uses supported card edits, cancellation, new backlog cards, or card-addressed notifications.
+The Analyst does not directly set cards to `blocked`. `blocked` is reported by a card's main agent as an activation outcome. Analyst intervention uses supported objective/instruction edits or card-addressed notifications.
 
 Reviewer `needs_corrections` is handled inside the child activation. It is not a parent-visible activation result unless review retries are exhausted and the child activation ultimately returns `failed`.
 
@@ -254,11 +255,10 @@ The Analyst must let the user complete these tasks in natural language:
 
 - inspect cards, runtime state, runtime events, errors, control actions, agent sessions, process registry, process logs, directory listings, file contents, configuration, credentials, and secret-bearing state when needed;
 - navigate the workspace to cards, files, debug views, processes, runtime cards, and agent sessions;
-- create, edit, reorder, cancel, delete, and archive cards where supported;
+- edit objectives, instructions, acceptance criteria, and descriptive metadata on existing cards;
 - queue card-addressed notifications;
 - run/continue, pause, and shutdown the runtime;
-- request card or subtree cancellation;
-- mark goals as needing corrections by queueing planner notifications, editing goal objectives or acceptance criteria, or otherwise using supported card-edit paths;
+- steer active or future card work by queueing notifications and objective/instruction edits;
 - terminate live runtime processes through canonical process controls;
 - change model/provider routing, failover, MCP entries, runtime settings, and server settings;
 - diagnose failures by correlating cards, runtime events, agent sessions, process output, files, configuration, and credentials;
