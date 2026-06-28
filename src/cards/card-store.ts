@@ -27,12 +27,6 @@ import { CardPatchService } from './card-patch-service.js';
 import { CardHierarchyCommands, type ReorderChildrenResult } from './hierarchy-commands.js';
 import { CardArchiveService } from './archive-service.js';
 import { CardHistoryReader, type CardDiffEntry } from './history-reader.js';
-import {
-  EvidenceRefService,
-  type AppendEvidenceRefsResult,
-  type NewArtifactRef,
-  type NewAttachmentRef,
-} from './evidence-ref-service.js';
 import { CardLifecycleCommands } from './lifecycle-commands.js';
 import { recoverCommitMarkers } from './recovery.js';
 import { cardHistoryPath, loadCardStoreState, readHistoryEntriesStrict } from '../persistence/card-loader.js';
@@ -52,8 +46,6 @@ export type { CardDiffEntry } from './history-reader.js';
 
 export type { ReorderChildrenResult } from './hierarchy-commands.js';
 
-export type { AppendEvidenceRefsResult, NewArtifactRef, NewAttachmentRef } from './evidence-ref-service.js';
-
 export class CardStore {
   readonly maxDepth: number;
   readonly projectRoot: string;
@@ -64,7 +56,6 @@ export class CardStore {
   private readonly hierarchyCommands: CardHierarchyCommands;
   private readonly archiveService: CardArchiveService;
   private readonly historyReader: CardHistoryReader;
-  private readonly evidenceRefService: EvidenceRefService;
   private readonly lifecycleCommands: CardLifecycleCommands;
   private readonly eventBus: EventBus;
 
@@ -99,16 +90,6 @@ export class CardStore {
     this.historyReader = new CardHistoryReader({
       projectRoot: this.projectRoot,
       read: (id) => this.read(id),
-    });
-    this.evidenceRefService = new EvidenceRefService({
-      projectRoot: this.projectRoot,
-      projectLock: this.projectLock,
-      deps: () => this.deps(),
-      read: (id) => this.read(id),
-      get: (id) => this.state.get(id) ?? null,
-      childCount: (id) => this.state.childrenOf(id).length,
-      emitHistoryAppended: (event) => this.eventBus.emit('card_history_appended', event),
-      notificationStore: this,
     });
     this.lifecycleCommands = new CardLifecycleCommands({
       projectRoot: this.projectRoot,
@@ -216,14 +197,6 @@ export class CardStore {
 
   update(id: string, changes: Partial<CardRecord>): CardRecord {
     return this.lifecycleCommands.update(id, changes);
-  }
-
-  appendEvidenceRefs(
-    id: string,
-    refs: { artifacts?: NewArtifactRef[]; attachments?: NewAttachmentRef[] },
-    ctx: CardMutationContext = { actor: 'runtime', surface: 'runtime', reason: 'append evidence refs' },
-  ): AppendEvidenceRefsResult {
-    return this.evidenceRefService.appendEvidenceRefs(id, refs, ctx);
   }
 
   mutateCard(

@@ -29,8 +29,6 @@ const PLANNER_STAGE3_TOOLS = [
   'report_goal_blocked',
 ] as const;
 
-const ARTIFACT_TYPES: readonly string[] = ['model', 'data', 'config', 'log', 'report', 'other'];
-
 function buildDepthContext(currentDepth?: number, maxDepth?: number): string {
   if (currentDepth === undefined || maxDepth === undefined) return '';
   return `### Goal Depth Context
@@ -108,13 +106,10 @@ You are the **Executor** agent. Your job is to execute a single terminal card an
 
 ### Responsibilities
 1. **Execute the card**: Understand the card's title and description. Read relevant files before modifying them.
-2. **Record evidence**: Summarize project files changed in \`result\`/\`summary\`, and register only Saivage process metadata outputs as artifacts or attachments.
+2. **Record evidence**: Summarize project files changed and verification performed in \`result\`/\`summary\`.
 3. **Report honestly**: If the work succeeds, set \`status: "done"\`. If it fails, set \`status: "failed"\` and provide a clear \`error\` message.
 4. **Provide terminal status_text**: Every terminal executor result must include a non-empty \`status_text\` summarizing the outcome.
 5. **Use workspace tools for filesystem work**: Use \`glob\`, \`grep\`, \`read\`, \`write\`, \`edit\`, \`apply_patch\`, and \`run_project_command\` to inspect, modify, and verify the real project workspace.
-
-### Constraints
-- **Project files vs. process metadata**: Artifact and attachment \`sourceFile\` / \`path\` entries must point to a file under \`.saivage-work\` such as \`run_project_command\` \`logFiles.combined\` — never a directory and never a project source, config, test, data, or documentation file. Project file changes belong in \`result.generated_files\`, \`status_text\`, and \`summary\`. Artifact types: ${ARTIFACT_TYPES.join(', ')}.
 
 ### Terminal Tools (Contract)
 
@@ -126,7 +121,7 @@ ${contract.describe()}${typeNote}
 - **Do the work**: Actually perform the task.
 - **Read before writing**: Always read relevant source files before modifying them.
 - **Match conventions**: Follow the project's code style and tooling.
-- **Separate project state from process metadata**: Do not register project source, config, test, data, or documentation files as artifacts. Project file changes belong in \`result.generated_files\`, \`status_text\`, and \`summary\`. Artifacts/attachments are only for Saivage process metadata files such as validation reports, command logs, run manifests, or other generated process outputs under \`.saivage-work\`. For command evidence, prefer \`logFiles.combined\` from \`run_project_command\` / \`start_and_wait\` / \`wait_for_process\`.
+- **Separate project state from process metadata**: Mention project file changes, validation reports, and command evidence in \`result\`, \`status_text\`, and \`summary\`.
 - **Error reporting**: Be specific.
 - **Reference cards durably**: Use raw ids in tool calls. In operator-facing Markdown, write card references as \`[[card:<id>]]\`; friendly display paths are current presentation labels and must not be persisted as durable references.
 - **Test your work**: Run relevant verification commands.
@@ -141,7 +136,7 @@ function buildTypeGuidance(cardType: string): string {
     case 'code':
       return `- This is a **code** card — write, modify, or refactor source code.
 - Run tests and linters after making changes.
-- List new or modified project files in result metadata; do not register them as artifacts.`;
+- Summarize new or modified project files in result metadata.`;
     case 'test':
       return `- This is a **test** card — write or update tests.
 - Aim for meaningful coverage.
@@ -192,7 +187,7 @@ ${contract.describe()}
 - **Cite evidence**: Every \`issues[]\` entry must reference an \`evidence_card_id\` and the \`evidence_card_ids\` array must list every descendant card you relied on.
 - **Reference cards durably**: Use raw ids in structured reviewer fields. In prose/Markdown shown to operators, use \`[[card:<id>]]\` instead of friendly display paths.
 - **Consider the whole tree**.
-- **Check artifacts**.
+- **Check completed card results and cited evidence cards**.
 - **Load skills on-demand**.`;
 
   if (skills && skills.length > 0) return prompt + '\n\n' + skills;

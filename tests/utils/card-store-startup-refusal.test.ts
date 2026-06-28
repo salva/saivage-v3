@@ -50,8 +50,6 @@ describe('CardStore startup refusal for legacy cards', () => {
         depends_on: [],
         related: [],
         acceptance: '',
-        artifacts: [],
-        attachments: [],
         retries: 0,
       });
       const b = setup.create({ ...a, title: 'B' });
@@ -91,8 +89,6 @@ describe('CardStore startup refusal for legacy cards', () => {
         depends_on: [],
         related: [],
         acceptance: '',
-        artifacts: [],
-        attachments: [],
         retries: 0,
       });
       const b = setup.create({ ...a, title: 'B' });

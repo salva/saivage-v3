@@ -42,8 +42,6 @@ export type CreatedBy = 'user' | 'analyst' | 'planner';
 export type NoteAuthor = 'user' | 'analyst' | 'planner' | 'executor' | 'reviewer' | 'runtime';
 export type ControlActionSurface = 'web-chat' | 'telegram' | 'rest' | 'cli' | 'runtime' | 'web-ui';
 
-export interface ArtifactRef { id: string; card_id: string; path: string; type: 'model' | 'data' | 'config' | 'log' | 'report' | 'other'; description: string; retain: boolean; created_at: string; }
-export interface AttachmentRef { id: string; card_id: string; path: string; mime: string; title: string; description?: string; created_at: string; }
 export interface CardMetadata { max_review_retries?: number; [key: string]: unknown; }
 import type { CardLifecycleState } from './lifecycle.js';
 
@@ -52,7 +50,7 @@ export interface CardRecord {
   subtype?: string | null; instructions_file?: string | null; tags: string[]; priority: number; urgency: Urgency; created_by: CreatedBy;
   created_at: string; updated_at: string; version_seq: number; assigned_to?: string | null; depends_on: string[]; related: string[];
   acceptance: string; lifecycle: CardLifecycleState; metrics?: Record<string, number | string | boolean | null> | null;
-  artifacts: ArtifactRef[]; attachments: AttachmentRef[]; estimate?: string | null; started_at?: string | null;
+  estimate?: string | null; started_at?: string | null;
   duration_ms?: number | null; status_text?: string | null; status_text_updated_at?: string | null;
   status_text_author_session_id?: string | null; latest_self_report?: Record<string, unknown> | null; metadata?: CardMetadata | null; allowedActions?: CardAction[]; retries: number;
 }
@@ -101,7 +99,7 @@ export type MessageKind = 'text' | 'activity' | 'tool_call' | 'tool_result' | 't
 export interface EntityLink { entity_type: 'card' | 'process' | 'artifact' | 'attachment' | 'quarantine'; entity_id: string; label?: string; }
 export interface AgentMessage { id: string; session_id: string; role: MessageRole; kind: MessageKind; content: string; round_id: string; message_index: number; block_index: number; tool?: string; tool_call_id?: string; timestamp: string; links?: EntityLink[]; model_spec?: string; requested_model_spec?: string; }
 export type ActivationCompletionOutcome = 'done' | 'failed' | 'blocked' | 'cancelled' | 'timed_out' | 'needs_verification';
-export interface ActivationCompletionEnvelopeV1 { kind: 'activate_card_completion'; version: 1; child_card_id: string; outcome: ActivationCompletionOutcome; summary: string; result?: Record<string, unknown> | null; review?: ReviewAssessment | null; artifacts?: ArtifactRef[]; attachments?: AttachmentRef[]; evidence_card_ids?: string[]; error?: string | null; completed_by_session_id?: string | null; success: boolean; cardId: string; failure_kind?: string; }
+export interface ActivationCompletionEnvelopeV1 { kind: 'activate_card_completion'; version: 1; child_card_id: string; outcome: ActivationCompletionOutcome; summary: string; result?: Record<string, unknown> | null; review?: ReviewAssessment | null; evidence_card_ids?: string[]; error?: string | null; completed_by_session_id?: string | null; success: boolean; cardId: string; failure_kind?: string; }
 export type RuntimeStatus = 'idle' | 'running' | 'paused' | 'error';
 export type RuntimeRunStatus = RuntimeStatus | 'stopped' | 'cancelled';
 export type ActiveCardRunRuntimeStatus = 'running';

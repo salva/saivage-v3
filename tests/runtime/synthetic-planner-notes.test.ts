@@ -35,8 +35,6 @@ function makeCard(
     acceptance: '',
     lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
     metrics: null,
-    artifacts: [],
-    attachments: [],
     estimate: null,
     started_at: null,
     duration_ms: null,

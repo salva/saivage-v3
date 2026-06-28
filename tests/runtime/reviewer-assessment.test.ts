@@ -22,8 +22,6 @@ function card(overrides: Partial<CardRecord> = {}): CardRecord {
     created_by: 'planner',
     depends_on: [],
     related: [],
-    artifacts: [],
-    attachments: [],
     acceptance: '',
     retries: 0,
     lifecycle: { status: 'done', result: { kind: 'planner_done', summary: 'done' }, error: null, completed_at: '2026-01-01T00:00:00.000Z' },
@@ -61,7 +59,7 @@ describe('reviewer assessment helpers', () => {
     expect(validateReviewerAssessment({ goalId: 'goal-a', assessment: assessment({ evidence_card_ids: ['missing'] }), candidatePlannerResult, readCard, isDescendantOf }).reason).toContain('missing');
     cards.set('child-blocked', card({ id: 'child-blocked', status: 'blocked' }));
     expect(validateReviewerAssessment({ goalId: 'goal-a', assessment: assessment({ evidence_card_ids: ['child-blocked'] }), candidatePlannerResult, readCard, isDescendantOf }).reason).toContain('non-accepted');
-    cards.set('empty', card({ id: 'empty', artifacts: [], attachments: [], lifecycle: { status: 'done', result: { kind: 'planner_done', summary: 'done' }, error: null, completed_at: '2026-01-01T00:00:00.000Z' } }));
+    cards.set('empty', card({ id: 'empty', lifecycle: { status: 'done', result: { kind: 'planner_done', summary: 'done' }, error: null, completed_at: '2026-01-01T00:00:00.000Z' } }));
     expect(validateReviewerAssessment({ goalId: 'goal-a', assessment: assessment({ evidence_card_ids: ['empty'] }), candidatePlannerResult, readCard, isDescendantOf }).valid).toBe(true);
   });
 });

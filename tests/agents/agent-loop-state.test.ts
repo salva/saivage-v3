@@ -89,7 +89,7 @@ describe('agent-loop-state', () => {
     };
 
     it('transitions verifying → done on satisfied', () => {
-      const envelope = { status: 'done', artifacts: [], attachments: [], summary: 'ok' } as unknown as ExecutorResultEnvelope;
+      const envelope = { status: 'done', summary: 'ok' } as unknown as ExecutorResultEnvelope;
       const next = onVerifierResult(startVerifying, { kind: 'satisfied', envelope, terminalName: 'emit_executor_result' }, contract);
       expect(next.kind).toBe('done');
       if (next.kind !== 'done') return;

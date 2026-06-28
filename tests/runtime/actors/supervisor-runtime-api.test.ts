@@ -28,11 +28,11 @@ function readJsonl(path: string): Array<Record<string, unknown>> {
 }
 
 function createProject(store: CardStore): CardRecord {
-  return store.create({ type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
+  return store.create({ type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], acceptance: '', retries: 0 });
 }
 
 function createDoneEvidence(store: CardStore, parent = 'project'): CardRecord {
-  const card = store.create({ type: 'goal', parent, depth: 1, title: 'evidence', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
+  const card = store.create({ type: 'goal', parent, depth: 1, title: 'evidence', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], acceptance: '', retries: 0 });
   return store.commitTerminalLifecyclePatch(card.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'planner_done', summary: 'evidence done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' } });
 }
 

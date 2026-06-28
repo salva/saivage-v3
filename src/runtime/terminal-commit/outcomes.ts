@@ -1,5 +1,5 @@
 export type ExecutorPhaseOutcome =
-  | { role: 'executor'; kind: 'succeeded'; card_id: string; goal_id: string; summary: string; status_text: string; result: Record<string, unknown>; generated_files: string[]; accepted_at: string; session_id: string | null }
+  | { role: 'executor'; kind: 'succeeded'; card_id: string; goal_id: string; summary: string; status_text: string; result: Record<string, unknown>; accepted_at: string; session_id: string | null }
   | { role: 'executor'; kind: 'failed'; card_id: string; goal_id: string; summary: string; status_text: string; error: string; partial_result: Record<string, unknown> | null; accepted_at: string; session_id: string | null }
   | { role: 'executor'; kind: 'needs_verification'; card_id: string; goal_id: string; reason: string; preserved_result: Record<string, unknown>; fallback_reason: string | null; accepted_at: string; session_id: string | null };
 

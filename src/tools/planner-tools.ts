@@ -94,7 +94,6 @@ function subtreeContainsActiveLeaf(
 }
 
 function hasDurableEvidence(card: CardRecord): boolean {
-  if (card.artifacts.length > 0 || card.attachments.length > 0) return true;
   const result = card.lifecycle.result;
   if (!result || typeof result !== 'object') return false;
   if (card.type === 'goal' || card.type === 'project') {

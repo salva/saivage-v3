@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { deleteDiary } from '../cards/artifact-api.js';
+import { deleteDiary } from '../cards/diary.js';
 import { decide } from '../permissions/index.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';

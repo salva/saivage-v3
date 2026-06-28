@@ -141,51 +141,6 @@ describe('Cleanup Utility Smoke Tests', () => {
     expect(existsSync(procDir)).toBe(false);
   });
 
-  it('cleanStaleProcessOutput: does NOT remove if retained artifact references it', () => {
-    const swd = saivageWorkDir();
-    const procDir = join(swd, 'processes', 'proc-retained');
-    mkdirSync(procDir, { recursive: true });
-    const artifactPath = join(procDir, 'model-output.bin');
-    writeFileSync(artifactPath, 'important model');
-
-    store.create({
-      type: 'code',
-      parent: 'project',
-      title: 'test-card',
-      description: 'test',
-      status: 'done',
-      lifecycle: {
-        status: 'done',
-        result: { kind: 'planner_done', summary: 'done' },
-        error: null,
-        completed_at: new Date().toISOString(),
-      },
-      depends_on: [],
-      priority: 1,
-      tags: [],
-      urgency: 'normal',
-      created_by: 'planner',
-      related: [],
-      acceptance: '',
-      artifacts: [{
-        id: 'art-test-card-1',
-        card_id: 'card-1',
-        path: artifactPath,
-        type: 'model',
-        description: 'test model',
-        retain: true,
-        created_at: new Date().toISOString(),
-      }],
-      attachments: [],
-      retries: 0,
-      depth: 0,
-    });
-
-    const cleaned = cleanStaleProcessOutput({ saivageWorkDir: swd, store, maxAgeMs: 1 });
-    expect(cleaned).toBe(0);
-    expect(existsSync(procDir)).toBe(true);
-  });
-
   it('cleanStaleProcessOutput: ignores malformed legacy process registry files as cleanup blockers', async () => {
     const swd = saivageWorkDir();
     const procId = 'proc-legacy-running-1';
@@ -222,8 +177,6 @@ describe('Cleanup Utility Smoke Tests', () => {
       created_by: 'planner',
       related: [],
       acceptance: '',
-      artifacts: [],
-      attachments: [],
       retries: 0,
       depth: 0,
     });

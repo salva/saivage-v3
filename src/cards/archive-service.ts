@@ -101,7 +101,6 @@ export class CardArchiveService {
         children: state.childrenOf(card.id),
         history: existsSync(historyFile) ? readFileSync(historyFile, 'utf-8') : '',
         result: card.lifecycle.result,
-        evidence_refs: { artifacts: card.artifacts, attachments: card.attachments },
       };
       writeFileSyncDurable(archiveCardPath(this.config.projectRoot, card.id), JSON.stringify(archivePayload, null, 2) + '\n');
     }

@@ -22,8 +22,6 @@ describe('executor contract', () => {
     expect(result.card_id).toBe('');
     expect(result.status).toBe('done');
     expect(result.status_text).toBe('ok');
-    expect(result.artifacts).toEqual([]);
-    expect(result.attachments).toEqual([]);
     expect(result.fallback_with_evidence).toBeNull();
   });
 

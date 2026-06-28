@@ -18,8 +18,8 @@ function setupCards() {
   const projectRoot = tempRoot('saivage-runtime-golden-');
   initProjectTree(projectRoot);
   const cardStore = new CardStore(projectRoot);
-  const goal = cardStore.create({ type: 'goal', parent: 'project', depth: 1, title: 'Goal A', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
-  const code = cardStore.create({ type: 'code', parent: goal.id, depth: 2, title: 'Code A', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
+  const goal = cardStore.create({ type: 'goal', parent: 'project', depth: 1, title: 'Goal A', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], acceptance: '', retries: 0 });
+  const code = cardStore.create({ type: 'code', parent: goal.id, depth: 2, title: 'Code A', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], acceptance: '', retries: 0 });
   return { projectRoot, cardStore, goalId: goal.id, codeId: code.id };
 }
 
@@ -42,7 +42,7 @@ describe('runtime redesign final golden behavior', () => {
     try {
       initProjectTree(projectRoot);
       const cardStore = new CardStore(projectRoot);
-      cardStore.create({ type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
+      cardStore.create({ type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], acceptance: '', retries: 0 });
       expect('runtime.startProject' in operatorApiContracts).toBe(false);
       expect('runtime.stopProject' in operatorApiContracts).toBe(false);
       expect(ANALYST_TOOL_NAMES).not.toContain('lets_dance');

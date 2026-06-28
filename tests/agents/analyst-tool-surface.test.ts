@@ -38,7 +38,7 @@ function setupRoot(): string {
     server: { port: 8080, host: '127.0.0.1' },
   }, null, 2));
   const now = new Date().toISOString();
-  writeFileSync(join(sd, 'cards', 'by-id', 'project.json'), JSON.stringify({ id: 'project', type: 'project', parent: null, depth: 0, position: 0, title: 'project', description: '', status: 'backlog', lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, subtype: null, tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now, assigned_to: null, depends_on: [], related: [], acceptance: '', metrics: null, artifacts: [], attachments: [], estimate: null, started_at: null, duration_ms: null, retries: 0, version_seq: 1 }));
+  writeFileSync(join(sd, 'cards', 'by-id', 'project.json'), JSON.stringify({ id: 'project', type: 'project', parent: null, depth: 0, position: 0, title: 'project', description: '', status: 'backlog', lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, subtype: null, tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now, assigned_to: null, depends_on: [], related: [], acceptance: '', metrics: null, estimate: null, started_at: null, duration_ms: null, retries: 0, version_seq: 1 }));
   writeFileSync(join(sd, 'cards', 'index.json'), JSON.stringify({ cards: { project: { id: 'project', type: 'project', parent: null, status: 'backlog', title: 'project' } } }));
   writeFileSync(join(sd, 'cards', 'tree', 'project.children.json'), JSON.stringify([]));
   writeFileSync(join(sd, 'cards', 'dependencies', 'depends-on.json'), JSON.stringify({}));
@@ -50,8 +50,8 @@ function setupRoot(): string {
 
 function seedDeleteCards(root: string): CardStore {
   const store = new CardStore(root);
-  const goal = store.create({ type: 'goal', parent: 'project', title: 'Goal', description: 'Goal', status: 'backlog', depth: 0, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', acceptance: '', depends_on: [], related: [], artifacts: [], attachments: [], retries: 0 });
-  for (const title of ['code-1', 'code-2', 'code-3']) store.create({ type: 'code', parent: goal.id, title, description: title, status: 'backlog', depth: 0, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', acceptance: '', depends_on: [], related: [], artifacts: [], attachments: [], retries: 0 });
+  const goal = store.create({ type: 'goal', parent: 'project', title: 'Goal', description: 'Goal', status: 'backlog', depth: 0, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', acceptance: '', depends_on: [], related: [], retries: 0 });
+  for (const title of ['code-1', 'code-2', 'code-3']) store.create({ type: 'code', parent: goal.id, title, description: title, status: 'backlog', depth: 0, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', acceptance: '', depends_on: [], related: [], retries: 0 });
   return store;
 }
 

@@ -173,8 +173,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
       return { status: 'failed', summary: message, result: executorFailure(message) };
     }
     const summary = result.summary ?? result.status_text;
-    const evidence: ExecutorEvidenceOutcome = { artifacts: [], attachments: [] };
-    if (result.status === 'done') return { status: 'done', summary, result: executorSuccess(result, evidence) };
+    if (result.status === 'done') return { status: 'done', summary, result: executorSuccess(result) };
     const error = result.error ?? summary;
     return { status: 'failed', summary: error, result: executorFailure(error, executorResultRecord(result), result.status_text) };
   }
@@ -201,12 +200,10 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 }
 
-type ExecutorEvidenceOutcome = { artifacts: []; attachments: [] };
-
-function executorSuccess(result: ExecutorResult, evidence: ExecutorEvidenceOutcome) {
+function executorSuccess(result: ExecutorResult) {
   const at = new Date().toISOString();
   const summary = result.summary ?? result.status_text;
-  return { kind: 'executor_success' as const, executor: { ...executorResultRecord(result), artifact_refs: evidence.artifacts, attachment_refs: evidence.attachments }, generated_files: result.generated_files, verified_at: at, latest_self_report: { result: 'done', outcome: 'done', summary, status_text: result.status_text, at }, warnings: result.warnings };
+  return { kind: 'executor_success' as const, executor: executorResultRecord(result), verified_at: at, latest_self_report: { result: 'done', outcome: 'done', summary, status_text: result.status_text, at }, warnings: result.warnings };
 }
 
 function executorFailure(error: string, partialResult: Record<string, unknown> | null = null, statusText = error) {
@@ -215,7 +212,7 @@ function executorFailure(error: string, partialResult: Record<string, unknown> |
 }
 
 function executorResultRecord(result: ExecutorResult): Record<string, unknown> {
-  return { ...(result.result ?? {}), artifacts: result.artifacts, attachments: result.attachments, generated_files: result.generated_files, warnings: result.warnings };
+  return { ...(result.result ?? {}), warnings: result.warnings };
 }
 
 function parseProcessStartArgs(args: unknown): { command: string; args: string[]; timeoutMs: number; processId?: string } {

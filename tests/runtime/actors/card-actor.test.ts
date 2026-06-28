@@ -16,11 +16,11 @@ function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promis
 }
 
 function createProject(store: CardStore): CardRecord {
-  return store.create({ type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
+  return store.create({ type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], acceptance: '', retries: 0 });
 }
 
 function createGoal(store: CardStore, parent = 'project'): CardRecord {
-  return store.create({ type: 'goal', parent, depth: parent === 'project' ? 1 : 2, title: 'goal', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
+  return store.create({ type: 'goal', parent, depth: parent === 'project' ? 1 : 2, title: 'goal', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], acceptance: '', retries: 0 });
 }
 
 function processor(outcome: Exclude<CardActivationOutcome, { status: 'cancelled' }>): CardProcessorActor {
@@ -303,9 +303,9 @@ describe('CardActor', () => {
     const store = new CardStore(projectRoot);
     const project = createProject(store);
     const goal = createGoal(store);
-    const doneChild = store.create({ type: 'code', parent: goal.id, depth: 2, title: 'done child', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
-    const backlogChild = store.create({ type: 'test', parent: goal.id, depth: 2, title: 'backlog child', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
-    store.commitTerminalLifecyclePatch(doneChild.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'executor_success', executor: {}, generated_files: [], verified_at: '2026-06-12T00:00:00.000Z', latest_self_report: { result: 'done', outcome: 'done', summary: 'done', status_text: 'done', at: '2026-06-12T00:00:00.000Z' }, warnings: [] }, error: null, completed_at: '2026-06-12T00:00:00.000Z' } });
+    const doneChild = store.create({ type: 'code', parent: goal.id, depth: 2, title: 'done child', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], acceptance: '', retries: 0 });
+    const backlogChild = store.create({ type: 'test', parent: goal.id, depth: 2, title: 'backlog child', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], acceptance: '', retries: 0 });
+    store.commitTerminalLifecyclePatch(doneChild.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'executor_success', executor: {}, verified_at: '2026-06-12T00:00:00.000Z', latest_self_report: { result: 'done', outcome: 'done', summary: 'done', status_text: 'done', at: '2026-06-12T00:00:00.000Z' }, warnings: [] }, error: null, completed_at: '2026-06-12T00:00:00.000Z' } });
     const actor = CardActor.fromCard({ projectRoot, card: project, store, processor: processor({ status: 'done', summary: 'unused', result: { kind: 'planner_done', summary: 'unused' } }) });
 
     actor.cancel({ reason: 'operator cancelled project' });

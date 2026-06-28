@@ -23,8 +23,6 @@ function card(result: CardRecord['lifecycle']['result'] = null, overrides: Parti
     created_by: 'planner',
     depends_on: [],
     related: [],
-    artifacts: [],
-    attachments: [],
     acceptance: '',
     retries: 0,
     lifecycle: overrides.lifecycle ?? ({ status, result, error, completed_at: null } as CardRecord['lifecycle']),

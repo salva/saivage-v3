@@ -26,22 +26,6 @@ export interface PlannerActivationBarrier {
   dispatch(input: PlannerActivationBarrierRequest): Promise<void> | void;
 }
 
-export interface ExecutorArtifactDef {
-  type: 'model' | 'data' | 'config' | 'log' | 'report' | 'other';
-  description: string;
-  retain: boolean;
-  sourceFile?: string;
-  path?: string;
-}
-
-export interface ExecutorAttachmentDef {
-  mime: string;
-  title: string;
-  description?: string;
-  sourceFile?: string;
-  path?: string;
-}
-
 export type ExecutorFallbackReason = 'tool_calls_envelope_recovery' | 'parse_failure';
 
 export interface ExecutorResult {
@@ -49,9 +33,6 @@ export interface ExecutorResult {
   status: 'done' | 'failed';
   error?: string;
   result?: Record<string, unknown>;
-  artifacts: ExecutorArtifactDef[];
-  attachments: ExecutorAttachmentDef[];
-  generated_files: string[];
   warnings: string[];
   summary?: string;
   status_text: string;

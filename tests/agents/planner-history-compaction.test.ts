@@ -38,8 +38,6 @@ function card(input: Partial<CardRecord> & Pick<CardRecord, 'id' | 'type' | 'tit
     related: input.related ?? [],
     acceptance: input.acceptance ?? '',
     lifecycle: input.lifecycle ?? ({ status: input.status ?? 'backlog', result: null, error: null, completed_at: null } as CardRecord['lifecycle']),
-    artifacts: input.artifacts ?? [],
-    attachments: input.attachments ?? [],
     retries: input.retries ?? 0,
     status_text: input.status_text ?? null,
   };

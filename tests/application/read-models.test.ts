@@ -74,7 +74,7 @@ describe('application read models', () => {
 
   it('owns card-runs breadcrumb projection outside the agents package', () => {
     const store = new CardStore(root);
-    const goal = store.create({ type: 'goal', parent: 'project', depth: 1, title: 'Goal', description: '', status: 'running', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 });
+    const goal = store.create({ type: 'goal', parent: 'project', depth: 1, title: 'Goal', description: '', status: 'running', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], acceptance: '', retries: 0 });
     updateRuntimeState(root, { status: 'running', active_card_run: { card_id: goal.id, card_type: 'goal', ownership: { kind: 'direct', source: 'project_root' },
   runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner-1', executor_session_id: null, correction_attempts: 0, started_at: '2026-01-01T00:00:00.000Z', last_turn_at: '2026-01-01T00:00:00.000Z' } });
 
@@ -86,7 +86,7 @@ describe('application read models', () => {
 
   it('projects operator card lists and card index counts with allowed actions', () => {
     const store = new CardStore(root);
-    store.create({ type: 'code', parent: 'project', depth: 1, title: 'Code', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 });
+    store.create({ type: 'code', parent: 'project', depth: 1, title: 'Code', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], acceptance: '', retries: 0 });
     const service = new CardsReadModelService(root, store);
 
     const state = service.getRuntimeState().body as { cardIndex: { total: number; byStatus: Record<string, number>; byType: Record<string, number> } };
@@ -122,9 +122,9 @@ describe('application read models', () => {
   it('projects dynamic card display paths without changing stable ids', () => {
     const store = new CardStore(root);
     materializeProjectCard(root);
-    const goal = store.create({ type: 'goal', parent: 'project', depth: 1, title: 'Goal', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 });
-    const first = store.create({ type: 'code', parent: goal.id, depth: 2, title: 'First', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 });
-    const second = store.create({ type: 'code', parent: goal.id, depth: 2, title: 'Second', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 });
+    const goal = store.create({ type: 'goal', parent: 'project', depth: 1, title: 'Goal', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], acceptance: '', retries: 0 });
+    const first = store.create({ type: 'code', parent: goal.id, depth: 2, title: 'First', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], acceptance: '', retries: 0 });
+    const second = store.create({ type: 'code', parent: goal.id, depth: 2, title: 'Second', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], acceptance: '', retries: 0 });
     const service = new CardsReadModelService(root, store);
 
     const projectDetail = service.getCard('project').body as { card: { display_path: string | null } };

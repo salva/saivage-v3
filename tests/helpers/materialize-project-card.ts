@@ -17,8 +17,6 @@ export function materializeProjectCard(projectRoot: string): void {
     created_by: 'analyst',
     related: [],
     acceptance: '',
-    artifacts: [],
-    attachments: [],
     retries: 0,
   });
 }

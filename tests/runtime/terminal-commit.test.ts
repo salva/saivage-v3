@@ -1,7 +1,4 @@
 import { describe, expect, it } from '@jest/globals';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import type { CardLifecycleState, CardRecord } from '../../src/schemas/index.js';
 import {
   commitExecutorParkedVerification,
@@ -9,7 +6,6 @@ import {
   commitPlannerBlocked,
   commitReviewerInvocationFailure,
   commitReviewerPass,
-  validateGeneratedFiles,
   validateTerminalOverlay,
 } from '../../src/runtime/terminal-commit/index.js';
 
@@ -41,8 +37,6 @@ function card(overrides: Partial<CardRecord> = {}): CardRecord {
     acceptance: overrides.acceptance ?? '',
     lifecycle,
     metrics: overrides.metrics ?? null,
-    artifacts: overrides.artifacts ?? [],
-    attachments: overrides.attachments ?? [],
     estimate: overrides.estimate ?? null,
     started_at: overrides.started_at ?? null,
     duration_ms: overrides.duration_ms ?? null,
@@ -95,20 +89,6 @@ function strictBlockingEffects(fromStatus: CardRecord['status']) {
 }
 
 describe('terminal commit validators', () => {
-  it('validates generated file existence and project-root safety', () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-terminal-commit-'));
-    try {
-      writeFileSync(join(projectRoot, 'present.txt'), 'ok\n', 'utf8');
-      expect(validateGeneratedFiles(projectRoot, ['present.txt', 'missing.txt', '../outside.txt', ''])).toEqual({
-        valid: ['present.txt'],
-        missing: ['missing.txt'],
-        unsafe: ['../outside.txt', ''],
-      });
-    } finally {
-      rmSync(projectRoot, { recursive: true, force: true });
-    }
-  });
-
   it('validates done overlays by typed result discriminant', () => {
     expect(validateTerminalOverlay(card(), {
       status: 'done',
@@ -159,11 +139,9 @@ describe('terminal commit functions', () => {
     fx.transitionCard = async () => { throw new Error('transition rejected by state machine'); };
 
     await expect(commitExecutorSuccess({
-      projectRoot: process.cwd(),
       card: card(),
       goalId: 'goal-a',
       executor: {},
-      generatedFiles: [],
       acceptedAt: now,
       completedAt: now,
       summary: 'done',
@@ -217,27 +195,6 @@ describe('terminal commit functions', () => {
       lifecycle: { status: 'blocked', error: 'token budget', completed_at: null, result: { kind: 'planner_blocked', blocked_reason: 'token budget', resume_reason: 'planner_context_length_exceeded', blocker_cause: 'token_budget_exceeded' } },
     }));
     expect(fx.transitions[0]).toEqual(expect.objectContaining({ event: 'block' }));
-  });
-
-  it('rejects executor success when generated files are missing or unsafe', async () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-terminal-commit-missing-'));
-    try {
-      await expect(commitExecutorSuccess({
-        projectRoot,
-        card: card(),
-        goalId: 'goal-a',
-        executor: {},
-        generatedFiles: ['missing.txt'],
-        acceptedAt: now,
-        completedAt: now,
-        summary: 'done',
-        statusText: 'done',
-        sessionId: null,
-        effects: effects(),
-      })).rejects.toThrow("Generated file claim does not exist: 'missing.txt'.");
-    } finally {
-      rmSync(projectRoot, { recursive: true, force: true });
-    }
   });
 
   // Regression: GetRich v2 duplicate-child-block incident. A child goal already in

@@ -22,8 +22,6 @@ const CRITICAL_FIELDS: ReadonlySet<string> = new Set([
 ]);
 
 const ALWAYS_ALLOWED_FIELDS: ReadonlySet<string> = new Set([
-  'artifacts',
-  'attachments',
   'metrics',
   'duration_ms',
   'started_at',
@@ -95,8 +93,6 @@ const TRACKED_FIELDS = [
   'depends_on',
   'related',
   'assigned_to',
-  'artifacts',
-  'attachments',
   'position',
 ] as const satisfies ReadonlyArray<keyof CardRecord>;
 
@@ -358,8 +354,6 @@ export function buildNewCard({ input, id, depth, position, timestamp }: BuildNew
     acceptance: input.acceptance,
     lifecycle,
     metrics: input.metrics ?? null,
-    artifacts: input.artifacts,
-    attachments: input.attachments,
     estimate: input.estimate ?? null,
     started_at: input.started_at ?? null,
     duration_ms: input.duration_ms ?? null,

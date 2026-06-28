@@ -240,8 +240,6 @@ export type {
   RuntimeActivationLedgerPort,
   PlannerStatus,
   PlannerResult,
-  ExecutorArtifactDef,
-  ExecutorAttachmentDef,
   ExecutorFallbackReason,
   ExecutorResult,
   ReviewerIssue,
@@ -268,8 +266,6 @@ export {
 } from './planner-envelope.js';
 export {
   ExecutorResultEnvelopeSchema,
-  executorArtifactDefSchema,
-  executorAttachmentDefSchema,
   type ExecutorResultEnvelope,
 } from './executor-envelope.js';
 export {

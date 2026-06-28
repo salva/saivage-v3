@@ -34,8 +34,6 @@ function makeCard(
     depends_on: [],
     related: [],
     acceptance: '',
-    artifacts: [],
-    attachments: [],
     retries: 0,
     subtype: null,
     assigned_to: null,

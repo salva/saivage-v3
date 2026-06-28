@@ -85,17 +85,13 @@ describe('AgentRuntime Interface', () => {
     });
 
     it('invokeExecutor returns ExecutorResult (AgentRuntime signature)', () => {
-      const fixture: FakeAgentFixture = { name: 'test-goal', planner: [], executor: { 'code-test-1': { card_id: 'code-test-1', status: 'done', status_text: 'Completed test work', artifacts: [{ sourceFile: 'src/test.ts', type: 'data', description: 'Test source file', retain: true }] } }, reviewer: [] };
+      const fixture: FakeAgentFixture = { name: 'test-goal', planner: [], executor: { 'code-test-1': { card_id: 'code-test-1', status: 'done', status_text: 'Completed test work' } }, reviewer: [] };
       writeFixture(fixtureDir, 'test-goal', fixture);
       const adapter = new FakeAgentAdapter({ mapping: { 'goal-1': 'test-goal', '*': 'test-goal' }, fixtureDir });
       const result = adapter.invokeExecutor(executorRequest('code-test-1', 'goal-1'));
       expect(result.card_id).toBe('code-test-1');
       expect(result.status).toBe('done');
       expect(result.status_text).toBe('Completed test work');
-      expect(result.artifacts).toHaveLength(1);
-      expect(result.artifacts[0].type).toBe('data');
-      expect(result.artifacts[0].description).toBe('Test source file');
-      expect(result.artifacts[0].retain).toBe(true);
     });
 
     it('invokeReviewer returns ReviewerResult (AgentRuntime signature)', () => {

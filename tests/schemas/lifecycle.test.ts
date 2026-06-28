@@ -53,8 +53,6 @@ function card(overrides: Partial<CardRecord> = {}): CardRecord {
     acceptance: overrides.acceptance ?? '',
     lifecycle,
     metrics: overrides.metrics ?? null,
-    artifacts: overrides.artifacts ?? [],
-    attachments: overrides.attachments ?? [],
     estimate: overrides.estimate ?? null,
     started_at: overrides.started_at ?? null,
     duration_ms: overrides.duration_ms ?? null,

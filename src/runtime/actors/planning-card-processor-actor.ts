@@ -393,8 +393,6 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
       acceptance: optionalString(record.acceptance, 'acceptance') ?? '',
       depends_on: dependsOn,
       related: optionalStringArray(record.related, 'related'),
-      artifacts: [],
-      attachments: [],
       retries: 0,
     };
     if (!this.store.create) throw new Error('Planner create_card requires a mutable card store.');

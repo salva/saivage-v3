@@ -17,11 +17,11 @@ function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promis
 }
 
 function createProject(store: CardStore): CardRecord {
-  return store.create({ type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
+  return store.create({ type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], acceptance: '', retries: 0 });
 }
 
 function createGoal(store: CardStore, parent: string): CardRecord {
-  return store.create({ type: 'goal', parent, depth: 1, title: 'goal', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
+  return store.create({ type: 'goal', parent, depth: 1, title: 'goal', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], acceptance: '', retries: 0 });
 }
 
 function markDone(store: CardStore, card: CardRecord): CardRecord {

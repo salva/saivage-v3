@@ -16,7 +16,6 @@ export interface SelfReport {
 export interface ExecutorSuccessResult extends Record<string, unknown> {
   kind: 'executor_success';
   executor: Record<string, unknown>;
-  generated_files: string[];
   verified_at: string;
   latest_self_report: SelfReport;
   warnings: string[];
@@ -119,7 +118,6 @@ export const selfReportSchema: z.ZodType<SelfReport> = z.object({
 export const executorSuccessResultSchema: z.ZodType<ExecutorSuccessResult> = z.object({
   kind: z.literal('executor_success'),
   executor: arbitraryRecordSchema,
-  generated_files: z.array(z.string()),
   verified_at: timestampSchema,
   latest_self_report: selfReportSchema,
   warnings: z.array(z.string()),

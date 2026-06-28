@@ -134,7 +134,7 @@ describe('agent-loop-driver', () => {
   });
 
   it('drains takeRuntimeDoneEnvelope source after a non-terminal tool-call turn', async () => {
-    const runtimeEnvelope = { status: 'done', summary: 'queued', artifacts: [], attachments: [] } as unknown as ExecutorResultEnvelope;
+    const runtimeEnvelope = { status: 'done', summary: 'queued' } as unknown as ExecutorResultEnvelope;
     let drained = false;
     const { io } = makeIO({
       invokeTurn: async () => toolCalls([{ id: 'tc-1', name: 'read_file', args: '{}' }]),
@@ -152,7 +152,7 @@ describe('agent-loop-driver', () => {
   });
 
   it('drains runtime envelopes queued during a rejected terminal turn', async () => {
-    const runtimeEnvelope = { status: 'done', summary: 'stale-runtime', artifacts: [], attachments: [] } as unknown as ExecutorResultEnvelope;
+    const runtimeEnvelope = { status: 'done', summary: 'stale-runtime' } as unknown as ExecutorResultEnvelope;
     let turn = 0;
     let queued: ExecutorResultEnvelope | null = null;
     const { io } = makeIO({

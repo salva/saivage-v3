@@ -67,8 +67,6 @@ function makeCard(overrides: Partial<CardRecord> & { type: CardRecord['type']; t
     acceptance: '',
     lifecycle,
     metrics: null,
-    artifacts: [],
-    attachments: [],
     estimate: null,
     started_at: null,
     duration_ms: null,
@@ -114,7 +112,7 @@ describe('AgentAdapter planner-control reviewer prompt contract', () => {
       parent: goal.id,
       depth: 2,
       status: 'done',
-      lifecycle: { status: 'done', result: { kind: 'executor_success', executor: { summary: 'Implemented reviewer prompt wiring.' }, generated_files: [], verified_at: '2026-01-01T00:00:00.000Z', latest_self_report: { result: 'done', outcome: 'done', summary: 'Implemented reviewer prompt wiring.', status_text: 'done', at: '2026-01-01T00:00:00.000Z' }, warnings: [] }, error: null, completed_at: '2026-01-01T00:00:00.000Z' },
+      lifecycle: { status: 'done', result: { kind: 'executor_success', executor: { summary: 'Implemented reviewer prompt wiring.' }, verified_at: '2026-01-01T00:00:00.000Z', latest_self_report: { result: 'done', outcome: 'done', summary: 'Implemented reviewer prompt wiring.', status_text: 'done', at: '2026-01-01T00:00:00.000Z' }, warnings: [] }, error: null, completed_at: '2026-01-01T00:00:00.000Z' },
     }));
 
     const plannerReport = {

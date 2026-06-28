@@ -78,8 +78,6 @@ function makeCard(
       completed_at: null,
     } as CardRecord['lifecycle'],
     metrics: null,
-    artifacts: [],
-    attachments: [],
     estimate: null,
     started_at: null,
     duration_ms: null,

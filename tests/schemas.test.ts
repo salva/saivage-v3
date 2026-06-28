@@ -3,8 +3,6 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
-  attachmentRefSchema,
-  artifactRefSchema,
   cardRecordSchema,
   
   processRecordSchema,
@@ -70,8 +68,6 @@ describe('Core schemas still validate expected records', () => {
       depends_on: [],
       related: [],
       acceptance: '',
-      artifacts: [],
-      attachments: [],
       metadata: { max_review_retries: 2, custom: 'kept' },
       retries: 0,
     }).success).toBe(true);
@@ -100,33 +96,10 @@ describe('Core schemas still validate expected records', () => {
       depends_on: [],
       related: [],
       acceptance: '',
-      artifacts: [],
-      attachments: [],
       retries: 0,
     };
     expect(cardRecordSchema.safeParse({ ...base, metadata: { max_review_retries: 4 } }).success).toBe(true);
     expect(cardRecordSchema.safeParse({ ...base, metadata: { max_review_retries: -1 } }).success).toBe(false);
-  });
-
-  it('accepts valid artifact and attachment refs', () => {
-    expect(artifactRefSchema.safeParse({
-      id: 'art-1',
-      card_id: 'goal-1',
-      path: '/tmp/a',
-      type: 'report',
-      description: 'desc',
-      retain: true,
-      created_at: '2025-01-01T00:00:00.000Z',
-    }).success).toBe(true);
-
-    expect(attachmentRefSchema.safeParse({
-      id: 'att-1',
-      card_id: 'goal-1',
-      path: '/tmp/b',
-      mime: 'text/plain',
-      title: 'title',
-      created_at: '2025-01-01T00:00:00.000Z',
-    }).success).toBe(true);
   });
 
   it('accepts valid reviewer pass and needs_corrections results', () => {
@@ -302,8 +275,6 @@ describe('Core schemas still validate expected records', () => {
       depends_on: [],
       related: [],
       acceptance: '',
-      artifacts: [],
-      attachments: [],
       metadata: { max_review_retries: 2, custom: 'kept' },
       retries: 0,
     });

@@ -18,11 +18,11 @@ function withTempProject<T>(fn: (projectRoot: string) => T): T {
 }
 
 function createProject(store: CardStore): CardRecord {
-  return store.create({ type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
+  return store.create({ type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], acceptance: '', retries: 0 });
 }
 
 function createDoneChild(store: CardStore, parent: string): CardRecord {
-  const child = store.create({ type: 'goal', parent, depth: 1, title: 'child', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
+  const child = store.create({ type: 'goal', parent, depth: 1, title: 'child', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], acceptance: '', retries: 0 });
   return store.commitTerminalLifecyclePatch(child.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'planner_done', summary: 'child done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' } });
 }
 

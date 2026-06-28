@@ -10,7 +10,7 @@ function setup(root: string): CardStore {
   const sd = join(root, '.saivage');
   for (const d of ['cards/by-id','cards/tree','cards/dependencies','notes/by-card','runtime']) mkdirSync(join(sd, d), { recursive: true });
   const now = new Date().toISOString();
-  writeFileSync(join(sd, 'cards', 'by-id', 'project.json'), JSON.stringify({ id: 'project', type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, tags: [], priority: 0, position: 0, urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now, version_seq: 1, depends_on: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 }));
+  writeFileSync(join(sd, 'cards', 'by-id', 'project.json'), JSON.stringify({ id: 'project', type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, tags: [], priority: 0, position: 0, urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now, version_seq: 1, depends_on: [], related: [], acceptance: '', retries: 0 }));
   writeFileSync(join(sd, 'cards', 'index.json'), JSON.stringify({ cards: { project: { id: 'project', type: 'project', parent: null, status: 'backlog', title: 'project' } } }));
   writeFileSync(join(sd, 'cards', 'tree', 'project.children.json'), JSON.stringify([]));
   writeFileSync(join(sd, 'cards', 'dependencies', 'depends-on.json'), JSON.stringify({}));
@@ -26,8 +26,8 @@ describe('card history and notes tools', () => {
     const root = mkdtempSync(join(tmpdir(), 'wave-f-history-tools-'));
     try {
       const store = setup(root);
-      const goal = store.create({ type: 'goal', parent: 'project', depth: 0, title: 'goal', description: '', status: 'backlog', tags: [], priority: 1, position: 0, urgency: 'normal', created_by: 'analyst', acceptance: '', depends_on: [], related: [], artifacts: [], attachments: [], retries: 0 } as any);
-      const code = store.create({ type: 'code', parent: goal.id, depth: 0, title: 'before', description: 'old', status: 'backlog', tags: [], priority: 1, position: 0, urgency: 'normal', created_by: 'analyst', acceptance: 'a', depends_on: [], related: [], artifacts: [], attachments: [], retries: 0 } as any);
+      const goal = store.create({ type: 'goal', parent: 'project', depth: 0, title: 'goal', description: '', status: 'backlog', tags: [], priority: 1, position: 0, urgency: 'normal', created_by: 'analyst', acceptance: '', depends_on: [], related: [], retries: 0 } as any);
+      const code = store.create({ type: 'code', parent: goal.id, depth: 0, title: 'before', description: 'old', status: 'backlog', tags: [], priority: 1, position: 0, urgency: 'normal', created_by: 'analyst', acceptance: 'a', depends_on: [], related: [], retries: 0 } as any);
       store.mutateCard(code.id, { title: 'after', acceptance: 'b' }, { actor: 'analyst', surface: 'web-chat', reason: 'operator edit' });
       const toolCtx = ctx(root, store);
       const history = await list_card_history(toolCtx, { cardId: code.id });

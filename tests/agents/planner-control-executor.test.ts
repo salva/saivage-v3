@@ -40,8 +40,6 @@ function makeCard(
     acceptance: '',
     lifecycle,
     metrics: null,
-    artifacts: [],
-    attachments: [],
     estimate: null,
     started_at: null,
     duration_ms: null,
@@ -163,7 +161,7 @@ describe('PlannerControlExecutor', () => {
         parent: goal.id,
         depth: 2,
         status: 'done',
-        lifecycle: { status: 'done', result: { kind: 'executor_success', executor: { summary: 'done' }, generated_files: [], verified_at: '2026-01-01T00:00:00.000Z', latest_self_report: { result: 'done', outcome: 'done', summary: 'done', status_text: 'done', at: '2026-01-01T00:00:00.000Z' }, warnings: [] }, error: null, completed_at: '2026-01-01T00:00:00.000Z' },
+        lifecycle: { status: 'done', result: { kind: 'executor_success', executor: { summary: 'done' }, verified_at: '2026-01-01T00:00:00.000Z', latest_self_report: { result: 'done', outcome: 'done', summary: 'done', status_text: 'done', at: '2026-01-01T00:00:00.000Z' }, warnings: [] }, error: null, completed_at: '2026-01-01T00:00:00.000Z' },
       }),
     );
     const executor = new PlannerControlExecutor({

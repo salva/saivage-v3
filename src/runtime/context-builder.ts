@@ -50,15 +50,6 @@ export function summarizeForPlannerContext(value: unknown, depth = 0): unknown {
   return summarized;
 }
 
-export function summarizeEvidenceRefsForPlannerContext(refs: unknown[] | undefined): Record<string, unknown> {
-  const list = Array.isArray(refs) ? refs : [];
-  return {
-    count: list.length,
-    items: list.slice(0, PLANNER_CONTEXT_ARRAY_LIMIT).map((ref) => summarizeForPlannerContext(ref, 1)),
-    omitted_count: Math.max(0, list.length - PLANNER_CONTEXT_ARRAY_LIMIT),
-  };
-}
-
 export function buildGoalEvidenceContext(input: { goalId: string; cards: RuntimeContextCardReader }): string {
   const goalResult = input.cards.read(input.goalId)?.lifecycle.result;
   const reviewState = goalResult?.kind === 'reviewer_pass' ? goalResult : undefined;
@@ -73,8 +64,6 @@ export function buildGoalEvidenceContext(input: { goalId: string; cards: Runtime
       status_text: card.status_text ? truncatePlannerContextString(card.status_text) : null,
       result_summary: summarizeForPlannerContext(card.lifecycle.result),
       error: card.lifecycle.error ? truncatePlannerContextString(card.lifecycle.error) : null,
-      artifacts: summarizeEvidenceRefsForPlannerContext(card.artifacts),
-      attachments: summarizeEvidenceRefsForPlannerContext(card.attachments),
     }));
   return JSON.stringify(
     {

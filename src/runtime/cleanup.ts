@@ -21,7 +21,7 @@ export interface CleanupResult {
 export interface CleanStaleProcessOptions {
   /** Path to .saivage-work/ directory */
   saivageWorkDir: string;
-  /** CardStore instance for checking artifact references */
+  /** CardStore instance retained for the public cleanup API shape */
   store: CardStore;
   /** Maximum age of completed process dirs before cleanup, in ms (default: 24h) */
   maxAgeMs?: number;
@@ -242,17 +242,13 @@ export function cleanStaleUploads(
  * A process directory is eligible for cleanup when:
  * 1. The process status is NOT 'running'.
  * 2. The process directory is older than maxAgeMs.
- * 3. No card retains an artifact that references files inside the
- *    process output directory.
- *
- * CRITICAL: Never removes running process dirs, and never removes
- * process output that a retained artifact points to.
+ * CRITICAL: Never removes running process dirs.
  *
  * @param options - Options including saivageWorkDir, store, and maxAgeMs
  * @returns Number of process directories cleaned
  */
 export function cleanStaleProcessOutput(options: CleanStaleProcessOptions): number {
-  const { saivageWorkDir, store, maxAgeMs = 24 * 60 * 60 * 1000 } = options;
+  const { saivageWorkDir, maxAgeMs = 24 * 60 * 60 * 1000 } = options;
   const processesDir = safeResolve(saivageWorkDir, 'processes');
   if (!processesDir) return 0;
   if (!existsSync(processesDir)) return 0;
@@ -262,8 +258,6 @@ export function cleanStaleProcessOutput(options: CleanStaleProcessOptions): numb
   const expectedProcesses = normalize(join(absWork, 'processes'));
   if (processesDir !== expectedProcesses) return 0;
 
-  // Build a set of all paths referenced by retained artifacts
-  const retainedArtifactPaths = collectRetainedArtifactPaths(store);
   const runningProcessIds = loadRunningProcessIds(saivageWorkDir);
 
   let cleaned = 0;
@@ -291,9 +285,6 @@ export function cleanStaleProcessOutput(options: CleanStaleProcessOptions): numb
     // Never remove output for registry-running processes.
     if (runningProcessIds.has(entry)) continue;
 
-    // Skip if any retained artifact references a file inside this dir
-    if (isProcessDirReferenced(procDir, retainedArtifactPaths)) continue;
-
     // Skip if too new
     if (st.mtimeMs >= cutoff) continue;
 
@@ -316,8 +307,7 @@ export function cleanStaleProcessOutput(options: CleanStaleProcessOptions): numb
  * This is the primary entry point for general cleanup. It runs each
  * targeted cleanup function and aggregates the results.
  *
- * Never removes retained artifacts, attachments, download reviews,
- * or quarantine metadata.
+ * Never removes download reviews or quarantine metadata.
  *
  * @param saivageWorkDir - Path to .saivage-work/ directory
  * @param store - CardStore instance for artifact reference checks
@@ -385,27 +375,6 @@ export function cleanAll(
 
 // ── Internal Helpers ──────────────────────────────────────────
 
-/**
- * Collect the set of normalized absolute paths referenced by
- * retained artifacts across all cards.
- */
-function collectRetainedArtifactPaths(store: CardStore): Set<string> {
-  const paths = new Set<string>();
-  try {
-    const allCards = store.list();
-    for (const card of allCards) {
-      for (const artifact of card.artifacts) {
-        if (artifact.retain) {
-          paths.add(resolve(artifact.path));
-        }
-      }
-    }
-  } catch {
-    // best effort
-  }
-  return paths;
-}
-
 function loadRunningProcessIds(saivageWorkDir: string): Set<string> {
   const projectRoot = resolve(saivageWorkDir, '..');
   const registry = loadRegistry(projectRoot);
@@ -416,23 +385,6 @@ function loadRunningProcessIds(saivageWorkDir: string): Set<string> {
     }
   }
   return running;
-}
-
-/**
- * Check whether any retained artifact path falls within a process
- * output directory.
- */
-function isProcessDirReferenced(
-  procDir: string,
-  retainedPaths: Set<string>,
-): boolean {
-  const absProcDir = resolve(procDir);
-  for (const artifactPath of retainedPaths) {
-    if (artifactPath.startsWith(absProcDir + '/') || artifactPath === absProcDir) {
-      return true;
-    }
-  }
-  return false;
 }
 
 function escapeRegex(s: string): string {

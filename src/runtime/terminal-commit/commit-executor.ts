@@ -1,6 +1,6 @@
 import type { CardLifecycleState, CardRecord, ExecutorFailureResult, ExecutorNeedsVerificationResult, ExecutorSuccessResult, SelfReport } from '../../schemas/index.js';
 import { lifecycleCardPatch } from './lifecycle-patch.js';
-import { generatedFileValidationErrors, validateGeneratedFiles, validateTerminalOverlay } from './validators.js';
+import { validateTerminalOverlay } from './validators.js';
 
 export interface TerminalCommitEffects {
   transitionCard(cardId: string, event: string, details: Record<string, unknown>): Promise<unknown> | unknown;
@@ -14,11 +14,9 @@ export interface TerminalCommitReceipt<TLifecycle extends CardLifecycleState, TR
 }
 
 export async function commitExecutorSuccess(input: {
-  projectRoot: string;
   card: CardRecord;
   goalId: string;
   executor: Record<string, unknown>;
-  generatedFiles: string[];
   acceptedAt: string;
   completedAt: string;
   summary: string;
@@ -27,15 +25,10 @@ export async function commitExecutorSuccess(input: {
   warnings?: string[];
   effects: TerminalCommitEffects;
 }): Promise<TerminalCommitReceipt<Extract<CardLifecycleState, { status: 'done' }>, ExecutorSuccessResult>> {
-  const validation = validateGeneratedFiles(input.projectRoot, input.generatedFiles);
-  const fileErrors = generatedFileValidationErrors(validation);
-  if (fileErrors.length > 0) throw new Error(`Cannot commit executor success with invalid generated files: ${fileErrors.join(' ')}`);
-
   const latestSelfReport = selfReport('done', input.summary, input.statusText, input.acceptedAt);
   const result: ExecutorSuccessResult = {
     kind: 'executor_success',
     executor: input.executor,
-    generated_files: validation.valid,
     verified_at: input.acceptedAt,
     latest_self_report: latestSelfReport,
     warnings: input.warnings ?? [],

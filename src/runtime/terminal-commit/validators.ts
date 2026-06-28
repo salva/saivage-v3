@@ -1,51 +1,10 @@
-import { existsSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
 import type { CardLifecycleState, CardRecord } from '../../schemas/index.js';
 import { cardLifecycleStateSchema } from '../../schemas/lifecycle.js';
 
-export interface GeneratedFileValidation {
-  valid: string[];
-  missing: string[];
-  unsafe: string[];
-}
-
 export function pathIsInside(parentPath: string, candidatePath: string): boolean {
   const rel = relative(resolve(parentPath), resolve(candidatePath));
   return rel === '' || (!!rel && !rel.startsWith('..') && !isAbsolute(rel));
-}
-
-export function validateGeneratedFiles(projectRoot: string, paths: string[]): GeneratedFileValidation {
-  const valid: string[] = [];
-  const missing: string[] = [];
-  const unsafe: string[] = [];
-
-  for (const filePath of paths) {
-    if (!filePath.trim()) {
-      unsafe.push(filePath);
-      continue;
-    }
-    const resolved = isAbsolute(filePath) ? resolve(filePath) : resolve(projectRoot, filePath);
-    if (!pathIsInside(projectRoot, resolved)) {
-      unsafe.push(filePath);
-      continue;
-    }
-    if (!existsSync(resolved)) {
-      missing.push(filePath);
-      continue;
-    }
-    valid.push(filePath);
-  }
-
-  return { valid, missing, unsafe };
-}
-
-export function generatedFileValidationErrors(validation: GeneratedFileValidation): string[] {
-  return [
-    ...validation.unsafe.map((filePath) => filePath.trim()
-      ? `Generated file claim points outside project root: '${filePath}'.`
-      : 'Generated file claim is empty.'),
-    ...validation.missing.map((filePath) => `Generated file claim does not exist: '${filePath}'.`),
-  ];
 }
 
 export function validateTerminalOverlay(_previousCard: CardRecord, nextLifecycle: CardLifecycleState): string[] {
@@ -83,4 +42,3 @@ export function validateTerminalOverlay(_previousCard: CardRecord, nextLifecycle
 
   return diagnostics;
 }
-

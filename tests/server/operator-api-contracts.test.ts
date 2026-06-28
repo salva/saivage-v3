@@ -88,8 +88,6 @@ const card = {
   lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
   operator_summary: { lifecycleStatus: 'backlog', terminal: false, needsVerification: false, blocked: false, hasError: false, error: null, completedAt: null, stale: false, actionCount: 0 },
   metrics: null,
-  artifacts: [],
-  attachments: [],
   estimate: null,
   started_at: null,
   duration_ms: null,

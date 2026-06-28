@@ -902,8 +902,6 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
         card_id: 'code-1',
         status: 'done',
         status_text: 'Executor completed successfully',
-        artifacts: [{ type: 'report', description: 'Test results', retain: true }],
-        attachments: [],
       }))));
     });
 
@@ -926,8 +924,6 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
       const result = await adapter.invokeExecutor(executorRequest('code-1', 'goal-1'));
 
       expect(result.status).toBe('done');
-      expect(result.artifacts).toHaveLength(1);
-      expect(result.artifacts[0].type).toBe('report');
     } finally {
       await closeServer(server);
       if (tempDir) cleanupDir(tempDir);

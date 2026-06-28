@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { getDiaryEntries } from '../cards/artifact-api.js';
+import { getDiaryEntries } from '../cards/diary.js';
 import { PROJECT_CARD_ID } from '../cards/store-api.js';
 import type { CardRecord, CardStatus, CardType } from '../schemas/index.js';
 import { deriveCurrentCardId } from '../runtime/current-run.js';
@@ -106,14 +106,14 @@ export async function create_card(ctx: ToolContext, params: { type: CardType; pa
       if (parent === null && params.type !== 'project') return toolFailure('validation', `Cannot create ${params.type} card without a parent. Inspect the card tree and provide an existing parent ID.`, { field: 'parent' });
       if (parent === undefined) return toolFailure('validation', `Cannot create ${params.type} card without a parent. Inspect the card tree and provide an existing parent ID.`, { field: 'parent' });
       if (parent !== null && parent !== PROJECT_CARD_ID && !store.read(parent)) return toolFailure('not_found', `Parent card '${parent}' does not exist.`, { parent });
-      const card = store.create({ type: params.type, parent, depth: 0, title: params.title, description: params.description, status: params.status ?? 'backlog', tags: params.tags ?? [], priority: params.priority ?? 0, urgency: params.urgency ?? 'normal', created_by: 'analyst', acceptance: params.acceptance ?? '', depends_on: params.depends_on ?? [], related: params.related ?? [], artifacts: [], attachments: [], retries: 0 });
+      const card = store.create({ type: params.type, parent, depth: 0, title: params.title, description: params.description, status: params.status ?? 'backlog', tags: params.tags ?? [], priority: params.priority ?? 0, urgency: params.urgency ?? 'normal', created_by: 'analyst', acceptance: params.acceptance ?? '', depends_on: params.depends_on ?? [], related: params.related ?? [], retries: 0 });
       return { success: true, data: toCardView(store, card) };
     } catch (err) { return toolFailureFromError(err, 'validation', humanizeToolError('create_card', err instanceof Error ? err.message : String(err))); }
   } });
 }
 
 const ANALYST_ALLOWED_EDIT_FIELDS = new Set(['title', 'description', 'tags', 'priority', 'urgency', 'acceptance', 'depends_on']);
-const PLANNER_ALLOWED_EDIT_FIELDS = new Set(['title', 'description', 'status', 'tags', 'priority', 'urgency', 'acceptance', 'depends_on', 'related', 'estimate', 'subtype', 'assigned_to', 'result', 'metrics', 'started_at', 'completed_at', 'duration_ms', 'error', 'parent', 'type', 'instructions_file', 'attachments', 'artifacts']);
+const PLANNER_ALLOWED_EDIT_FIELDS = new Set(['title', 'description', 'status', 'tags', 'priority', 'urgency', 'acceptance', 'depends_on', 'related', 'estimate', 'subtype', 'assigned_to', 'result', 'metrics', 'started_at', 'completed_at', 'duration_ms', 'error', 'parent', 'type', 'instructions_file']);
 
 export async function edit_card(ctx: ToolContext, params: { id: string } & Record<string, unknown>): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, params, { action: 'card.update', safety_class: 'high', target_kind: 'card', getTargetId: (p) => p.id, preview: () => ({ type: 'edit_card', summary: `Edit card '${params.id}'.`, affectedCards: getStore(ctx).read(params.id) ? [cardSummary(getStore(ctx).read(params.id)!)] : [], affectedProcesses: [], warnings: [] }), run: async () => {

@@ -103,8 +103,6 @@ function setupProject(projectRoot: string): void {
       acceptance: '',
       lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
       metrics: null,
-      artifacts: [],
-      attachments: [],
       estimate: null,
       started_at: null,
       duration_ms: null,
@@ -149,8 +147,6 @@ function setupTestProject(projectRoot: string): CardStore {
     acceptance: '',
     depends_on: [],
     related: [],
-    artifacts: [],
-    attachments: [],
     retries: 0,
   });
   store.create({
@@ -167,8 +163,6 @@ function setupTestProject(projectRoot: string): CardStore {
     acceptance: '',
     depends_on: [],
     related: [],
-    artifacts: [],
-    attachments: [],
     retries: 0,
   });
   return store;
@@ -529,8 +523,6 @@ describe('Analyst Tools', () => {
       acceptance: '',
       depends_on: [],
       related: [],
-      artifacts: [],
-      attachments: [],
       retries: 0,
     });
 

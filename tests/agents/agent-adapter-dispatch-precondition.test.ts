@@ -60,7 +60,7 @@ describe('AgentAdapter dispatch precondition', () => {
       }
       return {
         kind: 'tool_calls',
-        tool_calls: [{ id: 'c2', type: 'function', function: { name: 'emit_executor_result', arguments: JSON.stringify({ card_id: 'card-X', status: 'done', status_text: 'completed', artifacts: [], attachments: [] }) } }],
+        tool_calls: [{ id: 'c2', type: 'function', function: { name: 'emit_executor_result', arguments: JSON.stringify({ card_id: 'card-X', status: 'done', status_text: 'completed' }) } }],
       };
     });
     adapter = createMinimalAdapter(tmpDir, llmCallFn);

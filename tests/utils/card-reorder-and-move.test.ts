@@ -21,8 +21,6 @@ function makeCard(overrides: Partial<CardRecord> & { type?: CardRecord['type']; 
     depends_on: [],
     related: [],
     acceptance: '',
-    artifacts: [],
-    attachments: [],
     retries: 0,
     ...(overrides.id ? { id: overrides.id } : {}),
   };

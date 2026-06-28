@@ -167,8 +167,6 @@ export class PlannerControlExecutor {
             acceptance: typeof args.acceptance === 'string' ? args.acceptance : '',
             depends_on: Array.isArray(args.depends_on) ? args.depends_on.map(String) : [],
             related: Array.isArray(args.related) ? args.related.map(String) : [],
-            artifacts: [],
-            attachments: [],
             retries: 0,
           });
           result = { success: true, data: card };

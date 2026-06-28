@@ -19,22 +19,15 @@ function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promis
 function setup(projectRoot: string) {
   initProjectTree(projectRoot);
   const store = new CardStore(projectRoot);
-  store.create({ type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
-  const card = store.create({ type: 'code', parent: 'project', depth: 1, title: 'write code', description: 'Implement it.', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], artifacts: [], attachments: [], acceptance: 'Works.', retries: 0 });
+  store.create({ type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], acceptance: '', retries: 0 });
+  const card = store.create({ type: 'code', parent: 'project', depth: 1, title: 'write code', description: 'Implement it.', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], acceptance: 'Works.', retries: 0 });
   return { store, card };
 }
 
 function executorResult(cardId: string, statusText: string, status: 'done' | 'failed' = 'done') {
   return {
     kind: 'tool_calls' as const,
-    tool_calls: [{ id: `executor-${status}`, type: 'function' as const, function: { name: 'emit_executor_result', arguments: JSON.stringify({ card_id: cardId, status, status_text: statusText, summary: statusText, error: status === 'failed' ? statusText : undefined, result: { summary: statusText }, artifacts: [], attachments: [], generated_files: [`${cardId}.txt`], warnings: [] }) } }],
-  };
-}
-
-function executorResultWithEvidence(cardId: string, artifactPath: string, attachmentPath: string) {
-  return {
-    kind: 'tool_calls' as const,
-    tool_calls: [{ id: 'executor-evidence', type: 'function' as const, function: { name: 'emit_executor_result', arguments: JSON.stringify({ card_id: cardId, status: 'done', status_text: 'implemented with evidence', summary: 'implemented with evidence', result: { summary: 'implemented with evidence' }, artifacts: [{ type: 'log', description: 'build log', retain: true, path: artifactPath }], attachments: [{ mime: 'text/plain', title: 'notes', path: attachmentPath }], generated_files: ['src/example.ts'], warnings: ['manual review advised'] }) } }],
+    tool_calls: [{ id: `executor-${status}`, type: 'function' as const, function: { name: 'emit_executor_result', arguments: JSON.stringify({ card_id: cardId, status, status_text: statusText, summary: statusText, error: status === 'failed' ? statusText : undefined, result: { summary: statusText }, warnings: [] }) } }],
   };
 }
 
@@ -96,18 +89,6 @@ describe('TerminalCardProcessorActor', () => {
     expect(store.read(card.id)?.lifecycle.result).toMatchObject({ kind: 'executor_success', executor: { summary: 'implemented' } });
     expect(provider.completeTurn).toHaveBeenCalledWith(expect.objectContaining({ agentId: `executor:${card.id}`, role: 'executor', terminalToolNames: ['emit_executor_result'], systemPrompt: expect.stringContaining('record://status.md?v=next') }), expect.any(AbortSignal));
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_kind)).toEqual(expect.arrayContaining(['card', 'llm', 'processor']));
-  }));
-
-  it('preserves executor artifacts and attachments through card evidence refs and schema-valid result fields', async () => withTempProject(async (projectRoot) => {
-    const { store, card } = setup(projectRoot);
-    const provider = withExecutorStatusRecord(() => executorResultWithEvidence(card.id, '.saivage-work/logs/build.log', '.saivage-work/logs/notes.txt'));
-    const processor = new TerminalCardProcessorActor({ projectRoot, cardId: card.id, provider, store });
-    processor.start();
-
-    const outcome = await processor.activate({ card, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: noopNotificationDelivery() });
-
-    expect(outcome).toMatchObject({ status: 'done', result: { kind: 'executor_success', generated_files: ['src/example.ts'], warnings: ['manual review advised'] } });
-    expect(outcome.result.executor).toMatchObject({ artifacts: [expect.objectContaining({ path: '.saivage-work/logs/build.log' })], attachments: [expect.objectContaining({ path: '.saivage-work/logs/notes.txt' })] });
   }));
 
   it('commits provider failure as failed outcome', async () => withTempProject(async (projectRoot) => {
