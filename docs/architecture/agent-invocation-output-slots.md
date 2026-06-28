@@ -49,44 +49,47 @@ No best-effort. No advisory warnings. No optional evidence. No soft gates.
 | Notifications | Coordination. |
 | Card field-level history | Already works. |
 
-## Versioned Output Paths
+## Versioned Record Slots
 
-Every mandatory output file lives under a versioned directory on the card:
+Every mandatory output file lives in a card-local record slot. Each slot has its own version sequence:
 
 ```text
-.saivage/outputs/cards/{cardId}/{N}/{filename}
+.saivage/outputs/cards/{cardId}/{slot}/
+  index.json
+  {version}.md
 ```
 
-Where `{N}` is a monotonically increasing record version per card. The persisted `record_version` is the last published record version, not a counter that advances merely because a card was activated.
-
-The processor declares the current draft record URL as `record://{cardId}/{record_version + 1}/{filename}`. That version is committed only when an agent calls its terminal `emit_*` tool and the runtime accepts the declared file as that agent's output. The committed version is visible to the next planner/reviewer/executor iteration.
-
-If a card is reactivated after a blocked activation or parent retry without a new accepted terminal record, the record version does not advance. The next attempt reuses the same next version number. Missing-file repair attempts also reuse the same draft version.
-
-Examples:
-
-- A parent reactivates a previously blocked planner card, but the planner does not emit a new accepted terminal record. `record_version` does not change.
-- A planner emits `emit_planner_result` with `planner-result.md`, and the runtime accepts that file as the planner's terminal record. `record_version` advances after that emit commits, so the next planner/reviewer iteration sees the next version number.
-- A reviewer emits `emit_reviewer_result` with `review.md`, and the runtime accepts that file. `record_version` advances after that review record commits.
-
-Example:
+For example:
 
 ```text
 .saivage/outputs/cards/card-1/
-  1/
-    review.md
-  2/
-    review.md
-  3/
-    review.md
-    planner-result.md
+  review/
+    index.json
+    1.md
+    2.md
+  planner-result/
+    index.json
+    1.md
+  executor-result/
+    index.json
+    1.md
 ```
 
-Version 1 and 2 reviews remain available even after the version 3 review replaces them as the current one. The runtime, UI, and reviewer can read prior versions for comparison.
+The slot name comes from the record filename without its extension. `review.md` writes to the `review/` slot, `planner-result.md` writes to the `planner-result/` slot, and so on. This makes versions independent per record type: a new review does not advance the planner-result slot, and a new planner result does not advance the review slot.
+
+The current writable version is slot-local. A new version is created only when a write asks for `v=next` and the current version for that slot is already closed. Closing happens when an agent calls its terminal `emit_*` tool and the runtime accepts the declared record file as that agent's output. Blocked activations, parent retries, and missing-file repair attempts do not create new versions unless they need a fresh writable slot after a previous emitted version was closed.
+
+Examples:
+
+- A parent reactivates a previously blocked planner card, but the planner does not emit a new accepted terminal record. No slot version advances.
+- A planner writes `record://planner-result.md?v=next`, gets a concrete URL such as `record://planner-result.md?card=card-1&v=2`, then emits `emit_planner_result`. The runtime closes `planner-result/2.md`.
+- A reviewer writes `record://review.md?v=next`, gets `record://review.md?card=card-1&v=1`, then emits `emit_reviewer_result`. The runtime closes `review/1.md`.
+
+Prior reviews remain available even after a later review becomes the current one. The runtime, UI, and reviewer can read prior versions for comparison.
 
 Mandatory output files are durable runtime evidence, so they live under `.saivage/outputs/`, not under `.saivage-work/` or future `.saivage/work/`. The work directory is disposable operational scratch for shell/process outputs and caches; removing it must not lose critical agent evidence.
 
-The record version is card-scoped, not invocation-scoped, because a card may have multiple planner/reviewer/executor cycles across its lifecycle. The version advances when an emitted file becomes the accepted record for the card, not when an LLM turn starts. This keeps retries and blocked reactivations from creating meaningless gaps, while preserving a stable historical sequence of accepted records.
+Record versions are slot-scoped, not invocation-scoped or card-global. The version advances when an emitted file closes that slot, not when an LLM turn starts. This keeps retries and blocked reactivations from creating meaningless gaps, while preserving a stable historical sequence for each record type.
 
 ## File Path Schemes
 
@@ -94,22 +97,27 @@ File tools accept a URL-like scheme prefix that tells the runtime where the file
 
 | Scheme | Format | Resolves to |
 |---|---|---|
-| `record://` | `record://{cardId}/{version}/{filename}` | `.saivage/outputs/cards/{cardId}/{version}/{filename}` |
+| `record://` | `record://{slot}.md?card={cardId}&v={version}` | `.saivage/outputs/cards/{cardId}/{slot}/{version}.md` |
 | `tmp://` | `tmp://{cardId}/{relative}` | `.saivage/work/cards/{cardId}/tmp/{relative}` |
 | `project://` | `project://{relative}` or absolute path | `{projectRoot}/{relative}` |
 
 Examples:
-- `record://card-1/23/review.md` → `.saivage/outputs/cards/card-1/23/review.md`
-- `record://card-34/7/planner-result.md` → `.saivage/outputs/cards/card-34/7/planner-result.md`
+- `record://review.md?card=card-1&v=23` → `.saivage/outputs/cards/card-1/review/23.md`
+- `record://planner-result.md?card=card-34&v=7` → `.saivage/outputs/cards/card-34/planner-result/7.md`
+- `record://review.md` → latest closed `review` record for the current card
+- `record://review.md?v=next` → writable next `review` record for the current card
+- `record://review.md?v=latest&card=card-7` → latest closed `review` record for card-7
 - `tmp://card-34/scratch-notes.md` → `.saivage/work/cards/card-34/tmp/scratch-notes.md`
 - `project://src/foo.ts` → `{projectRoot}/src/foo.ts`
 - `/home/salva/g/ml/getrich-v2/README.md` → absolute, same as `project://`
 
-The `record://` URL is fully-qualified: it contains the card ID, the version number, and the filename. Any agent can read any record output file by URL, regardless of which card or invocation produced it. This makes output references passable between agents — the reviewer can cite `record://card-7/3/executor-result.md` in its review, and the planner can read `record://card-1/23/review.md` to see why the reviewer rejected its work.
+The `record://` URL addresses a record slot. If `card` is omitted, it defaults to the current card. If `v` is omitted for reads, it defaults to `latest`. If `v=next` is used for writes, the file tool resolves or creates the current writable version for that slot and returns the concrete URL, such as `record://review.md?card=card-1&v=3`. Any agent can read any closed record by URL, regardless of which card or invocation produced it. This makes record references passable between agents — the reviewer can cite `record://executor-result.md?card=card-7` in its review, and the planner can read `record://review.md?card=card-1&v=23` to see why the reviewer rejected its work.
 
 `record://` is not a shortcut for `project://.saivage/...`. It uses a dedicated resolver and access policy for durable runtime evidence. Agents never get discretionary write access to `.saivage/`: they may only write a runtime-declared mandatory `record://` URL for the current invocation. Ordinary `project://` access must continue to treat `.saivage/` and the work directory as internal state unless a specific operator-facing tool allows inspection.
 
-There is no implicit or context-relative `record://` resolution. The prompt always passes the full URL. This avoids ambiguity when an agent needs to reference another card's output.
+For writes, the prompt can pass a symbolic `record://{slot}.md?v=next` URL and the write tool returns the concrete URL. For reads, `latest` is a convenience selector over closed records. Concrete URLs with `card` and numeric `v` remain stable historical references.
+
+Every file operation that accepts a `record://` URL returns the normalized concrete record URL in the tool response. For example, reading `record://review.md` from card 5 might return `record_url: "record://review.md?v=2&card=card-5"`; writing `record://review.md?v=next` might return `record_url: "record://review.md?v=3&card=card-5"`. Agents should cite and emit the returned normalized URL, not reconstruct it.
 
 `tmp://` is the discretionary scratch scheme. Any card can read any card's tmp files, but an agent can write only under its current card's `tmp://{cardId}/...` tree. Tmp files are not evidence and may be deleted with `.saivage/work` cleanup.
 
@@ -119,19 +127,19 @@ Write enforcement is three-dimensional, checking all components of the URL:
 
 | Rule | Check |
 |---|---|
-| Card matches current invocation's card | `url.cardId == declaredCardId` |
-| Version matches current invocation's draft version | `url.version == declaredDraftVersion` |
-| Filename matches role's designated record output | `url.filename == roleAllowedFilename` |
+| Card matches current invocation's card | `url.card == currentCardId` for writes |
+| Slot is writable for the role | `url.slot == roleAllowedSlot` |
+| Version is open | `url.v` resolves to an open, unclosed slot version |
 
 | Role | Allowed record filename | `record://` write | `tmp://` write | `project://` write | `record://` read | `tmp://` read | `project://` read |
 |---|---|---|---|---|---|---|---|
-| Planner | `planner-result.md` | current invocation's declared URL only | current card only | no | any card, any version | any card | yes |
-| Executor | `executor-result.md` | current invocation's declared URL only | current card only | yes | any card, any version | any card | yes |
-| Reviewer | `review.md` | current invocation's declared URL only | current card only | no | any card, any version | any card | yes |
+| Planner | `planner-result.md` | current card's `planner-result` slot only | current card only | no | any card, any version | any card | yes |
+| Executor | `executor-result.md` | current card's `executor-result` slot only | current card only | yes | any card, any version | any card | yes |
+| Reviewer | `review.md` | current card's `review` slot only | current card only | no | any card, any version | any card | yes |
 
-The planner physically cannot overwrite `record://card-1/23/review.md` because:
-1. Version 23 was declared for the reviewer's terminal record, not the planner's.
-2. `review.md` is not the planner's designated filename.
+The planner physically cannot overwrite `record://review.md?card=card-1&v=23` because:
+1. `review` is not the planner's writable slot.
+2. Version 23 is closed after the reviewer emits it.
 
 The reviewer cannot write `project://` paths at all. No agent can freely write `.saivage/` by path or scheme. These are hard checks enforced in the file tools, not advisory warnings.
 
@@ -145,32 +153,32 @@ Each role has exactly one designated record filename:
 | Executor | `executor-result.md` |
 | Reviewer | `review.md` |
 
-An agent can only write its role's designated record filename to its own declared draft version. It can read any record file from any version of any card. Its only discretionary scratch writes are under `tmp://{currentCardId}/...`.
+An agent can only write its role's designated record slot for the current card. It can read any closed record file from any version of any card. Its only discretionary scratch writes are under `tmp://{currentCardId}/...`.
 
 ## How It Works
 
 ### Before invocation
 
-The processor derives the draft version as `record_version + 1`, creates that directory if needed, and passes the full `record://` URL in the prompt. It does not advance the persisted `record_version` yet.
+The prompt passes a symbolic slot URL such as `record://review.md?v=next`. The file tool resolves that symbolic URL for the current card, creates or reuses the open slot version, and returns a normalized concrete URL such as `record://review.md?v=2&card=card-5`.
 
 ```text
 You must write your review to:
-record://card-1/23/review.md
+record://review.md?v=next
 
 Do not call emit_reviewer_result until that file exists.
 ```
 
 The agent receives:
-- The full `record://` URL for mandatory files.
+- The symbolic `record://` URL for mandatory files.
 - The instruction to create the file before calling the terminal tool.
 
-The URL is fully-qualified and stable. The agent copies it into file tools. The runtime resolves it to the filesystem path.
+The agent copies it into file tools. The write tool returns the normalized concrete record URL, and the agent uses that returned URL when citing or emitting the record.
 
 ### After terminal tool call
 
-The runtime checks whether each mandatory file exists at the resolved path and is non-empty.
+The runtime checks whether each mandatory record slot has a concrete normalized URL, exists at the resolved path, and is non-empty.
 
-- **All files present:** accept the terminal result and advance `record_version` to the draft version.
+- **All files present:** accept the terminal result and close that slot version.
 - **Files missing:** reject, re-enter the same agent session with a continuation message naming the missing `record://` URLs, increment nothing.
 - **Repair budget exhausted:** fail the activation with a clear runtime diagnostic.
 
@@ -185,17 +193,17 @@ For project work files (code, tests, docs), the agent uses `project://` or absol
 When the reviewer returns `needs_corrections`, the runtime passes the review URL to the planner:
 
 ```text
-Reviewer rejected at record://card-1/23/review.md. Read it for corrections.
+Reviewer rejected at record://review.md?v=23&card=card-1. Read it for corrections.
 ```
 
-The planner reads `record://card-1/23/review.md` — a fully-qualified URL it can resolve regardless of its own card or version. No agent needs to construct or guess paths.
+The planner reads `record://review.md?v=23&card=card-1` — a concrete URL it can resolve regardless of its own card. No agent needs to construct or guess filesystem paths.
 
 When the reviewer is invoked, its context message includes descendant record URLs:
 
 ```text
 Descendant work:
-- card-7 (executor, done): record://card-7/3/executor-result.md
-- card-8 (executor, done): record://card-8/1/executor-result.md
+- card-7 (executor, done): record://executor-result.md?v=3&card=card-7
+- card-8 (executor, done): record://executor-result.md?v=1&card=card-8
 ```
 
 The reviewer reads those URLs to verify the work before citing the descendant cards.
@@ -212,15 +220,15 @@ The reviewer prompt says:
 
 ```text
 Write your review to:
-record://card-1/23/review.md
+record://review.md?v=next
 
 Create the file, then call emit_reviewer_result.
 ```
 
-After `emit_reviewer_result`, the runtime checks `record://card-1/23/review.md` exists. If not, the same reviewer session gets:
+After `emit_reviewer_result`, the runtime checks the normalized concrete review URL returned by the write tool exists. If not, the same reviewer session gets:
 
 ```text
-Required record file record://card-1/23/review.md was not created. Create it, then call emit_reviewer_result again.
+Required record file record://review.md?v=next was not created. Create it, then call emit_reviewer_result again.
 ```
 
 ### Planner
@@ -233,7 +241,7 @@ The planner prompt says:
 
 ```text
 Write your planning summary to:
-record://card-1/24/planner-result.md
+record://planner-result.md?v=next
 
 Create the file, then call emit_planner_result.
 ```
@@ -248,7 +256,7 @@ The executor prompt says:
 
 ```text
 Write your work summary to:
-record://card-42/5/executor-result.md
+record://executor-result.md?v=next
 
 Create the file, then call emit_executor_result.
 ```
@@ -278,7 +286,7 @@ The reviewer must receive descendant summaries as context messages before invoca
 - `id`, `type`, `title`, `status`
 - `lifecycle.result.kind` (executor_success, planner_done, planner_blocked, etc.)
 - `lifecycle.result.summary` or `lifecycle.result.error`
-- The descendant's record URLs (e.g., `record://card-7/3/executor-result.md`) so the reviewer can `read` them
+- The descendant's record URLs (e.g., `record://executor-result.md?v=3&card=card-7`) so the reviewer can `read` them
 
 This lets the reviewer cite descendant cards that have real work products and read those products if needed. The reviewer reads descendant files by their `record://` URL; it writes its own review only to its runtime-declared `record://` URL.
 
@@ -286,18 +294,18 @@ This was already designed in `agent-tool-surfaces-and-information-flow.md` (sect
 
 ## File Tools For Reviewer And Planner
 
-The reviewer and planner currently have no file-writing tools. All agents share the same file tools (`read`, `write`, `edit`, `apply_patch`, `glob`, `grep`), but path resolution and write enforcement are scheme-based and fully-qualified.
+The reviewer and planner currently have no file-writing tools. All agents share the same file tools (`read`, `write`, `edit`, `apply_patch`, `glob`, `grep`), but path resolution and write enforcement are scheme-based and return normalized concrete URLs.
 
 ### Path resolution
 
 | Scheme | Format | Resolves to |
 |---|---|---|
-| `record://{cardId}/{version}/{filename}` | Fully-qualified durable record URL | `.saivage/outputs/cards/{cardId}/{version}/{filename}` |
+| `record://{slot}.md?card={cardId}&v={version}` | Durable record slot URL | `.saivage/outputs/cards/{cardId}/{slot}/{version}.md` |
 | `tmp://{cardId}/{relative}` | Per-card scratch URL | `.saivage/work/cards/{cardId}/tmp/{relative}` |
 | `project://{relative}` | Project-relative path | `{projectRoot}/{relative}` |
 | Absolute path `/...` | Same filesystem path | Same filesystem path |
 
-The `record://` URL is fully-qualified. The runtime resolves it before the file tool touches the filesystem. Any agent can read any `record://` URL. Write is restricted to the current invocation's declared draft `(cardId, version, filename)` and is allowed only for declared mandatory record files.
+The `record://` URL names a record slot plus optional `card` and `v` selectors. The runtime resolves it before the file tool touches the filesystem. Any agent can read any closed `record://` URL. Write is restricted to the current card's role-designated slot and is allowed only for declared mandatory record files. File tools return the normalized concrete URL they resolved.
 
 The `tmp://` URL is card-scoped scratch. Any agent can read any `tmp://` URL, but writes are allowed only under `tmp://{currentCardId}/...`.
 
@@ -305,32 +313,31 @@ The `tmp://` URL is card-scoped scratch. Any agent can read any `tmp://` URL, bu
 
 The file tool checks all three components of a `record://` write:
 
-1. `cardId` must match the current invocation's card.
-2. `version` must match the current invocation's declared draft version.
-3. `filename` must match the role's designated filename.
+1. `card` must resolve to the current invocation's card.
+2. `slot` must match the role's designated slot.
+3. `v` must resolve to an open, unclosed slot version.
 
-The reviewer can only write its declared `record://{itsCard}/{itsVersion}/review.md`. Any other `record://` write or any `project://` write is hard-rejected. The planner and executor can write their declared record file. Only the executor can write `project://` work products; the planner and reviewer coordinate through cards, records, and `tmp://` scratch.
+The reviewer can only write its declared `record://review.md?v=next` slot for the current card. Any other `record://` write or any `project://` write is hard-rejected. The planner and executor can write their declared record slot. Only the executor can write `project://` work products; the planner and reviewer coordinate through cards, records, and `tmp://` scratch.
 
 This replaces the current advisory write-territory system with hard scheme-based enforcement in the file tools. No advisory warnings, no path-pattern territories.
 
 ## Validation And Repair Flow
 
 ```text
-runtime derives draft version N = C.record_version + 1
-runtime creates .saivage/outputs/cards/C/N/
-runtime invokes agent with mandatory record://C/N/{filename} URL(s) in prompt
+runtime invokes agent with mandatory record://{slot}.md?v=next URL(s) in prompt
 agent writes mandatory file(s) using file tools with record:// scheme
+file tool resolves and returns concrete record://{slot}.md?card=C&v=N URL(s)
 agent calls terminal tool (emit_*_result)
-runtime checks mandatory file(s) exist at record://C/N/{filename} and are non-empty
+runtime checks mandatory concrete record URL(s) exist and are non-empty
   if missing:
     append continuation message to same LLM session:
-      "Required file record://C/N/{filename} was not created. Create it and call {terminal_tool} again."
+      "Required file record://{slot}.md?v=next was not created. Create it and call {terminal_tool} again."
     re-enter same agent (not a new session)
     if repair budget exhausted:
       fail activation with runtime diagnostic
   if present:
     accept terminal result
-    persist C.record_version = N
+    close the concrete slot version in index.json
     proceed with role-specific evaluation (evidence gate, completion gates, etc.)
 ```
 
@@ -340,32 +347,39 @@ Repair budget: 2 attempts by default. Configurable per card via card metadata if
 
 ## Persistence
 
-The versioned output files ARE the persistent evidence. No separate `invocation.json` manifest, no slot metadata database, no registration records.
+The versioned output files ARE the persistent evidence. Each slot has a small `index.json` that tracks its open version and latest closed version. There is no separate `invocation.json` manifest, no card-global record counter, and no artifact registration records.
 
 Because these files are persistent evidence, they are not stored in `.saivage-work/` or future `.saivage/work/`. That directory is disposable work state for shell command outputs, temporary process data, caches, and other rebuildable operational files. Generic work cleanup may delete `.saivage/work`, but it must not delete `.saivage/outputs`.
 
-The last published record version is persisted on the card record as a simple integer field:
+Each slot index is persisted next to the slot files:
 
-```ts
-// On CardRecord
-record_version: number
+```json
+{
+  "slot": "review",
+  "latest": 2,
+  "open": null,
+  "versions": {
+    "1": { "status": "closed", "closed_at": "..." },
+    "2": { "status": "closed", "closed_at": "..." }
+  }
+}
 ```
 
-The runtime reads it to derive the next draft version. It advances the persisted value only after a terminal `emit_*` call has selected an existing non-empty file as the accepted record. The files themselves are durable on disk under `.saivage/outputs/cards/{cardId}/`.
+When a write requests `v=next`, the runtime reads the slot index. If there is an open version, it returns that concrete URL. If there is no open version, it creates `latest + 1`, marks it open, and returns the concrete URL. It marks the version closed only after a terminal `emit_*` call selects an existing non-empty file as the accepted record. The files themselves are durable on disk under `.saivage/outputs/cards/{cardId}/{slot}/`.
 
 ## Crash Recovery
 
-If the runtime crashes after declaring a draft version but before the agent writes the file:
+If the runtime crashes after opening a slot version but before the agent writes the file:
 
-- The version directory may exist but be empty.
-- The card's persisted `record_version` has not advanced.
-- The empty directory is harmless. The next activation reuses the same draft version unless a prior terminal emit was already committed.
+- The slot index may contain an open version whose file is empty or missing.
+- `latest` has not advanced because the version is not closed.
+- The next `v=next` write for that slot reuses the open version unless recovery closes or discards it explicitly.
 
 If the runtime crashes after the agent writes the file but before validating or committing the terminal emit:
 
 - The file exists on disk.
 - On recovery, the processor actor's `activeReconstruction` record shows it was mid-activation.
-- The existing recovery path either resumes or fails the activation. If it fails before terminal commit, `record_version` has not advanced and the next activation may overwrite or replace that unaccepted draft file. Only files selected by an accepted terminal emit are part of the durable accepted-record sequence.
+- The existing recovery path either resumes or fails the activation. If it fails before terminal commit, the slot version remains open or is discarded by recovery. Only files selected by an accepted terminal emit and marked closed are part of the durable accepted-record sequence.
 
 No special recovery logic is needed for output files beyond what the actor recovery path already does.
 
@@ -387,7 +401,7 @@ Descendant work:
 Assessment id: {assessmentId}
 
 Write your review to:
-record://{cardId}/{N}/review.md
+record://review.md?v=next
 
 Do not call emit_reviewer_result until the review file exists.
 End by calling emit_reviewer_result with your assessment.
@@ -397,7 +411,7 @@ Planner prompt addition:
 
 ```text
 Write your planning summary to:
-record://{cardId}/{N}/planner-result.md
+record://planner-result.md?v=next
 
 Do not call emit_planner_result until the summary file exists.
 ```
@@ -406,7 +420,7 @@ Executor prompt addition:
 
 ```text
 Write your work summary to:
-record://{cardId}/{N}/executor-result.md
+record://executor-result.md?v=next
 
 Do not call emit_executor_result until the summary file exists.
 ```
@@ -445,8 +459,8 @@ No `artifacts` array. No `attachments` array. No `lifecycle.result` check. No de
 
 The operator UI and API expose:
 
-- Card detail shows `.saivage/outputs/cards/{cardId}/` with versioned outputs.
-- Each version shows the files it contains.
+- Card detail shows `.saivage/outputs/cards/{cardId}/` with record slots.
+- Each slot shows its versions and `index.json` state.
 - The UI can preview file contents.
 - No `artifacts`/`attachments` projections.
 
@@ -454,36 +468,36 @@ This is simpler than the current artifacts/attachments UI.
 
 ## Implementation Plan
 
-### Phase 1: Versioned record directory, cursor, and path-scheme resolver
+### Phase 1: Versioned record slots and path-scheme resolver
 
-1. Add `record_version: number` to `CardRecord` (default 0), meaning the last published record version.
-2. Add `beginRecordDraft(cardId)` helper: computes `N = record_version + 1`, creates `.saivage/outputs/cards/{cardId}/{N}/`, returns the draft URL components, and does not mutate the card.
-3. Add `getRecordDir(cardId, version)` helper.
-4. Add `resolveAgentUrl(url, projectRoot)` resolver: parses `record://{cardId}/{version}/{filename}` through a dedicated durable-record branch → `.saivage/outputs/cards/{cardId}/{version}/{filename}`; parses `tmp://{cardId}/{relative}` through the disposable card scratch branch → `.saivage/work/cards/{cardId}/tmp/{relative}`; parses `project://{relative}` through ordinary project-file policy → `{projectRoot}/{relative}`; absolute paths remain ordinary project paths.
-5. Add `checkAgentWrite(url, role, declaredCardId, declaredDraftVersion, currentCardId)` enforcer: hard reject `record://` unless cardId/version/filename all match the current invocation's declared mandatory record file; hard reject `tmp://` unless cardId matches the current card; hard reject direct `.saivage/` writes through `project://` or absolute paths.
-6. Tests: draft directory creation without incrementing `record_version`, terminal commit advances `record_version`, blocked/reactivated cards reuse the same next version, URL resolution for each scheme, write enforcement per role (reviewer can only write its declared `record://cardId/version/review.md`, planner cannot write `review.md`, every role can write `tmp://{currentCardId}/...` but not another card's tmp dir, etc.), recovery after crash.
+1. Add slot index helpers for `.saivage/outputs/cards/{cardId}/{slot}/index.json`.
+2. Add `resolveRecordUrl(url, context)` resolver: parses `record://{slot}.md?card={cardId}&v={version}`; defaults missing `card` to current card; defaults missing read `v` to `latest`; resolves write `v=next` to the open slot version or creates `latest + 1`; returns the normalized concrete URL.
+3. Add `getRecordPath(cardId, slot, version)` helper.
+4. Add `resolveAgentUrl(url, projectRoot)` resolver: dispatches `record://` through `resolveRecordUrl`, parses `tmp://{cardId}/{relative}` through the disposable card scratch branch → `.saivage/work/cards/{cardId}/tmp/{relative}`, parses `project://{relative}` through ordinary project-file policy → `{projectRoot}/{relative}`, and leaves absolute paths as ordinary project paths.
+5. Add `checkAgentWrite(url, role, currentCardId)` enforcer: hard reject `record://` unless card resolves to the current card, slot matches the role's designated record slot, and version is open; hard reject `tmp://` unless card resolves to the current card; hard reject direct `.saivage/` writes through `project://` or absolute paths.
+6. Tests: `v=next` creates or reuses an open slot version; terminal emit closes a slot version and advances `latest`; blocked/reactivated cards reuse open slot versions; file tools return normalized concrete record URLs; URL resolution for each scheme; write enforcement per role; recovery after crash.
 
 ### Phase 2: Add scheme-enforced file tools
 
 1. Add shared `read`, `write`, `edit`, `apply_patch`, `glob`, `grep` tools to planner, executor, and reviewer actor surfaces as appropriate for each role.
 2. All file tools resolve paths via `resolveAgentUrl(url, projectRoot)`.
-3. All file tools enforce `checkAgentWrite(url, role, declaredCardId, declaredDraftVersion, currentCardId)` before writing.
-4. Reviewer can write only `record://{itsCard}/{itsVersion}/review.md`, plus `tmp://{itsCard}/...`; any other `record://` write or any `project://` write is hard-rejected.
-5. Planner can write its own declared `record://` file and `tmp://{itsCard}/...`; it cannot write project files, another card's tmp dir, or another card's record.
-6. Executor can write its own declared `record://` file, `tmp://{itsCard}/...`, and ordinary `project://` work files.
+3. All file tools enforce `checkAgentWrite(url, role, currentCardId)` before writing.
+4. Reviewer can write only `record://review.md?v=next`, plus `tmp://{currentCardId}/...`; any other `record://` write or any `project://` write is hard-rejected.
+5. Planner can write only `record://planner-result.md?v=next` and `tmp://{currentCardId}/...`; it cannot write project files, another card's tmp dir, or another card's record.
+6. Executor can write only `record://executor-result.md?v=next`, `tmp://{currentCardId}/...`, and ordinary `project://` work files.
 7. All roles can read any `record://`, any `tmp://`, and allowed `project://` paths.
 8. Keep terminal tools role-specific.
-9. Tests: reviewer can write its declared record URL; reviewer cannot write other record URLs; reviewer cannot write `project://`; planner can read prior reviews by full `record://` URL; planner cannot overwrite `review.md` on any card or version; all roles can write only current-card `tmp://` scratch.
+9. Tests: reviewer can write its declared `review` slot and receives a normalized concrete record URL; reviewer cannot write other record slots; reviewer cannot write `project://`; planner can read prior reviews by concrete `record://review.md?v=N&card=...` URL; planner cannot overwrite closed reviews; all roles can write only current-card `tmp://` scratch.
 
 ### Phase 3: Reviewer mandatory output + descendant context
 
-1. In `PlanningCardProcessorActor.reviewPlannerDone(...)`, declare the next draft record version for the goal card.
-2. Build descendant summary context message: for each descendant, include id/type/title/status/result.kind/result.summary and the descendant's latest record URL (e.g., `record://card-7/3/executor-result.md`).
-3. Update `reviewerPrompt(...)` to include the mandatory `record://{cardId}/{version}/review.md` URL and the descendant summaries.
-4. After reviewer terminal tool call, check `review.md` exists at the declared URL.
-5. If missing, use the existing `LLMToolContinuationContextHook` to inject: "Required file record://{cardId}/{version}/review.md was not created. Create it and call emit_reviewer_result again."
+1. In `PlanningCardProcessorActor.reviewPlannerDone(...)`, prompt the reviewer to write `record://review.md?v=next`.
+2. Build descendant summary context message: for each descendant, include id/type/title/status/result.kind/result.summary and the descendant's latest concrete record URL (e.g., `record://executor-result.md?v=3&card=card-7`).
+3. After reviewer writes the file, capture the normalized concrete URL returned by the file tool.
+4. After reviewer terminal tool call, check `review.md` exists at the normalized concrete URL.
+5. If missing, use the existing `LLMToolContinuationContextHook` to inject: "Required file record://review.md?v=next was not created. Create it and call emit_reviewer_result again."
 6. Bound repair attempts (2). On exhaustion, fail with runtime diagnostic.
-7. When the reviewer returns `needs_corrections`, pass the review URL (e.g., `record://card-1/23/review.md`) to the planner context.
+7. When the reviewer returns `needs_corrections`, pass the normalized concrete review URL (e.g., `record://review.md?v=23&card=card-1`) to the planner context.
 8. Tests: missing file triggers same-session repair; repair succeeds on second attempt; budget exhaustion fails; planner receives review URL in corrections context.
 
 ### Phase 4: Replace evidence gate
@@ -495,18 +509,16 @@ This is simpler than the current artifacts/attachments UI.
 
 ### Phase 5: Planner mandatory output
 
-1. In `PlanningCardProcessorActor.runActivation(...)`, declare the next draft record version before the planner LLM turn without advancing `record_version`.
-2. Update `plannerPrompt(...)` to include the mandatory `record://{cardId}/{version}/planner-result.md` URL.
-3. If received reviewer corrections context, include the review URL (e.g., `record://card-1/23/review.md`) as a readable reference.
-4. After planner terminal tool call, check the file exists. If missing, same-session repair via continuation hook.
-5. Tests: missing planner summary triggers repair; present file accepts; planner can read prior review URL.
+1. In `PlanningCardProcessorActor.runActivation(...)`, prompt the planner to write `record://planner-result.md?v=next`.
+2. If received reviewer corrections context, include the normalized concrete review URL (e.g., `record://review.md?v=23&card=card-1`) as a readable reference.
+3. After planner terminal tool call, check the normalized concrete planner record exists. If missing, same-session repair via continuation hook.
+4. Tests: missing planner summary triggers repair; present file accepts; planner can read prior review URL.
 
 ### Phase 6: Executor mandatory output
 
-1. In `TerminalCardProcessorActor` activation, declare the next draft record version without advancing `record_version`.
-2. Update executor prompt to include the mandatory `record://{cardId}/{version}/executor-result.md` URL.
-3. After executor terminal tool call, check the file exists. If missing, same-session repair.
-4. Tests: missing executor summary triggers repair; present file accepts.
+1. In `TerminalCardProcessorActor` activation, prompt the executor to write `record://executor-result.md?v=next`.
+2. After executor terminal tool call, check the normalized concrete executor record exists. If missing, same-session repair.
+3. Tests: missing executor summary triggers repair; present file accepts.
 
 ### Phase 7: Remove old mechanisms
 
@@ -542,23 +554,23 @@ This removes more code than it adds:
 - Artifacts/attachments UI projections.
 
 **Added:**
-- `record_version` on `CardRecord` (one integer field).
-- `beginRecordDraft` and terminal record commit helpers.
+- Per-slot `index.json` files with `latest`, `open`, and version status.
+- Record slot open/close helpers.
 - `resolveAgentUrl` and `checkAgentWrite` URL resolver and write enforcer.
 - Versioned directory creation.
 - Mandatory file-existence checks after terminal tool calls.
 - Same-session repair via existing continuation hook.
 - Reviewer descendant summary context message with `record://` URLs (already designed, not implemented).
-- Cross-agent record references via fully-qualified `record://{cardId}/{version}/{filename}` URLs.
+- Cross-agent record references via normalized concrete `record://{slot}.md?card={cardId}&v={version}` URLs.
 - Shared file tools with strict scheme enforcement: mandatory `record://` writes only, current-card `tmp://` scratch writes, no discretionary `.saivage/` writes.
 - `.saivage/outputs/cards/{cardId}/` UI projection.
 
-**Net:** fewer types, fewer methods, fewer soft gates, fewer advisory layers. One new integer field, one new store method, one new directory convention, and hard file-existence checks.
+**Net:** fewer evidence types, fewer soft gates, fewer advisory layers. One new slot-directory convention, small per-slot indexes, and hard file-existence checks.
 
 ## Conclusion
 
 The current codebase has soft mechanisms that failed closed. The fix is not to add more mechanisms; it is to replace soft controls with hard contracts: mandatory output files at versioned declared paths, hard existence checks, same-agent repair via existing seams, and a simple reviewer gate that checks whether cited evidence cards are accepted descendants of the reviewed card.
 
-Record files are addressed by fully-qualified `record://{cardId}/{version}/{filename}` URLs that any agent can read and pass to other agents. Record writes are three-dimensionally enforced: only your card, only your version, only your role's declared filename. Discretionary writes go only to `tmp://{currentCardId}/...`. No implicit resolution, no context-relative ambiguity, no stale references.
+Record files are addressed by normalized concrete `record://{slot}.md?card={cardId}&v={version}` URLs that any agent can read and pass to other agents. Record writes are slot-enforced: only the current card, only the role's declared slot, only an open version. Discretionary writes go only to `tmp://{currentCardId}/...`. Symbolic URLs are resolved by file tools, and tool responses include the normalized concrete URL to cite later.
 
-No `ArtifactRef`. No `appendEvidenceRefs`. No `registerEvidenceRefsBestEffort`. No `generated_files` tracking. No advisory write territories. No `invocation.json` manifest. No slot metadata. No registration step. The file existing at the declared URL is the evidence.
+No `ArtifactRef`. No `appendEvidenceRefs`. No `registerEvidenceRefsBestEffort`. No `generated_files` tracking. No advisory write territories. No `invocation.json` manifest. No artifact registration step. The closed slot version existing at the normalized concrete URL is the evidence.
