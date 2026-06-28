@@ -10,7 +10,8 @@ import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from '../
 import { CardStore } from '../../src/cards/card-store.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { createSupervisorRuntimeApi, readActorSnapshots } from '../../src/runtime/actors/index.js';
-import type { LLMProviderPort } from '../../src/runtime/actors/index.js';
+import type { LLMProviderPort, LlmInvocationInput } from '../../src/runtime/actors/index.js';
+import type { LlmCompleteResult } from '../../src/agents/llm-contracts.js';
 
 function tempRoot(prefix: string): string { return mkdtempSync(join(tmpdir(), prefix)); }
 
@@ -24,7 +25,36 @@ function setupCards() {
 }
 
 function blockedPlannerProvider(): LLMProviderPort {
-  return { completeTurn: jest.fn(async () => ({ kind: 'tool_calls' as const, tool_calls: [{ id: 'planner-result-1', type: 'function' as const, function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'blocked', blocked_reason: 'waiting for operator', summary: 'waiting for operator' }) } }] })) };
+  const terminal = { kind: 'tool_calls' as const, tool_calls: [{ id: 'planner-result-1', type: 'function' as const, function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'blocked', blocked_reason: 'waiting for operator', summary: 'waiting for operator' }) } }] };
+  return withMandatoryRecords(() => terminal);
+}
+
+function recordWrite(callId: string, path: string, content: string): LlmCompleteResult {
+  return { kind: 'tool_calls' as const, tool_calls: [{ id: callId, type: 'function' as const, function: { name: 'write', arguments: JSON.stringify({ path, content }) } }] };
+}
+
+function withMandatoryRecords(responder: (input: LlmInvocationInput) => Promise<LlmCompleteResult> | LlmCompleteResult): LLMProviderPort {
+  const pending = new Map<string, LlmCompleteResult>();
+  return {
+    completeTurn: jest.fn(async (input: LlmInvocationInput) => {
+      const pendingTerminal = pending.get(input.sessionId);
+      if (pendingTerminal) {
+        pending.delete(input.sessionId);
+        return pendingTerminal;
+      }
+      const result = await responder(input);
+      if (result.kind !== 'tool_calls') return result;
+      if (result.tool_calls.some((toolCall) => toolCall.function.name === 'emit_planner_result')) {
+        pending.set(input.sessionId, result);
+        return recordWrite(`status-${input.sessionId}`, 'record://status.md?v=next', `Status for ${input.episodeContext.cardId}`);
+      }
+      if (result.tool_calls.some((toolCall) => toolCall.function.name === 'emit_reviewer_result')) {
+        pending.set(input.sessionId, result);
+        return recordWrite(`review-${input.sessionId}`, 'record://review.md?v=next', `Review for ${input.episodeContext.cardId}`);
+      }
+      return result;
+    }),
+  };
 }
 
 

@@ -512,7 +512,7 @@ This is simpler than the current artifacts/attachments UI.
 
 ## Implementation Plan
 
-Status after commit `48d1c3af feat(runtime): enforce agent record slots`: Phases 1, 2, 4, 5, and 6 have their first implementation slice in place. Phase 3 is partially implemented. Phase 7 and broad docs/UI cleanup remain.
+Status after commit `48d1c3af feat(runtime): enforce agent record slots`, with follow-up cleanup through 2026-06-29: Phases 1, 2, 4, 5, and 6 have their first implementation slice in place. Phase 3 is partially implemented. Phase 7 core cleanup is implemented; UI/docs cleanup is in progress.
 
 ### Phase 1: Versioned record slots and path-scheme resolver - implemented
 
@@ -597,40 +597,33 @@ Implemented:
 3. Executor keeps project-write tools and can write ordinary work files through `project://` or project paths.
 4. Executor no longer appends artifact/attachment evidence refs during terminal acceptance.
 
-Remaining follow-up:
+Validation coverage:
 
-1. Update existing terminal-processor actor tests so mock providers write status records before emitting terminal results.
-2. Add focused actor tests for missing status repair on success and failure outcomes.
+1. Existing terminal-processor actor tests now write mandatory status records before terminal emits.
+2. Focused record-slot and actor tests cover required status-file acceptance and repair paths.
 
-### Phase 7: Remove old mechanisms - partially implemented
+### Phase 7: Remove old mechanisms - implemented
 
 Implemented:
 
 1. Removed `appendExecutorEvidence` from `TerminalCardProcessorActor`.
 2. Executor terminal acceptance no longer registers artifact/attachment evidence refs.
 3. Reviewer validation no longer depends on artifacts, attachments, generated files, or lifecycle result fallback.
+4. Core `CardRecord` and executor terminal contracts no longer expose artifact, attachment, or `generated_files` fields.
+5. Web API exports and current card-detail UI no longer project artifact/attachment/generated-file evidence. Card detail now points operators to `.saivage/outputs/cards/{cardId}/` record slots until a dedicated record-slot API projection exists.
+6. Broad source/test/web searches find no remaining references to removed legacy evidence APIs or fields outside this design document's historical problem statement.
 
-Remaining follow-up:
+Remaining optional follow-up:
 
-1. Remove `ArtifactRef`, `AttachmentRef` from `CardRecord`.
-2. Remove `artifacts`, `attachments`, `generated_files` from executor terminal envelope and contract.
-3. Remove `appendEvidenceRefs`, `registerEvidenceRefs`, `registerEvidenceRefsBestEffort`, `CardStore.appendEvidenceRefs`.
-4. Remove `appendExecutorEvidence` from `TerminalCardProcessorActor`.
-5. Remove `artifacts`/`attachments` from `PLANNER_ALLOWED_EDIT_FIELDS`.
-6. Remove advisory write-territory warnings that always return `allowed: true`; either enforce or delete.
-7. Update card creation to no longer initialize `artifacts: []`, `attachments: []`.
-8. Update API/UI to show `.saivage/outputs/cards/{cardId}/` instead of artifacts/attachments.
-9. Update older tests that still assert artifact/attachment preservation through executor terminal acceptance.
-10. Tests: confirm no references to removed types; confirm card store still works; confirm executor no longer tries to register artifacts.
+1. Add a dedicated API projection for record slots and versions if operators need direct card-detail previews instead of using Files.
 
-### Phase 8: Docs, prompt tests, and broad validation - remaining
+### Phase 8: Docs, prompt tests, and broad validation - mostly implemented
 
-1. Update `docs/spec/system-specification.md`: remove artifact/attachment language; add mandatory output file language.
-2. Update `docs/architecture/system-architecture.md`: remove artifact/evidence-ref references; add versioned output directory.
-3. Update `docs/architecture/agent-tool-surfaces-and-information-flow.md`: implement the reviewer descendant-summary design.
-4. Add prompt tests asserting mandatory output paths appear in planner/reviewer/executor prompts.
-5. Update existing tests that reference `artifacts`/`attachments`/`appendEvidenceRefs` or mock terminal emits without mandatory record writes.
-6. Run broad actor/runtime Jest after legacy tests are updated.
+1. Current architecture docs no longer describe artifacts/attachments/generated files as the active runtime evidence path.
+2. `agent-tool-surfaces-and-information-flow.md` now describes reviewer descendant status records.
+3. Actor tests assert mandatory record URLs appear in planner/reviewer/executor prompts.
+4. Existing tests that referenced removed fields or mocked terminal emits without mandatory record writes were updated or deleted.
+5. Remaining validation target: run broad actor/runtime Jest and UI smoke after this cleanup commit.
 
 ## Scope Of Change
 
@@ -639,13 +632,11 @@ When complete, this removes more code than it adds:
 **Removed so far:**
 - `appendExecutorEvidence` in terminal processor.
 - `validateReviewerAssessment`'s artifact/attachment/lifecycle-result fallback.
+- Core `ArtifactRef`/`AttachmentRef` card fields and executor terminal `generated_files` contract fields.
+- Current card-detail artifact/attachment/generated-file projection.
 
 **Still to remove:**
-- `ArtifactRef`, `AttachmentRef` types and all their usage.
-- `appendEvidenceRefs`, `registerEvidenceRefs`, `registerEvidenceRefsBestEffort`.
-- Executor envelope `artifacts`, `attachments`, `generated_files` fields.
-- Advisory write-territory warnings and any remaining dead references.
-- Artifacts/attachments UI projections.
+- Nothing known in current source/test/web code. This design document intentionally retains old names in the historical problem statement.
 
 **Added so far:**
 - Per-slot `index.json` files with `latest`, `open`, and version status.
@@ -660,8 +651,7 @@ When complete, this removes more code than it adds:
 - Shared file tools with strict scheme enforcement: mandatory `record://` writes only, current-card `tmp://` scratch writes, no discretionary `.saivage/` writes.
 
 **Still to add:**
-- Reviewer currentness snapshot and relaunch when reviewed versions change during review.
-- `.saivage/outputs/cards/{cardId}/` UI projection.
+- Dedicated `.saivage/outputs/cards/{cardId}/` record-slot API/UI projection if the Files view is not enough.
 
 **Net target:** fewer evidence types, fewer soft gates, fewer advisory layers. One new slot-directory convention, small per-slot indexes, and hard file-existence checks.
 

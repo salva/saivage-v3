@@ -36,8 +36,6 @@ function card(id: string, parent: string | null, position: number, title: string
     depends_on: [],
     related: [],
     acceptance: '',
-    artifacts: [],
-    attachments: [],
     retries: 0,
   } as any;
 }

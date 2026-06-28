@@ -30,12 +30,6 @@ export {
   type ShellSafetyClass,
 } from './shell-classifier.js';
 export {
-  checkWriteTerritory,
-  getTerritoryWarning,
-  type TerritoryResult,
-  type TerritoryRole,
-} from './write-territories.js';
-export {
   listQuarantineIndex,
   listRecentReviews,
 } from './quarantine.js';

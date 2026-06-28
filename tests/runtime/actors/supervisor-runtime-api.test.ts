@@ -8,6 +8,7 @@ import { initProjectTree } from '../../../src/persistence/file-tree.js';
 import { appendLlmTurnFinished, createSupervisorRuntimeApi, readActorSnapshots, readRecoveryDiagnostics, readToolCallStatuses, RuntimeSupervisorActor, saveActorSnapshot, SupervisorRuntimeApi, type CardActorStorePort, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
 import { actorToolCallStatusesPath, appendToolCallStatus } from '../../../src/runtime/actors/index.js';
+import type { LlmCompleteResult } from '../../../src/agents/llm-contracts.js';
 import type { CardRecord } from '../../../src/schemas/index.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
@@ -43,17 +44,45 @@ const inertStore: CardActorStorePort = {
 };
 
 function blockedPlannerProvider(): LLMProviderPort {
-  return { completeTurn: jest.fn(async () => ({ kind: 'tool_calls' as const, tool_calls: [{ id: 'planner-result-1', type: 'function' as const, function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'blocked', blocked_reason: 'waiting for operator', summary: 'waiting for operator' }) } }] })) };
+  return withMandatoryRecords(() => ({ kind: 'tool_calls' as const, tool_calls: [{ id: 'planner-result-1', type: 'function' as const, function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'blocked', blocked_reason: 'waiting for operator', summary: 'waiting for operator' }) } }] }));
 }
 
 function doneProjectProvider(evidenceId: string): LLMProviderPort {
-  return { completeTurn: jest.fn(async (input: LlmInvocationInput) => input.role === 'reviewer'
+  return withMandatoryRecords((input: LlmInvocationInput) => input.role === 'reviewer'
     ? { kind: 'tool_calls' as const, tool_calls: [{ id: 'reviewer-result-1', type: 'function' as const, function: { name: 'emit_reviewer_result', arguments: JSON.stringify({ assessment: { result: 'pass', summary: 'project reviewed', achieved: ['project completed'], issues: [], evidence_card_ids: [evidenceId] } }) } }] }
-    : { kind: 'tool_calls' as const, tool_calls: [{ id: 'planner-result-1', type: 'function' as const, function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'done', summary: 'project completed' }) } }] }) };
+    : { kind: 'tool_calls' as const, tool_calls: [{ id: 'planner-result-1', type: 'function' as const, function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'done', summary: 'project completed' }) } }] });
 }
 
 function failedPlannerProvider(): LLMProviderPort {
   return { completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'plain messages fail planner activation' })) };
+}
+
+function recordWrite(callId: string, path: string, content: string): LlmCompleteResult {
+  return { kind: 'tool_calls' as const, tool_calls: [{ id: callId, type: 'function' as const, function: { name: 'write', arguments: JSON.stringify({ path, content }) } }] };
+}
+
+function withMandatoryRecords(responder: (input: LlmInvocationInput) => Promise<LlmCompleteResult> | LlmCompleteResult): LLMProviderPort {
+  const pending = new Map<string, LlmCompleteResult>();
+  return {
+    completeTurn: jest.fn(async (input: LlmInvocationInput) => {
+      const pendingTerminal = pending.get(input.sessionId);
+      if (pendingTerminal) {
+        pending.delete(input.sessionId);
+        return pendingTerminal;
+      }
+      const result = await responder(input);
+      if (result.kind !== 'tool_calls') return result;
+      if (result.tool_calls.some((toolCall) => toolCall.function.name === 'emit_planner_result')) {
+        pending.set(input.sessionId, result);
+        return recordWrite(`status-${input.sessionId}`, 'record://status.md?v=next', `Status for ${input.episodeContext.cardId}`);
+      }
+      if (result.tool_calls.some((toolCall) => toolCall.function.name === 'emit_reviewer_result')) {
+        pending.set(input.sessionId, result);
+        return recordWrite(`review-${input.sessionId}`, 'record://review.md?v=next', `Review for ${input.episodeContext.cardId}`);
+      }
+      return result;
+    }),
+  };
 }
 
 function cardActive(cardId: string): Record<string, unknown> {

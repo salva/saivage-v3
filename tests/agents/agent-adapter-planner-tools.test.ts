@@ -150,7 +150,6 @@ describe('AgentAdapter planner tool surface', () => {
       'glob',
       'grep',
       'edit',
-      'apply_patch',
       'wait_for_process',
       'kill_process',
       'start_and_wait',

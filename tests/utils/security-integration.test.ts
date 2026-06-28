@@ -5,7 +5,6 @@
  * - Full pipeline: heuristic scanner → LLM scanner → quarantine
  * - ContentSupervisor wired into AgentAdapter
  * - Sensitive file checks with file-tree utilities
- * - Write territory warnings with role system
  * - All modules work together without errors
  * - Existing file-tree tests still pass
  */
@@ -35,7 +34,6 @@ import {
   isSensitivePath,
   isStashPathAllowed,
 } from '../../src/workspace/file-access-security.js';
-import { checkWriteTerritory, getTerritoryWarning } from '../../src/workspace/write-territories.js';
 import { redactTextForOutbound } from '../../src/redaction/index.js';
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import { loadConfig } from '../../src/agents/config-schema.js';
@@ -391,81 +389,6 @@ describe('sensitive file checks with file-tree', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-// Write territory warnings with role system
-// ═══════════════════════════════════════════════════════════════
-
-describe('write territory warnings', () => {
-  it('allows executor to write to src/ (within territory)', () => {
-    const result = checkWriteTerritory('executor', 'src/app.ts');
-    expect(result.allowed).toBe(true);
-    expect(result.warning).toBeUndefined();
-  });
-
-  it('warns executor writing to .saivage/ (excluded area)', () => {
-    const result = checkWriteTerritory('executor', '.saivage/saivage.json');
-    expect(result.allowed).toBe(true);
-    expect(result.warning).toBeDefined();
-    expect(result.warning).toContain('executor');
-    expect(result.warning).toContain('.saivage/');
-  });
-
-  it('warns planner writing to src/ (outside territory)', () => {
-    const result = checkWriteTerritory('planner', 'src/app.ts');
-    expect(result.allowed).toBe(true);
-    expect(result.warning).toBeDefined();
-    expect(result.warning).toContain('planner');
-    expect(result.warning).toContain('outside territory');
-  });
-
-  it('allows analyst to write to .saivage/agents/', () => {
-    const result = checkWriteTerritory('analyst', '.saivage/agents/sessions/session-1.json');
-    expect(result.allowed).toBe(true);
-    expect(result.warning).toBeUndefined();
-  });
-
-  it('warns analyst writing to src/ (excluded area)', () => {
-    const result = checkWriteTerritory('analyst', 'src/app.ts');
-    expect(result.allowed).toBe(true);
-    expect(result.warning).toBeDefined();
-    expect(result.warning).toContain('analyst');
-    expect(result.warning).toContain('src/');
-  });
-
-  it('content_supervisor has no restrictions', () => {
-    const result = checkWriteTerritory('content_supervisor', 'src/anything.ts');
-    expect(result.allowed).toBe(true);
-    expect(result.warning).toBeUndefined();
-  });
-
-  it('unknown roles have no restrictions', () => {
-    const result = checkWriteTerritory('unknown_role', 'src/anything.ts');
-    expect(result.allowed).toBe(true);
-    expect(result.warning).toBeUndefined();
-  });
-
-  it('getTerritoryWarning returns null for allowed writes', () => {
-    const warning = getTerritoryWarning('executor', 'src/app.ts');
-    expect(warning).toBeNull();
-  });
-
-  it('getTerritoryWarning returns string for violations', () => {
-    const warning = getTerritoryWarning('planner', 'src/app.ts');
-    expect(warning).toBeDefined();
-    expect(typeof warning).toBe('string');
-    expect(warning!).toContain('planner');
-  });
-
-  it('reviewer can write to .saivage/ but not src/', () => {
-    const allowed = checkWriteTerritory('reviewer', '.saivage/reviews/by-goal/goal-1/review.json');
-    expect(allowed.warning).toBeUndefined();
-
-    const warned = checkWriteTerritory('reviewer', 'src/main.ts');
-    expect(warned.warning).toBeDefined();
-    expect(warned.warning).toContain('outside territory');
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════
 // All modules work together (no import errors)
 // ═══════════════════════════════════════════════════════════════
 
@@ -477,7 +400,6 @@ describe('all modules import and work together', () => {
     const heuristicScanner = await import('../../src/workspace/heuristic-scanner.js');
     const llmScanner = await import('../../src/workspace/llm-scanner.js');
     const quarantine = await import('../../src/workspace/quarantine.js');
-    const writeTerritories = await import('../../src/workspace/write-territories.js');
     const persistence = await import('../../src/persistence/index.js');
     const mod = {
       ...contentSupervisor,
@@ -485,7 +407,6 @@ describe('all modules import and work together', () => {
       ...heuristicScanner,
       ...llmScanner,
       ...quarantine,
-      ...writeTerritories,
       ...persistence,
     };
 
@@ -509,10 +430,6 @@ describe('all modules import and work together', () => {
     expect(typeof mod.isWriteBlocked).toBe('function');
     expect(typeof isSensitivePath).toBe('function');
     expect(typeof isStashPathAllowed).toBe('function');
-
-    // write-territories exports
-    expect(typeof mod.checkWriteTerritory).toBe('function');
-    expect(typeof mod.getTerritoryWarning).toBe('function');
 
     // file-tree exports (original + new)
     expect(typeof mod.initProjectTree).toBe('function');
@@ -591,19 +508,6 @@ describe('integration edge cases', () => {
     });
 
     expect(result.status).toBe('passed');
-  });
-
-  it('write territories always allow writes (warnings only)', () => {
-    // Every role writing anywhere must still allow
-    const roles = ['analyst', 'planner', 'executor', 'reviewer', 'content_supervisor'];
-    const paths = ['src/app.ts', '.saivage/saivage.json', '.saivage-work/cards/card.json'];
-
-    for (const role of roles) {
-      for (const filePath of paths) {
-        const result = checkWriteTerritory(role, filePath);
-        expect(result.allowed).toBe(true);
-      }
-    }
   });
 
   it('readProjectFileAtomic handles .saivage-work paths correctly', () => {

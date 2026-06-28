@@ -106,8 +106,6 @@ export type { LlmExchange } from '@saivage/contracts/llm-exchange';
 
 export type {
   ActionableErrorEnvelope,
-  ArtifactRef,
-  AttachmentRef,
   CardAction,
   CardHistoryHeader,
   CardHistoryEntry,

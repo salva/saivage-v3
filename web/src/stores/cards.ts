@@ -32,7 +32,6 @@ import {
   selectOrderedFilteredCards,
 } from './card-presentation';
 import type {
-  CardEvidence,
   CardLifecycleSummary,
   CardReviewSummary,
   CardPlanningSummary,
@@ -53,7 +52,6 @@ export const useCardStore = defineStore('cards', () => {
   const currentChildren = ref<CardRecord[]>([]);
   const currentAncestorIds = ref<string[]>([]);
   const currentAncestorRefs = ref<CardRefView[]>([]);
-  const currentEvidence = ref<CardEvidence | null>(null);
   const currentLifecycle = ref<CardLifecycleSummary | null>(null);
   const currentReview = ref<CardReviewSummary | null>(null);
   const currentPlanning = ref<CardPlanningSummary | null>(null);
@@ -105,7 +103,6 @@ export const useCardStore = defineStore('cards', () => {
     currentChildren.value = [];
     currentAncestorIds.value = [];
     currentAncestorRefs.value = [];
-    currentEvidence.value = null;
     currentLifecycle.value = null;
     currentReview.value = null;
     currentPlanning.value = null;
@@ -168,7 +165,6 @@ export const useCardStore = defineStore('cards', () => {
       currentChildren.value = viewModel.children;
       currentAncestorIds.value = viewModel.ancestorIds;
       currentAncestorRefs.value = viewModel.ancestorRefs;
-      currentEvidence.value = viewModel.evidence ?? null;
       currentLifecycle.value = viewModel.lifecycle ?? null;
       currentReview.value = viewModel.review ?? null;
       currentPlanning.value = viewModel.planning ?? null;
@@ -227,7 +223,6 @@ export const useCardStore = defineStore('cards', () => {
     currentChildren,
     currentAncestorIds,
     currentAncestorRefs,
-    currentEvidence,
     currentLifecycle,
     currentReview,
     currentPlanning,

@@ -162,7 +162,7 @@ The primary information channel from child to parent is the **`activate_card` to
 }
 ```
 
-This is already returned by `PlanningCardProcessorActor.handleToolCall` (line 128). The `summary` is the child's self-reported summary. The `result` is the full lifecycle result record (e.g. `executor_success` with `executor`, `generated_files`, `verified_at`, `warnings`; or `planner_blocked` with `blocked_reason`, `resume_reason`).
+This is already returned by `PlanningCardProcessorActor.handleToolCall`. The `summary` is the child's self-reported summary. The `result` is the full lifecycle result record (for example `executor_success` with `executor`, `verified_at`, `warnings`; or `planner_blocked` with `blocked_reason`, `resume_reason`). Durable narrative output lives in card-local record slots such as `status.md` and `review.md`.
 
 **This is sufficient for the planner to decide next steps** — it knows the child's outcome, summary, and detailed result.
 
@@ -170,7 +170,7 @@ This is already returned by `PlanningCardProcessorActor.handleToolCall` (line 12
 
 | Lifecycle result kind | Key fields |
 |---|---|
-| `executor_success` | `executor` (result record), `generated_files`, `verified_at`, `warnings` |
+| `executor_success` | `executor` (result record), `verified_at`, `warnings`; durable status details in the card's `status.md` record slot |
 | `executor_failure` | `error`, `partial_result` |
 | `planner_done` | `summary` |
 | `planner_blocked` | `blocked_reason`, `resume_reason`, `blocker_cause` |
@@ -181,17 +181,18 @@ This is already returned by `PlanningCardProcessorActor.handleToolCall` (line 12
 
 `status_text` is the agent's last status string. `latest_self_report` is the structured self-report payload. Both are persisted on the card and readable by the parent.
 
-#### Card `artifacts` and `attachments`
+#### Card record slots
 
-Evidence registered by executors via `appendEvidenceRefs`. Persisted on the card. Readable by the reviewer.
+Agents persist narrative output in versioned record slots under `.saivage/outputs/cards/{cardId}/`, primarily `status.md` for planner/executor status and `review.md` for reviewer assessments. Record URLs are durable references; there is no artifact/attachment registration path.
 
 **What is currently working:**
 - The `activate_card` tool result gives the parent planner a good summary of the child's outcome.
-- The card lifecycle result is persisted and contains the full result record.
+- The card lifecycle result is persisted and contains the accepted result record.
+- Mandatory record slots preserve the agent-authored status/review text separately from mutable card fields.
 
 **What is currently missing:**
 - The planner cannot re-read a child card's state after activation (no `get_card` tool). But the tool result from `activate_card` is sufficient if the planner acts on it immediately — it doesn't need to re-read later because it gets the full result inline.
-- The reviewer gets NO descendant information at all.
+- The reviewer needs descendant status summaries and record-slot URLs for completed descendant work.
 
 ### Reviewer context (special case)
 
@@ -199,8 +200,8 @@ The reviewer is invoked by the parent planner after the planner reports `done`. 
 
 **What the reviewer needs:**
 1. Goal card: id, title, description, acceptance.
-2. Descendant card summaries: for each descendant, the `id`, `type`, `title`, `status`, `status_text`, `result.kind`, `result.summary` or `result.error`, `generated_files` — **currently NOT provided**.
-3. Evidence: artifacts and attachments on descendant cards — currently NOT provided.
+2. Descendant card summaries: for each descendant, the `id`, `type`, `title`, `status`, `status_text`, `result.kind`, `result.summary` or `result.error`, and latest closed `status.md` record URL.
+3. Reviewable evidence: accepted descendant cards plus their status records.
 4. Read-only tools to verify work: `read`, `glob`, `grep` — currently NOT provided.
 
 **Design: provide descendant summaries as a context message** (similar to `buildPlannerStateContextMessage`). Add read-only workspace tools later only if summaries are insufficient.
@@ -210,7 +211,7 @@ The descendant summary message should include, for each descendant of the goal c
 - `status_text`
 - `result.kind` (e.g. `executor_success`, `planner_done`, `planner_blocked`)
 - `result.summary` or `result.error` (the key human-readable outcome)
-- `result.generated_files` (for executor results)
+- latest closed `status.md` record URL, when available
 - `lifecycle.completed_at`
 
 This gives the reviewer enough to cite `evidence_card_ids` and `issues[].evidence_card_id` without needing card-inspection tools in the initial implementation.
@@ -380,8 +381,7 @@ The message should include compact structured summaries:
 - `status_text`
 - `lifecycle.result.kind`
 - concise summary/error fields
-- `generated_files`
-- artifact and attachment refs
+- latest closed `status.md` record URL, when available
 
 This keeps review deterministic and avoids requiring the reviewer to navigate the card tree. If later validation proves the reviewer needs file inspection, add read-only `read`, `glob`, and `grep` through `ActorToolSurface`.
 
@@ -431,7 +431,7 @@ This avoids repeating card id/title/description/acceptance assembly in each proc
 
 - Add `buildReviewerDescendantSummaryMessage`.
 - Use reviewer prompt builder with terminal-only surface.
-- Test: reviewer receives acceptance criteria and descendant summaries including generated files/evidence ids.
+- Test: reviewer receives acceptance criteria and descendant summaries including status-record URLs and evidence card ids.
 
 #### Phase 3: Executor Prompt Cleanup
 

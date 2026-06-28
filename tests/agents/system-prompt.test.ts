@@ -88,10 +88,13 @@ describe('System Prompt Builder', () => {
       expect(prompt).toContain('one-shot');
     });
 
-    it('preserves project-vs-process file scoping constraint', () => {
+    it('describes project, record, status, and process scoping', () => {
       const prompt = buildExecutorPrompt(executorContract);
-      expect(prompt).toContain('never a project source');
+      expect(prompt).toContain('project files');
+      expect(prompt).toContain('record://status.md');
+      expect(prompt).toContain('status_text');
       expect(prompt).toContain('.saivage-work');
+      expect(prompt).not.toContain('never a project source');
     });
 
     it('describes the executor contract terminal tool', () => {

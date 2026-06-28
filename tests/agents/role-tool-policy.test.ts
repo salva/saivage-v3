@@ -24,7 +24,6 @@ describe('RoleToolPolicy', () => {
       'glob',
       'grep',
       'edit',
-      'apply_patch',
       'wait_for_process',
       'kill_process',
       'start_and_wait',
@@ -82,9 +81,13 @@ describe('RoleToolPolicy', () => {
     expect(RoleToolPolicy.decide({ role: 'planner', action: 'invoke', surface: 'external-mcp', toolName: 'mcp_tool_call', serverName: 'svc', hasMcpDefinition: true, mcpAnnotations: { readOnlyHint: true, destructiveHint: false } }).allowed).toBe(false);
     expect(RoleToolPolicy.decide({ role: 'planner', action: 'invoke', surface: 'planner-control', toolName: 'activate_card', knownPlannerTool: true }).allowed).toBe(true);
     expect(RoleToolPolicy.decide({ role: 'reviewer', action: 'invoke', surface: 'workspace', toolName: 'read' }).allowed).toBe(true);
-    expect(RoleToolPolicy.decide({ role: 'reviewer', action: 'invoke', surface: 'workspace', toolName: 'write' }).allowed).toBe(false);
-    expect(RoleToolPolicy.decide({ role: 'reviewer', action: 'invoke', surface: 'workspace', toolName: 'edit' }).allowed).toBe(false);
+    expect(RoleToolPolicy.decide({ role: 'reviewer', action: 'invoke', surface: 'workspace', toolName: 'write' }).allowed).toBe(true);
+    expect(RoleToolPolicy.decide({ role: 'reviewer', action: 'invoke', surface: 'workspace', toolName: 'edit' }).allowed).toBe(true);
     expect(RoleToolPolicy.decide({ role: 'reviewer', action: 'invoke', surface: 'workspace', toolName: 'apply_patch' }).allowed).toBe(false);
+    expect(RoleToolPolicy.decide({ role: 'reviewer', action: 'invoke', surface: 'workspace', toolName: 'run_project_command' }).allowed).toBe(false);
+    expect(RoleToolPolicy.decide({ role: 'reviewer', action: 'invoke', surface: 'workspace', toolName: 'start_and_wait' }).allowed).toBe(false);
+    expect(RoleToolPolicy.decide({ role: 'reviewer', action: 'invoke', surface: 'workspace', toolName: 'wait_for_process' }).allowed).toBe(false);
+    expect(RoleToolPolicy.decide({ role: 'reviewer', action: 'invoke', surface: 'workspace', toolName: 'kill_process' }).allowed).toBe(false);
   });
 
   it('allows known planner-control lifecycle tools at the planner-control boundary', () => {

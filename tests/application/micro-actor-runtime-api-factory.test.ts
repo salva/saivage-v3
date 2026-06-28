@@ -7,6 +7,7 @@ import { CardStore } from '../../src/cards/card-store.js';
 import { createMicroActorRuntimeApi } from '../../src/application/micro-actor-runtime-api-factory.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import type { InvocationService } from '../../src/agents/invocation-service.js';
+import type { LlmCompleteResult } from '../../src/agents/llm-contracts.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-micro-actor-runtime-factory-'));
@@ -21,8 +22,16 @@ describe('createMicroActorRuntimeApi', () => {
     initProjectTree(projectRoot);
     const cardStore = new CardStore(projectRoot);
     cardStore.create({ type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], acceptance: '', retries: 0 });
+    const plannerTerminal = { kind: 'tool_calls' as const, tool_calls: [{ id: 'planner-result-1', type: 'function' as const, function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'blocked', blocked_reason: 'waiting for operator', summary: 'waiting for operator' }) } }] };
+    let wroteStatus = false;
     const invocationService = {
-      invokeWithRecovery: jest.fn(async () => ({ kind: 'tool_calls' as const, tool_calls: [{ id: 'planner-result-1', type: 'function' as const, function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'blocked', blocked_reason: 'waiting for operator', summary: 'waiting for operator' }) } }] })),
+      invokeWithRecovery: jest.fn(async (): Promise<LlmCompleteResult> => {
+        if (!wroteStatus) {
+          wroteStatus = true;
+          return { kind: 'tool_calls' as const, tool_calls: [{ id: 'planner-write-status', type: 'function' as const, function: { name: 'write', arguments: JSON.stringify({ path: 'record://status.md?v=next', content: 'waiting for operator' }) } }] };
+        }
+        return plannerTerminal;
+      }),
     } as unknown as InvocationService;
     const api = createMicroActorRuntimeApi({
       projectRoot,

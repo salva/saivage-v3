@@ -1,6 +1,4 @@
 import type {
-  ArtifactRef,
-  AttachmentRef,
   AgentActivityStatus as ContractActivityStatus,
   AgentConversationEntry,
   AgentRole,
@@ -36,8 +34,6 @@ export { cardStatusValues, cardTypeValues } from '@saivage/schemas';
 
 
 export type {
-  ArtifactRef,
-  AttachmentRef,
   AgentConversationEntry,
   AgentRole,
   ChatSession,

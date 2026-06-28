@@ -22,8 +22,6 @@ function card(overrides: Partial<CardRecord>): CardRecord {
     depends_on: [],
     related: [],
     acceptance: '',
-    artifacts: [],
-    attachments: [],
     retries: 0,
     ...overrides,
     lifecycle: (overrides.lifecycle ?? { status: overrides.status ?? 'running', result: null, error: null, completed_at: null }) as CardRecord['lifecycle'],

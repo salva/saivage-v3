@@ -60,7 +60,7 @@
         <h3 class="section-heading">Completion &amp; blockers</h3>
         <div class="meta-grid">
           <div class="meta-item"><span class="meta-key">Completion state</span><span class="meta-value">{{ completionLabel }}</span></div>
-          <div class="meta-item"><span class="meta-key">Evidence readiness</span><span class="meta-value">{{ hasRecordedEvidence ? evidence?.summary.summary : 'No evidence summary returned.' }}</span></div>
+          <div class="meta-item"><span class="meta-key">Record outputs</span><span class="meta-value">Status and review records are stored under the card output slots.</span></div>
           <div class="meta-item"><span class="meta-key">Child work</span><span class="meta-value">{{ childWorkSummary }}</span></div>
         </div>
         <div v-if="currentCard.depends_on.length" class="link-list-row">
@@ -89,102 +89,25 @@
         </div>
         <div v-if="currentChildren.length" class="children-list">
           <button v-for="child in currentChildren" :key="child.id" type="button" class="child-row" @click="navigateCard(child.id)">
-            <span class="generated-file-main">
-              <span class="generated-file-path">{{ child.display_path || child.id }}</span>
+            <span class="child-card-main">
+              <span class="output-path">{{ child.display_path || child.id }}</span>
               <span class="badge">{{ child.type }}</span>
               <span class="badge" :class="statusBadgeClass(child.status)">{{ child.status }}</span>
             </span>
-            <span class="generated-file-description">{{ child.title }}</span>
+            <span class="child-card-title">{{ child.title }}</span>
           </button>
         </div>
         <div v-else class="empty-evidence">No child cards are recorded for this card.</div>
       </section>
 
       <section class="detail-section">
-        <h3 class="section-heading">Evidence &amp; generated files</h3>
-        <div v-if="!hasRecordedEvidence" class="empty-evidence">No evidence has been recorded for this card.</div>
-        <template v-else>
-        <div class="evidence-summary">{{ evidenceSummaryLine }}</div>
-
-        <div class="pill-list summary-pills">
-          <span class="badge">Files: {{ generatedFiles.length }}</span>
-          <span class="badge">Checks: {{ verificationCommands.length }}</span>
-          <span class="badge">Tool errors: {{ evidence?.toolErrors.length || 0 }}</span>
-          <span v-if="evidence?.summary.missingCount" class="badge warning">Missing files: {{ evidence.summary.missingCount }}</span>
-          <span v-if="evidence?.summary.blockedCount" class="badge error">Blocked: {{ evidence.summary.blockedCount }}</span>
-          <span v-if="evidence?.summary.redactedCount" class="badge warning">Redacted: {{ evidence.summary.redactedCount }}</span>
-          <span v-if="evidence?.summary.parseRecovered" class="badge warning">Parse recovery</span>
+        <h3 class="section-heading">Record outputs</h3>
+        <div class="evidence-summary">Agent status and review output is persisted as versioned record slots.</div>
+        <div class="meta-grid">
+          <div class="meta-item"><span class="meta-key">Output directory</span><code class="inline-token output-path">.saivage/outputs/cards/{{ currentCard.id }}/</code></div>
+          <div class="meta-item"><span class="meta-key">Common slots</span><span class="meta-value">status.md, review.md</span></div>
         </div>
-
-        <div v-if="evidence?.parseFailure" class="preview-notice warning">Executor final response was malformed; generated files and verification evidence were recovered from tool activity.</div>
-        <div v-if="evidence?.toolErrors?.length" class="preview-notice error">
-          <strong>Tool Errors</strong>
-          <ul><li v-for="err in evidence.toolErrors" :key="err">{{ err }}</li></ul>
-        </div>
-
-        <div v-if="generatedFiles.length" class="generated-files-list">
-          <button
-            v-for="file in generatedFiles"
-            :key="file.path"
-            type="button"
-            class="generated-file-row"
-            :class="{ selected: selectedPath === file.path, disabled: isPreviewDisabled(file) }"
-            :aria-label="`Preview generated file ${file.path}, ${fileStateLabel(file)}`"
-            @click="openPreviewForFile(file)"
-          >
-            <span class="generated-file-main">
-              <span class="generated-file-path">{{ file.path }}</span>
-              <span class="badge">{{ sourceLabel(file.source) }}</span>
-              <span v-if="file.artifactType" class="badge subtle">{{ file.artifactType }}</span>
-              <span v-if="file.retain" class="badge success">retained</span>
-              <span v-if="file.exists === false && !file.blocked" class="badge warning">missing</span>
-              <span v-if="file.blocked" class="badge error">blocked</span>
-              <span v-else-if="file.redactedOnly" class="badge warning">redacted</span>
-              <span v-else-if="file.previewable === false" class="badge subtle">non-previewable</span>
-            </span>
-            <span v-if="file.description" class="generated-file-description">{{ file.description }}</span>
-            <span v-if="file.availabilityReason" class="generated-file-description">{{ file.availabilityReason }}</span>
-          </button>
-        </div>
-
-        <div v-if="generatedFiles.length || previewState.status !== 'idle'" class="preview-panel" aria-live="polite">
-          <div v-if="previewState.status === 'idle'" class="preview-empty">Select a generated file to preview safe text content.</div>
-          <div v-else-if="previewState.status === 'loading'" class="preview-empty">Loading preview…</div>
-          <template v-else-if="previewState.status === 'ready'">
-            <div class="preview-header">
-              <span class="generated-file-path">{{ previewState.path }}</span>
-              <span>{{ previewState.size }} bytes</span>
-              <span>{{ previewState.contentType }}</span>
-            </div>
-            <div v-if="previewState.redactedHint" class="preview-notice">Sensitive values are redacted by the server.</div>
-            <CodeBlock
-              :code="previewState.content"
-              language="text"
-              copyable
-              wrap
-              :aria-label="`Read-only preview of ${previewState.path}`"
-            />
-          </template>
-          <template v-else>
-            <div class="preview-error-state">
-              <div class="preview-notice error">{{ previewState.message }}</div>
-              <button v-if="previewState.status !== 'blocked'" type="button" class="retry-btn" @click="openPreview(previewState.path, true)">Retry</button>
-            </div>
-          </template>
-        </div>
-
-        <div class="verification-section">
-          <h4 class="subheading">Verification Commands</h4>
-          <div v-if="verificationCommands.length" v-for="command in verificationCommands" :key="`${command.command}-${command.process_id}`" class="verification-row">
-            <code class="inline-token generated-file-path">{{ command.command }}</code>
-            <span class="badge">{{ command.status || 'unknown' }}</span>
-            <span class="badge" :class="command.exit_code === 0 ? 'success' : command.exit_code == null ? 'subtle' : 'error'">{{ verificationOutcome(command) }}</span>
-            <span v-if="command.timed_out" class="badge warning">timed out</span>
-            <span v-if="command.process_id" class="badge subtle">process {{ command.process_id }}</span>
-          </div>
-          <div v-else class="empty-evidence">No verification commands were recorded for this card.</div>
-        </div>
-        </template>
+        <div class="empty-evidence">No dedicated record-slot API projection is available in this view yet. Use Files to inspect the output directory.</div>
       </section>
 
       <section class="detail-section">
@@ -261,9 +184,7 @@ import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
 import { useAnalystChat } from '../../stores/analystChat';
 import { useCardStore } from '../../stores/cards';
 import { storeToRefs } from 'pinia';
-import { getFileContent, ApiError } from '../../api/client';
 import type { DetailErrorState, CardStatus } from '../../api/types';
-import type { GeneratedFileRef, VerificationCommandRef } from '../../stores/card-detail-view-model';
 import { createLogger } from '../../utils/logger';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../../utils/timestamp';
 import CardHistoryPanel from './CardHistoryPanel.vue';
@@ -281,7 +202,6 @@ const {
   currentCard,
   currentChildren,
   currentAncestorRefs,
-  currentEvidence: evidence,
   currentLifecycle: lifecycle,
   currentReview: review,
   currentPlanning: planning,
@@ -294,9 +214,7 @@ const {
 const detailError = computed<DetailErrorState | null>(() => currentDetailError.value);
 const detailFreshness = computed(() => currentDetailFreshness.value);
 
-const selectedPath = ref<string | null>(null);
 const liveHighlighted = ref(false);
-const previewState = ref<{ status: 'idle' } | { status: 'loading'; path: string } | { status: 'ready'; path: string; size: number; contentType: string; content: string; redactedHint: boolean } | { status: 'missing' | 'blocked' | 'directory' | 'too_large' | 'binary' | 'error'; path: string; message: string }>({ status: 'idle' });
 let highlightTimer: ReturnType<typeof setTimeout> | null = null;
 
 const TYPE_ICONS: Record<string, string> = { project: '(P)', goal: '(G)', architecture: '(A)', code: '(C)', test: '(T)', doc: '(D)', data: '(DA)', research: '(R)', ops: '(O)' };
@@ -304,34 +222,24 @@ function typeIcon(type: string): string { return TYPE_ICONS[type] || '(?)'; }
 function fmtDate(ts: string): string { return ts ? formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute') : ''; }
 function esc(text: string): string { return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function renderMarkdown(text: string): string { return esc(text).replace(/\n/g, '<br>'); }
-function sourceLabel(source: string): string { return source.replace('result.', ''); }
 function statusBadgeClass(status: CardStatus): string { return `status-${status}`; }
 function statusExplainer(status: CardStatus): string {
   const map: Record<CardStatus, string> = {
     backlog: 'This card is planned but not started.',
-    running: 'This card is running. Evidence may be incomplete until the active work finishes.',
+    running: 'This card is running. Status records may be incomplete until the active work finishes.',
     blocked: 'This card is blocked. Check blockers, tool errors, review findings, and notes before retrying.',
     changed: 'This card has changed and needs planner attention before completion can proceed.',
-    done: 'This card is marked done. Review evidence and verification below before treating it as accepted.',
-    failed: 'This card failed. Inspect error, tool errors, verification commands, and agent/review context.',
+    done: 'This card is marked done. Review status and review records before treating it as accepted.',
+    failed: 'This card failed. Inspect error, status records, and agent/review context.',
     cancelled: 'This card was cancelled and should not be treated as completed work.',
-    needs_verification: 'Executor preserved partial evidence via fallback. Verify artifacts and verification commands before accepting or restarting.',
+    needs_verification: 'This card needs verification. Inspect status and review records before accepting or restarting.',
   };
   return map[status];
 }
 
-const generatedFiles = computed<GeneratedFileRef[]>(() => evidence.value?.generatedFiles ?? []);
-const verificationCommands = computed<VerificationCommandRef[]>(() => evidence.value?.verificationCommands ?? []);
-const hasRecordedEvidence = computed(() => Boolean(
-  evidence.value?.summary.hasRecordedEvidence
-  || generatedFiles.value.length
-  || verificationCommands.value.length
-  || evidence.value?.toolErrors.length,
-));
 const completionLabel = computed(() => {
   if (review.value?.status === 'passed') return 'Review passed';
   if (review.value?.status === 'failed') return 'Review failed';
-  if (evidence.value?.summary.state === 'incomplete') return 'Evidence incomplete';
   return lifecycle.value?.completionState || 'unknown';
 });
 const childWorkSummary = computed(() => {
@@ -340,7 +248,6 @@ const childWorkSummary = computed(() => {
   const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
   return `${total} children: ${counts.running} running, ${counts.blocked + counts.failed} blocked/failed, ${counts.done} done`;
 });
-const evidenceSummaryLine = computed(() => evidence.value?.summary.summary || 'Evidence has been recorded for this card.');
 const dependencyRefs = computed(() => currentCard.value?.dependencyRefs ?? currentCard.value?.depends_on.map((id) => ({ id, display_path: null, title: null })) ?? []);
 const detailErrorTitle = computed(() => {
   switch (detailError.value?.kind) {
@@ -360,62 +267,6 @@ const reviewTitle = computed(() => {
   }
 });
 const reviewCalloutClass = computed(() => review.value?.status === 'passed' ? 'success' : review.value?.status === 'failed' ? 'error' : 'warning');
-
-function verificationOutcome(command: VerificationCommandRef): string {
-  if (command.timed_out) return 'timed out';
-  if (command.exit_code === 0) return 'pass';
-  if (command.exit_code == null) return 'unknown exit';
-  return `fail (${command.exit_code})`;
-}
-
-function fileStateLabel(file: GeneratedFileRef): string {
-  if (file.blocked) return 'blocked';
-  if (file.exists === false) return 'missing';
-  if (file.redactedOnly) return 'redacted';
-  if (file.previewable === false) return 'non-previewable';
-  return 'available';
-}
-
-function isPreviewDisabled(file: GeneratedFileRef): boolean {
-  return file.blocked === true || file.previewable === false;
-}
-
-async function openPreview(path: string, force = false): Promise<void> {
-  if (!force && previewState.value.status === 'ready' && previewState.value.path === path) return;
-  selectedPath.value = path;
-  previewState.value = { status: 'loading', path };
-  try {
-    const response = await getFileContent(path);
-    const redactedHint = response.redacted === true || response.sensitivity === 'sensitive-redacted';
-    previewState.value = { status: 'ready', path: response.path, size: response.size, contentType: response.contentType, content: response.content, redactedHint };
-  } catch (err) {
-    const apiErr = err as ApiError;
-    let status: 'missing' | 'blocked' | 'directory' | 'too_large' | 'binary' | 'error' = 'error';
-    let message = 'Could not load preview. Refresh the card and retry; use Debug if the error persists.';
-    if (apiErr?.status === 404) { status = 'missing'; message = 'File was recorded as evidence but is no longer present in the workspace.'; }
-    else if (apiErr?.status === 403) { status = 'blocked'; message = 'Preview blocked by file-access security. Use controlled maintenance procedures before direct inspection.'; }
-    else if (apiErr?.status === 400) { status = 'directory'; message = 'This evidence path points to a directory, not a previewable file.'; }
-    else if (apiErr?.status === 413) { status = 'too_large'; message = 'File is too large to preview in the control room.'; }
-    else if (apiErr?.status === 415) { status = 'binary'; message = 'Binary or non-text file cannot be previewed here.'; }
-    else if (apiErr instanceof Error && apiErr.message) { message = apiErr.message; }
-    previewState.value = { status, path, message };
-  }
-}
-
-function openPreviewForFile(file: GeneratedFileRef): void {
-  selectedPath.value = file.path;
-  if (isPreviewDisabled(file)) {
-    previewState.value = {
-      status: 'blocked',
-      path: file.path,
-      message: file.blocked
-        ? (file.availabilityReason || 'Preview blocked by file-access security. Use controlled maintenance procedures before direct inspection.')
-        : 'This evidence is classified as non-previewable by the server.',
-    };
-    return;
-  }
-  void openPreview(file.path);
-}
 
 function navigateCard(id: string): void { emit('navigate', id); }
 async function reloadDetail(): Promise<void> { try { await cardStore.fetchCardDetail(props.cardId); } catch (err) { log.error('fetch', err); } }
@@ -454,8 +305,6 @@ watch(() => props.cardId, async (nid, oldId) => {
   void oldId;
   liveHighlighted.value = false;
   clearHighlightTimer();
-  selectedPath.value = null;
-  previewState.value = { status: 'idle' };
   if (nid) await reloadDetail();
 });
 
@@ -485,23 +334,19 @@ function actionLabel(action: string): string {
 .status-failed { background:var(--entry-danger-bg); color:var(--danger); border-color:var(--danger); }
 .status-backlog,.status-cancelled,.status-blocked { background:var(--surface-3); color:var(--text); border-color:var(--border-strong); }
 .status-needs_verification { background:var(--entry-warn-bg); color:var(--warn); border-color:var(--warn); }
-.detail-id,.generated-file-path { font-family:'SF Mono',monospace; }
+.detail-id,.output-path { font-family:'SF Mono',monospace; }
 .meta-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:8px; }
 .meta-item { display:flex; flex-direction:column; gap:2px; }
 .meta-key { font-size:11px; color:var(--text-muted); }
 .meta-value { font-size:13px; color:var(--text); }
-.notes-list,.generated-files-list,.children-list { display:flex; flex-direction:column; gap:8px; }
-.note-item,.generated-file-row,.verification-row,.child-row { background:var(--surface-1); border:1px solid var(--surface-3); border-radius:6px; padding:10px 12px; }
-.generated-file-row,.child-row { text-align:left; cursor:pointer; }
-.generated-file-row.selected { border-color:var(--accent-2); }
-.generated-file-row.disabled { opacity:.9; }
-.generated-file-main { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
-.generated-file-description,.note-content,.evidence-summary,.planning-summary { color:var(--text-muted); font-size:12px; }
-.preview-panel { margin-top:12px; }
-.preview-header { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:8px; color:var(--text-muted); font-size:12px; }
-.preview-notice,.detail-callout { padding:10px 12px; border-radius:6px; background:var(--entry-user-bg); color:var(--text); margin-bottom:8px; }
-.preview-notice.warning,.detail-callout.warning { background:var(--entry-warn-bg); }
-.preview-notice.error,.detail-callout.error { background:var(--entry-danger-bg); }
+.notes-list,.children-list { display:flex; flex-direction:column; gap:8px; }
+.note-item,.verification-row,.child-row { background:var(--surface-1); border:1px solid var(--surface-3); border-radius:6px; padding:10px 12px; }
+.child-row { text-align:left; cursor:pointer; }
+.child-card-main { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.child-card-title,.note-content,.evidence-summary,.planning-summary { color:var(--text-muted); font-size:12px; }
+.detail-callout { padding:10px 12px; border-radius:6px; background:var(--entry-user-bg); color:var(--text); margin-bottom:8px; }
+.detail-callout.warning { background:var(--entry-warn-bg); }
+.detail-callout.error { background:var(--entry-danger-bg); }
 .detail-callout.success { background:var(--entry-accent-bg); }
 
 .retry-btn,.card-ref-button { padding:6px 10px; background:var(--surface-3); border:1px solid var(--border); color:var(--text); border-radius:4px; cursor:pointer; }

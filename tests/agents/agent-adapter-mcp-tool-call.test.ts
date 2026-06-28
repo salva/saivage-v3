@@ -79,17 +79,19 @@ describe('AgentAdapter role tool + MCP policy', () => {
 
   it('planner gets the authoritative §7 workspace tools and no MCP tool', () => {
     const tools = callBuildToolsForRole('planner').map((tool) => tool.function.name);
-    expect(tools).toEqual(expect.arrayContaining(['read', 'write', 'glob', 'grep', 'edit', 'apply_patch', 'websearch', 'webfetch', 'start_and_wait', 'run_project_command', 'wait_for_process', 'kill_process']));
+    expect(tools).toEqual(expect.arrayContaining(['read', 'write', 'glob', 'grep', 'edit', 'websearch', 'webfetch', 'start_and_wait', 'run_project_command', 'wait_for_process', 'kill_process']));
+    expect(tools).not.toContain('apply_patch');
     expect(tools).not.toContain('skill');
     expect(tools).not.toContain('mcp_tool_call');
   });
 
-  it('reviewer gets read-only workspace tools but not write/run tools', () => {
+  it('reviewer gets record-write workspace tools but not patch/run tools', () => {
     const tools = callBuildToolsForRole('reviewer').map((tool) => tool.function.name);
-    expect(tools).toEqual(expect.arrayContaining(['skill', 'read', 'glob', 'grep', 'websearch', 'webfetch', 'mcp_tool_call']));
-    expect(tools).not.toContain('write');
-    expect(tools).not.toContain('edit');
+    expect(tools).toEqual(expect.arrayContaining(['skill', 'read', 'write', 'glob', 'grep', 'edit', 'websearch', 'webfetch', 'mcp_tool_call']));
     expect(tools).not.toContain('apply_patch');
+    expect(tools).not.toContain('start_and_wait');
+    expect(tools).not.toContain('wait_for_process');
+    expect(tools).not.toContain('kill_process');
     expect(tools).not.toContain('run_project_command');
   });
 

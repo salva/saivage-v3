@@ -58,7 +58,7 @@ describe('evaluateReviewerTerminalOutcome', () => {
     const outcome = evaluate(store, card, reviewerOutcome({ evidence_card_ids: [card.id] }));
 
     expect(outcome).toMatchObject({ status: 'blocked', result: { kind: 'planner_blocked', reviewer_correction: { kind: 'reviewer_correction', assessment_id: 'assessment-card-1-1' } } });
-    expect(outcome.summary).toContain('without durable result');
+    expect(outcome.summary).toContain('outside the reviewed subtree');
   }));
 
   it('returns reviewer_pass when assessment cites done descendant evidence', () => withTempProject((projectRoot) => {

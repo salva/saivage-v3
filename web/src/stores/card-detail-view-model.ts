@@ -1,59 +1,5 @@
 import type { CardRecord, CardRefView, CardStatus, ReviewAssessment } from '../api/types';
 
-export type SafeFileSensitivity = 'normal' | 'sensitive-blocked' | 'sensitive-redacted';
-
-export interface GeneratedFileRef {
-  path: string;
-  source: 'artifact' | 'attachment' | 'result.generated_files' | 'result.artifact_paths';
-  artifactId?: string;
-  attachmentId?: string;
-  artifactType?: CardRecord['artifacts'][number]['type'];
-  description?: string;
-  retain?: boolean;
-  exists?: boolean;
-  size?: number;
-  modifiedAt?: string;
-  previewable?: boolean;
-  downloadable?: boolean;
-  blocked?: boolean;
-  redactedOnly?: boolean;
-  sensitivity?: SafeFileSensitivity;
-  availabilityReason?: string;
-}
-
-export interface VerificationCommandRef {
-  command: string;
-  process_id: string | null;
-  status: string | null;
-  exit_code: number | null;
-  timed_out: boolean | null;
-}
-
-export type CardEvidenceState = 'none-recorded' | 'partial' | 'present' | 'missing-files' | 'blocked' | 'redacted' | 'incomplete';
-
-export interface CardEvidenceSummary {
-  state: CardEvidenceState;
-  summary: string;
-  hasRecordedEvidence: boolean;
-  hasDurableEvidence: boolean;
-  missingCount: number;
-  blockedCount: number;
-  redactedCount: number;
-  fileCount: number;
-  verificationCount: number;
-  toolErrorCount: number;
-  parseRecovered: boolean;
-}
-
-export interface CardEvidence {
-  generatedFiles: GeneratedFileRef[];
-  verificationCommands: VerificationCommandRef[];
-  artifactPaths: string[];
-  toolErrors: string[];
-  parseFailure?: Record<string, unknown>;
-  summary: CardEvidenceSummary;
-}
-
 export interface CardLifecycleSummary {
   status: CardStatus;
   terminal: boolean;
@@ -114,7 +60,6 @@ export interface CardDetailViewModel {
   children: CardRecord[];
   ancestorIds: string[];
   ancestorRefs: CardRefView[];
-  evidence?: CardEvidence | null;
   lifecycle?: CardLifecycleSummary | null;
   review?: CardReviewSummary | null;
   planning?: CardPlanningSummary | null;
@@ -184,7 +129,6 @@ export function toCardDetailViewModel(response: { card: CardRecord; children: Ca
     ancestorIds: response.ancestorIds,
     ancestorRefs: response.ancestorRefs ?? response.ancestorIds.map((id) => ({ id, display_path: null, title: null })),
     lifecycle: deriveCardLifecycleSummary(response.card, response.children),
-    evidence: null,
     review: null,
     planning: null,
     dispatches: null,

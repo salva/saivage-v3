@@ -2,13 +2,13 @@
 
 Status: current functional UI authority.
 
-Last updated: 2026-06-12.
+Last updated: 2026-06-29.
 
 ## 1. Purpose
 
 The operator UI shows Saivage state and hosts the Analyst. It does not compete with the Analyst as a control surface.
 
-The UI must help the user understand what the autonomous runtime is doing, inspect artifacts, and stay oriented during Analyst conversations. Mutations still go through the Analyst.
+The UI must help the user understand what the autonomous runtime is doing, inspect cards, status records, review records, files, and processes, and stay oriented during Analyst conversations. Mutations still go through the Analyst.
 
 ## 2. Layout
 
@@ -26,7 +26,7 @@ Narrow/mobile layouts are intentionally unspecified for now.
 The workspace area renders read-only projections of runtime state, including:
 
 - cards and card detail;
-- distinct card `working_status`, accepted `result`, specialized result fields, and card field history when available;
+- distinct card `working_status`, accepted `result`, versioned record-output slots such as `status.md` and `review.md`, specialized result fields, and card field history when available;
 - card tree/board/list views;
 - runtime dashboard/state;
 - agent sessions and transcripts;
@@ -139,7 +139,7 @@ The UI satisfies this specification when:
 - the Analyst panel is visible on first paint at desktop widths;
 - no drawer/toggle control is required to reach the Analyst;
 - the workspace remains visible beside the Analyst panel;
-- card detail distinguishes live `working_status` from accepted `result` and can expose card field history when available;
+- card detail distinguishes live `working_status` from accepted `result`, points operators to card record-output slots when a dedicated projection is unavailable, and can expose card field history when available;
 - read-only workspace navigation/filtering/copy/refresh still works;
 - no direct UI control performs an Analyst-only mutation;
 - "Discuss with analyst" stages contextual chat text rather than opening a panel;
