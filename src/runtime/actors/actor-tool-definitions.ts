@@ -1,4 +1,4 @@
-import { PLANNER_TOOL_DEFINITIONS } from '../../tools/definitions/index.js';
+import { ALL_TOOL_DEFINITIONS_BY_NAME, PLANNER_TOOL_DEFINITIONS } from '../../tools/definitions/index.js';
 import type { ToolDefinition } from '../../agents/llm-contracts.js';
 import { cardTypeValues, urgencyValues } from '../../schemas/index.js';
 
@@ -7,6 +7,16 @@ function requiredPlannerTool(name: string): ToolDefinition {
   if (!tool) throw new Error(`Missing required planner tool definition '${name}'.`);
   return tool;
 }
+
+function requiredTool(name: string): ToolDefinition {
+  const tool = ALL_TOOL_DEFINITIONS_BY_NAME.get(name);
+  if (!tool) throw new Error(`Missing required tool definition '${name}'.`);
+  return tool;
+}
+
+const PLANNER_FILE_TOOL_DEFINITIONS = ['read', 'write', 'glob', 'grep', 'edit'].map(requiredTool);
+const REVIEWER_FILE_TOOL_DEFINITIONS = ['read', 'write', 'glob', 'grep', 'edit'].map(requiredTool);
+const EXECUTOR_FILE_TOOL_DEFINITIONS = ['read', 'write', 'glob', 'grep', 'edit', 'apply_patch'].map(requiredTool);
 
 export const PLANNER_ACTOR_SURFACE_TOOL_DEFINITIONS: ToolDefinition[] = [
   plannerCreateCardDefinition(),
@@ -17,9 +27,15 @@ export const PLANNER_ACTOR_SURFACE_TOOL_DEFINITIONS: ToolDefinition[] = [
 export const PLANNER_CARD_PROCESSOR_TOOL_DEFINITIONS: ToolDefinition[] = [
   requiredPlannerTool('activate_card'),
   ...PLANNER_ACTOR_SURFACE_TOOL_DEFINITIONS,
+  ...PLANNER_FILE_TOOL_DEFINITIONS,
+];
+
+export const REVIEWER_CARD_PROCESSOR_TOOL_DEFINITIONS: ToolDefinition[] = [
+  ...REVIEWER_FILE_TOOL_DEFINITIONS,
 ];
 
 export const TERMINAL_CARD_PROCESSOR_TOOL_DEFINITIONS: ToolDefinition[] = [
+  ...EXECUTOR_FILE_TOOL_DEFINITIONS,
   {
     type: 'function',
     function: {

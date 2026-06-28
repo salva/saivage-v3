@@ -14,7 +14,7 @@ export interface ReviewerTerminalEvaluationInput {
   assessmentId: string;
   sessionId: string;
   outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>;
-  store: Pick<CardActorStorePort, 'read'>;
+  store: Pick<CardActorStorePort, 'read' | 'listChildren'>;
 }
 
 export function evaluateReviewerTerminalOutcome(input: ReviewerTerminalEvaluationInput): ReviewerTerminalEvaluationOutcome {
@@ -26,7 +26,7 @@ export function evaluateReviewerTerminalOutcome(input: ReviewerTerminalEvaluatio
     return { status: 'failed', summary: message, result: { kind: 'planner_failure', error: message } };
   }
   const assessment = buildReviewerAssessment(reviewerResult, input.assessmentId, input.sessionId, input.card.id);
-  const validation = validateReviewerAssessment({ goalId: input.card.id, assessment, candidatePlannerResult: input.candidatePlanning, readCard: (id) => input.store.read(id) });
+  const validation = validateReviewerAssessment({ goalId: input.card.id, assessment, candidatePlannerResult: input.candidatePlanning, readCard: (id) => input.store.read(id), isDescendantOf: (id, goalId) => isDescendantOf(input.store, id, goalId) });
   if (!validation.valid) return correctionOutcome(input.assessmentId, validation.reason ?? 'Reviewer assessment is invalid.');
   if (assessment.result === 'needs_corrections') return correctionOutcome(input.assessmentId, assessment.summary, assessment.issues.map((issue) => ({ ...issue })));
   const passResult: ReviewerPassResult = { kind: 'reviewer_pass', planning: input.candidatePlanning, review_summary: assessment.summary, assessment_id: input.assessmentId };
@@ -44,4 +44,13 @@ function correctionOutcome(assessmentId: string, summary: string, issues: Array<
 export function buildReviewerAssessment(result: ReviewerResult, assessmentId: string, sessionId: string, goalId: string): ReviewAssessment {
   const now = new Date().toISOString();
   return { ...result.assessment, assessment_id: assessmentId, at: now, created_at: now, reviewer_session_id: sessionId, goal_card_id: goalId };
+}
+
+function isDescendantOf(store: Pick<CardActorStorePort, 'read' | 'listChildren'>, candidateId: string, goalId: string): boolean {
+  const children = store.listChildren?.(goalId) ?? [];
+  for (const childId of children) {
+    if (childId === candidateId) return true;
+    if (isDescendantOf(store, candidateId, childId)) return true;
+  }
+  return false;
 }

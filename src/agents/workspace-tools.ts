@@ -1,5 +1,6 @@
 import { isAbsolute, relative, resolve } from 'node:path';
 import { toolDefinitionByName } from '../tools/definitions/index.js';
+import type { AgentRole } from '../tools/tool-catalog.js';
 export {
   READ_ONLY_WORKSPACE_TOOL_DEFINITIONS,
   WORKSPACE_TOOL_DEFINITIONS,
@@ -27,6 +28,7 @@ export interface WorkspaceToolContext {
   sessionId: string;
   cardId?: string;
   goalId?: string;
+  agentRole?: AgentRole;
 }
 
 function truncateOutput(value: string): string {

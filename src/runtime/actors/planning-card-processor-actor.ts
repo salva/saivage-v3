@@ -2,7 +2,7 @@ import type { ActorDefinition } from '../micro-actor/index.js';
 import { cardTypeValues, urgencyValues, type CardRecord, type CardStatus, type CardType, type PlannerDoneResult, type Urgency } from '../../schemas/index.js';
 import type { LLMActorOutcome, LLMAdmissionPort, LLMProviderPort } from './llm-actor.js';
 import { plannerActorId, reviewerActorId } from './ids.js';
-import { PLANNER_ACTOR_SURFACE_TOOL_DEFINITIONS, PLANNER_CARD_PROCESSOR_TOOL_DEFINITIONS } from './actor-tool-definitions.js';
+import { PLANNER_ACTOR_SURFACE_TOOL_DEFINITIONS, PLANNER_CARD_PROCESSOR_TOOL_DEFINITIONS, REVIEWER_CARD_PROCESSOR_TOOL_DEFINITIONS } from './actor-tool-definitions.js';
 import type { CardActivationInput, CardActivationOutcome, CardActor, CardActorStorePort, CardProcessorActor } from './card-actor.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
 import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
@@ -14,6 +14,9 @@ import { evaluateReviewerTerminalOutcome } from './reviewer-terminal-evaluation.
 import { buildPlannerStateContextMessage } from '../../agents/planner-state-context.js';
 import { ActorToolSurface } from './actor-tool-surface.js';
 import type { NewCardInput } from '../../cards/store-api.js';
+import { processWorkspaceToolCall } from '../../agents/workspace-tools.js';
+import { WORKSPACE_TOOL_NAMES } from '../../tools/definitions/index.js';
+import { closeOpenRecordSlot, latestClosedRecordSlot } from '../records/record-slots.js';
 
 type PlannerProcessorOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
 
@@ -72,10 +75,20 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const contract = createPlannerContract();
     const llm = this.createMainLlm(plannerActorId(this.cardId));
     let outcome = await llm.turn(this.buildLlmInput(input, contract));
+    let recordRepairAttempts = 0;
     while (true) {
       if (outcome.type === 'result') return this.plannerFailure(`${expectedTerminalToolMessage(contract)} Plain planner messages are not accepted as terminal results.`);
       if (outcome.type === 'error') return this.plannerFailure(outcome.error);
-      if (contract.isTerminalToolName(outcome.toolName)) return this.projectPlannerTerminal(input, outcome, contract);
+      if (contract.isTerminalToolName(outcome.toolName)) {
+        const missingRecord = this.closeRequiredRecord(input.card.id, 'status.md');
+        if (missingRecord) {
+          recordRepairAttempts++;
+          if (recordRepairAttempts > 2) return this.plannerFailure(missingRecord);
+          outcome = await llm.appendToolResult(outcome.toolCallId, { success: false, error: missingRecord }, () => [{ role: 'user', content: `${missingRecord} Create record://status.md?v=next, then call emit_planner_result again.` }]);
+          continue;
+        }
+        return this.projectPlannerTerminal(input, outcome, contract);
+      }
       const toolResult = await this.handleToolCall(input.card, outcome);
       outcome = await llm.appendToolResult(outcome.toolCallId, toolResult, (inputId) => this.notificationContextMessages(input, inputId));
     }
@@ -113,6 +126,13 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     if (this.plannerToolSurface.handles(outcome.toolName)) {
       try {
         return await this.plannerToolSurface.execute(outcome.toolName, outcome.args, { projectRoot: this.projectRoot, cardId: parent.id, sessionId: plannerActorId(parent.id) });
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    }
+    if (WORKSPACE_TOOL_NAMES.has(outcome.toolName)) {
+      try {
+        return await processWorkspaceToolCall(outcome.toolName, JSON.stringify(outcome.args), { projectRoot: this.projectRoot, cardId: parent.id, sessionId: plannerActorId(parent.id), agentRole: 'planner' });
       } catch (error) {
         return { success: false, error: error instanceof Error ? error.message : String(error) };
       }
@@ -158,13 +178,29 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private async reviewPlannerDone(input: CardActivationInput, planning: PlannerDoneResult): Promise<PlannerProcessorOutcome> {
+    if (this.directChildren(input.card.id).length === 0) return { status: 'done', summary: planning.summary, result: planning };
     const assessmentId = nextReviewerAssessmentId(input.card.id, input.card.lifecycle.result);
     const sessionId = reviewerSessionId(input.card.id, assessmentId);
     const llm = this.createMainLlm(reviewerActorId(input.card.id));
-    const outcome = await llm.turn(this.buildReviewerLlmInput(input, assessmentId, sessionId));
-    if (outcome.type === 'error') return { status: 'failed', summary: outcome.error, result: { kind: 'planner_failure', error: outcome.error } };
-    if (outcome.type === 'result') return this.plannerFailure(`${expectedTerminalToolMessage(createReviewerContract())} Plain reviewer messages are not accepted as terminal results.`);
-    if (!createReviewerContract().isTerminalToolName(outcome.toolName)) return this.plannerFailure(`Reviewer returned unsupported tool call '${outcome.toolName}'.`);
+    let outcome = await llm.turn(this.buildReviewerLlmInput(input, assessmentId, sessionId));
+    const reviewerContract = createReviewerContract();
+    let recordRepairAttempts = 0;
+    while (true) {
+      if (outcome.type === 'error') return { status: 'failed', summary: outcome.error, result: { kind: 'planner_failure', error: outcome.error } };
+      if (outcome.type === 'result') return this.plannerFailure(`${expectedTerminalToolMessage(reviewerContract)} Plain reviewer messages are not accepted as terminal results.`);
+      if (reviewerContract.isTerminalToolName(outcome.toolName)) {
+        const missingRecord = this.closeRequiredRecord(input.card.id, 'review.md');
+        if (missingRecord) {
+          recordRepairAttempts++;
+          if (recordRepairAttempts > 2) return this.plannerFailure(missingRecord);
+          outcome = await llm.appendToolResult(outcome.toolCallId, { success: false, error: missingRecord }, () => [{ role: 'user', content: `${missingRecord} Create record://review.md?v=next, then call emit_reviewer_result again.` }]);
+          continue;
+        }
+        break;
+      }
+      const toolResult = await this.handleReviewerToolCall(input.card, sessionId, outcome);
+      outcome = await llm.appendToolResult(outcome.toolCallId, toolResult, (inputId) => this.notificationContextMessages(input, inputId));
+    }
     const reviewed = evaluateReviewerTerminalOutcome({
       card: input.card,
       candidatePlanning: planning,
@@ -186,8 +222,8 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
       role: 'reviewer',
       sessionId,
       systemPrompt: this.reviewerPrompt(input.card, assessmentId),
-      contextMessages: [],
-      tools: contract.terminals.map((terminal) => terminal.toolDefinition),
+      contextMessages: [this.reviewerDescendantContext(input.card.id)],
+      tools: [...REVIEWER_CARD_PROCESSOR_TOOL_DEFINITIONS, ...contract.terminals.map((terminal) => terminal.toolDefinition)],
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),
       modelParams: {},
       capabilityRequest: { requiresTools: true },
@@ -199,16 +235,56 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     return { status: 'failed', summary: error, result: { kind: 'planner_failure', error } };
   }
 
+  private closeRequiredRecord(cardId: string, filename: 'status.md' | 'review.md'): string | null {
+    try {
+      closeOpenRecordSlot(this.projectRoot, { cardId, filename });
+      return null;
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  }
+
   private directChildren(cardId: string): CardRecord[] {
     return (this.store.listChildren?.(cardId) ?? []).map((id) => this.store.read(id)).filter((card): card is CardRecord => card !== null);
   }
 
+  private descendants(cardId: string): CardRecord[] {
+    const result: CardRecord[] = [];
+    for (const child of this.directChildren(cardId)) {
+      result.push(child, ...this.descendants(child.id));
+    }
+    return result;
+  }
+
+  private reviewerDescendantContext(cardId: string): { role: 'user'; content: string } {
+    const lines = this.descendants(cardId).map((card) => {
+      let recordUrl = 'no closed status record';
+      try {
+        recordUrl = latestClosedRecordSlot(this.projectRoot, { cardId: card.id, filename: 'status.md' }).recordUrl;
+      } catch {
+        recordUrl = 'no closed status record';
+      }
+      const result = card.lifecycle.result;
+      const resultSummary = result && 'summary' in result && typeof result.summary === 'string' ? result.summary : result && 'error' in result && typeof result.error === 'string' ? result.error : '';
+      return `- ${card.id} (${card.type}, ${card.status}): ${card.title}; result=${result?.kind ?? 'none'}${resultSummary ? `; summary=${resultSummary}` : ''}; record=${recordUrl}`;
+    });
+    return { role: 'user', content: `Descendant work:\n${lines.length > 0 ? lines.join('\n') : '(none)'}` };
+  }
+
   private plannerPrompt(card: CardRecord): string {
-    return `Plan and coordinate card ${card.id}: ${card.title}\n\n${card.description}\n\nAcceptance:\n${card.acceptance}\n\nUse create_card for new immediate children of this card. create_card creates a backlog child but does not run it. Use edit_card to correct or refine non-running immediate children. Use cancel_card for obsolete immediate children. Use activate_card for immediate children only when work should execute. If this goal is incomplete and no existing child can make progress, create or edit the next useful immediate child card instead of reporting blocked. End by calling emit_planner_result with status done, blocked, or continue; plain text or JSON messages are not accepted as terminal reports.`;
+    return `Plan and coordinate card ${card.id}: ${card.title}\n\n${card.description}\n\nAcceptance:\n${card.acceptance}\n\nUse create_card for new immediate children of this card. create_card creates a backlog child but does not run it. Use edit_card to correct or refine non-running immediate children. Use cancel_card for obsolete immediate children. Use activate_card for immediate children only when work should execute. If this goal is incomplete and no existing child can make progress, create or edit the next useful immediate child card instead of reporting blocked.\n\nWrite your current invocation status to:\nrecord://status.md?v=next\n\nDo not call emit_planner_result until the status file exists. End by calling emit_planner_result with status done, blocked, or continue; plain text or JSON messages are not accepted as terminal reports.`;
   }
 
   private reviewerPrompt(card: CardRecord, assessmentId: string): string {
-    return `Review card ${card.id}: ${card.title}\n\n${card.description}\n\nAcceptance:\n${card.acceptance}\n\nAssessment id: ${assessmentId}\n\nEnd by calling emit_reviewer_result with the assessment envelope; plain text or JSON messages are not accepted as terminal reports.`;
+    return `Review card ${card.id}: ${card.title}\n\n${card.description}\n\nAcceptance:\n${card.acceptance}\n\nAssessment id: ${assessmentId}\n\nWrite your review to:\nrecord://review.md?v=next\n\nDo not call emit_reviewer_result until the review file exists. End by calling emit_reviewer_result with the assessment envelope; plain text or JSON messages are not accepted as terminal reports.`;
+  }
+
+  private async handleReviewerToolCall(card: CardRecord, sessionId: string, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): Promise<unknown> {
+    try {
+      return await processWorkspaceToolCall(outcome.toolName, JSON.stringify(outcome.args), { projectRoot: this.projectRoot, cardId: card.id, sessionId, agentRole: 'reviewer' });
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   private createPlannerToolSurface(): ActorToolSurface {

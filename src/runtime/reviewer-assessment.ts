@@ -42,6 +42,7 @@ export function validateReviewerAssessment(input: {
   assessment: ReviewerResult['assessment'];
   candidatePlannerResult: PlannerDoneResult;
   readCard(evidenceId: string): CardRecord | null | undefined;
+  isDescendantOf(evidenceId: string, goalId: string): boolean;
 }): { valid: boolean; reason?: string } {
   const { goalId, assessment, readCard } = input;
   if (assessment.evidence_card_ids.length === 0) {
@@ -53,11 +54,11 @@ export function validateReviewerAssessment(input: {
   for (const evidenceId of assessment.evidence_card_ids) {
     const card = readCard(evidenceId);
     if (!card) return { valid: false, reason: `Reviewer cited missing evidence card '${evidenceId}'.` };
-    if (evidenceId !== goalId && card.status !== 'done') {
-      return { valid: false, reason: `Reviewer cited non-complete evidence card '${evidenceId}' with status '${card.status}'.` };
+    if (!input.isDescendantOf(evidenceId, goalId)) {
+      return { valid: false, reason: `Reviewer cited card '${evidenceId}' outside the reviewed subtree.` };
     }
-    if (card.artifacts.length === 0 && card.attachments.length === 0 && !card.lifecycle.result) {
-      return { valid: false, reason: `Reviewer cited card '${evidenceId}' without durable result, artifact, or attachment evidence.` };
+    if (card.status !== 'done') {
+      return { valid: false, reason: `Reviewer cited non-accepted card '${evidenceId}' with status '${card.status}'.` };
     }
   }
   return { valid: true };

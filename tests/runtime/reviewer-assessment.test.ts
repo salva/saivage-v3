@@ -52,14 +52,16 @@ describe('reviewer assessment helpers', () => {
   it('validates reviewer evidence cards', () => {
     const cards = new Map([['goal-a', card()], ['child-a', card({ id: 'child-a', status: 'done' })]]);
     const readCard = (id: string) => cards.get(id) ?? null;
+    const descendants = new Set(['child-a', 'child-blocked', 'empty']);
+    const isDescendantOf = (id: string) => descendants.has(id);
     const candidatePlannerResult = { kind: 'planner_done' as const, summary: 'candidate done' };
-    expect(validateReviewerAssessment({ goalId: 'goal-a', assessment: assessment({ evidence_card_ids: ['goal-a'] }), candidatePlannerResult, readCard })).toEqual({ valid: true });
-    expect(validateReviewerAssessment({ goalId: 'goal-a', assessment: assessment({ evidence_card_ids: ['child-a'] }), candidatePlannerResult, readCard })).toEqual({ valid: true });
-    expect(validateReviewerAssessment({ goalId: 'goal-a', assessment: assessment({ evidence_card_ids: [] }), candidatePlannerResult, readCard }).valid).toBe(false);
-    expect(validateReviewerAssessment({ goalId: 'goal-a', assessment: assessment({ evidence_card_ids: ['missing'] }), candidatePlannerResult, readCard }).reason).toContain('missing');
+    expect(validateReviewerAssessment({ goalId: 'goal-a', assessment: assessment({ evidence_card_ids: ['goal-a'] }), candidatePlannerResult, readCard, isDescendantOf }).reason).toContain('outside');
+    expect(validateReviewerAssessment({ goalId: 'goal-a', assessment: assessment({ evidence_card_ids: ['child-a'] }), candidatePlannerResult, readCard, isDescendantOf })).toEqual({ valid: true });
+    expect(validateReviewerAssessment({ goalId: 'goal-a', assessment: assessment({ evidence_card_ids: [] }), candidatePlannerResult, readCard, isDescendantOf }).valid).toBe(false);
+    expect(validateReviewerAssessment({ goalId: 'goal-a', assessment: assessment({ evidence_card_ids: ['missing'] }), candidatePlannerResult, readCard, isDescendantOf }).reason).toContain('missing');
     cards.set('child-blocked', card({ id: 'child-blocked', status: 'blocked' }));
-    expect(validateReviewerAssessment({ goalId: 'goal-a', assessment: assessment({ evidence_card_ids: ['child-blocked'] }), candidatePlannerResult, readCard }).reason).toContain('non-complete');
+    expect(validateReviewerAssessment({ goalId: 'goal-a', assessment: assessment({ evidence_card_ids: ['child-blocked'] }), candidatePlannerResult, readCard, isDescendantOf }).reason).toContain('non-accepted');
     cards.set('empty', card({ id: 'empty', artifacts: [], attachments: [], lifecycle: { status: 'done', result: { kind: 'planner_done', summary: 'done' }, error: null, completed_at: '2026-01-01T00:00:00.000Z' } }));
-    expect(validateReviewerAssessment({ goalId: 'goal-a', assessment: assessment({ evidence_card_ids: ['empty'] }), candidatePlannerResult, readCard }).valid).toBe(true);
+    expect(validateReviewerAssessment({ goalId: 'goal-a', assessment: assessment({ evidence_card_ids: ['empty'] }), candidatePlannerResult, readCard, isDescendantOf }).valid).toBe(true);
   });
 });
