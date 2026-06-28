@@ -8,7 +8,7 @@ The Analyst is the user-facing control surface for the autonomous runtime. It is
 
 - §5 line 117: the Analyst "may edit the objectives, instructions, acceptance criteria, and descriptive metadata of any existing card, and it may queue card-addressed notifications. It must not directly create, reorder, cancel, delete, restart, archive, replace, move, or rewrite lifecycle/output state for cards. Structural card management belongs to planners and runtime lifecycle controls."
 - §13 line 254–265 enumerates the Analyst's mandatory tasks.
-- §11 line 209 allows the Analyst to initiate collaborative cancellation intent, which this review treats as card-addressed notification context rather than a separate card lifecycle tool.
+- §11 line 209 says "Cancellation can be initiated by the Analyst or by the parent planner." Read together with §5 line 117, this means the Analyst may *express* cancellation intent through card-addressed notifications, but may not directly mutate card lifecycle status to `cancelled`. The runtime/planner decides whether and how to act on the request.
 - §16 line 298 grants the Analyst process inspection and termination.
 - §13 line 342 authorizes restart-via-chat when a config change requires it.
 - `system-architecture.md` §3 and §6 establish that the runtime is the only dispatcher; card edits do not dispatch work, and Analyst mutations go through canonical services.
@@ -48,15 +48,18 @@ This model is derived from the specs; intents not present in §13 are out of sco
 
 ### Current deployed Analyst tools (post `restrict card mutation tools`)
 
-| Group | Tools |
-|---|---|
-| Card objective steering | `edit_card`, `queue_notification` |
-| Card inspection | `list_cards`, `get_card`, `get_tree`, `get_plan_diary`, `get_card_output`, `list_card_history`, `get_card_history_entry`, `diff_card` |
-| Runtime inspection | `get_status`, `read_runtime_events`, `read_runtime_errors`, `read_control_actions`, `list_processes_tool`, `list_agent_sessions`, `read_agent_session` |
-| Runtime control | `start_project`, `stop_project`, `pause_runtime`, `resume_runtime`, `terminate_process`, `restart_server` |
-| Workspace inspection | `read_file`, `list_directory`, `run_shell_command` |
-| UI navigation | `navigate_workspace`, `navigate_back` |
-| Configuration | `show_config`, `reconfigure` |
+The live `dist` Analyst tool surface has 30 tools:
+
+| Group | Tools | Count |
+|---|---|---|
+| Card objective steering | `edit_card`, `queue_notification` | 2 |
+| Card inspection | `list_cards`, `get_card`, `get_tree`, `get_plan_diary`, `get_card_output`, `list_card_history`, `get_card_history_entry`, `diff_card` | 8 |
+| Runtime inspection | `get_status`, `read_runtime_events`, `read_runtime_errors`, `read_control_actions`, `list_processes_tool`, `list_agent_sessions`, `read_agent_session` | 7 |
+| Runtime control | `start_project`, `stop_project`, `pause_runtime`, `resume_runtime`, `terminate_process`, `restart_server` | 6 |
+| Workspace inspection | `read_file`, `list_directory`, `run_shell_command` | 3 |
+| UI navigation | `navigate_workspace`, `navigate_back` | 2 |
+| Configuration | `show_config`, `reconfigure` | 2 |
+| **Total** | | **30** |
 
 ## Findings
 
@@ -72,15 +75,11 @@ This is the documented contract. The review's job is not to propose breaking it.
 
 ### F2. Cancellation does not need a dedicated Analyst tool
 
-Spec §11 line 209 says cancellation can be initiated by the Analyst or by the responsible parent planner, and that running cancellation is collaborative. The earlier revision interpreted that as requiring a dedicated Analyst tool. That was too strong: a generic card-addressed notification is enough for the Analyst side of the collaboration.
+Spec §11 line 209 says cancellation can be initiated by the Analyst or by the responsible parent planner. §5 line 117 says the Analyst "must not directly … cancel" cards. The apparent contradiction resolves cleanly: §5 prohibits the Analyst from directly writing `cancelled` card lifecycle status; §11 allows the Analyst to *express* cancellation intent, which it does through the same generic `queue_notification` primitive it already has. The responsible planner or runtime then decides whether and how to act on that request — potentially calling `CardActor.cancel()` through its own authority, or re-scoping the work instead.
 
 The earlier "restrict card mutation tools" change removed `abort_goal_subtree`, `restart_card_or_subtree`, `restart_goal`, and `mark_goal_needs_corrections` from the Analyst surface. That removal is still correct. §11 line 229 says abort is not a separate required user capability and restart/reset of planner state is not a required user capability. The Analyst should not regain these under a different name.
 
-The spec's cancellation is collaborative, not a force-at-cancel:
-- If the target is not `running`, the runtime may mark it `cancelled` directly.
-- If the target is running, the runtime queues cancellation-request notifications down the active chain and agents voluntarily stop at the next safe point and report `failed` (§11 lines 217–227).
-
-`system-architecture.md` §9 and `micro-actor-runtime-design.md` §Pause, Cancellation, And Shutdown sharpen the limit: running cancellation is best-effort, notification-driven, and leaves the public card status `running` until the running agent reports an actual outcome. Best-effort cancellation does not close provider admission, block child activation, kill processes, abort tool waits, or reinterpret late results. Shutdown remains the hard operation for forcibly terminating runtime-owned work.
+For context, the *runtime's* cancellation mechanics (per `system-architecture.md` §9 and `micro-actor-runtime-design.md` §Pause, Cancellation, And Shutdown) are: inactive cancellation marks the card `cancelled` immediately; running cancellation is best-effort notification-driven and leaves the public card status `running` until the running agent reports an actual outcome. These are planner/runtime-owned operations, not Analyst-triggered ones. The Analyst's role is to express intent; the planner/runtime owns the lifecycle transition.
 
 The correct Analyst behavior is:
 
@@ -132,7 +131,7 @@ Do not add write/edit/apply-patch/build-test tools to the Analyst per §13 line 
 
 Spec §13 lines 263 + 334–342 enumerate exactly five distinct reconfigure actions: role routing, failover, MCP entries, runtime settings, server settings. `reconfigure` exposes all five as one broad union schema, which is the wrong shape for an LLM-targeted tool.
 
-Recommended split (~4 tools, each discriminated):
+Recommended split: replace `reconfigure` with 4 discriminated tools (`show_config` stays):
 
 | Proposed tool | Actions covered |
 |---|---|
@@ -141,7 +140,7 @@ Recommended split (~4 tools, each discriminated):
 | `set_runtime_setting` | runtime settings |
 | `set_server_setting` | server settings (reports `requires_restart` per §13 line 342) |
 
-No compatibility alias is required; remove the broad `reconfigure` when the split lands. This stays well inside §13's enumerated actions and does not add any authority the spec does not already grant.
+No compatibility alias is required; remove the broad `reconfigure` when the split lands. This stays well inside §13's enumerated actions and does not add any authority the spec does not already grant. The split increases the config group from 2 tools to 5 (net +3).
 
 ### F6. Navigation is a required Analyst capability; only its *implementation shape* is in question
 
@@ -154,7 +153,7 @@ What *is* a legitimate question is *implementation shape*: `navigate_workspace` 
 | Keep as model-callable tools | Simple; costs context and a tool-call round-trip for a UI-only signal. |
 | Move to a separate UI-command channel the client emits without an LLM round-trip | Cleaner separation; the Analyst still "drives navigation" on the user's behalf per spec, but the model emits a UI command rather than running a tool that returns `intent`-only data. |
 
-Either shape satisfies the spec. The shell-only data-less shape is an implementation choice; this review recommends the second shape (UI-command channel) as the cleaner target but does not treat the current shape as a spec violation.
+Either shape satisfies the spec. The current data-less shape is an implementation choice; this review recommends the second shape (UI-command channel) as the cleaner target but does not treat the current shape as a spec violation.
 
 ### F7. Consolidate redundant card-history tools
 
@@ -164,7 +163,7 @@ The Analyst currently has three tools that all read `store.listCardHistory`:
 |---|---|---|
 | `list_card_history`, `get_card_history_entry`, `diff_card` | Yes (card version history views) | Fold into one `card_history` tool with a `view` enum: `summary` (headers), `entry` (one version), `diff` (between two versions). Three tools → one. |
 
-Spec §13 line 256 requires the Analyst to "inspect cards, runtime state,…" — it does not require the three to be separate tools. Consolidation is inside-spec and reduces the surface count from 31 to 29. Behavior lossless: the consolidated tool's three views are exactly the three current tool shapes.
+Spec §13 line 256 requires the Analyst to "inspect cards, runtime state,…" — it does not require the three to be separate tools. Consolidation is inside-spec and reduces the surface by 2 tools. Behavior lossless: the consolidated tool's three views are exactly the three current tool shapes.
 
 Reconsider `list_cards` + `get_tree` later: `get_tree` is the privileged shape for plan-shape diagnosis (I1/I2); `list_cards` is the filter view. Both are inside §13 inspection authority. Keep both for now.
 
@@ -184,7 +183,7 @@ Spec §12 line 244 separately guarantees that pending-ness is observable indirec
 
 ### F10. Future capability (not in current spec): usage/cost visibility
 
-A `get_usage` read tool (per-model/per-role token spend, quota state) is not present in spec §13 and is therefore **out of scope for the current tool surface.** The known future direction ("provider routing should become quota/cost/usage-aware") is a spec-extension proposal, not a found gap in the current authority. If adopted, it would be added to §13 deliberately; this review does not gate on it.
+A `get_usage` read tool (per-model/per-role token spend, quota state) is not present in spec §13's inspection list and is therefore **out of scope for the current tool surface.** The known future direction ("provider routing should become quota/cost/usage-aware") is a spec-extension proposal, not a found gap in the current authority. If adopted, it would be added to §13 deliberately; this review does not gate on it.
 
 ## Excluded tools — re-confirmed against spec
 
@@ -202,21 +201,22 @@ Note the difference between **abort** (excluded by §11 line 229) and **cancella
 
 ## Recommended target surface
 
-| Group | Tools |
-|---|---|
-| Card steering | `edit_card`, `queue_notification` |
-| Card inspection | `list_cards`, `get_card`, `get_tree`, `get_plan_diary`, `get_card_output`, `card_history` (consolidated, F7) |
-| Runtime/debug inspection | `get_status`, `read_runtime_events`, `read_runtime_errors`, `read_control_actions`, `list_processes` (renamed, F8), `list_agent_sessions`, `read_agent_session` |
-| Run / continue | `start_project`, `resume_runtime` |
-| Pause | `pause_runtime` |
-| Shutdown | `stop_project` |
-| Single-process control | `terminate_process` |
-| Config-required restart | `restart_server` |
-| Workspace inspection | `read_file`, `list_directory`, `run_shell_command` |
-| UI navigation | `navigate_workspace`, `navigate_back` (shape reconsidered per F6, capability retained) |
-| Config | `show_config`, `set_routing`, `configure_mcp_server`, `set_runtime_setting`, `set_server_setting` (F5 split) |
+| Group | Tools | Count |
+|---|---|---|
+| Card steering | `edit_card`, `queue_notification` | 2 |
+| Card inspection | `list_cards`, `get_card`, `get_tree`, `get_plan_diary`, `get_card_output`, `card_history` (consolidated, F7) | 6 |
+| Runtime/debug inspection | `get_status`, `read_runtime_events`, `read_runtime_errors`, `read_control_actions`, `list_processes` (renamed, F8), `list_agent_sessions`, `read_agent_session` | 7 |
+| Run / continue | `start_project`, `resume_runtime` | 2 |
+| Pause | `pause_runtime` | 1 |
+| Shutdown | `stop_project` | 1 |
+| Single-process control | `terminate_process` | 1 |
+| Config-required restart | `restart_server` | 1 |
+| Workspace inspection | `read_file`, `list_directory`, `run_shell_command` | 3 |
+| UI navigation | `navigate_workspace`, `navigate_back` (shape reconsidered per F6, capability retained) | 2 |
+| Config | `show_config`, `set_routing`, `configure_mcp_server`, `set_runtime_setting`, `set_server_setting` (F5 split) | 5 |
+| **Total** | | **31** |
 
-Net: ~28 tools (after one consolidation removes three tools and adds one consolidated tool; F5 swaps one broad config tool for narrower config tools). The deltas versus the current surface: −2 from consolidating the history trio, one rename, and one config family re-split. No dedicated cancellation tool is added.
+The deltas versus the current 30-tool surface: −2 from consolidating the history trio (3→1), +3 from splitting `reconfigure` into 4 narrower tools (2→5 config group), 1 rename. Net +1. The surface grows slightly because the config split trades one broad union tool for four discriminated ones; the history consolidation partially offsets that. No dedicated cancellation tool is added.
 
 ## Surface policy must be first-class
 
@@ -227,7 +227,9 @@ Net: ~28 tools (after one consolidation removes three tools and adds one consoli
 | Card steering | yes | yes (text edits, queue notification) |
 | Card inspection | full | summary subset (`get_status`, `get_card`, `get_tree`) |
 | Runtime/debug inspection | full | error-only tail (`read_runtime_errors`) |
-| Run / continue / Pause / Shutdown | yes | Pause + Shutdown only (emergency) |
+| Run / continue | yes | no |
+| Pause | yes | yes (emergency) |
+| Shutdown | yes | yes (emergency) |
 | Single-process control | yes | no |
 | Config-required restart | yes | no |
 | Workspace inspection | full | no shell; `read_file` of safe paths only |
@@ -241,7 +243,7 @@ This is server-side filtering the Analyst already enforces ad hoc; making it exp
 1. **F2 — Clarify cancellation guidance in the Analyst prompt.** Cancellation intent should be expressed through `queue_notification`; do not add `request_card_cancellation` / `cancel_card`.
 2. **F7 — Consolidate `list_card_history` + `get_card_history_entry` + `diff_card` into `card_history`.** Pure reduction, no behavior loss.
 3. **F3 — Realign prompt grouping with §7 Run / Pause / Shutdown; demote `restart_server` to the config-required case per §13 line 342.**
-4. **F5 — Split `reconfigure` into ~4 discriminated tools, remove the broad union tool.**
+4. **F5 — Split `reconfigure` into 4 discriminated tools, remove the broad union tool.**
 5. **F8 — Rename `list_processes_tool` → `list_processes`.** Keep all log-tool names.
 6. **F6 — Reconsider navigation tool shape** (UI-command channel); keep the capability per §14.
 7. **F1 — Add prompt/UX guidance that editing the `project` card objective + notifications is the Analyst's I8 path**, since the spec deliberately puts new top-level goal creation in the project planner.
@@ -251,10 +253,11 @@ Out of scope (spec-extension proposals, do not gate this surface): `get_usage` /
 
 ## Conclusion
 
-Revised against the authoritative specs, this review retains the good parts of the earlier draft (history-tool consolidation, the `list_processes_tool` rename, the non-delivery boundary, surface-policy explicitness) and drops three recommendations that contradicted the spec:
+Revised against the authoritative specs, this review retains the good parts of the earlier draft (history-tool consolidation, the `list_processes_tool` rename, the non-delivery boundary, surface-policy explicitness) and drops recommendations that contradicted the spec:
 
 - Goal-scoped `create_card` (violates §5 line 117).
 - `list_pending_notifications` (violates §12 line 242).
 - Treating navigation as not-a-required-Analyst-capability (contradicts §14 line 280).
+- A dedicated `request_card_cancellation` / `cancel_card` tool (§5 line 117 prohibits direct cancel; `queue_notification` is sufficient for the Analyst to express cancellation intent).
 
-It also corrects the previous overreach: **the Analyst does not need a collaborative cancellation-specific tool.** A generic card-addressed notification is enough to express cancellation intent while preserving planner/runtime ownership. The target surface stays inside the spec's authority boundary, shrinks slightly through history-tool consolidation, and avoids turning the Analyst into a runtime lifecycle coordinator for individual cards.
+The target surface has 31 tools (current 30, +1 net: −2 from history consolidation, +3 from config split). It stays inside the spec's authority boundary and avoids turning the Analyst into a runtime lifecycle coordinator for individual cards. Cancellation, new-goal creation, and structural recovery all route through the planner/runtime via notifications and objective edits, not through Analyst-owned lifecycle mutations.
