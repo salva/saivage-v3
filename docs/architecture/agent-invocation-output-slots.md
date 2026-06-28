@@ -1,584 +1,481 @@
-# Agent Invocation Output Slots
+# Mandatory Output Files
 
 Status: design proposal.
 
 ## Problem
 
-The current runtime lets agents decide how to represent durable evidence. Executors can return `artifacts` and `attachments` in their terminal envelope. Reviewers cite `evidence_card_ids`. Planners may describe evidence in card prose. The runtime then tries to validate whether enough durable evidence exists.
+The current runtime accumulated soft evidence mechanisms that give the illusion of control without enforcing anything:
 
-That model is too flexible. It lets important evidence live only in prompt text, agent prose, or generated repository files that are not bound to the invocation that required them. The current GetRich v2 card-1 blockage is an example: durable evidence files exist on disk, and the reviewer can emit `pass`, but the card has no structured artifacts/attachments at the point the review gate checks them. The runtime keeps rejecting the pass with `Reviewer cited card 'card-1' without durable result, artifact, or attachment evidence.`
+- Executors *may* return `artifacts` and `attachments` in their terminal envelope.
+- `registerEvidenceRefsBestEffort` copies files and registers refs but swallows errors.
+- Write territories check paths but always return `allowed: true` with an advisory warning.
+- `generated_files` is tracked but never enforced.
+- `validateReviewerAssessment` checks `card.artifacts.length > 0 || card.attachments.length > 0 || card.lifecycle.result` — a soft gate that rejects reviewer `pass` when no structured refs exist, even if the work is done and evidence files are on disk.
 
-The core issue is not that the reviewer needs more discretion. The issue is that the runtime did not declare concrete output files before the agent ran and did not validate those required files as part of the same invocation contract.
+These mechanisms failed closed on card-1: the reviewer emitted `pass`, the evidence gate rejected it, but nothing forced anyone to close the loop. The runtime kept blocking with the same stale reason across five reviewer attempts.
 
 ## Design Principle
 
-Every agent invocation must have a runtime-created private directory and a runtime-declared output manifest.
+Replace soft mechanisms with hard contracts.
 
-The agent receives exact output paths in its prompt. If the runtime requires a particular result, report, evidence package, or review, the runtime must tell the agent the exact file path before the invocation starts. The agent must write that file before calling its terminal tool.
+1. The runtime declares mandatory output file paths in the prompt before invoking an agent.
+2. The agent writes those files.
+3. The runtime hard-validates their existence after the terminal tool call.
+4. Missing files trigger same-agent repair, not escalation to another role.
+5. Output paths are versioned so all history remains available.
+6. Agents write normal work files directly into the project directory — no special registration, no artifact refs, no copy step.
 
-The runtime validates those files after the terminal tool call. If required files are missing or invalid, the runtime re-enters the same agent session with a specific repair event. It must not immediately hand the issue to another role unless the same-role repair budget is exhausted or the defect belongs to another role.
+No best-effort. No advisory warnings. No optional evidence. No soft gates.
 
-For reviewer output failures, the reviewer fixes the reviewer output. The planner is not called merely because the reviewer forgot to write the required review file.
+## What Gets Removed
 
-## Goals
-
-- Make durable outputs explicit, file-backed, and runtime-addressable.
-- Remove implicit evidence discovery from agent prose.
-- Make missing output files a same-agent repairable error.
-- Give reviewers deterministic required review paths.
-- Preserve role ownership: reviewer fixes review-output defects, planner fixes plan/evidence defects, executor fixes delivery-output defects.
-- Keep output files under project-local `.saivage-work/`, not global state.
-- Let runtime automatically register required output files as card evidence where appropriate.
-
-## Non-Goals
-
-- Do not make reviewers perform planner or executor work.
-- Do not let agents invent arbitrary evidence locations and expect the runtime to discover them.
-- Do not expose raw actor internals through the API/UI.
-- Do not preserve compatibility shims for old evidence behavior unless needed for existing persisted active work.
-- Do not create a broad, open-ended `register_evidence` tool as the primary mechanism. Registration should be runtime-owned from declared output slots.
-
-## Terminology
-
-| Term | Meaning |
+| Mechanism | Reason |
 |---|---|
-| Invocation | One admitted agent run or continuation turn series for a role/card/assessment. |
-| Invocation directory | Runtime-created private directory for that invocation. |
-| Output slot | A named required or optional file path declared by the runtime before invocation. |
-| Output manifest | JSON file describing slots, schemas, validation rules, and ownership. |
-| Terminal tool | Role-specific completion tool such as `emit_planner_result`, `emit_executor_result`, or `emit_reviewer_result`. |
-| Repair event | Same-session model-visible event that tells the agent why its terminal output was rejected and what file(s) to fix. |
+| `ArtifactRef` / `AttachmentRef` types and card fields | Replaced by output files at declared paths. |
+| `appendEvidenceRefs` / `registerEvidenceRefs` / `registerEvidenceRefsBestEffort` | No artifact/attachment registration. |
+| `artifacts` / `attachments` / `generated_files` in executor terminal envelope | Replaced by mandatory output file checks. |
+| `validateReviewerAssessment`'s `artifacts.length > 0 \|\| attachments.length > 0 \|\| lifecycle.result` check | Replaced by: do mandatory output files exist, and do cited descendant cards have their own mandatory outputs. |
+| Write-territory advisory warnings that always return `allowed: true` | Replaced by hard scheme-based enforcement in the file tools. |
+| Path-pattern-based write territories | Replaced by `output://` vs `project://` scheme enforcement. |
 
-## Directory Layout
+## What Stays
 
-All invocation output lives under `.saivage-work/cards/{cardId}/invocations/{invocationId}/`.
+| Mechanism | Reason |
+|---|---|
+| Cards, card tree, lifecycle, status | Core. |
+| Agent sessions and transcripts | Core observability. |
+| Process actors | Core execution. |
+| Terminal tools (`emit_*_result`) | Role contracts. |
+| Notifications | Coordination. |
+| Card field-level history | Already works. |
+
+## Versioned Output Paths
+
+Every mandatory output file lives under a versioned directory on the card:
+
+```text
+.saivage-work/cards/{cardId}/generated-files/{N}/{filename}
+```
+
+Where `{N}` is a monotonically increasing counter per card. The counter increments each time the runtime declares a new output file for a new invocation. All prior versions remain on disk.
 
 Example:
 
 ```text
-.saivage-work/cards/card-1/invocations/reviewer-assessment-card-1-2/
-  invocation.json
-  outputs/
+.saivage-work/cards/card-1/generated-files/
+  1/
     review.md
-    review-result.json
-  logs/
-    validation-errors.jsonl
+  2/
+    review.md
+  3/
+    review.md
+    planner-summary.md
 ```
 
-Planner example:
+Version 1 and 2 reviews remain available even after the version 3 review replaces them as the current one. The runtime, UI, and reviewer can read prior versions for comparison.
 
-```text
-.saivage-work/cards/card-1/invocations/planner-card-1-20260628T123000Z/
-  invocation.json
-  outputs/
-    plan-summary.md
-    completion-evidence.md
-    planner-result.json
-```
+The counter is card-scoped, not invocation-scoped, because a card may have multiple invocations across its lifecycle (planner, reviewer, executor) and each contributes files. The counter is persisted alongside card state so it survives restarts.
 
-Executor example:
+## File Path Schemes
 
-```text
-.saivage-work/cards/card-42/invocations/executor-card-42-20260628T123500Z/
-  invocation.json
-  outputs/
-    executor-result.json
-    command-log.md
-    artifacts/
-      generated-report.md
-```
+File tools accept a URL-like scheme prefix that tells the runtime where the file lives and enforces the write boundary. Agents never see or copy long versioned filesystem paths.
 
-The invocation ID must be stable enough for recovery and unique enough to avoid collisions. Suggested formats:
-
-| Role | Invocation ID |
-|---|---|
-| Planner | `planner-{cardId}-{activationId}` |
-| Executor | `executor-{cardId}-{activationId}` |
-| Reviewer | `reviewer-{assessmentId}` |
-
-If activation IDs are not available in the micro-actor path yet, use the processor's deterministic session ID plus a monotonic invocation sequence persisted in actor state.
-
-## Output Manifest
-
-Each invocation directory contains `invocation.json`.
-
-Example:
-
-```json
-{
-  "version": 1,
-  "invocation_id": "reviewer-assessment-card-1-2",
-  "card_id": "card-1",
-  "role": "reviewer",
-  "session_id": "reviewer:card-1:assessment-card-1-2",
-  "assessment_id": "assessment-card-1-2",
-  "created_at": "2026-06-28T12:30:00.000Z",
-  "output_dir": ".saivage-work/cards/card-1/invocations/reviewer-assessment-card-1-2/outputs",
-  "slots": [
-    {
-      "name": "review_markdown",
-      "path": ".saivage-work/cards/card-1/invocations/reviewer-assessment-card-1-2/outputs/review.md",
-      "required": true,
-      "kind": "review_report",
-      "mime": "text/markdown",
-      "register_as": "artifact",
-      "artifact_type": "report",
-      "description": "Human-readable reviewer assessment."
-    },
-    {
-      "name": "review_result_json",
-      "path": ".saivage-work/cards/card-1/invocations/reviewer-assessment-card-1-2/outputs/review-result.json",
-      "required": true,
-      "kind": "review_result",
-      "mime": "application/json",
-      "schema": "reviewer-result.v1",
-      "register_as": "artifact",
-      "artifact_type": "report",
-      "description": "Machine-readable reviewer result matching the terminal reviewer envelope."
-    }
-  ],
-  "repair": {
-    "max_attempts": 2,
-    "same_session": true
-  }
-}
-```
-
-Slot fields:
-
-| Field | Meaning |
-|---|---|
-| `name` | Stable slot identifier referenced in prompts and validation errors. |
-| `path` | Exact path the agent must write. |
-| `required` | Missing file blocks terminal acceptance. |
-| `kind` | Runtime semantic kind. |
-| `mime` | Expected MIME/content type. |
-| `schema` | Optional JSON/schema validator. |
-| `register_as` | Whether runtime should register the file as a card `artifact`, `attachment`, or neither. |
-| `artifact_type` | ArtifactRef `type` when `register_as = artifact`. |
-| `description` | Human-readable purpose for prompts and UI. |
-
-## Role-Specific Required Outputs
-
-### Planner
-
-Planner invocations should receive output slots for planning and completion evidence.
-
-Default planner slots:
-
-| Slot | Required When | Purpose |
+| Scheme | Resolves to | Write boundary |
 |---|---|---|
-| `planner_result_json` | Always | Machine-readable mirror of `emit_planner_result`. |
-| `plan_summary_md` | On non-trivial goal activations | Durable reasoning summary for the planning diary. |
-| `completion_evidence_md` | Before reporting `done` | Summary of evidence cards/files used to justify `done`. |
+| `output://` | Current invocation's versioned output directory: `.saivage-work/cards/{cardId}/generated-files/{N}/` | Only the agent's own card's current version. |
+| `project://` or absolute path | Project root | Per role write territory. |
 
-The planner prompt must say:
+Examples:
+- `output://review.md` → `.saivage-work/cards/card-1/generated-files/3/review.md`
+- `output://planner-result.md` → same directory, different filename
+- `project://src/foo.ts` → `{projectRoot}/src/foo.ts`
+- `/home/salva/g/ml/getrich-v2/README.md` → absolute, same as `project://`
+
+The runtime resolves `output://` to the current card's current version directory. The agent does not know the version number, the card ID, or the `.saivage-work/` path. It just writes to `output://review.md`.
+
+Resolution happens in the file tools (`write`, `edit`, `read`, `glob`, `grep`, `apply_patch`). Each tool checks the scheme before touching the filesystem:
+
+- `output://` — the tool resolves to the current output directory. If the role is not allowed to write output files (e.g. a reviewer trying to write a non-review output), the tool rejects. The version directory is created by the runtime before invocation; the agent writes into it.
+- `project://` or absolute — the tool resolves to the project root and applies role-based write territory checks. These are hard checks, not advisory warnings.
+
+## How It Works
+
+### Before invocation
+
+The runtime allocates the next version number, creates the directory, and passes the mandatory filenames using the `output://` scheme in the prompt.
 
 ```text
-Your private invocation output directory is:
-<INVOCATION_OUTPUT_DIR>
+You must write your review to:
+output://review.md
 
-Before calling emit_planner_result, write required output files exactly at these paths:
-- planner_result_json: <PATH>
-- plan_summary_md: <PATH>
-- completion_evidence_md: <PATH> (required if reporting done)
-
-If you report done, completion_evidence_md must list the cards and files that prove acceptance criteria are satisfied.
+Do not call emit_reviewer_result until that file exists.
 ```
 
-Planner validation:
+The agent receives:
+- The `output://` path(s) for mandatory files.
+- The instruction to create the file before calling the terminal tool.
 
-- `planner_result_json` must exist and agree with `emit_planner_result`.
-- If planner reports `done`, required evidence summary slots must exist.
-- Planner `done` still goes through descendant completion gates and reviewer assessment.
+The agent never sees `.saivage-work/cards/card-1/generated-files/3/review.md`. It sees `output://review.md`.
 
-### Executor
+### After terminal tool call
 
-Executor invocations already have the strongest evidence path because executor terminal envelopes include `artifacts`, `attachments`, and `generated_files`. The new design makes this explicit by adding output slots.
+The runtime checks whether each mandatory file exists in the current version directory and is non-empty.
 
-Default executor slots:
+- **All files present:** accept the terminal result.
+- **Files missing:** reject, re-enter the same agent session with a continuation message naming the missing `output://` paths, increment nothing.
+- **Repair budget exhausted:** fail the activation with a clear runtime diagnostic.
 
-| Slot | Required When | Purpose |
-|---|---|---|
-| `executor_result_json` | Always | Machine-readable mirror of `emit_executor_result`. |
-| `command_log_md` | When commands/processes are run | Summary of commands, outputs, failures, and verification. |
-| `artifact_files` | As specified by card type | Runtime-declared expected artifact paths. |
+### What the agent uses to write files
 
-Executor validation:
+The agent uses normal file-writing tools (`write`, `edit`, `apply_patch`) with the `output://` scheme to create the mandatory file. There is no special `register_evidence` tool. The file existing at the resolved path is the evidence.
 
-- `executor_result_json` must exist and agree with `emit_executor_result`.
-- Declared artifact files must exist.
-- Files listed in the executor terminal envelope must either be declared output slots or be inside the invocation output directory.
-- Runtime registers declared output files as evidence using `appendEvidenceRefs`.
+For project work files (code, tests, docs), the agent uses `project://` or absolute paths with the same tools.
+
+## Role-Specific Mandatory Outputs
 
 ### Reviewer
 
-Reviewer invocations must always receive required review output slots. The reviewer should not be allowed to finish with only a terminal tool call.
-
-Default reviewer slots:
-
-| Slot | Required | Purpose |
+| File | Required | Purpose |
 |---|---|---|
-| `review_markdown` | yes | Human-readable assessment and rationale. |
-| `review_result_json` | yes | Machine-readable result matching `emit_reviewer_result`. |
+| `review.md` | yes | Human-readable assessment. |
 
-Reviewer prompt must say:
+The reviewer prompt says:
 
 ```text
-Your private invocation output directory is:
-<INVOCATION_OUTPUT_DIR>
+Write your review to:
+output://review.md
 
-You must write your human-readable review to:
-<REVIEW_MARKDOWN_PATH>
-
-You must write your machine-readable review result to:
-<REVIEW_RESULT_JSON_PATH>
-
-Do not call emit_reviewer_result until both files exist.
-The JSON file must match the same assessment you pass to emit_reviewer_result.
+Create the file, then call emit_reviewer_result.
 ```
 
-Reviewer validation:
+After `emit_reviewer_result`, the runtime checks `review.md` exists in the current version directory. If not, the same reviewer session gets:
 
-- `review_markdown` exists and is non-empty.
-- `review_result_json` exists and parses as reviewer result schema.
-- `review_result_json.assessment` matches the `emit_reviewer_result` tool payload.
-- `evidence_card_ids` cite existing cards.
-- Cited evidence cards have accepted result or registered artifacts/attachments according to the evidence policy.
+```text
+Required output file output://review.md was not created. Create it, then call emit_reviewer_result again.
+```
 
-If the reviewer emits `pass` but required review files are missing, the runtime must re-enter the same reviewer session with a repair event. It must not immediately block the goal or call the planner for a reviewer-output defect.
+### Planner
 
-## Repair Events
-
-Validation failures are classified by ownership.
-
-| Failure | Owner | Repair Target |
+| File | Required When | Purpose |
 |---|---|---|
-| Required reviewer file missing | reviewer | Same reviewer session. |
-| Reviewer JSON malformed | reviewer | Same reviewer session. |
-| Reviewer cites missing/non-evidenced card | reviewer first, then planner if repeated | Reviewer should correct citation; if the evidence really does not exist, emit `needs_corrections` for planner. |
-| Planner result file missing | planner | Same planner session. |
-| Executor artifact missing | executor | Same executor session. |
-| Descendant incomplete | planner | Parent planner. |
-| Runtime cannot validate due to platform bug | runtime | Error diagnostic, not agent correction. |
+| `planner-result.md` | Always | Planning summary for the diary. |
 
-Repair event shape:
-
-```json
-{
-  "kind": "required_output_repair",
-  "role": "reviewer",
-  "card_id": "card-1",
-  "session_id": "reviewer:card-1:assessment-card-1-2",
-  "invocation_id": "reviewer-assessment-card-1-2",
-  "attempt": 1,
-  "max_attempts": 2,
-  "errors": [
-    {
-      "slot": "review_markdown",
-      "path": ".saivage-work/cards/card-1/invocations/reviewer-assessment-card-1-2/outputs/review.md",
-      "code": "missing_required_output",
-      "message": "Required review file was not created."
-    }
-  ],
-  "instruction": "Create or fix the required output files at the exact paths, then call emit_reviewer_result again."
-}
-```
-
-The repair event is appended as model-visible context to the same LLM actor, then the runtime admits another reviewer turn. Repair attempts must be bounded.
-
-## Evidence Registration Policy
-
-Runtime-owned registration replaces open-ended agent discretion.
-
-When a required output slot has `register_as = artifact` or `attachment`, the runtime registers it on the invocation's owning card after validation succeeds.
-
-Registration uses the existing `CardStore.appendEvidenceRefs` path. The runtime constructs refs from slot metadata:
-
-```json
-{
-  "path": ".saivage-work/cards/card-1/invocations/reviewer-assessment-card-1-2/outputs/review.md",
-  "type": "report",
-  "description": "Human-readable reviewer assessment.",
-  "retain": true,
-  "created_at": "..."
-}
-```
-
-Rules:
-
-- Agents write files; runtime registers validated declared slots.
-- Agents may not claim arbitrary paths as durable evidence unless those paths are declared slots or the tool explicitly imports them into the invocation directory.
-- Reviewer output files are registered on the reviewed goal card after review validation.
-- Executor output files are registered on the executor card after executor validation.
-- Planner evidence summaries are registered on the planner goal card after planner validation.
-
-## Tool Surface Implications
-
-The earlier idea "planners should be able to use any tool available to executors" should be implemented as shared non-terminal capabilities, not shared terminal contracts.
-
-| Capability | Planner | Executor | Reviewer |
-|---|---:|---:|---:|
-| Read project files | yes | yes | yes |
-| Search project files | yes | yes | yes |
-| Write declared invocation outputs | yes | yes | yes |
-| Write arbitrary project files | limited | yes | no |
-| Run project commands/processes | limited | yes | no by default |
-| Create/activate child cards | yes | no | no |
-| Register evidence manually | no by default | no by default | no |
-| Terminal result tool | planner-only | executor-only | reviewer-only |
-
-The preferred evidence path is not a manual `register_evidence` tool. It is:
-
-1. Runtime declares output slots.
-2. Agent writes required files.
-3. Runtime validates files.
-4. Runtime registers slot files as evidence.
-
-Manual evidence import may exist later for exceptional cases, but it should not be the normal path.
-
-## Reviewer Flow
-
-Current simplified reviewer flow:
+The planner prompt says:
 
 ```text
-planner emits done
-runtime invokes reviewer
-reviewer emits pass/needs_corrections
-runtime validates reviewer assessment
-runtime accepts pass or returns correction to planner
+Write your planning summary to:
+output://planner-result.md
+
+Create the file, then call emit_planner_result.
 ```
 
-New flow:
+### Executor
+
+| File | Required When | Purpose |
+|---|---|---|
+| `executor-result.md` | Always | Work summary and evidence of what was done. |
+
+The executor prompt says:
 
 ```text
-planner emits done
-runtime creates reviewer invocation directory and output manifest
-runtime invokes reviewer with required file paths
-reviewer writes review.md and review-result.json
-reviewer emits pass/needs_corrections
-runtime validates required reviewer files
-  if reviewer files are missing/invalid:
-    append repair event to same reviewer session
-    reviewer fixes files and emits again
-  else:
-    validate evidence_card_ids and card evidence
-      if citation/evidence policy fails due to reviewer citation mistake:
-        repair same reviewer session if retry budget remains
-      if evidence truly missing from planner/executor work:
-        convert to reviewer needs_corrections for planner
-      if valid pass:
-        register reviewer output files as artifacts
-        accept reviewer_pass
+Write your work summary to:
+output://executor-result.md
+
+Create the file, then call emit_executor_result.
 ```
 
-The distinction matters:
+Executors continue writing code, tests, and other work files directly into the project directory. The mandatory output file is the summary, not the full work product.
 
-- Missing `review.md` is a reviewer-output defect. Reviewer fixes it.
-- Bad `evidence_card_ids` caused by reviewer citing the wrong card is a reviewer-output defect. Reviewer fixes it.
-- Real missing evidence from completed work is a planner/executor defect. Planner fixes it.
+## Reviewer Evidence Gate
 
-## Validation Gate Algorithm
+The current `validateReviewerAssessment` checks whether cited evidence cards have `artifacts.length > 0 || attachments.length > 0 || lifecycle.result`. That check is removed.
 
-Pseudo-code:
+The new gate is:
+
+1. Does the reviewer's own mandatory `review.md` exist? (Checked before this point; if not, same-agent repair.)
+2. Did the reviewer cite at least one descendant card in `evidence_card_ids`?
+3. For each cited descendant card, does that card have at least one mandatory output file in its `generated-files/` directory?
+
+If a cited descendant has no mandatory outputs, the reviewer should emit `needs_corrections`, not `pass`. If the reviewer emits `pass` citing a card with no outputs, the gate rejects with `needs_corrections` routed to the planner — that is a real missing-work problem, not a reviewer-output problem.
+
+If the reviewer emits `pass` citing cards that all have mandatory outputs, the gate passes. No `ArtifactRef`, no `appendEvidenceRefs`, no artifact-length check.
+
+## Reviewer Context
+
+The reviewer currently receives only the goal card's title, description, and acceptance — no descendant information. That is the root cause of card-1's blockage: the reviewer had no descendant evidence to cite, so it cited the goal card itself, which had no artifacts.
+
+The reviewer must receive descendant summaries as context messages before invocation. For each descendant of the goal card:
+
+- `id`, `type`, `title`, `status`
+- `lifecycle.result.kind` (executor_success, planner_done, planner_blocked, etc.)
+- `lifecycle.result.summary` or `lifecycle.result.error`
+- Paths to the descendant's mandatory output files using the filesystem path (e.g., `.saivage-work/cards/card-7/generated-files/1/executor-result.md`) so the reviewer can `read` them
+
+This lets the reviewer cite descendant cards that have real work products and read those products if needed. The reviewer reads descendant files by absolute path or `project://` path; it writes its own review using `output://`.
+
+This was already designed in `agent-tool-surfaces-and-information-flow.md` (section "Reviewer context — special case") but never implemented. The mandatory-output design depends on it being implemented now.
+
+## File Tools For Reviewer And Planner
+
+The reviewer and planner currently have no file-writing tools. All agents share the same file tools (`read`, `write`, `edit`, `apply_patch`, `glob`, `grep`), but path resolution and write enforcement are scheme-based.
+
+### Path resolution
+
+| Scheme | Resolves to | Example |
+|---|---|---|
+| `output://{filename}` | `.saivage-work/cards/{currentCardId}/generated-files/{currentVersion}/{filename}` | `output://review.md` |
+| `project://{relative}` | `{projectRoot}/{relative}` | `project://src/index.ts` |
+| Absolute path `/...` | Same filesystem path | `/home/salva/g/ml/getrich-v2/README.md` |
+
+The `output://` scheme is scoped to the current card's current version directory. The runtime resolves it before the file tool touches the filesystem. The agent never needs to know the version number or the card ID.
+
+### Write enforcement by scheme and role
+
+| Role | `output://` write | `project://` write | `output://` read | `project://` read |
+|---|---|---|---|---|
+| Planner | yes | yes | yes | yes |
+| Executor | yes | yes | yes | yes |
+| Reviewer | yes (review.md only) | no | yes | yes |
+
+The reviewer can only write `output://review.md`. If it tries `output://anything-else` or `project://`, the file tool rejects hard. The planner and executor write freely in both schemes.
+
+This replaces the current advisory write-territory system with hard scheme-based enforcement in the file tools themselves. No advisory warnings that always return `allowed: true`.
+
+## Validation And Repair Flow
+
+```text
+runtime allocates version N for card C
+runtime creates .saivage-work/cards/C/generated-files/N/
+runtime invokes agent with mandatory output:// path(s) in prompt
+agent writes mandatory file(s) using file tools with output:// scheme
+agent calls terminal tool (emit_*_result)
+runtime checks mandatory file(s) exist in version N directory and are non-empty
+  if missing:
+    append continuation message to same LLM session:
+      "Required file output://{filename} was not created. Create it and call {terminal_tool} again."
+    re-enter same agent (not a new session)
+    if repair budget exhausted:
+      fail activation with runtime diagnostic
+  if present:
+    accept terminal result
+    proceed with role-specific evaluation (evidence gate, completion gates, etc.)
+```
+
+The repair uses the existing `LLMToolContinuationContextHook` seam — the same mechanism that injects notification context between tool result and next LLM turn. No new "repair event" framework.
+
+Repair budget: 2 attempts by default. Configurable per card via card metadata if needed later.
+
+## Persistence
+
+The versioned output files ARE the persistent evidence. No separate `invocation.json` manifest, no slot metadata database, no registration records.
+
+The version counter is persisted on the card record as a simple integer field:
 
 ```ts
-async function evaluateReviewerInvocation(input) {
-  const toolResult = verifyTerminalToolOutcome(reviewerContract, input.outcome);
-  const assessment = buildReviewAssessment(toolResult, input.assessmentId, input.sessionId, input.card.id);
+// On CardRecord
+output_version: number
+```
 
-  const outputValidation = validateInvocationOutputs(input.invocationManifest, {
-    expectedRole: 'reviewer',
-    terminalPayload: toolResult,
-  });
+The runtime reads it to allocate the next version, increments it, and persists it. The files themselves are durable on disk under `.saivage-work/cards/{cardId}/generated-files/`.
 
-  if (!outputValidation.valid) {
-    if (input.repairAttempt < input.maxRepairAttempts) {
-      return sameAgentRepair('reviewer', outputValidation.errors);
+## Crash Recovery
+
+If the runtime crashes after allocating a version number but before the agent writes the file:
+
+- The version directory exists but is empty.
+- On recovery, the runtime sees no active activation for that version (the processor actor was not settled).
+- The empty directory is harmless. The next activation allocates the next version number.
+
+If the runtime crashes after the agent writes the file but before validating:
+
+- The file exists on disk.
+- On recovery, the processor actor's `activeReconstruction` record shows it was mid-activation.
+- The existing recovery path either resumes or fails the activation. If it fails, the file remains in the versioned directory as historical evidence of the attempt.
+
+No special recovery logic is needed for output files beyond what the actor recovery path already does.
+
+## What The Prompt Contains
+
+Reviewer prompt:
+
+```text
+You are reviewing card {cardId}: {title}
+
+{description}
+
+Acceptance criteria:
+{acceptance}
+
+Descendant work:
+{for each descendant: id, type, title, status, result summary, output file paths}
+
+Assessment id: {assessmentId}
+
+Write your review to:
+output://review.md
+
+Do not call emit_reviewer_result until the review file exists.
+End by calling emit_reviewer_result with your assessment.
+```
+
+Planner prompt addition:
+
+```text
+Write your planning summary to:
+output://planner-result.md
+
+Do not call emit_planner_result until the summary file exists.
+```
+
+Executor prompt addition:
+
+```text
+Write your work summary to:
+output://executor-result.md
+
+Do not call emit_executor_result until the summary file exists.
+```
+
+## Simplified Evidence Gate
+
+Replace `validateReviewerAssessment` with:
+
+```ts
+function validateReviewerAssessment(input: {
+  assessment: ReviewerResult['assessment'];
+  cardId: string;
+  readCard(cardId: string): CardRecord | null;
+  cardOutputDir(cardId: string): string | null;
+}): { valid: boolean; reason?: string } {
+  if (input.assessment.evidence_card_ids.length === 0) {
+    return { valid: false, reason: 'Reviewer must cite at least one evidence card.' };
+  }
+  for (const evidenceId of input.assessment.evidence_card_ids) {
+    const card = input.readCard(evidenceId);
+    if (!card) return { valid: false, reason: `Reviewer cited missing card '${evidenceId}'.` };
+    const outputs = input.cardOutputDir(evidenceId);
+    if (!outputs || countNonEmptyFiles(outputs) === 0) {
+      return { valid: false, reason: `Cited card '${evidenceId}' has no mandatory output files.` };
     }
-    return reviewerFailure('Reviewer did not create required output files.', outputValidation.errors);
   }
-
-  const evidenceValidation = validateReviewerAssessment({
-    goalId: input.card.id,
-    assessment,
-    candidatePlannerResult: input.candidatePlanning,
-    readCard: input.store.read,
-  });
-
-  if (!evidenceValidation.valid) {
-    if (isReviewerFixableCitationError(evidenceValidation) && input.repairAttempt < input.maxRepairAttempts) {
-      return sameAgentRepair('reviewer', [evidenceValidation]);
-    }
-    return correctionOutcome(input.assessmentId, evidenceValidation.reason);
-  }
-
-  if (assessment.result === 'needs_corrections') {
-    return correctionOutcome(input.assessmentId, assessment.summary, assessment.issues);
-  }
-
-  registerValidatedOutputSlots(input.invocationManifest, input.card.id, input.store);
-  return reviewerPass(assessment);
+  return { valid: true };
 }
 ```
 
-## Prompt Requirements
+No `artifacts` array. No `attachments` array. No `lifecycle.result` check. Just: do the cited descendant cards have output files on disk?
 
-Prompt builders must include an invocation-output section.
+## API / UI
 
-Reviewer prompt section:
+The operator UI and API expose:
 
-```text
-Required output files:
+- Card detail shows `generated-files/` directory with versioned outputs.
+- Each version shows the files it contains.
+- The UI can preview file contents.
+- No `artifacts`/`attachments` projections.
 
-1. Human-readable review:
-   Path: <review_markdown.path>
-   Requirements: Markdown, non-empty, summarize acceptance, evidence, and decision.
-
-2. Machine-readable review result:
-   Path: <review_result_json.path>
-   Requirements: JSON matching reviewer-result.v1. It must match your emit_reviewer_result payload.
-
-You must create these files before calling emit_reviewer_result.
-If the runtime returns a required_output_repair event, fix the listed files and call emit_reviewer_result again.
-```
-
-Planner prompt section:
-
-```text
-Required output files:
-<slot list>
-
-Before reporting done, ensure required planner outputs exist. If reviewer feedback says evidence is missing, create or activate work to produce concrete files and ensure they are present in the declared output slots or descendant card outputs.
-```
-
-Executor prompt section:
-
-```text
-Required output files:
-<slot list>
-
-Write generated reports/logs/artifacts into the declared paths. Your emit_executor_result must reference those files.
-```
-
-## API And UI Projection
-
-Operator APIs should expose invocation output read models, not raw actor internals.
-
-Useful read models:
-
-| Projection | Purpose |
-|---|---|
-| Invocation list for card | Shows planner/executor/reviewer attempts. |
-| Invocation detail | Shows output slots, validation status, and repair attempts. |
-| Output file preview | Lets operator inspect required files. |
-| Validation errors | Explains missing/invalid outputs. |
-
-These projections should point to files, not embed large file contents by default.
-
-## Migration / Compatibility
-
-No broad compatibility shim is required. This is a forward-looking runtime contract.
-
-For existing blocked cards like GetRich v2 card-1:
-
-- The next activation should create fresh invocation output slots.
-- The reviewer should be invoked with explicit review output paths.
-- The planner should be instructed to ensure evidence files are produced under declared slots or descendant invocation outputs.
-- Existing ad-hoc evidence files can be copied/imported into a declared invocation output path by an executor/planner task, not silently discovered.
+This is simpler than the current artifacts/attachments UI.
 
 ## Implementation Plan
 
-### Phase 1: Data Model
+### Phase 1: Versioned output directory, counter, and path-scheme resolver
 
-1. Add invocation manifest types under `src/runtime/actors/invocation-outputs.ts` or `src/runtime/invocation-outputs.ts`:
-   - `InvocationOutputManifest`
-   - `InvocationOutputSlot`
-   - `InvocationOutputValidationError`
-   - `InvocationRepairEvent`
-2. Add path builder helpers:
-   - `invocationRoot(projectRoot, cardId, invocationId)`
-   - `invocationOutputPath(...)`
-   - `writeInvocationManifest(...)`
-   - `readInvocationManifest(...)`
-3. Use project-local `.saivage-work/cards/{cardId}/invocations/{invocationId}/` only.
+1. Add `output_version: number` to `CardRecord` (default 0).
+2. Add `allocateOutputVersion(cardId)` to card store: increments `output_version`, creates `.saivage-work/cards/{cardId}/generated-files/{N}/`, returns the directory path.
+3. Add `getOutputDir(cardId, version)` helper.
+4. Add `countNonEmptyFiles(dir)` helper.
+5. Add `resolveAgentPath(scheme, path, ctx)` resolver: maps `output://{filename}` to the current card's current version directory, `project://{relative}` to `{projectRoot}/{relative}`, absolute paths unchanged.
+6. Add `checkWriteScheme(scheme, role, filename)` enforcer: hard reject for reviewer writing non-`review.md` outputs or any `project://` writes; hard reject for any role writing outside allowed schemes.
+7. Tests: allocation increments, directory creation, path resolution for each scheme, write enforcement per role, recovery after crash.
 
-### Phase 2: Output Validation
+### Phase 2: Reviewer mandatory output + descendant context
 
-1. Implement `validateInvocationOutputs(manifest, terminalPayload)`:
-   - required file exists;
-   - non-empty where required;
-   - JSON parses where `schema` is set;
-   - reviewer JSON agrees with `emit_reviewer_result`;
-   - executor JSON agrees with `emit_executor_result`;
-   - planner JSON agrees with `emit_planner_result`.
-2. Implement `registerValidatedOutputSlots(manifest, cardId, store)` using `appendEvidenceRefs`.
-3. Add focused unit tests for missing file, malformed JSON, mismatch, and successful registration.
+1. In `PlanningCardProcessorActor.reviewPlannerDone(...)`, allocate the next output version for the goal card.
+2. Build descendant summary context message: for each descendant, include id/type/title/status/result.kind/result.summary and the filesystem path to its `generated-files/` directory.
+3. Update `reviewerPrompt(...)` to include the mandatory `output://review.md` path and the descendant summaries.
+4. After reviewer terminal tool call, check `review.md` exists in the versioned directory.
+5. If missing, use the existing `LLMToolContinuationContextHook` to inject: "Required file output://review.md was not created. Create it and call emit_reviewer_result again."
+6. Bound repair attempts (2). On exhaustion, fail with runtime diagnostic.
+7. Tests: missing file triggers same-session repair; repair succeeds on second attempt; budget exhaustion fails.
 
-### Phase 3: Reviewer Integration
+### Phase 3: Replace evidence gate
 
-1. In `PlanningCardProcessorActor.reviewPlannerDone(...)`, create a reviewer invocation manifest before `llm.turn(...)`.
-2. Pass output paths into `buildReviewerLlmInput(...)` and `reviewerPrompt(...)`.
-3. After reviewer terminal tool call, validate output slots before evidence-card validation.
-4. If reviewer output validation fails, continue the same reviewer LLM session with a `required_output_repair` context message.
-5. Bound repair attempts. On exhaustion, return a reviewer failure/block with clear runtime diagnostics.
-6. Register valid reviewer output slots as artifacts on the reviewed goal card.
+1. Remove `validateReviewerAssessment`'s `artifacts`/`attachments`/`lifecycle.result` check.
+2. Replace with: do cited descendant cards have non-empty files in their `generated-files/` directory.
+3. If reviewer emits `pass` but cited descendants have no outputs, route `needs_corrections` to the planner — that is a real missing-work problem.
+4. Tests: pass with cited descendant outputs; rejection when cited descendant has no outputs; rejection when no evidence cards cited.
 
-### Phase 4: Planner Integration
+### Phase 4: Planner mandatory output
 
-1. Create planner invocation manifests in `PlanningCardProcessorActor.runActivation(...)`.
-2. Pass planner output slots to `plannerPrompt(...)`.
-3. Validate planner output files before accepting `emit_planner_result`.
-4. If planner output files are missing, repair the same planner session.
-5. Register planner output slots as goal-card artifacts where configured.
+1. In `PlanningCardProcessorActor.runActivation(...)`, allocate the next output version before the planner LLM turn.
+2. Update `plannerPrompt(...)` to include the mandatory `output://planner-result.md` path.
+3. After planner terminal tool call, check the file exists. If missing, same-session repair via continuation hook.
+4. Tests: missing planner summary triggers repair; present file accepts.
 
-### Phase 5: Executor Integration
+### Phase 5: Executor mandatory output
 
-1. Create executor invocation manifests in `TerminalCardProcessorActor` activation.
-2. Pass executor output slots to executor prompt.
-3. Keep existing executor terminal `artifacts`/`attachments` support initially.
-4. Validate declared executor outputs and auto-register slot files.
-5. Later simplify executor evidence handling by making declared output slots the preferred artifact path.
+1. In `TerminalCardProcessorActor` activation, allocate the next output version.
+2. Update executor prompt to include the mandatory `output://executor-result.md` path.
+3. After executor terminal tool call, check the file exists. If missing, same-session repair.
+4. Tests: missing executor summary triggers repair; present file accepts.
 
-### Phase 6: Shared Non-Terminal Tools
+### Phase 6: Add file tools to reviewer and planner with scheme enforcement
 
-1. Expand planner tool surface to include executor-like non-terminal tools where safe:
-   - file read/search;
-   - writing declared invocation output files;
-   - limited command execution if needed for planning/evidence tasks.
-2. Keep terminal tools role-specific.
-3. Add write-territory enforcement so planners/reviewers can write only declared output paths unless explicitly granted more.
+1. Add shared `read`, `write`, `edit`, `apply_patch`, `glob`, `grep` tools to reviewer and planner actor surfaces.
+2. All file tools resolve paths via `resolveAgentPath(scheme, path, ctx)`.
+3. All file tools enforce `checkWriteScheme(scheme, role, filename)` before writing.
+4. Reviewer can write only `output://review.md`; other `output://` writes and all `project://` writes are hard-rejected.
+5. Planner can write `output://` and `project://` freely.
+6. Keep terminal tools role-specific.
+7. Tests: reviewer can write `output://review.md`; reviewer cannot write `output://anything-else`; reviewer cannot write `project://`; planner can read and write project files; reviewer can read project files.
 
-### Phase 7: UI/API Projection
+### Phase 7: Remove old mechanisms
 
-1. Add read model for invocation outputs.
-2. Add API route for card invocation list/detail.
-3. Add UI projection for required output files and validation errors.
-4. Keep mutations through Analyst/runtime only.
+1. Remove `ArtifactRef`, `AttachmentRef` from `CardRecord`.
+2. Remove `artifacts`, `attachments`, `generated_files` from executor terminal envelope and contract.
+3. Remove `appendEvidenceRefs`, `registerEvidenceRefs`, `registerEvidenceRefsBestEffort`, `CardStore.appendEvidenceRefs`.
+4. Remove `appendExecutorEvidence` from `TerminalCardProcessorActor`.
+5. Remove `artifacts`/`attachments` from `PLANNER_ALLOWED_EDIT_FIELDS`.
+6. Remove advisory write-territory warnings that always return `allowed: true`; either enforce or delete.
+7. Update card creation to no longer initialize `artifacts: []`, `attachments: []`.
+8. Update API/UI to show `generated-files/` instead of artifacts/attachments.
+9. Tests: confirm no references to removed types; confirm card store still works; confirm executor no longer tries to register artifacts.
 
-### Phase 8: Documentation And Prompt Tests
+### Phase 8: Docs and prompt tests
 
-1. Update `docs/spec/system-specification.md` with invocation output slots.
-2. Update `docs/architecture/system-architecture.md` with invocation output ownership.
-3. Update role prompt tests to assert required output paths appear in planner/reviewer/executor prompts.
-4. Add runtime tests:
-   - reviewer missing review file re-enters reviewer;
-   - reviewer malformed result JSON re-enters reviewer;
-   - reviewer valid files + pass registers artifacts and returns done;
-   - evidence-card validation failure from real missing planner evidence returns correction to planner;
-   - planner missing output repairs planner;
-   - executor required artifact slot registers evidence.
+1. Update `docs/spec/system-specification.md`: remove artifact/attachment language; add mandatory output file language.
+2. Update `docs/architecture/system-architecture.md`: remove artifact/evidence-ref references; add versioned output directory.
+3. Update `docs/architecture/agent-tool-surfaces-and-information-flow.md`: implement the reviewer descendant-summary design.
+4. Add prompt tests asserting mandatory output paths appear in planner/reviewer/executor prompts.
+5. Update existing tests that reference `artifacts`/`attachments`/`appendEvidenceRefs`.
 
-## Open Questions
+## Scope Of Change
 
-1. Should reviewer `review_result_json` be authoritative, or should the terminal tool payload remain authoritative with JSON only as durable mirror? Initial recommendation: terminal tool remains authoritative, JSON must match it.
-2. Should review markdown be registered as an artifact on every pass and needs-corrections result? Initial recommendation: yes; both are useful evidence.
-3. How many same-agent repair attempts should be allowed? Initial recommendation: 2 for reviewer output files, 2 for planner output files, 1 for executor output files unless card metadata overrides.
-4. Should planners have command execution? Initial recommendation: yes, but limited and audited; terminal delivery work remains executor-owned.
-5. Should existing files outside the invocation directory be importable? Initial recommendation: yes, but only by copying them into a declared output slot or by a runtime-owned import helper.
+This removes more code than it adds:
+
+**Removed:**
+- `ArtifactRef`, `AttachmentRef` types and all their usage.
+- `appendEvidenceRefs`, `registerEvidenceRefs`, `registerEvidenceRefsBestEffort`.
+- Executor envelope `artifacts`, `attachments`, `generated_files` fields.
+- `appendExecutorEvidence` in terminal processor.
+- `validateReviewerAssessment`'s artifact-length check.
+- Advisory write-territory warnings.
+- Artifacts/attachments UI projections.
+
+**Added:**
+- `output_version` on `CardRecord` (one integer field).
+- `allocateOutputVersion` (one store method).
+- `resolveAgentPath` and `checkWriteScheme` path-scheme resolver and enforcer.
+- Versioned directory creation.
+- Mandatory file-existence checks after terminal tool calls.
+- Same-session repair via existing continuation hook.
+- Reviewer descendant summary context message (already designed, not implemented).
+- Shared file tools for reviewer (write to `output://review.md`, read project) and planner (full file access via `project://` and `output://`).
+- `generated-files/` UI projection.
+
+**Net:** fewer types, fewer methods, fewer soft gates, fewer advisory layers. One new integer field, one new store method, one new directory convention, and hard file-existence checks.
 
 ## Conclusion
 
-The runtime should stop relying on agents to invent evidence structure. It should declare output slots before every invocation, require agents to write exact files, validate those files before accepting terminal tools, and repair missing/invalid outputs with the same agent that owns them.
+The current codebase has soft mechanisms that failed closed. The fix is not to add more mechanisms; it is to replace soft controls with hard contracts: mandatory output files at versioned declared paths, hard existence checks, same-agent repair via existing seams, and a simple evidence gate that checks whether cited descendant cards have output files on disk.
 
-For reviewers, this means missing review files are fixed by the reviewer, not by the planner. For real missing implementation evidence, the reviewer returns corrections and the planner/executor produce the missing files through their own invocation output slots. This gives the system a deterministic evidence path while preserving role ownership.
+No `ArtifactRef`. No `appendEvidenceRefs`. No `registerEvidenceRefsBestEffort`. No `generated_files` tracking. No advisory write territories. No `invocation.json` manifest. No slot metadata. No registration step. The file existing at the declared path is the evidence.
