@@ -1,6 +1,6 @@
 # Analyst Tool Surface Review
 
-Status: review. Authoritative behavior contract: [`docs/spec/system-specification.md`](../spec/system-specification.md) and [`docs/spec/operator-ui.md`](../spec/operator-ui.md). This review proposes tool organization and identifies implementation gaps; where this review conflicts with the specs, the specs win.
+Status: review. Authoritative behavior contract: [`docs/spec/system-specification.md`](../spec/system-specification.md), [`docs/spec/operator-ui.md`](../spec/operator-ui.md), [`docs/architecture/system-architecture.md`](./system-architecture.md), and [`docs/architecture/micro-actor-runtime-design.md`](./micro-actor-runtime-design.md). This review proposes tool organization and identifies implementation gaps; where this review conflicts with those documents, they win.
 
 ## Scope
 
@@ -11,8 +11,23 @@ The Analyst is the user-facing control surface for the autonomous runtime. It is
 - §11 line 209 grants the Analyst a separate cancellation-initiation right (collaborative).
 - §16 line 298 grants the Analyst process inspection and termination.
 - §13 line 342 authorizes restart-via-chat when a config change requires it.
+- `system-architecture.md` §3 and §6 establish that the runtime is the only dispatcher; card edits do not dispatch work, and Analyst mutations go through canonical services.
+- `micro-actor-runtime-design.md` §External Command Mapping requires Analyst/operator commands to map to supervisor/card public methods, not to internal actor hooks or workflow logic.
 
 This review does not redefine the Analyst's authority. It accepts the spec boundary as authoritative and reviews only (a) tool organization/ergonomics within that boundary, and (b) implementation gaps where the live tool surface does not satisfy a spec-required capability.
+
+### Runtime coordination rules
+
+These coordination rules are the hard limits on any Analyst tool:
+
+| Rule | Consequence for Analyst tools |
+|---|---|
+| Runtime is the only autonomous dispatcher (`system-architecture.md` §3). | No Analyst card mutation may start work directly. It may only update durable card state, queue notifications, or call runtime lifecycle commands. |
+| Public command surfaces map to actor public methods (`micro-actor-runtime-design.md` §External Command Mapping). | Tools may call `RuntimeSupervisorActor.run/pause/shutdown/cancelProject()` or `CardActor.cancel()` through the runtime boundary; they must not run workflow logic, call internal hooks, or reinterpret card outcomes. |
+| `activate_card` is parent-planner-owned. | Analyst must not activate children or otherwise step through the card tree on behalf of planners. |
+| Running cancellation is best-effort notification-driven. | Analyst can request cancellation, but cannot force running card status, kill arbitrary work as cancellation, or treat a cancellation request as a terminal outcome. |
+| Notifications are ephemeral delivery items. | Analyst can queue notifications and inspect delivery through sessions/events; it cannot manage a notification inbox. |
+| Pause is an admission gate, not a card state. | Analyst pause tools must not mutate card lifecycle state or process records. |
 
 ### Operator intent model
 
@@ -24,7 +39,7 @@ The Analyst must support these operator intents (frequency order) per §13:
 | I2. "Why did card X fail/block?" | Same inspection set; diagnose-by-correlation §13 line 264. |
 | I3. "Change what the active agent should do" | edit existing card objective/instructions/acceptance; queue card-addressed notifications. |
 | I4. "Stop / pause / resume / shutdown" | §7 Run/Pause/Shutdown. |
-| I5. "Cancel work that should not continue" | §11: cancellation initiated by Analyst, collaborative when target is running. |
+| I5. "Request cancellation for work that should not continue" | §11: cancellation initiated by Analyst, collaborative when target is running. |
 | I6. "Steer routing / MCP / runtime / server settings" | §13 line 263 + §13 reconfigure block. |
 | I7. "Did my nudge get delivered?" | §12 line 250: confirm by inspecting `read_agent_session`. |
 | I8. "Add a new independent goal" | Spec resolution below; **not** an Analyst `create_card`. |
@@ -65,9 +80,16 @@ The spec's cancellation is collaborative, not a force-at-cancel:
 - If the target is not `running`, the runtime may mark it `cancelled` directly.
 - If the target is running, the runtime queues cancellation-request notifications down the active chain and agents voluntarily stop at the next safe point and report `failed` (§11 lines 217–227).
 
-So the missing tool is a `cancel_card`/`request_cancellation` Analyst tool that routes through the canonical card service's cancellation path, not a forceful abort. It must not allow the Analyst to bypass the activation chain; it must produce the runtime-mediated collaborative cancellation flow.
+`system-architecture.md` §9 and `micro-actor-runtime-design.md` §Pause, Cancellation, And Shutdown sharpen the limit: running cancellation is best-effort, notification-driven, and leaves the public card status `running` until the running agent reports an actual outcome. Best-effort cancellation does not close provider admission, block child activation, kill processes, abort tool waits, or reinterpret late results. Shutdown remains the hard operation for forcibly terminating runtime-owned work.
 
-Recommendation: add `cancel_card` to the Analyst surface, scoped to the runtime's cancellation path per §11. This is a **bug fix against spec**, not a new affordance. Re-confirm it returns the runtime's collaborative outcome (queued notifications, not direct status mutation).
+So the missing tool should be named `request_card_cancellation`, not `cancel_card`. The name should make clear that the Analyst requests cancellation through the runtime boundary; it does not directly write `cancelled` status for running cards. The tool must map only to:
+
+| Target | Runtime method |
+|---|---|
+| Project card | `RuntimeSupervisorActor.cancelProject()` |
+| Non-project card/subtree | `CardActor.cancel()` through the runtime command boundary |
+
+Recommendation: add `request_card_cancellation` to the Analyst surface, scoped to the runtime's cancellation path per §11. This is a **bug fix against spec**, not a new affordance. Its result should report the runtime-mediated effect: inactive subtree cancelled immediately, or running-chain cancellation notifications queued, with no direct terminal outcome claim.
 
 ### F3. Lifecycle controls must align with §7's Run/Pause/Shutdown, not with implementation tools
 
@@ -94,6 +116,8 @@ Recommendation: keep all six implementation tools, but realign the **prompt-visi
 | Config-required restart | `restart_server` | Only when a `reconfigure` action reports `requires_restart`; confirm before executing (§13 line 342). |
 
 This removes the spec-groundless "emergency/process control" class from the earlier draft and demotes `restart_server` precedence strictly to the config-flow case the spec defines it for.
+
+The tool implementations must also preserve `system-architecture.md` §6 and `micro-actor-runtime-design.md` §External Command Mapping: `start_project`/`resume_runtime` call supervisor `run()`, `pause_runtime` calls supervisor `pause()`, and `stop_project` maps to supervisor `shutdown()`. None of these tools should inspect card state and advance workflow manually.
 
 ### F4. Workspace inspection is necessary and stays non-delivery
 
@@ -179,7 +203,7 @@ Note the difference between **abort** (excluded by §11 line 229) and **cancella
 
 | Group | Tools |
 |---|---|
-| Card steering | `edit_card`, `queue_notification`, `cancel_card` (new per F2) |
+| Card steering | `edit_card`, `queue_notification`, `request_card_cancellation` (new per F2) |
 | Card inspection | `list_cards`, `get_card`, `get_tree`, `get_plan_diary`, `get_card_output`, `card_history` (consolidated, F7) |
 | Runtime/debug inspection | `get_status`, `read_runtime_events`, `read_runtime_errors`, `read_control_actions`, `list_processes` (renamed, F8), `list_agent_sessions`, `read_agent_session` |
 | Run / continue | `start_project`, `resume_runtime` |
@@ -191,15 +215,15 @@ Note the difference between **abort** (excluded by §11 line 229) and **cancella
 | UI navigation | `navigate_workspace`, `navigate_back` (shape reconsidered per F6, capability retained) |
 | Config | `show_config`, `set_routing`, `configure_mcp_server`, `set_runtime_setting`, `set_server_setting` (F5 split) |
 
-Net: ~30 tools (after one consolidation removes three and adds one; F5 swap keeps count constant; F2 adds one). The deltas versus the current surface: +1 (cancel_card), −2 (consolidate history trio→one), one rename, one tool family re-split.
+Net: ~30 tools (after one consolidation removes three and adds one; F5 swap keeps count constant; F2 adds one). The deltas versus the current surface: +1 (`request_card_cancellation`), −2 (consolidate history trio→one), one rename, one tool family re-split.
 
 ## Surface policy must be first-class
 
-`run_shell_command` is already disabled on Telegram in the source (`if (ctx.surface === 'telegram') return toolFailure('permission', ...)`). The review treats that not as a one-off but as evidence the Analyst already needs a per-surface capability subset. Spec §16 of system-architecture and spec §13 inspection authority already presuppose that some surfaces are constrained. Documenting the subset prevents further ad-hoc denials:
+`run_shell_command` is already disabled on Telegram in the source (`if (ctx.surface === 'telegram') return toolFailure('permission', ...)`). The review treats that not as a one-off but as evidence the Analyst already needs a per-surface capability subset. The system spec's inspection authority and the architecture's command/projection split already presuppose that some surfaces are constrained. Documenting the subset prevents further ad-hoc denials:
 
 | Class | Web control room | Telegram (constrained) |
 |---|---|---|
-| Card steering | yes | yes (text edits, queue notification, cancel_card) |
+| Card steering | yes | yes (text edits, queue notification, request cancellation) |
 | Card inspection | full | summary subset (`get_status`, `get_card`, `get_tree`) |
 | Runtime/debug inspection | full | error-only tail (`read_runtime_errors`) |
 | Run / continue / Pause / Shutdown | yes | Pause + Shutdown only (emergency) |
@@ -213,7 +237,7 @@ This is server-side filtering the Analyst already enforces ad hoc; making it exp
 
 ## Prioritized actions
 
-1. **F2 — Add `cancel_card` for Analyst-initiated collaborative cancellation per §11 line 209.** This is a *spec-compliance* fix for an overshot removal; ship it before any ergonomics work.
+1. **F2 — Add `request_card_cancellation` for Analyst-initiated collaborative cancellation per §11 line 209.** This is a *spec-compliance* fix for an overshot removal; ship it before any ergonomics work. It must map to runtime/card public methods only and must not implement workflow logic in the tool runner.
 2. **F7 — Consolidate `list_card_history` + `get_card_history_entry` + `diff_card` into `card_history`.** Pure reduction, no behavior loss.
 3. **F3 — Realign prompt grouping with §7 Run / Pause / Shutdown; demote `restart_server` to the config-required case per §13 line 342.**
 4. **F5 — Split `reconfigure` into ~4 discriminated tools, remove the broad union tool.**
@@ -232,4 +256,4 @@ Revised against the authoritative specs, this review retains the good parts of t
 - `list_pending_notifications` (violates §12 line 242).
 - Treating navigation as not-a-required-Analyst-capability (contradicts §14 line 280).
 
-It also identifies a real spec-compliance gap the earlier review missed: **the Analyst currently lacks a collaborative cancellation-initiation tool, which §11 line 209 explicitly requires.** That is the one item that needs to ship before any ergonomic work; the rest is consolidation, prompt grouping, and one rename. The target surface stays inside the spec's authority boundary and shrinks slightly while gaining the missing cancellation capability.
+It also identifies a real spec-compliance gap the earlier review missed: **the Analyst currently lacks a collaborative cancellation-initiation tool, which §11 line 209 explicitly requires.** That is the one item that needs to ship before any ergonomic work; the rest is consolidation, prompt grouping, and one rename. The target surface stays inside the spec's authority boundary and shrinks slightly while gaining the missing cancellation capability through runtime/card public methods, not through Analyst-owned workflow control.
