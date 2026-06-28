@@ -150,13 +150,13 @@ function formatDuration(ms: number | null | undefined): string {
 }
 
 .tl-marker.status-backlog { background: var(--c-white); border: 2px solid var(--border-strong); }
-.tl-marker.status-done { background: var(--accent-2); }
-.tl-marker.status-failed { background: var(--danger); }
-.tl-marker.status-running { background: var(--accent); }
-.tl-marker.status-blocked { background: var(--orange); }
-.tl-marker.status-changed { background: var(--pink); }
-.tl-marker.status-cancelled { background: var(--text-faint); }
-.tl-marker.status-needs_verification { background: var(--warn); }
+.tl-marker.status-done { background: var(--card-status-done); }
+.tl-marker.status-failed { background: var(--card-status-failed); }
+.tl-marker.status-running { background: var(--card-status-running); }
+.tl-marker.status-blocked { background: var(--card-status-blocked); }
+.tl-marker.status-changed { background: var(--card-status-changed); }
+.tl-marker.status-cancelled { background: var(--card-status-cancelled); }
+.tl-marker.status-needs_verification { background: var(--card-status-needs-verification); }
 
 .tl-icon {
   font-size: 12px;

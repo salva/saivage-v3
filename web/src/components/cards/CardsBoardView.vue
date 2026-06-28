@@ -149,13 +149,13 @@ const columns = computed<Column[]>(() =>
 }
 
 .status-backlog { background: var(--c-white); border: 1px solid var(--border-strong); }
-.status-running { background: var(--accent); }
-.status-blocked { background: var(--orange); }
-.status-changed { background: var(--pink); }
-.status-done { background: var(--accent-2); }
-.status-failed { background: var(--danger); }
-.status-cancelled { background: var(--text-faint); }
-.status-needs_verification { background: var(--warn); }
+.status-running { background: var(--card-status-running); }
+.status-blocked { background: var(--card-status-blocked); }
+.status-changed { background: var(--card-status-changed); }
+.status-done { background: var(--card-status-done); }
+.status-failed { background: var(--card-status-failed); }
+.status-cancelled { background: var(--card-status-cancelled); }
+.status-needs_verification { background: var(--card-status-needs-verification); }
 
 .column-count {
   font-size: 11px;

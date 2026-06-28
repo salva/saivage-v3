@@ -27,6 +27,15 @@
   --c-orange:       #c75300;
   --c-teal:         #2e7d9a;
 
+  /* High-saturation card status markers for readability on white surfaces. */
+  --c-card-status-green:  #16a34a;
+  --c-card-status-gray:   #9ca3af;
+  --c-card-status-orange: #f97316;
+  --c-card-status-red:    #ef4444;
+  --c-card-status-blue:   #2563eb;
+  --c-card-status-pink:   #ec4899;
+  --c-card-status-yellow: #eab308;
+
   /* Typography */
   --font-sans: Inter, ui-sans-serif, system-ui, -apple-system,
                BlinkMacSystemFont, "Segoe UI", sans-serif;
