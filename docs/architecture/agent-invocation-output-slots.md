@@ -57,7 +57,17 @@ Every mandatory output file lives under a versioned directory on the card:
 .saivage/outputs/cards/{cardId}/{N}/{filename}
 ```
 
-Where `{N}` is a monotonically increasing counter per card. The counter increments each time the runtime declares a new output file for a new invocation. All prior versions remain on disk.
+Where `{N}` is a monotonically increasing record version per card. The persisted `record_version` is the last published record version, not a counter that advances merely because a card was activated.
+
+The processor declares the current draft record URL as `record://{cardId}/{record_version + 1}/{filename}`. That version is committed only when an agent calls its terminal `emit_*` tool and the runtime accepts the declared file as that agent's output. The committed version is visible to the next planner/reviewer/executor iteration.
+
+If a card is reactivated after a blocked activation or parent retry without a new accepted terminal record, the record version does not advance. The next attempt reuses the same next version number. Missing-file repair attempts also reuse the same draft version.
+
+Examples:
+
+- A parent reactivates a previously blocked planner card, but the planner does not emit a new accepted terminal record. `record_version` does not change.
+- A planner emits `emit_planner_result` with `planner-result.md`, and the runtime accepts that file as the planner's terminal record. `record_version` advances after that emit commits, so the next planner/reviewer iteration sees the next version number.
+- A reviewer emits `emit_reviewer_result` with `review.md`, and the runtime accepts that file. `record_version` advances after that review record commits.
 
 Example:
 
@@ -76,7 +86,7 @@ Version 1 and 2 reviews remain available even after the version 3 review replace
 
 Mandatory output files are durable runtime evidence, so they live under `.saivage/outputs/`, not under `.saivage-work/` or future `.saivage/work/`. The work directory is disposable operational scratch for shell/process outputs and caches; removing it must not lose critical agent evidence.
 
-The counter is card-scoped, not invocation-scoped, because a card may have multiple invocations across its lifecycle (planner, reviewer, executor) and each contributes files. The counter is persisted alongside card state so it survives restarts.
+The record version is card-scoped, not invocation-scoped, because a card may have multiple planner/reviewer/executor cycles across its lifecycle. The version advances when an emitted file becomes the accepted record for the card, not when an LLM turn starts. This keeps retries and blocked reactivations from creating meaningless gaps, while preserving a stable historical sequence of accepted records.
 
 ## File Path Schemes
 
@@ -109,8 +119,8 @@ Write enforcement is three-dimensional, checking all components of the URL:
 
 | Rule | Check |
 |---|---|
-| Card matches current invocation's card | `url.cardId == allocatedCardId` |
-| Version matches current invocation's allocated version | `url.version == allocatedVersion` |
+| Card matches current invocation's card | `url.cardId == declaredCardId` |
+| Version matches current invocation's draft version | `url.version == declaredDraftVersion` |
 | Filename matches role's designated record output | `url.filename == roleAllowedFilename` |
 
 | Role | Allowed record filename | `record://` write | `tmp://` write | `project://` write | `record://` read | `tmp://` read | `project://` read |
@@ -120,7 +130,7 @@ Write enforcement is three-dimensional, checking all components of the URL:
 | Reviewer | `review.md` | current invocation's declared URL only | current card only | no | any card, any version | any card | yes |
 
 The planner physically cannot overwrite `record://card-1/23/review.md` because:
-1. Version 23 was allocated to the reviewer's invocation, not the planner's.
+1. Version 23 was declared for the reviewer's terminal record, not the planner's.
 2. `review.md` is not the planner's designated filename.
 
 The reviewer cannot write `project://` paths at all. No agent can freely write `.saivage/` by path or scheme. These are hard checks enforced in the file tools, not advisory warnings.
@@ -135,13 +145,13 @@ Each role has exactly one designated record filename:
 | Executor | `executor-result.md` |
 | Reviewer | `review.md` |
 
-An agent can only write its role's designated record filename to its own allocated version. It can read any record file from any version of any card. Its only discretionary scratch writes are under `tmp://{currentCardId}/...`.
+An agent can only write its role's designated record filename to its own declared draft version. It can read any record file from any version of any card. Its only discretionary scratch writes are under `tmp://{currentCardId}/...`.
 
 ## How It Works
 
 ### Before invocation
 
-The runtime allocates the next version number for the card, creates the directory, and passes the full `record://` URL in the prompt.
+The processor derives the draft version as `record_version + 1`, creates that directory if needed, and passes the full `record://` URL in the prompt. It does not advance the persisted `record_version` yet.
 
 ```text
 You must write your review to:
@@ -160,7 +170,7 @@ The URL is fully-qualified and stable. The agent copies it into file tools. The 
 
 The runtime checks whether each mandatory file exists at the resolved path and is non-empty.
 
-- **All files present:** accept the terminal result.
+- **All files present:** accept the terminal result and advance `record_version` to the draft version.
 - **Files missing:** reject, re-enter the same agent session with a continuation message naming the missing `record://` URLs, increment nothing.
 - **Repair budget exhausted:** fail the activation with a clear runtime diagnostic.
 
@@ -287,7 +297,7 @@ The reviewer and planner currently have no file-writing tools. All agents share 
 | `project://{relative}` | Project-relative path | `{projectRoot}/{relative}` |
 | Absolute path `/...` | Same filesystem path | Same filesystem path |
 
-The `record://` URL is fully-qualified. The runtime resolves it before the file tool touches the filesystem. Any agent can read any `record://` URL. Write is restricted to the current invocation's allocated `(cardId, version, filename)` and is allowed only for declared mandatory record files.
+The `record://` URL is fully-qualified. The runtime resolves it before the file tool touches the filesystem. Any agent can read any `record://` URL. Write is restricted to the current invocation's declared draft `(cardId, version, filename)` and is allowed only for declared mandatory record files.
 
 The `tmp://` URL is card-scoped scratch. Any agent can read any `tmp://` URL, but writes are allowed only under `tmp://{currentCardId}/...`.
 
@@ -296,7 +306,7 @@ The `tmp://` URL is card-scoped scratch. Any agent can read any `tmp://` URL, bu
 The file tool checks all three components of a `record://` write:
 
 1. `cardId` must match the current invocation's card.
-2. `version` must match the current invocation's allocated version.
+2. `version` must match the current invocation's declared draft version.
 3. `filename` must match the role's designated filename.
 
 The reviewer can only write its declared `record://{itsCard}/{itsVersion}/review.md`. Any other `record://` write or any `project://` write is hard-rejected. The planner and executor can write their declared record file. Only the executor can write `project://` work products; the planner and reviewer coordinate through cards, records, and `tmp://` scratch.
@@ -306,7 +316,7 @@ This replaces the current advisory write-territory system with hard scheme-based
 ## Validation And Repair Flow
 
 ```text
-runtime allocates version N for card C
+runtime derives draft version N = C.record_version + 1
 runtime creates .saivage/outputs/cards/C/N/
 runtime invokes agent with mandatory record://C/N/{filename} URL(s) in prompt
 agent writes mandatory file(s) using file tools with record:// scheme
@@ -320,6 +330,7 @@ runtime checks mandatory file(s) exist at record://C/N/{filename} and are non-em
       fail activation with runtime diagnostic
   if present:
     accept terminal result
+    persist C.record_version = N
     proceed with role-specific evaluation (evidence gate, completion gates, etc.)
 ```
 
@@ -333,28 +344,28 @@ The versioned output files ARE the persistent evidence. No separate `invocation.
 
 Because these files are persistent evidence, they are not stored in `.saivage-work/` or future `.saivage/work/`. That directory is disposable work state for shell command outputs, temporary process data, caches, and other rebuildable operational files. Generic work cleanup may delete `.saivage/work`, but it must not delete `.saivage/outputs`.
 
-The version counter is persisted on the card record as a simple integer field:
+The last published record version is persisted on the card record as a simple integer field:
 
 ```ts
 // On CardRecord
 record_version: number
 ```
 
-The runtime reads it to allocate the next version, increments it, and persists it. The files themselves are durable on disk under `.saivage/outputs/cards/{cardId}/`.
+The runtime reads it to derive the next draft version. It advances the persisted value only after a terminal `emit_*` call has selected an existing non-empty file as the accepted record. The files themselves are durable on disk under `.saivage/outputs/cards/{cardId}/`.
 
 ## Crash Recovery
 
-If the runtime crashes after allocating a version number but before the agent writes the file:
+If the runtime crashes after declaring a draft version but before the agent writes the file:
 
-- The version directory exists but is empty.
-- On recovery, the runtime sees no active activation for that version (the processor actor was not settled).
-- The empty directory is harmless. The next activation allocates the next version number.
+- The version directory may exist but be empty.
+- The card's persisted `record_version` has not advanced.
+- The empty directory is harmless. The next activation reuses the same draft version unless a prior terminal emit was already committed.
 
-If the runtime crashes after the agent writes the file but before validating:
+If the runtime crashes after the agent writes the file but before validating or committing the terminal emit:
 
 - The file exists on disk.
 - On recovery, the processor actor's `activeReconstruction` record shows it was mid-activation.
-- The existing recovery path either resumes or fails the activation. If it fails, the file remains in the versioned directory as historical evidence of the attempt.
+- The existing recovery path either resumes or fails the activation. If it fails before terminal commit, `record_version` has not advanced and the next activation may overwrite or replace that unaccepted draft file. Only files selected by an accepted terminal emit are part of the durable accepted-record sequence.
 
 No special recovery logic is needed for output files beyond what the actor recovery path already does.
 
@@ -443,33 +454,33 @@ This is simpler than the current artifacts/attachments UI.
 
 ## Implementation Plan
 
-### Phase 1: Versioned record directory, counter, and path-scheme resolver
+### Phase 1: Versioned record directory, cursor, and path-scheme resolver
 
-1. Add `record_version: number` to `CardRecord` (default 0).
-2. Add `allocateRecordVersion(cardId)` to card store: increments `record_version`, creates `.saivage/outputs/cards/{cardId}/{N}/`, returns the directory path.
+1. Add `record_version: number` to `CardRecord` (default 0), meaning the last published record version.
+2. Add `beginRecordDraft(cardId)` helper: computes `N = record_version + 1`, creates `.saivage/outputs/cards/{cardId}/{N}/`, returns the draft URL components, and does not mutate the card.
 3. Add `getRecordDir(cardId, version)` helper.
 4. Add `resolveAgentUrl(url, projectRoot)` resolver: parses `record://{cardId}/{version}/{filename}` through a dedicated durable-record branch → `.saivage/outputs/cards/{cardId}/{version}/{filename}`; parses `tmp://{cardId}/{relative}` through the disposable card scratch branch → `.saivage/work/cards/{cardId}/tmp/{relative}`; parses `project://{relative}` through ordinary project-file policy → `{projectRoot}/{relative}`; absolute paths remain ordinary project paths.
-5. Add `checkAgentWrite(url, role, allocatedCardId, allocatedVersion, currentCardId)` enforcer: hard reject `record://` unless cardId/version/filename all match the current invocation's declared mandatory record file; hard reject `tmp://` unless cardId matches the current card; hard reject direct `.saivage/` writes through `project://` or absolute paths.
-6. Tests: allocation increments, directory creation, URL resolution for each scheme, write enforcement per role (reviewer can only write its declared `record://cardId/version/review.md`, planner cannot write `review.md`, every role can write `tmp://{currentCardId}/...` but not another card's tmp dir, etc.), recovery after crash.
+5. Add `checkAgentWrite(url, role, declaredCardId, declaredDraftVersion, currentCardId)` enforcer: hard reject `record://` unless cardId/version/filename all match the current invocation's declared mandatory record file; hard reject `tmp://` unless cardId matches the current card; hard reject direct `.saivage/` writes through `project://` or absolute paths.
+6. Tests: draft directory creation without incrementing `record_version`, terminal commit advances `record_version`, blocked/reactivated cards reuse the same next version, URL resolution for each scheme, write enforcement per role (reviewer can only write its declared `record://cardId/version/review.md`, planner cannot write `review.md`, every role can write `tmp://{currentCardId}/...` but not another card's tmp dir, etc.), recovery after crash.
 
 ### Phase 2: Add scheme-enforced file tools
 
 1. Add shared `read`, `write`, `edit`, `apply_patch`, `glob`, `grep` tools to planner, executor, and reviewer actor surfaces as appropriate for each role.
 2. All file tools resolve paths via `resolveAgentUrl(url, projectRoot)`.
-3. All file tools enforce `checkAgentWrite(url, role, allocatedCardId, allocatedVersion, currentCardId)` before writing.
+3. All file tools enforce `checkAgentWrite(url, role, declaredCardId, declaredDraftVersion, currentCardId)` before writing.
 4. Reviewer can write only `record://{itsCard}/{itsVersion}/review.md`, plus `tmp://{itsCard}/...`; any other `record://` write or any `project://` write is hard-rejected.
 5. Planner can write its own declared `record://` file and `tmp://{itsCard}/...`; it cannot write project files, another card's tmp dir, or another card's record.
 6. Executor can write its own declared `record://` file, `tmp://{itsCard}/...`, and ordinary `project://` work files.
 7. All roles can read any `record://`, any `tmp://`, and allowed `project://` paths.
 8. Keep terminal tools role-specific.
-9. Tests: reviewer can write its allocated record URL; reviewer cannot write other record URLs; reviewer cannot write `project://`; planner can read prior reviews by full `record://` URL; planner cannot overwrite `review.md` on any card or version; all roles can write only current-card `tmp://` scratch.
+9. Tests: reviewer can write its declared record URL; reviewer cannot write other record URLs; reviewer cannot write `project://`; planner can read prior reviews by full `record://` URL; planner cannot overwrite `review.md` on any card or version; all roles can write only current-card `tmp://` scratch.
 
 ### Phase 3: Reviewer mandatory output + descendant context
 
-1. In `PlanningCardProcessorActor.reviewPlannerDone(...)`, allocate the next record version for the goal card.
+1. In `PlanningCardProcessorActor.reviewPlannerDone(...)`, declare the next draft record version for the goal card.
 2. Build descendant summary context message: for each descendant, include id/type/title/status/result.kind/result.summary and the descendant's latest record URL (e.g., `record://card-7/3/executor-result.md`).
 3. Update `reviewerPrompt(...)` to include the mandatory `record://{cardId}/{version}/review.md` URL and the descendant summaries.
-4. After reviewer terminal tool call, check `review.md` exists at the allocated URL.
+4. After reviewer terminal tool call, check `review.md` exists at the declared URL.
 5. If missing, use the existing `LLMToolContinuationContextHook` to inject: "Required file record://{cardId}/{version}/review.md was not created. Create it and call emit_reviewer_result again."
 6. Bound repair attempts (2). On exhaustion, fail with runtime diagnostic.
 7. When the reviewer returns `needs_corrections`, pass the review URL (e.g., `record://card-1/23/review.md`) to the planner context.
@@ -484,7 +495,7 @@ This is simpler than the current artifacts/attachments UI.
 
 ### Phase 5: Planner mandatory output
 
-1. In `PlanningCardProcessorActor.runActivation(...)`, allocate the next record version before the planner LLM turn.
+1. In `PlanningCardProcessorActor.runActivation(...)`, declare the next draft record version before the planner LLM turn without advancing `record_version`.
 2. Update `plannerPrompt(...)` to include the mandatory `record://{cardId}/{version}/planner-result.md` URL.
 3. If received reviewer corrections context, include the review URL (e.g., `record://card-1/23/review.md`) as a readable reference.
 4. After planner terminal tool call, check the file exists. If missing, same-session repair via continuation hook.
@@ -492,7 +503,7 @@ This is simpler than the current artifacts/attachments UI.
 
 ### Phase 6: Executor mandatory output
 
-1. In `TerminalCardProcessorActor` activation, allocate the next record version.
+1. In `TerminalCardProcessorActor` activation, declare the next draft record version without advancing `record_version`.
 2. Update executor prompt to include the mandatory `record://{cardId}/{version}/executor-result.md` URL.
 3. After executor terminal tool call, check the file exists. If missing, same-session repair.
 4. Tests: missing executor summary triggers repair; present file accepts.
@@ -532,7 +543,7 @@ This removes more code than it adds:
 
 **Added:**
 - `record_version` on `CardRecord` (one integer field).
-- `allocateRecordVersion` (one store method).
+- `beginRecordDraft` and terminal record commit helpers.
 - `resolveAgentUrl` and `checkAgentWrite` URL resolver and write enforcer.
 - Versioned directory creation.
 - Mandatory file-existence checks after terminal tool calls.
