@@ -146,10 +146,9 @@ const columns = computed<Column[]>(() =>
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  border: 1px solid transparent;
 }
 
-.status-backlog { background: var(--c-white); border-color: var(--border-strong); }
+.status-backlog { background: var(--c-white); border: 1px solid var(--border-strong); }
 .status-running { background: var(--accent); }
 .status-blocked { background: var(--orange); }
 .status-changed { background: var(--pink); }

@@ -147,18 +147,16 @@ function formatDuration(ms: number | null | undefined): string {
   flex-shrink: 0;
   z-index: 1;
   font-size: 14px;
-  border: 2px solid;
-  border-color: var(--surface-3);
 }
 
-.tl-marker.status-backlog { border-color: var(--border-strong); background: var(--c-white); }
-.tl-marker.status-done { border-color: var(--accent-2); background: var(--c-white); }
-.tl-marker.status-failed { border-color: var(--danger); background: var(--entry-danger-bg); }
-.tl-marker.status-running { border-color: var(--accent); background: var(--entry-user-bg); }
-.tl-marker.status-blocked { border-color: var(--orange); background: var(--c-white); }
-.tl-marker.status-changed { border-color: var(--pink); background: var(--c-white); }
-.tl-marker.status-cancelled { border-color: var(--text-faint); background: var(--surface-3); }
-.tl-marker.status-needs_verification { border-color: var(--warn); background: var(--entry-warn-bg); }
+.tl-marker.status-backlog { background: var(--c-white); border: 2px solid var(--border-strong); }
+.tl-marker.status-done { background: var(--accent-2); }
+.tl-marker.status-failed { background: var(--danger); }
+.tl-marker.status-running { background: var(--accent); }
+.tl-marker.status-blocked { background: var(--orange); }
+.tl-marker.status-changed { background: var(--pink); }
+.tl-marker.status-cancelled { background: var(--text-faint); }
+.tl-marker.status-needs_verification { background: var(--warn); }
 
 .tl-icon {
   font-size: 12px;
