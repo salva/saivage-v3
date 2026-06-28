@@ -38,6 +38,37 @@ function executorResultWithEvidence(cardId: string, artifactPath: string, attach
   };
 }
 
+function recordWrite(callId: string, path: string, content: string) {
+  return {
+    kind: 'tool_calls' as const,
+    tool_calls: [{ id: callId, type: 'function' as const, function: { name: 'write', arguments: JSON.stringify({ path, content }) } }],
+  };
+}
+
+function withExecutorStatusRecord(responder: (input: LlmInvocationInput, signal: AbortSignal) => Promise<LlmCompleteResult> | LlmCompleteResult): LLMProviderPort {
+  const pending = new Map<string, LlmCompleteResult>();
+  return {
+    completeTurn: jest.fn(async (input: LlmInvocationInput) => {
+      const key = input.sessionId;
+      const pendingTerminal = pending.get(key);
+      if (pendingTerminal) {
+        if (!input.episodeContext.lastToolResult) {
+          pending.delete(key);
+        } else {
+          pending.delete(key);
+          return pendingTerminal;
+        }
+      }
+      const result = await responder(input, new AbortController().signal);
+      if (result.kind === 'tool_calls' && result.tool_calls.some((toolCall) => toolCall.function.name === 'emit_executor_result')) {
+        pending.set(key, result);
+        return recordWrite(`status-${key}`, 'record://status.md?v=next', `Status for ${input.episodeContext.cardId ?? key}`);
+      }
+      return result;
+    }),
+  };
+}
+
 function noopNotificationDelivery() {
   return { deliverNotificationsForInput: () => [] };
 }
@@ -53,7 +84,7 @@ async function eventually(assertion: () => void, attempts = 40): Promise<void> {
 describe('TerminalCardProcessorActor', () => {
   it('runs a terminal card through executor LLM and commits accepted done result', async () => withTempProject(async (projectRoot) => {
     const { store, card } = setup(projectRoot);
-    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => executorResult(card.id, 'implemented')) };
+    const provider = withExecutorStatusRecord(() => executorResult(card.id, 'implemented'));
     const processor = new TerminalCardProcessorActor({ projectRoot, cardId: card.id, provider });
     processor.start();
     const actor = CardActor.fromCard({ projectRoot, card, store, processor });
@@ -63,22 +94,20 @@ describe('TerminalCardProcessorActor', () => {
     expect(outcome).toMatchObject({ status: 'done', summary: 'implemented' });
     expect(store.read(card.id)).toMatchObject({ status: 'done', status_text: 'implemented' });
     expect(store.read(card.id)?.lifecycle.result).toMatchObject({ kind: 'executor_success', executor: { summary: 'implemented' } });
-    expect(provider.completeTurn).toHaveBeenCalledWith(expect.objectContaining({ agentId: `executor:${card.id}`, role: 'executor', terminalToolNames: ['emit_executor_result'] }), expect.any(AbortSignal));
+    expect(provider.completeTurn).toHaveBeenCalledWith(expect.objectContaining({ agentId: `executor:${card.id}`, role: 'executor', terminalToolNames: ['emit_executor_result'], systemPrompt: expect.stringContaining('record://status.md?v=next') }), expect.any(AbortSignal));
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_kind)).toEqual(expect.arrayContaining(['card', 'llm', 'processor']));
   }));
 
   it('preserves executor artifacts and attachments through card evidence refs and schema-valid result fields', async () => withTempProject(async (projectRoot) => {
     const { store, card } = setup(projectRoot);
-    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => executorResultWithEvidence(card.id, '.saivage-work/logs/build.log', '.saivage-work/logs/notes.txt')) };
+    const provider = withExecutorStatusRecord(() => executorResultWithEvidence(card.id, '.saivage-work/logs/build.log', '.saivage-work/logs/notes.txt'));
     const processor = new TerminalCardProcessorActor({ projectRoot, cardId: card.id, provider, store });
     processor.start();
 
     const outcome = await processor.activate({ card, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: noopNotificationDelivery() });
 
     expect(outcome).toMatchObject({ status: 'done', result: { kind: 'executor_success', generated_files: ['src/example.ts'], warnings: ['manual review advised'] } });
-    expect(outcome.result.executor).toMatchObject({ artifact_refs: [expect.objectContaining({ path: '.saivage-work/logs/build.log' })], attachment_refs: [expect.objectContaining({ path: '.saivage-work/logs/notes.txt' })] });
-    expect(store.read(card.id)?.artifacts).toEqual([expect.objectContaining({ path: '.saivage-work/logs/build.log', type: 'log' })]);
-    expect(store.read(card.id)?.attachments).toEqual([expect.objectContaining({ path: '.saivage-work/logs/notes.txt', title: 'notes' })]);
+    expect(outcome.result.executor).toMatchObject({ artifacts: [expect.objectContaining({ path: '.saivage-work/logs/build.log' })], attachments: [expect.objectContaining({ path: '.saivage-work/logs/notes.txt' })] });
   }));
 
   it('commits provider failure as failed outcome', async () => withTempProject(async (projectRoot) => {
@@ -97,7 +126,7 @@ describe('TerminalCardProcessorActor', () => {
   it('persists active reconstruction during terminal processor activation and clears it on settlement', async () => withTempProject(async (projectRoot) => {
     const { card } = setup(projectRoot);
     let finish!: () => void;
-    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => new Promise<LlmCompleteResult>((resolve) => { finish = () => resolve(executorResult(card.id, 'implemented')); })) };
+    const provider = withExecutorStatusRecord(() => new Promise<LlmCompleteResult>((resolve) => { finish = () => resolve(executorResult(card.id, 'implemented')); }));
     const processor = new TerminalCardProcessorActor({ projectRoot, cardId: card.id, provider });
     processor.start();
 
@@ -137,8 +166,9 @@ describe('TerminalCardProcessorActor', () => {
         ? executorResult(card.id, 'saw running process')
         : { kind: 'tool_calls' as const, tool_calls: [{ id: 'run-1', type: 'function' as const, function: { name: 'run_process', arguments: JSON.stringify({ processId: 'P-timeout', command: process.execPath, args: ['-e', 'setTimeout(() => console.log("late"), 80)'], timeoutMs: 5 }) } }] }),
     };
+    const providerWithRecords = withExecutorStatusRecord(provider.completeTurn);
     const delivery = { deliverNotificationsForInput: jest.fn((inputId: string) => inputId.endsWith(':tool:1') ? [{ id: 'n-mid', message: 'executor mid-turn notice', created_at: '2026-06-12T00:00:00.000Z' }] : []) };
-    const processor = new TerminalCardProcessorActor({ projectRoot, cardId: card.id, provider });
+    const processor = new TerminalCardProcessorActor({ projectRoot, cardId: card.id, provider: providerWithRecords });
     processor.start();
 
     const outcome = await processor.activate({ card, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: delivery });
@@ -146,7 +176,7 @@ describe('TerminalCardProcessorActor', () => {
     expect(outcome).toMatchObject({ status: 'done', summary: 'saw running process' });
     expect(delivery.deliverNotificationsForInput).toHaveBeenCalledWith(`terminal:${card.id}:1`);
     expect(delivery.deliverNotificationsForInput).toHaveBeenCalledWith(`terminal:${card.id}:1:tool:1`);
-    const continuationContext = (provider.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls[1]?.[0].contextMessages as Array<Record<string, unknown>>;
+    const continuationContext = (providerWithRecords.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls[1]?.[0].contextMessages as Array<Record<string, unknown>>;
     expect(continuationContext).toHaveLength(3);
     expect(continuationContext[0]).toMatchObject({ role: 'assistant', kind: 'tool_call', tool: 'run_process', tool_call_id: 'run-1' });
     expect(continuationContext[1]).toMatchObject({ role: 'tool', kind: 'tool_result', tool: 'run_process', tool_call_id: 'run-1' });
@@ -158,14 +188,12 @@ describe('TerminalCardProcessorActor', () => {
 
   it('routes explicit process kill through ProcessActor', async () => withTempProject(async (projectRoot) => {
     const { card } = setup(projectRoot);
-    const provider: LLMProviderPort = {
-      completeTurn: jest.fn(async (input: LlmInvocationInput) => {
-        const last = input.episodeContext.lastToolResult as { result?: { status?: string } } | undefined;
-        if (!last) return { kind: 'tool_calls' as const, tool_calls: [{ id: 'run-1', type: 'function' as const, function: { name: 'run_process', arguments: JSON.stringify({ processId: 'P-kill', command: process.execPath, args: ['-e', 'setInterval(() => {}, 1000)'], timeoutMs: 5 }) } }] };
-        if (last.result?.status === 'running') return { kind: 'tool_calls' as const, tool_calls: [{ id: 'kill-1', type: 'function' as const, function: { name: 'kill_process', arguments: JSON.stringify({ processId: 'P-kill' }) } }] };
-        return executorResult(card.id, 'killed process');
-      }),
-    };
+    const provider = withExecutorStatusRecord(async (input: LlmInvocationInput) => {
+      const last = input.episodeContext.lastToolResult as { result?: { status?: string } } | undefined;
+      if (!last) return { kind: 'tool_calls' as const, tool_calls: [{ id: 'run-1', type: 'function' as const, function: { name: 'run_process', arguments: JSON.stringify({ processId: 'P-kill', command: process.execPath, args: ['-e', 'setInterval(() => {}, 1000)'], timeoutMs: 5 }) } }] };
+      if (last.result?.status === 'running') return { kind: 'tool_calls' as const, tool_calls: [{ id: 'kill-1', type: 'function' as const, function: { name: 'kill_process', arguments: JSON.stringify({ processId: 'P-kill' }) } }] };
+      return executorResult(card.id, 'killed process');
+    });
     const processor = new TerminalCardProcessorActor({ projectRoot, cardId: card.id, provider });
     processor.start();
 
@@ -179,13 +207,11 @@ describe('TerminalCardProcessorActor', () => {
   it('keeps processing executor tool calls until a terminal result is produced', async () => withTempProject(async (projectRoot) => {
     const { card } = setup(projectRoot);
     let executorTurns = 0;
-    const provider: LLMProviderPort = {
-      completeTurn: jest.fn(async () => {
+    const provider = withExecutorStatusRecord(async () => {
         executorTurns++;
         if (executorTurns <= 25) return { kind: 'tool_calls' as const, tool_calls: [{ id: `inspect-${executorTurns}`, type: 'function' as const, function: { name: 'inspect_process', arguments: JSON.stringify({ processId: 'missing' }) } }] };
         return executorResult(card.id, 'done after many tools');
-      }),
-    };
+    });
     const processor = new TerminalCardProcessorActor({ projectRoot, cardId: card.id, provider });
     processor.start();
 

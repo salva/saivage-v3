@@ -16,9 +16,15 @@ import { ActorToolSurface } from './actor-tool-surface.js';
 import type { NewCardInput } from '../../cards/store-api.js';
 import { processWorkspaceToolCall } from '../../agents/workspace-tools.js';
 import { WORKSPACE_TOOL_NAMES } from '../../tools/definitions/index.js';
-import { closeOpenRecordSlot, latestClosedRecordSlot } from '../records/record-slots.js';
+import { closeOpenRecordSlot, concreteRecordSlot, discardOpenRecordSlot, latestClosedRecordSlot, readRecordSlotIndex, recordFileIsNonEmpty } from '../records/record-slots.js';
 
 type PlannerProcessorOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
+
+type ReviewerCurrentnessSnapshot = {
+  cards: Array<{ id: string; status: CardStatus; versionSeq: number }>;
+  includedRecordVersions: Array<{ cardId: string; filename: 'status.md'; latest: number | null }>;
+  hasPendingNotifications: boolean;
+};
 
 export interface PlannerChildActorPort {
   get(cardId: string): CardActor | null;
@@ -182,38 +188,49 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const assessmentId = nextReviewerAssessmentId(input.card.id, input.card.lifecycle.result);
     const sessionId = reviewerSessionId(input.card.id, assessmentId);
     const llm = this.createMainLlm(reviewerActorId(input.card.id));
-    let outcome = await llm.turn(this.buildReviewerLlmInput(input, assessmentId, sessionId));
     const reviewerContract = createReviewerContract();
-    let recordRepairAttempts = 0;
+    let reviewerRelaunchAttempts = 0;
     while (true) {
-      if (outcome.type === 'error') return { status: 'failed', summary: outcome.error, result: { kind: 'planner_failure', error: outcome.error } };
-      if (outcome.type === 'result') return this.plannerFailure(`${expectedTerminalToolMessage(reviewerContract)} Plain reviewer messages are not accepted as terminal results.`);
-      if (reviewerContract.isTerminalToolName(outcome.toolName)) {
-        const missingRecord = this.closeRequiredRecord(input.card.id, 'review.md');
-        if (missingRecord) {
-          recordRepairAttempts++;
-          if (recordRepairAttempts > 2) return this.plannerFailure(missingRecord);
-          outcome = await llm.appendToolResult(outcome.toolCallId, { success: false, error: missingRecord }, () => [{ role: 'user', content: `${missingRecord} Create record://review.md?v=next, then call emit_reviewer_result again.` }]);
-          continue;
+      const currentness = this.captureReviewerCurrentness(input);
+      let outcome = await llm.turn(this.buildReviewerLlmInput(input, assessmentId, sessionId, currentness));
+      let recordRepairAttempts = 0;
+      while (true) {
+        if (outcome.type === 'error') return { status: 'failed', summary: outcome.error, result: { kind: 'planner_failure', error: outcome.error } };
+        if (outcome.type === 'result') return this.plannerFailure(`${expectedTerminalToolMessage(reviewerContract)} Plain reviewer messages are not accepted as terminal results.`);
+        if (reviewerContract.isTerminalToolName(outcome.toolName)) {
+          const missingRecord = this.validateRequiredOpenRecord(input.card.id, 'review.md');
+          if (missingRecord) {
+            recordRepairAttempts++;
+            if (recordRepairAttempts > 2) return this.plannerFailure(missingRecord);
+            outcome = await llm.appendToolResult(outcome.toolCallId, { success: false, error: missingRecord }, () => [{ role: 'user', content: `${missingRecord} Create record://review.md?v=next, then call emit_reviewer_result again.` }]);
+            continue;
+          }
+          const staleReason = this.reviewerCurrentnessStaleReason(input, currentness);
+          if (staleReason) {
+            discardOpenRecordSlot(this.projectRoot, { cardId: input.card.id, filename: 'review.md', reason: 'stale_review' });
+            llm.abandonParkedTurn();
+            if (reviewerRelaunchAttempts >= 2) return this.plannerFailure(`Reviewer currentness relaunch budget exhausted: ${staleReason}`);
+            reviewerRelaunchAttempts++;
+            break;
+          }
+          const closeError = this.closeRequiredRecord(input.card.id, 'review.md');
+          if (closeError) return this.plannerFailure(closeError);
+          return evaluateReviewerTerminalOutcome({
+            card: input.card,
+            candidatePlanning: planning,
+            assessmentId,
+            sessionId,
+            outcome,
+            store: this.store,
+          });
         }
-        break;
+        const toolResult = await this.handleReviewerToolCall(input.card, sessionId, outcome);
+        outcome = await llm.appendToolResult(outcome.toolCallId, toolResult, (inputId) => this.notificationContextMessages(input, inputId));
       }
-      const toolResult = await this.handleReviewerToolCall(input.card, sessionId, outcome);
-      outcome = await llm.appendToolResult(outcome.toolCallId, toolResult, (inputId) => this.notificationContextMessages(input, inputId));
     }
-    const reviewed = evaluateReviewerTerminalOutcome({
-      card: input.card,
-      candidatePlanning: planning,
-      assessmentId,
-      sessionId,
-      outcome,
-      store: this.store,
-    });
-    if (reviewed.status === 'done' && input.notificationDelivery?.hasPendingNotifications?.()) return reviewerInvalidatedOutcome(assessmentId);
-    return reviewed;
   }
 
-  private buildReviewerLlmInput(input: CardActivationInput, assessmentId: string, sessionId: string): LlmInvocationInput {
+  private buildReviewerLlmInput(input: CardActivationInput, assessmentId: string, sessionId: string, currentness: ReviewerCurrentnessSnapshot): LlmInvocationInput {
     const contract = createReviewerContract();
     const inputId = this.nextInvocationInputId('reviewer');
     return {
@@ -222,7 +239,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
       role: 'reviewer',
       sessionId,
       systemPrompt: this.reviewerPrompt(input.card, assessmentId),
-      contextMessages: [this.reviewerDescendantContext(input.card.id)],
+      contextMessages: [this.reviewerDescendantContext(input.card.id, currentness)],
       tools: [...REVIEWER_CARD_PROCESSOR_TOOL_DEFINITIONS, ...contract.terminals.map((terminal) => terminal.toolDefinition)],
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),
       modelParams: {},
@@ -244,6 +261,19 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     }
   }
 
+  private validateRequiredOpenRecord(cardId: string, filename: 'status.md' | 'review.md'): string | null {
+    try {
+      const slot = filename.slice(0, -'.md'.length);
+      const index = readRecordSlotIndex(this.projectRoot, cardId, slot);
+      if (index.open === null) return `Required record 'record://${filename}?card=${cardId}&v=next' was not created.`;
+      const open = concreteRecordSlot(this.projectRoot, { cardId, filename, version: index.open });
+      if (!recordFileIsNonEmpty(open.absolutePath)) return `Required record '${open.recordUrl}' was not created or is empty.`;
+      return null;
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  }
+
   private directChildren(cardId: string): CardRecord[] {
     return (this.store.listChildren?.(cardId) ?? []).map((id) => this.store.read(id)).filter((card): card is CardRecord => card !== null);
   }
@@ -256,19 +286,50 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     return result;
   }
 
-  private reviewerDescendantContext(cardId: string): { role: 'user'; content: string } {
+  private reviewerDescendantContext(cardId: string, currentness: ReviewerCurrentnessSnapshot): { role: 'user'; content: string } {
+    const recordVersions = new Map(currentness.includedRecordVersions.map((entry) => [entry.cardId, entry.latest]));
     const lines = this.descendants(cardId).map((card) => {
       let recordUrl = 'no closed status record';
-      try {
-        recordUrl = latestClosedRecordSlot(this.projectRoot, { cardId: card.id, filename: 'status.md' }).recordUrl;
-      } catch {
-        recordUrl = 'no closed status record';
-      }
+      const version = recordVersions.get(card.id) ?? null;
+      if (version !== null) recordUrl = `record://status.md?card=${encodeURIComponent(card.id)}&v=${version}`;
       const result = card.lifecycle.result;
       const resultSummary = result && 'summary' in result && typeof result.summary === 'string' ? result.summary : result && 'error' in result && typeof result.error === 'string' ? result.error : '';
       return `- ${card.id} (${card.type}, ${card.status}): ${card.title}; result=${result?.kind ?? 'none'}${resultSummary ? `; summary=${resultSummary}` : ''}; record=${recordUrl}`;
     });
     return { role: 'user', content: `Descendant work:\n${lines.length > 0 ? lines.join('\n') : '(none)'}` };
+  }
+
+  private captureReviewerCurrentness(input: CardActivationInput): ReviewerCurrentnessSnapshot {
+    const cards = this.reviewedSubtree(input.card.id).map((card) => ({ id: card.id, status: card.status, versionSeq: card.version_seq }));
+    const includedRecordVersions = this.descendants(input.card.id).map((card) => ({ cardId: card.id, filename: 'status.md' as const, latest: latestClosedRecordVersion(this.projectRoot, card.id, 'status.md') }));
+    return { cards, includedRecordVersions, hasPendingNotifications: input.notificationDelivery.hasPendingNotifications?.() ?? false };
+  }
+
+  private reviewerCurrentnessStaleReason(input: CardActivationInput, snapshot: ReviewerCurrentnessSnapshot): string | null {
+    const current = this.captureReviewerCurrentness(input);
+    if (current.hasPendingNotifications !== snapshot.hasPendingNotifications) return 'pending notification state changed during review';
+    const snapshotCards = new Map(snapshot.cards.map((card) => [card.id, card]));
+    const currentCards = new Map(current.cards.map((card) => [card.id, card]));
+    if (snapshotCards.size !== currentCards.size) return 'reviewed subtree card set changed during review';
+    for (const [id, before] of snapshotCards) {
+      const after = currentCards.get(id);
+      if (!after) return `reviewed subtree card '${id}' was removed during review`;
+      if (after.status !== before.status || after.versionSeq !== before.versionSeq) return `reviewed subtree card '${id}' changed during review`;
+    }
+    const snapshotRecords = new Map(snapshot.includedRecordVersions.map((entry) => [`${entry.cardId}:${entry.filename}`, entry.latest]));
+    const currentRecords = new Map(current.includedRecordVersions.map((entry) => [`${entry.cardId}:${entry.filename}`, entry.latest]));
+    if (snapshotRecords.size !== currentRecords.size) return 'reviewer context record set changed during review';
+    for (const [key, before] of snapshotRecords) {
+      if (!currentRecords.has(key)) return `reviewer context record '${key}' disappeared during review`;
+      if (currentRecords.get(key) !== before) return `reviewer context record '${key}' changed during review`;
+    }
+    return null;
+  }
+
+  private reviewedSubtree(cardId: string): CardRecord[] {
+    const root = this.store.read(cardId);
+    if (!root) throw new Error(`Reviewed card '${cardId}' not found.`);
+    return [root, ...this.descendants(cardId)];
   }
 
   private plannerPrompt(card: CardRecord): string {
@@ -404,11 +465,6 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 }
 
-function reviewerInvalidatedOutcome(assessmentId: string): PlannerProcessorOutcome {
-  const summary = 'Reviewer approval invalidated by pending card notifications.';
-  return { status: 'blocked', summary, result: { kind: 'planner_blocked', blocked_reason: summary, resume_reason: 'reviewer_invalidated_by_notifications', reviewer_correction: { kind: 'reviewer_correction', assessment_id: assessmentId, summary, issues: [{ summary }] } } };
-}
-
 function parseChildCardId(args: unknown): { success: true; cardId: string } | { success: false; error: string } {
   if (!args || typeof args !== 'object') return { success: false, error: 'activate_card requires an object argument.' };
     const maybe = args as { card_id?: unknown };
@@ -521,4 +577,12 @@ function firstIncompleteDescendant(cardId: string, store: CardActorStorePort): {
     if (descendant) return descendant;
   }
   return null;
+}
+
+function latestClosedRecordVersion(projectRoot: string, cardId: string, filename: 'status.md'): number | null {
+  try {
+    return latestClosedRecordSlot(projectRoot, { cardId, filename }).version;
+  } catch {
+    return null;
+  }
 }
