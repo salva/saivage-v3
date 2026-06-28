@@ -512,62 +512,105 @@ This is simpler than the current artifacts/attachments UI.
 
 ## Implementation Plan
 
-### Phase 1: Versioned record slots and path-scheme resolver
+Status after commit `48d1c3af feat(runtime): enforce agent record slots`: Phases 1, 2, 4, 5, and 6 have their first implementation slice in place. Phase 3 is partially implemented. Phase 7 and broad docs/UI cleanup remain.
 
-1. Add slot index helpers for `.saivage/outputs/cards/{cardId}/{slot}/index.json`.
-2. Add `resolveRecordUrl(url, context)` resolver: parses `record://{slot}.md?card={cardId}&v={version}`; defaults missing `card` to current card; defaults missing read `v` to `latest`; resolves write `v=next` to the open slot version or creates `latest + 1`; returns the normalized concrete URL.
-3. Add `getRecordPath(cardId, slot, version)` helper.
-4. Add `resolveAgentUrl(url, projectRoot)` resolver: dispatches `record://` through `resolveRecordUrl`, parses `tmp://{cardId}/{relative}` through the disposable card scratch branch → `.saivage/work/cards/{cardId}/tmp/{relative}`, parses `project://{relative}` through ordinary project-file policy → `{projectRoot}/{relative}`, and leaves absolute paths as ordinary project paths.
-5. Add `checkAgentWrite(url, role, currentCardId)` enforcer: hard reject `record://` unless card resolves to the current card, slot matches the role's designated record slot, and version is open; hard reject `tmp://` unless card resolves to the current card; hard reject direct `.saivage/` writes through `project://` or absolute paths.
-6. Tests: `v=next` creates or reuses an open slot version; terminal emit closes a slot version and advances `latest`; blocked/reactivated cards reuse open slot versions; file tools return normalized concrete record URLs; URL resolution for each scheme; write enforcement per role; recovery after crash.
+### Phase 1: Versioned record slots and path-scheme resolver - implemented
 
-### Phase 2: Add scheme-enforced file tools
+Implemented in `src/runtime/records/record-slots.ts` and `src/tools/project-file-tools.ts`:
 
-1. Add shared `read`, `write`, `edit`, `apply_patch`, `glob`, `grep` tools to planner, executor, and reviewer actor surfaces as appropriate for each role.
-2. All file tools resolve paths via `resolveAgentUrl(url, projectRoot)`.
-3. All file tools enforce `checkAgentWrite(url, role, currentCardId)` before writing.
-4. Reviewer can write only `record://review.md?v=next`, plus `tmp://{currentCardId}/...`; any other `record://` write or any `project://` write is hard-rejected.
-5. Planner can write `record://status.md?v=next` and `tmp://{currentCardId}/...`; it cannot write project files, another card's tmp dir, or another card's record.
-6. All roles can read any closed `record://`, any `tmp://`, and allowed `project://` paths. The owning agent may also read its own open slot version for in-place edits.
-7. Keep terminal tools role-specific.
-8. Tests: reviewer can write its declared `review` slot and receives a normalized concrete record URL; reviewer cannot write other record slots; reviewer cannot write `project://`; planner can read prior reviews by concrete `record://review.md?v=N&card=...` URL; planner cannot overwrite closed reviews; all roles can write only current-card `tmp://` scratch; owning agent can read its own open slot version.
+1. Slot indexes live at `.saivage/outputs/cards/{cardId}/{slot}/index.json`.
+2. `record://` writes with `v=next` create or reuse the open slot version and return normalized `record_url` values.
+3. Closed/latest numeric reads work through the file tools.
+4. `tmp://{cardId}/{relative}` resolves to `.saivage/work/cards/{cardId}/tmp/{relative}`.
+5. `project://` and absolute project paths keep the existing project-file safety policy.
+6. Stale/open record discard support exists through `discardOpenRecordSlot`, but reviewer currentness does not call it yet.
+7. Focused tests cover open/reuse/close, discard without advancing `latest`, normalized record URLs, and role write enforcement.
 
-### Phase 3: Reviewer mandatory output + descendant context
+Remaining follow-up:
 
-1. In `PlanningCardProcessorActor.reviewPlannerDone(...)`, skip review if the goal card has no descendants and accept the planner's `done` directly.
-2. If descendants exist, prompt the reviewer to write `record://review.md?v=next`.
-3. Build descendant summary context message: for each descendant, include id/type/title/status/result.kind/result.summary and the descendant's latest concrete record URL (e.g., `record://status.md?v=3&card=card-7`).
-4. Capture a reviewer currentness snapshot: reviewed subtree card versions/statuses and latest closed versions for the record slots included in context.
-5. After reviewer writes the file, capture the normalized concrete URL returned by the file tool.
-6. After reviewer terminal tool call, check `review.md` exists at the normalized concrete URL.
-7. Before accepting or closing the review, compare the currentness snapshot with current subtree/record versions. If anything changed, reject the result as stale, discard the stale open review slot version without advancing `latest`, and relaunch the reviewer with fresh context.
-8. Remove the existing standalone notification-pending invalidation logic; currentness subsumes it.
-9. If the review file is missing, use the existing `LLMToolContinuationContextHook` to inject: "Required file record://review.md?v=next was not created. Create it and call emit_reviewer_result again."
-10. Use separate budgets: repair budget (2) for missing-file same-session repair; relaunch budget (2) for currentness-driven fresh invocations. On exhaustion of the relevant budget, fail with runtime diagnostic.
-11. When the reviewer returns `needs_corrections`, pass the normalized concrete review URL (e.g., `record://review.md?v=23&card=card-1`) to the planner context.
-12. Tests: missing file triggers same-session repair; repair succeeds on second attempt; changed record/card version during review relaunches reviewer without closing stale slot; childless goal skips review; budget exhaustion fails; planner receives review URL in corrections context.
+1. Add recovery-focused tests for open slots after reconstructed activations.
+2. Consider extracting the resolver/enforcer from `project-file-tools.ts` if it grows further; keep it inline until reuse demands it.
 
-### Phase 4: Replace evidence gate
+### Phase 2: Add scheme-enforced file tools - implemented
 
-1. Remove `validateReviewerAssessment`'s `artifacts`/`attachments`/`lifecycle.result` check.
-2. Replace with: do cited cards exist, belong to the reviewed subtree, and already have accepted terminal status.
-3. Do not scan descendant record files; accepted descendant cards already passed their own mandatory-record checks.
-4. Tests: pass with cited accepted descendants; rejection when cited card is missing, outside the subtree, not accepted, or no evidence cards are cited.
+Implemented:
 
-### Phase 5: Planner mandatory output
+1. Planner and reviewer now receive `read`, `write`, `glob`, `grep`, and `edit`.
+2. Executor now receives `read`, `write`, `glob`, `grep`, `edit`, and `apply_patch`, plus its existing process tools.
+3. Planner/reviewer project writes are hard-rejected by role-aware file-tool context.
+4. Reviewer can write only `review`; planner/executor can write only `status`.
+5. `record://` file-tool responses include normalized `record_url`.
+6. `glob` and `grep` can target `record://` trees without opening general `.saivage` access.
 
-1. In `PlanningCardProcessorActor.runActivation(...)`, prompt the planner to write `record://status.md?v=next`.
-2. If received reviewer corrections context, include the normalized concrete review URL (e.g., `record://review.md?v=23&card=card-1`) as a readable reference.
-3. After planner terminal tool call, check `status.md` exists. If missing, same-session repair via continuation hook.
-4. Tests: missing status triggers repair on all outcomes; planner can read prior review URL.
+Remaining follow-up:
 
-### Phase 6: Executor mandatory output
+1. Add tests for `tmp://` writes and record `glob`/`grep` searches.
+2. Add tests for owning-agent reads of an open record through `edit`/`read`.
 
-1. In `TerminalCardProcessorActor` activation, prompt the executor to write `record://status.md?v=next`.
-2. After executor terminal tool call, check `status.md` exists. If missing, same-session repair.
-3. Tests: missing status triggers repair on all outcomes; present files accept.
+### Phase 3: Reviewer mandatory output + descendant context - partially implemented
 
-### Phase 7: Remove old mechanisms
+Implemented:
+
+1. Childless goals skip review and accept planner `done` directly.
+2. Reviewer prompt includes `record://review.md?v=next`.
+3. Reviewer receives descendant context with id/type/status/title/result summary and latest closed descendant `status.md` record URL when available.
+4. Reviewer can use file tools to read descendant records and write its review.
+5. Missing `review.md` triggers same-session repair through `LLMActor.appendToolResult` continuation context.
+
+Remaining follow-up:
+
+1. Capture a reviewer currentness snapshot: reviewed subtree card versions/statuses plus latest closed record versions included in context.
+2. Before accepting the reviewer result, compare the snapshot with current state.
+3. On stale review, call `discardOpenRecordSlot(..., reason: 'stale_review')`, do not advance `latest`, and relaunch the reviewer with fresh context.
+4. Replace the standalone notification-pending invalidation check with currentness. It still exists in `PlanningCardProcessorActor.reviewPlannerDone(...)` and must be removed only when currentness is wired.
+5. Pass the normalized concrete review URL into planner correction context when reviewer returns `needs_corrections`.
+6. Add focused actor tests for missing-review repair, stale-review relaunch/discard, childless review skip, budget exhaustion, and planner correction context.
+
+### Phase 4: Replace evidence gate - implemented
+
+Implemented in `src/runtime/reviewer-assessment.ts` and `src/runtime/actors/reviewer-terminal-evaluation.ts`:
+
+1. Removed the artifact/attachment/lifecycle-result fallback from reviewer validation.
+2. Reviewer evidence cards must exist, be descendants of the reviewed goal, and have status `done`.
+3. The reviewed goal itself is no longer valid evidence for its own review.
+4. Focused tests cover accepted descendants, missing cards, outside-subtree citations, non-accepted cards, and no evidence.
+
+### Phase 5: Planner mandatory output - implemented
+
+Implemented:
+
+1. Planner prompt requires `record://status.md?v=next`.
+2. Planner terminal acceptance closes `status.md`; missing/empty status triggers same-session repair with budget 2.
+3. Planner gets scheme-aware file tools and can read reviewer records.
+
+Remaining follow-up:
+
+1. Add focused actor tests for missing status repair on `done`, `blocked`, and `continue` outcomes.
+2. Add the normalized review URL to correction context once Phase 3 currentness/correction wiring is completed.
+
+### Phase 6: Executor mandatory output - implemented
+
+Implemented:
+
+1. Executor prompt requires `record://status.md?v=next`.
+2. Executor terminal acceptance closes `status.md`; missing/empty status triggers same-session repair with budget 2.
+3. Executor keeps project-write tools and can write ordinary work files through `project://` or project paths.
+4. Executor no longer appends artifact/attachment evidence refs during terminal acceptance.
+
+Remaining follow-up:
+
+1. Update existing terminal-processor actor tests so mock providers write status records before emitting terminal results.
+2. Add focused actor tests for missing status repair on success and failure outcomes.
+
+### Phase 7: Remove old mechanisms - partially implemented
+
+Implemented:
+
+1. Removed `appendExecutorEvidence` from `TerminalCardProcessorActor`.
+2. Executor terminal acceptance no longer registers artifact/attachment evidence refs.
+3. Reviewer validation no longer depends on artifacts, attachments, generated files, or lifecycle result fallback.
+
+Remaining follow-up:
 
 1. Remove `ArtifactRef`, `AttachmentRef` from `CardRecord`.
 2. Remove `artifacts`, `attachments`, `generated_files` from executor terminal envelope and contract.
@@ -577,44 +620,50 @@ This is simpler than the current artifacts/attachments UI.
 6. Remove advisory write-territory warnings that always return `allowed: true`; either enforce or delete.
 7. Update card creation to no longer initialize `artifacts: []`, `attachments: []`.
 8. Update API/UI to show `.saivage/outputs/cards/{cardId}/` instead of artifacts/attachments.
-9. Tests: confirm no references to removed types; confirm card store still works; confirm executor no longer tries to register artifacts.
+9. Update older tests that still assert artifact/attachment preservation through executor terminal acceptance.
+10. Tests: confirm no references to removed types; confirm card store still works; confirm executor no longer tries to register artifacts.
 
-### Phase 8: Docs and prompt tests
+### Phase 8: Docs, prompt tests, and broad validation - remaining
 
 1. Update `docs/spec/system-specification.md`: remove artifact/attachment language; add mandatory output file language.
 2. Update `docs/architecture/system-architecture.md`: remove artifact/evidence-ref references; add versioned output directory.
 3. Update `docs/architecture/agent-tool-surfaces-and-information-flow.md`: implement the reviewer descendant-summary design.
 4. Add prompt tests asserting mandatory output paths appear in planner/reviewer/executor prompts.
-5. Update existing tests that reference `artifacts`/`attachments`/`appendEvidenceRefs`.
+5. Update existing tests that reference `artifacts`/`attachments`/`appendEvidenceRefs` or mock terminal emits without mandatory record writes.
+6. Run broad actor/runtime Jest after legacy tests are updated.
 
 ## Scope Of Change
 
-This removes more code than it adds:
+When complete, this removes more code than it adds:
 
-**Removed:**
+**Removed so far:**
+- `appendExecutorEvidence` in terminal processor.
+- `validateReviewerAssessment`'s artifact/attachment/lifecycle-result fallback.
+
+**Still to remove:**
 - `ArtifactRef`, `AttachmentRef` types and all their usage.
 - `appendEvidenceRefs`, `registerEvidenceRefs`, `registerEvidenceRefsBestEffort`.
 - Executor envelope `artifacts`, `attachments`, `generated_files` fields.
-- `appendExecutorEvidence` in terminal processor.
-- `validateReviewerAssessment`'s artifact-length check.
-- Advisory write-territory warnings.
+- Advisory write-territory warnings and any remaining dead references.
 - Artifacts/attachments UI projections.
 
-**Added:**
+**Added so far:**
 - Per-slot `index.json` files with `latest`, `open`, and version status.
-- Record slot open/close helpers.
-- `resolveAgentUrl` and `checkAgentWrite` URL resolver and write enforcer.
+- Record slot open/close/discard helpers.
+- Scheme-aware file tool resolution and write enforcement.
 - Versioned directory creation.
 - Mandatory file-existence checks after terminal tool calls.
 - Same-session repair via existing continuation hook.
-- Reviewer descendant summary context message with `record://` URLs (already designed, not implemented).
-- Reviewer currentness snapshot and relaunch when reviewed versions change during review.
+- Reviewer descendant summary context message with `record://` URLs.
 - Mandatory per-invocation `status.md` records for planner and executor outcomes, including failures.
 - Cross-agent record references via normalized concrete `record://{slot}.md?card={cardId}&v={version}` URLs.
 - Shared file tools with strict scheme enforcement: mandatory `record://` writes only, current-card `tmp://` scratch writes, no discretionary `.saivage/` writes.
+
+**Still to add:**
+- Reviewer currentness snapshot and relaunch when reviewed versions change during review.
 - `.saivage/outputs/cards/{cardId}/` UI projection.
 
-**Net:** fewer evidence types, fewer soft gates, fewer advisory layers. One new slot-directory convention, small per-slot indexes, and hard file-existence checks.
+**Net target:** fewer evidence types, fewer soft gates, fewer advisory layers. One new slot-directory convention, small per-slot indexes, and hard file-existence checks.
 
 ## Conclusion
 
