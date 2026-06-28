@@ -78,51 +78,82 @@ The counter is card-scoped, not invocation-scoped, because a card may have multi
 
 ## File Path Schemes
 
-File tools accept a URL-like scheme prefix that tells the runtime where the file lives and enforces the write boundary. Agents never see or copy long versioned filesystem paths.
+File tools accept a URL-like scheme prefix that tells the runtime where the file lives and enforces the write boundary.
 
-| Scheme | Resolves to | Write boundary |
+| Scheme | Format | Resolves to |
 |---|---|---|
-| `output://` | Current invocation's versioned output directory: `.saivage-work/cards/{cardId}/generated-files/{N}/` | Only the agent's own card's current version. |
-| `project://` or absolute path | Project root | Per role write territory. |
+| `output://` | `output://{cardId}/{version}/{filename}` | `.saivage-work/cards/{cardId}/generated-files/{version}/{filename}` |
+| `project://` | `project://{relative}` or absolute path | `{projectRoot}/{relative}` |
 
 Examples:
-- `output://review.md` → `.saivage-work/cards/card-1/generated-files/3/review.md`
-- `output://planner-result.md` → same directory, different filename
+- `output://card-1/23/review.md` → `.saivage-work/cards/card-1/generated-files/23/review.md`
+- `output://card-34/7/planner-result.md` → `.saivage-work/cards/card-34/generated-files/7/planner-result.md`
 - `project://src/foo.ts` → `{projectRoot}/src/foo.ts`
 - `/home/salva/g/ml/getrich-v2/README.md` → absolute, same as `project://`
 
-The runtime resolves `output://` to the current card's current version directory. The agent does not know the version number, the card ID, or the `.saivage-work/` path. It just writes to `output://review.md`.
+The `output://` URL is fully-qualified: it contains the card ID, the version number, and the filename. Any agent can read any output file by URL, regardless of which card or invocation produced it. This makes output references passable between agents — the reviewer can cite `output://card-7/3/executor-result.md` in its review, and the planner can read `output://card-1/23/review.md` to see why the reviewer rejected its work.
 
-Resolution happens in the file tools (`write`, `edit`, `read`, `glob`, `grep`, `apply_patch`). Each tool checks the scheme before touching the filesystem:
+There is no implicit or context-relative `output://` resolution. The prompt always passes the full URL. This avoids ambiguity when an agent needs to reference another card's output.
 
-- `output://` — the tool resolves to the current output directory. If the role is not allowed to write output files (e.g. a reviewer trying to write a non-review output), the tool rejects. The version directory is created by the runtime before invocation; the agent writes into it.
-- `project://` or absolute — the tool resolves to the project root and applies role-based write territory checks. These are hard checks, not advisory warnings.
+### Write enforcement
+
+Write enforcement is three-dimensional, checking all components of the URL:
+
+| Rule | Check |
+|---|---|
+| Card matches current invocation's card | `url.cardId == allocatedCardId` |
+| Version matches current invocation's allocated version | `url.version == allocatedVersion` |
+| Filename matches role's designated output | `url.filename == roleAllowedFilename` |
+
+| Role | Allowed output filename | `project://` write | `output://` read | `project://` read |
+|---|---|---|---|---|
+| Planner | `planner-result.md` | yes | any card, any version | yes |
+| Executor | `executor-result.md` | yes | any card, any version | yes |
+| Reviewer | `review.md` | no | any card, any version | yes |
+
+The planner physically cannot overwrite `output://card-1/23/review.md` because:
+1. Version 23 was allocated to the reviewer's invocation, not the planner's.
+2. `review.md` is not the planner's designated filename.
+
+The reviewer cannot write `project://` paths at all. These are hard checks enforced in the file tools, not advisory warnings.
+
+### Role designated filenames
+
+Each role has exactly one designated output filename:
+
+| Role | Filename |
+|---|---|
+| Planner | `planner-result.md` |
+| Executor | `executor-result.md` |
+| Reviewer | `review.md` |
+
+An agent can only write its role's designated filename to its own allocated version. It can read any file from any version of any card.
 
 ## How It Works
 
 ### Before invocation
 
-The runtime allocates the next version number, creates the directory, and passes the mandatory filenames using the `output://` scheme in the prompt.
+The runtime allocates the next version number for the card, creates the directory, and passes the full `output://` URL in the prompt.
 
 ```text
 You must write your review to:
-output://review.md
+output://card-1/23/review.md
 
 Do not call emit_reviewer_result until that file exists.
 ```
 
 The agent receives:
-- The `output://` path(s) for mandatory files.
+- The full `output://` URL for mandatory files.
 - The instruction to create the file before calling the terminal tool.
 
-The agent never sees `.saivage-work/cards/card-1/generated-files/3/review.md`. It sees `output://review.md`.
+The URL is fully-qualified and stable. The agent copies it into file tools. The runtime resolves it to the filesystem path.
 
 ### After terminal tool call
 
-The runtime checks whether each mandatory file exists in the current version directory and is non-empty.
+The runtime checks whether each mandatory file exists at the resolved path and is non-empty.
 
 - **All files present:** accept the terminal result.
-- **Files missing:** reject, re-enter the same agent session with a continuation message naming the missing `output://` paths, increment nothing.
+- **Files missing:** reject, re-enter the same agent session with a continuation message naming the missing `output://` URLs, increment nothing.
 - **Repair budget exhausted:** fail the activation with a clear runtime diagnostic.
 
 ### What the agent uses to write files
@@ -130,6 +161,26 @@ The runtime checks whether each mandatory file exists in the current version dir
 The agent uses normal file-writing tools (`write`, `edit`, `apply_patch`) with the `output://` scheme to create the mandatory file. There is no special `register_evidence` tool. The file existing at the resolved path is the evidence.
 
 For project work files (code, tests, docs), the agent uses `project://` or absolute paths with the same tools.
+
+### Cross-agent references
+
+When the reviewer returns `needs_corrections`, the runtime passes the review URL to the planner:
+
+```text
+Reviewer rejected at output://card-1/23/review.md. Read it for corrections.
+```
+
+The planner reads `output://card-1/23/review.md` — a fully-qualified URL it can resolve regardless of its own card or version. No agent needs to construct or guess paths.
+
+When the reviewer is invoked, its context message includes descendant output URLs:
+
+```text
+Descendant work:
+- card-7 (executor, done): output://card-7/3/executor-result.md
+- card-8 (executor, done): output://card-8/1/executor-result.md
+```
+
+The reviewer reads those URLs to verify the work before citing the descendant cards.
 
 ## Role-Specific Mandatory Outputs
 
@@ -143,15 +194,15 @@ The reviewer prompt says:
 
 ```text
 Write your review to:
-output://review.md
+output://card-1/23/review.md
 
 Create the file, then call emit_reviewer_result.
 ```
 
-After `emit_reviewer_result`, the runtime checks `review.md` exists in the current version directory. If not, the same reviewer session gets:
+After `emit_reviewer_result`, the runtime checks `output://card-1/23/review.md` exists. If not, the same reviewer session gets:
 
 ```text
-Required output file output://review.md was not created. Create it, then call emit_reviewer_result again.
+Required output file output://card-1/23/review.md was not created. Create it, then call emit_reviewer_result again.
 ```
 
 ### Planner
@@ -164,7 +215,7 @@ The planner prompt says:
 
 ```text
 Write your planning summary to:
-output://planner-result.md
+output://card-1/24/planner-result.md
 
 Create the file, then call emit_planner_result.
 ```
@@ -179,7 +230,7 @@ The executor prompt says:
 
 ```text
 Write your work summary to:
-output://executor-result.md
+output://card-42/5/executor-result.md
 
 Create the file, then call emit_executor_result.
 ```
@@ -209,50 +260,50 @@ The reviewer must receive descendant summaries as context messages before invoca
 - `id`, `type`, `title`, `status`
 - `lifecycle.result.kind` (executor_success, planner_done, planner_blocked, etc.)
 - `lifecycle.result.summary` or `lifecycle.result.error`
-- Paths to the descendant's mandatory output files using the filesystem path (e.g., `.saivage-work/cards/card-7/generated-files/1/executor-result.md`) so the reviewer can `read` them
+- The descendant's output URLs (e.g., `output://card-7/3/executor-result.md`) so the reviewer can `read` them
 
-This lets the reviewer cite descendant cards that have real work products and read those products if needed. The reviewer reads descendant files by absolute path or `project://` path; it writes its own review using `output://`.
+This lets the reviewer cite descendant cards that have real work products and read those products if needed. The reviewer reads descendant files by their `output://` URL; it writes its own review to its allocated `output://` URL.
 
 This was already designed in `agent-tool-surfaces-and-information-flow.md` (section "Reviewer context — special case") but never implemented. The mandatory-output design depends on it being implemented now.
 
 ## File Tools For Reviewer And Planner
 
-The reviewer and planner currently have no file-writing tools. All agents share the same file tools (`read`, `write`, `edit`, `apply_patch`, `glob`, `grep`), but path resolution and write enforcement are scheme-based.
+The reviewer and planner currently have no file-writing tools. All agents share the same file tools (`read`, `write`, `edit`, `apply_patch`, `glob`, `grep`), but path resolution and write enforcement are scheme-based and fully-qualified.
 
 ### Path resolution
 
-| Scheme | Resolves to | Example |
+| Scheme | Format | Resolves to |
 |---|---|---|
-| `output://{filename}` | `.saivage-work/cards/{currentCardId}/generated-files/{currentVersion}/{filename}` | `output://review.md` |
-| `project://{relative}` | `{projectRoot}/{relative}` | `project://src/index.ts` |
-| Absolute path `/...` | Same filesystem path | `/home/salva/g/ml/getrich-v2/README.md` |
+| `output://{cardId}/{version}/{filename}` | Fully-qualified card output URL | `.saivage-work/cards/{cardId}/generated-files/{version}/{filename}` |
+| `project://{relative}` | Project-relative path | `{projectRoot}/{relative}` |
+| Absolute path `/...` | Same filesystem path | Same filesystem path |
 
-The `output://` scheme is scoped to the current card's current version directory. The runtime resolves it before the file tool touches the filesystem. The agent never needs to know the version number or the card ID.
+The `output://` URL is fully-qualified. The runtime resolves it before the file tool touches the filesystem. Any agent can read any `output://` URL. Write is restricted to the current invocation's allocated `(cardId, version, filename)`.
 
-### Write enforcement by scheme and role
+### Write enforcement
 
-| Role | `output://` write | `project://` write | `output://` read | `project://` read |
-|---|---|---|---|---|
-| Planner | yes | yes | yes | yes |
-| Executor | yes | yes | yes | yes |
-| Reviewer | yes (review.md only) | no | yes | yes |
+The file tool checks all three components of an `output://` write:
 
-The reviewer can only write `output://review.md`. If it tries `output://anything-else` or `project://`, the file tool rejects hard. The planner and executor write freely in both schemes.
+1. `cardId` must match the current invocation's card.
+2. `version` must match the current invocation's allocated version.
+3. `filename` must match the role's designated filename.
 
-This replaces the current advisory write-territory system with hard scheme-based enforcement in the file tools themselves. No advisory warnings that always return `allowed: true`.
+The reviewer can only write `output://{itsCard}/{itsVersion}/review.md`. Any other `output://` write or any `project://` write is hard-rejected. The planner and executor can write their designated output file and any `project://` path.
+
+This replaces the current advisory write-territory system with hard scheme-based enforcement in the file tools. No advisory warnings, no path-pattern territories.
 
 ## Validation And Repair Flow
 
 ```text
 runtime allocates version N for card C
 runtime creates .saivage-work/cards/C/generated-files/N/
-runtime invokes agent with mandatory output:// path(s) in prompt
+runtime invokes agent with mandatory output://C/N/{filename} URL(s) in prompt
 agent writes mandatory file(s) using file tools with output:// scheme
 agent calls terminal tool (emit_*_result)
-runtime checks mandatory file(s) exist in version N directory and are non-empty
+runtime checks mandatory file(s) exist at output://C/N/{filename} and are non-empty
   if missing:
     append continuation message to same LLM session:
-      "Required file output://{filename} was not created. Create it and call {terminal_tool} again."
+      "Required file output://C/N/{filename} was not created. Create it and call {terminal_tool} again."
     re-enter same agent (not a new session)
     if repair budget exhausted:
       fail activation with runtime diagnostic
@@ -312,7 +363,7 @@ Descendant work:
 Assessment id: {assessmentId}
 
 Write your review to:
-output://review.md
+output://{cardId}/{N}/review.md
 
 Do not call emit_reviewer_result until the review file exists.
 End by calling emit_reviewer_result with your assessment.
@@ -322,7 +373,7 @@ Planner prompt addition:
 
 ```text
 Write your planning summary to:
-output://planner-result.md
+output://{cardId}/{N}/planner-result.md
 
 Do not call emit_planner_result until the summary file exists.
 ```
@@ -331,7 +382,7 @@ Executor prompt addition:
 
 ```text
 Write your work summary to:
-output://executor-result.md
+output://{cardId}/{N}/executor-result.md
 
 Do not call emit_executor_result until the summary file exists.
 ```
@@ -383,19 +434,20 @@ This is simpler than the current artifacts/attachments UI.
 2. Add `allocateOutputVersion(cardId)` to card store: increments `output_version`, creates `.saivage-work/cards/{cardId}/generated-files/{N}/`, returns the directory path.
 3. Add `getOutputDir(cardId, version)` helper.
 4. Add `countNonEmptyFiles(dir)` helper.
-5. Add `resolveAgentPath(scheme, path, ctx)` resolver: maps `output://{filename}` to the current card's current version directory, `project://{relative}` to `{projectRoot}/{relative}`, absolute paths unchanged.
-6. Add `checkWriteScheme(scheme, role, filename)` enforcer: hard reject for reviewer writing non-`review.md` outputs or any `project://` writes; hard reject for any role writing outside allowed schemes.
-7. Tests: allocation increments, directory creation, path resolution for each scheme, write enforcement per role, recovery after crash.
+5. Add `resolveOutputUrl(url, projectRoot)` resolver: parses `output://{cardId}/{version}/{filename}` → `.saivage-work/cards/{cardId}/generated-files/{version}/{filename}`, `project://{relative}` → `{projectRoot}/{relative}`, absolute paths unchanged.
+6. Add `checkOutputWrite(url, role, allocatedCardId, allocatedVersion)` enforcer: hard reject unless cardId/version/filename all match the current invocation's allocation and the role's designated filename.
+7. Tests: allocation increments, directory creation, URL resolution for each scheme, write enforcement per role (reviewer can only write its allocated `output://cardId/version/review.md`, planner cannot write `review.md`, etc.), recovery after crash.
 
 ### Phase 2: Reviewer mandatory output + descendant context
 
 1. In `PlanningCardProcessorActor.reviewPlannerDone(...)`, allocate the next output version for the goal card.
-2. Build descendant summary context message: for each descendant, include id/type/title/status/result.kind/result.summary and the filesystem path to its `generated-files/` directory.
-3. Update `reviewerPrompt(...)` to include the mandatory `output://review.md` path and the descendant summaries.
-4. After reviewer terminal tool call, check `review.md` exists in the versioned directory.
-5. If missing, use the existing `LLMToolContinuationContextHook` to inject: "Required file output://review.md was not created. Create it and call emit_reviewer_result again."
+2. Build descendant summary context message: for each descendant, include id/type/title/status/result.kind/result.summary and the descendant's latest output URL (e.g., `output://card-7/3/executor-result.md`).
+3. Update `reviewerPrompt(...)` to include the mandatory `output://{cardId}/{version}/review.md` URL and the descendant summaries.
+4. After reviewer terminal tool call, check `review.md` exists at the allocated URL.
+5. If missing, use the existing `LLMToolContinuationContextHook` to inject: "Required file output://{cardId}/{version}/review.md was not created. Create it and call emit_reviewer_result again."
 6. Bound repair attempts (2). On exhaustion, fail with runtime diagnostic.
-7. Tests: missing file triggers same-session repair; repair succeeds on second attempt; budget exhaustion fails.
+7. When the reviewer returns `needs_corrections`, pass the review URL (e.g., `output://card-1/23/review.md`) to the planner context.
+8. Tests: missing file triggers same-session repair; repair succeeds on second attempt; budget exhaustion fails; planner receives review URL in corrections context.
 
 ### Phase 3: Replace evidence gate
 
@@ -407,26 +459,28 @@ This is simpler than the current artifacts/attachments UI.
 ### Phase 4: Planner mandatory output
 
 1. In `PlanningCardProcessorActor.runActivation(...)`, allocate the next output version before the planner LLM turn.
-2. Update `plannerPrompt(...)` to include the mandatory `output://planner-result.md` path.
-3. After planner terminal tool call, check the file exists. If missing, same-session repair via continuation hook.
-4. Tests: missing planner summary triggers repair; present file accepts.
+2. Update `plannerPrompt(...)` to include the mandatory `output://{cardId}/{version}/planner-result.md` URL.
+3. If received reviewer corrections context, include the review URL (e.g., `output://card-1/23/review.md`) as a readable reference.
+4. After planner terminal tool call, check the file exists. If missing, same-session repair via continuation hook.
+5. Tests: missing planner summary triggers repair; present file accepts; planner can read prior review URL.
 
 ### Phase 5: Executor mandatory output
 
 1. In `TerminalCardProcessorActor` activation, allocate the next output version.
-2. Update executor prompt to include the mandatory `output://executor-result.md` path.
+2. Update executor prompt to include the mandatory `output://{cardId}/{version}/executor-result.md` URL.
 3. After executor terminal tool call, check the file exists. If missing, same-session repair.
 4. Tests: missing executor summary triggers repair; present file accepts.
 
 ### Phase 6: Add file tools to reviewer and planner with scheme enforcement
 
 1. Add shared `read`, `write`, `edit`, `apply_patch`, `glob`, `grep` tools to reviewer and planner actor surfaces.
-2. All file tools resolve paths via `resolveAgentPath(scheme, path, ctx)`.
-3. All file tools enforce `checkWriteScheme(scheme, role, filename)` before writing.
-4. Reviewer can write only `output://review.md`; other `output://` writes and all `project://` writes are hard-rejected.
-5. Planner can write `output://` and `project://` freely.
-6. Keep terminal tools role-specific.
-7. Tests: reviewer can write `output://review.md`; reviewer cannot write `output://anything-else`; reviewer cannot write `project://`; planner can read and write project files; reviewer can read project files.
+2. All file tools resolve paths via `resolveOutputUrl(url, projectRoot)`.
+3. All file tools enforce `checkOutputWrite(url, role, allocatedCardId, allocatedVersion)` before writing.
+4. Reviewer can write only `output://{itsCard}/{itsVersion}/review.md`; any other `output://` write or any `project://` write is hard-rejected.
+5. Planner can write its own `output://` and any `project://` path; it cannot write another card's or another invocation's `output://`.
+6. Both roles can read any `output://` URL and any `project://` path.
+7. Keep terminal tools role-specific.
+8. Tests: reviewer can write its allocated output URL; reviewer cannot write other output URLs; reviewer cannot write `project://`; planner can read prior reviews by full `output://` URL; planner cannot overwrite `review.md` on any card or version.
 
 ### Phase 7: Remove old mechanisms
 
@@ -464,12 +518,13 @@ This removes more code than it adds:
 **Added:**
 - `output_version` on `CardRecord` (one integer field).
 - `allocateOutputVersion` (one store method).
-- `resolveAgentPath` and `checkWriteScheme` path-scheme resolver and enforcer.
+- `resolveOutputUrl` and `checkOutputWrite` URL resolver and three-dimensional write enforcer.
 - Versioned directory creation.
 - Mandatory file-existence checks after terminal tool calls.
 - Same-session repair via existing continuation hook.
-- Reviewer descendant summary context message (already designed, not implemented).
-- Shared file tools for reviewer (write to `output://review.md`, read project) and planner (full file access via `project://` and `output://`).
+- Reviewer descendant summary context message with `output://` URLs (already designed, not implemented).
+- Cross-agent output references via fully-qualified `output://{cardId}/{version}/{filename}` URLs.
+- Shared file tools for reviewer (write to its allocated output URL, read any output URL and project files) and planner (full file access via `project://` and its own `output://`).
 - `generated-files/` UI projection.
 
 **Net:** fewer types, fewer methods, fewer soft gates, fewer advisory layers. One new integer field, one new store method, one new directory convention, and hard file-existence checks.
@@ -478,4 +533,6 @@ This removes more code than it adds:
 
 The current codebase has soft mechanisms that failed closed. The fix is not to add more mechanisms; it is to replace soft controls with hard contracts: mandatory output files at versioned declared paths, hard existence checks, same-agent repair via existing seams, and a simple evidence gate that checks whether cited descendant cards have output files on disk.
 
-No `ArtifactRef`. No `appendEvidenceRefs`. No `registerEvidenceRefsBestEffort`. No `generated_files` tracking. No advisory write territories. No `invocation.json` manifest. No slot metadata. No registration step. The file existing at the declared path is the evidence.
+Output files are addressed by fully-qualified `output://{cardId}/{version}/{filename}` URLs that any agent can read and pass to other agents. Write is three-dimensionally enforced: only your card, only your version, only your role's filename. No implicit resolution, no context-relative ambiguity, no stale references.
+
+No `ArtifactRef`. No `appendEvidenceRefs`. No `registerEvidenceRefsBestEffort`. No `generated_files` tracking. No advisory write territories. No `invocation.json` manifest. No slot metadata. No registration step. The file existing at the declared URL is the evidence.
