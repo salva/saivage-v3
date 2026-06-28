@@ -34,7 +34,7 @@ No best-effort. No advisory warnings. No optional evidence. No soft gates.
 | `ArtifactRef` / `AttachmentRef` types and card fields | Replaced by output files at declared paths. |
 | `appendEvidenceRefs` / `registerEvidenceRefs` / `registerEvidenceRefsBestEffort` | No artifact/attachment registration. |
 | `artifacts` / `attachments` / `generated_files` in executor terminal envelope | Replaced by mandatory output file checks. |
-| `validateReviewerAssessment`'s `artifacts.length > 0 \|\| attachments.length > 0 \|\| lifecycle.result` check | Replaced by: do mandatory output files exist, and do cited descendant cards have their own mandatory outputs. |
+| `validateReviewerAssessment`'s `artifacts.length > 0 \|\| attachments.length > 0 \|\| lifecycle.result` check | Replaced by: does the reviewer's mandatory record exist, and did the reviewer cite accepted cards from the reviewed subtree. |
 | Write-territory advisory warnings that always return `allowed: true` | Replaced by hard scheme-based enforcement in the file tools. |
 | Path-pattern-based write territories | Replaced by `record://`, `tmp://`, and `project://` scheme enforcement. |
 
@@ -253,11 +253,11 @@ The new gate is:
 
 1. Does the reviewer's own mandatory `review.md` exist? (Checked before this point; if not, same-agent repair.)
 2. Did the reviewer cite at least one descendant card in `evidence_card_ids`?
-3. For each cited descendant card, does that card have at least one mandatory output file in its `.saivage/outputs/cards/{cardId}/` directory?
+3. Does each cited card exist, belong to the reviewed subtree, and already have an accepted terminal status such as `done`?
 
-If a cited descendant has no mandatory outputs, the reviewer should emit `needs_corrections`, not `pass`. If the reviewer emits `pass` citing a card with no outputs, the gate rejects with `needs_corrections` routed to the planner — that is a real missing-work problem, not a reviewer-output problem.
+The gate does not re-open accepted descendant cards to check their record files. Accepted descendant status is the runtime fact that those cards already satisfied their own mandatory-record contract. Rechecking descendant files here duplicates acceptance logic and can produce stale false negatives.
 
-If the reviewer emits `pass` citing cards that all have mandatory outputs, the gate passes. No `ArtifactRef`, no `appendEvidenceRefs`, no artifact-length check.
+If the reviewer emits `pass` citing accepted descendant cards from the reviewed subtree, the gate passes. No `ArtifactRef`, no `appendEvidenceRefs`, no artifact-length check, no descendant file scan.
 
 ## Reviewer Context
 
@@ -409,7 +409,7 @@ function validateReviewerAssessment(input: {
   assessment: ReviewerResult['assessment'];
   cardId: string;
   readCard(cardId: string): CardRecord | null;
-  cardOutputDir(cardId: string): string | null;
+  isDescendantOf(cardId: string, ancestorId: string): boolean;
 }): { valid: boolean; reason?: string } {
   if (input.assessment.evidence_card_ids.length === 0) {
     return { valid: false, reason: 'Reviewer must cite at least one evidence card.' };
@@ -417,16 +417,18 @@ function validateReviewerAssessment(input: {
   for (const evidenceId of input.assessment.evidence_card_ids) {
     const card = input.readCard(evidenceId);
     if (!card) return { valid: false, reason: `Reviewer cited missing card '${evidenceId}'.` };
-    const outputs = input.cardOutputDir(evidenceId);
-    if (!outputs || countNonEmptyFiles(outputs) === 0) {
-      return { valid: false, reason: `Cited card '${evidenceId}' has no mandatory record files.` };
+    if (!input.isDescendantOf(evidenceId, input.cardId)) {
+      return { valid: false, reason: `Reviewer cited card '${evidenceId}' outside the reviewed subtree.` };
+    }
+    if (card.status !== 'done') {
+      return { valid: false, reason: `Reviewer cited non-accepted card '${evidenceId}' with status '${card.status}'.` };
     }
   }
   return { valid: true };
 }
 ```
 
-No `artifacts` array. No `attachments` array. No `lifecycle.result` check. Just: do the cited descendant cards have record files on disk?
+No `artifacts` array. No `attachments` array. No `lifecycle.result` check. No descendant record-file scan. Just: did the reviewer cite accepted cards from the reviewed subtree?
 
 ## API / UI
 
@@ -446,10 +448,9 @@ This is simpler than the current artifacts/attachments UI.
 1. Add `record_version: number` to `CardRecord` (default 0).
 2. Add `allocateRecordVersion(cardId)` to card store: increments `record_version`, creates `.saivage/outputs/cards/{cardId}/{N}/`, returns the directory path.
 3. Add `getRecordDir(cardId, version)` helper.
-4. Add `countNonEmptyFiles(dir)` helper.
-5. Add `resolveAgentUrl(url, projectRoot)` resolver: parses `record://{cardId}/{version}/{filename}` through a dedicated durable-record branch → `.saivage/outputs/cards/{cardId}/{version}/{filename}`; parses `tmp://{cardId}/{relative}` through the disposable card scratch branch → `.saivage/work/cards/{cardId}/tmp/{relative}`; parses `project://{relative}` through ordinary project-file policy → `{projectRoot}/{relative}`; absolute paths remain ordinary project paths.
-6. Add `checkAgentWrite(url, role, allocatedCardId, allocatedVersion, currentCardId)` enforcer: hard reject `record://` unless cardId/version/filename all match the current invocation's declared mandatory record file; hard reject `tmp://` unless cardId matches the current card; hard reject direct `.saivage/` writes through `project://` or absolute paths.
-7. Tests: allocation increments, directory creation, URL resolution for each scheme, write enforcement per role (reviewer can only write its declared `record://cardId/version/review.md`, planner cannot write `review.md`, every role can write `tmp://{currentCardId}/...` but not another card's tmp dir, etc.), recovery after crash.
+4. Add `resolveAgentUrl(url, projectRoot)` resolver: parses `record://{cardId}/{version}/{filename}` through a dedicated durable-record branch → `.saivage/outputs/cards/{cardId}/{version}/{filename}`; parses `tmp://{cardId}/{relative}` through the disposable card scratch branch → `.saivage/work/cards/{cardId}/tmp/{relative}`; parses `project://{relative}` through ordinary project-file policy → `{projectRoot}/{relative}`; absolute paths remain ordinary project paths.
+5. Add `checkAgentWrite(url, role, allocatedCardId, allocatedVersion, currentCardId)` enforcer: hard reject `record://` unless cardId/version/filename all match the current invocation's declared mandatory record file; hard reject `tmp://` unless cardId matches the current card; hard reject direct `.saivage/` writes through `project://` or absolute paths.
+6. Tests: allocation increments, directory creation, URL resolution for each scheme, write enforcement per role (reviewer can only write its declared `record://cardId/version/review.md`, planner cannot write `review.md`, every role can write `tmp://{currentCardId}/...` but not another card's tmp dir, etc.), recovery after crash.
 
 ### Phase 2: Add scheme-enforced file tools
 
@@ -477,9 +478,9 @@ This is simpler than the current artifacts/attachments UI.
 ### Phase 4: Replace evidence gate
 
 1. Remove `validateReviewerAssessment`'s `artifacts`/`attachments`/`lifecycle.result` check.
-2. Replace with: do cited descendant cards have non-empty files in their `.saivage/outputs/cards/{cardId}/` directory.
-3. If reviewer emits `pass` but cited descendants have no outputs, route `needs_corrections` to the planner — that is a real missing-work problem.
-4. Tests: pass with cited descendant outputs; rejection when cited descendant has no outputs; rejection when no evidence cards cited.
+2. Replace with: do cited cards exist, belong to the reviewed subtree, and already have accepted terminal status.
+3. Do not scan descendant record files; accepted descendant cards already passed their own mandatory-record checks.
+4. Tests: pass with cited accepted descendants; rejection when cited card is missing, outside the subtree, not accepted, or no evidence cards are cited.
 
 ### Phase 5: Planner mandatory output
 
@@ -545,7 +546,7 @@ This removes more code than it adds:
 
 ## Conclusion
 
-The current codebase has soft mechanisms that failed closed. The fix is not to add more mechanisms; it is to replace soft controls with hard contracts: mandatory output files at versioned declared paths, hard existence checks, same-agent repair via existing seams, and a simple evidence gate that checks whether cited descendant cards have output files on disk.
+The current codebase has soft mechanisms that failed closed. The fix is not to add more mechanisms; it is to replace soft controls with hard contracts: mandatory output files at versioned declared paths, hard existence checks, same-agent repair via existing seams, and a simple reviewer gate that checks whether cited evidence cards are accepted descendants of the reviewed card.
 
 Record files are addressed by fully-qualified `record://{cardId}/{version}/{filename}` URLs that any agent can read and pass to other agents. Record writes are three-dimensionally enforced: only your card, only your version, only your role's declared filename. Discretionary writes go only to `tmp://{currentCardId}/...`. No implicit resolution, no context-relative ambiguity, no stale references.
 
