@@ -189,16 +189,17 @@ const renderedTree = computed<TreeNode[]>(() => {
   height: 8px;
   border-radius: 50%;
   background: var(--text-muted);
+  border: 1px solid transparent;
   flex-shrink: 0;
 }
 
-.status-backlog { background: var(--text-muted); }
+.status-backlog { background: var(--c-white); border-color: var(--border-strong); }
 .status-running { background: var(--accent); }
-.status-blocked { background: var(--warn); }
-.status-changed { background: var(--accent-2); }
-.status-done { background: var(--accent); }
+.status-blocked { background: var(--orange); }
+.status-changed { background: var(--pink); }
+.status-done { background: var(--accent-2); }
 .status-failed { background: var(--danger); }
-.status-cancelled { background: var(--border-strong); opacity: 0.5; }
+.status-cancelled { background: var(--text-faint); }
 .status-needs_verification { background: var(--warn); }
 
 .node-title {

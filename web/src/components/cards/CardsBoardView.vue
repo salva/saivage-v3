@@ -146,15 +146,16 @@ const columns = computed<Column[]>(() =>
   width: 8px;
   height: 8px;
   border-radius: 50%;
+  border: 1px solid transparent;
 }
 
-.status-backlog { background: var(--text-muted); }
+.status-backlog { background: var(--c-white); border-color: var(--border-strong); }
 .status-running { background: var(--accent); }
-.status-blocked { background: var(--warn); }
-.status-changed { background: var(--purple); }
-.status-done { background: var(--accent); }
+.status-blocked { background: var(--orange); }
+.status-changed { background: var(--pink); }
+.status-done { background: var(--accent-2); }
 .status-failed { background: var(--danger); }
-.status-cancelled { background: var(--border-strong); }
+.status-cancelled { background: var(--text-faint); }
 .status-needs_verification { background: var(--warn); }
 
 .column-count {

@@ -151,11 +151,13 @@ function formatDuration(ms: number | null | undefined): string {
   border-color: var(--surface-3);
 }
 
-.tl-marker.status-done { border-color: var(--accent); background: var(--entry-accent-bg); }
+.tl-marker.status-backlog { border-color: var(--border-strong); background: var(--c-white); }
+.tl-marker.status-done { border-color: var(--accent-2); background: var(--c-white); }
 .tl-marker.status-failed { border-color: var(--danger); background: var(--entry-danger-bg); }
-.tl-marker.status-running { border-color: var(--accent-2); background: var(--entry-user-bg); }
-.tl-marker.status-blocked { border-color: var(--warn); background: var(--entry-warn-bg); }
-.tl-marker.status-cancelled { border-color: var(--border-strong); background: var(--surface-3); opacity: 0.6; }
+.tl-marker.status-running { border-color: var(--accent); background: var(--entry-user-bg); }
+.tl-marker.status-blocked { border-color: var(--orange); background: var(--c-white); }
+.tl-marker.status-changed { border-color: var(--pink); background: var(--c-white); }
+.tl-marker.status-cancelled { border-color: var(--text-faint); background: var(--surface-3); }
 .tl-marker.status-needs_verification { border-color: var(--warn); background: var(--entry-warn-bg); }
 
 .tl-icon {
