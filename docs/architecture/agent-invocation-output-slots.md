@@ -54,7 +54,7 @@ No best-effort. No advisory warnings. No optional evidence. No soft gates.
 Every mandatory output file lives under a versioned directory on the card:
 
 ```text
-.saivage-work/cards/{cardId}/generated-files/{N}/{filename}
+.saivage/outputs/cards/{cardId}/{N}/{filename}
 ```
 
 Where `{N}` is a monotonically increasing counter per card. The counter increments each time the runtime declares a new output file for a new invocation. All prior versions remain on disk.
@@ -62,17 +62,19 @@ Where `{N}` is a monotonically increasing counter per card. The counter incremen
 Example:
 
 ```text
-.saivage-work/cards/card-1/generated-files/
+.saivage/outputs/cards/card-1/
   1/
     review.md
   2/
     review.md
   3/
     review.md
-    planner-summary.md
+    planner-result.md
 ```
 
 Version 1 and 2 reviews remain available even after the version 3 review replaces them as the current one. The runtime, UI, and reviewer can read prior versions for comparison.
+
+Mandatory output files are durable runtime evidence, so they live under `.saivage/outputs/`, not under `.saivage-work/` or future `.saivage/work/`. The work directory is disposable operational scratch for shell/process outputs and caches; removing it must not lose critical agent evidence.
 
 The counter is card-scoped, not invocation-scoped, because a card may have multiple invocations across its lifecycle (planner, reviewer, executor) and each contributes files. The counter is persisted alongside card state so it survives restarts.
 
@@ -82,16 +84,18 @@ File tools accept a URL-like scheme prefix that tells the runtime where the file
 
 | Scheme | Format | Resolves to |
 |---|---|---|
-| `output://` | `output://{cardId}/{version}/{filename}` | `.saivage-work/cards/{cardId}/generated-files/{version}/{filename}` |
+| `output://` | `output://{cardId}/{version}/{filename}` | `.saivage/outputs/cards/{cardId}/{version}/{filename}` |
 | `project://` | `project://{relative}` or absolute path | `{projectRoot}/{relative}` |
 
 Examples:
-- `output://card-1/23/review.md` → `.saivage-work/cards/card-1/generated-files/23/review.md`
-- `output://card-34/7/planner-result.md` → `.saivage-work/cards/card-34/generated-files/7/planner-result.md`
+- `output://card-1/23/review.md` → `.saivage/outputs/cards/card-1/23/review.md`
+- `output://card-34/7/planner-result.md` → `.saivage/outputs/cards/card-34/7/planner-result.md`
 - `project://src/foo.ts` → `{projectRoot}/src/foo.ts`
 - `/home/salva/g/ml/getrich-v2/README.md` → absolute, same as `project://`
 
 The `output://` URL is fully-qualified: it contains the card ID, the version number, and the filename. Any agent can read any output file by URL, regardless of which card or invocation produced it. This makes output references passable between agents — the reviewer can cite `output://card-7/3/executor-result.md` in its review, and the planner can read `output://card-1/23/review.md` to see why the reviewer rejected its work.
+
+`output://` is not a shortcut for `project://.saivage/...`. It uses a dedicated resolver and access policy for durable runtime evidence. Ordinary `project://` access must continue to treat `.saivage/` and the work directory as internal state unless a specific operator-facing tool allows inspection.
 
 There is no implicit or context-relative `output://` resolution. The prompt always passes the full URL. This avoids ambiguity when an agent needs to reference another card's output.
 
@@ -245,7 +249,7 @@ The new gate is:
 
 1. Does the reviewer's own mandatory `review.md` exist? (Checked before this point; if not, same-agent repair.)
 2. Did the reviewer cite at least one descendant card in `evidence_card_ids`?
-3. For each cited descendant card, does that card have at least one mandatory output file in its `generated-files/` directory?
+3. For each cited descendant card, does that card have at least one mandatory output file in its `.saivage/outputs/cards/{cardId}/` directory?
 
 If a cited descendant has no mandatory outputs, the reviewer should emit `needs_corrections`, not `pass`. If the reviewer emits `pass` citing a card with no outputs, the gate rejects with `needs_corrections` routed to the planner — that is a real missing-work problem, not a reviewer-output problem.
 
@@ -274,7 +278,7 @@ The reviewer and planner currently have no file-writing tools. All agents share 
 
 | Scheme | Format | Resolves to |
 |---|---|---|
-| `output://{cardId}/{version}/{filename}` | Fully-qualified card output URL | `.saivage-work/cards/{cardId}/generated-files/{version}/{filename}` |
+| `output://{cardId}/{version}/{filename}` | Fully-qualified card output URL | `.saivage/outputs/cards/{cardId}/{version}/{filename}` |
 | `project://{relative}` | Project-relative path | `{projectRoot}/{relative}` |
 | Absolute path `/...` | Same filesystem path | Same filesystem path |
 
@@ -296,7 +300,7 @@ This replaces the current advisory write-territory system with hard scheme-based
 
 ```text
 runtime allocates version N for card C
-runtime creates .saivage-work/cards/C/generated-files/N/
+runtime creates .saivage/outputs/cards/C/N/
 runtime invokes agent with mandatory output://C/N/{filename} URL(s) in prompt
 agent writes mandatory file(s) using file tools with output:// scheme
 agent calls terminal tool (emit_*_result)
@@ -320,6 +324,8 @@ Repair budget: 2 attempts by default. Configurable per card via card metadata if
 
 The versioned output files ARE the persistent evidence. No separate `invocation.json` manifest, no slot metadata database, no registration records.
 
+Because these files are persistent evidence, they are not stored in `.saivage-work/` or future `.saivage/work/`. That directory is disposable work state for shell command outputs, temporary process data, caches, and other rebuildable operational files. Generic work cleanup may delete `.saivage/work`, but it must not delete `.saivage/outputs`.
+
 The version counter is persisted on the card record as a simple integer field:
 
 ```ts
@@ -327,7 +333,7 @@ The version counter is persisted on the card record as a simple integer field:
 output_version: number
 ```
 
-The runtime reads it to allocate the next version, increments it, and persists it. The files themselves are durable on disk under `.saivage-work/cards/{cardId}/generated-files/`.
+The runtime reads it to allocate the next version, increments it, and persists it. The files themselves are durable on disk under `.saivage/outputs/cards/{cardId}/`.
 
 ## Crash Recovery
 
@@ -419,7 +425,7 @@ No `artifacts` array. No `attachments` array. No `lifecycle.result` check. Just:
 
 The operator UI and API expose:
 
-- Card detail shows `generated-files/` directory with versioned outputs.
+- Card detail shows `.saivage/outputs/cards/{cardId}/` with versioned outputs.
 - Each version shows the files it contains.
 - The UI can preview file contents.
 - No `artifacts`/`attachments` projections.
@@ -431,10 +437,10 @@ This is simpler than the current artifacts/attachments UI.
 ### Phase 1: Versioned output directory, counter, and path-scheme resolver
 
 1. Add `output_version: number` to `CardRecord` (default 0).
-2. Add `allocateOutputVersion(cardId)` to card store: increments `output_version`, creates `.saivage-work/cards/{cardId}/generated-files/{N}/`, returns the directory path.
+2. Add `allocateOutputVersion(cardId)` to card store: increments `output_version`, creates `.saivage/outputs/cards/{cardId}/{N}/`, returns the directory path.
 3. Add `getOutputDir(cardId, version)` helper.
 4. Add `countNonEmptyFiles(dir)` helper.
-5. Add `resolveOutputUrl(url, projectRoot)` resolver: parses `output://{cardId}/{version}/{filename}` → `.saivage-work/cards/{cardId}/generated-files/{version}/{filename}`, `project://{relative}` → `{projectRoot}/{relative}`, absolute paths unchanged.
+5. Add `resolveOutputUrl(url, projectRoot)` resolver: parses `output://{cardId}/{version}/{filename}` through a dedicated durable-output branch → `.saivage/outputs/cards/{cardId}/{version}/{filename}`; parses `project://{relative}` through ordinary project-file policy → `{projectRoot}/{relative}`; absolute paths remain ordinary project paths.
 6. Add `checkOutputWrite(url, role, allocatedCardId, allocatedVersion)` enforcer: hard reject unless cardId/version/filename all match the current invocation's allocation and the role's designated filename.
 7. Tests: allocation increments, directory creation, URL resolution for each scheme, write enforcement per role (reviewer can only write its allocated `output://cardId/version/review.md`, planner cannot write `review.md`, etc.), recovery after crash.
 
@@ -452,7 +458,7 @@ This is simpler than the current artifacts/attachments UI.
 ### Phase 3: Replace evidence gate
 
 1. Remove `validateReviewerAssessment`'s `artifacts`/`attachments`/`lifecycle.result` check.
-2. Replace with: do cited descendant cards have non-empty files in their `generated-files/` directory.
+2. Replace with: do cited descendant cards have non-empty files in their `.saivage/outputs/cards/{cardId}/` directory.
 3. If reviewer emits `pass` but cited descendants have no outputs, route `needs_corrections` to the planner — that is a real missing-work problem.
 4. Tests: pass with cited descendant outputs; rejection when cited descendant has no outputs; rejection when no evidence cards cited.
 
@@ -491,7 +497,7 @@ This is simpler than the current artifacts/attachments UI.
 5. Remove `artifacts`/`attachments` from `PLANNER_ALLOWED_EDIT_FIELDS`.
 6. Remove advisory write-territory warnings that always return `allowed: true`; either enforce or delete.
 7. Update card creation to no longer initialize `artifacts: []`, `attachments: []`.
-8. Update API/UI to show `generated-files/` instead of artifacts/attachments.
+8. Update API/UI to show `.saivage/outputs/cards/{cardId}/` instead of artifacts/attachments.
 9. Tests: confirm no references to removed types; confirm card store still works; confirm executor no longer tries to register artifacts.
 
 ### Phase 8: Docs and prompt tests
@@ -525,7 +531,7 @@ This removes more code than it adds:
 - Reviewer descendant summary context message with `output://` URLs (already designed, not implemented).
 - Cross-agent output references via fully-qualified `output://{cardId}/{version}/{filename}` URLs.
 - Shared file tools for reviewer (write to its allocated output URL, read any output URL and project files) and planner (full file access via `project://` and its own `output://`).
-- `generated-files/` UI projection.
+- `.saivage/outputs/cards/{cardId}/` UI projection.
 
 **Net:** fewer types, fewer methods, fewer soft gates, fewer advisory layers. One new integer field, one new store method, one new directory convention, and hard file-existence checks.
 
