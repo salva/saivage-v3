@@ -434,10 +434,8 @@ Reviewer prompt:
 ```text
 You are reviewing card {cardId}: {title}
 
-{description}
-
-Acceptance criteria:
-{acceptance}
+Brief:
+{brief.md content or record URL}
 
 Descendant work:
 {for each descendant: id, type, title, status, result summary, record URLs}

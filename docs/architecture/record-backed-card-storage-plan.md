@@ -85,20 +85,14 @@ interface StoredCardDocument {
   title: string;
   status: CardStatus;
   lifecycle: CardLifecycleState;
-  tags: string[];
-  priority: number;
-  urgency: Urgency;
   created_by: CreatedBy;
   created_at: string;
   version_seq: number;
-  depends_on: string[];
-  related: string[];
+  depends_on?: string[];
   metrics?: Record<string, number | string | boolean | null> | null;
-  estimate?: string | null;
   started_at?: string | null;
   duration_ms?: number | null;
   latest_self_report?: Record<string, unknown> | null;
-  metadata?: Record<string, unknown> | null;
   retries: number;
 }
 ```
@@ -109,7 +103,7 @@ Do not store `updated_at` in `card.json`. `get_card` calculates effective update
 
 `version_seq` is the logical card version and must match the `card.json` slot version. If `card.json` version 12 is current, its document contains `version_seq: 12`.
 
-Audit the current `CardRecord` fields before freezing the new schema. Remove fields that are not actively used by scheduling, display, permissions, or runtime behavior. Likely removals are `tags`, `priority`, `urgency`, `related`, `metadata`, and `estimate` unless the audit finds concrete current consumers. Keep fields such as `depends_on` only if scheduling still uses them, and expose changes through narrow semantic operations rather than broad card editing. Runtime-owned fields such as `status`, `lifecycle`, `started_at`, `duration_ms`, `retries`, `metrics`, and `latest_self_report` are not directly editable by the Analyst.
+Audit the current `CardRecord` fields before freezing the new schema. The target shape above intentionally omits `tags`, `priority`, `urgency`, `related`, `metadata`, and `estimate`; add any of them back only if the audit finds concrete current consumers. Keep fields such as `depends_on` only if scheduling still uses them, and expose changes through narrow semantic operations rather than broad card editing. Runtime-owned fields such as `status`, `lifecycle`, `started_at`, `duration_ms`, `retries`, `metrics`, and `latest_self_report` are not directly editable by the Analyst.
 
 Remove long-form intent fields from `card.json` during cutover:
 
@@ -423,7 +417,7 @@ Use the existing `write_file` tool for document records. When the path uses the 
 
 Shared rules:
 
-- If latest version is closed, a write can create/open the next version automatically.
+- If latest version is closed, an actor write can open the next version and an Analyst/operator write creates and closes the next version in one operation.
 - If latest version is open and owned by the same actor/session, actor writes update that open version.
 - If latest version is open and owned by another actor/session, the write fails.
 - Schema validation must happen before committed versions close. Cheap validation may also happen on write.

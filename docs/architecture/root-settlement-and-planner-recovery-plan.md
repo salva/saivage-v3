@@ -2,6 +2,8 @@
 
 Status: proposed.
 
+Card-editing note: the root-settlement findings in this plan remain useful, but the planner recovery tool details predate the record-backed card storage design. Any implementation of planner recovery edits should follow [Record-Backed Card Storage Plan](./record-backed-card-storage-plan.md): planner intent text is written through `write_file(record://brief.md?card=...)`, broad card field patching is not a target surface, and structural/lifecycle changes use semantic operations.
+
 ## Review Outcome
 
 This plan replaces the earlier receiver-first proposal. The review found that a typed `CardActivationReceiver` abstraction is not required for the current bugs and would mostly wrap the existing parent-private promise with no behavioral gain. That is not consistent with the repository rules: no compatibility constructions, no dead infrastructure, and simple clean architecture first.

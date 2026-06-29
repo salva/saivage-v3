@@ -10,7 +10,7 @@ The micro-actor runtime uses inline one-liner system prompts and offers only a c
 
 2. **Executor cannot edit files.** The executor's only non-terminal tools are `run_process`, `wait_process`, `inspect_process`, `kill_process`. It can run shell commands (including `bash -lc`), but the tool catalog already defines proper file tools (`read`, `write`, `edit`, `apply_patch`, `glob`, `grep`) for the executor role. The process-only surface forces the executor to work through shell one-liners.
 
-3. **Reviewer cannot inspect work.** The reviewer's only tool is `emit_reviewer_result`. It gets `contextMessages: []` and no descendant card summaries. It cannot read cards, list children, inspect files, or evaluate evidence. It can only emit pass/fail based on the goal description alone.
+3. **Reviewer cannot inspect work.** The reviewer's only tool is `emit_reviewer_result`. It gets `contextMessages: []` and no descendant card summaries. It cannot read cards, list children, inspect files, or evaluate evidence. It can only emit pass/fail based on the goal brief alone.
 
 Additionally, the rich system prompt builders (`buildPlannerPrompt`, `buildExecutorPrompt`, `buildReviewerPrompt`) in `src/agents/prompts/system-prompt.ts` are well-designed and generic, but are never called by the live actor runtime — only tests import them.
 
@@ -40,7 +40,7 @@ The planner is a goal coordinator. It decomposes goals into child cards, activat
 | Tool | Purpose | Handled by |
 |---|---|---|
 | `create_card` | Create immediate child cards under the current goal | Actor-owned planner surface |
-| `edit_card` | Update child card description/acceptance/title as understanding evolves | Actor-owned planner surface |
+| `write_file` on `record://brief.md` | Update child goal/instructions/acceptance brief as understanding evolves | Actor-owned planner surface |
 | `activate_card` | Activate an immediate child card for execution | Planning processor sequencing boundary |
 | `cancel_card` | Cancel obsolete/duplicate/mis-scoped children | Later actor-owned planner surface |
 | `delete_card` | Delete cancelled or erroneous children | Later actor-owned planner surface |
@@ -195,7 +195,7 @@ Agents persist narrative output in versioned record slots under `.saivage/output
 The reviewer is invoked by the parent planner after the planner reports `done`. The reviewer must evaluate whether the goal's acceptance criteria are met by examining the completed work.
 
 **What the reviewer needs:**
-1. Goal card: id, title, description, acceptance.
+1. Goal card: id, title if retained, and `brief.md` content or URL.
 2. Descendant card summaries: for each descendant, the `id`, `type`, `title`, `status`, structured lifecycle result summary/error, and latest closed `status.md` record URL.
 3. Reviewable evidence: accepted descendant cards plus their status records.
 4. Read-only tools to verify work: `read`, `glob`, `grep` — currently NOT provided.
@@ -411,7 +411,7 @@ buildPlannerStateContextMessage(...existing...)
 buildReviewerDescendantSummaryMessage(...)
 ```
 
-This avoids repeating card id/title/description/acceptance assembly in each processor while keeping the information flow explicit.
+This avoids repeating card id/title/brief assembly in each processor while keeping the information flow explicit.
 
 ### Phased Implementation
 
@@ -439,7 +439,7 @@ This avoids repeating card id/title/description/acceptance assembly in each proc
 
 - Add executor file tools through `ActorToolSurface` if shell-mediated file edits remain problematic.
 - Add reviewer read-only file tools only if descendant summaries are insufficient.
-- Add planner read-only file tools only if card descriptions/acceptance plus planner state are insufficient for decomposition.
+- Add planner read-only file tools only if card briefs plus planner state are insufficient for decomposition.
 
 ## Validation Plan
 

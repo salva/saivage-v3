@@ -36,7 +36,7 @@ The existing `propagateChange` behavior is the right foundation for Analyst edit
 
 The Analyst card-management boundary should be state-sensitive and runtime-state-sensitive. Analyst card mutations require a paused runtime. "Allowed" means the Analyst may directly mutate durable card state through audited tools while paused. "Notify" means the Analyst should queue context for delivery when the runtime is unpaused.
 
-| Card status | Create child | Patch card/brief | Reorder siblings | Cancel | Delete | Notes |
+| Card status | Create child | Write brief | Reorder siblings | Cancel | Delete | Notes |
 |---|---:|---:|---:|---:|---:|---|
 | `backlog` | allowed | allowed | allowed | allowed | allowed | Dormant work can be reshaped freely. |
 | `changed` | allowed | allowed | allowed | allowed | allowed | Changed work can be reshaped before it is picked up again. |
@@ -47,7 +47,7 @@ The Analyst card-management boundary should be state-sensitive and runtime-state
 | `needs_verification` | allowed | allowed | allowed | allowed | allowed | Treat as non-running review/rework state. |
 | `running` | no | allowed while paused | no | notify | no | Runtime is paused, so the actor is not executing; touched records must be closed and resume notifications are queued. |
 
-Subtree operations inherit the strictest state in the subtree. If any descendant is `running`, direct delete, reorder, and cancel are denied for the subtree root. Patches may target running cards while paused when every touched record is closed and schemas/invariants pass. Resume notifications are queued for affected cards.
+Subtree operations inherit the strictest state in the subtree. If any descendant is `running`, direct delete, reorder, and cancel are denied for the subtree root. `brief.md` writes may target running cards while paused when the touched record is closed and schema-valid. Resume notifications are queued for affected cards.
 
 ## Proposed Tool Surface
 
