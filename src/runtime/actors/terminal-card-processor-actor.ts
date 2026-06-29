@@ -61,7 +61,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
       if (outcome.type === 'result') return { status: 'failed', summary: `${expectedTerminalToolMessage(contract)} Plain executor messages are not accepted as terminal results.`, result: executorFailure(`${expectedTerminalToolMessage(contract)} Plain executor messages are not accepted as terminal results.`) };
       if (outcome.type === 'error') return { status: 'failed', summary: outcome.error, result: executorFailure(outcome.error) };
       if (contract.isTerminalToolName(outcome.toolName)) {
-        const missingRecord = this.closeRequiredStatusRecord();
+        const missingRecord = this.closeRequiredStatusRecord(input.card.version_seq);
         if (missingRecord) {
           recordRepairAttempts++;
           if (recordRepairAttempts > 2) return { status: 'failed', summary: missingRecord, result: executorFailure(missingRecord) };
@@ -191,9 +191,9 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     return { status: 'failed', summary: error, result: executorFailure(error) };
   }
 
-  private closeRequiredStatusRecord(): string | null {
+  private closeRequiredStatusRecord(cardVersionSeq: number): string | null {
     try {
-      closeOpenRecordSlot(this.projectRoot, { cardId: this.cardId, filename: 'status.md' });
+      closeOpenRecordSlot(this.projectRoot, { cardId: this.cardId, filename: 'status.md', writer: 'executor', cardVersionSeq });
       return null;
     } catch (error) {
       return error instanceof Error ? error.message : String(error);

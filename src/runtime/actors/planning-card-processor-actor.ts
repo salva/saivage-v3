@@ -87,7 +87,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
       if (outcome.type === 'result') return this.plannerFailure(`${expectedTerminalToolMessage(contract)} Plain planner messages are not accepted as terminal results.`);
       if (outcome.type === 'error') return this.plannerFailure(outcome.error);
       if (contract.isTerminalToolName(outcome.toolName)) {
-        const missingRecord = this.closeRequiredRecord(input.card.id, 'status.md');
+        const missingRecord = this.closeRequiredRecord(input.card.id, 'status.md', 'planner', input.card.version_seq);
         if (missingRecord) {
           recordRepairAttempts++;
           if (recordRepairAttempts > 2) return this.plannerFailure(missingRecord);
@@ -215,7 +215,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
             reviewerRelaunchAttempts++;
             break;
           }
-          const closeError = this.closeRequiredRecord(input.card.id, 'review.md');
+          const closeError = this.closeRequiredRecord(input.card.id, 'review.md', 'reviewer', input.card.version_seq);
           if (closeError) return this.plannerFailure(closeError);
           return evaluateReviewerTerminalOutcome({
             card: input.card,
@@ -254,9 +254,9 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     return { status: 'failed', summary: error, result: { kind: 'planner_failure', error } };
   }
 
-  private closeRequiredRecord(cardId: string, filename: 'status.md' | 'review.md'): string | null {
+  private closeRequiredRecord(cardId: string, filename: 'status.md' | 'review.md', writer: 'planner' | 'reviewer', cardVersionSeq: number): string | null {
     try {
-      closeOpenRecordSlot(this.projectRoot, { cardId, filename });
+      closeOpenRecordSlot(this.projectRoot, { cardId, filename, writer, cardVersionSeq });
       return null;
     } catch (error) {
       return error instanceof Error ? error.message : String(error);

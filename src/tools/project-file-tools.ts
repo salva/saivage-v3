@@ -1,12 +1,12 @@
 import * as childProcess from 'node:child_process';
 import { lstatSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
-import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { z } from 'zod';
 
 import { isBinarySample } from './analyst-tool-helpers.js';
 import { describe, type UnifiedToolDefinition } from './tool-catalog.js';
 import { isReadBlocked, isWriteBlocked, looksLikeSecretPath, resolveContainedProjectPath } from '../workspace/index.js';
-import { concreteRecordSlot, latestClosedRecordSlot, openRecordSlot, readRecordSlotIndex, RECORD_OUTPUTS_RELATIVE_DIR, recordSlotDir, slotFromFilename, type OpenRecordSlot } from '../runtime/records/record-slots.js';
+import { concreteRecordSlot, exposedRecordSlotDefinitionForFilename, latestClosedRecordSlot, openRecordSlot, readRecordSlotIndex, RECORD_OUTPUTS_RELATIVE_DIR, recordSlotDir, type OpenRecordSlot } from '../runtime/records/record-slots.js';
 import type { AgentRole } from './tool-catalog.js';
 
 const { spawnSync } = childProcess;
@@ -67,6 +67,7 @@ function parseRecordUrl(ctx: WorkspaceContext, raw: string, mode: 'read' | 'writ
   const rawFilename = decodeURIComponent(`${url.hostname}${url.pathname}`);
   const filename = validRecordSegment(rawFilename, 'record filename', raw);
   if (!filename) throw new Error(`Invalid record URL '${raw}'.`);
+  exposedRecordSlotDefinitionForFilename(filename);
   const cardId = validRecordSegment(url.searchParams.get('card') ?? agent.cardId, 'card id', raw);
   const version = url.searchParams.get('v') ?? (mode === 'read' ? 'latest' : 'next');
   if (mode === 'write') {
@@ -75,7 +76,7 @@ function parseRecordUrl(ctx: WorkspaceContext, raw: string, mode: 'read' | 'writ
   }
   if (version === 'next') {
     const open = openRecordSlot(ctx.projectRoot, { cardId, filename });
-    if (cardId !== agent.cardId || slotAllowedForRole(agent.agentRole) !== open.slot) throw new Error('Only the owning agent may read its current open record slot.');
+    if (cardId !== agent.cardId || !exposedRecordSlotDefinitionForFilename(filename).writers.includes(agent.agentRole)) throw new Error('Only the owning agent may read its current open record slot.');
     return open;
   }
   if (version === 'latest') return latestClosedRecordSlot(ctx.projectRoot, { cardId, filename });
@@ -84,27 +85,15 @@ function parseRecordUrl(ctx: WorkspaceContext, raw: string, mode: 'read' | 'writ
   const record = concreteRecordSlot(ctx.projectRoot, { cardId, filename, version: numeric });
   const index = readRecordSlotIndex(ctx.projectRoot, cardId, record.slot);
   const entry = index.versions[String(numeric)];
-  if (entry.status !== 'closed' && !(entry.status === 'open' && cardId === agent.cardId && slotAllowedForRole(agent.agentRole) === record.slot)) throw new Error('Only closed records are readable outside the owning open slot.');
+  if (entry.status !== 'closed' && !(entry.status === 'open' && cardId === agent.cardId && exposedRecordSlotDefinitionForFilename(filename).writers.includes(agent.agentRole))) throw new Error('Only closed records are readable outside the owning open slot.');
   return record;
 }
 
 function assertRecordWrite(role: AgentRole, currentCardId: string, cardId: string, filename: string, version: string): void {
   if (cardId !== currentCardId) throw new Error('Agents may write records only for their current card.');
-  const slot = slotFromToolFilename(filename);
-  if (slotAllowedForRole(role) !== slot) throw new Error(`${role} cannot write record slot '${slot}'.`);
+  const definition = exposedRecordSlotDefinitionForFilename(filename);
+  if (!definition.writers.includes(role)) throw new Error(`${role} cannot write record slot '${definition.slot}'.`);
   if (version !== 'next') throw new Error('Record writes must use v=next.');
-}
-
-function slotAllowedForRole(role: AgentRole): string {
-  if (role === 'reviewer') return 'review';
-  if (role === 'planner' || role === 'executor') return 'status';
-  throw new Error(`${role} cannot write runtime records.`);
-}
-
-function slotFromToolFilename(filename: string): string {
-  const clean = basename(filename);
-  const dot = clean.lastIndexOf('.');
-  return dot > 0 ? clean.slice(0, dot) : clean;
 }
 
 function resolveTmpPath(ctx: WorkspaceContext, raw: string, mode: 'read' | 'write'): ResolvedToolPath {
@@ -296,7 +285,7 @@ function resolveRecordSearchPath(ctx: WorkspaceContext, raw: string): { absolute
   const path = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
   const cardId = validRecordSegment(host || url.searchParams.get('card') || agent.cardId, 'card id', raw);
   const slot = path ? validRecordSegment(path, 'record slot', raw) : '';
-  const absolutePath = slot ? recordSlotDir(ctx.projectRoot, cardId, slotFromFilename(slot)) : join(ctx.projectRoot, RECORD_OUTPUTS_RELATIVE_DIR, cardId);
+  const absolutePath = slot ? recordSlotDir(ctx.projectRoot, cardId, exposedRecordSlotDefinitionForFilename(slot.includes('.') ? slot : `${slot}.md`).slot) : join(ctx.projectRoot, RECORD_OUTPUTS_RELATIVE_DIR, cardId);
   const relativePath = normalizeRel(relative(ctx.projectRoot, absolutePath));
   const contained = resolveContainedProjectPath(ctx.projectRoot, relativePath);
   if (!contained.safe || contained.relativePath !== relativePath || !relativePath.startsWith(`${RECORD_OUTPUTS_RELATIVE_DIR}/${cardId}`)) throw new Error(`Invalid record search URL '${raw}'.`);

@@ -128,6 +128,9 @@ function summarizeForBroadcast(tool: string, result: ToolResult): { summary: str
     const binary = data['binary'] === true;
     const size = typeof data['size'] === 'number' ? ` (${data['size']} bytes)` : '';
     summary = binary ? `read binary file ${path}${size}` : `read file ${path}${size}`;
+  } else if (tool === 'read_file_metadata' && data) {
+    const path = typeof data['path'] === 'string' ? data['path'] : typeof data['url'] === 'string' ? data['url'] : 'file';
+    summary = `read file metadata ${path}`;
   } else if (tool === 'list_directory' && data) {
     const path = typeof data['path'] === 'string' ? data['path'] : 'directory';
     const count = Array.isArray(data['entries']) ? data['entries'].length : 0;

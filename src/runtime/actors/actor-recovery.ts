@@ -369,8 +369,8 @@ function projectReviewerRecoveryOutcome(
     outcome: reviewerOutcome,
     store: deps.store,
   });
-  if (!closeRecoveredRecordSlot(deps.projectRoot, card.id, 'status.md')) return null;
-  if (!closeRecoveredRecordSlot(deps.projectRoot, card.id, 'review.md')) return null;
+  if (!closeRecoveredRecordSlot(deps.projectRoot, card.id, 'status.md', 'planner', card.version_seq)) return null;
+  if (!closeRecoveredRecordSlot(deps.projectRoot, card.id, 'review.md', 'reviewer', card.version_seq)) return null;
   deps.store.commitTerminalLifecyclePatch(card.id, cardActivationOutcomePatch(projected, generatedAt));
   const plannerWaiting = planner.activeReconstruction!.waiting_tool_call!;
   appendTerminalToolProjectedStatus(deps.projectRoot, { agent_id: planner.actorId, source_input_id: plannerWaiting.sourceInputId, tool_call_id: plannerWaiting.toolCallId, tool_name: plannerWaiting.toolName });
@@ -415,19 +415,19 @@ function projectTerminalRecoveryOutcome(
     if (!createPlannerContract().isTerminalToolName(outcome.toolName)) return null;
     const projected = deps.makePlanningProcessor(card.id).recoverTerminalToolOutcome(outcome);
     if (!projected) return null;
-    if (!closeRecoveredRecordSlot(deps.projectRoot, card.id, 'status.md')) return null;
+    if (!closeRecoveredRecordSlot(deps.projectRoot, card.id, 'status.md', 'planner', card.version_seq)) return null;
     return projected;
   }
   if (!createExecutorContract().isTerminalToolName(outcome.toolName)) return null;
   const projected = deps.makeTerminalProcessor(card.id).recoverTerminalToolOutcome(outcome);
   if (!projected) return null;
-  if (!closeRecoveredRecordSlot(deps.projectRoot, card.id, 'status.md')) return null;
+  if (!closeRecoveredRecordSlot(deps.projectRoot, card.id, 'status.md', 'executor', card.version_seq)) return null;
   return projected;
 }
 
-function closeRecoveredRecordSlot(projectRoot: string, cardId: string, filename: 'status.md' | 'review.md'): boolean {
+function closeRecoveredRecordSlot(projectRoot: string, cardId: string, filename: 'status.md' | 'review.md', writer: 'planner' | 'executor' | 'reviewer', cardVersionSeq: number): boolean {
   try {
-    closeOpenRecordSlot(projectRoot, { cardId, filename });
+    closeOpenRecordSlot(projectRoot, { cardId, filename, writer, cardVersionSeq });
     return true;
   } catch {
     return false;

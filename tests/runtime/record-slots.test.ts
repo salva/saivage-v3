@@ -2,7 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { closeOpenRecordSlot, discardOpenRecordSlot, openRecordSlot, readRecordSlotIndex } from '../../src/runtime/records/record-slots.js';
+import { closeOpenRecordSlot, discardOpenRecordSlot, openRecordSlot, readClosedRecordSlotMetadata, readRecordSlotIndex } from '../../src/runtime/records/record-slots.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => T): T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-record-slots-'));
@@ -18,7 +18,8 @@ describe('record slots', () => {
 
     const closed = closeOpenRecordSlot(projectRoot, { cardId: 'card-1', filename: 'status.md' });
     expect(closed.recordUrl).toBe('record://status.md?card=card-1&v=1');
-    expect(readRecordSlotIndex(projectRoot, 'card-1', 'status')).toMatchObject({ latest: 1, open: null });
+    expect(readRecordSlotIndex(projectRoot, 'card-1', 'status')).toMatchObject({ latest: 1, open: null, versions: { '1': { status: 'closed', writer: 'planner', size: 4, format: 'markdown', schema: 'record.status.markdown.v1', cardVersionSeq: 1, globalSeq: 1, url: 'record://status.md?card=card-1&v=1' } } });
+    expect(readClosedRecordSlotMetadata(projectRoot, { cardId: 'card-1', filename: 'status.md' })).toMatchObject({ writer: 'planner', committed_at: expect.any(String), size: 4, format: 'markdown', schema: 'record.status.markdown.v1', cardVersionSeq: 1, globalSeq: 1, url: 'record://status.md?card=card-1&v=1' });
 
     const second = openRecordSlot(projectRoot, { cardId: 'card-1', filename: 'status.md' });
     expect(second.recordUrl).toBe('record://status.md?card=card-1&v=2');
@@ -33,5 +34,23 @@ describe('record slots', () => {
     expect(readRecordSlotIndex(projectRoot, 'card-1', 'review')).toMatchObject({ latest: null, open: null, versions: { '1': { status: 'discarded' } } });
     expect(existsSync(first.absolutePath)).toBe(true);
     expect(openRecordSlot(projectRoot, { cardId: 'card-1', filename: 'review.md' }).recordUrl).toBe('record://review.md?card=card-1&v=2');
+  }));
+
+  it('records explicit writer and card/global sequence metadata on close', () => withTempProject((projectRoot) => {
+    const first = openRecordSlot(projectRoot, { cardId: 'card-1', filename: 'status.md' });
+    writeFileSync(first.absolutePath, 'executor status', 'utf8');
+    closeOpenRecordSlot(projectRoot, { cardId: 'card-1', filename: 'status.md', writer: 'executor', cardVersionSeq: 7 });
+
+    const second = openRecordSlot(projectRoot, { cardId: 'card-1', filename: 'review.md' });
+    writeFileSync(second.absolutePath, 'review', 'utf8');
+    closeOpenRecordSlot(projectRoot, { cardId: 'card-1', filename: 'review.md', writer: 'reviewer', cardVersionSeq: 8 });
+
+    expect(readClosedRecordSlotMetadata(projectRoot, { cardId: 'card-1', filename: 'status.md' })).toMatchObject({ writer: 'executor', cardVersionSeq: 7, globalSeq: 1 });
+    expect(readClosedRecordSlotMetadata(projectRoot, { cardId: 'card-1', filename: 'review.md' })).toMatchObject({ writer: 'reviewer', cardVersionSeq: 8, globalSeq: 2 });
+  }));
+
+  it('rejects unsupported and internal document URLs through metadata reads', () => withTempProject((projectRoot) => {
+    expect(() => openRecordSlot(projectRoot, { cardId: 'card-1', filename: 'notes.md' })).toThrow("Unsupported record slot 'notes.md'");
+    expect(() => readClosedRecordSlotMetadata(projectRoot, { cardId: 'card-1', filename: 'card.json' })).toThrow('internal');
   }));
 });

@@ -11,6 +11,7 @@ import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
 import { describe, emptyInput, type UnifiedToolDefinition } from './tool-catalog.js';
 import { isBinarySample, normalizeShellParams, redactShellText, runShellCommandWithCapture, summarizeShellCommand, summarizeShellOutcome, toolFailure, toolFailureFromError, type ShellCommandParams } from './analyst-tool-helpers.js';
+import { readClosedRecordSlotMetadata } from '../runtime/records/record-slots.js';
 
 const FILE_READ_MAX_BYTES = 1_000_000;
 const FILE_READ_DEFAULT_BYTES = 200_000;
@@ -60,6 +61,17 @@ export async function read_file(_ctx: ToolContext, params: { path: string; maxBy
   } catch (err) { if (err instanceof SecretPathError) return toolFailure('permission', err.message); return toolFailureFromError(err, 'io'); }
 }
 
+export async function read_file_metadata(ctx: ToolContext, params: { path: string }): Promise<ToolResult> {
+  try {
+    if (typeof params.path !== 'string' || params.path.length === 0) return toolFailure('validation', 'path is required.', { field: 'path' });
+    if (params.path.startsWith('record://')) return { success: true, data: recordMetadataFromUrl(ctx.projectRoot, params.path) };
+    const abs = resolvePath(params.path); assertAnalystInspectionTarget(abs);
+    if (!existsSync(abs)) return toolFailure('not_found', `Path not found: ${abs}`);
+    const st = statSync(abs);
+    return { success: true, data: { path: abs, size: st.size, type: st.isDirectory() ? 'directory' : st.isFile() ? 'file' : 'other', modified_at: st.mtime.toISOString() } };
+  } catch (err) { if (err instanceof SecretPathError) return toolFailure('permission', err.message); return toolFailureFromError(err, 'io'); }
+}
+
 export async function list_directory(_ctx: ToolContext, params: { path: string; maxEntries?: number }): Promise<ToolResult> {
   try {
     if (typeof params.path !== 'string' || params.path.length === 0) return toolFailure('validation', 'path is required.', { field: 'path' });
@@ -81,6 +93,19 @@ export const analystWorkspaceTools: readonly UnifiedToolDefinition<string, any>[
   { name: 'navigate_workspace', description: 'Navigate the workspace area.', input: z.object({ target: z.object({ kind: z.enum(['card', 'transcript', 'process', 'plan_diary', 'process_list', 'agent_session_list', 'config']), id: describe(z.string().optional(), 'Optional target id.'), refinement: describe(z.string().optional(), 'Optional view refinement.') }).strict() }).strict(), roles: ['analyst'], executor: navigate_workspace },
   { name: 'navigate_back', description: 'Navigate back in the workspace area.', input: emptyInput, roles: ['analyst'], executor: navigate_back },
   { name: 'read_file', description: 'Read the contents of any file the saivage service can see on the host. Returns up to maxBytes bytes (default 200000, max 1000000). Binary files return content=null with binary=true. Use absolute paths or paths relative to the saivage server cwd.', input: z.object({ path: describe(z.string(), 'Absolute or relative file path.'), maxBytes: describe(z.number().int().optional(), 'Max bytes to read (default 200000, max 1000000).') }).strict(), roles: ['analyst'], executor: read_file },
+  { name: 'read_file_metadata', description: 'Read metadata for a host file or closed record:// document URL without returning file content.', input: z.object({ path: describe(z.string(), 'Absolute, relative, or record:// document URL.') }).strict(), roles: ['analyst'], executor: read_file_metadata },
   { name: 'list_directory', description: 'List the contents of any directory the saivage service can see on the host. Use absolute paths or paths relative to the saivage server cwd.', input: z.object({ path: describe(z.string(), 'Absolute or relative directory path.'), maxEntries: describe(z.number().int().optional(), 'Max entries to return (default 500, max 5000).') }).strict(), roles: ['analyst'], executor: list_directory },
   { name: 'run_shell_command', description: 'Run a bounded inspection shell command. Destructive commands are denied on web-chat and must not be used to mutate project source or runtime state.', input: z.object({ command: describe(z.string(), 'Shell command to inspect the host or project state.'), cwd: describe(z.string().optional(), 'Optional working directory. Defaults to the project root.'), timeoutMs: describe(z.number().int().optional(), 'Optional timeout in milliseconds (default 15000, max 60000).'), maxOutputBytes: describe(z.number().int().optional(), 'Optional per-stream output cap in bytes (default 65536, max 1048576).') }).strict(), roles: ['analyst'], executor: run_shell_command },
 ] as const;
+
+function recordMetadataFromUrl(projectRoot: string, raw: string): unknown {
+  const url = new URL(raw);
+  const filename = decodeURIComponent(`${url.hostname}${url.pathname}`);
+  const cardId = url.searchParams.get('card');
+  if (!cardId) throw new Error(`record metadata URL requires card query parameter: '${raw}'.`);
+  const versionParam = url.searchParams.get('v') ?? undefined;
+  if (versionParam === 'next') throw new Error('record metadata is available only for closed records.');
+  const version = versionParam && versionParam !== 'latest' ? Number(versionParam) : undefined;
+  if (version !== undefined && (!Number.isInteger(version) || version < 1)) throw new Error(`Invalid record version '${versionParam}'.`);
+  return readClosedRecordSlotMetadata(projectRoot, { cardId, filename, version });
+}
