@@ -58,7 +58,7 @@ This section is intentionally limited to card handling. It does not propose remo
 | Tool | Analyst scope | Behavior |
 |---|---|---|
 | `create_card` | Any non-running parent; root `project` when missing. | Create a child under an existing non-running parent with initial metadata and required initial records. Does not dispatch work. Runs propagation for the parent/ancestor chain. |
-| `patch_card` | Any card while runtime is paused. | Apply structured card changes and/or commit approved `brief.md` updates in one coherent operation. Touched records must be closed. Validation, commit, notification registration, and propagation run once. |
+| `write_file` for `record://brief.md` | Any card while runtime is paused. | Commit approved `brief.md` updates. Touched records must be closed. Validation, commit, notification registration, and propagation run once. |
 | `reorder_child` | Any non-running parent whose children are not running. | Reorder children by permutation. Propagate on the parent. |
 | `cancel_card` | Non-running `backlog`, `changed`, `blocked`, `needs_verification`. | Mark obsolete dormant work as `cancelled`. Deny running and terminal cards. Propagate on parent/ancestors. |
 | `delete_card` | Any subtree with no running member and status in deletable states. | Remove from the active tree and move the full card record namespaces to archive storage for forensics. |
@@ -70,10 +70,10 @@ Detailed card-tool availability:
 | Tool | Should be available when | Should be denied when | Replacement guidance |
 |---|---|---|---|
 | `create_card` | Root `project` is missing; or target parent exists, is non-running, and no running descendant would be structurally disrupted. | Parent is `running`; parent is missing; requested type/parent would violate tree invariants; creation would imply dispatching work immediately. | If parent is running, `queue_notification` to the active planner/card. |
-| `patch_card` | Runtime is paused; target exists; touched records are closed; metadata fields are allowed; requested record slots are approved for Analyst writes. | Runtime is not paused; touched slot is open; metadata patch is invalid; record slot is not Analyst-writable; content fails schema validation; patch mixes valid and invalid operations. | For unpaused runtime, pause first or use `queue_notification`. |
+| `write_file` for `record://brief.md` | Runtime is paused; target exists; latest brief is closed; slot is approved for Analyst writes. | Runtime is not paused; touched slot is open; content fails schema validation; slot is not Analyst-writable. | For unpaused runtime, pause first or use `queue_notification`. |
 | `reorder_child` | Parent exists and is non-running; child list is a permutation of current children; no listed child is running. | Parent or any reordered child is `running`; child set mismatch. | Notify active planner with preferred order. |
 | `cancel_card` | Target/subtree is non-running and status is `backlog`, `changed`, `blocked`, or `needs_verification`. | Target/subtree includes `running`; target is `done`, `failed`, or `cancelled`; target is root project unless the whole runtime is stopped and operator confirms. | For running work, `queue_notification`; for global stop, `pause_runtime` or `stop_project`. |
-| `delete_card` | Runtime is paused; target/subtree has no running card; operator intent is removal from active plan. | Runtime is not paused; target/subtree includes `running`; target is root project; deletion would orphan dependencies without explicit handling. | `cancel_card` if the work should remain visible as cancelled; `patch_card` or `create_card` if the work should be redone differently. |
+| `delete_card` | Runtime is paused; target/subtree has no running card; operator intent is removal from active plan. | Runtime is not paused; target/subtree includes `running`; target is root project; deletion would orphan dependencies without explicit handling. | `cancel_card` if the work should remain visible as cancelled; `write_file` to update `brief.md` or `create_card` if the work should be redone differently. |
 
 ### Card Inspection And Coordination
 
@@ -84,9 +84,9 @@ Keep card inspection and card-steering coordination tools available to the Analy
 
 These are card-handling tools for this discussion because they inspect card state, durable card records, card history, or deliver card-scoped steering context. They do not directly mutate card lifecycle state except through notification delivery into active sessions.
 
-`get_card` should return the latest `card.json` document plus a compact list of durable card records. Each record entry should include a concrete `record://` URL with card id and version, current version, size/mtime metadata, owning role/slot, and a bounded inline snippet for the main records when useful.
+`get_card` should return primary card information plus a compact list of durable card records. Each record entry should include a concrete `record://` URL with card id and version, current version, size/mtime metadata, owning role/slot, and a bounded inline snippet for the main records when useful. Agents do not read primary card state through `record://card.json`.
 
-Do not add a separate `get_card_record` if generic file tools can read `record://` URLs. Record history and metadata should be generic record concerns through `read_record_metadata("record://review.md?card=card-1")`. Card mutation history is `card.json` version history.
+Do not add a separate `get_card_record` if generic file tools can read `record://` URLs. Record history and metadata should be generic file concerns through `read_file_metadata("record://review.md?card=card-1")`. Card mutation history is internal `card.json` version history exposed through card read/history surfaces, not by reading `record://card.json`.
 
 Detailed card-inspection and card-coordination availability:
 
@@ -94,8 +94,8 @@ Detailed card-inspection and card-coordination availability:
 |---|---|---|---|
 | Tree/list reads | `list_cards`, `get_tree` | Analyst is online. | Only if card storage is unreadable. |
 | Single-card reads | `get_card`, `get_plan_diary` | Target card exists; `get_plan_diary` targets a goal/project. | Target card is missing. |
-| Record reads | Generic `read_file` over record URLs returned by `get_card`, including `card.json`. | Target card/record exists and the URL resolves inside that card's record namespace. | Target card or record is missing; requested URL is not a valid `record://` URL for the card context. |
-| Record metadata/history | `read_record_metadata` over record URLs. | Target card/record exists and record version metadata is available. | Target card/record/version is missing. |
+| Record reads | Generic `read_file` over document record URLs returned by `get_card`. | Target card/record exists and the URL resolves inside that card's record namespace. | Target card or record is missing; requested URL is not a valid `record://` URL for the card context, or attempts to read primary card info as `record://card.json`. |
+| Record metadata/history | `read_file_metadata` over document record URLs. | Target card/record exists and record version metadata is available. | Target card/record/version is missing. |
 | Card-scoped notification | `queue_notification` | Recipient resolves to an existing card, active role, or active session; body is operator guidance, correction, cancellation request, or coordination context. | Unknown recipient; request tries to list/manage/delete notifications; body asks an agent to violate its own authority. |
 
 ### Card Tools That Should Not Be Available
@@ -103,8 +103,8 @@ Detailed card-inspection and card-coordination availability:
 | Tool or class | Reason |
 |---|---|
 | `abort_goal_subtree` | Legacy broad cancellation primitive. Replace with state-gated `cancel_card` for dormant work and `queue_notification`/runtime controls for running work. |
-| `restart_card`, `restart_goal`, `restart_card_or_subtree` | Restart is not needed as an Analyst card tool. Use `patch_card`, `create_card`, `cancel_card`, or `delete_card` to express the desired plan change without resetting lifecycle state. |
-| `move_card` | Reparenting is structural churn that agents do not need for normal operation. Use `create_card`, `patch_card`, `reorder_child`, `cancel_card`, or `delete_card` instead. |
+| `restart_card`, `restart_goal`, `restart_card_or_subtree` | Restart is not needed as an Analyst card tool. Use `write_file` on `brief.md`, `create_card`, `cancel_card`, or `delete_card` to express the desired plan change without resetting lifecycle state. |
+| `move_card` | Reparenting is structural churn that agents do not need for normal operation. Use `create_card`, `write_file` on `brief.md`, `reorder_child`, `cancel_card`, or `delete_card` instead. |
 | `archive_card` | Public operator intent is deletion from the active project; the implementation archives data under the hood. |
 | `get_card_output` | Process-output shaped reads should be replaced by durable record URLs returned by `get_card` and generic reads of those URLs. |
 | `get_card_record` | A card-specific record reader is unnecessary if generic file reads support `record://` URLs. |
@@ -128,7 +128,7 @@ Required response fields:
 
 Propagation rules:
 
-1. Run propagation after create, patch, reorder, cancel, and delete.
+1. Run propagation after create, record write, reorder, cancel, and delete.
 2. Flip resting ancestors/subtree goals from terminal or blocked states to `changed` when their premise was altered.
 3. Stop upward status mutation at the first `running` card.
 4. Queue live or synthetic planner notes for the containing planner chain.
@@ -147,7 +147,7 @@ Required guidance:
 - You have broader card-tree authority than planners; planners are scoped to their active planning context.
 - Prefer `queue_notification` over direct mutation when a card is running, when intent is advisory, or when an active agent can resolve the issue better than a forced tree edit.
 - Mutating tools require paused runtime.
-- Running-card patches are permitted while paused if touched records are closed; structural delete/reorder/cancel of running subtrees remains denied.
+- Running-card `brief.md` writes are permitted while paused if touched records are closed; structural delete/reorder/cancel of running subtrees remains denied.
 - Use Pause or Shutdown for immediate runtime control; do not emulate those controls with card mutations.
 - Explain after a direct mutation which running ancestor or planner was notified, if any.
 
@@ -155,10 +155,10 @@ This keeps the Analyst powerful for dormant cards while avoiding surprise interf
 
 ## Implementation Plan
 
-1. Update specs to authorize Analyst direct management of cards while the runtime is paused, including permissive patches to running cards whose touched records are closed.
-2. Extend `cardActionValues` and permission logic for `card.create`, `card.patch`, `card.reorder_child`, `card.delete`, and state-sensitive Analyst `card.cancel`.
+1. Update specs to authorize Analyst direct management of cards while the runtime is paused, including permissive `brief.md` writes to running cards whose touched records are closed.
+2. Extend `cardActionValues` and permission logic for `card.create`, `card.reorder_child`, `card.delete`, and state-sensitive Analyst `card.cancel`.
 3. Implement public `delete_card` as archive-backed active-tree removal.
-4. Expose Analyst `create_card`, `patch_card`, `reorder_child`, `cancel_card`, and `delete_card` with runtime-paused and state preflight checks.
+4. Expose Analyst `create_card`, `reorder_child`, `cancel_card`, and `delete_card` with runtime-paused and state preflight checks; use generic `write_file` for `brief.md` edits.
 5. Generalize propagation so every structural mutation returns the common propagation result.
 6. Remove `get_card_output` and card-specific record readers once generic file read and metadata APIs support `record://` URLs.
 7. Update `get_card` to include authored record summaries and bounded inline main-record content.
@@ -173,11 +173,11 @@ No compatibility aliases are needed. Remove or rename old internal tool paths as
 
 | Question | Proposed answer |
 |---|---|
-| Should Analyst edit running card text directly? | No by default. Treat running cards as notification-first to avoid changing instructions underneath an active model without an explicit delivery event. |
-| Should `done` cards be cancellable? | No. Use archive to remove them or restart/edit to reopen work. |
+| Should Analyst edit running card text directly? | Yes while the runtime is paused, but only through closed, schema-valid writable records such as `brief.md`, with resume notifications queued for affected cards. |
+| Should `done` cards be cancellable? | No. Use `delete_card` to remove them from the active project, or update `brief.md`/create replacement work when the scope changes. |
 | Should create under terminal parents be allowed? | Yes, but the parent should flip to `changed` so the new child is incorporated into resumed planning/review. |
 | Should archive be reversible? | Not in this proposal. Archive preserves audit state, but restoring archived cards needs a separate design. |
-| Should Analyst move/reparent cards? | No. The surface should prefer simpler create/edit/reorder/cancel/archive operations. |
+| Should Analyst move/reparent cards? | No. The surface should prefer simpler create, record write, reorder, cancel, and delete operations. |
 | Should Analyst restart cards? | No. Restart resets lifecycle state and is not needed for normal card steering. |
 | Should card output be process-oriented? | No. Card output should be durable record-oriented: `get_card` summarizes/inlines records and generic file reads open the returned `record://` URLs. |
 | Should card mutation history remain card-specific? | No separate card-history store is needed; card mutation history is `card.json` version history. |
@@ -185,4 +185,4 @@ No compatibility aliases are needed. Remove or rename old internal tool paths as
 
 ## Conclusion
 
-The Analyst should become the global operator for card management while the runtime is paused. Running cards are not executing while paused, so their closed records may be patched, but structural delete/reorder/cancel of running subtrees remains protected. The main implementation work is making canonical card state and card documents addressable through `record://` URLs, exposing audited paused-runtime card mutations, and notifying affected cards on resume.
+The Analyst should become the global operator for card management while the runtime is paused. Running cards are not executing while paused, so their closed writable document records may be updated through `write_file`, but structural delete/reorder/cancel of running subtrees remains protected. The main implementation work is making card documents addressable through `record://` URLs, exposing audited paused-runtime card mutations, and notifying affected cards on resume.

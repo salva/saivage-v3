@@ -124,7 +124,7 @@ Durable state remains project-local. Saivage state must live under the project `
 Expected persisted concerns include:
 
 - card tree and history;
-- multi-file versioned card fields, including title, description, acceptance criteria, result data, and working status, with card index files pointing to the latest field versions;
+- record-backed card state, including internal structured card versions plus authored document records such as `brief.md`, `status.md`, and `review.md`;
 - agent messages and manifests;
 - runtime state, intent, commands, runs, and activations;
 - process registry and safe process logs;

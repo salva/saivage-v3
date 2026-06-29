@@ -129,22 +129,18 @@ The reviewer evaluates whether a goal's acceptance criteria are met by inspectin
 
 ### Parent → Child (via cards)
 
-The primary information channel from parent to child is the **card record itself**:
+The primary information channel from parent to child is the card's **brief record** plus structured card state:
 
-| Card field | What carries | Currently provided? |
+| Card surface | What carries | Target model |
 |---|---|---|
-| `title` | Short task description | Yes |
-| `description` | Full task instructions, context, intent | Yes |
-| `acceptance` | Acceptance criteria | Yes |
-| `type` | Card type (code/test/doc/data/research/architecture/ops) | Yes |
-| `depends_on` | Dependencies on sibling cards | Yes |
-| `tags` | Optional tags | Yes |
-| `priority` | Priority | Yes |
-| `urgency` | Urgency | Yes |
+| `brief.md` | Goal, instructions, context, and acceptance criteria | Versioned record slot |
+| `title` | Short task label if the field audit keeps it | Structured card state |
+| `type` | Card type (code/test/doc/data/research/architecture/ops) | Structured card state |
+| `depends_on` | Dependencies on sibling cards if the field audit keeps it | Structured card state with narrow semantic mutation |
 
-**What is sufficient:** The card's `description` and `acceptance` should carry all project context the child needs. The parent planner is responsible for writing a description that gives the child enough context to work independently. If the child needs to read project files, it should use `read`/`glob`/`grep` tools — not rely on the parent to inline project content in the description.
+**What is sufficient:** The card's `brief.md` should carry all project context the child needs. The parent planner is responsible for writing a brief that gives the child enough context to work independently. If the child needs to read project files, it should use `read`/`glob`/`grep` tools, not rely on the parent to inline project content in the brief.
 
-**What is currently missing:** Nothing structurally. The parent/child information channel is card-based and is sufficient for newly created child cards when the planner writes complete descriptions and acceptance criteria.
+**What is currently missing:** Nothing structurally. The parent/child information channel is card-based and is sufficient for newly created child cards when the planner writes a complete brief with goal, instructions, and acceptance criteria.
 
 ### Child → Parent (via card results and tool results)
 

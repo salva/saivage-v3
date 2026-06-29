@@ -6,7 +6,7 @@ Status: proposal. Scope: card persistence, card records, record access, commit i
 
 Use the same versioned record structure for card state and card-authored documents.
 
-- `record://card.json` is the **canonical persisted card state**, not a projection.
+- `card.json` is the **canonical persisted card state**, not a projection, but it is an internal storage format rather than a functional `record://` file exposed to agents.
 - The in-memory `CardStore` becomes an index/cache loaded from latest `card.json` records.
 - Structured card mutation history is `card.json` version history.
 - Related intent text is one record, `record://brief.md`, not separate goal/instructions/acceptance records.
@@ -14,19 +14,21 @@ Use the same versioned record structure for card state and card-authored documen
 - Do not add `result.json` initially. Structured outputs that matter to scheduling, review, or display belong directly in `card.json`; narrative outputs belong in `status.md` or `review.md`.
 - All writes use shared commit infrastructure. Multi-card structural changes use a batch commit primitive.
 - Analyst card mutations are accepted only while the runtime is paused. They are committed during the pause and announced to affected cards when the runtime is unpaused.
+- There is no broad card edit tool. Card structure changes happen through semantic card operations; document changes happen through scheme-aware `write_file` on writable record slots.
 
 This is a brave refactor, but it removes duplicate persistence models and makes versioned storage uniform.
 
 ## Non-Goals
 
-- Do not keep the existing card-history store as a second source of history after migration.
+- Do not keep the existing card-history store as a second source of history after cutover.
 - Do not split card intent into separate `goal.md`, `instructions.md`, and `acceptance.md` records.
 - Do not add `result.json` until a concrete structured-result need cannot be represented cleanly in `card.json`.
 - Do not add record-level read permissions. Any agent can read card records.
 - Do not encode lifecycle behavior, propagation policy, append-only policy, or required-at-state rules in record slot metadata.
 - Do not expose raw writes into the record namespace.
-- Do not keep compatibility aliases after the new card API is fully migrated.
+- Do not keep compatibility aliases after the new card API is cut over.
 - Do not attempt crash-proof multi-file transaction recovery. Recovery is best-effort after unexpected write failures.
+- Do not implement migration/adapters for old on-disk card structures. This project has a zero-backward-compatibility policy; cut over by rewriting/removing the old persistence shape.
 
 ## Storage Model
 
@@ -63,12 +65,11 @@ Initial slots:
 
 | Record | Format | Writers | Purpose |
 |---|---|---|---|
-| `record://card.json` | json | runtime | Canonical structured card state. Written by card store/runtime services only. |
 | `record://brief.md` | markdown | analyst, planner | Goal, instructions, acceptance criteria, and other operator/planner intent. |
 | `record://status.md` | markdown | planner, executor | Planner/executor status report or completion narrative. |
 | `record://review.md` | markdown | reviewer | Reviewer assessment. |
 
-Slot availability may vary by card type. The commit path rejects unknown slots for the target card type unless the slot registry explicitly allows them.
+Slot availability may vary by card type. The commit path rejects unknown slots for the target card type unless the slot registry explicitly allows them. The internal `card.json` storage document follows the same versioned/indexed storage mechanics, but agents do not address it through `record://card.json`; they use card operations and `get_card`.
 
 ## Card JSON Shape
 
@@ -108,7 +109,9 @@ Do not store `updated_at` in `card.json`. `get_card` calculates effective update
 
 `version_seq` is the logical card version and must match the `card.json` slot version. If `card.json` version 12 is current, its document contains `version_seq: 12`.
 
-Remove long-form intent fields from `card.json` during migration:
+Audit the current `CardRecord` fields before freezing the new schema. Remove fields that are not actively used by scheduling, display, permissions, or runtime behavior. Likely removals are `tags`, `priority`, `urgency`, `related`, `metadata`, and `estimate` unless the audit finds concrete current consumers. Keep fields such as `depends_on` only if scheduling still uses them, and expose changes through narrow semantic operations rather than broad card editing. Runtime-owned fields such as `status`, `lifecycle`, `started_at`, `duration_ms`, `retries`, `metrics`, and `latest_self_report` are not directly editable by the Analyst.
+
+Remove long-form intent fields from `card.json` during cutover:
 
 - `description` moves to `brief.md`.
 - `acceptance` moves to `brief.md`.
@@ -143,15 +146,13 @@ Why one record:
 - goal, instructions, and acceptance criteria are interdependent;
 - agents usually need to read all three together;
 - one version history is easier to reason about than coordinated versions across three slots;
-- one `patch_card` write can update the whole intent coherently.
+- one `write_file` call can update the whole intent coherently.
 
 ## Record URLs
 
-Use the existing concrete URL shape unless a separate URL cleanup is planned:
+Use the existing concrete URL shape for agent-visible record files unless a separate URL cleanup is planned:
 
 ```text
-record://card.json?card=card-1
-record://card.json?card=card-1&v=4
 record://brief.md?card=card-1
 record://brief.md?card=card-1&v=2
 ```
@@ -165,21 +166,20 @@ Rules:
 
 ## Read Access
 
-Generic file reads support record URLs:
+Generic file reads support agent-visible record URLs:
 
 ```ts
-read_file({ path: 'record://card.json?card=card-1' })
 read_file({ path: 'record://brief.md?card=card-1' })
 read_file({ path: 'record://review.md?card=card-1&v=3' })
 ```
 
-Add a distinct metadata API:
+Add a distinct metadata API with file-tool naming:
 
 ```ts
-read_record_metadata({ path: 'record://brief.md?card=card-1' })
+read_file_metadata({ path: 'record://brief.md?card=card-1' })
 ```
 
-`read_record_metadata` returns:
+`read_file_metadata` returns:
 
 ```ts
 interface RecordMetadataView {
@@ -218,7 +218,7 @@ The project-wide `globalSeq` is used only to reconstruct cross-card/project hist
 
 ## `get_card` Read Model
 
-`get_card` is still useful as a compact read model assembled from latest records and indexes:
+`get_card` is the functional read model for primary card information. It is assembled from latest internal card storage plus record indexes and may include URLs for associated document records:
 
 ```ts
 interface CardRecordSummary {
@@ -244,7 +244,9 @@ interface GetCardView {
 
 Inline snippets should be bounded. Good initial inline candidates are `brief.md`, latest `status.md`, and latest `review.md`. `card.json` is returned as structured `card`, so it does not need an inline content string.
 
-`get_card` should include an `effective_updated_at` field computed as the max committed timestamp across current `card.json`, `brief.md`, `status.md`, and `review.md` records.
+`get_card` should include an `effective_updated_at` field computed as the max committed timestamp across the current internal card version, `brief.md`, `status.md`, and `review.md` records.
+
+Do not expose the primary card document through `read_file("record://card.json?..." )`. That storage path is an implementation detail; card state is read through `get_card`.
 
 ## Commit Infrastructure
 
@@ -357,11 +359,11 @@ Analyst card mutations are intentionally permissive but only while the runtime i
 
 Rules:
 
-- If the runtime is not paused, `patch_card`, `create_card`, `reorder_child`, `cancel_card`, and `delete_card` fail with a runtime-state error.
+- If the runtime is not paused, Analyst `write_file(record://...)`, `create_card`, `reorder_child`, `cancel_card`, and `delete_card` fail with a runtime-state error.
 - Paused runtime means no actor is executing, but cards may still have `running` or other active statuses.
-- The Analyst may patch a `running` card while paused if every touched record is closed and the requested patch passes schema/invariant checks.
+- The Analyst may write a running card's `brief.md` while paused if the latest version is closed and the new content passes schema checks.
 - Structural mutations that would invalidate an active subtree remain denied for `running` cards unless explicitly designed later.
-- Analyst patches fail when the target slot has an open latest version.
+- Analyst record writes fail when the target slot has an open latest version.
 - Analyst changes are committed during the pause.
 - On unpause, the runtime queues notifications for affected cards. Prefer one notification per affected card; one notification per edited item is acceptable when that is simpler.
 - Notifications tell running/active agents that unexpected card records changed while the runtime was paused.
@@ -405,38 +407,28 @@ Responsibilities:
 
 The old card persistence and separate card history files should be removed after the store is fully record-backed.
 
-## Unified Card Patch Tool
+## Record-Aware File Writes
 
-Replace broad `edit_card` and separate record/metadata tools with one cohesive card patch tool:
+Do not add a broad card-edit tool. Card structure is not a general user-editable document. Primary card state is read through `get_card` and changed through semantic card operations such as `create_card`, `reorder_child`, `cancel_card`, and `delete_card`.
 
-```ts
-interface PatchCardInput {
-  id: string;
-  card?: {
-    title?: string;
-    tags?: string[];
-    priority?: number;
-    urgency?: Urgency;
-    depends_on?: string[];
-    related?: string[];
-  };
-  records?: {
-    'brief.md'?: string;
-  };
-}
-```
+Use the existing `write_file` tool for document records. When the path uses the `record://` scheme, `write_file` routes through record storage rather than performing a raw filesystem write.
 
-`patch_card` behavior:
+`write_file(record://...)` behavior depends on caller context:
 
-1. Load target card.
-2. Require paused runtime.
-3. Preflight card patch through `card.json` schema and invariants.
-4. Preflight record patch through slot writer/schema checks.
-5. Fail if any touched record has an open latest version.
-6. Commit changed `card.json` and any changed records in one batch.
-7. Register affected-card notifications for delivery when runtime unpauses.
-8. Propagate once after successful commit.
-9. Return updated `get_card` view plus committed record descriptors.
+| Caller | Behavior |
+|---|---|
+| Analyst/operator | Requires paused runtime, requires latest version closed, validates writer/schema, writes and commits a new version immediately, queues affected-card notifications for unpause. |
+| Card processor actor | May write an open/uncommitted version owned by that actor/session; commit happens on processor state change or other processor-defined commit points. |
+| Runtime/card service | May commit records directly for lifecycle/state transitions. |
+
+Shared rules:
+
+- If latest version is closed, a write can create/open the next version automatically.
+- If latest version is open and owned by the same actor/session, actor writes update that open version.
+- If latest version is open and owned by another actor/session, the write fails.
+- Schema validation must happen before committed versions close. Cheap validation may also happen on write.
+- Analyst writes to open records fail.
+- Analyst writes to primary card state are not supported; primary card changes use semantic operations.
 
 ## Other Card Tools
 
@@ -448,9 +440,9 @@ Target card-facing tools:
 | `get_tree` | Inspect hierarchy from the in-memory card index. |
 | `get_card` | Compact card read model with `card.json`, record URLs, and snippets. |
 | `read_file` | Read `record://` URLs returned by `get_card`. |
-| `read_record_metadata` | Inspect versions and metadata for `card.json`, `brief.md`, `status.md`, and `review.md`. |
+| `read_file_metadata` | Inspect versions and metadata for `brief.md`, `status.md`, and `review.md`. |
 | `create_card` | Create `card.json` plus initial `brief.md`. |
-| `patch_card` | Patch card structure fields and/or `brief.md`. |
+| `write_file` | Write writable `record://` document slots such as `brief.md`. |
 | `reorder_child` | Reorder children of a non-running parent by committing changed `card.json` records. |
 | `cancel_card` | Cancel obsolete work by committing changed `card.json` while paused. |
 | `delete_card` | Remove cards/subtrees from the active index while moving their full record namespaces to archive storage. |
@@ -460,8 +452,7 @@ Tools to remove or avoid as Analyst card-specific tools:
 
 - `get_card_output`: replaced by record URLs and generic reads.
 - `get_card_record`: unnecessary if generic reads support `record://`.
-- `edit_card`: replaced by `patch_card`.
-- `write_card_record`: internalized by `patch_card` and runtime callers through commit primitives.
+- Broad card-edit surfaces are unnecessary. Use `write_file(record://...)` for document records and semantic card operations for structure/lifecycle.
 - `move_card`: not needed.
 - `restart_card`, `restart_goal`, `restart_card_or_subtree`: not needed for Analyst card steering.
 - `archive_card`: use `delete_card`; deletion archives records under the hood instead of removing them.
@@ -471,7 +462,7 @@ Tools to remove or avoid as Analyst card-specific tools:
 
 ## State Rules
 
-| Card status | Create child | Patch card/brief | Reorder siblings | Cancel | Delete/archive data |
+| Card status | Create child | Write brief | Reorder siblings | Cancel | Delete/archive data |
 |---|---:|---:|---:|---:|---:|
 | `backlog` | yes | yes | yes | yes | yes |
 | `changed` | yes | yes | yes | yes | yes |
@@ -480,9 +471,9 @@ Tools to remove or avoid as Analyst card-specific tools:
 | `failed` | yes | yes | yes | no | yes |
 | `cancelled` | yes | yes | yes | no | yes |
 | `needs_verification` | yes | yes | yes | yes | yes |
-| `running` | no | notify only | no | notify only | no |
+| `running` | no | yes while paused | no | notify only | no |
 
-All Analyst mutations require paused runtime. Patches may target running cards while paused if touched records are closed and schemas/invariants pass. Structural mutations that invalidate running subtrees remain denied unless designed explicitly later.
+All Analyst mutations require paused runtime. `write_file(record://brief.md?card=...)` may target running cards while paused if the touched slot is Analyst-writable, closed, and schema-valid. Structural mutations that invalidate running subtrees remain denied unless designed explicitly later.
 
 ## Delete/Archive Semantics
 
@@ -515,7 +506,7 @@ Rules:
 ### Phase 3: Generic Record Reads
 
 - Teach `read_file` to resolve `record://...` URLs with `card` and optional `v` query params.
-- Add `read_record_metadata`.
+- Add `read_file_metadata`.
 - Ensure containment checks resolve only inside `.saivage/outputs/cards/<card>/<slot>/`.
 
 ### Phase 4: Record-Backed CardStore Loader
@@ -532,19 +523,19 @@ Rules:
 - Commit multi-card mutations through `commitRecordBatch`.
 - Remove writes to old card persistence once equivalent paths are covered.
 
-### Phase 6: Brief Record Migration
+### Phase 6: Brief Record Cutover
 
 - Create `brief.md` for new cards.
-- Migrate existing `description` and `acceptance` into `brief.md`.
+- Cut over existing development/runtime fixtures by rewriting them into the new shape or deleting/regenerating them. Do not add compatibility migration code.
 - Update planner/executor/reviewer prompt assembly to read `brief.md`.
 - Remove `description`, `acceptance`, and `instructions_file` from `CardRecord` after all runtime code uses `brief.md`.
 
-### Phase 7: Enriched Reads And Analyst Patch Tool
+### Phase 7: Enriched Reads And Record-Aware File Writes
 
 - Update `get_card` to return record summaries and bounded inline snippets.
-- Add `patch_card`.
+- Extend `write_file` to support schema-aware `record://` writes with actor-specific open/commit behavior.
 - Update Analyst prompt/tool descriptions.
-- Remove broad `edit_card` after `patch_card` is complete.
+- Remove broad card-edit designs.
 
 ### Phase 8: Remove Old Persistence/History
 
@@ -572,7 +563,7 @@ Add focused tests for:
 - `commitRecordBatch` preflights all records before writing.
 - `commitRecordBatch` writes new version files and atomically renames new indexes under lock.
 - `read_file` reads latest and versioned `record://` URLs.
-- `read_record_metadata` returns slot policy and version metadata.
+- `read_file_metadata` returns slot policy and version metadata.
 - `CardStore` loads from latest `card.json` records.
 - structural mutations create new `card.json` versions.
 - card history/diff can be reconstructed from `card.json` versions.
@@ -581,7 +572,7 @@ Add focused tests for:
 - active processor `onRecordWritten` is called synchronously after commit.
 - no active processor is required for a successful commit.
 - card actors reconcile from latest records on activation.
-- `patch_card` commits `card.json` and `brief.md` in one batch and propagates once.
+- Analyst `write_file(record://brief.md?card=...)` commits a new `brief.md` version while paused and queues resume notifications.
 - Analyst edits queue affected-card notifications for runtime unpause.
 - `delete_card` moves full record namespaces with all versions to archive storage.
 - prompt assembly uses `brief.md` as source of truth.

@@ -306,7 +306,7 @@ If the reviewer emits `pass` citing accepted descendant cards from the reviewed 
 
 ## Reviewer Context
 
-The reviewer currently receives only the goal card's title, description, and acceptance — no descendant information. That is the root cause of card-1's blockage: the reviewer had no descendant evidence to cite, so it cited the goal card itself, which had no artifacts.
+The reviewer currently receives only the goal card's primary brief context and no descendant information. That is the root cause of card-1's blockage: the reviewer had no descendant evidence to cite, so it cited the goal card itself, which had no artifacts.
 
 The reviewer must receive descendant summaries as context messages before invocation. For each descendant of the goal card:
 
