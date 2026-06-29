@@ -10,6 +10,7 @@ import type { SaivageConfig } from '../../src/agents/config-schema.js';
 import type { AgentMessage, CardRecord } from '../../src/schemas/types.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
+import type { NewCardInput } from '../../src/cards/lifecycle.js';
 
 function minimalConfig(): SaivageConfig {
   return {
@@ -48,15 +49,14 @@ function minimalConfig(): SaivageConfig {
   };
 }
 
-function makeCard(overrides: Partial<CardRecord> & { type: CardRecord['type']; title: string }): Omit<CardRecord, 'created_at' | 'updated_at' | 'id' | 'version_seq' | 'position'> & { id?: string } {
+function makeCard(overrides: Partial<NewCardInput> & { type: NewCardInput['type']; title: string }): NewCardInput & { id?: string } {
   const lifecycle = overrides.lifecycle ?? ({ status: overrides.status ?? 'backlog', result: null, error: null, completed_at: null } as CardRecord['lifecycle']);
   return {
     parent: 'project',
     depth: 1,
-    description: '',
+    brief: overrides.title,
     status: 'backlog',
     subtype: null,
-    instructions_file: null,
     tags: [],
     priority: 0,
     urgency: 'normal',
@@ -64,7 +64,6 @@ function makeCard(overrides: Partial<CardRecord> & { type: CardRecord['type']; t
     assigned_to: null,
     depends_on: [],
     related: [],
-    acceptance: '',
     lifecycle,
     metrics: null,
     estimate: null,
@@ -104,7 +103,6 @@ describe('AgentAdapter planner-control reviewer prompt contract', () => {
       type: 'goal',
       title: 'Adopt reviewer prompt contract',
       status: 'running',
-      acceptance: 'Reviewer prompt must request the canonical envelope.',
     }));
     const evidence = store.create(makeCard({
       type: 'code',

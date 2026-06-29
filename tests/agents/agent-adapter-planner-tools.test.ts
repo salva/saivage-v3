@@ -13,6 +13,7 @@ import { synthesizeReportGoalEnvelope } from '../../src/agents/planner-envelope-
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import type { CardRecord } from '../../src/schemas/types.js';
+import type { NewCardInput } from '../../src/cards/lifecycle.js';
 import { AgentToolCatalog } from '../../src/agents/agent-tool-catalog.js';
 import { PlannerToolsService } from '../../src/tools/planner-tools.js';
 
@@ -52,17 +53,16 @@ function createMinimalAdapter(tmpDir: string, cardStore: CardStore): AgentAdapte
 }
 
 function makeCard(
-  overrides: Partial<CardRecord> & { type: CardRecord['type']; title: string },
-): Omit<CardRecord, 'created_at' | 'updated_at' | 'id' | 'version_seq' | 'position'> & {
+  overrides: Partial<NewCardInput> & { type: NewCardInput['type']; title: string },
+): NewCardInput & {
   id?: string;
 } {
   return {
     parent: 'project',
     depth: 1,
-    description: '',
+    brief: overrides.title,
     status: 'backlog',
     subtype: null,
-    instructions_file: null,
     tags: [],
     priority: 0,
     urgency: 'normal',
@@ -70,7 +70,6 @@ function makeCard(
     assigned_to: null,
     depends_on: [],
     related: [],
-    acceptance: '',
     lifecycle: {
       status: overrides.status ?? 'backlog',
       result: null,

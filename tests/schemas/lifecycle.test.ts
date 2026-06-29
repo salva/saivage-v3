@@ -37,10 +37,8 @@ function card(overrides: Partial<CardRecord> = {}): CardRecord {
     depth: overrides.depth ?? 1,
     position: overrides.position ?? 0,
     title: overrides.title ?? 'Lifecycle Card',
-    description: overrides.description ?? '',
     status: overrides.status ?? 'backlog',
     subtype: overrides.subtype ?? null,
-    instructions_file: overrides.instructions_file ?? null,
     tags: overrides.tags ?? [],
     priority: overrides.priority ?? 0,
     urgency: overrides.urgency ?? 'normal',
@@ -51,7 +49,6 @@ function card(overrides: Partial<CardRecord> = {}): CardRecord {
     assigned_to: overrides.assigned_to ?? null,
     depends_on: overrides.depends_on ?? [],
     related: overrides.related ?? [],
-    acceptance: overrides.acceptance ?? '',
     lifecycle,
     metrics: overrides.metrics ?? null,
     estimate: overrides.estimate ?? null,
@@ -108,7 +105,8 @@ describe('card lifecycle schemas', () => {
     try {
       initProjectTree(root);
       const store = new CardStore(root);
-      const persisted = store.create(card({ status: 'backlog' }));
+      const { id: _id, created_at: _createdAt, updated_at: _updatedAt, version_seq: _versionSeq, position: _position, ...input } = card({ status: 'backlog' });
+      const persisted = store.create({ ...input, brief: 'card-1' });
       writeFileSync(cardByIdPath(root, persisted.id), JSON.stringify({ ...persisted, status: 'done', lifecycle: { status: 'done', error: 'stale', result: plannerDone, completed_at: now } }, null, 2) + '\n');
       expect(() => new CardStore(root)).toThrow(CardStoreInvariantError);
       expect(() => validatePersistedCardLifecycle(card({ status: 'failed', lifecycle: { status: 'failed', result: executorFailure, error: null, completed_at: now } as never }))).toThrow();

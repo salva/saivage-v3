@@ -12,19 +12,19 @@ import {
   queueSyntheticPlannerNote,
 } from '../../src/runtime/synthetic-planner-notes.js';
 import type { CardRecord } from '../../src/schemas/types.js';
+import type { NewCardInput } from '../../src/cards/lifecycle.js';
 
 function makeCard(
-  overrides: Partial<CardRecord> & { type: CardRecord['type']; title: string },
-): Omit<CardRecord, 'created_at' | 'updated_at' | 'id' | 'version_seq' | 'position'> & {
+  overrides: Partial<NewCardInput> & { id?: string; type: NewCardInput['type']; title: string },
+): NewCardInput & {
   id?: string;
 } {
   return {
     parent: 'project',
     depth: 1,
-    description: '',
+    brief: overrides.title,
     status: 'backlog',
     subtype: null,
-    instructions_file: null,
     tags: [],
     priority: 0,
     urgency: 'normal',
@@ -32,7 +32,6 @@ function makeCard(
     assigned_to: null,
     depends_on: [],
     related: [],
-    acceptance: '',
     lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
     metrics: null,
     estimate: null,

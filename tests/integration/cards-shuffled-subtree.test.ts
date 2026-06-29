@@ -10,14 +10,15 @@ import { CardStore } from '../../src/cards/card-store.js';
 import { get_card, get_tree } from '../../src/tools/analyst-card-tools.js';
 import { registerCardRoutes } from '../../src/server/routes/cards.js';
 import type { CardRecord } from '../../src/schemas/types.js';
+import type { NewCardInput } from '../../src/cards/lifecycle.js';
 
-function makeCard(overrides: Partial<CardRecord> & { type?: CardRecord['type']; title?: string; parent?: string | null } = {}) {
+function makeCard(overrides: Partial<NewCardInput> & { id?: string; type?: NewCardInput['type']; title?: string; parent?: string | null } = {}): NewCardInput & { id?: string } {
   return {
     type: overrides.type ?? 'code',
     parent: overrides.parent ?? 'project',
     depth: 0,
     title: overrides.title ?? 'Test Card',
-    description: '',
+    brief: overrides.brief ?? overrides.title ?? 'Test Card',
     status: 'backlog' as const,
     tags: [],
     priority: 0,
@@ -25,7 +26,6 @@ function makeCard(overrides: Partial<CardRecord> & { type?: CardRecord['type']; 
     created_by: 'analyst' as const,
     depends_on: [],
     related: [],
-    acceptance: '',
     retries: 0,
     ...(overrides.id ? { id: overrides.id } : {}),
   };

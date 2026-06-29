@@ -18,7 +18,6 @@ export function buildCardContextSeed(card: CardRecord): string {
     card: {
       id: card.id,
       title: card.title,
-      description: card.description ?? '',
       status: card.status,
       blockers,
       version_seq: card.version_seq ?? null,
@@ -27,7 +26,6 @@ export function buildCardContextSeed(card: CardRecord): string {
   return [
     'System context: this per-card analyst discussion was opened from the card detail view.',
     `Card title: ${card.title}`,
-    `Card description: ${card.description ?? ''}`,
     `Card status: ${card.status}`,
     `Card blockers: ${blockers.length ? blockers.join(', ') : 'none'}`,
     `Tool result get_card: ${JSON.stringify(toolResult)}`,

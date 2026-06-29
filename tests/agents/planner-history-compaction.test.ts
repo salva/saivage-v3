@@ -29,7 +29,6 @@ function card(input: Partial<CardRecord> & Pick<CardRecord, 'id' | 'type' | 'tit
     depth: input.depth ?? 1,
     position: input.position ?? 0,
     title: input.title,
-    description: input.description ?? '',
     status: input.status ?? 'backlog',
     tags: input.tags ?? [],
     priority: input.priority ?? 0,
@@ -40,7 +39,6 @@ function card(input: Partial<CardRecord> & Pick<CardRecord, 'id' | 'type' | 'tit
     version_seq: input.version_seq ?? 1,
     depends_on: input.depends_on ?? [],
     related: input.related ?? [],
-    acceptance: input.acceptance ?? '',
     lifecycle: input.lifecycle ?? ({ status: input.status ?? 'backlog', result: null, error: null, completed_at: null } as CardRecord['lifecycle']),
     retries: input.retries ?? 0,
     status_text: input.status_text ?? null,
@@ -65,7 +63,7 @@ function compactor(): ContextCompactor {
 
 function setupBriefRecords(cards: Iterable<CardRecord>): string {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-planner-compaction-'));
-  for (const c of cards) writeBriefRecordVersion(projectRoot, c, c.created_by === 'planner' ? 'planner' : 'analyst');
+  for (const c of cards) writeBriefRecordVersion(projectRoot, c, `# Goal\n\n${c.title}\n\n# Instructions\n\n\n# Acceptance Criteria\n\n`, c.created_by === 'planner' ? 'planner' : 'analyst');
   return projectRoot;
 }
 
@@ -190,7 +188,7 @@ describe('planner persisted history context compaction', () => {
 
   it('builds structured current planner state from authoritative card and runtime state', () => {
     const cards = new Map([
-      ['goal-1', card({ id: 'goal-1', type: 'goal', parent: 'project', title: 'Goal one', status: 'running', acceptance: 'Goal accepted' })],
+      ['goal-1', card({ id: 'goal-1', type: 'goal', parent: 'project', title: 'Goal one', status: 'running' })],
       ['architecture-1', card({ id: 'architecture-1', type: 'architecture', title: 'Design thing', status: 'done', position: 0, status_text: 'Complete' })],
       ['code-1', card({ id: 'code-1', type: 'code', title: 'Build thing', status: 'backlog', depends_on: ['architecture-1'], position: 1 })],
     ]);
@@ -241,7 +239,7 @@ describe('planner persisted history context compaction', () => {
 
     expect(state.role).toBe('user');
     expect(state.kind).toBe('text');
-    expect(state.content).toContain('Goal accepted');
+    expect(state.content).toContain('Goal one');
     expect(state.content).toContain('Design thing (exists as architecture-1, done)');
     expect(state.content).toContain('Build thing (exists as code-1, backlog)');
     expect(state.content).toContain('open_runs_for_goal');

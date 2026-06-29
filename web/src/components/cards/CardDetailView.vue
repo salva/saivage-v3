@@ -33,11 +33,6 @@
         </div>
       </section>
 
-      <section v-if="currentCard.description" class="detail-section">
-        <h3 class="section-heading">Description</h3>
-        <div class="detail-description" v-html="renderMarkdown(currentCard.description)"></div>
-      </section>
-
       <section class="detail-section">
         <h3 class="section-heading">Metadata</h3>
         <div class="meta-grid">

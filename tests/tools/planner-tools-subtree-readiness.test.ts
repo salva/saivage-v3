@@ -7,13 +7,13 @@ import { CardStore } from '../../src/cards/card-store.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { PlannerToolError, PlannerToolsService } from '../../src/tools/planner-tools.js';
 import type { CardRecord, CardStatus } from '../../src/schemas/index.js';
+import type { NewCardInput } from '../../src/cards/lifecycle.js';
 
-function makeCard(overrides: Partial<CardRecord> & { id: string; type: CardRecord['type']; parent: string | null; depth: number; title: string }): Omit<CardRecord, 'created_at' | 'updated_at' | 'version_seq' | 'position'> & { id: string } {
+function makeCard(overrides: Partial<NewCardInput> & { id: string; type: NewCardInput['type']; parent: string | null; depth: number; title: string }): NewCardInput & { id: string } {
   return {
-    description: '',
+    brief: overrides.title,
     status: 'backlog',
     subtype: null,
-    instructions_file: null,
     tags: [],
     priority: 0,
     urgency: 'normal',
@@ -21,7 +21,6 @@ function makeCard(overrides: Partial<CardRecord> & { id: string; type: CardRecor
     assigned_to: null,
     depends_on: [],
     related: [],
-    acceptance: '',
     lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
     metrics: null,
     estimate: null,

@@ -9,7 +9,33 @@ export interface CardMutationContext {
   reason?: string;
 }
 
-export type NewCardInput = Omit<CardRecord, 'created_at' | 'updated_at' | 'id' | 'version_seq' | 'position' | 'lifecycle'> & { lifecycle?: CardLifecycleState };
+export interface NewCardInput {
+  type: CardType;
+  parent: string | null;
+  depth: number;
+  title: string;
+  brief: string;
+  status: CardStatus;
+  subtype?: string | null;
+  tags: string[];
+  priority: number;
+  urgency: import('../schemas/index.js').Urgency;
+  created_by: import('../schemas/index.js').CreatedBy;
+  assigned_to?: string | null;
+  depends_on: string[];
+  related: string[];
+  lifecycle?: CardLifecycleState;
+  metrics?: Record<string, number | string | boolean | null> | null;
+  estimate?: string | null;
+  started_at?: string | null;
+  duration_ms?: number | null;
+  status_text?: string | null;
+  status_text_updated_at?: string | null;
+  status_text_author_session_id?: string | null;
+  latest_self_report?: Record<string, unknown> | null;
+  metadata?: import('../schemas/index.js').CardMetadata | null;
+  retries: number;
+}
 
 const CRITICAL_FIELDS: ReadonlySet<string> = new Set([
   'type',
@@ -80,9 +106,6 @@ const VALID_TRANSITIONS: Record<CardStatus, CardStatus[]> = {
 
 const TRACKED_FIELDS = [
   'title',
-  'description',
-  'acceptance',
-  'instructions_file',
   'type',
   'subtype',
   'parent',
@@ -248,7 +271,7 @@ export function validateMutablePatch(
     for (const key of changedKeys) {
       if (CRITICAL_FIELDS.has(key)) {
         throw new Error(
-          `Field '${key}' cannot be changed on a card in status '${existing.status}'. Cards in this state allow editing: status, title, description, priority, urgency, tags, and other non-structural fields.`,
+          `Field '${key}' cannot be changed on a card in status '${existing.status}'. Cards in this state allow editing: status, title, priority, urgency, tags, and other non-structural fields.`,
         );
       }
     }
@@ -338,10 +361,8 @@ export function buildNewCard({ input, id, depth, position, timestamp }: BuildNew
     depth,
     position,
     title: input.title,
-    description: input.description,
     status: input.status,
     subtype: input.subtype ?? null,
-    instructions_file: input.instructions_file ?? null,
     tags: input.tags,
     priority: input.priority,
     urgency: input.urgency,
@@ -351,7 +372,6 @@ export function buildNewCard({ input, id, depth, position, timestamp }: BuildNew
     assigned_to: input.assigned_to ?? null,
     depends_on: input.depends_on,
     related: input.related,
-    acceptance: input.acceptance,
     lifecycle,
     metrics: input.metrics ?? null,
     estimate: input.estimate ?? null,
@@ -364,4 +384,8 @@ export function buildNewCard({ input, id, depth, position, timestamp }: BuildNew
     retries: input.retries,
     version_seq: 1,
   };
+}
+
+export function briefContentForNewCard(input: NewCardInput): string {
+  return input.brief;
 }

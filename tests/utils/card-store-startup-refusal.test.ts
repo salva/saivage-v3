@@ -7,6 +7,7 @@ import { cardByIdPath } from '../../src/persistence/card-loader.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 import type { CardRecord } from '../../src/schemas/types.js';
+import type { NewCardInput } from '../../src/cards/lifecycle.js';
 
 function writeCard(root: string, card: CardRecord): void {
   writeFileSync(
@@ -37,12 +38,12 @@ describe('CardStore startup refusal for legacy cards', () => {
       initProjectTree(root);
       materializeProjectCard(root);
       const setup = new CardStore(root);
-      const a = setup.create({
+      const input: NewCardInput = {
         type: 'goal',
         parent: 'project',
         depth: 1,
         title: 'A',
-        description: '',
+        brief: 'A',
         status: 'backlog',
         tags: [],
         priority: 0,
@@ -50,11 +51,11 @@ describe('CardStore startup refusal for legacy cards', () => {
         created_by: 'analyst',
         depends_on: [],
         related: [],
-        acceptance: '',
         retries: 0,
-      });
-      const b = setup.create({ ...a, title: 'B' });
-      const c = setup.create({ ...a, title: 'C' });
+      };
+      const a = setup.create(input);
+      const b = setup.create({ ...input, title: 'B', brief: 'B' });
+      const c = setup.create({ ...input, title: 'C', brief: 'C' });
       writeCard(root, { ...a, position: 0 });
       writeCard(root, { ...b, position: 1 });
       writeCard(root, { ...c, position: 3 });
@@ -76,12 +77,12 @@ describe('CardStore startup refusal for legacy cards', () => {
       initProjectTree(root);
       materializeProjectCard(root);
       const setup = new CardStore(root);
-      const a = setup.create({
+      const input: NewCardInput = {
         type: 'goal',
         parent: 'project',
         depth: 1,
         title: 'A',
-        description: '',
+        brief: 'A',
         status: 'backlog',
         tags: [],
         priority: 0,
@@ -89,10 +90,10 @@ describe('CardStore startup refusal for legacy cards', () => {
         created_by: 'analyst',
         depends_on: [],
         related: [],
-        acceptance: '',
         retries: 0,
-      });
-      const b = setup.create({ ...a, title: 'B' });
+      };
+      const a = setup.create(input);
+      const b = setup.create({ ...input, title: 'B', brief: 'B' });
       writeCard(root, { ...a, position: 0, created_at: '2026-01-01T00:00:00.000Z' });
       writeCard(root, { ...b, position: 0, created_at: '2026-01-01T00:00:01.000Z' });
 

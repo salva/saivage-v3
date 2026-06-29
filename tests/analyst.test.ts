@@ -33,6 +33,8 @@ import {
 } from '../src/agents/tool-api.js';
 import type { ToolContext } from '../src/tools/analyst-tool-types.js';
 
+const TEST_BRIEF = '# Goal\n\nTest card goal\n\n# Instructions\n\nFollow the test setup.\n\n# Acceptance Criteria\n\nAssertions pass.\n';
+
 import { AnalystHandler, getOrCreateAnalystSession } from '../src/agents/analyst-handler.js';
 import {
   ANALYST_TOOL_DEFINITIONS,
@@ -81,14 +83,13 @@ function setupTestProject(projectRoot: string): CardStore {
     type: 'goal',
     parent: 'project',
     title: 'Test Goal',
-    description: 'A test goal',
+    brief: 'A test goal',
     status: 'running',
     depth: 0,
     tags: [],
     priority: 1,
     urgency: 'normal',
     created_by: 'analyst',
-    acceptance: '',
     depends_on: [],
     related: [],
     retries: 0,
@@ -97,14 +98,13 @@ function setupTestProject(projectRoot: string): CardStore {
     type: 'code',
     parent: 'card-1',
     title: 'Code Task 1',
-    description: 'Implement feature',
+    brief: 'Implement feature',
     status: 'backlog',
     depth: 0,
     tags: ['code'],
     priority: 2,
     urgency: 'normal',
     created_by: 'analyst',
-    acceptance: '',
     depends_on: [],
     related: [],
     retries: 0,
@@ -211,7 +211,7 @@ describe('Analyst Tools', () => {
       type: 'code',
       parent: 'card-1',
       title: 'New Code Card',
-      description: 'A new card',
+      brief: TEST_BRIEF,
     });
     expect(r.success).toBe(false);
     expect(r.error).toContain('requires the runtime to be paused');
@@ -273,7 +273,7 @@ describe('Analyst Tools', () => {
         type: 'project',
         parent: null,
         title: 'Project',
-        description: 'New project instructions',
+        brief: TEST_BRIEF,
       });
 
       expect(result.success).toBe(true);
@@ -300,7 +300,7 @@ describe('Analyst Tools', () => {
         type: 'goal',
         parent: 'project',
         title: 'First goal',
-        description: 'Top-level work without a materialized project card',
+        brief: TEST_BRIEF,
       });
 
       expect(result.success).toBe(false);
@@ -316,7 +316,7 @@ describe('Analyst Tools', () => {
       type: 'project',
       parent: null,
       title: 'Project',
-      description: 'New project instructions',
+      brief: TEST_BRIEF,
     });
 
     expect(result.success).toBe(false);
@@ -444,14 +444,13 @@ describe('Analyst Tools', () => {
       type: 'code',
       parent: 'card-1',
       title: 'Code Task 2',
-      description: '',
+      brief: 'Code Task 2',
       status: 'backlog',
       depth: 0,
       tags: [],
       priority: 1,
       urgency: 'normal',
       created_by: 'analyst',
-      acceptance: '',
       depends_on: [],
       related: [],
       retries: 0,
@@ -482,7 +481,7 @@ describe('Analyst Tools', () => {
       type: 'task' as never,
       parent: 'card-1',
       title: 'Bad Card',
-      description: 'Invalid type',
+      brief: TEST_BRIEF,
       status: 'ready' as never,
     });
 

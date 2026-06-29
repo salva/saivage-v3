@@ -22,9 +22,9 @@ describe('card history and notes tools', () => {
     const root = mkdtempSync(join(tmpdir(), 'wave-f-history-tools-'));
     try {
       const store = setup(root);
-      const goal = store.create({ type: 'goal', parent: 'project', depth: 0, title: 'goal', description: '', status: 'backlog', tags: [], priority: 1, position: 0, urgency: 'normal', created_by: 'analyst', acceptance: '', depends_on: [], related: [], retries: 0 } as any);
-      const code = store.create({ type: 'code', parent: goal.id, depth: 0, title: 'before', description: 'old', status: 'backlog', tags: [], priority: 1, position: 0, urgency: 'normal', created_by: 'analyst', acceptance: 'a', depends_on: [], related: [], retries: 0 } as any);
-      store.mutateCard(code.id, { title: 'after', acceptance: 'b' }, { actor: 'analyst', surface: 'web-chat', reason: 'operator edit' });
+      const goal = store.create({ type: 'goal', parent: 'project', depth: 0, title: 'goal', brief: '', status: 'backlog', tags: [], priority: 1, position: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 } as any);
+      const code = store.create({ type: 'code', parent: goal.id, depth: 0, title: 'before', brief: 'old', status: 'backlog', tags: [], priority: 1, position: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 } as any);
+      store.mutateCard(code.id, { title: 'after', priority: 2 }, { actor: 'analyst', surface: 'web-chat', reason: 'operator edit' });
       const toolCtx = ctx(root, store);
       const history = await list_card_history(toolCtx, { cardId: code.id });
       expect(history.success).toBe(true);
@@ -33,13 +33,13 @@ describe('card history and notes tools', () => {
 
       const entry = await get_card_history_entry(toolCtx, { cardId: code.id, version_seq: 1 });
       expect(entry.success).toBe(true);
-      expect((entry.data as { snapshot: { title: string; acceptance: string } }).snapshot.title).toBe('before');
-      expect((entry.data as { snapshot: { title: string; acceptance: string } }).snapshot.acceptance).toBe('a');
+      expect((entry.data as { snapshot: { title: string; priority: number } }).snapshot.title).toBe('before');
+      expect((entry.data as { snapshot: { title: string; priority: number } }).snapshot.priority).toBe(1);
 
       const diff = await diff_card(toolCtx, { cardId: code.id });
       expect(diff.success).toBe(true);
       const fields = (diff.data as { diff: Array<{ field: string }> }).diff.map((item) => item.field);
-      expect(fields).toEqual(expect.arrayContaining(['acceptance','title']));
+      expect(fields).toEqual(expect.arrayContaining(['priority','title']));
 
 
       const auditPath = join(root, '.saivage', 'runtime', 'control-actions.jsonl');
@@ -53,7 +53,7 @@ describe('card history and notes tools', () => {
     const root = mkdtempSync(join(tmpdir(), 'wave4-card-read-model-'));
     try {
       const store = setup(root);
-      const code = store.create({ type: 'code', parent: 'project', depth: 0, title: 'task', description: 'brief body', status: 'backlog', tags: [], priority: 1, position: 0, urgency: 'normal', created_by: 'analyst', acceptance: 'brief acceptance', depends_on: [], related: [], retries: 0 } as any);
+      const code = store.create({ type: 'code', parent: 'project', depth: 0, title: 'task', brief: 'brief body', status: 'backlog', tags: [], priority: 1, position: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 } as any);
       const openStatus = openRecordSlot(root, { cardId: code.id, filename: 'status.md' });
       writeFileSync(openStatus.absolutePath, 'latest status narrative', 'utf-8');
       closeOpenRecordSlot(root, { cardId: code.id, filename: 'status.md', writer: 'executor', cardVersionSeq: code.version_seq });
@@ -63,7 +63,6 @@ describe('card history and notes tools', () => {
       expect(result.success).toBe(true);
       const data = result.data as { effective_updated_at: string; records: Array<{ filename: string; inline?: { content: string } }>; records_by_filename: Record<string, { filename: string; inline?: { content: string }; modifiedAt?: string }> };
       expect(data.records.map((record) => record.filename)).toEqual(['brief.md', 'status.md', 'review.md']);
-      expect(data.records_by_filename['brief.md']?.inline?.content).toContain('# Goal');
       expect(data.records_by_filename['brief.md']?.inline?.content).toContain('brief body');
       expect(data.records_by_filename['status.md']?.inline?.content).toBe('latest status narrative');
       expect(data.effective_updated_at).toBe(data.records_by_filename['status.md']?.modifiedAt);

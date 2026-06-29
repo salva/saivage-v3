@@ -8,7 +8,7 @@ export function materializeProjectCard(projectRoot: string): void {
     parent: null,
     depth: 0,
     title: 'Project',
-    description: 'Test project root',
+    brief: 'Test project root',
     status: 'backlog',
     depends_on: [],
     priority: 0,
@@ -16,7 +16,6 @@ export function materializeProjectCard(projectRoot: string): void {
     urgency: 'normal',
     created_by: 'analyst',
     related: [],
-    acceptance: '',
     retries: 0,
   });
 }

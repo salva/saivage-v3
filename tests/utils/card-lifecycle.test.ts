@@ -28,10 +28,8 @@ function baseCard(overrides: Partial<CardRecord> = {}): CardRecord {
     depth: 1,
     position: 0,
     title: 'Goal',
-    description: '',
     status: 'backlog',
     subtype: null,
-    instructions_file: null,
     tags: [],
     priority: 0,
     urgency: 'normal',
@@ -41,7 +39,6 @@ function baseCard(overrides: Partial<CardRecord> = {}): CardRecord {
     assigned_to: null,
     depends_on: [],
     related: [],
-    acceptance: '',
     lifecycle,
     metrics: null,
     estimate: null,
@@ -122,6 +119,7 @@ describe('card lifecycle domain rules', () => {
       id: 'goal-2',
       input: {
         ...baseCard({ id: 'ignored', title: 'Created', version_seq: 99 }),
+        brief: 'Created',
       },
       depth: 2,
       position: 3,
@@ -139,9 +137,9 @@ describe('card lifecycle domain rules', () => {
       initProjectTree(root);
       const store = new CardStore(root);
       const { id: _projectId, ...projectInput } = baseCard({ id: 'project', type: 'project', parent: null, depth: 0 });
-      store.create(projectInput);
+      store.create({ ...projectInput, brief: 'project' });
       const { id: _cardId, ...cardInput } = baseCard({ title: 'G' });
-      const card = store.create(cardInput);
+      const card = store.create({ ...cardInput, brief: 'G' });
       store.setStatus(card.id, 'running');
       store.setStatus(card.id, 'running');
 
@@ -160,9 +158,9 @@ describe('card lifecycle domain rules', () => {
       initProjectTree(root);
       const store = new CardStore(root);
       const { id: _projectId, ...projectInput } = baseCard({ id: 'project', type: 'project', parent: null, depth: 0 });
-      store.create(projectInput);
+      store.create({ ...projectInput, brief: 'project' });
       const { id: _cardId, ...cardInput } = baseCard({ title: 'G2' });
-      const card = store.create(cardInput);
+      const card = store.create({ ...cardInput, brief: 'G2' });
       store.setStatus(card.id, 'running');
       store.setStatus(card.id, 'running');
 
@@ -181,9 +179,9 @@ describe('card lifecycle domain rules', () => {
       initProjectTree(root);
       const store = new CardStore(root);
       const { id: _projectId, ...projectInput } = baseCard({ id: 'project', type: 'project', parent: null, depth: 0 });
-      store.create(projectInput);
+      store.create({ ...projectInput, brief: 'project' });
       const { id: _cardId, ...cardInput } = baseCard({ title: 'G3' });
-      const card = store.create(cardInput);
+      const card = store.create({ ...cardInput, brief: 'G3' });
       store.setStatus(card.id, 'running');
       store.setStatus(card.id, 'running');
 

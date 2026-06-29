@@ -17,11 +17,11 @@ function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promis
 }
 
 function createProject(store: CardStore): CardRecord {
-  return store.create({ type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], acceptance: '', retries: 0 });
+  return store.create({ type: 'project', parent: null, depth: 0, title: 'project', brief: 'project', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
 }
 
 function createGoal(store: CardStore, parent: string): CardRecord {
-  return store.create({ type: 'goal', parent, depth: 1, title: 'goal', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], acceptance: '', retries: 0 });
+  return store.create({ type: 'goal', parent, depth: 1, title: 'goal', brief: 'goal', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
 }
 
 function markDone(store: CardStore, card: CardRecord): CardRecord {
@@ -64,7 +64,7 @@ describe('PlanningCardProcessorActor reviewer currentness', () => {
       }
       if (!mutatedDuringReview) {
         mutatedDuringReview = true;
-        store.mutateCard(project.id, { description: 'changed while reviewer was running' }, { actor: 'planner', surface: 'runtime', reason: 'test stale review' });
+        store.mutateCard(project.id, { priority: project.priority + 1 }, { actor: 'planner', surface: 'runtime', reason: 'test stale review' });
       }
       return reviewerPass(`reviewer-pass-${reviewerAttempt}`, child.id);
     }) };

@@ -21,7 +21,7 @@ afterEach(() => {
 });
 
 function createCard() {
-  return store.create({ type: 'goal', parent: 'project', depth: 1, title: 'Goal', description: 'desc', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], acceptance: 'a', retries: 0, instructions_file: null, subtype: null, assigned_to: null, lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, metrics: null, estimate: null, started_at: null, duration_ms: null });
+  return store.create({ type: 'goal', parent: 'project', depth: 1, title: 'Goal', brief: '# Goal\n\ndesc\n\n# Instructions\n\n\n# Acceptance Criteria\n\na\n', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0, subtype: null, assigned_to: null, lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, metrics: null, estimate: null, started_at: null, duration_ms: null });
 }
 
 describe('card history substrate', () => {
@@ -33,13 +33,13 @@ describe('card history substrate', () => {
 
   it('tracked edit increments version and snapshots pre-edit card', () => {
     const card = createCard();
-    const updated = store.mutateCard(card.id, { description: 'new desc', acceptance: 'new a' }, { actor: 'analyst', surface: 'web-chat', reason: 'edit' });
+    const updated = store.mutateCard(card.id, { title: 'Goal updated', priority: 1 }, { actor: 'analyst', surface: 'web-chat', reason: 'edit' });
     const history = store.listCardHistory(card.id);
     expect(updated.version_seq).toBe(2);
     expect(history).toHaveLength(1);
     expect(history[0].snapshot).toEqual(card);
     expect(history[0].version_seq).toBe(1);
-    expect(history[0].changed_fields.sort()).toEqual(['acceptance', 'description']);
+    expect(history[0].changed_fields.sort()).toEqual(['priority', 'title']);
     expect(history[0].entry_id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
     expect(history[0].kind).toBe('mutate');
   });
@@ -73,7 +73,7 @@ describe('card history substrate', () => {
   it('F13 r5: throws loudly on injected orphan history rows (no silent drop)', () => {
     const card = createCard();
     const v2 = store.mutateCard(card.id, { title: 'Goal 2' }, { actor: 'analyst', surface: 'web-chat' });
-    store.mutateCard(card.id, { description: 'Goal 3 desc' }, { actor: 'analyst', surface: 'web-chat' });
+    store.mutateCard(card.id, { priority: 3 }, { actor: 'analyst', surface: 'web-chat' });
 
     const historyFilePath = cardHistoryPath(root, card.id);
     const index = JSON.parse(readFileSync(historyFilePath, 'utf-8')) as { versions: Record<string, { history?: CardHistoryEntry }> };
@@ -83,8 +83,8 @@ describe('card history substrate', () => {
       entry_id: '00000000-0000-4000-8000-000000000001',
       version_seq: 3,
       snapshot: { ...v2, version_seq: 3 },
-      changed_fields: ['acceptance'],
-      change_summary: 'acceptance updated',
+      changed_fields: ['priority'],
+      change_summary: 'priority updated',
     } satisfies CardHistoryEntry;
     index.versions['4'] = { history: orphanEntry };
     writeFileSync(historyFilePath, JSON.stringify(index, null, 2), 'utf-8');

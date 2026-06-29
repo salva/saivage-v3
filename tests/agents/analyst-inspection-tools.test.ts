@@ -197,7 +197,7 @@ describe('analyst inspection tools secret-path policy', () => {
       const result = await read_file(ctx(root), { path: 'record://brief.md?card=../project' });
       expect(result.success).toBe(false);
       expect(result.error).toContain('Invalid card id');
-      expect(readFileSync(join(root, '.saivage', 'outputs', 'cards', 'project', 'brief', '1.md'), 'utf-8')).toContain('# Goal');
+      expect(readFileSync(join(root, '.saivage', 'outputs', 'cards', 'project', 'brief', '1.md'), 'utf-8')).toContain('Test project root');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

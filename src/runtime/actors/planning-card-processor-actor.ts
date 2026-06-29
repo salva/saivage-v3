@@ -374,7 +374,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
 
   private handleCreateCard(args: unknown): unknown {
     const record = requireRecordArgs(args, 'create_card');
-    assertAllowedFields(record, 'create_card', ['type', 'title', 'description', 'status', 'tags', 'priority', 'urgency', 'acceptance', 'depends_on', 'related']);
+    assertAllowedFields(record, 'create_card', ['type', 'title', 'brief', 'status', 'tags', 'priority', 'urgency', 'depends_on', 'related']);
     const type = requirePlannerCreatedType(record.type);
     const status = optionalString(record.status, 'status');
     if (status !== undefined && status !== 'backlog') throw new Error('create_card.status may only be backlog for planner-created child cards.');
@@ -387,13 +387,12 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
       parent: this.cardId,
       depth: parent.depth + 1,
       title: requireNonEmptyString(record.title, 'title'),
-      description: optionalString(record.description, 'description') ?? '',
+      brief: requireNonEmptyString(record.brief, 'brief'),
       status: 'backlog',
       tags: optionalStringArray(record.tags, 'tags'),
       priority: optionalInteger(record.priority, 'priority') ?? 0,
       urgency: optionalUrgency(record.urgency),
       created_by: 'planner',
-      acceptance: optionalString(record.acceptance, 'acceptance') ?? '',
       depends_on: dependsOn,
       related: optionalStringArray(record.related, 'related'),
       retries: 0,
@@ -405,7 +404,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
 
   private handleEditCard(args: unknown): unknown {
     const record = requireRecordArgs(args, 'edit_card');
-    assertAllowedFields(record, 'edit_card', ['card_id', 'title', 'description', 'acceptance', 'tags', 'priority', 'urgency', 'related']);
+    assertAllowedFields(record, 'edit_card', ['card_id', 'title', 'tags', 'priority', 'urgency', 'related']);
     const cardId = requireToolCardId(record, 'edit_card');
     const child = this.requireImmediateChild(cardId, 'edit_card');
     if (child.status === 'running') throw new Error(`edit_card cannot edit running child '${cardId}'.`);
@@ -499,8 +498,6 @@ function requireToolCardId(record: Record<string, unknown>, toolName: string): s
 function plannerEditablePatch(record: Record<string, unknown>): Partial<CardRecord> {
   const patch: Partial<CardRecord> = {};
   if (record.title !== undefined) patch.title = requireNonEmptyString(record.title, 'title');
-  if (record.description !== undefined) patch.description = requireString(record.description, 'description');
-  if (record.acceptance !== undefined) patch.acceptance = requireString(record.acceptance, 'acceptance');
   if (record.tags !== undefined) patch.tags = optionalStringArray(record.tags, 'tags');
   if (record.priority !== undefined) patch.priority = optionalInteger(record.priority, 'priority') ?? 0;
   if (record.urgency !== undefined) patch.urgency = requireUrgency(record.urgency);
@@ -552,15 +549,13 @@ function optionalUrgency(value: unknown): Urgency {
   return requireUrgency(value);
 }
 
-function compactPlannerToolCard(card: CardRecord): Pick<CardRecord, 'id' | 'type' | 'parent' | 'status' | 'title' | 'description' | 'acceptance' | 'depends_on' | 'related' | 'tags' | 'priority' | 'urgency'> {
+function compactPlannerToolCard(card: CardRecord): Pick<CardRecord, 'id' | 'type' | 'parent' | 'status' | 'title' | 'depends_on' | 'related' | 'tags' | 'priority' | 'urgency'> {
   return {
     id: card.id,
     type: card.type,
     parent: card.parent,
     status: card.status,
     title: card.title,
-    description: card.description,
-    acceptance: card.acceptance,
     depends_on: card.depends_on,
     related: card.related,
     tags: card.tags,

@@ -30,6 +30,7 @@ export type ApplyMutationOp =
   | {
       kind: 'create';
       card: CardRecord;
+      briefContent: string;
     }
   | {
       kind: 'persist';
@@ -158,7 +159,7 @@ function applyMutationLocked(
       );
     }
     writeCardRecordVersion(projectRoot, card);
-    writeBriefRecordVersion(projectRoot, card, card.created_by === 'planner' ? 'planner' : 'analyst');
+    writeBriefRecordVersion(projectRoot, card, op.briefContent, card.created_by === 'planner' ? 'planner' : 'analyst');
     state.upsert(card);
     return { card, historyEntry: null, event: null };
   }
@@ -181,9 +182,6 @@ function applyMutationLocked(
       op.changeSummary,
     );
     writeCardRecordVersion(projectRoot, nextValidated, historyEntry);
-    if (op.changedFields.includes('description') || op.changedFields.includes('acceptance') || op.changedFields.includes('instructions_file')) {
-      writeBriefRecordVersion(projectRoot, nextValidated, op.ctx.actor === 'planner' ? 'planner' : 'analyst');
-    }
     state.upsert(nextValidated);
     const event: CardHistoryAppendedPayload = {
       kind: 'card_history_appended',

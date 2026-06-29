@@ -52,10 +52,10 @@ beforeAll(async () => {
   port = (app.server.address() as { port: number }).port;
   const created = store.create({
     title: 'Tracked card',
+    brief: 'Tracked card',
     type: 'code',
     parent: 'project',
     depth: 1,
-    description: '',
     status: 'backlog',
     tags: [],
     priority: 0,
@@ -63,11 +63,10 @@ beforeAll(async () => {
     created_by: 'analyst',
     depends_on: [],
     related: [],
-    acceptance: 'accept initial',
     retries: 0,
   });
   trackedCardId = created.id;
-  store.mutateCard(created.id, { description: 'apiKey="secret-123"', acceptance: 'updated acceptance' }, { actor: 'analyst', surface: 'rest', reason: 'seed cards history test' });
+  store.mutateCard(created.id, { title: 'apiKey="secret-123"', priority: 2 }, { actor: 'analyst', surface: 'rest', reason: 'seed cards history test' });
 }, 30000);
 
 afterAll(async () => {
@@ -87,24 +86,24 @@ describe('cards history api', () => {
     const body = await res.json() as { history: Array<Record<string, unknown>>; total: number };
     expect(body.total).toBe(1);
     expect(body.history[0]?.['snapshot']).toBeUndefined();
-    expect(body.history[0]?.['changed_fields']).toEqual(expect.arrayContaining(['description', 'acceptance']));
+    expect(body.history[0]?.['changed_fields']).toEqual(expect.arrayContaining(['title', 'priority']));
   });
 
   it('returns full redacted history entry by sequence', async () => {
     const res = await fetch(url(`/api/cards/${trackedCardId}/history/1`), { headers: authHeader(authToken) });
     expect(res.status).toBe(200);
-    const body = await res.json() as { entry: { snapshot: { acceptance: string; description: string } } };
-    expect(body.entry.snapshot.acceptance).toBe('accept initial');
-    expect(body.entry.snapshot.description).not.toContain('secret-123');
+    const body = await res.json() as { entry: { snapshot: { title: string; priority: number } } };
+    expect(body.entry.snapshot.title).not.toContain('secret-123');
+    expect(body.entry.snapshot.priority).toBe(0);
   });
 
   it('returns diff with redacted values', async () => {
     const res = await fetch(url(`/api/cards/${trackedCardId}/diff?from=1&to=2`), { headers: authHeader(authToken) });
     expect(res.status).toBe(200);
     const body = await res.json() as { diff: Array<{ field: string; before: unknown; after: unknown }> };
-    const description = body.diff.find((entry) => entry.field === 'description');
-    expect(description).toBeDefined();
-    expect(JSON.stringify(description)).not.toContain('secret-123');
+    const title = body.diff.find((entry) => entry.field === 'title');
+    expect(title).toBeDefined();
+    expect(JSON.stringify(title)).not.toContain('secret-123');
   });
 
   it('resolves to=last as the current version_seq with non-empty diff', async () => {

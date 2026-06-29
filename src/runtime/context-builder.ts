@@ -162,7 +162,6 @@ export function buildCardContextBlock(input: { projectRoot: string; cardId: stri
       depends_on: card.depends_on,
       tags: card.tags,
       parent: card.parent,
-      instructions_file: card.instructions_file ?? null,
     },
     goal: goal
       ? {

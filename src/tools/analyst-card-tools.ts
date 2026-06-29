@@ -44,12 +44,11 @@ const createCardInput = z.object({
   type: enumSchema('The non-project card type.', CARD_TYPE_VALUES),
   parent: describe(z.string().nullable().optional(), "The ID of the parent card. Use null only when creating the root project card; use 'project' for top-level goals."),
   title: describe(z.string(), 'A short title.'),
-  description: describe(z.string(), 'A detailed description.'),
+  brief: describe(z.string(), 'Full brief.md content including Goal, Instructions, and Acceptance Criteria headings.'),
   status: describe(cardStatusSchema.optional(), `Optional initial status. Allowed values: ${CARD_STATUS_VALUES.join(', ')}.`),
   tags: describe(z.array(describe(z.string(), 'A tag string')).optional(), 'Optional tags.'),
   priority: describe(z.number().int().optional(), 'Optional priority value (0-100).'),
   urgency: describe(urgencySchema.optional(), 'Optional urgency level.'),
-  acceptance: describe(z.string().optional(), 'Optional acceptance criteria text.'),
   depends_on: describe(cardIdArraySchema.optional(), 'Optional dependency list.'),
   related: describe(cardIdArraySchema.optional(), 'Optional related-card list.'),
 }).strict();
@@ -57,11 +56,9 @@ const createCardInput = z.object({
 const analystEditCardInput = z.object({
   id: describe(z.string(), 'The ID of the card to edit.'),
   title: describe(z.string().optional(), 'New title.'),
-  description: describe(z.string().optional(), 'New description.'),
   tags: describe(z.array(describe(z.string(), 'A tag string')).optional(), 'New tags.'),
   priority: describe(z.number().int().optional(), 'New priority (0-100).'),
   urgency: describe(urgencySchema.optional(), 'New urgency level.'),
-  acceptance: describe(z.string().optional(), 'New acceptance criteria.'),
   depends_on: describe(stringArraySchema.optional(), 'New dependency list.'),
 }).strict();
 
@@ -72,12 +69,11 @@ const editCardInput = analystEditCardInput.extend({
 const plannerCreateCardInput = z.object({
   type: plannerCreateCardTypeSchema,
   title: describe(z.string(), 'A short title.'),
-  description: describe(z.string(), 'A detailed description.'),
+  brief: describe(z.string(), 'Full brief.md content including Goal, Instructions, and Acceptance Criteria headings.'),
   status: describe(cardStatusSchema.optional(), 'Optional initial planner status.'),
   tags: describe(z.array(describe(z.string(), 'A tag string')).optional(), 'Optional tags.'),
   priority: describe(z.number().int().optional(), 'Optional priority value (0-100).'),
   urgency: describe(urgencySchema.optional(), 'Optional urgency level.'),
-  acceptance: describe(z.string().optional(), 'Optional acceptance criteria text.'),
   depends_on: describe(cardIdArraySchema.optional(), 'Optional dependency list.'),
   related: describe(cardIdArraySchema.optional(), 'Optional related-card list.'),
 }).strict();
@@ -97,7 +93,7 @@ export async function mark_goal_needs_corrections(ctx: ToolContext, params: { go
   } });
 }
 
-export async function create_card(ctx: ToolContext, params: { type: CardType; parent: string | null; title: string; description: string; status?: CardStatus; tags?: string[]; priority?: number; urgency?: 'low' | 'normal' | 'high' | 'critical'; acceptance?: string; depends_on?: string[]; related?: string[] }): Promise<ToolResult> {
+export async function create_card(ctx: ToolContext, params: { type: CardType; parent: string | null; title: string; brief: string; status?: CardStatus; tags?: string[]; priority?: number; urgency?: 'low' | 'normal' | 'high' | 'critical'; depends_on?: string[]; related?: string[] }): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, params, { action: 'card.create', safety_class: 'low', target_kind: 'card', getTargetId: () => null, run: async () => {
     try {
       const typeCheck = preflightEnum(params.type, CREATE_CARD_TYPE_VALUES, 'type', 'create_card'); if (!typeCheck.ok) return { success: false, error: typeCheck.error, errorEnvelope: typeCheck.errorEnvelope };
@@ -120,7 +116,7 @@ export async function create_card(ctx: ToolContext, params: { type: CardType; pa
       if (parent === null && params.type !== 'project') return toolFailure('validation', `Cannot create ${params.type} card without a parent. Inspect the card tree and provide an existing parent ID.`, { field: 'parent' });
       if (parent === undefined) return toolFailure('validation', `Cannot create ${params.type} card without a parent. Inspect the card tree and provide an existing parent ID.`, { field: 'parent' });
       if (parent !== null && parent !== PROJECT_CARD_ID && !store.read(parent)) return toolFailure('not_found', `Parent card '${parent}' does not exist.`, { parent });
-      const card = store.create({ type: params.type, parent, depth: 0, title: params.title, description: params.description, status: params.status ?? 'backlog', tags: params.tags ?? [], priority: params.priority ?? 0, urgency: params.urgency ?? 'normal', created_by: 'analyst', acceptance: params.acceptance ?? '', depends_on: params.depends_on ?? [], related: params.related ?? [], retries: 0 });
+      const card = store.create({ type: params.type, parent, depth: 0, title: params.title, brief: params.brief, status: params.status ?? 'backlog', tags: params.tags ?? [], priority: params.priority ?? 0, urgency: params.urgency ?? 'normal', created_by: 'analyst', depends_on: params.depends_on ?? [], related: params.related ?? [], retries: 0 });
       if (ctx.actor === 'analyst' && parent !== null) {
         try { propagateChange(ctx.projectRoot, store, parent, { kind: 'analyst_edit', summary: `analyst created child card ${card.id}` }); } catch { /* best-effort planner notification; create result remains authoritative */ }
       }
@@ -129,7 +125,7 @@ export async function create_card(ctx: ToolContext, params: { type: CardType; pa
   } });
 }
 
-const PLANNER_ALLOWED_EDIT_FIELDS = new Set(['title', 'description', 'status', 'tags', 'priority', 'urgency', 'acceptance', 'depends_on', 'related', 'estimate', 'subtype', 'assigned_to', 'result', 'metrics', 'started_at', 'completed_at', 'duration_ms', 'error', 'parent', 'type', 'instructions_file']);
+const PLANNER_ALLOWED_EDIT_FIELDS = new Set(['title', 'status', 'tags', 'priority', 'urgency', 'depends_on', 'related', 'estimate', 'subtype', 'assigned_to', 'result', 'metrics', 'started_at', 'completed_at', 'duration_ms', 'error', 'parent', 'type']);
 
 function requirePausedRuntime(ctx: ToolContext, toolName: string): ToolResult | null {
   const runtimeState = readRuntimeState(ctx.projectRoot);

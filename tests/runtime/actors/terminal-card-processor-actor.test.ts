@@ -20,8 +20,8 @@ function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promis
 function setup(projectRoot: string) {
   initProjectTree(projectRoot);
   const store = new CardStore(projectRoot);
-  store.create({ type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], acceptance: '', retries: 0 });
-  const card = store.create({ type: 'code', parent: 'project', depth: 1, title: 'write code', description: 'Implement it.', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], acceptance: 'Works.', retries: 0 });
+  store.create({ type: 'project', parent: null, depth: 0, title: 'project', brief: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
+  const card = store.create({ type: 'code', parent: 'project', depth: 1, title: 'write code', brief: 'Implement it.', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
   return { store, card };
 }
 

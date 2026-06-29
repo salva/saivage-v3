@@ -23,7 +23,6 @@ function card(id: string, parent: string | null, position: number, title: string
     parent,
     position,
     title,
-    description: '',
     status: 'backlog',
     type: 'code',
     tags: [],
@@ -35,7 +34,6 @@ function card(id: string, parent: string | null, position: number, title: string
     version_seq: 1,
     depends_on: [],
     related: [],
-    acceptance: '',
     retries: 0,
   } as any;
 }

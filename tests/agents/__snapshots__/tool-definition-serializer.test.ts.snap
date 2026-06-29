@@ -60,8 +60,8 @@ exports[`tool-definition-serializer snapshots Chat wire shape for sample catalog
       "parameters": {
         "additionalProperties": false,
         "properties": {
-          "acceptance": {
-            "description": "Optional acceptance criteria text.",
+          "brief": {
+            "description": "Full brief.md content including Goal, Instructions, and Acceptance Criteria headings.",
             "type": "string",
           },
           "depends_on": {
@@ -71,10 +71,6 @@ exports[`tool-definition-serializer snapshots Chat wire shape for sample catalog
               "type": "string",
             },
             "type": "array",
-          },
-          "description": {
-            "description": "A detailed description.",
-            "type": "string",
           },
           "priority": {
             "description": "Optional priority value (0-100).",
@@ -142,7 +138,7 @@ exports[`tool-definition-serializer snapshots Chat wire shape for sample catalog
         "required": [
           "type",
           "title",
-          "description",
+          "brief",
         ],
         "type": "object",
       },
@@ -225,8 +221,8 @@ exports[`tool-definition-serializer snapshots Codex wire shape for sample catalo
     "parameters": {
       "additionalProperties": false,
       "properties": {
-        "acceptance": {
-          "description": "Optional acceptance criteria text.",
+        "brief": {
+          "description": "Full brief.md content including Goal, Instructions, and Acceptance Criteria headings.",
           "type": "string",
         },
         "depends_on": {
@@ -236,10 +232,6 @@ exports[`tool-definition-serializer snapshots Codex wire shape for sample catalo
             "type": "string",
           },
           "type": "array",
-        },
-        "description": {
-          "description": "A detailed description.",
-          "type": "string",
         },
         "priority": {
           "description": "Optional priority value (0-100).",
@@ -307,7 +299,7 @@ exports[`tool-definition-serializer snapshots Codex wire shape for sample catalo
       "required": [
         "type",
         "title",
-        "description",
+        "brief",
       ],
       "type": "object",
     },

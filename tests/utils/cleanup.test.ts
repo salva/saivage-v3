@@ -157,7 +157,7 @@ describe('Cleanup Utility Smoke Tests', () => {
       type: 'code',
       parent: 'project',
       title: 'card-with-tmp',
-      description: 'test',
+      brief: 'test',
       status: 'done',
       lifecycle: {
         status: 'done',
@@ -171,7 +171,6 @@ describe('Cleanup Utility Smoke Tests', () => {
       urgency: 'normal',
       created_by: 'planner',
       related: [],
-      acceptance: '',
       retries: 0,
       depth: 0,
     });

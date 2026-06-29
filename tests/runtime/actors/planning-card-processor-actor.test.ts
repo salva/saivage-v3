@@ -19,11 +19,11 @@ function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promis
 }
 
 function createProject(store: CardStore): CardRecord {
-  return store.create({ type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], acceptance: '', retries: 0 });
+  return store.create({ type: 'project', parent: null, depth: 0, title: 'project', brief: 'project', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
 }
 
 function createGoal(store: CardStore, parent = 'project'): CardRecord {
-  return store.create({ type: 'goal', parent, depth: parent === 'project' ? 1 : 2, title: 'goal', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], acceptance: '', retries: 0 });
+  return store.create({ type: 'goal', parent, depth: parent === 'project' ? 1 : 2, title: 'goal', brief: 'goal', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
 }
 
 function writeBrief(projectRoot: string, cardId: string, content: string, cardVersionSeq = 1): void {
@@ -230,7 +230,7 @@ describe('PlanningCardProcessorActor', () => {
         if (input.role === 'reviewer') return reviewerResult({ evidence_card_ids: [createdId] });
         const lastToolResult = (input.episodeContext.lastToolResult as { result?: { card?: { id: string }; outcome?: string } } | undefined)?.result;
         if (!lastToolResult) {
-          return { kind: 'tool_calls' as const, tool_calls: [{ id: 'create-1', type: 'function' as const, function: { name: 'create_card', arguments: JSON.stringify({ type: 'code', title: 'Implement slice', description: 'Build the slice', acceptance: 'Slice works' }) } }] };
+          return { kind: 'tool_calls' as const, tool_calls: [{ id: 'create-1', type: 'function' as const, function: { name: 'create_card', arguments: JSON.stringify({ type: 'code', title: 'Implement slice', brief: 'Build the slice\n\nAcceptance: Slice works' }) } }] };
         }
         if (lastToolResult.card) {
           createdId = lastToolResult.card.id;
@@ -251,7 +251,7 @@ describe('PlanningCardProcessorActor', () => {
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
 
     const created = store.read(createdId);
-    expect(created).toMatchObject({ type: 'code', parent: project.id, status: 'done', title: 'Implement slice', created_by: 'planner', acceptance: 'Slice works' });
+    expect(created).toMatchObject({ type: 'code', parent: project.id, status: 'done', title: 'Implement slice', created_by: 'planner' });
     expect(children.get).toHaveBeenCalledWith(createdId);
     expect(outcome).toMatchObject({ status: 'done', summary: 'review ok', result: { kind: 'reviewer_pass', planning: { kind: 'planner_done', summary: 'project done' } } });
     expect(provider.completeTurn).toHaveBeenNthCalledWith(1, expect.objectContaining({
@@ -290,7 +290,7 @@ describe('PlanningCardProcessorActor', () => {
     const provider = withMandatoryRecords((input: LlmInvocationInput) => {
         if (input.role === 'reviewer') return reviewerResult({ evidence_card_ids: [failedGoal.id] });
         const lastToolResult = (input.episodeContext.lastToolResult as { result?: { card?: { id: string; status: string }; outcome?: string } } | undefined)?.result;
-        if (!lastToolResult) return { kind: 'tool_calls' as const, tool_calls: [{ id: 'edit-1', type: 'function' as const, function: { name: 'edit_card', arguments: JSON.stringify({ card_id: failedGoal.id, title: 'Recovered child', description: 'Try again', acceptance: 'Recovered' }) } }] };
+        if (!lastToolResult) return { kind: 'tool_calls' as const, tool_calls: [{ id: 'edit-1', type: 'function' as const, function: { name: 'edit_card', arguments: JSON.stringify({ card_id: failedGoal.id, title: 'Recovered child', priority: 2 }) } }] };
         if (lastToolResult.card) {
           edited = true;
           expect(lastToolResult.card).toMatchObject({ id: failedGoal.id, status: 'changed', title: 'Recovered child' });
@@ -305,7 +305,7 @@ describe('PlanningCardProcessorActor', () => {
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
 
     expect(edited).toBe(true);
-    expect(store.read(failedGoal.id)).toMatchObject({ status: 'done', title: 'Recovered child', description: 'Try again', acceptance: 'Recovered' });
+    expect(store.read(failedGoal.id)).toMatchObject({ status: 'done', title: 'Recovered child', priority: 2 });
     expect(outcome).toMatchObject({ status: 'done' });
   }));
 
@@ -508,7 +508,7 @@ describe('PlanningCardProcessorActor', () => {
     expect(outcome).toMatchObject({ status: 'done' });
     expect(delivery.deliverNotificationsForInput).toHaveBeenCalledWith('planner:project:1');
     const reviewerInput = (provider.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls.find(([input]) => input.role === 'reviewer')?.[0];
-    expect(reviewerInput).toMatchObject({ role: 'reviewer', systemPrompt: expect.stringContaining('# Acceptance Criteria') });
+    expect(reviewerInput).toMatchObject({ role: 'reviewer', systemPrompt: expect.stringContaining('project') });
     expect(reviewerInput?.contextMessages).toEqual(expect.arrayContaining([expect.objectContaining({ role: 'user', content: expect.stringContaining('Descendant work:') })]));
   }));
 

@@ -7,6 +7,7 @@ import type { CardStoreState } from './state.js';
 import { applyMutationWithOwnedLockSync, type ApplyMutationDeps } from './apply-mutation.js';
 import {
   assertCanCreateCard,
+  briefContentForNewCard,
   buildNewCard,
   buildSetStatusLifecycle,
   isTerminalState,
@@ -108,7 +109,7 @@ export class CardLifecycleCommands {
         const cycle = state.detectDependsOnCycle(card.id, card.depends_on);
         if (cycle.length > 0) throw new Error(`Dependency cycle detected: ${cycle.join(' -> ')}`);
       }
-      const result = applyMutationWithOwnedLockSync(this.config.deps(), handle, { kind: 'create', card: parsed.data });
+      const result = applyMutationWithOwnedLockSync(this.config.deps(), handle, { kind: 'create', card: parsed.data, briefContent: briefContentForNewCard(input) });
       created = result.card;
     });
     return deepClone(created!);

@@ -29,7 +29,7 @@ function setupRoot(): string {
     providers: { test: { models: ['test-model'], apiKey: 'test-key', baseUrl: 'http://test-provider.invalid/v1' } },
   }));
   materializeProjectCard(root);
-  new CardStore(root).create({ type: 'code', parent: 'project', title: 'card', description: '', status: 'backlog', depth: 0, tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', acceptance: '', depends_on: [], related: [], retries: 0 });
+  new CardStore(root).create({ type: 'code', parent: 'project', title: 'card', brief: 'card', status: 'backlog', depth: 0, tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 });
   initRuntimeState(root);
   return root;
 }

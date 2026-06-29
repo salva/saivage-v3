@@ -17,15 +17,16 @@ import { CardStoreState } from '../../src/cards/state.js';
 import { validateParsedCards } from '../../src/cards/validator.js';
 import { cardHistoryPath, cardRecordNamespaceDir, cardRecordVersionPath, parseCard, readHistoryEntriesStrict } from '../../src/persistence/card-loader.js';
 import type { CardRecord } from '../../src/schemas/types.js';
+import type { NewCardInput } from '../../src/cards/lifecycle.js';
 
 function makeCard(
-  overrides: Partial<CardRecord> & { type: string },
-): Omit<CardRecord, 'created_at' | 'updated_at' | 'id' | 'position'> & { id?: string } {
+  overrides: Partial<NewCardInput> & { type: NewCardInput['type'] },
+): NewCardInput & { id?: string } {
   const defaults: Record<string, unknown> = {
     parent: 'project',
     depth: 1,
     title: 'Test Card',
-    description: '',
+    brief: 'Test Card',
     status: 'backlog',
     tags: [],
     priority: 0,
@@ -33,7 +34,6 @@ function makeCard(
     created_by: 'analyst',
     depends_on: [],
     related: [],
-    acceptance: '',
     retries: 0,
     subtype: null,
     assigned_to: null,
@@ -53,7 +53,7 @@ function makeCard(
   return {
     ...defaults,
     ...overrides,
-  } as Omit<CardRecord, 'created_at' | 'updated_at' | 'id' | 'position'> & { id?: string };
+  } as NewCardInput & { id?: string };
 }
 
 let tmpDir: string;

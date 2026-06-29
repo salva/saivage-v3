@@ -109,14 +109,13 @@ export function writeCardRecordVersion(projectRoot: string, card: CardRecord, hi
   writeRecordSlotIndex(projectRoot, card.id, index);
 }
 
-export function writeBriefRecordVersion(projectRoot: string, card: CardRecord, writer: 'analyst' | 'planner' = 'analyst'): void {
+export function writeBriefRecordVersion(projectRoot: string, card: CardRecord, content: string, writer: 'analyst' | 'planner' = 'analyst'): void {
   const filename = 'brief.md';
   const slot = 'brief';
   const index = readRecordSlotIndex(projectRoot, card.id, slot);
   const version = nextCardVersion(index);
   const path = recordPath(projectRoot, card.id, slot, version, filename);
   mkdirSync(recordSlotDir(projectRoot, card.id, slot), { recursive: true });
-  const content = `# Goal\n\n${card.description || card.title}\n\n# Instructions\n\n${card.instructions_file ? `See ${card.instructions_file}` : ''}\n\n# Acceptance Criteria\n\n${card.acceptance || ''}\n`;
   writeFileSync(path.absolutePath, content, 'utf-8');
   const committedAt = new Date().toISOString();
   index.latest = version;

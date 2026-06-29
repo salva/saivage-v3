@@ -80,7 +80,6 @@ export function applyCardFilters(source: CardRecord[], filters: CardFilterState)
     const q = filters.query.toLowerCase();
     result = result.filter((card) =>
       card.title.toLowerCase().includes(q)
-      || card.description.toLowerCase().includes(q)
       || card.id.toLowerCase().includes(q));
   }
   if (filters.parent) result = result.filter((card) => card.parent === filters.parent);

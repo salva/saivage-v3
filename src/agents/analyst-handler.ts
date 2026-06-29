@@ -403,7 +403,7 @@ export class AnalystHandler {
   private buildProjectContext(): string {
     try {
       const store = this.runtimeDeps.cardStore;
-      return JSON.stringify({ projectRoot: this.projectRoot, cards: store.list().map((card) => ({ id: card.id, type: card.type, parent: card.parent, status: card.status, title: card.title, description: card.description, acceptance: card.acceptance, priority: card.priority, tags: card.tags })) }, null, 2);
+      return JSON.stringify({ projectRoot: this.projectRoot, cards: store.list().map((card) => ({ id: card.id, type: card.type, parent: card.parent, status: card.status, title: card.title, priority: card.priority, tags: card.tags })) }, null, 2);
     } catch (err) {
       this.logBoundaryDiagnostic('analyst_project_context_build_failed', err);
       return `Project root: ${this.projectRoot}`;

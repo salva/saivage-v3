@@ -31,6 +31,8 @@ const RETIRED_NOTE_TOOLS = [
   '\x6dark_note_handled',
 ];
 
+const TEST_BRIEF = '# Goal\n\nFollow SPEC/PLAN.\n\n# Instructions\n\nUse record-backed cards.\n\n# Acceptance Criteria\n\nDone.\n';
+
 function setupRoot(): string {
   const root = mkdtempSync(join(tmpdir(), 's02-surface-'));
   const sd = join(root, '.saivage');
@@ -60,8 +62,8 @@ function setupEmptyRoot(): string {
 
 function seedDeleteCards(root: string): CardStore {
   const store = new CardStore(root);
-  const goal = store.create({ type: 'goal', parent: 'project', title: 'Goal', description: 'Goal', status: 'backlog', depth: 0, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', acceptance: '', depends_on: [], related: [], retries: 0 });
-  for (const title of ['code-1', 'code-2', 'code-3']) store.create({ type: 'code', parent: goal.id, title, description: title, status: 'backlog', depth: 0, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', acceptance: '', depends_on: [], related: [], retries: 0 });
+  const goal = store.create({ type: 'goal', parent: 'project', title: 'Goal', brief: 'Goal', status: 'backlog', depth: 0, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 });
+  for (const title of ['code-1', 'code-2', 'code-3']) store.create({ type: 'code', parent: goal.id, title, brief: title, status: 'backlog', depth: 0, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 });
   return store;
 }
 
@@ -110,7 +112,7 @@ describe('Analyst project bootstrap', () => {
     const root = setupEmptyRoot();
     try {
       const store = new CardStore(root);
-      const result = await create_card({ projectRoot: root, store, actor: 'analyst', surface: 'web-chat' }, { type: 'project', parent: null, title: 'Project', description: 'Follow SPEC/PLAN.' });
+      const result = await create_card({ projectRoot: root, store, actor: 'analyst', surface: 'web-chat' }, { type: 'project', parent: null, title: 'Project', brief: TEST_BRIEF });
       expect(result.success).toBe(true);
       expect(store.read('project')).toMatchObject({ id: 'project', type: 'project', parent: null, title: 'Project' });
     } finally { rmSync(root, { recursive: true, force: true }); }
@@ -120,10 +122,10 @@ describe('Analyst project bootstrap', () => {
     const root = setupRoot();
     try {
       const store = new CardStore(root);
-      const child = await create_card({ projectRoot: root, store, actor: 'analyst', surface: 'web-chat' }, { type: 'goal', parent: 'project', title: 'Goal', description: 'No.' });
+      const child = await create_card({ projectRoot: root, store, actor: 'analyst', surface: 'web-chat' }, { type: 'goal', parent: 'project', title: 'Goal', brief: TEST_BRIEF });
       expect(child.success).toBe(false);
       expect(child.error).toContain('requires the runtime to be paused');
-      const duplicate = await create_card({ projectRoot: root, store, actor: 'analyst', surface: 'web-chat' }, { type: 'project', parent: null, title: 'Project', description: 'Duplicate.' });
+      const duplicate = await create_card({ projectRoot: root, store, actor: 'analyst', surface: 'web-chat' }, { type: 'project', parent: null, title: 'Project', brief: TEST_BRIEF });
       expect(duplicate.success).toBe(false);
       expect(duplicate.error).toContain('already exists');
     } finally { rmSync(root, { recursive: true, force: true }); }
@@ -134,7 +136,7 @@ describe('Analyst project bootstrap', () => {
     try {
       pauseRuntime(root);
       const store = new CardStore(root);
-      const child = await create_card({ projectRoot: root, store, actor: 'analyst', surface: 'web-chat' }, { type: 'goal', parent: 'project', title: 'Goal', description: 'Yes.' });
+      const child = await create_card({ projectRoot: root, store, actor: 'analyst', surface: 'web-chat' }, { type: 'goal', parent: 'project', title: 'Goal', brief: TEST_BRIEF });
       expect(child.success).toBe(true);
       expect(store.read('card-1')).toMatchObject({ type: 'goal', parent: 'project', status: 'backlog', title: 'Goal' });
     } finally { rmSync(root, { recursive: true, force: true }); }
@@ -150,7 +152,7 @@ describe('Analyst paused card-management gates', () => {
       const deniedStatuses = ['running', 'done', 'failed', 'cancelled'] as const;
       for (const status of allowedStatuses) {
         const store = new CardStore(root);
-        const card = store.create({ type: 'code', parent: 'project', title: `Allow ${status}`, description: status, status: 'backlog', depth: 0, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', acceptance: '', depends_on: [], related: [], retries: 0 });
+        const card = store.create({ type: 'code', parent: 'project', title: `Allow ${status}`, brief: status, status: 'backlog', depth: 0, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 });
         if (status !== 'backlog') setCardStatusForTest(store, card.id, status);
         const result = await cancel_card({ projectRoot: root, store, actor: 'analyst', surface: 'web-chat' }, { cardId: card.id });
         expect(result.success).toBe(true);
@@ -158,7 +160,7 @@ describe('Analyst paused card-management gates', () => {
       }
       for (const status of deniedStatuses) {
         const store = new CardStore(root);
-        const card = store.create({ type: 'code', parent: 'project', title: `Deny ${status}`, description: status, status: 'backlog', depth: 0, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', acceptance: '', depends_on: [], related: [], retries: 0 });
+        const card = store.create({ type: 'code', parent: 'project', title: `Deny ${status}`, brief: status, status: 'backlog', depth: 0, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 });
         setCardStatusForTest(store, card.id, status);
         const result = await cancel_card({ projectRoot: root, store, actor: 'analyst', surface: 'web-chat' }, { cardId: card.id });
         expect(result.success).toBe(false);
