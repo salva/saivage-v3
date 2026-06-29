@@ -239,8 +239,20 @@ export async function get_card(ctx: ToolContext, params: { id: string }): Promis
   try { const store = getStore(ctx); const card = store.read(params.id); if (!card) return toolFailure('not_found', `Card '${params.id}' not found.`, { id: params.id });
     const children = store.listChildren(params.id).map((cid) => store.read(cid)).filter((c): c is CardRecord => c !== null).map((child) => cardSummary(child, store));
     const records = cardRecordSummaries(ctx.projectRoot, params.id);
-    return { success: true, data: { ...toCardView(store, card), children, records, records_by_filename: Object.fromEntries(records.map((record) => [record.filename, record])) } };
+    return { success: true, data: { ...toCardView(store, card), effective_updated_at: effectiveUpdatedAt(ctx.projectRoot, params.id), children, records, records_by_filename: Object.fromEntries(records.map((record) => [record.filename, record])) } };
   } catch (err) { return toolFailureFromError(err); }
+}
+
+function effectiveUpdatedAt(projectRoot: string, cardId: string): string | null {
+  const committedTimes: string[] = [];
+  for (const slot of ['card', ...recordSlotDefinitions().filter((definition) => definition.exposed).map((definition) => definition.slot)]) {
+    const index = readRecordSlotIndex(projectRoot, cardId, slot);
+    if (index.latest === null) continue;
+    const committedAt = index.versions[String(index.latest)]?.committed_at;
+    if (committedAt) committedTimes.push(committedAt);
+  }
+  if (committedTimes.length === 0) return null;
+  return committedTimes.sort((a, b) => Date.parse(b) - Date.parse(a))[0]!;
 }
 
 function cardRecordSummaries(projectRoot: string, cardId: string): Array<Record<string, unknown>> {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from '@jest/globals';
-import { mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { CardStore } from '../../src/cards/card-store.js';
@@ -7,6 +7,7 @@ import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 import { list_card_history, get_card_history_entry, diff_card, get_card } from '../../src/tools/analyst-card-tools.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
+import { closeOpenRecordSlot, openRecordSlot } from '../../src/runtime/records/record-slots.js';
 
 function setup(root: string): CardStore {
   initProjectTree(root);
@@ -53,13 +54,19 @@ describe('card history and notes tools', () => {
     try {
       const store = setup(root);
       const code = store.create({ type: 'code', parent: 'project', depth: 0, title: 'task', description: 'brief body', status: 'backlog', tags: [], priority: 1, position: 0, urgency: 'normal', created_by: 'analyst', acceptance: 'brief acceptance', depends_on: [], related: [], retries: 0 } as any);
+      const openStatus = openRecordSlot(root, { cardId: code.id, filename: 'status.md' });
+      writeFileSync(openStatus.absolutePath, 'latest status narrative', 'utf-8');
+      closeOpenRecordSlot(root, { cardId: code.id, filename: 'status.md', writer: 'executor', cardVersionSeq: code.version_seq });
+
       const result = await get_card(ctx(root, store), { id: code.id });
 
       expect(result.success).toBe(true);
-      const data = result.data as { records: Array<{ filename: string; inline?: { content: string } }>; records_by_filename: Record<string, { filename: string; inline?: { content: string } }> };
+      const data = result.data as { effective_updated_at: string; records: Array<{ filename: string; inline?: { content: string } }>; records_by_filename: Record<string, { filename: string; inline?: { content: string }; modifiedAt?: string }> };
       expect(data.records.map((record) => record.filename)).toEqual(['brief.md', 'status.md', 'review.md']);
       expect(data.records_by_filename['brief.md']?.inline?.content).toContain('# Goal');
       expect(data.records_by_filename['brief.md']?.inline?.content).toContain('brief body');
+      expect(data.records_by_filename['status.md']?.inline?.content).toBe('latest status narrative');
+      expect(data.effective_updated_at).toBe(data.records_by_filename['status.md']?.modifiedAt);
       expect(data.records_by_filename['card.json']).toBeUndefined();
     } finally {
       rmSync(root, { recursive: true, force: true });
