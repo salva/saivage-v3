@@ -179,7 +179,7 @@ This is already returned by `PlanningCardProcessorActor.handleToolCall`. The `su
 
 #### Card `status_text` and `latest_self_report`
 
-`status_text` is the agent's last status string. `latest_self_report` is the structured self-report payload. Both are persisted on the card and readable by the parent.
+Current implementation persists `status_text` and `latest_self_report` on the card. The record-backed card storage plan replaces `status_text` with `status.md` as the source of narrative status; structured self-report data remains card state unless a later concrete need justifies a separate structured result record.
 
 #### Card record slots
 
@@ -200,7 +200,7 @@ The reviewer is invoked by the parent planner after the planner reports `done`. 
 
 **What the reviewer needs:**
 1. Goal card: id, title, description, acceptance.
-2. Descendant card summaries: for each descendant, the `id`, `type`, `title`, `status`, `status_text`, `result.kind`, `result.summary` or `result.error`, and latest closed `status.md` record URL.
+2. Descendant card summaries: for each descendant, the `id`, `type`, `title`, `status`, structured lifecycle result summary/error, and latest closed `status.md` record URL.
 3. Reviewable evidence: accepted descendant cards plus their status records.
 4. Read-only tools to verify work: `read`, `glob`, `grep` — currently NOT provided.
 
@@ -208,7 +208,7 @@ The reviewer is invoked by the parent planner after the planner reports `done`. 
 
 The descendant summary message should include, for each descendant of the goal card:
 - `id`, `type`, `title`, `status`
-- `status_text`
+- latest `status.md` summary or snippet
 - `result.kind` (e.g. `executor_success`, `planner_done`, `planner_blocked`)
 - `result.summary` or `result.error` (the key human-readable outcome)
 - latest closed `status.md` record URL, when available
@@ -378,7 +378,7 @@ The message should include compact structured summaries:
 - `type`
 - `title`
 - `status`
-- `status_text`
+- latest `status.md` summary or snippet
 - `lifecycle.result.kind`
 - concise summary/error fields
 - latest closed `status.md` record URL, when available
