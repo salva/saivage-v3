@@ -1,9 +1,10 @@
 import { z } from 'zod';
-import { existsSync, lstatSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve as resolvePath } from 'node:path';
 
 import { evaluateAuthz } from '../agents/authz.js';
 import { recordControlAction } from '../persistence/index.js';
+import { readRuntimeState } from '../runtime/state-api.js';
 import { SecretPathError, classifyShellCommand } from '../workspace/index.js';
 import { looksLikeSecretPath } from '../workspace/secret-paths.js';
 import { assertAnalystInspectionTarget, isAnalystSecretPath } from '../workspace/file-access-security.js';
@@ -11,7 +12,7 @@ import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
 import { describe, emptyInput, type UnifiedToolDefinition } from './tool-catalog.js';
 import { isBinarySample, normalizeShellParams, redactShellText, runShellCommandWithCapture, summarizeShellCommand, summarizeShellOutcome, toolFailure, toolFailureFromError, type ShellCommandParams } from './analyst-tool-helpers.js';
-import { exposedRecordSlotDefinitionForFilename, readClosedRecordSlotMetadata, readRecordSlotIndex, recordPath } from '../runtime/records/record-slots.js';
+import { closeOpenRecordSlot, discardOpenRecordSlot, exposedRecordSlotDefinitionForFilename, openRecordSlot, readClosedRecordSlotMetadata, readRecordSlotIndex, recordPath } from '../runtime/records/record-slots.js';
 
 const FILE_READ_MAX_BYTES = 1_000_000;
 const FILE_READ_DEFAULT_BYTES = 200_000;
@@ -62,12 +63,56 @@ export async function read_file(_ctx: ToolContext, params: { path: string; maxBy
   } catch (err) { if (err instanceof SecretPathError) return toolFailure('permission', err.message); return toolFailureFromError(err, 'io'); }
 }
 
+export async function write_file(ctx: ToolContext, params: { path: string; content: string }): Promise<ToolResult> {
+  const auditParams = { path: params.path, bytes: Buffer.byteLength(params.content ?? '', 'utf8') };
+  return runAuditedAnalystTool(ctx, auditParams, { action: 'record.brief.write', safety_class: 'high', target_kind: 'card', getTargetId: () => {
+    try { return params.path.startsWith('record://') ? new URL(params.path).searchParams.get('card') : null; } catch { return null; }
+  }, run: async () => {
+    try {
+      if (!params.path.startsWith('record://')) return toolFailure('permission', 'write_file only writes record://brief.md document records. It cannot write host or project files.', { path: params.path });
+      const runtimeState = readRuntimeState(ctx.projectRoot);
+      if (runtimeState?.paused !== true) return toolFailure('permission', 'write_file requires the runtime to be paused before the Analyst mutates card records. Use pause_runtime first, or queue_notification for running work.', { paused: runtimeState?.paused ?? false, status: runtimeState?.status ?? 'unknown' });
+      const target = parseBriefWriteUrl(params.path);
+      if (params.content.length === 0) return toolFailure('validation', 'brief.md content must not be empty.', { path: params.path });
+      validateBriefMarkdown(params.content);
+      const card = ctx.store.read(target.cardId);
+      if (!card) return toolFailure('not_found', `Card '${target.cardId}' not found.`, { cardId: target.cardId });
+      const index = readRecordSlotIndex(ctx.projectRoot, target.cardId, 'brief');
+      if (index.open !== null) return toolFailure('conflict', `Cannot write '${target.path}': latest brief.md version is open.`, { cardId: target.cardId, open: index.open });
+      const open = openRecordSlot(ctx.projectRoot, { cardId: target.cardId, filename: 'brief.md' });
+      try {
+        writeFileSync(open.absolutePath, params.content, 'utf8');
+        const closed = closeOpenRecordSlot(ctx.projectRoot, { cardId: target.cardId, filename: 'brief.md', writer: 'analyst', cardVersionSeq: card.version_seq });
+        return { success: true, data: { card_id: target.cardId, path: closed.relativePath, record_url: closed.recordUrl, bytes: Buffer.byteLength(params.content, 'utf8'), written: true } };
+      } catch (err) {
+        discardOpenRecordSlot(ctx.projectRoot, { cardId: target.cardId, filename: 'brief.md', reason: 'analyst write_file failed' });
+        throw err;
+      }
+    } catch (err) { return toolFailureFromError(err, 'validation'); }
+  } });
+}
+
+function parseBriefWriteUrl(raw: string): { cardId: string; path: string } {
+  const url = new URL(raw);
+  const filename = validRecordSegment(decodeURIComponent(`${url.hostname}${url.pathname}`), 'record filename', raw);
+  if (filename !== 'brief.md') throw new Error('write_file only supports record://brief.md document writes.');
+  const cardId = validRecordSegment(url.searchParams.get('card') ?? '', 'card id', raw);
+  const version = url.searchParams.get('v') ?? 'next';
+  if (version !== 'next') throw new Error('write_file record writes must use v=next.');
+  return { cardId, path: `record://brief.md?card=${encodeURIComponent(cardId)}&v=next` };
+}
+
+function validateBriefMarkdown(content: string): void {
+  for (const heading of ['# Goal', '# Instructions', '# Acceptance Criteria']) {
+    if (!content.includes(heading)) throw new Error(`brief.md must include '${heading}'.`);
+  }
+}
+
 function readRecordFile(projectRoot: string, raw: string, maxBytes?: number): ToolResult {
   const url = new URL(raw);
-  const filename = decodeURIComponent(`${url.hostname}${url.pathname}`);
+  const filename = validRecordSegment(decodeURIComponent(`${url.hostname}${url.pathname}`), 'record filename', raw);
   const definition = exposedRecordSlotDefinitionForFilename(filename);
-  const cardId = url.searchParams.get('card');
-  if (!cardId) return toolFailure('validation', `record URL requires card query parameter: '${raw}'.`);
+  const cardId = validRecordSegment(url.searchParams.get('card') ?? '', 'card id', raw);
   const versionParam = url.searchParams.get('v') ?? undefined;
   if (versionParam === 'next') return toolFailure('validation', 'read_file can read only closed records.');
   const index = readRecordSlotIndex(projectRoot, cardId, definition.slot);
@@ -118,18 +163,23 @@ export const analystWorkspaceTools: readonly UnifiedToolDefinition<string, any>[
   { name: 'navigate_back', description: 'Navigate back in the workspace area.', input: emptyInput, roles: ['analyst'], executor: navigate_back },
   { name: 'read_file', description: 'Read the contents of any file the saivage service can see on the host. Returns up to maxBytes bytes (default 200000, max 1000000). Binary files return content=null with binary=true. Use absolute paths or paths relative to the saivage server cwd.', input: z.object({ path: describe(z.string(), 'Absolute or relative file path.'), maxBytes: describe(z.number().int().optional(), 'Max bytes to read (default 200000, max 1000000).') }).strict(), roles: ['analyst'], executor: read_file },
   { name: 'read_file_metadata', description: 'Read metadata for a host file or closed record:// document URL without returning file content.', input: z.object({ path: describe(z.string(), 'Absolute, relative, or record:// document URL.') }).strict(), roles: ['analyst'], executor: read_file_metadata },
+  { name: 'write_file', description: 'Write a new closed brief record while the runtime is paused. Only supports record://brief.md?card=<id>&v=next; it cannot write host or project files.', input: z.object({ path: describe(z.string(), 'Must be record://brief.md?card=<id>&v=next.'), content: describe(z.string(), 'Full brief.md content including Goal, Instructions, and Acceptance Criteria headings.') }).strict(), roles: ['analyst'], executor: write_file },
   { name: 'list_directory', description: 'List the contents of any directory the saivage service can see on the host. Use absolute paths or paths relative to the saivage server cwd.', input: z.object({ path: describe(z.string(), 'Absolute or relative directory path.'), maxEntries: describe(z.number().int().optional(), 'Max entries to return (default 500, max 5000).') }).strict(), roles: ['analyst'], executor: list_directory },
   { name: 'run_shell_command', description: 'Run a bounded inspection shell command. Destructive commands are denied on web-chat and must not be used to mutate project source or runtime state.', input: z.object({ command: describe(z.string(), 'Shell command to inspect the host or project state.'), cwd: describe(z.string().optional(), 'Optional working directory. Defaults to the project root.'), timeoutMs: describe(z.number().int().optional(), 'Optional timeout in milliseconds (default 15000, max 60000).'), maxOutputBytes: describe(z.number().int().optional(), 'Optional per-stream output cap in bytes (default 65536, max 1048576).') }).strict(), roles: ['analyst'], executor: run_shell_command },
 ] as const;
 
 function recordMetadataFromUrl(projectRoot: string, raw: string): unknown {
   const url = new URL(raw);
-  const filename = decodeURIComponent(`${url.hostname}${url.pathname}`);
-  const cardId = url.searchParams.get('card');
-  if (!cardId) throw new Error(`record metadata URL requires card query parameter: '${raw}'.`);
+  const filename = validRecordSegment(decodeURIComponent(`${url.hostname}${url.pathname}`), 'record filename', raw);
+  const cardId = validRecordSegment(url.searchParams.get('card') ?? '', 'card id', raw);
   const versionParam = url.searchParams.get('v') ?? undefined;
   if (versionParam === 'next') throw new Error('record metadata is available only for closed records.');
   const version = versionParam && versionParam !== 'latest' ? Number(versionParam) : undefined;
   if (version !== undefined && (!Number.isInteger(version) || version < 1)) throw new Error(`Invalid record version '${versionParam}'.`);
   return readClosedRecordSlotMetadata(projectRoot, { cardId, filename, version });
+}
+
+function validRecordSegment(value: string, label: string, raw: string): string {
+  if (!value || value === '.' || value === '..' || value.includes('/') || value.includes('\\')) throw new Error(`Invalid ${label} in record URL '${raw}'.`);
+  return value;
 }

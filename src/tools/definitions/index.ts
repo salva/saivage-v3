@@ -83,6 +83,7 @@ const stableToolOrder = [
   'reconfigure',
   'read_file',
   'read_file_metadata',
+  'write_file',
   'list_directory',
   'run_shell_command',
   'read_runtime_events',

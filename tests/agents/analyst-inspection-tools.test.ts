@@ -1,14 +1,27 @@
 import { describe, expect, it } from '@jest/globals';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { list_directory, read_file, run_shell_command } from '../../src/tools/analyst-workspace-tools.js';
+import { list_directory, read_file, run_shell_command, write_file } from '../../src/tools/analyst-workspace-tools.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { CardStore } from '../../src/cards/card-store.js';
+import { initProjectTree, listControlActions } from '../../src/persistence/index.js';
+import { initRuntimeState, updateRuntimeState } from '../../src/runtime/state.js';
+import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 
 function ctx(root: string, surface: ToolContext['surface'] = 'web-chat'): ToolContext {
   return { projectRoot: root, store: new CardStore(root), actor: 'analyst', surface };
 }
+
+function setupCardProject(): string {
+  const root = mkdtempSync(join(tmpdir(), 'wave-k-inspect-record-'));
+  initProjectTree(root);
+  initRuntimeState(root);
+  materializeProjectCard(root);
+  return root;
+}
+
+const UPDATED_BRIEF = '# Goal\n\nUpdated goal\n\n# Instructions\n\nUpdated instructions\n\n# Acceptance Criteria\n\nUpdated acceptance\n';
 
 describe('analyst inspection tools secret-path policy', () => {
   it('read_file denies secret-bearing auth profiles before reading', async () => {
@@ -128,6 +141,63 @@ describe('analyst inspection tools secret-path policy', () => {
       expect(result.success).toBe(false);
       expect(result.errorEnvelope).toEqual(expect.objectContaining({ kind: 'permission', message: expect.any(String) }));
       expect(result.error).toMatch(/not available on Telegram/i);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('write_file rejects brief record writes while runtime is not paused', async () => {
+    const root = setupCardProject();
+    try {
+      const result = await write_file(ctx(root), { path: 'record://brief.md?card=project&v=next', content: UPDATED_BRIEF });
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('requires the runtime to be paused');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('write_file commits a new closed brief record while paused and does not audit content', async () => {
+    const root = setupCardProject();
+    try {
+      updateRuntimeState(root, { status: 'paused', paused: true, paused_at: new Date().toISOString() });
+      const result = await write_file(ctx(root), { path: 'record://brief.md?card=project&v=next', content: UPDATED_BRIEF });
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual(expect.objectContaining({ card_id: 'project', record_url: 'record://brief.md?card=project&v=2', written: true }));
+
+      const readResult = await read_file(ctx(root), { path: 'record://brief.md?card=project' });
+      expect(readResult.success).toBe(true);
+      expect((readResult.data as { content: string }).content).toBe(UPDATED_BRIEF);
+
+      const actions = listControlActions(root);
+      const action = actions.find((entry) => entry.action === 'record.brief.write');
+      expect(action?.params_summary).toContain('record://brief.md?card=project&v=next');
+      expect(action?.params_summary).not.toContain('Updated instructions');
+      expect(JSON.stringify(actions)).not.toContain('Updated acceptance');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('write_file rejects non-brief, non-record, and non-next writes', async () => {
+    const root = setupCardProject();
+    try {
+      updateRuntimeState(root, { status: 'paused', paused: true, paused_at: new Date().toISOString() });
+      await expect(write_file(ctx(root), { path: '/tmp/brief.md', content: UPDATED_BRIEF })).resolves.toEqual(expect.objectContaining({ success: false, error: expect.stringContaining('only writes record://brief.md') }));
+      await expect(write_file(ctx(root), { path: 'record://status.md?card=project&v=next', content: UPDATED_BRIEF })).resolves.toEqual(expect.objectContaining({ success: false, error: expect.stringContaining('only supports record://brief.md') }));
+      await expect(write_file(ctx(root), { path: 'record://brief.md?card=project&v=1', content: UPDATED_BRIEF })).resolves.toEqual(expect.objectContaining({ success: false, error: expect.stringContaining('must use v=next') }));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('read_file rejects unsafe record URL card ids', async () => {
+    const root = setupCardProject();
+    try {
+      const result = await read_file(ctx(root), { path: 'record://brief.md?card=../project' });
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Invalid card id');
+      expect(readFileSync(join(root, '.saivage', 'outputs', 'cards', 'project', 'brief', '1.md'), 'utf-8')).toContain('# Goal');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

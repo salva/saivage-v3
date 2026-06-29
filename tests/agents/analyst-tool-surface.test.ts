@@ -97,10 +97,11 @@ describe('Tool inventory mirrors SPEC-r7 capability classes', () => {
     const names = Object.keys(TOOL_REGISTRY).sort();
     expect(ANALYST_TOOL_DEFINITIONS.map((tool) => tool.function.name).sort()).toEqual(names);
     for (const retired of RETIRED_NOTE_TOOLS) expect(names).not.toContain(retired);
-    for (const required of ['start_project','stop_project','terminate_process','queue_notification','create_card','reorder_child','cancel_card','delete_card','navigate_workspace','navigate_back','show_config','restart_server','reconfigure']) expect(names).toContain(required);
+    for (const required of ['start_project','stop_project','terminate_process','queue_notification','create_card','reorder_child','cancel_card','delete_card','write_file','navigate_workspace','navigate_back','show_config','restart_server','reconfigure']) expect(names).toContain(required);
     for (const removed of ['edit_card','get_card_output','abort_goal_subtree','restart_card_or_subtree','restart_goal','mark_goal_needs_corrections']) expect(names).not.toContain(removed);
     const prompt = getAnalystSystemPrompt();
     for (const capability of ['Inspect','Navigate the workspace area','Manage cards','Queue notifications','Control the runtime','Reconfigure','Investigate and repair']) expect(prompt).toContain(capability);
+    expect(prompt).toContain('record://brief.md');
   });
 });
 
