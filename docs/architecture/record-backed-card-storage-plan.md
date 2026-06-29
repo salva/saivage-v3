@@ -1,6 +1,14 @@
 # Record-Backed Card Storage Plan
 
-Status: proposal. Scope: card persistence, card records, record access, commit infrastructure, and card-facing tools. This plan does not change non-card Analyst tools.
+Status: partially implemented. Scope: card persistence, card records, record access, commit infrastructure, and card-facing tools. This plan does not change non-card Analyst tools.
+
+## Remaining Work
+
+- Add the audited Analyst `write_file` surface for `record://brief.md?card=<id>&v=next`, gated on paused runtime and closed latest versions.
+- Finish `get_card` read-model parity by adding `effective_updated_at` computed from current card/document record metadata.
+- Finish the brief source-of-truth cutover by removing `description`, `acceptance`, and `instructions_file` after all card creation, prompt, and API paths use `brief.md` directly.
+- Remove the retired `get_card_output` executable surface once durable record URLs and generic file reads fully cover card-output inspection.
+- Update authoritative specs to describe paused Analyst card management and record-backed card documents.
 
 ## Decision Summary
 
@@ -282,9 +290,8 @@ interface CommittedRecord {
 9. Write a complete new index file beside the current index.
 10. Atomically rename the new index over the current index.
 11. Store writer, committed timestamp, size, schema, format, `cardVersionSeq`, and `globalSeq` metadata in the slot index.
-12. Record a control action/audit entry.
-13. Call active card processor `onRecordWritten` synchronously if one exists.
-14. Return the committed record descriptor.
+12. Record a control action/audit entry when the caller is an operator-facing tool.
+13. Return the committed record descriptor.
 
 No version is committed if authorization, format validation, or schema validation fails.
 
@@ -296,7 +303,7 @@ The split is:
 
 - Open phase: allocate a tentative next version and mark it `open` in the slot index.
 - Write phase: the terminal actor writes content to the open version file.
-- Close phase: validate format/schema, write a complete new index, atomically rename it over the old index, audit, and fire hooks.
+- Close phase: validate format/schema, write a complete new index, atomically rename it over the old index, and audit when the caller is an operator-facing tool.
 - `commitRecord`: performs open, write, and close in one call.
 
 When a card processor actor changes state, it commits any uncommitted record files it owns. Other lifecycle events may also force commits; for example, activating a child card may commit the child card and all its open records.
@@ -318,28 +325,9 @@ Rules:
 - On unpause, the runtime queues notifications for affected cards. Prefer one notification per affected card; one notification per edited item is acceptable when that is simpler.
 - Notifications tell running/active agents that unexpected card records changed while the runtime was paused.
 
-## Processor Hook
+## Processor Reconciliation
 
-Card processors may observe successful commits synchronously:
-
-```ts
-interface CardProcessor {
-  onRecordWritten?(event: {
-    cardId: string;
-    path: `record://${string}`;
-    writer: AgentRole;
-    version: number;
-    previousVersion: number | null;
-  }): void;
-}
-```
-
-Rules:
-
-- The hook is not async.
-- Commit correctness never depends on the hook.
-- If no active processor exists, nothing special happens.
-- Processors reconcile from latest records when they start or resume.
+Commit correctness does not depend on notifying live processor instances. Processors reconcile from latest records when they start, resume, or prepare their next model input. Do not add a synchronous `onRecordWritten` hook unless a concrete reconciliation failure proves it is needed.
 
 ## Card Store Refactor
 
@@ -450,7 +438,6 @@ Rules:
 
 - Implement `commitRecord`.
 - Refactor existing terminal record close paths to use shared finalization internals.
-- Add synchronous active-processor callback dispatch.
 
 ### Phase 3: Generic Record Reads
 
@@ -515,8 +502,6 @@ Add focused tests for:
 - card history/diff can be reconstructed from `card.json` versions.
 - effective update time is computed from record metadata instead of stored `updated_at`.
 - `get_card` returns card state, record URLs, and bounded snippets.
-- active processor `onRecordWritten` is called synchronously after commit.
-- no active processor is required for a successful commit.
 - card actors reconcile from latest records on activation.
 - Analyst `write_file(record://brief.md?card=...)` commits a new `brief.md` version while paused and queues resume notifications.
 - Analyst edits queue affected-card notifications for runtime unpause.
