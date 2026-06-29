@@ -7,7 +7,7 @@ import { CardStore } from '../../src/cards/card-store.js';
 import { AnalystHandler } from '../../src/agents/analyst-handler.js';
 import { ANALYST_TOOL_DEFINITIONS } from '../../src/tools/definitions/index.js';
 import { TOOL_REGISTRY, getAnalystSystemPrompt } from '../../src/agents/analyst-prompt.js';
-import { delete_card } from '../../src/tools/analyst-card-tools.js';
+import { create_card, delete_card } from '../../src/tools/analyst-card-tools.js';
 import { reconfigure } from '../../src/tools/analyst-misc-tools.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { initRuntimeState } from '../../src/runtime/state.js';
@@ -48,6 +48,23 @@ function setupRoot(): string {
   return root;
 }
 
+function setupEmptyRoot(): string {
+  const root = mkdtempSync(join(tmpdir(), 's02-empty-surface-'));
+  const sd = join(root, '.saivage');
+  for (const d of ['cards/by-id','cards/tree','cards/dependencies','notes/by-card','runtime','agents/sessions','agents/messages','diaries']) mkdirSync(join(sd, d), { recursive: true });
+  writeFileSync(join(sd, 'saivage.json'), JSON.stringify({
+    models: { analyst: [TEST_MODEL] },
+    providers: { test: { models: [TEST_MODEL], apiKey: 'test-key', baseUrl: 'http://test-provider.invalid/v1' } },
+    server: { port: 8080, host: '127.0.0.1' },
+  }, null, 2));
+  writeFileSync(join(sd, 'cards', 'index.json'), JSON.stringify({ cards: {} }));
+  writeFileSync(join(sd, 'cards', 'dependencies', 'depends-on.json'), JSON.stringify({}));
+  writeFileSync(join(sd, 'cards', 'dependencies', 'blocks.json'), JSON.stringify({}));
+  writeFileSync(join(sd, 'notes', 'queue.json'), JSON.stringify({ next_note_sequence: 1, entries: [] }));
+  initRuntimeState(root);
+  return root;
+}
+
 function seedDeleteCards(root: string): CardStore {
   const store = new CardStore(root);
   const goal = store.create({ type: 'goal', parent: 'project', title: 'Goal', description: 'Goal', status: 'backlog', depth: 0, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', acceptance: '', depends_on: [], related: [], retries: 0 });
@@ -64,10 +81,35 @@ describe('Tool inventory mirrors SPEC-r7 capability classes', () => {
     const names = Object.keys(TOOL_REGISTRY).sort();
     expect(ANALYST_TOOL_DEFINITIONS.map((tool) => tool.function.name).sort()).toEqual(names);
     for (const retired of RETIRED_NOTE_TOOLS) expect(names).not.toContain(retired);
-    for (const required of ['start_project','stop_project','terminate_process','queue_notification','edit_card','navigate_workspace','navigate_back','show_config','restart_server','reconfigure']) expect(names).toContain(required);
-    for (const removed of ['create_card','delete_card','reorder_child','abort_goal_subtree','restart_card_or_subtree','restart_goal','mark_goal_needs_corrections']) expect(names).not.toContain(removed);
+    for (const required of ['start_project','stop_project','terminate_process','queue_notification','create_card','edit_card','navigate_workspace','navigate_back','show_config','restart_server','reconfigure']) expect(names).toContain(required);
+    for (const removed of ['delete_card','reorder_child','abort_goal_subtree','restart_card_or_subtree','restart_goal','mark_goal_needs_corrections']) expect(names).not.toContain(removed);
     const prompt = getAnalystSystemPrompt();
-    for (const capability of ['Inspect','Navigate the workspace area','Edit card objectives','Queue notifications','Control the runtime','Reconfigure','Investigate and repair']) expect(prompt).toContain(capability);
+    for (const capability of ['Inspect','Navigate the workspace area','Bootstrap and edit card objectives','Queue notifications','Control the runtime','Reconfigure','Investigate and repair']) expect(prompt).toContain(capability);
+  });
+});
+
+describe('Analyst project bootstrap', () => {
+  it('allows Analyst to create the missing root project card', async () => {
+    const root = setupEmptyRoot();
+    try {
+      const store = new CardStore(root);
+      const result = await create_card({ projectRoot: root, store, actor: 'analyst', surface: 'web-chat' }, { type: 'project', parent: null, title: 'Project', description: 'Follow SPEC/PLAN.' });
+      expect(result.success).toBe(true);
+      expect(store.read('project')).toMatchObject({ id: 'project', type: 'project', parent: null, title: 'Project' });
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('rejects Analyst child-card creation and duplicate project creation', async () => {
+    const root = setupRoot();
+    try {
+      const store = new CardStore(root);
+      const child = await create_card({ projectRoot: root, store, actor: 'analyst', surface: 'web-chat' }, { type: 'goal', parent: 'project', title: 'Goal', description: 'No.' });
+      expect(child.success).toBe(false);
+      expect(child.error).toContain('limited to bootstrapping the root project card');
+      const duplicate = await create_card({ projectRoot: root, store, actor: 'analyst', surface: 'web-chat' }, { type: 'project', parent: null, title: 'Project', description: 'Duplicate.' });
+      expect(duplicate.success).toBe(false);
+      expect(duplicate.error).toContain('already exists');
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });
 

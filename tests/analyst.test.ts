@@ -177,7 +177,7 @@ describe('Analyst Tool Definitions', () => {
     const toolNames = ANALYST_TOOL_DEFINITIONS.map((tool) => tool.function.name);
     expect(toolNames).not.toContain('create_plan');
     expect(toolNames).not.toContain('update_plan');
-    expect(toolNames).not.toContain('create_card');
+    expect(toolNames).toContain('create_card');
     expect(toolNames).not.toContain('delete_card');
     expect(toolNames).not.toContain('reorder_child');
     expect(toolNames).not.toContain('restart_goal');
@@ -264,20 +264,15 @@ describe('Analyst Tools', () => {
     } catch {}
   });
 
-  it('creates a card under goal, returns success with card data', async () => {
+  it('rejects Analyst child-card creation', async () => {
     const r = await create_card(ctx(projectRoot, store), {
       type: 'code',
       parent: 'card-1',
       title: 'New Code Card',
       description: 'A new card',
     });
-    expect(r.success).toBe(true);
-    const c = r.data as Record<string, unknown>;
-    expect(c.title).toBe('New Code Card');
-    expect(c.parent).toBe('card-1');
-    expect(c.type).toBe('code');
-    expect(c.id).toMatch(/^card-/);
-    expect(c.display_path).toBe('1.2');
+    expect(r.success).toBe(false);
+    expect(r.error).toContain('limited to bootstrapping the root project card');
   });
 
   it('marks a done goal changed through the analyst correction repair path', () => {
@@ -353,7 +348,7 @@ describe('Analyst Tools', () => {
     }
   });
 
-  it('creates a top-level goal under the virtual project root in an empty store', async () => {
+  it('rejects Analyst top-level goal creation in an empty store', async () => {
     const emptyRoot = uniqueDir();
     mkdirSync(join(emptyRoot, '.saivage', 'cards', 'by-id'), { recursive: true });
     const emptyStore = new CardStore(emptyRoot);
@@ -366,14 +361,8 @@ describe('Analyst Tools', () => {
         description: 'Top-level work without a materialized project card',
       });
 
-      expect(result.success).toBe(true);
-      expect(result.data).toEqual(
-        expect.objectContaining({
-          type: 'goal',
-          parent: 'project',
-          depth: 1,
-        }),
-      );
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('limited to bootstrapping the root project card');
       expect(emptyStore.read('project')).toBeNull();
     } finally {
       rmSync(emptyRoot, { recursive: true, force: true });
@@ -389,7 +378,7 @@ describe('Analyst Tools', () => {
     });
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain('Cannot create duplicate project card');
+    expect(result.error).toContain('Root project card already exists');
   });
 
   it('denies delete_card for matrix-disallowed target states', async () => {

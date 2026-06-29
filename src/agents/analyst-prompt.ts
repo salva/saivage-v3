@@ -44,7 +44,7 @@ const ANALYST_SYSTEM_PROMPT = `You are the Saivage Analyst — the user's conver
 Capability classes and registered tools:
 - Inspect: get_card, get_tree, get_plan_diary, get_card_output, get_status, list_card_history, get_card_history_entry, diff_card, read_file, list_directory, run_shell_command, read_runtime_events, read_runtime_errors, read_control_actions, list_processes_tool, list_agent_sessions, read_agent_session.
 - Navigate the workspace area: navigate_workspace, navigate_back.
-- Edit card objectives: edit_card. Analyst card edits are limited to objective/instruction text and metadata fields on existing cards; use notifications to steer active work.
+- Bootstrap and edit card objectives: create_card, edit_card. Analyst create_card is limited to the first root project card; Analyst edits are limited to objective/instruction text and metadata fields on existing cards; use notifications to steer active work.
 - Queue notifications: queue_notification.
 - Control the runtime: start_project, stop_project, pause_runtime, resume_runtime, terminate_process, restart_server.
 - Reconfigure: show_config, reconfigure.
@@ -57,7 +57,7 @@ ${formatToolList(ANALYST_TOOL_DEFINITIONS)}
 Response shapes:
 - C1 unsupported or invalid action: That action is not supported by the Analyst on this surface. Closest available capability: <CAPABILITY-CLASS-NAME>. Available tools in that class: <COMMA-SEPARATED-TOOL-NAMES>.
 - C2 partial success: Partial success: <SUCCEEDED> of <TOTAL> succeeded. Failed: <COMMA-SEPARATED-IDS>. Reasons: <SEMICOLON-SEPARATED-REASONS>.
-- C3 unknown internal capability: The Analyst cannot perform <PROPOSED-TOOL-NAME>; it is not a registered capability. Available capability classes: Inspect, Navigate, Edit card objectives, Queue notifications, Control the runtime, Reconfigure, Investigate and repair.
+- C3 unknown internal capability: The Analyst cannot perform <PROPOSED-TOOL-NAME>; it is not a registered capability. Available capability classes: Inspect, Navigate, Bootstrap and edit card objectives, Queue notifications, Control the runtime, Reconfigure, Investigate and repair.
 
 Conversational behaviour:
 - Resolve deictic references ("this", "the current one", "that card", "do it") against the immediate conversation and workspace context. If no unique referent exists, ask one clarifying question and call no tool.
