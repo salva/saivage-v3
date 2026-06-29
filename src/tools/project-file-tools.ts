@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { isBinarySample } from './analyst-tool-helpers.js';
 import { describe, type UnifiedToolDefinition } from './tool-catalog.js';
 import { isReadBlocked, isWriteBlocked, looksLikeSecretPath, resolveContainedProjectPath } from '../workspace/index.js';
-import { concreteRecordSlot, latestClosedRecordSlot, openRecordSlot, readRecordSlotIndex, recordSlotDir, type OpenRecordSlot } from '../runtime/records/record-slots.js';
+import { concreteRecordSlot, latestClosedRecordSlot, openRecordSlot, readRecordSlotIndex, RECORD_OUTPUTS_RELATIVE_DIR, recordSlotDir, slotFromFilename, type OpenRecordSlot } from '../runtime/records/record-slots.js';
 import type { AgentRole } from './tool-catalog.js';
 
 const { spawnSync } = childProcess;
@@ -64,9 +64,10 @@ function requireAgentContext(ctx: WorkspaceContext, scheme: string): { cardId: s
 function parseRecordUrl(ctx: WorkspaceContext, raw: string, mode: 'read' | 'write'): OpenRecordSlot {
   const agent = requireAgentContext(ctx, 'record://');
   const url = new URL(raw);
-  const filename = basename(decodeURIComponent(`${url.hostname}${url.pathname}`));
+  const rawFilename = decodeURIComponent(`${url.hostname}${url.pathname}`);
+  const filename = validRecordSegment(rawFilename, 'record filename', raw);
   if (!filename) throw new Error(`Invalid record URL '${raw}'.`);
-  const cardId = url.searchParams.get('card') ?? agent.cardId;
+  const cardId = validRecordSegment(url.searchParams.get('card') ?? agent.cardId, 'card id', raw);
   const version = url.searchParams.get('v') ?? (mode === 'read' ? 'latest' : 'next');
   if (mode === 'write') {
     assertRecordWrite(agent.agentRole, agent.cardId, cardId, filename, version);
@@ -113,7 +114,7 @@ function resolveTmpPath(ctx: WorkspaceContext, raw: string, mode: 'read' | 'writ
   const rel = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
   if (!cardId || !rel || rel.includes('..')) throw new Error(`Invalid tmp URL '${raw}'.`);
   if (mode === 'write' && cardId !== agent.cardId) throw new Error('Agents may write tmp files only for their current card.');
-  const projectRel = `.saivage/work/cards/${cardId}/tmp/${rel}`;
+  const projectRel = `.saivage-work/cards/${cardId}/tmp/${rel}`;
   const resolved = resolveProjectPath(ctx.projectRoot, projectRel, 'tmp path');
   return { kind: 'tmp', ...resolved };
 }
@@ -293,10 +294,16 @@ function resolveRecordSearchPath(ctx: WorkspaceContext, raw: string): { absolute
   const url = new URL(raw);
   const host = decodeURIComponent(url.hostname);
   const path = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
-  const cardId = host || url.searchParams.get('card') || agent.cardId;
-  if (!cardId) throw new Error(`Invalid record search URL '${raw}'.`);
-  const slot = path || '';
-  const absolutePath = slot ? recordSlotDir(ctx.projectRoot, cardId, slot) : join(ctx.projectRoot, '.saivage/outputs/cards', cardId);
+  const cardId = validRecordSegment(host || url.searchParams.get('card') || agent.cardId, 'card id', raw);
+  const slot = path ? validRecordSegment(path, 'record slot', raw) : '';
+  const absolutePath = slot ? recordSlotDir(ctx.projectRoot, cardId, slotFromFilename(slot)) : join(ctx.projectRoot, RECORD_OUTPUTS_RELATIVE_DIR, cardId);
   const relativePath = normalizeRel(relative(ctx.projectRoot, absolutePath));
+  const contained = resolveContainedProjectPath(ctx.projectRoot, relativePath);
+  if (!contained.safe || contained.relativePath !== relativePath || !relativePath.startsWith(`${RECORD_OUTPUTS_RELATIVE_DIR}/${cardId}`)) throw new Error(`Invalid record search URL '${raw}'.`);
   return { absolutePath, relativePath };
+}
+
+function validRecordSegment(value: string, label: string, raw: string): string {
+  if (!value || value === '.' || value === '..' || value.includes('/') || value.includes('\\')) throw new Error(`Invalid ${label} in record URL '${raw}'.`);
+  return value;
 }

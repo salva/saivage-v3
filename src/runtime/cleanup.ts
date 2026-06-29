@@ -70,8 +70,7 @@ export function cleanCardTmp(saivageWorkDir: string, cardId: string): boolean {
   const expected = normalize(join(absWork, 'cards', cardId, 'tmp'));
   if (tmpDir !== expected) return false;
 
-  // Double-check: it must contain 'cards/<id>/tmp' in the path,
-  // not cards/<id>/artifacts/... or anything else
+  // Double-check: it must contain exactly 'cards/<id>/tmp' in the disposable work area.
   const relFromWork = tmpDir.slice(absWork.length + 1);
   const cardTmpPattern = new RegExp(`^cards/${escapeRegex(cardId)}/tmp$`);
   if (!cardTmpPattern.test(relFromWork)) return false;

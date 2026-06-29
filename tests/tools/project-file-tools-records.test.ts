@@ -1,8 +1,8 @@
 import { describe, expect, it } from '@jest/globals';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readProject, writeProject } from '../../src/tools/project-file-tools.js';
+import { globProject, grepProject, readProject, writeProject } from '../../src/tools/project-file-tools.js';
 import { closeOpenRecordSlot } from '../../src/runtime/records/record-slots.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
@@ -32,5 +32,14 @@ describe('project file tools record enforcement', () => {
     await expect(writeProject({ projectRoot, cardId: 'card-1', agentRole: 'planner' }, { path: 'project://notes.md', content: 'no' })).rejects.toThrow('planner cannot write project files');
     await expect(writeProject({ projectRoot, cardId: 'card-1', agentRole: 'executor' }, { path: 'project://notes.md', content: 'yes' })).resolves.toMatchObject({ written: true });
     expect(existsSync(join(projectRoot, 'notes.md'))).toBe(true);
+  }));
+
+  it('rejects record search URLs that try to escape the record output tree', async () => withTempProject(async (projectRoot) => {
+    mkdirSync(join(projectRoot, '.saivage', 'runtime'), { recursive: true });
+    writeFileSync(join(projectRoot, '.saivage', 'runtime', 'state.json'), '{"secret":true}');
+
+    await expect(globProject({ projectRoot, cardId: 'card-1', agentRole: 'planner' }, { directory: 'record:///status?card=../runtime', pattern: '**/*' })).rejects.toThrow('Invalid card id');
+    await expect(grepProject({ projectRoot, cardId: 'card-1', agentRole: 'planner' }, { path: 'record:///status?card=../runtime', pattern: 'secret' })).rejects.toThrow('Invalid card id');
+    await expect(globProject({ projectRoot, cardId: 'card-1', agentRole: 'planner' }, { directory: 'record:///..%2Fruntime?card=card-1', pattern: '**/*' })).rejects.toThrow('Invalid record slot');
   }));
 });

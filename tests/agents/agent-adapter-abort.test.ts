@@ -659,7 +659,7 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
 
       return Promise.resolve({
         kind: 'tool_calls',
-        tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_executor_result', arguments: '{"card_id":"card-2","status":"done","artifacts":[],"attachments":[]}' } }],
+        tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_executor_result', arguments: '{"card_id":"card-2","status":"done","summary":"done"}' } }],
       } as import('../../src/agents/llm-contracts.js').LlmCompleteResult);
     };
 
@@ -729,7 +729,7 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
 
       return Promise.resolve({
         kind: 'tool_calls',
-        tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_executor_result', arguments: '{"card_id":"card-2","status":"done","artifacts":[],"attachments":[]}' } }],
+        tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_executor_result', arguments: '{"card_id":"card-2","status":"done","summary":"done"}' } }],
       } as import('../../src/agents/llm-contracts.js').LlmCompleteResult);
     };
 
@@ -757,7 +757,7 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
 
   it('successful invocation completes normally and clears cancelled state', async () => {
     const { llmCallFn: successFn } = makeSuccessLlmCallFn(
-      '{"card_id":"card-ok","status":"done","status_text":"Completed successfully","artifacts":[],"attachments":[]}',
+      '{"card_id":"card-ok","status":"done","status_text":"Completed successfully","summary":"done"}',
     );
     adapter = createConfiguredAdapter(tmpDir, { eventBus, llmCallFn: successFn });
 

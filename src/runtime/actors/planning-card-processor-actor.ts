@@ -80,6 +80,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   private async runActivation(input: CardActivationInput): Promise<PlannerProcessorOutcome> {
     const contract = createPlannerContract();
     const llm = this.createMainLlm(plannerActorId(this.cardId));
+    discardOpenRecordSlot(this.projectRoot, { cardId: input.card.id, filename: 'status.md', reason: 'new_activation' });
     let outcome = await llm.turn(this.buildLlmInput(input, contract));
     let recordRepairAttempts = 0;
     while (true) {
@@ -189,6 +190,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const sessionId = reviewerSessionId(input.card.id, assessmentId);
     const llm = this.createMainLlm(reviewerActorId(input.card.id));
     const reviewerContract = createReviewerContract();
+    discardOpenRecordSlot(this.projectRoot, { cardId: input.card.id, filename: 'review.md', reason: 'new_reviewer_activation' });
     let reviewerRelaunchAttempts = 0;
     while (true) {
       const currentness = this.captureReviewerCurrentness(input);

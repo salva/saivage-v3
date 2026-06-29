@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, jest } from '@jest/globals';
@@ -10,6 +10,7 @@ import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
 import { actorToolCallStatusesPath, appendToolCallStatus } from '../../../src/runtime/actors/index.js';
 import type { LlmCompleteResult } from '../../../src/agents/llm-contracts.js';
 import type { CardRecord } from '../../../src/schemas/index.js';
+import { openRecordSlot } from '../../../src/runtime/records/record-slots.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-supervisor-api-'));
@@ -112,12 +113,19 @@ function appendPlannerToolCall(projectRoot: string, cardId: string, toolName: st
   const inputId = `planner:${cardId}:1`;
   const agentId = `planner:${cardId}`;
   appendLlmTurnFinished(projectRoot, { inputId, agentId, role: 'planner', sessionId: agentId, systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: { cardId } }, { kind: 'tool_calls', tool_calls: [{ id: toolCallId, type: 'function', function: { name: toolName, arguments: JSON.stringify(args) } }] });
+  if (toolName === 'emit_planner_result') writeRequiredRecord(projectRoot, cardId, 'status.md', 'planner startup recovery record');
 }
 
 function appendReviewerToolCall(projectRoot: string, cardId: string, args: unknown, toolCallId = 'call-1'): void {
   const inputId = `reviewer:${cardId}:1`;
   const agentId = `reviewer:${cardId}`;
   appendLlmTurnFinished(projectRoot, { inputId, agentId, role: 'reviewer', sessionId: agentId, systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: { cardId } }, { kind: 'tool_calls', tool_calls: [{ id: toolCallId, type: 'function', function: { name: 'emit_reviewer_result', arguments: JSON.stringify(args) } }] });
+  writeRequiredRecord(projectRoot, cardId, 'review.md', 'reviewer startup recovery record');
+}
+
+function writeRequiredRecord(projectRoot: string, cardId: string, filename: 'status.md' | 'review.md', content: string): void {
+  const record = openRecordSlot(projectRoot, { cardId, filename });
+  writeFileSync(record.absolutePath, content, 'utf8');
 }
 
 describe('SupervisorRuntimeApi', () => {

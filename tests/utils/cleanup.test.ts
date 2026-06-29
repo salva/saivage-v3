@@ -4,8 +4,8 @@
  * Verifies the safe cleanup utility operates correctly:
  * - cleanCardTmp removes only cards/<id>/tmp/
  * - cleanStaleStash removes old files, keeps new files
- * - Cleanup never touches retained artifacts, attachments, downloads, quarantine
- * - cleanStaleProcessOutput respects artifact references and running registry status
+ * - Cleanup never touches durable records, downloads, quarantine
+ * - cleanStaleProcessOutput respects running registry status
  * - Stale previews/uploads are cleaned up
  */
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
@@ -66,15 +66,12 @@ describe('Cleanup Utility Smoke Tests', () => {
     expect(result).toBe(false);
   });
 
-  it('cleanCardTmp: does NOT touch artifacts/ or attachments/', () => {
+  it('cleanCardTmp: does NOT touch durable card records', () => {
     const swd = saivageWorkDir();
     const cardId = 'card-protected';
-    const artifactsDir = join(swd, 'cards', cardId, 'artifacts', 'retained');
-    const attachmentsDir = join(swd, 'cards', cardId, 'attachments');
-    mkdirSync(artifactsDir, { recursive: true });
-    mkdirSync(attachmentsDir, { recursive: true });
-    writeFileSync(join(artifactsDir, 'model.bin'), 'model data');
-    writeFileSync(join(attachmentsDir, 'image.png'), 'image data');
+    const recordDir = join(root, '.saivage', 'outputs', 'cards', cardId, 'status');
+    mkdirSync(recordDir, { recursive: true });
+    writeFileSync(join(recordDir, '1.md'), 'durable status');
     const tmpDir = join(swd, 'cards', cardId, 'tmp');
     mkdirSync(tmpDir, { recursive: true });
     writeFileSync(join(tmpDir, 'temp.txt'), 'temp');
@@ -82,10 +79,8 @@ describe('Cleanup Utility Smoke Tests', () => {
     cleanCardTmp(swd, cardId);
 
     expect(existsSync(tmpDir)).toBe(false);
-    expect(existsSync(artifactsDir)).toBe(true);
-    expect(existsSync(join(artifactsDir, 'model.bin'))).toBe(true);
-    expect(existsSync(attachmentsDir)).toBe(true);
-    expect(existsSync(join(attachmentsDir, 'image.png'))).toBe(true);
+    expect(existsSync(recordDir)).toBe(true);
+    expect(existsSync(join(recordDir, '1.md'))).toBe(true);
   });
 
   it('cleanStaleStash: removes files older than maxAgeMs', async () => {
@@ -192,12 +187,9 @@ describe('Cleanup Utility Smoke Tests', () => {
   it('cleanCardTmp: does NOT remove entire cards/ subtree', () => {
     const swd = saivageWorkDir();
     const cardId = 'safe-card';
-    const retainedDir = join(swd, 'cards', cardId, 'artifacts', 'retained');
-    mkdirSync(retainedDir, { recursive: true });
-    writeFileSync(join(retainedDir, 'precious.bin'), 'do not delete');
-    const attachmentsDir = join(swd, 'cards', cardId, 'attachments');
-    mkdirSync(attachmentsDir, { recursive: true });
-    writeFileSync(join(attachmentsDir, 'screenshot.png'), 'screenshot');
+    const scratchSibling = join(swd, 'cards', cardId, 'scratch');
+    mkdirSync(scratchSibling, { recursive: true });
+    writeFileSync(join(scratchSibling, 'keep.txt'), 'do not delete');
     const tmpDir = join(swd, 'cards', cardId, 'tmp');
     mkdirSync(tmpDir, { recursive: true });
     writeFileSync(join(tmpDir, 'temp.txt'), 'temp');
@@ -205,10 +197,8 @@ describe('Cleanup Utility Smoke Tests', () => {
     cleanCardTmp(swd, cardId);
 
     expect(existsSync(tmpDir)).toBe(false);
-    expect(existsSync(retainedDir)).toBe(true);
-    expect(existsSync(join(retainedDir, 'precious.bin'))).toBe(true);
-    expect(existsSync(attachmentsDir)).toBe(true);
-    expect(existsSync(join(attachmentsDir, 'screenshot.png'))).toBe(true);
+    expect(existsSync(scratchSibling)).toBe(true);
+    expect(existsSync(join(scratchSibling, 'keep.txt'))).toBe(true);
   });
 
   it('cleanAll: does not touch downloads/ or quarantine/', () => {

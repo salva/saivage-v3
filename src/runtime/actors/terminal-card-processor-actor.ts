@@ -11,7 +11,7 @@ import type { ExecutorResult } from '../../contracts/agent-execution.js';
 import { expectedTerminalToolMessage, verifyTerminalToolOutcome } from './contract-terminal-tools.js';
 import { processWorkspaceToolCall } from '../../agents/workspace-tools.js';
 import { WORKSPACE_TOOL_NAMES } from '../../tools/definitions/index.js';
-import { closeOpenRecordSlot } from '../records/record-slots.js';
+import { closeOpenRecordSlot, discardOpenRecordSlot } from '../records/record-slots.js';
 
 type TerminalProcessorOutcome = Extract<CardActivationOutcome, { status: 'done' | 'failed' }>;
 
@@ -54,6 +54,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
   private async runActivation(input: CardActivationInput): Promise<TerminalProcessorOutcome> {
     const contract = createExecutorContract();
     const llm = this.createMainLlm(executorActorId(this.cardId));
+    discardOpenRecordSlot(this.projectRoot, { cardId: this.cardId, filename: 'status.md', reason: 'new_activation' });
     let outcome = await llm.turn(this.buildLlmInput(input, contract));
     let recordRepairAttempts = 0;
     for (;;) {

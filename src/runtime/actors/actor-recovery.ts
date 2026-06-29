@@ -18,6 +18,7 @@ import { createExecutorContract } from '../../contracts/executor-contract.js';
 import { createReviewerContract } from '../../contracts/reviewer-contract.js';
 import { evaluateReviewerTerminalOutcome } from './reviewer-terminal-evaluation.js';
 import { verifyTerminalToolOutcome } from './contract-terminal-tools.js';
+import { closeOpenRecordSlot } from '../records/record-slots.js';
 
 export interface ActorRecoveryCardReader {
   read(cardId: string): unknown | null;
@@ -368,6 +369,8 @@ function projectReviewerRecoveryOutcome(
     outcome: reviewerOutcome,
     store: deps.store,
   });
+  if (!closeRecoveredRecordSlot(deps.projectRoot, card.id, 'status.md')) return null;
+  if (!closeRecoveredRecordSlot(deps.projectRoot, card.id, 'review.md')) return null;
   deps.store.commitTerminalLifecyclePatch(card.id, cardActivationOutcomePatch(projected, generatedAt));
   const plannerWaiting = planner.activeReconstruction!.waiting_tool_call!;
   appendTerminalToolProjectedStatus(deps.projectRoot, { agent_id: planner.actorId, source_input_id: plannerWaiting.sourceInputId, tool_call_id: plannerWaiting.toolCallId, tool_name: plannerWaiting.toolName });
@@ -410,10 +413,25 @@ function projectTerminalRecoveryOutcome(
 ): Exclude<CardActivationOutcome, { status: 'cancelled' }> | null {
   if (processor.processor_kind === 'planning') {
     if (!createPlannerContract().isTerminalToolName(outcome.toolName)) return null;
-    return deps.makePlanningProcessor(card.id).recoverTerminalToolOutcome(outcome);
+    const projected = deps.makePlanningProcessor(card.id).recoverTerminalToolOutcome(outcome);
+    if (!projected) return null;
+    if (!closeRecoveredRecordSlot(deps.projectRoot, card.id, 'status.md')) return null;
+    return projected;
   }
   if (!createExecutorContract().isTerminalToolName(outcome.toolName)) return null;
-  return deps.makeTerminalProcessor(card.id).recoverTerminalToolOutcome(outcome);
+  const projected = deps.makeTerminalProcessor(card.id).recoverTerminalToolOutcome(outcome);
+  if (!projected) return null;
+  if (!closeRecoveredRecordSlot(deps.projectRoot, card.id, 'status.md')) return null;
+  return projected;
+}
+
+function closeRecoveredRecordSlot(projectRoot: string, cardId: string, filename: 'status.md' | 'review.md'): boolean {
+  try {
+    closeOpenRecordSlot(projectRoot, { cardId, filename });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function descendantsAreComplete(cardId: string, store: ActorRecoveryOutcomeStore): boolean {
