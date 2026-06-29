@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'node:
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { CardStore } from '../../src/cards/card-store.js';
-import { list_card_history, get_card_history_entry, diff_card } from '../../src/tools/analyst-card-tools.js';
+import { list_card_history, get_card_history_entry, diff_card, get_card } from '../../src/tools/analyst-card-tools.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 
 function setup(root: string): CardStore {
@@ -48,6 +48,24 @@ describe('card history and notes tools', () => {
 
       const auditPath = join(root, '.saivage', 'runtime', 'control-actions.jsonl');
       expect(existsSync(auditPath)).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('returns exposed record summaries by filename without exposing card.json', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'wave4-card-read-model-'));
+    try {
+      const store = setup(root);
+      const code = store.create({ type: 'code', parent: 'project', depth: 0, title: 'task', description: 'brief body', status: 'backlog', tags: [], priority: 1, position: 0, urgency: 'normal', created_by: 'analyst', acceptance: 'brief acceptance', depends_on: [], related: [], retries: 0 } as any);
+      const result = await get_card(ctx(root, store), { id: code.id });
+
+      expect(result.success).toBe(true);
+      const data = result.data as { records: Array<{ filename: string; inline?: { content: string } }>; records_by_filename: Record<string, { filename: string; inline?: { content: string } }> };
+      expect(data.records.map((record) => record.filename)).toEqual(['brief.md', 'status.md', 'review.md']);
+      expect(data.records_by_filename['brief.md']?.inline?.content).toContain('# Goal');
+      expect(data.records_by_filename['brief.md']?.inline?.content).toContain('brief body');
+      expect(data.records_by_filename['card.json']).toBeUndefined();
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

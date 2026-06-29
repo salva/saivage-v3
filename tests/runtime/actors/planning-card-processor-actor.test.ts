@@ -1,5 +1,5 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardStore } from '../../../src/cards/card-store.js';
@@ -8,6 +8,7 @@ import { CardActor, PlanningCardProcessorActor, readActorSnapshots, type CardAct
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
 import type { LlmCompleteResult } from '../../../src/agents/llm-contracts.js';
 import type { CardRecord } from '../../../src/schemas/index.js';
+import { closeOpenRecordSlot, openRecordSlot } from '../../../src/runtime/records/record-slots.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-planning-processor-'));
@@ -23,6 +24,12 @@ function createProject(store: CardStore): CardRecord {
 
 function createGoal(store: CardStore, parent = 'project'): CardRecord {
   return store.create({ type: 'goal', parent, depth: parent === 'project' ? 1 : 2, title: 'goal', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], acceptance: '', retries: 0 });
+}
+
+function writeBrief(projectRoot: string, cardId: string, content: string, cardVersionSeq = 1): void {
+  const slot = openRecordSlot(projectRoot, { cardId, filename: 'brief.md' });
+  writeFileSync(slot.absolutePath, content, 'utf-8');
+  closeOpenRecordSlot(projectRoot, { cardId, filename: 'brief.md', writer: 'planner', cardVersionSeq });
 }
 
 function markDone(store: CardStore, card: CardRecord): CardRecord {
@@ -134,6 +141,32 @@ describe('PlanningCardProcessorActor', () => {
       systemPrompt: expect.stringContaining('record://review.md?v=next'),
       tools: expect.arrayContaining([expect.objectContaining({ function: expect.objectContaining({ name: 'emit_reviewer_result' }) })]),
     }), expect.any(AbortSignal));
+  }));
+
+  it('builds planner and reviewer prompts from the latest brief record', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    const child = markDone(store, createGoal(store, project.id));
+    writeBrief(projectRoot, project.id, '# Goal\n\nPlan from brief record.\n\n# Acceptance Criteria\n\nReview from brief record.\n', project.version_seq);
+    const provider = withMandatoryRecords((input: LlmInvocationInput) => {
+      if (input.role === 'reviewer') {
+        expect(input.systemPrompt).toContain('Plan from brief record.');
+        expect(input.systemPrompt).toContain('Review from brief record.');
+        expect(input.systemPrompt).not.toContain('\n\nAcceptance:\n');
+        return reviewerResult({ evidence_card_ids: [child.id] });
+      }
+      expect(input.systemPrompt).toContain('Plan from brief record.');
+      expect(input.systemPrompt).toContain('Review from brief record.');
+      expect(input.systemPrompt).not.toContain('\n\nAcceptance:\n');
+      return plannerResult('done', 'done');
+    });
+    const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
+    actor.start();
+
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
+
+    expect(outcome).toMatchObject({ status: 'done', summary: 'review ok' });
   }));
 
   it('persists active reconstruction during planning processor activation and clears it on settlement', async () => withTempProject(async (projectRoot) => {
@@ -475,7 +508,7 @@ describe('PlanningCardProcessorActor', () => {
     expect(outcome).toMatchObject({ status: 'done' });
     expect(delivery.deliverNotificationsForInput).toHaveBeenCalledWith('planner:project:1');
     const reviewerInput = (provider.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls.find(([input]) => input.role === 'reviewer')?.[0];
-    expect(reviewerInput).toMatchObject({ role: 'reviewer', systemPrompt: expect.stringContaining('Acceptance:') });
+    expect(reviewerInput).toMatchObject({ role: 'reviewer', systemPrompt: expect.stringContaining('# Acceptance Criteria') });
     expect(reviewerInput?.contextMessages).toEqual(expect.arrayContaining([expect.objectContaining({ role: 'user', content: expect.stringContaining('Descendant work:') })]));
   }));
 

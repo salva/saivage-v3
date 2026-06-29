@@ -36,6 +36,7 @@ export function createRuntimeGoalContextCoordinator(deps: {
   const renderContext = (goalId: string, resumeReason: GoalResumeReason, notes: Array<Record<string, unknown>>): string => {
     const state = readRuntimeState(deps.projectRoot);
     const payload = buildGoalContextPayload({
+      projectRoot: deps.projectRoot,
       goalId,
       resumeReason,
       cards: deps.cards,

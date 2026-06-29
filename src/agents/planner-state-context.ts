@@ -2,6 +2,7 @@ import type { AgentMessage, CardRecord, RuntimeState } from '../schemas/index.js
 import type { CardStore } from '../cards/store-api.js';
 import { isUnresolvedRuntimeActivationStatus, readRuntimeState } from '../runtime/state.js';
 import { generateRoundId } from '../schemas/round-id-server.js';
+import { cardBriefForPrompt } from '../runtime/records/card-brief.js';
 
 export type PlannerStateCardStore = Pick<CardStore, 'read' | 'listChildren'>;
 
@@ -20,14 +21,14 @@ type CandidateNextAction = {
   reason: string;
 };
 
-function compactCard(card: CardRecord) {
+function compactCard(projectRoot: string, card: CardRecord) {
   return {
     id: card.id,
     type: card.type,
     status: card.status,
     title: card.title,
     depends_on: card.depends_on,
-    acceptance: card.acceptance || undefined,
+    brief: cardBriefForPrompt(projectRoot, card),
     status_text: card.status_text ?? null,
   };
 }
@@ -130,8 +131,8 @@ export function buildPlannerStateContextMessage(input: PlannerStateContextInput)
   const state = {
     session_id: input.sessionId,
     goal_id: input.goalId,
-    goal: goal ? compactCard(goal) : null,
-    direct_children: children.map(compactCard),
+    goal: goal ? compactCard(input.projectRoot, goal) : null,
+    direct_children: children.map((card) => compactCard(input.projectRoot, card)),
     do_not_recreate: children.map(
       (child) => `${child.title} (exists as ${child.id}, ${child.status})`,
     ),

@@ -12,6 +12,7 @@ import { expectedTerminalToolMessage, verifyTerminalToolOutcome } from './contra
 import { processWorkspaceToolCall } from '../../agents/workspace-tools.js';
 import { WORKSPACE_TOOL_NAMES } from '../../tools/definitions/index.js';
 import { closeOpenRecordSlot, discardOpenRecordSlot } from '../records/record-slots.js';
+import { cardBriefForPrompt } from '../records/card-brief.js';
 
 type TerminalProcessorOutcome = Extract<CardActivationOutcome, { status: 'done' | 'failed' }>;
 
@@ -82,7 +83,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
       agentId: executorActorId(this.cardId),
       role: 'executor',
       sessionId: executorActorId(this.cardId),
-      systemPrompt: `Execute terminal card ${input.card.id}: ${input.card.title}\n\n${input.card.description}\n\nAcceptance:\n${input.card.acceptance}\n\nUse process and file tools when needed. Write your current invocation status to:\nrecord://status.md?v=next\n\nDo not call emit_executor_result until the status file exists. End by calling emit_executor_result; plain text or JSON messages are not accepted as terminal reports.`,
+      systemPrompt: `Execute terminal card ${input.card.id}: ${input.card.title}\n\n${cardBriefForPrompt(this.projectRoot, input.card)}\n\nUse process and file tools when needed. Write your current invocation status to:\nrecord://status.md?v=next\n\nDo not call emit_executor_result until the status file exists. End by calling emit_executor_result; plain text or JSON messages are not accepted as terminal reports.`,
       contextMessages: this.notificationContextMessages(input, inputId),
       tools: [...TERMINAL_CARD_PROCESSOR_TOOL_DEFINITIONS, ...contract.terminals.map((terminal) => terminal.toolDefinition)],
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),

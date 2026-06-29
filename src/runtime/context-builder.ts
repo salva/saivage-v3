@@ -1,4 +1,5 @@
 import type { CardRecord, RuntimeState } from '../schemas/index.js';
+import { readLatestBriefRecord } from './records/card-brief.js';
 
 const PLANNER_CONTEXT_STRING_LIMIT = 500;
 const PLANNER_CONTEXT_ARRAY_LIMIT = 5;
@@ -104,6 +105,7 @@ export function buildGoalContextCardTree(input: { cardId: string; cards: Runtime
 }
 
 export function buildGoalContextPayload(input: {
+  projectRoot: string;
   goalId: string;
   resumeReason: GoalContextResumeReason;
   cards: RuntimeContextCardReader;
@@ -119,8 +121,7 @@ export function buildGoalContextPayload(input: {
     parent_card_id: goal.parent,
     depth: goal.depth,
     title: goal.title,
-    description: goal.description,
-    acceptance: goal.acceptance ? [goal.acceptance] : [],
+    brief: readLatestBriefRecord(input.projectRoot, goal.id) ?? null,
     tags: goal.tags,
     priority: goal.priority,
     depends_on: goal.depends_on,
@@ -146,7 +147,7 @@ export function buildGoalContextBlock(input: {
   return `## Goal Context\n\n${JSON.stringify(input.payload, null, 2)}\n\nresume_reason: ${input.resumeReason}`;
 }
 
-export function buildCardContextBlock(input: { cardId: string; goalId: string; cards: RuntimeContextCardReader }): string {
+export function buildCardContextBlock(input: { projectRoot: string; cardId: string; goalId: string; cards: RuntimeContextCardReader }): string {
   const card = input.cards.read(input.cardId);
   const goal = input.cards.read(input.goalId);
   if (!card) return `## Card Context\n\nCard '${input.cardId}' not found.`;
@@ -155,8 +156,7 @@ export function buildCardContextBlock(input: { cardId: string; goalId: string; c
       id: card.id,
       type: card.type,
       title: card.title,
-      description: card.description,
-      acceptance: card.acceptance,
+      brief: readLatestBriefRecord(input.projectRoot, card.id) ?? null,
       status: card.status,
       priority: card.priority,
       depends_on: card.depends_on,
@@ -168,8 +168,7 @@ export function buildCardContextBlock(input: { cardId: string; goalId: string; c
       ? {
           id: goal.id,
           title: goal.title,
-          description: goal.description,
-          acceptance: goal.acceptance,
+          brief: readLatestBriefRecord(input.projectRoot, goal.id) ?? null,
         }
       : null,
   };

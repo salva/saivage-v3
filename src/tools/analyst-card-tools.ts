@@ -243,7 +243,8 @@ export async function list_cards(ctx: ToolContext, params: { status?: CardStatus
 export async function get_card(ctx: ToolContext, params: { id: string }): Promise<ToolResult> {
   try { const store = getStore(ctx); const card = store.read(params.id); if (!card) return toolFailure('not_found', `Card '${params.id}' not found.`, { id: params.id });
     const children = store.listChildren(params.id).map((cid) => store.read(cid)).filter((c): c is CardRecord => c !== null).map((child) => cardSummary(child, store));
-    return { success: true, data: { ...toCardView(store, card), children, records: cardRecordSummaries(ctx.projectRoot, params.id) } };
+    const records = cardRecordSummaries(ctx.projectRoot, params.id);
+    return { success: true, data: { ...toCardView(store, card), children, records, records_by_filename: Object.fromEntries(records.map((record) => [record.filename, record])) } };
   } catch (err) { return toolFailureFromError(err); }
 }
 
@@ -252,10 +253,10 @@ function cardRecordSummaries(projectRoot: string, cardId: string): Array<Record<
     .filter((definition) => definition.exposed)
     .map((definition) => {
       const index = readRecordSlotIndex(projectRoot, cardId, definition.slot);
-      if (index.latest === null) return { path: `record://${definition.filename}`, url: `record://${definition.filename}?card=${encodeURIComponent(cardId)}`, latest: null, format: definition.format, schema: definition.schema, writers: definition.writers, size: null, modifiedAt: null, writer: null };
+      if (index.latest === null) return { filename: definition.filename, path: `record://${definition.filename}`, url: `record://${definition.filename}?card=${encodeURIComponent(cardId)}`, latest: null, format: definition.format, schema: definition.schema, writers: definition.writers, size: null, modifiedAt: null, writer: null };
       const entry = index.versions[String(index.latest)];
       const url = entry?.url ?? `record://${definition.filename}?card=${encodeURIComponent(cardId)}&v=${index.latest}`;
-      const summary: Record<string, unknown> = { path: `record://${definition.filename}`, url, latest: index.latest, format: definition.format, schema: definition.schema, writers: definition.writers, size: entry?.size ?? null, modifiedAt: entry?.committed_at ?? null, writer: entry?.writer ?? null };
+      const summary: Record<string, unknown> = { filename: definition.filename, path: `record://${definition.filename}`, url, latest: index.latest, format: definition.format, schema: definition.schema, writers: definition.writers, size: entry?.size ?? null, modifiedAt: entry?.committed_at ?? null, writer: entry?.writer ?? null };
       const path = recordPath(projectRoot, cardId, definition.slot, index.latest, definition.filename).absolutePath;
       if (existsSync(path)) {
         const max = 4000;

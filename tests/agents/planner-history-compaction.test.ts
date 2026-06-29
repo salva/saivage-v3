@@ -1,7 +1,11 @@
 import { describe, expect, it } from '@jest/globals';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { AgentMessage, CardRecord } from '../../src/schemas/index.js';
 import { ContextCompactor, prunePlannerCompletedInvocationHistory } from '../../src/agents/context-compactor.js';
 import { buildPlannerStateContextMessage } from '../../src/agents/planner-state-context.js';
+import { writeBriefRecordVersion } from '../../src/persistence/card-loader.js';
 
 function message(index: number, content: string, kind: AgentMessage['kind'] = 'text'): AgentMessage {
   return {
@@ -59,6 +63,12 @@ function compactor(): ContextCompactor {
   });
 }
 
+function setupBriefRecords(cards: Iterable<CardRecord>): string {
+  const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-planner-compaction-'));
+  for (const c of cards) writeBriefRecordVersion(projectRoot, c, c.created_by === 'planner' ? 'planner' : 'analyst');
+  return projectRoot;
+}
+
 describe('planner persisted history context compaction', () => {
   it('drops prior completed planner invocations from reusable model input', () => {
     const previousUser = message(1, 'old planning prompt');
@@ -98,18 +108,19 @@ describe('planner persisted history context compaction', () => {
       ['architecture-1', card({ id: 'architecture-1', type: 'architecture', title: 'Design thing', status: 'done', position: 0 })],
       ['code-1', card({ id: 'code-1', type: 'code', title: 'Build thing', status: 'backlog', depends_on: ['architecture-1'], position: 1 })],
     ]);
+    const projectRoot = setupBriefRecords(cards.values());
     const bulkyMessages = Array.from({ length: 80 }, (_, index) =>
       message(index, `historical planner transcript ${index} ${'large-body '.repeat(1500)}`),
     );
     bulkyMessages.push(message(81, JSON.stringify({ cardId: 'child-a', long: 'x'.repeat(5000) }), 'tool_call'));
 
-    const compacted = compactor().compactPlannerInMemory(
+    try { const compacted = compactor().compactPlannerInMemory(
       'planner:project',
       bulkyMessages,
       'planner',
       { contextLimit: 24000, threshold: 1 },
       {
-        projectRoot: '/no-such-project',
+        projectRoot,
         goalId: 'goal-1',
         cardStore: {
           read: (id: string) => cards.get(id) ?? null,
@@ -138,6 +149,7 @@ describe('planner persisted history context compaction', () => {
     expect(compacted[0].content.length).toBeLessThan(12000);
     expect(compacted.slice(2)).toHaveLength(16);
     expect(compacted.at(-1)?.content).toContain('[truncated');
+    } finally { rmSync(projectRoot, { recursive: true, force: true }); }
   });
 
   it('leaves non-planner and already-small histories unchanged', () => {
@@ -182,9 +194,10 @@ describe('planner persisted history context compaction', () => {
       ['architecture-1', card({ id: 'architecture-1', type: 'architecture', title: 'Design thing', status: 'done', position: 0, status_text: 'Complete' })],
       ['code-1', card({ id: 'code-1', type: 'code', title: 'Build thing', status: 'backlog', depends_on: ['architecture-1'], position: 1 })],
     ]);
+    const projectRoot = setupBriefRecords(cards.values());
 
-    const state = buildPlannerStateContextMessage({
-      projectRoot: '/no-such-project',
+    try { const state = buildPlannerStateContextMessage({
+      projectRoot,
       sessionId: 'planner:goal-1',
       goalId: 'goal-1',
       cardStore: {
@@ -235,5 +248,6 @@ describe('planner persisted history context compaction', () => {
     expect(state.content).toContain('unresolved_activations');
     expect(state.content).toContain('activate_child');
     expect(state.content).toContain('Existing direct children are authoritative');
+    } finally { rmSync(projectRoot, { recursive: true, force: true }); }
   });
 });

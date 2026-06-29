@@ -1,5 +1,5 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardStore } from '../../../src/cards/card-store.js';
@@ -7,6 +7,7 @@ import { initProjectTree } from '../../../src/persistence/file-tree.js';
 import { CardActor, MAX_TERMINAL_PROCESS_ACTORS, ProcessActor, TerminalCardProcessorActor, readActorSnapshots, readProcessEvidence, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
 import type { LlmCompleteResult } from '../../../src/agents/llm-contracts.js';
+import { closeOpenRecordSlot, openRecordSlot } from '../../../src/runtime/records/record-slots.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-terminal-processor-'));
@@ -22,6 +23,12 @@ function setup(projectRoot: string) {
   store.create({ type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], acceptance: '', retries: 0 });
   const card = store.create({ type: 'code', parent: 'project', depth: 1, title: 'write code', description: 'Implement it.', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], acceptance: 'Works.', retries: 0 });
   return { store, card };
+}
+
+function writeBrief(projectRoot: string, cardId: string, content: string, cardVersionSeq = 1): void {
+  const slot = openRecordSlot(projectRoot, { cardId, filename: 'brief.md' });
+  writeFileSync(slot.absolutePath, content, 'utf-8');
+  closeOpenRecordSlot(projectRoot, { cardId, filename: 'brief.md', writer: 'planner', cardVersionSeq });
 }
 
 function executorResult(cardId: string, statusText: string, status: 'done' | 'failed' = 'done') {
@@ -89,6 +96,24 @@ describe('TerminalCardProcessorActor', () => {
     expect(store.read(card.id)?.lifecycle.result).toMatchObject({ kind: 'executor_success', executor: { summary: 'implemented' } });
     expect(provider.completeTurn).toHaveBeenCalledWith(expect.objectContaining({ agentId: `executor:${card.id}`, role: 'executor', terminalToolNames: ['emit_executor_result'], systemPrompt: expect.stringContaining('record://status.md?v=next') }), expect.any(AbortSignal));
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_kind)).toEqual(expect.arrayContaining(['card', 'llm', 'processor']));
+  }));
+
+  it('builds executor prompts from the latest brief record', async () => withTempProject(async (projectRoot) => {
+    const { card } = setup(projectRoot);
+    writeBrief(projectRoot, card.id, '# Goal\n\nUse the brief record only.\n\n# Acceptance Criteria\n\nBrief acceptance.\n', card.version_seq);
+    const provider = withExecutorStatusRecord((input: LlmInvocationInput) => {
+      expect(input.systemPrompt).toContain('Use the brief record only.');
+      expect(input.systemPrompt).toContain('Brief acceptance.');
+      expect(input.systemPrompt).not.toContain('Implement it.');
+      expect(input.systemPrompt).not.toContain('Works.');
+      return executorResult(card.id, 'implemented');
+    });
+    const processor = new TerminalCardProcessorActor({ projectRoot, cardId: card.id, provider });
+    processor.start();
+
+    const outcome = await processor.activate({ card, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: noopNotificationDelivery() });
+
+    expect(outcome).toMatchObject({ status: 'done' });
   }));
 
   it('commits provider failure as failed outcome', async () => withTempProject(async (projectRoot) => {
