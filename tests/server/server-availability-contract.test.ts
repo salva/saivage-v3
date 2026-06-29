@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from '@jest/globals';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { ServerInstance } from '../../src/server/server.js';
@@ -7,21 +7,15 @@ import { buildServerAvailability } from '../../src/server/availability.js';
 import { resetAuthPolicyForTests } from '../../src/server/auth-policy.js';
 import { createTestRuntimeApplication } from '../helpers/test-runtime-application.js';
 import { initRuntimeState } from '../../src/runtime/state.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
 
 const AUTH_TOKEN = 'availability-test-token';
 
 function setupProject(root: string, withRuntimeState = true): void {
   const sd = join(root, '.saivage');
-  for (const d of ['runtime', 'cards/by-id', 'cards/tree', 'cards/dependencies', 'notes/by-card', 'agents/sessions', 'agents/messages', 'diaries']) {
-    mkdirSync(join(sd, d), { recursive: true });
-  }
+  initProjectTree(root);
   writeFileSync(join(sd, 'saivage.json'), JSON.stringify({ server: { host: '127.0.0.1', port: 8080 }, models: { default: ['test-model'] }, providers: {} }, null, 2));
   if (withRuntimeState) initRuntimeState(root);
-  writeFileSync(join(sd, 'cards', 'index.json'), JSON.stringify({ cards: {} }));
-  writeFileSync(join(sd, 'cards', 'tree', 'project.children.json'), JSON.stringify([]));
-  writeFileSync(join(sd, 'cards', 'dependencies', 'depends-on.json'), JSON.stringify({}));
-  writeFileSync(join(sd, 'cards', 'dependencies', 'blocks.json'), JSON.stringify({}));
-  writeFileSync(join(sd, 'notes', 'queue.json'), JSON.stringify({ next_note_sequence: 1, entries: [] }));
 }
 
 describe('server availability contract', () => {

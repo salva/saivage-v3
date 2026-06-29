@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { CardStore } from '../../src/cards/card-store.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
+import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 import { AnalystHandler } from '../../src/agents/analyst-handler.js';
 import { ANALYST_TOOL_DEFINITIONS } from '../../src/tools/definitions/index.js';
 import { TOOL_REGISTRY, getAnalystSystemPrompt } from '../../src/agents/analyst-prompt.js';
@@ -32,19 +34,13 @@ const RETIRED_NOTE_TOOLS = [
 function setupRoot(): string {
   const root = mkdtempSync(join(tmpdir(), 's02-surface-'));
   const sd = join(root, '.saivage');
-  for (const d of ['cards/by-id','cards/tree','cards/dependencies','notes/by-card','runtime','agents/sessions','agents/messages','diaries']) mkdirSync(join(sd, d), { recursive: true });
+  initProjectTree(root);
   writeFileSync(join(sd, 'saivage.json'), JSON.stringify({
     models: { analyst: [TEST_MODEL] },
     providers: { test: { models: [TEST_MODEL], apiKey: 'test-key', baseUrl: 'http://test-provider.invalid/v1' } },
     server: { port: 8080, host: '127.0.0.1' },
   }, null, 2));
-  const now = new Date().toISOString();
-  writeFileSync(join(sd, 'cards', 'by-id', 'project.json'), JSON.stringify({ id: 'project', type: 'project', parent: null, depth: 0, position: 0, title: 'project', description: '', status: 'backlog', lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, subtype: null, tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now, assigned_to: null, depends_on: [], related: [], acceptance: '', metrics: null, estimate: null, started_at: null, duration_ms: null, retries: 0, version_seq: 1 }));
-  writeFileSync(join(sd, 'cards', 'index.json'), JSON.stringify({ cards: { project: { id: 'project', type: 'project', parent: null, status: 'backlog', title: 'project' } } }));
-  writeFileSync(join(sd, 'cards', 'tree', 'project.children.json'), JSON.stringify([]));
-  writeFileSync(join(sd, 'cards', 'dependencies', 'depends-on.json'), JSON.stringify({}));
-  writeFileSync(join(sd, 'cards', 'dependencies', 'blocks.json'), JSON.stringify({}));
-  writeFileSync(join(sd, 'notes', 'queue.json'), JSON.stringify({ next_note_sequence: 1, entries: [] }));
+  materializeProjectCard(root);
   initRuntimeState(root);
   return root;
 }
@@ -52,16 +48,12 @@ function setupRoot(): string {
 function setupEmptyRoot(): string {
   const root = mkdtempSync(join(tmpdir(), 's02-empty-surface-'));
   const sd = join(root, '.saivage');
-  for (const d of ['cards/by-id','cards/tree','cards/dependencies','notes/by-card','runtime','agents/sessions','agents/messages','diaries']) mkdirSync(join(sd, d), { recursive: true });
+  initProjectTree(root);
   writeFileSync(join(sd, 'saivage.json'), JSON.stringify({
     models: { analyst: [TEST_MODEL] },
     providers: { test: { models: [TEST_MODEL], apiKey: 'test-key', baseUrl: 'http://test-provider.invalid/v1' } },
     server: { port: 8080, host: '127.0.0.1' },
   }, null, 2));
-  writeFileSync(join(sd, 'cards', 'index.json'), JSON.stringify({ cards: {} }));
-  writeFileSync(join(sd, 'cards', 'dependencies', 'depends-on.json'), JSON.stringify({}));
-  writeFileSync(join(sd, 'cards', 'dependencies', 'blocks.json'), JSON.stringify({}));
-  writeFileSync(join(sd, 'notes', 'queue.json'), JSON.stringify({ next_note_sequence: 1, entries: [] }));
   initRuntimeState(root);
   return root;
 }

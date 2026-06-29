@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTestAnalystRuntime } from '../helpers/test-runtime-application.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
+import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 import { assertToolBoundaryIntegrity, pruneToolBoundaryAfterTruncation } from '../../src/agents/context-compactor.js';
 import { appendMessage } from '../../src/agents/session-persistence.js';
 import { serializeToolCallMessage, PersistedRowCorruptError } from '../../src/contracts/persisted-tool-call.js';
@@ -16,18 +18,12 @@ const TEST_MODEL = 'test-analyst-model';
 function setupRoot(): string {
   const root = mkdtempSync(join(tmpdir(), 's01-analyst-handler-'));
   const sd = join(root, '.saivage');
-  for (const d of ['cards/by-id', 'cards/tree', 'cards/dependencies', 'notes/by-card', 'runtime', 'agents/sessions', 'agents/messages']) mkdirSync(join(sd, d), { recursive: true });
+  initProjectTree(root);
   writeFileSync(join(sd, 'saivage.json'), JSON.stringify({
     models: { analyst: [TEST_MODEL] },
     providers: { test: { models: [TEST_MODEL], apiKey: 'test-key', baseUrl: 'http://test-provider.invalid/v1' } },
   }, null, 2));
-  const now = new Date().toISOString();
-  writeFileSync(join(sd, 'cards', 'by-id', 'project.json'), JSON.stringify({ id: 'project', type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now, version_seq: 1, depends_on: [], related: [], acceptance: '', retries: 0 }));
-  writeFileSync(join(sd, 'cards', 'index.json'), JSON.stringify({ cards: { project: { id: 'project', type: 'project', parent: null, status: 'backlog', title: 'project' } } }));
-  writeFileSync(join(sd, 'cards', 'tree', 'project.children.json'), JSON.stringify([]));
-  writeFileSync(join(sd, 'cards', 'dependencies', 'depends-on.json'), JSON.stringify({}));
-  writeFileSync(join(sd, 'cards', 'dependencies', 'blocks.json'), JSON.stringify({}));
-  writeFileSync(join(sd, 'notes', 'queue.json'), JSON.stringify({ next_note_sequence: 1, entries: [] }));
+  materializeProjectCard(root);
   return root;
 }
 

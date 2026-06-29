@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { writeFileAtomic } from '../../src/persistence/index.js';
+import { cardByIdPath } from '../../src/persistence/card-loader.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import { get_card, get_tree } from '../../src/tools/analyst-card-tools.js';
 import { registerCardRoutes } from '../../src/server/routes/cards.js';
@@ -31,7 +32,7 @@ function makeCard(overrides: Partial<CardRecord> & { type?: CardRecord['type']; 
 }
 
 function rewritePosition(root: string, id: string, position: number): void {
-  const path = join(root, '.saivage', 'cards', 'by-id', `${id}.json`);
+  const path = cardByIdPath(root, id);
   const card = JSON.parse(readFileSync(path, 'utf-8')) as CardRecord;
   writeFileAtomic(path, JSON.stringify({ ...card, position }, null, 2) + '\n');
 }

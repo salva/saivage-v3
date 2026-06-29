@@ -1,8 +1,9 @@
 import { describe, expect, it } from '@jest/globals';
-import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
+import { cardByIdPath } from '../../src/persistence/card-loader.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import { CardStoreInvariantError } from '../../src/cards/errors.js';
 import {
@@ -65,12 +66,6 @@ function card(overrides: Partial<CardRecord> = {}): CardRecord {
   };
 }
 
-function writeCard(root: string, card: CardRecord): void {
-  const dir = join(root, '.saivage', 'cards', 'by-id');
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, `${card.id}.json`), JSON.stringify(card, null, 2) + '\n');
-}
-
 describe('card lifecycle schemas', () => {
   it('accepts valid done, failed, blocked, and needs_verification shapes', () => {
     const done: CardLifecycleState = { status: 'done', result: plannerDone, error: null, completed_at: now };
@@ -112,7 +107,9 @@ describe('card lifecycle schemas', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-lifecycle-boundary-'));
     try {
       initProjectTree(root);
-      writeCard(root, card({ id: 'card-1', status: 'done', lifecycle: { status: 'done', error: 'stale', result: plannerDone, completed_at: now } as never }));
+      const store = new CardStore(root);
+      const persisted = store.create(card({ status: 'backlog' }));
+      writeFileSync(cardByIdPath(root, persisted.id), JSON.stringify({ ...persisted, status: 'done', lifecycle: { status: 'done', error: 'stale', result: plannerDone, completed_at: now } }, null, 2) + '\n');
       expect(() => new CardStore(root)).toThrow(CardStoreInvariantError);
       expect(() => validatePersistedCardLifecycle(card({ status: 'failed', lifecycle: { status: 'failed', result: executorFailure, error: null, completed_at: now } as never }))).toThrow();
       expect(() => validatePersistedCardLifecycle({ status: 'done', lifecycle: { status: 'done', result: plannerDone, error: null } })).toThrow();

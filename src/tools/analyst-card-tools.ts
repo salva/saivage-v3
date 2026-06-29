@@ -129,7 +129,6 @@ export async function create_card(ctx: ToolContext, params: { type: CardType; pa
   } });
 }
 
-const ANALYST_ALLOWED_EDIT_FIELDS = new Set(['title', 'description', 'tags', 'priority', 'urgency', 'acceptance', 'depends_on']);
 const PLANNER_ALLOWED_EDIT_FIELDS = new Set(['title', 'description', 'status', 'tags', 'priority', 'urgency', 'acceptance', 'depends_on', 'related', 'estimate', 'subtype', 'assigned_to', 'result', 'metrics', 'started_at', 'completed_at', 'duration_ms', 'error', 'parent', 'type', 'instructions_file']);
 
 function requirePausedRuntime(ctx: ToolContext, toolName: string): ToolResult | null {
@@ -148,17 +147,13 @@ export async function edit_card(ctx: ToolContext, params: { id: string } & Recor
       const statusCheck = preflightEnum(params.status, CARD_STATUS_VALUES, 'status', 'edit_card'); if (!statusCheck.ok) return { success: false, error: statusCheck.error, errorEnvelope: statusCheck.errorEnvelope };
       const urgencyCheck = preflightEnum(params.urgency, URGENCY_VALUES, 'urgency', 'edit_card'); if (!urgencyCheck.ok) return { success: false, error: urgencyCheck.error, errorEnvelope: urgencyCheck.errorEnvelope };
       const typeCheck = preflightEnum(params.type, CARD_TYPE_VALUES, 'type', 'edit_card'); if (!typeCheck.ok) return { success: false, error: typeCheck.error, errorEnvelope: typeCheck.errorEnvelope };
+      if (ctx.actor === 'analyst') return toolFailure('permission', 'edit_card is not available to the Analyst. Use write_file on record://brief.md while paused for brief changes, or semantic card-management tools for structure/lifecycle.', { id: params.id });
       const store = getStore(ctx); const card = store.read(params.id); if (!card) return toolFailure('not_found', `Card '${params.id}' not found.`, { id: params.id });
-      const allowedFields = ctx.actor === 'analyst' ? ANALYST_ALLOWED_EDIT_FIELDS : PLANNER_ALLOWED_EDIT_FIELDS;
+      const allowedFields = PLANNER_ALLOWED_EDIT_FIELDS;
       const changes: Record<string, unknown> = {}; const rejected: string[] = [];
       for (const [key, value] of Object.entries(params)) { if (key === 'id') continue; if (allowedFields.has(key)) changes[key] = value; else rejected.push(key); }
       if (Object.keys(changes).length === 0) return toolFailure('validation', `edit_card failed: no allowed fields to update. Rejected fields: ${rejected.join(', ') || '(none)'}. Allowed fields include: ${Array.from(allowedFields).join(', ')}. See the 'edit_card' tool's parameter schema.`, { rejected });
       const updated = store.mutateCard(params.id, changes as Partial<CardRecord>, { actor: ctx.actor, surface: ctx.surface, reason: 'analyst edit' });
-      if (ctx.actor === 'analyst') {
-        const summary = `analyst edited card fields: ${Object.keys(changes).join(', ')}`;
-        try { queueNotification(ctx.projectRoot, { kind: 'card', cardId: params.id }, 'analyst_edit', summary, { actor: 'analyst', surface: ctx.surface }, store); } catch { /* best-effort notification; edit result remains authoritative */ }
-        try { propagateChange(ctx.projectRoot, store, params.id, { kind: 'analyst_edit', summary }); } catch { /* best-effort planner notification; edit result remains authoritative */ }
-      }
       return { success: true, data: updated };
     } catch (err) { return toolFailureFromError(err, 'validation', humanizeToolError('edit_card', err instanceof Error ? err.message : String(err))); }
   } });
@@ -351,6 +346,6 @@ export const analystCardTools: readonly UnifiedToolDefinition<string, any>[] = [
   { name: 'list_card_history', description: 'List card history headers for a card.', input: z.object({ cardId: describe(z.string(), 'The ID of the card whose history to list.') }).strict(), roles: ['planner', 'executor', 'reviewer', 'analyst'], executor: list_card_history },
   { name: 'get_card_history_entry', description: 'Get a specific card history entry snapshot.', input: z.object({ cardId: describe(z.string(), 'The ID of the card.'), version_seq: describe(z.number().int(), 'The historical version sequence to retrieve.') }).strict(), roles: ['planner', 'executor', 'reviewer', 'analyst'], executor: get_card_history_entry },
   { name: 'diff_card', description: 'Get a field-level diff between two card versions.', input: z.object({ cardId: describe(z.string(), 'The ID of the card.'), fromSeq: describe(z.number().int().optional(), 'Optional source version sequence. Defaults to previous version.'), toSeq: describe(z.number().int().optional(), 'Optional target version sequence. Defaults to current version.') }).strict(), roles: ['planner', 'executor', 'reviewer', 'analyst'], executor: diff_card },
-  { name: 'cancel_card', description: 'Cancel dormant work while the runtime is paused. Analyst cancellation allows backlog, changed, blocked, and needs_verification cards; denies running, done, failed, cancelled, and the root project card.', input: z.object({ cardId: describe(z.string(), 'The ID of the card to cancel.'), reason: describe(z.string().optional(), 'Optional cancellation reason.') }).strict(), roles: ['analyst', 'planner'], executor: cancel_card, plannerControl: true, plannerInput: z.object({ cardId: describe(z.string(), 'The ID of the card to cancel.') }).strict(), plannerDescription: 'Destructively cancel a planner-managed immediate child only when it is obsolete, duplicate, mis-scoped, or explicitly rejected; not a scheduling/defer primitive.' },
+  { name: 'cancel_card', description: 'Cancel dormant work while the runtime is paused. Analyst cancellation allows backlog, changed, blocked, and needs_verification cards; denies running, done, failed, cancelled, and the root project card.', input: z.object({ cardId: describe(z.string(), 'The ID of the card to cancel.'), reason: describe(z.string().optional(), 'Optional cancellation reason.') }).strict(), roles: ['analyst', 'planner'], executor: cancel_card, plannerControl: true, plannerInput: z.object({ cardId: describe(z.string(), 'The ID of the card to cancel.') }).strict(), plannerDescription: 'Destructively cancel a planner-managed immediate child only when it is obsolete, duplicate, mis-scoped, or explicitly rejected; not a scheduling/defer primitive and not for avoiding actionable backlog work.' },
   { name: 'delete_card', description: 'Delete one or more paused, non-running card subtrees from the active tree using archive-backed removal. Denies the root project card and any running subtree member.', input: z.object({ ids: describe(z.array(z.string()).min(1), 'Card ids to delete.') }).strict(), roles: ['analyst', 'planner'], executor: delete_card, plannerControl: true, plannerInput: z.object({ cardId: z.string() }).strict(), plannerDescription: 'Delete a backlog or terminal card and cascade through descendants.' },
 ] as const;

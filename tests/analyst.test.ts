@@ -4,11 +4,13 @@ import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import WebSocket from 'ws';
 import { getAuthPolicy, resetAuthPolicyForTests } from '../src/server/auth-policy.js';
-import { existsSync, mkdirSync, rmSync, writeFileSync, readFileSync, unlinkSync } from 'node:fs';
+import { existsSync, rmSync, writeFileSync, readFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { CardStore } from '../src/cards/card-store.js';
+import { initProjectTree } from '../src/persistence/file-tree.js';
+import { materializeProjectCard } from './helpers/materialize-project-card.js';
 import { listControlActions } from '../src/persistence/index.js';
 import {
   initRuntimeState,
@@ -59,17 +61,7 @@ function uniqueDir(): string {
 
 function setupProject(projectRoot: string): void {
   const sd = join(projectRoot, '.saivage');
-  for (const d of [
-    'cards/by-id',
-    'cards/tree',
-    'cards/dependencies',
-    'runtime',
-    'agents/sessions',
-    'agents/messages',
-    'diaries',
-  ]) {
-    mkdirSync(join(sd, d), { recursive: true });
-  }
+  initProjectTree(projectRoot);
   writeFileSync(
     join(sd, 'saivage.json'),
     JSON.stringify({
@@ -78,55 +70,7 @@ function setupProject(projectRoot: string): void {
       providers: {},
     }),
   );
-  const now = new Date().toISOString();
-  writeFileSync(
-    join(sd, 'cards', 'by-id', 'project.json'),
-    JSON.stringify({
-      id: 'project',
-      type: 'project',
-      parent: null,
-      depth: 0,
-      position: 0,
-      title: 'project',
-      description: '',
-      status: 'backlog',
-      subtype: null,
-      tags: [],
-      priority: 0,
-      urgency: 'normal',
-      created_by: 'analyst',
-      created_at: now,
-      updated_at: now,
-      assigned_to: null,
-      depends_on: [],
-      related: [],
-      acceptance: '',
-      lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
-      metrics: null,
-      estimate: null,
-      started_at: null,
-      duration_ms: null,
-      retries: 0,
-      version_seq: 1,
-    }),
-  );
-  writeFileSync(
-    join(sd, 'cards', 'index.json'),
-    JSON.stringify({
-      cards: {
-        project: {
-          id: 'project',
-          type: 'project',
-          parent: null,
-          status: 'backlog',
-          title: 'project',
-        },
-      },
-    }),
-  );
-  writeFileSync(join(sd, 'cards', 'tree', 'project.children.json'), JSON.stringify([]));
-  writeFileSync(join(sd, 'cards', 'dependencies', 'depends-on.json'), JSON.stringify({}));
-  writeFileSync(join(sd, 'cards', 'dependencies', 'blocks.json'), JSON.stringify({}));
+  materializeProjectCard(projectRoot);
   initRuntimeState(projectRoot);
 }
 
@@ -178,11 +122,12 @@ describe('Analyst Tool Definitions', () => {
     expect(toolNames).not.toContain('create_plan');
     expect(toolNames).not.toContain('update_plan');
     expect(toolNames).toContain('create_card');
-    expect(toolNames).not.toContain('delete_card');
-    expect(toolNames).not.toContain('reorder_child');
+    expect(toolNames).toContain('delete_card');
+    expect(toolNames).toContain('reorder_child');
+    expect(toolNames).toContain('cancel_card');
     expect(toolNames).not.toContain('restart_goal');
     expect(toolNames).not.toContain('restart_card_or_subtree');
-    expect(toolNames).toContain('edit_card');
+    expect(toolNames).not.toContain('edit_card');
     expect(toolNames).toContain('queue_notification');
     expect(toolNames).toContain('list_card_history');
   });
@@ -209,12 +154,9 @@ describe('Analyst Tool Definitions', () => {
   });
 
   it('emits enum JSON schema constraints and guidance for card, list, and notification tools', () => {
-    const editProps = propertiesFor('edit_card');
-    expect(editProps.status).toBeUndefined();
-    expect(editProps.urgency.enum).toEqual([...URGENCY_VALUES]);
-    expect(toolByName('edit_card').function.description).toContain(
-      'Edit the objectives/instructions of any existing card',
-    );
+    const createProps = propertiesFor('create_card');
+    expect(createProps.type.enum).toEqual([...CREATE_CARD_TYPE_VALUES]);
+    expect(toolByName('create_card').function.description).toContain('without dispatching work');
 
     const listProps = propertiesFor('list_cards');
     const listStatus = listProps.status as {
@@ -264,7 +206,7 @@ describe('Analyst Tools', () => {
     } catch {}
   });
 
-  it('rejects Analyst child-card creation', async () => {
+  it('rejects Analyst child-card creation while unpaused', async () => {
     const r = await create_card(ctx(projectRoot, store), {
       type: 'code',
       parent: 'card-1',
@@ -272,7 +214,7 @@ describe('Analyst Tools', () => {
       description: 'A new card',
     });
     expect(r.success).toBe(false);
-    expect(r.error).toContain('limited to bootstrapping the root project card');
+    expect(r.error).toContain('requires the runtime to be paused');
   });
 
   it('marks a done goal changed through the analyst correction repair path', () => {
@@ -323,7 +265,7 @@ describe('Analyst Tools', () => {
 
   it('creates the first project card in an empty store', async () => {
     const emptyRoot = uniqueDir();
-    mkdirSync(join(emptyRoot, '.saivage', 'cards', 'by-id'), { recursive: true });
+    initProjectTree(emptyRoot);
     const emptyStore = new CardStore(emptyRoot);
 
     try {
@@ -350,7 +292,7 @@ describe('Analyst Tools', () => {
 
   it('rejects Analyst top-level goal creation in an empty store', async () => {
     const emptyRoot = uniqueDir();
-    mkdirSync(join(emptyRoot, '.saivage', 'cards', 'by-id'), { recursive: true });
+    initProjectTree(emptyRoot);
     const emptyStore = new CardStore(emptyRoot);
 
     try {
@@ -362,7 +304,7 @@ describe('Analyst Tools', () => {
       });
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain('limited to bootstrapping the root project card');
+      expect(result.error).toContain('requires the runtime to be paused');
       expect(emptyStore.read('project')).toBeNull();
     } finally {
       rmSync(emptyRoot, { recursive: true, force: true });
@@ -474,7 +416,7 @@ describe('Analyst Tools', () => {
     expect(audit?.params_summary).not.toContain('body that must not audit');
   });
 
-  it('allows analyst objective edits on any card and queues card-change notification', async () => {
+  it('rejects broad analyst edit_card calls', async () => {
     createSession(join(projectRoot, '.saivage'), 'executor', 'card-1', 'card-2', undefined, 'executor-session');
 
     const result = await edit_card(ctx(projectRoot, store), {
@@ -483,21 +425,21 @@ describe('Analyst Tools', () => {
       acceptance: 'Updated acceptance criteria.',
     });
 
-    expect(result.success).toBe(true);
-    expect(store.read('card-2')?.description).toBe('Updated objective for this implementation card.');
-    expect(getProjectNotificationCenter(projectRoot).drainPendingForSession('executor-session')).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: 'analyst_edit', body: expect.stringContaining('description') }),
-    ]));
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('edit_card is not available to the Analyst');
+    expect(getProjectNotificationCenter(projectRoot).drainPendingForSession('executor-session')).toEqual([]);
   });
 
-  it('rejects analyst lifecycle/status edits while allowing objective edits', async () => {
+  it('rejects analyst lifecycle/status edits through unavailable edit_card', async () => {
     const result = await edit_card(ctx(projectRoot, store), { id: 'card-2', status: 'done' });
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain('Rejected fields: status');
+    expect(result.error).toContain('edit_card is not available to the Analyst');
   });
 
   it('audits analyst reorder_child with the calling surface', async () => {
+    updateRuntimeState(projectRoot, { status: 'paused', paused: true, paused_at: new Date().toISOString() });
+    store.setStatus('card-1', 'backlog');
     const childTwo = store.create({
       type: 'code',
       parent: 'card-1',

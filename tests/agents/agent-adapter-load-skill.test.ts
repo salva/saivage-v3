@@ -144,15 +144,16 @@ describe('AgentAdapter skill tool', () => {
       expect(tools[0].function.name).toBe('skill');
     });
 
-    it('returns analyst bootstrap/history/notification/edit tools without structural child mutation tools', () => {
+    it('returns analyst card-management/history/notification tools', () => {
       const toolNames = callBuildToolsForRole('analyst').map((tool) => tool.function.name);
       expect(toolNames).not.toContain('lets_dance');
       expect(toolNames).toContain('create_card');
-      expect(toolNames).not.toContain('delete_card');
-      expect(toolNames).not.toContain('reorder_child');
+      expect(toolNames).toContain('delete_card');
+      expect(toolNames).toContain('reorder_child');
+      expect(toolNames).toContain('cancel_card');
       expect(toolNames).not.toContain('mark_goal_needs_corrections');
+      expect(toolNames).not.toContain('edit_card');
       expect(toolNames).toEqual(expect.arrayContaining([
-        'edit_card',
         'list_card_history',
         'get_card_history_entry',
         'diff_card',

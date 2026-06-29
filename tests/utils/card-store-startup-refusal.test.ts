@@ -3,13 +3,14 @@ import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
+import { cardByIdPath } from '../../src/persistence/card-loader.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 import type { CardRecord } from '../../src/schemas/types.js';
 
 function writeCard(root: string, card: CardRecord): void {
   writeFileSync(
-    join(root, '.saivage', 'cards', 'by-id', `${card.id}.json`),
+    cardByIdPath(root, card.id),
     JSON.stringify(card, null, 2),
   );
 }
@@ -20,7 +21,7 @@ describe('CardStore startup refusal for legacy cards', () => {
     try {
       initProjectTree(root);
       materializeProjectCard(root);
-      const legacyPath = join(root, '.saivage', 'cards', 'by-id', 'project.json');
+      const legacyPath = cardByIdPath(root, 'project');
       const legacy = JSON.parse(readFileSync(legacyPath, 'utf-8')) as Record<string, unknown>;
       delete legacy.version_seq;
       writeFileSync(legacyPath, JSON.stringify(legacy, null, 2));

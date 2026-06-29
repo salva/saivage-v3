@@ -3,9 +3,12 @@ import { AnalystHandler } from '../../src/agents/analyst-handler.js';
 import { EventBus } from '../../src/events/bus.js';
 import { initRuntimeState } from '../../src/runtime/state.js';
 import { createTestAnalystRuntime } from '../helpers/test-runtime-application.js';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
+import { materializeProjectCard } from '../helpers/materialize-project-card.js';
+import { CardStore } from '../../src/cards/card-store.js';
 
 
 type BroadcastPayload = {
@@ -20,20 +23,13 @@ type BroadcastPayload = {
 function setupRoot(): string {
   const root = mkdtempSync(join(tmpdir(), 'wave-m-broadcast-'));
   const sd = join(root, '.saivage');
-  for (const d of ['cards/by-id', 'cards/tree', 'cards/dependencies', 'notes/by-card', 'runtime', 'agents/sessions', 'agents/messages']) mkdirSync(join(sd, d), { recursive: true });
+  initProjectTree(root);
   writeFileSync(join(sd, 'saivage.json'), JSON.stringify({
     models: { analyst: ['test-model'] },
     providers: { test: { models: ['test-model'], apiKey: 'test-key', baseUrl: 'http://test-provider.invalid/v1' } },
   }));
-  const now = new Date().toISOString();
-  writeFileSync(join(sd, 'cards', 'by-id', 'project.json'), JSON.stringify({ id: 'project', type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now, version_seq: 1, depends_on: [], related: [], acceptance: '', retries: 0 }));
-  writeFileSync(join(sd, 'cards', 'by-id', 'c-1.json'), JSON.stringify({ id: 'c-1', type: 'code', parent: 'project', depth: 1, title: 'card', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now, version_seq: 1, depends_on: [], related: [], acceptance: '', retries: 0 }));
-  writeFileSync(join(sd, 'cards', 'index.json'), JSON.stringify({ cards: { project: { id: 'project', type: 'project', parent: null, status: 'backlog', title: 'project' }, 'c-1': { id: 'c-1', type: 'code', parent: 'project', status: 'backlog', title: 'card' } } }));
-  writeFileSync(join(sd, 'cards', 'tree', 'project.children.json'), JSON.stringify(['c-1']));
-  writeFileSync(join(sd, 'cards', 'tree', 'c-1.children.json'), JSON.stringify([]));
-  writeFileSync(join(sd, 'cards', 'dependencies', 'depends-on.json'), JSON.stringify({}));
-  writeFileSync(join(sd, 'cards', 'dependencies', 'blocks.json'), JSON.stringify({}));
-  writeFileSync(join(sd, 'notes', 'queue.json'), JSON.stringify({ next_note_sequence: 1, entries: [] }));
+  materializeProjectCard(root);
+  new CardStore(root).create({ type: 'code', parent: 'project', title: 'card', description: '', status: 'backlog', depth: 0, tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', acceptance: '', depends_on: [], related: [], retries: 0 });
   initRuntimeState(root);
   return root;
 }
@@ -87,14 +83,14 @@ describe('analyst_tool_invoked event projection source', () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('broadcasts edit_card payload and preserves related card id', async () => {
+  it('broadcasts exposed card-management payload and preserves related card id', async () => {
     const root = setupRoot();
     try {
-      mockToolCall('edit_card', { id: 'c-1', title: 'updated' });
+      mockToolCall('delete_card', { ids: ['card-1'] });
       const handler = new AnalystHandler(root, createTestAnalystRuntime({ eventBus }), undefined, 'analyst', 'web-chat');
-      await handler.handleMessage('s2', 'edit card c-1 title updated');
+      await handler.handleMessage('s2', 'delete card card-1');
       const payload = broadcasts.at(-1) as BroadcastPayload;
-      expect(payload.tool).toBe('edit_card');
+      expect(payload.tool).toBe('delete_card');
       expect(payload.success).toBe(false);
       expect(payload.summary.length).toBeGreaterThan(0);
       expect(payload.summary.length).toBeLessThanOrEqual(200);
