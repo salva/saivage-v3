@@ -39,7 +39,7 @@ export async function runAuditedAnalystTool<P extends Record<string, unknown>>(c
   return result;
 }
 
-export const ANALYST_CAPABILITY_CLASSES = ['Inspect', 'Navigate', 'Edit card objectives', 'Queue notifications', 'Control the runtime', 'Reconfigure', 'Investigate and repair'] as const;
+export const ANALYST_CAPABILITY_CLASSES = ['Inspect', 'Navigate', 'Manage cards', 'Queue notifications', 'Control the runtime', 'Reconfigure', 'Investigate and repair'] as const;
 
 export function ANALYST_UNSUPPORTED_ACTION_TEMPLATE(capabilityClass?: string, toolNames?: string[]): string {
   const suffix = capabilityClass && toolNames && toolNames.length > 0 ? ` Closest available capability: ${capabilityClass}. Available tools in that class: ${toolNames.join(', ')}.` : '';

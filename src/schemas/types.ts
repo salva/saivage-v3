@@ -5,7 +5,7 @@ export const cardStatusValues = ['backlog', 'running', 'blocked', 'changed', 'do
 export type CardStatus = typeof cardStatusValues[number];
 
 
-export const cardActionValues = ['card.start', 'card.cancel', 'card.delete', 'card.restart'] as const;
+export const cardActionValues = ['card.start', 'card.create', 'card.cancel', 'card.delete', 'card.restart', 'card.reorder_child'] as const;
 export type CardAction = typeof cardActionValues[number];
 export type RuntimeIntentStatus = 'running' | 'stopped';
 export type RuntimeCommandName = 'start_project' | 'stop_project';
