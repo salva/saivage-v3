@@ -162,7 +162,7 @@ This keeps the Analyst powerful for dormant cards while avoiding surprise interf
 5. Generalize propagation so every structural mutation returns the common propagation result.
 6. Remove `get_card_output` and card-specific record readers once generic file read and metadata APIs support `record://` URLs.
 7. Update `get_card` to include authored record summaries and bounded inline main-record content.
-8. Update planner cards so planner goals/instructions are durable records and existing card text fields are temporary projection caches.
+8. Cut over planner cards so planner goals/instructions live in `brief.md` and remove old text fields after all runtime code uses `brief.md`.
 9. Update `analyst-prompt.ts` and tool descriptions with the prompt policy above.
 10. Add focused tests for every status in the authority matrix, including subtree denial when any descendant is running.
 11. Add integration tests proving direct mutations notify active planner chains and stop status mutation at the first running card.

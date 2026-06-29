@@ -343,7 +343,7 @@ Use batch commits for:
 - create card (`card.json` + initial `brief.md`),
 - reorder children,
 - cancel subtree,
-- archive subtree,
+- delete subtree,
 - dependency changes that alter multiple cards,
 - any future structural mutation involving more than one `card.json`.
 
@@ -432,7 +432,7 @@ Target card-facing tools:
 |---|---|
 | `list_cards` | Query/filter cards from the in-memory card index. |
 | `get_tree` | Inspect hierarchy from the in-memory card index. |
-| `get_card` | Compact card read model with `card.json`, record URLs, and snippets. |
+| `get_card` | Compact card read model with card state, record URLs, and snippets. |
 | `read_file` | Read `record://` URLs returned by `get_card`. |
 | `read_file_metadata` | Inspect versions and metadata for `brief.md`, `status.md`, and `review.md`. |
 | `create_card` | Create `card.json` plus initial `brief.md`. |
