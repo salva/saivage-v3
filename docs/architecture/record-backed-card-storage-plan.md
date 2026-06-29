@@ -12,7 +12,7 @@ Use the same versioned record structure for card state and card-authored documen
 - Related intent text is one record, `record://brief.md`, not separate goal/instructions/acceptance records.
 - Keep separate records only when ownership/timing differs: `brief.md`, `status.md`, `review.md`.
 - Do not add `result.json` initially. Structured outputs that matter to scheduling, review, or display belong directly in `card.json`; narrative outputs belong in `status.md` or `review.md`.
-- All writes use shared commit infrastructure. Multi-card structural changes use a batch commit primitive.
+- All writes use shared commit infrastructure. There is no batch/transaction primitive; multi-card structural changes apply as a sequence of single-card commits. In case of dirty shutdown mid-sequence, recovery is best-effort and partial state is acceptable.
 - Analyst card mutations are accepted only while the runtime is paused. They are committed during the pause and announced to affected cards when the runtime is unpaused.
 - There is no broad card edit tool. Card structure changes happen through semantic card operations; document changes happen through scheme-aware `write_file` on writable record slots.
 
@@ -28,6 +28,7 @@ This is a brave refactor, but it removes duplicate persistence models and makes 
 - Do not expose raw writes into the record namespace.
 - Do not keep compatibility aliases after the new card API is cut over.
 - Do not attempt crash-proof multi-file transaction recovery. Recovery is best-effort after unexpected write failures.
+- Do not add a batch/transaction commit primitive. Structural mutations are a sequence of single-card commits; dirty shutdown mid-sequence may leave partial state and the runtime is expected to recover on its own.
 - Do not implement migration/adapters for old on-disk card structures. This project has a zero-backward-compatibility policy; cut over by rewriting/removing the old persistence shape.
 
 ## Storage Model
@@ -300,52 +301,7 @@ The split is:
 
 When a card processor actor changes state, it commits any uncommitted record files it owns. Other lifecycle events may also force commits; for example, activating a child card may commit the child card and all its open records.
 
-## Batch Commit Infrastructure
-
-Versioned `card.json` makes multi-card mutations explicit. Add a batch primitive for structural changes:
-
-```ts
-interface CommitRecordBatchInput {
-  projectRoot: string;
-  writer: AgentRole;
-  reason: string;
-  surface: ControlActionSurface | 'runtime';
-  records: Array<{
-    cardId: string;
-    path: `record://${string}`;
-    content: string;
-  }>;
-}
-```
-
-`commitRecordBatch(input)` must:
-
-1. Acquire the project/card-store lock.
-2. Preflight every record: slot, writer, format, schema, and structural invariants.
-3. Allocate all versions.
-4. Write all record files and indexes durably.
-5. Update the in-memory `CardStore` index/cache after successful writes.
-6. Audit one batch action with per-record descriptors.
-7. Call active processor hooks synchronously for affected cards.
-8. Return committed record descriptors.
-
-Atomicity rule:
-
-- Preflight must happen before writes.
-- The lock prevents concurrent mutation interleaving.
-- Every individual record update uses write-new-version-file, write-new-index-file, atomic-rename-index.
-- If a write fails after writes begin, throw loudly. Do not silently pretend the batch was atomic.
-- Recovery is best effort. Ordered shutdown/restart should recover cleanly. Unexpected process errors during multi-file writes are not guaranteed to be fully recovered.
-- Do not add batch marker files or transactional journals unless a concrete failure mode proves they are needed.
-
-Use batch commits for:
-
-- create card (`card.json` + initial `brief.md`),
-- reorder children,
-- cancel subtree,
-- delete subtree,
-- dependency changes that alter multiple cards,
-- any future structural mutation involving more than one `card.json`.
+Multi-card structural mutations (create card + initial brief, reorder children, cancel/delete subtree, dependency changes) apply as a sequence of single-card `commitRecord` calls under the project/card-store lock. There is no batch primitive. In case of dirty shutdown mid-sequence, recovery is best-effort; partial state is acceptable and the runtime is expected to reconcile on its own.
 
 ## Analyst Mutation Rules
 
@@ -395,7 +351,7 @@ Responsibilities:
 - validate all loaded card schemas,
 - build parent/child/dependency indexes,
 - serve synchronous reads from memory,
-- implement mutations by producing new `card.json` documents and committing them through `commitRecord` or `commitRecordBatch`,
+- implement mutations by producing new `card.json` documents and committing them through `commitRecord`,
 - invalidate/reload after external record commits when necessary,
 - preserve current sync mutation behavior for callers.
 
@@ -493,7 +449,6 @@ Rules:
 ### Phase 2: Commit Primitives
 
 - Implement `commitRecord`.
-- Implement `commitRecordBatch` with project/card-store locking and best-effort write-new-file/write-new-index/atomic-rename-index semantics.
 - Refactor existing terminal record close paths to use shared finalization internals.
 - Add synchronous active-processor callback dispatch.
 
@@ -513,8 +468,7 @@ Rules:
 ### Phase 5: Record-Backed Mutations
 
 - Change create/update/status/reorder/delete/cancel paths to produce new `card.json` documents.
-- Commit single-card mutations through `commitRecord`.
-- Commit multi-card mutations through `commitRecordBatch`.
+- Commit mutations through `commitRecord`; multi-card structural changes apply as a sequence of single-card commits under the project/card-store lock.
 - Remove writes to old card persistence once equivalent paths are covered.
 
 ### Phase 6: Brief Record Cutover
@@ -554,8 +508,6 @@ Add focused tests for:
 - `commitRecord` rejects invalid `card.json` and invalid `brief.md` content without creating a version.
 - `commitRecord` rejects Analyst writes when the runtime is not paused.
 - `commitRecord` rejects Analyst writes to an open latest version.
-- `commitRecordBatch` preflights all records before writing.
-- `commitRecordBatch` writes new version files and atomically renames new indexes under lock.
 - `read_file` reads latest and versioned `record://` URLs.
 - `read_file_metadata` returns slot policy and version metadata.
 - `CardStore` loads from latest `card.json` records.
