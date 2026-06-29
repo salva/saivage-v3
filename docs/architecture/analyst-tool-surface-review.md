@@ -65,15 +65,47 @@ Subtree operations inherit the strictest state in the subtree. If any descendant
 
 Do not expose low-level `delete_card` as the primary Analyst tool. The operator intent is to remove active plan items while preserving auditability, so `archive_card` should be the public tool and it should use `archiveAndDeleteSubtree`.
 
-### Inspection And Coordination
+Detailed card-tool availability:
 
-Keep the existing inspection and coordination tools:
+| Tool | Should be available when | Should be denied when | Replacement guidance |
+|---|---|---|---|
+| `create_card` | Root `project` is missing; or target parent exists, is non-running, and no running descendant would be structurally disrupted. | Parent is `running`; parent is missing; requested type/parent would violate tree invariants; creation would imply dispatching work immediately. | If parent is running, `queue_notification` to the active planner/card. |
+| `edit_card` | Target exists and is non-running; fields are objective, instruction, acceptance, metadata, dependency, or other explicitly approved non-output fields. | Target is `running`; fields rewrite lifecycle/output/result/process state; fields would create invalid dependencies. | For running target, `queue_notification`; for lifecycle repair, use `restart_card` if state allows. |
+| `move_card` | Source subtree and destination parent exist; neither source subtree nor destination parent is running; move does not create cycles. | Source or any descendant is `running`; destination parent is `running`; destination is inside source subtree; source is root project. | Notify active planner or pause runtime first. |
+| `reorder_child` | Parent exists and is non-running; child list is a permutation of current children; no listed child is running. | Parent or any reordered child is `running`; child set mismatch. | Notify active planner with preferred order. |
+| `cancel_card` | Target/subtree is non-running and status is `backlog`, `changed`, `blocked`, or `needs_verification`. | Target/subtree includes `running`; target is `done`, `failed`, or `cancelled`; target is root project unless the whole runtime is stopped and operator confirms. | For running work, `queue_notification`; for global stop, `pause_runtime` or `stop_project`. |
+| `archive_card` | Target/subtree has no running card and every card is in a deletable non-running state; operator intent is removal from active plan. | Target/subtree includes `running`; target is root project; archive would orphan dependencies without explicit handling. | `cancel_card` if the work should remain visible as cancelled; `restart_card` if it should be redone. |
+| `restart_card` | Target/subtree has no running card and status is `blocked`, `changed`, `done`, `failed`, `cancelled`, or `needs_verification`. | Target/subtree includes `running`; target is already `backlog`; restart would discard active review/execution context. | For running work, notify or pause first. |
+
+### Card Inspection And Coordination
+
+Keep card inspection and card-steering coordination tools available to the Analyst:
 
 - `list_cards`, `get_card`, `get_tree`, `get_plan_diary`, `get_card_output`, `list_card_history`, `get_card_history_entry`, `diff_card`.
 - `queue_notification` for running work, ambiguous intent, or cases where collaboration is safer than direct mutation.
-- Runtime controls (`start_project`, `pause_runtime`, `resume_runtime`, `stop_project`, `terminate_process`, `restart_server`) stay separate from card lifecycle tools.
 
-History tools may still be consolidated later, but that cleanup is secondary to the card-management authority change.
+These are card-handling tools for this discussion because they inspect card state, card output, card history, or deliver card-scoped steering context. They do not directly mutate card lifecycle state except through notification delivery into active sessions.
+
+Detailed card-inspection and card-coordination availability:
+
+| Tool group | Tools | Should be available when | Should be denied when |
+|---|---|---|---|
+| Tree/list reads | `list_cards`, `get_tree` | Analyst is online. | Only if card storage is unreadable. |
+| Single-card reads | `get_card`, `get_plan_diary`, `get_card_output` | Target card exists; `get_plan_diary` targets a goal/project; `get_card_output` target has associated output or process records. | Target card is missing; requested process does not belong to the card. |
+| Card history reads | `list_card_history`, `get_card_history_entry`, `diff_card` | Target card exists; requested version range exists where applicable. | Target card/version is missing. |
+| Card-scoped notification | `queue_notification` | Recipient resolves to an existing card, active role, or active session; body is operator guidance, correction, cancellation request, or coordination context. | Unknown recipient; request tries to list/manage/delete notifications; body asks an agent to violate its own authority. |
+
+### Card Tools That Should Not Be Available
+
+| Tool or class | Reason |
+|---|---|
+| `abort_goal_subtree` | Legacy broad cancellation primitive. Replace with state-gated `cancel_card` for dormant work and `queue_notification`/runtime controls for running work. |
+| `restart_goal` | Legacy goal-specific restart duplicates `restart_card`; use one state-gated restart tool for cards/subtrees. |
+| `restart_card_or_subtree` | Legacy name and semantics are too broad; replace with explicit `restart_card` plus subtree-running preflight. |
+| `delete_card` as public Analyst tool | Raw deletion is the wrong operator concept. Use audited `archive_card` backed by archive storage. |
+| `activate_card` | Planner/runtime dispatcher authority. Analyst must not manually step through card execution. |
+| Planner report tools: `report_goal_done`, `report_goal_failed`, `report_goal_blocked` | Planner self-report authority; Analyst must not forge lifecycle results. |
+| Notification management: list/get/ack/delete notification inbox tools | Notifications are delivery events, not durable operator-managed records. Delivery is verified through session/event inspection. |
 
 ## Propagation Contract
 
