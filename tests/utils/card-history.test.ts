@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import type { CardHistoryEntry } from '../../src/schemas/types.js';
+import { cardHistoryPath } from '../../src/persistence/card-loader.js';
 
 let root: string;
 let store: CardStore;
@@ -74,17 +75,19 @@ describe('card history substrate', () => {
     const v2 = store.mutateCard(card.id, { title: 'Goal 2' }, { actor: 'analyst', surface: 'web-chat' });
     store.mutateCard(card.id, { description: 'Goal 3 desc' }, { actor: 'analyst', surface: 'web-chat' });
 
-    const historyFilePath = join(root, '.saivage', 'cards', 'history', `${card.id}.history.jsonl`);
-    const persistedLines = readFileSync(historyFilePath, 'utf-8').trim().split('\n').filter(Boolean);
+    const historyFilePath = cardHistoryPath(root, card.id);
+    const index = JSON.parse(readFileSync(historyFilePath, 'utf-8')) as { versions: Record<string, { history?: CardHistoryEntry }> };
+    const persisted = Object.values(index.versions).map((entry) => entry.history).filter((entry): entry is CardHistoryEntry => Boolean(entry));
     const orphanEntry = {
-      ...JSON.parse(persistedLines[1]) as CardHistoryEntry,
+      ...persisted[1]!,
       entry_id: '00000000-0000-4000-8000-000000000001',
       version_seq: 3,
       snapshot: { ...v2, version_seq: 3 },
       changed_fields: ['acceptance'],
       change_summary: 'acceptance updated',
     } satisfies CardHistoryEntry;
-    writeFileSync(historyFilePath, `${persistedLines.join('\n')}\n${JSON.stringify(orphanEntry)}\n`, 'utf-8');
+    index.versions['4'] = { history: orphanEntry };
+    writeFileSync(historyFilePath, JSON.stringify(index, null, 2), 'utf-8');
 
     expect(() => new CardStore(root)).toThrow();
   });
@@ -92,14 +95,16 @@ describe('card history substrate', () => {
   it('F13 r5: throws loudly on injected version_seq===0 history row', () => {
     const card = createCard();
     store.mutateCard(card.id, { title: 'Goal 2' }, { actor: 'analyst', surface: 'web-chat' });
-    const historyFilePath = join(root, '.saivage', 'cards', 'history', `${card.id}.history.jsonl`);
-    const lines = readFileSync(historyFilePath, 'utf-8').trim().split('\n').filter(Boolean);
+    const historyFilePath = cardHistoryPath(root, card.id);
+    const index = JSON.parse(readFileSync(historyFilePath, 'utf-8')) as { versions: Record<string, { history?: CardHistoryEntry }> };
+    const first = Object.values(index.versions).map((entry) => entry.history).find(Boolean)!;
     const badEntry = {
-      ...JSON.parse(lines[0]) as CardHistoryEntry,
+      ...first,
       entry_id: '00000000-0000-4000-8000-000000000002',
       version_seq: 0,
     } satisfies CardHistoryEntry;
-    writeFileSync(historyFilePath, `${lines.join('\n')}\n${JSON.stringify(badEntry)}\n`, 'utf-8');
+    index.versions['3'] = { history: badEntry };
+    writeFileSync(historyFilePath, JSON.stringify(index, null, 2), 'utf-8');
     expect(() => new CardStore(root)).toThrow();
   });
 
@@ -121,7 +126,7 @@ describe('card history substrate', () => {
 
   it('rejects a live version_seq=1 card with any history rows', () => {
     const card = createCard();
-    const historyFilePath = join(root, '.saivage', 'cards', 'history', `${card.id}.history.jsonl`);
+    const historyFilePath = cardHistoryPath(root, card.id);
     const mutatedCard = { ...card, version_seq: 1 };
     const mutateEntry = {
       entry_id: '00000000-0000-4000-8000-000000000099',
@@ -136,7 +141,7 @@ describe('card history substrate', () => {
       changed_fields: ['title'],
       change_summary: 'title updated',
     };
-    writeFileSync(historyFilePath, JSON.stringify(mutateEntry) + '\n', 'utf-8');
+    writeFileSync(historyFilePath, JSON.stringify({ slot: 'card', latest: 1, open: null, versions: { '1': { status: 'closed', history: mutateEntry } } }, null, 2), 'utf-8');
 
     expect(() => new CardStore(root)).toThrow(/version_seq=1.*history file/);
   });

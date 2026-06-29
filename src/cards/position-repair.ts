@@ -1,21 +1,20 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { EventBus } from '../events/index.js';
 import { ProjectLock } from '../persistence/index.js';
 import { cardRecordSchema, type CardRecord } from '../schemas/index.js';
 import { applyMutationGroupSync, type ApplyMutationOp } from './apply-mutation.js';
 import { CardStoreState } from './state.js';
-
-function cardsByIdDir(projectRoot: string): string {
-  return join(projectRoot, '.saivage', 'cards', 'by-id');
-}
+import { cardRecordsRoot, cardRecordVersionPath } from '../persistence/card-loader.js';
+import { readRecordSlotIndex } from '../runtime/records/record-slots.js';
 
 function readRawCards(projectRoot: string): CardRecord[] {
-  const dir = cardsByIdDir(projectRoot);
+  const dir = cardRecordsRoot(projectRoot);
   if (!existsSync(dir)) return [];
   const cards: CardRecord[] = [];
-  for (const name of readdirSync(dir).filter((entry) => entry.endsWith('.json'))) {
-    const path = join(dir, name);
+  for (const entry of readdirSync(dir, { withFileTypes: true }).filter((entry) => entry.isDirectory())) {
+    const index = readRecordSlotIndex(projectRoot, entry.name, 'card');
+    if (index.latest === null) continue;
+    const path = cardRecordVersionPath(projectRoot, entry.name, index.latest);
     try {
       cards.push(cardRecordSchema.parse(JSON.parse(readFileSync(path, 'utf-8'))));
     } catch {

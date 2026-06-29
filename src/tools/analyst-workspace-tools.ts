@@ -11,7 +11,7 @@ import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
 import { describe, emptyInput, type UnifiedToolDefinition } from './tool-catalog.js';
 import { isBinarySample, normalizeShellParams, redactShellText, runShellCommandWithCapture, summarizeShellCommand, summarizeShellOutcome, toolFailure, toolFailureFromError, type ShellCommandParams } from './analyst-tool-helpers.js';
-import { readClosedRecordSlotMetadata } from '../runtime/records/record-slots.js';
+import { exposedRecordSlotDefinitionForFilename, readClosedRecordSlotMetadata, readRecordSlotIndex, recordPath } from '../runtime/records/record-slots.js';
 
 const FILE_READ_MAX_BYTES = 1_000_000;
 const FILE_READ_DEFAULT_BYTES = 200_000;
@@ -51,6 +51,7 @@ export async function run_shell_command(ctx: ToolContext, params: ShellCommandPa
 export async function read_file(_ctx: ToolContext, params: { path: string; maxBytes?: number }): Promise<ToolResult> {
   try {
     if (typeof params.path !== 'string' || params.path.length === 0) return toolFailure('validation', 'path is required.', { field: 'path' });
+    if (params.path.startsWith('record://')) return readRecordFile(_ctx.projectRoot, params.path, params.maxBytes);
     const abs = resolvePath(params.path); assertAnalystInspectionTarget(abs);
     if (!existsSync(abs)) return toolFailure('not_found', `Path not found: ${abs}`);
     const st = statSync(abs); if (st.isDirectory()) return toolFailure('conflict', `Path is a directory; use list_directory instead: ${abs}`); if (!st.isFile()) return toolFailure('conflict', `Path is not a regular file: ${abs}`);
@@ -59,6 +60,29 @@ export async function read_file(_ctx: ToolContext, params: { path: string; maxBy
     if (isBinarySample(sliced)) return { success: true, data: { path: abs, size: st.size, binary: true, content: null, truncated, modified_at: st.mtime.toISOString() } };
     return { success: true, data: { path: abs, size: st.size, binary: false, truncated, bytes_returned: sliced.length, content: sliced.toString('utf-8'), modified_at: st.mtime.toISOString() } };
   } catch (err) { if (err instanceof SecretPathError) return toolFailure('permission', err.message); return toolFailureFromError(err, 'io'); }
+}
+
+function readRecordFile(projectRoot: string, raw: string, maxBytes?: number): ToolResult {
+  const url = new URL(raw);
+  const filename = decodeURIComponent(`${url.hostname}${url.pathname}`);
+  const definition = exposedRecordSlotDefinitionForFilename(filename);
+  const cardId = url.searchParams.get('card');
+  if (!cardId) return toolFailure('validation', `record URL requires card query parameter: '${raw}'.`);
+  const versionParam = url.searchParams.get('v') ?? undefined;
+  if (versionParam === 'next') return toolFailure('validation', 'read_file can read only closed records.');
+  const index = readRecordSlotIndex(projectRoot, cardId, definition.slot);
+  const version = versionParam && versionParam !== 'latest' ? Number(versionParam) : index.latest;
+  if (version === null) return toolFailure('not_found', `No closed record exists for '${cardId}/${definition.slot}'.`);
+  if (!Number.isInteger(version) || version < 1) return toolFailure('validation', `Invalid record version '${versionParam}'.`);
+  const entry = index.versions[String(version)];
+  if (!entry || entry.status !== 'closed') return toolFailure('not_found', `Record '${cardId}/${definition.slot}/${version}' is not closed.`);
+  const path = recordPath(projectRoot, cardId, definition.slot, version, filename).absolutePath;
+  const st = statSync(path);
+  const cap = Math.min(Math.max(1, maxBytes ?? FILE_READ_DEFAULT_BYTES), FILE_READ_MAX_BYTES);
+  const buf = readFileSync(path);
+  const truncated = buf.length > cap;
+  const sliced = truncated ? buf.subarray(0, cap) : buf;
+  return { success: true, data: { path: raw, size: st.size, binary: false, truncated, bytes_returned: sliced.length, content: sliced.toString('utf-8'), modified_at: st.mtime.toISOString() } };
 }
 
 export async function read_file_metadata(ctx: ToolContext, params: { path: string }): Promise<ToolResult> {

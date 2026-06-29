@@ -5,6 +5,8 @@ import type { CardStore } from '../../cards/store-api.js';
 import { redactOperatorErrorMessage } from '../../workspace/index.js';
 import { listRecentReviews, listQuarantineIndex } from '../../workspace/index.js';
 import type { DoctorCheck, DoctorIssue, DoctorResponse } from '../../schemas/index.js';
+import { cardRecordVersionPath, cardRecordsRoot } from '../../persistence/card-loader.js';
+import { readRecordSlotIndex } from '../../runtime/records/record-slots.js';
 
 export const internalDebugRoutes = [
   { method: 'GET', path: '/api/debug/doctor' },
@@ -16,17 +18,20 @@ export function registerInternalDebugRoutes(fastify: FastifyInstance, projectRoo
 
   fastify.get('/api/debug/doctor', async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
-      const byIdDir = join(projectRoot, '.saivage', 'cards', 'by-id');
+      const cardRecordsDir = cardRecordsRoot(projectRoot);
       const checks: DoctorCheck[] = [];
       const issues: DoctorIssue[] = [];
 
       let diskCardIds: Set<string> = new Set();
-      let byIdExists = false;
-      if (existsSync(byIdDir)) {
-        byIdExists = true;
+      let cardRecordsExist = false;
+      if (existsSync(cardRecordsDir)) {
+        cardRecordsExist = true;
         try {
-          const files = readdirSync(byIdDir).filter((f: string) => f.endsWith('.json'));
-          diskCardIds = new Set(files.map((f: string) => f.replace('.json', '')));
+          const dirs = readdirSync(cardRecordsDir, { withFileTypes: true }).filter((entry) => entry.isDirectory());
+          diskCardIds = new Set(dirs.filter((entry) => {
+            const index = readRecordSlotIndex(projectRoot, entry.name, 'card');
+            return index.latest !== null && existsSync(cardRecordVersionPath(projectRoot, entry.name, index.latest));
+          }).map((entry) => entry.name));
         } catch { void 0; }
       }
 
@@ -46,18 +51,18 @@ export function registerInternalDebugRoutes(fastify: FastifyInstance, projectRoo
       for (const id of storeIds) if (!diskCardIds.has(id)) missingFromDisk.push(id);
       if (missingFromDisk.length > 0) {
         checks.push({ name: 'cardstore_entries_have_files', passed: false, details: `${missingFromDisk.length} CardStore entr${missingFromDisk.length === 1 ? 'y' : 'ies'} missing file(s) on disk: ${missingFromDisk.join(', ')}` });
-        for (const id of missingFromDisk) issues.push({ severity: 'error', message: `CardStore entry '${id}' has no corresponding file at .saivage/cards/by-id/${id}.json` });
+        for (const id of missingFromDisk) issues.push({ severity: 'error', message: `CardStore entry '${id}' has no corresponding latest card.json record.` });
       } else {
-        checks.push({ name: 'cardstore_entries_have_files', passed: true, details: byIdExists ? `All ${storeIds.size} CardStore entr${storeIds.size === 1 ? 'y has' : 'ies have'} corresponding files.` : 'No by-id/ directory exists — no card files to check.' });
+        checks.push({ name: 'cardstore_entries_have_files', passed: true, details: cardRecordsExist ? `All ${storeIds.size} CardStore entr${storeIds.size === 1 ? 'y has' : 'ies have'} corresponding card.json records.` : 'No card record directory exists — no card records to check.' });
       }
 
       const orphanFiles: string[] = [];
       for (const id of diskCardIds) if (!storeIds.has(id)) orphanFiles.push(id);
       if (orphanFiles.length > 0) {
         checks.push({ name: 'card_files_have_cardstore_entries', passed: false, details: `${orphanFiles.length} card file(s) have no corresponding CardStore entry: ${orphanFiles.join(', ')}` });
-        for (const id of orphanFiles) issues.push({ severity: 'error', message: `Card file .saivage/cards/by-id/${id}.json has no corresponding CardStore entry.` });
+        for (const id of orphanFiles) issues.push({ severity: 'error', message: `Card record namespace '${id}' has no corresponding CardStore entry.` });
       } else {
-        checks.push({ name: 'card_files_have_cardstore_entries', passed: true, details: byIdExists ? `All ${diskCardIds.size} card file(s) have corresponding CardStore entries.` : 'No by-id/ directory exists — no card files to check.' });
+        checks.push({ name: 'card_files_have_cardstore_entries', passed: true, details: cardRecordsExist ? `All ${diskCardIds.size} card record namespace(s) have corresponding CardStore entries.` : 'No card record directory exists — no card records to check.' });
       }
 
       const allPassed = checks.every((c) => c.passed);

@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { cardHistoryPath, readHistoryEntriesStrict } from '../persistence/card-loader.js';
+import { cardHistoryPath, cardRecordVersionPath, parseCard, readHistoryEntriesStrict, readJsonFile } from '../persistence/card-loader.js';
 import type { CardHistoryEntry, CardRecord } from '../schemas/index.js';
 import { valuesEqual } from './value-equality.js';
 
@@ -28,15 +28,9 @@ export class CardHistoryReader {
   }
 
   getCardAt(id: string, versionSeq: number): CardRecord {
-    const current = this.config.read(id);
-    if (!current) throw new Error(`Card '${id}' not found.`);
-    if (versionSeq === current.version_seq) return current;
-    const hp = cardHistoryPath(this.config.projectRoot, id);
-    if (!existsSync(hp)) throw new Error(`Card '${id}' has no version ${versionSeq}.`);
-    const entries = readHistoryEntriesStrict(hp);
-    const entry = entries.find((e) => e.version_seq === versionSeq);
-    if (!entry) throw new Error(`Card '${id}' has no version ${versionSeq}.`);
-    return deepClone(entry.snapshot);
+    const path = cardRecordVersionPath(this.config.projectRoot, id, versionSeq);
+    if (!existsSync(path)) throw new Error(`Card '${id}' has no version ${versionSeq}.`);
+    return deepClone(parseCard(readJsonFile(path), path));
   }
 
   diffCard(id: string, fromSeq: number, toSeq: number): CardDiffEntry[] {

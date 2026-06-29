@@ -4,8 +4,8 @@ import type { DomainEvent, EventBus, EventKind } from '../events/index.js';
 import { eventKindValues, toLoggedEvent } from '../events/index.js';
 import { JsonlLedger, ProjectLock } from '../persistence/index.js';
 import { redactForOutbound } from '../redaction/index.js';
-import { cardHistoryEntrySchema, controlActionAuditEntrySchema, loggedEventSchema } from '../schemas/index.js';
-import type { CardHistoryEntry, ControlActionAuditEntry, LoggedEvent } from '../schemas/index.js';
+import { controlActionAuditEntrySchema, loggedEventSchema } from '../schemas/index.js';
+import type { ControlActionAuditEntry, LoggedEvent } from '../schemas/index.js';
 import type { ErrorRecord } from '../observability/index.js';
 
 export interface Projection {
@@ -43,10 +43,6 @@ function registerProjection(eventBus: EventBus, projection: Projection, options?
 
 export function controlActionLedger(projectRoot: string): JsonlLedger<ControlActionAuditEntry> {
   return new JsonlLedger(join(projectRoot, '.saivage', 'runtime', 'control-actions.jsonl'), controlActionAuditEntrySchema, runtimeLock(projectRoot), { version: null });
-}
-
-export function cardHistoryLedger(projectRoot: string, cardId: string): JsonlLedger<CardHistoryEntry> {
-  return new JsonlLedger(join(projectRoot, '.saivage', 'cards', 'history', `${cardId}.history.jsonl`), cardHistoryEntrySchema, runtimeLock(projectRoot), { version: null });
 }
 
 export function eventLogLedger(saivageDir: string): JsonlLedger<LoggedEvent> {

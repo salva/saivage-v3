@@ -1,18 +1,15 @@
 // F13 r5 §"On-disk write sequence" + §"Boot recovery" — the canonical
-// `applyMutation` step machine. Owns the cross-process withLock, stages by-id
-// files via fsynced .tmp.<token>, writes a commit-marker,
-// performs the atomic rename / unlink, appends to per-card history with
-// `appendSyncIdempotent`, unlinks the marker, mutates `CardStoreState`, releases
-// the lock, and emits a `card_history_appended` event AFTER the lock drops.
+// `applyMutation` step machine. Owns the cross-process withLock, writes
+// versioned card.json records, updates `CardStoreState`, releases the lock, and
+// emits a `card_history_appended` event AFTER the lock drops.
 
 import {
   mkdirSync,
   renameSync,
-  unlinkSync,
-  writeFileSync,
+  rmSync,
 } from 'node:fs';
-import { dirname } from 'node:path';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { dirname, join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { EventBus } from '../events/index.js';
 import type {
   CardHistoryAppendedEvent,
@@ -20,20 +17,13 @@ import type {
   CardHistoryKind,
   CardRecord,
 } from '../schemas/index.js';
-import { cardHistoryEntrySchema, cardRecordSchema } from '../schemas/index.js';
-import { ProjectLock, appendSyncIdempotent } from '../persistence/index.js';
+import { cardHistoryEntrySchema } from '../schemas/index.js';
+import { ProjectLock } from '../persistence/index.js';
 import type { LockHandle } from '../persistence/index.js';
-import { fsyncDir, fsyncFile } from '../persistence/durable-write.js';
+import { fsyncDir } from '../persistence/durable-write.js';
 import { CardStoreState } from './state.js';
 import { CardStoreInvariantError } from './errors.js';
-import { cardByIdPath, cardHistoryPath } from '../persistence/card-loader.js';
-import {
-  unlinkCommitMarker,
-  unlinkGroupCommitMarker,
-  writeCommitMarker,
-  writeGroupCommitMarker,
-  type CommitMarker,
-} from './commit-marker.js';
+import { cardRecordNamespaceDir, writeBriefRecordVersion, writeCardRecordVersion } from '../persistence/card-loader.js';
 import type { CardMutationContext } from './lifecycle.js';
 
 export type ApplyMutationOp =
@@ -72,10 +62,6 @@ export interface ApplyMutationResult {
   historyEntry: CardHistoryEntry | null;
 }
 
-function newToken(): string {
-  return randomBytes(8).toString('hex');
-}
-
 function buildHistoryEntry(
   prior: CardRecord,
   kind: CardHistoryKind,
@@ -98,15 +84,6 @@ function buildHistoryEntry(
   };
   cardHistoryEntrySchema.parse(entry);
   return entry;
-}
-
-function stageByIdTmp(finalPath: string, card: CardRecord, token: string): string {
-  const tmpPath = `${finalPath}.tmp.${token}`;
-  mkdirSync(dirname(finalPath), { recursive: true });
-  const data = JSON.stringify(cardRecordSchema.parse(card), null, 2) + '\n';
-  writeFileSync(tmpPath, data, 'utf-8');
-  fsyncFile(tmpPath);
-  return tmpPath;
 }
 
 function withLockOnly<T>(
@@ -180,19 +157,8 @@ function applyMutationLocked(
         `New card '${card.id}' must have version_seq=1, got ${card.version_seq}.`,
       );
     }
-    const token = newToken();
-    const finalPath = cardByIdPath(projectRoot, card.id);
-    const tmpPath = stageByIdTmp(finalPath, card, token);
-    const marker: CommitMarker = {
-      token,
-      card_id: card.id,
-      by_id: { kind: 'rename', tmp_path: tmpPath, final_path: finalPath },
-      history: null,
-    };
-    writeCommitMarker(projectRoot, marker);
-    renameSync(tmpPath, finalPath);
-    fsyncDir(dirname(finalPath));
-    unlinkCommitMarker(projectRoot, token);
+    writeCardRecordVersion(projectRoot, card);
+    writeBriefRecordVersion(projectRoot, card, card.created_by === 'planner' ? 'planner' : 'analyst');
     state.upsert(card);
     return { card, historyEntry: null, event: null };
   }
@@ -214,21 +180,10 @@ function applyMutationLocked(
       op.changedFields,
       op.changeSummary,
     );
-    const token = newToken();
-    const finalPath = cardByIdPath(projectRoot, nextValidated.id);
-    const tmpPath = stageByIdTmp(finalPath, nextValidated, token);
-    const historyJsonl = cardHistoryPath(projectRoot, nextValidated.id);
-    const marker: CommitMarker = {
-      token,
-      card_id: nextValidated.id,
-      by_id: { kind: 'rename', tmp_path: tmpPath, final_path: finalPath },
-      history: { jsonl_path: historyJsonl, entry: historyEntry, entry_id: historyEntry.entry_id },
-    };
-    writeCommitMarker(projectRoot, marker);
-    renameSync(tmpPath, finalPath);
-    fsyncDir(dirname(finalPath));
-    appendSyncIdempotent(historyJsonl, historyEntry as unknown as { entry_id: string } & Record<string, unknown>);
-    unlinkCommitMarker(projectRoot, token);
+    writeCardRecordVersion(projectRoot, nextValidated, historyEntry);
+    if (op.changedFields.includes('description') || op.changedFields.includes('acceptance') || op.changedFields.includes('instructions_file')) {
+      writeBriefRecordVersion(projectRoot, nextValidated, op.ctx.actor === 'planner' ? 'planner' : 'analyst');
+    }
     state.upsert(nextValidated);
     const event: CardHistoryAppendedPayload = {
       kind: 'card_history_appended',
@@ -253,24 +208,13 @@ function applyMutationLocked(
     ['__deleted__'],
     op.changeSummary,
   );
-  const token = newToken();
-  const finalPath = cardByIdPath(deps.projectRoot, op.cardId);
-  const historyJsonl = cardHistoryPath(deps.projectRoot, op.cardId);
-  const marker: CommitMarker = {
-    token,
-    card_id: op.cardId,
-    by_id: { kind: 'unlink', unlink_path: finalPath },
-    history: { jsonl_path: historyJsonl, entry: historyEntry, entry_id: historyEntry.entry_id },
-  };
-  writeCommitMarker(deps.projectRoot, marker);
-  try {
-    unlinkSync(finalPath);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
-  }
-  fsyncDir(dirname(finalPath));
-  appendSyncIdempotent(historyJsonl, historyEntry as unknown as { entry_id: string } & Record<string, unknown>);
-  unlinkCommitMarker(deps.projectRoot, token);
+  const liveDir = cardRecordNamespaceDir(deps.projectRoot, op.cardId);
+  const archiveDir = join(deps.projectRoot, '.saivage', 'archive', 'cards', op.cardId);
+  mkdirSync(dirname(archiveDir), { recursive: true });
+  rmSync(archiveDir, { recursive: true, force: true });
+  renameSync(liveDir, archiveDir);
+  fsyncDir(dirname(archiveDir));
+  fsyncDir(dirname(liveDir));
   state.remove(op.cardId);
   const event: CardHistoryAppendedPayload = {
     kind: 'card_history_appended',
@@ -304,21 +248,13 @@ export function applyMutationGroupSync(
   if (ops.length === 0) return [];
   const events: CardHistoryAppendedPayload[] = [];
   const results: ApplyMutationResult[] = [];
-  const groupToken = newToken();
-  const perCardTokens: string[] = [];
   withLockOnly(deps, (handle) => {
     deps.projectLock.assertOwns(handle);
-    writeGroupCommitMarker(deps.projectRoot, {
-      group_token: groupToken,
-      total: ops.length,
-      per_card_tokens: perCardTokens,
-    });
     for (const op of ops) {
       const outcome = applyMutationLocked(deps, op);
       results.push({ card: outcome.card, historyEntry: outcome.historyEntry });
       if (outcome.event !== null) events.push(outcome.event);
     }
-    unlinkGroupCommitMarker(deps.projectRoot, groupToken);
   });
   for (const evt of events) deps.eventBus.emit('card_history_appended', evt);
   return results;

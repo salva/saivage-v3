@@ -28,7 +28,6 @@ import { CardHierarchyCommands, type ReorderChildrenResult } from './hierarchy-c
 import { CardArchiveService } from './archive-service.js';
 import { CardHistoryReader, type CardDiffEntry } from './history-reader.js';
 import { CardLifecycleCommands } from './lifecycle-commands.js';
-import { recoverCommitMarkers } from './recovery.js';
 import { cardHistoryPath, loadCardStoreState, readHistoryEntriesStrict } from '../persistence/card-loader.js';
 import {
   applyMutationSync,
@@ -63,7 +62,6 @@ export class CardStore {
     this.projectRoot = projectRoot;
     this.eventBus = eventBus ?? new EventBus();
     this.maxDepth = maxGoalDepth !== undefined && maxGoalDepth > 0 ? maxGoalDepth : 5;
-    recoverCommitMarkers(projectRoot);
     this.projectLock = new ProjectLock(join(projectRoot, '.saivage', 'project.lock'));
     repairSiblingPositions(projectRoot, this.maxDepth, this.projectLock, this.eventBus);
     this.state = loadCardStoreState(projectRoot, { maxDepth: this.maxDepth });

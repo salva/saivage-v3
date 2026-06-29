@@ -18,6 +18,7 @@ export interface RecordSlotVersionEntry {
   cardVersionSeq?: number;
   globalSeq?: number;
   url?: string;
+  history?: unknown;
 }
 
 export type RecordSlotFormat = 'markdown' | 'json';
@@ -91,6 +92,10 @@ export function recordSlotDefinitionForFilename(filename: string): RecordSlotDef
   const definition = RECORD_SLOT_DEFINITION_BY_FILENAME.get(clean);
   if (!definition) throw new Error(`Unsupported record slot '${clean}'.`);
   return definition;
+}
+
+export function recordSlotDefinitions(): readonly RecordSlotDefinition[] {
+  return RECORD_SLOT_DEFINITIONS;
 }
 
 export function exposedRecordSlotDefinitionForFilename(filename: string): RecordSlotDefinition {
@@ -251,4 +256,8 @@ function nextGlobalRecordSeq(projectRoot: string): number {
   mkdirSync(dir, { recursive: true });
   writeFileSync(path, `${JSON.stringify({ globalSeq: next }, null, 2)}\n`, 'utf8');
   return next;
+}
+
+export function allocateGlobalRecordSeq(projectRoot: string): number {
+  return nextGlobalRecordSeq(projectRoot);
 }

@@ -60,9 +60,7 @@ function defaultProjectConfig(name: string): ProjectConfig {
 
 const SAIVAGE_DIRS: string[] = [
   'skills',
-  'cards/by-id',
-  'cards/history',
-  'cards/.commit',
+  'outputs/cards',
   'diaries',
   'reviews/by-goal',
   'agents/llm-exchanges',
@@ -76,6 +74,8 @@ const SAIVAGE_DIRS: string[] = [
 ];
 
 const LEGACY_REJECTED_ARTIFACTS: string[] = [
+  'cards/by-id',
+  'cards/history',
   'cards/index.json',
   'cards/tree',
   'cards/dependencies',
@@ -115,7 +115,7 @@ function isNewSaivageState(projectRoot: string): boolean {
   const saivageDir = join(projectRoot, '.saivage');
   if (!existsSync(saivageDir)) return false;
   const requiredDirs = [
-    'cards/by-id',
+    'outputs/cards',
     'agents/sessions',
     'agents/messages',
     'runtime',

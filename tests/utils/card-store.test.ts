@@ -15,7 +15,7 @@ import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import { CardStoreState } from '../../src/cards/state.js';
 import { validateParsedCards } from '../../src/cards/validator.js';
-import { parseCard, readHistoryEntriesStrict } from '../../src/persistence/card-loader.js';
+import { cardHistoryPath, cardRecordNamespaceDir, cardRecordVersionPath, parseCard, readHistoryEntriesStrict } from '../../src/persistence/card-loader.js';
 import type { CardRecord } from '../../src/schemas/types.js';
 
 function makeCard(
@@ -63,6 +63,11 @@ function createRootProject(): CardRecord {
   return store.create(makeCard({ type: 'project', parent: null, depth: 0, title: 'project' }));
 }
 
+function latestCardPath(id: string): string {
+  const card = store.read(id)!;
+  return cardRecordVersionPath(tmpDir, id, card.version_seq);
+}
+
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), 'saivage-cs-'));
   initProjectTree(tmpDir);
@@ -103,13 +108,15 @@ describe('CardStore validation of persisted state', () => {
   });
 
   it('throws when a persisted project card uses a non-canonical id', () => {
-    const projectPath = join(tmpDir, '.saivage', 'cards', 'by-id', 'project.json');
+    const projectPath = latestCardPath('project');
     const raw = JSON.parse(readFileSync(projectPath, 'utf-8')) as CardRecord;
-    rmSync(projectPath);
+    rmSync(cardRecordNamespaceDir(tmpDir, 'project'), { recursive: true, force: true });
+    mkdirSync(join(tmpDir, '.saivage', 'outputs', 'cards', 'root-spec-plan-project', 'card'), { recursive: true });
     writeFileSync(
-      join(tmpDir, '.saivage', 'cards', 'by-id', 'root-spec-plan-project.json'),
+      cardRecordVersionPath(tmpDir, 'root-spec-plan-project', 1),
       JSON.stringify({ ...raw, id: 'root-spec-plan-project' }, null, 2),
     );
+    writeFileSync(join(tmpDir, '.saivage', 'outputs', 'cards', 'root-spec-plan-project', 'card', 'index.json'), JSON.stringify({ slot: 'card', latest: 1, open: null, versions: { '1': { status: 'closed' } } }, null, 2));
 
     expect(() => {
       store = new CardStore(tmpDir);
@@ -117,7 +124,7 @@ describe('CardStore validation of persisted state', () => {
   });
 
   it('throws when a persisted project card is not the root card', () => {
-    const projectPath = join(tmpDir, '.saivage', 'cards', 'by-id', 'project.json');
+    const projectPath = latestCardPath('project');
     const raw = JSON.parse(readFileSync(projectPath, 'utf-8')) as CardRecord;
     writeFileSync(
       projectPath,
@@ -131,7 +138,7 @@ describe('CardStore validation of persisted state', () => {
 
   it('throws when persisted canonical card JSON is schema-invalid on read', () => {
     const created = store.create(makeCard({ type: 'goal', title: 'Broken' }));
-    const path = join(tmpDir, '.saivage', 'cards', 'by-id', `${created.id}.json`);
+    const path = latestCardPath(created.id);
     const broken = {
       ...JSON.parse(readFileSync(path, 'utf-8')),
       type: 'not-a-card-type',
@@ -145,7 +152,7 @@ describe('CardStore validation of persisted state', () => {
 
   it('throws when persisted canonical card JSON is schema-invalid during list', () => {
     const created = store.create(makeCard({ type: 'goal', title: 'Broken List' }));
-    const path = join(tmpDir, '.saivage', 'cards', 'by-id', `${created.id}.json`);
+    const path = latestCardPath(created.id);
     const broken = {
       ...JSON.parse(readFileSync(path, 'utf-8')),
       status: 'impossible-status',
@@ -181,7 +188,7 @@ describe('CardStore CRUD still works with validated indexes', () => {
     expect(card.parent).toBeNull();
     expect(card.depth).toBe(0);
     expect(card.position).toBe(0);
-    expect(existsSync(join(tmpDir, '.saivage', 'cards', 'by-id', 'project.json'))).toBe(true);
+    expect(existsSync(cardRecordVersionPath(tmpDir, 'project', 1))).toBe(true);
   });
 
   it('rejects attempts to create a project card under another card', () => {
@@ -225,9 +232,10 @@ describe('CardStore CRUD still works with validated indexes', () => {
     expect(card.latest_self_report).toBeNull();
   });
 
-  it('creates a card file in cards/by-id/', () => {
+  it('creates versioned card and brief records', () => {
     const card = store.create(makeCard({ type: 'goal', title: 'My Goal' }));
-    expect(existsSync(join(tmpDir, '.saivage', 'cards', 'by-id', `${card.id}.json`))).toBe(true);
+    expect(existsSync(cardRecordVersionPath(tmpDir, card.id, 1))).toBe(true);
+    expect(existsSync(join(tmpDir, '.saivage', 'outputs', 'cards', card.id, 'brief', '1.md'))).toBe(true);
   });
 
   it('does not reuse ids reserved by deleted card history', () => {
@@ -317,22 +325,16 @@ describe('CardStore CRUD still works with validated indexes', () => {
   it('normalizes legacy persisted blocks in card and history rows', () => {
     const created = store.create(makeCard({ type: 'goal', title: 'Legacy Blocks' }));
     store.mutateCard(created.id, { title: 'Legacy Blocks Updated' }, { actor: 'analyst', surface: 'web-chat', reason: 'test' });
-    const cardPath = join(tmpDir, '.saivage', 'cards', 'by-id', `${created.id}.json`);
+    const cardPath = latestCardPath(created.id);
     const rawCard = { ...JSON.parse(readFileSync(cardPath, 'utf-8')), blocks: ['legacy-blocker'] };
 
     const parsedCard = parseCard(rawCard, cardPath);
     expect(parsedCard).not.toHaveProperty('blocks');
 
-    const historyPath = join(tmpDir, '.saivage', 'cards', 'history', `${created.id}.history.jsonl`);
-    const rawHistory = readFileSync(historyPath, 'utf-8')
-      .split('\n')
-      .filter(Boolean)
-      .map((line) => {
-        const entry = JSON.parse(line) as { snapshot: Record<string, unknown> };
-        return JSON.stringify({ ...entry, snapshot: { ...entry.snapshot, blocks: ['legacy-blocker'] } });
-      })
-      .join('\n') + '\n';
-    writeFileSync(historyPath, rawHistory);
+    const historyPath = cardHistoryPath(tmpDir, created.id);
+    const rawHistory = JSON.parse(readFileSync(historyPath, 'utf-8')) as { versions: Record<string, { history?: { snapshot?: Record<string, unknown> } }> };
+    for (const version of Object.values(rawHistory.versions)) if (version.history?.snapshot) version.history.snapshot.blocks = ['legacy-blocker'];
+    writeFileSync(historyPath, JSON.stringify(rawHistory, null, 2));
 
     const entries = readHistoryEntriesStrict(historyPath);
     expect(entries[0]!.snapshot).not.toHaveProperty('blocks');
@@ -498,8 +500,7 @@ describe('ARCH-026 hierarchy graph authority', () => {
     ).toThrow(/card reparenting is not supported/i);
   });
 
-  it('ignores stale boot-time children snapshots and uses by-id authority', () => {
-    // F13 r5: cards/tree/* and cards/index.json no longer exist; by-id is sole authority.
+  it('ignores stale boot-time children snapshots and uses card record authority', () => {
     const realParent = store.create(
       makeCard({ type: 'goal', title: 'Real Parent', parent: 'project' }),
     );
@@ -508,9 +509,9 @@ describe('ARCH-026 hierarchy graph authority', () => {
     expect(store.listChildren(realParent.id)).toEqual([child.id]);
   });
 
-  it('fails fast for impossible canonical by-id graph states', () => {
+  it('fails fast for impossible canonical card record graph states', () => {
     const child = store.create(makeCard({ type: 'goal', title: 'Orphan', parent: 'project' }));
-    const path = join(tmpDir, '.saivage', 'cards', 'by-id', `${child.id}.json`);
+    const path = latestCardPath(child.id);
     const raw = JSON.parse(readFileSync(path, 'utf-8')) as CardRecord;
     writeFileSync(path, JSON.stringify({ ...raw, parent: 'missing-parent' }, null, 2));
 
@@ -530,7 +531,7 @@ describe('ARCH-026 hierarchy graph authority', () => {
     expect(store.getDescendantIds('project')).toEqual([parent.id, child.id]);
   });
 
-  it('delete and archive scopes are derived from by-id authority alone', () => {
+  it('delete and archive scopes are derived from card record authority alone', () => {
     const parent = store.create(makeCard({ type: 'goal', title: 'Parent', parent: 'project' }));
     void parent;
     const leaf = store.create(makeCard({ type: 'code', title: 'Leaf', parent: 'project' }));
