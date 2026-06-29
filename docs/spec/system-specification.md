@@ -2,7 +2,7 @@
 
 Status: current functional authority.
 
-Last updated: 2026-06-12.
+Last updated: 2026-06-29.
 
 ## 1. Vision
 
@@ -54,7 +54,8 @@ The system must support:
 - autonomous planner, executor, and reviewer work through cards;
 - explicit user lifecycle control through the Analyst;
 - planner-owned card creation, editing, reordering, cancellation, deletion, and archival where supported;
-- Analyst-owned objective/instruction edits to existing cards;
+- record-backed card documents, including `brief.md`, `status.md`, and `review.md` record slots;
+- Analyst-owned card management while paused through semantic card operations and `write_file` for `record://brief.md`;
 - correction-aware goal revisiting through `changed` cards and correction context;
 - card-addressed notifications for delivering short-lived instructions/context to card agents;
 - process execution, process inspection, and process termination;
@@ -72,6 +73,7 @@ The system does not provide:
 - notification inbox, list, get, edit, delete, acknowledge, clear-all, or bulk-handle operations;
 - hard scheduling guarantees from displayed child order;
 - resetting/restarting planner internal state as a required user capability;
+- broad card-field editing or raw writes into card storage outside scheme-aware record tools and semantic card operations;
 - the Analyst acting as a substitute executor for delivery work.
 
 ## 5. Cards
@@ -80,17 +82,19 @@ Cards are the durable units of project work. They form a parent-child tree roote
 
 A card can describe a project, a goal, or a terminal task. Goal cards are worked by planners. Terminal cards are worked by executors. Reviewers assess completed goals.
 
-Every card has a title, freeform description, and acceptance criteria. Cards may also carry tags, dependencies, history, result data, and agent-maintained working status.
+Every card has structured state and authored document records. Structured state includes identity, type, parent, order, title, lifecycle status, dependencies, retries, metrics, and other scheduler-visible fields. The current goal, instructions, and acceptance criteria live in the latest closed `record://brief.md` record for the card rather than separate long-form card fields.
 
-`working_status` is free text for agents attached to the card to record ongoing advancement. Agents may update it through dedicated tools or direct field editing when those write paths are available. It is not the accepted completion result.
+Cards may also carry dependencies, history, result data, and agent-maintained working status.
+
+`working_status` is free text for agents attached to the card to record ongoing advancement when that write path is available. It is not the accepted completion result.
 
 `result` is the data returned by the card's main agent to its parent and attached to the card when accepted. The system must not mirror mid-run progress, rejected reports, reviewer correction requests, or failed validation attempts into `result` as if they were accepted outcomes. Specialized agents may also store their own result fields, such as `reviewer_result`, for feedback that must be visible to later planner turns.
 
-Card storage should preserve field-level history. Each durable field may be stored as its own versioned file so the UI can show the current value and later expose older versions or a card change history.
+Card storage is record-backed. The latest closed internal `card.json` record is the canonical structured card state, but `card.json` is not exposed as a functional `record://card.json` file to agents. Primary card information is read through `get_card`, which returns structured state plus associated record URLs and snippets. Authored card documents are versioned record slots: `record://brief.md` for goal/instructions/acceptance intent, `record://status.md` for planner/executor status or completion narrative, and `record://review.md` for reviewer assessment. Record metadata and version history let the UI expose current values and older versions when available.
 
 The project card is mostly a regular goal card. Its special properties are structural and activation-related: it has no parent, and the runtime activates it directly when the user asks the Analyst to run/continue the system. It carries project-level context, global constraints, and the user's top-level objective summary.
 
-If the user asks the Analyst to replace the project objective, the expected path is to edit the existing project card objective/instructions and queue notifications so the active planner chain observes the change. Direct destructive replacement of the project card is not an Analyst capability.
+If the user asks the Analyst to replace the project objective, the expected path is to update the existing project card's `record://brief.md` while paused and queue notifications so the active planner chain observes the change on unpause. Direct destructive replacement of the project card is not an Analyst capability.
 
 Archiving is not a card status. To archive a card, the system moves its on-disk representation to a card archive directory and removes it from the runtime's active card tree.
 
@@ -114,7 +118,9 @@ The durable card status records lifecycle state. `working_status` records ongoin
 
 Children under a parent form an explicit ordered list. Creation appends to the end by default.
 
-The Analyst has limited card authority on behalf of the user. It may edit the objectives, instructions, acceptance criteria, and descriptive metadata of any existing card, and it may queue card-addressed notifications. It must not directly create, reorder, cancel, delete, restart, archive, replace, move, or rewrite lifecycle/output state for cards. Structural card management belongs to planners and runtime lifecycle controls.
+The Analyst has limited card authority on behalf of the user. All Analyst card mutations require the runtime to be paused. While paused, the Analyst may manage cards through semantic operations such as create card, reorder direct children where supported, cancel dormant work, and delete cards/subtrees from the active tree with archive-backed preservation. It may also update the goal/instructions/acceptance brief of an existing card by calling `write_file` on `record://brief.md?card=<id>` or an equivalent concrete `record://brief.md` URL. Analyst writes to `brief.md` create and close a new record version immediately, require the latest version to be closed, validate the writer/schema, and queue affected-card notifications for delivery when the runtime is unpaused.
+
+The Analyst must not directly rewrite primary card state, lifecycle/output state, `status.md`, or `review.md`. Analyst structural mutations that would invalidate a running subtree remain denied unless a later design explicitly allows them. A running card's `brief.md` may be updated while paused if the latest version is closed and the new content passes validation. Cross-parent card movement, restart/reset, direct activation, and raw archive manipulation are not Analyst card operations.
 
 A planner's card authority is local to the goal it owns. It may directly target only that goal's direct children: create them, edit them, reorder them, cancel/delete them where supported, and activate them. Some supported operations, such as cancelling or deleting a direct child, may recursively affect that child's descendants. The planner still targets only the direct child; it may not directly mutate ancestors, siblings, unrelated cards, or descendants below one of its children. Larger tree changes are Analyst-owned, but cross-parent card movement is not a supported card operation.
 
@@ -140,7 +146,7 @@ Pause is a global scheduling gate. It stops the runtime from admitting new LLM t
 
 Already-running shell processes may continue while the system is paused. Tool dispatch that is already in flight reaches the next safe point. Pending process results are buffered until the runtime can safely deliver them.
 
-Pause is the normal intervention state. While paused, the Analyst can edit card objectives/instructions, queue notifications, change configuration, and inspect state.
+Pause is the normal intervention state. While paused, the Analyst can manage cards within its supported authority, update `record://brief.md` through `write_file`, queue notifications, change configuration, and inspect state.
 
 ### Shutdown
 
@@ -255,7 +261,8 @@ The Analyst must let the user complete these tasks in natural language:
 
 - inspect cards, runtime state, runtime events, errors, control actions, agent sessions, process registry, process logs, directory listings, file contents, configuration, credentials, and secret-bearing state when needed;
 - navigate the workspace to cards, files, debug views, processes, runtime cards, and agent sessions;
-- edit objectives, instructions, acceptance criteria, and descriptive metadata on existing cards;
+- manage cards while paused through supported semantic operations, including card creation, child reordering, dormant cancellation, and delete/archive-backed removal where allowed;
+- update card goal/instructions/acceptance content while paused by using `write_file` for `record://brief.md?card=<id>` or an equivalent concrete `record://brief.md` URL;
 - queue card-addressed notifications;
 - run/continue, pause, and shutdown the runtime;
 - steer active or future card work by queueing notifications and objective/instruction edits;
@@ -374,6 +381,8 @@ The system satisfies this specification when:
 - recursive cancellation converts `failed` and `blocked` descendants to `cancelled`;
 - cancellation of a non-running card terminates attached runtime-owned processes through canonical process controls;
 - card `result` reflects accepted main-agent results only, while `working_status` is a separate free field for agent usage;
+- card documents are record-backed: structured card state is read through `get_card`, while `brief.md`, `status.md`, and `review.md` are versioned record slots;
+- Analyst card mutations require paused runtime state, with `write_file(record://brief.md?card=<id>)` as the supported path for updating card goal/instructions/acceptance content;
 - goal completion rejects any executable descendant state that is not compatible with accepted completion;
 - reviewer approval is invalidated if the assessed goal or any descendant changes before approval commits;
 - negative reviewer results are stored with the card and injected into planner context, while positive reviewer text is attached for recordkeeping only;

@@ -8,7 +8,7 @@ Last updated: 2026-06-29.
 
 The operator UI shows Saivage state and hosts the Analyst. It does not compete with the Analyst as a control surface.
 
-The UI must help the user understand what the autonomous runtime is doing, inspect cards, status records, review records, files, and processes, and stay oriented during Analyst conversations. Mutations still go through the Analyst.
+The UI must help the user understand what the autonomous runtime is doing, inspect cards, record-backed card documents, files, and processes, and stay oriented during Analyst conversations. Mutations still go through the Analyst.
 
 ## 2. Layout
 
@@ -25,8 +25,8 @@ Narrow/mobile layouts are intentionally unspecified for now.
 
 The workspace area renders read-only projections of runtime state, including:
 
-- cards and card detail;
-- distinct card `working_status`, accepted `result`, versioned record-output slots such as `status.md` and `review.md`, specialized result fields, and card field history when available;
+- cards and card detail assembled from the `get_card` read model;
+- distinct structured card state, card `working_status`, accepted `result`, versioned card document records such as `brief.md`, `status.md`, and `review.md`, specialized result fields, and card/record history when available;
 - card tree/board/list views;
 - runtime dashboard/state;
 - agent sessions and transcripts;
@@ -54,6 +54,8 @@ These affordances do not mutate server state.
 The Analyst panel is the user's mutation path. The user asks for changes in natural language; the Analyst invokes canonical services.
 
 The chat composer must be reachable without opening a drawer or switching page modes. The user should be able to inspect the workspace and talk to the Analyst at the same time.
+
+Card management is Analyst-owned and runtime-state-gated. When the runtime is paused, the Analyst may use supported semantic card operations such as creating cards, reordering direct children where supported, cancelling dormant work, and delete/archive-backed removal. The Analyst updates a card's goal/instructions/acceptance content by using `write_file` for `record://brief.md?card=<id>` or an equivalent concrete `record://brief.md` URL. The UI may show the relevant record URLs and metadata, but it must not perform these mutations directly.
 
 ## 5. Contextual Awareness
 
@@ -101,6 +103,7 @@ Forbidden direct UI mutations include:
 
 - creating cards;
 - editing cards;
+- writing card document records, including `record://brief.md`;
 - deleting or archiving cards;
 - reordering cards directly through the UI;
 - queueing notifications;
@@ -139,7 +142,8 @@ The UI satisfies this specification when:
 - the Analyst panel is visible on first paint at desktop widths;
 - no drawer/toggle control is required to reach the Analyst;
 - the workspace remains visible beside the Analyst panel;
-- card detail distinguishes live `working_status` from accepted `result`, points operators to card record-output slots when a dedicated projection is unavailable, and can expose card field history when available;
+- card detail distinguishes structured card state, live `working_status`, accepted `result`, and versioned card document records including `brief.md`, `status.md`, and `review.md`;
+- card detail can expose record URLs, metadata, and history when available, while leaving record mutation to the Analyst;
 - read-only workspace navigation/filtering/copy/refresh still works;
 - no direct UI control performs an Analyst-only mutation;
 - "Discuss with analyst" stages contextual chat text rather than opening a panel;
