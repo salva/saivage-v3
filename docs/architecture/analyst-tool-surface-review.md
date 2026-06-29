@@ -51,6 +51,8 @@ Subtree operations inherit the strictest state in the subtree. If any descendant
 
 ## Proposed Tool Surface
 
+This section is intentionally limited to card handling. It does not propose removing or changing non-card Analyst tools such as runtime controls, workspace inspection, configuration, navigation, process inspection, or general runtime/debug inspection. Those surfaces remain separate and should be reviewed independently.
+
 ### Card Management
 
 | Tool | Analyst scope | Behavior |
