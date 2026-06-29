@@ -62,7 +62,6 @@ const stableToolOrder = [
   'get_card',
   'get_tree',
   'get_plan_diary',
-  'get_card_output',
   'get_status',
   'skill',
   'list_card_history',
