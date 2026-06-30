@@ -10,43 +10,9 @@ Unify the fragmented Saivage v3 tool vocabulary into one coherent tool set that 
 
 ## 2. Context
 
-### Background
+Saivage v2 realigned its builtins to OpenCode/Copilot canonical names (`read`, `write`, `edit`, `apply_patch`, `glob`, `grep`, `webfetch`, `websearch`, `skill`, `run_command`) so frontier LLMs — pretrained on those interfaces — perform better. That alignment was fully completed in v2.
 
-Saivage v2 had ~50 tool names optimized for a manager/worker dispatch hierarchy. v2 then realigned to mimic the OpenCode builtins (`read`, `write`, `edit`, `apply_patch`, `glob`, `grep`, `webfetch`, `websearch`, `skill`, `run_command`) so standard LLMs — pretrained on those tool interfaces — would perform better. That alignment was fully completed in v2 and documented in `saivage/docs/internals/remediation/opencode-aligned-builtin-tools-plan.md`.
-
-Saivage v3 started with native workspace tools (`read_project_file`, `list_project_files`, `run_project_command`, `load_skill`) plus a richer card lifecycle / analyst control surface. A partial port (`docs-old/design/priority-tool-port-implementation-plan.md` and `docs-old/design/v2-tool-interface-alignment-plan.md`) added the v2 names (`read`, `write`, `glob`, `grep`, `edit`, `apply_patch`, `websearch`, `webfetch`, `skill`) into the v3 catalog but **did not remove the old names** — both co-exist, doubling the surface and creating drift.
-
-### Why Standard Tool Names Matter
-
-LLM training corpora now include vast numbers of examples using GitHub Copilot, Claude Code, OpenCode, and similar assistant toolsets. Their canonical tool names and argument shapes are highly familiar to frontier models. Adhering to those names reduces the model's chance of hallucinating arguments, calling a nonexistent tool, or needing multiple turns to discover the right surface.
-
-This is not about copying OpenCode's architecture. It is about using model-friendly names where they already exist.
-
-### Current v3 Tool Catalog (58 entries)
-
-The catalog in `src/tools/definitions/index.ts` currently exposes 58 tool names, of which:
-
-- ~6 filesystem/web/skill tools are **partially migrated** (both old and new names present):
-  `read`/`read_file`, `write`/`write_file`, `glob`/`list_directory`, `grep`, `edit`, `apply_patch`, `run_project_command`/`run_shell_command`, `websearch`, `webfetch`, `skill`
-- ~4 process tools are **duplicated** across catalog and actor runtime:
-  `run_process`/`run_project_command`/`start_and_wait`, `wait_process`/`wait_for_process`, `inspect_process`, `kill_process`
-- ~29 are analyst-only / operator runtime control surface (not affected by this reorg)
-- ~9 are card lifecycle / planner-control (not affected by this reorg)
-- 0 git, 0 memory, 0 RAG, 0 notes (deferred capabilities)
-
-### Key Findings From The Half-Done Migration
-
-1. **Dual names confuse the model.** Both `read` and `read_file` exist; the model sees both depending on context. The spec required old names be removed (`priority-tool-port-implementation-plan.md` line 17: "Add tests that fail if both old and new names are exposed together" — still unimplemented).
-
-2. **Process tools are forked.** The catalog declares `run_project_command`/`start_and_wait`/`wait_for_process`/`kill_process` as workspace tools (no executor field, excluded from `AGENT_TOOL_DEFINITIONS`), while the executor actor defines its own `run_process`/`wait_process`/`inspect_process`/`kill_process` inline. The catalog entries never fire. This is dead code.
-
-3. **Web tools are unreachable from agents.** `websearch` and `webfetch` are in the catalog with `roles: [planner, executor, reviewer]` but no actor surface actually exposes them. The analyst surface excludes them (not in `roles`). They exist but no agent can call them today.
-
-4. **Reviewer has no write capability by design** but the catalog gives it `write`/`edit`/`apply_patch` in `roles`. The actor runtime filters these out correctly, but the catalog is misleading.
-
-5. **Git, memory, RAG, notes are absent.** v2 has them. v3 has none. v3 relies on `run_shell_command` for git and on the records subsystem (`record://status.md`, `record://brief.md`, `record://review.md`) for durable notes.
-
-6. **Analyst catalog is oversized but coherent.** The 29+ analyst tools follow a different dispatch path (`runAuditedAnalystTool`), are properly role-filtered, and the Analyst Surface Alignment (Stage 002) shipped. This surface is not the problem; it just needs its vocabulary cleaned up where it overlaps with agent-facing tools.
+v3 partially ported those names but never removed the old ones (`read_project_file`, `list_project_files`, `run_project_command`, `load_skill`). The catalog now has 58 entries with dual names, dead process-tool duplicates, web tools wired but unreachable from actors, and no git/memory/RAG/notes. This reorg completes the migration: one name per concept, standard names where they exist, old names deleted.
 
 ## 3. Design Principles
 
@@ -74,15 +40,15 @@ These are the tools autonomous agents see. Names follow the OpenCode-aligned con
 
 | Tool | Args | Roles | Replaces | Notes |
 | --- | --- | --- | --- | --- |
-| `read` | `path`, `offset?`, `limit?`, `read_mode?` | P, E, R, A | `read_project_file`, `read_file`, `read_file_metadata` | Reads files, directories, records, or metadata through URL scopes. Defaults to `project://` for relative paths. Supports `project://`, `record://`, `tmp://`, and `system://` subject to policy. Bounded. Truncation metadata. Optional multimodal. |
-| `write` | `path`, `content` | P, E, A | `write_project_file`, `write_file` | Create/replace project files or record files through URL scopes. Defaults to `project://` for relative paths. Supports `record://` for card records. `system://` writes are policy-gated and discouraged. |
-| `edit` | `path`, `old_string`, `new_string`, `replace_all?` | P, E | (new in v3) | Exact string replacement. Single file. |
-| `apply_patch` | `patch` | E | (new in v3) | Unified diff. Validates before applying. Executor only. |
-| `glob` | `directory`, `pattern`, `max_results?` | P, E, R, A | `list_project_files`, `list_directory` | Recursive file discovery over URL scopes. Defaults to `project://`. Skips blocked paths. `system://` is available by policy but discouraged for normal work. |
+| `read` | `path`, `offset?`, `limit?`, `read_mode?` | P, E, R, A | `read_project_file`, `read_file`, `read_file_metadata` | Reads files, directories, records, or metadata through URL scopes. Defaults to `project://` for relative paths. Supports `project://`, `record://`, `tmp://`, and `system://`. Bounded. Truncation metadata. Optional multimodal. |
+| `write` | `path`, `content` | P, E, A | `write_project_file`, `write_file` | Create/replace project files or record files through URL scopes. Defaults to `project://` for relative paths. Supports `record://` for card records. `system://` writes are available but discouraged. |
+| `edit` | `path`, `old_string`, `new_string`, `replace_all?` | E, A | (new in v3) | Exact string replacement. Single file. |
+| `apply_patch` | `patch` | E, A | (new in v3) | Unified diff. Validates before applying. |
+| `glob` | `directory`, `pattern`, `max_results?` | P, E, R, A | `list_project_files`, `list_directory` | Recursive file discovery over URL scopes. Defaults to `project://`. Skips blocked paths. `system://` is available but discouraged for normal work. |
 | `grep` | `pattern`, `path?`, `include?`, `max_results?` | P, E, R, A | (new in v3) | Regex content search over URL scopes. Defaults to `project://`. Skips blocked/secret paths. |
-| `run_command` | `command`, `cwd?`, `timeout_ms?`, `inactivity_timeout_ms?` | E, A | `run_project_command`, `start_and_wait`, `run_process`, `wait_process`, `inspect_process`, `kill_process`, `run_shell_command` | Single shell execution tool. `cwd` is a URL scope and defaults to `project://`. `system://` cwd is policy-gated and discouraged. Process management collapses into this plus `wait_process` and `kill_process` when the model needs background control. See §4.2. |
-| `websearch` | `query`, `max_results?` | P, E, R | (wire into actor surfaces) | Web search. Currently in catalog but not exposed to actors. |
-| `webfetch` | `url`, `read_mode?`, `metadata_only?`, `max_bytes?`, `save_as?` | P, E, R | (wire into actor surfaces) | Bounded HTTP fetch. Private-IP egress blocked. |
+| `run_command` | `command`, `cwd?`, `timeout_ms?`, `inactivity_timeout_ms?` | E, A | `run_project_command`, `start_and_wait`, `run_process`, `wait_process`, `inspect_process`, `kill_process`, `run_shell_command` | Single shell execution tool. `cwd` is a URL scope and defaults to `project://`. `system://` cwd is available but discouraged. Process management collapses into this plus `wait_process` when the model needs background control. See §4.2. |
+| `websearch` | `query`, `max_results?` | P, E, R, A | (wire into actor surfaces) | Web search. Currently in catalog but not exposed to actors. |
+| `webfetch` | `url`, `read_mode?`, `metadata_only?`, `max_bytes?`, `save_as?` | P, E, R, A | (wire into actor surfaces) | Bounded HTTP fetch. Private-IP egress blocked. |
 | `skill` | `name?` | E, R | `load_skill` | List skills (no arg) or load one (with name). |
 
 ### 4.2 Process Management Sub-Surface (executor)
@@ -92,8 +58,8 @@ The executor needs background process control for long-running commands (dev ser
 | Tool | Args | Replaces | Notes |
 | --- | --- | --- | --- |
 | `run_command` | `command`, `cwd?`, `timeout_ms?`, `inactivity_timeout_ms?`, `wait?` | `run_process`, `run_project_command`, `start_and_wait` | `wait: true` (default) runs to completion. `wait: false` starts in background and returns `process_id`. |
-| `wait_process` | `process_id`, `timeout_ms?` | `wait_process`, `wait_for_process` | Wait for a background process. |
-| `kill_process` | `process_id`, `signal?` | `kill_process` (both variants), `inspect_process` | Kill or signal a background process. `inspect_process` is folded in: without `signal`, returns process state; with `signal`, terminates. |
+| `wait_process` | `process_id`, `timeout_ms?` | `wait_process`, `wait_for_process`, `inspect_process` | Wait for a background process. `timeout_ms: 0` returns current state without blocking. Non-blocking inspection is just a zero-timeout wait. |
+| `kill_process` | `process_id`, `signal?` | `kill_process` (both variants) | Kill or signal a background process. |
 
 This gives the executor one canonical command tool plus two background-control tools, instead of six overlapping names.
 
@@ -140,7 +106,7 @@ Supported URI scopes:
 | `project://` | Target project root. Relative paths default here. | All agents | Recommended for normal project work. |
 | `record://` | Card record slots (`brief.md`, `status.md`, `review.md`). | All agents subject to slot writer rules | Use for durable card records. |
 | `tmp://` | Card/session-local scratch. | All agents | Use for temporary artifacts. |
-| `system://` | Host/system filesystem or command working directory outside the project root. | All agents by capability policy; prompts discourage routine use | Use only when project/record/tmp scopes are insufficient. Secret and destructive-operation policy still applies. |
+| `system://` | Host/system filesystem or command working directory outside the project root. | All agents; logged; discouraged in prompts | Use only when project/record/tmp scopes are insufficient. Secret and destructive-operation policy still applies. |
 
 This replaces the separate Analyst host-inspection names:
 
@@ -213,9 +179,9 @@ There is no planner-specific `continue` status. The planner finishes each planni
 | Planner block reason | Envelope `blocked_reason` | Envelope `summary` |
 | Planner "needs more turns" | Envelope `status: 'continue'` | Removed. Planner returns `done` for its current planning task; the runtime schedules later planning if the card still needs work. |
 
-#### Reviewer evidence validation
+#### Reviewer evidence
 
-Currently `validateReviewerAssessment` checks that `evidence_card_ids` exist and are descendants of the goal card. With evidence card references moving to `review.md`, this validation moves to the record-write path: when the reviewer writes `review.md?v=next`, the record writer validates that any card IDs referenced in the markdown exist and are descendants. This keeps the envelope clean and co-locates the validation with the data. If a reviewer cites a nonexistent card, the record write fails with a clear error — the same outcome as today, just enforced at a different boundary.
+Evidence card references move to `review.md` as prose. The runtime does not parse markdown to validate evidence card IDs. Evidence quality is a review-quality concern enforced by the reviewer prompt and operator inspection, not a runtime invariant. If a future need for structured evidence validation emerges, add a structured field back to the envelope — but don't parse markdown.
 
 #### Record slot strategy: common + per-agent
 
@@ -243,7 +209,7 @@ Currently there are 7 lifecycle result kinds (`executor_success`, `executor_fail
 
 The `latest_self_report` field currently embedded in executor results is a mirror of `status.md` content. With the detail living in `status.md`, `latest_self_report` can be dropped from the lifecycle result — the record URL is the durable reference.
 
-Runtime-internal fields like `blocker_cause` (`'reviewer_unavailable' | 'non_actionable_continue' | ...`) and `verified_at` are set by the runtime, not emitted by the agent. They stay on the lifecycle result as internal metadata.
+Runtime-internal fields like `blocker_cause` (`'reviewer_unavailable' | 'generic' | ...`) and `verified_at` are set by the runtime, not emitted by the agent. They stay on the lifecycle result as internal metadata. The `'non_actionable_continue'` cause is removed — with no `continue` status, a planner that returns `done` without useful work is a prompt-quality issue, not a distinct blocker cause.
 
 #### Why one name works
 
@@ -267,10 +233,10 @@ The following names are removed from the catalog. They are either duplicates of 
 | `start_and_wait` | `run_command` with `wait: true` | Redundant with `run_command`. |
 | `wait_for_process` | `wait_process` | Dead catalog entry; actor had its own. |
 | `kill_process` (catalog variant with `signal`) | `kill_process` | Merge the two variants into one with optional `signal`. |
-| `inspect_process` | `kill_process` (no signal = inspect) | Folded: `kill_process` without `signal` returns state. |
+| `inspect_process` | `wait_process` with `timeout_ms: 0` | Non-blocking inspection is a zero-timeout wait. |
 | `run_process` (actor-inline) | `run_command` with `wait: false` | Background start is `run_command` with `wait: false`. |
 | `wait_process` (actor-inline) | `wait_process` (catalog) | Move from inline to catalog. |
-| `read_file` (workspace) | `read` | If a workspace `read_file` exists separate from analyst. Audit needed. |
+| `read_file` | `read` | The catalog `read_file` was the Analyst host-inspection tool. Replaced by `read` with `system://` or `record://` scope. No separate workspace variant exists. |
 | `load_skill` | `skill` | Standard name. |
 | `report_goal_done` | `emit_result` | Dead code from the old `AgentExecutionPort` runtime. Never reached the planner LLM. Removed with the dead `AgentExecutionPort` surface. |
 | `report_goal_failed` | `emit_result` | Dead code, same as above. The old planner envelope had no `failed` status; the unified terminal tool now adds `failed` to the planner schema (see section 4.7). |
@@ -322,16 +288,22 @@ Reviewer does **not** get `write`, `edit`, `apply_patch`, or `run_command`. The 
 
 ### Analyst
 
-The Analyst gets the same high-frequency workspace tools wherever possible:
+The Analyst gets the same workspace tools as the autonomous agents, plus its control-surface tools. We are lax about what the Analyst can call — the analyst is the mutation surface and should not be artificially restricted at the app level. Prompt guidance discourages the analyst from doing executor/reviewer work directly and recommends delegating through cards, but the tools are available.
 
 | Category | Tools |
 | --- | --- |
-| Filesystem | `read`, `write`, `glob`, `grep` over `project://`, `record://`, `tmp://`, and policy-gated `system://` |
-| Shell | `run_command` with `cwd` scoped by `project://` or policy-gated `system://` |
+| Filesystem | `read`, `write`, `edit`, `apply_patch`, `glob`, `grep` over `project://`, `record://`, `tmp://`, and `system://` |
+| Shell | `run_command`, `wait_process`, `kill_process` with `cwd` scoped by `project://` or `system://` |
 | Web | `websearch`, `webfetch` |
 | Skill | `skill` |
+| Card lifecycle | `create_card`, `edit_card`, `cancel_card`, `delete_card`, `reorder_child`, `restart_card`, `queue_notification` |
+| Inspection | `list_cards`, `get_card`, `get_tree`, `list_card_history`, `get_card_history_entry`, `diff_card`, `get_plan_diary`, `get_status` |
+| MCP | `mcp_tool_call` |
+| Terminal | `emit_result` (the analyst is not a card processor; `emit_result` is available if needed but not expected) |
 
-The Analyst additionally keeps operator-control tools (`start_project`, `stop_project`, `pause_runtime`, `resume_runtime`, `navigate_workspace`, `show_config`, `reconfigure`, etc.). Those are control-surface tools, not workspace primitives.
+The Analyst additionally keeps operator-control tools (`start_project`, `stop_project`, `pause_runtime`, `resume_runtime`, `navigate_workspace`, `navigate_back`, `show_config`, `reconfigure`, `restart_server`, `read_runtime_events`, `read_runtime_errors`, `read_control_actions`, `list_processes_tool`, `list_agent_sessions`, `read_agent_session`, `mark_goal_needs_corrections`, `abort_goal_subtree`, `restart_card_or_subtree`, `restart_goal`, `terminate_process`).
+
+The Analyst does not get `activate_card` — that is a planner-internal sequencing boundary, not an operator action.
 
 ## 7. Schema Contracts
 
@@ -339,7 +311,7 @@ All tool schemas use snake_case field names to match the OpenCode/Copilot conven
 
 | Tool | Schema | Result shape |
 | --- | --- | --- |
-| `read` | `path: string, offset?: number, limit?: number, read_mode?: 'auto'\|'text'\|'multimodal'` | File: `{ path, content, offset, limit, total_lines, truncated }`. Dir: `{ path, entries, offset, limit, total_entries, truncated }`. |
+| `read` | `path: string, offset?: number, limit?: number, read_mode?: 'auto'\|'text'\|'multimodal', metadata_only?: boolean` | `metadata_only` → `{ path, size, mtime, ... }`. File: `{ path, content, offset, limit, total_lines, truncated }`. Dir: `{ path, entries, offset, limit, total_entries, truncated }`. |
 | `write` | `path: string, content: string` | `{ path, bytes, written: true }` |
 | `edit` | `path: string, old_string: string, new_string: string, replace_all?: boolean` | `{ path, replacements, bytes, edited: true }` |
 | `apply_patch` | `patch: string` | `{ changed_files, applied: true }` |
@@ -357,11 +329,12 @@ All tool schemas use snake_case field names to match the OpenCode/Copilot conven
 All filesystem tools share one path policy:
 - Relative paths default to `project://`.
 - `project://`, `record://`, and `tmp://` are the normal scopes for project work.
-- `system://` allows host/system access subject to capability policy. It is available to agents when the policy allows it, but prompts should discourage it and recommend `project://` for normal work.
+- `system://` allows host/system access for all agents. It is logged and discouraged in prompts in favor of `project://`, but not gated by a permission system.
 - Project-agent paths must resolve inside the configured project root.
 - Secret-bearing paths and blocked runtime/credential paths are invisible to `glob`, `grep`, and directory reads.
 - Direct access to a blocked path fails with a permission error.
-- Mutating tools reject blocked paths, `.saivage`, `.saivage-work`, symlink targets outside root, credential files, and unsafe `system://` writes unless explicitly authorized by policy.
+- Mutating tools reject blocked paths, `.saivage`, `.saivage-work`, symlink targets outside root, credential files, and unsafe `system://` writes.
+- `record://` writes are subject to slot-writer enforcement: only declared slot writers may write each record slot (`status.md` → planner/executor, `review.md` → reviewer, `brief.md` → planner/analyst). The slot registry enforces this at the record-write boundary.
 
 Web tools share one egress policy:
 - Only `http` and `https`.
@@ -371,7 +344,7 @@ Web tools share one egress policy:
 
 Process tools share one ownership policy:
 - `cwd` defaults to `project://`.
-- `system://` command working directories are policy-gated and should be exceptional.
+- `system://` command working directories are available but discouraged in prompts.
 - Background processes are owned by the card activation that started them.
 - `wait_process` and `kill_process` can only act on processes owned by the current activation.
 - Process IDs are scoped to the activation, not global.
@@ -418,10 +391,10 @@ These v2 capabilities are not added in this reorg because v3 does not have the s
 
 ### Phase 4: Align Analyst workspace tools with scoped URLs
 
-- Confirm the Analyst receives the same workspace tool names (`read`, `write`, `glob`, `grep`, `run_command`) wherever possible.
-- Add `system://` resolution and policy gates to those tools for host/system access.
+- Confirm the Analyst receives the same workspace tool names (`read`, `write`, `edit`, `apply_patch`, `glob`, `grep`, `run_command`, `wait_process`, `kill_process`) as autonomous agents.
+- Add `system://` resolution to those tools for host/system access. No permission gate — available to all agents, logged, discouraged in prompts.
 - Update prompts to recommend `project://`, `record://`, and `tmp://` first, and to use `system://` only when necessary.
-- Add tests asserting removed Analyst-specific host-inspection names are absent from the catalog and all role surfaces.
+- Add tests asserting removed Analyst-specific host-inspection names are absent from the catalog.
 
 ### Phase 5: Update docs and prompts
 
@@ -460,4 +433,4 @@ This reorganization is complete when:
 - executor `warnings`, `result`, and `error` go into `status.md`, not the envelope;
 - reviewer `assessment`, `achieved`, `issues`, and `evidence_card_ids` go into `review.md`, not the envelope;
 - reviewer evidence validation runs on the `review.md` write path, not the terminal tool call.
-- `system://` access is represented as a scoped URL on standard tools, policy-gated, and discouraged in prompts in favor of `project://`.
+- `system://` access is represented as a scoped URL on standard tools, available to all agents, logged, and discouraged in prompts in favor of `project://`.
