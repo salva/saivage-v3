@@ -1,38 +1,21 @@
 import { computed, ref } from 'vue';
 import { storeToRefs } from 'pinia';
-import { cardStatusValues, cardTypeValues, type CardStatus, type CardType } from '../api/types';
 import type { useCardStore } from '../stores/cards';
-import { selectAvailableTags } from '../stores/card-presentation';
-
-export type CardBrowserView = 'tree' | 'board' | 'leaderboard' | 'timeline';
+import { buildTree } from '../stores/card-presentation';
 
 export function useCardBrowserReadModel(cardStore: ReturnType<typeof useCardStore>) {
   const refs = storeToRefs(cardStore);
-  const activeView = ref<CardBrowserView>('tree');
   const expandedTreeIds = ref<Set<string>>(new Set());
-  const viewTabs = [
-    { id: 'tree' as const, label: 'Tree' },
-    { id: 'board' as const, label: 'Board' },
-    { id: 'leaderboard' as const, label: 'Leaderboard' },
-    { id: 'timeline' as const, label: 'Timeline' },
-  ];
-
-  const statuses: CardStatus[] = [...cardStatusValues];
-  const cardTypes: CardType[] = [...cardTypeValues];
-  const allTags = computed<string[]>(() => selectAvailableTags(refs.cards.value));
+  const orderedCards = computed(() => [...refs.cards.value].sort((a, b) => {
+    const parent = (a.parent ?? '').localeCompare(b.parent ?? '');
+    if (parent !== 0) return parent;
+    const aPosition = a.position ?? Number.POSITIVE_INFINITY;
+    const bPosition = b.position ?? Number.POSITIVE_INFINITY;
+    if (aPosition !== bPosition) return aPosition - bPosition;
+    return a.id.localeCompare(b.id);
+  }));
+  const orderedCardTree = computed(() => buildTree(orderedCards.value));
   const errorMsg = computed(() => refs.error.value);
-
-  function applyFilters(): void {
-    cardStore.applyFilters().catch(() => {});
-  }
-
-  let searchTimer: ReturnType<typeof setTimeout> | null = null;
-  function onSearchChange(): void {
-    if (searchTimer) clearTimeout(searchTimer);
-    searchTimer = setTimeout(() => {
-      applyFilters();
-    }, 300);
-  }
 
   function toggleTreeNode(id: string): void {
     const set = new Set(expandedTreeIds.value);
@@ -52,15 +35,10 @@ export function useCardBrowserReadModel(cardStore: ReturnType<typeof useCardStor
 
   return {
     ...refs,
-    activeView,
-    viewTabs,
-    statuses,
-    cardTypes,
-    allTags,
+    orderedCards,
+    orderedCardTree,
     errorMsg,
     expandedTreeIds,
-    applyFilters,
-    onSearchChange,
     toggleTreeNode,
     expandProjectByDefault,
   };

@@ -14,45 +14,11 @@
       />
     </div>
 
-    <!-- Otherwise show list/board/timeline view -->
+    <!-- Otherwise show tree view -->
     <template v-else>
-      <!-- Toolbar -->
       <div class="cards-toolbar">
-        <div class="toolbar-left">
-          <div class="view-tabs">
-            <button
-              v-for="tab in viewTabs"
-              :key="tab.id"
-              class="view-tab"
-              :class="{ active: activeView === tab.id }"
-              @click="activeView = tab.id"
-            >
-              {{ tab.label }}
-            </button>
-          </div>
-        </div>
-        <div class="toolbar-right">
-          <div class="filter-group">
-            <input
-              v-model="searchQuery"
-              class="search-input"
-              placeholder="Search cards..."
-              @input="onSearchChange"
-            />
-            <select v-model="filterStatus" class="filter-select" @change="applyFilters">
-              <option value="">All Statuses</option>
-              <option v-for="st in statuses" :key="st" :value="st">{{ st }}</option>
-            </select>
-            <select v-model="filterType" class="filter-select" @change="applyFilters">
-              <option value="">All Types</option>
-              <option v-for="tp in cardTypes" :key="tp" :value="tp">{{ tp }}</option>
-            </select>
-            <select v-model="filterTag" class="filter-select" @change="applyFilters">
-              <option value="">All Tags</option>
-              <option v-for="tag in allTags" :key="tag" :value="tag">{{ tag }}</option>
-            </select>
-          </div>
-        </div>
+        <div class="toolbar-title">Card Tree</div>
+        <router-link class="timeline-link" :to="{ name: 'timeline' }">Open Timeline</router-link>
       </div>
 
       <!-- Content area -->
@@ -63,35 +29,12 @@
         <!-- Error -->
         <div v-else-if="errorMsg" class="cards-error">{{ errorMsg }}</div>
 
-        <!-- Tree View -->
         <CardsTreeView
-          v-else-if="activeView === 'tree'"
-          :cards="orderedFilteredCards"
+          v-else
+          :cards="orderedCards"
           :tree="orderedCardTree"
           :expanded-ids="expandedTreeIds"
           @toggle="toggleTreeNode"
-          @select="selectCard"
-        />
-
-        <!-- Board View -->
-        <CardsBoardView
-          v-else-if="activeView === 'board'"
-          :board="board"
-          :filtered-cards="filteredCards"
-          @select="selectCard"
-        />
-
-        <!-- Leaderboard View -->
-        <CardsLeaderboardView
-          v-else-if="activeView === 'leaderboard'"
-          :cards="filteredCards"
-          @select="selectCard"
-        />
-
-        <!-- Timeline View -->
-        <CardsTimelineView
-          v-else-if="activeView === 'timeline'"
-          :cards="filteredCards"
           @select="selectCard"
         />
       </div>
@@ -105,9 +48,6 @@ import { computed, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useCardStore } from '../stores/cards';
 import CardsTreeView from '../components/cards/CardsTreeView.vue';
-import CardsBoardView from '../components/cards/CardsBoardView.vue';
-import CardsLeaderboardView from '../components/cards/CardsLeaderboardView.vue';
-import CardsTimelineView from '../components/cards/CardsTimelineView.vue';
 import CardDetailView from '../components/cards/CardDetailView.vue';
 import { useCardBrowserReadModel } from '../composables/useCardBrowserReadModel';
 
@@ -126,25 +66,11 @@ const currentCardId = computed<string | null>(() => {
 
 const cardStore = useCardStore();
 const {
-  cards,
-  orderedFilteredCards,
+  orderedCards,
   orderedCardTree,
-  board,
   loading,
-  filteredCards,
-  filterStatus,
-  filterType,
-  filterTag,
-  searchQuery,
-  activeView,
-  viewTabs,
-  statuses,
-  cardTypes,
-  allTags,
   errorMsg,
   expandedTreeIds,
-  applyFilters,
-  onSearchChange,
   toggleTreeNode,
   expandProjectByDefault,
 } = useCardBrowserReadModel(cardStore);
@@ -230,8 +156,6 @@ watch(() => route.params.id, (newId) => {
   font-family: 'SF Mono', monospace;
 }
 
-/* ── Toolbar ────────────────────────────────────────────── */
-
 .cards-toolbar {
   display: flex;
   align-items: center;
@@ -244,89 +168,19 @@ watch(() => route.params.id, (newId) => {
   flex-wrap: wrap;
 }
 
-.toolbar-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.toolbar-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
 }
 
-.view-tabs {
-  display: flex;
-  gap: 2px;
-  background: var(--surface-3);
-  border-radius: 6px;
-  padding: 2px;
-}
-
-.view-tab {
-  padding: 4px 12px;
+.timeline-link {
+  color: var(--accent-2);
   font-size: 12px;
-  font-weight: 500;
-  color: var(--text-muted);
-  background: none;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.15s;
-  font-family: inherit;
+  text-decoration: none;
 }
 
-.view-tab:hover {
-  color: var(--text);
-}
-
-.view-tab.active {
-  background: var(--border);
-  color: var(--text);
-}
-
-.toolbar-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.filter-group {
-  display: flex;
-  gap: 4px;
-}
-
-.search-input {
-  width: 180px;
-  padding: 5px 10px;
-  background: var(--surface-3);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text);
-  font-size: 12px;
-  font-family: inherit;
-}
-
-.search-input:focus {
-  outline: none;
-  border-color: var(--accent-2);
-}
-
-.search-input::placeholder {
-  color: var(--border-strong);
-}
-
-.filter-select {
-  padding: 5px 8px;
-  background: var(--surface-3);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text);
-  font-size: 12px;
-  font-family: inherit;
-  cursor: pointer;
-}
-
-.filter-select:focus {
-  outline: none;
-  border-color: var(--accent-2);
-}
-
+.timeline-link:hover { text-decoration: underline; }
 
 /* ── Content ────────────────────────────────────────────── */
 

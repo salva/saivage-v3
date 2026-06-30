@@ -10,6 +10,7 @@ import { useWorkspaceRouteStore } from './stores/workspaceRoute';
 // Lazy-loaded route components (filled in by later tasks)
 const Dashboard = () => import('./views/DashboardView.vue');
 const Cards = () => import('./views/CardsView.vue');
+const Timeline = () => import('./views/TimelineView.vue');
 const Agents = () => import('./views/AgentsView.vue');
 const Files = () => import('./views/FilesView.vue');
 const Debug = () => import('./views/DebugView.vue');
@@ -21,6 +22,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/cards', name: 'cards', component: Cards },
   { path: '/cards/:id', name: 'card-detail', component: Cards },
   { path: '/cards/:id/plan', name: 'card-plan', component: Cards },
+  { path: '/timeline', name: 'timeline', component: Timeline },
   { path: '/agents', name: 'agents', component: Agents },
   { path: '/agents/:id', name: 'agent-detail', component: Agents },
   { path: '/files', name: 'files', component: Files },

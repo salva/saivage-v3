@@ -5,6 +5,7 @@ import dashboardViewSource from '../views/DashboardView.vue?raw';
 import filesViewSource from '../views/FilesView.vue?raw';
 import agentsViewSource from '../views/AgentsView.vue?raw';
 import debugViewSource from '../views/DebugView.vue?raw';
+import timelineViewSource from '../views/TimelineView.vue?raw';
 import cardDetailSource from '../components/cards/CardDetailView.vue?raw';
 import cardsTreeSource from '../components/cards/CardsTreeView.vue?raw';
 import agentConversationSource from '../components/agents/AgentConversationView.vue?raw';
@@ -44,14 +45,15 @@ describe('read-only positive checklist', () => {
       debugViewSource,
     ].join('\n');
 
-    // CardsView: search, filter, sort/presentation selection, tree expand/collapse, and navigation remain.
-    expect(cardsViewSource).toContain('placeholder="Search cards..."');
-    expect(cardsViewSource).toContain('All Statuses');
-    expect(cardsViewSource).toContain('All Types');
-    expect(cardsViewSource).toContain('All Tags');
-    expect(cardsViewSource).toContain('view-tab');
+    // CardsView: tree expand/collapse and navigation remain; filters and presentation tabs are intentionally gone.
+    expect(cardsViewSource).toContain('Card Tree');
+    expect(cardsViewSource).toContain('Open Timeline');
     expect(cardsViewSource).toContain('@toggle="toggleTreeNode"');
     expect(cardsViewSource).toContain('@select="selectCard"');
+    expect(cardsViewSource).not.toContain('view-tab');
+    expect(cardsViewSource).not.toContain('placeholder="Search cards..."');
+    expect(timelineViewSource).toContain('CardsTimelineView');
+    expect(timelineViewSource).toContain('Back to Card Tree');
 
     // DashboardView: runtime refresh and passive navigation links remain while start/stop controls are gone.
     expect(dashboardViewSource).toContain('@click="refreshRuntime"');
@@ -88,8 +90,8 @@ describe('read-only positive checklist', () => {
     expect(debugViewSource).toContain('browseQuarantineItem(entry.quarantine_id)');
 
     // Card detail and tree navigation remain read-only positive paths.
-    expect(cardDetailSource).toContain('@click="navigateCard(depId)"');
-    expect(cardDetailSource).toContain('@click="openPreviewForFile(file)"');
+    expect(cardDetailSource).toContain('@navigate="navigateCard"');
+    expect(cardDetailSource).toContain('@click="navigateCard(child.id)"');
     expect(cardsTreeSource).toContain("emit('toggle', node.card.id)");
     expect(cardsTreeSource).toContain("emit('select', node.card.id)");
 

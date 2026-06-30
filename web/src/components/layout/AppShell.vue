@@ -92,9 +92,10 @@ const router = useRouter();
 const navItems: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', shortcut: '1', icon: `<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="2" y="2" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><rect x="11" y="2" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><rect x="2" y="11" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><rect x="11" y="11" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>`, to: { name: 'dashboard' }, activePatterns: ['dashboard', '/dashboard'] },
   { id: 'cards', label: 'Cards', shortcut: '2', icon: `<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="2" y="2" width="7" height="5" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><rect x="11" y="2" width="7" height="5" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><rect x="2" y="9" width="7" height="5" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><rect x="11" y="9" width="7" height="5" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="3.5" cy="3.5" r="1" fill="currentColor"/><circle cx="12.5" cy="3.5" r="1" fill="currentColor"/></svg>`, to: { name: 'cards' }, activePatterns: ['cards', 'card-detail', '/cards'] },
-  { id: 'agents', label: 'Agents', shortcut: '3', icon: `<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="6" r="3" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M5 16c0-2.8 2.2-5 5-5s5 2.2 5 5" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="7" cy="6.5" r="1" fill="currentColor"/></svg>`, to: { name: 'agents' }, activePatterns: ['agents', 'agent-detail', '/agents'] },
-  { id: 'files', label: 'Files', shortcut: '4', icon: `<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M3 3h5l2 2h7a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M3 8h14" stroke="currentColor" stroke-width="1.5"/></svg>`, to: { name: 'files' }, activePatterns: ['files', '/files'] },
-  { id: 'debug', label: 'Debug', shortcut: '5', icon: `<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="7" stroke="currentColor" stroke-width="1.5" fill="none"/><line x1="10" y1="6" x2="10" y2="10" stroke="currentColor" stroke-width="1.5"/><line x1="10" y1="14" x2="10.01" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`, to: { name: 'debug' }, activePatterns: ['debug', '/debug'] },
+  { id: 'timeline', label: 'Timeline', shortcut: '3', icon: `<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M5 3v14" stroke="currentColor" stroke-width="1.5"/><circle cx="5" cy="5" r="2" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="5" cy="10" r="2" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="5" cy="15" r="2" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M8 5h8M8 10h6M8 15h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`, to: { name: 'timeline' }, activePatterns: ['timeline', '/timeline'] },
+  { id: 'agents', label: 'Agents', shortcut: '4', icon: `<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="6" r="3" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M5 16c0-2.8 2.2-5 5-5s5 2.2 5 5" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="7" cy="6.5" r="1" fill="currentColor"/></svg>`, to: { name: 'agents' }, activePatterns: ['agents', 'agent-detail', '/agents'] },
+  { id: 'files', label: 'Files', shortcut: '5', icon: `<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M3 3h5l2 2h7a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M3 8h14" stroke="currentColor" stroke-width="1.5"/></svg>`, to: { name: 'files' }, activePatterns: ['files', '/files'] },
+  { id: 'debug', label: 'Debug', shortcut: '6', icon: `<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="7" stroke="currentColor" stroke-width="1.5" fill="none"/><line x1="10" y1="6" x2="10" y2="10" stroke="currentColor" stroke-width="1.5"/><line x1="10" y1="14" x2="10.01" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`, to: { name: 'debug' }, activePatterns: ['debug', '/debug'] },
 ];
 
 const docsHref = computed<string>(() => '/docs/');
@@ -108,6 +109,7 @@ const sectionLabels: Record<string, string> = {
   dashboard: 'Dashboard',
   cards: 'Cards',
   'card-detail': 'Card Detail',
+  timeline: 'Timeline',
   agents: 'Agents',
   'agent-detail': 'Agent Detail',
   files: 'Files',
@@ -129,7 +131,7 @@ function handleKeydown(event: KeyboardEvent): void {
   const target = event.target as HTMLElement;
   if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
   const key = event.key;
-  const map: Record<string, string> = { '1': 'dashboard', '2': 'cards', '3': 'agents', '4': 'files', '5': 'debug' };
+  const map: Record<string, string> = { '1': 'dashboard', '2': 'cards', '3': 'timeline', '4': 'agents', '5': 'files', '6': 'debug' };
   if (map[key] && !event.ctrlKey && !event.metaKey && !event.altKey) {
     event.preventDefault();
     const item = navItems.find((n) => n.id === map[key]);
