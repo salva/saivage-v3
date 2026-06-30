@@ -12,3 +12,4 @@ Current architecture documents:
 - [LLM tool continuation context design and plan](./llm-tool-continuation-context-plan.md)
 - [Root settlement and planner recovery plan](./root-settlement-and-planner-recovery-plan.md)
 - [Declarative micro-actor module architecture](./declarative-micro-actor-module.md)
+- [Runtime actor state simplification](./runtime-actor-state-simplification.md)
