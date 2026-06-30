@@ -106,9 +106,10 @@ conversationIndexPath(projectRoot, sessionId)
 readConversationMessages(projectRoot, sessionId)
 listConversationSessionIds(projectRoot)   // readdir conversations/, decodeURIComponent
 appendConversationMessage(projectRoot, message)  // creates dir on first append
+buildUserTextMessage(sessionId, content)   // caller-appended user/context row with valid id/round/index/timestamp
 ```
 
-`appendConversationMessage` creates the conversation directory on first write. No public `ensureConversationDir`; empty sessions never exist. `LLMActor` and `llm-delivery-log.ts` import from this module. No other transcript read path remains.
+`appendConversationMessage` creates the conversation directory on first write. No public `ensureConversationDir`; empty sessions never exist. `LLMActor` and `llm-delivery-log.ts` import from this module. No other transcript read path remains. `buildUserTextMessage` constructs a valid `AgentMessage` (with `id`, `round_id`, `message_index`, `block_index`, `timestamp`) so callers that append caller-side rows (the analyst handler's per-turn workspace-context note and user message) do not need the old `SessionStamper`. `LLMActor`-internal rows continue to use the stamping helpers already in `llm-delivery-log.ts`.
 
 Add one projection helper:
 
@@ -152,7 +153,7 @@ The analyst loop currently re-reads all messages from disk every iteration, comp
 
 **Provider and admission wiring.** Export `createInvocationServiceProvider(invocationService): LLMProviderPort` from `src/application/micro-actor-runtime-api-factory.ts` (currently a private function) so both the micro-actor runtime and the analyst use the same adapter. For admission: the analyst should not be blocked when the autonomous runtime is stopped (the supervisor's `requestProviderCall` returns false when not running). In Phase 1, pass no `admission` to the analyst `LLMActor` — the analyst can call the provider at any time. If call serialization becomes necessary, introduce a global `ModelCallGate` shared by both the supervisor and the analyst in a follow-up. `AnalystRuntimeDeps` gains `provider: LLMProviderPort`. It loses `contextCompactor`, `stamper`, and `admission`.
 
-**LLMActor lifecycle.** The `AnalystHandler` owns a `Map<sessionId, LLMActor>`. On the first user message for a session, it creates an `LLMActor`, calls `start()`, and builds the initial `LlmInvocationInput` with `systemPrompt`, `contextMessages: [workspace-context system message]`, and analyst tools. On subsequent user messages to the same session, it reuses the existing actor: appends the user message to `conversation-store`, then calls `llmActor.turn(newInput)` where `newInput.contextMessages` is the actor's accumulated in-memory context plus the new user message. The actor is discarded only when the conversation is explicitly reset or the handler is disposed.
+**LLMActor lifecycle.** The `AnalystHandler` owns a `Map<sessionId, LLMActor>`. On the first user message for a session, it creates an `LLMActor`, calls `start()`, and builds the initial `LlmInvocationInput` with `systemPrompt`, `contextMessages: [workspaceContextMessage, userMessage]`, and analyst tools. On subsequent user messages to the same session, it reuses the existing actor: appends the per-turn workspace-context note and user message to `conversation-store`, then calls `llmActor.turn(newInput)` where `newInput.contextMessages` is the actor's accumulated in-memory context plus the current workspace-context note and new user message. The actor is discarded only when the conversation is explicitly reset or the handler is disposed.
 
 **Turn input.** Build the initial `LlmInvocationInput`:
 
