@@ -62,7 +62,9 @@ The catalog in `src/tools/definitions/index.ts` currently exposes 58 tool names,
 
 6. **Defer capabilities v3 doesn't own yet.** Git, memory, RAG, and notes are not added in this reorg. v3 doesn't have built-in RAG infra, durable knowledge memory, or a note inbox. Adding the tool name without the subsystem would lie to the model. They are explicitly listed as future work in section 9.
 
-7. **Analyst surface is separate.** The Analyst has its own dispatch path and a control-surface vocabulary that doesn't need to match the agent vocabulary. Host-inspection tools (`read_file`, `list_directory`, `run_shell_command`) are legitimate Analyst-only tools; they are NOT renamed to `read`/`glob`/`run_command` because they have different scope (host-wide, not project-scoped) and different authorization (audited analyst control actions).
+7. **Analyst uses the same tools when possible.** The Analyst has extra control-surface tools, but overlapping workspace actions should use the same model-facing names as other agents (`read`, `write`, `glob`, `grep`, `run_command`, etc.). Broader host/system access is expressed through URI scopes such as `system://`, not through separate tool names like `read_file` or `run_shell_command`.
+
+8. **Scope is in the URL, not the tool name.** Prefer `project://` URLs for normal project work. Use `record://` for card records and `tmp://` for card-local scratch. Use `system://` only when host-wide inspection is genuinely needed. The tool name stays stable while the path scheme carries the authority boundary.
 
 ## 4. Target Tool Set
 
@@ -72,13 +74,13 @@ These are the tools autonomous agents see. Names follow the OpenCode-aligned con
 
 | Tool | Args | Roles | Replaces | Notes |
 | --- | --- | --- | --- | --- |
-| `read` | `path`, `offset?`, `limit?`, `read_mode?` | P, E, R | `read_project_file`, analyst `read_file` stays separate | Reads project files/dirs. Bounded. Truncation metadata. Optional multimodal. |
-| `write` | `path`, `content` | P, E | `write_project_file` | Create/replace project files. Blocked paths enforced. |
+| `read` | `path`, `offset?`, `limit?`, `read_mode?` | P, E, R, A | `read_project_file`, `read_file`, `read_file_metadata` | Reads files, directories, records, or metadata through URL scopes. Defaults to `project://` for relative paths. Supports `project://`, `record://`, `tmp://`, and `system://` subject to policy. Bounded. Truncation metadata. Optional multimodal. |
+| `write` | `path`, `content` | P, E, A | `write_project_file`, `write_file` | Create/replace project files or record files through URL scopes. Defaults to `project://` for relative paths. Supports `record://` for card records. `system://` writes are policy-gated and discouraged. |
 | `edit` | `path`, `old_string`, `new_string`, `replace_all?` | P, E | (new in v3) | Exact string replacement. Single file. |
 | `apply_patch` | `patch` | E | (new in v3) | Unified diff. Validates before applying. Executor only. |
-| `glob` | `directory`, `pattern`, `max_results?` | P, E, R | `list_project_files`, `list_directory` (analyst keeps its own) | Recursive file discovery. Skips blocked paths. |
-| `grep` | `pattern`, `path?`, `include?`, `max_results?` | P, E, R | (new in v3) | Regex content search. Confined to project root. |
-| `run_command` | `command`, `cwd?`, `timeout_ms?`, `inactivity_timeout_ms?` | E | `run_project_command`, `start_and_wait`, `run_process`, `wait_process`, `inspect_process`, `kill_process` | Single shell execution tool. Process management (start, wait, inspect, kill) collapses into this plus `wait_process` and `kill_process` when the model needs background control. See §4.2. |
+| `glob` | `directory`, `pattern`, `max_results?` | P, E, R, A | `list_project_files`, `list_directory` | Recursive file discovery over URL scopes. Defaults to `project://`. Skips blocked paths. `system://` is available by policy but discouraged for normal work. |
+| `grep` | `pattern`, `path?`, `include?`, `max_results?` | P, E, R, A | (new in v3) | Regex content search over URL scopes. Defaults to `project://`. Skips blocked/secret paths. |
+| `run_command` | `command`, `cwd?`, `timeout_ms?`, `inactivity_timeout_ms?` | E, A | `run_project_command`, `start_and_wait`, `run_process`, `wait_process`, `inspect_process`, `kill_process`, `run_shell_command` | Single shell execution tool. `cwd` is a URL scope and defaults to `project://`. `system://` cwd is policy-gated and discouraged. Process management collapses into this plus `wait_process` and `kill_process` when the model needs background control. See §4.2. |
 | `websearch` | `query`, `max_results?` | P, E, R | (wire into actor surfaces) | Web search. Currently in catalog but not exposed to actors. |
 | `webfetch` | `url`, `read_mode?`, `metadata_only?`, `max_bytes?`, `save_as?` | P, E, R | (wire into actor surfaces) | Bounded HTTP fetch. Private-IP egress blocked. |
 | `skill` | `name?` | E, R | `load_skill` | List skills (no arg) or load one (with name). |
@@ -127,19 +129,30 @@ See section 4.7 for the unified terminal tool design.
 
 `get_plan_diary` and `get_status` remain Analyst-only.
 
-### 4.5 Analyst-Only Tools (not affected by this reorg)
+### 4.5 Analyst Tools And URI Scopes
 
-The Analyst control surface keeps its own vocabulary. These tools are **not** renamed because they have different scope, authorization, and dispatch paths:
+The Analyst should receive the same high-frequency workspace tools as the autonomous agents wherever possible: `read`, `write`, `glob`, `grep`, `run_command`, `websearch`, `webfetch`, and `skill` when useful. The difference is not the tool name; it is the authority scope encoded in the URL.
 
-| Current name | Scope | Why it stays |
-| --- | --- | --- |
-| `read_file` | Host-wide, audited | Reads any host file the service can see, including `record://`. Different from project-scoped `read`. |
-| `read_file_metadata` | Host-wide | Metadata-only. No agent equivalent. |
-| `write_file` | `record://` only | Writes closed card records, not project files. Different from project-scoped `write`. |
-| `list_directory` | Host-wide | Lists any host directory. Different from project-scoped `glob`. |
-| `run_shell_command` | Host-wide, audited | Bounded inspection shell. Different from project-scoped `run_command`. |
+Supported URI scopes:
 
-The remaining analyst tools (`start_project`, `stop_project`, `terminate_process`, `pause_runtime`, `resume_runtime`, `abort_goal_subtree`, `restart_card_or_subtree`, `restart_goal`, `navigate_workspace`, `navigate_back`, `read_runtime_events`, `read_runtime_errors`, `read_control_actions`, `list_processes_tool`, `list_agent_sessions`, `read_agent_session`, `show_config`, `reconfigure`, `restart_server`, `queue_notification`, `mark_goal_needs_corrections`) keep their current names. They are operator control surface tools, not agent workspace tools.
+| Scope | Meaning | Default audience | Guidance |
+| --- | --- | --- | --- |
+| `project://` | Target project root. Relative paths default here. | All agents | Recommended for normal project work. |
+| `record://` | Card record slots (`brief.md`, `status.md`, `review.md`). | All agents subject to slot writer rules | Use for durable card records. |
+| `tmp://` | Card/session-local scratch. | All agents | Use for temporary artifacts. |
+| `system://` | Host/system filesystem or command working directory outside the project root. | All agents by capability policy; prompts discourage routine use | Use only when project/record/tmp scopes are insufficient. Secret and destructive-operation policy still applies. |
+
+This replaces the separate Analyst host-inspection names:
+
+| Removed Analyst-specific name | Replacement |
+| --- | --- |
+| `read_file` | `read system://...` or `read record://...` |
+| `read_file_metadata` | `read system://...` with `metadata_only` / read-mode metadata behavior |
+| `write_file` | `write record://...` or policy-gated `write system://...` |
+| `list_directory` | `glob system://...` |
+| `run_shell_command` | `run_command` with `cwd: 'system://...'` |
+
+The remaining Analyst control tools (`start_project`, `stop_project`, `terminate_process`, `pause_runtime`, `resume_runtime`, `abort_goal_subtree`, `restart_card_or_subtree`, `restart_goal`, `navigate_workspace`, `navigate_back`, `read_runtime_events`, `read_runtime_errors`, `read_control_actions`, `list_processes_tool`, `list_agent_sessions`, `read_agent_session`, `show_config`, `reconfigure`, `restart_server`, `queue_notification`, `mark_goal_needs_corrections`) keep their current names. They are operator control surface tools, not workspace primitives.
 
 ### 4.6 External MCP Wrapper
 
@@ -153,7 +166,7 @@ Unchanged. External MCP tools are the extension point; they use their own names 
 
 All three autonomous roles (planner, executor, reviewer) use one terminal tool name: `emit_result`. The model never sees more than one `emit_result` definition at a time because each role runs in its own activation with its own tool list.
 
-This replaces the three role-prefixed names (`emit_planner_result`, `emit_executor_result`, `emit_reviewer_result`) with a single name, and collapses the per-role envelope shapes into one common envelope with one role-specific addition (`continue` for the planner).
+This replaces the three role-prefixed names (`emit_planner_result`, `emit_executor_result`, `emit_reviewer_result`) with a single name, and collapses the per-role envelope shapes into one common envelope.
 
 #### Design principle: common envelope, records carry the detail
 
@@ -177,24 +190,12 @@ export const ResultEnvelopeSchema = z.object({
 }).strict();
 ```
 
-- `done` — work is complete. For the reviewer, `done` means "assessment passed."
+- `done` — the agent completed its current task/activation. For a planner, this means the current planning task is complete, not that the entire project/process is complete. For the reviewer, `done` means "assessment passed."
 - `blocked` — cannot progress due to external state. For the reviewer, `blocked` means "needs corrections" (the details are in `review.md`).
 - `failed` — this card's work is fundamentally not achievable as scoped.
 - `summary` — mandatory reason text. Short, human-readable. This is the only structured field beyond `status`.
 
-#### Planner addition: `continue`
-
-The planner needs one status the other roles don't: `continue`, meaning "I'm yielding this activation but I'm not done — schedule me again when there's work." This is not the same as not calling `emit_result` at all (which would cause a repair cycle). The planner variant adds `continue` to the status enum:
-
-```ts
-// Planner variant — sent to the planner LLM only
-export const PlannerResultEnvelopeSchema = z.object({
-  status: z.enum(['continue', 'done', 'failed', 'blocked']),
-  summary: z.string().min(1),
-}).strict();
-```
-
-No other role gets `continue`. Executors and reviewers are one-activation-per-card: they either finish or fail.
+There is no planner-specific `continue` status. The planner finishes each planning activation by returning `done`, `blocked`, or `failed`. The runtime/card scheduler decides whether more planning work remains based on the card tree, child states, reviewer state, and queued context. A model that needs to do more work in the same activation should keep using tools before it calls `emit_result`; it should not report a special continuation status.
 
 #### What goes where
 
@@ -210,7 +211,7 @@ No other role gets `continue`. Executors and reviewers are one-activation-per-ca
 | Reviewer issues (severity, evidence, recommendation) | Envelope `assessment.issues[]` | `review.md` |
 | Reviewer evidence card references | Envelope `assessment.evidence_card_ids[]` | `review.md` (validated on record write, see below) |
 | Planner block reason | Envelope `blocked_reason` | Envelope `summary` |
-| Planner "needs more turns" | Envelope `status: 'continue'` | Envelope `status: 'continue'` (planner-only addition) |
+| Planner "needs more turns" | Envelope `status: 'continue'` | Removed. Planner returns `done` for its current planning task; the runtime schedules later planning if the card still needs work. |
 
 #### Reviewer evidence validation
 
@@ -250,7 +251,7 @@ Runtime-internal fields like `blocker_cause` (`'reviewer_unavailable' | 'non_act
 - The contract system (`src/contracts/contract.ts`) already verifies per-role. Unifying the name and the envelope changes the contract terminal descriptor and schema, but the verification and projection logic stay per-role (each contract knows its own status enum and record slot).
 - `contract.isTerminalToolName(name)` checks `name === 'emit_result'` for all three contracts. Since each actor runs exactly one contract, there is no ambiguity.
 - Transcript entries store `tool_name: 'emit_result'`; the round/role context in the conversation UI disambiguates which role emitted it.
-- The common envelope is simpler for the model: one schema shape to learn, not three. Per-role variation is minimal (planner adds `continue`; nothing else changes).
+- The common envelope is simpler for the model: one schema shape to learn, not three.
 
 ## 5. Removals
 
@@ -258,10 +259,10 @@ The following names are removed from the catalog. They are either duplicates of 
 
 | Removed name | Replaced by | Reason |
 | --- | --- | --- |
-| `read_file_metadata` (workspace) | — | Not a standard primitive; only the Analyst host-inspection variant stays. |
-| `write_file` (workspace) | `write` | Project-scoped write uses the standard name. Analyst `write_file` stays. |
-| `list_directory` (workspace) | `glob` | Project file discovery uses `glob`. Analyst `list_directory` stays. |
-| `run_shell_command` (workspace) | `run_command` | Agent shell execution uses the standard name. Analyst `run_shell_command` stays. |
+| `read_file_metadata` | `read` | Metadata is behavior on the standard `read` tool, selected by read mode/metadata option. |
+| `write_file` | `write` | Same operation, standard name. `record://` replaces the Analyst-specific record-write tool. |
+| `list_directory` | `glob` or `read` directory mode | Directory listing/discovery uses standard file tools over scoped URLs. |
+| `run_shell_command` | `run_command` | Same operation, standard name. `system://` cwd replaces the host-specific tool name. |
 | `run_project_command` | `run_command` | Same concept, v3-specific name. |
 | `start_and_wait` | `run_command` with `wait: true` | Redundant with `run_command`. |
 | `wait_for_process` | `wait_process` | Dead catalog entry; actor had its own. |
@@ -290,7 +291,7 @@ The actor runtime exposes curated subsets. The catalog's `roles` field is update
 | Filesystem (read-only) | `read`, `glob`, `grep` |
 | Inspection | `list_cards`, `get_card`, `get_tree`, `list_card_history`, `get_card_history_entry`, `diff_card` |
 | Web | `websearch`, `webfetch` |
-| Terminal | `emit_result` (planner: `continue \| done \| failed \| blocked` + `summary`) |
+| Terminal | `emit_result` (`done \| blocked \| failed` + `summary`) |
 
 Planner does **not** get `write`, `edit`, `apply_patch`, `run_command`, `skill`, or `mcp_tool_call`. The planner coordinates; it does not write code or run commands.
 
@@ -321,9 +322,16 @@ Reviewer does **not** get `write`, `edit`, `apply_patch`, or `run_command`. The 
 
 ### Analyst
 
-Unchanged from the current shipped Stage 002 alignment, except:
-- workspace duplicates removed from the catalog (no effect on analyst dispatch since it uses its own tools)
-- `read_file`, `write_file`, `list_directory`, `run_shell_command`, `read_file_metadata` remain as Analyst-only host-inspection tools
+The Analyst gets the same high-frequency workspace tools wherever possible:
+
+| Category | Tools |
+| --- | --- |
+| Filesystem | `read`, `write`, `glob`, `grep` over `project://`, `record://`, `tmp://`, and policy-gated `system://` |
+| Shell | `run_command` with `cwd` scoped by `project://` or policy-gated `system://` |
+| Web | `websearch`, `webfetch` |
+| Skill | `skill` |
+
+The Analyst additionally keeps operator-control tools (`start_project`, `stop_project`, `pause_runtime`, `resume_runtime`, `navigate_workspace`, `show_config`, `reconfigure`, etc.). Those are control-surface tools, not workspace primitives.
 
 ## 7. Schema Contracts
 
@@ -347,10 +355,13 @@ All tool schemas use snake_case field names to match the OpenCode/Copilot conven
 ## 8. Security Policy
 
 All filesystem tools share one path policy:
+- Relative paths default to `project://`.
+- `project://`, `record://`, and `tmp://` are the normal scopes for project work.
+- `system://` allows host/system access subject to capability policy. It is available to agents when the policy allows it, but prompts should discourage it and recommend `project://` for normal work.
 - Project-agent paths must resolve inside the configured project root.
 - Secret-bearing paths and blocked runtime/credential paths are invisible to `glob`, `grep`, and directory reads.
 - Direct access to a blocked path fails with a permission error.
-- Mutating tools reject blocked paths, `.saivage`, `.saivage-work`, symlink targets outside root, and credential files.
+- Mutating tools reject blocked paths, `.saivage`, `.saivage-work`, symlink targets outside root, credential files, and unsafe `system://` writes unless explicitly authorized by policy.
 
 Web tools share one egress policy:
 - Only `http` and `https`.
@@ -359,6 +370,8 @@ Web tools share one egress policy:
 - `webfetch` with `save_as` uses the same write authorization as `write`.
 
 Process tools share one ownership policy:
+- `cwd` defaults to `project://`.
+- `system://` command working directories are policy-gated and should be exceptional.
 - Background processes are owned by the card activation that started them.
 - `wait_process` and `kill_process` can only act on processes owned by the current activation.
 - Process IDs are scoped to the activation, not global.
@@ -381,14 +394,11 @@ These v2 capabilities are not added in this reorg because v3 does not have the s
 - Remove `run_project_command`, `start_and_wait`, `wait_for_process`, `inspect_process` from the catalog.
 - Remove the actor-inline `run_process`/`wait_process`/`inspect_process`/`kill_process` definitions; move `wait_process` and `kill_process` into the catalog.
 - Add `run_command` to the catalog with the `wait` parameter; wire it into the executor actor as the unified shell tool.
-- Remove `read_file_metadata` from the workspace tools (keep analyst variant).
-- Remove `list_directory` from the workspace tools (keep analyst variant).
-- Remove `run_shell_command` from the workspace tools (keep analyst variant).
+- Remove `read_file_metadata`, `read_file`, `write_file`, `list_directory`, and `run_shell_command` as separate model-facing tool names. Preserve their capabilities through `read`, `write`, `glob`, and `run_command` with scoped URLs (`project://`, `record://`, `tmp://`, `system://`).
 - Remove `load_skill`; ensure `skill` supports both list and load.
-- Remove `report_goal_done`, `report_goal_failed`, `report_goal_blocked` from the catalog. The planner actor already uses `emit_planner_result` (with `status: 'continue' | 'done' | 'blocked'`) as its terminal contract tool; these three are dead code from the retired `AgentExecutionPort` surface and never reach the planner LLM. Remove their references from `planner-control-tools.ts`, `planner-tools.ts` (`PlannerToolsService`), `planner-envelope-tracker.ts`, `planner-state-context.ts`, and stale prompt text in `system-prompt.ts`.
+- Remove `report_goal_done`, `report_goal_failed`, `report_goal_blocked` from the catalog. They are dead code from the retired `AgentExecutionPort` surface and never reach the planner LLM. Remove their references from `planner-control-tools.ts`, `planner-tools.ts` (`PlannerToolsService`), `planner-envelope-tracker.ts`, `planner-state-context.ts`, and stale prompt text in `system-prompt.ts`.
 - Unify the three terminal tool names (`emit_planner_result`, `emit_executor_result`, `emit_reviewer_result`) into one: `emit_result`. Update the contract terminal descriptors, event catalog enum, `LlmInvocationSummaryEvent.final_terminal_tool`, and all prompt/messaging references.
-- Collapse the per-role envelope shapes into one common envelope: `{ status: 'done' | 'blocked' | 'failed', summary: string }` (planner adds `continue`). Move executor `warnings`/`result`/`error` and reviewer `assessment`/`achieved`/`issues`/`evidence_card_ids` into the record slots (`status.md`, `review.md`). Replace `status_text` with `summary`.
-- Add `failed` to the planner status enum (`continue | done | failed | blocked`).
+- Collapse the per-role envelope shapes into one common envelope: `{ status: 'done' | 'blocked' | 'failed', summary: string }`. Move executor `warnings`/`result`/`error` and reviewer `assessment`/`achieved`/`issues`/`evidence_card_ids` into the record slots (`status.md`, `review.md`). Replace `status_text` with `summary`.
 - Collapse the 7 lifecycle result kinds into 3 (+ `needs_verification` internal): `DoneResult`, `BlockedResult`, `FailedResult`. Drop `latest_self_report` from the lifecycle result (the record URL is the reference). Keep runtime-internal `blocker_cause` and `verified_at` as internal metadata.
 - Move reviewer `evidence_card_ids` validation to the `review.md` write path: validate that referenced card IDs exist and are descendants when the record is committed.
 - Update all prompt text to instruct agents to write detail into `status.md`/`review.md` and use `emit_result` with only `status` + `summary`.
@@ -406,10 +416,12 @@ These v2 capabilities are not added in this reorg because v3 does not have the s
 - Reviewer: remove `write`, `edit`, `apply_patch` from `roles`.
 - Ensure `list_card_history`, `get_card_history_entry`, `diff_card` are wired into the executor and reviewer actor surfaces (currently in `roles` but not offered by the actors).
 
-### Phase 4: Align analyst workspace tool names with host-scope semantics
+### Phase 4: Align Analyst workspace tools with scoped URLs
 
-- Confirm `read_file`, `write_file`, `list_directory`, `run_shell_command`, `read_file_metadata` in the catalog are Analyst-only and never appear in any agent-facing surface.
-- Add tests asserting they are absent from `AGENT_TOOL_DEFINITIONS`, `PLANNER_TOOL_DEFINITIONS`, and all actor tool bundles.
+- Confirm the Analyst receives the same workspace tool names (`read`, `write`, `glob`, `grep`, `run_command`) wherever possible.
+- Add `system://` resolution and policy gates to those tools for host/system access.
+- Update prompts to recommend `project://`, `record://`, and `tmp://` first, and to use `system://` only when necessary.
+- Add tests asserting removed Analyst-specific host-inspection names are absent from the catalog and all role surfaces.
 
 ### Phase 5: Update docs and prompts
 
@@ -437,14 +449,15 @@ This reorganization is complete when:
 - `websearch` and `webfetch` are reachable from planner, executor, and reviewer;
 - the reviewer surface does not include `write`, `edit`, or `apply_patch`;
 - the catalog `roles` field matches actual actor wiring for every entry;
-- analyst-only host-inspection tools (`read_file`, `write_file`, `list_directory`, `run_shell_command`, `read_file_metadata`) never appear in agent-facing surfaces;
+- removed host-inspection names (`read_file`, `write_file`, `list_directory`, `run_shell_command`, `read_file_metadata`) are absent from the catalog; their capabilities are available through standard tools with scoped URLs;
 - removed names (`run_project_command`, `start_and_wait`, `wait_for_process`, `inspect_process`, `run_process` as a separate tool, `load_skill`, `list_project_files`, `read_project_file`, `write_project_file`, `report_goal_done`, `report_goal_failed`, `report_goal_blocked`, `emit_planner_result`, `emit_executor_result`, `emit_reviewer_result`) are absent from the catalog and from all actor tool bundles;
 - system prompts mention only tools that exist in the final catalog;
 - tests assert the final role tool surfaces and fail if removed names reappear;
 - the conversation UI redesign's Phase 2 unblocks because the tool vocabulary is aligned;
-- the terminal tool is `emit_result` for all three roles with a common `{ status, summary }` envelope (planner adds `continue`);
-- the planner status enum includes `failed`;
+- the terminal tool is `emit_result` for all three roles with a common `{ status: 'done' | 'blocked' | 'failed', summary }` envelope;
+- planner `done` means the planner completed its current planning task/activation, not that the entire process is complete;
 - lifecycle results are collapsed from 7 kinds to 3 (`DoneResult`, `BlockedResult`, `FailedResult`) plus the internal `NeedsVerificationResult`;
 - executor `warnings`, `result`, and `error` go into `status.md`, not the envelope;
 - reviewer `assessment`, `achieved`, `issues`, and `evidence_card_ids` go into `review.md`, not the envelope;
 - reviewer evidence validation runs on the `review.md` write path, not the terminal tool call.
+- `system://` access is represented as a scoped URL on standard tools, policy-gated, and discouraged in prompts in favor of `project://`.
