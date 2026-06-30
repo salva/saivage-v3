@@ -51,7 +51,6 @@ type RuntimeStatus =
   | 'stopped'
   | 'running'
   | 'paused'
-  | 'stopping'
   | 'error';
 ```
 
@@ -62,51 +61,21 @@ The field should remain named `status` rather than being renamed to `state`. The
 | Status | Meaning | Can Analyst Mutate Cards? | Active Card Run? |
 | --- | --- | --- | --- |
 | `stopped` | Runtime is not executing autonomous project work and will not schedule work until explicitly started. This includes initial project state and natural completion. | Yes | No |
-| `running` | Runtime is executing or admitting autonomous work. | No | Usually yes; if no active card exists transiently, scheduling may still proceed. |
-| `paused` | Runtime admission is closed at a safe point. Existing long-running processes may still exist, but no new model/provider turns are admitted. | Yes, subject to card/subtree rules | No active LLM turn should be in flight after safe point. |
-| `stopping` | Stop was requested while active work is winding down or being terminated. | No | Yes or termination in progress |
+| `running` | Runtime is executing or dispatching autonomous work. | No | Yes while a card is dispatched |
+| `paused` | Runtime admission is closed at a safe point. Existing long-running processes may still exist, but no new model/provider turns are admitted. | Yes, subject to card/subtree rules | No (in-flight turns drain at the safe point) |
 | `error` | Runtime infrastructure is in an unrecoverable or operator-actionable error state. Card-level failures are not runtime `error`. | No | Maybe, depending on failure point |
 
-`idle` is removed. The former useful distinction behind `idle` was whether a live server/runtime process had no active card. That is not a lifecycle status. If the runtime will not schedule work, it is `stopped`. If it may schedule work, it is `running` even when temporarily between active cards.
+`idle` is removed. Whether a live runtime process currently has a card dispatched is execution detail, not a lifecycle status. If the runtime will not schedule work, it is `stopped`. If it may schedule work, it is `running`.
 
 ## 4. Fields To Remove Or Demote
 
 ### 4.1 Remove `paused` As Lifecycle Authority
 
-Remove `runtime.paused` from the canonical runtime state. Pause is represented by:
+Remove `runtime.paused` from the canonical runtime state. Pause is represented by status `'paused'` and nothing else. No projection, derived field, or compatibility shim for `paused` is added. Internal permission and scheduling logic read `runtime.status` only.
 
-```json
-{ "status": "paused" }
-```
+### 4.2 Remove `runtime_intent`
 
-If a compatibility projection temporarily needs `paused`, it must be derived:
-
-```ts
-const paused = runtime.status === 'paused';
-```
-
-No internal permission or scheduling logic should read a persisted boolean `paused` after the refactor.
-
-### 4.2 Demote `runtime_intent`
-
-`runtime_intent.status` must not represent current lifecycle. The current lifecycle is `runtime.status`.
-
-There are two acceptable end states:
-
-- Remove `runtime_intent` entirely if runtime commands and runs provide enough history.
-- Keep a renamed pending-command field only for in-progress transitions, not as current state authority.
-
-If a pending-command field remains, it should be explicit, for example:
-
-```ts
-interface PendingRuntimeCommand {
-  command: 'start_project' | 'stop_project' | 'pause_runtime' | 'resume_runtime';
-  requested_at: string;
-  requested_by: string;
-}
-```
-
-This field must never be used to answer "what state is the runtime in?" It answers only "what command is currently being applied?"
+Remove `runtime_intent` entirely. It must not represent current lifecycle or pending transitions. The current lifecycle is `runtime.status`. Control commands are recorded in the `runtime_commands` ledger as history, not as state authority. There is no pending-command field.
 
 ### 4.3 Keep Execution Detail Separate
 
@@ -124,23 +93,15 @@ No permission guard, scheduler gate, UI badge, or runtime read model should infe
 
 ### 5.2 Active Run Consistency
 
-`active_card_run` is allowed only when the runtime is doing or winding down active work:
+The enforced invariant is:
 
 ```ts
-if (runtime.active_card_run !== null) {
-  assert(runtime.status === 'running' || runtime.status === 'stopping' || runtime.status === 'error');
+if (runtime.status === 'stopped' || runtime.status === 'paused') {
+  assert(runtime.active_card_run === null);
 }
 ```
 
-For the steady state, prefer the stronger invariant:
-
-```ts
-runtime.status === 'running' || runtime.status === 'stopping'
-  ? runtime.active_card_run !== null || schedulerIsBetweenDispatches
-  : runtime.active_card_run === null;
-```
-
-Because there may be brief scheduler gaps between cards, the implementation should not overfit to `running` always requiring a non-null active run. It should, however, reject `stopped` or `paused` with a non-null active run.
+The persisted runtime state never combines `stopped`/`paused` with a non-null active card run. A `running` runtime may transiently have no dispatched card between scheduling steps; that transient is not persisted. Contradictory persisted combinations fail fast at the write boundary.
 
 ### 5.3 Runtime Error Scope
 
@@ -168,13 +129,11 @@ Transitions should be explicit and invalid transitions should fail loudly. Silen
 stopped  --start_project-->  running
 running  --pause_runtime-->  paused
 paused   --resume_runtime--> running
-running  --stop_project-->   stopping
-stopping --settled-->        stopped
+running  --stop_project-->   stopped
 paused   --stop_project-->   stopped
 error    --stop_project-->   stopped
-running  --fatal_error-->    error
-paused   --fatal_error-->    error
-stopping --fatal_error-->    error
+running  --fatal_error-->     error
+paused   --fatal_error-->     error
 ```
 
 Invalid examples:
@@ -184,7 +143,6 @@ stopped --pause_runtime--> invalid
 stopped --resume_runtime--> invalid
 paused  --start_project--> invalid; use resume_runtime
 running --start_project--> invalid; already running
-stopping --pause_runtime--> invalid
 ```
 
 The operator UI may offer friendly labels, but the runtime API should return explicit conflict errors for invalid transitions.
@@ -204,18 +162,9 @@ Pause is a reversible admission gate.
 
 ### 7.2 Stop
 
-Stop is a request to leave autonomous project execution.
+Stop leaves autonomous project execution. It is synchronous: on `stop_project` the runtime closes admission, cancels the active card run, and terminates runtime-owned processes, then transitions directly to `stopped`. From `paused` and `error` the transition to `stopped` is immediate since no active work is admitted.
 
-- From `paused`, stop is immediate and transitions to `stopped`.
-- From `running`, stop transitions to `stopping` until active work is settled or terminated according to runtime policy.
-- From `error`, stop resets runtime lifecycle to `stopped` after clearing or recording the runtime-level error.
-
-The implementation must choose and document the active-work policy for stop. The recommended policy is graceful-first:
-
-1. Close admission immediately.
-2. Signal active agent/session/process owners to finish or cancel at the next safe point.
-3. Transition from `stopping` to `stopped` when no active card run remains.
-4. Surface any stuck termination as a runtime error or operator-actionable diagnostic.
+Stop does not distinguish "graceful" and "forced". If an active LLM turn is in flight, it is aborted; if a managed process is running, it is terminated. The runtime records what was cancelled/terminated so the operator can see the outcome, but no intermediate lifecycle state exists.
 
 ### 7.3 Shutdown
 
@@ -251,43 +200,14 @@ Runtime read models should expose one lifecycle field:
 }
 ```
 
-Temporary compatibility fields may be exposed during migration, but must be explicitly documented as derived and deprecated:
-
-```json
-{
-  "paused": false,
-  "deprecated": true
-}
-```
-
-The operator UI should display exactly one runtime lifecycle badge using the new vocabulary:
+No compatibility fields for `paused` or `runtime_intent` are projected. The operator UI displays exactly one runtime lifecycle badge using the new vocabulary:
 
 - Stopped
 - Running
 - Paused
-- Stopping
 - Error
 
-The UI may additionally display a derived reason, such as `initial`, `operator`, `natural`, or `error`, but reason must not be treated as lifecycle state.
-
-## 10. Derived Stop Reason
-
-The runtime may expose a non-authoritative `stop_reason` projection:
-
-```ts
-type StopReason = 'initial' | 'operator' | 'natural' | 'error';
-```
-
-This is useful for UI and diagnostics:
-
-- `initial`: project has not yet been started.
-- `operator`: operator explicitly stopped the project.
-- `natural`: runtime reached a normal no-work/completed condition.
-- `error`: runtime was stopped after a runtime-level error.
-
-`stop_reason` should be derived from runtime command/run history or written as metadata when entering `stopped`. It must not be used as a lifecycle guard.
-
-## 11. Revised Analyst Mutation Gate
+## 10. Revised Analyst Mutation Gate
 
 The current paused-only gate should be replaced with a runtime-status gate.
 
@@ -311,7 +231,7 @@ create_card requires runtime status stopped or paused before the Analyst mutates
 
 This avoids misleading messages that tell the user to pause a stopped project.
 
-## 12. Implementation Plan
+## 11. Implementation Plan
 
 ### Phase 1: Specification And Tests First
 
@@ -321,17 +241,17 @@ This avoids misleading messages that tell the user to pause a stopped project.
 4. Add failing tests for:
    - Analyst can create child cards when runtime status is `stopped`.
    - Analyst can mutate supported card records when runtime status is `paused`.
-   - Analyst cannot mutate cards when runtime status is `running`, `stopping`, or `error`.
+   - Analyst cannot mutate cards when runtime status is `running` or `error`.
    - Stopped runtime does not require `pause_runtime` before card mutation.
    - Invalid transitions fail loudly.
 
 ### Phase 2: Runtime Schema Refactor
 
-1. Change `RuntimeStatus` schema from `idle | running | paused | error` to `stopped | running | paused | stopping | error`.
+1. Change `RuntimeStatus` schema from `idle | running | paused | error` to `stopped | running | paused | error`.
 2. Remove `paused` from canonical `RuntimeState`.
-3. Remove `runtime_intent.status` as a lifecycle authority.
-4. Add or retain command/run ledgers for history only.
-5. Add runtime-state invariant validation near persistence boundaries.
+3. Remove `runtime_intent` entirely.
+4. Keep command/run ledgers as history only.
+5. Enforce the active-run invariant at runtime-state write boundaries (fail fast on contradictory persisted state).
 6. Ensure project initialization writes `status: 'stopped'`.
 
 ### Phase 3: Runtime Supervisor And Control Tools
@@ -340,18 +260,17 @@ This avoids misleading messages that tell the user to pause a stopped project.
    - Accept only `stopped`.
    - Transition to `running`.
    - Reject `paused` with guidance to use `resume_runtime`.
-   - Reject `running` and `stopping` as conflicts.
+   - Reject `running` as a conflict.
 2. Update `pause_runtime`:
    - Accept only `running`.
    - Transition to `paused` at a safe point.
-   - Reject `stopped`, `stopping`, and `error` as conflicts.
+   - Reject `stopped` and `error` as conflicts.
 3. Update `resume_runtime`:
    - Accept only `paused`.
    - Transition to `running`.
 4. Update `stop_project`:
-   - From `running`, transition to `stopping`, then to `stopped` when active work settles.
-   - From `paused`, transition directly to `stopped`.
-   - From `error`, transition to `stopped` after preserving diagnostics.
+   - Close admission, cancel the active card run, terminate runtime-owned processes, and transition directly to `stopped`.
+   - Treat `paused` and `error` as immediate transitions to `stopped`.
 5. Ensure shutdown remains distinct from project stop.
 
 ### Phase 4: Analyst Tool Gate Refactor
@@ -370,56 +289,47 @@ This avoids misleading messages that tell the user to pause a stopped project.
 ### Phase 5: Read Models, API, And UI
 
 1. Update `/api/state`, `/api/debug/state`, `/api/runtime/status`, and WebSocket projections to expose the new status vocabulary.
-2. Remove any projection that displays `idle` as runtime lifecycle.
+2. Remove any projection that displays `idle` as runtime lifecycle, and add no compatibility projections for `paused` or `runtime_intent`.
 3. Update UI controls:
    - `stopped`: show Start and allow Analyst management.
    - `running`: show Pause and Stop; deny direct card mutation.
    - `paused`: show Resume and Stop; allow Analyst management.
-   - `stopping`: show progress/diagnostics; deny direct card mutation.
-   - `error`: show diagnostics and Stop/Reset path; deny direct card mutation.
+   - `error`: show diagnostics and Stop; deny direct card mutation.
 4. Add UI tests for runtime status badges and enabled controls.
 
-### Phase 6: Cleanup And Compatibility Removal
+### Phase 6: Cleanup And Validation
 
-1. Remove compatibility projections for `paused` if any were temporarily exposed.
-2. Remove code that reads `runtime_intent.status` as current lifecycle.
-3. Remove tests expecting `idle` runtime status.
-4. Update generated schemas and API contract tests.
-5. Run the full Saivage routine and UI validation profiles.
+1. Remove tests expecting `idle` runtime status.
+2. Update generated schemas and API contract tests.
+3. Run the full Saivage routine and UI validation profiles.
 
-## 13. Migration Policy
+## 12. Migration Policy
 
-The Saivage v3 project is still in active local development. Do not add broad backward-compatibility layers unless a deployed runtime state file must be preserved.
+This is a breaking change to persisted runtime state. No backward-compatibility, normalization, or boundary-repair code is added. Existing runtime state files that do not conform to the new schema fail fast and must be reset/reinitialized. The project's live runtime state is reset-friendly, so neither a repair command nor a legacy-shape reader is warranted.
 
-Recommended migration stance:
-
-- For local runtime state, fail fast on contradictory states during development.
-- For known live project state, provide a one-time local repair command or reset recipe if needed.
-- Do not keep long-term support for `idle + paused + runtime_intent.status` combinations.
-
-If an existing runtime state must be read during a transition window, normalize only at the boundary and immediately persist the new canonical shape. Avoid carrying legacy shape through internal code.
-
-## 14. Acceptance Criteria
+## 13. Acceptance Criteria
 
 The refactor is complete when:
 
 - Runtime lifecycle has one authoritative status field.
 - `idle` is removed from public runtime lifecycle vocabulary.
 - `paused` boolean is removed from canonical runtime state.
-- `runtime_intent.status` is removed or no longer used as current lifecycle authority.
+- `runtime_intent` is removed entirely.
 - Analyst card mutation is allowed while runtime status is `stopped` or `paused`.
-- Analyst card mutation is denied while runtime status is `running`, `stopping`, or `error`.
+- Analyst card mutation is denied while runtime status is `running` or `error`.
 - New projects initialize with a root project card and runtime status `stopped`.
 - There is no special Analyst root-card bootstrap exception.
-- Operator UI displays stopped/running/paused/stopping/error without contradictory badges.
+- Operator UI displays stopped/running/paused/error without contradictory badges.
 - Runtime transition tests cover valid and invalid transitions.
 - Existing validation profiles pass.
 
-## 15. Non-Goals
+## 14. Non-Goals
 
 - Introducing a synthetic workspace root above the project card.
 - Moving runtime lifecycle state onto the project card.
 - Event-sourcing runtime lifecycle as the primary state representation.
+- A transitional `stopping` status or graceful wind-down machinery; stop is synchronous.
+- Speculative non-authoritative projections such as `stop_reason`.
 - Redesigning card lifecycle states.
 - Allowing Analyst structural mutations of actively running subtrees.
 
