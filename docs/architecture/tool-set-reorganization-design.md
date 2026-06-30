@@ -151,38 +151,106 @@ Unchanged. External MCP tools are the extension point; they use their own names 
 
 ### 4.7 Unified Terminal Tool
 
-All three autonomous roles (planner, executor, reviewer) use one terminal tool name: `emit_result`. The tool schema is **overloaded per-role** — each actor sends its own schema to the provider, and the contract system verifies the envelope per-role. The model never sees more than one `emit_result` definition at a time because each role runs in its own activation with its own tool list.
+All three autonomous roles (planner, executor, reviewer) use one terminal tool name: `emit_result`. The model never sees more than one `emit_result` definition at a time because each role runs in its own activation with its own tool list.
 
-This replaces the three role-prefixed names (`emit_planner_result`, `emit_executor_result`, `emit_reviewer_result`) with a single name. The role-prefixed names leaked internal role naming into the model surface without benefit: the model already knows its role from the system prompt, and the contract system already dispatches per-role.
+This replaces the three role-prefixed names (`emit_planner_result`, `emit_executor_result`, `emit_reviewer_result`) with a single name, and collapses the per-role envelope shapes into one common envelope with one role-specific addition (`continue` for the planner).
 
-#### Per-role schemas
+#### Design principle: common envelope, records carry the detail
 
-| Role | `status` enum | Role-specific fields | Notes |
+The runtime only needs two things from the terminal tool call to drive the card lifecycle:
+1. **What happened** — the `status` (`done | blocked | failed`).
+2. **Why** — a short `summary` text that becomes the card's `status_text` and the one-line display in the UI.
+
+Everything else — executor warnings, free-form result blobs, reviewer achieved criteria, issues with severity, evidence card references — is human-readable evidence that belongs in the card record slots, not in the structured envelope. Agents already write `status.md` (planner/executor) and `review.md` (reviewer) during every activation. That's where the rich detail lives. The envelope is just the sign-off.
+
+This eliminates the current per-role envelope specialization:
+- Executor no longer has `status_text` (required), `error`, `result`, `warnings`, `summary` as separate fields — all of that goes into `status.md`. The `summary` field replaces `status_text`.
+- Reviewer no longer has a nested `assessment` object (`result`, `summary`, `achieved[]`, `issues[]`, `evidence_card_ids[]`) — all of that goes into `review.md`. The envelope just says `done` (pass) or `blocked` (needs corrections).
+- Planner no longer has `blocked_reason` as a separate field — it's part of `summary`.
+
+#### Common envelope
+
+```ts
+export const ResultEnvelopeSchema = z.object({
+  status: z.enum(['done', 'blocked', 'failed']),
+  summary: z.string().min(1),
+}).strict();
+```
+
+- `done` — work is complete. For the reviewer, `done` means "assessment passed."
+- `blocked` — cannot progress due to external state. For the reviewer, `blocked` means "needs corrections" (the details are in `review.md`).
+- `failed` — this card's work is fundamentally not achievable as scoped.
+- `summary` — mandatory reason text. Short, human-readable. This is the only structured field beyond `status`.
+
+#### Planner addition: `continue`
+
+The planner needs one status the other roles don't: `continue`, meaning "I'm yielding this activation but I'm not done — schedule me again when there's work." This is not the same as not calling `emit_result` at all (which would cause a repair cycle). The planner variant adds `continue` to the status enum:
+
+```ts
+// Planner variant — sent to the planner LLM only
+export const PlannerResultEnvelopeSchema = z.object({
+  status: z.enum(['continue', 'done', 'failed', 'blocked']),
+  summary: z.string().min(1),
+}).strict();
+```
+
+No other role gets `continue`. Executors and reviewers are one-activation-per-card: they either finish or fail.
+
+#### What goes where
+
+| Information | Current location | New location |
+| --- | --- | --- |
+| Card outcome (done/blocked/failed) | Envelope `status` (per-role) | Envelope `status` (common) |
+| One-line reason text | Executor `status_text`; planner `blocked_reason`/`summary`; reviewer `assessment.summary` | Envelope `summary` (common) |
+| Executor warnings | Envelope `warnings[]` | `status.md` |
+| Executor free-form result/evidence | Envelope `result` (free-form record) | `status.md` |
+| Executor error detail | Envelope `error` | `summary` text (short) + `status.md` (detail) |
+| Reviewer verdict (pass/needs corrections) | Envelope `assessment.result` | Envelope `status` (`done` = pass, `blocked` = needs corrections) |
+| Reviewer achieved criteria | Envelope `assessment.achieved[]` | `review.md` |
+| Reviewer issues (severity, evidence, recommendation) | Envelope `assessment.issues[]` | `review.md` |
+| Reviewer evidence card references | Envelope `assessment.evidence_card_ids[]` | `review.md` (validated on record write, see below) |
+| Planner block reason | Envelope `blocked_reason` | Envelope `summary` |
+| Planner "needs more turns" | Envelope `status: 'continue'` | Envelope `status: 'continue'` (planner-only addition) |
+
+#### Reviewer evidence validation
+
+Currently `validateReviewerAssessment` checks that `evidence_card_ids` exist and are descendants of the goal card. With evidence card references moving to `review.md`, this validation moves to the record-write path: when the reviewer writes `review.md?v=next`, the record writer validates that any card IDs referenced in the markdown exist and are descendants. This keeps the envelope clean and co-locates the validation with the data. If a reviewer cites a nonexistent card, the record write fails with a clear error — the same outcome as today, just enforced at a different boundary.
+
+#### Record slot strategy: common + per-agent
+
+The current record slots are already organized as common + per-agent:
+
+| Slot | Writers | Scope | Status |
 | --- | --- | --- | --- |
-| Planner | `continue \| done \| failed \| blocked` | `blocked_reason?`, `summary?` | `continue` = "I need more turns to decompose/activate." `done` = "Goal subtree is complete." `blocked` = "External state prevents progress." `failed` = "This goal is fundamentally not achievable as scoped" (new — gives the planner symmetry with the executor and distinguishes "stuck because of external constraints" from "this goal is broken"). |
-| Executor | `done \| failed` | `status_text` (required), `error?`, `result?`, `warnings?`, `summary?` | `done` = "Work is complete." `failed` = "I tried and it didn't work." |
-| Reviewer | (implicit in `assessment.result`) | `assessment: { result: 'pass' \| 'needs_corrections', summary, achieved[], issues[], evidence_card_ids[] }` | Structured review, not a status enum. The `result` field inside `assessment` carries the pass/correction verdict. |
+| `status.md` | Planner, Executor | Common — per-activation status narrative | Unchanged |
+| `review.md` | Reviewer | Per-agent — structured review assessment | Unchanged |
+| `brief.md` | Planner, Analyst | Per-agent — card goal/instructions/acceptance definition | Unchanged |
+| `card.json` | Runtime (internal) | Internal card state — not agent-facing | Unchanged |
+
+No new slots are needed. If a future role needs its own dedicated record (e.g. a planner diary slot), it can be added as a per-agent slot. The principle is: the envelope carries the sign-off; the record carries the narrative. Agents should write the record before calling `emit_result`, and the runtime already enforces this.
+
+#### Simplified lifecycle results
+
+Currently there are 7 lifecycle result kinds (`executor_success`, `executor_failure`, `executor_needs_verification`, `planner_done`, `planner_blocked`, `planner_failure`, `reviewer_pass`, `reviewer_correction`). With the common envelope, these collapse to 3 (plus 1 internal):
+
+| Lifecycle result | `card.status` | Fields | Replaces |
+| --- | --- | --- | --- |
+| `DoneResult` | `done` | `summary` | `executor_success`, `planner_done`, `reviewer_pass` |
+| `BlockedResult` | `blocked` | `summary` (reason) | `planner_blocked` (with `reviewer_correction` — the correction detail is in `review.md`) |
+| `FailedResult` | `failed` | `summary` (error/reason) | `executor_failure`, `planner_failure` |
+| `NeedsVerificationResult` | `needs_verification` | `reason`, `preserved_result` | `executor_needs_verification` (internal runtime concept, not agent-emitted — keep as-is) |
+
+The `latest_self_report` field currently embedded in executor results is a mirror of `status.md` content. With the detail living in `status.md`, `latest_self_report` can be dropped from the lifecycle result — the record URL is the durable reference.
+
+Runtime-internal fields like `blocker_cause` (`'reviewer_unavailable' | 'non_actionable_continue' | ...`) and `verified_at` are set by the runtime, not emitted by the agent. They stay on the lifecycle result as internal metadata.
 
 #### Why one name works
 
 - Each role's tools are sent independently; the model never sees two `emit_result` schemas at once.
-- The contract system (`src/contracts/contract.ts`) already verifies per-role: `createPlannerContract()`, `createExecutorContract()`, `createReviewerContract()` each own their own terminal descriptor and envelope schema. Unifying the name changes only the terminal `name` string; verification and projection logic stay per-role.
+- The contract system (`src/contracts/contract.ts`) already verifies per-role. Unifying the name and the envelope changes the contract terminal descriptor and schema, but the verification and projection logic stay per-role (each contract knows its own status enum and record slot).
 - `contract.isTerminalToolName(name)` checks `name === 'emit_result'` for all three contracts. Since each actor runs exactly one contract, there is no ambiguity.
 - Transcript entries store `tool_name: 'emit_result'`; the round/role context in the conversation UI disambiguates which role emitted it.
-
-#### Planner `failed` status
-
-The planner envelope currently lacks `failed`. This means the planner can only report `blocked` when it cannot progress, conflating "external state prevents me" with "this goal is broken." Adding `failed` gives the planner the same expressiveness as the executor and lets the card lifecycle distinguish "planner gave up because the goal is unachievable" from "planner is waiting for external change."
-
-Updated planner envelope:
-
-```ts
-export const PlannerResultEnvelopeSchema = z.object({
-  status: z.enum(['continue', 'done', 'failed', 'blocked']),
-  blocked_reason: z.string().nullable().optional(),
-  summary: z.string().optional(),
-}).strict();
-```
+- The common envelope is simpler for the model: one schema shape to learn, not three. Per-role variation is minimal (planner adds `continue`; nothing else changes).
 
 ## 5. Removals
 
@@ -222,7 +290,7 @@ The actor runtime exposes curated subsets. The catalog's `roles` field is update
 | Filesystem (read-only) | `read`, `glob`, `grep` |
 | Inspection | `list_cards`, `get_card`, `get_tree`, `list_card_history`, `get_card_history_entry`, `diff_card` |
 | Web | `websearch`, `webfetch` |
-| Terminal | `emit_result` (planner schema: `continue \| done \| failed \| blocked`) |
+| Terminal | `emit_result` (planner: `continue \| done \| failed \| blocked` + `summary`) |
 
 Planner does **not** get `write`, `edit`, `apply_patch`, `run_command`, `skill`, or `mcp_tool_call`. The planner coordinates; it does not write code or run commands.
 
@@ -236,7 +304,7 @@ Planner does **not** get `write`, `edit`, `apply_patch`, `run_command`, `skill`,
 | Skill | `skill` |
 | MCP | `mcp_tool_call` |
 | Inspection | `list_card_history`, `get_card_history_entry`, `diff_card` |
-| Terminal | `emit_result` (executor schema: `done \| failed`) |
+| Terminal | `emit_result` (executor: `done \| failed` + `summary`) |
 
 ### Reviewer
 
@@ -247,7 +315,7 @@ Planner does **not** get `write`, `edit`, `apply_patch`, `run_command`, `skill`,
 | Skill | `skill` |
 | MCP | `mcp_tool_call` |
 | Inspection | `list_card_history`, `get_card_history_entry`, `diff_card` |
-| Terminal | `emit_result` (reviewer schema: `pass \| needs_corrections`) |
+| Terminal | `emit_result` (reviewer: `done` = pass, `blocked` = needs corrections, `failed` = broken + `summary`; detail in `review.md`) |
 
 Reviewer does **not** get `write`, `edit`, `apply_patch`, or `run_command`. The reviewer evaluates; it does not modify.
 
@@ -318,8 +386,12 @@ These v2 capabilities are not added in this reorg because v3 does not have the s
 - Remove `run_shell_command` from the workspace tools (keep analyst variant).
 - Remove `load_skill`; ensure `skill` supports both list and load.
 - Remove `report_goal_done`, `report_goal_failed`, `report_goal_blocked` from the catalog. The planner actor already uses `emit_planner_result` (with `status: 'continue' | 'done' | 'blocked'`) as its terminal contract tool; these three are dead code from the retired `AgentExecutionPort` surface and never reach the planner LLM. Remove their references from `planner-control-tools.ts`, `planner-tools.ts` (`PlannerToolsService`), `planner-envelope-tracker.ts`, `planner-state-context.ts`, and stale prompt text in `system-prompt.ts`.
-- Unify the three terminal tool names (`emit_planner_result`, `emit_executor_result`, `emit_reviewer_result`) into one: `emit_result`. Update the contract terminal descriptors, event catalog enum, `LlmInvocationSummaryEvent.final_terminal_tool`, and all prompt/messaging references. The schema stays per-role; only the name converges.
-- Add `failed` to the planner envelope schema (`emit_result` planner variant): `status: 'continue' | 'done' | 'failed' | 'blocked'`. Update the planner contract projection and runtime handling to accept `failed` as a terminal planner outcome.
+- Unify the three terminal tool names (`emit_planner_result`, `emit_executor_result`, `emit_reviewer_result`) into one: `emit_result`. Update the contract terminal descriptors, event catalog enum, `LlmInvocationSummaryEvent.final_terminal_tool`, and all prompt/messaging references.
+- Collapse the per-role envelope shapes into one common envelope: `{ status: 'done' | 'blocked' | 'failed', summary: string }` (planner adds `continue`). Move executor `warnings`/`result`/`error` and reviewer `assessment`/`achieved`/`issues`/`evidence_card_ids` into the record slots (`status.md`, `review.md`). Replace `status_text` with `summary`.
+- Add `failed` to the planner status enum (`continue | done | failed | blocked`).
+- Collapse the 7 lifecycle result kinds into 3 (+ `needs_verification` internal): `DoneResult`, `BlockedResult`, `FailedResult`. Drop `latest_self_report` from the lifecycle result (the record URL is the reference). Keep runtime-internal `blocker_cause` and `verified_at` as internal metadata.
+- Move reviewer `evidence_card_ids` validation to the `review.md` write path: validate that referenced card IDs exist and are descendants when the record is committed.
+- Update all prompt text to instruct agents to write detail into `status.md`/`review.md` and use `emit_result` with only `status` + `summary`.
 - Update all tests that reference removed names.
 - Add negative tests asserting removed names are absent from agent-facing surfaces.
 
@@ -370,4 +442,9 @@ This reorganization is complete when:
 - system prompts mention only tools that exist in the final catalog;
 - tests assert the final role tool surfaces and fail if removed names reappear;
 - the conversation UI redesign's Phase 2 unblocks because the tool vocabulary is aligned;
-- the three role terminal tools are unified under one name `emit_result` with per-role schemas, and the planner envelope includes `failed`.
+- the terminal tool is `emit_result` for all three roles with a common `{ status, summary }` envelope (planner adds `continue`);
+- the planner status enum includes `failed`;
+- lifecycle results are collapsed from 7 kinds to 3 (`DoneResult`, `BlockedResult`, `FailedResult`) plus the internal `NeedsVerificationResult`;
+- executor `warnings`, `result`, and `error` go into `status.md`, not the envelope;
+- reviewer `assessment`, `achieved`, `issues`, and `evidence_card_ids` go into `review.md`, not the envelope;
+- reviewer evidence validation runs on the `review.md` write path, not the terminal tool call.
