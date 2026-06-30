@@ -142,7 +142,7 @@ Fix: make `completeWithProviderResult()` update `this.input.contextMessages` to 
 
 **Per-turn tool-delivery scoping.** `deliveredToolCallIds` currently accumulates for the lifetime of the actor. For card processors this is fine (short-lived actors). For a persistent analyst actor, stale IDs could cause false rejection if a provider reuses tool-call IDs across turns. Fix: clear `deliveredToolCallIds` at the start of each top-level `turn()` call (not during tool-call continuations within the same turn). Tool-call IDs only need to be unique within one turn chain, not across the entire actor lifetime.
 
-**Subsequent analyst turns.** For the first user message, the handler builds a full `LlmInvocationInput` with `contextMessages: [workspace-context system message]` and calls `llmActor.turn(input)`. For subsequent user messages, the actor's `this.input.contextMessages` already contains the full accumulated conversation (user messages, assistant responses, tool calls, tool results) thanks to the persistent-context fix above. The handler appends the new user message to `conversation-store`, then calls `llmActor.turn({ ...actor.input, inputId: newInputId, contextMessages: [...actor.input.contextMessages, newUserMessage] })`. This is the same continuation pattern `appendToolResult` uses — it builds the next input from the current `this.input`.
+**Subsequent analyst turns.** For every operator message, the handler builds and persists two provider-visible context rows before calling `LLMActor`: the current `[workspace-context]` note and the operator's user message. The first user message creates a full `LlmInvocationInput` with `contextMessages: [workspaceContextMessage, userMessage]` and calls `llmActor.turn(input)`. Later user messages reuse the same actor and call `llmActor.turn({ ...actor.input, inputId: newInputId, contextMessages: [...actor.input.contextMessages, workspaceContextMessage, newUserMessage] })`. This preserves the full accumulated conversation while keeping deictic UI references such as "this card" tied to the current operator focus for each user turn. Tool continuations do not re-inject workspace context; they continue from the context already established for the current user turn.
 
 **Why generalize, not subclass.** `LLMActor` is already the right abstraction: a state machine for LLM turns with provider call, tool-call continuation, and segment logging. The role-specific loop logic (terminal contracts, repair, child activation, assessment currentness) lives in the surrounding handlers, not in `LLMActor`. The analyst handler wraps `LLMActor` the same way the card processors do — it owns the loop, `LLMActor` owns the turn. The only changes needed are nullable `cardId`, analyst in the ID grammar, and the persistent-context fix described above. Creating `CardLLMActor`/`AnalystLLMActor` subclasses would duplicate the state machine and all turn/tool/continuation logic for a one-field difference. If the loop skeletons later converge enough to justify a `BaseLLMConversationHandler` shared base, that would be a separate refactor — but the card processor loops (terminal contract + repair + child activation) and the analyst loop (no terminal, no repair) are different enough that a shared loop base now would be premature.
 
@@ -161,23 +161,23 @@ agentId: sessionId   (e.g. 'analyst:global')
 role: 'analyst'
 sessionId: sessionId
 systemPrompt: getAnalystSystemPrompt() + projectContext
-contextMessages: [workspace-context system message]
+contextMessages: [workspace-context system message, user message]
 tools: getAnalystToolDefinitions()
 terminalToolNames: []
 episodeContext: { cardId: null }
 ```
 
-For subsequent turns, the actor's `input.contextMessages` already contains the accumulated conversation. The handler appends only the new user message:
+For subsequent turns, the actor's `input.contextMessages` already contains the accumulated conversation. The handler appends the current workspace-context note and the new user message:
 
 ```text
-contextMessages: [...actor.input.contextMessages, newUserMessage]
+contextMessages: [...actor.input.contextMessages, workspaceContextMessage, newUserMessage]
 ```
 
 This is the natural `LLMActor` continuation pattern — the same way `appendToolResult` builds on `input.contextMessages`.
 
-When reconstructing an analyst actor after restart/reset, the handler reads the segment transcript, projects it through `conversationMessagesForModel`, appends the new user message, and starts the next turn from that reconstructed context. The reconstructed `LlmInvocationInput` also needs `systemPrompt`, `tools`, `terminalToolNames`, and `episodeContext: { cardId: null }`; the handler rebuilds these deterministically (`getAnalystSystemPrompt() + projectContext`, analyst tool definitions, empty terminal set) rather than extracting them from the transcript, since they are stable inputs, not conversation history. Normal live turns do not reread the transcript from disk.
+When reconstructing an analyst actor after restart/reset, the handler reads the segment transcript, projects it through `conversationMessagesForModel`, appends the current workspace-context note and new user message, and starts the next turn from that reconstructed context. The reconstructed `LlmInvocationInput` also needs `systemPrompt`, `tools`, `terminalToolNames`, and `episodeContext: { cardId: null }`; the handler rebuilds these deterministically (`getAnalystSystemPrompt() + projectContext`, analyst tool definitions, empty terminal set) rather than extracting them from the transcript, since they are stable inputs, not conversation history. Normal live turns do not reread the transcript from disk.
 
-**User message persistence.** `LLMActor` logs model-side entries (system prompt, assistant text, tool calls, tool results) but not arbitrary context messages. The analyst handler appends the operator's user message to `conversation-store` directly before calling `llmActor.turn(...)`. The conversation directory is created by `appendConversationMessage` on the first user message — no pre-creation step, no empty-session problem.
+**User message and workspace-context persistence.** `LLMActor` logs model-side entries (system prompt, assistant text, tool calls, tool results) but not arbitrary caller-provided context messages. The analyst handler appends the per-turn workspace-context note and the operator's user message to `conversation-store` directly before calling `llmActor.turn(...)`. Persisting the workspace-context note is required because it is provider-visible context needed to reconstruct deictic user turns after restart. The conversation directory is created by `appendConversationMessage` on the first persisted context row — no pre-creation step, no empty-session problem.
 
 Replace `getOrCreateAnalystSession()` with a simple pure resolver in `src/agents/session-ids.ts`:
 
@@ -191,9 +191,9 @@ No filesystem side effects, no `AgentSession` manifest. Consumers (websocket, te
 
 **Loop shape.** For each tool call, the handler dispatches via the existing `ToolDispatcher`, then calls `llmActor.appendToolResult(toolCallId, result, hook)`. For plain-text results, the loop ends (the analyst has no terminal tool contract). Duplicate tool-call prevention (`previousToolCallFingerprints`) and control-action auditing stay in the analyst handler.
 
-**Context management.** Compaction is not wired. The context grows until the conversation ends or the provider rejects an oversized request. This is a known Phase 1 limitation. The workspace-context system message is part of the initial `contextMessages`, not re-injected per iteration.
+**Context management.** Compaction is not wired. The context grows until the conversation ends or the provider rejects an oversized request. This is a known Phase 1 limitation. A fresh workspace-context note is injected once per operator user turn, immediately before that user message. It is not re-injected for tool continuations within the same turn.
 
-**Recovery.** Analyst `LLMActor` instances are in-memory and owned by `AnalystHandler`. Durable analyst conversation state is the segment transcript, not the actor snapshot — the snapshot is only in-flight execution state. If the server restarts mid-conversation, the actor is gone. On startup, `abandonStalePendingToolCalls` already clears stale pending tool-call statuses. Analyst LLM snapshots (if any exist from a crash) are unconditionally removed by recovery — no card lifecycle patch, no recovery diagnostics. On the next user message, `AnalystHandler` re-creates the actor and reconstructs context from `conversationMessagesForModel(readConversationMessages(projectRoot, sessionId))`, rebuilds `systemPrompt`/`tools`/`episodeContext` deterministically (as in section 4's continuation flow), appends the new user message, and starts the next turn.
+**Recovery.** Analyst `LLMActor` instances are in-memory and owned by `AnalystHandler`. Durable analyst conversation state is the segment transcript, not the actor snapshot — the snapshot is only in-flight execution state. If the server restarts mid-conversation, the actor is gone. On startup, `abandonStalePendingToolCalls` already clears stale pending tool-call statuses. Analyst LLM snapshots (if any exist from a crash) are unconditionally removed by recovery — no card lifecycle patch, no recovery diagnostics. On the next user message, `AnalystHandler` re-creates the actor and reconstructs context from `conversationMessagesForModel(readConversationMessages(projectRoot, sessionId))`, rebuilds `systemPrompt`/`tools`/`episodeContext` deterministically (as in section 4's continuation flow), appends the current workspace-context note and new user message, and starts the next turn.
 
 **Live status.** Analyst sessions do not appear in `getActorRuntimeReadModel()` (which walks card processors). The segment read model derives analyst session status from actor snapshots directly: if a matching `analyst:*` snapshot exists and is active, the session is active; otherwise it is inactive. This is a snapshot read, not a card processor lookup.
 
@@ -317,7 +317,8 @@ npm run web:test:operator-smoke
 Specific regression coverage to add/update:
 - `LLMActor.completeWithProviderResult()` appends assistant text to in-memory context, and `continueAfterPlainText()` does not double-append it.
 - `LLMActor.turn()` clears `deliveredToolCallIds` for a new top-level turn while preserving duplicate-delivery protection inside one tool-continuation chain.
-- Analyst restart reconstruction uses `conversationMessagesForModel(readConversationMessages(...))` once, then continues from in-memory context.
+- Analyst first and subsequent turns include both the per-turn workspace-context note and the operator user message in `LLMActor.turn()` input.
+- Analyst restart reconstruction uses `conversationMessagesForModel(readConversationMessages(...))` once, appends the current workspace-context note plus user message, then continues from in-memory context.
 - `/api/agents` and chat route tests use encoded segment paths and never create `.saivage/agents/messages` or `.saivage/agents/sessions` fixtures.
 
 Broad:
