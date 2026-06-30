@@ -58,7 +58,7 @@ Startup recovery remains different: if recovery projects a persisted terminal to
 
 For a card-scoped agent session, every live LLM call within one activation must see the full session conversation since that activation started (or since the last compaction boundary), plus fresh current-state context for the current turn.
 
-The in-memory `input.contextMessages` accumulated by `LLMActor` is the authority for live turns. The active LLM actor snapshot (`active_reconstruction.input`) is the authority for recovering an interrupted live activation. Persisted conversation segments are the authority for audit, cold reconstruction after compaction, and rebuilding conversation history once active reconstruction no longer contains the full pre-compaction prefix.
+The in-memory `input.contextMessages` accumulated by `LLMActor` is the authority for live turns. The active LLM actor snapshot (`active_reconstruction.input`) is the primary and normally only recovery authority for an interrupted live activation; it already stores the full `input.contextMessages` at the point of interruption. Persisted conversation segments are audit, debugging, and cold reconstruction for rebuilding history after compaction removed it from active reconstruction.
 
 Runtime state, card state, notifications, and planner/reviewer context are additional current-state inputs appended each turn. If those messages are sent to the provider and are expected to survive restart or compaction, they must also be persisted as transcript rows. Do not assume the current delivery log already contains them.
 
@@ -107,7 +107,7 @@ The old flat files are not kept as a compatibility path, so every current reader
 - `readLoggedToolCall(...)` takes or derives the session id from `active_reconstruction.input.sessionId` and searches conversation segments for the session/agent tool call row instead of `actorMessagesPath(...)`.
 - `actor-recovery.ts` paths that project waiting terminal tool calls must use the new segment-backed `readLoggedToolCall(...)`.
 
-Tool delivery and tool-call status ledgers may remain separate under `agents/tool-deliveries/` and `agents/tool-call-statuses/`; they are operational ledgers, not the conversation transcript. If retaining them creates duplicated writes, keep the duplication deliberately and document which file is authoritative for each query.
+Tool delivery and tool-call status ledgers remain separate under `agents/tool-deliveries/` and `agents/tool-call-statuses/`. They are operational ledgers with their own schemas and query paths (e.g. `abandonStalePendingToolCalls`), not the conversation transcript. Segments contain provider-visible `AgentMessage` rows; ledgers contain `ToolDeliveryRecord` and `ToolCallStatusRecord` rows. They coexist by design, not by compatibility or duplication.
 
 ### Compaction
 
@@ -124,15 +124,11 @@ Future turns append to the new segment. Old segments remain on disk for audit an
 
 ### Recovery
 
-To reconstruct conversation after restart:
-
-1. If an LLM actor has `active_reconstruction.input`, use that input as the live recovery authority for the interrupted activation.
-2. Read `index.json` for the session when active reconstruction is missing, incomplete by design after compaction, or when rebuilding a fresh session context.
-3. Load the compacted summary, if present, and messages from the compaction boundary forward in the active segment.
-4. Rebuild `input.contextMessages` from transcript rows that represent provider-visible messages.
-5. Append fresh current-state context for the current turn and persist those provider-visible context messages before the next provider call.
+Active reconstruction is the primary and normally only recovery authority. `actor-recovery.ts` reads waiting tool call arguments from `active_reconstruction` and already has the full `input.contextMessages` at the point of interruption. Segments are audit and debugging; cold segment reconstruction is for restoring history after compaction removed it from active reconstruction, or for inspecting a completed session.
 
 Do not add migration or compatibility logic for the old flat `agents/messages/*.jsonl` files. Fail loudly if the index or active segment is malformed.
+
+Remove `actorMessagesPath(...)` and `actorToolDeliveriesPath(...)` flat-log dead code after the cutover. The segment API and the separate tool delivery/status ledgers fully replace them.
 
 ## Target Behavior
 
@@ -144,13 +140,17 @@ For live planner, executor, and reviewer activations:
 4. Plain text, invalid terminal arguments, wrong terminal envelopes, and missing required status records get a bounded repair turn.
 5. If the repair budget is exhausted, the card fails with a precise terminal-contract error.
 6. Each live LLM call sees the accumulated in-memory conversation for the current activation, plus fresh current-state context.
-7. When conversation size exceeds the critical threshold, compaction replaces the in-memory prefix and opens a new persisted segment.
+7. Conversation messages are persisted as segment-backed provider-visible transcript rows.
 
 The runtime must still never accept prose as a terminal result and must never synthesize a terminal result from prose.
 
 ## Implementation Plan
 
-### 1. Extend In-Memory Continuation To Plain Text
+The plan is split into two phases. Phase 1 fixes the pueblicos production bug and the conversation persistence gap. Phase 2 adds compaction. Phase 1 is the immediate target; Phase 2 is deferred until Phase 1 is stable and compaction is proven necessary.
+
+### Phase 1: Terminal Repair And Segment Storage
+
+#### 1. Extend In-Memory Continuation To Plain Text
 
 `LLMActor` already accumulates conversation across tool calls through `continuationContextMessages()`. Extend the same mechanism to plain assistant text.
 
@@ -164,6 +164,8 @@ Add a method on `LLMActor` for continuing after a plain-text result:
 
 This mirrors `appendToolResult` but without a tool call. The key change is not preserving `this.input` (current code already does that); it is adding an explicit, snapshot-safe way to append the plain assistant message and repair directive, create the next input id, and re-enter the provider call through the normal turn path.
 
+Because the assistant text and repair directive are appended to `input.contextMessages` before `turn()` is called, the next `activeReconstruction` snapshot captures them in `input.contextMessages`. Recovery therefore works immediately even before segment persistence lands.
+
 Repair directive content should be short and role-specific. Executor example:
 
 ```text
@@ -174,7 +176,7 @@ Planner and reviewer variants should name `emit_planner_result` and `emit_review
 
 If `this.input` is unexpectedly missing while repairing a live result, throw. That is an impossible live-state bug, not a recoverable condition.
 
-### 2. Use One Repair Counter Per Activation
+#### 2. Use One Repair Counter Per Activation
 
 Use one local counter for terminal contract repairs in each processor activation loop. Include plain text, invalid terminal envelopes, and missing status records in the same budget. The reviewer still keeps its separate stale-currentness relaunch budget; terminal-contract repair does not replace reviewer relaunch handling.
 
@@ -185,7 +187,7 @@ let repairAttempts = 0;
 
 Do not make the budget configurable yet.
 
-### 3. Repair Plain Assistant Text
+#### 3. Repair Plain Assistant Text
 
 In each processor activation loop, when `outcome.type === 'result'`:
 
@@ -193,7 +195,7 @@ In each processor activation loop, when `outcome.type === 'result'`:
 - continue the processor loop;
 - if budget is exhausted, fail with the current protocol error.
 
-### 4. Repair Invalid Terminal Envelopes
+#### 4. Repair Invalid Terminal Envelopes
 
 In live activation loops, validate terminal tool calls before projecting the terminal outcome. If `verifyTerminalToolOutcome(...)` rejects:
 
@@ -204,11 +206,11 @@ In live activation loops, validate terminal tool calls before projecting the ter
 
 Keep recovery projection strict: recovery can still convert invalid persisted terminal calls into failed outcomes because no live model turn can be repaired.
 
-### 5. Keep Status Record Enforcement
+#### 5. Keep Status Record Enforcement
 
 Keep the existing missing-`status.md` repair behavior, but count it against the same repair budget. Do not auto-create `status.md`; the processor must force the model to write it.
 
-### 6. Add Segment-Based Conversation Storage
+#### 6. Add Segment-Based Conversation Storage
 
 Replace the flat `agents/messages/<agentId>.jsonl` append/read path for micro-actor conversation messages with segment-based storage under `agents/conversations/<sessionId>/`.
 
@@ -221,7 +223,9 @@ Replace the flat `agents/messages/<agentId>.jsonl` append/read path for micro-ac
 
 Do not keep the old flat file as a compatibility path. Cut over by writing new conversation rows to segments.
 
-### 7. Add Compaction
+### Phase 2: Compaction (Deferred)
+
+Compaction is deferred until Phase 1 is stable and compaction is proven necessary. Do not implement Phase 2 in the same change as Phase 1.
 
 When the in-memory `input.contextMessages` exceeds a critical size:
 
@@ -234,9 +238,9 @@ When the in-memory `input.contextMessages` exceeds a critical size:
 
 Compaction may be triggered before a provider call when the accumulated context size is known. Keep the compaction trigger simple: a byte or message-count threshold checked in `LLMActor` before calling the provider.
 
-Do not introduce a separate summarizer framework for the first implementation. Use the existing provider through a small internal compaction call or postpone automatic compaction behind the segment/index foundation if a correct compacted summary cannot be implemented simply. Segment rollover without summary is acceptable as an intermediate step only if it does not claim to reduce provider context.
+Do not introduce a separate summarizer framework. Use the existing provider through a small internal compaction call. Segment rollover without summary is acceptable as an intermediate step only if it does not claim to reduce provider context.
 
-### 8. Avoid A Framework
+### Avoid A Framework
 
 Do not route micro-actor processors through `AgentLoopDriver` for this fix. That runner belongs to the older invocation path and would add avoidable lifecycle/session coupling. The micro-actor loops already have the correct place to repair: the current `for`/`while` processor loop around `LLMActor` outcomes.
 
@@ -281,9 +285,11 @@ Required conversation storage coverage:
 - `index.json` tracks the active segment.
 - Provider-visible context, notification, and repair messages are persisted as transcript rows, not only delivery-log activity.
 - `readLoggedToolCall(...)` finds tool calls from segments, including reviewer sessions where `sessionId !== agentId`.
-- Compaction closes the current segment, opens a new one with a summary, and updates the index.
-- Recovery prefers `active_reconstruction.input` for interrupted live activations and loads segment transcript from the compaction boundary only when reconstructing session history.
+- Recovery uses `active_reconstruction.input` for interrupted live activations; segments are audit and debugging.
+- `actorMessagesPath(...)` and `actorToolDeliveriesPath(...)` flat-log dead code is removed.
 - Malformed index or active segment fails loudly.
+
+Compaction tests are deferred to Phase 2 with the compaction implementation.
 
 Update the existing executor test named `does not accept plain executor prose as terminal result` so it proves prose is not accepted directly but is repairable. It should no longer assert first-turn card failure.
 
@@ -291,4 +297,4 @@ Update the existing executor test named `does not accept plain executor prose as
 
 The pueblicos failure class should become a repairable terminal-contract violation. Models that can correct themselves after a direct instruction proceed; models that keep returning prose still fail loudly after a bounded number of attempts.
 
-Every micro-actor LLM call should see the accumulated in-memory conversation for the current activation, plus fresh current-state context for the current turn. Conversation storage should be segment-based with explicit compaction boundaries, exact provider-visible transcript rows, and segment-backed recovery readers so long sessions do not grow without limit and restart behavior remains reconstructable.
+Every micro-actor LLM call should see the accumulated in-memory conversation for the current activation, plus fresh current-state context for the current turn. Conversation storage should be segment-based with exact provider-visible transcript rows and segment-backed recovery readers. Compaction is deferred to Phase 2.
