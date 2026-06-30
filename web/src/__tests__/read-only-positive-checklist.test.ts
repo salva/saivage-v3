@@ -45,15 +45,15 @@ describe('read-only positive checklist', () => {
       debugViewSource,
     ].join('\n');
 
-    // CardsView: tree expand/collapse and navigation remain; filters and presentation tabs are intentionally gone.
-    expect(cardsViewSource).toContain('Card Tree');
-    expect(cardsViewSource).toContain('Open Timeline');
+    // CardsView: tree expand/collapse and navigation remain; filters, presentation tabs, and duplicate page chrome are intentionally gone.
     expect(cardsViewSource).toContain('@toggle="toggleTreeNode"');
     expect(cardsViewSource).toContain('@select="selectCard"');
+    expect(cardsViewSource).not.toContain('Card Tree');
+    expect(cardsViewSource).not.toContain('Open Timeline');
     expect(cardsViewSource).not.toContain('view-tab');
     expect(cardsViewSource).not.toContain('placeholder="Search cards..."');
     expect(timelineViewSource).toContain('CardsTimelineView');
-    expect(timelineViewSource).toContain('Back to Card Tree');
+    expect(timelineViewSource).not.toContain('Back to Card Tree');
 
     // DashboardView: runtime refresh and passive navigation links remain while start/stop controls are gone.
     expect(dashboardViewSource).toContain('@click="refreshRuntime"');

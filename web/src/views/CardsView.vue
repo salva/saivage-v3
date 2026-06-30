@@ -16,11 +16,6 @@
 
     <!-- Otherwise show tree view -->
     <template v-else>
-      <div class="cards-toolbar">
-        <div class="toolbar-title">Card Tree</div>
-        <router-link class="timeline-link" :to="{ name: 'timeline' }">Open Timeline</router-link>
-      </div>
-
       <!-- Content area -->
       <div class="cards-content">
         <!-- Loading -->
@@ -155,32 +150,6 @@ watch(() => route.params.id, (newId) => {
   color: var(--border-strong);
   font-family: 'SF Mono', monospace;
 }
-
-.cards-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
-  background: var(--surface-1);
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.toolbar-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.timeline-link {
-  color: var(--accent-2);
-  font-size: 12px;
-  text-decoration: none;
-}
-
-.timeline-link:hover { text-decoration: underline; }
 
 /* ── Content ────────────────────────────────────────────── */
 
