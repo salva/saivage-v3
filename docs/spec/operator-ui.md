@@ -150,4 +150,5 @@ The UI satisfies this specification when:
 - no direct UI control performs an Analyst-only mutation;
 - "Discuss with analyst" stages contextual chat text rather than opening a panel;
 - the Analyst receives active workspace context for deictic requests;
-- the Analyst can navigate the workspace on the user's behalf.
+- the Analyst can navigate the workspace on the user's behalf;
+- agent conversations in the Analyst panel and Debug agents view follow the shared design in [Agent Conversation UI Redesign](../architecture/agent-conversation-ui-redesign.md) (rounds, tool rows, grouping, human-readable details, raw-payload access, pending-call states, compaction bounding, live-update stability, and Debug as the transcript entry point).
