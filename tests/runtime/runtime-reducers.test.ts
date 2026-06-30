@@ -3,7 +3,6 @@ import { describe, expect, it } from '@jest/globals';
 import { reduceActivationCompletion } from '../../src/runtime/activation-completion-reducer.js';
 import { planOpenPlannerRunTerminalUpdate, planPlannerRunSessionBinding } from '../../src/runtime/planner-run-reducers.js';
 import { buildCompletedRuntimeCommandState, buildRejectedRuntimeCommandState } from '../../src/runtime/runtime-command-state.js';
-import { buildPauseRuntimeStatePatch, buildResumeRuntimeStatePatch } from '../../src/runtime/runtime-control-state.js';
 import type { PlannerDoneResult } from '../../src/schemas/index.js';
 import type { RuntimeState } from '../../src/schemas/types.js';
 
@@ -11,11 +10,11 @@ const plannerDone: PlannerDoneResult = { kind: 'planner_done', summary: 'done' }
 
 function state(overrides: Partial<RuntimeState> = {}): RuntimeState {
   return {
-    status: 'idle',
-    paused: false,
-    paused_at: null,
+    status: 'stopped',
+    project_id: 'project',
+    pid: 1234,
+    started_at: '2026-05-26T00:00:00.000Z',
     active_card_run: null,
-    runtime_intent: { status: 'stopped', updated_at: '2026-05-26T00:00:00.000Z' },
     runtime_commands: [],
     runtime_runs: [],
     runtime_activations: [],
@@ -70,19 +69,9 @@ describe('runtime reducer helpers', () => {
     expect(rejected.rejectedCommand).toEqual(expect.objectContaining({ command_id: 'cmd-a', status: 'rejected', completed_at: 'now', error }));
     expect(rejected.state.runtime_commands).toEqual([rejected.rejectedCommand]);
 
-    const completed = buildCompletedRuntimeCommandState({ state: state({ runtime_commands: [command], status: 'running' }), command, at: 'done', statePatch: { status: 'idle' } });
+    const completed = buildCompletedRuntimeCommandState({ state: state({ runtime_commands: [command], status: 'running' }), command, at: 'done', statePatch: { status: 'stopped' } });
     expect(completed.completedCommand).toEqual(expect.objectContaining({ command_id: 'cmd-a', status: 'completed', completed_at: 'done' }));
-    expect(completed.state.status).toBe('idle');
-  });
-
-  it('builds pause and resume state patches', () => {
-    const activeState = state({
-      active_card_run: { card_id: 'goal-a', card_type: 'goal', ownership: { kind: 'direct', source: 'project_root' }, runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:goal-a', correction_attempts: 0, started_at: 'started', last_turn_at: 'turn' },
-    });
-
-    expect(buildPauseRuntimeStatePatch('paused')).toEqual({ status: 'paused', paused: true, paused_at: 'paused' });
-    expect(buildResumeRuntimeStatePatch(activeState)).toEqual({ status: 'running', paused: false, paused_at: null });
-    expect(buildResumeRuntimeStatePatch(state())).toEqual({ status: 'idle', paused: false, paused_at: null });
+    expect(completed.state.status).toBe('stopped');
   });
 
   it('plans planner run session binding without stealing an already-bound same-card child run', () => {
@@ -121,7 +110,7 @@ describe('runtime reducer helpers', () => {
   it('reduces child activation completion and matching runtime run updates', () => {
     const next = reduceActivationCompletion(state({ runtime_activations: [activation()], runtime_runs: [run()] }), 'child', 'done', '2026-05-26T01:00:00.000Z', { status: 'done', result: plannerDone, error: null, completed_at: '2026-05-26T01:00:00.000Z' });
     expect(next?.runtime_activations[0]).toEqual(expect.objectContaining({ status: 'completed', updated_at: '2026-05-26T01:00:00.000Z', outcome: { kind: 'completed', outcome: 'done', card_id: 'child', completed_at: '2026-05-26T01:00:00.000Z' } }));
-    expect(next?.runtime_runs[0]).toEqual(expect.objectContaining({ phase: 'completed', runtime_status: 'idle', finished_at: '2026-05-26T01:00:00.000Z', updated_at: '2026-05-26T01:00:00.000Z', outcome: { kind: 'completed', result: 'done', finished_at: '2026-05-26T01:00:00.000Z' } }));
+    expect(next?.runtime_runs[0]).toEqual(expect.objectContaining({ phase: 'completed', runtime_status: 'stopped', finished_at: '2026-05-26T01:00:00.000Z', updated_at: '2026-05-26T01:00:00.000Z', outcome: { kind: 'completed', result: 'done', finished_at: '2026-05-26T01:00:00.000Z' } }));
   });
 
   it('restores parent planner as active run when child activation completes under a waiting parent planner', () => {

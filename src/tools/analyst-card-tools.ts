@@ -102,16 +102,13 @@ export async function create_card(ctx: ToolContext, params: { type: CardType; pa
       const store = getStore(ctx);
       const parent = normalizeParentValue(params.parent) ?? defaultParentForCreate(store, params.type);
       if (ctx.actor === 'analyst') {
-        if (params.type === 'project' && parent === null) {
-          if (store.read(PROJECT_CARD_ID)) return toolFailure('conflict', "Root project card already exists. Use card-management tools or record writes to update project objectives.", { id: PROJECT_CARD_ID });
-        } else {
-          const pauseCheck = requirePausedRuntime(ctx, 'create_card'); if (pauseCheck) return pauseCheck;
-          const parentCard = parent ? store.read(parent) : null;
-          if (!parentCard) return toolFailure('not_found', `Parent card '${parent}' does not exist.`, { parent });
-          const decision = decide({ role: 'analyst', action: 'card.create', targetState: parentCard.status });
-          if (!decision.allowed) return toolFailure('permission', `create_card denied for parent '${parentCard.id}' in status '${parentCard.status}' (${decision.reason}).`, { parent: parentCard.id, status: parentCard.status });
-          if (params.status !== undefined && params.status !== 'backlog') return toolFailure('validation', 'Analyst create_card can only create backlog child cards. Card creation does not dispatch work or set lifecycle state.', { status: params.status });
-        }
+        if (params.type === 'project' && parent === null) return toolFailure('conflict', "Root project card already exists. Use card-management tools or record writes to update project objectives.", { id: PROJECT_CARD_ID });
+        const runtimeCheck = requireMutableRuntime(ctx, 'create_card'); if (runtimeCheck) return runtimeCheck;
+        const parentCard = parent ? store.read(parent) : null;
+        if (!parentCard) return toolFailure('not_found', `Parent card '${parent}' does not exist.`, { parent });
+        const decision = decide({ role: 'analyst', action: 'card.create', targetState: parentCard.status });
+        if (!decision.allowed) return toolFailure('permission', `create_card denied for parent '${parentCard.id}' in status '${parentCard.status}' (${decision.reason}).`, { parent: parentCard.id, status: parentCard.status });
+        if (params.status !== undefined && params.status !== 'backlog') return toolFailure('validation', 'Analyst create_card can only create backlog child cards. Card creation does not dispatch work or set lifecycle state.', { status: params.status });
       }
       if (parent === null && params.type !== 'project') return toolFailure('validation', `Cannot create ${params.type} card without a parent. Inspect the card tree and provide an existing parent ID.`, { field: 'parent' });
       if (parent === undefined) return toolFailure('validation', `Cannot create ${params.type} card without a parent. Inspect the card tree and provide an existing parent ID.`, { field: 'parent' });
@@ -127,10 +124,10 @@ export async function create_card(ctx: ToolContext, params: { type: CardType; pa
 
 const PLANNER_ALLOWED_EDIT_FIELDS = new Set(['title', 'status', 'tags', 'priority', 'urgency', 'depends_on', 'related', 'estimate', 'subtype', 'assigned_to', 'result', 'metrics', 'started_at', 'completed_at', 'duration_ms', 'error', 'parent', 'type']);
 
-function requirePausedRuntime(ctx: ToolContext, toolName: string): ToolResult | null {
+function requireMutableRuntime(ctx: ToolContext, toolName: string): ToolResult | null {
   const runtimeState = readRuntimeState(ctx.projectRoot);
-  if (runtimeState?.paused === true) return null;
-  return toolFailure('permission', `${toolName} requires the runtime to be paused before the Analyst mutates card state. Use pause_runtime first, or queue_notification for running work.`, { paused: runtimeState?.paused ?? false, status: runtimeState?.status ?? 'unknown' });
+  if (runtimeState?.status === 'stopped' || runtimeState?.status === 'paused') return null;
+  return toolFailure('permission', `${toolName} requires runtime status stopped or paused before the Analyst mutates card state. Current runtime status is ${runtimeState?.status ?? 'unknown'}.`, { status: runtimeState?.status ?? 'unknown' });
 }
 
 function subtreeCards(store: ReturnType<typeof getStore>, rootId: string): CardRecord[] {
@@ -143,7 +140,7 @@ export async function edit_card(ctx: ToolContext, params: { id: string } & Recor
       const statusCheck = preflightEnum(params.status, CARD_STATUS_VALUES, 'status', 'edit_card'); if (!statusCheck.ok) return { success: false, error: statusCheck.error, errorEnvelope: statusCheck.errorEnvelope };
       const urgencyCheck = preflightEnum(params.urgency, URGENCY_VALUES, 'urgency', 'edit_card'); if (!urgencyCheck.ok) return { success: false, error: urgencyCheck.error, errorEnvelope: urgencyCheck.errorEnvelope };
       const typeCheck = preflightEnum(params.type, CARD_TYPE_VALUES, 'type', 'edit_card'); if (!typeCheck.ok) return { success: false, error: typeCheck.error, errorEnvelope: typeCheck.errorEnvelope };
-      if (ctx.actor === 'analyst') return toolFailure('permission', 'edit_card is not available to the Analyst. Use write_file on record://brief.md while paused for brief changes, or semantic card-management tools for structure/lifecycle.', { id: params.id });
+      if (ctx.actor === 'analyst') return toolFailure('permission', 'edit_card is not available to the Analyst. Use write_file on record://brief.md while runtime status is stopped or paused for brief changes, or semantic card-management tools for structure/lifecycle.', { id: params.id });
       const store = getStore(ctx); const card = store.read(params.id); if (!card) return toolFailure('not_found', `Card '${params.id}' not found.`, { id: params.id });
       const allowedFields = PLANNER_ALLOWED_EDIT_FIELDS;
       const changes: Record<string, unknown> = {}; const rejected: string[] = [];
@@ -173,7 +170,7 @@ export async function delete_card(ctx: ToolContext, params: { ids: string[] }): 
     }
     return { allowed: true };
   }, run: async () => {
-    if (ctx.actor === 'analyst') { const pauseCheck = requirePausedRuntime(ctx, 'delete_card'); if (pauseCheck) return pauseCheck; }
+      if (ctx.actor === 'analyst') { const runtimeCheck = requireMutableRuntime(ctx, 'delete_card'); if (runtimeCheck) return runtimeCheck; }
     const store = getStore(ctx); const deletedTopLevel: string[] = []; const deletedAll: string[] = []; const failures: Array<{ id: string; reason: string }> = [];
     for (const targetId of params.ids) {
       try {
@@ -199,7 +196,7 @@ export async function delete_card(ctx: ToolContext, params: { ids: string[] }): 
 export async function cancel_card(ctx: ToolContext, params: { cardId: string; reason?: string }): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, params, { action: 'card.cancel', safety_class: 'destructive', target_kind: 'card', getTargetId: (p) => p.cardId, run: async () => {
     try {
-      if (ctx.actor === 'analyst') { const pauseCheck = requirePausedRuntime(ctx, 'cancel_card'); if (pauseCheck) return pauseCheck; }
+      if (ctx.actor === 'analyst') { const runtimeCheck = requireMutableRuntime(ctx, 'cancel_card'); if (runtimeCheck) return runtimeCheck; }
       const store = getStore(ctx); const card = store.read(params.cardId); if (!card) return toolFailure('not_found', `Card '${params.cardId}' not found.`, { cardId: params.cardId });
       if (ctx.actor === 'analyst' && card.id === PROJECT_CARD_ID) return toolFailure('permission', 'cancel_card cannot cancel the root project card.', { cardId: card.id });
       const cards = subtreeCards(store, params.cardId);
@@ -287,8 +284,8 @@ export async function get_plan_diary(ctx: ToolContext, params: { goalId: string 
 }
 
 export async function get_status(ctx: ToolContext, _params: Record<string, never>): Promise<ToolResult> {
-  try { const store = getStore(ctx); const runtimeState = readRuntimeState(ctx.projectRoot); const allCards = store.list(); const runningProcesses = processApi(ctx.projectRoot).listForRuntime().filter((p) => p.status === 'running'); const statusCounts = allCards.reduce<Record<string, number>>((counts, card) => { counts[card.status] = (counts[card.status] ?? 0) + 1; return counts; }, {}); const activeCardRun = runtimeState?.active_card_run ?? null; const runtimeIntent = runtimeState?.runtime_intent ?? null; const runtimeRuns = runtimeState?.runtime_runs ?? []; const activationRecords = runtimeState?.runtime_activations ?? [];
-    return { success: true, data: { runtime: runtimeState, runtimeSummary: { status: runtimeState?.status ?? 'unknown', paused: runtimeState?.paused ?? false, currentCardId: deriveCurrentCardId(runtimeState), activeCardRun, runtimeIntent, projectRuns: runtimeRuns.map((run) => ({ run_id: run.run_id, kind: run.kind, card_id: run.card_id, phase: run.phase, runtime_status: run.runtime_status, started_at: run.started_at, finished_at: run.finished_at ?? null })), activations: activationRecords.map((activation) => ({ activation_id: activation.activation_id, parent_card_id: activation.parent_card_id, child_card_id: activation.child_card_id, status: activation.status, requested_at: activation.requested_at, runtime_run_id: activation.runtime_run_id ?? null })) }, runningProcesses: runningProcesses.length, statusCounts, counts: { done: statusCounts.done ?? 0, failed: statusCounts.failed ?? 0, blocked: statusCounts.blocked ?? 0, total: allCards.length } } };
+  try { const store = getStore(ctx); const runtimeState = readRuntimeState(ctx.projectRoot); const allCards = store.list(); const runningProcesses = processApi(ctx.projectRoot).listForRuntime().filter((p) => p.status === 'running'); const statusCounts = allCards.reduce<Record<string, number>>((counts, card) => { counts[card.status] = (counts[card.status] ?? 0) + 1; return counts; }, {}); const activeCardRun = runtimeState?.active_card_run ?? null; const runtimeRuns = runtimeState?.runtime_runs ?? []; const activationRecords = runtimeState?.runtime_activations ?? [];
+    return { success: true, data: { runtime: runtimeState, runtimeSummary: { status: runtimeState?.status ?? 'unknown', currentCardId: deriveCurrentCardId(runtimeState), activeCardRun, projectRuns: runtimeRuns.map((run) => ({ run_id: run.run_id, kind: run.kind, card_id: run.card_id, phase: run.phase, runtime_status: run.runtime_status, started_at: run.started_at, finished_at: run.finished_at ?? null })), activations: activationRecords.map((activation) => ({ activation_id: activation.activation_id, parent_card_id: activation.parent_card_id, child_card_id: activation.child_card_id, status: activation.status, requested_at: activation.requested_at, runtime_run_id: activation.runtime_run_id ?? null })) }, runningProcesses: runningProcesses.length, statusCounts, counts: { done: statusCounts.done ?? 0, failed: statusCounts.failed ?? 0, blocked: statusCounts.blocked ?? 0, total: allCards.length } } };
   } catch (err) { return toolFailureFromError(err); }
 }
 
@@ -309,7 +306,7 @@ export async function diff_card(ctx: ToolContext, params: { cardId: string; from
 
 export async function reorder_child(ctx: ToolContext, params: { parentId: string; orderedChildIds: string[] }): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, params, { action: 'card.reorder_child', safety_class: 'low', target_kind: 'card', getTargetId: (p) => p.parentId, run: async () => {
-    try { if (ctx.actor === 'analyst') { const pauseCheck = requirePausedRuntime(ctx, 'reorder_child'); if (pauseCheck) return pauseCheck; }
+    try { if (ctx.actor === 'analyst') { const runtimeCheck = requireMutableRuntime(ctx, 'reorder_child'); if (runtimeCheck) return runtimeCheck; }
       const store = getStore(ctx); const parent = store.read(params.parentId); if (!parent) return toolFailure('not_found', `Parent card '${params.parentId}' not found.`, { parentId: params.parentId });
       if (ctx.actor === 'analyst') {
         const parentDecision = decide({ role: 'analyst', action: 'card.reorder_child', targetState: parent.status });
@@ -334,9 +331,9 @@ export async function reorder_child(ctx: ToolContext, params: { parentId: string
 
 export const analystCardTools: readonly UnifiedToolDefinition<string, any>[] = [
   { name: 'mark_goal_needs_corrections', description: 'Mark a goal/project subtree as needing corrections using canonical AnalystIssue entries.', input: markGoalNeedsCorrectionsInput, roles: [], executor: mark_goal_needs_corrections },
-  { name: 'create_card', description: `Create a card without dispatching work. Analyst use requires paused runtime for child cards under any existing non-running parent; Analyst may still bootstrap the missing root project card with type 'project' and parent null. Analyst-created child cards must start as backlog.`, input: createCardInput, roles: ['analyst', 'planner'], executor: create_card, plannerControl: true, plannerInput: plannerCreateCardInput, plannerDescription: 'Create a direct child card under the current planner card. The parent is inferred from the planner session and cannot be supplied.' },
+  { name: 'create_card', description: `Create a card without dispatching work. Analyst use requires runtime status stopped or paused and an existing non-running parent. Analyst-created child cards must start as backlog.`, input: createCardInput, roles: ['analyst', 'planner'], executor: create_card, plannerControl: true, plannerInput: plannerCreateCardInput, plannerDescription: 'Create a direct child card under the current planner card. The parent is inferred from the planner session and cannot be supplied.' },
   { name: 'edit_card', description: `Planner/internal transitional broad card edit. Not exposed to the Analyst LLM surface; Analyst card brief writes should use record-backed file tools once available.`, input: analystEditCardInput, roles: ['planner'], executor: edit_card, plannerControl: true, plannerInput: plannerEditCardInput, plannerDescription: 'Edit one immediate child of the current planner card. The target must be a direct child; parent/depth changes are not accepted.' },
-  { name: 'reorder_child', description: 'Reorder children of a non-running parent while the runtime is paused. Denies running parents and running children; orderedChildIds must be a permutation of the current child set.', input: z.object({ parentId: describe(z.string(), 'Parent whose children to reorder.'), orderedChildIds: describe(z.array(z.string()), 'New child id order; must be a permutation of the current child set.') }).strict(), roles: ['analyst', 'planner'], executor: reorder_child, plannerControl: true, plannerInput: z.object({ orderedChildIds: z.array(z.string()) }).strict(), plannerDescription: 'Reorder the immediate children of the current planner card. orderedChildIds must be a permutation of that child set.' },
+  { name: 'reorder_child', description: 'Reorder children of a non-running parent while runtime status is stopped or paused. Denies running parents and running children; orderedChildIds must be a permutation of the current child set.', input: z.object({ parentId: describe(z.string(), 'Parent whose children to reorder.'), orderedChildIds: describe(z.array(z.string()), 'New child id order; must be a permutation of the current child set.') }).strict(), roles: ['analyst', 'planner'], executor: reorder_child, plannerControl: true, plannerInput: z.object({ orderedChildIds: z.array(z.string()) }).strict(), plannerDescription: 'Reorder the immediate children of the current planner card. orderedChildIds must be a permutation of that child set.' },
   { name: 'list_cards', description: 'List and filter cards in the project.', input: listCardsInput, roles: ['analyst', 'planner'], executor: list_cards },
   { name: 'get_card', description: 'Get full details of a single card.', input: z.object({ id: describe(z.string(), 'The ID of the card to retrieve.') }).strict(), roles: ['analyst', 'planner'], executor: get_card },
   { name: 'get_tree', description: 'Show the card tree.', input: z.object({ rootId: describe(z.string().optional(), 'Optional root card ID.') }).strict(), roles: ['analyst', 'planner'], executor: get_tree },
@@ -345,6 +342,6 @@ export const analystCardTools: readonly UnifiedToolDefinition<string, any>[] = [
   { name: 'list_card_history', description: 'List card history headers for a card.', input: z.object({ cardId: describe(z.string(), 'The ID of the card whose history to list.') }).strict(), roles: ['planner', 'executor', 'reviewer', 'analyst'], executor: list_card_history },
   { name: 'get_card_history_entry', description: 'Get a specific card history entry snapshot.', input: z.object({ cardId: describe(z.string(), 'The ID of the card.'), version_seq: describe(z.number().int(), 'The historical version sequence to retrieve.') }).strict(), roles: ['planner', 'executor', 'reviewer', 'analyst'], executor: get_card_history_entry },
   { name: 'diff_card', description: 'Get a field-level diff between two card versions.', input: z.object({ cardId: describe(z.string(), 'The ID of the card.'), fromSeq: describe(z.number().int().optional(), 'Optional source version sequence. Defaults to previous version.'), toSeq: describe(z.number().int().optional(), 'Optional target version sequence. Defaults to current version.') }).strict(), roles: ['planner', 'executor', 'reviewer', 'analyst'], executor: diff_card },
-  { name: 'cancel_card', description: 'Cancel dormant work while the runtime is paused. Analyst cancellation allows backlog, changed, blocked, and needs_verification cards; denies running, done, failed, cancelled, and the root project card.', input: z.object({ cardId: describe(z.string(), 'The ID of the card to cancel.'), reason: describe(z.string().optional(), 'Optional cancellation reason.') }).strict(), roles: ['analyst', 'planner'], executor: cancel_card, plannerControl: true, plannerInput: z.object({ cardId: describe(z.string(), 'The ID of the card to cancel.') }).strict(), plannerDescription: 'Destructively cancel a planner-managed immediate child only when it is obsolete, duplicate, mis-scoped, or explicitly rejected; not a scheduling/defer primitive and not for avoiding actionable backlog work.' },
-  { name: 'delete_card', description: 'Delete one or more paused, non-running card subtrees from the active tree using archive-backed removal. Denies the root project card and any running subtree member.', input: z.object({ ids: describe(z.array(z.string()).min(1), 'Card ids to delete.') }).strict(), roles: ['analyst', 'planner'], executor: delete_card, plannerControl: true, plannerInput: z.object({ cardId: z.string() }).strict(), plannerDescription: 'Delete a backlog or terminal card and cascade through descendants.' },
+  { name: 'cancel_card', description: 'Cancel dormant work while runtime status is stopped or paused. Analyst cancellation allows backlog, changed, blocked, and needs_verification cards; denies running, done, failed, cancelled, and the root project card.', input: z.object({ cardId: describe(z.string(), 'The ID of the card to cancel.'), reason: describe(z.string().optional(), 'Optional cancellation reason.') }).strict(), roles: ['analyst', 'planner'], executor: cancel_card, plannerControl: true, plannerInput: z.object({ cardId: describe(z.string(), 'The ID of the card to cancel.') }).strict(), plannerDescription: 'Destructively cancel a planner-managed immediate child only when it is obsolete, duplicate, mis-scoped, or explicitly rejected; not a scheduling/defer primitive and not for avoiding actionable backlog work.' },
+  { name: 'delete_card', description: 'Delete one or more non-running card subtrees while runtime status is stopped or paused using archive-backed removal. Denies the root project card and any running subtree member.', input: z.object({ ids: describe(z.array(z.string()).min(1), 'Card ids to delete.') }).strict(), roles: ['analyst', 'planner'], executor: delete_card, plannerControl: true, plannerInput: z.object({ cardId: z.string() }).strict(), plannerDescription: 'Delete a backlog or terminal card and cascade through descendants.' },
 ] as const;

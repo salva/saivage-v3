@@ -2,17 +2,11 @@ import { describe, it, expect } from '@jest/globals';
 import { runtimeStateSchema } from '../../src/schemas/validators.js';
 
 const baseRuntimeState = () => ({
-  status: 'idle' as const,
+  status: 'stopped' as const,
   project_id: 'project' as const,
   started_at: '2026-05-23T00:00:00.000Z',
-  current_card_id: null,
-  current_agent_session_id: null,
   active_card_run: null,
-  paused: false,
-  paused_at: null,
   updated_at: '2026-05-23T00:00:00.000Z',
-  frozen_reason: null,
-  runtime_intent: { status: 'stopped' as const, updated_at: '2026-05-23T00:00:00.000Z', source_command_id: null, reason: null },
   runtime_commands: [],
   runtime_runs: [],
   runtime_activations: [],

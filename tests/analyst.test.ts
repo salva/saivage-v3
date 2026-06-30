@@ -206,7 +206,7 @@ describe('Analyst Tools', () => {
     } catch {}
   });
 
-  it('rejects Analyst child-card creation while unpaused', async () => {
+  it('rejects Analyst child-card creation under a running parent', async () => {
     const r = await create_card(ctx(projectRoot, store), {
       type: 'code',
       parent: 'card-1',
@@ -214,7 +214,7 @@ describe('Analyst Tools', () => {
       brief: TEST_BRIEF,
     });
     expect(r.success).toBe(false);
-    expect(r.error).toContain('requires the runtime to be paused');
+    expect(r.error).toContain("parent 'card-1' in status 'running'");
   });
 
   it('marks a done goal changed through the analyst correction repair path', () => {
@@ -263,7 +263,7 @@ describe('Analyst Tools', () => {
     expect(tree.data).toEqual(expect.objectContaining({ id: 'project', display_path: null }));
   });
 
-  it('creates the first project card in an empty store', async () => {
+  it('rejects Analyst project-card bootstrap because init creates the root', async () => {
     const emptyRoot = uniqueDir();
     initProjectTree(emptyRoot);
     const emptyStore = new CardStore(emptyRoot);
@@ -276,21 +276,15 @@ describe('Analyst Tools', () => {
         brief: TEST_BRIEF,
       });
 
-      expect(result.success).toBe(true);
-      expect(result.data).toEqual(
-        expect.objectContaining({
-          id: 'project',
-          type: 'project',
-          parent: null,
-          title: 'Project',
-        }),
-      );
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Root project card already exists');
+      expect(emptyStore.read('project')).toEqual(expect.objectContaining({ id: 'project', type: 'project', parent: null }));
     } finally {
       rmSync(emptyRoot, { recursive: true, force: true });
     }
   });
 
-  it('rejects Analyst top-level goal creation in an empty store', async () => {
+  it('allows Analyst top-level goal creation in a stopped initialized project', async () => {
     const emptyRoot = uniqueDir();
     initProjectTree(emptyRoot);
     const emptyStore = new CardStore(emptyRoot);
@@ -303,9 +297,8 @@ describe('Analyst Tools', () => {
         brief: TEST_BRIEF,
       });
 
-      expect(result.success).toBe(false);
-      expect(result.error).toContain('requires the runtime to be paused');
-      expect(emptyStore.read('project')).toBeNull();
+      expect(result.success).toBe(true);
+      expect(emptyStore.read('card-1')).toEqual(expect.objectContaining({ type: 'goal', parent: 'project', title: 'First goal' }));
     } finally {
       rmSync(emptyRoot, { recursive: true, force: true });
     }
@@ -438,7 +431,7 @@ describe('Analyst Tools', () => {
   });
 
   it('audits analyst reorder_child with the calling surface', async () => {
-    updateRuntimeState(projectRoot, { status: 'paused', paused: true, paused_at: new Date().toISOString() });
+    updateRuntimeState(projectRoot, { status: 'paused' });
     store.setStatus('card-1', 'backlog');
     const childTwo = store.create({
       type: 'code',

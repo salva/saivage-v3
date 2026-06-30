@@ -34,15 +34,11 @@
         </div>
 
         <div class="status-section">
-          <h3 class="section-label">Runtime Intent</h3>
+          <h3 class="section-label">Runtime Status</h3>
           <div class="status-grid">
             <div class="status-item">
-              <span class="status-key">Intent</span>
-              <span class="status-value">{{ intent?.status ?? 'unknown' }}</span>
-            </div>
-            <div class="status-item">
-              <span class="status-key">Updated</span>
-              <span class="status-value" :title="shortTimeTitle(intent?.updated_at)">{{ shortTime(intent?.updated_at) }}</span>
+              <span class="status-key">Status</span>
+              <span class="status-value">{{ statusLabel }}</span>
             </div>
             <div class="status-item">
               <span class="status-key">Live State</span>
@@ -190,7 +186,6 @@ const {
   statusLabel,
   currentCardId,
   currentAgentSessionId,
-  intent,
   currentRun,
   activeChildRuns,
   activations,
@@ -289,12 +284,12 @@ onMounted(async () => {
 .status-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; font-family: inherit; border: 1px solid transparent; }
 .status-chip .status-dot { width: 5px; height: 5px; border-radius: 50%; }
 .rt-running { color: var(--accent); border-color: var(--accent); background: var(--entry-accent-bg); }
-.rt-idle { color: var(--text-muted); border-color: var(--border-strong); background: var(--surface-3); }
+.rt-stopped { color: var(--text-muted); border-color: var(--border-strong); background: var(--surface-3); }
 .rt-paused { color: var(--warn); border-color: var(--entry-warn-border); background: var(--entry-warn-bg); }
 .rt-error { color: var(--danger); border-color: var(--danger); background: var(--entry-danger-bg); }
 .rt-unknown { color: var(--text-muted); border-color: var(--border-strong); background: var(--surface-3); }
 .rt-running .status-dot { background: var(--accent); }
-.rt-idle .status-dot { background: var(--text-muted); }
+.rt-stopped .status-dot { background: var(--text-muted); }
 .rt-paused .status-dot { background: var(--warn); }
 .rt-error .status-dot { background: var(--danger); }
 .rt-unknown .status-dot { background: var(--text-muted); }

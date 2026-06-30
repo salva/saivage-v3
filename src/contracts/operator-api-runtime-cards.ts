@@ -7,7 +7,6 @@ import {
   cardHistoryEntrySchema,
   cardHistoryHeaderSchema,
   runtimeStateSchema,
-  runtimeIntentSchema,
   runtimeCommandRecordSchema,
   runtimeRunRecordSchema,
   runtimeActivationRecordSchema,
@@ -30,7 +29,6 @@ export const CardNotFoundErrorSchema = ApiErrorSchema.extend({
 });
 
 export const RuntimeSummarySchema = z.object({
-  intent: runtimeIntentSchema,
   currentRun: runtimeRunRecordSchema.nullable(),
   activeChildRuns: z.array(runtimeRunRecordSchema),
   activations: z.array(runtimeActivationRecordSchema),
@@ -96,7 +94,6 @@ export const CardDiffResponseSchema = z.object({ diff: z.unknown(), from: z.numb
 
 export const RuntimeStatusResponseSchema = z.object({
   runtime: runtimeStatusSchema,
-  paused: z.boolean(),
   currentCardId: z.string().nullable(),
   goalCount: z.number().int().nonnegative(),
   lastTickAt: z.string().nullable(),

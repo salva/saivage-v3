@@ -233,9 +233,7 @@ describe('Core schemas still validate expected records', () => {
       pid: 123,
       started_at: '2025-01-01T00:00:00.000Z',
       active_card_run: null,
-      paused: false,
       updated_at: '2025-01-01T00:00:00.000Z',
-      runtime_intent: { status: 'stopped', updated_at: '2025-01-01T00:00:00.000Z', source_command_id: null, reason: null },
       runtime_commands: [],
       runtime_runs: [],
       runtime_activations: [],
@@ -251,7 +249,7 @@ describe('Core schemas still validate expected records', () => {
         join(root, '.saivage', 'runtime', 'state.json'),
         JSON.stringify({ status: 'idle', queue: [] }, null, 2),
       );
-      expect(readRuntimeState(root)).toBeNull();
+      expect(() => readRuntimeState(root)).toThrow(/both authoritative/);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

@@ -8,7 +8,6 @@ export interface RuntimeControlResult {
   code: 'paused' | 'resumed' | 'unavailable' | 'error';
   statusCode?: number;
   status?: string;
-  paused?: boolean;
   error?: string;
   message?: string;
   state?: RuntimeState;
@@ -34,7 +33,7 @@ export function pauseRuntimeCommand(_projectRoot: string, effects: PauseResumeEf
 
     effects.setLifecyclePaused?.(true);
     effects.setProcessBuffering?.(true);
-    effects.applyStatePatch(buildPauseRuntimeStatePatch(effects.now()));
+    effects.applyStatePatch(buildPauseRuntimeStatePatch());
     effects.emitRuntimeEvent?.('paused');
     effects.logEvent?.('paused');
     effects.sendNotification?.('Runtime was paused.');
@@ -62,7 +61,6 @@ export function resumeRuntimeCommand(_projectRoot: string, effects: PauseResumeE
       ok: true,
       code: 'resumed',
       status: state.status,
-      paused: state.paused,
       state,
     };
   } catch (err) {
@@ -87,7 +85,6 @@ function pausedResult(state: RuntimeState): RuntimeControlResult {
     ok: true,
     code: 'paused',
     status: state.status,
-    paused: state.paused,
     state,
   };
 }

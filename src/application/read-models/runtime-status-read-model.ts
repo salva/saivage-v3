@@ -5,7 +5,6 @@ import type { RuntimeStatus } from '../../schemas/index.js';
 
 export interface RuntimeStatusReadModel {
   runtime: RuntimeStatus;
-  paused: boolean;
   currentCardId: string | null;
   goalCount: number;
   lastTickAt: string | null;
@@ -26,7 +25,6 @@ export function buildRuntimeStatusReadModel(inputs: RuntimeStatusInputs): Runtim
   const status = inputs.runtimeApi.getStatus();
   return {
     runtime: status.status,
-    paused: status.paused,
     currentCardId: status.currentCardId,
     goalCount: status.goalCount,
     lastTickAt: status.lastTickAt,

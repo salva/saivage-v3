@@ -7,7 +7,6 @@ export type CardStatus = typeof cardStatusValues[number];
 
 export const cardActionValues = ['card.start', 'card.create', 'card.cancel', 'card.delete', 'card.restart', 'card.reorder_child'] as const;
 export type CardAction = typeof cardActionValues[number];
-export type RuntimeIntentStatus = 'running' | 'stopped';
 export type RuntimeCommandName = 'start_project' | 'stop_project';
 export type RuntimeCommandStatus = 'accepted' | 'rejected' | 'completed';
 export type RuntimeRunKind = 'root' | 'child';
@@ -17,7 +16,6 @@ export type RuntimeDispatchOwnership =
   | { kind: 'direct'; source: 'project_root' | 'operator' | 'startup_repair' }
   | { kind: 'activation'; activation_id: string; parent_run_id: string; parent_card_id: string; parent_session_id: string; parent_tool_call_id: string };
 export interface ActionableErrorEnvelope { code: string; message: string; acceptedValues?: string[]; currentState?: Record<string, unknown>; nextAction: string; docsRef?: string; runId?: string | null; sessionId?: string | null; cardId?: string | null; parentCardId?: string | null; childCardId?: string | null; }
-export interface RuntimeIntent { status: RuntimeIntentStatus; updated_at: string; source_command_id: string | null; reason?: string | null; }
 export interface RuntimeCommandRecord { command_id: string; command: RuntimeCommandName; status: RuntimeCommandStatus; requested_at: string; completed_at?: string | null; source: 'operator' | 'tool' | 'runtime' | 'analyst'; error?: ActionableErrorEnvelope | null; }
 export type RuntimeLedgerActivationOutcome =
   | { kind: 'completed'; outcome: 'done'; card_id: string; completed_at: string }
@@ -100,14 +98,14 @@ export interface EntityLink { entity_type: 'card' | 'process' | 'artifact' | 'at
 export interface AgentMessage { id: string; session_id: string; role: MessageRole; kind: MessageKind; content: string; round_id: string; message_index: number; block_index: number; tool?: string; tool_call_id?: string; timestamp: string; links?: EntityLink[]; model_spec?: string; requested_model_spec?: string; }
 export type ActivationCompletionOutcome = 'done' | 'failed' | 'blocked' | 'cancelled' | 'timed_out' | 'needs_verification';
 export interface ActivationCompletionEnvelopeV1 { kind: 'activate_card_completion'; version: 1; child_card_id: string; outcome: ActivationCompletionOutcome; summary: string; result?: Record<string, unknown> | null; review?: ReviewAssessment | null; evidence_card_ids?: string[]; error?: string | null; completed_by_session_id?: string | null; success: boolean; cardId: string; failure_kind?: string; }
-export type RuntimeStatus = 'idle' | 'running' | 'paused' | 'error';
+export type RuntimeStatus = 'stopped' | 'running' | 'paused' | 'error';
 export type RuntimeRunStatus = RuntimeStatus | 'stopped' | 'cancelled';
 export type ActiveCardRunRuntimeStatus = 'running';
 export type ActiveCardRunPhase = 'planner' | 'executor' | 'reviewer';
 export interface ActiveCardRun { card_id: string; card_type: CardType; ownership: RuntimeDispatchOwnership; runtime_status: ActiveCardRunRuntimeStatus; phase: ActiveCardRunPhase; caller_session_id: string | null; caller_tool_call_id: string | null; planner_session_id?: string | null; executor_session_id?: string | null; reviewer_session_id?: string | null; correction_attempts: number; started_at: string; last_turn_at: string; }
 export interface ProjectRunCompletedPayload { project_card_id: string; result: 'done' | 'failed' | 'blocked'; summary: string; failure_kind?: string; blocked_reason?: string; }
 export interface HandoffSummary { session_id: string; role: AgentRole; last_action: string; next_action: string; context_summary: string; }
-export interface RuntimeState { status: RuntimeStatus; project_id: 'project'; pid: number; started_at: string; active_card_run: ActiveCardRun | null; paused: boolean; paused_at?: string | null; updated_at: string; last_tick_at?: string | null; runtime_intent: RuntimeIntent; runtime_commands: RuntimeCommandRecord[]; runtime_runs: RuntimeRunRecord[]; runtime_activations: RuntimeActivationRecord[]; }
+export interface RuntimeState { status: RuntimeStatus; project_id: 'project'; pid: number; started_at: string; active_card_run: ActiveCardRun | null; updated_at: string; last_tick_at?: string | null; runtime_commands: RuntimeCommandRecord[]; runtime_runs: RuntimeRunRecord[]; runtime_activations: RuntimeActivationRecord[]; }
 export type SourceKind = 'command_output' | 'file' | 'download' | 'web' | 'api' | 'tool';
 export type ReviewStatus = 'passed' | 'blocked' | 'sanitized';
 export type RiskLevel = 'low' | 'medium' | 'high';

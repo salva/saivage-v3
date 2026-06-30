@@ -8,14 +8,12 @@ export type StartProjectResult =
   | {
       success: true;
       command: RuntimeCommandRecord;
-      intent: RuntimeState['runtime_intent'];
       run: RuntimeRunRecord;
     }
   | { success: false; command: RuntimeCommandRecord; error: ActionableErrorEnvelope };
 export interface StopProjectResult {
   success: true;
   command: RuntimeCommandRecord;
-  intent: RuntimeState['runtime_intent'];
   run?: RuntimeRunRecord;
 }
 
@@ -29,7 +27,6 @@ export interface RuntimeApi {
   subscribe(options: SubscriptionOptions): Subscription;
   getStatus(): {
     status: RuntimeStatus;
-    paused: boolean;
     currentCardId: string | null;
     goalCount: number;
     lastTickAt: string | null;

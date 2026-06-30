@@ -20,14 +20,13 @@ describe('runtime mutations', () => {
         kind: 'patchRuntimeState',
         patch: {
           status: 'running',
-          paused: true,
           active_card_run: { card_id: 'goal-a', card_type: 'goal', ownership: { kind: 'direct', source: 'project_root' },
   runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:goal-a', correction_attempts: 0, started_at: '2026-01-01T00:00:00.000Z', last_turn_at: '2026-01-01T00:00:00.000Z' },
         },
       });
 
       expect(readRuntimeState(projectRoot)).toEqual(expect.objectContaining({
-        paused: true,
+        status: 'running',
         active_card_run: expect.objectContaining({ card_id: 'goal-a', planner_session_id: 'planner:goal-a' }),
       }));
     } finally {
@@ -108,11 +107,11 @@ describe('runtime mutations', () => {
 
       createRuntimeStateMutationPort(projectRoot).apply({
         kind: 'replaceRuntimeState',
-        state: { ...state, paused: true, updated_at: '2026-01-01T00:00:00.000Z' },
+        state: { ...state, status: 'paused', updated_at: '2026-01-01T00:00:00.000Z' },
       });
 
       expect(readRuntimeState(projectRoot)).toEqual(expect.objectContaining({
-        paused: true,
+        status: 'paused',
         updated_at: '2026-01-01T00:00:00.000Z',
       }));
     } finally {
@@ -144,7 +143,7 @@ describe('runtime mutations', () => {
       const updatedRun = mutations.apply({
         kind: 'updateRuntimeRun',
         runId: run.run_id,
-        updates: { phase: 'completed', runtime_status: 'idle', outcome: { kind: 'completed', result: 'done', finished_at: '2026-01-01T00:01:00.000Z' } },
+        updates: { phase: 'completed', runtime_status: 'stopped', outcome: { kind: 'completed', result: 'done', finished_at: '2026-01-01T00:01:00.000Z' } },
       });
       const activation = mutations.apply({
         kind: 'upsertRuntimeActivation',
@@ -165,7 +164,7 @@ describe('runtime mutations', () => {
       expect(updatedRun).toEqual(expect.objectContaining({
         run_id: run.run_id,
         phase: 'completed',
-        runtime_status: 'idle',
+        runtime_status: 'stopped',
         outcome: { kind: 'completed', result: 'done', finished_at: '2026-01-01T00:01:00.000Z' },
       }));
       expect(activation).toEqual(expect.objectContaining({
@@ -181,7 +180,7 @@ describe('runtime mutations', () => {
     }
   });
 
-  it('mutates runtime commands and intent through the mutation port', () => {
+  it('mutates runtime commands through the mutation port', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'runtime-mutations-commands-'));
     try {
       initProjectTree(projectRoot);
@@ -189,22 +188,10 @@ describe('runtime mutations', () => {
 
       const mutations = createRuntimeStateMutationPort(projectRoot);
       const command = mutations.apply({ kind: 'appendRuntimeCommand', commandKind: 'start_project', source: 'operator' });
-      const state = mutations.apply({
-        kind: 'upsertRuntimeIntent',
-        status: 'running',
-        sourceCommandId: command.command_id,
-        reason: 'test start',
-      });
 
       expect(command).toEqual(expect.objectContaining({ command: 'start_project', status: 'accepted' }));
-      expect(state.runtime_intent).toEqual(expect.objectContaining({
-        status: 'running',
-        source_command_id: command.command_id,
-        reason: 'test start',
-      }));
       expect(readRuntimeState(projectRoot)).toEqual(expect.objectContaining({
         runtime_commands: [expect.objectContaining({ command_id: command.command_id })],
-        runtime_intent: expect.objectContaining({ source_command_id: command.command_id }),
       }));
     } finally {
       rmSync(projectRoot, { recursive: true, force: true });
@@ -282,14 +269,14 @@ describe('runtime mutations', () => {
         kind: 'mergeRuntimeStateSnapshot',
         state: {
           ...staleSnapshot,
-          paused: true,
+          status: 'paused',
           updated_at: '2026-01-01T00:03:00.000Z',
         },
       });
 
-      expect(merged).toEqual(expect.objectContaining({ paused: true }));
+      expect(merged).toEqual(expect.objectContaining({ status: 'paused' }));
       expect(readRuntimeState(projectRoot)).toEqual(expect.objectContaining({
-        paused: true,
+        status: 'paused',
         runtime_commands: [expect.objectContaining({ command_id: command.command_id })],
         runtime_runs: [expect.objectContaining({ run_id: run.run_id })],
       }));

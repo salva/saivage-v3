@@ -9,14 +9,15 @@ import type { RuntimeState } from '../../src/schemas/index.js';
 
 function runtimeState(overrides: Partial<RuntimeState> = {}): RuntimeState {
   return {
-    status: 'idle',
+    status: 'stopped',
     project_id: 'project',
+    pid: 1234,
     started_at: '2026-01-01T00:00:00.000Z',
-    paused: false,
-    paused_at: null,
-    queue: [],
-    running_processes: [],
+    active_card_run: null,
     updated_at: '2026-01-01T00:00:00.000Z',
+    runtime_commands: [],
+    runtime_runs: [],
+    runtime_activations: [],
     ...overrides,
   } as RuntimeState;
 }
@@ -53,7 +54,7 @@ describe('runtime-control-commands', () => {
       logEvent,
     }));
 
-    expect(result).toMatchObject({ ok: true, code: 'paused', status: 'paused', paused: true });
+    expect(result).toMatchObject({ ok: true, code: 'paused', status: 'paused' });
     expect(setLifecyclePaused).toHaveBeenCalledWith(true);
     expect(setProcessBuffering).toHaveBeenCalledWith(true);
     expect(emitRuntimeEvent).toHaveBeenCalledWith('paused');
@@ -64,7 +65,7 @@ describe('runtime-control-commands', () => {
     const setLifecyclePaused = jest.fn();
     const emitRuntimeEvent = jest.fn();
     const logEvent = jest.fn();
-    const result = resumeRuntimeCommand('/project', effects(runtimeState({ status: 'paused', paused: true, paused_at: '2026-01-01T00:00:00.000Z' }), {
+    const result = resumeRuntimeCommand('/project', effects(runtimeState({ status: 'paused' }), {
       setLifecyclePaused,
       applyStatePatch: () => {
         try { throw new Error('state write failed'); } catch { void 0; }

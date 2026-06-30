@@ -146,12 +146,11 @@ describe('analyst inspection tools secret-path policy', () => {
     }
   });
 
-  it('write_file rejects brief record writes while runtime is not paused', async () => {
+  it('write_file commits a brief record while runtime is stopped', async () => {
     const root = setupCardProject();
     try {
       const result = await write_file(ctx(root), { path: 'record://brief.md?card=project&v=next', content: UPDATED_BRIEF });
-      expect(result.success).toBe(false);
-      expect(result.error).toContain('requires the runtime to be paused');
+      expect(result.success).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -160,7 +159,7 @@ describe('analyst inspection tools secret-path policy', () => {
   it('write_file commits a new closed brief record while paused and does not audit content', async () => {
     const root = setupCardProject();
     try {
-      updateRuntimeState(root, { status: 'paused', paused: true, paused_at: new Date().toISOString() });
+      updateRuntimeState(root, { status: 'paused' });
       const result = await write_file(ctx(root), { path: 'record://brief.md?card=project&v=next', content: UPDATED_BRIEF });
       expect(result.success).toBe(true);
       expect(result.data).toEqual(expect.objectContaining({ card_id: 'project', record_url: 'record://brief.md?card=project&v=2', written: true }));
@@ -182,7 +181,7 @@ describe('analyst inspection tools secret-path policy', () => {
   it('write_file rejects non-brief, non-record, and non-next writes', async () => {
     const root = setupCardProject();
     try {
-      updateRuntimeState(root, { status: 'paused', paused: true, paused_at: new Date().toISOString() });
+      updateRuntimeState(root, { status: 'paused' });
       await expect(write_file(ctx(root), { path: '/tmp/brief.md', content: UPDATED_BRIEF })).resolves.toEqual(expect.objectContaining({ success: false, error: expect.stringContaining('only writes record://brief.md') }));
       await expect(write_file(ctx(root), { path: 'record://status.md?card=project&v=next', content: UPDATED_BRIEF })).resolves.toEqual(expect.objectContaining({ success: false, error: expect.stringContaining('only supports record://brief.md') }));
       await expect(write_file(ctx(root), { path: 'record://brief.md?card=project&v=1', content: UPDATED_BRIEF })).resolves.toEqual(expect.objectContaining({ success: false, error: expect.stringContaining('must use v=next') }));
@@ -197,7 +196,7 @@ describe('analyst inspection tools secret-path policy', () => {
       const result = await read_file(ctx(root), { path: 'record://brief.md?card=../project' });
       expect(result.success).toBe(false);
       expect(result.error).toContain('Invalid card id');
-      expect(readFileSync(join(root, '.saivage', 'outputs', 'cards', 'project', 'brief', '1.md'), 'utf-8')).toContain('Test project root');
+      expect(readFileSync(join(root, '.saivage', 'outputs', 'cards', 'project', 'brief', '1.md'), 'utf-8')).toContain('canonical project objective');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

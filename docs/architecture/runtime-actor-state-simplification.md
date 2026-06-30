@@ -158,7 +158,7 @@ Pause is a reversible admission gate.
 - It stops new LLM/provider calls at the next safe point.
 - It does not imply project cancellation.
 - It does not imply process termination.
-- Analyst card mutation is allowed while paused after the safe point.
+- Analyst card mutation is allowed while `stopped`, and while `paused` after the safe point.
 
 ### 7.2 Stop
 
@@ -179,7 +179,7 @@ Project initialization should create both:
 
 This removes the special Analyst bootstrap exception for a missing root project card.
 
-The current Analyst path allows creating the first root project card without paused runtime. That is a wart caused by incomplete initialization. The target behavior is:
+The previous Analyst path allowed creating the first root project card without a safe stopped/paused runtime. That was a wart caused by incomplete initialization. The target behavior is:
 
 - `saivage init` or runtime first-run setup creates the root `project` card.
 - The Analyst updates the existing root card brief/objective while runtime status is `stopped` or `paused`.

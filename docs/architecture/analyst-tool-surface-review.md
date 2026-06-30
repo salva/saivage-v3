@@ -4,11 +4,11 @@ Status: proposal. Authority: [`docs/spec/system-specification.md`](../spec/syste
 
 ## Goal
 
-The Analyst is the operator-facing control surface for card steering and runtime diagnosis. The current implementation is too narrow: it lets the Analyst inspect the tree, edit objective fields, and bootstrap the missing root project card, but it does not let the operator directly manage cards while the runtime is paused. That forces simple operator intent through planners even when no actor is executing and no runtime-safety issue exists.
+The Analyst is the operator-facing control surface for card steering and runtime diagnosis. The previous implementation was too narrow: it let the Analyst inspect the tree and edit objective fields, but it did not let the operator directly manage cards while the runtime was safely stopped or paused. That forced simple operator intent through planners even when no actor was executing and no runtime-safety issue existed.
 
 Target model:
 
-- The Analyst may manage cards while the runtime is paused, including cards outside the active planner's immediate scope.
+- The Analyst may manage cards while runtime status is `stopped` or `paused`, including cards outside the active planner's immediate scope.
 - The Analyst must not directly dispatch work or bypass runtime lifecycle ownership.
 - The Analyst must not directly cancel or mutate the lifecycle state of a running card.
 - For running work, the Analyst should prefer notifications to the responsible card/planner and use Pause or Shutdown when immediate runtime control is needed.
@@ -22,7 +22,7 @@ The implementation already has useful pieces but does not expose the desired mod
 
 | Area | Current state |
 |---|---|
-| `create_card` | Analyst can only bootstrap missing root `project`; planners create child cards. |
+| `create_card` | Analyst can create child cards only when runtime status is `stopped` or `paused`; planners create child cards during autonomous runs. |
 | `edit_card` | Analyst can edit objective/metadata fields only: `title`, `description`, `tags`, `priority`, `urgency`, `acceptance`, `depends_on`. Status, parent, type, lifecycle, and structure are denied. |
 | `delete_card` | Implementation exists and uses the permission matrix, but the tool is not exposed to the Analyst surface. It deletes records directly instead of using the archive path used by planner deletion. |
 | `reorder_child` | Implementation exists but is planner-only. |
@@ -34,7 +34,7 @@ The existing `propagateChange` behavior is the right foundation for Analyst edit
 
 ## Authority Matrix
 
-The Analyst card-management boundary should be state-sensitive and runtime-state-sensitive. Analyst card mutations require a paused runtime. "Allowed" means the Analyst may directly mutate durable card state through audited tools while paused. "Notify" means the Analyst should queue context for delivery when the runtime is unpaused.
+The Analyst card-management boundary should be state-sensitive and runtime-state-sensitive. Analyst card mutations require runtime status `stopped` or `paused`. "Allowed" means the Analyst may directly mutate durable card state through audited tools while stopped or paused. "Notify" means the Analyst should queue context for delivery when the runtime resumes or starts.
 
 | Card status | Create child | Write brief | Reorder siblings | Cancel | Delete | Notes |
 |---|---:|---:|---:|---:|---:|---|
@@ -47,7 +47,7 @@ The Analyst card-management boundary should be state-sensitive and runtime-state
 | `needs_verification` | allowed | allowed | allowed | allowed | allowed | Treat as non-running review/rework state. |
 | `running` | no | allowed while paused | no | notify | no | Runtime is paused, so the actor is not executing; touched records must be closed and resume notifications are queued. |
 
-Subtree operations inherit the strictest state in the subtree. If any descendant is `running`, direct delete, reorder, and cancel are denied for the subtree root. `brief.md` writes may target running cards while paused when the touched record is closed and schema-valid. Resume notifications are queued for affected cards.
+Subtree operations inherit the strictest state in the subtree. If any descendant is `running`, direct delete, reorder, and cancel are denied for the subtree root. `brief.md` writes may target running cards while runtime status is `paused` when the touched record is closed and schema-valid. Resume notifications are queued for affected cards.
 
 ## Proposed Tool Surface
 
@@ -57,8 +57,8 @@ This section is intentionally limited to card handling. It does not propose remo
 
 | Tool | Analyst scope | Behavior |
 |---|---|---|
-| `create_card` | Any non-running parent; root `project` when missing. | Create a child under an existing non-running parent with initial metadata and required initial records. Does not dispatch work. Runs propagation for the parent/ancestor chain. |
-| `write_file` for `record://brief.md` | Any card while runtime is paused. | Commit approved `brief.md` updates. Touched records must be closed. Validation, commit, notification registration, and propagation run once. |
+| `create_card` | Any existing non-running parent while runtime status is `stopped` or `paused`. | Create a child under an existing non-running parent with initial metadata and required initial records. Does not dispatch work. Runs propagation for the parent/ancestor chain. |
+| `write_file` for `record://brief.md` | Any card while runtime status is `stopped` or `paused`. | Commit approved `brief.md` updates. Touched records must be closed. Validation, commit, notification registration, and propagation run once. |
 | `reorder_child` | Any non-running parent whose children are not running. | Reorder children by permutation. Propagate on the parent. |
 | `cancel_card` | Non-running `backlog`, `changed`, `blocked`, `needs_verification`. | Mark obsolete dormant work as `cancelled`. Deny running and terminal cards. Propagate on parent/ancestors. |
 | `delete_card` | Any subtree with no running member and status in deletable states. | Remove from the active tree and move the full card record namespaces to archive storage for forensics. |
@@ -69,11 +69,11 @@ Detailed card-tool availability:
 
 | Tool | Should be available when | Should be denied when | Replacement guidance |
 |---|---|---|---|
-| `create_card` | Root `project` is missing; or target parent exists, is non-running, and no running descendant would be structurally disrupted. | Parent is `running`; parent is missing; requested type/parent would violate tree invariants; creation would imply dispatching work immediately. | If parent is running, `queue_notification` to the active planner/card. |
-| `write_file` for `record://brief.md` | Runtime is paused; target exists; latest brief is closed; slot is approved for Analyst writes. | Runtime is not paused; touched slot is open; content fails schema validation; slot is not Analyst-writable. | For unpaused runtime, pause first or use `queue_notification`. |
+| `create_card` | Runtime status is `stopped` or `paused`; target parent exists, is non-running, and no running descendant would be structurally disrupted. | Parent is `running`; parent is missing; requested type/parent would violate tree invariants; creation would imply dispatching work immediately. | If parent is running, `queue_notification` to the active planner/card. |
+| `write_file` for `record://brief.md` | Runtime status is `stopped` or `paused`; target exists; latest brief is closed; slot is approved for Analyst writes. | Runtime status is `running` or `error`; touched slot is open; content fails schema validation; slot is not Analyst-writable. | For running work, pause first or use `queue_notification`. |
 | `reorder_child` | Parent exists and is non-running; child list is a permutation of current children; no listed child is running. | Parent or any reordered child is `running`; child set mismatch. | Notify active planner with preferred order. |
 | `cancel_card` | Target/subtree is non-running and status is `backlog`, `changed`, `blocked`, or `needs_verification`. | Target/subtree includes `running`; target is `done`, `failed`, or `cancelled`; target is root project unless the whole runtime is stopped and operator confirms. | For running work, `queue_notification`; for global stop, `pause_runtime` or `stop_project`. |
-| `delete_card` | Runtime is paused; target/subtree has no running card; operator intent is removal from active plan. | Runtime is not paused; target/subtree includes `running`; target is root project; deletion would orphan dependencies without explicit handling. | `cancel_card` if the work should remain visible as cancelled; `write_file` to update `brief.md` or `create_card` if the work should be redone differently. |
+| `delete_card` | Runtime status is `stopped` or `paused`; target/subtree has no running card; operator intent is removal from active plan. | Runtime status is `running` or `error`; target/subtree includes `running`; target is root project; deletion would orphan dependencies without explicit handling. | `cancel_card` if the work should remain visible as cancelled; `write_file` to update `brief.md` or `create_card` if the work should be redone differently. |
 
 ### Card Inspection And Coordination
 
@@ -143,10 +143,10 @@ The Analyst prompt should describe both authority and restraint.
 
 Required guidance:
 
-- You may directly manage cards while the runtime is paused when the operator asks for a concrete tree change.
+- You may directly manage cards while runtime status is `stopped` or `paused` when the operator asks for a concrete tree change.
 - You have broader card-tree authority than planners; planners are scoped to their active planning context.
 - Prefer `queue_notification` over direct mutation when a card is running, when intent is advisory, or when an active agent can resolve the issue better than a forced tree edit.
-- Mutating tools require paused runtime.
+- Mutating tools require runtime status `stopped` or `paused`.
 - Running-card `brief.md` writes are permitted while paused if touched records are closed; structural delete/reorder/cancel of running subtrees remains denied.
 - Use Pause or Shutdown for immediate runtime control; do not emulate those controls with card mutations.
 - Explain after a direct mutation which running ancestor or planner was notified, if any.
@@ -155,7 +155,7 @@ This keeps the Analyst powerful for dormant cards while avoiding surprise interf
 
 ## Implementation Plan
 
-1. Update specs to authorize Analyst direct management of cards while the runtime is paused, including permissive `brief.md` writes to running cards whose touched records are closed.
+1. Update specs to authorize Analyst direct management of cards while runtime status is `stopped` or `paused`, including permissive `brief.md` writes to running cards whose touched records are closed while paused.
 2. Extend `cardActionValues` and permission logic for `card.create`, `card.reorder_child`, `card.delete`, and state-sensitive Analyst `card.cancel`.
 3. Implement public `delete_card` as archive-backed active-tree removal.
 4. Expose Analyst `create_card`, `reorder_child`, `cancel_card`, and `delete_card` with runtime-paused and state preflight checks; use generic `write_file` for `brief.md` edits.
@@ -173,7 +173,7 @@ No compatibility aliases are needed. Remove or rename old internal tool paths as
 
 | Question | Proposed answer |
 |---|---|
-| Should Analyst edit running card text directly? | Yes while the runtime is paused, but only through closed, schema-valid writable records such as `brief.md`, with resume notifications queued for affected cards. |
+| Should Analyst edit running card text directly? | Yes while runtime status is `paused`, but only through closed, schema-valid writable records such as `brief.md`, with resume notifications queued for affected cards. |
 | Should `done` cards be cancellable? | No. Use `delete_card` to remove them from the active project, or update `brief.md`/create replacement work when the scope changes. |
 | Should create under terminal parents be allowed? | Yes, but the parent should flip to `changed` so the new child is incorporated into resumed planning/review. |
 | Should archive be reversible? | Not in this proposal. Archive preserves audit state, but restoring archived cards needs a separate design. |
@@ -185,4 +185,4 @@ No compatibility aliases are needed. Remove or rename old internal tool paths as
 
 ## Conclusion
 
-The Analyst should become the global operator for card management while the runtime is paused. Running cards are not executing while paused, so their closed writable document records may be updated through `write_file`, but structural delete/reorder/cancel of running subtrees remains protected. The main implementation work is making card documents addressable through `record://` URLs, exposing audited paused-runtime card mutations, and notifying affected cards on resume.
+The Analyst should become the global operator for card management while runtime status is `stopped` or `paused`. Running cards are not executing while paused, so their closed writable document records may be updated through `write_file`, but structural delete/reorder/cancel of running subtrees remains protected. The main implementation work is making card documents addressable through `record://` URLs, exposing audited stopped-or-paused runtime card mutations, and notifying affected cards on resume/start.

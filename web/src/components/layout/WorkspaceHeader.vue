@@ -183,7 +183,7 @@ const cueClass = computed(() => {
   color: var(--accent);
   border-color: var(--accent);
 }
-.rt-idle,
+.rt-stopped,
 .rt-unknown {
   color: var(--text-muted);
   border-color: var(--border-strong);

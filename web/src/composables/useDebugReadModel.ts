@@ -7,7 +7,6 @@ import {
   selectCardStatusEntries,
   selectDebugCardChildren,
   selectMaxStatusCount,
-  selectRuntimeDispatchLabel,
   selectRuntimeStatusLabel,
   selectRuntimeStatusTone,
   selectSortedProcesses,
@@ -36,7 +35,6 @@ export function useDebugReadModel(debugStore: ReturnType<typeof useDebugStore>, 
   const runtimeStatusTone = computed(() => selectRuntimeStatusTone(debugStore.debugRuntime as RuntimeState | null));
   const currentCardId = computed(() => selectCurrentCardId(debugStore.debugRuntime as RuntimeState | null));
   const currentAgentSessionId = computed(() => selectCurrentAgentSessionId(debugStore.debugRuntime as RuntimeState | null));
-  const runtimeDispatchLabel = computed(() => selectRuntimeDispatchLabel(debugStore.debugRuntime as RuntimeState | null));
   const operatorPanelBusy = computed(() => debugStore.loading);
   const operatorWarningBannerMessage = computed<string | null>(() => null);
   const sortedProcesses = computed(() => selectSortedProcesses(debugStore.processes));
@@ -64,7 +62,6 @@ export function useDebugReadModel(debugStore: ReturnType<typeof useDebugStore>, 
     runtimeStatusTone,
     currentCardId,
     currentAgentSessionId,
-    runtimeDispatchLabel,
     operatorPanelBusy,
     operatorWarningBannerMessage,
     sortedProcesses,

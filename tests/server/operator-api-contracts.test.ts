@@ -4,14 +4,11 @@ import { internalDebugRoutes } from '../../src/server/routes/chats-files-debug.j
 import { LiveSyncClientFrameSchema, LiveSyncInvalidateFrameSchema } from '../../src/contracts/operator-events.js';
 
 const runtimeState = {
-  status: 'idle',
+  status: 'stopped',
   project_id: 'project',
   started_at: '2026-01-01T00:00:00.000Z',
   active_card_run: null,
-  paused: false,
-  paused_at: null,
   updated_at: '2026-01-01T00:00:01.000Z',
-  runtime_intent: { status: 'stopped', updated_at: '2026-01-01T00:00:01.000Z', source_command_id: null, reason: null },
   runtime_commands: [],
   runtime_runs: [],
   runtime_activations: [],
@@ -37,13 +34,6 @@ const runtimeCommand = {
   completed_at: '2026-01-01T00:00:01.000Z',
   source: 'operator',
   error: null,
-};
-
-const runtimeIntent = {
-  status: 'running',
-  updated_at: '2026-01-01T00:00:01.000Z',
-  source_command_id: 'cmd-1',
-  reason: 'operator start_project',
 };
 
 const runtimeRun = {
@@ -165,7 +155,6 @@ describe('operator API contract registry', () => {
     expect(parseOperatorResponse('runtime.getState', { projectRoot: '/work/test', projectId: 'test', runtime: runtimeState, cardIndex: { total: 1, byStatus: { backlog: 1 }, byType: { code: 1 } }, serverAvailability }).serverAvailability?.components.mcp.state).toBe('idle');
     expect(parseOperatorResponse('runtime.status', {
       runtime: 'running',
-      paused: false,
       currentCardId: 'card-1',
       goalCount: 1,
       lastTickAt: null,
@@ -206,7 +195,6 @@ describe('operator API contract registry', () => {
   it('rejects legacy runtime status and unknown actor vocabulary', () => {
     const response = {
       runtime: 'running',
-      paused: false,
       currentCardId: 'card-1',
       goalCount: 1,
       lastTickAt: null,

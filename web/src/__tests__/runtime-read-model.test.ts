@@ -10,9 +10,6 @@ function runtime(overrides: Partial<RuntimeState> = {}): RuntimeState {
     started_at: '2025-01-01T00:00:00Z',
     updated_at: '2025-01-01T00:00:00Z',
     active_card_run: { card_id: 'goal', card_type: 'goal', ownership: { kind: 'direct', source: 'operator' }, runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:goal', correction_attempts: 0, started_at: '2025-01-01T00:00:00Z', last_turn_at: '2025-01-01T00:00:00Z' },
-    paused: false,
-    paused_at: null,
-    runtime_intent: { status: 'running', updated_at: '2025-01-01T00:00:00Z', source_command_id: null },
     runtime_runs: [],
     runtime_activations: [],
     runtime_commands: [],
@@ -50,7 +47,7 @@ describe('runtime-read-model', () => {
   });
 
   it('single-sources status and live update labels', () => {
-    expect(selectRuntimeStatusLabel(runtime({ paused: true }))).toBe('paused');
+    expect(selectRuntimeStatusLabel(runtime({ status: 'paused' }))).toBe('paused');
     expect(selectCurrentCardId(runtime())).toBe('goal');
     expect(selectCurrentAgentSessionId(runtime())).toBe('planner:goal');
     expect(selectLiveUpdateState({ connectionState: 'no-token', unauthorized: false, stale: false, wsStale: false })).toBe('offline');

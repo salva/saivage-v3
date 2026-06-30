@@ -30,6 +30,8 @@ function readJsonl(path: string): Array<Record<string, unknown>> {
 }
 
 function createProject(store: CardStore): CardRecord {
+  const existing = store.read('project');
+  if (existing) return existing;
   return store.create({ type: 'project', parent: null, depth: 0, title: 'project', brief: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
 }
 
@@ -167,19 +169,19 @@ describe('SupervisorRuntimeApi', () => {
     const api = createSupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), now: () => '2026-06-12T00:00:00.000Z' });
 
     await api.start();
-    expect(api.getStatus()).toMatchObject({ status: 'idle', paused: false, currentCardId: null });
+    expect(api.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null });
     api.pause();
-    expect(api.getStatus()).toMatchObject({ status: 'idle', paused: false });
+    expect(api.getStatus()).toMatchObject({ status: 'stopped' });
 
     const start = await api.startProject('operator');
     expect(start.success).toBe(true);
     if (!start.success) throw new Error('Expected startProject to succeed.');
     expect(start.run).toMatchObject({ phase: 'blocked', runtime_status: 'stopped', finished_at: null, outcome: { kind: 'blocked', error: 'waiting for operator' } });
-    expect(api.getStatus()).toMatchObject({ status: 'idle', paused: false, currentCardId: null });
+    expect(api.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null });
     api.pause();
-    expect(api.getStatus()).toMatchObject({ status: 'idle', paused: false, currentCardId: null });
+    expect(api.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null });
     api.resume();
-    expect(api.getStatus()).toMatchObject({ status: 'idle', paused: false, currentCardId: null });
+    expect(api.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null });
     expect(api.getActorRuntimeReadModel()).toMatchObject({
       pauseMode: 'idle',
       cards: [{ cardId: 'project', actorState: 'blocked' }],
@@ -201,7 +203,7 @@ describe('SupervisorRuntimeApi', () => {
     if (!result.success) throw new Error('Expected startProject to succeed.');
 
     expect(result.run).toMatchObject({ phase: 'blocked', runtime_status: 'stopped', finished_at: null, outcome: { kind: 'blocked', error: 'waiting for operator' } });
-    expect(api.getStatus()).toMatchObject({ status: 'idle', paused: false, currentCardId: null, goalCount: 0 });
+    expect(api.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null, goalCount: 0 });
     expect(api.getActorRuntimeReadModel()).toMatchObject({ pauseMode: 'idle', activeWork: 'none' });
   }));
 
@@ -216,7 +218,7 @@ describe('SupervisorRuntimeApi', () => {
     if (!result.success) throw new Error('Expected startProject to succeed.');
 
     expect(result.run).toMatchObject({ phase: 'failed', runtime_status: 'stopped', finished_at: '2026-06-12T00:00:00.000Z', outcome: { kind: 'completed', result: 'failed' } });
-    expect(api.getStatus()).toMatchObject({ status: 'idle', paused: false, currentCardId: null, goalCount: 0 });
+    expect(api.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null, goalCount: 0 });
     expect(api.getActorRuntimeReadModel()).toMatchObject({ pauseMode: 'idle', activeWork: 'none' });
   }));
 
@@ -278,7 +280,7 @@ describe('SupervisorRuntimeApi', () => {
 
     await api.start();
 
-    expect(api.getStatus()).toMatchObject({ status: 'idle', currentCardId: null });
+    expect(api.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null });
     expect(readRecoveryDiagnostics(projectRoot)).toMatchObject({
       generated_at: '2026-06-12T00:00:00.000Z',
       diagnostics: expect.arrayContaining([
@@ -502,7 +504,6 @@ describe('SupervisorRuntimeApi', () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.command).toMatchObject({ command: 'start_project', status: 'completed', command_id: 'runtime-command-1' });
-      expect(result.intent).toEqual({ status: 'running', updated_at: '2026-06-12T00:00:00.000Z', source_command_id: 'runtime-command-1', reason: null });
       expect(result.run).toMatchObject({ run_id: 'runtime-run-1', card_id: 'project', phase: 'blocked', runtime_status: 'stopped', outcome: { kind: 'blocked', error: 'waiting for operator' } });
     }
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toEqual(expect.arrayContaining(['card:project', 'planner:project', 'processor:project', 'supervisor']));
@@ -525,7 +526,7 @@ describe('SupervisorRuntimeApi', () => {
     const result = await api.startProject('operator');
 
     expect(result.success).toBe(true);
-    if (result.success) expect(result.run).toMatchObject({ phase: 'completed', runtime_status: 'idle', outcome: { kind: 'completed', result: 'done' } });
+    if (result.success) expect(result.run).toMatchObject({ phase: 'completed', runtime_status: 'stopped', outcome: { kind: 'completed', result: 'done' } });
     expect(store.read('project')).toMatchObject({ status: 'done', status_text: 'project reviewed', lifecycle: { result: { kind: 'reviewer_pass', planning: { kind: 'planner_done', summary: 'project completed' } } } });
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toEqual(expect.arrayContaining(['card:project', 'planner:project', 'reviewer:project', 'processor:project', 'supervisor']));
   }));
@@ -544,7 +545,7 @@ describe('SupervisorRuntimeApi', () => {
     if (!result.success) expect(result.error.code).toBe('runtime_project_card_missing');
   }));
 
-  it('stopProject cancels the active project run and returns a stopped intent', async () => withTempProject(async (projectRoot) => {
+  it('stopProject cancels the active project run', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     createProject(store);
@@ -562,9 +563,8 @@ describe('SupervisorRuntimeApi', () => {
     expect(result).toEqual({
       success: true,
       command: expect.objectContaining({ command: 'stop_project', status: 'completed', source: 'operator' }),
-      intent: { status: 'stopped', updated_at: '2026-06-12T00:00:00.000Z', source_command_id: 'runtime-command-2', reason: 'runtime_project_cancelled' },
       run: expect.objectContaining({ phase: 'cancelled', runtime_status: 'cancelled' }),
     });
-    expect(api.getStatus()).toMatchObject({ status: 'idle', currentCardId: null });
+    expect(api.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null });
   }));
 });

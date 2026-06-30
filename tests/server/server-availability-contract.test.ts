@@ -85,7 +85,7 @@ describe('server availability contract', () => {
 
     const runtimeStatus = await server.fastify.inject({ method: 'GET', url: '/api/runtime/status', headers: { authorization: `Bearer ${AUTH_TOKEN}` } });
     expect(runtimeStatus.statusCode).toBe(200);
-    expect(runtimeStatus.json()).toEqual(expect.objectContaining({ runtime: 'idle', paused: false, currentCardId: null, goalCount: 0, actorRuntime: expect.any(Object), serverAvailability: expect.any(Object) }));
+    expect(runtimeStatus.json()).toEqual(expect.objectContaining({ runtime: 'stopped', currentCardId: null, goalCount: 0, actorRuntime: expect.any(Object), serverAvailability: expect.any(Object) }));
     expect(runtimeStatus.json().actorRuntime).toEqual(expect.objectContaining({ pauseMode: 'idle', cards: [], agents: [], diagnostics: [] }));
     expect(JSON.stringify(runtimeStatus.json().actorRuntime)).not.toContain('state_value');
     expect(JSON.stringify(runtimeStatus.json().actorRuntime)).not.toContain('context');

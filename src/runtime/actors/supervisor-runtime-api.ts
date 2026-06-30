@@ -117,7 +117,6 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     return {
       success: true,
       command,
-      intent: { status: 'running', updated_at: startedAt, source_command_id: command.command_id, reason: null },
       run: this.activeRun,
     };
   }
@@ -127,6 +126,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     const command = this.command('stop_project', 'completed', source);
     const stoppedAt = this.now();
     this.cardActors.get(PROJECT_CARD_ID)?.cancel({ reason: 'runtime_project_cancelled', cancelled_at: stoppedAt });
+    this.shutdownOwnedProcesses('runtime_project_cancelled');
     this.supervisor.cancelProject();
     const run = this.activeRun
       ? {
@@ -143,7 +143,6 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     return {
       success: true,
       command,
-      intent: { status: 'stopped', updated_at: stoppedAt, source_command_id: command.command_id, reason: 'runtime_project_cancelled' },
       run,
     };
   }
@@ -152,14 +151,13 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     return this.eventBus.subscribe(options);
   }
 
-  getStatus(): { status: RuntimeStatus; paused: boolean; currentCardId: string | null; goalCount: number; lastTickAt: string | null } {
+  getStatus(): { status: RuntimeStatus; currentCardId: string | null; goalCount: number; lastTickAt: string | null } {
     if (!this.started) {
-      return { status: 'idle', paused: false, currentCardId: null, goalCount: 0, lastTickAt: null };
+      return { status: 'stopped', currentCardId: null, goalCount: 0, lastTickAt: null };
     }
     const mode = this.supervisor.mode;
     return {
-      status: mode === 'paused' ? 'paused' : mode === 'running' ? 'running' : 'idle',
-      paused: mode === 'paused',
+      status: mode === 'paused' ? 'paused' : mode === 'running' ? 'running' : 'stopped',
       currentCardId: this.currentCardId,
       goalCount: this.currentCardId ? 1 : 0,
       lastTickAt: null,
@@ -243,7 +241,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       return {
         ...this.activeRun,
         phase: 'completed',
-        runtime_status: 'idle',
+        runtime_status: 'stopped',
         updated_at: finishedAt,
         finished_at: finishedAt,
         outcome: { kind: 'completed', result: 'done', finished_at: finishedAt },

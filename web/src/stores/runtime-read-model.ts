@@ -2,7 +2,6 @@ import type {
   ActionableErrorEnvelope,
   RuntimeActivationRecord,
   RuntimeCommandRecord,
-  RuntimeIntent,
   RuntimeRunRecord,
   RuntimeState,
   RuntimeStatus,
@@ -11,7 +10,6 @@ import type {
 } from '../api/types';
 
 export interface RuntimeSummaryProjection {
-  intent: RuntimeIntent | null;
   currentRun: RuntimeRunRecord | null;
   activeChildRuns: RuntimeRunRecord[];
   activations: RuntimeActivationRecord[];
@@ -25,7 +23,6 @@ export type LiveUpdateState = 'live' | 'connecting' | 'offline' | 'unauthorized'
 export function selectRuntimeSummary(runtime: RuntimeState | null): RuntimeSummaryProjection {
   if (!runtime) {
     return {
-      intent: null,
       currentRun: null,
       activeChildRuns: [],
       activations: [],
@@ -44,7 +41,6 @@ export function selectRuntimeSummary(runtime: RuntimeState | null): RuntimeSumma
   const lastCommand = commands.length > 0 ? commands[commands.length - 1] : null;
 
   return {
-    intent: runtime.runtime_intent ?? null,
     currentRun,
     activeChildRuns,
     activations,
@@ -55,7 +51,6 @@ export function selectRuntimeSummary(runtime: RuntimeState | null): RuntimeSumma
 
 export function selectRuntimeStatusLabel(runtime: RuntimeState | null): string {
   if (!runtime) return 'unknown';
-  if (runtime.paused) return 'paused';
   return runtime.status;
 }
 
@@ -81,8 +76,7 @@ export function selectRuntimeStatusTone(runtime: RuntimeState | null): string {
   return 'neutral';
 }
 
-export function selectRuntimeModeLabel(options: { paused: boolean; statusLabel: string }): string {
-  if (options.paused) return 'Paused';
+export function selectRuntimeModeLabel(options: { statusLabel: string }): string {
   return options.statusLabel === 'unknown'
     ? 'Unknown'
     : options.statusLabel.charAt(0).toUpperCase() + options.statusLabel.slice(1);
@@ -105,14 +99,13 @@ export function selectAvailabilityDetail(availability: ServerAvailability | null
 export function selectRuntimeDetail(options: {
   unauthorized: boolean;
   runtime: RuntimeState | null;
-  paused: boolean;
   stale: boolean;
   status: RuntimeStatus;
   availabilityDetail: string | null;
 }): string {
   if (options.unauthorized) return 'Runtime snapshot unavailable until a valid API token is provided.';
   if (options.status === 'error') return 'Runtime reported an error state. Inspect Debug for recovery evidence.';
-  if (options.paused) return 'Runtime is paused. Use Runtime Console to resume active runs and activation edges when appropriate.';
+  if (options.status === 'paused') return 'Runtime is paused. Use Runtime Console to resume active runs and activation edges when appropriate.';
   if (options.stale) return 'Runtime snapshot is stale. Refresh to resync with the authoritative REST state.';
   if (!options.runtime) return options.availabilityDetail ?? 'Runtime state has not been loaded yet.';
   return options.availabilityDetail ?? 'REST snapshot is authoritative; live updates may accelerate status changes.';

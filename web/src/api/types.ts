@@ -22,10 +22,8 @@ import type {
   ReviewAssessment,
   RuntimeActivationRecord,
   RuntimeCommandRecord,
-  RuntimeIntent,
   RuntimeRunRecord,
-  RuntimeState,
-  RuntimeStatus,
+  RuntimeState as ContractRuntimeState,
   ServerAvailability,
   SessionStatus,
   SupervisionResponse,
@@ -62,13 +60,9 @@ export type {
   RuntimeCommandName,
   RuntimeCommandRecord,
   RuntimeCommandStatus,
-  RuntimeIntent,
-  RuntimeIntentStatus,
   RuntimeRunKind,
   RuntimeRunPhase,
   RuntimeRunRecord,
-  RuntimeState,
-  RuntimeStatus,
   LiveSyncClientFrame,
   LiveSyncInvalidateFrame,
   LiveSyncInvalidateTarget,
@@ -145,7 +139,6 @@ export interface ActionableErrorEnvelope {
 }
 
 export interface RuntimeSummary {
-  intent: RuntimeIntent;
   currentRun: RuntimeRunRecord | null;
   activeChildRuns: RuntimeRunRecord[];
   activations: RuntimeActivationRecord[];
@@ -218,6 +211,8 @@ export type McpStatusResponse = OperatorApiSuccess<'mcp.status'>;
 export type WsConnectionState = 'connected' | 'connecting' | 'offline' | 'unauthorized' | 'no-token';
 export type { WsEventType, WsEnvelope } from './contracts';
 export type DataAuthority = 'rest' | 'ws' | 'mixed' | 'unknown';
+export type RuntimeStatus = 'stopped' | 'running' | 'paused' | 'error';
+export type RuntimeState = Omit<ContractRuntimeState, 'status'> & { status: RuntimeStatus };
 
 export interface FreshnessState {
   lastFetchedAt: string | null;
@@ -234,7 +229,7 @@ export type CardDetailResponse = OperatorApiSuccess<'cards.get'>;
 export type CardHistoryListResponse = OperatorApiSuccess<'cards.history.list'>;
 export type CardHistoryEntryResponse = OperatorApiSuccess<'cards.history.get'>;
 export type CardDiffResponse = OperatorApiSuccess<'cards.diff'> & { diff: CardDiffRow[]; };
-export type RuntimeStateResponse = OperatorApiSuccess<'runtime.getState'>;
+export type RuntimeStateResponse = Omit<OperatorApiSuccess<'runtime.getState'>, 'runtime'> & { runtime: RuntimeState | null };
 export type CardIndex = RuntimeStateResponse['cardIndex'];
 export type RuntimeStatusResponse = OperatorApiSuccess<'runtime.status'>;
 export type RuntimeStatusRuntime = RuntimeStatusResponse['runtime'];

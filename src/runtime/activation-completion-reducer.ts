@@ -31,7 +31,7 @@ export function reduceActivationCompletion(
       ? {
           ...run,
           phase: terminalStatus as typeof run.phase,
-          runtime_status: outcome === 'done' ? ('idle' as const) : ('error' as const),
+          runtime_status: outcome === 'done' ? ('stopped' as const) : ('error' as const),
           finished_at: nowIso,
           updated_at: nowIso,
           ...(runOutcome ? { outcome: runOutcome } : {}),

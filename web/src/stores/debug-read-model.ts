@@ -120,11 +120,6 @@ export function selectRuntimeStatusTone(runtime: RuntimeState | null): string {
   return runtime ? selectSharedRuntimeStatusTone(runtime) : 'unavailable';
 }
 
-export function selectRuntimeDispatchLabel(runtime: RuntimeState | null): string {
-  if (!runtime) return 'Unknown';
-  return runtime.paused ? 'Paused' : 'Dispatch active';
-}
-
 export function selectSortedProcesses(processes: ReadonlyArray<ProcessView>): ProcessView[] {
   return [...processes].sort((a, b) => {
     if (a.status === 'running' && b.status !== 'running') return -1;

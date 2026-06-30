@@ -5,6 +5,7 @@ import type { ZodType } from 'zod';
 import { explainLegacyStateRejection } from '../persistence/index.js';
 import { AtomicJsonFile, ProjectLock, PersistenceReadError, PersistenceValidationError } from '../persistence/index.js';
 import type { RuntimeActivationRecord, RuntimeActivationStatus, RuntimeCommandName, RuntimeCommandRecord, RuntimeRunRecord, RuntimeState } from '../schemas/index.js';
+import { createDefaultRuntimeState } from './default-state.js';
 
 const LEGACY_STATE_FILE = 'state.json';
 const AUTHORITATIVE_STATE_FILE = 'runtime.json';
@@ -68,7 +69,7 @@ function runtimeStateFile(projectRoot: string): AtomicJsonFile<RuntimeState> {
 function describeInvariantViolation(state: RuntimeState): string {
   const status = state.active_card_run?.runtime_status ?? 'null';
   const cardId = state.active_card_run?.card_id ?? 'null';
-  return `RuntimeState invariant violation: idle runtime cannot retain active_card_run (card_id=${cardId}, runtime_status=${status}). Reset .saivage runtime state and restart.`;
+  return `RuntimeState invariant violation: ${state.status} runtime cannot retain active_card_run (card_id=${cardId}, runtime_status=${status}). Reset .saivage runtime state and restart.`;
 }
 
 function describeMixedLayout(projectRoot: string): string {
@@ -82,29 +83,14 @@ function assertNoMixedRuntimeStateLayout(projectRoot: string): void {
 }
 
 function assertRuntimeStateInvariants(state: RuntimeState): RuntimeState {
-  if (state.status !== 'idle' || state.active_card_run === null) {
+  if ((state.status !== 'stopped' && state.status !== 'paused') || state.active_card_run === null) {
     return state;
   }
   throw new RuntimeStateInvariantError(describeInvariantViolation(state));
 }
 
 function defaultRuntimeState(): RuntimeState {
-  const now = new Date().toISOString();
-  return {
-    status: 'idle',
-    project_id: 'project',
-    pid: process.pid,
-    started_at: now,
-    active_card_run: null,
-    paused: false,
-    paused_at: null,
-    updated_at: now,
-    last_tick_at: null,
-    runtime_intent: { status: 'stopped', updated_at: now, source_command_id: null, reason: 'default stopped intent until explicit start_project command' },
-    runtime_commands: [],
-    runtime_runs: [],
-    runtime_activations: [],
-  };
+  return createDefaultRuntimeState();
 }
 
 function readRuntimeStateFile(projectRoot: string): RuntimeState {
@@ -204,14 +190,6 @@ export function appendRuntimeCommand(projectRoot: string, command: RuntimeComman
     state: { ...state, runtime_commands: [...state.runtime_commands, record], updated_at: at },
     result: record,
   }));
-}
-
-export function upsertRuntimeIntent(projectRoot: string, status: NonNullable<RuntimeState['runtime_intent']>['status'], sourceCommandId: string | null, reason?: string): RuntimeState {
-  const at = new Date().toISOString();
-  return updateRuntimeStateLockedDeriving(projectRoot, (state) => {
-    const next = { ...state, runtime_intent: { status, updated_at: at, source_command_id: sourceCommandId, reason: reason ?? null }, updated_at: at };
-    return { state: next, result: next };
-  });
 }
 
 export function appendRuntimeRun(projectRoot: string, input: Omit<RuntimeRunRecord, 'run_id' | 'started_at' | 'updated_at'> & { run_id?: string; started_at?: string; updated_at?: string }): RuntimeRunRecord {

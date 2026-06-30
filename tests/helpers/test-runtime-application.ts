@@ -50,7 +50,6 @@ function createFlatTestAnalystRuntime(opts: { eventBus?: EventBus } = {}): TestA
       return {
         success: true,
         command,
-        intent: { status: 'running', updated_at: timestamp, source_command_id: command.command_id, reason: 'test runtime start' },
         run: { run_id: 'test-root-run', kind: 'root', ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project', command_id: command.command_id, phase: 'planner', runtime_status: 'running', started_at: timestamp, updated_at: timestamp },
       };
     },
@@ -60,11 +59,10 @@ function createFlatTestAnalystRuntime(opts: { eventBus?: EventBus } = {}): TestA
       return {
         success: true,
         command,
-        intent: { status: 'stopped', updated_at: timestamp, source_command_id: command.command_id, reason: 'test runtime stop' },
       };
     },
     subscribe: eventBus.subscribe.bind(eventBus),
-    getStatus(): { status: 'idle'; paused: false; currentCardId: null; goalCount: 0; lastTickAt: null } { return { status: 'idle', paused: false, currentCardId: null, goalCount: 0, lastTickAt: null }; },
+    getStatus(): { status: 'stopped'; currentCardId: null; goalCount: 0; lastTickAt: null } { return { status: 'stopped', currentCardId: null, goalCount: 0, lastTickAt: null }; },
     getActorRuntimeReadModel() { return { pauseMode: 'running', activeWork: 'none', cards: [], agents: [], diagnostics: [], recovery: null } as const; },
     emitAnalystToolInvoked(payload: Parameters<EventBus['emit']>[1]): void {
       eventBus.emit('analyst_tool_invoked', payload as never);

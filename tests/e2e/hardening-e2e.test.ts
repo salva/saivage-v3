@@ -59,13 +59,15 @@ describe('Security — Auth, Path Traversal, and Redaction', () => {
     writeFileSync(
       join(tmpDir, '.saivage', 'runtime', 'state.json'),
       JSON.stringify({
-        status: 'idle',
+        status: 'stopped',
         project_id: 'project',
+        pid: 1234,
         started_at: new Date().toISOString(),
         active_card_run: null,
-        paused: false,
-        paused_at: null,
         updated_at: new Date().toISOString(),
+        runtime_commands: [],
+        runtime_runs: [],
+        runtime_activations: [],
       }),
     );
 

@@ -2,7 +2,7 @@
  * Pinia store for runtime state.
  *
  * Tracks the Saivage runtime snapshot plus command/run/activation summary state,
- * card index, and global pause state.
+ * card index, and lifecycle status.
  * Live updates are driven by SyncClient invalidation + REST refetch.
  */
 
@@ -14,7 +14,6 @@ import type {
   CardIndex,
   ServerAvailability,
   FreshnessState,
-  RuntimeIntent,
   RuntimeRunRecord,
   RuntimeActivationRecord,
   RuntimeCommandRecord,
@@ -58,7 +57,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
   const lastWsEventAt = ref<string | null>(null);
   const lastUpdatedBy = ref<FreshnessState['lastUpdatedBy']>('unknown');
   const unauthorized = ref(false);
-  const intent = ref<RuntimeIntent | null>(null);
   const currentRun = ref<RuntimeRunRecord | null>(null);
   const activeChildRuns = ref<RuntimeRunRecord[]>([]);
   const activations = ref<RuntimeActivationRecord[]>([]);
@@ -66,9 +64,8 @@ export const useRuntimeStore = defineStore('runtime', () => {
   const lastActionableError = ref<ActionableErrorEnvelope | null>(null);
   const commandInFlight = ref<RuntimeCommandRecord['command'] | null>(null);
 
-  const status = computed<RuntimeStatus>(() => runtime.value?.status ?? 'idle');
+  const status = computed<RuntimeStatus>(() => runtime.value?.status ?? 'stopped');
   const isRunning = computed(() => status.value === 'running');
-  const isPaused = computed(() => runtime.value?.paused ?? false);
   const currentCardId = computed(() => selectCurrentCardId(runtime.value));
   const currentAgentSessionId = computed(() => selectCurrentAgentSessionId(runtime.value));
   const rootRun = computed(() => currentRun.value);
@@ -90,12 +87,11 @@ export const useRuntimeStore = defineStore('runtime', () => {
   const failedBlocked = computed<number>(
     () => (cardIndex.value.byStatus['failed'] ?? 0) + (cardIndex.value.byStatus['blocked'] ?? 0),
   );
-  const runtimeModeLabel = computed(() => selectRuntimeModeLabel({ paused: isPaused.value, statusLabel: statusLabel.value }));
+  const runtimeModeLabel = computed(() => selectRuntimeModeLabel({ statusLabel: statusLabel.value }));
   const availabilityDetail = computed(() => selectAvailabilityDetail(serverAvailability.value));
   const runtimeDetail = computed(() => selectRuntimeDetail({
     unauthorized: unauthorized.value,
     runtime: runtime.value,
-    paused: isPaused.value,
     stale: isStale.value,
     status: status.value,
     availabilityDetail: availabilityDetail.value,
@@ -115,14 +111,13 @@ export const useRuntimeStore = defineStore('runtime', () => {
     if (loading.value) return 'Runtime state is still loading.';
     if (unauthorized.value) return 'Pause/resume requires a valid API token.';
     if (!runtime.value) return 'Runtime state is unavailable.';
-    if (status.value === 'error' && !isPaused.value) return 'Runtime is in an error state; inspect Debug before pausing.';
+    if (status.value === 'error') return 'Runtime is in an error state; inspect Debug before pausing.';
     return null;
   });
 
 
   function applyRuntimeSummaryFromState(nextRuntime: RuntimeState | null): void {
     const summary = selectRuntimeSummary(nextRuntime);
-    intent.value = summary.intent;
     currentRun.value = summary.currentRun;
     activeChildRuns.value = summary.activeChildRuns;
     activations.value = summary.activations;
@@ -170,7 +165,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
     projectId: readonly(projectId),
     cardIndex: readonly(cardIndex),
     serverAvailability: readonly(serverAvailability),
-    intent: readonly(intent),
     currentRun: readonly(currentRun),
     rootRun,
     activeChildRuns: readonly(activeChildRuns),
@@ -186,7 +180,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
     unauthorized: readonly(unauthorized),
     status,
     isRunning,
-    isPaused,
     currentCardId,
     currentAgentSessionId,
     statusLabel,

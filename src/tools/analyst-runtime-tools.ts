@@ -38,7 +38,7 @@ export async function pause_runtime(ctx: ToolContext, params: Record<string, nev
     if (!ctx.runtime) return toolFailure('conflict', 'Active runtime is not available.');
     ctx.runtime.pause();
     const state = ctx.runtime.getStatus();
-    return { success: true, data: { status: state.status, paused: state.paused } };
+    return { success: true, data: { status: state.status } };
   } });
 }
 
@@ -49,7 +49,7 @@ export async function resume_runtime(ctx: ToolContext, params: Record<string, ne
     if (state.status === 'error') return toolFailure('conflict', 'Runtime is in error state. Inspect Debug errors/timeline and fix the underlying failure before attempting recovery.', { runtime_status: state.status });
     ctx.runtime.resume();
     const updated = ctx.runtime.getStatus();
-    return { success: true, data: { status: updated.status, paused: updated.paused } };
+    return { success: true, data: { status: updated.status } };
   } });
 }
 

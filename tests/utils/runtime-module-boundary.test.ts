@@ -69,7 +69,7 @@ describe('runtime module ownership boundary', () => {
       join(process.cwd(), 'src/runtime/state.ts'),
       join(process.cwd(), 'src/runtime/mutations.ts'),
     ]);
-    const writerImportPattern = /import\s+\{[^}]*\b(saveRuntimeState|updateRuntimeState|appendRuntimeCommand|upsertRuntimeIntent|appendRuntimeRun|updateRuntimeRun|upsertRuntimeActivation)\b[^}]*\}\s+from ['"]\.\/state\.js['"]/;
+    const writerImportPattern = /import\s+\{[^}]*\b(saveRuntimeState|updateRuntimeState|appendRuntimeCommand|appendRuntimeRun|updateRuntimeRun|upsertRuntimeActivation)\b[^}]*\}\s+from ['"]\.\/state\.js['"]/;
     for (const filePath of listTypeScriptFiles(join(process.cwd(), 'src/runtime'))) {
       if (allowed.has(filePath)) continue;
       expect(readFileSync(filePath, 'utf8')).not.toMatch(writerImportPattern);
@@ -225,7 +225,7 @@ describe('runtime module ownership boundary', () => {
       const state = initRuntimeState(root);
       expect(existsSync(runtimeStatePath(root))).toBe(true);
       expect(readRuntimeState).toBe(directReadRuntimeState);
-      expect(readRuntimeState(root)).toMatchObject({ project_id: state.project_id, status: 'idle' });
+      expect(readRuntimeState(root)).toMatchObject({ project_id: state.project_id, status: 'stopped' });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

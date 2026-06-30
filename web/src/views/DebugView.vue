@@ -21,7 +21,6 @@
               <div class="debug-grid-item"><span class="dg-key">Status:</span><span class="dg-value">{{ debugRuntime.status }}</span></div>
               <div class="debug-grid-item"><span class="dg-key">PID:</span><span class="dg-value">{{ debugRuntime.pid }}</span></div>
               <div class="debug-grid-item"><span class="dg-key">Started:</span><span class="dg-value">{{ fmtDate(debugRuntime.started_at) }}</span></div>
-              <div class="debug-grid-item"><span class="dg-key">Paused:</span><span class="dg-value">{{ debugRuntime.paused ? 'Yes' : 'No' }}</span></div>
               <div class="debug-grid-item"><span class="dg-key">Current Card:</span><span class="dg-value mono">{{ currentCardId || 'none' }}</span></div>
               <div class="debug-grid-item"><span class="dg-key">Agent Session:</span><span class="dg-value mono">{{ currentAgentSessionId || 'none' }}</span></div>
             </div>
@@ -94,7 +93,6 @@
           <div v-else class="operator-runtime-card">
             <div class="operator-runtime-summary">
               <div class="debug-grid-item"><span class="dg-key">Status:</span><span class="operator-status-badge" :class="'status-' + runtimeStatusTone">{{ runtimeStatusLabel }}</span></div>
-              <div class="debug-grid-item"><span class="dg-key">Dispatch:</span><span class="dg-value">{{ runtimeDispatchLabel }}</span></div>
               <div class="debug-grid-item"><span class="dg-key">Current Card:</span><span class="dg-value mono">{{ currentCardId || 'none' }}</span></div>
               <div class="debug-grid-item"><span class="dg-key">Agent Session:</span><span class="dg-value mono">{{ currentAgentSessionId || 'none' }}</span></div>
             </div>
@@ -418,7 +416,6 @@ const {
   runtimeStatusTone,
   currentCardId,
   currentAgentSessionId,
-  runtimeDispatchLabel,
   operatorPanelBusy,
   operatorWarningBannerMessage,
   sortedProcesses,
@@ -635,7 +632,7 @@ onUnmounted(() => {
 .operator-status-badge { display:inline-flex; align-items:center; border-radius:999px; padding:2px 8px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.03em; }
 .operator-status-badge.status-running { background:var(--entry-accent-bg); color:var(--accent); }
 .operator-status-badge.status-paused { background:var(--entry-user-bg); color:var(--accent-2); }
-.operator-status-badge.status-idle { background:var(--surface-3); color:var(--text); }
+.operator-status-badge.status-stopped { background:var(--surface-3); color:var(--text); }
 .operator-status-badge.status-error { background:var(--entry-danger-bg); color:var(--danger); }
 .operator-status-badge.status-unavailable { background:var(--surface-3); color:var(--text-muted); }
 .operator-notes-list { display:flex; flex-direction:column; gap:10px; }

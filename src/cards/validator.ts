@@ -22,7 +22,6 @@ export function validateParsedCards({ cards, maxDepth }: ValidateParsedCardsInpu
     );
   }
   const projectCard = projectCards[0];
-  const hasMaterializedProject = projectCard !== undefined;
   if (projectCard) {
     if (projectCard.id !== PROJECT_CARD_ID) {
       throw new CardStoreInvariantError(
@@ -37,11 +36,10 @@ export function validateParsedCards({ cards, maxDepth }: ValidateParsedCardsInpu
   }
   for (const card of cards) {
     if (card.parent === card.id) throw new CardStoreInvariantError(`Card '${card.id}' cannot parent itself.`);
-    const hasVirtualProjectParent = !hasMaterializedProject && card.parent === PROJECT_CARD_ID;
-    if (card.parent !== null && !byId.has(card.parent) && !hasVirtualProjectParent) {
+    if (card.parent !== null && !byId.has(card.parent)) {
       throw new CardStoreInvariantError(`Card '${card.id}' references missing parent '${card.parent}'.`);
     }
-    if (card.parent !== null && !hasVirtualProjectParent) {
+    if (card.parent !== null) {
       const parent = byId.get(card.parent)!;
       if (isTerminalType(parent.type)) {
         throw new CardStoreInvariantError(
@@ -62,8 +60,7 @@ export function validateParsedCards({ cards, maxDepth }: ValidateParsedCardsInpu
     if (visiting.has(id)) throw new CardStoreInvariantError(`Card hierarchy contains a cycle at '${id}'.`);
     visiting.add(id);
     const card = byId.get(id)!;
-    const hasVirtualProjectParent = !hasMaterializedProject && card.parent === PROJECT_CARD_ID;
-    const depth = card.parent === null ? 0 : hasVirtualProjectParent ? 1 : computeDepth(card.parent) + 1;
+    const depth = card.parent === null ? 0 : computeDepth(card.parent) + 1;
     visiting.delete(id);
     if (depth > maxDepth) throw new CardStoreInvariantError(`Card '${id}' depth ${depth} exceeds maximum ${maxDepth}.`);
     if (card.depth !== depth) throw new CardStoreInvariantError(`Card '${id}' stores depth ${card.depth}, expected ${depth}.`);

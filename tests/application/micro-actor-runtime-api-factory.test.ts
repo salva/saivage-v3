@@ -45,9 +45,8 @@ describe('createMicroActorRuntimeApi', () => {
 
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.intent.status).toBe('running');
       expect(result.run).toMatchObject({ card_id: 'project', phase: 'blocked', runtime_status: 'stopped' });
     }
-    expect(api.getStatus()).toMatchObject({ status: 'idle', currentCardId: null });
+    expect(api.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null });
   }));
 });

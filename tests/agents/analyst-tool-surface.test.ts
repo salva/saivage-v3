@@ -68,7 +68,7 @@ function seedDeleteCards(root: string): CardStore {
 }
 
 function pauseRuntime(root: string): void {
-  updateRuntimeState(root, { status: 'paused', paused: true, paused_at: new Date().toISOString() });
+  updateRuntimeState(root, { status: 'paused' });
 }
 
 function lifecycleForStatus(status: CardStatus): CardLifecycleState {
@@ -108,23 +108,23 @@ describe('Tool inventory mirrors SPEC-r7 capability classes', () => {
 });
 
 describe('Analyst project bootstrap', () => {
-  it('allows Analyst to create the missing root project card', async () => {
+  it('rejects Analyst root project bootstrap because init creates the root card', async () => {
     const root = setupEmptyRoot();
     try {
       const store = new CardStore(root);
       const result = await create_card({ projectRoot: root, store, actor: 'analyst', surface: 'web-chat' }, { type: 'project', parent: null, title: 'Project', brief: TEST_BRIEF });
-      expect(result.success).toBe(true);
-      expect(store.read('project')).toMatchObject({ id: 'project', type: 'project', parent: null, title: 'Project' });
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Root project card already exists');
+      expect(store.read('project')).toMatchObject({ id: 'project', type: 'project', parent: null });
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('rejects Analyst child-card creation while unpaused and duplicate project creation', async () => {
+  it('allows Analyst child-card creation while stopped and rejects duplicate project creation', async () => {
     const root = setupRoot();
     try {
       const store = new CardStore(root);
       const child = await create_card({ projectRoot: root, store, actor: 'analyst', surface: 'web-chat' }, { type: 'goal', parent: 'project', title: 'Goal', brief: TEST_BRIEF });
-      expect(child.success).toBe(false);
-      expect(child.error).toContain('requires the runtime to be paused');
+      expect(child.success).toBe(true);
       const duplicate = await create_card({ projectRoot: root, store, actor: 'analyst', surface: 'web-chat' }, { type: 'project', parent: null, title: 'Project', brief: TEST_BRIEF });
       expect(duplicate.success).toBe(false);
       expect(duplicate.error).toContain('already exists');
@@ -171,10 +171,11 @@ describe('Analyst paused card-management gates', () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('requires paused runtime for cancel, delete, and reorder mutations', async () => {
+  it('requires stopped or paused runtime for cancel, delete, and reorder mutations', async () => {
     const root = setupRoot();
     try {
       const store = seedDeleteCards(root);
+      updateRuntimeState(root, { status: 'running' });
       const goalId = store.listChildren('project')[0];
       const childIds = store.listChildren(goalId);
       for (const result of [
@@ -183,7 +184,7 @@ describe('Analyst paused card-management gates', () => {
         await reorder_child({ projectRoot: root, store, actor: 'analyst', surface: 'web-chat' }, { parentId: goalId, orderedChildIds: [...childIds].reverse() }),
       ]) {
         expect(result.success).toBe(false);
-        expect(result.error).toContain('requires the runtime to be paused');
+        expect(result.error).toContain('requires runtime status stopped or paused');
       }
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
@@ -258,7 +259,7 @@ describe('Contract C2 partial-success reporting', () => {
   });
 
   afterEach(() => { jest.restoreAllMocks(); });
-  it('invokes exposed delete_card and reports the paused-runtime gate', async () => {
+  it('invokes exposed delete_card and reports partial success while stopped', async () => {
     const root = setupRoot();
     let procId: string | undefined;
     try {
@@ -273,8 +274,8 @@ describe('Contract C2 partial-success reporting', () => {
       const response = await handler.handleMessage('s-c2', 'delete code cards');
       expect(response.toolInvocations ?? []).toHaveLength(1);
       expect(response.toolInvocations?.[0].tool).toBe('delete_card');
-      expect(response.toolInvocations?.[0].result.success).toBe(false);
-      expect(response.toolInvocations?.[0].result.error).toContain('requires the runtime to be paused');
+      expect(response.toolInvocations?.[0].result.success).toBe(true);
+      expect(response.toolInvocations?.[0].result.data).toMatchObject({ partial: true, succeeded: 2 });
     } finally { if (procId) await killProcess(root, procId, 'SIGTERM'); rmSync(root, { recursive: true, force: true }); }
   });
 });

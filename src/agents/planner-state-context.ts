@@ -35,7 +35,7 @@ function compactCard(projectRoot: string, card: CardRecord) {
 
 function runtimeOpen(runtimeStatus: string, finishedAt?: string | null): boolean {
   if (finishedAt) return false;
-  return !['idle', 'stopped', 'cancelled'].includes(runtimeStatus);
+  return !['stopped', 'cancelled'].includes(runtimeStatus);
 }
 
 function inferNextAction(children: CardRecord[], runtimeState: RuntimeState | null): CandidateNextAction {
@@ -138,7 +138,6 @@ export function buildPlannerStateContextMessage(input: PlannerStateContextInput)
     ),
     runtime: {
       global_status: runtimeState?.status ?? null,
-      runtime_intent: runtimeState?.runtime_intent?.status ?? null,
       active_card_run: runtimeState?.active_card_run ?? null,
       unresolved_activations: unresolvedActivations,
       open_runs_for_goal: openRuns,

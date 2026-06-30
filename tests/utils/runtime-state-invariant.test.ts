@@ -39,11 +39,11 @@ function runningRun(overrides: Partial<ActiveCardRun> = {}): ActiveCardRun {
   };
 }
 
-function corruptIdleState(): RuntimeState {
+function corruptStoppedState(): RuntimeState {
   const base = initRuntimeState(root);
   const corrupted: RuntimeState = {
     ...base,
-    status: 'idle',
+    status: 'stopped',
     active_card_run: runningRun(),
     updated_at: new Date().toISOString(),
   };
@@ -67,20 +67,20 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-describe('RuntimeState idle active_card_run invariant', () => {
-  it('rejects saving idle with a running active_card_run in strict test mode', () => {
+describe('RuntimeState stopped active_card_run invariant', () => {
+  it('rejects saving stopped with a running active_card_run in strict test mode', () => {
     const base = initRuntimeState(root);
     expect(() => saveRuntimeState(root, {
       ...base,
-      status: 'idle',
+      status: 'stopped',
       active_card_run: runningRun(),
     })).toThrow(RuntimeStateInvariantError);
   });
 
-  it('rejects stopped/cancelled as top-level RuntimeState.status and active_card_run.runtime_status', () => {
+  it('rejects cancelled as top-level RuntimeState.status and stopped/cancelled active_card_run.runtime_status', () => {
     const base = initRuntimeState(root);
 
-    for (const terminalStatus of ['stopped', 'cancelled'] as const) {
+    for (const terminalStatus of ['cancelled'] as const) {
       expect(runtimeStateSchema.safeParse({
         ...base,
         status: terminalStatus,
@@ -88,14 +88,14 @@ describe('RuntimeState idle active_card_run invariant', () => {
 
       const parsed = runtimeStateSchema.safeParse({
         ...base,
-        status: 'idle',
+        status: 'running',
         active_card_run: runningRun({ runtime_status: terminalStatus } as unknown as Partial<ActiveCardRun>),
       } as unknown as RuntimeState);
       expect(parsed.success).toBe(false);
     }
   });
 
-  it('allows idle transitions only when active_card_run is cleared', () => {
+  it('allows stopped transitions only when active_card_run is cleared', () => {
     initRuntimeState(root);
     updateRuntimeState(root, {
       status: 'running',
@@ -103,25 +103,25 @@ describe('RuntimeState idle active_card_run invariant', () => {
     });
 
     const cleared = updateRuntimeState(root, {
-      status: 'idle',
+      status: 'stopped',
       active_card_run: null,
     });
     expect(cleared.active_card_run).toBeNull();
 
     expect(() => updateRuntimeState(root, {
-      status: 'idle',
+      status: 'stopped',
       active_card_run: runningRun(),
     })).toThrow(RuntimeStateInvariantError);
 
     expect(() => saveRuntimeState(root, {
       ...cleared,
-      status: 'idle',
+      status: 'running',
       active_card_run: runningRun({ runtime_status: 'cancelled' } as unknown as Partial<ActiveCardRun>),
     })).toThrow(/validation failed/);
   });
 
   it('fails closed on corrupted persisted state in every environment instead of production self-heal', () => {
-    corruptIdleState();
+    corruptStoppedState();
     process.env['NODE_ENV'] = 'production';
 
     expect(() => readRuntimeState(root)).toThrow(RuntimeStateInvariantError);
@@ -135,25 +135,23 @@ describe('RuntimeState idle active_card_run invariant', () => {
     writeFileSync(statePath(), '{bad', 'utf-8');
     expect(() => readRuntimeState(root)).toThrow(/malformed JSON/);
 
-    writeFileAtomic(statePath(), JSON.stringify({ version: 1, data: { status: 'idle', project_id: 'project' } }, null, 2) + '\n');
+    writeFileAtomic(statePath(), JSON.stringify({ version: 1, data: { status: 'stopped', project_id: 'project' } }, null, 2) + '\n');
     expect(() => readRuntimeState(root)).toThrow(/validation failed/);
   });
 
-  it('post-startup-repair idle settle writes through saveRuntimeState and cannot preserve a stale active run', () => {
+  it('post-startup-repair stopped settle writes through saveRuntimeState and cannot preserve a stale active run', () => {
     const previousState = initRuntimeState(root);
     const buildStartupRepairSettleState = (parentRun: ActiveCardRun | null): RuntimeState => ({
       ...previousState,
-      status: parentRun ? 'running' : 'idle',
+      status: parentRun ? 'running' : 'stopped',
       active_card_run: parentRun,
       updated_at: new Date().toISOString(),
-      paused: false,
-      paused_at: null,
     });
 
     const repairedWrite = (): RuntimeState => saveRuntimeState(root, buildStartupRepairSettleState(null));
 
     expect(repairedWrite()).toMatchObject({
-      status: 'idle',
+      status: 'stopped',
       active_card_run: null,
     });
   });

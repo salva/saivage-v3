@@ -33,19 +33,13 @@ describe('RuntimeState.last_tick_at round-trip', () => {
 
   it('accepts null in the Zod schema and rejects non-datetime strings', () => {
     const baseOk = {
-      status: 'idle' as const,
+      status: 'stopped' as const,
       project_id: 'project' as const,
       started_at: new Date().toISOString(),
-      current_card_id: null,
-      current_agent_session_id: null,
       active_card_run: null,
-      paused: false,
-      paused_at: null,
       updated_at: new Date().toISOString(),
       pid: 123,
       last_tick_at: null,
-      frozen_reason: null,
-      runtime_intent: { status: 'stopped' as const, updated_at: new Date().toISOString(), source_command_id: null, reason: null },
       runtime_commands: [],
       runtime_runs: [],
       runtime_activations: [],

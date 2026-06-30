@@ -207,9 +207,7 @@ describe('planner persisted history context compaction', () => {
         project_id: 'project',
         pid: 123,
         started_at: '2026-06-01T00:00:00.000Z',
-        paused: false,
         updated_at: '2026-06-01T00:00:00.000Z',
-        runtime_intent: { status: 'running', updated_at: '2026-06-01T00:00:00.000Z', source_command_id: null },
         active_card_run: null,
         runtime_runs: [{
           run_id: 'run-1',

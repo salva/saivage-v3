@@ -38,10 +38,7 @@ function legacyRuntimeState(overrides: Partial<RuntimeState> = {}): RuntimeState
     pid: 1234,
     started_at: now,
     active_card_run: null,
-    paused: true,
-    paused_at: now,
     updated_at: now,
-    runtime_intent: { status: 'stopped', updated_at: now, source_command_id: null },
     runtime_commands: [],
     runtime_runs: [],
     runtime_activations: [],
@@ -69,10 +66,10 @@ describe('RuntimeState authoritative file layout', () => {
     const initialized = initRuntimeState(root);
     expect(existsSync(authoritativePath())).toBe(true);
     expect(existsSync(legacyPath())).toBe(false);
-    expect(readAuthoritative()).toMatchObject({ status: 'idle', project_id: initialized.project_id });
+    expect(readAuthoritative()).toMatchObject({ status: 'stopped', project_id: initialized.project_id });
 
-    const saved = saveRuntimeState(root, { ...initialized, status: 'paused', paused: true });
-    expect(readAuthoritative()).toMatchObject({ status: 'paused', paused: true });
+    const saved = saveRuntimeState(root, { ...initialized, status: 'paused' });
+    expect(readAuthoritative()).toMatchObject({ status: 'paused' });
     expect(saved.status).toBe('paused');
 
     const updated = updateRuntimeState(root, { status: 'running', active_card_run: activeRun('goal-a') });
@@ -81,12 +78,12 @@ describe('RuntimeState authoritative file layout', () => {
     expect(existsSync(legacyPath())).toBe(false);
   });
 
-  it('ignores legacy .saivage/runtime/state.json when no authoritative file exists', () => {
+  it('refuses legacy .saivage/runtime/state.json when authoritative init state exists', () => {
     const legacy = legacyRuntimeState();
     writeFileAtomic(legacyPath(), JSON.stringify(legacy, null, 2) + '\n');
 
-    expect(readRuntimeState(root)).toBeNull();
-    expect(existsSync(authoritativePath())).toBe(false);
+    expect(() => readRuntimeState(root)).toThrow(RuntimeStateLayoutError);
+    expect(existsSync(authoritativePath())).toBe(true);
     expect(existsSync(legacyPath())).toBe(true);
   });
 

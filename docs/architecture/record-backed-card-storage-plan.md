@@ -4,11 +4,11 @@ Status: partially implemented. Scope: card persistence, card records, record acc
 
 ## Remaining Work
 
-- Add the audited Analyst `write_file` surface for `record://brief.md?card=<id>&v=next`, gated on paused runtime and closed latest versions.
+- Add the audited Analyst `write_file` surface for `record://brief.md?card=<id>&v=next`, gated on stopped-or-paused runtime status and closed latest versions.
 - Finish `get_card` read-model parity by adding `effective_updated_at` computed from current card/document record metadata.
 - Finish the brief source-of-truth cutover by removing `description`, `acceptance`, and `instructions_file` after all card creation, prompt, and API paths use `brief.md` directly.
 - Remove the retired `get_card_output` executable surface once durable record URLs and generic file reads fully cover card-output inspection.
-- Update authoritative specs to describe paused Analyst card management and record-backed card documents.
+- Update authoritative specs to describe stopped-or-paused Analyst card management and record-backed card documents.
 
 ## Decision Summary
 
@@ -21,7 +21,7 @@ Use the same versioned record structure for card state and card-authored documen
 - Keep separate records only when ownership/timing differs: `brief.md`, `status.md`, `review.md`.
 - Do not add `result.json` initially. Structured outputs that matter to scheduling, review, or display belong directly in `card.json`; narrative outputs belong in `status.md` or `review.md`.
 - All writes use shared commit infrastructure. There is no batch/transaction primitive; multi-card structural changes apply as a sequence of single-card commits. In case of dirty shutdown mid-sequence, recovery is best-effort and partial state is acceptable.
-- Analyst card mutations are accepted only while the runtime is paused. They are committed during the pause and announced to affected cards when the runtime is unpaused.
+- Analyst card mutations are accepted only while runtime status is `stopped` or `paused`. They are committed while autonomous execution is inactive and announced to affected cards when the runtime resumes or starts.
 - There is no broad card edit tool. Card structure changes happen through semantic card operations; document changes happen through scheme-aware `write_file` on writable record slots.
 
 This is a brave refactor, but it removes duplicate persistence models and makes versioned storage uniform.
@@ -312,17 +312,17 @@ Multi-card structural mutations (create card + initial brief, reorder children, 
 
 ## Analyst Mutation Rules
 
-Analyst card mutations are intentionally permissive but only while the runtime is paused.
+Analyst card mutations are intentionally permissive but only while runtime status is `stopped` or `paused`.
 
 Rules:
 
-- If the runtime is not paused, Analyst `write_file(record://...)`, `create_card`, `reorder_child`, `cancel_card`, and `delete_card` fail with a runtime-state error.
-- Paused runtime means no actor is executing, but cards may still have `running` or other active statuses.
+- If runtime status is `running` or `error`, Analyst `write_file(record://...)`, `create_card`, `reorder_child`, `cancel_card`, and `delete_card` fail with a runtime-state error.
+- Paused runtime means no actor is executing, but cards may still have `running` or other active statuses. Stopped runtime has left autonomous execution.
 - The Analyst may write a running card's `brief.md` while paused if the latest version is closed and the new content passes schema checks.
 - Structural mutations that would invalidate an active subtree remain denied for `running` cards unless explicitly designed later.
 - Analyst record writes fail when the target slot has an open latest version.
-- Analyst changes are committed during the pause.
-- On unpause, the runtime queues notifications for affected cards. Prefer one notification per affected card; one notification per edited item is acceptable when that is simpler.
+- Analyst changes are committed while runtime status is `stopped` or `paused`.
+- On resume/start, the runtime queues notifications for affected cards. Prefer one notification per affected card; one notification per edited item is acceptable when that is simpler.
 - Notifications tell running/active agents that unexpected card records changed while the runtime was paused.
 
 ## Processor Reconciliation
@@ -355,7 +355,7 @@ Use the existing `write_file` tool for document records. When the path uses the 
 
 | Caller | Behavior |
 |---|---|
-| Analyst/operator | Requires paused runtime, requires latest version closed, validates writer/schema, writes and commits a new version immediately, queues affected-card notifications for unpause. |
+| Analyst/operator | Requires runtime status `stopped` or `paused`, requires latest version closed, validates writer/schema, writes and commits a new version immediately, queues affected-card notifications for resume/start. |
 | Card processor actor | May write an open/uncommitted version owned by that actor/session; commit happens on processor state change or other processor-defined commit points. |
 | Runtime/card service | May commit records directly for lifecycle/state transitions. |
 
@@ -382,7 +382,7 @@ Target card-facing tools:
 | `create_card` | Create `card.json` plus initial `brief.md`. |
 | `write_file` | Write writable `record://` document slots such as `brief.md`. |
 | `reorder_child` | Reorder children of a non-running parent by committing changed `card.json` records. |
-| `cancel_card` | Cancel obsolete work by committing changed `card.json` while paused. |
+| `cancel_card` | Cancel obsolete work by committing changed `card.json` while stopped or paused. |
 | `delete_card` | Remove cards/subtrees from the active index while moving their full record namespaces to archive storage. |
 | `queue_notification` | Steer active/running cards without direct mutation. |
 
@@ -411,7 +411,7 @@ Tools to remove or avoid as Analyst card-specific tools:
 | `needs_verification` | yes | yes | yes | yes | yes |
 | `running` | no | yes while paused | no | notify only | no |
 
-All Analyst mutations require paused runtime. `write_file(record://brief.md?card=...)` may target running cards while paused if the touched slot is Analyst-writable, closed, and schema-valid. Structural mutations that invalidate running subtrees remain denied unless designed explicitly later.
+All Analyst mutations require runtime status `stopped` or `paused`. `write_file(record://brief.md?card=...)` may target running cards while paused if the touched slot is Analyst-writable, closed, and schema-valid. Structural mutations that invalidate running subtrees remain denied unless designed explicitly later.
 
 ## Delete/Archive Semantics
 
@@ -493,7 +493,7 @@ Add focused tests for:
 - `commitRecord` rejects unauthorized writers.
 - `commitRecord` rejects unknown slots for a card type.
 - `commitRecord` rejects invalid `card.json` and invalid `brief.md` content without creating a version.
-- `commitRecord` rejects Analyst writes when the runtime is not paused.
+- `commitRecord` rejects Analyst writes when runtime status is neither `stopped` nor `paused`.
 - `commitRecord` rejects Analyst writes to an open latest version.
 - `read_file` reads latest and versioned `record://` URLs.
 - `read_file_metadata` returns slot policy and version metadata.
@@ -503,7 +503,7 @@ Add focused tests for:
 - effective update time is computed from record metadata instead of stored `updated_at`.
 - `get_card` returns card state, record URLs, and bounded snippets.
 - card actors reconcile from latest records on activation.
-- Analyst `write_file(record://brief.md?card=...)` commits a new `brief.md` version while paused and queues resume notifications.
-- Analyst edits queue affected-card notifications for runtime unpause.
+- Analyst `write_file(record://brief.md?card=...)` commits a new `brief.md` version while stopped or paused and queues resume/start notifications.
+- Analyst edits queue affected-card notifications for runtime resume/start.
 - `delete_card` moves full record namespaces with all versions to archive storage.
 - prompt assembly uses `brief.md` as source of truth.

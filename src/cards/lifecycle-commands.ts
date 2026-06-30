@@ -80,7 +80,7 @@ export class CardLifecycleCommands {
       if (input.parent !== null) {
         const parentCard = state.get(input.parent);
         if (!parentCard) {
-          if (input.parent !== PROJECT_CARD_ID) throw new Error(`Parent card '${input.parent}' does not exist.`);
+          throw new Error(`Parent card '${input.parent}' does not exist.`);
         } else {
           if (isTerminalType(parentCard.type)) {
             throw new Error(
@@ -95,7 +95,7 @@ export class CardLifecycleCommands {
         }
       }
       const parentForDepth = input.parent === null ? null : state.get(input.parent);
-      const depth = input.parent === null ? 0 : parentForDepth ? parentForDepth.depth + 1 : 1;
+      const depth = input.parent === null ? 0 : parentForDepth!.depth + 1;
       const position = input.parent === null ? 0 : state.childrenOf(input.parent).length;
       if (depth > this.config.maxDepth) {
         throw new Error(

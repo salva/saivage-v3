@@ -131,8 +131,6 @@ export type {
   RuntimeCommandName,
   RuntimeCommandRecord,
   RuntimeCommandStatus,
-  RuntimeIntent,
-  RuntimeIntentStatus,
   RuntimeRunKind,
   RuntimeRunPhase,
   RuntimeRunRecord,

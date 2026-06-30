@@ -36,7 +36,7 @@ function initializeProjectRoot(root: string): void {
   writeFileSync(join(saivageDir, 'cards', 'dependencies', 'depends-on.json'), JSON.stringify({}));
   writeFileSync(join(saivageDir, 'cards', 'dependencies', 'blocks.json'), JSON.stringify({}));
   writeFileSync(join(saivageDir, 'notes', 'queue.json'), JSON.stringify({ next_note_sequence: 1, entries: [] }));
-  writeFileSync(join(saivageDir, 'runtime', 'state.json'), JSON.stringify({ status: 'idle', project_id: 'project', started_at: now, current_card_id: null, current_agent_session_id: null, paused: false, paused_at: null, queue: [], running_processes: [], updated_at: now }));
+  writeFileSync(join(saivageDir, 'runtime', 'state.json'), JSON.stringify({ status: 'stopped', project_id: 'project', pid: 1234, started_at: now, active_card_run: null, updated_at: now, runtime_commands: [], runtime_runs: [], runtime_activations: [] }));
 }
 
 beforeAll(async () => {

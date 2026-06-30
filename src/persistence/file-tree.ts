@@ -8,10 +8,12 @@ import {
 } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import type { ProjectConfig } from '../schemas/index.js';
-import { projectConfigSchema } from '../schemas/index.js';
+import { projectConfigSchema, runtimeStateSchema } from '../schemas/index.js';
 import { isReadBlocked } from '../workspace/index.js';
 import { redactTextForOutbound } from '../redaction/index.js';
 import { writeFileAtomic } from './durable-write.js';
+import { CardStore } from '../cards/card-store.js';
+import { createDefaultRuntimeState } from '../runtime/default-state.js';
 
 export function readProjectFileAtomic(
   projectRoot: string,
@@ -181,6 +183,8 @@ export function initProjectTree(projectRoot: string): { projectRoot: string } {
   writeFileAtomic(join(saivageDir, 'skills', 'index.json'), JSON.stringify([], null, 2) + '\n');
   writeFileAtomic(join(saivageDir, 'runtime', 'events.jsonl'), '');
   writeFileAtomic(join(saivageDir, 'runtime', 'errors.jsonl'), '');
+  const runtimeState = runtimeStateSchema.parse(createDefaultRuntimeState());
+  writeFileAtomic(join(saivageDir, 'tmp', 'state', 'runtime.json'), JSON.stringify({ version: 1, data: runtimeState }, null, 2) + '\n');
   writeFileAtomic(join(saivageDir, 'supervision', 'reviews.jsonl'), '');
   writeFileAtomic(
     join(saivageDir, 'supervision', 'quarantine-index.json'),
@@ -190,6 +194,21 @@ export function initProjectTree(projectRoot: string): { projectRoot: string } {
     join(saivageDir, 'saivage.json'),
     JSON.stringify({ server: { port: 8080, host: '0.0.0.0' }, runtime: {} }, null, 2) + '\n',
   );
+  new CardStore(projectRoot).create({
+    type: 'project',
+    parent: null,
+    depth: 0,
+    title: name,
+    brief: `# Goal\n\nDefine and execute the ${name} project.\n\n# Instructions\n\nUse this root card as the canonical project objective and planning anchor.\n\n# Acceptance Criteria\n\n- The project objective is captured in the root card brief.\n- Child work is created under this project card.\n`,
+    status: 'backlog',
+    tags: [],
+    priority: 0,
+    urgency: 'normal',
+    created_by: 'analyst',
+    depends_on: [],
+    related: [],
+    retries: 0,
+  });
   return { projectRoot };
 }
 

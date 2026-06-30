@@ -43,12 +43,11 @@ describe('application read models', () => {
     expect(buildRuntimeStatusReadModel({
       projectRoot: root,
       runtimeApi: {
-        getStatus: () => ({ status: 'paused' as const, paused: true, currentCardId: 'live-card', goalCount: 1, lastTickAt: '2026-01-01T00:00:00.000Z' }),
+        getStatus: () => ({ status: 'paused' as const, currentCardId: 'live-card', goalCount: 1, lastTickAt: '2026-01-01T00:00:00.000Z' }),
         getActorRuntimeReadModel: () => actorRuntime,
       },
     })).toEqual(expect.objectContaining({
       runtime: 'paused',
-      paused: true,
       currentCardId: 'live-card',
       goalCount: 1,
       lastTickAt: '2026-01-01T00:00:00.000Z',
@@ -64,7 +63,7 @@ describe('application read models', () => {
     const model = buildRuntimeStatusReadModel({
       projectRoot: root,
       runtimeApi: {
-        getStatus: () => ({ status: 'running' as const, paused: false, currentCardId: 'live-card', goalCount: 1, lastTickAt: null }),
+        getStatus: () => ({ status: 'running' as const, currentCardId: 'live-card', goalCount: 1, lastTickAt: null }),
         getActorRuntimeReadModel: () => liveActorRuntime,
       },
     });
@@ -81,7 +80,7 @@ describe('application read models', () => {
     const response = buildCardRunsResponse(root, store);
 
     expect(response.active_card_run?.card_id).toBe(goal.id);
-    expect(response.active_breadcrumb.map((entry) => entry.card_id)).toEqual([goal.id]);
+    expect(response.active_breadcrumb.map((entry) => entry.card_id)).toEqual(['project', goal.id]);
   });
 
   it('projects operator card lists and card index counts with allowed actions', () => {
@@ -92,8 +91,8 @@ describe('application read models', () => {
     const state = service.getRuntimeState().body as { cardIndex: { total: number; byStatus: Record<string, number>; byType: Record<string, number> } };
     const list = service.listCards().body as { cards: Array<{ allowedActions?: string[] }> };
 
-    expect(state.cardIndex.total).toBe(1);
-    expect(state.cardIndex.byStatus.backlog).toBe(1);
+    expect(state.cardIndex.total).toBe(2);
+    expect(state.cardIndex.byStatus.backlog).toBe(2);
     expect(state.cardIndex.byType.code).toBe(1);
     expect(list.cards.every((card) => Array.isArray(card.allowedActions))).toBe(true);
   });

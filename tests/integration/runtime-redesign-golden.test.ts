@@ -90,7 +90,6 @@ describe('runtime redesign final golden behavior', () => {
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.command).toMatchObject({ command: 'start_project', status: 'completed', source: 'operator' });
-        expect(result.intent).toMatchObject({ status: 'running', reason: null });
         expect(result.run).toMatchObject({
           kind: 'root',
           card_id: 'project',

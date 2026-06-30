@@ -23,7 +23,7 @@ vi.mock('../stores/sync', () => ({
 vi.mock('../stores/runtime', () => ({
   useRuntimeStore: () => ({
     refetch: vi.fn(async () => undefined), fetchState: vi.fn(async () => undefined), resume: vi.fn(), pause: vi.fn(),
-    statusLabel: computed(() => 'running'), isPaused: computed(() => false), status: computed(() => 'running'),
+    statusLabel: computed(() => 'running'), status: computed(() => 'running'),
     liveUpdateLabel: computed(() => 'Live'), liveUpdateDetail: computed(() => 'Live'), runtimeModeLabel: computed(() => 'Running'), runtimeDetail: computed(() => 'Running'),
     isStale: computed(() => false), unauthorized: computed(() => false), pauseActionDisabledReason: computed(() => null),
   }),
@@ -38,6 +38,7 @@ function makeRouter() {
       { path: '/dashboard', name: 'dashboard', component: { template: '<div>dashboard</div>' } },
       { path: '/cards', name: 'cards', component: { template: '<div>cards</div>' } },
       { path: '/cards/:id', name: 'card-detail', component: { template: '<div>card</div>' } },
+      { path: '/timeline', name: 'timeline', component: { template: '<div>timeline</div>' } },
       { path: '/agents', name: 'agents', component: { template: '<div>agents</div>' } },
       { path: '/files', name: 'files', component: { template: '<div>files</div>' } },
       { path: '/debug', name: 'debug', component: { template: '<div>debug</div>' } },
