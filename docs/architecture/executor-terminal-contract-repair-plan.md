@@ -158,7 +158,7 @@ The plan is split into two phases. Phase 1 fixes the pueblicos production bug an
 Add a method on `LLMActor` for continuing after a plain-text result:
 
 - require `this.input` to be present, the actor state to be `idle`, the previous outcome to be `result`, and no pending turn;
-- append a provider-format assistant message with the model's plain text to `input.contextMessages` (in-memory only; `appendLlmTurnFinished` has already persisted the assistant text row to the segment);
+- append a provider-format assistant message with the model's plain text to `input.contextMessages` (in-memory only; `appendLlmTurnFinished` has already persisted the assistant text transcript row);
 - append a user repair directive to `input.contextMessages` and persist it to the active segment as a `model_repair` row;
 - use a fresh `inputId`;
 - call `turn()` again with the updated input so the normal turn path recreates `activeReconstruction` and prepares provider-call reconstruction.
@@ -216,7 +216,7 @@ Keep the existing missing-`status.md` repair behavior, but count it against the 
 Replace the flat `agents/messages/<agentId>.jsonl` append/read path for micro-actor conversation messages with segment-based storage under `agents/conversations/<sessionId>/`.
 
 - Each append writes to the active segment JSONL.
-- `index.json` tracks the active segment and compaction boundary.
+- `index.json` tracks the active segment.
 - The existing delivery-log functions (`appendLlmTurnStarted`, `appendLlmTurnFinished`, `appendToolDelivery`, `appendLlmTurnError`) should write to the active segment.
 - Provider-visible context messages, current-state messages, notification messages, and repair directives must also be written to the active segment when they are added to `input.contextMessages`.
 - Recovery readers, especially `readLoggedToolCall(...)`, must read from segments in the same change and must use the active reconstruction session id for reviewer sessions where `sessionId !== agentId`.
