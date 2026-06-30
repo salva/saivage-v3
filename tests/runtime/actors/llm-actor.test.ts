@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { actorConversationIndexPath, actorConversationSegmentPath, actorToolCallStatusesPath, LLMActor, readActorSnapshots, type LLMAdmissionPort, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
+import { actorKindFromId, actorToolCallStatusesPath, conversationIndexPath, conversationSegmentPath, LLMActor, parseLlmActorId, readActorSnapshots, type LLMAdmissionPort, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
 import type { LlmCompleteResult } from '../../../src/agents/llm-contracts.js';
 
@@ -37,10 +37,10 @@ function jsonl(path: string): Array<Record<string, unknown>> {
 }
 
 function corruptActorMessages(projectRoot: string): void {
-  const indexPath = actorConversationIndexPath(projectRoot, 'planner:project');
+  const indexPath = conversationIndexPath(projectRoot, 'planner:project');
   mkdirSync(dirname(indexPath), { recursive: true });
   writeFileSync(indexPath, JSON.stringify({ schema_version: 1, active_segment: 'seg-001.jsonl' }) + '\n', 'utf-8');
-  const path = actorConversationSegmentPath(projectRoot, 'planner:project', 'seg-001.jsonl');
+  const path = conversationSegmentPath(projectRoot, 'planner:project', 'seg-001.jsonl');
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, '{"partial"', 'utf-8');
 }
@@ -67,7 +67,7 @@ describe('LLMActor', () => {
     let sawStartedMessage = false;
     const provider: LLMProviderPort = {
       completeTurn: jest.fn(async () => {
-        sawStartedMessage = jsonl(actorConversationSegmentPath(projectRoot, 'planner:project', 'seg-001.jsonl')).some((entry) => String(entry.id).endsWith(':started'));
+        sawStartedMessage = jsonl(conversationSegmentPath(projectRoot, 'planner:project', 'seg-001.jsonl')).some((entry) => String(entry.id).endsWith(':started'));
         return { kind: 'message' as const, content: 'done' };
       }),
     };
@@ -79,7 +79,7 @@ describe('LLMActor', () => {
     expect(sawStartedMessage).toBe(true);
     expect(outcome).toMatchObject({ type: 'result', result: { content: 'done' } });
     await eventually(() => expect(actor.state()).toBe('idle'));
-    expect(jsonl(actorConversationSegmentPath(projectRoot, 'planner:project', 'seg-001.jsonl')).map((entry) => entry.kind)).toEqual(['system_prompt', 'activity', 'text']);
+    expect(jsonl(conversationSegmentPath(projectRoot, 'planner:project', 'seg-001.jsonl')).map((entry) => entry.kind)).toEqual(['system_prompt', 'activity', 'text']);
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toContain('planner:project');
     expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === 'planner:project')?.context.active_reconstruction).toBeNull();
   }));
@@ -118,6 +118,23 @@ describe('LLMActor', () => {
     expect(snapshot?.context).not.toHaveProperty('waitingToolCall');
     expect(snapshot?.context).not.toHaveProperty('deliveredToolCallIds');
     expect(snapshot?.context).not.toHaveProperty('toolDeliveryCounter');
+    finish();
+    await expect(pending).resolves.toMatchObject({ type: 'result' });
+  }));
+
+  it('accepts analyst actor ids and persists nullable reconstruction card ids', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    let finish!: () => void;
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => new Promise<LlmCompleteResult>((resolve) => { finish = () => resolve({ kind: 'message' as const, content: 'done' }); })) };
+    const actor = new LLMActor({ projectRoot, agentId: 'analyst:global', provider });
+    actor.start();
+
+    const pending = actor.turn({ ...input(), agentId: 'analyst:global', role: 'analyst', sessionId: 'analyst:global', episodeContext: { cardId: null } });
+    await eventually(() => expect(actor.state()).toBe('calling_provider'));
+
+    expect(actorKindFromId('analyst:global')).toBe('llm');
+    expect(parseLlmActorId('analyst:global')).toEqual({ role: 'analyst', cardId: null });
+    expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === 'analyst:global')?.context.active_reconstruction).toMatchObject({ role: 'analyst', card_id: null });
     finish();
     await expect(pending).resolves.toMatchObject({ type: 'result' });
   }));
@@ -187,7 +204,8 @@ describe('LLMActor', () => {
       { role: 'assistant', content: 'plain text' },
       { role: 'user', content: 'Use emit_planner_result.' },
     ]);
-    const rows = jsonl(actorConversationSegmentPath(projectRoot, 'planner:project', 'seg-001.jsonl'));
+    expect((actor.input?.contextMessages ?? []).filter((message) => (message as { role?: string; content?: string }).role === 'assistant' && (message as { content?: string }).content === 'plain text')).toHaveLength(1);
+    const rows = jsonl(conversationSegmentPath(projectRoot, 'planner:project', 'seg-001.jsonl'));
     expect(rows.map((entry) => entry.kind)).toEqual(['system_prompt', 'activity', 'text', 'model_repair', 'activity', 'text']);
     expect(rows.find((entry) => entry.kind === 'model_repair')).toMatchObject({ role: 'user', content: 'Use emit_planner_result.' });
   }));
@@ -233,6 +251,26 @@ describe('LLMActor', () => {
     const pending = actor.appendToolResult('call-1', {});
     await expect(actor.appendToolResult('call-1', {})).rejects.toThrow(/not waiting|already/);
     await expect(pending).resolves.toMatchObject({ type: 'tool_call' });
+  }));
+
+  it('clears delivered tool-call ids for top-level turns but not tool continuations', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const provider: LLMProviderPort = {
+      completeTurn: jest.fn(async (turnInput: LlmInvocationInput) => turnInput.episodeContext.lastToolResult
+        ? { kind: 'message' as const, content: 'continued' }
+        : { kind: 'tool_calls' as const, tool_calls: [{ id: 'call-1', type: 'function' as const, function: { name: 'inspect', arguments: '{}' } }] }),
+    };
+    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
+    actor.start();
+
+    await actor.turn(input());
+    await actor.appendToolResult('call-1', {});
+    expect(actor.deliveredToolCallIds.has('call-1')).toBe(true);
+
+    await actor.turn(input('turn-2'));
+
+    expect(actor.deliveredToolCallIds.has('call-1')).toBe(false);
+    await expect(actor.appendToolResult('call-1', {})).resolves.toMatchObject({ type: 'result' });
   }));
 
   it('settles late provider results for in-flight calls', async () => withTempProject(async (projectRoot) => {

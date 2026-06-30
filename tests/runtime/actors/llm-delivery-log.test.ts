@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { abandonStalePendingToolCalls, actorConversationIndexPath, actorConversationSegmentPath, appendLlmTurnFinished, appendLlmTurnStarted, appendTerminalToolProjectedStatus, readLoggedToolCall, readToolCallStatuses } from '../../../src/runtime/actors/index.js';
+import { abandonStalePendingToolCalls, appendConversationMessage, appendLlmTurnFinished, appendLlmTurnStarted, appendTerminalToolProjectedStatus, buildContextTextMessage, conversationIndexPath, conversationMessagesForModel, conversationSegmentPath, listConversationSessionIds, readLoggedToolCall, readToolCallStatuses } from '../../../src/runtime/actors/index.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => T): T {
@@ -38,12 +38,12 @@ function jsonl(path: string): Array<Record<string, unknown>> {
 }
 
 describe('llm delivery log recovery helpers', () => {
-  it('logs the outbound system prompt before turn activity exactly once', () => withTempProject((projectRoot) => {
+  it('logs the outbound system prompt before turn activity when requested', () => withTempProject((projectRoot) => {
     appendLlmTurnStarted(projectRoot, input());
-    appendLlmTurnStarted(projectRoot, input('planner:G-1:2'));
+    appendLlmTurnStarted(projectRoot, input('planner:G-1:2'), { includeSystemPrompt: false });
 
-    expect(JSON.parse(readFileSync(actorConversationIndexPath(projectRoot, 'planner:G-1'), 'utf-8'))).toEqual({ schema_version: 1, active_segment: 'seg-001.jsonl' });
-    const rows = jsonl(actorConversationSegmentPath(projectRoot, 'planner:G-1', 'seg-001.jsonl'));
+    expect(JSON.parse(readFileSync(conversationIndexPath(projectRoot, 'planner:G-1'), 'utf-8'))).toEqual({ schema_version: 1, active_segment: 'seg-001.jsonl' });
+    const rows = jsonl(conversationSegmentPath(projectRoot, 'planner:G-1', 'seg-001.jsonl'));
     expect(rows[0]).toMatchObject({ role: 'system', kind: 'system_prompt', content: 'system' });
     expect(rows.filter((entry) => entry.kind === 'system_prompt')).toHaveLength(1);
   }));
@@ -58,7 +58,7 @@ describe('llm delivery log recovery helpers', () => {
       tool_name: 'emit_planner_result',
       args: { status: 'blocked', summary: 'blocked' },
     });
-    const toolCallMessage = jsonl(actorConversationSegmentPath(projectRoot, 'planner:G-1', 'seg-001.jsonl')).find((entry) => entry.kind === 'tool_call');
+    const toolCallMessage = jsonl(conversationSegmentPath(projectRoot, 'planner:G-1', 'seg-001.jsonl')).find((entry) => entry.kind === 'tool_call');
     expect(JSON.parse(String(toolCallMessage?.content))).toEqual({
       role: 'assistant',
       tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'blocked', summary: 'blocked' }) } }],
@@ -91,5 +91,32 @@ describe('llm delivery log recovery helpers', () => {
 
     expect(abandonStalePendingToolCalls(projectRoot)).toEqual([]);
     expect(readToolCallStatuses(projectRoot, 'planner:G-1').map((record) => record.status)).toEqual(['pending', 'terminal_projected']);
+  }));
+
+  it('lists encoded conversation session directories as decoded ids', () => withTempProject((projectRoot) => {
+    appendConversationMessage(projectRoot, buildContextTextMessage('reviewer:G-1:assessment 1', 'user', 'hello'));
+    appendConversationMessage(projectRoot, buildContextTextMessage('analyst:global', 'user', 'hello'));
+
+    expect(listConversationSessionIds(projectRoot)).toEqual(['analyst:global', 'reviewer:G-1:assessment 1']);
+  }));
+
+  it('builds valid provider-visible caller context rows', () => withTempProject((projectRoot) => {
+    const message = buildContextTextMessage('analyst:global', 'system', '[workspace-context]');
+    appendConversationMessage(projectRoot, message);
+
+    expect(message).toMatchObject({ session_id: 'analyst:global', role: 'system', kind: 'text', content: '[workspace-context]' });
+    expect(message.id).toContain('analyst:global:context:');
+    expect(message.round_id).toMatch(/^r-pre-/);
+    expect(jsonl(conversationSegmentPath(projectRoot, 'analyst:global', 'seg-001.jsonl'))).toHaveLength(1);
+  }));
+
+  it('projects only provider-visible conversation messages for model reconstruction', () => withTempProject((projectRoot) => {
+    const sessionId = 'planner:G-1';
+    appendLlmTurnStarted(projectRoot, input());
+    appendLlmTurnFinished(projectRoot, input(), { kind: 'message', content: 'assistant text' });
+    appendConversationMessage(projectRoot, { ...buildContextTextMessage(sessionId, 'user', 'repair'), id: 'repair', kind: 'model_repair' });
+    appendConversationMessage(projectRoot, { ...buildContextTextMessage(sessionId, 'system', 'issue'), id: 'issue', kind: 'model_issue' });
+
+    expect(conversationMessagesForModel(jsonl(conversationSegmentPath(projectRoot, sessionId, 'seg-001.jsonl')) as never).map((message) => message.kind)).toEqual(['text', 'model_repair']);
   }));
 });

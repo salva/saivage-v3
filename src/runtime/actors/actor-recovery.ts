@@ -59,7 +59,7 @@ export interface CardActorRecoveryRecord {
 export interface LlmActorRecoveryRecord {
   actorId: string;
   role: LlmRecoveryRole;
-  cardId: string;
+  cardId: string | null;
   snapshot: ActorSnapshotRecord;
   active: boolean;
   activeReconstruction: LlmActiveReconstructionRecord | null;
@@ -148,7 +148,7 @@ export function buildActorRecoveryPlan(projectRoot: string, cards?: ActorRecover
       const parsed = parseLlmActorId(snapshot.actor_id);
       const activeReconstruction = readLlmActiveReconstruction(snapshot);
       const active = activeReconstruction !== null;
-      if (active && !knownCardIds.has(parsed.cardId) && !cards?.read(parsed.cardId)) {
+      if (active && parsed.cardId !== null && !knownCardIds.has(parsed.cardId) && !cards?.read(parsed.cardId)) {
         throw new Error(`Cannot recover active LLM actor '${snapshot.actor_id}': owner card '${parsed.cardId}' was not found.`);
       }
       return { actorId: snapshot.actor_id, role: parsed.role, cardId: parsed.cardId, snapshot, active, activeReconstruction };
@@ -299,6 +299,7 @@ export function recoverProjectedTerminalToolOutcomes(plan: ActorRecoveryPlan, de
   const recovered: ActorRecoveryOutcomeConversion[] = [];
   const generatedAt = deps.generatedAt ?? new Date().toISOString();
   for (const llm of plan.llms) {
+    if (llm.cardId === null) continue;
     if (!llm.active || llm.snapshot.state_value !== 'waiting_tool' || !llm.activeReconstruction?.waiting_tool_call) continue;
     const processor = plan.processors.find((candidate) => candidate.active && candidate.cardId === llm.cardId);
     const cardSnapshot = plan.cards.find((candidate) => candidate.active && candidate.cardId === llm.cardId);
@@ -388,6 +389,7 @@ function recoveryOutcomeCandidates(plan: ActorRecoveryPlan): Map<string, Set<str
   for (const card of plan.cards) if (card.active) addRecoveryOutcomeCandidate(candidates, card.cardId, card.snapshot.actor_id);
   for (const llm of plan.llms) {
     if (!llm.active) continue;
+    if (llm.cardId === null) continue;
     addRecoveryOutcomeCandidate(candidates, llm.cardId, llm.actorId);
   }
   for (const processor of plan.processors) if (processor.active) addRecoveryOutcomeCandidate(candidates, processor.cardId, processor.actorId);
@@ -399,7 +401,7 @@ function omitRecoveredCards(plan: ActorRecoveryPlan, recoveredCardIds: Set<strin
   return {
     ...plan,
     cards: plan.cards.filter((card) => !recoveredCardIds.has(card.cardId)),
-    llms: plan.llms.filter((llm) => !recoveredCardIds.has(llm.cardId)),
+    llms: plan.llms.filter((llm) => llm.cardId === null || !recoveredCardIds.has(llm.cardId)),
     processors: plan.processors.filter((processor) => !recoveredCardIds.has(processor.cardId)),
   };
 }
@@ -463,8 +465,8 @@ export function projectActorRecovery(plan: ActorRecoveryPlan, cardReader?: Actor
   const actions: ActorRecoveryDiagnosticAction[] = [
     ...(isNonIdleSupervisorSnapshot(plan.supervisor) ? [{ actorId: 'supervisor', kind: 'discarded_supervisor' as const, action: 'discard_stale_supervisor' }] : []),
     ...plan.cards.filter((card) => card.active).map((card) => ({ actorId: card.snapshot.actor_id, kind: 'active_card' as const, action: 'diagnose_active_card', cardId: card.cardId })),
-    ...plan.llms.filter((llm) => llm.active).map((llm) => ({ actorId: llm.actorId, kind: 'active_llm' as const, action: 'diagnose_active_llm', cardId: llm.cardId })),
-    ...plan.llms.filter((llm) => llmActions.get(llm.actorId) !== 'none').map((llm) => ({ actorId: llm.actorId, kind: 'llm_recovery_action' as const, action: llmActions.get(llm.actorId)!, cardId: llm.cardId })),
+    ...plan.llms.filter((llm) => llm.active).map((llm) => ({ actorId: llm.actorId, kind: 'active_llm' as const, action: 'diagnose_active_llm', cardId: llm.cardId ?? undefined })),
+    ...plan.llms.filter((llm) => llmActions.get(llm.actorId) !== 'none').map((llm) => ({ actorId: llm.actorId, kind: 'llm_recovery_action' as const, action: llmActions.get(llm.actorId)!, cardId: llm.cardId ?? undefined })),
     ...plan.processors.filter((processor) => processor.active).map((processor) => ({ actorId: processor.actorId, kind: 'active_processor' as const, action: 'diagnose_active_processor', cardId: processor.cardId })),
     ...plan.processes.filter((process) => processRecoveryAction(process.snapshot) !== 'none').map((process) => ({ actorId: process.snapshot.actor_id, kind: 'running_process' as const, action: processRecoveryAction(process.snapshot), processId: process.processId })),
   ].sort((a, b) => a.actorId.localeCompare(b.actorId) || a.kind.localeCompare(b.kind));

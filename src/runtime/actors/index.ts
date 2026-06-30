@@ -3,6 +3,7 @@ export * from './actor-vocabulary.js';
 export * from './snapshots.js';
 export * from './actor-tool-definitions.js';
 export * from './llm-delivery-log.js';
+export * from './conversation-store.js';
 export * from './active-goal-note-sinks.js';
 export * from './actor-recovery.js';
 export * from './active-reconstruction.js';

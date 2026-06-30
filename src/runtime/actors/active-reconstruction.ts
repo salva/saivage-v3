@@ -38,7 +38,7 @@ export interface LlmActiveReconstructionRecord {
   kind: 'llm_turn';
   agent_id: string;
   role: OperationalAgentRole;
-  card_id: string;
+  card_id: string | null;
   input_id: string;
   input: LlmInvocationInput;
   provider_call_id: string | null;
@@ -101,7 +101,7 @@ const llmActiveReconstructionSchema: z.ZodType<LlmActiveReconstructionRecord> = 
   kind: z.literal('llm_turn'),
   agent_id: z.string().min(1),
   role: llmActorRoleSchema,
-  card_id: z.string().min(1),
+  card_id: z.string().min(1).nullable(),
   input_id: z.string().min(1),
   input: llmInvocationInputSchema,
   provider_call_id: z.string().min(1).nullable(),
@@ -130,7 +130,7 @@ export function readLlmActiveReconstruction(snapshot: ActorSnapshotRecord): LlmA
   const identity = parseLlmActorId(snapshot.actor_id);
   if (parsed.agent_id !== snapshot.actor_id) throw new Error(`LLM active reconstruction mismatch for '${snapshot.actor_id}': agent_id '${parsed.agent_id}' does not match actor id.`);
   if (parsed.role !== identity.role) throw new Error(`LLM active reconstruction mismatch for '${snapshot.actor_id}': role '${parsed.role}' does not match actor role '${identity.role}'.`);
-  if (parsed.card_id !== identity.cardId) throw new Error(`LLM active reconstruction mismatch for '${snapshot.actor_id}': card_id '${parsed.card_id}' does not match actor card '${identity.cardId}'.`);
+  if (identity.cardId !== null && parsed.card_id !== identity.cardId) throw new Error(`LLM active reconstruction mismatch for '${snapshot.actor_id}': card_id '${parsed.card_id}' does not match actor card '${identity.cardId}'.`);
   if (parsed.input.agentId !== parsed.agent_id) throw new Error(`LLM active reconstruction mismatch for '${snapshot.actor_id}': input agentId '${parsed.input.agentId}' does not match agent_id.`);
   if (parsed.input.role !== parsed.role) throw new Error(`LLM active reconstruction mismatch for '${snapshot.actor_id}': input role '${parsed.input.role}' does not match role '${parsed.role}'.`);
   if (parsed.input.inputId !== parsed.input_id) throw new Error(`LLM active reconstruction mismatch for '${snapshot.actor_id}': input inputId '${parsed.input.inputId}' does not match input_id '${parsed.input_id}'.`);

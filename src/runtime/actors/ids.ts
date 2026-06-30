@@ -35,7 +35,7 @@ export function processorActorId(cardId: string): string {
 export function actorKindFromId(actorId: string): ActorKind {
   if (actorId === supervisorActorId()) return 'supervisor';
   if (actorId.startsWith('card:')) return 'card';
-  if (actorId.startsWith('planner:') || actorId.startsWith('reviewer:') || actorId.startsWith('executor:')) return 'llm';
+  if (actorId.startsWith('planner:') || actorId.startsWith('reviewer:') || actorId.startsWith('executor:') || actorId.startsWith('analyst:')) return 'llm';
   if (actorId.startsWith('process:')) return 'process';
   if (actorId.startsWith('processor:')) return 'processor';
   throw new Error(`Unknown actor id: ${actorId}`);
@@ -46,10 +46,10 @@ export function parseCardActorId(actorId: string): string {
   return actorId.slice('card:'.length);
 }
 
-export function parseLlmActorId(actorId: string): { role: LlmActorRole; cardId: string } {
+export function parseLlmActorId(actorId: string): { role: LlmActorRole; cardId: string | null } {
   for (const role of llmActorRoles) {
     const prefix = `${role}:`;
-    if (actorId.startsWith(prefix)) return { role, cardId: actorId.slice(prefix.length) };
+    if (actorId.startsWith(prefix)) return { role, cardId: role === 'analyst' ? null : actorId.slice(prefix.length) };
   }
   throw new Error(`Expected LLM actor id, received '${actorId}'.`);
 }

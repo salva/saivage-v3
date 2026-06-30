@@ -2,7 +2,7 @@ import { BaseActor } from '../micro-actor/index.js';
 import type { ActorDefinition } from '../micro-actor/index.js';
 import type { LlmCompleteResult } from '../../agents/llm-contracts.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
-import { actorKindFromId } from './ids.js';
+import { actorKindFromId, parseLlmActorId } from './ids.js';
 import { saveActorSnapshot } from './snapshots.js';
 import { appendLlmTurnError, appendLlmTurnFinished, appendLlmTurnStarted, appendModelRepairMessage, appendToolDelivery, toolCallAgentMessage, toolResultAgentMessage } from './llm-delivery-log.js';
 import type { LlmActiveReconstructionRecord } from './active-reconstruction.js';
@@ -57,6 +57,7 @@ export class LLMActor extends BaseActor {
   #pendingTurn: PendingTurn | null = null;
   #activeProviderCallId: string | null = null;
   #toolDeliveryCounter = 0;
+  #systemPromptLoggedSessionIds = new Set<string>();
 
   constructor(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; admission?: LLMAdmissionPort }) {
     super();
@@ -71,14 +72,7 @@ export class LLMActor extends BaseActor {
     if (input.agentId !== this.agentId) return Promise.reject(new Error(`Input ${input.inputId} targets ${input.agentId}, not ${this.agentId}.`));
     if (this.#pendingTurn) return Promise.reject(new Error(`LLMActor '${this.agentId}' already has a pending turn.`));
     if (this.state() !== 'idle') return Promise.reject(new Error(`LLMActor '${this.agentId}' cannot start a new turn from '${this.state()}'.`));
-    this.input = input;
-    this.outcome = null;
-    this.activeReconstruction = this.createActiveReconstruction(input);
-    this.prepareProviderCallReconstruction(input);
-    return new Promise<LLMActorOutcome>((resolve, reject) => {
-      this.#pendingTurn = { resolve, reject };
-      this.parkedSendEvent('turn');
-    });
+    return this.startProviderTurn(input, { resetDeliveredToolCalls: true });
   }
 
   appendToolResult(toolCallId: string, result: unknown, continuationContextHook?: LLMToolContinuationContextHook): Promise<LLMActorOutcome> {
@@ -120,14 +114,13 @@ export class LLMActor extends BaseActor {
     const input = this.requireInput();
     const repairInputId = this.nextDeliveryInputId(input.inputId);
     const repairMessage = appendModelRepairMessage(this.projectRoot, { ...input, inputId: repairInputId }, repairDirective);
-    const assistantMessage = { role: 'assistant', content: this.outcome.result.content };
     const repairContextMessage = { role: 'user', content: repairDirective };
-    return this.turn({
+    return this.startProviderTurn({
       ...input,
       inputId: repairInputId,
-      contextMessages: [...input.contextMessages, assistantMessage, repairContextMessage],
+      contextMessages: [...input.contextMessages, repairContextMessage],
       episodeContext: { ...input.episodeContext, lastModelRepair: repairMessage.id },
-    });
+    }, { resetDeliveredToolCalls: false });
   }
 
   abandonParkedTurn(): void {
@@ -146,7 +139,9 @@ export class LLMActor extends BaseActor {
   _on_enter__calling_provider(): void {
     try {
       const input = this.requireInput();
-      appendLlmTurnStarted(this.projectRoot, input);
+      const includeSystemPrompt = !this.#systemPromptLoggedSessionIds.has(input.sessionId);
+      appendLlmTurnStarted(this.projectRoot, input, { includeSystemPrompt });
+      if (includeSystemPrompt) this.#systemPromptLoggedSessionIds.add(input.sessionId);
       const callId = `${this.agentId}:${input.inputId}`;
       if (this.admission && !this.admission.requestProviderCall(callId)) {
         this.completeWithError(input, `Provider admission denied for ${callId}.`);
@@ -202,6 +197,7 @@ export class LLMActor extends BaseActor {
 
   private completeWithProviderResult(input: LlmInvocationInput, result: LlmCompleteResult): void {
     if (result.kind === 'message') {
+      this.input = { ...input, contextMessages: [...input.contextMessages, { role: 'assistant', content: result.content }] };
       this.outcome = { type: 'result', agentId: this.agentId, result };
       this.activeReconstruction = null;
       this.#pendingTurn?.resolve(this.outcome);
@@ -257,7 +253,20 @@ export class LLMActor extends BaseActor {
     }
   }
 
-  private continueAfterTool(): Promise<LLMActorOutcome> {
+  private continueAfterTool(nextInput = this.requireInput()): Promise<LLMActorOutcome> {
+    return new Promise<LLMActorOutcome>((resolve, reject) => {
+      this.input = nextInput;
+      this.#pendingTurn = { resolve, reject };
+      this.parkedSendEvent('turn');
+    });
+  }
+
+  private startProviderTurn(input: LlmInvocationInput, options: { resetDeliveredToolCalls: boolean }): Promise<LLMActorOutcome> {
+    if (options.resetDeliveredToolCalls) this.deliveredToolCallIds.clear();
+    this.input = input;
+    this.outcome = null;
+    this.activeReconstruction = this.createActiveReconstruction(input);
+    this.prepareProviderCallReconstruction(input);
     return new Promise<LLMActorOutcome>((resolve, reject) => {
       this.#pendingTurn = { resolve, reject };
       this.parkedSendEvent('turn');
@@ -301,14 +310,16 @@ export class LLMActor extends BaseActor {
   }
 
   private createActiveReconstruction(input: LlmInvocationInput): LlmActiveReconstructionRecord {
-    const cardId = input.episodeContext.cardId;
-    if (typeof cardId !== 'string' || cardId.length === 0) throw new Error(`LLMActor '${this.agentId}' input '${input.inputId}' has no cardId reconstruction context.`);
+    const identity = parseLlmActorId(this.agentId);
+    const cardId = identity.role === 'analyst' ? null : input.episodeContext.cardId;
+    if (identity.role !== 'analyst' && (typeof cardId !== 'string' || cardId.length === 0)) throw new Error(`LLMActor '${this.agentId}' input '${input.inputId}' has no cardId reconstruction context.`);
+    const reconstructionCardId = identity.role === 'analyst' ? null : cardId as string;
     return {
       schema_version: 1,
       kind: 'llm_turn',
       agent_id: this.agentId,
       role: input.role,
-      card_id: cardId,
+      card_id: reconstructionCardId,
       input_id: input.inputId,
       input,
       provider_call_id: null,

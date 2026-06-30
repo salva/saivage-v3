@@ -14,7 +14,7 @@ export interface CardActorProjection {
 export interface AgentRunnerProjection {
   agentId: string;
   role: LlmActorRole;
-  cardId: string;
+  cardId: string | null;
   phase: PublicAgentPhase;
 }
 

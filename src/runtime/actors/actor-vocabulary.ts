@@ -4,7 +4,7 @@ export const actorKinds = ['supervisor', 'card', 'llm', 'process', 'processor'] 
 export type ActorKind = typeof actorKinds[number];
 export const actorKindSchema = z.enum(actorKinds);
 
-export const llmActorRoles = ['planner', 'reviewer', 'executor'] as const;
+export const llmActorRoles = ['planner', 'reviewer', 'executor', 'analyst'] as const;
 export type LlmActorRole = typeof llmActorRoles[number];
 export const llmActorRoleSchema = z.enum(llmActorRoles);
 

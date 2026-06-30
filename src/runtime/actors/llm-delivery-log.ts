@@ -1,13 +1,14 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { appendSyncIdempotentByKey, writeFileAtomic } from '../../persistence/index.js';
+import { appendSyncIdempotentByKey } from '../../persistence/index.js';
 import { agentMessageSchema } from '../../schemas/index.js';
 import type { AgentMessage } from '../../schemas/index.js';
 import type { LlmCompleteResult, ToolCall } from '../../agents/llm-contracts.js';
 import { parseToolCallMessage } from '../../contracts/persisted-tool-call.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
+import { appendConversationMessage, readConversationMessages } from './conversation-store.js';
 
 const toolDeliveryRecordSchema = z.object({
   delivery_id: z.string().min(1),
@@ -33,14 +34,6 @@ const toolCallStatusRecordSchema = z.object({
   created_at: z.string().datetime(),
 });
 
-const conversationSegmentNameSchema = z.string().regex(/^seg-\d{3}\.jsonl$/);
-const conversationIndexSchema = z.object({
-  schema_version: z.literal(1),
-  active_segment: conversationSegmentNameSchema,
-}).strict();
-
-type ConversationIndex = z.infer<typeof conversationIndexSchema>;
-
 export type ToolDeliveryRecord = z.infer<typeof toolDeliveryRecordSchema>;
 export type ToolCallStatusRecord = z.infer<typeof toolCallStatusRecordSchema>;
 
@@ -50,18 +43,6 @@ export interface LoggedToolCall {
   tool_call_id: string;
   tool_name: string;
   args: unknown;
-}
-
-export function actorConversationDir(projectRoot: string, sessionId: string): string {
-  return join(projectRoot, '.saivage', 'agents', 'conversations', encodeURIComponent(sessionId));
-}
-
-export function actorConversationIndexPath(projectRoot: string, sessionId: string): string {
-  return join(actorConversationDir(projectRoot, sessionId), 'index.json');
-}
-
-export function actorConversationSegmentPath(projectRoot: string, sessionId: string, segmentName: string): string {
-  return join(actorConversationDir(projectRoot, sessionId), conversationSegmentNameSchema.parse(segmentName));
 }
 
 export function actorToolDeliveriesPath(projectRoot: string, agentId: string): string {
@@ -76,18 +57,20 @@ export function actorToolCallStatusesPath(projectRoot: string, agentId: string):
   return join(actorToolCallStatusesDir(projectRoot), `${encodeURIComponent(agentId)}.jsonl`);
 }
 
-export function appendLlmTurnStarted(projectRoot: string, input: LlmInvocationInput): void {
-  appendActorSystemPromptIfMissing(projectRoot, {
-    id: `${input.agentId}:system-prompt`,
-    session_id: input.sessionId,
-    role: 'system',
-    kind: 'system_prompt',
-    content: input.systemPrompt,
-    round_id: roundId('pre', `${input.agentId}:system-prompt`),
-    message_index: 0,
-    block_index: 0,
-    timestamp: new Date().toISOString(),
-  });
+export function appendLlmTurnStarted(projectRoot: string, input: LlmInvocationInput, options: { includeSystemPrompt?: boolean } = {}): void {
+  if (options.includeSystemPrompt ?? true) {
+    appendConversationMessage(projectRoot, {
+      id: `${input.agentId}:system-prompt`,
+      session_id: input.sessionId,
+      role: 'system',
+      kind: 'system_prompt',
+      content: input.systemPrompt,
+      round_id: roundId('pre', `${input.agentId}:system-prompt`),
+      message_index: 0,
+      block_index: 0,
+      timestamp: new Date().toISOString(),
+    });
+  }
   appendConversationMessage(projectRoot, {
     id: `${input.inputId}:started`,
     session_id: input.sessionId,
@@ -99,12 +82,6 @@ export function appendLlmTurnStarted(projectRoot: string, input: LlmInvocationIn
     block_index: 0,
     timestamp: new Date().toISOString(),
   });
-}
-
-function appendActorSystemPromptIfMissing(projectRoot: string, message: AgentMessage): void {
-  const alreadyLogged = readConversationMessages(projectRoot, message.session_id).some((entry) => entry.id === message.id && entry.kind === 'system_prompt');
-  if (alreadyLogged) return;
-  appendConversationMessage(projectRoot, message);
 }
 
 export function appendLlmTurnFinished(projectRoot: string, input: LlmInvocationInput, result: LlmCompleteResult): void {
@@ -291,62 +268,6 @@ export function appendModelRepairMessage(projectRoot: string, input: LlmInvocati
   });
   appendConversationMessage(projectRoot, message);
   return message;
-}
-
-function appendConversationMessage(projectRoot: string, message: AgentMessage): void {
-  const parsed = agentMessageSchema.parse(message);
-  appendSyncIdempotentByKey(activeConversationSegmentPath(projectRoot, parsed.session_id), parsed, 'id');
-}
-
-export function readConversationMessages(projectRoot: string, sessionId: string): AgentMessage[] {
-  return conversationSegmentPaths(projectRoot, sessionId).flatMap((path) => readConversationSegment(path));
-}
-
-function activeConversationSegmentPath(projectRoot: string, sessionId: string): string {
-  const index = ensureConversationIndex(projectRoot, sessionId);
-  const path = actorConversationSegmentPath(projectRoot, sessionId, index.active_segment);
-  if (!existsSync(path)) throw new Error(`Conversation active segment '${index.active_segment}' for '${sessionId}' was not found.`);
-  return path;
-}
-
-function ensureConversationIndex(projectRoot: string, sessionId: string): ConversationIndex {
-  const dir = actorConversationDir(projectRoot, sessionId);
-  const path = actorConversationIndexPath(projectRoot, sessionId);
-  if (existsSync(path)) return readConversationIndex(path);
-  mkdirSync(dir, { recursive: true });
-  const segment = actorConversationSegmentPath(projectRoot, sessionId, 'seg-001.jsonl');
-  writeFileAtomic(segment, '');
-  const index: ConversationIndex = { schema_version: 1, active_segment: 'seg-001.jsonl' };
-  writeFileAtomic(path, JSON.stringify(index, null, 2) + '\n');
-  return index;
-}
-
-function readConversationIndex(path: string): ConversationIndex {
-  try {
-    return conversationIndexSchema.parse(JSON.parse(readFileSync(path, 'utf-8')));
-  } catch (error) {
-    throw new Error(`Conversation index '${path}' is malformed: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
-
-function conversationSegmentPaths(projectRoot: string, sessionId: string): string[] {
-  const dir = actorConversationDir(projectRoot, sessionId);
-  const indexPath = actorConversationIndexPath(projectRoot, sessionId);
-  if (!existsSync(indexPath)) return [];
-  const index = readConversationIndex(indexPath);
-  const entries = readdirSync(dir, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && conversationSegmentNameSchema.safeParse(entry.name).success)
-    .map((entry) => entry.name)
-    .sort();
-  if (!entries.includes(index.active_segment)) throw new Error(`Conversation active segment '${index.active_segment}' for '${sessionId}' was not found.`);
-  return entries.map((entry) => actorConversationSegmentPath(projectRoot, sessionId, entry));
-}
-
-function readConversationSegment(path: string): AgentMessage[] {
-  return readFileSync(path, 'utf-8')
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => agentMessageSchema.parse(JSON.parse(line)));
 }
 
 function roundId(kind: 'pre' | 'user' | 'assistant', seed: string): string {
