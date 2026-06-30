@@ -72,7 +72,7 @@ export function entriesToTimeline(entries: readonly AgentConversationEntry[], ac
   const rounds: TimelineRound[] = sortedGroups.map(({ id, entries: roundEntries }, idx) => {
     const parsed = parseRoundId(id);
     const sorted = [...roundEntries].sort(compareEntry);
-    return { id, kind: parsed.kind, position: idx + 1, entries: sorted, texts: sorted.filter((entry) => entry.kind === 'text' || entry.kind === 'activity'), diagnostics: sorted.filter((entry) => entry.kind === 'model_issue' || entry.kind === 'model_repair' || entry.kind === 'context_compaction' || entry.kind === 'model_recovered'), toolPairs: buildToolPairs(sorted), activityStatus: null };
+    return { id, kind: parsed.kind, position: idx + 1, entries: sorted, texts: sorted.filter((entry) => entry.kind === 'text' || entry.kind === 'activity' || entry.kind === 'system_prompt'), diagnostics: sorted.filter((entry) => entry.kind === 'model_issue' || entry.kind === 'model_repair' || entry.kind === 'context_compaction' || entry.kind === 'model_recovered'), toolPairs: buildToolPairs(sorted), activityStatus: null };
   });
   const activeRound = [...rounds].reverse().find((round: TimelineRound) => round.kind === 'assistant') ?? rounds[rounds.length - 1] ?? null;
   if (activeRound && activityStatus && activityStatus.status !== 'idle') activeRound.activityStatus = activityStatus;

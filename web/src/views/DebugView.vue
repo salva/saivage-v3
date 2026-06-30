@@ -177,8 +177,8 @@
         <section class="debug-section">
           <div class="debug-section-header operator-header">
             <div>
-              <h4 class="debug-section-title">Persisted Agent Conversations</h4>
-              <p class="operator-subtitle">Debug-only view over .saivage/agents files, including micro-actor planner, executor, and reviewer sessions that may not appear in the main Agents page.</p>
+              <h4 class="debug-section-title">Agent Conversations</h4>
+              <p class="operator-subtitle">Segment-backed conversations from the operator API, with raw tool-delivery and LLM exchange ledgers where available.</p>
             </div>
             <div class="operator-actions-inline">
               <button class="sv-fetch-btn" :disabled="agentDebugLoading" @click="refreshAgentDebug">Refresh</button>
@@ -186,8 +186,8 @@
           </div>
 
           <div v-if="agentDebugError" class="operator-banner operator-banner-error" role="alert">{{ agentDebugError }}</div>
-          <div v-if="agentDebugLoading" class="debug-loading">Loading persisted agent conversations...</div>
-          <div v-else-if="agentDebugSessions.length === 0" class="debug-empty">No persisted agent conversation files found.</div>
+          <div v-if="agentDebugLoading" class="debug-loading">Loading agent conversations...</div>
+          <div v-else-if="agentDebugSessions.length === 0" class="debug-empty">No agent conversations recorded yet.</div>
           <div v-else class="agent-debug-layout">
             <aside class="agent-debug-sidebar" aria-label="Persisted agent sessions">
               <button
@@ -199,7 +199,7 @@
                 @click="selectAgentDebugSession(session.id)"
               >
                 <span class="agent-debug-session-id mono">{{ session.id }}</span>
-                <span class="agent-debug-session-meta">{{ agentDebugFileCount(session) }} file{{ agentDebugFileCount(session) === 1 ? '' : 's' }}</span>
+                <span class="agent-debug-session-meta">{{ session.role }} · {{ session.status }}</span>
               </button>
             </aside>
             <div class="agent-debug-detail">
@@ -210,10 +210,10 @@
                   type="button"
                   class="pill debug-tab-button"
                   :aria-pressed="selectedAgentDebugKind === kind.id"
-                  :disabled="!selectedAgentDebugSession?.files[kind.id]"
+                  :disabled="!agentDebugKindAvailable(kind.id)"
                   @click="selectAgentDebugKind(kind.id)"
                 >{{ kind.label }}</button>
-                <button v-if="selectedAgentDebugPath" class="sv-fetch-btn" :disabled="agentDebugContentLoading" @click="loadSelectedAgentDebugFile">Reload File</button>
+                <button v-if="selectedAgentDebugPath" class="sv-fetch-btn" :disabled="agentDebugContentLoading" @click="loadSelectedAgentDebugContent">Reload</button>
               </div>
               <div v-if="selectedAgentDebugSession" class="agent-debug-path mono">{{ selectedAgentDebugPath || 'No file recorded for this view.' }}</div>
               <div v-if="agentDebugContentLoading" class="debug-loading">Loading agent file...</div>
@@ -379,7 +379,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
-import { getFileContent, listFiles } from '../api/client';
+import { getAgentConversation, getAgentLlmExchange, getFileContent, listAgentSessions, listFiles } from '../api/client';
 import { useDebugStore } from '../stores/debug';
 import { useSyncStore } from '../stores/sync';
 import { useCardStore } from '../stores/cards';
@@ -389,7 +389,7 @@ import { redactObservabilityValue } from '../utils/observabilityRedaction';
 import { useMcpStore } from '../stores/mcp';
 import { formatJson } from '../utils/format-json';
 import CodeBlock from '../components/content/CodeBlock.vue';
-import type { DebugTimelineEvent, FileEntry, ProcessView } from '../api/types';
+import type { AgentSession, DebugTimelineEvent, FileEntry, ProcessView } from '../api/types';
 
 const debugStore = useDebugStore();
 const syncStore = useSyncStore();
@@ -427,20 +427,20 @@ const {
   childrenForCard,
 } = useDebugReadModel(debugStore, cardsStore);
 
-type AgentDebugKind = 'messages' | 'toolDeliveries' | 'llmExchange';
-interface AgentDebugSession {
-  id: string;
+type AgentDebugKind = 'conversation' | 'toolDeliveries' | 'llmExchange';
+type RawAgentDebugKind = Exclude<AgentDebugKind, 'conversation'>;
+interface AgentDebugSession extends Pick<AgentSession, 'id' | 'role' | 'status'> {
   files: Partial<Record<AgentDebugKind, string>>;
 }
 
 const agentDebugKinds: Array<{ id: AgentDebugKind; label: string }> = [
-  { id: 'messages', label: 'Messages' },
+  { id: 'conversation', label: 'Conversation' },
   { id: 'toolDeliveries', label: 'Tool Deliveries' },
   { id: 'llmExchange', label: 'Raw LLM Exchange' },
 ];
 const agentDebugSessions = ref<AgentDebugSession[]>([]);
 const selectedAgentDebugSessionId = ref<string | null>(null);
-const selectedAgentDebugKind = ref<AgentDebugKind>('messages');
+const selectedAgentDebugKind = ref<AgentDebugKind>('conversation');
 const agentDebugLoading = ref(false);
 const agentDebugError = ref<string | null>(null);
 const agentDebugContent = ref('');
@@ -448,7 +448,13 @@ const agentDebugContentLoading = ref(false);
 const agentDebugContentError = ref<string | null>(null);
 
 const selectedAgentDebugSession = computed(() => agentDebugSessions.value.find((session) => session.id === selectedAgentDebugSessionId.value) ?? null);
-const selectedAgentDebugPath = computed(() => selectedAgentDebugSession.value?.files[selectedAgentDebugKind.value] ?? null);
+const selectedAgentDebugPath = computed(() => {
+  const session = selectedAgentDebugSession.value;
+  if (!session) return null;
+  if (selectedAgentDebugKind.value === 'conversation') return `/api/agents/${encodeURIComponent(session.id)}/conversation`;
+  if (selectedAgentDebugKind.value === 'llmExchange') return session.files.llmExchange ? `/api/agents/${encodeURIComponent(session.id)}/llm-exchange` : null;
+  return session.files[selectedAgentDebugKind.value] ?? null;
+});
 const formattedAgentDebugContent = computed(() => formatAgentDebugContent(agentDebugContent.value, selectedAgentDebugPath.value));
 
 async function refreshOperatorControl(): Promise<void> { await debugStore.fetchOperatorControl().catch(() => {}); }
@@ -474,19 +480,19 @@ async function refreshAgentDebug(): Promise<void> {
   agentDebugLoading.value = true;
   agentDebugError.value = null;
   try {
-    const [messages, toolDeliveries, llmExchanges] = await Promise.all([
-      listAgentDebugFiles('.saivage/agents/messages'),
+    const [sessionResponse, toolDeliveries, llmExchanges] = await Promise.all([
+      listAgentSessions(),
       listAgentDebugFiles('.saivage/agents/tool-deliveries'),
       listAgentDebugFiles('.saivage/agents/llm-exchanges'),
     ]);
     const bySession = new Map<string, AgentDebugSession>();
-    addAgentDebugFiles(bySession, messages, 'messages');
+    for (const session of sessionResponse.sessions) bySession.set(session.id, { id: session.id, role: session.role, status: session.status, files: {} });
     addAgentDebugFiles(bySession, toolDeliveries, 'toolDeliveries');
     addAgentDebugFiles(bySession, llmExchanges, 'llmExchange');
     agentDebugSessions.value = [...bySession.values()].sort((a, b) => a.id.localeCompare(b.id));
     if (!selectedAgentDebugSessionId.value || !bySession.has(selectedAgentDebugSessionId.value)) selectedAgentDebugSessionId.value = agentDebugSessions.value[0]?.id ?? null;
     normalizeSelectedAgentDebugKind();
-    await loadSelectedAgentDebugFile();
+    await loadSelectedAgentDebugContent();
   } catch (err) {
     agentDebugError.value = err instanceof Error ? err.message : String(err);
   } finally {
@@ -503,12 +509,12 @@ async function listAgentDebugFiles(path: string): Promise<FileEntry[]> {
   }
 }
 
-function addAgentDebugFiles(bySession: Map<string, AgentDebugSession>, files: FileEntry[], kind: AgentDebugKind): void {
+function addAgentDebugFiles(bySession: Map<string, AgentDebugSession>, files: FileEntry[], kind: RawAgentDebugKind): void {
   for (const file of files) {
     const id = sessionIdFromAgentDebugFile(file.name);
-    const session = bySession.get(id) ?? { id, files: {} };
+    const session = bySession.get(id);
+    if (!session) continue;
     session.files[kind] = file.path;
-    bySession.set(id, session);
   }
 }
 
@@ -520,39 +526,49 @@ function sessionIdFromAgentDebugFile(name: string): string {
 function selectAgentDebugSession(sessionId: string): void {
   selectedAgentDebugSessionId.value = sessionId;
   normalizeSelectedAgentDebugKind();
-  loadSelectedAgentDebugFile().catch(() => {});
+  loadSelectedAgentDebugContent().catch(() => {});
 }
 
 function selectAgentDebugKind(kind: AgentDebugKind): void {
   selectedAgentDebugKind.value = kind;
-  loadSelectedAgentDebugFile().catch(() => {});
+  loadSelectedAgentDebugContent().catch(() => {});
 }
 
 function normalizeSelectedAgentDebugKind(): void {
   const session = selectedAgentDebugSession.value;
   if (!session) return;
-  if (session.files[selectedAgentDebugKind.value]) return;
-  selectedAgentDebugKind.value = agentDebugKinds.find((kind) => session.files[kind.id])?.id ?? 'messages';
+  if (agentDebugKindAvailable(selectedAgentDebugKind.value)) return;
+  selectedAgentDebugKind.value = 'conversation';
 }
 
-async function loadSelectedAgentDebugFile(): Promise<void> {
+function agentDebugKindAvailable(kind: AgentDebugKind): boolean {
+  const session = selectedAgentDebugSession.value;
+  if (!session) return false;
+  if (kind === 'conversation') return true;
+  return Boolean(session.files[kind]);
+}
+
+async function loadSelectedAgentDebugContent(): Promise<void> {
   agentDebugContent.value = '';
   agentDebugContentError.value = null;
+  const session = selectedAgentDebugSession.value;
   const path = selectedAgentDebugPath.value;
-  if (!path) return;
+  if (!session || !path) return;
   agentDebugContentLoading.value = true;
   try {
-    const file = await getFileContent(path);
-    agentDebugContent.value = file.content;
+    if (selectedAgentDebugKind.value === 'conversation') {
+      agentDebugContent.value = JSON.stringify(await getAgentConversation(session.id), null, 2);
+    } else if (selectedAgentDebugKind.value === 'llmExchange') {
+      agentDebugContent.value = JSON.stringify(await getAgentLlmExchange(session.id), null, 2);
+    } else {
+      const file = await getFileContent(path);
+      agentDebugContent.value = file.content;
+    }
   } catch (err) {
     agentDebugContentError.value = err instanceof Error ? err.message : String(err);
   } finally {
     agentDebugContentLoading.value = false;
   }
-}
-
-function agentDebugFileCount(session: AgentDebugSession): number {
-  return Object.keys(session.files).length;
 }
 
 function formatAgentDebugContent(content: string, path: string | null): string {
