@@ -16,7 +16,7 @@ function setup() {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-runtime-activation-'));
   initProjectTree(projectRoot);
   const cardStore = new CardStore(projectRoot);
-  cardStore.create({ type: 'project', parent: null, depth: 0, title: 'project', brief: 'project', status: 'running', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
+  cardStore.setStatus('project', 'running');
   const goal = cardStore.create({ type: 'goal', parent: 'project', depth: 1, title: 'Goal A', brief: 'Goal A', status: 'running', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
   const code = cardStore.create({ type: 'code', parent: goal.id, depth: 2, title: 'Code A', brief: 'Code A', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
   return { projectRoot, cardStore, goalId: goal.id, codeId: code.id };

@@ -57,9 +57,9 @@ describe('initProjectTree', () => {
     expect(config.updated_at).toBeDefined();
   });
 
-  it('starts with an empty card store', () => {
+  it('starts with a canonical root project card', () => {
     initProjectTree(tmpDir);
-    expect(readdirSync(join(tmpDir, '.saivage', 'outputs', 'cards'))).toEqual([]);
+    expect(readdirSync(join(tmpDir, '.saivage', 'outputs', 'cards')).sort()).toEqual(['index.json', 'project']);
   });
 
   it('does not create the legacy notes queue', () => {
@@ -122,7 +122,7 @@ describe('initProjectTree', () => {
       'diaries',
       'reviews/by-goal',
       'agents/sessions',
-      'agents/messages',
+      'agents/conversations',
       'runtime',
       'supervision',
       'views',
@@ -165,12 +165,12 @@ describe('initProjectTree', () => {
     expect(listDiscardedSaivageDirs(tmpDir)).toEqual([]);
   });
 
-  it('does not create project cards on repeated calls', () => {
+  it('does not create duplicate project cards on repeated calls', () => {
     initProjectTree(tmpDir);
     initProjectTree(tmpDir);
     initProjectTree(tmpDir);
 
-    expect(readdirSync(join(tmpDir, '.saivage', 'outputs', 'cards'))).toEqual([]);
+    expect(readdirSync(join(tmpDir, '.saivage', 'outputs', 'cards')).sort()).toEqual(['index.json', 'project']);
   });
 
   it('discards legacy .saivage layouts and creates a fresh tree', () => {

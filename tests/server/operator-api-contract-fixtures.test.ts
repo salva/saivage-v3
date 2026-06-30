@@ -11,7 +11,6 @@ const CORE_RUNTIME_STATE_KEYS = [
   'status',
   'project_id',
   'started_at',
-  'paused',
   'updated_at',
 ] as const;
 

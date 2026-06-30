@@ -136,8 +136,6 @@ describe('card lifecycle domain rules', () => {
     try {
       initProjectTree(root);
       const store = new CardStore(root);
-      const { id: _projectId, ...projectInput } = baseCard({ id: 'project', type: 'project', parent: null, depth: 0 });
-      store.create({ ...projectInput, brief: 'project' });
       const { id: _cardId, ...cardInput } = baseCard({ title: 'G' });
       const card = store.create({ ...cardInput, brief: 'G' });
       store.setStatus(card.id, 'running');
@@ -157,8 +155,6 @@ describe('card lifecycle domain rules', () => {
     try {
       initProjectTree(root);
       const store = new CardStore(root);
-      const { id: _projectId, ...projectInput } = baseCard({ id: 'project', type: 'project', parent: null, depth: 0 });
-      store.create({ ...projectInput, brief: 'project' });
       const { id: _cardId, ...cardInput } = baseCard({ title: 'G2' });
       const card = store.create({ ...cardInput, brief: 'G2' });
       store.setStatus(card.id, 'running');
@@ -178,8 +174,6 @@ describe('card lifecycle domain rules', () => {
     try {
       initProjectTree(root);
       const store = new CardStore(root);
-      const { id: _projectId, ...projectInput } = baseCard({ id: 'project', type: 'project', parent: null, depth: 0 });
-      store.create({ ...projectInput, brief: 'project' });
       const { id: _cardId, ...cardInput } = baseCard({ title: 'G3' });
       const card = store.create({ ...cardInput, brief: 'G3' });
       store.setStatus(card.id, 'running');

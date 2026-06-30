@@ -83,7 +83,7 @@ describe('changed propagation', () => {
     projectRoot = mkdtempSync(join(tmpdir(), 'saivage-changed-propagation-'));
     initProjectTree(projectRoot);
     store = new CardStore(projectRoot);
-    projectId = store.create(makeCard({ id: 'project', type: 'project', parent: null, depth: 0, title: 'project' })).id;
+    projectId = 'project';
     goalAId = store.create(makeCard({ id: 'goal-a', type: 'goal', parent: projectId, depth: 1, title: 'A' })).id;
     goalBId = store.create(makeCard({ id: 'goal-b', type: 'goal', parent: goalAId, depth: 2, title: 'B' })).id;
     cardCId = store.create(makeCard({ id: 'card-c', type: 'code', parent: goalBId, depth: 3, title: 'C' })).id;

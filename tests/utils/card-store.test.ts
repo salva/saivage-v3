@@ -60,6 +60,8 @@ let tmpDir: string;
 let store: CardStore;
 
 function createRootProject(): CardRecord {
+  const existing = store.read('project');
+  if (existing) return existing;
   return store.create(makeCard({ type: 'project', parent: null, depth: 0, title: 'project' }));
 }
 
@@ -72,7 +74,6 @@ beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), 'saivage-cs-'));
   initProjectTree(tmpDir);
   store = new CardStore(tmpDir);
-  createRootProject();
 });
 
 afterEach(() => {
@@ -94,8 +95,8 @@ describe('Clean-slate boot', () => {
     );
     expect(discarded).toHaveLength(1);
     expect(existsSync(join(tmpDir, discarded[0], 'legacy-plan.json'))).toBe(true);
-    expect(store.list()).toEqual([]);
-    expect(existsSync(join(tmpDir, '.saivage', 'cards', 'by-id', 'project.json'))).toBe(false);
+    expect(store.list().map((card) => card.id)).toEqual(['project']);
+    expect(existsSync(cardRecordVersionPath(tmpDir, 'project', 1))).toBe(true);
   });
 });
 

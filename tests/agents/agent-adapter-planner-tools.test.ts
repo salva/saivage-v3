@@ -108,7 +108,6 @@ describe('AgentAdapter planner tool surface', () => {
     initProjectTree(tmpDir);
     store = new CardStore(tmpDir);
     adapter = createMinimalAdapter(tmpDir, store);
-    store.create(makeCard({ type: 'project', parent: null, depth: 0, title: 'project' }));
   });
 
   afterEach(() => {

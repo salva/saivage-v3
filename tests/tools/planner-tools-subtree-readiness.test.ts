@@ -75,8 +75,7 @@ describe('PlannerToolsService report_goal_done subtree gate', () => {
     projectRoot = mkdtempSync(join(tmpdir(), 'saivage-planner-tools-readiness-'));
     initProjectTree(projectRoot);
     store = new CardStore(projectRoot);
-    const project = store.create(makeCard({ id: 'project', type: 'project', parent: null, depth: 0, title: 'project' }));
-    goalId = store.create(makeCard({ id: 'goal', type: 'goal', parent: project.id, depth: 1, title: 'goal' })).id;
+    goalId = store.create(makeCard({ id: 'goal', type: 'goal', parent: 'project', depth: 1, title: 'goal' })).id;
     childId = store.create(makeCard({ id: 'child', type: 'code', parent: goalId, depth: 2, title: 'child' })).id;
     store.setStatus(goalId, 'running');
   });

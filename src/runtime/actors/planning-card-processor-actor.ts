@@ -20,6 +20,7 @@ import { closeOpenRecordSlot, concreteRecordSlot, discardOpenRecordSlot, latestC
 import { cardBriefForPrompt } from '../records/card-brief.js';
 
 type PlannerProcessorOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
+const MAX_TERMINAL_CONTRACT_REPAIRS = 2;
 
 type ReviewerCurrentnessSnapshot = {
   cards: Array<{ id: string; status: CardStatus; versionSeq: number }>;
@@ -83,15 +84,28 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const llm = this.createMainLlm(plannerActorId(this.cardId));
     discardOpenRecordSlot(this.projectRoot, { cardId: input.card.id, filename: 'status.md', reason: 'new_activation' });
     let outcome = await llm.turn(this.buildLlmInput(input, contract));
-    let recordRepairAttempts = 0;
+    let repairAttempts = 0;
     while (true) {
-      if (outcome.type === 'result') return this.plannerFailure(`${expectedTerminalToolMessage(contract)} Plain planner messages are not accepted as terminal results.`);
+      if (outcome.type === 'result') {
+        const message = `${expectedTerminalToolMessage(contract)} Plain planner messages are not accepted as terminal results.`;
+        if (repairAttempts >= MAX_TERMINAL_CONTRACT_REPAIRS) return this.plannerFailure(message);
+        repairAttempts++;
+        outcome = await llm.continueAfterPlainText(`${message} Use tools. Write record://status.md?v=next if needed, then call emit_planner_result with valid JSON arguments.`);
+        continue;
+      }
       if (outcome.type === 'error') return this.plannerFailure(outcome.error);
       if (contract.isTerminalToolName(outcome.toolName)) {
+        const invalidTerminal = this.validatePlannerTerminal(outcome, contract);
+        if (invalidTerminal) {
+          if (repairAttempts >= MAX_TERMINAL_CONTRACT_REPAIRS) return this.plannerFailure(invalidTerminal);
+          repairAttempts++;
+          outcome = await llm.appendToolResult(outcome.toolCallId, { success: false, error: invalidTerminal }, () => [{ role: 'user', content: `${invalidTerminal} Call emit_planner_result again with valid JSON arguments.` }]);
+          continue;
+        }
         const missingRecord = this.closeRequiredRecord(input.card.id, 'status.md', 'planner', input.card.version_seq);
         if (missingRecord) {
-          recordRepairAttempts++;
-          if (recordRepairAttempts > 2) return this.plannerFailure(missingRecord);
+          if (repairAttempts >= MAX_TERMINAL_CONTRACT_REPAIRS) return this.plannerFailure(missingRecord);
+          repairAttempts++;
           outcome = await llm.appendToolResult(outcome.toolCallId, { success: false, error: missingRecord }, () => [{ role: 'user', content: `${missingRecord} Create record://status.md?v=next, then call emit_planner_result again.` }]);
           continue;
         }
@@ -196,15 +210,28 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     while (true) {
       const currentness = this.captureReviewerCurrentness(input);
       let outcome = await llm.turn(this.buildReviewerLlmInput(input, assessmentId, sessionId, currentness));
-      let recordRepairAttempts = 0;
+      let repairAttempts = 0;
       while (true) {
         if (outcome.type === 'error') return { status: 'failed', summary: outcome.error, result: { kind: 'planner_failure', error: outcome.error } };
-        if (outcome.type === 'result') return this.plannerFailure(`${expectedTerminalToolMessage(reviewerContract)} Plain reviewer messages are not accepted as terminal results.`);
+        if (outcome.type === 'result') {
+          const message = `${expectedTerminalToolMessage(reviewerContract)} Plain reviewer messages are not accepted as terminal results.`;
+          if (repairAttempts >= MAX_TERMINAL_CONTRACT_REPAIRS) return this.plannerFailure(message);
+          repairAttempts++;
+          outcome = await llm.continueAfterPlainText(`${message} Use tools. Write record://review.md?v=next if needed, then call emit_reviewer_result with valid JSON arguments.`);
+          continue;
+        }
         if (reviewerContract.isTerminalToolName(outcome.toolName)) {
+          const invalidTerminal = this.validateReviewerTerminal(outcome, reviewerContract);
+          if (invalidTerminal) {
+            if (repairAttempts >= MAX_TERMINAL_CONTRACT_REPAIRS) return this.plannerFailure(invalidTerminal);
+            repairAttempts++;
+            outcome = await llm.appendToolResult(outcome.toolCallId, { success: false, error: invalidTerminal }, () => [{ role: 'user', content: `${invalidTerminal} Call emit_reviewer_result again with valid JSON arguments.` }]);
+            continue;
+          }
           const missingRecord = this.validateRequiredOpenRecord(input.card.id, 'review.md');
           if (missingRecord) {
-            recordRepairAttempts++;
-            if (recordRepairAttempts > 2) return this.plannerFailure(missingRecord);
+            if (repairAttempts >= MAX_TERMINAL_CONTRACT_REPAIRS) return this.plannerFailure(missingRecord);
+            repairAttempts++;
             outcome = await llm.appendToolResult(outcome.toolCallId, { success: false, error: missingRecord }, () => [{ role: 'user', content: `${missingRecord} Create record://review.md?v=next, then call emit_reviewer_result again.` }]);
             continue;
           }
@@ -253,6 +280,24 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
 
   private plannerFailure(error: string): PlannerProcessorOutcome {
     return { status: 'failed', summary: error, result: { kind: 'planner_failure', error } };
+  }
+
+  private validatePlannerTerminal(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, contract = createPlannerContract()): string | null {
+    try {
+      verifyTerminalToolOutcome(contract, outcome);
+      return null;
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  private validateReviewerTerminal(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, contract = createReviewerContract()): string | null {
+    try {
+      verifyTerminalToolOutcome(contract, outcome);
+      return null;
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
   }
 
   private closeRequiredRecord(cardId: string, filename: 'status.md' | 'review.md', writer: 'planner' | 'reviewer', cardVersionSeq: number): string | null {

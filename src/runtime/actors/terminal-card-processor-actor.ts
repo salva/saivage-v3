@@ -17,6 +17,7 @@ import { cardBriefForPrompt } from '../records/card-brief.js';
 type TerminalProcessorOutcome = Extract<CardActivationOutcome, { status: 'done' | 'failed' }>;
 
 export const MAX_TERMINAL_PROCESS_ACTORS = 20;
+const MAX_TERMINAL_CONTRACT_REPAIRS = 2;
 
 export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor implements CardProcessorActor {
   static _actor: ActorDefinition = {
@@ -57,15 +58,28 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const llm = this.createMainLlm(executorActorId(this.cardId));
     discardOpenRecordSlot(this.projectRoot, { cardId: this.cardId, filename: 'status.md', reason: 'new_activation' });
     let outcome = await llm.turn(this.buildLlmInput(input, contract));
-    let recordRepairAttempts = 0;
+    let repairAttempts = 0;
     for (;;) {
-      if (outcome.type === 'result') return { status: 'failed', summary: `${expectedTerminalToolMessage(contract)} Plain executor messages are not accepted as terminal results.`, result: executorFailure(`${expectedTerminalToolMessage(contract)} Plain executor messages are not accepted as terminal results.`) };
+      if (outcome.type === 'result') {
+        const message = `${expectedTerminalToolMessage(contract)} Plain executor messages are not accepted as terminal results.`;
+        if (repairAttempts >= MAX_TERMINAL_CONTRACT_REPAIRS) return { status: 'failed', summary: message, result: executorFailure(message) };
+        repairAttempts++;
+        outcome = await llm.continueAfterPlainText(`${message} Do not summarize, simulate file writes, or describe what you would do. Use tools. Write record://status.md?v=next if needed, then call emit_executor_result with valid JSON arguments.`);
+        continue;
+      }
       if (outcome.type === 'error') return { status: 'failed', summary: outcome.error, result: executorFailure(outcome.error) };
       if (contract.isTerminalToolName(outcome.toolName)) {
+        const invalidTerminal = this.validateExecutorTerminal(outcome, contract);
+        if (invalidTerminal) {
+          if (repairAttempts >= MAX_TERMINAL_CONTRACT_REPAIRS) return { status: 'failed', summary: invalidTerminal, result: executorFailure(invalidTerminal) };
+          repairAttempts++;
+          outcome = await llm.appendToolResult(outcome.toolCallId, { success: false, error: invalidTerminal }, () => [{ role: 'user', content: `${invalidTerminal} Call emit_executor_result again with valid JSON arguments.` }]);
+          continue;
+        }
         const missingRecord = this.closeRequiredStatusRecord(input.card.version_seq);
         if (missingRecord) {
-          recordRepairAttempts++;
-          if (recordRepairAttempts > 2) return { status: 'failed', summary: missingRecord, result: executorFailure(missingRecord) };
+          if (repairAttempts >= MAX_TERMINAL_CONTRACT_REPAIRS) return { status: 'failed', summary: missingRecord, result: executorFailure(missingRecord) };
+          repairAttempts++;
           outcome = await llm.appendToolResult(outcome.toolCallId, { success: false, error: missingRecord }, () => [{ role: 'user', content: `${missingRecord} Create record://status.md?v=next, then call emit_executor_result again.` }]);
           continue;
         }
@@ -178,6 +192,15 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     if (result.status === 'done') return { status: 'done', summary, result: executorSuccess(result) };
     const error = result.error ?? summary;
     return { status: 'failed', summary: error, result: executorFailure(error, executorResultRecord(result), result.status_text) };
+  }
+
+  private validateExecutorTerminal(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, contract = createExecutorContract()): string | null {
+    try {
+      verifyTerminalToolOutcome(contract, outcome);
+      return null;
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
   }
 
   protected get processorLabel(): string {

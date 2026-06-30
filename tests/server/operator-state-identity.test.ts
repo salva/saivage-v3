@@ -64,7 +64,7 @@ describe('operator runtime.getState identity', () => {
     expect(response.statusCode).toBe(200);
     const body = response.json();
     expect(body.runtime).not.toBeNull();
-    expect(body.runtime.status).toBe('idle');
+    expect(body.runtime.status).toBe('stopped');
     expect(body.projectRoot).toBe(tmpDir);
     expect(body.projectId).toBe(basename(tmpDir));
   });

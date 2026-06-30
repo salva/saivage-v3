@@ -56,21 +56,6 @@ describe('Security — Auth, Path Traversal, and Redaction', () => {
       JSON.stringify({ profiles: [{ name: 'test', token: 'super-secret-auth-token' }] }),
     );
 
-    writeFileSync(
-      join(tmpDir, '.saivage', 'runtime', 'state.json'),
-      JSON.stringify({
-        status: 'stopped',
-        project_id: 'project',
-        pid: 1234,
-        started_at: new Date().toISOString(),
-        active_card_run: null,
-        updated_at: new Date().toISOString(),
-        runtime_commands: [],
-        runtime_runs: [],
-        runtime_activations: [],
-      }),
-    );
-
     writeFileSync(join(tmpDir, 'large-file.bin'), Buffer.alloc(2_000_000, 'x').toString());
 
     authToken = 'security-test-token';

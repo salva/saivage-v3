@@ -4,7 +4,7 @@ import type { LlmCompleteResult } from '../../agents/llm-contracts.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
 import { actorKindFromId } from './ids.js';
 import { saveActorSnapshot } from './snapshots.js';
-import { appendLlmTurnError, appendLlmTurnFinished, appendLlmTurnStarted, appendToolDelivery, toolCallAgentMessage, toolResultAgentMessage } from './llm-delivery-log.js';
+import { appendLlmTurnError, appendLlmTurnFinished, appendLlmTurnStarted, appendModelRepairMessage, appendToolDelivery, toolCallAgentMessage, toolResultAgentMessage } from './llm-delivery-log.js';
 import type { LlmActiveReconstructionRecord } from './active-reconstruction.js';
 
 export type LLMActorOutcome =
@@ -93,6 +93,7 @@ export class LLMActor extends BaseActor {
     const deliveryInputId = this.nextDeliveryInputId(input.inputId);
     const delivery = appendToolDelivery(this.projectRoot, {
       agent_id: this.agentId,
+      session_id: input.sessionId,
       source_input_id: waiting.sourceInputId,
       delivery_input_id: deliveryInputId,
       tool_call_id: toolCallId,
@@ -110,6 +111,23 @@ export class LLMActor extends BaseActor {
     this.updateActiveReconstruction({ input: this.input, input_id: deliveryInputId, waiting_tool_call: null, delivered_tool_call_ids: [...this.deliveredToolCallIds], tool_delivery_counter: this.#toolDeliveryCounter });
     this.prepareProviderCallReconstruction(this.input);
     return this.continueAfterTool();
+  }
+
+  continueAfterPlainText(repairDirective: string): Promise<LLMActorOutcome> {
+    if (this.state() !== 'idle') return Promise.reject(new Error(`LLMActor '${this.agentId}' cannot continue a plain-text result from '${this.state()}'.`));
+    if (this.#pendingTurn) return Promise.reject(new Error(`LLMActor '${this.agentId}' already has a pending turn.`));
+    if (this.outcome?.type !== 'result') return Promise.reject(new Error(`LLMActor '${this.agentId}' has no plain-text result to continue.`));
+    const input = this.requireInput();
+    const repairInputId = this.nextDeliveryInputId(input.inputId);
+    const repairMessage = appendModelRepairMessage(this.projectRoot, { ...input, inputId: repairInputId }, repairDirective);
+    const assistantMessage = { role: 'assistant', content: this.outcome.result.content };
+    const repairContextMessage = { role: 'user', content: repairDirective };
+    return this.turn({
+      ...input,
+      inputId: repairInputId,
+      contextMessages: [...input.contextMessages, assistantMessage, repairContextMessage],
+      episodeContext: { ...input.episodeContext, lastModelRepair: repairMessage.id },
+    });
   }
 
   abandonParkedTurn(): void {

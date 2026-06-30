@@ -66,7 +66,7 @@ const SAIVAGE_DIRS: string[] = [
   'diaries',
   'reviews/by-goal',
   'agents/llm-exchanges',
-  'agents/messages',
+  'agents/conversations',
   'agents/sessions',
   'runtime',
   'tmp/state',
@@ -119,7 +119,7 @@ function isNewSaivageState(projectRoot: string): boolean {
   const requiredDirs = [
     'outputs/cards',
     'agents/sessions',
-    'agents/messages',
+    'agents/conversations',
     'runtime',
     'views',
     'supervision',

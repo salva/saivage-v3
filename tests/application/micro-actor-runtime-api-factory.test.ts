@@ -21,7 +21,6 @@ describe('createMicroActorRuntimeApi', () => {
   it('constructs a RuntimeApi backed by the shared CardStore', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const cardStore = new CardStore(projectRoot);
-    cardStore.create({ type: 'project', parent: null, depth: 0, title: 'project', brief: 'project', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
     const plannerTerminal = { kind: 'tool_calls' as const, tool_calls: [{ id: 'planner-result-1', type: 'function' as const, function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'blocked', blocked_reason: 'waiting for operator', summary: 'waiting for operator' }) } }] };
     let wroteStatus = false;
     const invocationService = {

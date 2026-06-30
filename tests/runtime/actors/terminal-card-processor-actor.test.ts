@@ -20,7 +20,6 @@ function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promis
 function setup(projectRoot: string) {
   initProjectTree(projectRoot);
   const store = new CardStore(projectRoot);
-  store.create({ type: 'project', parent: null, depth: 0, title: 'project', brief: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
   const card = store.create({ type: 'code', parent: 'project', depth: 1, title: 'write code', brief: 'Implement it.', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
   return { store, card };
 }
@@ -47,6 +46,7 @@ function recordWrite(callId: string, path: string, content: string) {
 
 function withExecutorStatusRecord(responder: (input: LlmInvocationInput, signal: AbortSignal) => Promise<LlmCompleteResult> | LlmCompleteResult): LLMProviderPort {
   const pending = new Map<string, LlmCompleteResult>();
+  const statusWrites = new Map<string, number>();
   return {
     completeTurn: jest.fn(async (input: LlmInvocationInput) => {
       const key = input.sessionId;
@@ -62,7 +62,9 @@ function withExecutorStatusRecord(responder: (input: LlmInvocationInput, signal:
       const result = await responder(input, new AbortController().signal);
       if (result.kind === 'tool_calls' && result.tool_calls.some((toolCall) => toolCall.function.name === 'emit_executor_result')) {
         pending.set(key, result);
-        return recordWrite(`status-${key}`, 'record://status.md?v=next', `Status for ${input.episodeContext.cardId ?? key}`);
+        const count = (statusWrites.get(key) ?? 0) + 1;
+        statusWrites.set(key, count);
+        return recordWrite(`status-${key}-${count}`, 'record://status.md?v=next', `Status for ${input.episodeContext.cardId ?? key}`);
       }
       return result;
     }),
@@ -163,6 +165,49 @@ describe('TerminalCardProcessorActor', () => {
 
     expect(outcome).toMatchObject({ status: 'failed', result: { kind: 'executor_failure' } });
     expect(outcome.summary).toContain('emit_executor_result');
+    expect(provider.completeTurn).toHaveBeenCalledTimes(3);
+  }));
+
+  it('repairs plain executor prose and succeeds when the model emits a terminal result', async () => withTempProject(async (projectRoot) => {
+    const { store, card } = setup(projectRoot);
+    let turns = 0;
+    const provider = withExecutorStatusRecord(() => {
+      turns++;
+      if (turns === 1) return { kind: 'message' as const, content: 'I implemented it.' };
+      return executorResult(card.id, 'implemented after repair');
+    });
+    const processor = new TerminalCardProcessorActor({ projectRoot, cardId: card.id, provider });
+    processor.start();
+    const actor = CardActor.fromCard({ projectRoot, card, store, processor });
+
+    const outcome = await actor.activate({ kind: 'parent', cardId: 'project' });
+
+    expect(outcome).toMatchObject({ status: 'done', summary: 'implemented after repair' });
+    const repairInput = (provider.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls[1]?.[0];
+    expect(repairInput.contextMessages).toEqual(expect.arrayContaining([
+      { role: 'assistant', content: 'I implemented it.' },
+      expect.objectContaining({ role: 'user', content: expect.stringContaining('Plain executor messages are not accepted') }),
+    ]));
+  }));
+
+  it('repairs invalid executor terminal arguments before projecting the result', async () => withTempProject(async (projectRoot) => {
+    const { store, card } = setup(projectRoot);
+    let emittedInvalid = false;
+    const provider = withExecutorStatusRecord((input: LlmInvocationInput) => {
+      if (!emittedInvalid) {
+        emittedInvalid = true;
+        return { kind: 'tool_calls' as const, tool_calls: [{ id: 'bad-executor', type: 'function' as const, function: { name: 'emit_executor_result', arguments: JSON.stringify({ status: 'done' }) } }] };
+      }
+      expect(input.episodeContext.lastToolResult).toMatchObject({ result: { success: false, error: expect.any(String) } });
+      return executorResult(card.id, 'valid after terminal repair');
+    });
+    const processor = new TerminalCardProcessorActor({ projectRoot, cardId: card.id, provider });
+    processor.start();
+    const actor = CardActor.fromCard({ projectRoot, card, store, processor });
+
+    const outcome = await actor.activate({ kind: 'parent', cardId: 'project' });
+
+    expect(outcome).toMatchObject({ status: 'done', summary: 'valid after terminal repair' });
   }));
 
   it('cleans up a timed-out owned process when the terminal card settles', async () => withTempProject(async (projectRoot) => {

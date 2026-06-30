@@ -72,7 +72,6 @@ describe('runtime redesign final golden behavior', () => {
     try {
       initProjectTree(projectRoot);
       const cardStore = new CardStore(projectRoot);
-      cardStore.create({ type: 'project', parent: null, depth: 0, title: 'project', brief: 'project', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
       expect('runtime.startProject' in operatorApiContracts).toBe(false);
       expect('runtime.stopProject' in operatorApiContracts).toBe(false);
       expect(ANALYST_TOOL_NAMES).not.toContain('lets_dance');

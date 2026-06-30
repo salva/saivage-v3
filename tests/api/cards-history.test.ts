@@ -2,10 +2,11 @@ import { afterAll, beforeAll, describe, expect, it } from '@jest/globals';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import { CardStore } from '../../src/cards/card-store.js';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
 
 const TEST_ROOT = join(tmpdir(), `saivage-cards-history-${Date.now()}`);
 let app: FastifyInstance;
@@ -23,20 +24,7 @@ function url(path: string): string {
 }
 
 function initializeProjectRoot(root: string): void {
-  const saivageDir = join(root, '.saivage');
-  mkdirSync(join(saivageDir, 'cards', 'by-id'), { recursive: true });
-  mkdirSync(join(saivageDir, 'cards', 'tree'), { recursive: true });
-  mkdirSync(join(saivageDir, 'cards', 'dependencies'), { recursive: true });
-  mkdirSync(join(saivageDir, 'notes', 'by-card'), { recursive: true });
-  mkdirSync(join(saivageDir, 'runtime'), { recursive: true });
-  const now = new Date().toISOString();
-  writeFileSync(join(saivageDir, 'cards', 'by-id', 'project.json'), JSON.stringify({ id: 'project', type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, tags: [], priority: 0, position: 0, urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now, depends_on: [], related: [], acceptance: 'token="secret-value"', retries: 0, version_seq: 1 }));
-  writeFileSync(join(saivageDir, 'cards', 'index.json'), JSON.stringify({ cards: { project: { id: 'project', type: 'project', parent: null, status: 'backlog', title: 'project' } } }));
-  writeFileSync(join(saivageDir, 'cards', 'tree', 'project.children.json'), JSON.stringify([]));
-  writeFileSync(join(saivageDir, 'cards', 'dependencies', 'depends-on.json'), JSON.stringify({}));
-  writeFileSync(join(saivageDir, 'cards', 'dependencies', 'blocks.json'), JSON.stringify({}));
-  writeFileSync(join(saivageDir, 'notes', 'queue.json'), JSON.stringify({ next_note_sequence: 1, entries: [] }));
-  writeFileSync(join(saivageDir, 'runtime', 'state.json'), JSON.stringify({ status: 'stopped', project_id: 'project', pid: 1234, started_at: now, active_card_run: null, updated_at: now, runtime_commands: [], runtime_runs: [], runtime_activations: [] }));
+  initProjectTree(root);
 }
 
 beforeAll(async () => {

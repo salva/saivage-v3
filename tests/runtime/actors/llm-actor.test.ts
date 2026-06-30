@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { actorMessagesPath, actorToolCallStatusesPath, LLMActor, readActorSnapshots, type LLMAdmissionPort, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
+import { actorConversationIndexPath, actorConversationSegmentPath, actorToolCallStatusesPath, LLMActor, readActorSnapshots, type LLMAdmissionPort, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
 import type { LlmCompleteResult } from '../../../src/agents/llm-contracts.js';
 
@@ -37,7 +37,10 @@ function jsonl(path: string): Array<Record<string, unknown>> {
 }
 
 function corruptActorMessages(projectRoot: string): void {
-  const path = actorMessagesPath(projectRoot, 'planner:project');
+  const indexPath = actorConversationIndexPath(projectRoot, 'planner:project');
+  mkdirSync(dirname(indexPath), { recursive: true });
+  writeFileSync(indexPath, JSON.stringify({ schema_version: 1, active_segment: 'seg-001.jsonl' }) + '\n', 'utf-8');
+  const path = actorConversationSegmentPath(projectRoot, 'planner:project', 'seg-001.jsonl');
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, '{"partial"', 'utf-8');
 }
@@ -64,7 +67,7 @@ describe('LLMActor', () => {
     let sawStartedMessage = false;
     const provider: LLMProviderPort = {
       completeTurn: jest.fn(async () => {
-        sawStartedMessage = jsonl(actorMessagesPath(projectRoot, 'planner:project')).some((entry) => String(entry.id).endsWith(':started'));
+        sawStartedMessage = jsonl(actorConversationSegmentPath(projectRoot, 'planner:project', 'seg-001.jsonl')).some((entry) => String(entry.id).endsWith(':started'));
         return { kind: 'message' as const, content: 'done' };
       }),
     };
@@ -76,7 +79,7 @@ describe('LLMActor', () => {
     expect(sawStartedMessage).toBe(true);
     expect(outcome).toMatchObject({ type: 'result', result: { content: 'done' } });
     await eventually(() => expect(actor.state()).toBe('idle'));
-    expect(jsonl(actorMessagesPath(projectRoot, 'planner:project')).map((entry) => entry.kind)).toEqual(['system_prompt', 'activity', 'text']);
+    expect(jsonl(actorConversationSegmentPath(projectRoot, 'planner:project', 'seg-001.jsonl')).map((entry) => entry.kind)).toEqual(['system_prompt', 'activity', 'text']);
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toContain('planner:project');
     expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === 'planner:project')?.context.active_reconstruction).toBeNull();
   }));
@@ -164,6 +167,31 @@ describe('LLMActor', () => {
     expect(provider.completeTurn).toHaveBeenCalledTimes(2);
   }));
 
+  it('continues after plain text with provider-visible repair context', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const provider: LLMProviderPort = {
+      completeTurn: jest.fn(async (turnInput: LlmInvocationInput) => turnInput.inputId === 'turn-1'
+        ? { kind: 'message' as const, content: 'plain text' }
+        : { kind: 'message' as const, content: 'repaired' }),
+    };
+    const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
+    actor.start();
+
+    await expect(actor.turn(input())).resolves.toMatchObject({ type: 'result', result: { content: 'plain text' } });
+    const repaired = await actor.continueAfterPlainText('Use emit_planner_result.');
+
+    expect(repaired).toMatchObject({ type: 'result', result: { content: 'repaired' } });
+    const repairInput = (provider.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls[1]?.[0];
+    expect(repairInput.inputId).toBe('turn-1:tool:1');
+    expect(repairInput.contextMessages).toEqual([
+      { role: 'assistant', content: 'plain text' },
+      { role: 'user', content: 'Use emit_planner_result.' },
+    ]);
+    const rows = jsonl(actorConversationSegmentPath(projectRoot, 'planner:project', 'seg-001.jsonl'));
+    expect(rows.map((entry) => entry.kind)).toEqual(['system_prompt', 'activity', 'text', 'model_repair', 'activity', 'text']);
+    expect(rows.find((entry) => entry.kind === 'model_repair')).toMatchObject({ role: 'user', content: 'Use emit_planner_result.' });
+  }));
+
   it('adds provider-visible tool history before hook continuation context', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const completeTurn = jest.fn(async (turnInput: LlmInvocationInput) => turnInput.episodeContext.lastToolResult
@@ -230,7 +258,7 @@ describe('LLMActor', () => {
     const actor = new LLMActor({ projectRoot, agentId: 'planner:project', provider });
     actor.start();
 
-    await expect(actor.turn(input())).rejects.toThrow(/partial tail|refusing to append/);
+    await expect(actor.turn(input())).rejects.toThrow(/JSON|parse|partial tail|refusing to append/);
 
     expect(provider.completeTurn).not.toHaveBeenCalled();
     expect(consoleError).toHaveBeenCalledWith(expect.stringContaining("LLMActor 'planner:project' fatal handler failure"), expect.any(Error));
@@ -250,7 +278,7 @@ describe('LLMActor', () => {
     corruptActorMessages(projectRoot);
     finish();
 
-    await expect(pending).rejects.toThrow(/partial tail|refusing to append/);
+    await expect(pending).rejects.toThrow(/JSON|parse|partial tail|refusing to append/);
     expect(consoleError).toHaveBeenCalledWith(expect.stringContaining("LLMActor 'planner:project' fatal handler failure"), expect.any(Error));
     consoleError.mockRestore();
   }));
@@ -268,7 +296,7 @@ describe('LLMActor', () => {
     corruptActorMessages(projectRoot);
     fail();
 
-    await expect(pending).rejects.toThrow(/partial tail|refusing to append/);
+    await expect(pending).rejects.toThrow(/JSON|parse|partial tail|refusing to append/);
     expect(consoleError).toHaveBeenCalledWith(expect.stringContaining("LLMActor 'planner:project' fatal handler failure"), expect.any(Error));
     consoleError.mockRestore();
   }));

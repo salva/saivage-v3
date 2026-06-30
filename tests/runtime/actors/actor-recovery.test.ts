@@ -70,7 +70,9 @@ function llmWaitingActive(cardId: string, role: 'planner' | 'reviewer' | 'execut
 function appendLoggedToolCall(projectRoot: string, cardId: string, role: 'planner' | 'reviewer' | 'executor', toolName: string, args: unknown, toolCallId = 'call-1', writeRequiredRecord = true): void {
   const agentId = `${role}:${cardId}`;
   const inputId = `${role}:${cardId}:1`;
-  appendLlmTurnFinished(projectRoot, { inputId, agentId, role, sessionId: agentId, systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: { cardId } }, { kind: 'tool_calls', tool_calls: [{ id: toolCallId, type: 'function', function: { name: toolName, arguments: JSON.stringify(args) } }] });
+  const assessmentId = `assessment-${cardId}-1`;
+  const sessionId = role === 'reviewer' ? `reviewer:${cardId}:${assessmentId}` : agentId;
+  appendLlmTurnFinished(projectRoot, { inputId, agentId, role, sessionId, systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: role === 'reviewer' ? { cardId, assessmentId } : { cardId } }, { kind: 'tool_calls', tool_calls: [{ id: toolCallId, type: 'function', function: { name: toolName, arguments: JSON.stringify(args) } }] });
   if (!writeRequiredRecord) return;
   const record = openRecordSlot(projectRoot, { cardId, filename: role === 'reviewer' ? 'review.md' : 'status.md' });
   writeFileSync(record.absolutePath, `${role} recovery record`, 'utf8');
@@ -98,7 +100,6 @@ function recoveryProcessorDeps(projectRoot: string, store: CardStore) {
 function createRunningGoal(projectRoot: string): { store: CardStore; cardId: string } {
   initProjectTree(projectRoot);
   const store = new CardStore(projectRoot);
-  store.create({ type: 'project', parent: null, depth: 0, title: 'project', brief: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
   const card = store.create({ type: 'goal', parent: 'project', depth: 1, title: 'goal', brief: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
   store.setStatus(card.id, 'running');
   return { store, cardId: card.id };
@@ -113,7 +114,6 @@ function createDoneEvidence(store: CardStore, parent: string): string {
 function createRunningTerminalCard(projectRoot: string): { store: CardStore; cardId: string } {
   initProjectTree(projectRoot);
   const store = new CardStore(projectRoot);
-  store.create({ type: 'project', parent: null, depth: 0, title: 'project', brief: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
   const card = store.create({ type: 'code', parent: 'project', depth: 1, title: 'code', brief: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
   store.setStatus(card.id, 'running');
   return { store, cardId: card.id };

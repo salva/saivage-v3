@@ -113,7 +113,6 @@ describe('PlannerControlExecutor', () => {
     mkdirSync(join(tmpDir, '.saivage'), { recursive: true });
     initProjectTree(tmpDir);
     store = new CardStore(tmpDir);
-    store.create(makeCard({ id: 'project', type: 'project', parent: null, depth: 0, title: 'project' }));
   });
 
   afterEach(() => {

@@ -19,7 +19,9 @@ function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promis
 }
 
 function createProject(store: CardStore): CardRecord {
-  return store.create({ type: 'project', parent: null, depth: 0, title: 'project', brief: 'project', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
+  const project = store.read('project');
+  if (!project) throw new Error('project card not found');
+  return project;
 }
 
 function createGoal(store: CardStore, parent = 'project'): CardRecord {
@@ -75,6 +77,7 @@ function recordWrite(callId: string, path: string, content: string) {
 
 function withMandatoryRecords(responder: (input: LlmInvocationInput) => Promise<LlmCompleteResult> | LlmCompleteResult): LLMProviderPort {
   const pending = new Map<string, LlmCompleteResult>();
+  const recordWrites = new Map<string, number>();
   return {
     completeTurn: jest.fn(async (input: LlmInvocationInput) => {
       const key = input.sessionId;
@@ -91,11 +94,15 @@ function withMandatoryRecords(responder: (input: LlmInvocationInput) => Promise<
       if (result.kind !== 'tool_calls') return result;
       if (result.tool_calls.some((toolCall) => toolCall.function.name === 'emit_planner_result')) {
         pending.set(key, result);
-        return recordWrite(`status-${key}`, 'record://status.md?v=next', `Status for ${input.episodeContext.cardId ?? key}`);
+        const count = (recordWrites.get(key) ?? 0) + 1;
+        recordWrites.set(key, count);
+        return recordWrite(`status-${key}-${count}`, 'record://status.md?v=next', `Status for ${input.episodeContext.cardId ?? key}`);
       }
       if (result.tool_calls.some((toolCall) => toolCall.function.name === 'emit_reviewer_result')) {
         pending.set(key, result);
-        return recordWrite(`review-${key}`, 'record://review.md?v=next', `Review for ${input.episodeContext.cardId ?? key}`);
+        const count = (recordWrites.get(key) ?? 0) + 1;
+        recordWrites.set(key, count);
+        return recordWrite(`review-${key}-${count}`, 'record://review.md?v=next', `Review for ${input.episodeContext.cardId ?? key}`);
       }
       return result;
     }),
@@ -666,6 +673,31 @@ describe('PlanningCardProcessorActor', () => {
     expect(outcome.summary).toContain('emit_reviewer_result');
   }));
 
+  it('repairs plain reviewer prose and accepts a later terminal assessment', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    const child = markDone(store, createGoal(store, project.id));
+    let reviewerTurns = 0;
+    const provider = withMandatoryRecords((input: LlmInvocationInput) => {
+      if (input.role !== 'reviewer') return plannerResult('done', 'done');
+      reviewerTurns++;
+      if (reviewerTurns === 1) return { kind: 'message' as const, content: 'Review passes.' };
+      return reviewerResult({ evidence_card_ids: [child.id] });
+    });
+    const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
+    actor.start();
+
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
+
+    expect(outcome).toMatchObject({ status: 'done', result: { kind: 'reviewer_pass' } });
+    const repairInput = (provider.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls.find((call) => call[0].role === 'reviewer' && call[0].contextMessages.some((message) => (message as { content?: string }).content === 'Review passes.'))?.[0];
+    expect(repairInput?.contextMessages).toEqual(expect.arrayContaining([
+      { role: 'assistant', content: 'Review passes.' },
+      expect.objectContaining({ role: 'user', content: expect.stringContaining('Plain reviewer messages are not accepted') }),
+    ]));
+  }));
+
   it('does not accept plain planner message JSON as terminal result', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
@@ -678,6 +710,45 @@ describe('PlanningCardProcessorActor', () => {
 
     expect(outcome).toMatchObject({ status: 'failed', result: { kind: 'planner_failure' } });
     expect(outcome.summary).toContain('emit_planner_result');
+  }));
+
+  it('repairs plain planner prose and succeeds with a later terminal result', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    let plannerTurns = 0;
+    const provider = withMandatoryRecords(() => {
+      plannerTurns++;
+      if (plannerTurns === 1) return { kind: 'message' as const, content: 'Project is done.' };
+      return plannerResult('done', 'done after repair');
+    });
+    const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
+    actor.start();
+
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
+
+    expect(outcome).toMatchObject({ status: 'done', summary: 'done after repair' });
+  }));
+
+  it('repairs invalid planner terminal arguments before projecting the outcome', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    let emittedInvalid = false;
+    const provider = withMandatoryRecords((input: LlmInvocationInput) => {
+      if (!emittedInvalid) {
+        emittedInvalid = true;
+        return { kind: 'tool_calls' as const, tool_calls: [{ id: 'bad-planner', type: 'function' as const, function: { name: 'emit_planner_result', arguments: '{not json' } }] };
+      }
+      expect(input.episodeContext.lastToolResult).toMatchObject({ result: { success: false, error: expect.any(String) } });
+      return plannerResult('blocked', 'valid after repair');
+    });
+    const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
+    actor.start();
+
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
+
+    expect(outcome).toMatchObject({ status: 'blocked', summary: 'valid after repair' });
   }));
 
   it('throws a clear impossible-state error when recovering directly into planning', () => withTempProject((projectRoot) => {

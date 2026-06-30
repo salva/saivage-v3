@@ -83,7 +83,7 @@ describe('ordered children', () => {
 
     expect(result).toEqual({ ok: true, changed: 2 });
     expect(store.listChildren('project')).toEqual([b.id, a.id]);
-    expect(store.read('project')).toBeNull();
+    expect(store.read('project')).toMatchObject({ id: 'project', type: 'project' });
   });
 
   it('refuses parent changes through update and mutateCard', () => {

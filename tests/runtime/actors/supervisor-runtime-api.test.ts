@@ -118,10 +118,10 @@ function appendPlannerToolCall(projectRoot: string, cardId: string, toolName: st
   if (toolName === 'emit_planner_result') writeRequiredRecord(projectRoot, cardId, 'status.md', 'planner startup recovery record');
 }
 
-function appendReviewerToolCall(projectRoot: string, cardId: string, args: unknown, toolCallId = 'call-1'): void {
+function appendReviewerToolCall(projectRoot: string, cardId: string, args: unknown, toolCallId = 'call-1', assessmentId = `assessment-${cardId}-1`): void {
   const inputId = `reviewer:${cardId}:1`;
   const agentId = `reviewer:${cardId}`;
-  appendLlmTurnFinished(projectRoot, { inputId, agentId, role: 'reviewer', sessionId: agentId, systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: { cardId } }, { kind: 'tool_calls', tool_calls: [{ id: toolCallId, type: 'function', function: { name: 'emit_reviewer_result', arguments: JSON.stringify(args) } }] });
+  appendLlmTurnFinished(projectRoot, { inputId, agentId, role: 'reviewer', sessionId: `${agentId}:${assessmentId}`, systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: { cardId, assessmentId } }, { kind: 'tool_calls', tool_calls: [{ id: toolCallId, type: 'function', function: { name: 'emit_reviewer_result', arguments: JSON.stringify(args) } }] });
   writeRequiredRecord(projectRoot, cardId, 'review.md', 'reviewer startup recovery record');
 }
 

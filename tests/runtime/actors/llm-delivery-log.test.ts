@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { abandonStalePendingToolCalls, actorMessagesPath, appendLlmTurnFinished, appendLlmTurnStarted, appendTerminalToolProjectedStatus, readLoggedToolCall, readToolCallStatuses } from '../../../src/runtime/actors/index.js';
+import { abandonStalePendingToolCalls, actorConversationIndexPath, actorConversationSegmentPath, appendLlmTurnFinished, appendLlmTurnStarted, appendTerminalToolProjectedStatus, readLoggedToolCall, readToolCallStatuses } from '../../../src/runtime/actors/index.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => T): T {
@@ -42,7 +42,8 @@ describe('llm delivery log recovery helpers', () => {
     appendLlmTurnStarted(projectRoot, input());
     appendLlmTurnStarted(projectRoot, input('planner:G-1:2'));
 
-    const rows = jsonl(actorMessagesPath(projectRoot, 'planner:G-1'));
+    expect(JSON.parse(readFileSync(actorConversationIndexPath(projectRoot, 'planner:G-1'), 'utf-8'))).toEqual({ schema_version: 1, active_segment: 'seg-001.jsonl' });
+    const rows = jsonl(actorConversationSegmentPath(projectRoot, 'planner:G-1', 'seg-001.jsonl'));
     expect(rows[0]).toMatchObject({ role: 'system', kind: 'system_prompt', content: 'system' });
     expect(rows.filter((entry) => entry.kind === 'system_prompt')).toHaveLength(1);
   }));
@@ -50,14 +51,14 @@ describe('llm delivery log recovery helpers', () => {
   it('reads an exact logged tool call by agent, input, and call id', () => withTempProject((projectRoot) => {
     appendLlmTurnFinished(projectRoot, input(), { kind: 'tool_calls', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'blocked', summary: 'blocked' }) } }] });
 
-    expect(readLoggedToolCall(projectRoot, 'planner:G-1', 'planner:G-1:1', 'call-1')).toEqual({
+    expect(readLoggedToolCall(projectRoot, 'planner:G-1', 'planner:G-1', 'planner:G-1:1', 'call-1')).toEqual({
       agent_id: 'planner:G-1',
       source_input_id: 'planner:G-1:1',
       tool_call_id: 'call-1',
       tool_name: 'emit_planner_result',
       args: { status: 'blocked', summary: 'blocked' },
     });
-    const toolCallMessage = jsonl(actorMessagesPath(projectRoot, 'planner:G-1')).find((entry) => entry.kind === 'tool_call');
+    const toolCallMessage = jsonl(actorConversationSegmentPath(projectRoot, 'planner:G-1', 'seg-001.jsonl')).find((entry) => entry.kind === 'tool_call');
     expect(JSON.parse(String(toolCallMessage?.content))).toEqual({
       role: 'assistant',
       tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'blocked', summary: 'blocked' }) } }],
@@ -65,13 +66,23 @@ describe('llm delivery log recovery helpers', () => {
   }));
 
   it('throws when the logged tool call is missing', () => withTempProject((projectRoot) => {
-    expect(() => readLoggedToolCall(projectRoot, 'planner:G-1', 'planner:G-1:1', 'missing')).toThrow(/not found/);
+    expect(() => readLoggedToolCall(projectRoot, 'planner:G-1', 'planner:G-1', 'planner:G-1:1', 'missing')).toThrow(/not found/);
   }));
 
   it('throws when logged tool arguments are malformed JSON', () => withTempProject((projectRoot) => {
     appendLlmTurnFinished(projectRoot, input(), { kind: 'tool_calls', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_planner_result', arguments: '{not json' } }] });
 
-    expect(() => readLoggedToolCall(projectRoot, 'planner:G-1', 'planner:G-1:1', 'call-1')).toThrow(/malformed JSON/);
+    expect(() => readLoggedToolCall(projectRoot, 'planner:G-1', 'planner:G-1', 'planner:G-1:1', 'call-1')).toThrow(/malformed JSON/);
+  }));
+
+  it('reads reviewer tool calls by session when session differs from agent id', () => withTempProject((projectRoot) => {
+    appendLlmTurnFinished(projectRoot, { ...input('reviewer:G-1:1'), agentId: 'reviewer:G-1', role: 'reviewer', sessionId: 'reviewer:G-1:assessment-G-1-1' }, { kind: 'tool_calls', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_reviewer_result', arguments: JSON.stringify({ assessment: { result: 'pass', summary: 'ok', achieved: [], issues: [], evidence_card_ids: [] } }) } }] });
+
+    expect(readLoggedToolCall(projectRoot, 'reviewer:G-1:assessment-G-1-1', 'reviewer:G-1', 'reviewer:G-1:1', 'call-1')).toMatchObject({
+      agent_id: 'reviewer:G-1',
+      tool_name: 'emit_reviewer_result',
+    });
+    expect(() => readLoggedToolCall(projectRoot, 'reviewer:G-1', 'reviewer:G-1', 'reviewer:G-1:1', 'call-1')).toThrow(/not found/);
   }));
 
   it('treats terminal_projected status as terminal for stale pending abandonment', () => withTempProject((projectRoot) => {

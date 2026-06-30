@@ -18,7 +18,9 @@ function withTempProject<T>(fn: (projectRoot: string) => T): T {
 }
 
 function createProject(store: CardStore): CardRecord {
-  return store.create({ type: 'project', parent: null, depth: 0, title: 'project', brief: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
+  const project = store.read('project');
+  if (!project) throw new Error('project card not found');
+  return project;
 }
 
 function createDoneChild(store: CardStore, parent: string): CardRecord {
