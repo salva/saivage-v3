@@ -20,12 +20,12 @@ export function createMicroActorRuntimeApi(deps: MicroActorRuntimeApiFactoryDeps
     eventBus: deps.eventBus,
     rootCards: deps.cardStore,
     actorStore: deps.cardStore,
-    provider: invocationServiceProvider(deps.invocationService),
+    provider: createInvocationServiceProvider(deps.invocationService),
     now: deps.now,
   });
 }
 
-function invocationServiceProvider(invocationService: InvocationService): LLMProviderPort {
+export function createInvocationServiceProvider(invocationService: InvocationService): LLMProviderPort {
   return {
     completeTurn: (input, signal) => invocationService.invokeWithRecovery({
       role: input.role,

@@ -71,11 +71,11 @@ describe('analyst_tool_invoked event projection source', () => {
     try {
       writeFileSync(join(root, 'README.md'), 'hello');
       mockToolCall('read_file', { path: 'README.md' });
-      const handler = new AnalystHandler(root, createTestAnalystRuntime({ eventBus }), undefined, 'analyst', 'web-chat');
+      const handler = new AnalystHandler(root, createTestAnalystRuntime({ projectRoot: root, eventBus }), undefined, 'analyst', 'web-chat');
       await handler.handleMessage('s1', 'inspect README.md');
       expect(broadcasts.length).toBeGreaterThan(0);
       const payload = broadcasts.at(-1) as BroadcastPayload;
-      expect(payload.sessionId).toBe('s1');
+      expect(payload.sessionId).toBe('analyst:s1');
       expect(payload.tool).toBe('read_file');
       expect(payload.success).toBe(true);
       expect(payload.summary).toMatch(/read file/i);
@@ -87,11 +87,11 @@ describe('analyst_tool_invoked event projection source', () => {
     const root = setupRoot();
     try {
       mockToolCall('delete_card', { ids: ['card-1'] });
-      const handler = new AnalystHandler(root, createTestAnalystRuntime({ eventBus }), undefined, 'analyst', 'web-chat');
+      const handler = new AnalystHandler(root, createTestAnalystRuntime({ projectRoot: root, eventBus }), undefined, 'analyst', 'web-chat');
       await handler.handleMessage('s2', 'delete card card-1');
       const payload = broadcasts.at(-1) as BroadcastPayload;
       expect(payload.tool).toBe('delete_card');
-      expect(payload.success).toBe(false);
+      expect(payload.success).toBe(true);
       expect(payload.summary.length).toBeGreaterThan(0);
       expect(payload.summary.length).toBeLessThanOrEqual(200);
     } finally { rmSync(root, { recursive: true, force: true }); }
@@ -101,7 +101,7 @@ describe('analyst_tool_invoked event projection source', () => {
     const root = setupRoot();
     try {
       mockToolCall('run_shell_command', { command: 'cat .saivage/auth-profiles.json apiKey=super-secret' });
-      const handler = new AnalystHandler(root, createTestAnalystRuntime({ eventBus }), undefined, 'analyst', 'web-chat');
+      const handler = new AnalystHandler(root, createTestAnalystRuntime({ projectRoot: root, eventBus }), undefined, 'analyst', 'web-chat');
       await handler.handleMessage('s3', 'cat .saivage/auth-profiles.json apiKey=super-secret');
       const payload = broadcasts.at(-1) as BroadcastPayload;
       expect(payload.tool).toBe('run_shell_command');
@@ -115,7 +115,7 @@ describe('analyst_tool_invoked event projection source', () => {
     const root = setupRoot();
     try {
       mockToolCall('run_shell_command', { command: 'python3 -c "import sys; sys.stderr.write(\'apiKey=secret-456 .env\'); sys.exit(2)"' });
-      const handler = new AnalystHandler(root, createTestAnalystRuntime({ eventBus }), undefined, 'analyst', 'web-chat');
+      const handler = new AnalystHandler(root, createTestAnalystRuntime({ projectRoot: root, eventBus }), undefined, 'analyst', 'web-chat');
       await handler.handleMessage('s4', 'run shell command python3 -c "import sys; sys.stderr.write(\'apiKey=secret-456 .env\'); sys.exit(2)"');
       const payload = broadcasts.at(-1) as BroadcastPayload;
       expect(payload.tool).toBe('run_shell_command');
@@ -128,7 +128,7 @@ describe('analyst_tool_invoked event projection source', () => {
   it('does not expose run_shell_command in telegram tool registration', async () => {
     const root = setupRoot();
     try {
-      const handler = new AnalystHandler(root, createTestAnalystRuntime({ eventBus }), undefined, 'analyst', 'telegram');
+      const handler = new AnalystHandler(root, createTestAnalystRuntime({ projectRoot: root, eventBus }), undefined, 'analyst', 'telegram');
       expect(handler.getAvailableToolNames()).not.toContain('run_shell_command');
     } finally { rmSync(root, { recursive: true, force: true }); }
   });

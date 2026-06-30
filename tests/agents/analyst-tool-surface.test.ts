@@ -229,7 +229,7 @@ describe('Contract C1 unsupported-action reply', () => {
     const root = setupRoot();
     try {
       jest.spyOn(globalThis, 'fetch').mockImplementation(async () => toolResponse('not_a_tool', {}));
-      const response = await new AnalystHandler(root, createTestAnalystRuntime({ cardStore: new CardStore(root) })).handleMessage('s-c1', 'perform unsupported action');
+      const response = await new AnalystHandler(root, createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) })).handleMessage('s-c1', 'perform unsupported action');
       expect(response.message.content).toContain('That action is not supported by the Analyst on this surface.');
       expect(response.toolInvocations ?? []).toHaveLength(0);
     } finally { rmSync(root, { recursive: true, force: true }); }
@@ -270,7 +270,7 @@ describe('Contract C2 partial-success reporting', () => {
       store.setStatus(codeIds[1], 'running');
       store.setStatus(codeIds[1], 'running');
       jest.spyOn(globalThis, 'fetch').mockImplementation(async () => toolResponse('delete_card', { ids: codeIds }));
-      const handler = new AnalystHandler(root, createTestAnalystRuntime({ cardStore: new CardStore(root) }));
+      const handler = new AnalystHandler(root, createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) }));
       const response = await handler.handleMessage('s-c2', 'delete code cards');
       expect(response.toolInvocations ?? []).toHaveLength(1);
       expect(response.toolInvocations?.[0].tool).toBe('delete_card');
@@ -289,7 +289,7 @@ describe('Contract C3 unknown-internal-capability reply', () => {
       const saved = registry['queue_notification'];
       delete registry['queue_notification'];
       jest.spyOn(globalThis, 'fetch').mockImplementation(async () => toolResponse('queue_notification', { recipient: 'planner', kind: 'info', body: 'hello' }));
-      const response = await new AnalystHandler(root, createTestAnalystRuntime({ cardStore: new CardStore(root) })).handleMessage('s-c3', 'queue a notification');
+      const response = await new AnalystHandler(root, createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) })).handleMessage('s-c3', 'queue a notification');
       expect(response.message.content).toContain('The Analyst cannot perform queue_notification; it is not a registered capability.');
       registry['queue_notification'] = saved;
     } finally { rmSync(root, { recursive: true, force: true }); }

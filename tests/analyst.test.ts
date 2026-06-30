@@ -530,12 +530,12 @@ describe('Analyst Handler', () => {
   it('creates and reuses analyst sessions', () => {
     const first = getOrCreateAnalystSession(projectRoot);
     const second = getOrCreateAnalystSession(projectRoot);
-    expect(first.sessionId).toBe('analyst');
+    expect(first.sessionId).toBe('analyst:global');
     expect(second.session.started_at).toBe(first.session.started_at);
   });
 
   it('deduplicates the same chat message when two transports submit it together', async () => {
-    const handler = new AnalystHandler(projectRoot, createTestAnalystRuntime({ cardStore: new CardStore(projectRoot) }));
+    const handler = new AnalystHandler(projectRoot, createTestAnalystRuntime({ projectRoot, cardStore: new CardStore(projectRoot) }));
     const first = await handler.handleMessage('s16', 'list all cards');
     const second = await handler.handleMessage('s16', 'list all cards');
     expect(second.message.content).toBe(first.message.content);
@@ -597,7 +597,7 @@ describe('API Chat and WebSocket Integration', () => {
   }
 
   it('returns a real analyst response message', async () => {
-    const res = await fetch(apiUrl('/api/chats/analyst'), {
+    const res = await fetch(apiUrl('/api/chats/analyst:global'), {
       method: 'POST',
       headers: { ...authHdr(), 'content-type': 'application/json' },
       body: JSON.stringify({ content: 'list all cards' }),

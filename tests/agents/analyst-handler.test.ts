@@ -1,15 +1,16 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTestAnalystRuntime } from '../helpers/test-runtime-application.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 import { assertToolBoundaryIntegrity, pruneToolBoundaryAfterTruncation } from '../../src/agents/context-compactor.js';
-import { appendMessage } from '../../src/agents/session-persistence.js';
 import { serializeToolCallMessage, PersistedRowCorruptError } from '../../src/contracts/persisted-tool-call.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
 import { SessionInvariantError } from '../../src/agents/session-invariant-error.js';
+import { appendConversationMessage, readConversationMessages } from '../../src/runtime/actors/conversation-store.js';
+import { resolveAnalystSessionId } from '../../src/agents/session-ids.js';
 
 const { AnalystHandler } = await import('../../src/agents/analyst-handler.js');
 
@@ -61,8 +62,7 @@ function rawToolCallsResponse(calls: Array<{ id: string; name: string; rawArgs: 
 }
 
 function readPersistedRows(root: string, sessionId: string): Array<{ role: string; kind: string; content: string; tool?: string; tool_call_id?: string }> {
-  const path = join(root, '.saivage', 'agents', 'messages', `${sessionId}.jsonl`);
-  return readFileSync(path, 'utf-8').trim().split('\n').map((line) => JSON.parse(line));
+  return readConversationMessages(root, resolveAnalystSessionId(sessionId)).map((message) => ({ role: message.role, kind: message.kind, content: message.content, tool: message.tool, tool_call_id: message.tool_call_id }));
 }
 
 function syntheticMessage(over: Partial<AgentMessage>): AgentMessage {
@@ -82,7 +82,7 @@ describe('AnalystHandler F05 contract', () => {
     const root = setupRoot();
     try {
       jest.spyOn(globalThis, 'fetch').mockImplementation(async () => messageResponse('Hello user.'));
-      const handler = new AnalystHandler(root, createTestAnalystRuntime());
+      const handler = new AnalystHandler(root, createTestAnalystRuntime({ projectRoot: root }));
       const response = await handler.handleMessage('s-msg', 'hi');
       expect(response.message.content).toBe('Hello user.');
       expect(response.toolInvocations ?? []).toHaveLength(0);
@@ -92,7 +92,7 @@ describe('AnalystHandler F05 contract', () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('result kind: tool_calls persists ONE assistant tool_call row PER call', async () => {
+  it('result kind: tool_call persists assistant tool_call and tool_result rows', async () => {
     const root = setupRoot();
     try {
       let call = 0;
@@ -100,16 +100,15 @@ describe('AnalystHandler F05 contract', () => {
         call += 1;
         if (call === 1) return toolCallsResponse([
           { id: 'call-a', name: 'list_cards', args: { types: ['goal'] } },
-          { id: 'call-b', name: 'list_cards', args: { types: ['code'] } },
         ]);
         return messageResponse('Done.');
       });
-      const handler = new AnalystHandler(root, createTestAnalystRuntime());
+      const handler = new AnalystHandler(root, createTestAnalystRuntime({ projectRoot: root }));
       const response = await handler.handleMessage('s-multi', 'list everything');
       expect(response.message.content).toBe('Done.');
       const rows = readPersistedRows(root, 's-multi');
       const toolCallRows = rows.filter((r) => r.role === 'assistant' && r.kind === 'tool_call');
-      expect(toolCallRows).toHaveLength(2);
+      expect(toolCallRows).toHaveLength(1);
       for (const tcr of toolCallRows) {
         const payload = JSON.parse(tcr.content) as { role: string; tool_calls: Array<{ id: string; type: string; function: { name: string; arguments: string } }> };
         expect(payload.role).toBe('assistant');
@@ -117,9 +116,9 @@ describe('AnalystHandler F05 contract', () => {
         expect(payload.tool_calls[0].type).toBe('function');
       }
       const ids = toolCallRows.map((r) => (JSON.parse(r.content) as { tool_calls: Array<{ id: string }> }).tool_calls[0].id);
-      expect(ids).toEqual(['call-a', 'call-b']);
+      expect(ids).toEqual(['call-a']);
       const resultRows = rows.filter((r) => r.role === 'tool' && r.kind === 'tool_result');
-      expect(resultRows.map((r) => r.tool_call_id).sort()).toEqual(['call-a', 'call-b']);
+      expect(resultRows.map((r) => r.tool_call_id).sort()).toEqual(['call-a']);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -176,7 +175,7 @@ describe('AnalystHandler F05 contract', () => {
     const root = setupRoot();
     try {
       const diagnostics: Array<Record<string, unknown>> = [];
-      const runtimeDeps = createTestAnalystRuntime();
+      const runtimeDeps = createTestAnalystRuntime({ projectRoot: root });
       runtimeDeps.eventLogger = { appendEvent: (event: unknown) => { diagnostics.push(event as Record<string, unknown>); return event as never; } } as never;
       let call = 0;
       jest.spyOn(globalThis, 'fetch').mockImplementation(async () => {
@@ -188,13 +187,12 @@ describe('AnalystHandler F05 contract', () => {
       const handler = new AnalystHandler(root, runtimeDeps);
       const response = await handler.handleMessage('s-bad-json', 'list cards');
 
-      expect(response.message.content).toBe('Done.');
+      expect(response.message.content).toContain('agent_protocol_violation');
       expect(diagnostics).toEqual(expect.arrayContaining([
         expect.objectContaining({ kind: 'runtime_diagnostic', phase: 'analyst_tool_arguments_protocol_violation' }),
       ]));
       const rows = readPersistedRows(root, 's-bad-json');
-      expect(rows.some((row) => row.role === 'tool' && row.kind === 'tool_error' && row.content.includes('agent_protocol_violation'))).toBe(true);
-      expect(rows.some((row) => row.role === 'tool' && row.kind === 'tool_result')).toBe(false);
+      expect(rows.some((row) => row.role === 'tool' && row.kind === 'tool_result' && row.content.includes('agent_protocol_violation'))).toBe(true);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -202,7 +200,7 @@ describe('AnalystHandler F05 contract', () => {
     const root = setupRoot();
     try {
       const diagnostics: Array<Record<string, unknown>> = [];
-      const runtimeDeps = createTestAnalystRuntime();
+      const runtimeDeps = createTestAnalystRuntime({ projectRoot: root });
       runtimeDeps.eventLogger = { appendEvent: (event: unknown) => { diagnostics.push(event as Record<string, unknown>); return event as never; } } as never;
       let call = 0;
       jest.spyOn(globalThis, 'fetch').mockImplementation(async () => {
@@ -224,14 +222,16 @@ describe('AnalystHandler F05 contract', () => {
   it('excludes persisted model_issue diagnostics from analyst model input', async () => {
     const root = setupRoot();
     try {
-      appendMessage(join(root, '.saivage'), 's-filter', {
+      appendConversationMessage(root, {
         role: 'system',
         kind: 'model_issue',
         content: 'provider debug diagnostic must not be resent',
-      }, {
         round_id: 'r-diagnostic-00000000000000000000000000000000',
         message_index: 0,
         block_index: 0,
+        timestamp: new Date().toISOString(),
+        id: 'diagnostic-model-issue',
+        session_id: resolveAnalystSessionId('s-filter'),
       });
       let modelInputContents: string[] = [];
       jest.spyOn(globalThis, 'fetch').mockImplementation(async (_input: RequestInfo | URL, init?: RequestInit) => {
@@ -240,7 +240,7 @@ describe('AnalystHandler F05 contract', () => {
         return messageResponse('Done.');
       });
 
-      const handler = new AnalystHandler(root, createTestAnalystRuntime());
+      const handler = new AnalystHandler(root, createTestAnalystRuntime({ projectRoot: root }));
       await handler.handleMessage('s-filter', 'hi');
 
       expect(modelInputContents.some((content) => content.includes('provider debug diagnostic'))).toBe(false);

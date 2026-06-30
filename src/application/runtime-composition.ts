@@ -16,7 +16,7 @@ import type { RuntimeApi } from '../runtime/control-api.js';
 import { SessionStampCounter } from '../runtime/session-stamp-counter.js';
 import { CardStore } from '../cards/card-store.js';
 import type { InvocationService } from '../agents/invocation-service.js';
-import { createMicroActorRuntimeApi } from './micro-actor-runtime-api-factory.js';
+import { createInvocationServiceProvider, createMicroActorRuntimeApi } from './micro-actor-runtime-api-factory.js';
 
 export interface RuntimeApiFactoryDeps {
   projectRoot: string;
@@ -54,6 +54,7 @@ function buildAnalystDeps(input: {
   eventBus: EventBus;
   contextCompactor: ContextCompactor;
   emitAnalystToolInvoked(payload: EventPayload<'analyst_tool_invoked'>): void;
+  invocationService: InvocationService;
   mcpManager?: McpManager;
 }): AnalystRuntimeDeps {
   return {
@@ -63,8 +64,8 @@ function buildAnalystDeps(input: {
     candidateAvailability: input.candidateAvailability,
     eventLogger: input.eventLogger,
     eventBus: input.eventBus,
-    contextCompactor: input.contextCompactor,
     emitAnalystToolInvoked: input.emitAnalystToolInvoked,
+    provider: createInvocationServiceProvider(input.invocationService),
     mcpManager: input.mcpManager,
   };
 }
@@ -95,10 +96,11 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     },
   });
   agentAdapter.setSkillsEngine(skillsEngine);
+  const invocationService = agentAdapter.getInvocationService();
 
   const runtimeFactory = services.runtimeApiFactory ?? createMicroActorRuntimeApi;
   const runtimeComposition = createComposedRuntimeApi({
-    runtimeApi: runtimeFactory({ projectRoot, eventBus, cardStore, invocationService: agentAdapter.getInvocationService() }),
+    runtimeApi: runtimeFactory({ projectRoot, eventBus, cardStore, invocationService }),
     candidateAvailability,
     eventLogger,
     errorLogger,
@@ -117,6 +119,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
       eventBus,
       contextCompactor,
       emitAnalystToolInvoked: emitAnalystToolInvokedFromRuntime,
+      invocationService,
       mcpManager,
     });
     return analystDepsCache;

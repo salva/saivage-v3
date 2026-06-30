@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTestAnalystRuntime } from '../helpers/test-runtime-application.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { materializeProjectCard } from '../helpers/materialize-project-card.js';
+import { readConversationMessages } from '../../src/runtime/actors/conversation-store.js';
+import { resolveAnalystSessionId } from '../../src/agents/session-ids.js';
 
 const { AnalystHandler } = await import('../../src/agents/analyst-handler.js');
 
@@ -62,11 +64,7 @@ function fetchCalls(spy: jest.SpiedFunction<typeof fetch>): FetchCall[] {
 }
 
 function readPersistedAssistant(root: string, sessionId: string): string[] {
-  const raw = readFileSync(join(root, '.saivage', 'agents', 'messages', `${sessionId}.jsonl`), 'utf-8');
-  return raw
-    .trim()
-    .split('\n')
-    .map((line) => JSON.parse(line) as { role: string; kind: string; content: string })
+  return readConversationMessages(root, resolveAnalystSessionId(sessionId))
     .filter((message) => message.role === 'assistant' && message.kind === 'text')
     .map((message) => message.content);
 }
@@ -80,7 +78,7 @@ describe('AnalystHandler invocation service integration', () => {
     const root = setupRoot();
     try {
       const spy = mockContentResponses('Here are your cards.');
-      const handler = new AnalystHandler(root, createTestAnalystRuntime());
+      const handler = new AnalystHandler(root, createTestAnalystRuntime({ projectRoot: root }));
       await handler.handleMessage('s-real-post', 'list my cards');
       const calls = fetchCalls(spy);
       expect(calls).toHaveLength(1);
@@ -98,7 +96,7 @@ describe('AnalystHandler invocation service integration', () => {
     const root = setupRoot([]);
     try {
       const spy = jest.spyOn(globalThis, 'fetch');
-      const handler = new AnalystHandler(root, createTestAnalystRuntime());
+      const handler = new AnalystHandler(root, createTestAnalystRuntime({ projectRoot: root }));
       const response = await handler.handleMessage('s-no-candidate', 'list my cards');
       expect(response.message.content).toContain("no model candidate is configured for role 'analyst'");
       expect(response.message.content).not.toContain('failed to authenticate');
@@ -112,7 +110,7 @@ describe('AnalystHandler invocation service integration', () => {
     const root = setupRoot();
     try {
       const spy = jest.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 }));
-      const handler = new AnalystHandler(root, createTestAnalystRuntime());
+      const handler = new AnalystHandler(root, createTestAnalystRuntime({ projectRoot: root }));
       const response = await handler.handleMessage('s-auth-failed', 'list my cards');
       expect(response.message.content).toContain('Analyst LLM unavailable: LLM authentication failed (HTTP 401)');
       expect(response.message.content).not.toContain('analyst is offline');
@@ -128,7 +126,7 @@ describe('AnalystHandler invocation service integration', () => {
     const root = setupRoot();
     try {
       const spy = mockContentResponses('Goal goal-7 is visible.', 'Which following item did you mean?');
-      const handler = new AnalystHandler(root, createTestAnalystRuntime());
+      const handler = new AnalystHandler(root, createTestAnalystRuntime({ projectRoot: root }));
       await handler.handleMessage('s-context', 'show me goal-7');
       await handler.handleMessage('s-context', 'and the one after it');
       const secondBody = fetchCalls(spy)[1].body;
@@ -148,7 +146,7 @@ describe('AnalystHandler invocation service integration', () => {
     try {
       const clarification = 'Which cancelled cards should I delete?';
       mockContentResponses(clarification);
-      const handler = new AnalystHandler(root, createTestAnalystRuntime());
+      const handler = new AnalystHandler(root, createTestAnalystRuntime({ projectRoot: root }));
       const response = await handler.handleMessage('s-content-only', 'delete the cancelled cards');
       expect(response.toolInvocations ?? []).toHaveLength(0);
       expect(response.message.content).toBe(clarification);

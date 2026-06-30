@@ -1,4 +1,3 @@
-import { join } from 'node:path';
 import type { AgentSession, AgentMessage, ControlActionSurface, ControlActionAuditEntry } from '../schemas/index.js';
 import type { ToolResult, ToolContext } from '../tools/analyst-tool-types.js';
 import {
@@ -14,28 +13,22 @@ import type { EventBus, EventPayload } from '../events/index.js';
 import { buildRuntimeDiagnosticEvent } from '../runtime/runtime-event-publisher.js';
 import type { SessionActivity, SessionStamper } from '../runtime/session-stamper.js';
 import type { CandidateAvailability } from './candidate-availability.js';
-import { MemoryCandidateAvailability } from './candidate-availability.js';
 import type { EventLogger } from '../observability/index.js';
 import type { McpManager } from '../mcp/manager-api.js';
 import type { ActorRole } from './authz.js';
 import { sanitizeAnalystText } from '../agents/analyst-sanitization.js';
-import { ContextCompactor } from './context-compactor.js';
-import { appendMessage, appendSystemPromptMessageIfMissing } from './session-persistence.js';
-import { AgentSessionRepository, GLOBAL_ANALYST_SESSION_ID } from './agent-session-repository.js';
-import { generateRoundId } from '../schemas/round-id-server.js';
 import { ANALYST_PARTIAL_SUCCESS_TEMPLATE, ANALYST_UNSUPPORTED_ACTION_TEMPLATE } from './analyst-tool-runner.js';
-import { serializeToolCallMessage } from '../contracts/persisted-tool-call.js';
-import { now } from '../utils/clock.js';
 import { AnalystAdapter, ToolDispatcher } from './tool-dispatcher.js';
-import { InvocationService } from './invocation-service.js';
-import { loadConfig, getModelParamsForRole, getRuntimeConfig } from './config-schema.js';
-import type { RuntimeSection, SaivageConfig } from './config-schema.js';
-import { ProviderRegistry } from './provider.js';
-import { ModelRouter } from './model-router.js';
+import { loadConfig, getModelParamsForRole } from './config-schema.js';
+import type { SaivageConfig } from './config-schema.js';
 import { capabilityRequestForLlmOptions } from './provider-capabilities.js';
 import { RoleToolPolicy } from './role-tool-policy.js';
 import { filterAgentMessagesForModel } from './agent-message-visibility.js';
 import { buildAgentProtocolViolation, parseProtocolToolArgs } from './agent-protocol-violation.js';
+import { appendConversationMessage, buildContextTextMessage, conversationMessagesForModel, readConversationMessages } from '../runtime/actors/conversation-store.js';
+import { LLMActor, type LLMActorOutcome, type LLMProviderPort } from '../runtime/actors/llm-actor.js';
+import type { LlmInvocationInput } from '../runtime/actors/llm-invocation.js';
+import { resolveAnalystSessionId } from './session-ids.js';
 
 
 export interface WorkspaceContext {
@@ -93,17 +86,13 @@ export interface AnalystRuntimeDeps {
   emitAnalystToolInvoked(payload: EventPayload<'analyst_tool_invoked'>): void;
   eventBus: EventBus;
   mcpManager?: McpManager;
-  contextCompactor?: ContextCompactor;
-  invocationService?: InvocationService;
+  provider: LLMProviderPort;
 }
 
-function saivageDir(projectRoot: string): string { return join(projectRoot, '.saivage'); }
-
-const ANALYST_CONTEXT_LIMIT_TOKENS = 128_000;
-
 export function getOrCreateAnalystSession(projectRoot: string, sessionId?: string): { session: AgentSession; sessionId: string } {
-  const resolvedSessionId = sessionId || GLOBAL_ANALYST_SESSION_ID;
-  const session = new AgentSessionRepository(projectRoot).ensureAnalystSession(resolvedSessionId);
+  void projectRoot;
+  const resolvedSessionId = resolveAnalystSessionId(sessionId);
+  const session: AgentSession = { id: resolvedSessionId, role: 'analyst', status: 'active', started_at: new Date(0).toISOString() };
   return { session, sessionId: session.id };
 }
 
@@ -158,43 +147,23 @@ function broadcastToolInvocation(deps: AnalystRuntimeDeps, sessionId: string, to
 export class AnalystHandler {
   private projectRoot: string;
   private onActivity?: ActivityCallback;
-  private invocationService: InvocationService;
   private sessionQueues: Map<string, Promise<AnalystResponse>> = new Map();
+  private readonly actors: Map<string, LLMActor> = new Map();
   private readonly runtimeDeps: AnalystRuntimeDeps;
   private actor: ActorRole;
   private surface: ControlActionSurface;
   private requestServerRestart?: () => Promise<void>;
-  private readonly contextCompactor: ContextCompactor;
   private readonly toolDispatcher: ToolDispatcher;
   private readonly config: SaivageConfig;
-  private readonly runtimeConfig: RuntimeSection;
 
   constructor(projectRoot: string, runtimeDeps: AnalystRuntimeDeps, onActivity?: ActivityCallback, actor: ActorRole = 'analyst', surface: ControlActionSurface = 'web-chat', requestServerRestart?: () => Promise<void>) {
     this.projectRoot = projectRoot;
     this.onActivity = onActivity;
     this.runtimeDeps = runtimeDeps;
     this.config = loadConfig(projectRoot).config;
-    this.runtimeConfig = getRuntimeConfig(this.config);
     this.actor = actor;
     this.surface = surface;
     this.requestServerRestart = requestServerRestart;
-    this.contextCompactor = runtimeDeps.contextCompactor ?? new ContextCompactor({
-      saivageDir: saivageDir(projectRoot),
-      sessionStamper: runtimeDeps.stamper,
-    });
-    const availability = this.runtimeDeps.candidateAvailability ?? new MemoryCandidateAvailability();
-    const registry = new ProviderRegistry(this.config);
-    const router = new ModelRouter(this.config, registry, projectRoot, availability);
-    this.invocationService = runtimeDeps.invocationService ?? new InvocationService({
-      projectRoot,
-      saivageDir: saivageDir(projectRoot),
-      registry,
-      router,
-      eventLogger: runtimeDeps.eventLogger,
-      candidateAvailability: availability,
-      recoveryDelayMs: this.runtimeConfig.recoveryDelayMs,
-      maxRecoveryRetries: this.runtimeConfig.maxRecoveryRetries,
-    });
     this.toolDispatcher = new ToolDispatcher([new AnalystAdapter()]);
   }
 
@@ -226,13 +195,11 @@ export class AnalystHandler {
   }
 
   private async handleMessageSerial(sessionId: string, userContent: string, workspaceContext?: WorkspaceContext): Promise<AnalystResponse> {
-    const repository = new AgentSessionRepository(this.projectRoot);
-    let session = repository.getSession(sessionId);
-    if (!session) { const created = getOrCreateAnalystSession(this.projectRoot, sessionId); session = created.session; sessionId = created.sessionId; }
-    const priorMessages = repository.getMessages(sessionId);
+    const created = getOrCreateAnalystSession(this.projectRoot, sessionId);
+    sessionId = created.sessionId;
+    const priorMessages = readConversationMessages(this.projectRoot, sessionId);
     const duplicateResponse = this.findRecentDuplicateResponse(priorMessages, userContent);
     if (duplicateResponse) return duplicateResponse;
-    appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'user', kind: 'text', content: userContent }, this.runtimeDeps.stamper.stampUserMessage(sessionId), this.runtimeDeps.stamper);
 
     return await this.runAnalystLoop(sessionId, userContent, workspaceContext);
   }
@@ -250,138 +217,157 @@ export class AnalystHandler {
     return null;
   }
 
-  private async runAnalystLoop(sessionId: string, _userContent: string, workspaceContext?: WorkspaceContext): Promise<AnalystResponse> {
-    this.runtimeDeps.stamper.openAssistantRound(sessionId);
+  private async runAnalystLoop(sessionId: string, userContent: string, workspaceContext?: WorkspaceContext): Promise<AnalystResponse> {
     const toolInvocations: NonNullable<AnalystResponse['toolInvocations']> = [];
-    const projectContext = this.buildProjectContext();
-    const systemPrompt = `${getAnalystSystemPrompt()}\n\n${projectContext}`;
-    appendSystemPromptMessageIfMissing(saivageDir(this.projectRoot), sessionId, systemPrompt, this.runtimeDeps.stamper);
     const ctx: ToolContext = { projectRoot: this.projectRoot, store: this.runtimeDeps.cardStore, sessionId, runtime: this.runtimeDeps.runtime, mcpManager: this.runtimeDeps.mcpManager, requestServerRestart: this.requestServerRestart, actor: this.actor, surface: this.surface, eventBus: this.runtimeDeps.eventBus };
     const previousToolCallFingerprints = new Set<string>();
+    const workspaceContextMessage = buildContextTextMessage(sessionId, 'system', buildWorkspaceContextNote(workspaceContext));
+    const userMessage = buildContextTextMessage(sessionId, 'user', userContent);
+    appendConversationMessage(this.projectRoot, workspaceContextMessage);
+    appendConversationMessage(this.projectRoot, userMessage);
+    const actor = this.getOrCreateActor(sessionId);
+    let outcome: LLMActorOutcome;
+
+    try {
+      outcome = await actor.turn(this.buildInvocationInput(sessionId, actor, [workspaceContextMessage, userMessage]));
+    } catch (err) {
+      return this.errorResponse(sessionId, err, toolInvocations);
+    }
 
     for (;;) {
-      // Auto-compact when the conversation approaches the model context
-      // window. Falls back to truncation (last 20% of messages) when no
-      // summarizer is wired in. After compaction we still apply
-      // shared boundary pruning so any orphan tool_call ↔ tool_result
-      // pair produced by truncation can't reach the LLM and trigger an
-      // HTTP 400 "No tool call found for function call output" error.
-      // No max-compaction cap: the operator cannot start a fresh
-      // analyst session from the chat, so compaction must always
-      // succeed in shrinking the working set.
-      try {
-        await this.contextCompactor.compactSession(sessionId, {
-          contextLimit: ANALYST_CONTEXT_LIMIT_TOKENS,
-          threshold: 0.8,
-          maxCompactions: Number.MAX_SAFE_INTEGER,
-        });
-      } catch (err) { this.logBoundaryDiagnostic('analyst_history_compaction_failed', err); }
+      if (outcome.type === 'error') return this.errorResponse(sessionId, outcome.error, toolInvocations);
 
-      const history = filterAgentMessagesForModel(new AgentSessionRepository(this.projectRoot).getMessages(sessionId));
-      this.contextCompactor.assertToolBoundaryIntegrity(history);
-      const modelInput: AgentMessage[] = [
-        { id: `workspace-context-${sessionId}`, session_id: sessionId, role: 'system', kind: 'text', content: buildWorkspaceContextNote(workspaceContext), round_id: generateRoundId('pre'), message_index: 0, block_index: 0, timestamp: now() },
-        ...history,
-      ];
-
-      let llmResult;
-      try {
-        const modelParams = getModelParamsForRole(this.config, 'analyst');
-        const tools = getAnalystToolDefinitions();
-        llmResult = await this.invocationService.invokeWithRecovery({
-          role: 'analyst',
-          sessionId,
-          systemPrompt,
-          contextMessages: modelInput,
-          tools,
-          terminalToolNames: [],
-          modelParams: { temperature: modelParams.temperature, maxTokens: modelParams.maxTokens },
-          capabilityRequest: capabilityRequestForLlmOptions({ tools, stream: false }),
-        });
-      } catch (err) {
-        const noHealthyMessage = `No healthy candidates available for role 'analyst'.`;
-        const errMsg = err instanceof AnalystOfflineError
-          ? err.message
-          : err instanceof Error && err.message === noHealthyMessage
-            ? ANALYST_NO_MODEL_REPLY
-          : `Analyst LLM unavailable: ${err instanceof Error ? err.message : String(err)}`;
-        const persisted = appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'text', content: errMsg }, this.runtimeDeps.stamper.stampInRound(sessionId), this.runtimeDeps.stamper);
-        return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: errMsg, timestamp: persisted.timestamp }, toolInvocations: toolInvocations.length > 0 ? toolInvocations : undefined };
-      }
-
-      if (llmResult.kind === 'message') {
-        const finalText = (llmResult.content ?? '').trim() || 'Done.';
-        const persisted = appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'text', content: finalText }, this.runtimeDeps.stamper.stampInRound(sessionId), this.runtimeDeps.stamper);
+      if (outcome.type === 'result') {
+        const finalText = (outcome.result.content ?? '').trim() || 'Done.';
+        const persisted = this.latestAssistantTextMessage(sessionId, finalText) ?? this.appendAssistantTextMessage(sessionId, finalText);
         return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: finalText, timestamp: persisted.timestamp }, toolInvocations: toolInvocations.length > 0 ? toolInvocations : undefined };
       }
 
-      const toolCalls = llmResult.tool_calls;
-      const unavailableTool = toolCalls.find((tc) => !RoleToolPolicy.assertAnalystSurfaceTool(tc.function.name, this.surface).allowed);
-      if (unavailableTool) {
+      const toolCall = outcome;
+      if (!RoleToolPolicy.assertAnalystSurfaceTool(toolCall.toolName, this.surface).allowed) {
         const content = ANALYST_UNSUPPORTED_ACTION_TEMPLATE('Analyst', getAvailableAnalystToolNames(this.surface));
-        const persisted = appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'text', content }, this.runtimeDeps.stamper.stampInRound(sessionId), this.runtimeDeps.stamper);
+        const persisted = this.appendAssistantTextMessage(sessionId, content);
         return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content, timestamp: persisted.timestamp }, toolInvocations: toolInvocations.length > 0 ? toolInvocations : undefined };
       }
-      const fingerprint = toolCalls.map((tc) => `${tc.function.name}:${tc.function.arguments}`).sort().join('||');
+      const rawArguments = typeof actor.waitingToolCall?.toolCallArguments === 'string' ? actor.waitingToolCall.toolCallArguments : JSON.stringify(toolCall.args);
+      const fingerprint = `${toolCall.toolName}:${rawArguments}`;
       if (previousToolCallFingerprints.has(fingerprint)) {
         const noProgressText = 'I repeated the same tool calls without making progress. Please refine the request or inspect the latest tool results.';
-        const persisted = appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'text', content: noProgressText }, this.runtimeDeps.stamper.stampInRound(sessionId), this.runtimeDeps.stamper);
+        const persisted = this.appendAssistantTextMessage(sessionId, noProgressText);
         return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: noProgressText, timestamp: persisted.timestamp }, toolInvocations: toolInvocations.length > 0 ? toolInvocations : undefined };
       }
       previousToolCallFingerprints.add(fingerprint);
-      for (const tc of toolCalls) {
-        const parsed = parseProtocolToolArgs(tc.function.arguments);
-        const parsedArgs = parsed.kind === 'ok'
-          ? parsed.args
-          : { protocol_violation: buildAgentProtocolViolation({ session_id: sessionId, role: 'analyst', tool_call_id: tc.id, tool_name: tc.function.name, violation: parsed.violation, raw: tc.function.arguments }) };
-        const row = serializeToolCallMessage({ id: tc.id, name: tc.function.name, args: parsedArgs });
-        appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'tool_call', content: JSON.stringify(row), tool: tc.function.name, tool_call_id: tc.id }, this.runtimeDeps.stamper.stampInRound(sessionId), this.runtimeDeps.stamper);
+
+      const parsed = parseProtocolToolArgs(rawArguments);
+      if (parsed.kind === 'violation') {
+        const violation = buildAgentProtocolViolation({ session_id: sessionId, role: 'analyst', tool_call_id: toolCall.toolCallId, tool_name: toolCall.toolName, violation: parsed.violation, raw: rawArguments });
+        this.logBoundaryDiagnostic('analyst_tool_arguments_protocol_violation', new Error(`${parsed.violation}: ${parsed.detail}`));
+        const content = JSON.stringify(violation);
+        const result: ToolResult = { success: false, error: content, errorEnvelope: { kind: 'internal', message: content } };
+        this.emitActivity({ type: 'tool_result', content: { tool: toolCall.toolName, success: false, errorKind: 'agent_protocol_violation' } });
+        toolInvocations.push({ tool: toolCall.toolName, params: {}, result });
+        outcome = await actor.appendToolResult(toolCall.toolCallId, result);
+        if (outcome.type === 'error') {
+          const persisted = this.appendAssistantTextMessage(sessionId, content);
+          return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content, timestamp: persisted.timestamp }, toolInvocations };
+        }
+        continue;
       }
 
-      for (const tc of toolCalls) {
-        const parsed = parseProtocolToolArgs(tc.function.arguments);
-        if (parsed.kind === 'violation') {
-          const violation = buildAgentProtocolViolation({ session_id: sessionId, role: 'analyst', tool_call_id: tc.id, tool_name: tc.function.name, violation: parsed.violation, raw: tc.function.arguments });
-          this.logBoundaryDiagnostic('analyst_tool_arguments_protocol_violation', new Error(`${parsed.violation}: ${parsed.detail}`));
-          const content = JSON.stringify(violation);
-          const result: ToolResult = { success: false, error: content, errorEnvelope: { kind: 'internal', message: content } };
-          this.emitActivity({ type: 'tool_result', content: { tool: tc.function.name, success: false, errorKind: 'agent_protocol_violation' } });
-          appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'tool', kind: 'tool_error', content, tool: tc.function.name, tool_call_id: tc.id }, this.runtimeDeps.stamper.stampInRound(sessionId), this.runtimeDeps.stamper);
-          toolInvocations.push({ tool: tc.function.name, params: {}, result });
-          continue;
-        }
-        const params = parsed.args;
+      const params = parsed.args;
+      this.emitActivity({ type: 'tool_call', content: { tool: toolCall.toolName, params } });
+      const dispatched = await this.toolDispatcher.dispatch({ id: toolCall.toolCallId, name: toolCall.toolName, arguments: rawArguments }, {
+        role: 'analyst',
+        sessionId,
+        analystSurface: this.surface,
+        toolContext: ctx,
+        knownRuntimeTool: (name) => getAvailableAnalystToolNames(this.surface).includes(name),
+      });
+      const result = dispatched.adapterResult?.data as ToolResult | undefined ?? {
+        success: false,
+        error: dispatched.content,
+        errorEnvelope: { kind: 'internal', message: dispatched.content },
+      };
 
-
-        this.emitActivity({ type: 'tool_call', content: { tool: tc.function.name, params } });
-
-        const dispatched = await this.toolDispatcher.dispatch({ id: tc.id, name: tc.function.name, arguments: tc.function.arguments }, {
-          role: 'analyst',
-          sessionId,
-          analystSurface: this.surface,
-          toolContext: ctx,
-          knownRuntimeTool: (name) => getAvailableAnalystToolNames(this.surface).includes(name),
-        });
-        const result = dispatched.adapterResult?.data as ToolResult | undefined ?? {
-          success: false,
-          error: dispatched.content,
-          errorEnvelope: { kind: 'internal', message: dispatched.content },
-        };
-
-
-        this.emitActivity({ type: 'tool_result', content: { tool: tc.function.name, success: result.success, hasPreview: !!result.preview, errorKind: result.errorEnvelope?.kind } });
-
-        toolInvocations.push({ tool: tc.function.name, params, result });
-
-        appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'tool', kind: dispatched.kind, content: dispatched.content, tool: dispatched.tool, tool_call_id: dispatched.tool_call_id }, this.runtimeDeps.stamper.stampInRound(sessionId), this.runtimeDeps.stamper);
-        broadcastToolInvocation(this.runtimeDeps, sessionId, tc.function.name, result);
-        const contractText = result.errorEnvelope?.kind === 'not_found' ? result.errorEnvelope.message : this.responseTextForResult(result);
-        if (contractText) {
-          const persisted = appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'text', content: contractText }, this.runtimeDeps.stamper.stampInRound(sessionId), this.runtimeDeps.stamper);
-          return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: contractText, timestamp: persisted.timestamp }, toolInvocations };
-        }
+      this.emitActivity({ type: 'tool_result', content: { tool: toolCall.toolName, success: result.success, hasPreview: !!result.preview, errorKind: result.errorEnvelope?.kind } });
+      toolInvocations.push({ tool: toolCall.toolName, params, result });
+      broadcastToolInvocation(this.runtimeDeps, sessionId, toolCall.toolName, result);
+      const contractText = result.errorEnvelope?.kind === 'not_found' ? result.errorEnvelope.message : this.responseTextForResult(result);
+      try {
+        outcome = await actor.appendToolResult(toolCall.toolCallId, result);
+      } catch (err) {
+        return this.errorResponse(sessionId, err, toolInvocations);
+      }
+      if (contractText) {
+        const persisted = this.appendAssistantTextMessage(sessionId, contractText);
+        return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: contractText, timestamp: persisted.timestamp }, toolInvocations };
       }
     }
+  }
+
+  private getOrCreateActor(sessionId: string): LLMActor {
+    let actor = this.actors.get(sessionId);
+    if (!actor) {
+      actor = new LLMActor({ projectRoot: this.projectRoot, agentId: sessionId, provider: this.runtimeDeps.provider });
+      actor.start();
+      this.actors.set(sessionId, actor);
+    }
+    if (actor.state() === 'waiting_tool') actor.abandonParkedTurn();
+    return actor;
+  }
+
+  private buildInvocationInput(sessionId: string, actor: LLMActor, newMessages: AgentMessage[]): LlmInvocationInput {
+    const tools = getAnalystToolDefinitions();
+    const modelParams = getModelParamsForRole(this.config, 'analyst');
+    const contextMessages = actor.input
+      ? [...actor.input.contextMessages, ...newMessages]
+      : [...filterAgentMessagesForModel(conversationMessagesForModel(readConversationMessages(this.projectRoot, sessionId)))] as AgentMessage[];
+    return {
+      inputId: `${actor.agentId}:turn:${Date.now()}`,
+      agentId: actor.agentId,
+      role: 'analyst',
+      sessionId,
+      systemPrompt: `${getAnalystSystemPrompt()}\n\n${this.buildProjectContext()}`,
+      contextMessages,
+      tools,
+      terminalToolNames: [],
+      modelParams: { temperature: modelParams.temperature, maxTokens: modelParams.maxTokens },
+      capabilityRequest: capabilityRequestForLlmOptions({ tools, stream: false }),
+      episodeContext: { surface: this.surface },
+    };
+  }
+
+  private appendAssistantTextMessage(sessionId: string, content: string): AgentMessage {
+    const timestamp = new Date().toISOString();
+    const message: AgentMessage = {
+      id: `${sessionId}:assistant:${timestamp}:${Math.random().toString(36).slice(2)}`,
+      session_id: sessionId,
+      role: 'assistant',
+      kind: 'text',
+      content,
+      round_id: `r-assistant-${Buffer.from(`${sessionId}:${timestamp}`).toString('hex').slice(0, 32).padEnd(32, '0')}`,
+      message_index: 1,
+      block_index: 0,
+      timestamp,
+    };
+    appendConversationMessage(this.projectRoot, message);
+    return message;
+  }
+
+  private latestAssistantTextMessage(sessionId: string, content: string): AgentMessage | null {
+    return [...readConversationMessages(this.projectRoot, sessionId)].reverse().find((message) => message.role === 'assistant' && message.kind === 'text' && message.content === content) ?? null;
+  }
+
+  private errorResponse(sessionId: string, err: unknown, toolInvocations: NonNullable<AnalystResponse['toolInvocations']>): AnalystResponse {
+    const noHealthyMessage = `No healthy candidates available for role 'analyst'.`;
+    const error = typeof err === 'string' ? err : err instanceof Error ? err.message : String(err);
+    const errMsg = err instanceof AnalystOfflineError
+      ? err.message
+      : error === noHealthyMessage
+        ? ANALYST_NO_MODEL_REPLY
+        : `Analyst LLM unavailable: ${error}`;
+    const persisted = this.appendAssistantTextMessage(sessionId, errMsg);
+    return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: errMsg, timestamp: persisted.timestamp }, toolInvocations: toolInvocations.length > 0 ? toolInvocations : undefined };
   }
 
 

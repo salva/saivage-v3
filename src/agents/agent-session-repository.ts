@@ -14,13 +14,9 @@ import {
   setSessionStatus,
   updateSessionModel,
 } from '../runtime/session-persistence.js';
+import { GLOBAL_ANALYST_SESSION_ID, isSafeAgentSessionId, SAFE_AGENT_SESSION_ID_RE } from './session-ids.js';
 
-export const GLOBAL_ANALYST_SESSION_ID = 'analyst';
-export const SAFE_AGENT_SESSION_ID_RE = /^[a-zA-Z0-9_:-]+$/;
-
-export function isSafeAgentSessionId(sessionId: string): boolean {
-  return SAFE_AGENT_SESSION_ID_RE.test(sessionId);
-}
+export { GLOBAL_ANALYST_SESSION_ID, isSafeAgentSessionId, SAFE_AGENT_SESSION_ID_RE } from './session-ids.js';
 
 export class AgentSessionRepository {
   readonly saivageDir: string;
