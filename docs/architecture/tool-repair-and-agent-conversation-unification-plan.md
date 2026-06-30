@@ -33,7 +33,7 @@ Per the workspace architecture rules there is no backward compatibility, no comp
 
 ## Issues
 
-1. **Malformed non-terminal tool calls end the card too early.** After the repaired model emits a bad non-terminal call (e.g. `write {}`), the processor delivers the validation error to the model and continues — but observed `pueblicos` behavior still failed the card. A live activation must give the model one bounded retry directive describing exactly which non-terminal tool call was invalid, then fail deterministically if it repeats.
+1. **Malformed non-terminal tool calls end the card too early.** After the repaired model emits a bad non-terminal call (e.g. `write {}`), the processor can still settle the card as failed on the tool argument validation error. A live activation must give the model one bounded retry directive describing exactly which non-terminal tool call was malformed, then fail deterministically if it repeats.
 
 2. **Repeated identical invalid tool calls can loop.** Without a fingerprint check, the bounded retry budget can be consumed by the model emitting the same bad call.
 
@@ -67,13 +67,16 @@ Every operator/UI surface reads conversations through `/api/agents/:id/conversat
 
 Keep the existing `repairAttempts` integer per activation, shared across the existing repair kinds. Do not add a budget class or named repair categories.
 
-Add one tiny inline helper near the processors:
+Add one tiny inline helper near the processors. It should recognize argument/schema/protocol failures, not every ordinary tool failure:
 
 ```ts
-function isToolFailure(result: unknown): result is { success: false; error: string } {
+function isMalformedToolCallFailure(result: unknown): result is { success: false; error: string } {
+  const error = typeof result === 'object' && result !== null ? (result as { error?: unknown }).error : null;
+  const kind = typeof result === 'object' && result !== null ? (result as { errorEnvelope?: { kind?: unknown } }).errorEnvelope?.kind : null;
   return typeof result === 'object' && result !== null
     && (result as { success?: unknown }).success === false
-    && typeof (result as { error?: unknown }).error === 'string';
+    && typeof error === 'string'
+    && (kind === 'validation' || kind === 'protocol' || /required|invalid|schema|arguments/i.test(error));
 }
 ```
 
@@ -81,7 +84,7 @@ Executor loop (`TerminalCardProcessorActor.runActivation`), in the non-terminal 
 
 ```ts
 const toolResult = await this.handleToolCall(outcome);
-if (isToolFailure(toolResult) && toolResult.error.length > 0 && repairAttempts < MAX_TERMINAL_CONTRACT_REPAIRS) {
+if (isMalformedToolCallFailure(toolResult) && toolResult.error.length > 0 && repairAttempts < MAX_TERMINAL_CONTRACT_REPAIRS) {
   if (repeatedInvalidFingerprint.has(fingerprintOf(outcome))) return this.executorFailure(`Repeated invalid tool call '${outcome.toolName}'. ${toolResult.error}`);
   repairAttempts++;
   repeatedInvalidFingerprint.add(fingerprintOf(outcome));
@@ -94,6 +97,8 @@ if (isToolFailure(toolResult) && toolResult.error.length > 0 && repairAttempts <
 outcome = await llm.appendToolResult(outcome.toolCallId, toolResult, (inputId) => this.notificationContextMessages(input, inputId));
 ```
 
+Ordinary non-terminal tool failures, such as a command exiting non-zero or a file genuinely not existing, should still be appended as normal tool results. The model can react to them through the normal loop without spending the malformed-call repair budget.
+
 `fingerprintOf(outcome) = outcome.toolName + ':' + stableStringify(outcome.args)`. Reset the repeat-set is unnecessary; a repeated identical invalid call fails immediately regardless of remaining budget.
 
 Apply the same structure to `PlanningCardProcessorActor.runActivation` and its planner/reviewer loops, with role-specific directive text. Reviewers that currently only use terminal + record tools keep using the existing terminal repair path; add tests proving malformed reviewer terminal calls still route there.
@@ -102,7 +107,7 @@ Startup recovery is unchanged: no live turn, no repair. Interrupted non-terminal
 
 ### 2. Make segments the only conversation store
 
-Promote the segment helpers already in `src/runtime/agents/llm-delivery-log.ts` into one neutral module `src/runtime/agents/conversation-store.ts`:
+Promote the segment helpers already in `src/runtime/actors/llm-delivery-log.ts` into one neutral module `src/runtime/actors/conversation-store.ts`:
 
 ```ts
 conversationDir(projectRoot, sessionId)
@@ -144,7 +149,7 @@ The analyst tools `list_agent_sessions` and `read_agent_session` use the same re
 
 ### 4. Migrate the analyst onto `LLMActor` and segments
 
-Introduce an `AnalystLLMAdapter` that builds a `LlmInvocationInput` from the existing analyst loop:
+Add a small analyst LLM turn builder that builds a `LlmInvocationInput` from the existing analyst loop:
 
 ```text
 agentId: 'analyst'
@@ -206,7 +211,7 @@ Add a compact `SystemPromptBlock.vue` (or extend `ContextBlock.vue`) that render
 Focused:
 
 ```bash
-npm run test:direct -- tests/runtime/agents/terminal-card-processor-actor.test.ts tests/runtime/agents/planning-card-processor-actor.test.ts tests/runtime/agents/llm-delivery-log.test.ts tests/server/agents-detail-route.test.ts --runInBand
+npm run test:direct -- tests/runtime/actors/terminal-card-processor-actor.test.ts tests/runtime/actors/planning-card-processor-actor.test.ts tests/runtime/actors/llm-delivery-log.test.ts tests/server/agents-detail-route.test.ts --runInBand
 npm run web:test:operator-smoke
 ```
 
