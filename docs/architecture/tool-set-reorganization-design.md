@@ -110,8 +110,7 @@ Unchanged from current v3. These are v3-specific and have no OpenCode equivalent
 | `reorder_child` | P, A | Reorder children of a non-running parent. |
 | `queue_notification` | P, A | Queue a notification for a future agent session. |
 
-Goal reporting (terminal contract tools) stay as-is:
-`report_goal_done`, `report_goal_failed`, `report_goal_blocked` (planner-only terminal tools).
+Goal reporting (terminal contract tools): the planner's terminal tool is `emit_planner_result` with `{ status: 'continue' | 'done' | 'blocked' }`. The old `report_goal_done` / `report_goal_failed` / `report_goal_blocked` tools are dead code from the retired `AgentExecutionPort` surface and are removed (see section 5).
 
 ### 4.4 Inspection Tools (shared by P, E, R, A)
 
@@ -167,6 +166,9 @@ The following names are removed from the catalog. They are either duplicates of 
 | `wait_process` (actor-inline) | `wait_process` (catalog) | Move from inline to catalog. |
 | `read_file` (workspace) | `read` | If a workspace `read_file` exists separate from analyst. Audit needed. |
 | `load_skill` | `skill` | Standard name. |
+| `report_goal_done` | `emit_planner_result` | Dead code from the old `AgentExecutionPort` runtime. The planner actor already uses `emit_planner_result` with `{ status: 'continue' \| 'done' \| 'blocked' }` as its terminal contract tool. `report_goal_done` is not in `PLANNER_CARD_PROCESSOR_TOOL_DEFINITIONS` and never reaches the planner LLM. Survives only in the catalog and stale prompt text. Removed with the dead `AgentExecutionPort` surface. |
+| `report_goal_failed` | `emit_planner_result` | Dead code, same as above. Additionally, the current planner envelope has no `failed` status — planner failure is expressed as `blocked` with a reason or handled by the card lifecycle, not by a planner-reported `failed`. |
+| `report_goal_blocked` | `emit_planner_result` | Dead code, same as above. `emit_planner_result` with `status: 'blocked'` and `blocked_reason` covers this. |
 
 ## 6. Role Tool Surfaces
 
@@ -180,7 +182,7 @@ The actor runtime exposes curated subsets. The catalog's `roles` field is update
 | Filesystem (read-only) | `read`, `glob`, `grep` |
 | Inspection | `list_cards`, `get_card`, `get_tree`, `list_card_history`, `get_card_history_entry`, `diff_card` |
 | Web | `websearch`, `webfetch` |
-| Terminal | `report_goal_done`, `report_goal_failed`, `report_goal_blocked` |
+| Terminal | `emit_planner_result` |
 
 Planner does **not** get `write`, `edit`, `apply_patch`, `run_command`, `skill`, or `mcp_tool_call`. The planner coordinates; it does not write code or run commands.
 
@@ -275,6 +277,7 @@ These v2 capabilities are not added in this reorg because v3 does not have the s
 - Remove `list_directory` from the workspace tools (keep analyst variant).
 - Remove `run_shell_command` from the workspace tools (keep analyst variant).
 - Remove `load_skill`; ensure `skill` supports both list and load.
+- Remove `report_goal_done`, `report_goal_failed`, `report_goal_blocked` from the catalog. The planner actor already uses `emit_planner_result` (with `status: 'continue' | 'done' | 'blocked'`) as its terminal contract tool; these three are dead code from the retired `AgentExecutionPort` surface and never reach the planner LLM. Remove their references from `planner-control-tools.ts`, `planner-tools.ts` (`PlannerToolsService`), `planner-envelope-tracker.ts`, `planner-state-context.ts`, and stale prompt text in `system-prompt.ts`.
 - Update all tests that reference removed names.
 - Add negative tests asserting removed names are absent from agent-facing surfaces.
 
@@ -321,7 +324,7 @@ This reorganization is complete when:
 - the reviewer surface does not include `write`, `edit`, or `apply_patch`;
 - the catalog `roles` field matches actual actor wiring for every entry;
 - analyst-only host-inspection tools (`read_file`, `write_file`, `list_directory`, `run_shell_command`, `read_file_metadata`) never appear in agent-facing surfaces;
-- removed names (`run_project_command`, `start_and_wait`, `wait_for_process`, `inspect_process`, `run_process` as a separate tool, `load_skill`, `list_project_files`, `read_project_file`, `write_project_file`) are absent from the catalog and from all actor tool bundles;
+- removed names (`run_project_command`, `start_and_wait`, `wait_for_process`, `inspect_process`, `run_process` as a separate tool, `load_skill`, `list_project_files`, `read_project_file`, `write_project_file`, `report_goal_done`, `report_goal_failed`, `report_goal_blocked`) are absent from the catalog and from all actor tool bundles;
 - system prompts mention only tools that exist in the final catalog;
 - tests assert the final role tool surfaces and fail if removed names reappear;
 - the conversation UI redesign's Phase 2 unblocks because the tool vocabulary is aligned.
