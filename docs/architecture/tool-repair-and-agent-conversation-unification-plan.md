@@ -106,10 +106,10 @@ conversationIndexPath(projectRoot, sessionId)
 readConversationMessages(projectRoot, sessionId)
 listConversationSessionIds(projectRoot)   // readdir conversations/, decodeURIComponent
 appendConversationMessage(projectRoot, message)  // creates dir on first append
-buildUserTextMessage(sessionId, content)   // caller-appended user/context row with valid id/round/index/timestamp
+buildContextTextMessage(sessionId, role, content)   // caller-appended context row (user/system) with valid id/round/index/timestamp
 ```
 
-`appendConversationMessage` creates the conversation directory on first write. No public `ensureConversationDir`; empty sessions never exist. `LLMActor` and `llm-delivery-log.ts` import from this module. No other transcript read path remains. `buildUserTextMessage` constructs a valid `AgentMessage` (with `id`, `round_id`, `message_index`, `block_index`, `timestamp`) so callers that append caller-side rows (the analyst handler's per-turn workspace-context note and user message) do not need the old `SessionStamper`. `LLMActor`-internal rows continue to use the stamping helpers already in `llm-delivery-log.ts`.
+`appendConversationMessage` creates the conversation directory on first write. No public `ensureConversationDir`; empty sessions never exist. `LLMActor` and `llm-delivery-log.ts` import from this module. No other transcript read path remains. `buildContextTextMessage` constructs a valid `AgentMessage` (with `id`, `round_id`, `message_index`, `block_index`, `timestamp`) for any caller-side context row — the analyst handler uses it for both the per-turn workspace-context note (`role: 'system'`) and the operator user message (`role: 'user'`) — so the old `SessionStamper` is not needed. `LLMActor`-internal rows continue to use the stamping helpers already in `llm-delivery-log.ts`.
 
 Add one projection helper:
 
@@ -214,7 +214,7 @@ listSessions():
 getConversation(sessionId):
   messages = readConversationMessages(projectRoot, sessionId)
   if (messages.length === 0) 404
-  return { session: deriveSessionSummary(...), entries: messages, activity_status: ... }
+  return { session: deriveSessionSummary(...), entries: messages, activity_status: deriveActivityStatus(sessionId, readActorSnapshots(projectRoot)) }
 ```
 
 `deriveSessionSummary(id, messages, snapshots)`:
@@ -224,6 +224,13 @@ getConversation(sessionId):
 - `started_at` = first message `timestamp`.
 - `status` = active/waiting from a matching live LLM actor snapshot; else inactive/done/blocked/failed inferred from the card lifecycle of the referenced card (failed/blocked) or last message.
 - `model` from the latest `.saivage/agents/llm-exchanges/<id>.json` if present, else null. This is an operational ledger read, not a transcript read.
+
+`deriveActivityStatus(sessionId, snapshots)`:
+- Find the matching LLM actor snapshot by `actor_id === sessionId`.
+- If the snapshot state is `calling_provider`, return `{ status: 'thinking', pending_calls: [], updated_at: snapshot.updated_at }`.
+- If the snapshot state is `waiting_tool`, return `{ status: 'tool_calling', pending_calls: [], updated_at: snapshot.updated_at }`.
+- If no matching snapshot exists, return `{ status: 'idle', pending_calls: [], updated_at: new Date(0).toISOString() }`.
+- This replaces the old `runtimeApi.getActivityStatus(sessionId)` which was stamper-based. The read model no longer depends on `RuntimeApi` for activity status. The old stamper-based `RuntimeApi.getActivityStatus` is either deleted or rewired to read actor snapshots; either way the read model derives `activity_status` from snapshots directly.
 
 No `AgentSession` manifest is created or read. `/api/agents/:id/conversation` returns `system_prompt` entries by default (operator APIs are debugging surfaces).
 
