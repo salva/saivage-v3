@@ -53,6 +53,8 @@ Per the workspace architecture rules there is no backward compatibility, no comp
 
 6. **The analyst runs on a separate LLM engine and transcript.** `AnalystHandler` uses `InvocationService` + `AgentSessionRepository` + `.saivage/agents/messages`. Planner/executor/reviewer use `LLMActor` + segments. This split is the source of the dual format and of inconsistent prompt visibility, repair, and recovery semantics.
 
+7. **Dead `AgentExecutionPort` surface lingers in `AgentAdapter`.** `AgentAdapter` implements `AgentExecutionPort` (`invokePlanner`/`invokeExecutor`/`invokeReviewer`/`reinvokeSession`) via `AgentInvocationRunner`. The micro-actor runtime replaced this entire surface — it uses `LLMActor` directly. No production code calls these methods; only tests do. The dead surface keeps `AgentInvocationRunner`, `AgentSessionCoordinator`, `AgentSessionLifecycle`, `SessionMessageLog`, `InvocationModelContext`, and `ContextCompactor` alive as transitive dependencies.
+
 ## Desired architecture
 
 One transcript substrate for every LLM-backed agent:
@@ -62,6 +64,8 @@ One transcript substrate for every LLM-backed agent:
 ```
 
 One LLM turn engine: `LLMActor`. Planner, executor, reviewer, and analyst all call `LLMActor.turn()` / `LLMActor.appendToolResult()` / `LLMActor.continueAfterPlainText()`. Role-specific loop logic stays in the processors/analyst handler.
+
+`LLMActor` is role-generic. It does not assume every turn belongs to a card. The actor vocabulary and ID grammar include `analyst` alongside planner/reviewer/executor. The active-reconstruction record supports both card-bound turns (planner/executor/reviewer) and free turns (analyst).
 
 Sessions are derived, not manifest-backed. A session exists iff its conversation directory exists. `role`, `card_id`, and `assessment_id` are parsed from the session id; `started_at` is the first conversation message timestamp; live `status` comes from runtime actor snapshots; `model` comes from the latest LLM exchange record. `.saivage/agents/sessions` and `.saivage/agents/messages` stop being created and stop being read.
 
@@ -102,43 +106,62 @@ conversationIndexPath(projectRoot, sessionId)
 readConversationMessages(projectRoot, sessionId)
 listConversationSessionIds(projectRoot)   // readdir conversations/, decodeURIComponent
 appendConversationMessage(projectRoot, message)
+ensureConversationDir(projectRoot, sessionId)  // mkdirSync for session creation
 ```
 
 `LLMActor` and `llm-delivery-log.ts` import from this module. No other transcript read path remains.
 
-### 3. Migrate the analyst onto `LLMActor` and segments
+### 3. Make `LLMActor` role-generic
+
+The `LLMActor` constructor and the active-reconstruction system currently assume every LLM turn belongs to a card. The analyst has no card. Three changes make `LLMActor` work for the analyst:
+
+**Actor vocabulary and ID grammar.** Add `'analyst'` to `llmActorRoles` in `src/runtime/actors/actor-vocabulary.ts`. Add the `analyst:` prefix to `actorKindFromId` in `src/runtime/actors/ids.ts`. `parseLlmActorId` already iterates `llmActorRoles`, so `analyst:<conversationId>` returns `{ role: 'analyst', cardId: conversationId }` automatically. The `cardId` field is a misnomer for analyst (it is the conversation id), but it avoids restructuring the read model's agent identity tuple.
+
+**Reconstruction record.** Make `card_id` nullable in `LlmActiveReconstructionRecord` and `llmActiveReconstructionSchema` (`z.string().min(1)` → `z.string().nullable()`). Remove the `card_id` validation throw in `LLMActor.createActiveReconstruction`; pass `null` for analyst turns. In `readLlmActiveReconstruction`, skip the `card_id !== identity.cardId` check when `identity.role === 'analyst'`.
+
+**Analyst session id.** `GLOBAL_ANALYST_SESSION_ID` changes from `'analyst'` to `'analyst:global'` for consistency with the `analyst:<conversationId>` pattern. All chat/websocket/telegram consumers are updated in this plan, so there is no compatibility concern. Move `GLOBAL_ANALYST_SESSION_ID` and `isSafeAgentSessionId` to `src/agents/session-ids.ts` since `AgentSessionRepository` is being deleted.
+
+### 4. Migrate the analyst onto `LLMActor` and segments
 
 The analyst loop currently re-reads all messages from disk every iteration, compacts, filters, injects workspace context, and sends the full history to the provider via `InvocationService.invokeWithRecovery()`. `LLMActor` keeps context in memory and appends to it through state-machine transitions.
 
-Migration approach:
+**LLMActor creation.** `AnalystRuntimeDeps` gains `provider: LLMProviderPort` and `admission?: LLMAdmissionPort` (both already available from the micro-actor runtime API). It loses `contextCompactor` and `stamper`. The `AnalystHandler` creates one `LLMActor` per conversation (keyed by session id), stores it in a `Map`, and reuses it across turns in the same conversation.
 
-- Build a `LlmInvocationInput` from the existing analyst loop state:
+**Turn input.** Build a `LlmInvocationInput` from the existing analyst loop state:
 
-  ```text
-  agentId: 'analyst'
-  role: 'analyst'
-  sessionId: 'analyst'  (or the resolved per-conversation session id)
-  systemPrompt: getAnalystSystemPrompt() + projectContext
-  contextMessages: history (from segment) + workspace-context system message
-  tools: getAnalystToolDefinitions()
-  terminalToolNames: []
-  ```
+```text
+agentId: 'analyst:<conversationId>'
+role: 'analyst'
+sessionId: 'analyst:<conversationId>'
+systemPrompt: getAnalystSystemPrompt() + projectContext
+contextMessages: [workspace-context system message, ...prior conversation messages]
+tools: getAnalystToolDefinitions()
+terminalToolNames: []
+episodeContext: { cardId: null, conversationId }
+```
 
-- `AnalystHandler.runAnalystLoop` calls `llmActor.turn(input)` for the first call. For each tool call, it dispatches via the existing `ToolDispatcher`, then calls `llmActor.appendToolResult(toolCallId, result, hook)`. For plain-text results, the loop ends (the analyst has no terminal tool contract).
+**User message persistence.** `LLMActor` logs model-side entries (system prompt, assistant text, tool calls, tool results) but not arbitrary context messages. The analyst handler appends the operator's user message to `conversation-store` directly before calling `llmActor.turn(...)`. This keeps `LLMActor` clean (it only logs LLM turn events) and ensures the full conversation is visible in `/api/agents/:id/conversation`.
 
-- The workspace-context system message is part of the initial `contextMessages`, not re-injected per iteration. It may become stale during a long conversation; this is acceptable for Phase 1.
+**Loop shape.** For each tool call, the handler dispatches via the existing `ToolDispatcher`, then calls `llmActor.appendToolResult(toolCallId, result, hook)`. For plain-text results, the loop ends (the analyst has no terminal tool contract). Duplicate tool-call prevention (`previousToolCallFingerprints`) and control-action auditing stay in the analyst handler.
 
-- Compaction is not wired. The context grows until the conversation ends or the provider rejects an oversized request. This is a known Phase 1 limitation.
+**Context management.** Compaction is not wired. The context grows until the conversation ends or the provider rejects an oversized request. This is a known Phase 1 limitation. The workspace-context system message is part of the initial `contextMessages`, not re-injected per iteration.
 
-- `filterAgentMessagesForModel` stays as-is. It hides `system_prompt` and `model_issue` from provider input because the system prompt is passed separately as `input.systemPrompt`. This is correct and must not change; the UI visibility fix is a separate concern (section 5).
+**Session creation.** Replace `getOrCreateAnalystSession()` with a simple function in `src/agents/session-ids.ts`:
 
-- Duplicate tool-call prevention (`previousToolCallFingerprints`) and control-action auditing stay in the analyst handler. Transcript appends (system prompt, assistant text, tool calls, tool results) move to `LLMActor` and land in `agents/conversations/analyst/seg-001.jsonl`.
+```ts
+function ensureAnalystSession(projectRoot: string, sessionId = GLOBAL_ANALYST_SESSION_ID): { sessionId: string } {
+  ensureConversationDir(projectRoot, sessionId);
+  return { sessionId };
+}
+```
 
-- `InvocationService` stays as the `LLMProviderPort` adapter (already wired in `src/application/micro-actor-runtime-api-factory.ts:28`). It handles model routing, candidate resolution, and retry. Only the analyst's direct `invokeWithRecovery` call and its session/message persistence are removed.
+No `AgentSession` manifest is returned. Consumers (websocket, telegram, chat routes) only need the session id.
 
-- Because there is no bridge, a running `analyst` session with old `.saivage/agents/messages/analyst.jsonl` history is simply reset: the operator starts a new conversation or the old file is ignored.
+**Provider wiring.** `InvocationService` stays as the `LLMProviderPort` adapter (already wired in `src/application/micro-actor-runtime-api-factory.ts:28`). It handles model routing, candidate resolution, and retry. Only the analyst's direct `invokeWithRecovery` call and its session/message persistence are removed.
 
-### 4. Replace the agent read model with a segment-backed, derived model
+Because there is no bridge, a running `analyst` session with old `.saivage/agents/messages/analyst.jsonl` history is simply reset: the operator starts a new conversation or the old file is ignored.
+
+### 5. Replace agent and chat read models with a segment-backed, derived model
 
 Delete the legacy `AgentSessionRepository` readers (`listMessageSessionIds`, `readEncodedSessionMessages`) and the manifest-backed listing. The new read model derives sessions:
 
@@ -154,8 +177,9 @@ getConversation(sessionId):
 ```
 
 `deriveSessionSummary(id, messages, snapshots)`:
-- `role` from id prefix (`analyst` / `planner:` / `executor:` / `reviewer:`).
-- `card_id` parsed from id; `assessment_id` from reviewer id suffix.
+- `role` from id prefix (`analyst:` / `planner:` / `executor:` / `reviewer:`).
+- `card_id` parsed from id for planner/executor/reviewer; `null` for analyst.
+- `assessment_id` from reviewer id suffix.
 - `started_at` = first message `timestamp`.
 - `status` = active/waiting from a matching live LLM actor snapshot; else inactive/done/blocked/failed inferred from the card lifecycle of the referenced card (failed/blocked) or last message.
 - `model` from the latest `.saivage/agents/llm-exchanges/<id>.json` if present, else null. This is an operational ledger read, not a transcript read.
@@ -164,7 +188,46 @@ No `AgentSession` manifest is created or read. `/api/agents/:id/conversation` re
 
 The analyst tools `list_agent_sessions` and `read_agent_session` use the same read model. No duplicate implementation.
 
-### 5. Port the UI off raw file discovery and render system prompts
+**Chat read model.** `ChatReadModelService` (`src/application/read-models/chat-read-model.ts`) currently wraps `AgentSessionRepository` for the chat routes (`chats.list`, `chats.get`). Port it to use `conversation-store` directly: `listSessions` returns analyst conversation directories; `getEntries` returns `readConversationMessages`. The chat is the analyst session — it reads the same segment store as `/api/agents`.
+
+### 6. Slim `AgentAdapter` to a service provider
+
+`AgentAdapter` currently implements `AgentExecutionPort` via `AgentInvocationRunner`. The micro-actor runtime replaced this entire surface — `invokePlanner`/`invokeExecutor`/`invokeReviewer`/`reinvokeSession` are never called from production code, only from tests. The dead surface keeps `AgentInvocationRunner`, `AgentSessionCoordinator`, `AgentSessionLifecycle`, `SessionMessageLog`, `InvocationModelContext`, and `ContextCompactor` alive as transitive dependencies.
+
+Delete from `AgentAdapter`:
+- `AgentExecutionPort` interface implementation (`invokePlanner`, `invokeExecutor`, `invokeReviewer`, `reinvokeSession`, `processToolCall`, `buildModelMessages`, `compensateActivationBarrierThrow`).
+- All fields and constructor wiring for `AgentInvocationRunner`, `AgentSessionCoordinator`, `AgentSessionLifecycle`, `SessionMessageLog`, `InvocationModelContext`, `ContextCompactor`.
+- `cancelSession`, `forceCancelSession`, `getHandoffSummary`, `getActiveSessionHandoffs` (session lifecycle surface).
+
+Keep in `AgentAdapter`:
+- `InvocationService` (provider routing, candidate resolution, retry).
+- `ProviderRegistry`, `ModelRouter`, `CandidateAvailability` via getters.
+- `ToolRuntime` / `AgentToolExecutor` for tool building.
+- `PlannerControlExecutor`.
+- `SkillsEngine`, `McpManager`, `ContentSupervisor` setters.
+- `getToolNamesForRole`, `buildToolsForRole`, `callMcpTool`, `getSafeFileContent`, `flushRecorders`.
+
+Delete `FakeAgentAdapter`'s `AgentExecutionPort` methods and its session-persistence calls (`createSession`, `markSessionWaiting`, `completeSession`). Keep only the fixture-result machinery if tests still use it; if not, delete the entire file.
+
+Delete `AgentExecutionPort` from `src/contracts/agent-execution.ts` — or keep it as an interface if `FakeAgentAdapter` still implements a reduced version. If no consumer remains, delete it.
+
+Delete tests that exclusively test the old invocation surface:
+- `tests/agents/agent-adapter-llm-attempt.test.ts`
+- `tests/agents/agent-adapter-dispatch-precondition.test.ts`
+- `tests/agents/agent-adapter-activation-barrier.test.ts`
+- `tests/agents/agent-runtime.test.ts`
+- `tests/agents/agent-adapter-abort.test.ts`
+- `tests/agents/agent-adapter-recovery.test.ts`
+- `tests/agents/agent-adapter-reviewer-prompt.test.ts`
+- `tests/agents/llm-client-integration.test.ts` (or port the still-relevant provider-routing tests to test `InvocationService` directly)
+
+**Runtime composition.** Update `src/application/runtime-composition.ts`:
+- Remove `ContextCompactor` construction and from `AnalystRuntimeDeps`.
+- Add `provider` (the `LLMProviderPort` from `invocationServiceProvider`) and `admission` (from the supervisor runtime API) to `AnalystRuntimeDeps`.
+- Remove `SessionStampCounter` if no longer needed after the analyst migration.
+- `AgentAdapter` construction no longer passes `contextCompactor`.
+
+### 7. Port the UI off raw file discovery and render system prompts
 
 `AgentsView.vue` already uses `/api/agents/:id/conversation`; once the backend is segment-backed it gets micro-actor conversations for free. No frontend change there beyond testing.
 
@@ -178,16 +241,19 @@ texts: sorted.filter((entry) => entry.kind === 'text' || entry.kind === 'activit
 
 Add a compact `SystemPromptBlock.vue` (or extend `ContextBlock.vue`) that renders a collapsed `System prompt` header by default, expanding to the full text on click. System prompts are long; they must not dump thousands of tokens inline.
 
-### 6. Cleanup
+### 8. Cleanup
 
 - Remove `agents/messages` and `agents/sessions` from `file-tree.ts` (both the `SAIVAGE_DIRS` list and the `isNewSaivageState` probe). `initProjectTree()` creates `agents/conversations` only. Update tests that assert their creation.
-- Delete from `src/runtime/session-persistence.ts`: `appendMessage`, `appendSystemPromptMessageIfMissing`, `getSessionMessages`, `replaceSessionMessages`, `messagesPath`, `messagesDir`, `MESSAGES_DIR`, `createSession`, `getSession`, `listSessions`, `sessionPath`, `sessionsDir`, `SESSIONS_DIR`, manifest-based `completeSession`/`setSessionStatus`/`markSessionWaiting`/`updateSessionModel`, `reconcileOrphanedAgentSessions`, `assertNoActiveAgentSession`, `ConcurrentAgentSessionError`.
+- Delete from `src/runtime/session-persistence.ts`: `appendMessage`, `appendSystemPromptMessageIfMissing`, `getSessionMessages`, `replaceSessionMessages`, `messagesPath`, `messagesDir`, `MESSAGES_DIR`, `createSession`, `getSession`, `listSessions`, `sessionPath`, `sessionsDir`, `SESSIONS_DIR`, manifest-based `completeSession`/`setSessionStatus`/`markSessionWaiting`/`updateSessionModel`, `reconcileOrphanedAgentSessions`, `assertNoActiveAgentSession`, `ConcurrentAgentSessionError`. If nothing useful remains in the file, delete it.
 - Delete `AgentSessionRepository` (`src/agents/agent-session-repository.ts`).
 - Delete `AgentSessionCoordinator` (`src/agents/agent-session-coordinator.ts`).
-- Delete `AgentInvocationRunner` (`src/agents/invocation-runner.ts`) — it was only used by the old analyst/invocation path.
-- Delete `InvocationModelContext` (`src/agents/invocation-model-context.ts`) — it was only used by `AgentInvocationRunner`.
+- Delete `AgentInvocationRunner` (`src/agents/invocation-runner.ts`).
+- Delete `InvocationModelContext` (`src/agents/invocation-model-context.ts`).
+- Delete `SessionMessageLog` (`src/agents/session-message-log.ts`).
+- Delete `AgentSessionLifecycle` (`src/agents/session-lifecycle.ts`).
 - Delete `compactPersistedPlannerHistoryForRetry` (`src/runtime/persisted-planner-history.ts`) — it reads/writes the old format while the planner already writes to segments; it is dead code.
 - Delete `ContextCompactor` (`src/agents/context-compactor.ts`) — it depends on `replaceSessionMessages` which is being removed. Compaction is Phase 2.
+- Delete `SessionInvariantError` if no longer referenced after the `AgentAdapter` slim.
 - Update tests that write fixtures to `agents/messages/*` (e.g. `tests/application/read-models.test.ts`) to write to `agents/conversations/<id>/seg-001.jsonl`.
 
 ## Execution order
@@ -195,11 +261,13 @@ Add a compact `SystemPromptBlock.vue` (or extend `ContextBlock.vue`) that render
 1. Failing test: executor emits `write {}` → expect model gets error as tool result and can continue (not card failure). After fix, same test passes.
 2. Fix `handleToolCall` missing `await` in `terminal-card-processor-actor.ts`.
 3. Add `conversation-store.ts`; route `LLMActor`/`llm-delivery-log` through it.
-4. Migrate `AnalystHandler` onto `LLMActor` + segments.
-5. Replace `AgentOperatorReadModelService` with the segment-backed derived model; update `/api/agents` and analyst tools; remove `AgentSessionRepository`.
-6. Port `DebugView.vue` Messages to `/api/agents/:id/conversation`.
-7. Timeline `system_prompt` rendering + `SystemPromptBlock`; web tests.
-8. Remove `agents/messages` and `agents/sessions` from `file-tree.ts`; update fixtures; delete dead code listed in section 6.
+4. Add `'analyst'` to actor vocabulary and ID grammar; make `LlmActiveReconstructionRecord.card_id` nullable; update `readLlmActiveReconstruction` to skip card validation for analyst.
+5. Migrate `AnalystHandler` onto `LLMActor` + segments (user message persistence, session creation in `session-ids.ts`, `AnalystRuntimeDeps` changes).
+6. Replace `AgentOperatorReadModelService` and `ChatReadModelService` with the segment-backed derived model; update `/api/agents`, `/api/agents/:id/conversation`, chat routes, and analyst tools; remove `AgentSessionRepository`.
+7. Slim `AgentAdapter`: delete `AgentExecutionPort` surface, `AgentInvocationRunner`, session lifecycle, coordinator, context compactor; update `runtime-composition.ts`; delete dead tests.
+8. Port `DebugView.vue` Messages to `/api/agents/:id/conversation`.
+9. Timeline `system_prompt` rendering + `SystemPromptBlock`; web tests.
+10. Remove `agents/messages` and `agents/sessions` from `file-tree.ts`; update fixtures; delete dead code listed in section 8.
 
 ## Validation
 
@@ -237,9 +305,11 @@ no .saivage/agents/messages or .saivage/agents/sessions created
 1. A malformed non-terminal tool call during a live activation is delivered to the model as a tool result (not card failure); the model can retry with valid arguments.
 2. Terminal-contract repair (plain text, invalid terminal envelope, missing record) remains intact.
 3. Startup recovery still fails/blocks interrupted non-terminal waiting-tool states; no recovery-time repair is added.
-4. `/api/agents` lists micro-actor sessions derived from `.saivage/agents/conversations`.
+4. `/api/agents` lists micro-actor and analyst sessions derived from `.saivage/agents/conversations`.
 5. `/api/agents/:id/conversation` returns `system_prompt` for every role.
 6. The Agents page and Debug view show system prompts for planner/executor/reviewer.
-7. The analyst uses `LLMActor` and writes `agents/conversations/analyst/seg-001.jsonl`.
+7. The analyst uses `LLMActor` and writes `agents/conversations/analyst:<id>/seg-001.jsonl`.
 8. No code reads or writes `.saivage/agents/messages` or `.saivage/agents/sessions`; `initProjectTree` does not create them; no fallback/bridge remains.
 9. `assertNoActiveAgentSession` / `reconcileOrphanedAgentSessions` / `ConcurrentAgentSessionError` are deleted; the supervisor's provider-call admission is the sole active-call invariant.
+10. `AgentAdapter` no longer implements `AgentExecutionPort`; `AgentInvocationRunner`, `AgentSessionCoordinator`, `AgentSessionLifecycle`, `SessionMessageLog`, `InvocationModelContext`, and `ContextCompactor` are deleted.
+11. Chat routes (`chats.list`, `chats.get`) return data from the segment-backed read model.
