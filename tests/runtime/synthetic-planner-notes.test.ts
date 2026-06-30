@@ -85,16 +85,6 @@ describe('synthetic planner notes', () => {
     const coordinator = createRuntimeGoalContextCoordinator({
       projectRoot: tmpDir,
       cards: store,
-      sessionStamper: {
-        recordAppend: () => undefined,
-        openAssistantRound: () => ({ round_id: 'r-assistant-00000000000000000000000000000002', message_index: 0, block_index: 0 }),
-        stampInRound: () => ({ round_id: 'r-assistant-00000000000000000000000000000002', message_index: 0, block_index: 0 }),
-        stampUserMessage: () => ({ round_id: 'r-user-00000000000000000000000000000002', message_index: 0, block_index: 0 }),
-        stampPre: () => ({ round_id: 'r-pre-00000000000000000000000000000002', message_index: 0, block_index: 0 }),
-        stampCompacted: () => ({ round_id: 'r-compact-00000000000000000000000000000002', message_index: 0, block_index: 0 }),
-        stampDiagnosticInCurrentRound: () => ({ round_id: 'r-diagnostic-00000000000000000000000000000002', message_index: 0, block_index: 0 }),
-        closeRound: () => undefined,
-      },
     });
 
     const reviewerContext = coordinator.buildGoalContextBlock(goal.id, 'initial');

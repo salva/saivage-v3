@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { writeFileSyncDurable } from '../persistence/index.js';
-import { findPlannerSessionForCard, getSession, listSessions } from './session-persistence.js';
+import { listConversationSessionIds } from './actors/conversation-store.js';
 import type { AgentSession, CardRecord, CardStatus } from '../schemas/index.js';
 import type { CardStore } from '../cards/store-api.js';
 import { now } from '../utils/clock.js';
@@ -30,10 +30,19 @@ function contains(store: CardStore, goalId: string, affectedCardId: string): boo
   return goalId === affectedCardId || store.getDescendantIds(goalId).includes(affectedCardId);
 }
 
+function plannerSessionForGoal(goalId: string): AgentSession {
+  return { id: `planner:${goalId}`, role: 'planner', goal_card_id: goalId, card_id: goalId, status: 'active', started_at: new Date(0).toISOString() };
+}
+
+function plannerGoalFromSessionId(sessionId: string): string | null {
+  return sessionId.startsWith('planner:') ? sessionId.slice('planner:'.length) : null;
+}
+
 export function findContainingPlannerChain(projectRoot: string, store: CardStore, affectedCardId: string): Array<{ session: AgentSession; goalId: string }> {
-  const sessions = listSessions(saivageDir(projectRoot))
-    .map((id) => getSession(saivageDir(projectRoot), id))
-    .filter((session): session is AgentSession => Boolean(session && session.role === 'planner' && session.goal_card_id));
+  const sessions = listConversationSessionIds(projectRoot)
+    .map((id) => plannerGoalFromSessionId(id))
+    .filter((goalId): goalId is string => Boolean(goalId))
+    .map(plannerSessionForGoal);
   const candidates = sessions
     .map((session) => ({ session, goalId: session.goal_card_id as string, card: store.read(session.goal_card_id as string) }))
     .filter((entry): entry is { session: AgentSession; goalId: string; card: CardRecord } => Boolean(entry.card && contains(store, entry.goalId, affectedCardId)))
@@ -44,8 +53,8 @@ export function findContainingPlannerChain(projectRoot: string, store: CardStore
   for (const id of ancestors) {
     const card = store.read(id);
     if (!card || (card.type !== 'goal' && card.type !== 'project')) continue;
-    const session = findPlannerSessionForCard(saivageDir(projectRoot), id);
-    if (session) chain.push({ session, goalId: id });
+    const sessionId = `planner:${id}`;
+    if (listConversationSessionIds(projectRoot).includes(sessionId)) chain.push({ session: plannerSessionForGoal(id), goalId: id });
   }
   return chain;
 }

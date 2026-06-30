@@ -51,7 +51,6 @@ import {
   createTestRuntimeApplication,
 } from './helpers/test-runtime-application.js';
 import { markGoalNeedsCorrections } from '../src/agents/analyst-stage6.js';
-import { createSession } from '../src/runtime/session-persistence.js';
 import { getProjectNotificationCenter } from '../src/notifications/notification-delivery.js';
 
 function uniqueDir(): string {
@@ -410,8 +409,6 @@ describe('Analyst Tools', () => {
   });
 
   it('rejects broad analyst edit_card calls', async () => {
-    createSession(join(projectRoot, '.saivage'), 'executor', 'card-1', 'card-2', undefined, 'executor-session');
-
     const result = await edit_card(ctx(projectRoot, store), {
       id: 'card-2',
       description: 'Updated objective for this implementation card.',

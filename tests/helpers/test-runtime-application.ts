@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import type { RuntimeApplication } from '../../src/application/runtime-composition.js';
 import type { AnalystRuntimeDeps } from '../../src/agents/analyst-api.js';
 import type { RuntimeApi } from '../../src/runtime/runtime-api.js';
-import type { RoundStamp } from '../../src/agents/session-persistence.js';
+import type { RoundStamp } from '../../src/runtime/session-stamper.js';
 import { generateRoundId } from '../../src/schemas/round-id-server.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import { createInvocationServiceProvider } from '../../src/application/micro-actor-runtime-api-factory.js';

@@ -5,10 +5,6 @@ import { join } from 'node:path';
 import { createTestAnalystRuntime } from '../helpers/test-runtime-application.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { materializeProjectCard } from '../helpers/materialize-project-card.js';
-import { assertToolBoundaryIntegrity, pruneToolBoundaryAfterTruncation } from '../../src/agents/context-compactor.js';
-import { serializeToolCallMessage, PersistedRowCorruptError } from '../../src/contracts/persisted-tool-call.js';
-import type { AgentMessage } from '../../src/schemas/index.js';
-import { SessionInvariantError } from '../../src/agents/session-invariant-error.js';
 import { appendConversationMessage, readConversationMessages } from '../../src/runtime/actors/conversation-store.js';
 import { resolveAnalystSessionId } from '../../src/agents/session-ids.js';
 
@@ -65,16 +61,6 @@ function readPersistedRows(root: string, sessionId: string): Array<{ role: strin
   return readConversationMessages(root, resolveAnalystSessionId(sessionId)).map((message) => ({ role: message.role, kind: message.kind, content: message.content, tool: message.tool, tool_call_id: message.tool_call_id }));
 }
 
-function syntheticMessage(over: Partial<AgentMessage>): AgentMessage {
-  return {
-    id: 'm', session_id: 's', role: 'user', kind: 'text', content: '',
-    round_id: 'r-pre-00000000000000000000000000000000',
-    message_index: 0, block_index: 0,
-    timestamp: new Date().toISOString(),
-    ...over,
-  } as AgentMessage;
-}
-
 describe('AnalystHandler F05 contract', () => {
   afterEach(() => { jest.restoreAllMocks(); });
 
@@ -120,55 +106,6 @@ describe('AnalystHandler F05 contract', () => {
       const resultRows = rows.filter((r) => r.role === 'tool' && r.kind === 'tool_result');
       expect(resultRows.map((r) => r.tool_call_id).sort()).toEqual(['call-a']);
     } finally { rmSync(root, { recursive: true, force: true }); }
-  });
-
-  it('pruneToolBoundaryAfterTruncation pairs each persisted single-call row with its tool_result', () => {
-    const baseRound = 'r-assistant-00000000000000000000000000000001';
-    const rowX = serializeToolCallMessage({ id: 'call-x', name: 'list_cards', args: { types: ['goal'] } });
-    const rowY = serializeToolCallMessage({ id: 'call-y', name: 'list_cards', args: { types: ['code'] } });
-    const messages: AgentMessage[] = [
-      syntheticMessage({ id: 'u1', role: 'user', kind: 'text', content: 'list', round_id: 'r-user-00000000000000000000000000000000' }),
-      syntheticMessage({ id: 'a1', role: 'assistant', kind: 'tool_call', content: JSON.stringify(rowX), tool: 'list_cards', round_id: baseRound, message_index: 1 }),
-      syntheticMessage({ id: 'a2', role: 'assistant', kind: 'tool_call', content: JSON.stringify(rowY), tool: 'list_cards', round_id: baseRound, message_index: 2 }),
-      syntheticMessage({ id: 't1', role: 'tool', kind: 'tool_result', content: '{}', tool: 'list_cards', tool_call_id: 'call-x', round_id: baseRound, message_index: 3 }),
-      syntheticMessage({ id: 't2', role: 'tool', kind: 'tool_result', content: '{}', tool: 'list_cards', tool_call_id: 'call-y', round_id: baseRound, message_index: 4 }),
-    ];
-    const trimmed = pruneToolBoundaryAfterTruncation(messages);
-    expect(trimmed).toHaveLength(5);
-    const assistantIds = trimmed.filter((m) => m.role === 'assistant' && m.kind === 'tool_call').map((m) => (JSON.parse(m.content) as { tool_calls: Array<{ id: string }> }).tool_calls[0].id);
-    expect(assistantIds.sort()).toEqual(['call-x', 'call-y']);
-    const toolIds = trimmed.filter((m) => m.role === 'tool' && m.kind === 'tool_result').map((m) => m.tool_call_id);
-    expect(toolIds.sort()).toEqual(['call-x', 'call-y']);
-
-    // Orphan tool_result (no matching assistant tool_call) is dropped.
-    const orphan: AgentMessage[] = [
-      ...messages,
-      syntheticMessage({ id: 't3', role: 'tool', kind: 'tool_result', content: '{}', tool: 'list_cards', tool_call_id: 'call-z', round_id: baseRound, message_index: 5 }),
-    ];
-    const trimmedOrphan = pruneToolBoundaryAfterTruncation(orphan);
-    expect(trimmedOrphan.filter((m) => m.role === 'tool').map((m) => m.tool_call_id).sort()).toEqual(['call-x', 'call-y']);
-  });
-
-  it('assertToolBoundaryIntegrity throws on full-history orphan tool rows', () => {
-    const orphan: AgentMessage[] = [
-      syntheticMessage({ id: 't3', role: 'tool', kind: 'tool_result', content: '{}', tool: 'list_cards', tool_call_id: 'call-z' }),
-    ];
-
-    expect(() => assertToolBoundaryIntegrity(orphan)).toThrow(SessionInvariantError);
-    expect(() => assertToolBoundaryIntegrity(orphan)).toThrow(/orphan_tool_result/);
-  });
-
-  it('legacy {toolCalls:[...]} persisted row makes pruneToolBoundaryAfterTruncation throw PersistedRowCorruptError(legacy_tool_calls_wrapper)', () => {
-    const baseRound = 'r-assistant-00000000000000000000000000000002';
-    const legacyContent = JSON.stringify({ toolCalls: [{ id: 'old-1', name: 'list_cards', args: {} }] });
-    const messages: AgentMessage[] = [
-      syntheticMessage({ id: 'u1', role: 'user', kind: 'text', content: 'hi', round_id: 'r-user-00000000000000000000000000000000' }),
-      syntheticMessage({ id: 'a1', role: 'assistant', kind: 'tool_call', content: legacyContent, tool: 'list_cards', round_id: baseRound, message_index: 1 }),
-    ];
-    let caught: unknown;
-    try { pruneToolBoundaryAfterTruncation(messages); } catch (err) { caught = err; }
-    expect(caught).toBeInstanceOf(PersistedRowCorruptError);
-    expect((caught as PersistedRowCorruptError).code).toBe('legacy_tool_calls_wrapper');
   });
 
   it('turns malformed tool argument JSON into protocol tool errors without executing tools', async () => {

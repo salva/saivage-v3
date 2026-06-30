@@ -1,8 +1,7 @@
-import { join } from 'node:path';
 import { createNotificationDeliveryService } from './notification-delivery.js';
 import type { CardStore } from '../cards/store-api.js';
-import { listSessions, getSession } from '../agents/session-api.js';
 import type { AgentRole, AgentSession, ControlActionSurface, NoteAuthor } from '../schemas/index.js';
+import { readActorSnapshots } from '../runtime/actors/snapshots.js';
 
 export interface NotificationTriggerTarget {
   sessionId: string;
@@ -20,10 +19,30 @@ export type Recipient =
   | { kind: 'session'; sessionId: string };
 
 function getActiveSessions(projectRoot: string): AgentSession[] {
-  const saivageDir = join(projectRoot, '.saivage');
-  return listSessions(saivageDir)
-    .map((sessionId) => getSession(saivageDir, sessionId))
-    .filter((session): session is AgentSession => session !== null && (session.status === 'active' || session.status === 'waiting'));
+  return readActorSnapshots(projectRoot)
+    .filter((snapshot) => snapshot.actor_kind === 'llm')
+    .flatMap((snapshot) => parseAgentSessionId(snapshot.actor_id));
+}
+
+function parseAgentSessionId(sessionId: string): AgentSession[] {
+  if (sessionId.startsWith('analyst:')) return [{ id: sessionId, role: 'analyst', status: 'active', started_at: new Date(0).toISOString() }];
+  if (sessionId.startsWith('planner:')) {
+    const goalId = sessionId.slice('planner:'.length);
+    return [{ id: sessionId, role: 'planner', goal_card_id: goalId, card_id: goalId, status: 'active', started_at: new Date(0).toISOString() }];
+  }
+  if (sessionId.startsWith('executor:')) {
+    const cardId = sessionId.slice('executor:'.length);
+    return [{ id: sessionId, role: 'executor', card_id: cardId, status: 'active', started_at: new Date(0).toISOString() }];
+  }
+  if (sessionId.startsWith('reviewer:')) {
+    const rest = sessionId.slice('reviewer:'.length);
+    const separator = rest.indexOf(':');
+    if (separator === -1) return [];
+    const goalId = rest.slice(0, separator);
+    const assessmentId = rest.slice(separator + 1);
+    return [{ id: sessionId, role: 'reviewer', goal_card_id: goalId, card_id: goalId, assessment_id: assessmentId, status: 'active', started_at: new Date(0).toISOString() }];
+  }
+  return [];
 }
 
 function buildAncestorScope(store: CardStore, cardId: string): Set<string> {

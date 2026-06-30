@@ -5,7 +5,6 @@ import { buildProviderRoutingReadModel, type ProviderRoutingReadModel } from '..
 import { FsCandidateAvailability } from '../agents/candidate-availability-store.js';
 import type { CandidateAvailability } from '../agents/candidate-availability.js';
 import { SkillsEngine } from '../agents/skills-engine.js';
-import { ContextCompactor } from '../agents/context-compactor.js';
 import type { AnalystRuntimeDeps } from '../agents/analyst-api.js';
 import type { EventPayload } from '../events/index.js';
 import type { EventBus } from '../events/index.js';
@@ -52,7 +51,6 @@ function buildAnalystDeps(input: {
   candidateAvailability: DisposableCandidateAvailability;
   eventLogger: EventLogger;
   eventBus: EventBus;
-  contextCompactor: ContextCompactor;
   emitAnalystToolInvoked(payload: EventPayload<'analyst_tool_invoked'>): void;
   invocationService: InvocationService;
   mcpManager?: McpManager;
@@ -75,7 +73,6 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   const saivageDir = join(projectRoot, '.saivage');
   const skillsEngine = new SkillsEngine({ projectRoot });
   const stamper = new SessionStampCounter();
-  const contextCompactor = new ContextCompactor({ saivageDir, sessionStamper: stamper });
   const candidateAvailability = new FsCandidateAvailability(projectRoot, {
     compactBytes: config.runtime.candidateAvailabilityCompactBytes,
   });
@@ -88,7 +85,6 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     eventLogger,
     candidateAvailability,
     cardStore,
-    contextCompactor,
     activationLedger: {
       readState: () => readRuntimeState(projectRoot),
       appendRun: (input) => appendRuntimeRun(projectRoot, input),
@@ -117,7 +113,6 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
       candidateAvailability,
       eventLogger,
       eventBus,
-      contextCompactor,
       emitAnalystToolInvoked: emitAnalystToolInvokedFromRuntime,
       invocationService,
       mcpManager,

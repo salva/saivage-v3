@@ -1,48 +1,39 @@
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
+
 import { initProjectTree } from '../../src/persistence/file-tree.js';
-import { initRuntimeState } from '../../src/runtime/state.js';
+import { initRuntimeState, readRuntimeState, saveRuntimeState } from '../../src/runtime/state.js';
+import { appendConversationMessage } from '../../src/runtime/actors/conversation-store.js';
+import { saveActorSnapshot } from '../../src/runtime/actors/snapshots.js';
 import { resetAuthPolicyForTests, configureAuthPolicy } from '../../src/server/auth-policy.js';
+import type { AgentMessage } from '../../src/schemas/index.js';
 
 const AUTH_TOKEN = 'test-agent-detail-token';
 
-function writeMessages(projectRoot: string, sessionId: string, messages: Array<Record<string, unknown>>): void {
-  mkdirSync(join(projectRoot, '.saivage', 'agents', 'messages'), { recursive: true });
-  const filePath = join(projectRoot, '.saivage', 'agents', 'messages', `${sessionId}.jsonl`);
-  const stamped = messages.map((message, index) => ({
-    id: `msg-${sessionId}-${index + 1}`,
+function message(sessionId: string, index: number, overrides: Partial<AgentMessage>): AgentMessage {
+  const role = overrides.role ?? 'assistant';
+  const timestamp = overrides.timestamp ?? `2026-01-01T00:00:0${index}.000Z`;
+  const roundKind = role === 'system' ? 'pre' : role === 'user' ? 'user' : 'assistant';
+  return {
+    id: `${sessionId}:msg-${index}`,
     session_id: sessionId,
-    kind: 'text',
-    round_id: `r-${message['role'] === 'user' ? 'user' : 'assistant'}-${(index + 1).toString(16).padStart(32, '0')}`,
-    message_index: 0,
-    block_index: 0,
-    ...message,
-  }));
-  writeFileSync(filePath, stamped.map((m) => JSON.stringify(m)).join('\n') + '\n');
-}
-
-function writeEncodedMessages(projectRoot: string, sessionId: string, messages: Array<Record<string, unknown>>): void {
-  mkdirSync(join(projectRoot, '.saivage', 'agents', 'messages'), { recursive: true });
-  const filePath = join(projectRoot, '.saivage', 'agents', 'messages', `${encodeURIComponent(sessionId)}.jsonl`);
-  const stamped = messages.map((message, index) => ({
-    id: `msg-${sessionId}-${index + 1}`,
-    session_id: sessionId,
-    kind: 'text',
-    round_id: `r-${message['role'] === 'system' ? 'pre' : 'assistant'}-${(index + 1).toString(16).padStart(32, '0')}`,
+    kind: overrides.kind ?? 'text',
+    role,
+    content: overrides.content ?? `message ${index}`,
+    round_id: `r-${roundKind}-${index.toString(16).padStart(32, '0')}`,
     message_index: index,
     block_index: 0,
-    ...message,
-  }));
-  writeFileSync(filePath, stamped.map((m) => JSON.stringify(m)).join('\n') + '\n');
+    timestamp,
+    ...overrides,
+  } as AgentMessage;
 }
 
-function writeManifest(projectRoot: string, sessionId: string, manifest: Record<string, unknown>): void {
-  mkdirSync(join(projectRoot, '.saivage', 'agents', 'sessions'), { recursive: true });
-  writeFileSync(join(projectRoot, '.saivage', 'agents', 'sessions', `${sessionId}.json`), JSON.stringify({ id: sessionId, status: 'inactive', started_at: '2026-01-01T00:00:00.000Z', ...manifest }, null, 2));
+function writeConversation(projectRoot: string, sessionId: string, messages: Array<Partial<AgentMessage>>): void {
+  messages.forEach((entry, index) => appendConversationMessage(projectRoot, message(sessionId, index + 1, entry)));
 }
 
 describe('GET /api/agents/:id', () => {
@@ -66,271 +57,127 @@ describe('GET /api/agents/:id', () => {
 
   afterEach(async () => {
     await app.close();
-    try { rmSync(projectRoot, { recursive: true, force: true }); } catch { /* noop */ }
+    rmSync(projectRoot, { recursive: true, force: true });
     delete process.env['SAIVAGE_API_TOKEN'];
     resetAuthPolicyForTests();
   });
 
   const authHdr = (): Record<string, string> => ({ authorization: `Bearer ${AUTH_TOKEN}` });
 
-
-  it('lists messages-only and manifest-only sessions in descending started_at order', async () => {
-    writeMessages(projectRoot, 'planner-list-old', [
-      { timestamp: '2026-01-01T00:00:00.000Z', role: 'assistant', content: 'messages only' },
-    ]);
-    writeManifest(projectRoot, 'reviewer-list-new', { role: 'reviewer', started_at: '2026-01-02T00:00:00.000Z' });
+  it('lists segment-backed sessions in descending started_at order', async () => {
+    writeConversation(projectRoot, 'planner:old-goal', [{ role: 'system', content: 'old', timestamp: '2026-01-01T00:00:00.000Z' }]);
+    writeConversation(projectRoot, 'reviewer:new-goal:assessment-1', [{ role: 'assistant', content: 'new', timestamp: '2026-01-02T00:00:00.000Z' }]);
 
     const res = await app.inject({ method: 'GET', url: '/api/agents', headers: authHdr() });
     expect(res.statusCode).toBe(200);
     const sessions = res.json<{ sessions: Array<Record<string, unknown>> }>().sessions;
-    const persisted = sessions.filter((session) => session['id'] !== 'analyst');
-    expect(persisted.map((session) => session['id'])).toEqual(['reviewer-list-new', 'planner-list-old']);
-    expect(sessions.find((session) => session['id'] === 'planner-list-old')).toMatchObject({
-      role: 'planner',
-      status: 'inactive',
-      started_at: '2026-01-01T00:00:00.000Z',
-    });
-    expect(sessions.find((session) => session['id'] === 'reviewer-list-new')).toMatchObject({
-      role: 'reviewer',
-      status: 'inactive',
-      started_at: '2026-01-02T00:00:00.000Z',
-    });
-    expect(sessions.find((session) => session['id'] === 'analyst')).toMatchObject({
-      role: 'analyst',
-      status: 'inactive',
-      started_at: new Date(0).toISOString(),
-    });
+    expect(sessions.map((session) => session['id'])).toEqual(['reviewer:new-goal:assessment-1', 'planner:old-goal']);
+    expect(sessions[0]).toMatchObject({ role: 'reviewer', card_id: 'new-goal', assessment_id: 'assessment-1', status: 'inactive' });
+    expect(sessions[1]).toMatchObject({ role: 'planner', card_id: 'old-goal', status: 'inactive' });
   });
 
-  it('exposes the canonical analyst session before any persisted messages exist', async () => {
+  it('does not synthesize the analyst session before conversation messages exist', async () => {
     const listRes = await app.inject({ method: 'GET', url: '/api/agents', headers: authHdr() });
     expect(listRes.statusCode).toBe(200);
-    expect(listRes.json<{ sessions: Array<{ id: string }> }>().sessions.some((session) => session.id === 'analyst')).toBe(true);
+    expect(listRes.json<{ sessions: Array<{ id: string }> }>().sessions).toEqual([]);
 
-    const detailRes = await app.inject({ method: 'GET', url: '/api/agents/analyst', headers: authHdr() });
-    expect(detailRes.statusCode).toBe(200);
-    expect(detailRes.json<{ session: Record<string, unknown> }>().session).toMatchObject({
-      id: 'analyst',
-      role: 'analyst',
-      status: 'inactive',
-      message_count: 0,
-      last_activity_at: new Date(0).toISOString(),
-    });
-
-    const conversationRes = await app.inject({ method: 'GET', url: '/api/agents/analyst/conversation', headers: authHdr() });
-    expect(conversationRes.statusCode).toBe(200);
-    const conversation = conversationRes.json<{ entries: unknown[]; session: Record<string, unknown> }>();
-    expect(conversation.session['id']).toBe('analyst');
-    expect(conversation.entries).toEqual([]);
+    const detailRes = await app.inject({ method: 'GET', url: '/api/agents/analyst%3Aglobal', headers: authHdr() });
+    expect(detailRes.statusCode).toBe(404);
+    expect(detailRes.json<Record<string, unknown>>()).toEqual({ error: 'Agent session not found', sessionId: 'analyst:global' });
   });
 
-  it('filters non-canonical analyst list sessions while preserving canonical analyst', async () => {
-    writeManifest(projectRoot, 'analyst', { role: 'analyst', started_at: '2026-01-01T00:00:00.000Z' });
-    writeManifest(projectRoot, 'chat-old', { role: 'analyst', started_at: '2026-01-02T00:00:00.000Z' });
-
-    const res = await app.inject({ method: 'GET', url: '/api/agents', headers: authHdr() });
-    expect(res.statusCode).toBe(200);
-    const ids = res.json<{ sessions: Array<{ id: string }> }>().sessions.map((session) => session.id);
-    expect(ids).toContain('analyst');
-    expect(ids).not.toContain('chat-old');
-  });
-
-  it('derives active, waiting, and inactive statuses from runtime state for the list route', async () => {
-    writeManifest(projectRoot, 'planner-active', { role: 'planner', started_at: '2026-02-03T00:00:00.000Z' });
-    writeManifest(projectRoot, 'planner-waiting', { role: 'planner', started_at: '2026-02-02T00:00:00.000Z' });
-    writeManifest(projectRoot, 'reviewer-inactive', { role: 'reviewer', started_at: '2026-02-01T00:00:00.000Z' });
-    const { saveRuntimeState, readRuntimeState } = await import('../../src/runtime/state.js');
-    const state = readRuntimeState(projectRoot);
-    if (!state) throw new Error('expected initialized runtime state');
-    saveRuntimeState(projectRoot, {
-      ...state,
-      status: 'running',
-      active_card_run: {
-        card_id: 'project',
-        card_type: 'project',
-        phase: 'planner',
-        ownership: { kind: 'direct', source: 'project_root' }, runtime_status: 'running',
-        caller_session_id: null,
-        caller_tool_call_id: null,
-        planner_session_id: 'planner-active',
-        correction_attempts: 0,
-        started_at: '2026-02-03T00:00:00.000Z',
-        last_turn_at: '2026-02-03T00:00:00.000Z',
-      },
-      runtime_runs: [
-        { run_id: 'run-active', kind: 'root', ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project', command_id: 'cmd-1', activation_id: null, parent_run_id: null, phase: 'planner', runtime_status: 'running', session_id: 'planner-active', started_at: '2026-02-03T00:00:00.000Z', updated_at: '2026-02-03T00:00:00.000Z', finished_at: null },
-        { run_id: 'run-waiting', kind: 'root', ownership: { kind: 'direct', source: 'project_root' }, card_id: 'project', command_id: 'cmd-2', activation_id: null, parent_run_id: null, phase: 'planner', runtime_status: 'running', session_id: 'planner-waiting', started_at: '2026-02-02T00:00:00.000Z', updated_at: '2026-02-02T00:00:00.000Z', finished_at: null },
-      ],
-    });
-
-    const res = await app.inject({ method: 'GET', url: '/api/agents', headers: authHdr() });
-    expect(res.statusCode).toBe(200);
-    const byId = new Map(res.json<{ sessions: Array<Record<string, unknown>> }>().sessions.map((session) => [session['id'], session]));
-    expect(byId.get('planner-active')?.['status']).toBe('active');
-    expect(byId.get('planner-waiting')?.['status']).toBe('waiting');
-    expect(byId.get('reviewer-inactive')?.['status']).toBe('inactive');
-  });
-
-  it('returns 200 with manifest, message counts, and last_activity_at from the latest message', async () => {
-    const sessionId = 'analyst';
-    writeManifest(projectRoot, sessionId, { role: 'analyst', started_at: '2026-01-01T00:00:00.000Z', completed_at: null });
-    writeMessages(projectRoot, sessionId, [
-      { timestamp: '2026-01-01T00:00:01.000Z', role: 'user', content: 'hi' },
-      { timestamp: '2026-01-01T00:00:02.000Z', role: 'assistant', content: 'hello' },
+  it('returns detail with message counts and last activity from segment entries', async () => {
+    writeConversation(projectRoot, 'analyst:global', [
+      { role: 'user', content: 'hi', timestamp: '2026-01-01T00:00:01.000Z' },
+      { role: 'assistant', content: 'hello', timestamp: '2026-01-01T00:00:02.000Z' },
     ]);
 
-    const res = await app.inject({ method: 'GET', url: `/api/agents/${sessionId}`, headers: authHdr() });
+    const res = await app.inject({ method: 'GET', url: '/api/agents/analyst%3Aglobal', headers: authHdr() });
     expect(res.statusCode).toBe(200);
     const body = res.json<{ session: Record<string, unknown> }>();
-    expect(body.session['id']).toBe(sessionId);
-    expect(body.session['role']).toBe('analyst');
-    expect(body.session['message_count']).toBe(2);
-    expect(body.session['last_activity_at']).toBe('2026-01-01T00:00:02.000Z');
+    expect(body.session).toMatchObject({ id: 'analyst:global', role: 'analyst', message_count: 2, last_activity_at: '2026-01-01T00:00:02.000Z' });
     expect(body).not.toHaveProperty('messages');
     expect(body.session).not.toHaveProperty('messages');
   });
 
-  it('returns 200 with messages-only when manifest is missing and infers role from id prefix', async () => {
-    const sessionId = 'planner-detail-2';
-    writeMessages(projectRoot, sessionId, [
-      { timestamp: '2026-02-01T10:00:00.000Z', role: 'user', content: 'plan it' },
+  it('derives active, waiting, and inactive statuses from actor snapshots and card state', async () => {
+    writeConversation(projectRoot, 'planner:project', [{ role: 'system', content: 'active', timestamp: '2026-02-03T00:00:00.000Z' }]);
+    writeConversation(projectRoot, 'executor:project', [{ role: 'system', content: 'waiting', timestamp: '2026-02-02T00:00:00.000Z' }]);
+    writeConversation(projectRoot, 'reviewer:project:assessment-1', [{ role: 'system', content: 'inactive', timestamp: '2026-02-01T00:00:00.000Z' }]);
+    saveActorSnapshot(projectRoot, { actor_id: 'planner:project', actor_kind: 'llm', state_value: 'calling_provider', context: {}, updated_at: '2026-02-03T00:00:01.000Z' });
+    saveActorSnapshot(projectRoot, { actor_id: 'executor:project', actor_kind: 'llm', state_value: 'waiting_tool', context: {}, updated_at: '2026-02-03T00:00:02.000Z' });
+
+    const res = await app.inject({ method: 'GET', url: '/api/agents', headers: authHdr() });
+    expect(res.statusCode).toBe(200);
+    const byId = new Map(res.json<{ sessions: Array<Record<string, unknown>> }>().sessions.map((session) => [session['id'], session]));
+    expect(byId.get('planner:project')?.['status']).toBe('active');
+    expect(byId.get('executor:project')?.['status']).toBe('waiting');
+    expect(byId.get('reviewer:project:assessment-1')?.['status']).toBe('inactive');
+  });
+
+  it('returns canonical conversation entries with activity status and no messages field', async () => {
+    const sessionId = 'planner:conversation-1';
+    writeConversation(projectRoot, sessionId, [
+      { role: 'system', kind: 'system_prompt', content: 'Plan and coordinate card conversation-1', timestamp: '2026-05-01T00:00:00.000Z' },
+      { role: 'assistant', content: 'contract-backed entry', timestamp: '2026-05-01T00:00:01.000Z' },
     ]);
 
-    const res = await app.inject({ method: 'GET', url: `/api/agents/${sessionId}`, headers: authHdr() });
-    expect(res.statusCode).toBe(200);
-    const body = res.json<{ session: Record<string, unknown> }>();
-    expect(body.session['role']).toBe('planner');
-    expect(body.session['message_count']).toBe(1);
-    expect(body.session['last_activity_at']).toBe('2026-02-01T10:00:00.000Z');
-  });
-
-  it('returns 200 with manifest-only summary and falls back to completed_at when no messages exist', async () => {
-    const sessionId = 'reviewer-detail-3';
-    writeManifest(projectRoot, sessionId, {
-      role: 'reviewer',
-      started_at: '2026-03-01T00:00:00.000Z',
-      completed_at: '2026-03-01T00:01:00.000Z',
-    });
-
-    const res = await app.inject({ method: 'GET', url: `/api/agents/${sessionId}`, headers: authHdr() });
-    expect(res.statusCode).toBe(200);
-    const body = res.json<{ session: Record<string, unknown> }>();
-    expect(body.session['role']).toBe('reviewer');
-    expect(body.session['message_count']).toBe(0);
-    expect(body.session['last_activity_at']).toBe('2026-03-01T00:01:00.000Z');
-    expect(body.session['started_at']).toBe('2026-03-01T00:00:00.000Z');
-  });
-
-  it('falls back to started_at when neither messages nor completed_at are present', async () => {
-    const sessionId = 'analyst';
-    writeManifest(projectRoot, sessionId, {
-      role: 'analyst',
-      started_at: '2026-04-01T00:00:00.000Z',
-    });
-
-    const res = await app.inject({ method: 'GET', url: `/api/agents/${sessionId}`, headers: authHdr() });
-    expect(res.statusCode).toBe(200);
-    const body = res.json<{ session: Record<string, unknown> }>();
-    expect(body.session['message_count']).toBe(0);
-    expect(body.session['last_activity_at']).toBe('2026-04-01T00:00:00.000Z');
-  });
-
-  it('returns 400 for an invalid agent session id', async () => {
-    const res = await app.inject({ method: 'GET', url: '/api/agents/..%2Fevil/', headers: authHdr() });
-    expect([400, 404]).toContain(res.statusCode);
-    const res2 = await app.inject({ method: 'GET', url: '/api/agents/has spaces', headers: authHdr() });
-    expect([400, 404]).toContain(res2.statusCode);
-  });
-
-  it('returns 404 when neither manifest nor messages exist', async () => {
-    const res = await app.inject({ method: 'GET', url: '/api/agents/missing-session', headers: authHdr() });
-    expect(res.statusCode).toBe(404);
-    expect(res.json<Record<string, unknown>>()).toEqual({ error: 'Agent session not found', sessionId: 'missing-session' });
-  });
-
-  it('does not expose historical non-canonical analyst sessions through the web API', async () => {
-    writeManifest(projectRoot, 'analyst', { role: 'analyst', started_at: '2026-01-01T00:00:00.000Z' });
-    writeManifest(projectRoot, 'chat-old', { role: 'analyst', started_at: '2026-01-02T00:00:00.000Z' });
-    writeManifest(projectRoot, 'planner-detail-5', { role: 'planner', started_at: '2026-01-03T00:00:00.000Z' });
-
-    const listRes = await app.inject({ method: 'GET', url: '/api/agents', headers: authHdr() });
-    expect(listRes.statusCode).toBe(200);
-    const ids = listRes.json<{ sessions: Array<{ id: string }> }>().sessions.map((session) => session.id);
-    expect(ids).toContain('analyst');
-    expect(ids).toContain('planner-detail-5');
-    expect(ids).not.toContain('chat-old');
-
-    const detailRes = await app.inject({ method: 'GET', url: '/api/agents/chat-old', headers: authHdr() });
-    expect(detailRes.statusCode).toBe(404);
-    expect(detailRes.json<Record<string, unknown>>()).toEqual({ error: 'Agent session not found', sessionId: 'chat-old' });
-  });
-
-
-  it('returns canonical conversation entries with required activity status and no messages field', async () => {
-    const sessionId = 'planner-conversation-1';
-    writeManifest(projectRoot, sessionId, { role: 'planner', started_at: '2026-05-01T00:00:00.000Z' });
-    writeMessages(projectRoot, sessionId, [
-      { timestamp: '2026-05-01T00:00:01.000Z', role: 'assistant', content: 'contract-backed entry' },
-    ]);
-
-    const res = await app.inject({ method: 'GET', url: `/api/agents/${sessionId}/conversation`, headers: authHdr() });
+    const res = await app.inject({ method: 'GET', url: `/api/agents/${encodeURIComponent(sessionId)}/conversation`, headers: authHdr() });
     expect(res.statusCode).toBe(200);
     const body = res.json<Record<string, unknown>>();
     expect(body).toHaveProperty('session');
     expect(body).toHaveProperty('entries');
     expect(body).toHaveProperty('activity_status');
     expect(body).not.toHaveProperty('messages');
-    expect((body['entries'] as Array<Record<string, unknown>>)[0]).toMatchObject({
-      session_id: sessionId,
-      role: 'assistant',
-      kind: 'text',
-      content: 'contract-backed entry',
-    });
+    expect((body['entries'] as Array<Record<string, unknown>>)[0]).toMatchObject({ session_id: sessionId, role: 'system', kind: 'system_prompt', content: 'Plan and coordinate card conversation-1' });
+    expect((body['entries'] as Array<Record<string, unknown>>)[1]).toMatchObject({ session_id: sessionId, role: 'assistant', kind: 'text', content: 'contract-backed entry' });
     expect(body['activity_status']).toEqual({ status: 'idle', pending_calls: [], updated_at: new Date(0).toISOString() });
   });
 
-  it('exposes encoded actor-runtime message logs including initial system prompts', async () => {
-    const sessionId = 'planner:card-1';
-    writeEncodedMessages(projectRoot, sessionId, [
-      { timestamp: '2026-05-01T00:00:00.000Z', role: 'system', kind: 'system_prompt', content: 'Plan and coordinate card card-1' },
-      { timestamp: '2026-05-01T00:00:01.000Z', role: 'system', kind: 'activity', content: '{"event":"llm_turn_started"}' },
-    ]);
-
-    const listRes = await app.inject({ method: 'GET', url: '/api/agents', headers: authHdr() });
-    expect(listRes.statusCode).toBe(200);
-    expect(listRes.json<{ sessions: Array<{ id: string }> }>().sessions.map((session) => session.id)).toContain(sessionId);
+  it('returns thinking activity status from actor snapshots', async () => {
+    const sessionId = 'planner:thinking';
+    writeConversation(projectRoot, sessionId, [{ role: 'system', content: 'thinking' }]);
+    saveActorSnapshot(projectRoot, { actor_id: sessionId, actor_kind: 'llm', state_value: 'calling_provider', context: {}, updated_at: '2026-06-01T00:00:00.000Z' });
 
     const res = await app.inject({ method: 'GET', url: `/api/agents/${encodeURIComponent(sessionId)}/conversation`, headers: authHdr() });
     expect(res.statusCode).toBe(200);
-    const entries = res.json<{ entries: Array<Record<string, unknown>> }>().entries;
-    expect(entries[0]).toMatchObject({ session_id: sessionId, role: 'system', kind: 'system_prompt', content: 'Plan and coordinate card card-1' });
+    expect(res.json<Record<string, unknown>>()['activity_status']).toEqual({ status: 'thinking', pending_calls: [], updated_at: '2026-06-01T00:00:00.000Z' });
   });
 
-  it('returns 404 for missing canonical conversation sessions', async () => {
-    const res = await app.inject({ method: 'GET', url: '/api/agents/missing-conversation/conversation', headers: authHdr() });
+  it('returns terminal card status for inactive card-bound sessions', async () => {
+    const state = readRuntimeState(projectRoot);
+    if (!state) throw new Error('expected initialized runtime state');
+    saveRuntimeState(projectRoot, { ...state, status: 'stopped' });
+    const sessionId = 'planner:project';
+    writeConversation(projectRoot, sessionId, [{ role: 'system', content: 'done planner' }]);
+    const { CardStore } = await import('../../src/cards/card-store.js');
+    const store = new CardStore(projectRoot);
+    store.setStatus('project', 'running');
+    store.setStatus('project', 'blocked');
+
+    const res = await app.inject({ method: 'GET', url: `/api/agents/${encodeURIComponent(sessionId)}`, headers: authHdr() });
+    expect(res.statusCode).toBe(200);
+    expect(res.json<{ session: Record<string, unknown> }>().session['status']).toBe('blocked');
+  });
+
+  it('returns 400 or 404 for invalid agent session ids', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/agents/..%2Fevil/', headers: authHdr() });
+    expect([400, 404]).toContain(res.statusCode);
+    const res2 = await app.inject({ method: 'GET', url: '/api/agents/has spaces', headers: authHdr() });
+    expect([400, 404]).toContain(res2.statusCode);
+  });
+
+  it('returns 404 when no segment conversation exists', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/agents/missing-session', headers: authHdr() });
     expect(res.statusCode).toBe(404);
-    expect(res.json<Record<string, unknown>>()).toEqual({ error: 'Agent session not found', sessionId: 'missing-conversation' });
+    expect(res.json<Record<string, unknown>>()).toEqual({ error: 'Agent session not found', sessionId: 'missing-session' });
   });
 
-  it('returns 401 for conversation requests without auth', async () => {
-    writeManifest(projectRoot, 'planner-conversation-auth', { role: 'planner', started_at: '2026-05-01T00:00:00.000Z' });
-    const res = await app.inject({ method: 'GET', url: '/api/agents/planner-conversation-auth/conversation' });
-    expect(res.statusCode).toBe(401);
-  });
-
-  it('does not expose non-canonical analyst conversations', async () => {
-    writeManifest(projectRoot, 'chat-old', { role: 'analyst', started_at: '2026-01-02T00:00:00.000Z' });
-    writeMessages(projectRoot, 'chat-old', [
-      { timestamp: '2026-01-02T00:00:01.000Z', role: 'assistant', content: 'historical analyst transcript' },
-    ]);
-    const res = await app.inject({ method: 'GET', url: '/api/agents/chat-old/conversation', headers: authHdr() });
-    expect(res.statusCode).toBe(404);
-    expect(res.json<Record<string, unknown>>()).toEqual({ error: 'Agent session not found', sessionId: 'chat-old' });
-  });
-
-  it('returns 401 when no auth token is provided', async () => {
-    writeManifest(projectRoot, 'analyst-auth', { role: 'analyst', started_at: '2026-01-01T00:00:00.000Z' });
-    const res = await app.inject({ method: 'GET', url: '/api/agents/analyst-auth' });
-    expect(res.statusCode).toBe(401);
+  it('returns 401 for detail and conversation requests without auth', async () => {
+    writeConversation(projectRoot, 'analyst:global', [{ role: 'user', content: 'hi' }]);
+    const detailRes = await app.inject({ method: 'GET', url: '/api/agents/analyst%3Aglobal' });
+    expect(detailRes.statusCode).toBe(401);
+    const conversationRes = await app.inject({ method: 'GET', url: '/api/agents/analyst%3Aglobal/conversation' });
+    expect(conversationRes.statusCode).toBe(401);
   });
 });

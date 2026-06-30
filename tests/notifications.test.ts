@@ -4,11 +4,11 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { CardStore } from '../src/cards/card-store.js';
-import { createSession } from '../src/agents/session-persistence.js';
 import { initProjectTree } from '../src/persistence/file-tree.js';
 import { getProjectNotificationCenter } from '../src/notifications/notification-delivery.js';
 import { NotificationCenter } from '../src/notifications/notification-center.js';
 import { queueNotification, resolveRecipient } from '../src/notifications/notification-triggers.js';
+import { saveActorSnapshot } from '../src/runtime/actors/snapshots.js';
 import type { CardRecord } from '../src/schemas/types.js';
 import type { NewCardInput } from '../src/cards/lifecycle.js';
 
@@ -18,6 +18,10 @@ function makeCard(overrides: Partial<NewCardInput> & { id?: string; type: NewCar
 
 function entry(kind: string, body = kind) {
   return { kind, body, queued_at: '2026-01-01T00:00:00.000Z', source_actor: 'runtime' as const, source_surface: 'runtime' as const };
+}
+
+function activeLlm(projectRoot: string, sessionId: string): void {
+  saveActorSnapshot(projectRoot, { actor_id: sessionId, actor_kind: 'llm', state_value: 'calling_provider', context: {}, updated_at: '2026-01-01T00:00:00.000Z' });
 }
 
 describe('NotificationCenter queue semantics', () => {
@@ -74,34 +78,34 @@ describe('queueNotification recipient resolution', () => {
   it('resolves and queues card recipients to affected active sessions', () => {
     const goal = store.create(makeCard({ id: 'goal-1', type: 'goal', title: 'Goal', status: 'running' }));
     const child = store.create(makeCard({ id: 'code-1', type: 'code', title: 'Child', parent: goal.id, depth: 2 }));
-    createSession(join(projectRoot, '.saivage'), 'executor', goal.id, child.id, undefined, 'executor-session');
+    activeLlm(projectRoot, `executor:${child.id}`);
 
     expect(resolveRecipient(projectRoot, store, child.id)).toEqual({ kind: 'card', cardId: child.id });
     queueNotification(projectRoot, { kind: 'card', cardId: child.id }, 'card_changed', 'card body', { actor: 'runtime', surface: 'runtime' }, store);
 
     const center = getProjectNotificationCenter(projectRoot);
-    expect(center.drainPendingForSession('executor-session')).toEqual([expect.objectContaining({ kind: 'card_changed', body: 'card body' })]);
+    expect(center.drainPendingForSession(`executor:${child.id}`)).toEqual([expect.objectContaining({ kind: 'card_changed', body: 'card body' })]);
   });
 
   it('resolves and queues role recipients to currently active matching sessions', () => {
-    createSession(join(projectRoot, '.saivage'), 'planner', 'project', 'project', undefined, 'planner-session');
-    createSession(join(projectRoot, '.saivage'), 'executor', 'project', 'project', undefined, 'executor-session');
+    activeLlm(projectRoot, 'planner:project');
+    activeLlm(projectRoot, 'executor:project');
 
     expect(resolveRecipient(projectRoot, store, 'planner')).toEqual({ kind: 'role', role: 'planner' });
     queueNotification(projectRoot, { kind: 'role', role: 'planner' }, 'runtime_state', 'paused', { actor: 'runtime', surface: 'runtime' });
 
     const center = getProjectNotificationCenter(projectRoot);
-    expect(center.drainPendingForSession('planner-session')).toEqual([expect.objectContaining({ kind: 'runtime_state', body: 'paused' })]);
-    expect(center.drainPendingForSession('executor-session')).toEqual([]);
+    expect(center.drainPendingForSession('planner:project')).toEqual([expect.objectContaining({ kind: 'runtime_state', body: 'paused' })]);
+    expect(center.drainPendingForSession('executor:project')).toEqual([]);
   });
 
   it('resolves and queues explicit session recipients to exactly that session', () => {
-    createSession(join(projectRoot, '.saivage'), 'reviewer', 'project', 'project', undefined, 'reviewer-session');
+    activeLlm(projectRoot, 'reviewer:project:assessment-1');
 
-    expect(resolveRecipient(projectRoot, store, 'reviewer-session')).toEqual({ kind: 'session', sessionId: 'reviewer-session' });
-    queueNotification(projectRoot, { kind: 'session', sessionId: 'reviewer-session' }, 'review', 'please review', { actor: 'planner', surface: 'runtime' });
+    expect(resolveRecipient(projectRoot, store, 'reviewer:project:assessment-1')).toEqual({ kind: 'session', sessionId: 'reviewer:project:assessment-1' });
+    queueNotification(projectRoot, { kind: 'session', sessionId: 'reviewer:project:assessment-1' }, 'review', 'please review', { actor: 'planner', surface: 'runtime' });
 
-    expect(getProjectNotificationCenter(projectRoot).drainPendingForSession('reviewer-session')).toEqual([expect.objectContaining({ kind: 'review', body: 'please review' })]);
+    expect(getProjectNotificationCenter(projectRoot).drainPendingForSession('reviewer:project:assessment-1')).toEqual([expect.objectContaining({ kind: 'review', body: 'please review' })]);
   });
 
   it('returns null for an unknown recipient literal', () => {

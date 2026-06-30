@@ -1,6 +1,5 @@
 import type { AgentMessage } from '../schemas/index.js';
 import type { LlmCompleteOptions, ToolDefinition } from './llm-contracts.js';
-import { estimateMessageTokens } from './session-persistence.js';
 
 export interface LlmRequestDiagnosticMessage {
   role: string;

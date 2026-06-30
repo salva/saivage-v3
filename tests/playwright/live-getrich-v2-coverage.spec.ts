@@ -112,7 +112,7 @@ test.describe('saivage-v3 live deployment — additional endpoint coverage', () 
     const res = await request.get('/api/agents/analyst');
     expect(res.status()).toBe(200);
     const body = await res.json();
-    expect(body.session.id).toBe('analyst');
+    expect(body.session.id).toBe('analyst:global');
     expect(body.session.role).toBe('analyst');
     expect(typeof body.session.message_count).toBe('number');
   });
@@ -121,7 +121,7 @@ test.describe('saivage-v3 live deployment — additional endpoint coverage', () 
     const res = await request.get('/api/agents/analyst/conversation');
     expect(res.status()).toBe(200);
     const body = await res.json();
-    expect(body.session.id).toBe('analyst');
+    expect(body.session.id).toBe('analyst:global');
     expect(Array.isArray(body.entries)).toBe(true);
     if (body.entries.length > 0) {
       const e = body.entries[0];
@@ -140,7 +140,7 @@ test.describe('saivage-v3 live deployment — additional endpoint coverage', () 
     }
     expect(res.status()).toBe(200);
     const body = await res.json();
-    expect(body.exchange.sessionId).toBe('analyst');
+    expect(body.exchange.sessionId).toBe('analyst:global');
     expect(typeof body.exchange.capturedAt).toBe('string');
     expect(Array.isArray(body.exchange.attempts)).toBe(true);
   });

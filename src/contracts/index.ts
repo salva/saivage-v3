@@ -230,13 +230,6 @@ export type {
 } from './operator-events.js';
 
 export type {
-  AgentExecutionPort,
-  PlannerInvocationRequest,
-  PlannerActivationBarrier,
-  PlannerActivationBarrierRequest,
-  ExecutorInvocationRequest,
-  ReviewerInvocationRequest,
-  SessionReinvokeRequest,
   RuntimeActivationLedgerPort,
   PlannerStatus,
   PlannerResult,

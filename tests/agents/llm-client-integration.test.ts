@@ -1,6 +1,5 @@
 /**
- * Integration tests for LlmClient → AgentAdapter invocation service →
- * config → router → mock HTTP server round-trip.
+ * Integration tests for LlmProviderGateway → mock HTTP server round-trip.
  *
  * Uses node:http mock servers to verify:
  * - Successful non-streaming round-trip
@@ -9,49 +8,28 @@
  * - Server error (500)
  * - Timeout (AbortSignal)
  * - Parse error (malformed JSON, missing choices)
- * - Adapter + Router full flow
- * - Streaming mode (SSE)
- * - Account-level config overrides
- * - Config temperature/max_tokens flow through AgentAdapter
- */
+* - Streaming mode (SSE)
+*/
 
 import { describe, it, expect, beforeAll, afterEach } from '@jest/globals';
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
-import { EventEmitter } from 'node:events';
-import { CardStore } from '../../src/cards/card-store.js';
-import { createExecutorContract } from '../../src/contracts/executor-contract.js';
-import { createPlannerContract } from '../../src/contracts/planner-contract.js';
 
 // ── Dynamic imports ────────────────────────────────────────────
 
 let LlmProviderGateway: typeof import('../../src/agents/llm-provider-gateway.js').LlmProviderGateway;
 let LlmRequestError: typeof import('../../src/contracts/llm-failure.js').LlmRequestError;
-
-let AgentAdapter: typeof import('../../src/agents/agent-adapter.js').AgentAdapter;
-
 let ProviderRegistry: typeof import('../../src/agents/provider.js').ProviderRegistry;
-let ModelRouter: typeof import('../../src/agents/model-router.js').ModelRouter;
-let resolveLlmTransportConfig: typeof import('../../src/agents/llm-transport.js').resolveLlmTransportConfig;
-
-let loadConfig: typeof import('../../src/agents/config-schema.js').loadConfig;
 
 beforeAll(async () => {
   const gatewayMod = await import('../../src/agents/llm-provider-gateway.js');
   const failureMod = await import('../../src/contracts/llm-failure.js');
   LlmProviderGateway = gatewayMod.LlmProviderGateway;
   LlmRequestError = failureMod.LlmRequestError;
-
-  const adapterMod = await import('../../src/agents/agent-adapter.js');
-  AgentAdapter = adapterMod.AgentAdapter;
-
   ProviderRegistry = (await import('../../src/agents/provider.js')).ProviderRegistry;
-  ModelRouter = (await import('../../src/agents/model-router.js')).ModelRouter;
-  resolveLlmTransportConfig = (await import('../../src/agents/llm-transport.js')).resolveLlmTransportConfig;
-  loadConfig = (await import('../../src/agents/config-schema.js')).loadConfig;
 });
 
 // ── Types ─────────────────────────────────────────────────────
@@ -108,14 +86,6 @@ function createMockServer(
   });
 }
 
-function plannerRequest(goalId: string) {
-  return { goalId, systemPrompt: sp(), contextMessages: msgs(), contract: createPlannerContract() };
-}
-
-function executorRequest(cardId: string, goalId: string) {
-  return { cardId, goalId, systemPrompt: sp(), contextMessages: msgs(), contract: createExecutorContract() };
-}
-
 function createMultiCaptureMockServer(
   handler: (req: IncomingMessage, res: ServerResponse, index: number) => void,
 ): Promise<MultiCaptureMockServerHandle> {
@@ -170,24 +140,8 @@ function makeTempDir(): string {
   return dir;
 }
 
-function writeSaivageJson(projectRoot: string, json: Record<string, unknown>): void {
-  writeFileSync(
-    join(projectRoot, '.saivage', 'saivage.json'),
-    JSON.stringify(json, null, 2),
-    'utf-8',
-  );
-}
-
 function cleanupDir(dir: string): void {
   if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
-}
-
-function createTestAgentAdapter(projectRoot: string, eventBus?: EventEmitter, cardStore = new CardStore(projectRoot)): InstanceType<typeof AgentAdapter> {
-  const saivageDir = join(projectRoot, '.saivage');
-  const { config, warnings } = loadConfig(projectRoot);
-  (config.runtime as { recoveryDelayMs: number }).recoveryDelayMs = 1;
-  if (eventBus) for (const warning of warnings) eventBus.emit('config_warning', { warning });
-  return new AgentAdapter({ projectRoot, saivageDir, config, eventBus, cardStore });
 }
 
 // ── Fixtures ───────────────────────────────────────────────────
@@ -580,44 +534,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       }
       expect(clientErrorMessage).toContain('[REDACTED]');
 
-      adapterTempDir = makeTempDir();
-      writeSaivageJson(adapterTempDir, {
-        models: { default: ['test-model'], planner: ['test-model'] },
-        providers: {
-          'test-provider': {
-            priority: 10,
-            models: ['test-model'],
-            baseUrl: `http://localhost:${port}`,
-            apiKey: 'synthetic-adapter-key',
-          },
-        },
-        runtime: {},
-      });
-      const events = new EventEmitter();
-      const failures: unknown[] = [];
-      events.on('llm_attempt', (event: { outcome?: { kind?: string } }) => { if (event?.outcome?.kind === 'failed') failures.push(event); });
-      const adapter = createTestAgentAdapter(adapterTempDir, events, new CardStore(adapterTempDir));
-
-      await expect(
-        adapter.invokePlanner(plannerRequest('goal-1')),
-      ).rejects.toMatchObject({ failure: { kind: 'auth_permanent' } });
-
-      const agentsDir = join(adapterTempDir, '.saivage', 'agents');
-      const readPersisted = (dir: string): string => {
-        if (!existsSync(dir)) return '';
-        return readdirSync(dir).map((entry) => {
-          const fullPath = join(dir, entry);
-          return statSync(fullPath).isDirectory() ? readPersisted(fullPath) : readFileSync(fullPath, 'utf-8');
-        }).join('\\n');
-      };
-      const persisted = readPersisted(agentsDir);
-      const serializedFailures = JSON.stringify(failures);
-      for (const secret of Object.values(syntheticSecrets)) {
-        expect(persisted).not.toContain(secret);
-        expect(serializedFailures).not.toContain(secret);
-      }
-      expect(persisted).toContain('[REDACTED]');
-      expect(serializedFailures).toContain('[REDACTED]');
+      void adapterTempDir;
     } finally {
       await closeServer(server);
       if (adapterTempDir) cleanupDir(adapterTempDir);
@@ -782,187 +699,6 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
   });
 });
 
-// ── Adapter + Router Integration ───────────────────────────────
-
-describe('AgentAdapter + Router + LlmClient Full Integration', () => {
-  let tempDir: string;
-
-  afterEach(() => {
-    if (tempDir) cleanupDir(tempDir);
-  });
-
-  it('should flow config → router → adapter → llmCallFn → response → parsing', async () => {
-    const { server, port } = await createMockServer((_req, res) => {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(okToolCallResp('emit_planner_result', JSON.stringify({
-        status: 'continue',
-        summary: 'ready to continue',
-      }))));
-    });
-
-    try {
-      tempDir = makeTempDir();
-      writeSaivageJson(tempDir, {
-        models: { default: ['test-model'] },
-        providers: {
-          'test-provider': {
-            priority: 10,
-            models: ['test-model'],
-            baseUrl: `http://localhost:${port}`,
-            apiKey: 'sk-integration-test',
-          },
-        },
-        runtime: {},
-      });
-
-      const { config } = loadConfig(tempDir);
-      (config.runtime as { recoveryDelayMs: number }).recoveryDelayMs = 1;
-      const saivageDir = join(tempDir, '.saivage');
-      const adapter = new AgentAdapter({ projectRoot: tempDir, saivageDir, config, cardStore: new CardStore(tempDir) });
-
-      // Verify router resolves candidates
-      const registry = new ProviderRegistry(config);
-      const router = new ModelRouter(config, registry);
-      const candidates = await router.resolve('planner');
-      expect(candidates.length).toBeGreaterThan(0);
-      expect(candidates[0].provider).toBe('test-provider');
-      expect(candidates[0].model).toBe('test-model');
-
-      // Wire and invoke
-      const result = await adapter.invokePlanner(plannerRequest('goal-1'));
-
-      expect(result.status).toBe('continue');
-      expect(result.summary).toBe('ready to continue');
-    } finally {
-      await closeServer(server);
-      if (tempDir) cleanupDir(tempDir);
-    }
-  });
-
-  it('should emit one success and no failed event when Codex max_tokens is configured', async () => {
-    const { server, port, captures } = await createMultiCaptureMockServer((_req, res) => {
-      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
-      res.end([
-        `data: ${JSON.stringify({
-          type: 'response.output_item.done',
-          item: {
-            type: 'function_call',
-            call_id: 'call_codex_1',
-            name: 'emit_planner_result',
-            arguments: JSON.stringify({ status: 'continue' }),
-          },
-        })}\n\n`,
-        `data: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed' } })}\n\n`,
-        'data: [DONE]\n\n',
-      ].join(''));
-    });
-
-    try {
-      tempDir = makeTempDir();
-      writeSaivageJson(tempDir, {
-        models: { default: ['gpt-5.4'], max_tokens: { planner: 500 } },
-        providers: {
-          'openai-codex': {
-            priority: 10,
-            models: ['gpt-5.4'],
-            baseUrl: `http://localhost:${port}/backend-api`,
-            apiKey: makeJwtWithCodexAccount('acct-test-123'),
-          },
-        },
-        runtime: {},
-      });
-
-      const events = new EventEmitter();
-      const successes: unknown[] = [];
-      const failures: unknown[] = [];
-      events.on('llm_attempt', (event: { outcome?: { kind?: string } }) => {
-        if (event?.outcome?.kind === 'succeeded') successes.push(event);
-        else if (event?.outcome?.kind === 'failed') failures.push(event);
-      });
-
-      const adapter = createTestAgentAdapter(tempDir, events, new CardStore(tempDir));
-
-      const result = await adapter.invokePlanner(plannerRequest('goal-codex-retry'));
-
-      expect(result.status).toBe('continue');
-      expect(captures).toHaveLength(1);
-      expect(JSON.parse(captures[0].body)).not.toHaveProperty('max_output_tokens');
-      expect(successes).toHaveLength(1);
-      expect(failures).toHaveLength(0);
-    } finally {
-      await closeServer(server);
-      if (tempDir) cleanupDir(tempDir);
-    }
-  });
-
-  it('should invoke executor through adapter with mock server', async () => {
-    const { server, port } = await createMockServer((_req, res) => {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(okToolCallResp('emit_executor_result', JSON.stringify({
-        card_id: 'code-1',
-        status: 'done',
-        status_text: 'Executor completed successfully',
-      }))));
-    });
-
-    try {
-      tempDir = makeTempDir();
-      writeSaivageJson(tempDir, {
-        models: { default: ['test-model'] },
-        providers: {
-          'test-provider': {
-            priority: 10,
-            models: ['test-model'],
-            baseUrl: `http://localhost:${port}`,
-            apiKey: 'sk-test',
-          },
-        },
-        runtime: {},
-      });
-
-      const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
-      const result = await adapter.invokeExecutor(executorRequest('code-1', 'goal-1'));
-
-      expect(result.status).toBe('done');
-    } finally {
-      await closeServer(server);
-      if (tempDir) cleanupDir(tempDir);
-    }
-  });
-
-  it('should propagate provider errors through adapter', async () => {
-    const { server, port } = await createMockServer((_req, res) => {
-      res.writeHead(429, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: { message: 'Rate limited' } }));
-    });
-
-    try {
-      tempDir = makeTempDir();
-      writeSaivageJson(tempDir, {
-        models: { default: ['test-model'] },
-        providers: {
-          'test-provider': {
-            priority: 10,
-            models: ['test-model'],
-            baseUrl: `http://localhost:${port}`,
-            apiKey: 'sk-test',
-          },
-        },
-        runtime: {},
-      });
-
-      const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
-
-      await expect(
-        adapter.invokePlanner(plannerRequest('goal-1')),
-      ).rejects.toThrow();
-    } finally {
-      await closeServer(server);
-      if (tempDir) cleanupDir(tempDir);
-    }
-  }, 15000);
-});
-
 // ── Streaming Mode ─────────────────────────────────────────────
 
 describe('LlmClient Streaming Mode', () => {
@@ -1047,390 +783,6 @@ describe('LlmClient Streaming Mode', () => {
       ).rejects.toMatchObject({ failure: { kind: 'cancelled' } });
     } finally {
       await closeServer(server);
-    }
-  });
-});
-
-// ── Account-level Config Overrides ─────────────────────────────
-
-describe('Account-level Provider Config Overrides', () => {
-  let tempDir: string;
-
-  afterEach(() => {
-    if (tempDir) cleanupDir(tempDir);
-  });
-
-  it('should use account-level baseUrl and apiKey when configured', async () => {
-    const { server, port, cap } = await createMockServer((_req, res) => {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(okToolCallResp('emit_planner_result', JSON.stringify({
-        status: 'continue',
-      }))));
-    });
-
-    try {
-      tempDir = makeTempDir();
-      writeSaivageJson(tempDir, {
-        models: { default: ['test-model'] },
-        providers: {
-          'test-provider': {
-            priority: 10,
-            models: ['test-model'],
-            baseUrl: 'http://should-be-overridden',
-            apiKey: 'sk-provider-level',
-            accounts: {
-              primary: {
-                priority: 10,
-                baseUrl: `http://localhost:${port}`,
-                apiKey: 'sk-account-level',
-              },
-            },
-          },
-        },
-        runtime: {},
-      });
-
-      const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
-
-      const result = await adapter.invokePlanner(plannerRequest('goal-1'));
-
-      expect(result.status).toBe('continue');
-      expect(cap.headers['authorization']).toBe('Bearer sk-account-level');
-      // Verify it hit our mock server (not the overridden URL)
-      expect(cap.url).toBe('/v1/chat/completions');
-    } finally {
-      await closeServer(server);
-      if (tempDir) cleanupDir(tempDir);
-    }
-  });
-
-  it('should fall back to provider baseUrl/apiKey when account has none', async () => {
-    const { server, port, cap } = await createMockServer((_req, res) => {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(okToolCallResp('emit_planner_result', JSON.stringify({
-        status: 'continue',
-      }))));
-    });
-
-    try {
-      tempDir = makeTempDir();
-      writeSaivageJson(tempDir, {
-        models: { default: ['test-model'] },
-        providers: {
-          'test-provider': {
-            priority: 10,
-            models: ['test-model'],
-            baseUrl: `http://localhost:${port}`,
-            apiKey: 'sk-provider-level',
-            accounts: {
-              primary: { priority: 10 },
-            },
-          },
-        },
-        runtime: {},
-      });
-
-      const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
-
-      await adapter.invokePlanner(plannerRequest('goal-1'));
-
-      expect(cap.headers['authorization']).toBe('Bearer sk-provider-level');
-    } finally {
-      await closeServer(server);
-      if (tempDir) cleanupDir(tempDir);
-    }
-  });
-
-  it('should use project auth profile token when no static apiKey is configured', async () => {
-    const { server, port, cap } = await createMockServer((_req, res) => {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(okToolCallResp('emit_planner_result', JSON.stringify({
-        status: 'continue',
-      }))));
-    });
-
-    try {
-      tempDir = makeTempDir();
-      writeSaivageJson(tempDir, {
-        models: { default: ['test-model'] },
-        providers: {
-          'test-provider': {
-            priority: 10,
-            models: ['test-model'],
-            baseUrl: `http://localhost:${port}`,
-            authProfile: 'test-oauth',
-          },
-        },
-        runtime: {},
-      });
-      writeFileSync(
-        join(tempDir, '.saivage', 'auth-profiles.json'),
-        JSON.stringify({
-          version: 1,
-          profiles: {
-            'test-oauth': {
-              type: 'oauth',
-              provider: 'test-provider',
-              access: 'oauth-access-token',
-            },
-          },
-        }),
-        'utf-8',
-      );
-
-      const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
-
-      await adapter.invokePlanner(plannerRequest('goal-1'));
-
-      expect(cap.headers['authorization']).toBe('Bearer oauth-access-token');
-    } finally {
-      await closeServer(server);
-      if (tempDir) cleanupDir(tempDir);
-    }
-  });
-
-  it('should use built-in OpenCode base URLs when config omits baseUrl', async () => {
-    try {
-      tempDir = makeTempDir();
-      writeSaivageJson(tempDir, {
-        models: { default: ['test-model'] },
-        providers: {
-          'opencode-go': {
-            priority: 10,
-            models: ['test-model'],
-            apiKey: 'sk-opencode-go',
-          },
-        },
-        runtime: {},
-      });
-
-      const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
-      const candidates = await adapter.router.resolve('planner');
-      const candidate = candidates[0];
-      expect(candidate.provider).toBe('opencode-go');
-
-      const transport = await resolveLlmTransportConfig(
-        tempDir,
-        adapter.registry,
-        candidate,
-      );
-
-      expect(transport.baseUrl).toBe('https://opencode.ai/zen/go/v1');
-      expect(transport.apiKey).toBe('sk-opencode-go');
-    } finally {
-      if (tempDir) cleanupDir(tempDir);
-    }
-  });
-});
-
-// ── Config temperature/max_tokens flow through AgentAdapter ──────
-
-describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
-  let tempDir: string;
-
-  afterEach(() => {
-    if (tempDir) cleanupDir(tempDir);
-  });
-
-  // Shared planner result that parses cleanly
-  function plannerContent() {
-    return JSON.stringify({
-      status: 'done',
-    });
-  }
-
-  function plannerResp() {
-    return okToolCallResp('emit_planner_result', plannerContent());
-  }
-
-  // ── TC1: Default temperature (0.7) and max_tokens (4096) ─────
-
-  it('should send default temperature 0.7 and max_tokens 4096 when not overridden in config', async () => {
-    const { server, port, cap } = await createMockServer((_req, res) => {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(plannerResp()));
-    });
-
-    try {
-      tempDir = makeTempDir();
-      writeSaivageJson(tempDir, {
-        models: { default: ['test-model'] },
-        providers: {
-          'test-provider': {
-            priority: 10,
-            models: ['test-model'],
-            baseUrl: `http://localhost:${port}`,
-            apiKey: 'sk-test',
-          },
-        },
-        runtime: {},
-      });
-
-      const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
-      await adapter.invokePlanner(plannerRequest('goal-tc1'));
-
-      const body = JSON.parse(cap.body);
-      expect(body.temperature).toBe(0.7);
-      expect(body.max_tokens).toBe(4096);
-    } finally {
-      await closeServer(server);
-      if (tempDir) cleanupDir(tempDir);
-    }
-  });
-
-  // ── TC2: Per-role temperature override ──────────────────────
-
-  it('should send per-role temperature override when models.temperature.planner is set', async () => {
-    const { server, port, cap } = await createMockServer((_req, res) => {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(plannerResp()));
-    });
-
-    try {
-      tempDir = makeTempDir();
-      writeSaivageJson(tempDir, {
-        models: {
-          default: ['test-model'],
-          temperature: { planner: 0.3 },
-          max_tokens: { planner: 2000 },
-        },
-        providers: {
-          'test-provider': {
-            priority: 10,
-            models: ['test-model'],
-            baseUrl: `http://localhost:${port}`,
-            apiKey: 'sk-test',
-          },
-        },
-        runtime: {},
-      });
-
-      const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
-      await adapter.invokePlanner(plannerRequest('goal-tc2'));
-
-      const body = JSON.parse(cap.body);
-      expect(body.temperature).toBe(0.3);
-      expect(body.max_tokens).toBe(2000);
-    } finally {
-      await closeServer(server);
-      if (tempDir) cleanupDir(tempDir);
-    }
-  });
-
-  // ── TC3: Per-role max_tokens override with default temperature ──
-
-  it('should send per-role max_tokens override and fall back to default temperature', async () => {
-    const { server, port, cap } = await createMockServer((_req, res) => {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(plannerResp()));
-    });
-
-    try {
-      tempDir = makeTempDir();
-      writeSaivageJson(tempDir, {
-        models: {
-          default: ['test-model'],
-          temperature: { default: 0.5 },
-          max_tokens: { planner: 8192 },
-        },
-        providers: {
-          'test-provider': {
-            priority: 10,
-            models: ['test-model'],
-            baseUrl: `http://localhost:${port}`,
-            apiKey: 'sk-test',
-          },
-        },
-        runtime: {},
-      });
-
-      const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
-      await adapter.invokePlanner(plannerRequest('goal-tc3'));
-
-      const body = JSON.parse(cap.body);
-      expect(body.temperature).toBe(0.5);   // from models.default
-      expect(body.max_tokens).toBe(8192);   // from per-role planner
-    } finally {
-      await closeServer(server);
-      if (tempDir) cleanupDir(tempDir);
-    }
-  });
-
-  // ── TC4: models.default fallback ────────────────────────────
-
-  it('should use models.default temperature and max_tokens when no per-role values', async () => {
-    const { server, port, cap } = await createMockServer((_req, res) => {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(plannerResp()));
-    });
-
-    try {
-      tempDir = makeTempDir();
-      writeSaivageJson(tempDir, {
-        models: {
-          default: ['test-model'],
-          temperature: { default: 0.2 },
-          max_tokens: { default: 1000 },
-        },
-        providers: {
-          'test-provider': {
-            priority: 10,
-            models: ['test-model'],
-            baseUrl: `http://localhost:${port}`,
-            apiKey: 'sk-test',
-          },
-        },
-        runtime: {},
-      });
-
-      const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
-      await adapter.invokePlanner(plannerRequest('goal-tc4'));
-
-      const body = JSON.parse(cap.body);
-      expect(body.temperature).toBe(0.2);
-      expect(body.max_tokens).toBe(1000);
-    } finally {
-      await closeServer(server);
-      if (tempDir) cleanupDir(tempDir);
-    }
-  });
-
-  // ── TC5: Full fallback chain (role overrides default) ───────
-
-  it('should use per-role temp and default max_tokens when role overrides only temperature', async () => {
-    const { server, port, cap } = await createMockServer((_req, res) => {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(plannerResp()));
-    });
-
-    try {
-      tempDir = makeTempDir();
-      writeSaivageJson(tempDir, {
-        models: {
-          default: ['test-model'],
-          temperature: { planner: 0.1 },
-          max_tokens: { default: 2048 },
-        },
-        providers: {
-          'test-provider': {
-            priority: 10,
-            models: ['test-model'],
-            baseUrl: `http://localhost:${port}`,
-            apiKey: 'sk-test',
-          },
-        },
-        runtime: {},
-      });
-
-      const adapter = createTestAgentAdapter(tempDir, undefined, new CardStore(tempDir));
-      await adapter.invokePlanner(plannerRequest('goal-tc5'));
-
-      const body = JSON.parse(cap.body);
-      expect(body.temperature).toBe(0.1);    // from per-role planner
-      expect(body.max_tokens).toBe(2048);    // from models.default
-    } finally {
-      await closeServer(server);
-      if (tempDir) cleanupDir(tempDir);
     }
   });
 });

@@ -5,10 +5,10 @@ import { tmpdir } from 'node:os';
 
 import { CardStore } from '../../src/cards/card-store.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
-import { createSession } from '../../src/runtime/session-persistence.js';
 import { propagateChange } from '../../src/runtime/changed-propagation.js';
 import { peekSyntheticPlannerNotes } from '../../src/runtime/synthetic-planner-notes.js';
 import { clearActiveGoalNoteSinks, getActiveGoalNoteSinks } from '../../src/runtime/actors/index.js';
+import { appendConversationMessage, buildContextTextMessage } from '../../src/runtime/actors/conversation-store.js';
 import type { CardRecord, CardStatus } from '../../src/schemas/index.js';
 import type { GoalNote } from '../../src/runtime/actors/index.js';
 import type { NewCardInput } from '../../src/cards/lifecycle.js';
@@ -70,6 +70,10 @@ function setStatus(store: CardStore, id: string, status: CardStatus): void {
   if (status !== 'running') store.setStatus(id, status);
 }
 
+function createPlannerConversation(projectRoot: string, goalId: string): void {
+  appendConversationMessage(projectRoot, buildContextTextMessage(`planner:${goalId}`, 'system', `planner ${goalId}`));
+}
+
 describe('changed propagation', () => {
   let projectRoot: string;
   let store: CardStore;
@@ -88,9 +92,9 @@ describe('changed propagation', () => {
     goalBId = store.create(makeCard({ id: 'goal-b', type: 'goal', parent: goalAId, depth: 2, title: 'B' })).id;
     cardCId = store.create(makeCard({ id: 'card-c', type: 'code', parent: goalBId, depth: 3, title: 'C' })).id;
     siblingId = store.create(makeCard({ id: 'sibling', type: 'code', parent: goalBId, depth: 3, title: 'Sibling' })).id;
-    createSession(join(projectRoot, '.saivage'), 'planner', projectId, projectId, undefined, `planner:${projectId}`);
-    createSession(join(projectRoot, '.saivage'), 'planner', goalAId, goalAId, undefined, `planner:${goalAId}`);
-    createSession(join(projectRoot, '.saivage'), 'planner', goalBId, goalBId, undefined, `planner:${goalBId}`);
+    createPlannerConversation(projectRoot, projectId);
+    createPlannerConversation(projectRoot, goalAId);
+    createPlannerConversation(projectRoot, goalBId);
   });
 
   afterEach(() => {

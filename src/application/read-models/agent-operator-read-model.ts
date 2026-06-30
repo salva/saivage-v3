@@ -4,7 +4,7 @@ import { GLOBAL_ANALYST_SESSION_ID, isSafeAgentSessionId, SAFE_AGENT_SESSION_ID_
 import { CardStore } from '../../cards/store-api.js';
 import { llmExchangeSchema } from '../../contracts/index.js';
 import { listConversationSessionIds, readConversationMessages } from '../../runtime/actors/conversation-store.js';
-import { readActorSnapshots, type ActorSnapshotRecord } from '../../runtime/actors/index.js';
+import { readActorSnapshots, type ActorSnapshotRecord } from '../../runtime/actors/snapshots.js';
 import type { AgentMessage, AgentRole, SessionStatus } from '../../schemas/index.js';
 
 export const GLOBAL_OPERATOR_AGENT_SESSION_ID = GLOBAL_ANALYST_SESSION_ID;
@@ -114,6 +114,7 @@ export class AgentOperatorReadModelService {
     if (!isSafeAgentSessionId(sessionId)) return null;
     const parsed = this.parseSessionId(sessionId);
     if (!parsed) return null;
+    const model = this.readLatestModel(sessionId);
     return {
       id: sessionId,
       role: parsed.role,
@@ -121,7 +122,7 @@ export class AgentOperatorReadModelService {
       assessment_id: parsed.assessment_id,
       status: this.deriveStatus(sessionId, parsed.card_id, snapshots) satisfies SessionStatus,
       started_at: this.firstMessageTimestamp(messages),
-      model: this.readLatestModel(sessionId),
+      ...(model ? { model } : {}),
     };
   }
 }

@@ -1,4 +1,4 @@
-import { readLatestLlmExchange, LlmExchangeCorruptedError } from '../../agents/session-api.js';
+import { readLatestLlmExchange, LlmExchangeCorruptedError } from '../../agents/llm-exchange-log.js';
 import { AgentOperatorReadModelService, isSafeAgentSessionId } from '../../application/read-models/index.js';
 import type {
   OperatorContractHandlerMap,

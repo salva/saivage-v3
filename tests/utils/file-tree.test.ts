@@ -121,7 +121,6 @@ describe('initProjectTree', () => {
       'outputs/cards',
       'diaries',
       'reviews/by-goal',
-      'agents/sessions',
       'agents/conversations',
       'runtime',
       'supervision',

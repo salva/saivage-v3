@@ -3,14 +3,12 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PlannerControlExecutor } from '../../src/agents/planner-control-executor.js';
-import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from '../../src/runtime/state.js';
 import { EventBus } from '../../src/events/index.js';
 import { EventLogger } from '../../src/observability/event-logger.js';
 import { loggedEventSchema } from '../../src/schemas/validators.js';
-import type { SaivageConfig } from '../../src/agents/config-schema.js';
 
 function setup() {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-runtime-activation-'));
@@ -130,69 +128,6 @@ describe('runtime activation ledger target contract (Wave 1)', () => {
       ]));
       expect((events.find((event) => event.kind === 'runtime_activation') as any).activation.idempotency_key).toBe(activation?.idempotency_key);
     } finally { logger?.close(); rmSync(ctx.projectRoot, { recursive: true, force: true }); }
-  });
-
-  it('AgentAdapter activate_card publishes exact logged ledger events once to runtime ledger event bus', async () => {
-    const ctx = setup();
-    let logger: EventLogger | null = null;
-    try {
-      appendRuntimeRun(ctx.projectRoot, { run_id: 'run-parent', kind: 'root', ownership: { kind: 'direct', source: 'project_root' }, card_id: ctx.goalId, parent_run_id: null, command_id: 'cmd-a', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: `planner:${ctx.goalId}` });
-      const config = {
-        providers: {},
-        models: {},
-        server: { port: 8080, host: '127.0.0.1' },
-        runtime: { continuousImprovement: false, maxReviewRetries: 3, recoveryDelayMs: 60000, maxRecoveryRetries: 0, selfCheck: { planner: 0, executor: 0, reviewer: 0, analyst: 0 } },
-        security: {},
-        supervisor: { enabled: false },
-      } as unknown as SaivageConfig;
-      logger = new EventLogger(join(ctx.projectRoot, '.saivage'));
-      const eventBus = new EventBus();
-      const agentAdapter = new AgentAdapter({
-        projectRoot: ctx.projectRoot,
-        saivageDir: join(ctx.projectRoot, '.saivage'),
-        config,
-        eventLogger: logger,
-        activationLedger: activationLedger(ctx.projectRoot),
-        cardStore: ctx.cardStore,
-      });
-      agentAdapter.setRuntimeLedgerEventBus(eventBus);
-      const events: Array<{ kind: string; run?: unknown; activation?: unknown; id?: string; timestamp?: string }> = [];
-      const sub = eventBus.subscribe({
-        allowedKinds: ['runtime_run', 'runtime_activation'],
-        handler: (event) => { events.push(event); },
-      });
-
-      const result = await (agentAdapter as any).processToolCall(
-        { id: 'call-runtime-ledger', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: ctx.codeId }) } },
-        'planner',
-        `planner:${ctx.goalId}`,
-        { goalId: ctx.goalId, cardId: ctx.goalId },
-      );
-      sub.unsubscribe();
-
-      expect(result).toMatchObject({ role: 'tool', kind: 'tool_result', tool: 'activate_card', tool_call_id: 'call-runtime-ledger' });
-      expect(events.map((event) => event.kind)).toEqual(['runtime_run', 'runtime_activation']);
-      expect(events).toHaveLength(2);
-      for (const event of events) expect(loggedEventSchema.parse(event)).toEqual(event);
-
-      const state = readRuntimeState(ctx.projectRoot)!;
-      const activation = state.runtime_activations!.find((record) => record.child_card_id === ctx.codeId);
-      const childRun = state.runtime_runs!.find((record) => record.run_id === activation!.runtime_run_id);
-      expect(events[0]).toEqual(expect.objectContaining({ kind: 'runtime_run', run: childRun }));
-      expect(activation?.idempotency_key).toBe(`run-parent:planner:${ctx.goalId}:call-runtime-ledger:${ctx.codeId}`);
-      expect(events[1]).toEqual(expect.objectContaining({ kind: 'runtime_activation', activation }));
-      expect((events[1] as any).activation.idempotency_key).toBe(activation?.idempotency_key);
-
-      const persistedRunEvents = logger.getEvents({ kind: 'runtime_run' }).filter((event) => (event as any).run?.run_id === childRun!.run_id);
-      const persistedActivationEvents = logger.getEvents({ kind: 'runtime_activation' }).filter((event) => (event as any).activation?.activation_id === activation!.activation_id);
-      expect(persistedRunEvents).toEqual([expect.objectContaining({ kind: events[0].kind, run: events[0].run })]);
-      expect(persistedActivationEvents).toEqual([expect.objectContaining({ kind: events[1].kind, activation: events[1].activation })]);
-      expect((persistedActivationEvents[0] as any).activation.idempotency_key).toBe(activation?.idempotency_key);
-
-    } finally {
-      logger?.close();
-      rmSync(ctx.projectRoot, { recursive: true, force: true });
-    }
   });
 
   it('does not let a sessionless active parent run authorize a nonmatching nonempty planner session', async () => {

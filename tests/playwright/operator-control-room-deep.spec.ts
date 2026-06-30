@@ -31,7 +31,7 @@ test('operator control room supports analyst chat send and migrated debug panels
 
   expect(rest.counts.get('POST /api/chats/analyst')).toBe(1);
   expect(rest.chatPosts).toHaveLength(1);
-  expect(rest.chatPosts[0]?.sessionId).toBe('analyst');
+  expect(rest.chatPosts[0]?.sessionId).toBe('analyst:global');
   expect(rest.chatPosts[0]?.body).toMatchObject({
     content: 'Summarize the synthetic runtime',
     workspaceContext: { view: 'dashboard', entityId: null, refinement: null },
@@ -100,7 +100,7 @@ test('card detail Discuss with analyst sends hidden card seed and workspace cont
   expect(rest.counts.get('POST /api/chats/analyst')).toBe(1);
   expect(rest.chatPosts).toHaveLength(1);
   const post = rest.chatPosts[0];
-  expect(post?.sessionId).toBe('analyst');
+  expect(post?.sessionId).toBe('analyst:global');
   expect(post?.body.workspaceContext).toEqual({ view: 'cards', entityId: 'card-smoke', refinement: null });
   expect(post?.body.content).not.toContain(syntheticToken);
   expect(post?.body.content).toContain('System context: this per-card analyst discussion was opened from the card detail view.');
