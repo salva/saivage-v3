@@ -110,7 +110,9 @@ Unchanged from current v3. These are v3-specific and have no OpenCode equivalent
 | `reorder_child` | P, A | Reorder children of a non-running parent. |
 | `queue_notification` | P, A | Queue a notification for a future agent session. |
 
-Goal reporting (terminal contract tools): the planner's terminal tool is `emit_planner_result` with `{ status: 'continue' | 'done' | 'blocked' }`. The old `report_goal_done` / `report_goal_failed` / `report_goal_blocked` tools are dead code from the retired `AgentExecutionPort` surface and are removed (see section 5).
+Goal reporting (terminal contract tool): all three roles use one terminal tool name, `emit_result`. The schema is overloaded per-role — each actor sends its own schema to the provider and the contract system verifies the envelope per-role. The old `report_goal_done` / `report_goal_failed` / `report_goal_blocked` tools are dead code from the retired `AgentExecutionPort` surface and are removed (see section 5).
+
+See section 4.7 for the unified terminal tool design.
 
 ### 4.4 Inspection Tools (shared by P, E, R, A)
 
@@ -147,6 +149,41 @@ The remaining analyst tools (`start_project`, `stop_project`, `terminate_process
 
 Unchanged. External MCP tools are the extension point; they use their own names via this wrapper.
 
+### 4.7 Unified Terminal Tool
+
+All three autonomous roles (planner, executor, reviewer) use one terminal tool name: `emit_result`. The tool schema is **overloaded per-role** — each actor sends its own schema to the provider, and the contract system verifies the envelope per-role. The model never sees more than one `emit_result` definition at a time because each role runs in its own activation with its own tool list.
+
+This replaces the three role-prefixed names (`emit_planner_result`, `emit_executor_result`, `emit_reviewer_result`) with a single name. The role-prefixed names leaked internal role naming into the model surface without benefit: the model already knows its role from the system prompt, and the contract system already dispatches per-role.
+
+#### Per-role schemas
+
+| Role | `status` enum | Role-specific fields | Notes |
+| --- | --- | --- | --- |
+| Planner | `continue \| done \| failed \| blocked` | `blocked_reason?`, `summary?` | `continue` = "I need more turns to decompose/activate." `done` = "Goal subtree is complete." `blocked` = "External state prevents progress." `failed` = "This goal is fundamentally not achievable as scoped" (new — gives the planner symmetry with the executor and distinguishes "stuck because of external constraints" from "this goal is broken"). |
+| Executor | `done \| failed` | `status_text` (required), `error?`, `result?`, `warnings?`, `summary?` | `done` = "Work is complete." `failed` = "I tried and it didn't work." |
+| Reviewer | (implicit in `assessment.result`) | `assessment: { result: 'pass' \| 'needs_corrections', summary, achieved[], issues[], evidence_card_ids[] }` | Structured review, not a status enum. The `result` field inside `assessment` carries the pass/correction verdict. |
+
+#### Why one name works
+
+- Each role's tools are sent independently; the model never sees two `emit_result` schemas at once.
+- The contract system (`src/contracts/contract.ts`) already verifies per-role: `createPlannerContract()`, `createExecutorContract()`, `createReviewerContract()` each own their own terminal descriptor and envelope schema. Unifying the name changes only the terminal `name` string; verification and projection logic stay per-role.
+- `contract.isTerminalToolName(name)` checks `name === 'emit_result'` for all three contracts. Since each actor runs exactly one contract, there is no ambiguity.
+- Transcript entries store `tool_name: 'emit_result'`; the round/role context in the conversation UI disambiguates which role emitted it.
+
+#### Planner `failed` status
+
+The planner envelope currently lacks `failed`. This means the planner can only report `blocked` when it cannot progress, conflating "external state prevents me" with "this goal is broken." Adding `failed` gives the planner the same expressiveness as the executor and lets the card lifecycle distinguish "planner gave up because the goal is unachievable" from "planner is waiting for external change."
+
+Updated planner envelope:
+
+```ts
+export const PlannerResultEnvelopeSchema = z.object({
+  status: z.enum(['continue', 'done', 'failed', 'blocked']),
+  blocked_reason: z.string().nullable().optional(),
+  summary: z.string().optional(),
+}).strict();
+```
+
 ## 5. Removals
 
 The following names are removed from the catalog. They are either duplicates of the standard names, dead code, or unused:
@@ -166,9 +203,12 @@ The following names are removed from the catalog. They are either duplicates of 
 | `wait_process` (actor-inline) | `wait_process` (catalog) | Move from inline to catalog. |
 | `read_file` (workspace) | `read` | If a workspace `read_file` exists separate from analyst. Audit needed. |
 | `load_skill` | `skill` | Standard name. |
-| `report_goal_done` | `emit_planner_result` | Dead code from the old `AgentExecutionPort` runtime. The planner actor already uses `emit_planner_result` with `{ status: 'continue' \| 'done' \| 'blocked' }` as its terminal contract tool. `report_goal_done` is not in `PLANNER_CARD_PROCESSOR_TOOL_DEFINITIONS` and never reaches the planner LLM. Survives only in the catalog and stale prompt text. Removed with the dead `AgentExecutionPort` surface. |
-| `report_goal_failed` | `emit_planner_result` | Dead code, same as above. Additionally, the current planner envelope has no `failed` status — planner failure is expressed as `blocked` with a reason or handled by the card lifecycle, not by a planner-reported `failed`. |
-| `report_goal_blocked` | `emit_planner_result` | Dead code, same as above. `emit_planner_result` with `status: 'blocked'` and `blocked_reason` covers this. |
+| `report_goal_done` | `emit_result` | Dead code from the old `AgentExecutionPort` runtime. Never reached the planner LLM. Removed with the dead `AgentExecutionPort` surface. |
+| `report_goal_failed` | `emit_result` | Dead code, same as above. The old planner envelope had no `failed` status; the unified terminal tool now adds `failed` to the planner schema (see section 4.7). |
+| `report_goal_blocked` | `emit_result` | Dead code, same as above. `emit_result` with `status: 'blocked'` and `blocked_reason` covers this. |
+| `emit_planner_result` | `emit_result` | Unified terminal tool name. Schema is overloaded per-role. |
+| `emit_executor_result` | `emit_result` | Unified terminal tool name. Schema is overloaded per-role. |
+| `emit_reviewer_result` | `emit_result` | Unified terminal tool name. Schema is overloaded per-role. |
 
 ## 6. Role Tool Surfaces
 
@@ -182,7 +222,7 @@ The actor runtime exposes curated subsets. The catalog's `roles` field is update
 | Filesystem (read-only) | `read`, `glob`, `grep` |
 | Inspection | `list_cards`, `get_card`, `get_tree`, `list_card_history`, `get_card_history_entry`, `diff_card` |
 | Web | `websearch`, `webfetch` |
-| Terminal | `emit_planner_result` |
+| Terminal | `emit_result` (planner schema: `continue \| done \| failed \| blocked`) |
 
 Planner does **not** get `write`, `edit`, `apply_patch`, `run_command`, `skill`, or `mcp_tool_call`. The planner coordinates; it does not write code or run commands.
 
@@ -196,7 +236,7 @@ Planner does **not** get `write`, `edit`, `apply_patch`, `run_command`, `skill`,
 | Skill | `skill` |
 | MCP | `mcp_tool_call` |
 | Inspection | `list_card_history`, `get_card_history_entry`, `diff_card` |
-| Terminal | `emit_executor_result` |
+| Terminal | `emit_result` (executor schema: `done \| failed`) |
 
 ### Reviewer
 
@@ -207,7 +247,7 @@ Planner does **not** get `write`, `edit`, `apply_patch`, `run_command`, `skill`,
 | Skill | `skill` |
 | MCP | `mcp_tool_call` |
 | Inspection | `list_card_history`, `get_card_history_entry`, `diff_card` |
-| Terminal | `emit_reviewer_result` |
+| Terminal | `emit_result` (reviewer schema: `pass \| needs_corrections`) |
 
 Reviewer does **not** get `write`, `edit`, `apply_patch`, or `run_command`. The reviewer evaluates; it does not modify.
 
@@ -278,6 +318,8 @@ These v2 capabilities are not added in this reorg because v3 does not have the s
 - Remove `run_shell_command` from the workspace tools (keep analyst variant).
 - Remove `load_skill`; ensure `skill` supports both list and load.
 - Remove `report_goal_done`, `report_goal_failed`, `report_goal_blocked` from the catalog. The planner actor already uses `emit_planner_result` (with `status: 'continue' | 'done' | 'blocked'`) as its terminal contract tool; these three are dead code from the retired `AgentExecutionPort` surface and never reach the planner LLM. Remove their references from `planner-control-tools.ts`, `planner-tools.ts` (`PlannerToolsService`), `planner-envelope-tracker.ts`, `planner-state-context.ts`, and stale prompt text in `system-prompt.ts`.
+- Unify the three terminal tool names (`emit_planner_result`, `emit_executor_result`, `emit_reviewer_result`) into one: `emit_result`. Update the contract terminal descriptors, event catalog enum, `LlmInvocationSummaryEvent.final_terminal_tool`, and all prompt/messaging references. The schema stays per-role; only the name converges.
+- Add `failed` to the planner envelope schema (`emit_result` planner variant): `status: 'continue' | 'done' | 'failed' | 'blocked'`. Update the planner contract projection and runtime handling to accept `failed` as a terminal planner outcome.
 - Update all tests that reference removed names.
 - Add negative tests asserting removed names are absent from agent-facing surfaces.
 
@@ -324,7 +366,8 @@ This reorganization is complete when:
 - the reviewer surface does not include `write`, `edit`, or `apply_patch`;
 - the catalog `roles` field matches actual actor wiring for every entry;
 - analyst-only host-inspection tools (`read_file`, `write_file`, `list_directory`, `run_shell_command`, `read_file_metadata`) never appear in agent-facing surfaces;
-- removed names (`run_project_command`, `start_and_wait`, `wait_for_process`, `inspect_process`, `run_process` as a separate tool, `load_skill`, `list_project_files`, `read_project_file`, `write_project_file`, `report_goal_done`, `report_goal_failed`, `report_goal_blocked`) are absent from the catalog and from all actor tool bundles;
+- removed names (`run_project_command`, `start_and_wait`, `wait_for_process`, `inspect_process`, `run_process` as a separate tool, `load_skill`, `list_project_files`, `read_project_file`, `write_project_file`, `report_goal_done`, `report_goal_failed`, `report_goal_blocked`, `emit_planner_result`, `emit_executor_result`, `emit_reviewer_result`) are absent from the catalog and from all actor tool bundles;
 - system prompts mention only tools that exist in the final catalog;
 - tests assert the final role tool surfaces and fail if removed names reappear;
-- the conversation UI redesign's Phase 2 unblocks because the tool vocabulary is aligned.
+- the conversation UI redesign's Phase 2 unblocks because the tool vocabulary is aligned;
+- the three role terminal tools are unified under one name `emit_result` with per-role schemas, and the planner envelope includes `failed`.
