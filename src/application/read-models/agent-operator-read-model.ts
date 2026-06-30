@@ -1,8 +1,11 @@
-import { readRuntimeState } from '../../runtime/state-api.js';
-import type { AgentMessage, AgentSession, RuntimeState } from '../../schemas/index.js';
-import { deriveCurrentAgentSessionId } from '../../runtime/current-run.js';
-import type { RuntimeApi } from '../../runtime/control-api.js';
-import { AgentSessionRepository, GLOBAL_ANALYST_SESSION_ID, isSafeAgentSessionId, SAFE_AGENT_SESSION_ID_RE } from '../../agents/agent-session-repository.js';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { GLOBAL_ANALYST_SESSION_ID, isSafeAgentSessionId, SAFE_AGENT_SESSION_ID_RE } from '../../agents/session-ids.js';
+import { CardStore } from '../../cards/store-api.js';
+import { llmExchangeSchema } from '../../contracts/index.js';
+import { listConversationSessionIds, readConversationMessages } from '../../runtime/actors/conversation-store.js';
+import { readActorSnapshots, type ActorSnapshotRecord } from '../../runtime/actors/index.js';
+import type { AgentMessage, AgentRole, SessionStatus } from '../../schemas/index.js';
 
 export const GLOBAL_OPERATOR_AGENT_SESSION_ID = GLOBAL_ANALYST_SESSION_ID;
 export const SAFE_AGENT_ID_RE = SAFE_AGENT_SESSION_ID_RE;
@@ -17,22 +20,17 @@ export type AgentOperatorSessionSummary = Record<string, unknown> & {
 
 export interface AgentOperatorConversationResponse {
   session: AgentOperatorSessionSummary;
-  entries: unknown[];
+  entries: AgentMessage[];
   activity_status: { status: 'idle' | 'thinking' | 'tool_calling' | 'responding' | 'compacting'; pending_calls: unknown[]; updated_at: string };
 }
 
 export class AgentOperatorReadModelService {
-  private readonly repository: AgentSessionRepository;
-
-  constructor(private readonly projectRoot: string, private readonly runtimeApi?: Pick<RuntimeApi, 'getActivityStatus'>) {
-    this.repository = new AgentSessionRepository(projectRoot);
-  }
+  constructor(private readonly projectRoot: string) {}
 
   listSessions(): { sessions: AgentOperatorSessionSummary[] } {
-    const sessionIds = new Set<string>([GLOBAL_OPERATOR_AGENT_SESSION_ID, ...this.repository.listKnownSessionIds()]);
-    const state = readRuntimeState(this.projectRoot);
-    const sessions = Array.from(sessionIds)
-      .map((sessionId) => this.buildSessionSummary(sessionId, state))
+    const snapshots = readActorSnapshots(this.projectRoot);
+    const sessions = listConversationSessionIds(this.projectRoot)
+      .map((sessionId) => this.buildSessionSummary(sessionId, readConversationMessages(this.projectRoot, sessionId), snapshots))
       .filter((session): session is AgentOperatorSessionSummary => Boolean(session));
     sessions.sort((a, b) => String(b.started_at ?? '').localeCompare(String(a.started_at ?? '')) || String(a.id).localeCompare(String(b.id)));
     return { sessions };
@@ -40,63 +38,43 @@ export class AgentOperatorReadModelService {
 
   getSession(sessionId: string): { statusCode?: number; body: { session?: Record<string, unknown>; error?: string; sessionId?: string } } {
     if (!isSafeAgentSessionId(sessionId)) return { statusCode: 400, body: { error: 'Invalid agent session ID' } };
-    const manifest = this.readManifest(sessionId);
-    const messages = this.readConversationEntries(sessionId);
-    if (this.isNonCanonicalAnalystSession(sessionId, manifest)) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
-    if (!manifest && messages.length === 0 && sessionId !== GLOBAL_OPERATOR_AGENT_SESSION_ID) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
-    const base = this.buildSessionSummary(sessionId, readRuntimeState(this.projectRoot)) ?? {
-      id: sessionId,
-      role: this.parseRole(sessionId),
-      status: 'inactive' as const,
-      started_at: new Date(0).toISOString(),
-    };
-    const lastActivity = this.lastMessageTimestamp(sessionId)
-      ?? (typeof manifest?.completed_at === 'string' ? manifest.completed_at : null)
-      ?? (typeof base.started_at === 'string' ? base.started_at : null);
+    const messages = readConversationMessages(this.projectRoot, sessionId);
+    if (messages.length === 0) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
+    const base = this.buildSessionSummary(sessionId, messages, readActorSnapshots(this.projectRoot));
+    if (!base) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
+    const lastActivity = this.lastMessageTimestamp(messages) ?? base.started_at;
     return { body: { session: { ...base, message_count: messages.length, last_activity_at: lastActivity } } };
   }
 
   getConversation(sessionId: string): { statusCode?: number; body: AgentOperatorConversationResponse | { error: string; sessionId?: string } } {
     if (!isSafeAgentSessionId(sessionId)) return { statusCode: 400, body: { error: 'Invalid agent session ID' } };
-    const manifest = this.readManifest(sessionId);
-    if (this.isNonCanonicalAnalystSession(sessionId, manifest)) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
-    const messages = this.readConversationEntries(sessionId);
-    const session = this.buildSessionSummary(sessionId, readRuntimeState(this.projectRoot));
-    if (!session || (messages.length === 0 && !manifest && sessionId !== GLOBAL_OPERATOR_AGENT_SESSION_ID)) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
-    const activity_status = this.runtimeApi?.getActivityStatus(sessionId) ?? { status: 'idle' as const, pending_calls: [], updated_at: new Date(0).toISOString() };
+    const messages = readConversationMessages(this.projectRoot, sessionId);
+    if (messages.length === 0) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
+    const snapshots = readActorSnapshots(this.projectRoot);
+    const session = this.buildSessionSummary(sessionId, messages, snapshots);
+    if (!session) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
+    const activity_status = this.deriveActivityStatus(sessionId, snapshots);
     return { body: { session, entries: messages, activity_status } };
   }
 
-  private readManifest(sessionId: string): AgentSession | null {
-    return this.repository.getSession(sessionId);
+  private parseSessionId(sessionId: string): { role: Extract<AgentRole, 'analyst' | 'planner' | 'executor' | 'reviewer'>; card_id: string | null; assessment_id: string | null } | null {
+    if (sessionId.startsWith('analyst:')) return { role: 'analyst', card_id: null, assessment_id: null };
+    if (sessionId.startsWith('planner:')) return { role: 'planner', card_id: sessionId.slice('planner:'.length), assessment_id: null };
+    if (sessionId.startsWith('executor:')) return { role: 'executor', card_id: sessionId.slice('executor:'.length), assessment_id: null };
+    if (sessionId.startsWith('reviewer:')) {
+      const rest = sessionId.slice('reviewer:'.length);
+      const separator = rest.indexOf(':');
+      if (separator === -1) return null;
+      return { role: 'reviewer', card_id: rest.slice(0, separator), assessment_id: rest.slice(separator + 1) };
+    }
+    return null;
   }
 
-  private readConversationEntries(sessionId: string): AgentMessage[] {
-    return this.repository.getMessages(sessionId);
+  private firstMessageTimestamp(messages: AgentMessage[]): string {
+    return messages.find((message) => typeof message.timestamp === 'string')?.timestamp ?? new Date(0).toISOString();
   }
 
-  private parseRole(sessionId: string): string {
-    if (sessionId === 'analyst' || sessionId.startsWith('analyst-')) return 'analyst';
-    if (sessionId.startsWith('planner:') || sessionId.startsWith('planner-')) return 'planner';
-    if (sessionId.startsWith('reviewer:') || sessionId.startsWith('reviewer-')) return 'reviewer';
-    if (sessionId.startsWith('executor:') || sessionId.startsWith('executor-')) return 'executor';
-    if (sessionId.startsWith('card-')) return 'analyst';
-    return 'analyst';
-  }
-
-  private isNonCanonicalAnalystSession(sessionId: string, manifest?: AgentSession | null): boolean {
-    const role = typeof manifest?.role === 'string' ? manifest.role : this.parseRole(sessionId);
-    return role === 'analyst' && sessionId !== GLOBAL_OPERATOR_AGENT_SESSION_ID;
-  }
-
-  private firstMessageTimestamp(sessionId: string): string | null {
-    const messages = this.readConversationEntries(sessionId);
-    const first = messages.find((message) => typeof message.timestamp === 'string');
-    return first?.timestamp ?? null;
-  }
-
-  private lastMessageTimestamp(sessionId: string): string | null {
-    const messages = this.readConversationEntries(sessionId);
+  private lastMessageTimestamp(messages: AgentMessage[]): string | null {
     for (let i = messages.length - 1; i >= 0; i--) {
       const timestamp = messages[i]?.timestamp;
       if (typeof timestamp === 'string') return timestamp;
@@ -104,36 +82,46 @@ export class AgentOperatorReadModelService {
     return null;
   }
 
-  private hasOpenPlannerRun(state: RuntimeState | null, sessionId: string): boolean {
-    return (state?.runtime_runs ?? []).some((run) => run.session_id === sessionId && run.phase === 'planner' && run.runtime_status === 'running' && !run.finished_at);
+  private matchingSnapshot(sessionId: string, snapshots: ActorSnapshotRecord[]): ActorSnapshotRecord | null {
+    return snapshots.find((snapshot) => snapshot.actor_id === sessionId && snapshot.actor_kind === 'llm') ?? null;
   }
 
-  private isActivePlannerTurn(state: RuntimeState | null, sessionId: string): boolean {
-    const activeRun = state?.active_card_run;
-    return activeRun?.phase === 'planner' && activeRun.planner_session_id === sessionId;
+  private deriveActivityStatus(sessionId: string, snapshots: ActorSnapshotRecord[]): AgentOperatorConversationResponse['activity_status'] {
+    const snapshot = this.matchingSnapshot(sessionId, snapshots);
+    if (snapshot?.state_value === 'calling_provider') return { status: 'thinking', pending_calls: [], updated_at: snapshot.updated_at };
+    if (snapshot?.state_value === 'waiting_tool') return { status: 'tool_calling', pending_calls: [], updated_at: snapshot.updated_at };
+    return { status: 'idle', pending_calls: [], updated_at: new Date(0).toISOString() };
   }
 
-  private listedStatus(state: RuntimeState | null, session: AgentSession | null, sessionId: string, currentSessionId: string | null): ListedAgentStatus {
-    const openPlannerRun = this.hasOpenPlannerRun(state, sessionId);
-    if (currentSessionId && sessionId === currentSessionId) return openPlannerRun && !this.isActivePlannerTurn(state, sessionId) ? 'waiting' : 'active';
-    if (openPlannerRun) return 'waiting';
-    const manifestStatus = session?.status;
-    if (manifestStatus === 'active') return 'active';
-    if (manifestStatus === 'waiting' || manifestStatus === 'done' || manifestStatus === 'blocked' || manifestStatus === 'failed') return manifestStatus;
+  private deriveStatus(sessionId: string, cardId: string | null, snapshots: ActorSnapshotRecord[]): ListedAgentStatus {
+    const snapshot = this.matchingSnapshot(sessionId, snapshots);
+    if (snapshot?.state_value === 'waiting_tool') return 'waiting';
+    if (snapshot) return 'active';
+    if (!cardId) return 'inactive';
+    const status = new CardStore(this.projectRoot).read(cardId)?.status;
+    if (status === 'done' || status === 'blocked' || status === 'failed') return status;
     return 'inactive';
   }
 
-  private buildSessionSummary(sessionId: string, state: RuntimeState | null): AgentOperatorSessionSummary | null {
+  private readLatestModel(sessionId: string): string | null {
+    const path = join(this.projectRoot, '.saivage', 'agents', 'llm-exchanges', `${sessionId}.json`);
+    if (!existsSync(path)) return null;
+    const parsed = llmExchangeSchema.parse(JSON.parse(readFileSync(path, 'utf-8')));
+    return parsed.candidate.model;
+  }
+
+  private buildSessionSummary(sessionId: string, messages: AgentMessage[], snapshots: ActorSnapshotRecord[]): AgentOperatorSessionSummary | null {
     if (!isSafeAgentSessionId(sessionId)) return null;
-    const manifest = this.readManifest(sessionId);
-    if (this.isNonCanonicalAnalystSession(sessionId, manifest)) return null;
-    const startedAt = typeof manifest?.started_at === 'string' ? manifest.started_at : this.firstMessageTimestamp(sessionId) ?? new Date(0).toISOString();
+    const parsed = this.parseSessionId(sessionId);
+    if (!parsed) return null;
     return {
-      ...(manifest ?? {}),
       id: sessionId,
-      role: typeof manifest?.role === 'string' ? manifest.role : this.parseRole(sessionId),
-      status: this.listedStatus(state, manifest, sessionId, deriveCurrentAgentSessionId(state)),
-      started_at: startedAt,
+      role: parsed.role,
+      card_id: parsed.card_id,
+      assessment_id: parsed.assessment_id,
+      status: this.deriveStatus(sessionId, parsed.card_id, snapshots) satisfies SessionStatus,
+      started_at: this.firstMessageTimestamp(messages),
+      model: this.readLatestModel(sessionId),
     };
   }
 }

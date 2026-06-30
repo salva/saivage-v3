@@ -12,7 +12,7 @@ type AgentOperatorHandlerOptions = OperatorProjectContext & OperatorStaticRuntim
 
 export function buildAgentOperatorContractHandlers(options: AgentOperatorHandlerOptions): OperatorContractHandlerMap {
   const { projectRoot } = options;
-  const agentReadModel = new AgentOperatorReadModelService(projectRoot, options.runtimeApplication);
+  const agentReadModel = new AgentOperatorReadModelService(projectRoot);
 
   return {
     'agents.list': () => ({ body: agentReadModel.listSessions() }),

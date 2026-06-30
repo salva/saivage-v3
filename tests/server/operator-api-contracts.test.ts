@@ -171,7 +171,7 @@ describe('operator API contract registry', () => {
     expect(parseOperatorResponse('cards.list', { cards: [card], total: 1 }).total).toBe(1);
     expect(parseOperatorResponse('cards.get', { card: { ...card, dependencyRefs: [], relatedRefs: [] }, children: [], ancestorIds: [], ancestorRefs: [] }).card.id).toBe('card-1');
     const chatSend = parseOperatorResponse('chats.send', {
-      sessionId: 'analyst',
+      sessionId: 'analyst:global',
       message: { id: 'm1', role: 'assistant', kind: 'text', content: 'hello', timestamp: '2026-01-01T00:00:03.000Z' },
       toolInvocations: [],
     });
@@ -376,8 +376,8 @@ describe('operator API contract registry', () => {
   });
 
   it('uses entries for the analyst chat-history response contract', () => {
-    expect(parseOperatorResponse('chats.get', { sessionId: 'analyst', entries: [] }).entries).toEqual([]);
-    expect(() => parseOperatorResponse('chats.get', { sessionId: 'analyst', messages: [] })).toThrow();
+    expect(parseOperatorResponse('chats.get', { sessionId: 'analyst:global', entries: [] }).entries).toEqual([]);
+    expect(() => parseOperatorResponse('chats.get', { sessionId: 'analyst:global', messages: [] })).toThrow();
   });
 
 

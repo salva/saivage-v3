@@ -1,6 +1,9 @@
 import { expect, test } from '@playwright/test';
 import WebSocket from 'ws';
 
+const analystSessionId = 'analyst:global';
+const analystSessionPath = encodeURIComponent(analystSessionId);
+
 /**
  * Live read-only coverage for the contract endpoints not exercised by the
  * primary or extra specs. Asserts the response shape that the web client
@@ -182,7 +185,7 @@ test.describe('saivage-v3 live deployment — additional endpoint coverage', () 
 
 test.describe('saivage-v3 live deployment — failure-mode coverage', () => {
   test('POST /api/chats/:id with missing content returns 400', async ({ request }) => {
-    const res = await request.post('/api/chats/analyst', { data: {} });
+    const res = await request.post(`/api/chats/${analystSessionPath}`, { data: {} });
     expect(res.status()).toBe(400);
     const body = await res.json();
     expect(typeof body.error).toBe('string');
@@ -235,7 +238,7 @@ test.describe('saivage-v3 live deployment — failure-mode coverage', () => {
   });
 
   test('POST /api/chats/:id with non-string content returns 400 ValidationError', async ({ request }) => {
-    const res = await request.post('/api/chats/analyst', { data: { content: 12345 } });
+    const res = await request.post(`/api/chats/${analystSessionPath}`, { data: { content: 12345 } });
     expect(res.status()).toBe(400);
     const body = await res.json();
     expect(body.error).toBe('ValidationError');
@@ -316,8 +319,8 @@ test.describe('saivage-v3 live deployment — failure-mode coverage', () => {
     expect(events).toContain('connected');
   });
 
-  test('POST /api/chats/analyst with malformed JSON body returns a clean 400', async ({ request }) => {
-    const res = await request.post('/api/chats/analyst', {
+  test('POST /api/chats/analyst:global with malformed JSON body returns a clean 400', async ({ request }) => {
+    const res = await request.post(`/api/chats/${analystSessionPath}`, {
       headers: { 'content-type': 'application/json' },
       data: 'not-json',
     });
@@ -329,20 +332,20 @@ test.describe('saivage-v3 live deployment — failure-mode coverage', () => {
   });
 
   test('chats.send round-trip with two messages preserves both in chats.get', async ({ request }) => {
-    const before = await request.get('/api/chats/analyst');
+    const before = await request.get(`/api/chats/${analystSessionPath}`);
     expect(before.status()).toBe(200);
     const beforeCount = (await before.json()).entries.length;
 
     const marker = `live-e2e-multi-${Date.now()}`;
     for (const suffix of ['a', 'b']) {
-      const res = await request.post('/api/chats/analyst', {
+      const res = await request.post(`/api/chats/${analystSessionPath}`, {
         data: { content: `${marker}-${suffix}`, workspaceContext: { view: 'dashboard', entityId: null, refinement: null } },
         timeout: 120_000,
       });
       expect(res.status(), `POST ${suffix} — body=${await res.text().catch(() => '<unreadable>')}`).toBe(200);
     }
 
-    const after = await request.get('/api/chats/analyst');
+    const after = await request.get(`/api/chats/${analystSessionPath}`);
     expect(after.status()).toBe(200);
     const afterBody = await after.json();
     expect(afterBody.entries.length).toBeGreaterThanOrEqual(beforeCount + 2);

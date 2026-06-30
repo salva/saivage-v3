@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test';
 
+const analystSessionId = 'analyst:global';
+const analystSessionPath = encodeURIComponent(analystSessionId);
+
 /**
  * Extra live coverage against http://10.0.3.170:8080 — exercises endpoints the
  * primary spec does not touch (runtime, cards, files, debug, MCP). Read-only.
@@ -25,14 +28,14 @@ test.describe('saivage-v3 live deployment — extra contract coverage', () => {
     expect(res.status()).toBe(200);
     const body = await res.json();
     expect(Array.isArray(body.sessions)).toBe(true);
-    expect(body.sessions.some((s: { id: string }) => s.id === 'analyst')).toBe(true);
+    expect(body.sessions.some((s: { id: string }) => s.id === analystSessionId)).toBe(true);
   });
 
   test('chats.get for analyst returns entries array', async ({ request }) => {
-    const res = await request.get('/api/chats/analyst');
-    expect(res.status(), `GET /api/chats/analyst — body=${await res.text().catch(() => '<unreadable>')}`).toBe(200);
+    const res = await request.get(`/api/chats/${analystSessionPath}`);
+    expect(res.status(), `GET /api/chats/${analystSessionPath} — body=${await res.text().catch(() => '<unreadable>')}`).toBe(200);
     const body = await res.json();
-    expect(body.sessionId).toBe('analyst');
+    expect(body.sessionId).toBe(analystSessionId);
     expect(Array.isArray(body.entries)).toBe(true);
   });
 
@@ -55,7 +58,7 @@ test.describe('saivage-v3 live deployment — extra contract coverage', () => {
     expect(res.status(), `GET /api/agents — body=${await res.text().catch(() => '<unreadable>')}`).toBe(200);
     const body = await res.json();
     expect(Array.isArray(body.sessions)).toBe(true);
-    expect(body.sessions.some((s: { id: string }) => s.id === 'analyst')).toBe(true);
+    expect(body.sessions.some((s: { id: string }) => s.id === analystSessionId)).toBe(true);
   });
 
   test('GET unknown route returns a 404 with a clean JSON error', async ({ request }) => {
@@ -87,19 +90,19 @@ test.describe('saivage-v3 live deployment — extra contract coverage', () => {
   });
 
   test('chats.send round-trip appends a user entry visible in chats.get', async ({ request }) => {
-    const before = await request.get('/api/chats/analyst');
+    const before = await request.get(`/api/chats/${analystSessionPath}`);
     expect(before.status()).toBe(200);
     const beforeBody = await before.json();
     const beforeCount = beforeBody.entries.length;
 
     const marker = `live-e2e-roundtrip-${Date.now()}`;
-    const send = await request.post('/api/chats/analyst', {
+    const send = await request.post(`/api/chats/${analystSessionPath}`, {
       data: { content: marker, workspaceContext: { view: 'dashboard', entityId: null, refinement: null } },
       timeout: 120_000,
     });
-    expect(send.status(), `POST /api/chats/analyst — body=${await send.text().catch(() => '<unreadable>')}`).toBe(200);
+    expect(send.status(), `POST /api/chats/${analystSessionPath} — body=${await send.text().catch(() => '<unreadable>')}`).toBe(200);
 
-    const after = await request.get('/api/chats/analyst');
+    const after = await request.get(`/api/chats/${analystSessionPath}`);
     expect(after.status()).toBe(200);
     const afterBody = await after.json();
     expect(afterBody.entries.length).toBeGreaterThan(beforeCount);
@@ -109,19 +112,19 @@ test.describe('saivage-v3 live deployment — extra contract coverage', () => {
 
   test('destructive-confirmation gate is gone: analyst card mutation request is not rejected with authorized-surface error', async ({ request }) => {
     test.setTimeout(180_000);
-    const before = await request.get('/api/chats/analyst');
+    const before = await request.get(`/api/chats/${analystSessionPath}`);
     const beforeCount = (await before.json()).entries.length;
 
-    const send = await request.post('/api/chats/analyst', {
+    const send = await request.post(`/api/chats/${analystSessionPath}`, {
       data: {
         content: "mark the project card as needing corrections with one warning issue: live e2e gate removal probe",
         workspaceContext: { view: 'dashboard', entityId: null, refinement: null },
       },
       timeout: 180_000,
     });
-    expect(send.status(), `POST /api/chats/analyst — body=${await send.text().catch(() => '<unreadable>')}`).toBe(200);
+    expect(send.status(), `POST /api/chats/${analystSessionPath} — body=${await send.text().catch(() => '<unreadable>')}`).toBe(200);
 
-    const after = await request.get('/api/chats/analyst');
+    const after = await request.get(`/api/chats/${analystSessionPath}`);
     const entries = (await after.json()).entries.slice(beforeCount) as Array<{ content?: string; text?: string }>;
     const text = entries.map((e) => e.content ?? e.text ?? '').join('\n');
     expect(text).not.toContain('requires an authorized surface');
@@ -133,16 +136,16 @@ test.describe('saivage-v3 live deployment — extra contract coverage', () => {
   test('two back-to-back chats.send POSTs produce two distinct 32-hex round_ids', async ({ request }) => {
     test.setTimeout(240_000);
     const HEX_ROUND = /^r-user-[0-9a-f]{32}$/;
-    const before = await request.get('/api/chats/analyst');
+    const before = await request.get(`/api/chats/${analystSessionPath}`);
     const beforeCount = (await before.json()).entries.length as number;
 
     const stamp = Date.now();
-    const post1 = await request.post('/api/chats/analyst', { data: { content: `round-id-uniqueness-probe-A-${stamp}`, workspaceContext: { view: 'dashboard', entityId: null, refinement: null } }, timeout: 120_000 });
+    const post1 = await request.post(`/api/chats/${analystSessionPath}`, { data: { content: `round-id-uniqueness-probe-A-${stamp}`, workspaceContext: { view: 'dashboard', entityId: null, refinement: null } }, timeout: 120_000 });
     expect(post1.status()).toBe(200);
-    const post2 = await request.post('/api/chats/analyst', { data: { content: `round-id-uniqueness-probe-B-${stamp}`, workspaceContext: { view: 'dashboard', entityId: null, refinement: null } }, timeout: 120_000 });
+    const post2 = await request.post(`/api/chats/${analystSessionPath}`, { data: { content: `round-id-uniqueness-probe-B-${stamp}`, workspaceContext: { view: 'dashboard', entityId: null, refinement: null } }, timeout: 120_000 });
     expect(post2.status()).toBe(200);
 
-    const after = await request.get('/api/chats/analyst');
+    const after = await request.get(`/api/chats/${analystSessionPath}`);
     const allEntries = (await after.json()).entries as Array<{ role: string; content?: string; text?: string; round_id?: string }>;
     const newEntries = allEntries.slice(beforeCount);
     const userEntries = newEntries.filter((e) => e.role === 'user');

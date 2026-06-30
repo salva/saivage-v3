@@ -5,7 +5,8 @@ import { queueNotification, resolveRecipient } from '../notifications/index.js';
 import { assertAnalystInspectionTarget, redactAnalystSecretValue } from '../workspace/file-access-security.js';
 import { getRedactedConfig, mcpAdd, mcpEdit, mcpRemove, setFailoverChain, setRoleRouting, setRuntimeSetting, setServerSetting } from '../agents/analyst-config-writer.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
-import { AgentSessionRepository, GLOBAL_ANALYST_SESSION_ID, isSafeAgentSessionId } from '../agents/agent-session-repository.js';
+import { GLOBAL_ANALYST_SESSION_ID, isSafeAgentSessionId } from '../agents/session-ids.js';
+import { AgentOperatorReadModelService } from '../application/read-models/index.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
 import { describe, emptyInput, type UnifiedToolDefinition } from './tool-catalog.js';
 import { toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
@@ -52,12 +53,8 @@ export async function reconfigure(ctx: ToolContext, params: ReconfigureParams): 
 
 export async function list_agent_sessions(ctx: ToolContext, _params: Record<string, never>): Promise<ToolResult> {
   try {
-    const repository = new AgentSessionRepository(ctx.projectRoot);
-    const sessions = repository.listKnownSessionIds().sort().flatMap((id): Array<Record<string, unknown>> => {
-      const session = repository.getSession(id);
-      if (session?.role === 'analyst' && id !== GLOBAL_ANALYST_SESSION_ID) return [];
-      return [{ id, role: session?.role ?? null, status: session?.status ?? null, started_at: session?.started_at ?? null, card_id: session?.card_id ?? null }];
-    });
+    const sessions = new AgentOperatorReadModelService(ctx.projectRoot).listSessions().sessions
+      .filter((session) => session.role !== 'analyst' || session.id === GLOBAL_ANALYST_SESSION_ID);
     return { success: true, data: sessions };
   }
   catch (err) { return toolFailureFromError(err, 'io'); }
@@ -67,12 +64,13 @@ export async function read_agent_session(ctx: ToolContext, params: { sessionId: 
   try {
     if (typeof params.sessionId !== 'string' || params.sessionId.length === 0) return toolFailure('validation', 'sessionId is required.', { field: 'sessionId' });
     if (!isSafeAgentSessionId(params.sessionId)) return toolFailure('validation', 'sessionId contains invalid characters.', { field: 'sessionId' });
-    const repository = new AgentSessionRepository(ctx.projectRoot);
-    const session = repository.getSession(params.sessionId);
     const limit = Math.min(Math.max(1, params.lastN ?? JSONL_TAIL_DEFAULT), JSONL_TAIL_MAX);
-    const messages = repository.getMessages(params.sessionId);
-    const entries = messages.slice(-limit);
-    return { success: true, data: { session, total_messages: messages.length, returned: entries.length, parse_errors: 0, messages: entries } };
+    const response = new AgentOperatorReadModelService(ctx.projectRoot).getConversation(params.sessionId);
+    if (response.statusCode === 404) return toolFailure('not_found', `Agent session '${params.sessionId}' was not found.`, { sessionId: params.sessionId });
+    if (response.statusCode) return toolFailure('validation', 'Invalid agent session request.', { sessionId: params.sessionId });
+    if (!('entries' in response.body)) return toolFailure('validation', 'Invalid agent session request.', { sessionId: params.sessionId });
+    const entries = response.body.entries.slice(-limit);
+    return { success: true, data: { session: response.body.session, total_messages: response.body.entries.length, returned: entries.length, parse_errors: 0, messages: entries } };
   }
   catch (err) { return toolFailureFromError(err, 'io'); }
 }

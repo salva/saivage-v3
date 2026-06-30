@@ -5,12 +5,12 @@ import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { initRuntimeState, updateRuntimeState } from '../../src/runtime/state.js';
 import { CardStore } from '../../src/cards/store-api.js';
-import { saveActorSnapshot } from '../../src/runtime/actors/index.js';
+import { appendConversationMessage, buildContextTextMessage, saveActorSnapshot } from '../../src/runtime/actors/index.js';
 import {
+  AgentOperatorReadModelService,
   buildCardRunsResponse,
   buildRuntimeStatusReadModel,
   CardsReadModelService,
-  ChatReadModelService,
   DebugReadModelService,
   WorkspaceFileReadModelService,
 } from '../../src/application/read-models/index.js';
@@ -151,20 +151,19 @@ describe('application read models', () => {
     expect(service.readFileContent('reports/binary.bin').statusCode).toBe(415);
   });
 
-  it('reads canonical analyst entries and debug jsonl projections', () => {
-    const messagesDir = join(root, '.saivage', 'agents', 'messages');
-    mkdirSync(messagesDir, { recursive: true });
-    writeFileSync(join(messagesDir, 'analyst.jsonl'), '{"id":"msg-1","session_id":"analyst","role":"assistant","kind":"text","content":"hi","round_id":"r-assistant-00000000000000000000000000000001","message_index":0,"block_index":0,"timestamp":"2026-01-01T00:00:00.000Z"}\n');
+  it('reads canonical analyst segment entries and debug jsonl projections', () => {
+    appendConversationMessage(root, { ...buildContextTextMessage('analyst:global', 'system', 'system prompt'), id: 'msg-1', kind: 'system_prompt', timestamp: '2026-01-01T00:00:00.000Z' });
+    appendConversationMessage(root, { ...buildContextTextMessage('analyst:global', 'user', 'hi'), id: 'msg-2', timestamp: '2026-01-01T00:00:01.000Z' });
     const runtimeDir = join(root, '.saivage', 'runtime');
     mkdirSync(runtimeDir, { recursive: true });
     writeFileSync(join(runtimeDir, 'errors.jsonl'), '{"message":"apiKey=secret"}\n');
 
-    const chat = new ChatReadModelService(root).getEntries('analyst').body as { entries: unknown[] };
+    const chat = new AgentOperatorReadModelService(root).getConversation('analyst:global').body as { entries: Array<{ kind: string }> };
     const debug = new DebugReadModelService(root, new CardStore(root)).getErrors() as { errors: unknown[]; total: number };
 
-    expect(chat.entries).toHaveLength(1);
+    expect(chat.entries.map((entry) => entry.kind)).toEqual(['system_prompt', 'text']);
     expect(debug.total).toBe(1);
     expect(JSON.stringify(debug.errors)).not.toContain('secret');
-    expect(existsSync(join(root, '.saivage', 'agents', 'messages', 'analyst.jsonl'))).toBe(true);
+    expect(existsSync(join(root, '.saivage', 'agents', 'conversations', encodeURIComponent('analyst:global'), 'seg-001.jsonl'))).toBe(true);
   });
 });

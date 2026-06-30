@@ -1,5 +1,8 @@
 import { expect, test, type Page, type Request } from '@playwright/test';
 
+const analystSessionId = 'analyst:global';
+const analystSessionPath = encodeURIComponent(analystSessionId);
+
 /**
  * Live end-to-end suite against the saivage-v3 deployment serving the
  * `getrich-v2` project (container `saivage-v3-getrich-v2`, default
@@ -86,7 +89,7 @@ test.describe('saivage-v3 live deployment — getrich-v2', () => {
   });
 
   test('chats.send responds with a contract-valid success body for the analyst session', async ({ request }) => {
-    const res = await request.post('/api/chats/analyst', {
+    const res = await request.post(`/api/chats/${analystSessionPath}`, {
       data: { content: 'live e2e ping — please reply with the single word OK', workspaceContext: { view: 'dashboard', entityId: null, refinement: null } },
       timeout: 120_000,
     });
@@ -94,7 +97,7 @@ test.describe('saivage-v3 live deployment — getrich-v2', () => {
     expect(res.status(), `chats.send status — body=${await res.text().catch(() => '<unreadable>')}`).toBe(200);
 
     const body = await res.json();
-    expect(body.sessionId).toBe('analyst');
+    expect(body.sessionId).toBe(analystSessionId);
     expect(body.message).toMatchObject({
       role: 'assistant',
       kind: 'text',

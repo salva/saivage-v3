@@ -8,10 +8,12 @@ import { createTestRuntimeApplication } from '../helpers/test-runtime-applicatio
 
 const handleMessage = jest.fn<(sessionId: string, content: string, workspaceContext?: unknown) => Promise<unknown>>();
 const getOrCreateAnalystSession = jest.fn();
+const analystSessionId = 'analyst:global';
+const analystSessionPath = encodeURIComponent(analystSessionId);
 
 jest.unstable_mockModule('../../src/agents/analyst-handler.js', () => ({
   AnalystHandler: jest.fn().mockImplementation(() => ({ handleMessage })),
-  GLOBAL_ANALYST_SESSION_ID: 'analyst',
+  GLOBAL_ANALYST_SESSION_ID: analystSessionId,
   getAnalystHandler: jest.fn().mockImplementation(() => ({ handleMessage })),
   getOrCreateAnalystSession,
 }));
@@ -32,11 +34,11 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
     handleMessage.mockReset();
     getOrCreateAnalystSession.mockReset();
     getOrCreateAnalystSession.mockReturnValue({
-      sessionId: 'analyst',
-      session: { id: 'analyst', role: 'analyst', status: 'active', started_at: '2025-01-01T00:00:00Z' },
+      sessionId: analystSessionId,
+      session: { id: analystSessionId, role: 'analyst', status: 'active', started_at: '2025-01-01T00:00:00Z' },
     });
     handleMessage.mockResolvedValue({
-      sessionId: 'analyst',
+      sessionId: analystSessionId,
       message: { id: 'm1', role: 'assistant', kind: 'text', content: 'ok', timestamp: '2025-01-01T00:00:00Z' },
       toolInvocations: [],
     });
@@ -56,14 +58,14 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
   it('omits the third handleMessage argument when workspaceContext is absent', async () => {
     const fastify = await app();
     try {
-      const response = await fastify.inject({ method: 'POST', url: '/api/chats/analyst', payload: { content: 'hi' } });
+      const response = await fastify.inject({ method: 'POST', url: `/api/chats/${analystSessionPath}`, payload: { content: 'hi' } });
       expect(response.statusCode).toBe(200);
       expect(ChatSendResponseSchema.parse(response.json())).toEqual({
-        sessionId: 'analyst',
+        sessionId: analystSessionId,
         message: { id: 'm1', role: 'assistant', kind: 'text', content: 'ok', timestamp: '2025-01-01T00:00:00Z' },
         toolInvocations: [],
       });
-      expect(handleMessage).toHaveBeenCalledWith('analyst', 'hi', undefined);
+      expect(handleMessage).toHaveBeenCalledWith(analystSessionId, 'hi', undefined);
     } finally { await fastify.close(); }
   });
 
@@ -71,24 +73,24 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
     const fastify = await app();
     const workspaceContext = { view: 'cards', entityId: 'code-3', refinement: null };
     try {
-      const response = await fastify.inject({ method: 'POST', url: '/api/chats/analyst', payload: { content: 'hi', workspaceContext } });
+      const response = await fastify.inject({ method: 'POST', url: `/api/chats/${analystSessionPath}`, payload: { content: 'hi', workspaceContext } });
       expect(response.statusCode).toBe(200);
-      expect(handleMessage).toHaveBeenCalledWith('analyst', 'hi', workspaceContext);
+      expect(handleMessage).toHaveBeenCalledWith(analystSessionId, 'hi', workspaceContext);
     } finally { await fastify.close(); }
   });
 
 
   it('canonicalizes the analyst success body before contract response parsing', async () => {
     handleMessage.mockResolvedValueOnce({
-      sessionId: 'analyst',
+      sessionId: analystSessionId,
       message: { id: 'm-loose', content: 'canonical reply', timestamp: '2025-01-01T00:00:02Z', extra: 'preserved' },
     });
     const fastify = await app();
     try {
-      const response = await fastify.inject({ method: 'POST', url: '/api/chats/analyst', payload: { content: 'hi' } });
+      const response = await fastify.inject({ method: 'POST', url: `/api/chats/${analystSessionPath}`, payload: { content: 'hi' } });
       expect(response.statusCode).toBe(200);
       expect(ChatSendResponseSchema.parse(response.json())).toEqual({
-        sessionId: 'analyst',
+        sessionId: analystSessionId,
         message: { id: 'm-loose', role: 'assistant', kind: 'text', content: 'canonical reply', timestamp: '2025-01-01T00:00:02Z', extra: 'preserved' },
         toolInvocations: [],
       });
@@ -98,7 +100,7 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
   it('rejects malformed workspaceContext with 400', async () => {
     const fastify = await app();
     try {
-      const response = await fastify.inject({ method: 'POST', url: '/api/chats/analyst', payload: { content: 'hi', workspaceContext: { view: 42, entityId: null, refinement: null } } });
+      const response = await fastify.inject({ method: 'POST', url: `/api/chats/${analystSessionPath}`, payload: { content: 'hi', workspaceContext: { view: 42, entityId: null, refinement: null } } });
       expect(response.statusCode).toBe(400);
       expect(response.json()).toMatchObject({
         error: 'ValidationError',
