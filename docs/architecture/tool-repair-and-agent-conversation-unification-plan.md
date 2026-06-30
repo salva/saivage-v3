@@ -115,49 +115,54 @@ ensureConversationDir(projectRoot, sessionId)  // mkdirSync for session creation
 
 The `LLMActor` constructor and the active-reconstruction system currently assume every LLM turn belongs to a card. The analyst has no card. Three changes make `LLMActor` work for the analyst:
 
-**Actor vocabulary and ID grammar.** Add `'analyst'` to `llmActorRoles` in `src/runtime/actors/actor-vocabulary.ts`. Add the `analyst:` prefix to `actorKindFromId` in `src/runtime/actors/ids.ts`. `parseLlmActorId` already iterates `llmActorRoles`, so `analyst:<conversationId>` returns `{ role: 'analyst', cardId: conversationId }` automatically. The `cardId` field is a misnomer for analyst (it is the conversation id), but it avoids restructuring the read model's agent identity tuple.
+**Actor vocabulary and ID grammar.** Add `'analyst'` to `llmActorRoles` in `src/runtime/actors/actor-vocabulary.ts`. Add the `analyst:` prefix to `actorKindFromId` in `src/runtime/actors/ids.ts`. Update `parseLlmActorId` to return `{ role: LlmActorRole; cardId: string | null }` — `cardId` is the parsed id suffix for planner/reviewer/executor, and `null` for analyst. This avoids the misleading "cardId means conversation id" overload and prevents accidental card lookups for analyst sessions. Update all `parseLlmActorId` consumers (recovery, read model, supervisor API) to handle the nullable `cardId`.
 
-**Reconstruction record.** Make `card_id` nullable in `LlmActiveReconstructionRecord` and `llmActiveReconstructionSchema` (`z.string().min(1)` → `z.string().nullable()`). Remove the `card_id` validation throw in `LLMActor.createActiveReconstruction`; pass `null` for analyst turns. In `readLlmActiveReconstruction`, skip the `card_id !== identity.cardId` check when `identity.role === 'analyst'`.
+**Reconstruction record.** Make `card_id` nullable in `LlmActiveReconstructionRecord` and `llmActiveReconstructionSchema` (`z.string().min(1)` → `z.string().nullable()`). Remove the `card_id` validation throw in `LLMActor.createActiveReconstruction`; pass `null` for analyst turns. In `readLlmActiveReconstruction`, skip the `card_id !== identity.cardId` check when `identity.cardId === null`.
 
-**Analyst session id.** `GLOBAL_ANALYST_SESSION_ID` changes from `'analyst'` to `'analyst:global'` for consistency with the `analyst:<conversationId>` pattern. All chat/websocket/telegram consumers are updated in this plan, so there is no compatibility concern. Move `GLOBAL_ANALYST_SESSION_ID` and `isSafeAgentSessionId` to `src/agents/session-ids.ts` since `AgentSessionRepository` is being deleted.
+**Analyst session id.** `GLOBAL_ANALYST_SESSION_ID` changes from `'analyst'` to `'analyst:global'`. Session ids are full actor ids: `analyst:global`, `analyst:telegram-<chatId>`, etc. The `agentId` equals the `sessionId`; there is no separate "conversationId" string. Move `GLOBAL_ANALYST_SESSION_ID` and `isSafeAgentSessionId` to `src/agents/session-ids.ts` since `AgentSessionRepository` is being deleted.
 
 ### 4. Migrate the analyst onto `LLMActor` and segments
 
 The analyst loop currently re-reads all messages from disk every iteration, compacts, filters, injects workspace context, and sends the full history to the provider via `InvocationService.invokeWithRecovery()`. `LLMActor` keeps context in memory and appends to it through state-machine transitions.
 
-**LLMActor creation.** `AnalystRuntimeDeps` gains `provider: LLMProviderPort` and `admission?: LLMAdmissionPort` (both already available from the micro-actor runtime API). It loses `contextCompactor` and `stamper`. The `AnalystHandler` creates one `LLMActor` per conversation (keyed by session id), stores it in a `Map`, and reuses it across turns in the same conversation.
+**Provider and admission wiring.** Export `createInvocationServiceProvider(invocationService): LLMProviderPort` from `src/application/micro-actor-runtime-api-factory.ts` (currently a private function) so both the micro-actor runtime and the analyst use the same adapter. Expose `LLMAdmissionPort` explicitly from the composed runtime API so the analyst passes real admission, not a cast or hidden concrete method. `AnalystRuntimeDeps` gains `provider: LLMProviderPort` and `admission?: LLMAdmissionPort`. It loses `contextCompactor` and `stamper`.
 
-**Turn input.** Build a `LlmInvocationInput` from the existing analyst loop state:
+**LLMActor creation.** The `AnalystHandler` creates one `LLMActor` per conversation (keyed by session id), stores it in a `Map`, and reuses it across turns in the same conversation.
+
+**Session id and agent id are the same string.** `sessionId = agentId = 'analyst:global'` or `'analyst:telegram-<chatId>'`. There is no separate conversation id. Build a `LlmInvocationInput` from the existing analyst loop state:
 
 ```text
-agentId: 'analyst:<conversationId>'
+agentId: sessionId   (e.g. 'analyst:global')
 role: 'analyst'
-sessionId: 'analyst:<conversationId>'
+sessionId: sessionId
 systemPrompt: getAnalystSystemPrompt() + projectContext
 contextMessages: [workspace-context system message, ...prior conversation messages]
 tools: getAnalystToolDefinitions()
 terminalToolNames: []
-episodeContext: { cardId: null, conversationId }
+episodeContext: { cardId: null }
 ```
 
-**User message persistence.** `LLMActor` logs model-side entries (system prompt, assistant text, tool calls, tool results) but not arbitrary context messages. The analyst handler appends the operator's user message to `conversation-store` directly before calling `llmActor.turn(...)`. This keeps `LLMActor` clean (it only logs LLM turn events) and ensures the full conversation is visible in `/api/agents/:id/conversation`.
+**User message persistence and session creation.** `LLMActor` logs model-side entries (system prompt, assistant text, tool calls, tool results) but not arbitrary context messages. The analyst handler appends the operator's user message to `conversation-store` directly before calling `llmActor.turn(...)`. The conversation directory is created by `appendConversationMessage` on the first user message — no pre-creation step, no empty-session problem. `getConversation()` returns 404 only for non-existent sessions, not for sessions that simply have no messages yet, because sessions with no messages never have a directory.
+
+Replace `getOrCreateAnalystSession()` with a simple pure resolver in `src/agents/session-ids.ts`:
+
+```ts
+function resolveAnalystSessionId(sessionId?: string): string {
+  return sessionId ?? GLOBAL_ANALYST_SESSION_ID;
+}
+```
+
+No filesystem side effects, no `AgentSession` manifest. Consumers (websocket, telegram, chat routes) call this to normalize the id; the conversation directory is created on first `appendConversationMessage`.
 
 **Loop shape.** For each tool call, the handler dispatches via the existing `ToolDispatcher`, then calls `llmActor.appendToolResult(toolCallId, result, hook)`. For plain-text results, the loop ends (the analyst has no terminal tool contract). Duplicate tool-call prevention (`previousToolCallFingerprints`) and control-action auditing stay in the analyst handler.
 
 **Context management.** Compaction is not wired. The context grows until the conversation ends or the provider rejects an oversized request. This is a known Phase 1 limitation. The workspace-context system message is part of the initial `contextMessages`, not re-injected per iteration.
 
-**Session creation.** Replace `getOrCreateAnalystSession()` with a simple function in `src/agents/session-ids.ts`:
+**Provider wiring.** `InvocationService` stays as the `LLMProviderPort` adapter via the exported `createInvocationServiceProvider`. It handles model routing, candidate resolution, and retry. Only the analyst's direct `invokeWithRecovery` call and its session/message persistence are removed.
 
-```ts
-function ensureAnalystSession(projectRoot: string, sessionId = GLOBAL_ANALYST_SESSION_ID): { sessionId: string } {
-  ensureConversationDir(projectRoot, sessionId);
-  return { sessionId };
-}
-```
+**Recovery.** Analyst LLM snapshots are not card-bound. Add an explicit analyst branch to `buildActorRecoveryPlan()` in `src/runtime/actors/actor-recovery.ts`: analyst LLM snapshots are excluded from `recoveryOutcomeCandidates`, card projection, and card diagnostics. If an analyst snapshot is active on startup, its stale pending tool calls are abandoned (via the existing `abandonStalePendingToolCalls` path) and the snapshot is removed. No card lifecycle patch is attempted for analyst LLMs.
 
-No `AgentSession` manifest is returned. Consumers (websocket, telegram, chat routes) only need the session id.
-
-**Provider wiring.** `InvocationService` stays as the `LLMProviderPort` adapter (already wired in `src/application/micro-actor-runtime-api-factory.ts:28`). It handles model routing, candidate resolution, and retry. Only the analyst's direct `invokeWithRecovery` call and its session/message persistence are removed.
+**Live status.** Analyst sessions do not appear in `getActorRuntimeReadModel()` (which walks card processors). The segment read model derives analyst session status from actor snapshots directly: if a matching `analyst:*` snapshot exists and is active, the session is active; otherwise it is inactive. This is a snapshot read, not a card processor lookup.
 
 Because there is no bridge, a running `analyst` session with old `.saivage/agents/messages/analyst.jsonl` history is simply reset: the operator starts a new conversation or the old file is ignored.
 
@@ -211,7 +216,7 @@ Delete `FakeAgentAdapter`'s `AgentExecutionPort` methods and its session-persist
 
 Delete `AgentExecutionPort` from `src/contracts/agent-execution.ts` — or keep it as an interface if `FakeAgentAdapter` still implements a reduced version. If no consumer remains, delete it.
 
-Delete tests that exclusively test the old invocation surface:
+Delete tests that exclusively test the old `AgentAdapter.invoke*` surface:
 - `tests/agents/agent-adapter-llm-attempt.test.ts`
 - `tests/agents/agent-adapter-dispatch-precondition.test.ts`
 - `tests/agents/agent-adapter-activation-barrier.test.ts`
@@ -219,7 +224,8 @@ Delete tests that exclusively test the old invocation surface:
 - `tests/agents/agent-adapter-abort.test.ts`
 - `tests/agents/agent-adapter-recovery.test.ts`
 - `tests/agents/agent-adapter-reviewer-prompt.test.ts`
-- `tests/agents/llm-client-integration.test.ts` (or port the still-relevant provider-routing tests to test `InvocationService` directly)
+
+`tests/agents/llm-client-integration.test.ts` covers LLM client/transport behavior (auth errors, rate limits, timeouts, parse errors, streaming, config flow-through) that is independent of `AgentAdapter.invoke*`. Port the still-relevant cases to test `InvocationService` + `LlmProviderGateway` directly (creating an `InvocationService` with a mock router/registry, not via `AgentAdapter`). Delete only the cases whose subject is the `AgentAdapter.invoke*` contract. This preserves current provider correctness on the current API; it is not backward compatibility.
 
 **Runtime composition.** Update `src/application/runtime-composition.ts`:
 - Remove `ContextCompactor` construction and from `AnalystRuntimeDeps`.
