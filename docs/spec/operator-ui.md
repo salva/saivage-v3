@@ -35,7 +35,7 @@ The workspace area renders read-only projections of runtime state, including:
 - runtime events, errors, debug views, and control-action audit records;
 - configuration projections where appropriate.
 
-Agent conversations in the Analyst panel, Agents page, and Debug agents view follow the shared design in [Agent Conversation UI Redesign](../architecture/agent-conversation-ui-redesign.md). That document defines the round, tool-row, grouping, detail, raw-payload, and debug reuse behavior for conversation displays.
+Agent conversations in the Analyst panel and Debug agents view follow the shared design in [Agent Conversation UI Redesign](../architecture/agent-conversation-ui-redesign.md). That document defines the round, tool-row, grouping, detail, raw-payload, and Debug-as-transcript-entry behavior for conversation displays.
 
 The workspace may provide projection-only affordances:
 
