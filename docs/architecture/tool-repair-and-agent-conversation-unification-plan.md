@@ -111,6 +111,8 @@ buildContextTextMessage(sessionId, role, content)   // caller-appended context r
 
 `appendConversationMessage` creates the conversation directory on first write. No public `ensureConversationDir`; empty sessions never exist. `LLMActor` and `llm-delivery-log.ts` import from this module. No other transcript read path remains. `buildContextTextMessage` constructs a valid `AgentMessage` (with `id`, `round_id`, `message_index`, `block_index`, `timestamp`) for any caller-side context row — the analyst handler uses it for both the per-turn workspace-context note (`role: 'system'`) and the operator user message (`role: 'user'`) — so the old `SessionStamper` is not needed. `LLMActor`-internal rows continue to use the stamping helpers already in `llm-delivery-log.ts`.
 
+The current `appendActorSystemPromptIfMissing` in `llm-delivery-log.ts` calls `readConversationMessages()` — reading the entire segment from disk — on every `turn()` just to check if the system prompt was already logged. For short-lived card-processor actors this is negligible, but for the analyst's long-lived actor it reads a growing transcript on every turn, contradicting the "normal live turns do not reread the transcript from disk" invariant. Fix this by replacing the disk scan with an in-memory dedup: track a `Set<sessionId>` (or a boolean flag on the actor) of sessions that already have a logged system prompt, or check `this.input.contextMessages` for the system-prompt id before appending. The disk read in `appendActorSystemPromptIfMissing` is removed.
+
 Add one projection helper:
 
 ```ts
@@ -190,7 +192,12 @@ function resolveAnalystSessionId(sessionId?: string): string {
 
 No filesystem side effects, no `AgentSession` manifest. Consumers (websocket, telegram, chat routes) call this to normalize the id; the conversation directory is created on first `appendConversationMessage`.
 
-**Loop shape.** For each tool call, the handler dispatches via the existing `ToolDispatcher`, then calls `llmActor.appendToolResult(toolCallId, result, hook)`. For plain-text results, the loop ends (the analyst has no terminal tool contract). Duplicate tool-call prevention (`previousToolCallFingerprints`) and control-action auditing stay in the analyst handler.
+**Loop shape.** `LLMActor.turn()` / `appendToolResult()` return `LLMActorOutcome` with three variants; the analyst loop handles each:
+- `{ type: 'result' }` — plain text; the loop ends (the analyst has no terminal tool contract). The handler returns the assistant text as the `AnalystResponse`.
+- `{ type: 'tool_call' }` — the handler dispatches via the existing `ToolDispatcher`, then calls `llmActor.appendToolResult(toolCallId, result)` and loops.
+- `{ type: 'error' }` — provider failure (offline, rate limit, parse error). The handler returns an error `AnalystResponse` to the operator, preserving the current `ANALYST_NO_MODEL_REPLY` / `AnalystOfflineError` behavior. The loop ends; no retry at the `LLMActor` level.
+
+Duplicate tool-call prevention (`previousToolCallFingerprints`), unavailable-tool rejection, and control-action auditing stay in the analyst handler.
 
 **Context management.** Compaction is not wired. The context grows until the conversation ends or the provider rejects an oversized request. This is a known Phase 1 limitation. A fresh workspace-context note is injected once per operator user turn, immediately before that user message. It is not re-injected for tool continuations within the same turn.
 
