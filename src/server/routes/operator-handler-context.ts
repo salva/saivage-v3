@@ -24,10 +24,6 @@ export interface OperatorRuntimeProviderContext {
   runtimeApplication?: RuntimeApplication;
 }
 
-export interface OperatorStaticRuntimeContext {
-  runtimeApplication?: Pick<RuntimeApi, 'getActivityStatus'>;
-}
-
 export interface OperatorAvailabilityContext {
   serverAvailabilityProvider?: OperatorServerAvailabilityProvider;
 }

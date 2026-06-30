@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { writeFileSyncDurable } from '../persistence/index.js';
 import { listConversationSessionIds } from './actors/conversation-store.js';
-import type { AgentSession, CardRecord, CardStatus } from '../schemas/index.js';
+import type { CardRecord, CardStatus } from '../schemas/index.js';
 import type { CardStore } from '../cards/store-api.js';
 import { now } from '../utils/clock.js';
 
@@ -20,8 +20,7 @@ export interface SyntheticPlannerNote {
 
 interface SyntheticQueue { notes: SyntheticPlannerNote[]; }
 
-function saivageDir(projectRoot: string): string { return join(projectRoot, '.saivage'); }
-function syntheticQueuePath(projectRoot: string): string { return join(saivageDir(projectRoot), 'runtime', 'synthetic-notes.json'); }
+function syntheticQueuePath(projectRoot: string): string { return join(projectRoot, '.saivage', 'runtime', 'synthetic-notes.json'); }
 function readJson<T>(path: string, fallback: T): T { if (!existsSync(path)) return fallback; try { return JSON.parse(readFileSync(path, 'utf-8')) as T; } catch { return fallback; } }
 function readSyntheticQueue(projectRoot: string): SyntheticQueue { return readJson<SyntheticQueue>(syntheticQueuePath(projectRoot), { notes: [] }); }
 function writeSyntheticQueue(projectRoot: string, queue: SyntheticQueue): void { writeFileSyncDurable(syntheticQueuePath(projectRoot), JSON.stringify(queue, null, 2) + '\n'); }
@@ -30,31 +29,26 @@ function contains(store: CardStore, goalId: string, affectedCardId: string): boo
   return goalId === affectedCardId || store.getDescendantIds(goalId).includes(affectedCardId);
 }
 
-function plannerSessionForGoal(goalId: string): AgentSession {
-  return { id: `planner:${goalId}`, role: 'planner', goal_card_id: goalId, card_id: goalId, status: 'active', started_at: new Date(0).toISOString() };
-}
-
 function plannerGoalFromSessionId(sessionId: string): string | null {
   return sessionId.startsWith('planner:') ? sessionId.slice('planner:'.length) : null;
 }
 
-export function findContainingPlannerChain(projectRoot: string, store: CardStore, affectedCardId: string): Array<{ session: AgentSession; goalId: string }> {
-  const sessions = listConversationSessionIds(projectRoot)
+export function findContainingPlannerChain(projectRoot: string, store: CardStore, affectedCardId: string): Array<{ sessionId: string; goalId: string }> {
+  const goalIds = listConversationSessionIds(projectRoot)
     .map((id) => plannerGoalFromSessionId(id))
-    .filter((goalId): goalId is string => Boolean(goalId))
-    .map(plannerSessionForGoal);
-  const candidates = sessions
-    .map((session) => ({ session, goalId: session.goal_card_id as string, card: store.read(session.goal_card_id as string) }))
-    .filter((entry): entry is { session: AgentSession; goalId: string; card: CardRecord } => Boolean(entry.card && contains(store, entry.goalId, affectedCardId)))
+    .filter((goalId): goalId is string => Boolean(goalId));
+  const candidates = goalIds
+    .map((goalId) => ({ sessionId: `planner:${goalId}`, goalId, card: store.read(goalId) }))
+    .filter((entry): entry is { sessionId: string; goalId: string; card: CardRecord } => Boolean(entry.card && contains(store, entry.goalId, affectedCardId)))
     .sort((a, b) => b.card.depth - a.card.depth);
-  if (candidates.length > 0) return candidates.map(({ session, goalId }) => ({ session, goalId }));
+  if (candidates.length > 0) return candidates.map(({ sessionId, goalId }) => ({ sessionId, goalId }));
   const ancestors = [affectedCardId, ...store.getAncestors(affectedCardId).reverse()];
-  const chain: Array<{ session: AgentSession; goalId: string }> = [];
+  const chain: Array<{ sessionId: string; goalId: string }> = [];
   for (const id of ancestors) {
     const card = store.read(id);
     if (!card || (card.type !== 'goal' && card.type !== 'project')) continue;
     const sessionId = `planner:${id}`;
-    if (listConversationSessionIds(projectRoot).includes(sessionId)) chain.push({ session: plannerSessionForGoal(id), goalId: id });
+    if (listConversationSessionIds(projectRoot).includes(sessionId)) chain.push({ sessionId, goalId: id });
   }
   return chain;
 }

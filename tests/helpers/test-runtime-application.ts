@@ -5,8 +5,6 @@ import { join } from 'node:path';
 import type { RuntimeApplication } from '../../src/application/runtime-composition.js';
 import type { AnalystRuntimeDeps } from '../../src/agents/analyst-api.js';
 import type { RuntimeApi } from '../../src/runtime/runtime-api.js';
-import type { RoundStamp } from '../../src/runtime/session-stamper.js';
-import { generateRoundId } from '../../src/schemas/round-id-server.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import { createInvocationServiceProvider } from '../../src/application/micro-actor-runtime-api-factory.js';
 import { InvocationService } from '../../src/agents/invocation-service.js';
@@ -26,34 +24,23 @@ function ensureTestSaivageConfig(projectRoot: string): void {
   }, null, 2));
 }
 
-interface TestRoundState { currentRoundId: string | null; nextMessageIndex: number; nextBlockIndex: number; }
-
-type TestAnalystRuntime = RuntimeApi & AnalystRuntimeDeps['stamper'] & {
-  eventLogger?: AnalystRuntimeDeps['eventLogger'];
-  candidateAvailability?: AnalystRuntimeDeps['candidateAvailability'];
-  mcpManager?: AnalystRuntimeDeps['mcpManager'];
-  emitAnalystToolInvoked(payload: Parameters<EventBus['emit']>[1]): void;
-  setMcpManager(mcpManager: NonNullable<AnalystRuntimeDeps['mcpManager']>): void;
-};
-
 function testRuntimeTimestamp(): string { return new Date(0).toISOString(); }
 
 function testRuntimeCommand(command: 'start_project' | 'stop_project'): Awaited<ReturnType<RuntimeApi['startProject']>>['command'] {
   return { command_id: `test-${command}`, command, status: 'completed', requested_at: testRuntimeTimestamp(), completed_at: testRuntimeTimestamp(), source: 'runtime' };
 }
 
-function createFlatTestAnalystRuntime(opts: { eventBus?: EventBus } = {}): TestAnalystRuntime {
+interface TestAnalystRuntime {
+  eventLogger?: AnalystRuntimeDeps['eventLogger'];
+  candidateAvailability?: AnalystRuntimeDeps['candidateAvailability'];
+  mcpManager?: AnalystRuntimeDeps['mcpManager'];
+  emitAnalystToolInvoked(payload: Parameters<EventBus['emit']>[1]): void;
+  setMcpManager(mcpManager: NonNullable<AnalystRuntimeDeps['mcpManager']>): void;
+}
+
+function createFlatTestAnalystRuntime(opts: { eventBus?: EventBus } = {}): TestAnalystRuntime & Pick<RuntimeApi, 'start' | 'shutdown' | 'pause' | 'resume' | 'startProject' | 'stopProject' | 'subscribe' | 'getStatus' | 'getActorRuntimeReadModel'> {
   const eventBus = opts.eventBus ?? new EventBus();
-  const states = new Map<string, TestRoundState>();
-  const stateFor = (sessionId: string): TestRoundState => {
-    let state = states.get(sessionId);
-    if (!state) {
-      state = { currentRoundId: null, nextMessageIndex: 0, nextBlockIndex: 0 };
-      states.set(sessionId, state);
-    }
-    return state;
-  };
-  const runtime: TestAnalystRuntime = {
+  const runtime: TestAnalystRuntime & Pick<RuntimeApi, 'start' | 'shutdown' | 'pause' | 'resume' | 'startProject' | 'stopProject' | 'subscribe' | 'getStatus' | 'getActorRuntimeReadModel'> = {
     eventLogger: undefined,
     candidateAvailability: undefined,
     mcpManager: undefined,
@@ -87,44 +74,6 @@ function createFlatTestAnalystRuntime(opts: { eventBus?: EventBus } = {}): TestA
     setMcpManager(mcpManager: NonNullable<AnalystRuntimeDeps['mcpManager']>): void {
       this.mcpManager = mcpManager;
     },
-    openAssistantRound(sessionId: string): RoundStamp {
-      const state = stateFor(sessionId);
-      state.currentRoundId = generateRoundId('assistant');
-      state.nextMessageIndex = 0;
-      state.nextBlockIndex = 0;
-      return this.stampInRound(sessionId);
-    },
-    stampInRound(sessionId: string): RoundStamp {
-      const state = stateFor(sessionId);
-      if (!state.currentRoundId) state.currentRoundId = generateRoundId('assistant');
-      return { round_id: state.currentRoundId, message_index: state.nextMessageIndex++, block_index: state.nextBlockIndex++ };
-    },
-    stampUserMessage(sessionId: string): RoundStamp {
-      const state = stateFor(sessionId);
-      state.currentRoundId = null;
-      state.nextBlockIndex = 0;
-      return { round_id: generateRoundId('user'), message_index: 0, block_index: 0 };
-    },
-    stampPre(_sessionId: string): RoundStamp {
-      return { round_id: generateRoundId('pre'), message_index: 0, block_index: 0 };
-    },
-    stampCompacted(sessionId: string): RoundStamp {
-      const state = stateFor(sessionId);
-      state.currentRoundId = null;
-      return { round_id: generateRoundId('compacted'), message_index: 0, block_index: 0 };
-    },
-    stampDiagnosticInCurrentRound(sessionId: string): RoundStamp {
-      const state = stateFor(sessionId);
-      const round_id = state.currentRoundId ?? generateRoundId('diagnostic');
-      return { round_id, message_index: state.nextMessageIndex++, block_index: state.nextBlockIndex++ };
-    },
-    closeRound(sessionId: string): void {
-      const state = stateFor(sessionId);
-      state.currentRoundId = null;
-      state.nextBlockIndex = 0;
-    },
-    recordAppend(): void {},
-    getActivityStatus(): { status: 'idle'; pending_calls: []; updated_at: string } { return { status: 'idle', pending_calls: [], updated_at: new Date(0).toISOString() }; },
   };
   return runtime;
 }
@@ -147,7 +96,6 @@ export function createTestAnalystRuntime(opts: { eventBus?: EventBus; cardStore?
   return {
     runtime: analystRuntime,
     cardStore: opts.cardStore ?? new CardStore(projectRoot),
-    stamper: analystRuntime,
     candidateAvailability: analystRuntime.candidateAvailability,
     eventLogger: analystRuntime.eventLogger,
     eventBus,
@@ -175,7 +123,6 @@ export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardSt
       subscribe: (options) => analystRuntime.subscribe(options),
       getStatus: () => analystRuntime.getStatus(),
       getActorRuntimeReadModel: () => analystRuntime.getActorRuntimeReadModel(),
-      getActivityStatus: (sessionId) => analystRuntime.getActivityStatus(sessionId),
     },
     get analystDeps() {
       const config = loadConfig(projectRoot).config;
@@ -191,7 +138,6 @@ export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardSt
       return {
         runtime: analystRuntime,
         cardStore,
-        stamper: analystRuntime,
         candidateAvailability: analystRuntime.candidateAvailability,
         eventLogger: analystRuntime.eventLogger,
         eventBus,

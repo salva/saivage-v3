@@ -40,7 +40,7 @@ export function registerOperatorContractRoutes(options: OperatorContractRouteReg
     'auth.wsTicket': () => ({ body: getAuthPolicy().issueWebSocketTicket() }),
     ...buildRuntimeCardOperatorContractHandlers({ projectRoot, cardStore: options.cardStore, runtimeApplication: options.runtimeApplication, serverAvailabilityProvider: options.serverAvailabilityProvider }),
     ...buildMcpOperatorContractHandlers({ mcpStatusProvider: options.mcpManager, mcpToolsProvider: options.mcpManager, serverAvailabilityProvider: options.serverAvailabilityProvider }),
-    ...buildAgentOperatorContractHandlers({ projectRoot, runtimeApplication: options.runtimeApplication?.runtimeApi }),
+    ...buildAgentOperatorContractHandlers({ projectRoot }),
     ...buildChatOperatorContractHandlers({ projectRoot, runtimeApplication: options.runtimeApplication, requestServerRestart: options.requestServerRestart }),
     ...buildFilesDebugOperatorContractHandlers({ projectRoot, cardStoreProvider: () => options.cardStore }),
     ...buildProcessOperatorContractHandlers({ projectRoot }),

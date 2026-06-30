@@ -35,7 +35,8 @@ import type { ToolContext } from '../src/tools/analyst-tool-types.js';
 
 const TEST_BRIEF = '# Goal\n\nTest card goal\n\n# Instructions\n\nFollow the test setup.\n\n# Acceptance Criteria\n\nAssertions pass.\n';
 
-import { AnalystHandler, getOrCreateAnalystSession } from '../src/agents/analyst-handler.js';
+import { AnalystHandler } from '../src/agents/analyst-handler.js';
+import { resolveAnalystSessionId } from '../src/agents/session-ids.js';
 import {
   ANALYST_TOOL_DEFINITIONS,
   ANALYST_ISSUE_SEVERITY_VALUES,
@@ -522,13 +523,6 @@ describe('Analyst Handler', () => {
     try {
       rmSync(projectRoot, { recursive: true, force: true });
     } catch {}
-  });
-
-  it('creates and reuses analyst sessions', () => {
-    const first = getOrCreateAnalystSession(projectRoot);
-    const second = getOrCreateAnalystSession(projectRoot);
-    expect(first.sessionId).toBe('analyst:global');
-    expect(second.session.started_at).toBe(first.session.started_at);
   });
 
   it('deduplicates the same chat message when two transports submit it together', async () => {

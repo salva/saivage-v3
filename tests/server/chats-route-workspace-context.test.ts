@@ -7,7 +7,7 @@ import { ChatSendResponseSchema } from '../../src/contracts/operator-api-chats.j
 import { createTestRuntimeApplication } from '../helpers/test-runtime-application.js';
 
 const handleMessage = jest.fn<(sessionId: string, content: string, workspaceContext?: unknown) => Promise<unknown>>();
-const getOrCreateAnalystSession = jest.fn();
+const resolveAnalystSessionId = jest.fn<(id?: string) => string>();
 const analystSessionId = 'analyst:global';
 const analystSessionPath = encodeURIComponent(analystSessionId);
 
@@ -15,7 +15,13 @@ jest.unstable_mockModule('../../src/agents/analyst-handler.js', () => ({
   AnalystHandler: jest.fn().mockImplementation(() => ({ handleMessage })),
   GLOBAL_ANALYST_SESSION_ID: analystSessionId,
   getAnalystHandler: jest.fn().mockImplementation(() => ({ handleMessage })),
-  getOrCreateAnalystSession,
+}));
+
+jest.unstable_mockModule('../../src/agents/session-ids.js', () => ({
+  GLOBAL_ANALYST_SESSION_ID: analystSessionId,
+  resolveAnalystSessionId,
+  isSafeAgentSessionId: jest.fn(() => true),
+  SAFE_AGENT_SESSION_ID_RE: /^[\w:.-]+$/,
 }));
 
 const { registerOperatorContractRoutes } = await import('../../src/server/routes/operator-contracts.js');
@@ -32,11 +38,8 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
   beforeEach(() => {
     root = setupRoot();
     handleMessage.mockReset();
-    getOrCreateAnalystSession.mockReset();
-    getOrCreateAnalystSession.mockReturnValue({
-      sessionId: analystSessionId,
-      session: { id: analystSessionId, role: 'analyst', status: 'active', started_at: '2025-01-01T00:00:00Z' },
-    });
+    resolveAnalystSessionId.mockReset();
+    resolveAnalystSessionId.mockReturnValue(analystSessionId);
     handleMessage.mockResolvedValue({
       sessionId: analystSessionId,
       message: { id: 'm1', role: 'assistant', kind: 'text', content: 'ok', timestamp: '2025-01-01T00:00:00Z' },

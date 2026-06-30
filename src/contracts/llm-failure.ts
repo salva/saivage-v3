@@ -1,7 +1,7 @@
 /**
  * Transport-layer LLM failure taxonomy. Contract / envelope-shape violations
  * are no longer modeled as failures — they are first-class values produced by
- * the verifier (see `contract-verifier.ts`) and routed through the loop driver.
+ * the verifier and routed through the loop driver.
  *
  * `provider_protocol_error` covers gateway / wire-level protocol breaches
  * (e.g. an HTTP 400 from a provider whose body the classifier cannot interpret).

@@ -3,14 +3,20 @@ import type { WebSocket } from 'ws';
 import { createTestRuntimeApplication } from '../helpers/test-runtime-application.js';
 import { LiveSyncSocket } from '../../src/server/live-sync-socket.js';
 
-const mockGetOrCreateAnalystSession = jest.fn();
+const mockResolveAnalystSessionId = jest.fn<(id?: string) => string>();
 const mockGetAnalystHandler = jest.fn();
 
 jest.unstable_mockModule('../../src/agents/analyst-handler.js', () => ({
   AnalystHandler: jest.fn(),
-  GLOBAL_ANALYST_SESSION_ID: 'analyst',
-  getOrCreateAnalystSession: mockGetOrCreateAnalystSession,
+  GLOBAL_ANALYST_SESSION_ID: 'analyst:global',
   getAnalystHandler: mockGetAnalystHandler,
+}));
+
+jest.unstable_mockModule('../../src/agents/session-ids.js', () => ({
+  GLOBAL_ANALYST_SESSION_ID: 'analyst:global',
+  resolveAnalystSessionId: mockResolveAnalystSessionId,
+  isSafeAgentSessionId: jest.fn(() => true),
+  SAFE_AGENT_SESSION_ID_RE: /^[\w:.-]+$/,
 }));
 
 const authPolicyModule = await import('../../src/server/auth-policy.js');
@@ -48,7 +54,7 @@ async function flushQueuedTurn(): Promise<void> {
 describe('websocket analyst safety and live-sync control', () => {
   beforeEach(() => {
     jest.resetAllMocks();
-    mockGetOrCreateAnalystSession.mockReturnValue({ sessionId: 'session-1' });
+    mockResolveAnalystSessionId.mockReturnValue('session-1');
     mockGetAnalystHandler.mockReturnValue({
       handleMessage: jest.fn(async () => ({ message: { role: 'assistant', content: 'ok' }, toolInvocations: [] })),
     });

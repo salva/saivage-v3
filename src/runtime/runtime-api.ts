@@ -1,5 +1,4 @@
 import type { Subscription, SubscriptionOptions } from '../events/index.js';
-import type { SessionActivity } from './session-stamper.js';
 import type { ActionableErrorEnvelope, RuntimeCommandRecord, RuntimeRunRecord, RuntimeState, RuntimeStatus } from '../schemas/index.js';
 import type { ActorRuntimeReadModel } from '../application/read-models/actor-runtime-read-model.js';
 
@@ -32,5 +31,4 @@ export interface RuntimeApi {
     lastTickAt: string | null;
   };
   getActorRuntimeReadModel(): ActorRuntimeReadModel;
-  getActivityStatus(sessionId: string): SessionActivity;
 }

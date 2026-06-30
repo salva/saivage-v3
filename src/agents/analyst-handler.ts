@@ -1,4 +1,4 @@
-import type { AgentSession, AgentMessage, ControlActionSurface, ControlActionAuditEntry } from '../schemas/index.js';
+import type { AgentMessage, ControlActionSurface, ControlActionAuditEntry } from '../schemas/index.js';
 import type { ToolResult, ToolContext } from '../tools/analyst-tool-types.js';
 import {
   ANALYST_NO_MODEL_REPLY,
@@ -11,7 +11,6 @@ import { CardStore } from '../cards/store-api.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
 import type { EventBus, EventPayload } from '../events/index.js';
 import { buildRuntimeDiagnosticEvent } from '../runtime/runtime-event-publisher.js';
-import type { SessionActivity, SessionStamper } from '../runtime/session-stamper.js';
 import type { CandidateAvailability } from './candidate-availability.js';
 import type { EventLogger } from '../observability/index.js';
 import type { McpManager } from '../mcp/manager-api.js';
@@ -23,7 +22,6 @@ import { loadConfig, getModelParamsForRole } from './config-schema.js';
 import type { SaivageConfig } from './config-schema.js';
 import { capabilityRequestForLlmOptions } from './provider-capabilities.js';
 import { RoleToolPolicy } from './role-tool-policy.js';
-import { filterAgentMessagesForModel } from './agent-message-visibility.js';
 import { buildAgentProtocolViolation, parseProtocolToolArgs } from './agent-protocol-violation.js';
 import { appendConversationMessage, buildContextTextMessage, conversationMessagesForModel, readConversationMessages } from '../runtime/actors/conversation-store.js';
 import { LLMActor, type LLMActorOutcome, type LLMProviderPort } from '../runtime/actors/llm-actor.js';
@@ -80,7 +78,6 @@ export interface AnalystResponse {
 export interface AnalystRuntimeDeps {
   cardStore: CardStore;
   runtime: Pick<RuntimeApi, 'startProject' | 'stopProject' | 'pause' | 'resume' | 'getStatus'>;
-  stamper: SessionStamper & { getActivityStatus(sessionId: string): SessionActivity };
   candidateAvailability?: CandidateAvailability;
   eventLogger?: EventLogger;
   emitAnalystToolInvoked(payload: EventPayload<'analyst_tool_invoked'>): void;
@@ -88,14 +85,6 @@ export interface AnalystRuntimeDeps {
   mcpManager?: McpManager;
   provider: LLMProviderPort;
 }
-
-export function getOrCreateAnalystSession(projectRoot: string, sessionId?: string): { session: AgentSession; sessionId: string } {
-  void projectRoot;
-  const resolvedSessionId = resolveAnalystSessionId(sessionId);
-  const session: AgentSession = { id: resolvedSessionId, role: 'analyst', status: 'active', started_at: new Date(0).toISOString() };
-  return { session, sessionId: session.id };
-}
-
 
 function summarizeForBroadcast(tool: string, result: ToolResult): { summary: string; classified_as?: string; related_card_id?: string; related_note_id?: string; related_process_id?: string } {
   const data = result.data && typeof result.data === 'object' ? result.data as Record<string, unknown> : null;
@@ -195,12 +184,7 @@ export class AnalystHandler {
   }
 
   private async handleMessageSerial(sessionId: string, userContent: string, workspaceContext?: WorkspaceContext): Promise<AnalystResponse> {
-    const created = getOrCreateAnalystSession(this.projectRoot, sessionId);
-    sessionId = created.sessionId;
-    const priorMessages = readConversationMessages(this.projectRoot, sessionId);
-    const duplicateResponse = this.findRecentDuplicateResponse(priorMessages, userContent);
-    if (duplicateResponse) return duplicateResponse;
-
+    sessionId = resolveAnalystSessionId(sessionId);
     return await this.runAnalystLoop(sessionId, userContent, workspaceContext);
   }
 
@@ -239,8 +223,8 @@ export class AnalystHandler {
 
       if (outcome.type === 'result') {
         const finalText = (outcome.result.content ?? '').trim() || 'Done.';
-        const persisted = this.latestAssistantTextMessage(sessionId, finalText) ?? this.appendAssistantTextMessage(sessionId, finalText);
-        return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: finalText, timestamp: persisted.timestamp }, toolInvocations: toolInvocations.length > 0 ? toolInvocations : undefined };
+        const timestamp = new Date().toISOString();
+        return { sessionId, message: { id: `${sessionId}:assistant:${timestamp}:${Math.random().toString(36).slice(2)}`, role: 'assistant', kind: 'text', content: finalText, timestamp }, toolInvocations: toolInvocations.length > 0 ? toolInvocations : undefined };
       }
 
       const toolCall = outcome;
@@ -321,7 +305,7 @@ export class AnalystHandler {
     const modelParams = getModelParamsForRole(this.config, 'analyst');
     const contextMessages = actor.input
       ? [...actor.input.contextMessages, ...newMessages]
-      : [...filterAgentMessagesForModel(conversationMessagesForModel(readConversationMessages(this.projectRoot, sessionId)))] as AgentMessage[];
+      : [...conversationMessagesForModel(readConversationMessages(this.projectRoot, sessionId))] as AgentMessage[];
     return {
       inputId: `${actor.agentId}:turn:${Date.now()}`,
       agentId: actor.agentId,
@@ -354,10 +338,6 @@ export class AnalystHandler {
     return message;
   }
 
-  private latestAssistantTextMessage(sessionId: string, content: string): AgentMessage | null {
-    return [...readConversationMessages(this.projectRoot, sessionId)].reverse().find((message) => message.role === 'assistant' && message.kind === 'text' && message.content === content) ?? null;
-  }
-
   private errorResponse(sessionId: string, err: unknown, toolInvocations: NonNullable<AnalystResponse['toolInvocations']>): AnalystResponse {
     const noHealthyMessage = `No healthy candidates available for role 'analyst'.`;
     const error = typeof err === 'string' ? err : err instanceof Error ? err.message : String(err);
@@ -368,22 +348,6 @@ export class AnalystHandler {
         : `Analyst LLM unavailable: ${error}`;
     const persisted = this.appendAssistantTextMessage(sessionId, errMsg);
     return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: errMsg, timestamp: persisted.timestamp }, toolInvocations: toolInvocations.length > 0 ? toolInvocations : undefined };
-  }
-
-
-  private findRecentDuplicateResponse(messages: AgentMessage[], userContent: string): AnalystResponse | null {
-    const lastUserIndex = [...messages].reverse().findIndex((msg) => msg.role === 'user');
-    if (lastUserIndex < 0) return null;
-    const userIndex = messages.length - 1 - lastUserIndex;
-    const lastUser = messages[userIndex];
-    if (lastUser.content !== userContent) return null;
-    const interveningUser = messages.slice(userIndex + 1).some((msg) => msg.role === 'user');
-    if (interveningUser) return null;
-    const lastAssistant = messages.slice(userIndex + 1).find((msg) => msg.role === 'assistant' && msg.kind === 'text');
-    if (!lastAssistant) return null;
-    const ageMs = Date.now() - Date.parse(lastUser.timestamp);
-    if (!Number.isFinite(ageMs) || ageMs > 5000) return null;
-    return { sessionId: lastAssistant.session_id, message: { id: lastAssistant.id, role: 'assistant', kind: 'text', content: lastAssistant.content, timestamp: lastAssistant.timestamp } };
   }
 
   private buildProjectContext(): string {

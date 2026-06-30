@@ -65,7 +65,7 @@ export function propagateChange(projectRoot: string, store: CardStore, editedCar
   for (const routed of findContainingPlannerChain(projectRoot, store, editedCardId)) {
     const kind = editedCardId === routed.goalId ? 'analyst_note' : 'subtree_changed';
     queuePlannerNote(projectRoot, liveNotes, {
-      target_planner_session_id: routed.session.id,
+      target_planner_session_id: routed.sessionId,
       target_goal_card_id: routed.goalId,
       kind,
       affected_card_id: editedCardId,
@@ -73,14 +73,14 @@ export function propagateChange(projectRoot: string, store: CardStore, editedCar
       summary,
       ...(previousStatusByCardId.get(routed.goalId) ? { previous_status: previousStatusByCardId.get(routed.goalId)! } : {}),
     });
-    notified.add(routed.session.id);
+    notified.add(routed.sessionId);
   }
 
   if (origin.kind === 'analyst_correction') {
     const routed = findContainingPlannerChain(projectRoot, store, editedCardId)[0];
     if (routed) {
       queuePlannerNote(projectRoot, liveNotes, {
-        target_planner_session_id: routed.session.id,
+        target_planner_session_id: routed.sessionId,
         target_goal_card_id: routed.goalId,
         kind: 'pending_subtree_correction',
         affected_card_id: editedCardId,
@@ -88,7 +88,7 @@ export function propagateChange(projectRoot: string, store: CardStore, editedCar
         summary,
         ...(previousStatusByCardId.get(routed.goalId) ? { previous_status: previousStatusByCardId.get(routed.goalId)! } : {}),
       });
-      notified.add(routed.session.id);
+      notified.add(routed.sessionId);
     }
   }
 

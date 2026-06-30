@@ -3,12 +3,11 @@ import { AgentOperatorReadModelService, isSafeAgentSessionId } from '../../appli
 import type {
   OperatorContractHandlerMap,
   OperatorProjectContext,
-  OperatorStaticRuntimeContext,
 } from './operator-handler-context.js';
 
 function saivageDir(projectRoot: string): string { return `${projectRoot}/.saivage`; }
 
-type AgentOperatorHandlerOptions = OperatorProjectContext & OperatorStaticRuntimeContext;
+type AgentOperatorHandlerOptions = OperatorProjectContext;
 
 export function buildAgentOperatorContractHandlers(options: AgentOperatorHandlerOptions): OperatorContractHandlerMap {
   const { projectRoot } = options;

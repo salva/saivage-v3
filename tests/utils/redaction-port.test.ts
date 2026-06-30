@@ -24,7 +24,6 @@ import {
 } from '../../src/auth/oauth-refresh-logger.js';
 
 import { TelegramBot } from '../../src/telegram/bot.js';
-import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import { createTestRuntimeApplication } from '../helpers/test-runtime-application.js';
 import { CardStore } from '../../src/cards/card-store.js';
 
@@ -211,22 +210,12 @@ describe('redacted outbound sinks', () => {
     expect(summary.length).toBeLessThanOrEqual(320);
     expectNoSyntheticSecret(summary);
 
-    const root = mkdtempSync(join(tmpdir(), 'saivage-agent-redaction-'));
-    try {
-      mkdirSync(join(root, '.saivage'), { recursive: true });
-      const adapter = new AgentAdapter({
-        projectRoot: root,
-        saivageDir: join(root, '.saivage'),
-        config: { models: { default: ['model'] }, providers: {} },
-        cardStore: new CardStore(root),
-      } as never);
-      const redacted = (adapter as unknown as { redactModelIssue(message: unknown): string }).redactModelIssue(
-        `Provider failed with Bearer ${RAW_TOKEN} {"access_token":"${RAW_ACCESS}"}`,
-      );
-      expectNoSyntheticSecret(redacted);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+    const redacted = redactTextForOutbound(
+      `Provider failed with Bearer ${RAW_TOKEN} {"access_token":"${RAW_ACCESS}"}`,
+      'model.issue',
+      { source: 'agent-adapter' },
+    );
+    expectNoSyntheticSecret(redacted);
   });
 
   it('redacts Telegram token-bearing retry diagnostics before console output', async () => {

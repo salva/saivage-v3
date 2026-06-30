@@ -1,5 +1,5 @@
 import type { WebSocket } from 'ws';
-import { getAnalystHandler, getOrCreateAnalystSession, sanitizeAnalystPayload, sanitizeAnalystText } from '../agents/analyst-api.js';
+import { getAnalystHandler, resolveAnalystSessionId, sanitizeAnalystPayload, sanitizeAnalystText } from '../agents/analyst-api.js';
 import type { RuntimeApplication } from '../application/runtime-composition.js';
 import { InboundAnalystMessageEnvelopeSchema } from '../contracts/index.js';
 import type { WsEnvelope } from '../contracts/index.js';
@@ -23,7 +23,7 @@ export class AnalystWsHandler {
   constructor(private readonly options: AnalystWsHandlerOptions) {}
 
   initialize(ws: WebSocket): string {
-    const { sessionId } = getOrCreateAnalystSession(this.options.projectRoot);
+    const sessionId = resolveAnalystSessionId();
     this.sessions.set(ws, sessionId);
     return sessionId;
   }

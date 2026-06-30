@@ -13,7 +13,6 @@ import { parseLlmActorId } from './ids.js';
 import type { LLMProviderPort } from './llm-actor.js';
 import type { RuntimeApi, RuntimeCommandSource, StartProjectResult, StopProjectResult } from '../runtime-api.js';
 import type { CardRecord, RuntimeCommandRecord, RuntimeRunRecord, RuntimeState, RuntimeStatus } from '../../schemas/index.js';
-import type { SessionActivity } from '../session-stamper.js';
 import type { Subscription, SubscriptionOptions } from '../../events/index.js';
 import type { ActorActiveWork, ActorPauseMode, ActorRuntimeReadModel } from '../../application/read-models/actor-runtime-read-model.js';
 
@@ -187,10 +186,6 @@ export class SupervisorRuntimeApi implements RuntimeApi {
         ? { generated_at: this.startupRecoveryReport.outstanding.generated_at, diagnostics: this.startupRecoveryReport.outstanding.diagnostics, actions: this.startupRecoveryReport.outstanding.actions }
         : null,
     };
-  }
-
-  getActivityStatus(_sessionId: string): SessionActivity {
-    return { status: 'idle', pending_calls: [], updated_at: this.now() };
   }
 
   requestProviderCall(callId: string): boolean {

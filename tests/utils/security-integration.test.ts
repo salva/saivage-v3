@@ -202,7 +202,7 @@ describe('ContentSupervisor in AgentAdapter', () => {
     expect(adapter.getContentSupervisor()).toBeUndefined();
 
     // Should not throw when no supervisor is set
-    const result = adapter.getSafeFileContent('src/hello.ts', 'hello');
+    const result = getSafeFileForAgent('src/hello.ts', 'hello');
     expect(result.blocked).toBe(false);
     expect(result.safeContent).toBe('hello');
   });
@@ -229,7 +229,7 @@ describe('ContentSupervisor in AgentAdapter', () => {
     expect(adapter.getContentSupervisor()).toBe(supervisor);
   });
 
-  it('getSafeFileContent blocks auth-profiles.json', () => {
+  it('getSafeFileForAgent blocks auth-profiles.json', () => {
     writeSaivageConfig({
       models: { planner: ['gpt-5.5'] },
       providers: {
@@ -245,7 +245,7 @@ describe('ContentSupervisor in AgentAdapter', () => {
       cardStore: new CardStore(root),
     });
 
-    const result = adapter.getSafeFileContent(
+    const result = getSafeFileForAgent(
       '.saivage/auth-profiles.json',
       '{"profiles": []}',
     );
@@ -256,7 +256,7 @@ describe('ContentSupervisor in AgentAdapter', () => {
     expect(result.safeContent).toBeUndefined();
   });
 
-  it('getSafeFileContent redacts secrets in saivage.json', () => {
+  it('getSafeFileForAgent redacts secrets in saivage.json', () => {
     writeSaivageConfig({
       models: { planner: ['gpt-5.5'] },
       providers: {
@@ -277,7 +277,7 @@ describe('ContentSupervisor in AgentAdapter', () => {
       name: 'test-project',
     });
 
-    const result = adapter.getSafeFileContent('.saivage/saivage.json', rawJson);
+    const result = getSafeFileForAgent('.saivage/saivage.json', rawJson);
 
     expect(result.blocked).toBe(false);
     expect(result.safeContent).toBeDefined();
@@ -286,7 +286,7 @@ describe('ContentSupervisor in AgentAdapter', () => {
     expect(result.reason).toContain('redacted');
   });
 
-  it('getSafeFileContent passes normal files through', () => {
+  it('getSafeFileForAgent passes normal files through', () => {
     writeSaivageConfig({
       models: { planner: ['gpt-5.5'] },
       providers: {
@@ -302,7 +302,7 @@ describe('ContentSupervisor in AgentAdapter', () => {
       cardStore: new CardStore(root),
     });
 
-    const result = adapter.getSafeFileContent('src/app.ts', 'export const x = 1;');
+    const result = getSafeFileForAgent('src/app.ts', 'export const x = 1;');
 
     expect(result.blocked).toBe(false);
     expect(result.safeContent).toBe('export const x = 1;');

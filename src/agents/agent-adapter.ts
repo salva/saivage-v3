@@ -15,7 +15,6 @@ import type {
 import type { TypedEventEmitter } from '../events/index.js';
 import type { NotificationCenter } from '../notifications/index.js';
 import type { ContentSupervisor } from '../workspace/index.js';
-import { getSafeFileForAgent, type SafeFileResult } from '../workspace/index.js';
 import type { RuntimeActivationLedgerPort } from '../contracts/index.js';
 import type { LlmCallFn } from './llm-contracts.js';
 import { EventLogger } from '../observability/index.js';
@@ -25,16 +24,12 @@ import { getProjectNotificationCenter } from '../notifications/notification-deli
 import type { CardStore } from '../cards/store-api.js';
 import { PlannerControlExecutor } from './planner-control-executor.js';
 import { createPlannerControlExecutor } from './planner-control-factory.js';
-import { redactTextForOutbound } from '../redaction/index.js';
 import { ToolRuntime, AGENT_TOOL_DEFINITIONS } from '../tools/index.js';
 import { AgentToolExecutor } from './agent-tool-executor.js';
 import { InvocationService } from './invocation-service.js';
-import { SessionInvariantError } from './session-invariant-error.js';
 
 export type AgentRole = OperationalAgentRole;
 export type InvokableAgentRole = AgentInvocationRole;
-
-export { SessionInvariantError } from './session-invariant-error.js';
 
 export interface AgentAdapterConfig {
   projectRoot: string;
@@ -155,25 +150,6 @@ export class AgentAdapter {
     return this._skillsEngine;
   }
 
-  public getToolNamesForRole(role: AgentRole): string[] {
-    return this.toolExecutor.getToolNamesForRole(role);
-  }
-  async callMcpTool(
-    role: AgentRole,
-    serverName: string,
-    toolName: string,
-    args: Record<string, unknown>,
-  ): Promise<unknown> {
-    return this.toolExecutor.callMcpTool(role, serverName, toolName, args);
-  }
-
-  getSafeFileContent(filePath: string, content: string): SafeFileResult {
-    return getSafeFileForAgent(filePath, content);
-  }
-  private redactModelIssue(message: unknown): string {
-    return redactTextForOutbound(message, 'model.issue', { source: 'agent-adapter' });
-  }
-
   getRouter(): ModelRouter {
     return this.router;
   }
@@ -185,9 +161,5 @@ export class AgentAdapter {
   }
   getInvocationService(): InvocationService {
     return this.invocationService;
-  }
-
-  async flushRecorders(): Promise<void> {
-    await this.invocationService.flushRecorders();
   }
 }

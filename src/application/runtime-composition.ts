@@ -12,7 +12,7 @@ import type { McpManager } from '../mcp/manager-api.js';
 import { EventLogger, ErrorLogger } from '../observability/index.js';
 import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from '../runtime/state.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
-import { SessionStampCounter } from '../runtime/session-stamp-counter.js';
+
 import { CardStore } from '../cards/card-store.js';
 import type { InvocationService } from '../agents/invocation-service.js';
 import { createInvocationServiceProvider, createMicroActorRuntimeApi } from './micro-actor-runtime-api-factory.js';
@@ -47,7 +47,6 @@ export interface RuntimeApplicationServices {
 function buildAnalystDeps(input: {
   runtimeApi: RuntimeApi;
   cardStore: CardStore;
-  stamper: SessionStampCounter;
   candidateAvailability: DisposableCandidateAvailability;
   eventLogger: EventLogger;
   eventBus: EventBus;
@@ -58,7 +57,6 @@ function buildAnalystDeps(input: {
   return {
     runtime: input.runtimeApi,
     cardStore: input.cardStore,
-    stamper: input.stamper,
     candidateAvailability: input.candidateAvailability,
     eventLogger: input.eventLogger,
     eventBus: input.eventBus,
@@ -72,7 +70,6 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   const { projectRoot, config, eventBus, eventLogger, errorLogger, cardStore } = services;
   const saivageDir = join(projectRoot, '.saivage');
   const skillsEngine = new SkillsEngine({ projectRoot });
-  const stamper = new SessionStampCounter();
   const candidateAvailability = new FsCandidateAvailability(projectRoot, {
     compactBytes: config.runtime.candidateAvailabilityCompactBytes,
   });
@@ -109,7 +106,6 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     analystDepsCache ??= buildAnalystDeps({
       runtimeApi,
       cardStore,
-      stamper,
       candidateAvailability,
       eventLogger,
       eventBus,
@@ -164,7 +160,6 @@ function createComposedRuntimeApi(input: {
       subscribe: (options) => input.runtimeApi.subscribe(options),
       getStatus: () => input.runtimeApi.getStatus(),
       getActorRuntimeReadModel: () => input.runtimeApi.getActorRuntimeReadModel(),
-      getActivityStatus: (sessionId) => input.runtimeApi.getActivityStatus(sessionId),
     },
     emitAnalystToolInvoked(payload) {
       input.eventBus.emit('analyst_tool_invoked', payload);

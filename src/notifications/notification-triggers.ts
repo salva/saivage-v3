@@ -1,7 +1,15 @@
 import { createNotificationDeliveryService } from './notification-delivery.js';
 import type { CardStore } from '../cards/store-api.js';
-import type { AgentRole, AgentSession, ControlActionSurface, NoteAuthor } from '../schemas/index.js';
+import type { AgentRole, ControlActionSurface, NoteAuthor } from '../schemas/index.js';
 import { readActorSnapshots } from '../runtime/actors/snapshots.js';
+
+interface ActiveSession {
+  id: string;
+  role: AgentRole;
+  card_id: string | null;
+  goal_card_id: string | null;
+  assessment_id: string | null;
+}
 
 export interface NotificationTriggerTarget {
   sessionId: string;
@@ -18,21 +26,21 @@ export type Recipient =
   | { kind: 'role'; role: AgentRole }
   | { kind: 'session'; sessionId: string };
 
-function getActiveSessions(projectRoot: string): AgentSession[] {
+function getActiveSessions(projectRoot: string): ActiveSession[] {
   return readActorSnapshots(projectRoot)
     .filter((snapshot) => snapshot.actor_kind === 'llm')
     .flatMap((snapshot) => parseAgentSessionId(snapshot.actor_id));
 }
 
-function parseAgentSessionId(sessionId: string): AgentSession[] {
-  if (sessionId.startsWith('analyst:')) return [{ id: sessionId, role: 'analyst', status: 'active', started_at: new Date(0).toISOString() }];
+function parseAgentSessionId(sessionId: string): ActiveSession[] {
+  if (sessionId.startsWith('analyst:')) return [{ id: sessionId, role: 'analyst', card_id: null, goal_card_id: null, assessment_id: null }];
   if (sessionId.startsWith('planner:')) {
     const goalId = sessionId.slice('planner:'.length);
-    return [{ id: sessionId, role: 'planner', goal_card_id: goalId, card_id: goalId, status: 'active', started_at: new Date(0).toISOString() }];
+    return [{ id: sessionId, role: 'planner', card_id: goalId, goal_card_id: goalId, assessment_id: null }];
   }
   if (sessionId.startsWith('executor:')) {
     const cardId = sessionId.slice('executor:'.length);
-    return [{ id: sessionId, role: 'executor', card_id: cardId, status: 'active', started_at: new Date(0).toISOString() }];
+    return [{ id: sessionId, role: 'executor', card_id: cardId, goal_card_id: null, assessment_id: null }];
   }
   if (sessionId.startsWith('reviewer:')) {
     const rest = sessionId.slice('reviewer:'.length);
@@ -40,7 +48,7 @@ function parseAgentSessionId(sessionId: string): AgentSession[] {
     if (separator === -1) return [];
     const goalId = rest.slice(0, separator);
     const assessmentId = rest.slice(separator + 1);
-    return [{ id: sessionId, role: 'reviewer', goal_card_id: goalId, card_id: goalId, assessment_id: assessmentId, status: 'active', started_at: new Date(0).toISOString() }];
+    return [{ id: sessionId, role: 'reviewer', card_id: goalId, goal_card_id: goalId, assessment_id: assessmentId }];
   }
   return [];
 }
@@ -51,7 +59,7 @@ function buildAncestorScope(store: CardStore, cardId: string): Set<string> {
   return scope;
 }
 
-function sessionIsAffectedByCardChange(store: CardStore, session: AgentSession, cardId: string, scope: Set<string>): boolean {
+function sessionIsAffectedByCardChange(store: CardStore, session: ActiveSession, cardId: string, scope: Set<string>): boolean {
   if (session.card_id === cardId) return true;
   if (session.card_id && store.isDescendantOf(session.card_id, cardId)) {
     if (session.goal_card_id === cardId) return true;
