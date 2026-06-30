@@ -1,6 +1,6 @@
 # Micro-Actor Tool Compliance And Conversation Continuity Plan
 
-Status: proposed. This document records the pueblicos runtime failure observed on 2026-06-30 and the implementation plan for two related issues: terminal-tool compliance and card-scoped LLM conversation storage and continuity.
+Status: Phase 1 implemented on 2026-06-30. This document records the pueblicos runtime failure observed on 2026-06-30 and the implementation plan for two related issues: terminal-tool compliance and card-scoped LLM conversation storage and continuity. Compaction planning moved to [Conversation Compaction Design](./conversation-compaction-design.md).
 
 ## Problem
 
@@ -228,18 +228,7 @@ Do not keep the old flat file as a compatibility path. Cut over by writing new c
 
 Compaction is deferred until Phase 1 is stable and compaction is proven necessary. Do not implement Phase 2 in the same change as Phase 1.
 
-When the in-memory `input.contextMessages` exceeds a critical size:
-
-- compact older messages into a summary message;
-- close the current segment file;
-- open a new segment file;
-- write the summary as the first message of the new segment;
-- update `index.json`;
-- replace the in-memory conversation prefix with the summary.
-
-Compaction may be triggered before a provider call when the accumulated context size is known. Keep the compaction trigger simple: a byte or message-count threshold checked in `LLMActor` before calling the provider.
-
-Do not introduce a separate summarizer framework. Use the existing provider through a small internal compaction call. Segment rollover without summary is acceptable as an intermediate step only if it does not claim to reduce provider context.
+The compaction plan and open design decisions now live in [Conversation Compaction Design](./conversation-compaction-design.md). That document is intentionally marked deferred and must be completed before implementation starts.
 
 ### Avoid A Framework
 

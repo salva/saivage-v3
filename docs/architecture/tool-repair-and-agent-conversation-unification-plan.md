@@ -2,6 +2,18 @@
 
 Date: 2026-06-30
 
+## Current status
+
+Phase 1 is functionally implemented and validated. Conversation compaction is not part of Phase 1; its planning and open design work now live in [Conversation Compaction Design](./conversation-compaction-design.md).
+
+Remaining Phase 1 follow-up work:
+
+1. **Delete or justify the remaining `AgentAdapter` tool facades.** `AgentAdapter.getToolNamesForRole()` and `AgentAdapter.callMcpTool()` still exist as small pass-through methods to `AgentToolExecutor`. No production caller currently needs them. Either delete them and update any tests/tooling, or document the concrete production consumer that requires them.
+2. **Remove stale activity-status plumbing if unused.** The segment-backed agent read model derives `activity_status` directly from actor snapshots. `RuntimeApi.getActivityStatus()`, `SessionStampCounter`, and `AnalystRuntimeDeps.stamper` still exist as runtime surfaces. Verify no live consumer relies on them, then delete or narrow them so there is only one activity-status authority.
+3. **Make system prompts collapsed by default.** The timeline now includes `system_prompt` entries, but they render through `ContextBlock` and can dump long prompts inline. Add a small collapsed system-prompt presentation path, either by extending `ContextBlock` for `kind === 'system_prompt'` or by adding a dedicated `SystemPromptBlock.vue`.
+4. **Run optional live `pueblicos` verification.** The local validation gates passed. The live checklist remains undone: restart or refresh the `pueblicos` deployment, verify planner/executor sessions appear in `/api/agents` and Debug, verify system prompts are visible, and verify no `.saivage/agents/messages` or `.saivage/agents/sessions` directories are created.
+5. **Refresh stale wording in dependent docs.** `agent-conversation-ui-redesign.md` still describes collapsed system prompts and broader conversation UX work as pending. Keep those as broader UI-redesign requirements, but update cross-references when item 3 lands.
+
 ## Context
 
 The Phase 1 terminal contract repair fixed the failure where a planner/executor/reviewer returned plain text instead of its required terminal tool. The `pueblicos` reset verified that: `executor:card-4` returned plain text, Saivage appended a `model_repair` message, and the model continued instead of failing with `Plain executor messages are not accepted as terminal results`.
@@ -28,7 +40,7 @@ Per the workspace architecture rules there is no backward compatibility, no comp
 ## Non-goals and preserved constraints
 
 - Startup recovery has no live model turn and cannot perform repair. It must keep failing fast / blocking interrupted non-terminal waiting-tool states. This is correct existing behavior; this plan preserves it and does not add recovery-time repair.
-- Compaction for LLMActor conversations is deferred to Phase 2. The micro-actors already run without compaction (context grows in memory until the activation ends). The analyst will join this behavior. Long analyst conversations may hit the provider context limit; the operator can start a new session. This is a known Phase 1 limitation.
+- Compaction for LLMActor conversations is deferred to [Conversation Compaction Design](./conversation-compaction-design.md). The micro-actors already run without compaction (context grows in memory until the activation ends). The analyst joins this behavior. Long analyst conversations may hit the provider context limit; the operator can start a new session. This is a known Phase 1 limitation.
 - Card processor loop shapes (planner vs executor vs reviewer) stay role-specific. Only the LLM turn engine and transcript substrate are unified.
 
 ## Issues
@@ -371,3 +383,7 @@ no .saivage/agents/messages or .saivage/agents/sessions created
 9. `assertNoActiveAgentSession` / `reconcileOrphanedAgentSessions` / `ConcurrentAgentSessionError` are deleted; autonomous card work is serialized by supervisor provider-call admission, and analyst calls either remain independently admitted for Phase 1 or are serialized later by an explicit `ModelCallGate`.
 10. `AgentAdapter` no longer implements `AgentExecutionPort`; `AgentInvocationRunner`, `AgentSessionCoordinator`, `AgentSessionLifecycle`, `SessionMessageLog`, `InvocationModelContext`, and `ContextCompactor` are deleted.
 11. Chat routes (`chats.list`, `chats.get`) return data from the segment-backed read model.
+
+## Compaction
+
+Conversation compaction is intentionally not implemented in Phase 1. Its planning and open design questions now live in [Conversation Compaction Design](./conversation-compaction-design.md).
