@@ -92,9 +92,10 @@ Use existing message kinds where possible:
 
 `index.json` records:
 
-- the active segment filename;
-- the compaction boundary: the message id or sequence after which the active segment holds uncompacted conversation;
-- optional compacted summary pointer if older segments were summarized.
+- `schema_version`;
+- the active segment filename.
+
+Compaction boundary and compacted summary pointer fields are deferred to Phase 2 and added when compaction exists.
 
 The index must be updated atomically enough that startup sees either the previous active segment or the new active segment, never a half-written pointer to a missing file.
 
@@ -102,7 +103,7 @@ The index must be updated atomically enough that startup sees either the previou
 
 The old flat files are not kept as a compatibility path, so every current reader must move to the segment API in the same change:
 
-- `appendActorMessage(...)` writes to the active segment for `input.sessionId` rather than `agents/messages/<agentId>.jsonl`.
+- `appendActorMessage(...)` writes to the active segment for `message.session_id` rather than `agents/messages/<agentId>.jsonl`.
 - `appendActorSystemPromptIfMissing(...)` checks the session index/segments for the system prompt row.
 - `readLoggedToolCall(...)` takes or derives the session id from `active_reconstruction.input.sessionId` and searches conversation segments for the session/agent tool call row instead of `actorMessagesPath(...)`.
 - `actor-recovery.ts` paths that project waiting terminal tool calls must use the new segment-backed `readLoggedToolCall(...)`.
@@ -128,7 +129,7 @@ Active reconstruction is the primary and normally only recovery authority. `acto
 
 Do not add migration or compatibility logic for the old flat `agents/messages/*.jsonl` files. Fail loudly if the index or active segment is malformed.
 
-Remove `actorMessagesPath(...)` and `actorToolDeliveriesPath(...)` flat-log dead code after the cutover. The segment API and the separate tool delivery/status ledgers fully replace them.
+Remove `actorMessagesPath(...)` flat-log dead code after the cutover. Segments fully replace the conversation message log. `actorToolDeliveriesPath(...)` and `actorToolCallStatusesPath(...)` remain because the tool delivery and tool-call status ledgers stay separate.
 
 ## Target Behavior
 
@@ -157,8 +158,8 @@ The plan is split into two phases. Phase 1 fixes the pueblicos production bug an
 Add a method on `LLMActor` for continuing after a plain-text result:
 
 - require `this.input` to be present, the actor state to be `idle`, the previous outcome to be `result`, and no pending turn;
-- append the assistant's plain text as a synthetic assistant message to `input.contextMessages`;
-- append a user repair directive to `input.contextMessages`;
+- append a provider-format assistant message with the model's plain text to `input.contextMessages` (in-memory only; `appendLlmTurnFinished` has already persisted the assistant text row to the segment);
+- append a user repair directive to `input.contextMessages` and persist it to the active segment as a `model_repair` row;
 - use a fresh `inputId`;
 - call `turn()` again with the updated input so the normal turn path recreates `activeReconstruction` and prepares provider-call reconstruction.
 
@@ -286,7 +287,7 @@ Required conversation storage coverage:
 - Provider-visible context, notification, and repair messages are persisted as transcript rows, not only delivery-log activity.
 - `readLoggedToolCall(...)` finds tool calls from segments, including reviewer sessions where `sessionId !== agentId`.
 - Recovery uses `active_reconstruction.input` for interrupted live activations; segments are audit and debugging.
-- `actorMessagesPath(...)` and `actorToolDeliveriesPath(...)` flat-log dead code is removed.
+- `actorMessagesPath(...)` flat-log dead code is removed; `actorToolDeliveriesPath(...)` and `actorToolCallStatusesPath(...)` remain for the ledgers.
 - Malformed index or active segment fails loudly.
 
 Compaction tests are deferred to Phase 2 with the compaction implementation.
