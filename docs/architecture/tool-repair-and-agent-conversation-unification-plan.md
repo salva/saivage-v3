@@ -69,7 +69,7 @@ One LLM turn engine: `LLMActor`. Planner, executor, reviewer, and analyst all ca
 
 Sessions are derived, not manifest-backed. A session exists iff its conversation directory exists. `role`, `card_id`, and `assessment_id` are parsed from the session id; `started_at` is the first conversation message timestamp; live `status` comes from runtime actor snapshots; `model` comes from the latest LLM exchange record. `.saivage/agents/sessions` and `.saivage/agents/messages` stop being created and stop being read.
 
-The single-active-session manifest invariant is replaced by the supervisor's provider-call admission (`RuntimeSupervisorActor.requestProviderCall`), which enforces a strictly stronger invariant: at most one global in-flight LLM call. The manifest-based `assertNoActiveAgentSession` / `reconcileOrphanedAgentSessions` / `ConcurrentAgentSessionError` are deleted.
+The single-active-session manifest invariant is deleted. Autonomous card work uses the supervisor's provider-call admission (`RuntimeSupervisorActor.requestProviderCall`), which enforces at most one in-flight autonomous LLM call. The analyst bypasses supervisor admission in Phase 1 so operator chat works while the autonomous runtime is stopped; if global serialization between analyst and autonomous work becomes necessary, add the planned `ModelCallGate` rather than restoring session manifests. The manifest-based `assertNoActiveAgentSession` / `reconcileOrphanedAgentSessions` / `ConcurrentAgentSessionError` are deleted.
 
 Every operator/UI surface reads conversations through `/api/agents/:id/conversation` (segment-backed). No frontend component knows segment paths. Internal operational ledgers (`agents/llm-exchanges`, `agents/tool-deliveries`) remain separate and are not eliminated; only `agents/messages` and `agents/sessions` are eliminated as transcript/manifest authorities.
 
@@ -175,6 +175,8 @@ contextMessages: [...actor.input.contextMessages, newUserMessage]
 
 This is the natural `LLMActor` continuation pattern — the same way `appendToolResult` builds on `input.contextMessages`.
 
+When reconstructing an analyst actor after restart/reset, the handler reads the segment transcript, projects it through `conversationMessagesForModel`, appends the new user message, and starts the next turn from that reconstructed context. Normal live turns do not reread the transcript from disk.
+
 **User message persistence.** `LLMActor` logs model-side entries (system prompt, assistant text, tool calls, tool results) but not arbitrary context messages. The analyst handler appends the operator's user message to `conversation-store` directly before calling `llmActor.turn(...)`. The conversation directory is created by `appendConversationMessage` on the first user message — no pre-creation step, no empty-session problem.
 
 Replace `getOrCreateAnalystSession()` with a simple pure resolver in `src/agents/session-ids.ts`:
@@ -272,6 +274,8 @@ texts: sorted.filter((entry) => entry.kind === 'text' || entry.kind === 'activit
 
 Add a compact `SystemPromptBlock.vue` (or extend `ContextBlock.vue`) that renders a collapsed `System prompt` header by default, expanding to the full text on click. System prompts are long; they must not dump thousands of tokens inline.
 
+When displaying example paths or raw file links, always URI-encode the session id (`analyst%3Aglobal`, not `analyst:global`) because the on-disk directory name is `<encodeURIComponent(sessionId)>`.
+
 ### 8. Cleanup
 
 - Remove `agents/messages` and `agents/sessions` from `file-tree.ts` (both the `SAIVAGE_DIRS` list and the `isNewSaivageState` probe). `initProjectTree()` creates `agents/conversations` only. Update tests that assert their creation.
@@ -310,6 +314,12 @@ npm run test:direct -- tests/runtime/actors/terminal-card-processor-actor.test.t
 npm run web:test:operator-smoke
 ```
 
+Specific regression coverage to add/update:
+- `LLMActor.completeWithProviderResult()` appends assistant text to in-memory context, and `continueAfterPlainText()` does not double-append it.
+- `LLMActor.turn()` clears `deliveredToolCallIds` for a new top-level turn while preserving duplicate-delivery protection inside one tool-continuation chain.
+- Analyst restart reconstruction uses `conversationMessagesForModel(readConversationMessages(...))` once, then continues from in-memory context.
+- `/api/agents` and chat route tests use encoded segment paths and never create `.saivage/agents/messages` or `.saivage/agents/sessions` fixtures.
+
 Broad:
 
 ```bash
@@ -340,8 +350,8 @@ no .saivage/agents/messages or .saivage/agents/sessions created
 4. `/api/agents` lists micro-actor and analyst sessions derived from `.saivage/agents/conversations`.
 5. `/api/agents/:id/conversation` returns `system_prompt` for every role.
 6. The Agents page and Debug view show system prompts for planner/executor/reviewer.
-7. The analyst uses `LLMActor` and writes `agents/conversations/analyst:<id>/seg-001.jsonl`.
+7. The analyst uses `LLMActor` and writes `agents/conversations/<encodeURIComponent(analyst:<id>)>/seg-001.jsonl`.
 8. No code reads or writes `.saivage/agents/messages` or `.saivage/agents/sessions`; `initProjectTree` does not create them; no fallback/bridge remains.
-9. `assertNoActiveAgentSession` / `reconcileOrphanedAgentSessions` / `ConcurrentAgentSessionError` are deleted; the supervisor's provider-call admission is the sole active-call invariant.
+9. `assertNoActiveAgentSession` / `reconcileOrphanedAgentSessions` / `ConcurrentAgentSessionError` are deleted; autonomous card work is serialized by supervisor provider-call admission, and analyst calls either remain independently admitted for Phase 1 or are serialized later by an explicit `ModelCallGate`.
 10. `AgentAdapter` no longer implements `AgentExecutionPort`; `AgentInvocationRunner`, `AgentSessionCoordinator`, `AgentSessionLifecycle`, `SessionMessageLog`, `InvocationModelContext`, and `ContextCompactor` are deleted.
 11. Chat routes (`chats.list`, `chats.get`) return data from the segment-backed read model.
