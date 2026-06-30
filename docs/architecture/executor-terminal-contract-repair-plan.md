@@ -1,160 +1,140 @@
-# Executor Terminal Contract Repair Plan
+# Micro-Actor Terminal Contract Repair Plan
 
-Status: proposed. This document records the pueblicos runtime failure observed on 2026-06-30 and the minimal implementation plan to fix it.
+Status: proposed. This document records the pueblicos runtime failure observed on 2026-06-30 and the minimal repair plan.
 
 ## Problem
 
-Terminal executors sometimes return plain assistant text instead of calling the required `emit_executor_result` terminal tool. The current terminal-card actor immediately marks the card failed with:
+Micro-actor processors fail immediately when a model returns plain assistant text instead of the required terminal tool. In pueblicos, terminal executors returned prose, claimed to have simulated file writes, never called `write`, and never called `emit_executor_result`. The runtime then failed the child cards with:
 
 ```text
 Expected terminal tool 'emit_executor_result'. Plain executor messages are not accepted as terminal results.
 ```
 
-That behavior is contract-strict, but operationally brittle. A model that understands the task but misses the tool protocol gets no repair turn. The parent planner then sees a failed child, tries to reactivate the failed card, receives `Card '<id>' in status 'failed' is not activatable`, and eventually blocks the root goal.
+The failure is contract-strict, but too brittle: a model gets no repair turn even though the runtime already has a repair pattern for missing `status.md` records.
 
-## Evidence
+## Scope Correction
 
-Observed in `/home/salva/g/ml/pueblicos` after reset and project start:
+The observed production failure was executor-specific, but the code pattern is shared by all micro-actor terminal processors:
 
-- `executor%3Acard-1.jsonl` returned a long prose response, claimed it had simulated `record://status.md?v=next`, and never called `write` or `emit_executor_result`.
-- `executor%3Acard-2.jsonl` repeated the same pattern.
-- Both cards failed with the same terminal-tool error.
-- `planner%3Aproject.jsonl` shows the planner then retried `activate_card` on failed card `card-1`, received a non-activatable error, moved to `card-2`, and finally blocked on the executor format mismatch.
+- `src/runtime/actors/terminal-card-processor-actor.ts`: executor plain text fails immediately.
+- `src/runtime/actors/planning-card-processor-actor.ts`: planner plain text fails immediately.
+- `src/runtime/actors/planning-card-processor-actor.ts`: reviewer plain text fails immediately.
 
-Relevant code:
+The same processors also convert invalid terminal tool envelopes into immediate failure after `verifyTerminalToolOutcome()` rejects them.
 
-- `src/runtime/actors/terminal-card-processor-actor.ts:61-63` immediately converts `outcome.type === 'result'` into executor failure.
-- `src/runtime/actors/terminal-card-processor-actor.ts:169-176` immediately converts invalid terminal tool envelopes into executor failure.
-- `src/agents/agent-loop-driver.ts` already has the desired higher-level pattern: persist bad output, append a model repair message, and retry until a terminal envelope verifies.
-- `tests/runtime/actors/terminal-card-processor-actor.test.ts` currently locks in the bad behavior with `does not accept plain executor prose as terminal result` expecting immediate failure.
+Fix the shared pattern for planner, executor, and reviewer unless implementation shows one path cannot safely repair. The implementation may still be simple per-processor code; do not add a generic framework just to remove three small duplicated branches.
 
 ## Root Cause
 
-The micro-actor terminal executor path has its own one-shot tool loop instead of using a contract-verification repair loop.
+The micro-actor processor loops handle normal action tools with `llm.appendToolResult(...)`, and they already repair one terminal precondition: missing `record://status.md?v=next`. But they treat these terminal contract failures as final card failures:
 
-The prompt and provider request already say tools are required:
+- plain assistant text instead of any tool call;
+- invalid terminal tool arguments;
+- wrong terminal envelope shape.
 
-- The executor prompt says to write `record://status.md?v=next` and end with `emit_executor_result`.
-- `buildLlmInput()` passes the terminal tool and `capabilityRequest: { requiresTools: true }`.
+These are verifier failures, not completed task failures. They should be repairable while a live LLM actor/session still exists.
 
-However, provider tool support is not the same as guaranteed terminal-tool compliance. Some providers can still return a plain message even when tools are available. The runtime must reject that output, but it should reject it as a repairable contract violation before failing the card.
-
-## Design Principles
-
-- Do not accept plain text as an executor result.
-- Do not synthesize `emit_executor_result` from prose.
-- Do not add compatibility shims or legacy fallback behavior.
-- Do not hide provider/model protocol failures.
-- Do add a small bounded repair loop at the contract boundary.
-- Keep terminal execution owned by `TerminalCardProcessorActor`; do not add another scheduler, queue, or wrapper service.
+Startup recovery remains different: if recovery projects a persisted terminal tool call and validation fails, there is no live turn to repair. Recovery may continue to project a failed outcome.
 
 ## Target Behavior
 
-For a terminal card activation:
+For live planner, executor, and reviewer activations:
 
-1. Executor may call workspace/process tools.
-2. Executor must write `record://status.md?v=next`.
-3. Executor must call `emit_executor_result` exactly once with a valid executor envelope.
-4. If the executor returns plain text, invalid terminal arguments, the wrong terminal tool, or a terminal result before writing `status.md`, the actor appends a repair instruction and gives the same executor session a bounded retry.
-5. If repair attempts are exhausted, the card fails with a precise protocol error.
+1. The model may call role action tools.
+2. The model must write the required `record://status.md?v=next` when that processor requires it.
+3. The model must finish with exactly one valid terminal tool for its role.
+4. Plain text, invalid terminal arguments, wrong terminal envelopes, and missing required status records get a bounded repair turn.
+5. If the repair budget is exhausted, the card fails with a precise terminal-contract error.
 
-This preserves the hard contract while avoiding preventable first-turn failures.
+The runtime must still never accept prose as a terminal result and must never synthesize a terminal result from prose.
 
-## Minimal Implementation Plan
+## Implementation Plan
 
-### 1. Add A Local Repair Budget
+### 1. Use One Repair Counter Per Activation
 
-In `TerminalCardProcessorActor.runActivation()`, introduce one explicit budget for terminal contract repair, for example:
+Use one local counter for terminal contract repairs in each processor activation loop. Include plain text, invalid terminal envelopes, and missing status records in the same budget.
+
+Example shape:
 
 ```ts
-const MAX_EXECUTOR_CONTRACT_REPAIRS = 2;
-let contractRepairAttempts = 0;
+const MAX_TERMINAL_CONTRACT_REPAIRS = 2;
+let repairAttempts = 0;
 ```
 
-Keep the existing status-record repair budget, or fold it into the same repair budget only if the implementation remains simpler. Do not make the budget configurable until there is a real need.
+Do not make the budget configurable yet.
 
-### 2. Repair Plain Assistant Messages
+### 2. Repair Plain Assistant Text
 
-Replace the immediate `outcome.type === 'result'` failure with a repair turn.
+When `outcome.type === 'result'`, do not fail immediately. If budget remains, build a new `LlmInvocationInput` from the current `llm.input`:
 
-When the provider returns a plain message:
+- keep the existing `systemPrompt`, tools, terminal tool names, model params, and episode context;
+- use a fresh `inputId` from the processor's `nextInvocationInputId(...)`;
+- append the assistant's plain text to `contextMessages`;
+- append a user repair directive telling the model that plain text is not accepted and that it must use tools and re-emit the terminal tool.
 
-- persist has already happened through `LLMActor` delivery logging;
-- build a repair context that includes the assistant text and an explicit user repair directive;
-- call `llm.turn()` again with a new `LlmInvocationInput` for the same executor session.
+Then call `llm.turn(repairInput)` and continue the processor loop.
 
-Repair directive shape:
+Repair directive content should be short and role-specific. Executor example:
 
 ```text
-Your previous response was plain assistant text, which is not a terminal executor result. Do not summarize, simulate file writes, or describe what you would do. Use tools. First write record://status.md?v=next with the actual status. Then call emit_executor_result with valid JSON arguments.
+Your previous response was plain assistant text, not an executor terminal result. Do not summarize, simulate file writes, or describe what you would do. Use tools. Write record://status.md?v=next if needed, then call emit_executor_result with valid JSON arguments.
 ```
 
-If the repair budget is exhausted, then fail with the current protocol error.
+Planner and reviewer variants should name `emit_planner_result` and `emit_reviewer_result` respectively.
+
+If `llm.input` is unexpectedly missing while repairing a live result, throw. That is an impossible live-state bug, not a recoverable condition.
 
 ### 3. Repair Invalid Terminal Envelopes
 
-Replace `projectExecutorTerminal()` immediate failure for invalid terminal envelopes with a repair result delivered to the model via `llm.appendToolResult()`.
+In live activation loops, validate terminal tool calls before projecting the terminal outcome. If `verifyTerminalToolOutcome(...)` rejects:
 
-Current behavior:
+- consume one repair attempt;
+- deliver `{ success: false, error: <validation message> }` to the model with `llm.appendToolResult(outcome.toolCallId, ...)`;
+- include a user repair directive that tells the model to call the same terminal tool again with valid arguments;
+- continue the processor loop.
 
-- terminal tool is present;
-- `verifyTerminalToolOutcome()` throws;
-- card fails immediately.
+Keep recovery projection strict: recovery can still convert invalid persisted terminal calls into failed outcomes because no live model turn can be repaired.
 
-Target behavior:
+### 4. Keep Status Record Enforcement
 
-- terminal tool is present;
-- validation failure is returned as the tool result for that terminal call;
-- a repair context says to re-emit `emit_executor_result` with valid arguments;
-- only after the repair budget is exhausted does the card fail.
+Keep the existing missing-`status.md` repair behavior, but count it against the same repair budget. Do not auto-create `status.md`; the processor must force the model to write it.
 
-This should use the existing `verifyTerminalToolOutcome()` and `expectedTerminalToolMessage()` functions. Do not introduce a second executor schema checker.
+### 5. Avoid A Framework
 
-### 4. Keep Missing Status Record Repair
+Do not route micro-actor processors through `AgentLoopDriver` for this fix. That runner belongs to the older invocation path and would add avoidable lifecycle/session coupling. The micro-actor loops already have the correct place to repair: the current `for`/`while` processor loop around `LLMActor` outcomes.
 
-The actor already repairs missing `record://status.md?v=next` by delivering a failed tool result and asking the executor to create the record. Keep that behavior, but make it consistent with the new contract repair failure message and budget accounting.
+Small local helper functions are acceptable only if they remove actual duplication in the final diff. Do not introduce new abstractions before the code needs them.
 
-Do not auto-create `status.md`. The executor must write the record itself so the session log and card records reflect actual executor behavior.
+## Rejected Alternative: Force Tool Choice
 
-### 5. Factor Small Helpers Only If They Reduce Duplication
+Adding provider-level `tool_choice: required` could prevent plain-text responses by requiring some tool call on each turn. That is broader than this bug fix:
 
-Acceptable helper candidates inside `terminal-card-processor-actor.ts`:
+- it requires provider gateway and capability changes;
+- not all providers support required tool choice;
+- it does not repair invalid terminal arguments;
+- it changes behavior for every tool turn, not just terminal contract failures.
 
-- `executorPlainTextRepairMessage(content: string): string`
-- `executorTerminalRepairMessage(error: string): string`
-- `contractFailure(error: string): TerminalProcessorOutcome`
-
-Do not add a new generic framework unless planner/reviewer actors need the same code in this change. The immediate production failure is terminal executor specific.
+This may be worth considering later, but the immediate fix should repair terminal contract failures at the processor boundary.
 
 ## Tests
 
-Update `tests/runtime/actors/terminal-card-processor-actor.test.ts`.
+Update focused processor tests.
 
-Required tests:
+Required executor tests:
 
-- Plain executor prose gets one repair turn and succeeds when the second turn writes `status.md` and emits `emit_executor_result`.
-- Plain executor prose exhausts the repair budget and then fails with the protocol error.
-- Invalid `emit_executor_result` arguments get a repair turn instead of immediate card failure.
-- Missing `status.md` still repairs by asking the executor to write `record://status.md?v=next` before emitting the terminal result.
+- Plain executor prose gets a repair turn and succeeds when the next turn writes `status.md` and emits `emit_executor_result`.
+- Plain executor prose exhausts the repair budget and then fails.
+- Invalid `emit_executor_result` arguments get a repair turn instead of immediate failure.
+- Missing `status.md` still repairs and counts against the same budget.
 
-Change the existing `does not accept plain executor prose as terminal result` test so it proves prose is not accepted directly but is repairable. It should not keep asserting first-turn failure.
+Required planner/reviewer coverage:
 
-## Non-Goals
+- Plain planner prose gets a repair turn before planner failure.
+- Plain reviewer prose gets a repair turn before reviewer failure.
+- Invalid planner/reviewer terminal arguments get repair turns before failure.
 
-- Do not accept text-only executor results.
-- Do not parse Markdown/prose into executor result JSON.
-- Do not add model-specific prompt hacks.
-- Do not add provider-specific fallback behavior.
-- Do not make failed terminal cards automatically activatable.
-- Do not add a broad compatibility layer around executor output.
+Update the existing executor test named `does not accept plain executor prose as terminal result` so it proves prose is not accepted directly but is repairable. It should no longer assert first-turn card failure.
 
-## Expected Outcome
+## Expected Result
 
-After the fix, the pueblicos failure class should behave as follows:
-
-- First executor prose response is recorded as a protocol violation.
-- The executor receives an explicit repair turn.
-- If the model can comply, it writes `record://status.md?v=next`, calls `emit_executor_result`, and the card completes or fails according to the terminal envelope.
-- If the model cannot comply after bounded repairs, the card fails with a clear exhausted-contract-repair error.
-
-The architecture remains strict: terminal cards still complete only through verified terminal tools.
+The pueblicos failure class should become a repairable terminal-contract violation. Models that can correct themselves after a direct instruction proceed; models that keep returning prose still fail loudly after a bounded number of attempts.
