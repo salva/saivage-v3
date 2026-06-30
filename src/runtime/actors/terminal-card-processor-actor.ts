@@ -109,11 +109,11 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
 
   private async handleToolCall(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): Promise<unknown> {
     try {
-      if (outcome.toolName === 'run_process') return this.runProcess(outcome.args, outcome.toolCallId);
-      if (outcome.toolName === 'wait_process') return this.waitProcess(outcome.args);
-      if (outcome.toolName === 'inspect_process') return this.inspectProcess(outcome.args);
-      if (outcome.toolName === 'kill_process') return this.killProcess(outcome.args);
-      if (WORKSPACE_TOOL_NAMES.has(outcome.toolName)) return processWorkspaceToolCall(outcome.toolName, JSON.stringify(outcome.args), { projectRoot: this.projectRoot, cardId: this.cardId, sessionId: executorActorId(this.cardId), agentRole: 'executor' });
+      if (outcome.toolName === 'run_process') return await this.runProcess(outcome.args, outcome.toolCallId);
+      if (outcome.toolName === 'wait_process') return await this.waitProcess(outcome.args);
+      if (outcome.toolName === 'inspect_process') return await this.inspectProcess(outcome.args);
+      if (outcome.toolName === 'kill_process') return await this.killProcess(outcome.args);
+      if (WORKSPACE_TOOL_NAMES.has(outcome.toolName)) return await processWorkspaceToolCall(outcome.toolName, JSON.stringify(outcome.args), { projectRoot: this.projectRoot, cardId: this.cardId, sessionId: executorActorId(this.cardId), agentRole: 'executor' });
       throw new Error(`Unsupported executor tool call '${outcome.toolName}'.`);
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) };
