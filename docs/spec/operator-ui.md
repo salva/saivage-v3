@@ -2,7 +2,7 @@
 
 Status: current functional UI authority.
 
-Last updated: 2026-06-29.
+Last updated: 2026-06-30.
 
 ## 1. Purpose
 
@@ -34,6 +34,8 @@ The workspace area renders read-only projections of runtime state, including:
 - processes and process output;
 - runtime events, errors, debug views, and control-action audit records;
 - configuration projections where appropriate.
+
+Agent conversations in the Analyst panel, Agents page, and Debug agents view follow the shared design in [Agent Conversation UI Redesign](../architecture/agent-conversation-ui-redesign.md). That document defines the round, tool-row, grouping, detail, raw-payload, and debug reuse behavior for conversation displays.
 
 The workspace may provide projection-only affordances:
 
