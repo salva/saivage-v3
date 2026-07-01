@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import type { ToolDefinition as LlmToolDefinition } from '../agents/llm-contracts.js';
+import { zodToJsonSchemaMini } from '../agents/zod-to-jsonschema-mini.js';
 import type { AgentRole } from './tool-catalog.js';
 
 export type ToolResult =
@@ -59,4 +61,19 @@ export async function invokeToolCall(surface: InvocationSurface, name: string, r
     return { success: false, error: 'Tool arguments must be valid JSON.' };
   }
   return invokeTool(surface, name, args);
+}
+
+export function llmToolDefinition(tool: ToolDefinition<any>): LlmToolDefinition {
+  return {
+    type: 'function',
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: zodToJsonSchemaMini(tool.inputSchema),
+    },
+  };
+}
+
+export function surfaceToolDefinitions(surface: InvocationSurface): LlmToolDefinition[] {
+  return Array.from(surface.tools.values(), llmToolDefinition);
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 import { z } from 'zod';
 
-import { buildInvocationSurface, defineTool, invokeTool, invokeToolCall, type ToolProvider } from '../../src/tools/invocation.js';
+import { buildInvocationSurface, defineTool, invokeTool, invokeToolCall, surfaceToolDefinitions, type ToolProvider } from '../../src/tools/invocation.js';
 
 describe('tool invocation surface', () => {
   const provider = (providerName: string, toolName = 'demo'): ToolProvider => ({
@@ -61,5 +61,20 @@ describe('tool invocation surface', () => {
     }]);
 
     await expect(invokeTool(surface, 'buggy', {})).rejects.toThrow('programmer bug');
+  });
+
+  it('projects invocation surface tools to LLM tool definitions', () => {
+    const surface = buildInvocationSurface('planner', [provider('a')]);
+
+    expect(surfaceToolDefinitions(surface)).toEqual([
+      expect.objectContaining({
+        type: 'function',
+        function: expect.objectContaining({
+          name: 'demo',
+          description: 'Demo tool.',
+          parameters: expect.objectContaining({ type: 'object' }),
+        }),
+      }),
+    ]);
   });
 });
