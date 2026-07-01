@@ -42,7 +42,7 @@ These are the tools autonomous agents see. Names follow the OpenCode-aligned con
 | --- | --- | --- | --- | --- |
 | `read` | `path`, `offset?`, `limit?`, `read_mode?` | P, E, R, A | `read_project_file`, `read_file`, `read_file_metadata` | Reads files, directories, records, or metadata through URL scopes. Defaults to `project://` for relative paths. Supports `project://`, `record://`, `tmp://`, and `system://`. Bounded. Truncation metadata. Optional multimodal. |
 | `write` | `path`, `content` | P, E, R, A | `write_project_file`, `write_file` | Create/replace files or record slots through URL scopes. All agents write their `record://` slots (planner: `status.md`/`brief.md`; executor: `status.md`; reviewer: `review.md`; analyst: `brief.md`). `project://` file writes are executor-only; slot-writer rules enforce which `record://` slot each role may write. `system://` writes are available but discouraged. |
-| `edit` | `path`, `old_string`, `new_string`, `replace_all?` | E, A | (new in v3) | Exact string replacement. Single file. |
+| `edit` | `path`, `old_string`, `new_string`, `replace_all?` | P, E, R, A | (new in v3) | Exact string replacement. Single file. Planner/reviewer use it only on their own `record://` slots; `project://` edits are executor/analyst-only (see §8). |
 | `apply_patch` | `patch` | E, A | (new in v3) | Unified diff. Validates before applying. |
 | `glob` | `directory`, `pattern`, `max_results?` | P, E, R, A | `list_project_files`, `list_directory` | Recursive file discovery over URL scopes. Defaults to `project://`. Skips blocked paths. `system://` is available but discouraged for normal work. |
 | `grep` | `pattern`, `path?`, `include?`, `max_results?` | P, E, R, A | (new in v3) | Regex content search over URL scopes. Defaults to `project://`. Skips blocked/secret paths. |
@@ -124,7 +124,7 @@ The remaining Analyst control tools (`start_project`, `stop_project`, `terminate
 
 | Tool | Roles | Notes |
 | --- | --- | --- |
-| `mcp_tool_call` | E, R | Call a tool on a configured MCP server. |
+| `mcp_tool_call` | E, R, A | Call a tool on a configured MCP server. |
 
 Unchanged. External MCP tools are the extension point; they use their own names via this wrapper.
 
@@ -256,12 +256,12 @@ The actor runtime exposes curated subsets. The catalog's `roles` field is update
 | Category | Tools |
 | --- | --- |
 | Card control | `create_card`, `edit_card`, `cancel_card`, `activate_card`, `reorder_child`, `queue_notification` |
-| Filesystem | `read`, `write` (`record://status.md`, `record://brief.md` only), `glob`, `grep` |
+| Filesystem | `read`, `write` (`record://status.md`, `record://brief.md` only), `edit` (same record slots), `glob`, `grep` |
 | Inspection | `list_cards`, `get_card`, `get_tree`, `list_card_history`, `get_card_history_entry`, `diff_card` |
 | Web | `websearch`, `webfetch` |
 | Terminal | `emit_result` (`done \| blocked \| failed` + `summary`) |
 
-Planner does **not** get `edit`, `apply_patch`, `run_command`, `skill`, or `mcp_tool_call`. The planner coordinates; it writes only its card's `status.md`/`brief.md` records, never project files.
+Planner does **not** get `apply_patch`, `run_command`, `skill`, or `mcp_tool_call`. The planner coordinates; it writes/edits only its card's `status.md`/`brief.md` records, never project files.
 
 ### Executor
 
@@ -281,14 +281,14 @@ Executor is the only role that writes `project://` files. Record writes follow s
 
 | Category | Tools |
 | --- | --- |
-| Filesystem | `read`, `write` (`record://review.md` only), `glob`, `grep` |
+| Filesystem | `read`, `write` (`record://review.md` only), `edit` (same record slot), `glob`, `grep` |
 | Web | `websearch`, `webfetch` |
 | Skill | `skill` |
 | MCP | `mcp_tool_call` |
 | Inspection | `list_card_history`, `get_card_history_entry`, `diff_card` |
 | Terminal | `emit_result` (reviewer: `done` = pass, `blocked` = needs corrections; detail in `review.md`) |
 
-Reviewer does **not** get `edit`, `apply_patch`, or `run_command`. The reviewer writes only its `review.md` record; it does not modify project files.
+Reviewer does **not** get `apply_patch` or `run_command`. The reviewer writes/edits only its `review.md` record; it does not modify project files.
 
 ### Analyst
 
@@ -374,20 +374,32 @@ These v2 capabilities are not added in this reorg because v3 does not have the s
 
 ## 10. Implementation Phases
 
-### Phase 1: Remove duplicates and dead code
+The diary subsystem removal (section 5) is already complete; do not redo it.
+
+Phase 1 is split into independently-reviewable commits to keep merge friction low while the codebase is being concurrently refactored. Each step should typecheck and pass its own focused tests before moving on.
+
+### Phase 1a: Remove duplicate/dead tool names (catalog only)
 
 - Remove `run_project_command`, `start_and_wait`, `wait_for_process`, `inspect_process` from the catalog.
 - Remove the actor-inline `run_process`/`wait_process`/`inspect_process`/`kill_process` definitions; move `wait_process` and `kill_process` into the catalog.
 - Add `run_command` to the catalog with the `wait` parameter; wire it into the executor actor as the unified shell tool.
 - Remove `read_file_metadata`, `read_file`, `write_file`, `list_directory`, and `run_shell_command` as separate model-facing tool names. Preserve their capabilities through `read`, `write`, `glob`, and `run_command` with scoped URLs (`project://`, `record://`, `tmp://`, `system://`).
 - Remove `load_skill`; ensure `skill` supports both list and load.
-- Remove `report_goal_done`, `report_goal_failed`, `report_goal_blocked` from the catalog. They are dead code from the retired `AgentExecutionPort` surface and never reach the planner LLM. Remove their references from `planner-control-tools.ts`, `planner-tools.ts` (`PlannerToolsService`), `planner-envelope-tracker.ts`, `planner-state-context.ts`, and stale prompt text in `system-prompt.ts`.
-- Unify the three terminal tool names (`emit_planner_result`, `emit_executor_result`, `emit_reviewer_result`) into one: `emit_result`. Update the contract terminal descriptors, event catalog enum, `LlmInvocationSummaryEvent.final_terminal_tool`, and all prompt/messaging references.
-- Collapse the per-role envelope shapes into one common envelope: `{ status: 'done' | 'blocked' | 'failed', summary: string }`. Move executor `warnings`/`result`/`error` and reviewer `assessment`/`achieved`/`issues`/`evidence_card_ids` into the record slots (`status.md`, `review.md`). Replace `status_text` with `summary`.
-- Collapse the 7 lifecycle result kinds into 3 (+ `needs_verification` internal): `DoneResult`, `BlockedResult`, `FailedResult`. Drop `latest_self_report` from the lifecycle result (the record URL is the reference). Keep runtime-internal `blocker_cause` and `verified_at` as internal metadata.
-- Update all prompt text to instruct agents to write detail into `status.md`/`review.md` and use `emit_result` with only `status` + `summary`.
-- Update all tests that reference removed names.
-- Add negative tests asserting removed names are absent from agent-facing surfaces.
+- Remove `report_goal_done`, `report_goal_failed`, `report_goal_blocked` from the catalog. They are dead code from the retired `AgentExecutionPort` surface and never reach the planner LLM. Remove residual references wherever they still appear (some referenced files — e.g. `planner-envelope-tracker.ts`, `planner-control-tools.ts` — have already been deleted by concurrent refactors; only touch what still exists, notably `src/tools/definitions/index.ts`, `src/agents/planner-state-context.ts`, and actor prompt strings in `planning-card-processor-actor.ts` / `terminal-card-processor-actor.ts`).
+- Update tests that reference removed names; add negative tests for the removed names.
+
+### Phase 1b: Unify the terminal tool name
+
+- Rename the three terminal tools (`emit_planner_result`, `emit_executor_result`, `emit_reviewer_result`) to one: `emit_result`. Update contract terminal descriptors, the event catalog enum, `LlmInvocationSummaryEvent.final_terminal_tool`, and actor prompt strings (the prompts currently hardcode the old names — see `planning-card-processor-actor.ts` and `terminal-card-processor-actor.ts`).
+- Keep the per-role envelope schemas in place for this step; only the tool name and terminal-detection change. This makes the rename verifiable without coupling to the envelope collapse.
+
+### Phase 1c: Collapse the envelope to the common shape
+
+- Replace the three per-role envelopes with one common envelope: `{ status: 'done' | 'blocked' | 'failed', summary: string }`. Each role's contract validates only the statuses that role may emit (reviewer: `done`/`blocked`; planner/executor: all three).
+- Move executor `warnings`/`result`/`error` and reviewer `assessment`/`achieved`/`issues`/`evidence_card_ids` into the record slots (`status.md`, `review.md`). Replace `status_text` with `summary`.
+- Collapse the 7 lifecycle result kinds into 3 (+ `needs_verification` internal): `DoneResult`, `BlockedResult`, `FailedResult`. Drop `latest_self_report` from the lifecycle result (the record URL is the reference). Keep runtime-internal `blocker_cause` and `verified_at` as internal metadata; drop the `'non_actionable_continue'` cause.
+- Update prompts to instruct agents to write detail into `status.md`/`review.md` and call `emit_result` with only `status` + `summary`.
+- Update/replace the tests that asserted the old per-role envelope shapes.
 
 ### Phase 2: Wire web tools into actor surfaces
 
@@ -397,7 +409,7 @@ These v2 capabilities are not added in this reorg because v3 does not have the s
 ### Phase 3: Align catalog `roles` with actual wiring
 
 - Update `roles` field on every catalog entry to match what the actor runtime actually exposes.
-- Reviewer: remove `write`, `edit`, `apply_patch` from `roles`.
+- Reviewer: keep `write` and `edit` (record-only); remove `apply_patch` from `roles`. Planner likewise keeps `edit` (record-only).
 - Ensure `list_card_history`, `get_card_history_entry`, `diff_card` are wired into the executor and reviewer actor surfaces (currently in `roles` but not offered by the actors).
 
 ### Phase 4: Align Analyst workspace tools with scoped URLs
@@ -431,7 +443,7 @@ This reorganization is complete when:
 - `run_command` is the single shell-execution tool for agents, with `wait` controlling foreground/background;
 - `wait_process` and `kill_process` are the only background-process control tools;
 - `websearch` and `webfetch` are reachable from planner, executor, and reviewer;
-- the reviewer surface does not include `write`, `edit`, or `apply_patch`;
+- the reviewer surface includes `write` and `edit` (record-only) but not `apply_patch`;
 - the catalog `roles` field matches actual actor wiring for every entry;
 - removed host-inspection names (`read_file`, `write_file`, `list_directory`, `run_shell_command`, `read_file_metadata`) are absent from the catalog; their capabilities are available through standard tools with scoped URLs;
 - removed names (`run_project_command`, `start_and_wait`, `wait_for_process`, `inspect_process`, `run_process` as a separate tool, `load_skill`, `list_project_files`, `read_project_file`, `write_project_file`, `report_goal_done`, `report_goal_failed`, `report_goal_blocked`, `emit_planner_result`, `emit_executor_result`, `emit_reviewer_result`) are absent from the catalog and from all actor tool bundles;
