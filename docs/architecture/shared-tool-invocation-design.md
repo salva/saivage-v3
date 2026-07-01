@@ -52,20 +52,22 @@ Planner, executor, and reviewer tool calls are handled inside runtime actors und
 A `ToolProvider` is any object that exposes a set of tool definitions. Tool executors are bound methods with natural `this` access to their domain state. There is no context bag, no role assertion, no global catalog of detached functions.
 
 ```ts
-interface ToolDefinition {
+interface ToolDefinition<Args = Record<string, unknown>> {
   name: string;
   description: string;
-  inputSchema: ZodSchema;
-  executor: (args: Record<string, unknown>) => Promise<ToolResult>;
+  inputSchema: z.ZodType<Args>;
+  executor: (args: Args) => Promise<ToolResult>;
 }
 
 interface ToolProvider {
   readonly providerName: string;
-  readonly tools: readonly ToolDefinition[];
+  readonly tools: readonly ToolDefinition<any>[]; // heterogeneous; erased at provider level
 }
 ```
 
 The executor signature takes only `args` — no `ctx`. The context is already bound: it is the instance state of the object that implements the provider.
+
+`ToolDefinition` is generic over `Args` so that each definition's executor receives the correct type inferred from its `inputSchema`. A `defineTool` factory infers `Args` from the schema at the definition site; when tools are collected into a provider's array, the generic is erased to `any` (the array is heterogeneous), but each executor remains internally typed. `invokeTool` calls `executor(parsed.data)` where `parsed.data` is typed by the schema — at runtime the erasure is harmless because `safeParse` already validated the shape.
 
 ### 3.2 Two kinds of providers
 
@@ -75,11 +77,11 @@ The executor signature takes only `args` — no `ctx`. The context is already bo
 class PlanningCardProcessorActor implements ToolProvider {
   readonly providerName = 'planner-card-control';
 
-  get tools(): ToolDefinition[] {
+  get tools(): ToolDefinition<any>[] {
     return [
-      { name: 'create_card', description: '...', inputSchema: createCardSchema, executor: this.createCard.bind(this) },
-      { name: 'edit_card',   description: '...', inputSchema: editCardSchema,   executor: this.editCard.bind(this) },
-      { name: 'activate_card', description: '...', inputSchema: activateCardSchema, executor: this.activateCard.bind(this) },
+      defineTool({ name: 'create_card', description: '...', inputSchema: createCardSchema, executor: this.createCard.bind(this) }),
+      defineTool({ name: 'edit_card',   description: '...', inputSchema: editCardSchema,   executor: this.editCard.bind(this) }),
+      defineTool({ name: 'activate_card', description: '...', inputSchema: activateCardSchema, executor: this.activateCard.bind(this) }),
       // ...
     ];
   }
@@ -103,11 +105,11 @@ function createWorkspaceProvider(ctx: { projectRoot: string; cardId?: string; ag
   return {
     providerName: 'workspace',
     tools: [
-      { name: 'read',  description: '...', inputSchema: readSchema,  executor: (args) => read(ctx, args) },
-      { name: 'write', description: '...', inputSchema: writeSchema, executor: (args) => write(ctx, args) },
-      { name: 'edit',  description: '...', inputSchema: editSchema,  executor: (args) => edit(ctx, args) },
-      { name: 'glob',  description: '...', inputSchema: globSchema,  executor: (args) => glob(ctx, args) },
-      { name: 'grep',  description: '...', inputSchema: grepSchema,  executor: (args) => grep(ctx, args) },
+      defineTool({ name: 'read',  description: '...', inputSchema: readSchema,  executor: (args) => read(ctx, args) }),
+      defineTool({ name: 'write', description: '...', inputSchema: writeSchema, executor: (args) => write(ctx, args) }),
+      defineTool({ name: 'edit',  description: '...', inputSchema: editSchema,  executor: (args) => edit(ctx, args) }),
+      defineTool({ name: 'glob',  description: '...', inputSchema: globSchema,  executor: (args) => glob(ctx, args) }),
+      defineTool({ name: 'grep',  description: '...', inputSchema: grepSchema,  executor: (args) => grep(ctx, args) }),
     ],
   };
 }
@@ -120,7 +122,7 @@ function createPatchProvider(ctx: { projectRoot: string; agentRole: AgentRole })
   return {
     providerName: 'patch',
     tools: [
-      { name: 'apply_patch', description: '...', inputSchema: applyPatchSchema, executor: (args) => applyPatch(ctx, args) },
+      defineTool({ name: 'apply_patch', description: '...', inputSchema: applyPatchSchema, executor: (args) => applyPatch(ctx, args) }),
     ],
   };
 }
@@ -133,15 +135,31 @@ function createProcessProvider(ctx: { projectRoot: string; ownerId: string }): T
   return {
     providerName: 'process',
     tools: [
-      { name: 'run_command',  description: '...', inputSchema: runCommandSchema,  executor: (args) => runCommand(ctx, args) },
-      { name: 'wait_process', description: '...', inputSchema: waitProcessSchema, executor: (args) => waitProcess(ctx, args) },
-      { name: 'kill_process', description: '...', inputSchema: killProcessSchema, executor: (args) => killProcess(ctx, args) },
+      defineTool({ name: 'run_command',  description: '...', inputSchema: runCommandSchema,  executor: (args) => runCommand(ctx, args) }),
+      defineTool({ name: 'wait_process', description: '...', inputSchema: waitProcessSchema, executor: (args) => waitProcess(ctx, args) }),
+      defineTool({ name: 'kill_process', description: '...', inputSchema: killProcessSchema, executor: (args) => killProcess(ctx, args) }),
     ],
   };
 }
 ```
 
 `ownerId` is the **activation id** for executor activations (unique per activation instance, not the card id) and the **session id** for the analyst. A new activation of the same card must not see the prior activation's processes; the process store scopes ownership to `ownerId`, and the runtime clears that ownership when the activation or session ends. This matches the current source, where the executor actor kills all owned processes on settlement (`onActivationSettled` → `shutdownOwnedProcesses`).
+
+The analyst handler owns session-scoped process cleanup: when an analyst session ends (explicitly closed, server restart, or a configurable idle TTL), the runtime kills processes owned by that `sessionId`, paralleling the executor's activation-settlement cleanup. This prevents durable process leaks from long-lived analyst sessions.
+
+The web provider takes the same write-policy context as workspace tools, because `webfetch.save_as` writes to the project filesystem and uses the same scoped write authorization as `write` (per `tool-set-reorganization-design.md` §8):
+
+```ts
+function createWebProvider(ctx: { projectRoot: string; agentRole: AgentRole }): ToolProvider {
+  return {
+    providerName: 'web',
+    tools: [
+      defineTool({ name: 'websearch', description: '...', inputSchema: websearchSchema, executor: (args) => websearch(ctx, args) }),
+      defineTool({ name: 'webfetch',  description: '...', inputSchema: webfetchSchema,  executor: (args) => webfetch(ctx, args) }),
+    ],
+  };
+}
+```
 
 The `WorkspaceProvider` enforces the scoped-URL and role-write policy defined in `tool-set-reorganization-design.md` §8: `project://`, `record://`, `tmp://`, `system://` resolution, secret/blocked-path hiding, slot-writer enforcement keyed on `agentRole`, and the rule that executor **and analyst** may write `project://` files while planner/reviewer write only their `record://` slots. The current `project-file-tools.ts` blocks all non-executor project writes; the provider must key on `agentRole` so the analyst is admitted as a project writer.
 
@@ -189,14 +207,14 @@ The LLM gateway delivers tool-call arguments as a JSON string. To avoid each cal
 
 ### 3.5 Composition per role
 
-Inspection is split into a **history** capability (all card roles) and a **navigation** capability (planner/analyst), so composition — not role branching inside a provider — determines what each role sees. `get_status` is an analyst-control method, not an inspection tool. `apply_patch` is a separate `PatchProvider` composed only into executor and analyst. Process tools are a `ProcessProvider` composed into executor and analyst.
+Inspection is split into a **history** capability (all card roles) and a **navigation** capability (planner/analyst), so composition — not role branching inside a provider — determines what each role sees. `get_status` is an analyst-control method, not an inspection tool. `apply_patch` is a separate `PatchProvider` composed only into executor and analyst. Process tools are a `ProcessProvider` composed into executor and analyst. Web tools take `{ projectRoot, agentRole }` so `webfetch.save_as` enforces the same write policy as `write`.
 
 ```
 PlanningCardProcessorActor (domain provider: card-control tools as methods)
   + WorkspaceProvider(projectRoot, cardId, 'planner')
   + CardNavigationProvider(cardStore)   // list_cards, get_card, get_tree
   + CardHistoryProvider(cardStore)      // list_card_history, get_card_history_entry, diff_card
-  + WebProvider()
+  + WebProvider(projectRoot, 'planner')
   + TerminalTool (emit_result — processor-owned, not in surface)
 
 TerminalCardProcessorActor (no domain provider — executor has no role-specific tools)
@@ -204,7 +222,7 @@ TerminalCardProcessorActor (no domain provider — executor has no role-specific
   + PatchProvider(projectRoot, 'executor')
   + ProcessProvider(projectRoot, activationId)
   + CardHistoryProvider(cardStore)
-  + WebProvider()
+  + WebProvider(projectRoot, 'executor')
   + McpProvider(mcpManager)
   + SkillProvider()
   + TerminalTool (emit_result — processor-owned)
@@ -212,7 +230,7 @@ TerminalCardProcessorActor (no domain provider — executor has no role-specific
 Reviewer loop (domain provider: none — reviewer has no role-specific tools)
   + WorkspaceProvider(projectRoot, cardId, 'reviewer')
   + CardHistoryProvider(cardStore)
-  + WebProvider()
+  + WebProvider(projectRoot, 'reviewer')
   + McpProvider(mcpManager)
   + SkillProvider()
   + TerminalTool (emit_result — processor-owned)
@@ -223,7 +241,7 @@ AnalystHandler (domain provider: analyst-control tools as methods, incl. get_sta
   + ProcessProvider(projectRoot, sessionId)
   + CardNavigationProvider(cardStore)
   + CardHistoryProvider(cardStore)
-  + WebProvider()
+  + WebProvider(projectRoot, 'analyst')
   + McpProvider(mcpManager)
   + SkillProvider()
 ```
@@ -255,16 +273,16 @@ The current Analyst `ToolResult` type carries `preview` and `errorEnvelope` (wit
 ### 3.9 The result
 
 ```ts
-interface ToolResult {
-  success: boolean;
-  data?: unknown;
-  error?: string;
-}
+type ToolResult =
+  | { success: true; data?: unknown }
+  | { success: false; error: string };
 ```
+
+A discriminated union on `success`. This makes `{ success: true, error }`, `{ success: false }` (no error), and `{ data, error }` (both) into compile-time type errors. An executor returning a malformed result is a programmer bug caught at compile time, not a silent runtime inconsistency.
 
 One result type, no `code`/`kind`/`metadata`/`preview`/`errorEnvelope` fields. The caller — Analyst handler or card processor — serializes it for the provider.
 
-Transcript shape is derived from `success`, not carried as a separate field:
+Transcript shape is derived from `success`:
 
 - `success: true` → a `tool_result` transcript entry containing `data`.
 - `success: false` → a `tool_error` transcript entry containing the `error` string.
@@ -302,7 +320,7 @@ The `InvocationSurface` (§3.3) is the only aggregate used at runtime: it collec
 
 One phase. No temporary wrappers.
 
-1. Define `ToolProvider`, `ToolDefinition`, `ToolResult`, `InvocationSurface`, `invokeTool`, and `invokeToolCall`.
+1. Define `ToolDefinition` (generic), `ToolProvider`, `ToolResult` (discriminated union), `InvocationSurface`, `invokeTool`, `invokeToolCall`, and the `defineTool` factory.
 2. Implement generic providers (`WorkspaceProvider`, `PatchProvider`, `ProcessProvider`, `WebProvider`, `CardHistoryProvider`, `CardNavigationProvider`, `McpProvider`, `SkillProvider`). Each is constructed with the minimal context it needs.
 3. Make each domain owner implement `ToolProvider` for its role-specific tools: `PlanningCardProcessorActor` (card control) and `AnalystHandler` (analyst control). Tool logic moves from detached catalog functions to bound methods. The executor and reviewer are not domain providers.
 4. Compose each agent's provider list and build its invocation surface at construction time.
@@ -319,11 +337,13 @@ Focused tests should cover:
 - Unknown tool from model → `invokeTool` returns `{ success: false, error }`.
 - Invalid arguments → schema parse failure returns a model-visible tool error, not a thrown exception.
 - Malformed JSON arguments → `invokeToolCall` returns `{ success: false, error }`, not a thrown exception.
+- `ToolResult` discriminated union: `{ success: true, error }` and `{ success: false }` (no error) are compile-time type errors.
 - Domain provider isolation: planner card tools are present only when the planner provider is composed into the surface. Composing it into an executor surface is a configuration bug caught by review/tests, not a runtime check — and not a type-level impossibility.
 - Patch availability: `PatchProvider` (`apply_patch`) is composed only into executor and analyst; planner and reviewer surfaces must not include it.
 - Workspace tool path-scope enforcement (`project://`, `record://`, `tmp://`, `system://`, slot-writer rules) inside the workspace provider's tool executors, keyed on `agentRole`, including the analyst as a permitted project writer.
+- `webfetch.save_as` path authorization uses the same scoped write policy as `write`, keyed on the web provider's `{ projectRoot, agentRole }` context.
 - Analyst record/tmp addressing: analyst `record://` and `tmp://` URLs carry an explicit `?card=<id>`; card processors reject URLs targeting a card other than their activation card.
-- Process ownership: `ProcessProvider` is constructed with an `ownerId` (activation id or session id); `wait_process`/`kill_process` reject processes not owned by that context. A new activation of the same card starts with no inherited processes.
+- Process ownership: `ProcessProvider` is constructed with an `ownerId` (activation id or session id); `wait_process`/`kill_process` reject processes not owned by that context. A new activation of the same card starts with no inherited processes. Analyst sessions clean up owned processes on session end.
 - Surface-local schemas: planner `create_card` schema differs from analyst `create_card` schema; each surface exposes the correct variant.
 - Reviewer record-only mutation: `write`/`edit` restricted to `record://review.md` by the workspace provider's path policy keyed on `agentRole`.
 - MCP availability: `McpProvider` is included in the composition list or not — no runtime denial.
@@ -343,7 +363,7 @@ End-to-end validation should include:
 | --- | --- |
 | Provider becomes an adapter with policy logic | Generic providers are named arrays of tool definitions with no dispatch interception (`handles()`, `policyInput()`). Generic providers carry no runtime state beyond constructor-captured context. Domain providers (the planner actor, the analyst handler) carry live domain state by design — that is the point of co-location; their state is the domain they own, not adapter policy. |
 | Analyst audit/events drift | Audit and event broadcasting stay in the Analyst handler as pre/post hooks; `invokeTool` has no side effects beyond the tool itself. Shaping derives from `data`, not from deleted typed envelope fields. |
-| Process state outlives its owner | Process state lives in the durable process store (`processApi`), scoped by `ownerId` (activation id or session id). `wait_process`/`kill_process` reject processes not owned by the current context; the runtime clears ownership when the activation or session ends. A new activation of the same card starts with no inherited processes. |
+| Process state outlives its owner | Process state lives in the durable process store (`processApi`), scoped by `ownerId` (activation id or session id). Executor activations kill owned processes on settlement; analyst sessions kill owned processes on session end (explicit close, server restart, or idle TTL). A new activation of the same card starts with no inherited processes. |
 | Terminal result lifecycle becomes over-generic | `emit_result` stays in processor loops; it is never a provider tool or passed through `invokeTool`. |
 | Wrong provider composition exposes a role's tools to another role | Composition is the authority, not a type system. Surface construction is reviewed and tested per role; a derived "all tools" aggregate is read-only and never used for invocation. |
 
@@ -355,6 +375,8 @@ These are decided, not open. If a concrete need to change them appears later, th
 2. `activate_card` is a planner provider tool. It flows through `invokeTool` like any other tool — its executor is a bound method on the planner actor that has natural access to the activation callback via `this`.
 3. The reviewer has no domain-specific provider. Its tool surface is generic providers only (workspace, web, MCP, skill, card-history) plus the terminal tool.
 4. There is no global catalog module that is the execution or schema authority. Tool schemas and execution live together on providers (domain owners and generic providers). See §3.11 for how this relates to the tool vocabulary in `tool-set-reorganization-design.md`.
-5. The result contract is `{ success, data?, error? }` with no error `code`, no `preview`, no `errorEnvelope`. This supersedes the `{ error, code? }` shape in `tool-set-reorganization-design.md` §7 (see §3.9). Analyst shaping moves into the handler's post-hook, deriving from `data`.
-6. Process tools are a generic `ProcessProvider`, not executor-actor methods. Both executor and analyst compose it with an owner context (`ownerId`). For the executor, `ownerId` is the unique **activation id** (not the card id), so a new activation of the same card starts with no inherited processes. The durable process store is the authority.
+5. The result contract is a discriminated union `{ success: true; data? } | { success: false; error: string }` with no error `code`, no `preview`, no `errorEnvelope`. This supersedes the `{ error, code? }` shape in `tool-set-reorganization-design.md` §7 (see §3.9). Analyst shaping moves into the handler's post-hook, deriving from `data`.
+6. Process tools are a generic `ProcessProvider`, not executor-actor methods. Both executor and analyst compose it with an owner context (`ownerId`). For the executor, `ownerId` is the unique **activation id** (not the card id), so a new activation of the same card starts with no inherited processes. For the analyst, `ownerId` is the **session id**, and the handler kills owned processes on session end. The durable process store is the authority.
 7. Tool names are global; schemas are surface-local. The same tool name may carry a different schema on different surfaces (e.g., planner `create_card` vs analyst `create_card`). The `InvocationSurface` is the authority for what schema the model sees.
+8. `ToolDefinition` is generic over `Args`; a `defineTool` factory infers the executor's argument type from the schema. The generic is erased to `any` in heterogeneous provider arrays, but each executor remains internally typed.
+9. `WebProvider` takes `{ projectRoot, agentRole }` — the same write-policy context as workspace tools — because `webfetch.save_as` writes to the project filesystem under the same scoped authorization as `write`.
