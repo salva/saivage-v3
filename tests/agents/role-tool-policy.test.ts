@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 
 import { RoleToolPolicy } from '../../src/agents/role-tool-policy.js';
-import { TOOL_REGISTRY } from '../../src/agents/analyst-prompt.js';
+import { ANALYST_TOOL_NAMES } from '../../src/tools/definitions/index.js';
 import type { RoleToolPolicyRole } from '../../src/agents/role-tool-policy.js';
 
 const roles: RoleToolPolicyRole[] = ['planner', 'executor', 'reviewer', 'analyst'];
@@ -94,8 +94,8 @@ describe('RoleToolPolicy', () => {
 
 
 
-  it('keeps analyst policy exactly aligned with the analyst tool registry and denies Telegram shell', () => {
-    expect(RoleToolPolicy.listToolNamesForRole('analyst').sort()).toEqual(Object.keys(TOOL_REGISTRY).sort());
+  it('keeps analyst policy exactly aligned with analyst tool definitions and denies Telegram shell', () => {
+    expect(RoleToolPolicy.listToolNamesForRole('analyst').sort()).toEqual([...ANALYST_TOOL_NAMES].sort());
     const telegramShell = RoleToolPolicy.assertAnalystSurfaceTool('run_shell_command', 'telegram');
     expect(telegramShell.allowed).toBe(false);
     expect(telegramShell.reasonCode).toBe('role_not_allowed');

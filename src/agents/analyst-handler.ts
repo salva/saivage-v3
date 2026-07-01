@@ -4,7 +4,6 @@ import {
   ANALYST_NO_MODEL_REPLY,
   AnalystOfflineError,
   getAnalystSystemPrompt,
-  getAnalystToolDefinitions,
   getAvailableAnalystToolNames,
 } from './analyst-prompt.js';
 import { CardStore } from '../cards/store-api.js';
@@ -17,16 +16,16 @@ import type { McpManager } from '../mcp/manager-api.js';
 import type { ActorRole } from './authz.js';
 import { sanitizeAnalystText } from '../agents/analyst-sanitization.js';
 import { ANALYST_PARTIAL_SUCCESS_TEMPLATE, ANALYST_UNSUPPORTED_ACTION_TEMPLATE } from './analyst-tool-runner.js';
-import { AnalystAdapter, ToolDispatcher } from './tool-dispatcher.js';
 import { loadConfig, getModelParamsForRole } from './config-schema.js';
 import type { SaivageConfig } from './config-schema.js';
 import { capabilityRequestForLlmOptions } from './provider-capabilities.js';
-import { RoleToolPolicy } from './role-tool-policy.js';
 import { buildAgentProtocolViolation, parseProtocolToolArgs } from './agent-protocol-violation.js';
 import { appendConversationMessage, buildContextTextMessage, conversationMessagesForModel, readConversationMessages } from '../runtime/actors/conversation-store.js';
 import { LLMActor, type LLMActorOutcome, type LLMProviderPort } from '../runtime/actors/llm-actor.js';
 import type { LlmInvocationInput } from '../runtime/actors/llm-invocation.js';
 import { resolveAnalystSessionId } from './session-ids.js';
+import { createAnalystProvider } from '../tools/analyst-provider.js';
+import { buildInvocationSurface, invokeToolCall, surfaceToolDefinitions, type InvocationSurface } from '../tools/invocation.js';
 
 
 export interface WorkspaceContext {
@@ -142,7 +141,6 @@ export class AnalystHandler {
   private actor: ActorRole;
   private surface: ControlActionSurface;
   private requestServerRestart?: () => Promise<void>;
-  private readonly toolDispatcher: ToolDispatcher;
   private readonly config: SaivageConfig;
 
   constructor(projectRoot: string, runtimeDeps: AnalystRuntimeDeps, onActivity?: ActivityCallback, actor: ActorRole = 'analyst', surface: ControlActionSurface = 'web-chat', requestServerRestart?: () => Promise<void>) {
@@ -153,7 +151,6 @@ export class AnalystHandler {
     this.actor = actor;
     this.surface = surface;
     this.requestServerRestart = requestServerRestart;
-    this.toolDispatcher = new ToolDispatcher([new AnalystAdapter()]);
   }
 
   getAvailableToolNames(): string[] {
@@ -204,6 +201,7 @@ export class AnalystHandler {
   private async runAnalystLoop(sessionId: string, userContent: string, workspaceContext?: WorkspaceContext): Promise<AnalystResponse> {
     const toolInvocations: NonNullable<AnalystResponse['toolInvocations']> = [];
     const ctx: ToolContext = { projectRoot: this.projectRoot, store: this.runtimeDeps.cardStore, sessionId, runtime: this.runtimeDeps.runtime, mcpManager: this.runtimeDeps.mcpManager, requestServerRestart: this.requestServerRestart, actor: this.actor, surface: this.surface, eventBus: this.runtimeDeps.eventBus };
+    const surface = this.analystInvocationSurface(ctx);
     const previousToolCallFingerprints = new Set<string>();
     const workspaceContextMessage = buildContextTextMessage(sessionId, 'system', buildWorkspaceContextNote(workspaceContext));
     const userMessage = buildContextTextMessage(sessionId, 'user', userContent);
@@ -213,7 +211,7 @@ export class AnalystHandler {
     let outcome: LLMActorOutcome;
 
     try {
-      outcome = await actor.turn(this.buildInvocationInput(sessionId, actor, [workspaceContextMessage, userMessage]));
+      outcome = await actor.turn(this.buildInvocationInput(sessionId, actor, [workspaceContextMessage, userMessage], surface));
     } catch (err) {
       return this.errorResponse(sessionId, err, toolInvocations);
     }
@@ -228,8 +226,8 @@ export class AnalystHandler {
       }
 
       const toolCall = outcome;
-      if (!RoleToolPolicy.assertAnalystSurfaceTool(toolCall.toolName, this.surface).allowed) {
-        const content = ANALYST_UNSUPPORTED_ACTION_TEMPLATE('Analyst', getAvailableAnalystToolNames(this.surface));
+      if (!surface.tools.has(toolCall.toolName)) {
+        const content = ANALYST_UNSUPPORTED_ACTION_TEMPLATE('Analyst', Array.from(surface.tools.keys()));
         const persisted = this.appendAssistantTextMessage(sessionId, content);
         return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content, timestamp: persisted.timestamp }, toolInvocations: toolInvocations.length > 0 ? toolInvocations : undefined };
       }
@@ -260,18 +258,7 @@ export class AnalystHandler {
 
       const params = parsed.args;
       this.emitActivity({ type: 'tool_call', content: { tool: toolCall.toolName, params } });
-      const dispatched = await this.toolDispatcher.dispatch({ id: toolCall.toolCallId, name: toolCall.toolName, arguments: rawArguments }, {
-        role: 'analyst',
-        sessionId,
-        analystSurface: this.surface,
-        toolContext: ctx,
-        knownRuntimeTool: (name) => getAvailableAnalystToolNames(this.surface).includes(name),
-      });
-      const result = dispatched.adapterResult?.data as ToolResult | undefined ?? {
-        success: false,
-        error: dispatched.content,
-        errorEnvelope: { kind: 'internal', message: dispatched.content },
-      };
+      const result = await invokeToolCall(surface, toolCall.toolName, rawArguments) as ToolResult;
 
       this.emitActivity({ type: 'tool_result', content: { tool: toolCall.toolName, success: result.success, hasPreview: !!result.preview, errorKind: result.errorEnvelope?.kind } });
       toolInvocations.push({ tool: toolCall.toolName, params, result });
@@ -300,8 +287,8 @@ export class AnalystHandler {
     return actor;
   }
 
-  private buildInvocationInput(sessionId: string, actor: LLMActor, newMessages: AgentMessage[]): LlmInvocationInput {
-    const tools = getAnalystToolDefinitions();
+  private buildInvocationInput(sessionId: string, actor: LLMActor, newMessages: AgentMessage[], surface: InvocationSurface): LlmInvocationInput {
+    const tools = surfaceToolDefinitions(surface);
     const modelParams = getModelParamsForRole(this.config, 'analyst');
     const contextMessages = actor.input
       ? [...actor.input.contextMessages, ...newMessages]
@@ -319,6 +306,10 @@ export class AnalystHandler {
       capabilityRequest: capabilityRequestForLlmOptions({ tools, stream: false }),
       episodeContext: { surface: this.surface },
     };
+  }
+
+  private analystInvocationSurface(ctx: ToolContext): InvocationSurface {
+    return buildInvocationSurface('analyst', [createAnalystProvider({ toolContext: ctx, surface: this.surface })]);
   }
 
   private appendAssistantTextMessage(sessionId: string, content: string): AgentMessage {

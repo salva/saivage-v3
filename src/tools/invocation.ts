@@ -5,8 +5,8 @@ import { zodToJsonSchemaMini } from '../agents/zod-to-jsonschema-mini.js';
 import type { AgentRole } from './tool-catalog.js';
 
 export type ToolResult =
-  | { success: true; data?: unknown }
-  | { success: false; error: string };
+  | { success: true; data?: unknown; preview?: unknown }
+  | { success: false; error: string; data?: unknown; preview?: unknown; errorEnvelope?: unknown };
 
 export interface ToolDefinition<Args = unknown> {
   readonly name: string;

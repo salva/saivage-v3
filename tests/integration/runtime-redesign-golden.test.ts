@@ -3,7 +3,6 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ANALYST_TOOL_NAMES } from '../../src/tools/definitions/index.js';
-import { TOOL_REGISTRY } from '../../src/agents/analyst-prompt.js';
 import { PlannerControlExecutor } from '../../src/agents/planner-control-executor.js';
 import { operatorApiContracts } from '../../src/contracts/operator-api.js';
 import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from '../../src/runtime/state.js';
@@ -75,7 +74,6 @@ describe('runtime redesign final golden behavior', () => {
       expect('runtime.startProject' in operatorApiContracts).toBe(false);
       expect('runtime.stopProject' in operatorApiContracts).toBe(false);
       expect(ANALYST_TOOL_NAMES).not.toContain('lets_dance');
-      expect(Object.keys(TOOL_REGISTRY)).not.toContain('lets_dance');
 
       const api = createSupervisorRuntimeApi({
         projectRoot,

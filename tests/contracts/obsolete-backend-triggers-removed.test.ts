@@ -2,13 +2,11 @@ import { describe, expect, it } from '@jest/globals';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { ANALYST_TOOL_NAMES } from '../../src/tools/definitions/index.js';
-import { TOOL_REGISTRY } from '../../src/agents/analyst-prompt.js';
 import { operatorApiContracts } from '../../src/contracts/operator-api.js';
 
 describe('obsolete backend trigger contracts are removed', () => {
-  it('does not expose lets_dance analyst tool or registry entry', () => {
+  it('does not expose lets_dance analyst tool', () => {
     expect(ANALYST_TOOL_NAMES).not.toContain('lets_dance');
-    expect(Object.keys(TOOL_REGISTRY)).not.toContain('lets_dance');
   });
 
   it('does not register cards.create, cards.update, or cards.delete in the operator contract registry', () => {

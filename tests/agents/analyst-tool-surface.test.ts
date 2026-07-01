@@ -8,7 +8,7 @@ import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 import { AnalystHandler } from '../../src/agents/analyst-handler.js';
 import { ANALYST_TOOL_DEFINITIONS } from '../../src/tools/definitions/index.js';
-import { TOOL_REGISTRY, getAnalystSystemPrompt } from '../../src/agents/analyst-prompt.js';
+import { getAnalystSystemPrompt } from '../../src/agents/analyst-prompt.js';
 import { cancel_card, create_card, delete_card, reorder_child } from '../../src/tools/analyst-card-tools.js';
 import { reconfigure } from '../../src/tools/analyst-misc-tools.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
@@ -96,7 +96,7 @@ function toolResponse(tool: string, args: Record<string, unknown>): Response {
 
 describe('Tool inventory mirrors SPEC-r7 capability classes', () => {
   it('exposes registry, schema, policy, and prompt names without retired note-inbox tools', () => {
-    const names = Object.keys(TOOL_REGISTRY).sort();
+    const names = ANALYST_TOOL_DEFINITIONS.map((tool) => tool.function.name).sort();
     expect(ANALYST_TOOL_DEFINITIONS.map((tool) => tool.function.name).sort()).toEqual(names);
     for (const retired of RETIRED_NOTE_TOOLS) expect(names).not.toContain(retired);
     for (const required of ['start_project','stop_project','terminate_process','queue_notification','create_card','reorder_child','cancel_card','delete_card','write_file','navigate_workspace','navigate_back','show_config','restart_server','reconfigure']) expect(names).toContain(required);
@@ -277,22 +277,6 @@ describe('Contract C2 partial-success reporting', () => {
       expect(response.toolInvocations?.[0].result.success).toBe(true);
       expect(response.toolInvocations?.[0].result.data).toMatchObject({ partial: true, succeeded: 2 });
     } finally { if (procId) await killProcess(root, procId, 'SIGTERM'); rmSync(root, { recursive: true, force: true }); }
-  });
-});
-
-describe('Contract C3 unknown-internal-capability reply', () => {
-  afterEach(() => { jest.restoreAllMocks(); });
-  it('returns the unknown-capability template if dispatch reaches an unregistered tool', async () => {
-    const root = setupRoot();
-    try {
-      const registry = TOOL_REGISTRY as Record<string, unknown>;
-      const saved = registry['queue_notification'];
-      delete registry['queue_notification'];
-      jest.spyOn(globalThis, 'fetch').mockImplementation(async () => toolResponse('queue_notification', { recipient: 'planner', kind: 'info', body: 'hello' }));
-      const response = await new AnalystHandler(root, createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) })).handleMessage('s-c3', 'queue a notification');
-      expect(response.message.content).toContain('The Analyst cannot perform queue_notification; it is not a registered capability.');
-      registry['queue_notification'] = saved;
-    } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });
 

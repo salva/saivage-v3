@@ -1,30 +1,13 @@
 import type { ControlActionSurface } from '../schemas/index.js';
-import type { ToolContext, ToolResult } from '../tools/analyst-tool-types.js';
 import {
   ANALYST_ISSUE_SEVERITY_VALUES,
   ANALYST_TOOL_DEFINITIONS,
   CARD_STATUS_VALUES,
   CARD_TYPE_VALUES,
-  TOOL_DEFINITIONS,
   URGENCY_VALUES,
-  type UnifiedToolDefinition,
 } from '../tools/definitions/index.js';
 import type { ToolDefinition } from './llm-contracts.js';
 import { RoleToolPolicy } from './role-tool-policy.js';
-
-type ToolFn = (ctx: ToolContext, params: Record<string, unknown>) => Promise<ToolResult>;
-type CanonicalToolExecutor = NonNullable<UnifiedToolDefinition['executor']>;
-
-function adaptAnalystToolExecutor(executor: CanonicalToolExecutor): ToolFn {
-  return (ctx, params) => executor(ctx, params);
-}
-
-export const TOOL_REGISTRY: Record<string, ToolFn> = Object.fromEntries(
-  TOOL_DEFINITIONS
-    .flatMap((tool) => tool.roles.includes('analyst') && !tool.workspace && tool.executor
-      ? [[tool.name, adaptAnalystToolExecutor(tool.executor)] as const]
-      : []),
-);
 
 function formatToolList(tools: ToolDefinition[]): string {
   return tools.map((tool) => `- ${tool.function.name}: ${tool.function.description}`).join('\n');
@@ -86,5 +69,5 @@ export function getAnalystToolDefinitions(): ToolDefinition[] { return ANALYST_T
 export function getAnalystSystemPrompt(): string { return ANALYST_SYSTEM_PROMPT; }
 
 export function getAvailableAnalystToolNames(surface: ControlActionSurface): string[] {
-  return Object.keys(TOOL_REGISTRY).filter((name) => RoleToolPolicy.assertAnalystSurfaceTool(name, surface).allowed);
+  return ANALYST_TOOL_DEFINITIONS.map((tool) => tool.function.name).filter((name) => RoleToolPolicy.assertAnalystSurfaceTool(name, surface).allowed);
 }
