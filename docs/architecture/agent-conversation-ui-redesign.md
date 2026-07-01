@@ -30,6 +30,8 @@ The relevant v2 principles are compact rows, restrained typography, role-tinted 
 
 V3 must not port v2's old server contracts, old file layout, legacy transcript engine, or legacy direct-chat control assumptions. Current authority remains `docs/spec/operator-ui.md` for UI behavior and `docs/architecture/tool-repair-and-agent-conversation-unification-plan.md` for the segment-backed conversation substrate.
 
+Phase 1 substrate work is landed for the non-compaction conversation path: agent conversations are segment-backed, Debug uses the operator agent API as its conversation source, `system_prompt` entries reach the timeline and collapse by default in `ContextBlock`, and activity status is derived from actor snapshots. Conversation compaction remains deferred to [Conversation Compaction Design](./conversation-compaction-design.md).
+
 > Note on tool names: the compact labels and grouping examples in this document use the v2 tool vocabulary (`read`, `write`, `glob`, `grep`, `edit`, `apply_patch`, `websearch`, `webfetch`, `run_command`, `git_*`, `run_*`, `plan_*`, `rag_*`, `memory` family). V3's actual tool surface differs in places. The display registry must be keyed to the v3 runtime tool catalog (`src/tools/definitions/index.ts`) when this redesign is implemented; the v2 labels are kept here as the target vocabulary because they read better than the current v3 names. Aligning the v3 tool set to this vocabulary is specified in [Tool Set Reorganization Design](./tool-set-reorganization-design.md) and is the Phase 2 prerequisite for this redesign.
 
 ## 3. Shared Conversation Model
@@ -507,9 +509,9 @@ Backend changes explicitly not required for this redesign:
 
 Phase 1: shared primitives and API discipline.
 
-- Keep all conversation rendering on `/api/agents` and `/api/agents/:id/conversation`.
-- Make Debug agents the only full transcript entry point and replace the raw-file-sidebar layout with the master-detail transcript view.
-- Ensure `system_prompt` entries reach the timeline and render collapsed.
+- Done: keep all conversation rendering on `/api/agents` and `/api/agents/:id/conversation`.
+- Done: make Debug agents use the API-backed conversation source instead of obsolete transcript directories.
+- Done: ensure `system_prompt` entries reach the timeline and render collapsed by default.
 - Keep raw LLM exchange as a separate Debug disclosure.
 - Backend: wire `EntityLink` emission for card/process/artifact/attachment/quarantine into tool results; document the child-dispatch reference gap.
 

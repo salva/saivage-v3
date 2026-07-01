@@ -6,13 +6,14 @@ Date: 2026-06-30
 
 Phase 1 is functionally implemented and validated. Conversation compaction is not part of Phase 1; its planning and open design work now live in [Conversation Compaction Design](./conversation-compaction-design.md).
 
-Remaining Phase 1 follow-up work:
+Completed non-compaction Phase 1 follow-up work:
 
-1. **Delete or justify the remaining `AgentAdapter` tool facades.** `AgentAdapter.getToolNamesForRole()` and `AgentAdapter.callMcpTool()` still exist as small pass-through methods to `AgentToolExecutor`. No production caller currently needs them. Either delete them and update any tests/tooling, or document the concrete production consumer that requires them.
-2. **Remove stale activity-status plumbing if unused.** The segment-backed agent read model derives `activity_status` directly from actor snapshots. `RuntimeApi.getActivityStatus()`, `SessionStampCounter`, and `AnalystRuntimeDeps.stamper` still exist as runtime surfaces. Verify no live consumer relies on them, then delete or narrow them so there is only one activity-status authority.
-3. **Make system prompts collapsed by default.** The timeline now includes `system_prompt` entries, but they render through `ContextBlock` and can dump long prompts inline. Add a small collapsed system-prompt presentation path, either by extending `ContextBlock` for `kind === 'system_prompt'` or by adding a dedicated `SystemPromptBlock.vue`.
-4. **Run optional live `pueblicos` verification.** The local validation gates passed. The live checklist remains undone: restart or refresh the `pueblicos` deployment, verify planner/executor sessions appear in `/api/agents` and Debug, verify system prompts are visible, and verify no `.saivage/agents/messages` or `.saivage/agents/sessions` directories are created.
-5. **Refresh stale wording in dependent docs.** `agent-conversation-ui-redesign.md` still describes collapsed system prompts and broader conversation UX work as pending. Keep those as broader UI-redesign requirements, but update cross-references when item 3 lands.
+1. **Adapter cleanup is complete.** `AgentAdapter` has been slimmed to production-used service composition and no longer exposes the old `AgentExecutionPort` invocation surface or the unused tool facade methods.
+2. **Activity-status cleanup is complete.** The segment-backed agent read model derives `activity_status` from actor snapshots directly; the old stamper/runtime activity-status plumbing is gone.
+3. **System prompts are visible without flooding the view.** Segment-backed conversations include `system_prompt` entries, the timeline includes them in rendered text blocks, and `ContextBlock` collapses system prompts by default.
+4. **Live `pueblicos` verification is complete.** After rebuilding and restarting `saivage-pueblicos.service`, `/api/agents` listed planner/executor sessions, checked conversations included `system_prompt` entries, and the old `.saivage/agents/messages` and `.saivage/agents/sessions` artifacts were confirmed as pre-existing files from before the restart rather than newly created outputs.
+
+Remaining Phase 1 follow-up work: none. Conversation compaction remains deferred and out of scope for Phase 1.
 
 ## Context
 
@@ -249,13 +250,15 @@ getConversation(sessionId):
 - If the snapshot state is `calling_provider`, return `{ status: 'thinking', pending_calls: [], updated_at: snapshot.updated_at }`.
 - If the snapshot state is `waiting_tool`, return `{ status: 'tool_calling', pending_calls: [], updated_at: snapshot.updated_at }`.
 - If no matching snapshot exists, return `{ status: 'idle', pending_calls: [], updated_at: new Date(0).toISOString() }`.
-- This replaces the old `runtimeApi.getActivityStatus(sessionId)` which was stamper-based. The read model no longer depends on `RuntimeApi` for activity status. The old stamper-based `RuntimeApi.getActivityStatus` is either deleted or rewired to read actor snapshots; either way the read model derives `activity_status` from snapshots directly.
+- This replaces the old stamper-based runtime activity surface. The read model derives `activity_status` from snapshots directly.
 
 No `AgentSession` manifest is created or read. `/api/agents/:id/conversation` returns `system_prompt` entries by default (operator APIs are debugging surfaces).
 
 The analyst tools `list_agent_sessions` and `read_agent_session` use the same read model.
 
 ### 6. Slim `AgentAdapter` to production-used services only
+
+Status: completed for Phase 1. `AgentAdapter` now keeps only the production-used composition services, and the old invocation/session/compaction dependencies are gone.
 
 `AgentAdapter` currently implements `AgentExecutionPort` via `AgentInvocationRunner`. The micro-actor runtime replaced this entire surface — `invokePlanner`/`invokeExecutor`/`invokeReviewer`/`reinvokeSession` are never called from production code, only from tests. The dead surface keeps `AgentInvocationRunner`, `AgentSessionCoordinator`, `AgentSessionLifecycle`, `SessionMessageLog`, `InvocationModelContext`, and `ContextCompactor` alive as transitive dependencies.
 
