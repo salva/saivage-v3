@@ -214,7 +214,7 @@ Inspection is split into a **history** capability (all card roles) and a **navig
 ```
 PlanningCardProcessorActor (domain provider: card-control tools as methods)
   + WorkspaceProvider(projectRoot, cardId, 'planner')
-  + CardNavigationProvider(cardStore)   // list_cards, get_card, get_tree
+  + CardInspectionProvider(cardStore)   // list_cards, get_card, get_tree
   + CardHistoryProvider(cardStore)      // list_card_history, get_card_history_entry, diff_card
   + WebProvider(projectRoot, cardId, 'planner')
   + TerminalTool (emit_result — processor-owned, not in surface)
@@ -241,11 +241,12 @@ AnalystHandler (domain provider: analyst-control tools as methods, incl. get_sta
   + WorkspaceProvider(projectRoot, undefined, 'analyst')
   + PatchProvider(projectRoot, 'analyst')
   + ProcessProvider(projectRoot, sessionId, undefined)
-  + CardNavigationProvider(cardStore)
+  + CardInspectionProvider(cardStore)   // list_cards, get_card, get_tree
   + CardHistoryProvider(cardStore)
   + WebProvider(projectRoot, undefined, 'analyst')
   + McpProvider(mcpManager)
   + SkillProvider()
+  + WorkspaceNavigationProvider()       // navigate_workspace, navigate_back (analyst operator-control intents)
 ```
 
 The tool vocabulary and per-role assignments above are taken from `tool-set-reorganization-design.md` §6; this diagram shows how those assignments are expressed as provider composition.
@@ -323,7 +324,7 @@ The `InvocationSurface` (§3.3) is the only aggregate used at runtime: it collec
 One phase. No temporary wrappers.
 
 1. Define `ToolDefinition` (generic), `ToolProvider`, `ToolResult` (discriminated union), `InvocationSurface`, `invokeTool`, `invokeToolCall`, and the `defineTool` factory.
-2. Implement generic providers (`WorkspaceProvider`, `PatchProvider`, `ProcessProvider`, `WebProvider`, `CardHistoryProvider`, `CardNavigationProvider`, `McpProvider`, `SkillProvider`). Each is constructed with the minimal context it needs.
+2. Implement generic providers (`WorkspaceProvider`, `PatchProvider`, `ProcessProvider`, `WebProvider`, `CardHistoryProvider`, `CardInspectionProvider`, `WorkspaceNavigationProvider`, `McpProvider`, `SkillProvider`). Each is constructed with the minimal context it needs.
 3. Make each domain owner implement `ToolProvider` for its role-specific tools: `PlanningCardProcessorActor` (card control) and `AnalystHandler` (analyst control). Tool logic moves from detached catalog functions to bound methods. The executor and reviewer are not domain providers.
 4. Compose each agent's provider list and build its invocation surface at construction time.
 5. Point Analyst handler and card processors at `invokeToolCall`. Delete `ToolDispatcher`, `AnalystAdapter`, `processWorkspaceToolCall`, and the global tool catalog in the same change.
@@ -382,3 +383,36 @@ These are decided, not open. If a concrete need to change them appears later, th
 7. Tool names are global; schemas are surface-local. The same tool name may carry a different schema on different surfaces (e.g., planner `create_card` vs analyst `create_card`). The `InvocationSurface` is the authority for what schema the model sees.
 8. `ToolDefinition` is generic over `Args`; a `defineTool` factory infers the executor's argument type from the schema. The generic is erased to `any` in heterogeneous provider arrays, but each executor remains internally typed.
 9. `WebProvider` takes `{ projectRoot, cardId?, agentRole }` — the same write-policy context as workspace tools — because `webfetch.save_as` writes to the project filesystem under the same scoped authorization as `write`, including `record://` slot rules and analyst explicit `?card=<id>` targets.
+
+## 9. Implementation Status
+
+Updated: 2026-07-01.
+
+### Completed
+
+| Item | Detail |
+| --- | --- |
+| Invocation primitives (`src/tools/invocation.ts`) | `ToolDefinition`, `ToolProvider`, `InvocationSurface`, `invokeTool`, `invokeToolCall`, `defineTool`, `llmToolDefinition`, `surfaceToolDefinitions`. |
+| `WorkspaceProvider` + `PatchProvider` | Own their implementation directly (`src/tools/workspace-provider.ts`). Composed into planner, executor, reviewer. |
+| `ProcessProvider` | Owns its implementation (`src/tools/process-provider.ts`). Owner-scoped by activation id / session id. Composed into executor. |
+| Process store `owner_id` | `ProcessRecord.owner_id` persisted and enforced. `card_id` retained as provenance metadata. |
+| Executor process migration | Executor uses durable `ProcessProvider`; local `ProcessActor` state map removed. |
+| Canonical process names | `run_command`, `wait_process`, `kill_process` replace `run_project_command`, `start_and_wait`, `wait_for_process`. |
+| `WebProvider` | Adapter over existing `websearch`/`webfetch` functions (`src/tools/web-tools.ts`). Composed into planner, executor, reviewer. |
+| `CardHistoryProvider` | Adapter over existing `list_card_history`/`get_card_history_entry`/`diff_card` (`src/tools/card-history-provider.ts`). Composed into planner, executor, reviewer. |
+| `SkillProvider` | Adapter over existing `loadSkill` with role-scoped listing (`src/tools/skill-provider.ts`). Composed into executor, reviewer. |
+| `McpProvider` | Owns invocation + reviewer read-only policy (`src/tools/mcp-provider.ts`). `McpManager` threaded from runtime composition through `SupervisorRuntimeApi` into card processors. Composed into executor, reviewer. |
+| `WorkspaceNavigationProvider` | Adapter over `navigate_workspace`/`navigate_back` (`src/tools/workspace-navigation-provider.ts`). Analyst-only; not yet wired (pending analyst migration). |
+
+### Not yet done
+
+| Item | Detail |
+| --- | --- |
+| `CardInspectionProvider` (`list_cards`, `get_card`, `get_tree`) | Not implemented. The planner actor surface is missing these tools entirely — a gap from §3.5 composition. |
+| Planner/reviewer/executor as domain providers | Card processors do not yet implement `ToolProvider` as bound methods. Planner card-control tools still use `ActorToolSurface`, not provider composition. |
+| Analyst handler migration | `ToolDispatcher`, `AnalystAdapter`, and `TOOL_REGISTRY` are still the analyst execution path. |
+| Collapse adapter providers | `WebProvider`, `CardHistoryProvider`, `WorkspaceNavigationProvider`, and `SkillProvider` are thin adapters over catalog functions with `ToolResult` shape conversion. The implementation should move into the providers and the catalog functions should be deleted. |
+| Delete `processWorkspaceToolCall` | Dead code: card processors use `buildInvocationSurface` directly. Still exists in `src/agents/workspace-tools.ts`. |
+| Delete global tool catalog | `src/tools/definitions/index.ts` and `src/tools/tool-catalog.ts` are still the schema/execution authority for analyst tools and the source of actor-advertised LLM definitions. |
+| Terminal contract unification | `emit_planner_result`/`emit_executor_result`/`emit_reviewer_result` not yet renamed to `emit_result`. Per-role envelopes not yet collapsed. |
+| Analyst `preview`/`errorEnvelope` removal | Still on analyst `ToolResult`; shared `ToolResult` already clean. |

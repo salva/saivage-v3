@@ -5,7 +5,7 @@ import type { ToolContext, ToolResult } from './analyst-tool-types.js';
 import { navigate_back, navigate_workspace } from './analyst-workspace-tools.js';
 import { defineTool, type ToolProvider, type ToolResult as InvocationToolResult } from './invocation.js';
 
-export interface CardNavigationProviderContext {
+export interface WorkspaceNavigationProviderContext {
   readonly projectRoot: string;
   readonly store: CardStore;
   readonly sessionId?: string;
@@ -14,7 +14,7 @@ export interface CardNavigationProviderContext {
 const navigateWorkspaceSchema = z.object({ target: z.object({ kind: z.enum(['card', 'transcript', 'process', 'process_list', 'agent_session_list', 'config']), id: z.string().optional(), refinement: z.string().optional() }).strict() }).strict();
 const navigateBackSchema = z.object({}).strict();
 
-function toolContext(ctx: CardNavigationProviderContext): ToolContext {
+function toolContext(ctx: WorkspaceNavigationProviderContext): ToolContext {
   return { projectRoot: ctx.projectRoot, store: ctx.store, sessionId: ctx.sessionId, actor: 'analyst', surface: 'web-chat' };
 }
 
@@ -23,9 +23,9 @@ function invocationResult(result: ToolResult): InvocationToolResult {
   return { success: false, error: result.error ?? result.errorEnvelope?.message ?? 'Tool failed.' };
 }
 
-export function createCardNavigationProvider(ctx: CardNavigationProviderContext): ToolProvider {
+export function createWorkspaceNavigationProvider(ctx: WorkspaceNavigationProviderContext): ToolProvider {
   return {
-    providerName: 'card-navigation',
+    providerName: 'workspace-navigation',
     tools: [
       defineTool({
         name: 'navigate_workspace',

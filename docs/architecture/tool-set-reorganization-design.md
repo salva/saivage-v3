@@ -384,42 +384,55 @@ Implementation should follow `shared-tool-invocation-design.md`: providers own s
 
 Each phase should typecheck and pass focused tests before moving on.
 
-### Phase 1: Delete duplicate/dead model-facing names
+### Phase 1: Delete duplicate/dead model-facing names — partially done
 
-- Remove `run_project_command`, `start_and_wait`, `wait_for_process`, and `inspect_process`.
-- Remove `read_file_metadata`, `read_file`, `write_file`, `list_directory`, and `run_shell_command` as separate model-facing tool names. Preserve their capabilities through `read`, `write`, `glob`, and `run_command` with scoped URLs (`project://`, `record://`, `tmp://`, `system://`).
-- Remove `load_skill`; ensure `skill` supports both list and load.
-- Remove `report_goal_done`, `report_goal_failed`, and `report_goal_blocked` from residual definitions and prompts. They are dead names from the retired `AgentExecutionPort` surface and never reach the planner LLM.
-- Update tests that reference removed names; add negative tests for the removed names.
+Done:
+- Removed `run_project_command`, `start_and_wait`, `wait_for_process`, and `inspect_process` from workspace tools and catalog stable order.
+- Removed `report_goal_done`, `report_goal_failed`, `report_goal_blocked` (dead code from retired `AgentExecutionPort`).
+- Updated role-tool-policy, executor prompt, and tests for canonical process names.
 
-### Phase 2: Introduce provider-owned invocation surfaces
+Not yet done:
+- Remove `read_file_metadata`, `read_file`, `write_file`, `list_directory`, and `run_shell_command` as separate model-facing tool names. These are still the analyst host-inspection surface and will be removed when the analyst path migrates to standard tools with scoped URLs.
+- Remove `load_skill` from the catalog (currently coexists with `skill`).
+- Remove `terminate_process` (analyst runtime tool; `kill_process` from `ProcessProvider` is the canonical replacement).
 
-- Replace detached catalog execution with provider-owned `ToolDefinition`s and `InvocationSurface` composition as specified in `shared-tool-invocation-design.md`.
-- Build `WorkspaceProvider`, `PatchProvider`, `ProcessProvider`, `WebProvider`, `CardHistoryProvider`, `CardNavigationProvider`, `McpProvider`, and `SkillProvider`.
-- Move planner card-control tools onto `PlanningCardProcessorActor` and analyst operator-control tools onto `AnalystHandler` as bound methods/providers.
-- Keep schemas beside their provider-owned executors; any docs/schema aggregate is read-only and must not drive runtime prompts.
+### Phase 2: Introduce provider-owned invocation surfaces — partially done
 
-### Phase 3: Compose the role surfaces
+Done:
+- Invocation primitives (`ToolDefinition`, `ToolProvider`, `InvocationSurface`, `invokeTool`, `invokeToolCall`, `defineTool`).
+- `WorkspaceProvider`, `PatchProvider` own their implementation.
+- `ProcessProvider` owns its implementation with `ownerId` ownership.
+- `WebProvider`, `CardHistoryProvider`, `McpProvider`, `SkillProvider` composed into card processor actor surfaces.
+- `WorkspaceNavigationProvider` for analyst `navigate_workspace`/`navigate_back` (adapter; pending analyst wiring).
 
-- Planner: planner domain tools, workspace, navigation, history, web, and processor-owned `emit_result`.
-- Executor: workspace, patch, process, history, web, MCP, skill, and processor-owned `emit_result`.
-- Reviewer: workspace, history, web, MCP, skill, and processor-owned `emit_result`.
-- Analyst: analyst domain tools, workspace, patch, process, navigation, history, web, MCP, and skill.
-- Confirm `websearch` and `webfetch` are present on planner, executor, reviewer, and analyst surfaces, with `webfetch.save_as` using the same write authorization as `write`.
+Not yet done:
+- `CardInspectionProvider` (`list_cards`, `get_card`, `get_tree`) for the planner — not implemented. The planner actor surface is missing these tools.
+- Move planner card-control tools onto `PlanningCardProcessorActor` as a domain provider (currently uses `ActorToolSurface`).
+- Move analyst operator-control tools onto `AnalystHandler` as a domain provider.
+- Collapse adapter providers: move implementation from catalog functions into `WebProvider`, `CardHistoryProvider`, `SkillProvider` and delete the detached catalog functions.
+- Delete `processWorkspaceToolCall` (dead code after provider migration).
 
-### Phase 4: Unify the terminal contract
+### Phase 3: Compose the role surfaces — partially done
 
-- Rename the three terminal tools (`emit_planner_result`, `emit_executor_result`, `emit_reviewer_result`) to one processor-owned terminal operation: `emit_result`.
-- Replace the three per-role envelopes with one common envelope: `{ status: 'done' | 'blocked' | 'failed' | 'rework', summary: string }`. Each role's contract validates only the statuses that role may emit (reviewer: `done`/`rework`/`blocked`/`failed`; planner/executor: `done`/`blocked`/`failed`).
-- Move executor `warnings`/`result`/`error` and reviewer `assessment`/`achieved`/`issues`/`evidence_card_ids` into the record slots (`status.md`, `review.md`). Replace `status_text` with `summary`.
-- Collapse lifecycle results to `DoneResult`, `BlockedResult`, `FailedResult`, and `ReworkResult` plus the internal `needs_verification` state. Drop `latest_self_report` from the lifecycle result; the record URL is the reference.
+Done:
+- Planner: workspace, card-history, web. (Missing: `CardInspectionProvider` for `list_cards`/`get_card`/`get_tree`.)
+- Executor: workspace, patch, process, card-history, web, MCP, skill.
+- Reviewer: workspace, card-history, web, MCP, skill.
+- `websearch`/`webfetch` present on planner, executor, reviewer.
 
-### Phase 5: Align scoped URL policy, prompts, and specs
+Not yet done:
+- Analyst surface composition (pending analyst handler migration).
+- Planner `list_cards`/`get_card`/`get_tree` through `CardInspectionProvider`.
+- Confirm `webfetch.save_as` write authorization matches `write` once scoped URL policy is finalized.
 
-- Ensure all workspace, patch, process, and web save paths support the final scoped URL policy (`project://`, `record://`, `tmp://`, `system://`) and role-specific write authorization.
-- Ensure Analyst workspace tools use explicit `?card=<id>` for `record://`/`tmp://` card targets and do not depend on implicit card context.
-- Update prompts to mention only the final tool names, recommend `project://`, `record://`, and `tmp://` first, and describe `system://` as available, logged, and discouraged unless necessary.
-- Update `docs/spec/` and `docs/architecture/` references to removed tool names.
+### Phase 4: Unify the terminal contract — not started
+
+- Rename the three terminal tools to `emit_result`.
+- Replace per-role envelopes with common `{ status, summary }`.
+- Move executor/reviewer detail into record slots.
+- Collapse lifecycle results.
+
+### Phase 5: Align scoped URL policy, prompts, and specs — not started
 
 ## 11. Relationship To Other Documents
 
