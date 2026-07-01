@@ -150,7 +150,7 @@ The analyst handler owns session-scoped process cleanup: when an analyst session
 The web provider takes the same write-policy context as workspace tools, because `webfetch.save_as` writes to the project filesystem and uses the same scoped write authorization as `write` (per `tool-set-reorganization-design.md` §8):
 
 ```ts
-function createWebProvider(ctx: { projectRoot: string; agentRole: AgentRole }): ToolProvider {
+function createWebProvider(ctx: { projectRoot: string; cardId?: string; agentRole: AgentRole }): ToolProvider {
   return {
     providerName: 'web',
     tools: [
@@ -207,14 +207,14 @@ The LLM gateway delivers tool-call arguments as a JSON string. To avoid each cal
 
 ### 3.5 Composition per role
 
-Inspection is split into a **history** capability (all card roles) and a **navigation** capability (planner/analyst), so composition — not role branching inside a provider — determines what each role sees. `get_status` is an analyst-control method, not an inspection tool. `apply_patch` is a separate `PatchProvider` composed only into executor and analyst. Process tools are a `ProcessProvider` composed into executor and analyst. Web tools take `{ projectRoot, agentRole }` so `webfetch.save_as` enforces the same write policy as `write`.
+Inspection is split into a **history** capability (all card roles) and a **navigation** capability (planner/analyst), so composition — not role branching inside a provider — determines what each role sees. `get_status` is an analyst-control method, not an inspection tool. `apply_patch` is a separate `PatchProvider` composed only into executor and analyst. Process tools are a `ProcessProvider` composed into executor and analyst. Web tools take `{ projectRoot, cardId?, agentRole }` so `webfetch.save_as` enforces the same scoped write policy as `write`, including `record://` slot rules and analyst explicit `?card=<id>` targets.
 
 ```
 PlanningCardProcessorActor (domain provider: card-control tools as methods)
   + WorkspaceProvider(projectRoot, cardId, 'planner')
   + CardNavigationProvider(cardStore)   // list_cards, get_card, get_tree
   + CardHistoryProvider(cardStore)      // list_card_history, get_card_history_entry, diff_card
-  + WebProvider(projectRoot, 'planner')
+  + WebProvider(projectRoot, cardId, 'planner')
   + TerminalTool (emit_result — processor-owned, not in surface)
 
 TerminalCardProcessorActor (no domain provider — executor has no role-specific tools)
@@ -222,7 +222,7 @@ TerminalCardProcessorActor (no domain provider — executor has no role-specific
   + PatchProvider(projectRoot, 'executor')
   + ProcessProvider(projectRoot, activationId)
   + CardHistoryProvider(cardStore)
-  + WebProvider(projectRoot, 'executor')
+  + WebProvider(projectRoot, cardId, 'executor')
   + McpProvider(mcpManager)
   + SkillProvider()
   + TerminalTool (emit_result — processor-owned)
@@ -230,7 +230,7 @@ TerminalCardProcessorActor (no domain provider — executor has no role-specific
 Reviewer loop (domain provider: none — reviewer has no role-specific tools)
   + WorkspaceProvider(projectRoot, cardId, 'reviewer')
   + CardHistoryProvider(cardStore)
-  + WebProvider(projectRoot, 'reviewer')
+  + WebProvider(projectRoot, cardId, 'reviewer')
   + McpProvider(mcpManager)
   + SkillProvider()
   + TerminalTool (emit_result — processor-owned)
@@ -241,7 +241,7 @@ AnalystHandler (domain provider: analyst-control tools as methods, incl. get_sta
   + ProcessProvider(projectRoot, sessionId)
   + CardNavigationProvider(cardStore)
   + CardHistoryProvider(cardStore)
-  + WebProvider(projectRoot, 'analyst')
+  + WebProvider(projectRoot, undefined, 'analyst')
   + McpProvider(mcpManager)
   + SkillProvider()
 ```

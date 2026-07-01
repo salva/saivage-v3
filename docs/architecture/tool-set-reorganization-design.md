@@ -314,7 +314,7 @@ The Analyst does not get `activate_card` — that is a planner-internal sequenci
 
 ## 7. Schema Contracts
 
-All tool schemas use snake_case field names to match the OpenCode/Copilot convention LLMs expect. The internal tool result contract is `{ success, data?, error? }` with no error `code` field; the transcript layer serializes success as a `tool_result` entry and failure as a `tool_error` entry containing the error string. (This supersedes the earlier `{ error, code? }` wire shape; see `shared-tool-invocation-design.md` §3.9.)
+All tool schemas use snake_case field names to match the OpenCode/Copilot convention LLMs expect. The internal tool result contract is the discriminated union `{ success: true, data?: unknown } | { success: false, error: string }`; there is no error `code` field. The transcript layer serializes success as a `tool_result` entry and failure as a `tool_error` entry containing the error string. (This supersedes the earlier `{ error, code? }` wire shape; see `shared-tool-invocation-design.md` §3.9.)
 
 | Tool | Schema | Result shape |
 | --- | --- | --- |
@@ -341,10 +341,10 @@ All filesystem tools share one path policy:
 - Secret-bearing paths and blocked runtime/credential paths are invisible to `glob`, `grep`, and directory reads.
 - Direct access to a blocked path fails with a permission error.
 - Mutating tools reject blocked paths, `.saivage`, `.saivage-work`, symlink targets outside root, credential files, and unsafe `system://` writes.
-- `record://` writes are subject to slot-writer enforcement at the record-write boundary:
+- `record://` writes are subject to slot-writer enforcement at the record-write boundary. For card processors, "current card" is the composed activation card and explicit URL card parameters must match it. For the Analyst, there is no implicit current card; an explicit `?card=<id>` parameter is the operation target.
   - `status.md` → planner/executor (current card only)
   - `review.md` → reviewer (current card only)
-  - `brief.md` → planner/analyst (current card only)
+  - `brief.md` → planner/analyst (current card for planners; explicit `?card=<id>` target for the Analyst)
   - `card.json` → runtime internal (never agent-writable)
 - `project://` file writes are restricted by role:
   - Executor and Analyst may write `project://` files (Analyst via `write`/`edit`/`apply_patch` on project paths).
@@ -380,53 +380,45 @@ These v2 capabilities are not added in this reorg because v3 does not have the s
 
 The diary subsystem removal (section 5) is already complete; do not redo it.
 
-Phase 1 is split into independently-reviewable commits to keep merge friction low while the codebase is being concurrently refactored. Each step should typecheck and pass its own focused tests before moving on.
+Implementation should follow `shared-tool-invocation-design.md`: providers own schema and execution, runtime `InvocationSurface`s are composed from provider instances, and there is no detached catalog/context-bag execution path. The phases below describe the implementation order for the final tool vocabulary, not a catalog-centered migration.
 
-### Phase 1a: Remove duplicate/dead tool names (catalog only)
+Each phase should typecheck and pass focused tests before moving on.
 
-- Remove `run_project_command`, `start_and_wait`, `wait_for_process`, `inspect_process` from the catalog.
-- Remove the actor-inline `run_process`/`wait_process`/`inspect_process`/`kill_process` definitions; move `wait_process` and `kill_process` into the catalog.
-- Add `run_command` to the catalog with the `wait` parameter; wire it into the executor actor as the unified shell tool.
+### Phase 1: Delete duplicate/dead model-facing names
+
+- Remove `run_project_command`, `start_and_wait`, `wait_for_process`, and `inspect_process`.
 - Remove `read_file_metadata`, `read_file`, `write_file`, `list_directory`, and `run_shell_command` as separate model-facing tool names. Preserve their capabilities through `read`, `write`, `glob`, and `run_command` with scoped URLs (`project://`, `record://`, `tmp://`, `system://`).
 - Remove `load_skill`; ensure `skill` supports both list and load.
-- Remove `report_goal_done`, `report_goal_failed`, `report_goal_blocked` from the catalog. They are dead code from the retired `AgentExecutionPort` surface and never reach the planner LLM. Remove residual references wherever they still appear (some referenced files — e.g. `planner-envelope-tracker.ts`, `planner-control-tools.ts` — have already been deleted by concurrent refactors; only touch what still exists, notably `src/tools/definitions/index.ts`, `src/agents/planner-state-context.ts`, and actor prompt strings in `planning-card-processor-actor.ts` / `terminal-card-processor-actor.ts`).
+- Remove `report_goal_done`, `report_goal_failed`, and `report_goal_blocked` from residual definitions and prompts. They are dead names from the retired `AgentExecutionPort` surface and never reach the planner LLM.
 - Update tests that reference removed names; add negative tests for the removed names.
 
-### Phase 1b: Unify the terminal tool name
+### Phase 2: Introduce provider-owned invocation surfaces
 
-- Rename the three terminal tools (`emit_planner_result`, `emit_executor_result`, `emit_reviewer_result`) to one: `emit_result`. Update contract terminal descriptors, the event catalog enum, `LlmInvocationSummaryEvent.final_terminal_tool`, and actor prompt strings (the prompts currently hardcode the old names — see `planning-card-processor-actor.ts` and `terminal-card-processor-actor.ts`).
-- Keep the per-role envelope schemas in place for this step; only the tool name and terminal-detection change. This makes the rename verifiable without coupling to the envelope collapse.
+- Replace detached catalog execution with provider-owned `ToolDefinition`s and `InvocationSurface` composition as specified in `shared-tool-invocation-design.md`.
+- Build `WorkspaceProvider`, `PatchProvider`, `ProcessProvider`, `WebProvider`, `CardHistoryProvider`, `CardNavigationProvider`, `McpProvider`, and `SkillProvider`.
+- Move planner card-control tools onto `PlanningCardProcessorActor` and analyst operator-control tools onto `AnalystHandler` as bound methods/providers.
+- Keep schemas beside their provider-owned executors; any docs/schema aggregate is read-only and must not drive runtime prompts.
 
-### Phase 1c: Collapse the envelope to the common shape
+### Phase 3: Compose the role surfaces
 
+- Planner: planner domain tools, workspace, navigation, history, web, and processor-owned `emit_result`.
+- Executor: workspace, patch, process, history, web, MCP, skill, and processor-owned `emit_result`.
+- Reviewer: workspace, history, web, MCP, skill, and processor-owned `emit_result`.
+- Analyst: analyst domain tools, workspace, patch, process, navigation, history, web, MCP, and skill.
+- Confirm `websearch` and `webfetch` are present on planner, executor, reviewer, and analyst surfaces, with `webfetch.save_as` using the same write authorization as `write`.
+
+### Phase 4: Unify the terminal contract
+
+- Rename the three terminal tools (`emit_planner_result`, `emit_executor_result`, `emit_reviewer_result`) to one processor-owned terminal operation: `emit_result`.
 - Replace the three per-role envelopes with one common envelope: `{ status: 'done' | 'blocked' | 'failed' | 'rework', summary: string }`. Each role's contract validates only the statuses that role may emit (reviewer: `done`/`rework`/`blocked`/`failed`; planner/executor: `done`/`blocked`/`failed`).
 - Move executor `warnings`/`result`/`error` and reviewer `assessment`/`achieved`/`issues`/`evidence_card_ids` into the record slots (`status.md`, `review.md`). Replace `status_text` with `summary`.
-- Collapse the 7 lifecycle result kinds into 4 (+ `needs_verification` internal): `DoneResult`, `BlockedResult`, `FailedResult`, `ReworkResult`. Drop `latest_self_report` from the lifecycle result (the record URL is the reference). Keep runtime-internal `blocker_cause` and `verified_at` as internal metadata; drop the `'non_actionable_continue'` cause.
-- Update prompts to instruct agents to write detail into `status.md`/`review.md` and call `emit_result` with only `status` + `summary`.
-- Update/replace the tests that asserted the old per-role envelope shapes.
+- Collapse lifecycle results to `DoneResult`, `BlockedResult`, `FailedResult`, and `ReworkResult` plus the internal `needs_verification` state. Drop `latest_self_report` from the lifecycle result; the record URL is the reference.
 
-### Phase 2: Wire web tools into actor surfaces
+### Phase 5: Align scoped URL policy, prompts, and specs
 
-- Add `websearch` and `webfetch` to the planner, executor, and reviewer actor tool bundles in `actor-tool-definitions.ts`.
-- They already exist in the catalog; they just need to be exposed.
-
-### Phase 3: Align catalog `roles` with actual wiring
-
-- Update `roles` field on every catalog entry to match what the actor runtime actually exposes.
-- Reviewer: keep `write` and `edit` (record-only); remove `apply_patch` from `roles`. Planner likewise keeps `edit` (record-only).
-- Ensure `list_card_history`, `get_card_history_entry`, `diff_card` are wired into the executor and reviewer actor surfaces (currently in `roles` but not offered by the actors).
-
-### Phase 4: Align Analyst workspace tools with scoped URLs
-
-- Confirm the Analyst receives the same workspace tool names (`read`, `write`, `edit`, `apply_patch`, `glob`, `grep`, `run_command`, `wait_process`, `kill_process`) as autonomous agents.
-- Add `system://` resolution to those tools for host/system access. No permission gate — available to all agents, logged, discouraged in prompts.
-- Update prompts to recommend `project://`, `record://`, and `tmp://` first, and to use `system://` only when necessary.
-- Add tests asserting removed Analyst-specific host-inspection names are absent from the catalog.
-
-### Phase 5: Update docs and prompts
-
-- Update system prompts to mention only the final tool set.
-- Update the conversation UI redesign's Phase 2 note: the tool vocabulary is now aligned.
+- Ensure all workspace, patch, process, and web save paths support the final scoped URL policy (`project://`, `record://`, `tmp://`, `system://`) and role-specific write authorization.
+- Ensure Analyst workspace tools use explicit `?card=<id>` for `record://`/`tmp://` card targets and do not depend on implicit card context.
+- Update prompts to mention only the final tool names, recommend `project://`, `record://`, and `tmp://` first, and describe `system://` as available, logged, and discouraged unless necessary.
 - Update `docs/spec/` and `docs/architecture/` references to removed tool names.
 
 ## 11. Relationship To Other Documents
