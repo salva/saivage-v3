@@ -9,6 +9,8 @@ import { describe, type UnifiedToolDefinition } from './tool-catalog.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
 import { toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
 import { isWriteBlocked, looksLikeSecretPath, resolveContainedProjectPath } from '../workspace/index.js';
+import { defineTool, type ToolProvider, type ToolResult as InvocationToolResult } from './invocation.js';
+import type { AgentRole } from './tool-catalog.js';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_BYTES = 500_000;
@@ -17,6 +19,24 @@ const MAX_RESULTS = 20;
 const MAX_REDIRECTS = 5;
 
 type ReadMode = 'auto' | 'text' | 'multimodal';
+
+export interface WebProviderContext {
+  readonly projectRoot: string;
+  readonly cardId?: string;
+  readonly agentRole: Extract<AgentRole, 'planner' | 'executor' | 'reviewer' | 'analyst'>;
+}
+
+const websearchSchema = z.object({ query: z.string(), max_results: z.number().int().optional() }).strict();
+const webfetchSchema = z.object({ url: z.string(), read_mode: z.enum(['auto', 'text', 'multimodal']).optional(), metadata_only: z.boolean().optional(), max_bytes: z.number().int().optional(), max_inline_bytes: z.number().int().optional(), save_as: describe(z.string().optional(), 'Optional project-relative path to save fetched text content.') }).strict();
+
+function toolContext(ctx: WebProviderContext): ToolContext {
+  return { projectRoot: ctx.projectRoot, store: {} as never, actor: ctx.agentRole, surface: 'runtime' };
+}
+
+function invocationResult(result: ToolResult): InvocationToolResult {
+  if (result.success) return { success: true, data: result.data };
+  return { success: false, error: result.error ?? result.errorEnvelope?.message ?? 'Tool failed.' };
+}
 
 function redactUrl(raw: string): string {
   try {
@@ -182,6 +202,26 @@ export async function webfetch(ctx: ToolContext, params: { url: string; read_mod
 }
 
 export const webTools: readonly UnifiedToolDefinition<string, any>[] = [
-  { name: 'websearch', description: 'Search the public web for documentation and data sources.', input: z.object({ query: z.string(), max_results: z.number().int().optional() }).strict(), roles: ['planner', 'executor', 'reviewer'], executor: websearch },
-  { name: 'webfetch', description: 'Fetch a public HTTP(S) URL with bounded size and private-network protections.', input: z.object({ url: z.string(), read_mode: z.enum(['auto', 'text', 'multimodal']).optional(), metadata_only: z.boolean().optional(), max_bytes: z.number().int().optional(), max_inline_bytes: z.number().int().optional(), save_as: describe(z.string().optional(), 'Optional project-relative path to save fetched text content.') }).strict(), roles: ['planner', 'executor', 'reviewer'], executor: webfetch },
+  { name: 'websearch', description: 'Search the public web for documentation and data sources.', input: websearchSchema, roles: ['planner', 'executor', 'reviewer'], executor: websearch },
+  { name: 'webfetch', description: 'Fetch a public HTTP(S) URL with bounded size and private-network protections.', input: webfetchSchema, roles: ['planner', 'executor', 'reviewer'], executor: webfetch },
 ] as const;
+
+export function createWebProvider(ctx: WebProviderContext): ToolProvider {
+  return {
+    providerName: 'web',
+    tools: [
+      defineTool({
+        name: 'websearch',
+        description: 'Search the public web for documentation and data sources.',
+        inputSchema: websearchSchema,
+        executor: async (args) => invocationResult(await websearch(toolContext(ctx), args)),
+      }),
+      defineTool({
+        name: 'webfetch',
+        description: 'Fetch a public HTTP(S) URL with bounded size and private-network protections.',
+        inputSchema: webfetchSchema,
+        executor: async (args) => invocationResult(await webfetch(toolContext(ctx), args)),
+      }),
+    ],
+  };
+}

@@ -17,6 +17,7 @@ function requiredTool(name: string): ToolDefinition {
 const PLANNER_FILE_TOOL_DEFINITIONS = ['read', 'write', 'glob', 'grep', 'edit'].map(requiredTool);
 const REVIEWER_FILE_TOOL_DEFINITIONS = ['read', 'write', 'glob', 'grep', 'edit'].map(requiredTool);
 const EXECUTOR_FILE_TOOL_DEFINITIONS = ['read', 'write', 'glob', 'grep', 'edit', 'apply_patch'].map(requiredTool);
+const WEB_TOOL_DEFINITIONS = ['websearch', 'webfetch'].map(requiredTool);
 
 export const PLANNER_ACTOR_SURFACE_TOOL_DEFINITIONS: ToolDefinition[] = [
   plannerCreateCardDefinition(),
@@ -28,14 +29,17 @@ export const PLANNER_CARD_PROCESSOR_TOOL_DEFINITIONS: ToolDefinition[] = [
   requiredPlannerTool('activate_card'),
   ...PLANNER_ACTOR_SURFACE_TOOL_DEFINITIONS,
   ...PLANNER_FILE_TOOL_DEFINITIONS,
+  ...WEB_TOOL_DEFINITIONS,
 ];
 
 export const REVIEWER_CARD_PROCESSOR_TOOL_DEFINITIONS: ToolDefinition[] = [
   ...REVIEWER_FILE_TOOL_DEFINITIONS,
+  ...WEB_TOOL_DEFINITIONS,
 ];
 
 export const TERMINAL_CARD_PROCESSOR_TOOL_DEFINITIONS: ToolDefinition[] = [
   ...EXECUTOR_FILE_TOOL_DEFINITIONS,
+  ...WEB_TOOL_DEFINITIONS,
   {
     type: 'function',
     function: {

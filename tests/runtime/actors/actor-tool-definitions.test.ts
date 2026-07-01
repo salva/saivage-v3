@@ -1,0 +1,19 @@
+import { describe, expect, it } from '@jest/globals';
+
+import {
+  PLANNER_CARD_PROCESSOR_TOOL_DEFINITIONS,
+  REVIEWER_CARD_PROCESSOR_TOOL_DEFINITIONS,
+  TERMINAL_CARD_PROCESSOR_TOOL_DEFINITIONS,
+} from '../../../src/runtime/actors/actor-tool-definitions.js';
+
+function names(definitions: Array<{ function: { name: string } }>): string[] {
+  return definitions.map((definition) => definition.function.name);
+}
+
+describe('actor tool definitions', () => {
+  it('advertises web tools to planner, executor, and reviewer actors', () => {
+    expect(names(PLANNER_CARD_PROCESSOR_TOOL_DEFINITIONS)).toEqual(expect.arrayContaining(['websearch', 'webfetch']));
+    expect(names(TERMINAL_CARD_PROCESSOR_TOOL_DEFINITIONS)).toEqual(expect.arrayContaining(['websearch', 'webfetch']));
+    expect(names(REVIEWER_CARD_PROCESSOR_TOOL_DEFINITIONS)).toEqual(expect.arrayContaining(['websearch', 'webfetch']));
+  });
+});
