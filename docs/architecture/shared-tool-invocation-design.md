@@ -88,7 +88,14 @@ interface ToolDefinition {
 }
 ```
 
-The catalog is the single source of tool schemas and executor functions.
+The catalog is the single source of tool schemas and executor functions for ordinary side-effect tools. Two provider-visible tools are deliberately not catalog tools: they are **processor-owned control tools**, handled directly by the card processor loops rather than through `invokeTool`.
+
+| Tool | Class | Reason |
+| --- | --- | --- |
+| `activate_card` | Processor-owned | Sequencing boundary that dispatches a child actor; not a side-effect tool. |
+| `emit_result` | Processor-owned | Terminal contract that closes the activation and drives card lifecycle transitions. |
+
+Everything else the provider sees is a catalog tool dispatched through `invokeTool`.
 
 ### 5.2 Role tool surfaces
 
@@ -100,23 +107,25 @@ interface ToolSurface {
   readonly tools: ReadonlyMap<string, ToolDefinition>;
 }
 
-function buildToolSurface(role: AgentRole, names: readonly string[]): ToolSurface {
+function buildToolSurface(role: AgentRole, names: readonly string[], capabilities: { mcpAvailable: boolean }): ToolSurface {
   const tools = new Map();
   for (const name of names) {
     const definition = TOOL_CATALOG.get(name);
     if (!definition) throw new Error(`Tool '${name}' for role '${role}' is not in the catalog.`);
+    if (name === 'mcp_tool_call' && !capabilities.mcpAvailable) throw new Error(`'mcp_tool_call' registered for role '${role}' but MCP is unavailable; omit it from the tool list instead of denying at runtime.`);
     tools.set(name, definition);
   }
   return { role, tools };
 }
 ```
 
-Role surfaces are constructed once and reused across activations of the same role. The executor surface is built per activation only because `processOwner` lives in the context, not the surface.
+Role surfaces are constructed once per role/capability configuration and reused across activations. Activation-local state such as `processOwner` lives only in `ExecutorToolContext`, never in the surface.
 
 ### 5.3 The invocation function
 
 ```ts
 async function invokeTool(surface: ToolSurface, ctx: ToolContext, name: string, args: unknown): Promise<ToolResult> {
+  if (surface.role !== ctx.role) throw new Error(`Tool surface role '${surface.role}' does not match context role '${ctx.role}'.`);
   const definition = surface.tools.get(name);
   if (!definition) return { success: false, error: `Unsupported tool '${name}' for role '${surface.role}'.` };
   const parsed = definition.inputSchema.safeParse(args);
@@ -125,10 +134,13 @@ async function invokeTool(surface: ToolSurface, ctx: ToolContext, name: string, 
 }
 ```
 
-That is the entire shared layer. Two failure modes, both explicit:
+That is the entire shared layer. The `surface.role !== ctx.role` check is fail-fast for a programmer error (mismatched caller wiring), not a model error.
 
-- **Setup/configuration error** — `buildToolSurface` throws if a configured tool name is missing from the catalog. This is a code/config bug; fail fast.
-- **Model error** — `invokeTool` returns `{ success: false, error }` if the model calls a tool absent from the role surface, or if arguments fail schema validation. This is model output; surface a tool error, do not crash the activation.
+Three failure modes, all explicit:
+
+- **Setup/configuration error** — `buildToolSurface` throws if a configured tool name is missing from the catalog, or if a tool requiring a capability (e.g. `mcp_tool_call`) is registered when that capability is unavailable. These are code/config bugs; fail fast.
+- **Programmer error** — `invokeTool` throws if the surface role and context role do not match, or if a tool executor is called with the wrong role/context (e.g. `run_command` with a planner context). These are impossible states under correct wiring; throw.
+- **Model error** — `invokeTool` returns `{ success: false, error }` if the model calls a tool absent from the role surface, passes invalid arguments, or hits a legitimate runtime denial (path policy, slot-writer rule, permission). These are model output or legitimate runtime state; surface a tool error, do not crash the activation.
 
 Authority is enforced by three explicit boundaries, no policy engine:
 
@@ -148,8 +160,8 @@ interface AnalystToolContext {
   projectRoot: string;
   cardStore: CardStore;
   runtime: RuntimeControlPort;
-  mcpManager?: McpManager;
-  eventBus?: EventBus;
+  mcpManager: McpManager;
+  eventBus: EventBus;
   analystSurface: ControlActionSurface;
 }
 
@@ -166,7 +178,7 @@ interface ExecutorToolContext {
   cardId: string;
   cardStore: CardStore;
   processOwner: ExecutorProcessOwner;
-  mcpManager?: McpManager;
+  mcpManager: McpManager;
 }
 
 interface ReviewerToolContext {
@@ -179,7 +191,7 @@ interface ReviewerToolContext {
 
 A tool that needs `processOwner` accepts `ExecutorToolContext` and throws on any other role — statically executor-only, no optional field, no silent denial.
 
-### 5.4 The result
+### 5.5 The result
 
 ```ts
 interface ToolResult {
@@ -191,11 +203,11 @@ interface ToolResult {
 
 One result type. The caller — Analyst handler or card processor — serializes it for the provider. No separate `modelContent` field, no `errorKind`, no `metadata` bag. Information the caller needs for UI events or control decisions (e.g. process start, card mutation) is returned in `data` as a plain object.
 
-### 5.5 Terminal tools
+### 5.6 Terminal tools
 
 `emit_result` stays in the processor loops. It is not a catalog tool, not an adapter, and not passed through `invokeTool`. Terminal validation is role-specific contract logic that drives card lifecycle transitions; it does not belong in a shared side-effect tool path.
 
-### 5.6 Analyst audit and events
+### 5.7 Analyst audit and events
 
 The Analyst handler wraps `invokeTool` with its own pre/post hooks for audit logging, `analyst_tool_invoked` event broadcasts, and response shaping. These are Analyst-specific concerns; they live in the Analyst handler, not in the shared function or the catalog. Card processors do not need them.
 
@@ -265,10 +277,10 @@ Focused tests should cover:
 - Invalid arguments: schema parse failure returns a model-visible tool error, not a thrown exception.
 - Workspace tool validation errors return model-visible tool errors, not thrown activation failures.
 - Analyst policy denials by `ControlActionSurface` ( Analyst-handler pre-hook, not `invokeTool`).
-- Planner immediate-child card mutation policy (inside the card tool executor, branching on `ctx.agentRole`).
+- Planner immediate-child card mutation invariant: planner card tools assert planner/analyst context and reject non-immediate-child targets (inside the card tool executor).
 - Executor process lifecycle ownership and cleanup after activation settlement (context constructed per activation, `processOwner` discarded on settlement).
 - Reviewer record-only mutation policy: `write`/`edit` may touch only `record://review.md`; `project://` mutation and `apply_patch` are denied (enforced inside the filesystem tool executors, not by a reviewer adapter).
-- MCP invocation denial when MCP is unavailable (inside the `mcp_tool_call` executor).
+- MCP surface construction: `buildToolSurface` throws if `mcp_tool_call` is registered without MCP available; the tool is omitted from the surface instead of denied at runtime.
 
 End-to-end validation should include:
 
@@ -287,9 +299,9 @@ End-to-end validation should include:
 | Executor process actors outlive activation | Context is constructed per activation and discarded on settlement; `processOwner` is not global. |
 | Terminal result lifecycle becomes over-generic | Terminal tools stay in processor loops; they are never passed through `invokeTool`. |
 
-## 10. Open Questions
+## 10. Explicit Decisions
 
-1. Should terminal tools ever be unified with the catalog, or is direct processor validation permanently clearer? Current answer: direct processor validation. `emit_result` drives lifecycle transitions; it is not a side-effect tool.
-2. Should `activate_card` stay direct processor code permanently, or become a catalog tool that calls a processor-owned activation port? Current answer: direct processor code. It is a sequencing boundary.
+These are decided, not open. If a concrete need to change them appears later, the function-based design makes that change additive, not structural.
 
-These are answered with the simplest option. If a concrete need to unify appears later, the function-based design makes that change additive, not structural.
+1. Terminal tools (`emit_result`) stay direct processor validation. They drive card lifecycle transitions; they are not side-effect tools and never pass through `invokeTool`.
+2. `activate_card` stays direct processor code. It is a sequencing boundary that dispatches a child actor, not a catalog tool.
