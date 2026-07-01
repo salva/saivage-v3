@@ -8,15 +8,17 @@ Date: 2026-07-01
 
 Saivage currently has duplicated tool execution logic across the Analyst chat path and the micro-actor card processors. Parsing, policy checks, error normalization, and workspace tool routing are split across several modules. Tool definitions live in a global catalog of detached functions that receive a context bag and must assert their own role.
 
-This document specifies a tool architecture built on **ToolProviders** — objects that implement the tools for the domain they own. Card management tools are methods on the planner actor. Operator-control tools are methods on the analyst handler. Process, filesystem, web, and inspection tools live in reusable providers constructed with minimal context. There is no global catalog of detached functions and no context bag.
+This document specifies a tool architecture built on **ToolProviders** — objects that implement the tools for the domain they own. Card management tools are methods on the planner actor. Operator-control tools live in a dedicated analyst-control provider owned by the analyst handler. Process, filesystem, web, and inspection tools live in reusable providers constructed with minimal context. There is no global catalog of detached functions and no context bag.
+
+Verdict: this is the right target architecture if implemented as a clean endpoint, not as an adapter layer over the old catalog. The core design should remain: provider-owned schemas and execution, role surfaces composed explicitly, one shared invocation function, fail-fast impossible states, and a minimal discriminated `ToolResult`. The refinements below remove the parts that would otherwise preserve legacy indirection or overcomplicate the analyst path.
 
 This document is the authority for *how* tools are invoked and for the runtime result contract. Providers own their schema instances; the `InvocationSurface` is the runtime authority for what schema the model sees (§3.11). `tool-set-reorganization-design.md` remains the authority for *what* the tools are (names, default schemas, role assignments) and for the security/scope policy. Where a provider defines a surface-local schema variant, the provider's schema wins at runtime. Where the two docs conflict on the result contract, this document supersedes (see §3.9).
 
-## 2. Current Shape
+## 2. Pre-Refactor Shape
 
 ### Analyst path
 
-The Analyst is handled by `src/agents/analyst-handler.ts`.
+Before the provider migration, the Analyst is handled by `src/agents/analyst-handler.ts`.
 
 - It owns a global conversational loop backed by `LLMActor`.
 - It builds Analyst-specific system prompts and workspace context.
@@ -28,7 +30,7 @@ The Analyst is handled by `src/agents/analyst-handler.ts`.
 
 ### Card processor paths
 
-Planner, executor, and reviewer tool calls are handled inside runtime actors under `src/runtime/actors/`.
+Before the provider migration, planner, executor, and reviewer tool calls are handled inside runtime actors under `src/runtime/actors/`.
 
 - Planner uses `ActorToolSurface` for planner-owned card mutation tools and direct `processWorkspaceToolCall(...)` calls for workspace tools.
 - Executor owns process lifetimes directly through `ProcessActor` and also calls `processWorkspaceToolCall(...)` for workspace tools.
@@ -94,11 +96,13 @@ class PlanningCardProcessorActor implements ToolProvider {
 }
 ```
 
-The analyst handler is the other domain provider: its operator-control tools (card lifecycle, runtime controls, `get_status`, navigation) are bound methods with direct access to the runtime, card store, and session state.
+The analyst-control provider is the other domain provider: its operator-control tools (card lifecycle, runtime controls, `get_status`, `navigate_workspace`, `navigate_back`) are bound methods with direct access to runtime controls, the card store, and session state. The `AnalystHandler` owns the conversation loop, audit/event hooks, and response shaping; it composes the analyst-control provider rather than becoming a large tool implementation class itself.
 
-Only the planner and analyst handler are domain providers. The executor and reviewer have no role-specific tools — their surfaces are generic providers only.
+Only planner card control and analyst operator control are domain providers. The executor and reviewer have no role-specific tools — their surfaces are generic providers only.
 
-**Generic providers** — reusable bundles for capabilities shared across roles (filesystem, patch, process, web, inspection, MCP, skill). They are constructed with the minimal context they need; their tool methods close over that context. A generic provider never uses role to decide **which tools to expose** — that is composition's job (a role-restricted tool is a separate provider composed only into the roles that need it). Path and action **authorization** inside a tool (e.g., which file paths `write` may touch, which record slots are permitted) is legitimately keyed on `agentRole`; that is authorization policy enforced at the path-resolution boundary, not availability filtering.
+**Generic providers** — reusable bundles for capabilities shared across roles (filesystem, patch, process, web, card inspection/history, MCP, skill). They are constructed with the minimal context they need; their tool methods close over that context. A generic provider never uses role to decide **which tools to expose** — that is composition's job (a role-restricted tool is a separate provider composed only into the roles that need it). Path and action **authorization** inside a tool (e.g., which file paths `write` may touch, which record slots are permitted) is legitimately keyed on `agentRole`; that is authorization policy enforced at the path-resolution boundary, not availability filtering.
+
+Generic providers must not be adapters over the old catalog in the final architecture. A provider owns its schemas and implementation. Calling old detached tool functions and translating their result shape is a temporary implementation smell, not an acceptable endpoint.
 
 ```ts
 function createWorkspaceProvider(ctx: { projectRoot: string; cardId?: string; agentRole: AgentRole }): ToolProvider {
@@ -209,7 +213,7 @@ The LLM gateway delivers tool-call arguments as a JSON string. To avoid each cal
 
 ### 3.5 Composition per role
 
-Inspection is split into a **history** capability (all card roles) and a **navigation** capability (planner/analyst), so composition — not role branching inside a provider — determines what each role sees. `get_status` is an analyst-control method, not an inspection tool. `apply_patch` is a separate `PatchProvider` composed only into executor and analyst. Process tools are a `ProcessProvider` composed into executor and analyst. Web tools take `{ projectRoot, cardId?, agentRole }` so `webfetch.save_as` enforces the same scoped write policy as `write`, including `record://` slot rules and analyst explicit `?card=<id>` targets.
+Inspection is split into **card inspection** (`list_cards`, `get_card`, `get_tree`) and **card history** (`list_card_history`, `get_card_history_entry`, `diff_card`), so composition — not role branching inside a provider — determines what each role sees. `get_status`, `navigate_workspace`, and `navigate_back` are analyst-control methods, not generic inspection tools. `apply_patch` is a separate `PatchProvider` composed only into executor and analyst. Process tools are a `ProcessProvider` composed into executor and analyst. Web tools take `{ projectRoot, cardId?, agentRole }` so `webfetch.save_as` enforces the same scoped write policy as `write`, including `record://` slot rules and analyst explicit `?card=<id>` targets.
 
 ```
 PlanningCardProcessorActor (domain provider: card-control tools as methods)
@@ -237,7 +241,8 @@ Reviewer loop (domain provider: none — reviewer has no role-specific tools)
   + SkillProvider()
   + TerminalTool (emit_result — processor-owned)
 
-AnalystHandler (domain provider: analyst-control tools as methods, incl. get_status)
+AnalystHandler
+  + AnalystControlProvider(runtime, cardStore, session) // card lifecycle, runtime controls, get_status, navigation
   + WorkspaceProvider(projectRoot, undefined, 'analyst')
   + PatchProvider(projectRoot, 'analyst')
   + ProcessProvider(projectRoot, sessionId, undefined)
@@ -246,7 +251,6 @@ AnalystHandler (domain provider: analyst-control tools as methods, incl. get_sta
   + WebProvider(projectRoot, undefined, 'analyst')
   + McpProvider(mcpManager)
   + SkillProvider()
-  + WorkspaceNavigationProvider()       // navigate_workspace, navigate_back (analyst operator-control intents)
 ```
 
 The tool vocabulary and per-role assignments above are taken from `tool-set-reorganization-design.md` §6; this diagram shows how those assignments are expressed as provider composition.
@@ -255,7 +259,7 @@ The tool vocabulary and per-role assignments above are taken from `tool-set-reor
 
 | Eliminated | Replaced by |
 | --- | --- |
-| Global tool catalog of detached functions | Tool methods on domain owners + generic providers |
+| Global tool catalog of detached functions | Tool methods on domain providers + generic providers |
 | `ToolContext` capability bag | Bound `this` / constructor-captured context |
 | Role-typed context union (`AnalystToolContext \| ...`) | Not needed — tools are methods on the right object |
 | `agentRole` runtime assertions in tool executors | Composition — a tool is present only if its provider is composed in |
@@ -314,20 +318,20 @@ The `InvocationSurface` (§3.3) is the only aggregate used at runtime: it collec
 ## 4. Design Goals
 
 1. Keep role orchestration explicit. Analyst chat behavior, planner sequencing, executor process ownership, reviewer assessment, and terminal result validation remain role-specific.
-2. Co-locate tool logic with domain ownership. Card tools live on the planner. Operator-control tools live on the analyst handler. Filesystem, patch, process, web, and inspection tools live in generic providers. No detached functions digging through a context bag.
+2. Co-locate tool logic with domain ownership. Card tools live on the planner. Operator-control tools live on an analyst-control provider owned by the analyst handler. Filesystem, patch, process, web, and inspection tools live in generic providers. No detached functions digging through a context bag.
 3. Share mechanics below orchestration. JSON deserialization, schema validation, tool lookup, invocation, and result normalization are shared. The provider model determines what tools exist and where their logic lives; `invokeTool` just runs them.
 4. Make tool surfaces explicit by construction. A tool is available because a provider in the agent's composition list registered it. Unknown tools return a `ToolResult` error — no catch-all.
-5. No compatibility shims. `ToolDispatcher`, `AnalystAdapter`, `processWorkspaceToolCall`, and the global tool catalog are deleted in the same change that introduces providers.
+5. No compatibility shims. `ToolDispatcher`, `AnalystAdapter`, `processWorkspaceToolCall`, adapter providers over detached catalog functions, and the global tool catalog are deleted before this refactor is considered complete.
 
 ## 5. Migration Plan
 
-One phase. No temporary wrappers.
+One architectural endpoint. Implementation may be batched, but the accepted endpoint has no temporary wrappers, aliases, compatibility names, old dispatcher path, or adapter providers over old catalog functions. A batch may leave a documented intermediate state only while the branch is actively in flight; it must not be called complete.
 
 1. Define `ToolDefinition` (generic), `ToolProvider`, `ToolResult` (discriminated union), `InvocationSurface`, `invokeTool`, `invokeToolCall`, and the `defineTool` factory.
-2. Implement generic providers (`WorkspaceProvider`, `PatchProvider`, `ProcessProvider`, `WebProvider`, `CardHistoryProvider`, `CardInspectionProvider`, `WorkspaceNavigationProvider`, `McpProvider`, `SkillProvider`). Each is constructed with the minimal context it needs.
-3. Make each domain owner implement `ToolProvider` for its role-specific tools: `PlanningCardProcessorActor` (card control) and `AnalystHandler` (analyst control). Tool logic moves from detached catalog functions to bound methods. The executor and reviewer are not domain providers.
+2. Implement generic providers (`WorkspaceProvider`, `PatchProvider`, `ProcessProvider`, `WebProvider`, `CardInspectionProvider`, `CardHistoryProvider`, `McpProvider`, `SkillProvider`). Each is constructed with the minimal context it needs.
+3. Make each domain owner expose provider tools for its role-specific tools: `PlanningCardProcessorActor` (card control) and an `AnalystControlProvider` owned by `AnalystHandler` (operator control). Tool logic moves from detached catalog functions to bound methods. The executor and reviewer are not domain providers.
 4. Compose each agent's provider list and build its invocation surface at construction time.
-5. Point Analyst handler and card processors at `invokeToolCall`. Delete `ToolDispatcher`, `AnalystAdapter`, `processWorkspaceToolCall`, and the global tool catalog in the same change.
+5. Point Analyst handler and card processors at `invokeToolCall`. Delete `ToolDispatcher`, `AnalystAdapter`, `processWorkspaceToolCall`, adapter providers over detached catalog functions, and the global tool catalog before declaring the provider migration complete.
 6. Move Analyst audit logging and event broadcasting into Analyst-handler pre/post hooks around `invokeToolCall`. Derive shaping from `data` content instead of `preview`/`errorEnvelope`.
 7. Delete duplicated result types (`AdapterResult`, `ToolDispatchResult`, `ToolErrorEnvelope`, `ActionPreview`). Everything returns `ToolResult`.
 8. Update tests to assert `invokeTool` behavior per role surface instead of old adapter internals.
@@ -349,8 +353,9 @@ Focused tests should cover:
 - Process ownership: `ProcessProvider` is constructed with an `ownerId` (activation id or session id) and optional `cardId` provenance metadata; `wait_process`/`kill_process` reject processes not owned by that context. A new activation of the same card starts with no inherited processes. Analyst sessions clean up owned processes on session end. `card_id` is retained on `ProcessRecord` as provenance metadata only, never used for ownership checks.
 - Surface-local schemas: planner `create_card` schema differs from analyst `create_card` schema; each surface exposes the correct variant.
 - Reviewer record-only mutation: `write`/`edit` restricted to `record://review.md` by the workspace provider's path policy keyed on `agentRole`.
-- MCP availability: `McpProvider` is included in the composition list or not — no runtime denial.
+- MCP availability: `McpProvider` is included in the composition list or not. Dynamic MCP capability policy is still enforced inside the provider (for example reviewer calls require read-only, non-destructive tool metadata), because MCP tool identity is runtime data supplied through the wrapper.
 - Expected failures return `ToolResult`; impossible states throw (no broad catch in `invokeTool`).
+- Call sites must not catch all exceptions from `invokeTool` and convert them into model-visible tool errors. Expected/model/project failures are already `ToolResult`s. Exceptions are bugs or impossible states and should fail the activation/session at the normal boundary.
 
 End-to-end validation should include:
 
@@ -364,7 +369,7 @@ End-to-end validation should include:
 
 | Risk | Mitigation |
 | --- | --- |
-| Provider becomes an adapter with policy logic | Generic providers are named arrays of tool definitions with no dispatch interception (`handles()`, `policyInput()`). Generic providers carry no runtime state beyond constructor-captured context. Domain providers (the planner actor, the analyst handler) carry live domain state by design — that is the point of co-location; their state is the domain they own, not adapter policy. |
+| Provider becomes an adapter with policy logic | Generic providers are named arrays of tool definitions with no dispatch interception (`handles()`, `policyInput()`). Generic providers carry no runtime state beyond constructor-captured context. Domain providers (the planner actor, analyst-control provider) carry live domain state by design — that is the point of co-location; their state is the domain they own, not adapter policy. Adapter providers over old catalog functions are explicitly not final architecture. |
 | Analyst audit/events drift | Audit and event broadcasting stay in the Analyst handler as pre/post hooks around `invokeToolCall`; `invokeTool` has no side effects beyond the tool itself. Shaping derives from `data`, not from deleted typed envelope fields. |
 | Process state outlives its owner | Process state lives in the durable process store (`processApi`), scoped by `owner_id` (activation id or session id). Executor activations kill owned processes on settlement; analyst sessions kill owned processes on session end (explicit close, server restart, or idle TTL). A new activation of the same card starts with no inherited processes. `card_id` is kept on `ProcessRecord` as provenance metadata for UI and notifications, but is never used as an ownership key. |
 | Terminal result lifecycle becomes over-generic | `emit_result` stays in processor loops; it is never a provider tool or passed through `invokeTool`. |
@@ -377,42 +382,9 @@ These are decided, not open. If a concrete need to change them appears later, th
 1. Terminal tools (`emit_result`) stay direct processor validation. They drive card lifecycle transitions; they are not side-effect tools and never pass through `invokeTool`.
 2. `activate_card` is a planner provider tool. It flows through `invokeTool` like any other tool — its executor is a bound method on the planner actor that has natural access to the activation callback via `this`.
 3. The reviewer has no domain-specific provider. Its tool surface is generic providers only (workspace, web, MCP, skill, card-history) plus the terminal tool.
-4. There is no global catalog module that is the execution or schema authority. Tool schemas and execution live together on providers (domain owners and generic providers). See §3.11 for how this relates to the tool vocabulary in `tool-set-reorganization-design.md`.
+4. There is no global catalog module that is the execution or schema authority. Tool schemas and execution live together on providers (domain providers and generic providers). See §3.11 for how this relates to the tool vocabulary in `tool-set-reorganization-design.md`.
 5. The result contract is a discriminated union `{ success: true; data? } | { success: false; error: string }` with no error `code`, no `preview`, no `errorEnvelope`. This supersedes the `{ error, code? }` shape in `tool-set-reorganization-design.md` §7 (see §3.9). Analyst shaping moves into the handler's post-hook, deriving from `data`.
 6. Process tools are a generic `ProcessProvider`, not executor-actor methods. Both executor and analyst compose it with an owner context (`ownerId`) and optional provenance context (`cardId`). For the executor, `ownerId` is the unique **activation id** (not the card id) and `cardId` is the activation card id, so a new activation of the same card starts with no inherited processes while process listings still show the associated card. For the analyst, `ownerId` is the **session id** and `cardId` is absent, because the analyst has no implicit card context and `run_command` does not accept a card target. The handler kills owned processes on session end. The durable process store is the authority. `card_id` is retained on `ProcessRecord` as provenance metadata for UI, notifications, and analyst preview filtering, but is never used for ownership checks.
 7. Tool names are global; schemas are surface-local. The same tool name may carry a different schema on different surfaces (e.g., planner `create_card` vs analyst `create_card`). The `InvocationSurface` is the authority for what schema the model sees.
 8. `ToolDefinition` is generic over `Args`; a `defineTool` factory infers the executor's argument type from the schema. The generic is erased to `any` in heterogeneous provider arrays, but each executor remains internally typed.
 9. `WebProvider` takes `{ projectRoot, cardId?, agentRole }` — the same write-policy context as workspace tools — because `webfetch.save_as` writes to the project filesystem under the same scoped authorization as `write`, including `record://` slot rules and analyst explicit `?card=<id>` targets.
-
-## 9. Implementation Status
-
-Updated: 2026-07-01.
-
-### Completed
-
-| Item | Detail |
-| --- | --- |
-| Invocation primitives (`src/tools/invocation.ts`) | `ToolDefinition`, `ToolProvider`, `InvocationSurface`, `invokeTool`, `invokeToolCall`, `defineTool`, `llmToolDefinition`, `surfaceToolDefinitions`. |
-| `WorkspaceProvider` + `PatchProvider` | Own their implementation directly (`src/tools/workspace-provider.ts`). Composed into planner, executor, reviewer. |
-| `ProcessProvider` | Owns its implementation (`src/tools/process-provider.ts`). Owner-scoped by activation id / session id. Composed into executor. |
-| Process store `owner_id` | `ProcessRecord.owner_id` persisted and enforced. `card_id` retained as provenance metadata. |
-| Executor process migration | Executor uses durable `ProcessProvider`; local `ProcessActor` state map removed. |
-| Canonical process names | `run_command`, `wait_process`, `kill_process` replace `run_project_command`, `start_and_wait`, `wait_for_process`. |
-| `WebProvider` | Adapter over existing `websearch`/`webfetch` functions (`src/tools/web-tools.ts`). Composed into planner, executor, reviewer. |
-| `CardHistoryProvider` | Adapter over existing `list_card_history`/`get_card_history_entry`/`diff_card` (`src/tools/card-history-provider.ts`). Composed into planner, executor, reviewer. |
-| `SkillProvider` | Adapter over existing `loadSkill` with role-scoped listing (`src/tools/skill-provider.ts`). Composed into executor, reviewer. |
-| `McpProvider` | Owns invocation + reviewer read-only policy (`src/tools/mcp-provider.ts`). `McpManager` threaded from runtime composition through `SupervisorRuntimeApi` into card processors. Composed into executor, reviewer. |
-| `WorkspaceNavigationProvider` | Adapter over `navigate_workspace`/`navigate_back` (`src/tools/workspace-navigation-provider.ts`). Analyst-only; not yet wired (pending analyst migration). |
-
-### Not yet done
-
-| Item | Detail |
-| --- | --- |
-| `CardInspectionProvider` (`list_cards`, `get_card`, `get_tree`) | Not implemented. The planner actor surface is missing these tools entirely — a gap from §3.5 composition. |
-| Planner/reviewer/executor as domain providers | Card processors do not yet implement `ToolProvider` as bound methods. Planner card-control tools still use `ActorToolSurface`, not provider composition. |
-| Analyst handler migration | `ToolDispatcher`, `AnalystAdapter`, and `TOOL_REGISTRY` are still the analyst execution path. |
-| Collapse adapter providers | `WebProvider`, `CardHistoryProvider`, `WorkspaceNavigationProvider`, and `SkillProvider` are thin adapters over catalog functions with `ToolResult` shape conversion. The implementation should move into the providers and the catalog functions should be deleted. |
-| Delete `processWorkspaceToolCall` | Dead code: card processors use `buildInvocationSurface` directly. Still exists in `src/agents/workspace-tools.ts`. |
-| Delete global tool catalog | `src/tools/definitions/index.ts` and `src/tools/tool-catalog.ts` are still the schema/execution authority for analyst tools and the source of actor-advertised LLM definitions. |
-| Terminal contract unification | `emit_planner_result`/`emit_executor_result`/`emit_reviewer_result` not yet renamed to `emit_result`. Per-role envelopes not yet collapsed. |
-| Analyst `preview`/`errorEnvelope` removal | Still on analyst `ToolResult`; shared `ToolResult` already clean. |

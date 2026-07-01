@@ -403,12 +403,11 @@ Done:
 - `WorkspaceProvider`, `PatchProvider` own their implementation.
 - `ProcessProvider` owns its implementation with `ownerId` ownership.
 - `WebProvider`, `CardHistoryProvider`, `McpProvider`, `SkillProvider` composed into card processor actor surfaces.
-- `WorkspaceNavigationProvider` for analyst `navigate_workspace`/`navigate_back` (adapter; pending analyst wiring).
 
 Not yet done:
 - `CardInspectionProvider` (`list_cards`, `get_card`, `get_tree`) for the planner — not implemented. The planner actor surface is missing these tools.
 - Move planner card-control tools onto `PlanningCardProcessorActor` as a domain provider (currently uses `ActorToolSurface`).
-- Move analyst operator-control tools onto `AnalystHandler` as a domain provider.
+- Move analyst operator-control tools, including `navigate_workspace` and `navigate_back`, onto an `AnalystControlProvider` owned by `AnalystHandler`.
 - Collapse adapter providers: move implementation from catalog functions into `WebProvider`, `CardHistoryProvider`, `SkillProvider` and delete the detached catalog functions.
 - Delete `processWorkspaceToolCall` (dead code after provider migration).
 
