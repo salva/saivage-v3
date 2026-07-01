@@ -46,12 +46,12 @@ function setupStore() {
 
 const mockMcpToolsResponse = {
   tools: [
-    { name: 'read_file', description: 'Read a file', inputSchema: { type: 'object' as const } },
+    { name: 'read', description: 'Read a file', inputSchema: { type: 'object' as const } },
     { name: 'write_file', description: 'Write a file', inputSchema: { type: 'object' as const } },
   ],
   servers: ['filesystem', 'web'],
   invocationStats: {
-    'filesystem:read_file': { total: 10, success: 9, error: 1, lastInvokedAt: '2025-06-01T10:00:00Z' },
+    'filesystem:read': { total: 10, success: 9, error: 1, lastInvokedAt: '2025-06-01T10:00:00Z' },
     'filesystem:write_file': { total: 3, success: 3, error: 0, lastInvokedAt: '2025-06-01T09:30:00Z' },
   },
   serverDetails: [
@@ -62,7 +62,7 @@ const mockMcpToolsResponse = {
       toolCount: 2,
       tools: [
         {
-          name: 'read_file',
+          name: 'read',
           description: 'Read a file',
           inputSchema: { type: 'object' as const },
           stats: { total: 10, success: 9, error: 1, lastInvokedAt: '2025-06-01T10:00:00Z' },
@@ -158,7 +158,7 @@ describe('useMcpStore', () => {
       expect(store.toolCount).toBe(2);
       expect(store.serverCount).toBe(2);
       expect(store.totalInvocations).toBe(13); // 10 + 3
-      expect(store.totalErrors).toBe(1);       // 1 error on read_file
+      expect(store.totalErrors).toBe(1);       // 1 error on read
     });
 
     it('sets loading=true while fetching', async () => {

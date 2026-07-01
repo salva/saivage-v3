@@ -28,8 +28,8 @@ describe('AnalystChatPanel', () => {
       sessionId: 'analyst:global',
       entries: [
         { id: '1', session_id: 'analyst:global', role: 'assistant', kind: 'text', content: 'hello', round_id: 'r-assistant-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: '2025-01-01T00:00:00Z' },
-        { id: '2', session_id: 'analyst:global', role: 'assistant', kind: 'tool_call', tool: 'read_file', tool_call_id: 'call-1', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'read_file', arguments: JSON.stringify({ path: 'README.md' }) } }] }), round_id: 'r-assistant-00000000000000000000000000000001', message_index: 1, block_index: 0, timestamp: '2025-01-01T00:00:01Z' },
-        { id: '3', session_id: 'analyst:global', role: 'tool', kind: 'tool_result', tool: 'read_file', tool_call_id: 'call-1', content: JSON.stringify({ ok: true, content: 'docs' }), round_id: 'r-assistant-00000000000000000000000000000001', message_index: 1, block_index: 1, timestamp: '2025-01-01T00:00:02Z' },
+        { id: '2', session_id: 'analyst:global', role: 'assistant', kind: 'tool_call', tool: 'read', tool_call_id: 'call-1', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'read', arguments: JSON.stringify({ path: 'README.md' }) } }] }), round_id: 'r-assistant-00000000000000000000000000000001', message_index: 1, block_index: 0, timestamp: '2025-01-01T00:00:01Z' },
+        { id: '3', session_id: 'analyst:global', role: 'tool', kind: 'tool_result', tool: 'read', tool_call_id: 'call-1', content: JSON.stringify({ ok: true, content: 'docs' }), round_id: 'r-assistant-00000000000000000000000000000001', message_index: 1, block_index: 1, timestamp: '2025-01-01T00:00:02Z' },
       ],
     });
     sendChatMessage.mockResolvedValue({ sessionId: 'analyst:global', message: { id: '4', role: 'assistant', kind: 'text', content: 'reply', timestamp: '2025-01-01T00:00:03Z' }, toolInvocations: [] });
@@ -69,13 +69,13 @@ describe('AnalystChatPanel', () => {
 
     expect(wrapper.text()).toContain('hello');
     const chips = wrapper.findAll('.tool-chip');
-    expect(chips[0].text()).toContain('read_file');
+    expect(chips[0].text()).toContain('read');
     expect(chips[0].text()).toContain('README.md');
     const toggle = chips[0].find('button.tool-chip-toggle');
     expect(toggle.attributes('aria-expanded')).toBe('false');
     await toggle.trigger('click');
     expect(chips[0].find('button.tool-chip-toggle').attributes('aria-expanded')).toBe('true');
-    expect(chips[0].find('button.tool-chip-toggle').attributes('aria-label')).toContain('Collapse tool read_file details');
+    expect(chips[0].find('button.tool-chip-toggle').attributes('aria-label')).toContain('Collapse tool read details');
     expect(wrapper.findAll('.tool-chip-body').map((node) => node.text()).join('\n')).toContain('README.md');
     await chips[0].find('button.tool-chip-toggle').trigger('click');
     expect(wrapper.find('.tool-chip-body').exists()).toBe(false);
@@ -90,7 +90,7 @@ describe('AnalystChatPanel', () => {
     const resultChip = chips.find((chip) => chip.classes().includes('tool-chip-ok'));
     expect(resultChip).toBeDefined();
     expect(chips).toHaveLength(1);
-    expect(resultChip!.text()).toContain('read_file');
+    expect(resultChip!.text()).toContain('read');
     await resultChip!.find('button.tool-chip-toggle').trigger('click');
     expect(wrapper.findAll('.tool-chip-body').map((node) => node.text()).join('\n')).toContain('"ok":true');
     wrapper.unmount();
@@ -131,10 +131,10 @@ describe('AnalystChatPanel', () => {
     const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [pinia] } });
     await flushPromises();
     const store = useAnalystChat();
-    store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'stale-chat-id', tool: 'read_file', summary: 'opened docs', success: true });
+    store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'stale-chat-id', tool: 'read', summary: 'opened docs', success: true });
     await flushPromises();
 
-    expect(wrapper.text()).toContain('read_file');
+    expect(wrapper.text()).toContain('read');
     expect(wrapper.text()).toContain('opened docs');
     expect(wrapper.find('.tool-chip').exists()).toBe(true);
     expect(store.pendingToolInvocations[0].sessionId).toBe('analyst:global');
@@ -149,7 +149,7 @@ describe('AnalystChatPanel', () => {
     store.ingestWsEvent({
       event: 'analyst_tool_invoked',
       session_id: 'stale-chat-id',
-      tool: 'run_shell_command',
+      tool: 'run_command',
       summary: '[SECRET_PATH] redacted preview',
       classified_as: 'destructive',
       related_card_id: 'card-7',
@@ -157,7 +157,7 @@ describe('AnalystChatPanel', () => {
     });
     await flushPromises();
 
-    expect(wrapper.text()).toContain('run_shell_command');
+    expect(wrapper.text()).toContain('run_command');
     expect(wrapper.text()).toContain('[SECRET_PATH] redacted preview');
     expect(wrapper.find('.tool-chip').exists()).toBe(true);
     expect(store.pendingToolInvocations[0].classifiedAs).toBe('destructive');

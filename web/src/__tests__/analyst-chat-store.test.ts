@@ -67,7 +67,7 @@ describe('analyst chat store', () => {
   it('keeps pending analyst tool chips visible until fetched tool messages exist', async () => {
     const store = useAnalystChat();
     await store.selectSession('analyst:global');
-    store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'stale-chat-id', tool: 'read_file', summary: 'opened docs', success: true });
+    store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'stale-chat-id', tool: 'read', summary: 'opened docs', success: true });
 
     apiMocks.getChatEntries.mockResolvedValueOnce({
       sessionId: 'analyst:global',
@@ -81,7 +81,7 @@ describe('analyst chat store', () => {
     apiMocks.getChatEntries.mockResolvedValueOnce({
       sessionId: 'analyst:global',
       entries: [
-        { id: 'tool-1', session_id: 'analyst:global', role: 'assistant', kind: 'tool_call', tool: 'read_file', tool_call_id: 'tool-1', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'tool-1', type: 'function', function: { name: 'read_file', arguments: JSON.stringify({ path: 'docs/analyst.md' }) } }] }), round_id: 'r-assistant-00000000000000000000000000000001', message_index: 1, block_index: 0, timestamp: '2025-01-01T00:00:02Z' },
+        { id: 'tool-1', session_id: 'analyst:global', role: 'assistant', kind: 'tool_call', tool: 'read', tool_call_id: 'tool-1', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'tool-1', type: 'function', function: { name: 'read', arguments: JSON.stringify({ path: 'docs/analyst.md' }) } }] }), round_id: 'r-assistant-00000000000000000000000000000001', message_index: 1, block_index: 0, timestamp: '2025-01-01T00:00:02Z' },
       ] satisfies AgentConversationEntry[],
     });
     await store.fetchMessages('analyst:global');
@@ -139,8 +139,8 @@ describe('analyst chat store', () => {
   it('deduplicates repeated websocket analyst tool events for the same session and summary', () => {
     const store = useAnalystChat();
 
-    store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'chat-1', tool: 'read_file', summary: 'opened docs', success: true });
-    store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'chat-1', tool: 'read_file', summary: 'opened docs', success: true });
+    store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'chat-1', tool: 'read', summary: 'opened docs', success: true });
+    store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'chat-1', tool: 'read', summary: 'opened docs', success: true });
 
     expect(store.pendingToolInvocations).toHaveLength(1);
   });
@@ -172,8 +172,8 @@ describe('analyst chat store', () => {
   it('falls back to a safe default summary when the payload summary is empty or missing', () => {
     const store = useAnalystChat();
 
-    store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'chat-1', tool: 'read_file', summary: '   ', success: true });
-    store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'chat-2', tool: 'list_directory', success: true });
+    store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'chat-1', tool: 'read', summary: '   ', success: true });
+    store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'chat-2', tool: 'glob', success: true });
 
     expect(store.pendingToolInvocations[0].summary).toBe('tool invoked');
     expect(store.pendingToolInvocations[1].summary).toBe('tool invoked');
@@ -182,8 +182,8 @@ describe('analyst chat store', () => {
   it('collapses stale analyst session ids when deduping otherwise identical events', () => {
     const store = useAnalystChat();
 
-    store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'chat-1', tool: 'read_file', summary: 'opened docs', success: true });
-    store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'chat-2', tool: 'read_file', summary: 'opened docs', success: true });
+    store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'chat-1', tool: 'read', summary: 'opened docs', success: true });
+    store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'chat-2', tool: 'read', summary: 'opened docs', success: true });
 
     expect(store.pendingToolInvocations).toHaveLength(1);
     expect(store.pendingToolInvocations[0].sessionId).toBe('analyst:global');

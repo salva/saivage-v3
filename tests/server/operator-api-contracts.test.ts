@@ -236,6 +236,7 @@ describe('operator API contract registry', () => {
       exit_code: null,
       timed_out: false,
       owner: 'agent',
+      owner_id: 'planner-1',
       session_id: 'planner-1',
       card_id: 'card-1',
       command: 'npm test',
@@ -385,18 +386,18 @@ describe('operator API contract registry', () => {
 
   it('validates precise MCP tool response contracts', () => {
     const parsed = parseOperatorResponse('mcp.tools', {
-      tools: [{ name: 'read_file', description: 'Read a file', inputSchema: { type: 'object', properties: { path: { type: 'string' } } } }],
+      tools: [{ name: 'read', description: 'Read a file', inputSchema: { type: 'object', properties: { path: { type: 'string' } } } }],
       servers: ['filesystem'],
-      invocationStats: { 'filesystem:read_file': { total: 1, success: 1, error: 0 } },
+      invocationStats: { 'filesystem:read': { total: 1, success: 1, error: 0 } },
       serverDetails: [{
         name: 'filesystem',
         transport: 'stdio',
         status: 'running',
         toolCount: 1,
-        tools: [{ name: 'read_file', inputSchema: { type: 'object' }, stats: { total: 1, success: 1, error: 0 } }],
+        tools: [{ name: 'read', inputSchema: { type: 'object' }, stats: { total: 1, success: 1, error: 0 } }],
       }],
     });
-    expect(parsed.tools[0].name).toBe('read_file');
+    expect(parsed.tools[0].name).toBe('read');
     expect(parsed.tools[0].inputSchema.type).toBe('object');
 
     expect(() => parseOperatorResponse('mcp.tools', {

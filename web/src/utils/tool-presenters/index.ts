@@ -1,15 +1,11 @@
 import './read';
-import './read_file';
 import './glob';
 import './grep';
-import './list_directory';
 import './write';
 import './edit';
 import './apply_patch';
-import './run_project_command';
-import './run_shell_command';
-import './start_and_wait';
-import './wait_for_process';
+import './run_command';
+import './wait_process';
 import './kill_process';
 import './activate_card';
 import './cancel_card';

@@ -13,7 +13,6 @@ for (const name of [
   'show_config',
   'start_project',
   'stop_project',
-  'terminate_process',
 ] as const) {
   registerToolPresenter({ name, call: callPresenters[name], result: resultPresenters[name] });
 }

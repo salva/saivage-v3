@@ -62,13 +62,13 @@ import type { McpToolsResponse } from '../api/types';
 
 const mockRichResponse: McpToolsResponse = {
   tools: [
-    { name: 'read_file', description: 'Read a file', inputSchema: { type: 'object' } },
+    { name: 'read', description: 'Read a file', inputSchema: { type: 'object' } },
     { name: 'write_file', description: 'Write a file', inputSchema: { type: 'object' } },
     { name: 'web_search', description: 'Search the web', inputSchema: { type: 'object' } },
   ],
   servers: ['filesystem', 'web'],
   invocationStats: {
-    'filesystem:read_file': { total: 42, success: 40, error: 2, lastInvokedAt: '2025-07-01T10:00:00Z' },
+    'filesystem:read': { total: 42, success: 40, error: 2, lastInvokedAt: '2025-07-01T10:00:00Z' },
     'filesystem:write_file': { total: 15, success: 15, error: 0, lastInvokedAt: '2025-07-01T09:30:00Z' },
     'web:web_search': { total: 8, success: 7, error: 1, lastInvokedAt: '2025-07-01T08:00:00Z' },
   },
@@ -80,7 +80,7 @@ const mockRichResponse: McpToolsResponse = {
       toolCount: 2,
       tools: [
         {
-          name: 'read_file',
+          name: 'read',
           description: 'Read a file',
           inputSchema: { type: 'object' as const },
           stats: { total: 42, success: 40, error: 2, lastInvokedAt: '2025-07-01T10:00:00Z' },
@@ -551,9 +551,9 @@ describe('DebugView — MCP tab', () => {
     // 3 tools across 2 servers
     expect(toolCards).toHaveLength(3);
 
-    // First tool: read_file
+    // First tool: read
     const firstCard = toolCards[0];
-    expect(firstCard.find('.mcp-tool-name').text()).toBe('read_file');
+    expect(firstCard.find('.mcp-tool-name').text()).toBe('read');
     expect(firstCard.find('.mcp-tool-desc').text()).toBe('Read a file');
 
     // Check stats: total 42, success 40, error 2
@@ -630,9 +630,9 @@ describe('DebugView — MCP tab', () => {
     await flushPromises();
 
     const rows = wrapper.findAll('.mcp-stats-row');
-    // Row for 'filesystem:read_file'
+    // Row for 'filesystem:read'
     const rowText = rows[0].text();
-    expect(rowText).toContain('filesystem:read_file');
+    expect(rowText).toContain('filesystem:read');
     expect(rowText).toContain('42');
     expect(rowText).toContain('40');
     expect(rowText).toContain('2');

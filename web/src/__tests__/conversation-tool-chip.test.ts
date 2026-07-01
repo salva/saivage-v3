@@ -7,7 +7,7 @@ import type { ToolCallPresentation } from '../utils/tool-presenters';
 function router() { return createRouter({ history: createWebHistory(), routes: [{ path: '/files', name: 'files', component: { template: '<div />' } }] }); }
 
 const presentation: ToolCallPresentation = {
-  icon: '📖', name: 'read_file', headline: [{ kind: 'file', root: 'meta', path: '.saivage/plan.json' }], body: { path: '.saivage/plan.json' }, bodyKind: 'json',
+  icon: '📖', name: 'read', headline: [{ kind: 'file', root: 'meta', path: '.saivage/plan.json' }], body: { path: '.saivage/plan.json' }, bodyKind: 'json',
 };
 
 describe('ToolChip', () => {
