@@ -440,7 +440,7 @@ This reorganization is complete when:
 - `wait_process` and `kill_process` are the only background-process control tools;
 - `websearch` and `webfetch` are reachable from planner, executor, and reviewer;
 - the reviewer surface includes `write` and `edit` (record-only) but not `apply_patch`;
-- the catalog `roles` field matches actual actor wiring for every entry;
+- each role's `InvocationSurface` exposes exactly the providers specified in `shared-tool-invocation-design.md` §3.5;
 - removed host-inspection names (`read_file`, `write_file`, `list_directory`, `run_shell_command`, `read_file_metadata`) are absent from the catalog; their capabilities are available through standard tools with scoped URLs;
 - removed names (`run_project_command`, `start_and_wait`, `wait_for_process`, `inspect_process`, `run_process` as a separate tool, `load_skill`, `list_project_files`, `read_project_file`, `write_project_file`, `report_goal_done`, `report_goal_failed`, `report_goal_blocked`, `emit_planner_result`, `emit_executor_result`, `emit_reviewer_result`) are absent from the catalog and from all actor tool bundles;
 - system prompts mention only tools that exist in the final catalog;
