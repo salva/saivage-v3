@@ -12,6 +12,7 @@ import { buildInvocationSurface, invokeTool } from '../../tools/invocation.js';
 import { createCardHistoryProvider } from '../../tools/card-history-provider.js';
 import { createProcessProvider } from '../../tools/process-provider.js';
 import { createPatchProvider, createWorkspaceProvider } from '../../tools/workspace-provider.js';
+import { createSkillProvider } from '../../tools/skill-provider.js';
 import { createWebProvider } from '../../tools/web-tools.js';
 import { processApi } from '../process-api.js';
 import { closeOpenRecordSlot, discardOpenRecordSlot } from '../records/record-slots.js';
@@ -118,6 +119,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
         createPatchProvider({ projectRoot: this.projectRoot, cardId: this.cardId, agentRole: 'executor' }),
         createProcessProvider({ projectRoot: this.projectRoot, ownerId: processOwnerId, cardId: this.cardId }),
         createWebProvider({ projectRoot: this.projectRoot, cardId: this.cardId, agentRole: 'executor' }),
+        createSkillProvider({ projectRoot: this.projectRoot, agentRole: 'executor' }),
       ];
       providers.push(createCardHistoryProvider({ projectRoot: this.projectRoot, sessionId: processOwnerId, agentRole: 'executor' }));
       const workspaceSurface = buildInvocationSurface('executor', providers);

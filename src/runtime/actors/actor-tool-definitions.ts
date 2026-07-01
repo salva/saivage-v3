@@ -19,6 +19,7 @@ const REVIEWER_FILE_TOOL_DEFINITIONS = ['read', 'write', 'glob', 'grep', 'edit']
 const EXECUTOR_FILE_TOOL_DEFINITIONS = ['read', 'write', 'glob', 'grep', 'edit', 'apply_patch'].map(requiredTool);
 const WEB_TOOL_DEFINITIONS = ['websearch', 'webfetch'].map(requiredTool);
 const CARD_HISTORY_TOOL_DEFINITIONS = ['list_card_history', 'get_card_history_entry', 'diff_card'].map(requiredTool);
+const SKILL_TOOL_DEFINITIONS = ['skill'].map(requiredTool);
 
 export const PLANNER_ACTOR_SURFACE_TOOL_DEFINITIONS: ToolDefinition[] = [
   plannerCreateCardDefinition(),
@@ -38,12 +39,14 @@ export const REVIEWER_CARD_PROCESSOR_TOOL_DEFINITIONS: ToolDefinition[] = [
   ...REVIEWER_FILE_TOOL_DEFINITIONS,
   ...CARD_HISTORY_TOOL_DEFINITIONS,
   ...WEB_TOOL_DEFINITIONS,
+  ...SKILL_TOOL_DEFINITIONS,
 ];
 
 export const TERMINAL_CARD_PROCESSOR_TOOL_DEFINITIONS: ToolDefinition[] = [
   ...EXECUTOR_FILE_TOOL_DEFINITIONS,
   ...CARD_HISTORY_TOOL_DEFINITIONS,
   ...WEB_TOOL_DEFINITIONS,
+  ...SKILL_TOOL_DEFINITIONS,
   {
     type: 'function',
     function: {

@@ -23,4 +23,10 @@ describe('actor tool definitions', () => {
     expect(names(TERMINAL_CARD_PROCESSOR_TOOL_DEFINITIONS)).toEqual(expect.arrayContaining(historyTools));
     expect(names(REVIEWER_CARD_PROCESSOR_TOOL_DEFINITIONS)).toEqual(expect.arrayContaining(historyTools));
   });
+
+  it('advertises skills to executor and reviewer actors only', () => {
+    expect(names(PLANNER_CARD_PROCESSOR_TOOL_DEFINITIONS)).not.toContain('skill');
+    expect(names(TERMINAL_CARD_PROCESSOR_TOOL_DEFINITIONS)).toContain('skill');
+    expect(names(REVIEWER_CARD_PROCESSOR_TOOL_DEFINITIONS)).toContain('skill');
+  });
 });

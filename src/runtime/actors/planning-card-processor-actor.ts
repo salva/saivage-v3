@@ -17,6 +17,7 @@ import type { NewCardInput } from '../../cards/store-api.js';
 import { buildInvocationSurface, invokeTool } from '../../tools/invocation.js';
 import { createCardHistoryProvider } from '../../tools/card-history-provider.js';
 import { createWorkspaceProvider } from '../../tools/workspace-provider.js';
+import { createSkillProvider } from '../../tools/skill-provider.js';
 import { createWebProvider } from '../../tools/web-tools.js';
 import { closeOpenRecordSlot, concreteRecordSlot, discardOpenRecordSlot, latestClosedRecordSlot, readRecordSlotIndex, recordFileIsNonEmpty } from '../records/record-slots.js';
 import { cardBriefForPrompt } from '../records/card-brief.js';
@@ -394,6 +395,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
       createWorkspaceProvider({ projectRoot: this.projectRoot, cardId: card.id, agentRole: 'reviewer' }),
       createCardHistoryProvider({ projectRoot: this.projectRoot, sessionId, agentRole: 'reviewer' }),
       createWebProvider({ projectRoot: this.projectRoot, cardId: card.id, agentRole: 'reviewer' }),
+      createSkillProvider({ projectRoot: this.projectRoot, agentRole: 'reviewer' }),
     ]);
     if (workspaceSurface.tools.has(outcome.toolName)) return invokeTool(workspaceSurface, outcome.toolName, outcome.args);
     return { success: false, error: `Unsupported reviewer tool call '${outcome.toolName}' for session '${sessionId}'.` };
