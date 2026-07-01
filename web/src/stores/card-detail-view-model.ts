@@ -1,4 +1,4 @@
-import type { CardRecord, CardRefView, CardStatus, ReviewAssessment } from '../api/types';
+import type { CardRecord, CardRefView, CardStatus } from '../api/types';
 
 export interface CardLifecycleSummary {
   status: CardStatus;
@@ -16,13 +16,6 @@ export interface CardLifecycleSummary {
   hasBlockingChildren: boolean;
   dependencyIds: string[];
   blockedByDependencyIds: string[];
-}
-
-export interface CardReviewSummary {
-  status: 'not-run' | 'passed' | 'failed' | 'incomplete';
-  review: ReviewAssessment | null;
-  evidenceStatus: 'none' | 'partial' | 'recorded';
-  summary: string;
 }
 
 export interface CardPlanningSummary {
@@ -61,7 +54,6 @@ export interface CardDetailViewModel {
   ancestorIds: string[];
   ancestorRefs: CardRefView[];
   lifecycle?: CardLifecycleSummary | null;
-  review?: CardReviewSummary | null;
   planning?: CardPlanningSummary | null;
   dispatches?: DispatchSummary | null;
 }
@@ -129,7 +121,6 @@ export function toCardDetailViewModel(response: { card: CardRecord; children: Ca
     ancestorIds: response.ancestorIds,
     ancestorRefs: response.ancestorRefs ?? response.ancestorIds.map((id) => ({ id, display_path: null, title: null })),
     lifecycle: deriveCardLifecycleSummary(response.card, response.children),
-    review: null,
     planning: null,
     dispatches: null,
   };

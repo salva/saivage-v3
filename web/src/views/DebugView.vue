@@ -76,13 +76,10 @@
           </div>
           <div v-else class="operator-freshness" role="status">Not refreshed yet.</div>
 
-          <div v-if="operatorWarningBannerMessage" class="operator-banner operator-banner-warning" role="status">
-            {{ operatorWarningBannerMessage }}
-          </div>
           <div v-if="operatorUnauthorized" class="operator-banner operator-banner-error" role="alert">
             Unauthorized. Provide a valid Saivage API token and refresh the page.
           </div>
-          <div v-else-if="runtimeControlError && !operatorWarningBannerMessage" class="operator-banner operator-banner-error" role="alert">
+          <div v-else-if="runtimeControlError" class="operator-banner operator-banner-error" role="alert">
             {{ runtimeControlError }}
           </div>
           <div v-if="runtimeControlSuccess" class="operator-banner operator-banner-success" role="status">
@@ -417,7 +414,6 @@ const {
   currentCardId,
   currentAgentSessionId,
   operatorPanelBusy,
-  operatorWarningBannerMessage,
   sortedProcesses,
   timelineKindOptions,
   filteredTimeline,

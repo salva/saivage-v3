@@ -36,7 +36,6 @@ export function useDebugReadModel(debugStore: ReturnType<typeof useDebugStore>, 
   const currentCardId = computed(() => selectCurrentCardId(debugStore.debugRuntime as RuntimeState | null));
   const currentAgentSessionId = computed(() => selectCurrentAgentSessionId(debugStore.debugRuntime as RuntimeState | null));
   const operatorPanelBusy = computed(() => debugStore.loading);
-  const operatorWarningBannerMessage = computed<string | null>(() => null);
   const sortedProcesses = computed(() => selectSortedProcesses(debugStore.processes));
   const timelineKindOptions = computed(() => selectTimelineKindOptions(debugStore.sortedTimeline));
   const filteredTimeline = computed(() => filterTimelineByKinds(debugStore.sortedTimeline, selectedTimelineKinds.value));
@@ -63,7 +62,6 @@ export function useDebugReadModel(debugStore: ReturnType<typeof useDebugStore>, 
     currentCardId,
     currentAgentSessionId,
     operatorPanelBusy,
-    operatorWarningBannerMessage,
     sortedProcesses,
     timelineKindOptions,
     filteredTimeline,

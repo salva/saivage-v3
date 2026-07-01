@@ -29,7 +29,6 @@ describe('useCardStore evidence support', () => {
     await s.fetchCardDetail('card-a');
     expect(s.currentCard?.id).toBe('card-a');
     expect(s.currentChildren.map((card) => card.id)).toEqual(['child-a']);
-    expect(s.currentReview).toBeNull();
     expect(s.currentLifecycle?.status).toBe('running');
     expect(s.currentLifecycle?.childCounts.running).toBe(1);
     expect(s.currentPlanning).toBeNull();

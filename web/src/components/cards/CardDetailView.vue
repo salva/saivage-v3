@@ -105,31 +105,6 @@
         <div class="empty-evidence">No dedicated record-slot API projection is available in this view yet. Use Files to inspect the output directory.</div>
       </section>
 
-      <section class="detail-section">
-        <h3 class="section-heading">Review result</h3>
-        <div class="detail-callout" :class="reviewCalloutClass">
-          <strong>{{ reviewTitle }}</strong>
-          <div>{{ review?.summary || 'No review result is available for this card.' }}</div>
-        </div>
-        <template v-if="review?.review">
-          <div v-if="review.review.achieved.length" class="list-block">
-            <div class="meta-key">Achieved</div>
-            <ul><li v-for="item in review.review.achieved" :key="item">{{ item }}</li></ul>
-          </div>
-          <div class="list-block">
-            <div class="meta-key">Issues</div>
-            <ul v-if="review.review.issues.length"><li v-for="item in review.review.issues" :key="item.summary">{{ item.summary }}</li></ul>
-            <div v-else class="empty-evidence">No correction issues recorded.</div>
-          </div>
-          <div v-if="review.review.evidence_card_ids.length" class="link-list-row">
-            <span class="meta-key">Evidence cards</span>
-            <div class="pill-list">
-              <button v-for="evidenceId in review.review.evidence_card_ids" :key="evidenceId" type="button" class="pill card-ref-button" @click="navigateCard(evidenceId)">{{ evidenceId }}</button>
-            </div>
-          </div>
-        </template>
-      </section>
-
       <section class="detail-section" v-if="dispatches && (dispatches.outgoing.length || dispatches.incoming.length)">
         <h3 class="section-heading">Dispatch summary</h3>
         <div v-if="dispatches.outgoing.length" class="list-block">
@@ -198,7 +173,6 @@ const {
   currentChildren,
   currentAncestorRefs,
   currentLifecycle: lifecycle,
-  currentReview: review,
   currentPlanning: planning,
   currentDispatches: dispatches,
   currentDetailError,
@@ -233,8 +207,6 @@ function statusExplainer(status: CardStatus): string {
 }
 
 const completionLabel = computed(() => {
-  if (review.value?.status === 'passed') return 'Review passed';
-  if (review.value?.status === 'failed') return 'Review failed';
   return lifecycle.value?.completionState || 'unknown';
 });
 const childWorkSummary = computed(() => {
@@ -253,16 +225,6 @@ const detailErrorTitle = computed(() => {
     default: return 'Card detail error';
   }
 });
-const reviewTitle = computed(() => {
-  switch (review.value?.status) {
-    case 'passed': return 'Review passed';
-    case 'failed': return 'Review failed';
-    case 'incomplete': return 'Review incomplete';
-    default: return 'Not reviewed';
-  }
-});
-const reviewCalloutClass = computed(() => review.value?.status === 'passed' ? 'success' : review.value?.status === 'failed' ? 'error' : 'warning');
-
 function navigateCard(id: string): void { emit('navigate', id); }
 async function reloadDetail(): Promise<void> { try { await cardStore.fetchCardDetail(props.cardId); } catch (err) { log.error('fetch', err); } }
 

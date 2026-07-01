@@ -33,7 +33,6 @@ import {
 } from './card-presentation';
 import type {
   CardLifecycleSummary,
-  CardReviewSummary,
   CardPlanningSummary,
   DispatchSummary,
 } from './card-detail-view-model';
@@ -53,7 +52,6 @@ export const useCardStore = defineStore('cards', () => {
   const currentAncestorIds = ref<string[]>([]);
   const currentAncestorRefs = ref<CardRefView[]>([]);
   const currentLifecycle = ref<CardLifecycleSummary | null>(null);
-  const currentReview = ref<CardReviewSummary | null>(null);
   const currentPlanning = ref<CardPlanningSummary | null>(null);
   const currentDispatches = ref<DispatchSummary | null>(null);
   const currentDetailError = ref<DetailErrorState | null>(null);
@@ -104,7 +102,6 @@ export const useCardStore = defineStore('cards', () => {
     currentAncestorIds.value = [];
     currentAncestorRefs.value = [];
     currentLifecycle.value = null;
-    currentReview.value = null;
     currentPlanning.value = null;
     currentDispatches.value = null;
     currentDetailError.value = null;
@@ -166,7 +163,6 @@ export const useCardStore = defineStore('cards', () => {
       currentAncestorIds.value = viewModel.ancestorIds;
       currentAncestorRefs.value = viewModel.ancestorRefs;
       currentLifecycle.value = viewModel.lifecycle ?? null;
-      currentReview.value = viewModel.review ?? null;
       currentPlanning.value = viewModel.planning ?? null;
       currentDispatches.value = viewModel.dispatches ?? null;
       resetDetailFreshness();
@@ -224,7 +220,6 @@ export const useCardStore = defineStore('cards', () => {
     currentAncestorIds,
     currentAncestorRefs,
     currentLifecycle,
-    currentReview,
     currentPlanning,
     currentDispatches,
     currentDetailError,
