@@ -2,7 +2,6 @@ import type { ActorDefinition } from '../micro-actor/index.js';
 import type { CardActivationInput, CardActivationOutcome, CardActorStorePort, CardProcessorActor } from './card-actor.js';
 import { executorActorId } from './ids.js';
 import type { LLMActorOutcome, LLMAdmissionPort, LLMProviderPort } from './llm-actor.js';
-import { ProcessActor } from './process-actor.js';
 import { TERMINAL_CARD_PROCESSOR_TOOL_DEFINITIONS } from './actor-tool-definitions.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
 import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
@@ -10,13 +9,14 @@ import { createExecutorContract } from '../../contracts/executor-contract.js';
 import type { ExecutorResult } from '../../contracts/agent-execution.js';
 import { expectedTerminalToolMessage, verifyTerminalToolOutcome } from './contract-terminal-tools.js';
 import { buildInvocationSurface, invokeTool } from '../../tools/invocation.js';
+import { createProcessProvider } from '../../tools/process-provider.js';
 import { createPatchProvider, createWorkspaceProvider } from '../../tools/workspace-provider.js';
+import { processApi } from '../process-api.js';
 import { closeOpenRecordSlot, discardOpenRecordSlot } from '../records/record-slots.js';
 import { cardBriefForPrompt } from '../records/card-brief.js';
 
 type TerminalProcessorOutcome = Extract<CardActivationOutcome, { status: 'done' | 'failed' }>;
 
-export const MAX_TERMINAL_PROCESS_ACTORS = 20;
 const MAX_TERMINAL_CONTRACT_REPAIRS = 2;
 
 export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor implements CardProcessorActor {
@@ -29,8 +29,8 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     },
   };
 
-  readonly processes = new Map<string, ProcessActor>();
   readonly store?: CardActorStorePort;
+  private activeProcessOwnerId: string | null = null;
 
   constructor(args: { projectRoot: string; cardId: string; provider: LLMProviderPort; admission?: LLMAdmissionPort; store?: CardActorStorePort }) {
     super(args);
@@ -50,14 +50,16 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   protected override processorSnapshotContext(): Record<string, unknown> {
-    return { ...super.processorSnapshotContext(), processIds: [...this.processes.keys()] };
+    return { ...super.processorSnapshotContext(), processOwnerId: this.activeProcessOwnerId };
   }
 
   private async runActivation(input: CardActivationInput): Promise<TerminalProcessorOutcome> {
     const contract = createExecutorContract();
     const llm = this.createMainLlm(executorActorId(this.cardId));
     discardOpenRecordSlot(this.projectRoot, { cardId: this.cardId, filename: 'status.md', reason: 'new_activation' });
-    let outcome = await llm.turn(this.buildLlmInput(input, contract));
+    const llmInput = this.buildLlmInput(input, contract);
+    this.activeProcessOwnerId = llmInput.inputId;
+    let outcome = await llm.turn(llmInput);
     let repairAttempts = 0;
     for (;;) {
       if (outcome.type === 'result') {
@@ -85,7 +87,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
         }
         return this.projectExecutorTerminal(outcome, contract);
       }
-      const toolResult = await this.handleToolCall(outcome);
+      const toolResult = await this.handleToolCall(outcome, llmInput.inputId);
       outcome = await llm.appendToolResult(outcome.toolCallId, toolResult, (inputId) => this.notificationContextMessages(input, inputId));
     }
   }
@@ -107,15 +109,12 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     };
   }
 
-  private async handleToolCall(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): Promise<unknown> {
+  private async handleToolCall(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, processOwnerId: string): Promise<unknown> {
     try {
-      if (outcome.toolName === 'run_process') return await this.runProcess(outcome.args, outcome.toolCallId);
-      if (outcome.toolName === 'wait_process') return await this.waitProcess(outcome.args);
-      if (outcome.toolName === 'inspect_process') return await this.inspectProcess(outcome.args);
-      if (outcome.toolName === 'kill_process') return await this.killProcess(outcome.args);
       const workspaceSurface = buildInvocationSurface('executor', [
         createWorkspaceProvider({ projectRoot: this.projectRoot, cardId: this.cardId, agentRole: 'executor' }),
         createPatchProvider({ projectRoot: this.projectRoot, cardId: this.cardId, agentRole: 'executor' }),
+        createProcessProvider({ projectRoot: this.projectRoot, ownerId: processOwnerId, cardId: this.cardId }),
       ]);
       if (workspaceSurface.tools.has(outcome.toolName)) return await invokeTool(workspaceSurface, outcome.toolName, outcome.args);
       throw new Error(`Unsupported executor tool call '${outcome.toolName}'.`);
@@ -124,64 +123,18 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     }
   }
 
-  private async runProcess(args: unknown, fallbackProcessId: string): Promise<unknown> {
-    const parsed = parseProcessStartArgs(args);
-    const processId = parsed.processId ?? fallbackProcessId;
-    this.releaseProcess(processId, 'executor replaced process actor');
-    const actor = new ProcessActor({ projectRoot: this.projectRoot, processId });
-    actor.start();
-    actor.launch({ command: parsed.command, args: parsed.args });
-    this.processes.set(processId, actor);
-    this.compactProcessActors();
-    return actor.wait(parsed.timeoutMs);
-  }
-
-  private compactProcessActors(): void {
-    for (const [processId, actor] of this.processes) {
-      if (this.processes.size <= MAX_TERMINAL_PROCESS_ACTORS) return;
-      if (actor.state() !== 'settled') actor.kill('executor process actor retention limit');
-      this.processes.delete(processId);
-    }
-  }
-
   shutdownOwnedProcesses(reason = 'terminal processor shutdown'): void {
-    for (const processId of [...this.processes.keys()]) this.releaseProcess(processId, reason);
+    const ownerId = this.activeProcessOwnerId;
+    if (!ownerId) return;
+    for (const record of processApi(this.projectRoot).listForRuntime().filter((process) => process.owner_id === ownerId && process.status === 'running')) {
+      void processApi(this.projectRoot).terminate(record.id, 'SIGTERM');
+    }
   }
 
   protected override onActivationSettled(_outcome: TerminalProcessorOutcome): void {
     super.onActivationSettled(_outcome);
     this.shutdownOwnedProcesses('terminal card settled');
-  }
-
-  private async waitProcess(args: unknown): Promise<unknown> {
-    const parsed = parseProcessWaitArgs(args);
-    const actor = this.requireProcess(parsed.processId);
-    return actor.wait(parsed.timeoutMs);
-  }
-
-  private inspectProcess(args: unknown): unknown {
-    const parsed = parseProcessIdArgs(args);
-    return this.requireProcess(parsed.processId).inspect();
-  }
-
-  private killProcess(args: unknown): unknown {
-    const parsed = parseProcessIdArgs(args);
-    const actor = this.requireProcess(parsed.processId);
-    actor.kill('executor requested kill');
-    return { status: 'kill_requested', processId: parsed.processId };
-  }
-
-  private requireProcess(processId: string): ProcessActor {
-    const actor = this.processes.get(processId);
-    if (!actor) throw new Error(`Process '${processId}' not found.`);
-    return actor;
-  }
-
-  private releaseProcess(processId: string, reason: string): void {
-    const actor = this.processes.get(processId);
-    if (!actor) return;
-    if (actor.state() !== 'settled') actor.kill(reason);
-    this.processes.delete(processId);
+    this.activeProcessOwnerId = null;
   }
 
   private projectExecutorTerminal(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, contract = createExecutorContract()): TerminalProcessorOutcome {
@@ -242,31 +195,4 @@ function executorFailure(error: string, partialResult: Record<string, unknown> |
 
 function executorResultRecord(result: ExecutorResult): Record<string, unknown> {
   return { ...(result.result ?? {}), warnings: result.warnings };
-}
-
-function parseProcessStartArgs(args: unknown): { command: string; args: string[]; timeoutMs: number; processId?: string } {
-  if (!args || typeof args !== 'object') throw new Error('run_process args must be an object.');
-  const record = args as Record<string, unknown>;
-  if (typeof record.command !== 'string' || record.command.length === 0) throw new Error('run_process.command must be a non-empty string.');
-  if (record.args !== undefined && (!Array.isArray(record.args) || record.args.some((item) => typeof item !== 'string'))) throw new Error('run_process.args must be an array of strings.');
-  if (record.processId !== undefined && typeof record.processId !== 'string') throw new Error('run_process.processId must be a string.');
-  return { command: record.command, args: (record.args as string[] | undefined) ?? [], timeoutMs: parseTimeoutMs(record.timeoutMs), processId: record.processId };
-}
-
-function parseProcessWaitArgs(args: unknown): { processId: string; timeoutMs: number } {
-  const parsed = parseProcessIdArgs(args);
-  return { ...parsed, timeoutMs: parseTimeoutMs((args as Record<string, unknown>).timeoutMs) };
-}
-
-function parseProcessIdArgs(args: unknown): { processId: string } {
-  if (!args || typeof args !== 'object') throw new Error('process args must be an object.');
-  const processId = (args as Record<string, unknown>).processId;
-  if (typeof processId !== 'string' || processId.length === 0) throw new Error('processId must be a non-empty string.');
-  return { processId };
-}
-
-function parseTimeoutMs(value: unknown): number {
-  if (value === undefined) return 1000;
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) throw new Error('timeoutMs must be a non-negative number.');
-  return value;
 }

@@ -4,10 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardStore } from '../../../src/cards/card-store.js';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { CardActor, MAX_TERMINAL_PROCESS_ACTORS, ProcessActor, TerminalCardProcessorActor, readActorSnapshots, readProcessEvidence, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
+import { CardActor, TerminalCardProcessorActor, readActorSnapshots, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
 import type { LlmCompleteResult } from '../../../src/agents/llm-contracts.js';
 import { closeOpenRecordSlot, openRecordSlot } from '../../../src/runtime/records/record-slots.js';
+import { processApi } from '../../../src/runtime/process-api.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-terminal-processor-'));
@@ -241,7 +242,7 @@ describe('TerminalCardProcessorActor', () => {
     const provider: LLMProviderPort = {
       completeTurn: jest.fn(async (input: LlmInvocationInput) => input.episodeContext.lastToolResult
         ? executorResult(card.id, 'saw running process')
-        : { kind: 'tool_calls' as const, tool_calls: [{ id: 'run-1', type: 'function' as const, function: { name: 'run_process', arguments: JSON.stringify({ processId: 'P-timeout', command: process.execPath, args: ['-e', 'setTimeout(() => console.log("late"), 80)'], timeoutMs: 5 }) } }] }),
+        : { kind: 'tool_calls' as const, tool_calls: [{ id: 'run-1', type: 'function' as const, function: { name: 'run_command', arguments: JSON.stringify({ command: `${process.execPath} -e "setTimeout(() => console.log('late'), 1000)"`, wait: false }) } }] }),
     };
     const providerWithRecords = withExecutorStatusRecord(provider.completeTurn);
     const delivery = { deliverNotificationsForInput: jest.fn((inputId: string) => inputId.endsWith(':tool:1') ? [{ id: 'n-mid', message: 'executor mid-turn notice', created_at: '2026-06-12T00:00:00.000Z' }] : []) };
@@ -255,20 +256,20 @@ describe('TerminalCardProcessorActor', () => {
     expect(delivery.deliverNotificationsForInput).toHaveBeenCalledWith(`terminal:${card.id}:1:tool:1`);
     const continuationContext = (providerWithRecords.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls[1]?.[0].contextMessages as Array<Record<string, unknown>>;
     expect(continuationContext).toHaveLength(3);
-    expect(continuationContext[0]).toMatchObject({ role: 'assistant', kind: 'tool_call', tool: 'run_process', tool_call_id: 'run-1' });
-    expect(continuationContext[1]).toMatchObject({ role: 'tool', kind: 'tool_result', tool: 'run_process', tool_call_id: 'run-1' });
+    expect(continuationContext[0]).toMatchObject({ role: 'assistant', kind: 'tool_call', tool: 'run_command', tool_call_id: 'run-1' });
+    expect(continuationContext[1]).toMatchObject({ role: 'tool', kind: 'tool_result', tool: 'run_command', tool_call_id: 'run-1' });
     expect(continuationContext[2]).toEqual({ role: 'user', content: 'executor mid-turn notice' });
-    expect(processor.processes.size).toBe(0);
-    await eventually(() => expect(readProcessEvidence(projectRoot, 'P-timeout')).toMatchObject({ processId: 'P-timeout', killReason: 'terminal card settled' }));
-    expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).not.toContain('process:P-timeout');
+    await eventually(() => expect(processApi(projectRoot).listForRuntime().filter((process) => process.card_id === card.id)).toEqual([
+      expect.objectContaining({ owner_id: expect.stringContaining(`terminal:${card.id}`), status: 'killed' }),
+    ]));
   }));
 
-  it('routes explicit process kill through ProcessActor', async () => withTempProject(async (projectRoot) => {
+  it('routes explicit process kill through ProcessProvider', async () => withTempProject(async (projectRoot) => {
     const { card } = setup(projectRoot);
     const provider = withExecutorStatusRecord(async (input: LlmInvocationInput) => {
-      const last = input.episodeContext.lastToolResult as { result?: { status?: string } } | undefined;
-      if (!last) return { kind: 'tool_calls' as const, tool_calls: [{ id: 'run-1', type: 'function' as const, function: { name: 'run_process', arguments: JSON.stringify({ processId: 'P-kill', command: process.execPath, args: ['-e', 'setInterval(() => {}, 1000)'], timeoutMs: 5 }) } }] };
-      if (last.result?.status === 'running') return { kind: 'tool_calls' as const, tool_calls: [{ id: 'kill-1', type: 'function' as const, function: { name: 'kill_process', arguments: JSON.stringify({ processId: 'P-kill' }) } }] };
+      const last = input.episodeContext.lastToolResult as { result?: { success?: boolean; data?: { running?: boolean; process_id?: string; terminated?: boolean } } } | undefined;
+      if (!last) return { kind: 'tool_calls' as const, tool_calls: [{ id: 'run-1', type: 'function' as const, function: { name: 'run_command', arguments: JSON.stringify({ command: `${process.execPath} -e "setInterval(() => {}, 1000)"`, wait: false }) } }] };
+      if (last.result?.data?.running && last.result.data.process_id) return { kind: 'tool_calls' as const, tool_calls: [{ id: 'kill-1', type: 'function' as const, function: { name: 'kill_process', arguments: JSON.stringify({ process_id: last.result!.data!.process_id }) } }] };
       return executorResult(card.id, 'killed process');
     });
     const processor = new TerminalCardProcessorActor({ projectRoot, cardId: card.id, provider });
@@ -277,8 +278,9 @@ describe('TerminalCardProcessorActor', () => {
     const outcome = await processor.activate({ card, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: noopNotificationDelivery() });
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'killed process' });
-    expect(processor.processes.size).toBe(0);
-    await eventually(() => expect(readProcessEvidence(projectRoot, 'P-kill')).toMatchObject({ processId: 'P-kill', killReason: 'executor requested kill', signal: 'SIGTERM' }));
+    await eventually(() => expect(processApi(projectRoot).listForRuntime().filter((process) => process.card_id === card.id)).toEqual([
+      expect.objectContaining({ owner_id: expect.stringContaining(`terminal:${card.id}`), status: 'killed', signal: 'SIGTERM' }),
+    ]));
   }));
 
   it('keeps processing executor tool calls until a terminal result is produced', async () => withTempProject(async (projectRoot) => {
@@ -286,7 +288,7 @@ describe('TerminalCardProcessorActor', () => {
     let executorTurns = 0;
     const provider = withExecutorStatusRecord(async () => {
         executorTurns++;
-        if (executorTurns <= 25) return { kind: 'tool_calls' as const, tool_calls: [{ id: `inspect-${executorTurns}`, type: 'function' as const, function: { name: 'inspect_process', arguments: JSON.stringify({ processId: 'missing' }) } }] };
+        if (executorTurns <= 25) return { kind: 'tool_calls' as const, tool_calls: [{ id: `inspect-${executorTurns}`, type: 'function' as const, function: { name: 'wait_process', arguments: JSON.stringify({ process_id: 'missing', timeout_ms: 0 }) } }] };
         return executorResult(card.id, 'done after many tools');
     });
     const processor = new TerminalCardProcessorActor({ projectRoot, cardId: card.id, provider });
@@ -298,22 +300,6 @@ describe('TerminalCardProcessorActor', () => {
     expect(executorTurns).toBe(26);
     const llmSnapshot = readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === `executor:${card.id}`);
     expect(llmSnapshot).toMatchObject({ state_value: 'idle', context: { active_reconstruction: null } });
-  }));
-
-  it('compacts old settled process actors', () => withTempProject((projectRoot) => {
-    const { card } = setup(projectRoot);
-    const processor = new TerminalCardProcessorActor({ projectRoot, cardId: card.id, provider: { completeTurn: jest.fn(async () => executorResult(card.id, 'unused')) } });
-    for (let index = 0; index < MAX_TERMINAL_PROCESS_ACTORS + 3; index++) {
-      const processActor = new ProcessActor({ projectRoot, processId: `P-${index}` });
-      processActor.recover('settled');
-      processor.processes.set(processActor.processId, processActor);
-    }
-
-    (processor as unknown as { compactProcessActors: () => void }).compactProcessActors();
-
-    expect([...processor.processes.keys()]).toHaveLength(MAX_TERMINAL_PROCESS_ACTORS);
-    expect([...processor.processes.keys()][0]).toBe('P-3');
-    expect([...processor.processes.keys()].at(-1)).toBe(`P-${MAX_TERMINAL_PROCESS_ACTORS + 2}`);
   }));
 
   it('throws a clear impossible-state error when recovering directly into executing', () => withTempProject((projectRoot) => {
