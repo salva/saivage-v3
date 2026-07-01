@@ -193,10 +193,10 @@ For project work files (code, tests, docs), the agent uses `project://` or absol
 
 ### Cross-agent references
 
-When the reviewer returns `needs_corrections`, the runtime passes the review URL to the planner:
+When the reviewer returns `rework`, the runtime passes the review URL to the planner:
 
 ```text
-Reviewer rejected at record://review.md?v=23&card=card-1. Read it for corrections.
+Reviewer requested rework at record://review.md?v=23&card=card-1. Read it for required changes.
 ```
 
 The planner reads `record://review.md?v=23&card=card-1` — a concrete URL it can resolve regardless of its own card. No agent needs to construct or guess filesystem paths.
@@ -561,7 +561,7 @@ Remaining follow-up:
 2. Before accepting the reviewer result, compare the snapshot with current state.
 3. On stale review, call `discardOpenRecordSlot(..., reason: 'stale_review')`, do not advance `latest`, and relaunch the reviewer with fresh context.
 4. Replace the standalone notification-pending invalidation check with currentness. It still exists in `PlanningCardProcessorActor.reviewPlannerDone(...)` and must be removed only when currentness is wired.
-5. Pass the normalized concrete review URL into planner correction context when reviewer returns `needs_corrections`.
+5. Pass the normalized concrete review URL into planner correction context when reviewer returns `rework`.
 6. Add focused actor tests for missing-review repair, stale-review relaunch/discard, childless review skip, budget exhaustion, and planner correction context.
 
 ### Phase 4: Replace evidence gate - implemented

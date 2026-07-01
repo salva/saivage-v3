@@ -118,7 +118,7 @@ This replaces the separate Analyst host-inspection names:
 | `list_directory` | `glob system://...` |
 | `run_shell_command` | `run_command` with `cwd: 'system://...'` |
 
-The remaining Analyst control tools (`start_project`, `stop_project`, `terminate_process`, `pause_runtime`, `resume_runtime`, `abort_goal_subtree`, `restart_card_or_subtree`, `restart_goal`, `navigate_workspace`, `navigate_back`, `read_runtime_events`, `read_runtime_errors`, `read_control_actions`, `list_processes_tool`, `list_agent_sessions`, `read_agent_session`, `show_config`, `reconfigure`, `restart_server`, `queue_notification`, `mark_goal_needs_corrections`) keep their current names. They are operator control surface tools, not workspace primitives.
+The remaining Analyst control tools (`start_project`, `stop_project`, `terminate_process`, `pause_runtime`, `resume_runtime`, `abort_goal_subtree`, `restart_card_or_subtree`, `restart_goal`, `navigate_workspace`, `navigate_back`, `read_runtime_events`, `read_runtime_errors`, `read_control_actions`, `list_processes_tool`, `list_agent_sessions`, `read_agent_session`, `show_config`, `reconfigure`, `restart_server`, `queue_notification`, `mark_goal_rework`) keep their current names unless simplified later. They are operator control surface tools, not workspace primitives.
 
 ### 4.6 External MCP Wrapper
 
@@ -135,7 +135,7 @@ Planner, executor, and reviewer use one terminal tool name: `emit_result`. The m
 #### Design principle: common envelope, records carry the detail
 
 The runtime only needs two things from the terminal tool call to drive the card lifecycle:
-1. **What happened** — the `status` (`done | blocked | failed`).
+1. **What happened** — the `status` (`done | blocked | failed | rework`).
 2. **Why** — a short `summary` text that becomes the card's `status_text` and the one-line display in the UI.
 
 Everything else — executor warnings, free-form result blobs, reviewer achieved criteria, issues with severity, evidence card references — is human-readable evidence that belongs in the card record slots, not in the structured envelope. Agents already write `status.md` (planner/executor) and `review.md` (reviewer) during every activation. That's where the rich detail lives. The envelope is just the sign-off.
@@ -144,21 +144,22 @@ The envelope is one common schema for all three roles. Each role's contract simp
 
 This eliminates the current per-role envelope specialization:
 - Executor no longer has `status_text` (required), `error`, `result`, `warnings`, `summary` as separate fields — all of that goes into `status.md`. The `summary` field replaces `status_text`.
-- Reviewer no longer has a nested `assessment` object (`result`, `summary`, `achieved[]`, `issues[]`, `evidence_card_ids[]`) — all of that goes into `review.md`. The envelope just says `done` (pass) or `blocked` (needs corrections).
+- Reviewer no longer has a nested `assessment` object (`result`, `summary`, `achieved[]`, `issues[]`, `evidence_card_ids[]`) — all of that goes into `review.md`. The envelope just says `done` (pass) or `rework` (send back for changes).
 - Planner no longer has `blocked_reason` as a separate field — it's part of `summary`.
 
 #### Common envelope
 
 ```ts
 export const ResultEnvelopeSchema = z.object({
-  status: z.enum(['done', 'blocked', 'failed']),
+  status: z.enum(['done', 'blocked', 'failed', 'rework']),
   summary: z.string().min(1),
 }).strict();
 ```
 
 - `done` — the agent completed its current task/activation. For a planner, this means the current planning task is complete, not that the entire project/process is complete. For the reviewer, `done` means "assessment passed."
-- `blocked` — cannot progress due to external state. For the reviewer, `blocked` means "needs corrections" (the details are in `review.md`).
+- `blocked` — cannot progress due to external state. For the reviewer, this means the review itself cannot proceed.
 - `failed` — this card's work is fundamentally not achievable as scoped.
+- `rework` — review completed and the work must go back for changes. Only reviewers emit this status.
 - `summary` — mandatory reason text. Short, human-readable. This is the only structured field beyond `status`.
 
 There is no planner-specific `continue` status. The planner finishes each planning activation by returning `done`, `blocked`, or `failed`. The runtime/card scheduler decides whether more planning work remains based on the card tree, child states, reviewer state, and queued context. A model that needs to do more work in the same activation should keep using tools before it calls `emit_result`; it should not report a special continuation status.
@@ -172,7 +173,7 @@ There is no planner-specific `continue` status. The planner finishes each planni
 | Executor warnings | Envelope `warnings[]` | `status.md` |
 | Executor free-form result/evidence | Envelope `result` (free-form record) | `status.md` |
 | Executor error detail | Envelope `error` | `summary` text (short) + `status.md` (detail) |
-| Reviewer verdict (pass/needs corrections) | Envelope `assessment.result` | Envelope `status` (`done` = pass, `blocked` = needs corrections) |
+| Reviewer verdict (pass/send back) | Envelope `assessment.result` | Envelope `status` (`done` = pass, `rework` = send back for changes) |
 | Reviewer achieved criteria | Envelope `assessment.achieved[]` | `review.md` |
 | Reviewer issues (severity, evidence, recommendation) | Envelope `assessment.issues[]` | `review.md` |
 | Reviewer evidence card references | Envelope `assessment.evidence_card_ids[]` | `review.md` |
@@ -198,13 +199,14 @@ No new slots are needed. If a future role needs its own dedicated record, it can
 
 #### Simplified lifecycle results
 
-Currently there are 7 lifecycle result kinds (`executor_success`, `executor_failure`, `executor_needs_verification`, `planner_done`, `planner_blocked`, `planner_failure`, `reviewer_pass`, `reviewer_correction`). With the common envelope, these collapse to 3 (plus 1 internal):
+Currently there are 7 lifecycle result kinds (`executor_success`, `executor_failure`, `executor_needs_verification`, `planner_done`, `planner_blocked`, `planner_failure`, `reviewer_pass`, `reviewer_correction`). With the common envelope, these collapse to 4 (plus 1 internal):
 
 | Lifecycle result | `card.status` | Fields | Replaces |
 | --- | --- | --- | --- |
 | `DoneResult` | `done` | `summary` | `executor_success`, `planner_done`, `reviewer_pass` |
-| `BlockedResult` | `blocked` | `summary` (reason) | `planner_blocked` (with `reviewer_correction` — the correction detail is in `review.md`) |
+| `BlockedResult` | `blocked` | `summary` (reason) | `planner_blocked` |
 | `FailedResult` | `failed` | `summary` (error/reason) | `executor_failure`, `planner_failure` |
+| `ReworkResult` | `rework` | `summary` (reason) | `reviewer_correction` — the correction detail is in `review.md` |
 | `NeedsVerificationResult` | `needs_verification` | `reason`, `preserved_result` | `executor_needs_verification` (internal runtime concept, not agent-emitted — keep as-is) |
 
 The `latest_self_report` field currently embedded in executor results is a mirror of `status.md` content. With the detail living in `status.md`, `latest_self_report` can be dropped from the lifecycle result — the record URL is the durable reference.
@@ -286,7 +288,7 @@ Executor is the only role that writes `project://` files. Record writes follow s
 | Skill | `skill` |
 | MCP | `mcp_tool_call` |
 | Inspection | `list_card_history`, `get_card_history_entry`, `diff_card` |
-| Terminal | `emit_result` (reviewer: `done` = pass, `blocked` = needs corrections; detail in `review.md`) |
+| Terminal | `emit_result` (reviewer: `done` = pass, `rework` = send back for changes, `blocked` = cannot review, `failed` = review failed; detail in `review.md`) |
 
 Reviewer does **not** get `apply_patch` or `run_command`. The reviewer writes/edits only its `review.md` record; it does not modify project files.
 
@@ -305,7 +307,7 @@ The Analyst gets the same workspace tools as the autonomous agents, plus its con
 | MCP | `mcp_tool_call` |
 | Terminal | (none — analyst is not a card processor) |
 
-The Analyst additionally keeps operator-control tools (`start_project`, `stop_project`, `pause_runtime`, `resume_runtime`, `navigate_workspace`, `navigate_back`, `show_config`, `reconfigure`, `restart_server`, `read_runtime_events`, `read_runtime_errors`, `read_control_actions`, `list_processes_tool`, `list_agent_sessions`, `read_agent_session`, `mark_goal_needs_corrections`, `abort_goal_subtree`, `restart_card_or_subtree`, `restart_goal`, `terminate_process`).
+The Analyst additionally keeps operator-control tools (`start_project`, `stop_project`, `pause_runtime`, `resume_runtime`, `navigate_workspace`, `navigate_back`, `show_config`, `reconfigure`, `restart_server`, `read_runtime_events`, `read_runtime_errors`, `read_control_actions`, `list_processes_tool`, `list_agent_sessions`, `read_agent_session`, `mark_goal_rework`, `abort_goal_subtree`, `restart_card_or_subtree`, `restart_goal`, `terminate_process`).
 
 The Analyst does not get `activate_card` — that is a planner-internal sequencing boundary, not an operator action.
 
@@ -395,9 +397,9 @@ Phase 1 is split into independently-reviewable commits to keep merge friction lo
 
 ### Phase 1c: Collapse the envelope to the common shape
 
-- Replace the three per-role envelopes with one common envelope: `{ status: 'done' | 'blocked' | 'failed', summary: string }`. Each role's contract validates only the statuses that role may emit (reviewer: `done`/`blocked`; planner/executor: all three).
+- Replace the three per-role envelopes with one common envelope: `{ status: 'done' | 'blocked' | 'failed' | 'rework', summary: string }`. Each role's contract validates only the statuses that role may emit (reviewer: `done`/`rework`/`blocked`/`failed`; planner/executor: `done`/`blocked`/`failed`).
 - Move executor `warnings`/`result`/`error` and reviewer `assessment`/`achieved`/`issues`/`evidence_card_ids` into the record slots (`status.md`, `review.md`). Replace `status_text` with `summary`.
-- Collapse the 7 lifecycle result kinds into 3 (+ `needs_verification` internal): `DoneResult`, `BlockedResult`, `FailedResult`. Drop `latest_self_report` from the lifecycle result (the record URL is the reference). Keep runtime-internal `blocker_cause` and `verified_at` as internal metadata; drop the `'non_actionable_continue'` cause.
+- Collapse the 7 lifecycle result kinds into 4 (+ `needs_verification` internal): `DoneResult`, `BlockedResult`, `FailedResult`, `ReworkResult`. Drop `latest_self_report` from the lifecycle result (the record URL is the reference). Keep runtime-internal `blocker_cause` and `verified_at` as internal metadata; drop the `'non_actionable_continue'` cause.
 - Update prompts to instruct agents to write detail into `status.md`/`review.md` and call `emit_result` with only `status` + `summary`.
 - Update/replace the tests that asserted the old per-role envelope shapes.
 
@@ -450,9 +452,9 @@ This reorganization is complete when:
 - system prompts mention only tools that exist in the final catalog;
 - tests assert the final role tool surfaces and fail if removed names reappear;
 - the conversation UI redesign's Phase 2 unblocks because the tool vocabulary is aligned;
-- the terminal tool is `emit_result` for planner, executor, and reviewer with a common `{ status: 'done' | 'blocked' | 'failed', summary }` envelope; the analyst has no terminal tool;
+- the terminal tool is `emit_result` for planner, executor, and reviewer with a common `{ status: 'done' | 'blocked' | 'failed' | 'rework', summary }` envelope; the analyst has no terminal tool;
 - planner `done` means the planner completed its current planning task/activation, not that the entire process is complete;
-- lifecycle results are collapsed from 7 kinds to 3 (`DoneResult`, `BlockedResult`, `FailedResult`) plus the internal `NeedsVerificationResult`; reviewer emits only `done` or `blocked`;
+- lifecycle results are collapsed from 7 kinds to 4 (`DoneResult`, `BlockedResult`, `FailedResult`, `ReworkResult`) plus the internal `NeedsVerificationResult`; reviewer may emit `done`, `rework`, `blocked`, or `failed`;
 - executor `warnings`, `result`, and `error` go into `status.md`, not the envelope;
 - reviewer `assessment`, `achieved`, `issues`, and `evidence_card_ids` go into `review.md`, not the envelope;
 - reviewer evidence is prose in `review.md`; the runtime does not parse it to validate card IDs.

@@ -174,7 +174,7 @@ The main agent for every card type may report `done`, `failed`, or `blocked`. Be
 
 The Analyst does not directly set cards to `blocked`. `blocked` is reported by a card's main agent as an activation outcome. Analyst intervention uses supported objective/instruction edits or card-addressed notifications.
 
-Reviewer `needs_corrections` is handled inside the child activation. It is not a parent-visible activation result unless review retries are exhausted and the child activation ultimately returns `failed`.
+Reviewer `rework` is handled inside the child activation. It is not a parent-visible activation result unless review retries are exhausted and the child activation ultimately returns `failed`.
 
 ## 9. Changed Cards
 
