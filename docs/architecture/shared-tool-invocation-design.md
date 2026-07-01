@@ -36,7 +36,7 @@ Planner, executor, and reviewer tool calls are handled inside runtime actors und
 - Planner uses `ActorToolSurface` for planner-owned card mutation tools and direct `processWorkspaceToolCall(...)` calls for workspace tools.
 - Executor owns process lifetimes directly through `ProcessActor` and also calls `processWorkspaceToolCall(...)` for workspace tools.
 - Reviewer calls `processWorkspaceToolCall(...)` for its inspection tools.
-- Terminal tools such as `emit_planner_result`, `emit_executor_result`, and `emit_reviewer_result` are contract tools validated by the processor loops, not generic tools.
+- The terminal tool `emit_result` is a contract tool validated by the processor loops, not a generic tool. Each role receives its own valid status subset.
 
 ### Duplication
 
@@ -70,7 +70,7 @@ The following mechanics are duplicated or fragmented:
 - Do not let planner/executor/reviewer call Analyst-only runtime control or navigation tools.
 - Do not introduce a new compatibility layer for retired tool names.
 - Do not move process ownership out of the executor actor in the initial refactor.
-- Do not change provider-visible tool names as part of this design. Naming changes belong to [Tool Set Reorganization Design](./tool-set-reorganization-design.md).
+- Do not introduce provider-visible tool-name changes as part of this design. Naming changes belong to [Tool Set Reorganization Design](./tool-set-reorganization-design.md); this shared invocation layer should use that document's final names.
 
 ## 5. Desired Architecture
 
@@ -177,11 +177,11 @@ No adapter should use `handles(): true`. Catch-all dispatch hides stale tool nam
 | Workspace adapter | Planner, executor, reviewer, Analyst | Wraps `processWorkspaceToolCall(...)` or its successor. Handles file/search/record tools. |
 | Planner card adapter | Planner | Owns `create_card`, `edit_card`, `cancel_card`, and similar immediate-child mutations. Calls processor-owned methods or a narrow card mutation port. |
 | Planner activation adapter | Planner | Optional thin wrapper for `activate_card`; sequencing remains processor-owned. |
-| Executor process adapter | Executor | Wraps `run_process`, `wait_process`, `inspect_process`, `kill_process` through the executor actor's `ProcessActor` ownership. |
+| Executor process adapter | Executor | Wraps `run_command`, `wait_process`, and `kill_process` through the executor actor's `ProcessActor` ownership. Non-blocking inspection is `wait_process` with `timeout_ms: 0`. |
 | Analyst card/control adapter | Analyst | Wraps Analyst card-management and runtime-control tools through canonical services. |
 | Analyst navigation/read-model adapter | Analyst | Wraps UI navigation and debug/read-model tools. |
 | MCP adapter | Executor, reviewer, Analyst where enabled | Calls configured MCP manager with role policy. |
-| Terminal contract tools | Planner, executor, reviewer | Not generic adapters initially. Processor loops should continue validating terminal outcomes directly. |
+| Terminal contract tool | Planner, executor, reviewer | `emit_result` is not a generic adapter initially. Processor loops should continue validating terminal outcomes directly, including role-specific status sets (`rework` is reviewer-only). |
 
 Terminal tools are deliberately excluded from the first shared service pass because they are not ordinary side-effect tools. They close a card activation and drive runtime lifecycle transitions.
 
@@ -241,9 +241,9 @@ The reviewer loop keeps responsibility for:
 
 - Review prompt construction.
 - Review record-slot expectations.
-- Reviewer terminal contract validation.
+- Reviewer terminal contract validation, including `rework` as the send-back result.
 
-It delegates read-only workspace/record/MCP inspection tools to the shared service.
+It delegates workspace/record/MCP tools to the shared service. Reviewer filesystem access is not read-only: the reviewer may `write`/`edit` only its own `record://review.md` slot, while `project://` mutation and `apply_patch` remain unavailable.
 
 ## 8. Policy Model
 
@@ -305,7 +305,7 @@ Focused tests should cover:
 - Analyst policy denials by `ControlActionSurface`.
 - Planner immediate-child card mutation policy.
 - Executor process lifecycle ownership and cleanup after activation settlement.
-- Reviewer read-only tool restrictions.
+- Reviewer record-only mutation policy: `write`/`edit` may touch only `record://review.md`; `project://` mutation and `apply_patch` are denied.
 - MCP adapter registration and denial behavior where MCP is unavailable.
 
 End-to-end validation should include:
