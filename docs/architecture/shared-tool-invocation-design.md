@@ -15,6 +15,8 @@ This document specifies a shared invocation layer that removes the duplication w
 
 The target is a single function backed by the unified tool catalog — not a service object, an adapter registry, or a compatibility layer.
 
+This design depends on the unified tool catalog from [Tool Set Reorganization Design](./tool-set-reorganization-design.md). It lands after that catalog exists.
+
 ## 2. Current Shape
 
 ### Analyst path
@@ -86,47 +88,96 @@ interface ToolDefinition {
 }
 ```
 
-The catalog is the single source of tool schemas and executor functions. Role surfaces are curated subsets of it — plain arrays of tool names per role, already represented by `actor-tool-definitions.ts` and the Analyst surface.
+The catalog is the single source of tool schemas and executor functions.
 
-### 5.2 The invocation function
+### 5.2 Role tool surfaces
+
+A role surface is a curated subset of the catalog, built once per role. Building the surface is a setup-time operation that fails fast: if a configured tool name is missing from the catalog, the surface constructor throws — a code/configuration error, not a model error.
 
 ```ts
-async function invokeTool(ctx: ToolContext, name: string, args: Record<string, unknown>): Promise<ToolResult> {
-  const definition = TOOL_CATALOG.get(name);
-  if (!definition) return { success: false, error: `Unknown tool '${name}'.` };
+interface ToolSurface {
+  readonly role: AgentRole;
+  readonly tools: ReadonlyMap<string, ToolDefinition>;
+}
+
+function buildToolSurface(role: AgentRole, names: readonly string[]): ToolSurface {
+  const tools = new Map();
+  for (const name of names) {
+    const definition = TOOL_CATALOG.get(name);
+    if (!definition) throw new Error(`Tool '${name}' for role '${role}' is not in the catalog.`);
+    tools.set(name, definition);
+  }
+  return { role, tools };
+}
+```
+
+Role surfaces are constructed once and reused across activations of the same role. The executor surface is built per activation only because `processOwner` lives in the context, not the surface.
+
+### 5.3 The invocation function
+
+```ts
+async function invokeTool(surface: ToolSurface, ctx: ToolContext, name: string, args: unknown): Promise<ToolResult> {
+  const definition = surface.tools.get(name);
+  if (!definition) return { success: false, error: `Unsupported tool '${name}' for role '${surface.role}'.` };
   const parsed = definition.inputSchema.safeParse(args);
   if (!parsed.success) return { success: false, error: parsed.error.message };
   return definition.executor(ctx, parsed.data);
 }
 ```
 
-That is the entire shared layer. Unknown names and invalid arguments are tool errors, not thrown exceptions. Authority is enforced by:
+That is the entire shared layer. Two failure modes, both explicit:
 
-- The per-role tool list (what the provider is allowed to see and call).
-- The path-scope policy inside filesystem/process tools (`project://`, `record://`, `tmp://`, `system://`, slot-writer rules, role-restricted `project://` writes).
-- The semantic policy already encoded in executor functions that branch on `ctx.agentRole` where it matters (e.g. `create_card` is planner-scoped, `activate_card` is planner-only).
+- **Setup/configuration error** — `buildToolSurface` throws if a configured tool name is missing from the catalog. This is a code/config bug; fail fast.
+- **Model error** — `invokeTool` returns `{ success: false, error }` if the model calls a tool absent from the role surface, or if arguments fail schema validation. This is model output; surface a tool error, do not crash the activation.
 
-No second policy gate, no adapter category lookup, no normalized request type.
+Authority is enforced by three explicit boundaries, no policy engine:
 
-### 5.3 The context
+1. The role surface (which tools the provider sees and `invokeTool` accepts).
+2. The path-scope policy inside filesystem/process tools (`project://`, `record://`, `tmp://`, `system://`, slot-writer rules, role-restricted `project://` writes).
+3. Tool executors assert the context they require and throw if called with the wrong role/context (e.g. `create_card` asserts planner/analyst context; `run_command` asserts executor context with `processOwner`). Tools do not branch broadly on role — they assert the single context shape they need.
 
-Each role constructs the context it actually needs. The context is role-typed, not a bag of optional capabilities:
+### 5.4 The context
+
+The context is a discriminated union of role-specific contexts, not an optional capability bag. Each role constructs the context it actually has; tools assert the context shape they require and throw otherwise.
 
 ```ts
-interface ToolContext {
+type ToolContext = AnalystToolContext | PlannerToolContext | ExecutorToolContext | ReviewerToolContext;
+
+interface AnalystToolContext {
+  role: 'analyst';
   projectRoot: string;
-  agentRole: 'planner' | 'executor' | 'reviewer' | 'analyst';
-  cardId?: string;
-  cardStore?: CardStore;
-  runtime?: RuntimeControlPort;
+  cardStore: CardStore;
+  runtime: RuntimeControlPort;
   mcpManager?: McpManager;
   eventBus?: EventBus;
-  processOwner?: ExecutorProcessOwner;
-  analystSurface?: ControlActionSurface;
+  analystSurface: ControlActionSurface;
+}
+
+interface PlannerToolContext {
+  role: 'planner';
+  projectRoot: string;
+  cardId: string;
+  cardStore: CardStore;
+}
+
+interface ExecutorToolContext {
+  role: 'executor';
+  projectRoot: string;
+  cardId: string;
+  cardStore: CardStore;
+  processOwner: ExecutorProcessOwner;
+  mcpManager?: McpManager;
+}
+
+interface ReviewerToolContext {
+  role: 'reviewer';
+  projectRoot: string;
+  cardId: string;
+  cardStore: CardStore;
 }
 ```
 
-Callers populate the fields they own. The executor functions access what they need and ignore the rest. An executor that requires a capability not present (e.g. `processOwner` for `run_command` outside the executor) throws — fail fast, no silent denial.
+A tool that needs `processOwner` accepts `ExecutorToolContext` and throws on any other role — statically executor-only, no optional field, no silent denial.
 
 ### 5.4 The result
 
@@ -162,7 +213,7 @@ The Analyst handler wraps `invokeTool` with its own pre/post hooks for audit log
 - Mapping selected tool results to final operator replies.
 - Pre/post audit hooks around `invokeTool`.
 
-It delegates execution mechanics to `invokeTool` with an Analyst-flavored context. Unknown tools return a normal `ToolResult` error — no catch-all adapter.
+It delegates execution mechanics to `invokeTool` passing the Analyst tool surface and an `AnalystToolContext`. Unknown tools return a normal `ToolResult` error — no catch-all adapter.
 
 ### Planner
 
@@ -200,7 +251,7 @@ It delegates workspace/record/MCP tools to `invokeTool`. Reviewer filesystem acc
 One phase. No temporary wrappers.
 
 1. Build the unified `TOOL_CATALOG` from the tool reorganization (one entry per tool name, with executor function and input schema).
-2. Add `invokeTool(ctx, name, args) → ToolResult`.
+2. Add `ToolSurface` and `invokeTool(surface, ctx, name, args) → ToolResult`.
 3. Point card processors at `invokeTool` for workspace tools; delete `processWorkspaceToolCall` ad-hoc dispatch where it now duplicates the catalog.
 4. Point the Analyst handler at `invokeTool`; delete `ToolDispatcher` and `AnalystAdapter` in the same change. Move audit logging and event broadcasting into Analyst-handler pre/post hooks.
 5. Delete the duplicated result types (`AdapterResult`, `ToolDispatchResult`). Everything returns `ToolResult`.
