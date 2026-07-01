@@ -96,10 +96,9 @@ const stableToolOrder = [
   'grep',
   'edit',
   'apply_patch',
-  'wait_for_process',
+  'run_command',
+  'wait_process',
   'kill_process',
-  'start_and_wait',
-  'run_project_command',
   'websearch',
   'webfetch',
   'mcp_tool_call',
@@ -136,7 +135,7 @@ export function toolDefinitionByName(name: string): UnifiedToolDefinition | unde
 
 export const ANALYST_TOOL_DEFINITIONS = TOOL_DEFINITIONS.filter((tool) => tool.roles.includes('analyst') && !tool.workspace).map(llmToolDefinition);
 export const ANALYST_TOOL_NAMES = ANALYST_TOOL_DEFINITIONS.map((tool) => tool.function.name);
-export const READ_ONLY_WORKSPACE_TOOL_DEFINITIONS = TOOL_DEFINITIONS.filter((tool) => tool.workspace && !['write', 'edit', 'apply_patch', 'wait_for_process', 'kill_process', 'start_and_wait', 'run_project_command'].includes(tool.name)).map(llmToolDefinition);
+export const READ_ONLY_WORKSPACE_TOOL_DEFINITIONS = TOOL_DEFINITIONS.filter((tool) => tool.workspace && !['write', 'edit', 'apply_patch', 'run_command', 'wait_process', 'kill_process'].includes(tool.name)).map(llmToolDefinition);
 export const WORKSPACE_TOOL_DEFINITIONS = TOOL_DEFINITIONS.filter((tool) => tool.workspace).map(llmToolDefinition);
 export const PLANNER_TOOL_DEFINITIONS = TOOL_DEFINITIONS.filter((tool) => tool.roles.includes('planner') && !tool.skill && !tool.mcpWrapper).map((tool) => {
   if (tool.plannerInput) return llmToolDefinition({ ...tool, description: tool.plannerDescription ?? tool.description, input: tool.plannerInput, roles: ['planner'] });

@@ -28,10 +28,9 @@ describe('workspace tools', () => {
       'grep',
       'edit',
       'apply_patch',
-      'wait_for_process',
+      'run_command',
+      'wait_process',
       'kill_process',
-      'start_and_wait',
-      'run_project_command',
     ]);
   });
 
@@ -95,42 +94,36 @@ describe('workspace tools', () => {
 
   it('waits for and no-op kills already-terminal processes', async () => {
     const started = await processWorkspaceToolCall(
-      'run_project_command',
-      JSON.stringify({ command: 'printf terminal', timeoutMs: 30000 }),
+      'run_command',
+      JSON.stringify({ command: 'printf terminal', timeout_ms: 30000 }),
       context(),
-    ) as { id: string; status: string; logFiles: { combined: string; stdout: string; stderr: string } };
+    ) as { process_id: string; status: string; log_path: string };
     expect(started.status).toBe('exited');
-    expect(started.logFiles.combined).toBe(`.saivage-work/processes/${started.id}/combined.log`);
+    expect(started.log_path).toBe(`.saivage-work/processes/${started.process_id}/combined.log`);
 
     await expect(processWorkspaceToolCall(
-      'wait_for_process',
-      JSON.stringify({ processId: started.id, timeoutMs: 1000 }),
+      'wait_process',
+      JSON.stringify({ process_id: started.process_id, timeout_ms: 1000 }),
       context(),
-    )).resolves.toEqual(expect.objectContaining({ id: started.id, status: 'exited', timedOut: false }));
+    )).resolves.toEqual(expect.objectContaining({ process_id: started.process_id, status: 'exited' }));
 
     await expect(processWorkspaceToolCall(
       'kill_process',
-      JSON.stringify({ processId: started.id }),
+      JSON.stringify({ process_id: started.process_id }),
       context(),
-    )).resolves.toEqual(expect.objectContaining({ id: started.id, status: 'exited' }));
+    )).resolves.toEqual(expect.objectContaining({ process_id: started.process_id, terminated: true }));
   });
 
   it('runs commands through the project process runner', async () => {
     const result = await processWorkspaceToolCall(
-      'run_project_command',
-      JSON.stringify({ command: 'pwd && printf hello', timeoutMs: 30000 }),
+      'run_command',
+      JSON.stringify({ command: 'pwd && printf hello', timeout_ms: 30000 }),
       context(),
-    ) as { id: string; status: string; exitCode: number | null; output: string; logFiles: { combined: string; stdout: string; stderr: string } };
+    ) as { process_id: string; status: string; exit_code: number | null; stdout: string; stderr: string; log_path: string };
 
     expect(result.status).toBe('exited');
-    expect(result.exitCode).toBe(0);
-    expect(result.logFiles).toEqual({
-      combined: `.saivage-work/processes/${result.id}/combined.log`,
-      stdout: `.saivage-work/processes/${result.id}/stdout.log`,
-      stderr: `.saivage-work/processes/${result.id}/stderr.log`,
-    });
-    expect(existsSync(join(root, result.logFiles.combined))).toBe(true);
-    expect(existsSync(join(root, result.logFiles.stdout))).toBe(true);
-    expect(existsSync(join(root, result.logFiles.stderr))).toBe(true);
+    expect(result.exit_code).toBe(0);
+    expect(result.log_path).toBe(`.saivage-work/processes/${result.process_id}/combined.log`);
+    expect(existsSync(join(root, result.log_path))).toBe(true);
   });
 });
