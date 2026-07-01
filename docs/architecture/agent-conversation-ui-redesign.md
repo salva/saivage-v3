@@ -373,9 +373,9 @@ The Analyst panel is a narrow, always-visible companion. It uses the same timeli
 
 Required behavior:
 
-- role-tinted message bubbles (`MessageBubble.vue` already supports user/assistant/system/tool) for user, analyst, warnings, errors, system/context notes, and diagnostics;
+- role-tinted message rows for user, analyst, warnings, errors, system/context notes, and diagnostics;
 - compact model chip on assistant/analyst turns using the ambient model rule;
-- `ThinkingDots.vue` (already present) or a pending row while a response is in flight;
+- a pending row while a response is in flight;
 - pending Analyst tool invocations rendered as Tool rows, not as free text;
 - sticky auto-scroll that only pins when the user is already near the bottom (current `pinToBottom` logic stays);
 - a floating `Jump to latest` control with an unseen count when new content arrives while scrolled up;

@@ -119,8 +119,6 @@ describe('initProjectTree', () => {
     const saivageDirs = [
       'skills',
       'outputs/cards',
-      'diaries',
-      'reviews/by-goal',
       'agents/conversations',
       'runtime',
       'supervision',

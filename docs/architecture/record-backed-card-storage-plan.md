@@ -478,14 +478,6 @@ Rules:
 - Remove card-output-specific reads after generic record reads cover status/review inspection.
 - Remove compatibility code and old field aliases.
 
-### Planner Diary
-
-`get_plan_diary` is currently used by the Analyst surface and UI. The diary stores planner invocations, planner decisions, card mutations, failure handling, and embedded review assessments as an append-only log.
-
-For this refactor, keep planner diary separate. It serves as a planning-event log, not current card state or current authored record content. Converting it to record storage would require append-only slot semantics, which this design intentionally avoids.
-
-Revisit diary storage only after record-backed cards are implemented and the remaining diary use cases are clearer.
-
 ## Validation
 
 Add focused tests for:

@@ -10,7 +10,7 @@ The live GetRich v2 run exposed the issue on `executor:card-4`:
 
 - the executor received the correct card instructions;
 - the executor was offered the correct process and terminal tools;
-- tool calls and tool results were written to `.saivage/agents/messages/`, `.saivage/agents/tool-deliveries/`, and `.saivage/agents/llm-exchanges/`;
+- tool calls and tool results were written to the agent conversation transcript, `.saivage/agents/tool-deliveries/`, and `.saivage/agents/llm-exchanges/`;
 - every recorded Codex request still contained only one user input: `Proceed with the task described in the instructions.`;
 - prior `run_process` outputs were not present in the next provider request;
 - the model repeatedly made first-turn inspection calls because each continuation looked like a fresh request.
@@ -43,7 +43,7 @@ The gateways already serialize tool history correctly. No gateway changes are ne
 
 The message-building logic already exists in `llm-delivery-log.ts`:
 
-- `appendToolCallMessage(...)` builds an `AgentMessage` with `role: 'assistant'`, `kind: 'tool_call'`, canonical `content: { role: 'assistant', tool_calls: [...] }`, `tool: toolCall.function.name`, `tool_call_id: toolCall.id`, and persists it to `.saivage/agents/messages/`.
+- `appendToolCallMessage(...)` builds an `AgentMessage` with `role: 'assistant'`, `kind: 'tool_call'`, canonical `content: { role: 'assistant', tool_calls: [...] }`, `tool: toolCall.function.name`, `tool_call_id: toolCall.id`, and persists it to the segment-backed conversation transcript.
 - `appendToolDelivery(...)` builds an `AgentMessage` with `role: 'tool'`, `kind: 'tool_result'`, `content: JSON.stringify(result)`, `tool: tool_name`, `tool_call_id: tool_call_id`, and persists it.
 
 Both functions currently persist to disk but return `void`. The message construction logic needs to be extracted into reusable helpers that return `AgentMessage` objects.
@@ -76,7 +76,7 @@ Settlement and abandonment need no new cleanup code:
 - `completeWithError(...)` already sets `activeReconstruction = null`.
 - `onActivationSettled(...)` in `BaseMainLLMCardProcessorActor` abandons parked LLM turns and clears the actor map. A fresh `createMainLlm(...)` call creates a new `LLMActor` per activation, so no transcript leaks across activations.
 
-Persisted `.saivage/agents/messages/*`, `.saivage/agents/tool-deliveries/*`, and `.saivage/agents/llm-exchanges/*` remain audit, debug, and recovery evidence. They are not read to reconstruct the normal provider request. The in-memory `this.input.contextMessages` is the hot-path source.
+Persisted segment-backed conversation transcripts, `.saivage/agents/tool-deliveries/*`, and `.saivage/agents/llm-exchanges/*` remain audit, debug, and recovery evidence. They are not read to reconstruct the normal provider request. The in-memory `this.input.contextMessages` is the hot-path source.
 
 ## Required Invariants
 

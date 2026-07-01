@@ -61,7 +61,6 @@ describe('workspaceRoute store', () => {
       { target: { kind: 'card', id: 'card-1' }, expected: { name: 'card-detail', params: { id: 'card-1' }, query: undefined } },
       { target: { kind: 'transcript', id: 'session-1' }, expected: { name: 'agent-detail', params: { id: 'session-1' }, query: undefined } },
       { target: { kind: 'process', id: 'pid-1' }, expected: { name: 'process-detail', params: { id: 'pid-1' }, query: undefined } },
-      { target: { kind: 'plan_diary', id: 'card-2' }, expected: { name: 'card-plan', params: { id: 'card-2' }, query: undefined } },
       { target: { kind: 'process_list' }, expected: { name: 'debug', query: undefined } },
       { target: { kind: 'agent_session_list' }, expected: { name: 'agents', query: undefined } },
       { target: { kind: 'config' }, expected: { name: 'config', query: undefined } },

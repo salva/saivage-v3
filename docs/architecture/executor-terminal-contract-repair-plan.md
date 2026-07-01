@@ -12,7 +12,7 @@ Expected terminal tool 'emit_executor_result'. Plain executor messages are not a
 
 The failure is contract-strict, but too brittle: a model gets no repair turn even though the runtime already has a repair pattern for missing `status.md` records.
 
-There is a second issue in the same path. Micro-actor sessions persist messages under `.saivage/agents/messages/*.jsonl` as a flat append-only log, and `LLMActor` accumulates live conversation in `input.contextMessages` across tool calls. But plain text has no explicit continuation method equivalent to `appendToolResult`, and the persisted log is only a delivery/debug log: it does not persist every provider input, repair directive, or current-state context that would be needed for exact reconstruction. It also has no compaction boundary, so long conversations grow without limit.
+There was a second issue in the same path before the Phase 1 segment-backed transcript cutover. Micro-actor sessions persisted messages under `.saivage/agents/messages/*.jsonl` as a flat append-only log, and `LLMActor` accumulated live conversation in `input.contextMessages` across tool calls. But plain text had no explicit continuation method equivalent to `appendToolResult`, and the persisted log was only a delivery/debug log: it did not persist every provider input, repair directive, or current-state context that would be needed for exact reconstruction. It also had no compaction boundary, so long conversations grew without limit.
 
 ## Scope Correction
 
@@ -48,7 +48,7 @@ But when `outcome.type === 'result'`, the actor resolves and goes idle. Current 
 
 ### 3. Conversation Storage Is Not A Reconstructable Transcript
 
-Micro-actor sessions currently persist messages to a single flat JSONL file per agent (`agents/messages/<agentId>.jsonl`). That file logs system prompts, turn activity, assistant text, tool calls, and tool results. It does not log every `input.contextMessages` entry, current-state message, notification message, or repair directive sent to the provider. It is therefore not an exact provider-prompt transcript.
+Before Phase 1, micro-actor sessions persisted messages to a single flat JSONL file per agent (`agents/messages/<agentId>.jsonl`). That file logged system prompts, turn activity, assistant text, tool calls, and tool results. It did not log every `input.contextMessages` entry, current-state message, notification message, or repair directive sent to the provider. It was therefore not an exact provider-prompt transcript.
 
 There is also no mechanism to close a segment, compact older conversation into a summary, and continue in a new segment. Long-lived or chatty sessions grow without limit, and there is no explicit boundary for recovery or context budgeting.
 

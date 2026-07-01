@@ -79,7 +79,7 @@ Detailed card-tool availability:
 
 Keep card inspection and card-steering coordination tools available to the Analyst:
 
-- `list_cards`, `get_card`, `get_tree`, `get_plan_diary` while planner diary remains outside records, and generic file reads/metadata reads for `record://` URLs.
+- `list_cards`, `get_card`, `get_tree`, and generic file reads/metadata reads for `record://` URLs.
 - `queue_notification` for running work, ambiguous intent, or cases where collaboration is safer than direct mutation.
 
 These are card-handling tools for this discussion because they inspect card state, durable card records, card history, or deliver card-scoped steering context. They do not directly mutate card lifecycle state except through notification delivery into active sessions.
@@ -93,7 +93,7 @@ Detailed card-inspection and card-coordination availability:
 | Tool group | Tools | Should be available when | Should be denied when |
 |---|---|---|---|
 | Tree/list reads | `list_cards`, `get_tree` | Analyst is online. | Only if card storage is unreadable. |
-| Single-card reads | `get_card`, `get_plan_diary` | Target card exists; `get_plan_diary` targets a goal/project. | Target card is missing. |
+| Single-card reads | `get_card` | Target card exists. | Target card is missing. |
 | Record reads | Generic `read_file` over document record URLs returned by `get_card`. | Target card/record exists and the URL resolves inside that card's record namespace. | Target card or record is missing; requested URL is not a valid `record://` URL for the card context, or attempts to read primary card info as `record://card.json`. |
 | Record metadata/history | `read_file_metadata` over document record URLs. | Target card/record exists and record version metadata is available. | Target card/record/version is missing. |
 | Card-scoped notification | `queue_notification` | Recipient resolves to an existing card, active role, or active session; body is operator guidance, correction, cancellation request, or coordination context. | Unknown recipient; request tries to list/manage/delete notifications; body asks an agent to violate its own authority. |

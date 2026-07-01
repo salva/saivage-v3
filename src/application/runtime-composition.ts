@@ -4,13 +4,12 @@ import { AgentAdapter } from '../agents/agent-adapter.js';
 import { buildProviderRoutingReadModel, type ProviderRoutingReadModel } from '../agents/provider-routing-read-model.js';
 import { FsCandidateAvailability } from '../agents/candidate-availability-store.js';
 import type { CandidateAvailability } from '../agents/candidate-availability.js';
-import { SkillsEngine } from '../agents/skills-engine.js';
 import type { AnalystRuntimeDeps } from '../agents/analyst-api.js';
 import type { EventPayload } from '../events/index.js';
 import type { EventBus } from '../events/index.js';
 import type { McpManager } from '../mcp/manager-api.js';
 import { EventLogger, ErrorLogger } from '../observability/index.js';
-import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from '../runtime/state.js';
+import { readRuntimeState } from '../runtime/state.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
 
 import { CardStore } from '../cards/card-store.js';
@@ -69,7 +68,6 @@ function buildAnalystDeps(input: {
 export function createRuntimeApplication(services: RuntimeApplicationServices): RuntimeApplication {
   const { projectRoot, config, eventBus, eventLogger, errorLogger, cardStore } = services;
   const saivageDir = join(projectRoot, '.saivage');
-  const skillsEngine = new SkillsEngine({ projectRoot });
   const candidateAvailability = new FsCandidateAvailability(projectRoot, {
     compactBytes: config.runtime.candidateAvailabilityCompactBytes,
   });
@@ -82,13 +80,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     eventLogger,
     candidateAvailability,
     cardStore,
-    activationLedger: {
-      readState: () => readRuntimeState(projectRoot),
-      appendRun: (input) => appendRuntimeRun(projectRoot, input),
-      upsertActivation: (input) => upsertRuntimeActivation(projectRoot, input),
-    },
   });
-  agentAdapter.setSkillsEngine(skillsEngine);
   const invocationService = agentAdapter.getInvocationService();
 
   const runtimeFactory = services.runtimeApiFactory ?? createMicroActorRuntimeApi;

@@ -21,7 +21,6 @@ import './get_card';
 import './list_cards';
 import './get_tree';
 import './get_status';
-import './get_plan_diary';
 import './get_card_output';
 import './report_goal_done';
 import './report_goal_failed';

@@ -1,10 +1,9 @@
 import { z } from 'zod';
 
-import { deleteDiary } from '../cards/diary.js';
 import { decide } from '../permissions/index.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
-import { buildAbortPreview, buildRestartGoalPreview, cardSummary, getStore, saivageDir, toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
+import { buildAbortPreview, buildRestartGoalPreview, cardSummary, getStore, toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
 import { describe, type UnifiedToolDefinition } from './tool-catalog.js';
 
 export async function abort_goal_subtree(ctx: ToolContext, params: { goalId: string }): Promise<ToolResult> {
@@ -52,7 +51,6 @@ export async function restart_goal(ctx: ToolContext, params: { goalId: string })
         if (!cancelDecision.allowed) return toolFailure('permission', `Descendant card '${id}' in status '${child.status}' cannot be cancelled by analyst (${cancelDecision.reason}).`, { id, status: child.status });
         store.setStatus(id, 'cancelled');
       }
-      try { deleteDiary(saivageDir(ctx.projectRoot), params.goalId); } catch { /* best-effort cleanup; restart repair below is authoritative */ }
       store.repairTerminalLifecycle(params.goalId, { status: 'backlog', lifecycle: { status: 'backlog', result: null, error: null, completed_at: null } });
       return { success: true, data: { goalId: params.goalId, status: 'backlog', descendantIds: store.getDescendantIds(params.goalId) } };
     } catch (err) { return toolFailureFromError(err); }

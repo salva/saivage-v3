@@ -98,7 +98,7 @@ If the user asks the Analyst to replace the project objective, the expected path
 
 Archiving is not a card status. To archive a card, the system moves its on-disk representation to a card archive directory and removes it from the runtime's active card tree.
 
-Goal and project cards carry their own planning diary state: decomposition, assumptions, sequencing notes, reviewer feedback, and relevant correction history.
+Goal and project cards carry their own planning state: decomposition, assumptions, sequencing notes, reviewer feedback, and relevant correction history, held in card records and card state.
 
 Terminal card types include `architecture`, `code`, `test`, `doc`, `data`, `research`, and `ops`. The system may support additional terminal types, but every terminal card must still use the executor activation flow.
 
@@ -204,7 +204,7 @@ Before accepting `done`, the runtime must verify:
 
 If any executable descendant remains `changed`, `blocked`, `backlog`, `running`, `failed`, or otherwise non-compatible with successful completion, the parent cannot close the goal. Only `done` and `cancelled` descendants are completion-compatible and do not block `done`. `blocked` is unresolved rather than final: the parent planner must fix the blocking condition and reactivate the card, send a notification explaining the unblocked condition before reactivation, edit the card so it becomes `changed` under the changed-card rules in section 9, cancel the card, or report `blocked` itself so the responsibility moves upward. `failed` blocks `done` until the parent takes explicit action, such as retrying through reactivation, replacing the failed work, or marking the failed child as cancelled where supported. The runtime reports a readiness error that identifies the descendant state that must be handled.
 
-Goal planning diary state must reflect the latest accepted planner and reviewer state before the enclosing goal can close.
+Goal planning state must reflect the latest accepted planner and reviewer state before the enclosing goal can close.
 
 If a reviewer interrupts a completion by requesting corrections, the goal returns to planner ownership with reviewer feedback in context. The parent planner remains behind the same `activate_card` barrier until that child activation ultimately reports `done`, `failed`, or `blocked`.
 

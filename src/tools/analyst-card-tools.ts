@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 
-import { getDiaryEntries } from '../cards/diary.js';
 import { PROJECT_CARD_ID } from '../cards/store-api.js';
 import type { CardRecord, CardStatus, CardType } from '../schemas/index.js';
 import { deriveCurrentCardId } from '../runtime/current-run.js';
@@ -278,11 +277,6 @@ export async function get_tree(ctx: ToolContext, params: { rootId?: string }): P
   catch (err) { return toolFailureFromError(err); }
 }
 
-export async function get_plan_diary(ctx: ToolContext, params: { goalId: string }): Promise<ToolResult> {
-  try { const store = getStore(ctx); const goal = store.read(params.goalId); if (!goal || (goal.type !== 'goal' && goal.type !== 'project')) return toolFailure('not_found', `Goal '${params.goalId}' not found.`, { goalId: params.goalId }); return { success: true, data: getDiaryEntries(saivageDir(ctx.projectRoot), params.goalId) }; }
-  catch (err) { return toolFailureFromError(err, 'io'); }
-}
-
 export async function get_status(ctx: ToolContext, _params: Record<string, never>): Promise<ToolResult> {
   try { const store = getStore(ctx); const runtimeState = readRuntimeState(ctx.projectRoot); const allCards = store.list(); const runningProcesses = processApi(ctx.projectRoot).listForRuntime().filter((p) => p.status === 'running'); const statusCounts = allCards.reduce<Record<string, number>>((counts, card) => { counts[card.status] = (counts[card.status] ?? 0) + 1; return counts; }, {}); const activeCardRun = runtimeState?.active_card_run ?? null; const runtimeRuns = runtimeState?.runtime_runs ?? []; const activationRecords = runtimeState?.runtime_activations ?? [];
     return { success: true, data: { runtime: runtimeState, runtimeSummary: { status: runtimeState?.status ?? 'unknown', currentCardId: deriveCurrentCardId(runtimeState), activeCardRun, projectRuns: runtimeRuns.map((run) => ({ run_id: run.run_id, kind: run.kind, card_id: run.card_id, phase: run.phase, runtime_status: run.runtime_status, started_at: run.started_at, finished_at: run.finished_at ?? null })), activations: activationRecords.map((activation) => ({ activation_id: activation.activation_id, parent_card_id: activation.parent_card_id, child_card_id: activation.child_card_id, status: activation.status, requested_at: activation.requested_at, runtime_run_id: activation.runtime_run_id ?? null })) }, runningProcesses: runningProcesses.length, statusCounts, counts: { done: statusCounts.done ?? 0, failed: statusCounts.failed ?? 0, blocked: statusCounts.blocked ?? 0, total: allCards.length } } };
@@ -337,7 +331,6 @@ export const analystCardTools: readonly UnifiedToolDefinition<string, any>[] = [
   { name: 'list_cards', description: 'List and filter cards in the project.', input: listCardsInput, roles: ['analyst', 'planner'], executor: list_cards },
   { name: 'get_card', description: 'Get full details of a single card.', input: z.object({ id: describe(z.string(), 'The ID of the card to retrieve.') }).strict(), roles: ['analyst', 'planner'], executor: get_card },
   { name: 'get_tree', description: 'Show the card tree.', input: z.object({ rootId: describe(z.string().optional(), 'Optional root card ID.') }).strict(), roles: ['analyst', 'planner'], executor: get_tree },
-  { name: 'get_plan_diary', description: 'Read a goal planning diary.', input: z.object({ goalId: describe(z.string(), 'The ID of the goal card.') }).strict(), roles: ['analyst'], executor: get_plan_diary },
   { name: 'get_status', description: 'Get the overall project status.', input: emptyInput, roles: ['analyst'], executor: get_status },
   { name: 'list_card_history', description: 'List card history headers for a card.', input: z.object({ cardId: describe(z.string(), 'The ID of the card whose history to list.') }).strict(), roles: ['planner', 'executor', 'reviewer', 'analyst'], executor: list_card_history },
   { name: 'get_card_history_entry', description: 'Get a specific card history entry snapshot.', input: z.object({ cardId: describe(z.string(), 'The ID of the card.'), version_seq: describe(z.number().int(), 'The historical version sequence to retrieve.') }).strict(), roles: ['planner', 'executor', 'reviewer', 'analyst'], executor: get_card_history_entry },

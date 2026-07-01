@@ -3,7 +3,7 @@
  *
  * Verifies:
  * - Full pipeline: heuristic scanner → LLM scanner → quarantine
- * - ContentSupervisor wired into AgentAdapter
+ * - Content safety helper behavior
  * - Sensitive file checks with file-tree utilities
  * - All modules work together without errors
  * - Existing file-tree tests still pass
@@ -35,9 +35,6 @@ import {
   isStashPathAllowed,
 } from '../../src/workspace/file-access-security.js';
 import { redactTextForOutbound } from '../../src/redaction/index.js';
-import { AgentAdapter } from '../../src/agents/agent-adapter.js';
-import { loadConfig } from '../../src/agents/config-schema.js';
-import { CardStore } from '../../src/cards/card-store.js';
 
 // ── Helpers ───────────────────────────────────────────────────
 
@@ -178,56 +175,7 @@ describe('full pipeline: heuristic → LLM → quarantine', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════
-// ContentSupervisor wired into AgentAdapter
-// ═══════════════════════════════════════════════════════════════
-
-describe('ContentSupervisor in AgentAdapter', () => {
-  it('agent adapter works without content supervisor (no regression)', () => {
-    writeSaivageConfig({
-      models: { planner: ['gpt-5.5'] },
-      providers: {
-        github: { priority: 10, models: ['gpt-5.5'] },
-      },
-    });
-
-    const { config } = loadConfig(root);
-    const adapter = new AgentAdapter({
-      projectRoot: root,
-      saivageDir,
-      config,
-      cardStore: new CardStore(root),
-    });
-
-    expect(adapter.getContentSupervisor()).toBeUndefined();
-
-    // Should not throw when no supervisor is set
-    const result = getSafeFileForAgent('src/hello.ts', 'hello');
-    expect(result.blocked).toBe(false);
-    expect(result.safeContent).toBe('hello');
-  });
-
-  it('setContentSupervisor and getContentSupervisor round-trip', () => {
-    writeSaivageConfig({
-      models: { planner: ['gpt-5.5'] },
-      providers: {
-        github: { priority: 10, models: ['gpt-5.5'] },
-      },
-    });
-
-    const { config } = loadConfig(root);
-    const adapter = new AgentAdapter({
-      projectRoot: root,
-      saivageDir,
-      config,
-      cardStore: new CardStore(root),
-    });
-
-    const supervisor = createSupervisor();
-    adapter.setContentSupervisor(supervisor);
-
-    expect(adapter.getContentSupervisor()).toBe(supervisor);
-  });
+describe('content safety helpers', () => {
 
   it('getSafeFileForAgent blocks auth-profiles.json', () => {
     writeSaivageConfig({
@@ -235,14 +183,6 @@ describe('ContentSupervisor in AgentAdapter', () => {
       providers: {
         github: { priority: 10, models: ['gpt-5.5'] },
       },
-    });
-
-    const { config } = loadConfig(root);
-    const adapter = new AgentAdapter({
-      projectRoot: root,
-      saivageDir,
-      config,
-      cardStore: new CardStore(root),
     });
 
     const result = getSafeFileForAgent(
@@ -262,14 +202,6 @@ describe('ContentSupervisor in AgentAdapter', () => {
       providers: {
         github: { priority: 10, models: ['gpt-5.5'] },
       },
-    });
-
-    const { config } = loadConfig(root);
-    const adapter = new AgentAdapter({
-      projectRoot: root,
-      saivageDir,
-      config,
-      cardStore: new CardStore(root),
     });
 
     const rawJson = JSON.stringify({
@@ -292,14 +224,6 @@ describe('ContentSupervisor in AgentAdapter', () => {
       providers: {
         github: { priority: 10, models: ['gpt-5.5'] },
       },
-    });
-
-    const { config } = loadConfig(root);
-    const adapter = new AgentAdapter({
-      projectRoot: root,
-      saivageDir,
-      config,
-      cardStore: new CardStore(root),
     });
 
     const result = getSafeFileForAgent('src/app.ts', 'export const x = 1;');

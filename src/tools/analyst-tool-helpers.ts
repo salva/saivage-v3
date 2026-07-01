@@ -187,13 +187,13 @@ export function buildRestartGoalPreview(projectRoot: string, store: CardStore, g
   const allAffectedIds = [goalId, ...descendantIds];
   return {
     type: 'restart_goal',
-    summary: `Restart goal '${goal.title}' (${goal.id}). Running children will be cancelled, plan diary cleared, goal re-queued.`,
+    summary: `Restart goal '${goal.title}' (${goal.id}). Running children will be cancelled, goal re-queued.`,
     affectedCards: allAffectedIds.map((cid) => {
       const c = store.read(cid);
       return c ? cardSummary(c) : { id: cid, title: '(not found)', type: 'unknown', status: 'unknown' };
     }),
     affectedProcesses: processApi(projectRoot).listForAgent().filter((p) => allAffectedIds.includes(p.card_id) && p.status === 'running').map((p) => ({ id: p.id, command: p.command, status: p.status })),
-    warnings: ['The plan diary for this goal will be cleared.'],
+    warnings: ['The goal will be moved to backlog; running children will be cancelled.'],
   };
 }
 

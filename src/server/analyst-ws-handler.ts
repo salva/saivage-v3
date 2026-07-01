@@ -17,15 +17,12 @@ export interface AnalystWsHandlerOptions {
 }
 
 export class AnalystWsHandler {
-  private readonly sessions = new WeakMap<WebSocket, string>();
   private readonly turnQueues = new WeakMap<WebSocket, Promise<void>>();
 
   constructor(private readonly options: AnalystWsHandlerOptions) {}
 
-  initialize(ws: WebSocket): string {
-    const sessionId = resolveAnalystSessionId();
-    this.sessions.set(ws, sessionId);
-    return sessionId;
+  initialize(_ws: WebSocket): string {
+    return resolveAnalystSessionId();
   }
 
   handleRawMessage(ws: WebSocket, raw: Buffer | ArrayBuffer | Buffer[]): Promise<void> {
@@ -36,8 +33,7 @@ export class AnalystWsHandler {
         const parsed = InboundAnalystMessageEnvelopeSchema.safeParse(rawParsed);
         if (!parsed.success) throw new Error('Invalid analyst websocket message');
 
-        let currentSessionId = this.sessions.get(ws);
-        if (!currentSessionId) currentSessionId = this.initialize(ws);
+        const currentSessionId = resolveAnalystSessionId();
         const handler = getAnalystHandler(this.options.projectRoot, {
           runtimeDeps: this.options.runtimeApplication.analystDeps,
           requestServerRestart: this.options.requestServerRestart,
@@ -74,7 +70,6 @@ export class AnalystWsHandler {
   }
 
   cleanup(ws: WebSocket): void {
-    this.sessions.delete(ws);
     this.turnQueues.delete(ws);
   }
 

@@ -23,16 +23,16 @@ describe('AnalystChatPanel', () => {
     listChatSessions.mockReset();
     getChatEntries.mockReset();
     sendChatMessage.mockReset();
-    listChatSessions.mockResolvedValue({ sessions: [{ id: 'analyst', role: 'analyst', status: 'active', started_at: '2025-01-01T00:00:00Z' }] });
+    listChatSessions.mockResolvedValue({ sessions: [{ id: 'analyst:global', role: 'analyst', status: 'active', started_at: '2025-01-01T00:00:00Z' }] });
     getChatEntries.mockResolvedValue({
-      sessionId: 'analyst',
+      sessionId: 'analyst:global',
       entries: [
-        { id: '1', session_id: 'analyst', role: 'assistant', kind: 'text', content: 'hello', round_id: 'r-assistant-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: '2025-01-01T00:00:00Z' },
-        { id: '2', session_id: 'analyst', role: 'assistant', kind: 'tool_call', tool: 'read_file', tool_call_id: 'call-1', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'read_file', arguments: JSON.stringify({ path: 'README.md' }) } }] }), round_id: 'r-assistant-00000000000000000000000000000001', message_index: 1, block_index: 0, timestamp: '2025-01-01T00:00:01Z' },
-        { id: '3', session_id: 'analyst', role: 'tool', kind: 'tool_result', tool: 'read_file', tool_call_id: 'call-1', content: JSON.stringify({ ok: true, content: 'docs' }), round_id: 'r-assistant-00000000000000000000000000000001', message_index: 1, block_index: 1, timestamp: '2025-01-01T00:00:02Z' },
+        { id: '1', session_id: 'analyst:global', role: 'assistant', kind: 'text', content: 'hello', round_id: 'r-assistant-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: '2025-01-01T00:00:00Z' },
+        { id: '2', session_id: 'analyst:global', role: 'assistant', kind: 'tool_call', tool: 'read_file', tool_call_id: 'call-1', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'read_file', arguments: JSON.stringify({ path: 'README.md' }) } }] }), round_id: 'r-assistant-00000000000000000000000000000001', message_index: 1, block_index: 0, timestamp: '2025-01-01T00:00:01Z' },
+        { id: '3', session_id: 'analyst:global', role: 'tool', kind: 'tool_result', tool: 'read_file', tool_call_id: 'call-1', content: JSON.stringify({ ok: true, content: 'docs' }), round_id: 'r-assistant-00000000000000000000000000000001', message_index: 1, block_index: 1, timestamp: '2025-01-01T00:00:02Z' },
       ],
     });
-    sendChatMessage.mockResolvedValue({ sessionId: 'analyst', message: { id: '4', role: 'assistant', kind: 'text', content: 'reply', timestamp: '2025-01-01T00:00:03Z' }, toolInvocations: [] });
+    sendChatMessage.mockResolvedValue({ sessionId: 'analyst:global', message: { id: '4', role: 'assistant', kind: 'text', content: 'reply', timestamp: '2025-01-01T00:00:03Z' }, toolInvocations: [] });
   });
 
   it('shows Loading history… during initial fetch and gates empty state until loading completes', async () => {
@@ -44,7 +44,7 @@ describe('AnalystChatPanel', () => {
     expect(wrapper.text()).toContain('Loading history…');
     expect(wrapper.text()).not.toContain('No messages yet. Ask the analyst something.');
 
-    resolveMessages({ sessionId: 'analyst', entries: [] });
+    resolveMessages({ sessionId: 'analyst:global', entries: [] });
     await flushPromises();
     expect(wrapper.text()).not.toContain('Loading history…');
     expect(wrapper.text()).toContain('No messages yet. Ask the analyst something.');
@@ -121,7 +121,7 @@ describe('AnalystChatPanel', () => {
     await textarea.trigger('keydown', { key: 'Enter', shiftKey: false });
     await flushPromises();
 
-    expect(sendChatMessage).toHaveBeenCalledWith('analyst', 'please inspect', { view: null, entityId: null, refinement: null });
+    expect(sendChatMessage).toHaveBeenCalledWith('analyst:global', 'please inspect', { view: null, entityId: null, refinement: null });
     expect(document.activeElement).toBe(textarea.element);
     wrapper.unmount();
   });
@@ -137,7 +137,7 @@ describe('AnalystChatPanel', () => {
     expect(wrapper.text()).toContain('read_file');
     expect(wrapper.text()).toContain('opened docs');
     expect(wrapper.find('.tool-chip').exists()).toBe(true);
-    expect(store.pendingToolInvocations[0].sessionId).toBe('analyst');
+    expect(store.pendingToolInvocations[0].sessionId).toBe('analyst:global');
     wrapper.unmount();
   });
 
@@ -162,7 +162,7 @@ describe('AnalystChatPanel', () => {
     expect(wrapper.find('.tool-chip').exists()).toBe(true);
     expect(store.pendingToolInvocations[0].classifiedAs).toBe('destructive');
     expect(store.pendingToolInvocations[0].relatedCardId).toBe('card-7');
-    expect(store.pendingToolInvocations[0].sessionId).toBe('analyst');
+    expect(store.pendingToolInvocations[0].sessionId).toBe('analyst:global');
     wrapper.unmount();
   });
 });

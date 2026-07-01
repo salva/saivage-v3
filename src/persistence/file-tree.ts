@@ -63,8 +63,6 @@ function defaultProjectConfig(name: string): ProjectConfig {
 const SAIVAGE_DIRS: string[] = [
   'skills',
   'outputs/cards',
-  'diaries',
-  'reviews/by-goal',
   'agents/llm-exchanges',
   'agents/conversations',
   'runtime',

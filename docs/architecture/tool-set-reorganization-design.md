@@ -93,7 +93,7 @@ See section 4.7 for the unified terminal tool design.
 | `get_card_history_entry` | P, E, R, A | Specific card version snapshot. |
 | `diff_card` | P, E, R, A | Field-level diff between card versions. |
 
-`get_plan_diary` and `get_status` remain Analyst-only.
+`get_status` remains Analyst-only. The planner diary subsystem (`get_plan_diary`, `appendDiaryEntry`, `.saivage/diaries/`) is removed; it was dead code with no runtime writers (see section 5).
 
 ### 4.5 Analyst Tools And URI Scopes
 
@@ -194,7 +194,7 @@ The current record slots are already organized as common + per-agent:
 | `brief.md` | Planner, Analyst | Per-agent — card goal/instructions/acceptance definition | Unchanged |
 | `card.json` | Runtime (internal) | Internal card state — not agent-facing | Unchanged |
 
-No new slots are needed. If a future role needs its own dedicated record (e.g. a planner diary slot), it can be added as a per-agent slot. The principle is: the envelope carries the sign-off; the record carries the narrative. Agents should write the record before calling `emit_result`, and the runtime already enforces this.
+No new slots are needed. If a future role needs its own dedicated record, it can be added as a per-agent slot. The principle is: the envelope carries the sign-off; the record carries the narrative. Agents should write the record before calling `emit_result`, and the runtime already enforces this.
 
 #### Simplified lifecycle results
 
@@ -245,6 +245,7 @@ The following names are removed from the catalog. They are either duplicates of 
 | `emit_planner_result` | `emit_result` | Unified terminal tool name. Common envelope. |
 | `emit_executor_result` | `emit_result` | Unified terminal tool name. Common envelope. |
 | `emit_reviewer_result` | `emit_result` | Unified terminal tool name. Common envelope. |
+| `get_plan_diary` | (removed) | Dead code. No runtime component appends diary entries; the tool always returned an empty array for real goals. The whole planner diary subsystem is removed: `src/cards/diary.ts`, `.saivage/diaries/`, `.saivage/reviews/by-goal/`, the `DiaryEntry`/`DiaryKind` schema, and the `plan_diary` navigation kind. Reviewer assessments already live in the `review.md` record slot. |
 
 ## 6. Role Tool Surfaces
 
@@ -300,7 +301,7 @@ The Analyst gets the same workspace tools as the autonomous agents, plus its con
 | Web | `websearch`, `webfetch` |
 | Skill | `skill` |
 | Card lifecycle | `create_card`, `edit_card`, `cancel_card`, `delete_card`, `reorder_child`, `restart_card`, `queue_notification` |
-| Inspection | `list_cards`, `get_card`, `get_tree`, `list_card_history`, `get_card_history_entry`, `diff_card`, `get_plan_diary`, `get_status` |
+| Inspection | `list_cards`, `get_card`, `get_tree`, `list_card_history`, `get_card_history_entry`, `diff_card`, `get_status` |
 | MCP | `mcp_tool_call` |
 | Terminal | (none — analyst is not a card processor) |
 

@@ -118,8 +118,6 @@ export type {
   ControlActionAuditEntry,
   ControlActionSurface,
   CreatedBy,
-  DiaryEntry,
-  DiaryKind,
   DoctorResponse,
   EntityLink,
   AgentRole,

@@ -270,7 +270,7 @@ Implementation:
 
 - Implement project and goal processor behavior in `PlanningCardProcessorActor`, extending `BaseMainLLMCardProcessorActor`.
 - Use `PlanningCardProcessorActor` directly for both project and goal cards unless their behavior truly diverges.
-- Build planner invocation context from card tree, planning diary, pending notifications, prior reviewer findings, and direct child status.
+- Build planner invocation context from card tree, pending notifications, prior reviewer findings, and direct child status.
 - Own the planner `LLMActor` for the current activation; own the reviewer invocation as a phase of the same project/goal processor rather than as a separate card processor. Do not reuse LLM actors across activations until `LLMActor` has an explicit terminal-settlement API.
 - Give the project/goal processor access to its owning `CardActor` so it can inspect/drain deliverable main-agent notifications before activation and before every subsequent planner provider turn; record delivery markers after successful append.
 - Best-effort cancellation of a running project/goal is delivered through the same notification path and does not alter planner admission, child activation, process tools, or later planner reports by itself.

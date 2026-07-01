@@ -116,7 +116,7 @@ function handleScroll(): void {
 
 const timelineEntries = computed<AgentConversationEntry[]>(() => messages.value);
 const idleActivityStatus = computed<ActivityStatus | null>(() => null);
-const timelineControls = useAgentTimeline(timelineEntries, idleActivityStatus, () => activeSessionId.value);
+const timelineControls = useAgentTimeline(timelineEntries, idleActivityStatus);
 const childrenOnScreen = computed(() =>
   workspaceRoute.view === 'cards' && workspaceRoute.entityId
     ? selectChildrenOf([...cards.cards], workspaceRoute.entityId)

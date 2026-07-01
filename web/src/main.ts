@@ -21,7 +21,6 @@ const routes: RouteRecordRaw[] = [
   { path: '/dashboard', name: 'dashboard', component: Dashboard },
   { path: '/cards', name: 'cards', component: Cards },
   { path: '/cards/:id', name: 'card-detail', component: Cards },
-  { path: '/cards/:id/plan', name: 'card-plan', component: Cards },
   { path: '/timeline', name: 'timeline', component: Timeline },
   { path: '/agents', name: 'agents', component: Agents },
   { path: '/agents/:id', name: 'agent-detail', component: Agents },

@@ -25,9 +25,9 @@ describe('analyst chat store', () => {
     apiMocks.listChatSessions.mockReset();
     apiMocks.getChatEntries.mockReset();
     apiMocks.sendChatMessage.mockReset();
-    apiMocks.listChatSessions.mockResolvedValue({ sessions: [{ id: 'analyst', role: 'analyst', status: 'active', started_at: '2025-01-01T00:00:00Z' }] });
-    apiMocks.getChatEntries.mockResolvedValue({ sessionId: 'analyst', entries: [] as AgentConversationEntry[] });
-    apiMocks.sendChatMessage.mockResolvedValue({ sessionId: 'analyst', message: { id: 'm1', role: 'assistant', kind: 'text', content: 'reply', timestamp: '2025-01-01T00:00:00Z' }, toolInvocations: [] });
+    apiMocks.listChatSessions.mockResolvedValue({ sessions: [{ id: 'analyst:global', role: 'analyst', status: 'active', started_at: '2025-01-01T00:00:00Z' }] });
+    apiMocks.getChatEntries.mockResolvedValue({ sessionId: 'analyst:global', entries: [] as AgentConversationEntry[] });
+    apiMocks.sendChatMessage.mockResolvedValue({ sessionId: 'analyst:global', message: { id: 'm1', role: 'assistant', kind: 'text', content: 'reply', timestamp: '2025-01-01T00:00:00Z' }, toolInvocations: [] });
   });
 
   it('seedCardContext reuses the canonical analyst session and seeds get_card context', () => {
@@ -36,8 +36,8 @@ describe('analyst chat store', () => {
     const first = store.seedCardContext(card);
     const firstHint = store.syntheticHint.content;
     const second = store.seedCardContext(card);
-    expect(first).toBe('analyst');
-    expect(second).toBe('analyst');
+    expect(first).toBe('analyst:global');
+    expect(second).toBe('analyst:global');
     expect(store.syntheticHint.content).toBe(firstHint);
     expect(firstHint).toContain('Card title: Investigate');
     expect(firstHint).toContain('Card status: running');
@@ -59,49 +59,49 @@ describe('analyst chat store', () => {
   it('createNewChat resolves to the canonical analyst session', async () => {
     const store = useAnalystChat();
     const sessionId = store.createNewChat();
-    expect(sessionId).toBe('analyst');
-    expect(store.activeSessionId).toBe('analyst');
+    expect(sessionId).toBe('analyst:global');
+    expect(store.activeSessionId).toBe('analyst:global');
     expect(store.messagesError).toBeNull();
   });
 
   it('keeps pending analyst tool chips visible until fetched tool messages exist', async () => {
     const store = useAnalystChat();
-    await store.selectSession('analyst');
+    await store.selectSession('analyst:global');
     store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'stale-chat-id', tool: 'read_file', summary: 'opened docs', success: true });
 
     apiMocks.getChatEntries.mockResolvedValueOnce({
-      sessionId: 'analyst',
+      sessionId: 'analyst:global',
       entries: [
-        { id: 'assistant-1', session_id: 'analyst', role: 'assistant', kind: 'text', content: 'still thinking', round_id: 'r-assistant-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: '2025-01-01T00:00:01Z' },
+        { id: 'assistant-1', session_id: 'analyst:global', role: 'assistant', kind: 'text', content: 'still thinking', round_id: 'r-assistant-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: '2025-01-01T00:00:01Z' },
       ] satisfies AgentConversationEntry[],
     });
-    await store.fetchMessages('analyst');
+    await store.fetchMessages('analyst:global');
     expect(store.pendingToolInvocations).toHaveLength(1);
 
     apiMocks.getChatEntries.mockResolvedValueOnce({
-      sessionId: 'analyst',
+      sessionId: 'analyst:global',
       entries: [
-        { id: 'tool-1', session_id: 'analyst', role: 'assistant', kind: 'tool_call', tool: 'read_file', tool_call_id: 'tool-1', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'tool-1', type: 'function', function: { name: 'read_file', arguments: JSON.stringify({ path: 'docs/analyst.md' }) } }] }), round_id: 'r-assistant-00000000000000000000000000000001', message_index: 1, block_index: 0, timestamp: '2025-01-01T00:00:02Z' },
+        { id: 'tool-1', session_id: 'analyst:global', role: 'assistant', kind: 'tool_call', tool: 'read_file', tool_call_id: 'tool-1', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'tool-1', type: 'function', function: { name: 'read_file', arguments: JSON.stringify({ path: 'docs/analyst.md' }) } }] }), round_id: 'r-assistant-00000000000000000000000000000001', message_index: 1, block_index: 0, timestamp: '2025-01-01T00:00:02Z' },
       ] satisfies AgentConversationEntry[],
     });
-    await store.fetchMessages('analyst');
+    await store.fetchMessages('analyst:global');
     expect(store.pendingToolInvocations).toEqual([]);
   });
 
   it('resolves pending tool chip via persisted single-row tool_call (assistant) + tool_result (tool) pair (E09 regression)', async () => {
     const store = useAnalystChat();
-    await store.selectSession('analyst');
-    store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'analyst', tool: 'list_cards', summary: 'listed cards', success: true });
+    await store.selectSession('analyst:global');
+    store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'analyst:global', tool: 'list_cards', summary: 'listed cards', success: true });
     expect(store.pendingToolInvocations).toHaveLength(1);
 
     apiMocks.getChatEntries.mockResolvedValueOnce({
-      sessionId: 'analyst',
+      sessionId: 'analyst:global',
       entries: [
-        { id: 'tc-1', session_id: 'analyst', role: 'assistant', kind: 'tool_call', tool: 'list_cards', tool_call_id: 'call-77', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-77', type: 'function', function: { name: 'list_cards', arguments: '{}' } }] }), round_id: 'r-assistant-00000000000000000000000000000002', message_index: 0, block_index: 0, timestamp: '2025-01-01T00:00:03Z' },
-        { id: 'tr-1', session_id: 'analyst', role: 'tool', kind: 'tool_result', tool: 'list_cards', tool_call_id: 'call-77', content: '{}', round_id: 'r-assistant-00000000000000000000000000000002', message_index: 0, block_index: 1, timestamp: '2025-01-01T00:00:04Z' },
+        { id: 'tc-1', session_id: 'analyst:global', role: 'assistant', kind: 'tool_call', tool: 'list_cards', tool_call_id: 'call-77', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-77', type: 'function', function: { name: 'list_cards', arguments: '{}' } }] }), round_id: 'r-assistant-00000000000000000000000000000002', message_index: 0, block_index: 0, timestamp: '2025-01-01T00:00:03Z' },
+        { id: 'tr-1', session_id: 'analyst:global', role: 'tool', kind: 'tool_result', tool: 'list_cards', tool_call_id: 'call-77', content: '{}', round_id: 'r-assistant-00000000000000000000000000000002', message_index: 0, block_index: 1, timestamp: '2025-01-01T00:00:04Z' },
       ] satisfies AgentConversationEntry[],
     });
-    await store.fetchMessages('analyst');
+    await store.fetchMessages('analyst:global');
     expect(store.pendingToolInvocations).toEqual([]);
   });
 
@@ -109,13 +109,13 @@ describe('analyst chat store', () => {
     const store = useAnalystChat();
 
     apiMocks.getChatEntries.mockResolvedValueOnce({
-      sessionId: 'analyst',
+      sessionId: 'analyst:global',
       entries: [] satisfies AgentConversationEntry[],
     });
     await store.fetchMessages('chat-2');
 
-    expect(apiMocks.getChatEntries).toHaveBeenLastCalledWith('analyst');
-    expect(store.activeSessionId).toBe('analyst');
+    expect(apiMocks.getChatEntries).toHaveBeenLastCalledWith('analyst:global');
+    expect(store.activeSessionId).toBe('analyst:global');
   });
 
   it('bounds pending attribution state and keeps the newest invocations', () => {
@@ -160,7 +160,7 @@ describe('analyst chat store', () => {
 
     expect(store.pendingToolInvocations).toHaveLength(1);
     expect(store.pendingToolInvocations[0]).toMatchObject({
-      sessionId: 'analyst',
+      sessionId: 'analyst:global',
       tool: 'tool',
       classifiedAs: 'read_only',
       relatedCardId: 'card-9',
@@ -186,6 +186,6 @@ describe('analyst chat store', () => {
     store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'chat-2', tool: 'read_file', summary: 'opened docs', success: true });
 
     expect(store.pendingToolInvocations).toHaveLength(1);
-    expect(store.pendingToolInvocations[0].sessionId).toBe('analyst');
+    expect(store.pendingToolInvocations[0].sessionId).toBe('analyst:global');
   });
 });

@@ -31,7 +31,6 @@ export const callPresenters: Record<string, CallPresenter> = {
   list_cards: (a) => ({ icon: '🔎', headline: textPart(Object.entries(a).filter(([, value]) => value !== undefined && value !== null && value !== '').map(([key, value]) => `${key}=${str(value)}`).join(' · ') || 'all cards') }),
   get_tree: (a) => ({ icon: '🌳', headline: textPart(a.rootId ? `subtree ${str(a.rootId)}` : 'project tree') }),
   get_status: () => ({ icon: '📊', headline: textPart('project status') }),
-  get_plan_diary: (a) => ({ icon: '📔', headline: textPart(`goal ${str(a.goalId)}`) }),
   get_card_output: (a) => ({ icon: '🖥', headline: cardPart(a.cardId), detail: a.lines ? textPart(`last ${str(a.lines)} lines`) : undefined }),
   report_goal_done: (a) => ({ icon: '✅', headline: textPart(a.status_text ?? a.summary ?? 'goal done', 96) }),
   report_goal_failed: (a) => ({ icon: '❌', headline: textPart(a.status_text ?? a.summary ?? 'goal failed', 96) }),

@@ -296,7 +296,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
     }
     if (request.method() === 'GET' && url.pathname === '/api/notifications') return json(route, { notifications: [], total: 0 });
     if (request.method() === 'GET' && url.pathname === '/api/control-actions') return json(route, { control_actions: [], total: 0 });
-    if (request.method() === 'GET' && url.pathname === '/api/chats') return json(route, { sessions: [{ id: 'analyst', role: 'analyst', status: 'active', title: 'Synthetic analyst chat', started_at: now, completed_at: null, updated_at: now }] });
+    if (request.method() === 'GET' && url.pathname === '/api/chats') return json(route, { sessions: [{ id: 'analyst:global', role: 'analyst', status: 'active', title: 'Synthetic analyst chat', started_at: now, completed_at: null, updated_at: now }] });
     if (request.method() === 'GET' && url.pathname.startsWith('/api/chats/')) {
       const sessionId = decodeURIComponent(url.pathname.split('/')[3] ?? 'analyst-smoke');
       return json(route, parseOperatorResponse('chats.get', {

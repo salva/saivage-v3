@@ -45,7 +45,6 @@
           :key="att.attempt"
           type="button"
           class="pill rlp-attempt-tab"
-          :class="{  }"
           :aria-pressed="idx === selectedIndex"
           @click="selectedIndex = idx"
         >Attempt {{ att.attempt }}</button>

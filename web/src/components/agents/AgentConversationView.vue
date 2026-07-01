@@ -30,7 +30,7 @@ const syncStore = useSyncStore();
 const { currentSession, entries, activityStatus, loading, error, conversationWarning } = storeToRefs(agentStore);
 const errorMsg = computed(() => error.value);
 const rawPanelOpen = ref(false);
-const timelineControls = useAgentTimeline(entries, activityStatus, () => agentStore.currentSession?.id ?? null);
+const timelineControls = useAgentTimeline(entries, activityStatus);
 let unsubscribeConversation: (() => void) | null = null;
 function subscribeConversation(sessionId: string): void { unsubscribeConversation?.(); unsubscribeConversation = syncStore.openConversation(sessionId, () => agentStore.refetchConversation(sessionId)); }
 onMounted(async () => { subscribeConversation(props.sessionId); try { await agentStore.fetchConversation(props.sessionId); } catch (err) { log.error('fetch', err); } });

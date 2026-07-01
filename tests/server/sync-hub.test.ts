@@ -15,7 +15,7 @@ function event(kind: string, payload: Record<string, unknown>): DomainEvent<any>
 describe('mapLiveSyncEvent', () => {
   it('invalidates cards for analyst card tools', () => {
     expect(mapLiveSyncEvent(event('analyst_tool_invoked', {
-      sessionId: 'analyst',
+      sessionId: 'analyst:global',
       tool: 'create_card',
       success: true,
       summary: 'created card project',

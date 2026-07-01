@@ -13,7 +13,6 @@ import type {
   ConfigResponse,
   ProvidersResponse,
   AgentConversationResponse,
-  AgentDetailResponse,
   AgentSessionsResponse,
   ChatSessionsResponse,
   ChatEntriesResponse,
@@ -224,10 +223,6 @@ export function getRuntimeState(): Promise<RuntimeStateResponse> {
 
 export function listAgentSessions(): Promise<AgentSessionsResponse> {
   return operatorRequest('agents.list') as Promise<AgentSessionsResponse>;
-}
-
-export function getAgentSession(sessionId: string): Promise<AgentDetailResponse> {
-  return operatorRequest('agents.detail', { params: { id: sessionId } }) as Promise<AgentDetailResponse>;
 }
 
 export function getAgentConversation(sessionId: string): Promise<AgentConversationResponse> {

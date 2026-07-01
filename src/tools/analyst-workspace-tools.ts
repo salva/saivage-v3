@@ -18,7 +18,7 @@ const FILE_READ_MAX_BYTES = 1_000_000;
 const FILE_READ_DEFAULT_BYTES = 200_000;
 const LIST_DIR_DEFAULT_ENTRIES = 500;
 
-export async function navigate_workspace(ctx: ToolContext, params: { target: { kind: 'card' | 'transcript' | 'process' | 'plan_diary' | 'process_list' | 'agent_session_list' | 'config'; id?: string; refinement?: string } }): Promise<ToolResult> {
+export async function navigate_workspace(ctx: ToolContext, params: { target: { kind: 'card' | 'transcript' | 'process' | 'process_list' | 'agent_session_list' | 'config'; id?: string; refinement?: string } }): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, params, { action: 'workspace.navigate', safety_class: 'low', target_kind: 'session', getTargetId: (p) => `${p.target.kind}:${p.target.id ?? '-'}`, run: async () => ({ success: true, data: { intent: 'navigate_workspace', target: params.target } }) });
 }
 
@@ -159,7 +159,7 @@ export async function list_directory(_ctx: ToolContext, params: { path: string; 
 }
 
 export const analystWorkspaceTools: readonly UnifiedToolDefinition<string, any>[] = [
-  { name: 'navigate_workspace', description: 'Navigate the workspace area.', input: z.object({ target: z.object({ kind: z.enum(['card', 'transcript', 'process', 'plan_diary', 'process_list', 'agent_session_list', 'config']), id: describe(z.string().optional(), 'Optional target id.'), refinement: describe(z.string().optional(), 'Optional view refinement.') }).strict() }).strict(), roles: ['analyst'], executor: navigate_workspace },
+  { name: 'navigate_workspace', description: 'Navigate the workspace area.', input: z.object({ target: z.object({ kind: z.enum(['card', 'transcript', 'process', 'process_list', 'agent_session_list', 'config']), id: describe(z.string().optional(), 'Optional target id.'), refinement: describe(z.string().optional(), 'Optional view refinement.') }).strict() }).strict(), roles: ['analyst'], executor: navigate_workspace },
   { name: 'navigate_back', description: 'Navigate back in the workspace area.', input: emptyInput, roles: ['analyst'], executor: navigate_back },
   { name: 'read_file', description: 'Read the contents of any file the saivage service can see on the host. Returns up to maxBytes bytes (default 200000, max 1000000). Binary files return content=null with binary=true. Use absolute paths or paths relative to the saivage server cwd.', input: z.object({ path: describe(z.string(), 'Absolute or relative file path.'), maxBytes: describe(z.number().int().optional(), 'Max bytes to read (default 200000, max 1000000).') }).strict(), roles: ['analyst'], executor: read_file },
   { name: 'read_file_metadata', description: 'Read metadata for a host file or closed record:// document URL without returning file content.', input: z.object({ path: describe(z.string(), 'Absolute, relative, or record:// document URL.') }).strict(), roles: ['analyst'], executor: read_file_metadata },

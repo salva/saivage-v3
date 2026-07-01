@@ -16,7 +16,6 @@ export type NavigateTargetKind =
   | 'card'
   | 'transcript'
   | 'process'
-  | 'plan_diary'
   | 'process_list'
   | 'agent_session_list'
   | 'config';
@@ -71,7 +70,6 @@ function snapshotFromRoute(route: RouteLocationNormalizedLoaded): WorkspaceConte
     case 'cards':
       return { view: 'cards', entityId: null, refinement };
     case 'card-detail':
-    case 'card-plan':
       return { view: 'cards', entityId: id, refinement };
     case 'agents':
       return { view: 'agents', entityId: null, refinement };
@@ -124,8 +122,6 @@ function routeForTarget(target: NavigateTarget): RouteLocationRaw {
       return { name: 'agent-detail', params: { id: target.id ?? '' }, query: refinementStringToQuery(target.refinement) };
     case 'process':
       return { name: 'process-detail', params: { id: target.id ?? '' }, query: refinementStringToQuery(target.refinement) };
-    case 'plan_diary':
-      return { name: 'card-plan', params: { id: target.id ?? '' }, query: refinementStringToQuery(target.refinement) };
     case 'process_list':
       return { name: 'debug', query: refinementStringToQuery(target.refinement) };
     case 'agent_session_list':
