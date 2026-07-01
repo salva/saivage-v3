@@ -10,7 +10,6 @@ import { writeFileSync, mkdirSync, rmSync, mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawn as realSpawn } from 'node:child_process';
-import { CardStore } from '../../src/cards/card-store.js';
 
 let nextPid = 12345;
 
@@ -742,118 +741,6 @@ describe('Event logging for MCP invocations', () => {
     expect(evt.server).toBe('stdio');
     expect(evt.tool).toBe('bad_tool');
     expect(evt.error).toBeDefined();
-    proc.kill();
-  });
-});
-
-describe('AgentAdapter callMcpTool + ContentSupervisor', () => {
-  let AgentAdapter: any, McpManager: any;
-
-  beforeAll(async () => {
-    const mcpMod = await impMcp();
-    McpManager = mcpMod.McpManager;
-    const aaMod = await import('../../src/agents/agent-adapter.js');
-    AgentAdapter = aaMod.AgentAdapter;
-  });
-
-  function makeAdapter(root: string) {
-    const sd = join(root, '.saivage');
-    const cardStore = new CardStore(root);
-    return new AgentAdapter({
-      projectRoot: root,
-      saivageDir: sd,
-      config: {
-        server: { port: 8080 },
-          models: { default: ['m'] },
-          providers: { p: { priority: 1, models: ['m'], apiKey: 'k' } },
-        },
-      cardStore,
-    });
-  }
-
-  it('callMcpTool works when McpManager is set', async () => {
-    const r = makeProjectRoot();
-    writeSaivageJson(r, {
-      mcpServers: { stdio: stdioCfg({ command: 'node', args: ['-e', '1'] }) },
-    });
-    const mgr = new McpManager(r);
-    const tools = [
-      {
-        name: 'greet',
-        description: 'Hi',
-        inputSchema: { type: 'object', properties: {}, annotations: { readOnlyHint: true } },
-      },
-    ];
-    const proc = await setupRealProc(mgr, 'stdio', r, mcpScript(), tools);
-    const adapter = makeAdapter(r);
-    adapter.setMcpManager(mgr);
-    const res = await adapter.callMcpTool('executor', 'stdio', 'greet', { name: 'Agent' });
-    expect(res).toEqual([{ type: 'text', text: 'Hello Agent' }]);
-    proc.kill();
-  });
-
-  it('callMcpTool throws when no McpManager is set', async () => {
-    const r = makeProjectRoot();
-    writeSaivageJson(r, {});
-    const adapter = makeAdapter(r);
-    await expect(adapter.callMcpTool('executor', 's', 't', {})).rejects.toThrow(
-      'MCP manager not configured',
-    );
-  });
-
-  it('ContentSupervisor: when disabled, passes through', async () => {
-    const r = makeProjectRoot();
-    writeSaivageJson(r, {
-      mcpServers: { stdio: stdioCfg({ command: 'node', args: ['-e', '1'] }) },
-    });
-    const mgr = new McpManager(r);
-    const tools = [
-      { name: 'greet', description: 'Hi', inputSchema: { type: 'object', properties: {} } },
-    ];
-    const proc = await setupRealProc(mgr, 'stdio', r, mcpScript(), tools);
-    const adapter = makeAdapter(r);
-    adapter.setMcpManager(mgr);
-    const { ContentSupervisor } = await import('../../src/workspace/content-supervisor.js');
-    const sd = join(r, '.saivage');
-    const swd = join(r, '.saivage-work');
-    mkdirSync(swd, { recursive: true });
-    const cs = new ContentSupervisor({
-      enabled: false,
-      maxScanLengthBytes: 10000,
-      saivageDir: sd,
-      saivageWorkDir: swd,
-    });
-    adapter.setContentSupervisor(cs);
-    const res = await adapter.callMcpTool('executor', 'stdio', 'greet', { name: 'Safe' });
-    expect(res).toEqual([{ type: 'text', text: 'Hello Safe' }]);
-    proc.kill();
-  });
-
-  it('ContentSupervisor: when enabled, content passes through for safe content', async () => {
-    const r = makeProjectRoot();
-    writeSaivageJson(r, {
-      mcpServers: { stdio: stdioCfg({ command: 'node', args: ['-e', '1'] }) },
-    });
-    const mgr = new McpManager(r);
-    const tools = [
-      { name: 'greet', description: 'Hi', inputSchema: { type: 'object', properties: {} } },
-    ];
-    const proc = await setupRealProc(mgr, 'stdio', r, mcpScript(), tools);
-    const adapter = makeAdapter(r);
-    adapter.setMcpManager(mgr);
-    const { ContentSupervisor } = await import('../../src/workspace/content-supervisor.js');
-    const sd = join(r, '.saivage');
-    const swd = join(r, '.saivage-work');
-    mkdirSync(swd, { recursive: true });
-    const cs = new ContentSupervisor({
-      enabled: true,
-      maxScanLengthBytes: 10000,
-      saivageDir: sd,
-      saivageWorkDir: swd,
-    });
-    adapter.setContentSupervisor(cs);
-    const res = await adapter.callMcpTool('executor', 'stdio', 'greet', { name: 'Safe' });
-    expect(res).toEqual([{ type: 'text', text: 'Hello Safe' }]);
     proc.kill();
   });
 });

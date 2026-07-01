@@ -1,4 +1,3 @@
-import { EventEmitter } from 'node:events';
 import type { SaivageConfig, RuntimeSection } from './config-schema.js';
 import { getRuntimeConfig } from './config-schema.js';
 import { ProviderRegistry } from './provider.js';
@@ -14,9 +13,7 @@ import type {
 import type { NotificationCenter } from '../notifications/index.js';
 import type { LlmCallFn } from './llm-contracts.js';
 import { EventLogger } from '../observability/index.js';
-import type { McpToolInvocationPort } from '../mcp/manager-api.js';
 import { getProjectNotificationCenter } from '../notifications/notification-delivery.js';
-import type { CardStore } from '../cards/store-api.js';
 import { InvocationService } from './invocation-service.js';
 
 export type AgentRole = OperationalAgentRole;
@@ -26,10 +23,8 @@ export interface AgentAdapterConfig {
   projectRoot: string;
   saivageDir: string;
   config: SaivageConfig;
-  eventBus?: EventEmitter;
   eventLogger?: EventLogger;
   candidateAvailability?: CandidateAvailability;
-  cardStore?: CardStore;
   invocationService?: InvocationService;
   llmCallFn?: LlmCallFn;
 }
@@ -43,11 +38,8 @@ export class AgentAdapter {
   readonly router: ModelRouter;
   readonly candidateAvailability: CandidateAvailability;
   readonly notificationCenter: NotificationCenter;
-  eventBus?: EventEmitter;
   readonly eventLogger?: EventLogger;
-  private _mcpManager: McpToolInvocationPort | undefined;
   private readonly invocationService: InvocationService;
-  private readonly cardStore: CardStore;
 
   constructor(cfg: AgentAdapterConfig) {
     this.projectRoot = cfg.projectRoot;
@@ -63,10 +55,7 @@ export class AgentAdapter {
       this.candidateAvailability,
     );
     this.notificationCenter = getProjectNotificationCenter(cfg.projectRoot);
-    this.eventBus = cfg.eventBus;
     this.eventLogger = cfg.eventLogger;
-    if (!cfg.cardStore) throw new Error('AgentAdapter requires a composition-owned CardStore.');
-    this.cardStore = cfg.cardStore;
     this.invocationService = cfg.invocationService ?? new InvocationService({
       projectRoot: this.projectRoot,
       saivageDir: this.saivageDir,
@@ -78,16 +67,6 @@ export class AgentAdapter {
       maxRecoveryRetries: this.runtimeConfig?.maxRecoveryRetries,
       llmCallFn: cfg.llmCallFn,
     });
-  }
-
-  setEventBus(eventBus: EventEmitter): void {
-    this.eventBus = eventBus;
-  }
-  setMcpManager(mcpManager: McpToolInvocationPort): void {
-    this._mcpManager = mcpManager;
-  }
-  getMcpManager(): McpToolInvocationPort | undefined {
-    return this._mcpManager;
   }
 
   getRouter(): ModelRouter {

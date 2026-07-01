@@ -79,7 +79,6 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     config,
     eventLogger,
     candidateAvailability,
-    cardStore,
   });
   const invocationService = agentAdapter.getInvocationService();
 
@@ -123,7 +122,6 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     setMcpManager(nextMcpManager) {
       mcpManager = nextMcpManager;
       analystDepsCache = null;
-      agentAdapter.setMcpManager(nextMcpManager);
       nextMcpManager.setEventLogger(eventLogger);
     },
   };
