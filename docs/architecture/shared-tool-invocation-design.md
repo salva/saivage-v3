@@ -6,14 +6,14 @@ Date: 2026-07-01
 
 ## 1. Purpose
 
-Saivage currently has duplicated tool execution logic across the Analyst chat path and the micro-actor card processors. The duplication is not just cosmetic: parsing, policy checks, error normalization, result envelopes, workspace tool routing, and tool definition ownership are split across several modules.
+Saivage currently has duplicated tool execution logic across the Analyst chat path and the micro-actor card processors. Parsing, policy checks, error normalization, and workspace tool routing are split across several modules.
 
-This document proposes a shared invocation layer that removes duplicated mechanics while preserving the important semantic difference between:
+This document specifies a shared invocation layer that removes the duplication while preserving the semantic difference between:
 
 - Analyst as the global operator-facing chat/control surface.
 - Planner, executor, and reviewer as card-scoped runtime workers.
 
-The target is not to make Analyst use card processor code directly. The target is to make both Analyst and card processors use the same lower-level tool invocation primitives where their capabilities overlap.
+The target is a single function backed by the unified tool catalog — not a service object, an adapter registry, or a compatibility layer.
 
 ## 2. Current Shape
 
@@ -40,8 +40,6 @@ Planner, executor, and reviewer tool calls are handled inside runtime actors und
 
 ### Duplication
 
-The following mechanics are duplicated or fragmented:
-
 | Concern | Analyst today | Card processors today | Problem |
 | --- | --- | --- | --- |
 | Tool envelope parsing | `ToolDispatcher` parses JSON envelopes | Processors receive `LLMActorOutcome.args` and stringify for workspace tools | Different error behavior and validation boundaries. |
@@ -54,14 +52,10 @@ The following mechanics are duplicated or fragmented:
 ## 3. Design Goals
 
 1. Keep role orchestration explicit. Analyst chat behavior, planner sequencing, executor process ownership, reviewer assessment, and terminal result validation remain role-specific.
-
-2. Share mechanics below orchestration. Argument parsing, policy evaluation, dispatch adapter lookup, result normalization, truncation, and common workspace/card/runtime tool execution should be reusable.
-
-3. Make tool surfaces explicit. A tool should be available because the role surface registered it, not because an adapter silently accepts every name.
-
+2. Share mechanics below orchestration. Argument parsing, tool lookup, invocation, and result normalization should be a single function, not a service hierarchy.
+3. Make tool surfaces explicit. A tool is available because the role's tool list registers it — not because an adapter silently accepts every name.
 4. Preserve actor ownership boundaries. Executor background processes remain owned by the executor activation. Planner child activation remains owned by the planner processor. Analyst runtime control remains Analyst/operator scoped.
-
-5. Avoid compatibility shims. This is an internal refactor. Existing dead aliases should not be preserved just to keep old paths alive.
+5. No compatibility shims. This is an internal refactor. `ToolDispatcher` is deleted in the same change that introduces the shared path. Dead aliases are removed, not wrapped.
 
 ## 4. Non-Goals
 
@@ -70,122 +64,91 @@ The following mechanics are duplicated or fragmented:
 - Do not let planner/executor/reviewer call Analyst-only runtime control or navigation tools.
 - Do not introduce a new compatibility layer for retired tool names.
 - Do not move process ownership out of the executor actor in the initial refactor.
-- Do not introduce provider-visible tool-name changes as part of this design. Naming changes belong to [Tool Set Reorganization Design](./tool-set-reorganization-design.md); this shared invocation layer should use that document's final names.
+- Do not introduce an adapter registry, a service object, or a normalized-request type. The shared layer is a function plus the catalog.
+- Do not introduce provider-visible tool-name changes as part of this design. Naming changes belong to [Tool Set Reorganization Design](./tool-set-reorganization-design.md); this shared invocation layer uses that document's final names.
 
-## 5. Desired Architecture
+## 5. Design
 
-Introduce a shared `ToolInvocationService` that sits below role orchestration and above concrete tool implementations.
+A single function, backed by the unified tool catalog, replaces the duplicated dispatch paths.
 
-```text
-AnalystHandler
-  -> ToolInvocationService
-       -> registered adapters
-       -> RoleToolPolicy
-       -> normalized result
+### 5.1 The catalog
 
-PlanningCardProcessorActor
-  -> ToolInvocationService
-       -> planner card adapter
-       -> workspace adapter
-       -> normalized result
-
-TerminalCardProcessorActor
-  -> ToolInvocationService
-       -> executor process adapter
-       -> workspace adapter
-       -> normalized result
-
-Reviewer loop
-  -> ToolInvocationService
-       -> workspace adapter
-       -> normalized result
-```
-
-The service owns common invocation mechanics. Callers still own what happens before and after a tool call.
-
-### 5.1 Invocation input
+The tool reorganization ([Tool Set Reorganization Design](./tool-set-reorganization-design.md)) produces one catalog where each tool name maps to an executor function:
 
 ```ts
-interface ToolInvocationRequest {
-  toolName: string;
-  toolCallId: string;
-  rawArguments?: string;
-  args?: Record<string, unknown>;
-  role: 'analyst' | 'planner' | 'executor' | 'reviewer';
-  sessionId: string;
-  cardId?: string;
-  surface: ToolInvocationSurface;
-  projectRoot: string;
-  context: ToolInvocationContext;
+type ToolExecutor = (ctx: ToolContext, args: Record<string, unknown>) => Promise<ToolResult>;
+
+interface ToolDefinition {
+  name: string;
+  description: string;
+  inputSchema: ZodSchema;
+  executor: ToolExecutor;
 }
 ```
 
-`rawArguments` supports Analyst and any future envelope-based caller. `args` supports current `LLMActorOutcome.args` callers. Exactly one is required. The service parses or validates once and produces a normalized argument object.
+The catalog is the single source of tool schemas and executor functions. Role surfaces are curated subsets of it — plain arrays of tool names per role, already represented by `actor-tool-definitions.ts` and the Analyst surface.
 
-### 5.2 Invocation context
+### 5.2 The invocation function
 
 ```ts
-interface ToolInvocationContext {
+async function invokeTool(ctx: ToolContext, name: string, args: Record<string, unknown>): Promise<ToolResult> {
+  const definition = TOOL_CATALOG.get(name);
+  if (!definition) return { success: false, error: `Unknown tool '${name}'.` };
+  const parsed = definition.inputSchema.safeParse(args);
+  if (!parsed.success) return { success: false, error: parsed.error.message };
+  return definition.executor(ctx, parsed.data);
+}
+```
+
+That is the entire shared layer. Unknown names and invalid arguments are tool errors, not thrown exceptions. Authority is enforced by:
+
+- The per-role tool list (what the provider is allowed to see and call).
+- The path-scope policy inside filesystem/process tools (`project://`, `record://`, `tmp://`, `system://`, slot-writer rules, role-restricted `project://` writes).
+- The semantic policy already encoded in executor functions that branch on `ctx.agentRole` where it matters (e.g. `create_card` is planner-scoped, `activate_card` is planner-only).
+
+No second policy gate, no adapter category lookup, no normalized request type.
+
+### 5.3 The context
+
+Each role constructs the context it actually needs. The context is role-typed, not a bag of optional capabilities:
+
+```ts
+interface ToolContext {
+  projectRoot: string;
+  agentRole: 'planner' | 'executor' | 'reviewer' | 'analyst';
+  cardId?: string;
   cardStore?: CardStore;
   runtime?: RuntimeControlPort;
   mcpManager?: McpManager;
   eventBus?: EventBus;
-  requestServerRestart?: () => Promise<void>;
   processOwner?: ExecutorProcessOwner;
   analystSurface?: ControlActionSurface;
 }
 ```
 
-The context is capability injection, not global state. Adapters fail fast if required context is missing.
+Callers populate the fields they own. The executor functions access what they need and ignore the rest. An executor that requires a capability not present (e.g. `processOwner` for `run_command` outside the executor) throws — fail fast, no silent denial.
 
-### 5.3 Invocation result
+### 5.4 The result
 
 ```ts
-interface ToolInvocationResult {
+interface ToolResult {
   success: boolean;
-  toolName: string;
-  toolCallId: string;
   data?: unknown;
   error?: string;
-  errorKind?: string;
-  metadata?: Record<string, unknown>;
-  modelContent: string;
 }
 ```
 
-`modelContent` is the provider-visible tool result content. Role callers can additionally inspect `data`, `errorKind`, and metadata for UI events or control decisions.
+One result type. The caller — Analyst handler or card processor — serializes it for the provider. No separate `modelContent` field, no `errorKind`, no `metadata` bag. Information the caller needs for UI events or control decisions (e.g. process start, card mutation) is returned in `data` as a plain object.
 
-## 6. Adapter Model
+### 5.5 Terminal tools
 
-Adapters implement concrete capabilities. They are registered explicitly per role surface.
+`emit_result` stays in the processor loops. It is not a catalog tool, not an adapter, and not passed through `invokeTool`. Terminal validation is role-specific contract logic that drives card lifecycle transitions; it does not belong in a shared side-effect tool path.
 
-```ts
-interface ToolInvocationAdapter {
-  readonly category: string;
-  readonly toolNames: readonly string[];
-  policyInput?(request: NormalizedToolInvocationRequest): RolePolicyInput;
-  invoke(request: NormalizedToolInvocationRequest): Promise<ToolInvocationAdapterResult>;
-}
-```
+### 5.6 Analyst audit and events
 
-No adapter should use `handles(): true`. Catch-all dispatch hides stale tool names and makes policy hard to reason about. Unknown tools should be an invocation-service error based on the registered surface.
+The Analyst handler wraps `invokeTool` with its own pre/post hooks for audit logging, `analyst_tool_invoked` event broadcasts, and response shaping. These are Analyst-specific concerns; they live in the Analyst handler, not in the shared function or the catalog. Card processors do not need them.
 
-### Adapter categories
-
-| Adapter | Used by | Notes |
-| --- | --- | --- |
-| Workspace adapter | Planner, executor, reviewer, Analyst | Wraps `processWorkspaceToolCall(...)` or its successor. Handles file/search/record tools. |
-| Planner card adapter | Planner | Owns `create_card`, `edit_card`, `cancel_card`, and similar immediate-child mutations. Calls processor-owned methods or a narrow card mutation port. |
-| Planner activation adapter | Planner | Optional thin wrapper for `activate_card`; sequencing remains processor-owned. |
-| Executor process adapter | Executor | Wraps `run_command`, `wait_process`, and `kill_process` through the executor actor's `ProcessActor` ownership. Non-blocking inspection is `wait_process` with `timeout_ms: 0`. |
-| Analyst card/control adapter | Analyst | Wraps Analyst card-management and runtime-control tools through canonical services. |
-| Analyst navigation/read-model adapter | Analyst | Wraps UI navigation and debug/read-model tools. |
-| MCP adapter | Executor, reviewer, Analyst where enabled | Calls configured MCP manager with role policy. |
-| Terminal contract tool | Planner, executor, reviewer | `emit_result` is not a generic adapter initially. Processor loops should continue validating terminal outcomes directly, including role-specific status sets (`rework` is reviewer-only). |
-
-Terminal tools are deliberately excluded from the first shared service pass because they are not ordinary side-effect tools. They close a card activation and drive runtime lifecycle transitions.
-
-## 7. Role-Specific Orchestration After Refactor
+## 6. Role Orchestration After Refactor
 
 ### Analyst
 
@@ -197,22 +160,9 @@ Terminal tools are deliberately excluded from the first shared service pass beca
 - Analyst activity callbacks.
 - `analyst_tool_invoked` event broadcasts.
 - Mapping selected tool results to final operator replies.
+- Pre/post audit hooks around `invokeTool`.
 
-It delegates only execution mechanics:
-
-```ts
-const result = await toolInvocationService.invoke({
-  role: 'analyst',
-  surface: 'analyst-web-chat',
-  analystSurface: this.surface,
-  toolName: toolCall.toolName,
-  toolCallId: toolCall.toolCallId,
-  rawArguments,
-  sessionId,
-  projectRoot: this.projectRoot,
-  context: analystContext,
-});
-```
+It delegates execution mechanics to `invokeTool` with an Analyst-flavored context. Unknown tools return a normal `ToolResult` error — no catch-all adapter.
 
 ### Planner
 
@@ -223,7 +173,7 @@ const result = await toolInvocationService.invoke({
 - Activation result delivery.
 - Planner terminal contract validation and reviewer launch.
 
-It delegates planner card mutations and workspace tools to the shared service. If `activate_card` is adapted, the adapter must call back into a processor-owned activation port rather than directly dispatching child actors from generic code.
+It delegates workspace and card-mutation tools to `invokeTool`. `activate_card` remains direct processor code — it is a sequencing boundary, not a side-effect tool.
 
 ### Executor
 
@@ -233,7 +183,7 @@ It delegates planner card mutations and workspace tools to the shared service. I
 - Owned process lifecycle.
 - Executor terminal contract validation.
 
-It delegates common invocation mechanics, but the executor process adapter receives an activation-local `processOwner` so generic code cannot outlive the activation.
+It delegates `run_command`, `wait_process`, and `kill_process` to `invokeTool`. The activation-local `processOwner` is passed in the executor context; generic code cannot outlive the activation because the context is constructed per activation and discarded on settlement.
 
 ### Reviewer
 
@@ -243,70 +193,31 @@ The reviewer loop keeps responsibility for:
 - Review record-slot expectations.
 - Reviewer terminal contract validation, including `rework` as the send-back result.
 
-It delegates workspace/record/MCP tools to the shared service. Reviewer filesystem access is not read-only: the reviewer may `write`/`edit` only its own `record://review.md` slot, while `project://` mutation and `apply_patch` remain unavailable.
+It delegates workspace/record/MCP tools to `invokeTool`. Reviewer filesystem access is not read-only: the reviewer may `write`/`edit` only its own `record://review.md` slot, while `project://` mutation and `apply_patch` remain unavailable (enforced by the path-scope policy inside `write`/`edit`, not by a reviewer-specific adapter).
 
-## 8. Policy Model
+## 7. Migration Plan
 
-`RoleToolPolicy` should remain the central policy evaluator, but the inputs should be normalized by the invocation service.
+One phase. No temporary wrappers.
 
-Policy inputs should include:
+1. Build the unified `TOOL_CATALOG` from the tool reorganization (one entry per tool name, with executor function and input schema).
+2. Add `invokeTool(ctx, name, args) → ToolResult`.
+3. Point card processors at `invokeTool` for workspace tools; delete `processWorkspaceToolCall` ad-hoc dispatch where it now duplicates the catalog.
+4. Point the Analyst handler at `invokeTool`; delete `ToolDispatcher` and `AnalystAdapter` in the same change. Move audit logging and event broadcasting into Analyst-handler pre/post hooks.
+5. Delete the duplicated result types (`AdapterResult`, `ToolDispatchResult`). Everything returns `ToolResult`.
+6. Update tests that asserted old adapter internals to assert `invokeTool` behavior instead.
 
-- Role.
-- Surface.
-- Tool name.
-- Card id, when card-scoped.
-- Analyst control surface, when Analyst-scoped.
-- Whether the tool is registered for the current surface.
-- Adapter-provided operation metadata, such as target scope or card action.
-
-The first policy gate is registration: if the current role surface did not register the tool, the call is denied as unknown/unsupported. The second gate is semantic policy: if the tool is registered but the request exceeds authority, return a structured policy denial.
-
-## 9. Migration Plan
-
-### Phase 1: Extract shared result and parsing mechanics
-
-- Add `ToolInvocationService` with explicit adapter registration.
-- Port `ToolDispatcher` tests to the new service where they test generic behavior.
-- Keep `ToolDispatcher` as a thin temporary wrapper only if needed during the branch, then delete it before completion.
-- Do not change provider-visible tool names or role surfaces.
-
-### Phase 2: Port workspace tools
-
-- Add a `WorkspaceToolAdapter` around `processWorkspaceToolCall(...)`.
-- Replace planner, executor, and reviewer direct workspace calls with service calls.
-- Replace Analyst workspace-tool entries in `TOOL_REGISTRY` with the same adapter-backed path.
-- Verify malformed workspace arguments return consistent model-visible errors for all roles.
-
-### Phase 3: Make Analyst adapters explicit
-
-- Replace `AnalystAdapter` catch-all behavior with explicit Analyst adapters and registered tool names.
-- Unknown Analyst tools become normal unsupported-tool results.
-- Keep Analyst activity broadcasting and response shaping in `AnalystHandler`.
-
-### Phase 4: Port planner and executor local tools
-
-- Wrap planner card mutation tools with a planner card adapter that calls processor-owned ports.
-- Wrap executor process tools with an executor process adapter injected with activation-local process ownership.
-- Keep `activate_card` and terminal contracts processor-owned unless a narrow activation adapter proves simpler and equally explicit.
-
-### Phase 5: Delete obsolete surfaces
-
-- Delete `ToolDispatcher` if fully superseded.
-- Delete duplicated helper result types that were only needed by `ToolDispatcher`/`AnalystAdapter`.
-- Delete any tests that assert old adapter internals rather than public behavior.
-
-## 10. Validation Strategy
+## 8. Validation Strategy
 
 Focused tests should cover:
 
-- Unknown tool handling per role surface.
-- Invalid JSON and invalid argument-object handling.
-- Workspace tool validation errors returning model-visible tool errors, not thrown activation failures.
-- Analyst policy denials by `ControlActionSurface`.
-- Planner immediate-child card mutation policy.
-- Executor process lifecycle ownership and cleanup after activation settlement.
-- Reviewer record-only mutation policy: `write`/`edit` may touch only `record://review.md`; `project://` mutation and `apply_patch` are denied.
-- MCP adapter registration and denial behavior where MCP is unavailable.
+- Unknown tool handling: `invokeTool` returns `{ success: false, error }` for names not in the catalog, for every role surface.
+- Invalid arguments: schema parse failure returns a model-visible tool error, not a thrown exception.
+- Workspace tool validation errors return model-visible tool errors, not thrown activation failures.
+- Analyst policy denials by `ControlActionSurface` ( Analyst-handler pre-hook, not `invokeTool`).
+- Planner immediate-child card mutation policy (inside the card tool executor, branching on `ctx.agentRole`).
+- Executor process lifecycle ownership and cleanup after activation settlement (context constructed per activation, `processOwner` discarded on settlement).
+- Reviewer record-only mutation policy: `write`/`edit` may touch only `record://review.md`; `project://` mutation and `apply_patch` are denied (enforced inside the filesystem tool executors, not by a reviewer adapter).
+- MCP invocation denial when MCP is unavailable (inside the `mcp_tool_call` executor).
 
 End-to-end validation should include:
 
@@ -316,21 +227,18 @@ End-to-end validation should include:
 - One reviewer workspace read.
 - One terminal contract success path for each card role.
 
-## 11. Risks
+## 9. Risks
 
 | Risk | Mitigation |
 | --- | --- |
-| Generic service becomes a new god object | Keep orchestration out of the service. It invokes one tool and returns one normalized result. |
-| Analyst authority leaks to card agents | Register role surfaces explicitly and require semantic policy input for sensitive tools. |
-| Executor process actors outlive activation | Inject activation-local `processOwner`; no global process adapter state. |
-| Terminal result lifecycle becomes over-generic | Keep terminal contract validation in processor loops for the initial refactor. |
-| Result shaping changes model behavior | Preserve provider-visible tool names and content in early phases; change one adapter family at a time. |
+| Shared function hides role-specific authority | Authority lives in the per-role tool list and the path-scope policy inside tool executors, not in the shared function. The function does one thing: look up and run. |
+| Analyst audit/events drift | Audit and event broadcasting stay in the Analyst handler as pre/post hooks; `invokeTool` has no side effects beyond the tool itself. |
+| Executor process actors outlive activation | Context is constructed per activation and discarded on settlement; `processOwner` is not global. |
+| Terminal result lifecycle becomes over-generic | Terminal tools stay in processor loops; they are never passed through `invokeTool`. |
 
-## 12. Open Questions
+## 10. Open Questions
 
-1. Should `activate_card` remain direct processor code forever, or become an adapter that calls a processor-owned activation port?
-2. Should terminal tools eventually be represented as adapters with a `terminal: true` flag, or is direct processor validation clearer?
-3. Should `ToolInvocationResult.modelContent` always be JSON, or should some tools keep plain text for provider ergonomics?
-4. Should Analyst control tools and card-management tools share one adapter or be split by authority domain?
+1. Should terminal tools ever be unified with the catalog, or is direct processor validation permanently clearer? Current answer: direct processor validation. `emit_result` drives lifecycle transitions; it is not a side-effect tool.
+2. Should `activate_card` stay direct processor code permanently, or become a catalog tool that calls a processor-owned activation port? Current answer: direct processor code. It is a sequencing boundary.
 
-The initial implementation should answer none of these with broad abstractions. Start by unifying workspace tool invocation and explicit Analyst adapter registration; those changes remove duplication without weakening role boundaries.
+These are answered with the simplest option. If a concrete need to unify appears later, the function-based design makes that change additive, not structural.
