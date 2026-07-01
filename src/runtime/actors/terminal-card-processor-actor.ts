@@ -9,6 +9,7 @@ import { createExecutorContract } from '../../contracts/executor-contract.js';
 import type { ExecutorResult } from '../../contracts/agent-execution.js';
 import { expectedTerminalToolMessage, verifyTerminalToolOutcome } from './contract-terminal-tools.js';
 import { buildInvocationSurface, invokeTool } from '../../tools/invocation.js';
+import { createCardHistoryProvider } from '../../tools/card-history-provider.js';
 import { createProcessProvider } from '../../tools/process-provider.js';
 import { createPatchProvider, createWorkspaceProvider } from '../../tools/workspace-provider.js';
 import { createWebProvider } from '../../tools/web-tools.js';
@@ -112,12 +113,14 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
 
   private async handleToolCall(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, processOwnerId: string): Promise<unknown> {
     try {
-      const workspaceSurface = buildInvocationSurface('executor', [
+      const providers = [
         createWorkspaceProvider({ projectRoot: this.projectRoot, cardId: this.cardId, agentRole: 'executor' }),
         createPatchProvider({ projectRoot: this.projectRoot, cardId: this.cardId, agentRole: 'executor' }),
         createProcessProvider({ projectRoot: this.projectRoot, ownerId: processOwnerId, cardId: this.cardId }),
         createWebProvider({ projectRoot: this.projectRoot, cardId: this.cardId, agentRole: 'executor' }),
-      ]);
+      ];
+      providers.push(createCardHistoryProvider({ projectRoot: this.projectRoot, sessionId: processOwnerId, agentRole: 'executor' }));
+      const workspaceSurface = buildInvocationSurface('executor', providers);
       if (workspaceSurface.tools.has(outcome.toolName)) return await invokeTool(workspaceSurface, outcome.toolName, outcome.args);
       throw new Error(`Unsupported executor tool call '${outcome.toolName}'.`);
     } catch (error) {

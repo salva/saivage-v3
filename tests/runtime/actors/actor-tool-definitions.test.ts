@@ -16,4 +16,11 @@ describe('actor tool definitions', () => {
     expect(names(TERMINAL_CARD_PROCESSOR_TOOL_DEFINITIONS)).toEqual(expect.arrayContaining(['websearch', 'webfetch']));
     expect(names(REVIEWER_CARD_PROCESSOR_TOOL_DEFINITIONS)).toEqual(expect.arrayContaining(['websearch', 'webfetch']));
   });
+
+  it('advertises card history tools to planner, executor, and reviewer actors', () => {
+    const historyTools = ['list_card_history', 'get_card_history_entry', 'diff_card'];
+    expect(names(PLANNER_CARD_PROCESSOR_TOOL_DEFINITIONS)).toEqual(expect.arrayContaining(historyTools));
+    expect(names(TERMINAL_CARD_PROCESSOR_TOOL_DEFINITIONS)).toEqual(expect.arrayContaining(historyTools));
+    expect(names(REVIEWER_CARD_PROCESSOR_TOOL_DEFINITIONS)).toEqual(expect.arrayContaining(historyTools));
+  });
 });

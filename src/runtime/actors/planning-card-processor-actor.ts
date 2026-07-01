@@ -15,6 +15,7 @@ import { buildPlannerStateContextMessage } from '../../agents/planner-state-cont
 import { ActorToolSurface } from './actor-tool-surface.js';
 import type { NewCardInput } from '../../cards/store-api.js';
 import { buildInvocationSurface, invokeTool } from '../../tools/invocation.js';
+import { createCardHistoryProvider } from '../../tools/card-history-provider.js';
 import { createWorkspaceProvider } from '../../tools/workspace-provider.js';
 import { createWebProvider } from '../../tools/web-tools.js';
 import { closeOpenRecordSlot, concreteRecordSlot, discardOpenRecordSlot, latestClosedRecordSlot, readRecordSlotIndex, recordFileIsNonEmpty } from '../records/record-slots.js';
@@ -155,6 +156,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     }
     const workspaceSurface = buildInvocationSurface('planner', [
       createWorkspaceProvider({ projectRoot: this.projectRoot, cardId: parent.id, agentRole: 'planner' }),
+      createCardHistoryProvider({ projectRoot: this.projectRoot, sessionId: plannerActorId(parent.id), agentRole: 'planner' }),
       createWebProvider({ projectRoot: this.projectRoot, cardId: parent.id, agentRole: 'planner' }),
     ]);
     if (workspaceSurface.tools.has(outcome.toolName)) return invokeTool(workspaceSurface, outcome.toolName, outcome.args);
@@ -390,6 +392,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   private async handleReviewerToolCall(card: CardRecord, sessionId: string, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): Promise<unknown> {
     const workspaceSurface = buildInvocationSurface('reviewer', [
       createWorkspaceProvider({ projectRoot: this.projectRoot, cardId: card.id, agentRole: 'reviewer' }),
+      createCardHistoryProvider({ projectRoot: this.projectRoot, sessionId, agentRole: 'reviewer' }),
       createWebProvider({ projectRoot: this.projectRoot, cardId: card.id, agentRole: 'reviewer' }),
     ]);
     if (workspaceSurface.tools.has(outcome.toolName)) return invokeTool(workspaceSurface, outcome.toolName, outcome.args);
