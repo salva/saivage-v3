@@ -16,7 +16,7 @@ v3 partially ported those names but never removed the old ones (`read_project_fi
 
 ## 3. Design Principles
 
-1. **One tool catalog.** No parallel definitions. No dead catalog entries. No actor-inline definitions that duplicate catalog names. The catalog is the single source of tool schemas; actor runtime surfaces are curated subsets of it.
+1. **One tool vocabulary.** No parallel definitions. No dead catalog entries. No actor-inline definitions that duplicate catalog names. The vocabulary below is the single source of tool names and schemas; actor runtime surfaces are curated subsets of it. Execution and schema authority are realized as `ToolProvider`s per `shared-tool-invocation-design.md` — there is no runtime catalog module; providers own both schema and execution, and surfaces are the aggregate used for prompt export.
 
 2. **Standard names where they exist.** Use the OpenCode/Copilot-Claude canonical names (`read`, `write`, `edit`, `apply_patch`, `glob`, `grep`, `webfetch`, `websearch`, `skill`, `run_command`) for the high-frequency primitives LLMs are trained on. Remove the v3-specific alternatives (`read_file`, `write_file`, `list_directory`, `read_file_metadata`, `run_shell_command`, `run_project_command`, `start_and_wait`, `load_skill`).
 
@@ -313,7 +313,7 @@ The Analyst does not get `activate_card` — that is a planner-internal sequenci
 
 ## 7. Schema Contracts
 
-All tool schemas use snake_case field names to match the OpenCode/Copilot convention LLMs expect. Failed tool calls return `{ error: string, code?: string }` instead of a success result; the runtime surfaces this as a tool-error transcript entry.
+All tool schemas use snake_case field names to match the OpenCode/Copilot convention LLMs expect. The internal tool result contract is `{ success, data?, error? }` with no error `code` field; the transcript layer serializes success as a `tool_result` entry and failure as a `tool_error` entry containing the error string. (This supersedes the earlier `{ error, code? }` wire shape; see `shared-tool-invocation-design.md` §3.9.)
 
 | Tool | Schema | Result shape |
 | --- | --- | --- |
