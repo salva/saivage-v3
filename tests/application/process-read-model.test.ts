@@ -7,6 +7,7 @@ function record(overrides: Partial<ProcessRecord> = {}): ProcessRecord {
   return {
     id: 'proc-1',
     card_id: 'card-1',
+    owner_id: 'agent-1',
     command: 'echo token=super-secret-value',
     command_hash: 'a'.repeat(64),
     cwd: '/workspace/project/subdir',
@@ -47,6 +48,7 @@ describe('process operator view projection', () => {
       ended_at: null,
       exit_code: null,
       timed_out: false,
+      owner_id: 'agent-1',
       owner: 'agent',
       session_id: 'agent-1',
       card_id: 'card-1',

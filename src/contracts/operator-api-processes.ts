@@ -27,6 +27,7 @@ export const ProcessViewSchema = z.object({
   ended_at: z.string().nullable(),
   exit_code: z.number().int().nullable(),
   timed_out: z.boolean(),
+  owner_id: z.string().nullable(),
   owner: z.string().nullable(),
   session_id: z.string().nullable(),
   card_id: z.string(),

@@ -90,6 +90,7 @@ describe('Process Runner', () => {
       backgroundPolicy: 'foreground',
     });
     expect(rec.required_for_card_completion).toBe(false);
+    expect(rec.owner_id).toBe('session-test-123');
     expect(rec.agent_session_id).toBe('session-test-123');
     await waitProcess(root, rec.id);
   });
@@ -161,6 +162,7 @@ describe('Process Runner', () => {
     const validRecords: ProcessRecord[] = [{
       id: 'proc-test-valid',
       card_id: 'card-1',
+      owner_id: 'test-owner',
       command: 'echo test',
       command_hash: 'a'.repeat(64),
       cwd: root,

@@ -21,6 +21,7 @@ export interface ProcessView {
   ended_at: string | null;
   exit_code: number | null;
   timed_out: boolean;
+  owner_id: string | null;
   owner: string | null;
   session_id: string | null;
   card_id: string;
@@ -104,6 +105,7 @@ export class ProcessApi {
       ended_at: record.completed_at ?? null,
       exit_code: record.exit_code ?? null,
       timed_out: hasTimedOut(record),
+      owner_id: record.owner_id ?? null,
       owner: record.owner_kind ?? null,
       session_id: record.agent_session_id ?? null,
       card_id: record.card_id,

@@ -21,6 +21,7 @@ import { now } from '../utils/clock.js';
 
 export interface ProcessStartOptions {
   cardId: string;
+  ownerId?: string;
   cwd?: string;
   env?: Record<string, string>;
   requiredForCardCompletion?: boolean;
@@ -474,6 +475,7 @@ function startProcessForService(
   const record: ProcessRecord = {
     id,
     card_id: options.cardId,
+    owner_id: options.ownerId ?? options.agentSessionId ?? null,
     command: redactCommandForPolicy(command),
     command_hash: commandHash(service, command),
     cwd,

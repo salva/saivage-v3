@@ -11,6 +11,7 @@ function processRecord(projectRoot: string, overrides: Partial<ProcessRecord> = 
   return {
     id: 'proc-1',
     card_id: 'card-1',
+    owner_id: 'runtime-owner',
     command: 'echo hello',
     command_hash: 'a'.repeat(64),
     cwd: join(projectRoot, 'work'),
@@ -54,6 +55,7 @@ describe('contract-backed process routes', () => {
         processes: [expect.objectContaining({
           id: 'proc-1',
           card_id: 'card-1',
+          owner_id: 'runtime-owner',
           status: 'exited',
           ended_at: '2026-01-01T00:00:01.000Z',
           exit_code: 0,
