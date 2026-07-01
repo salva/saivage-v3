@@ -8,7 +8,7 @@ Phase 1 is functionally implemented and validated. Conversation compaction is no
 
 Completed non-compaction Phase 1 follow-up work:
 
-1. **Adapter cleanup is complete.** `AgentAdapter` has been slimmed to production-used service composition and no longer exposes the old `AgentExecutionPort` invocation surface or the unused tool facade methods.
+1. **Adapter cleanup is complete.** The old `AgentAdapter` invocation/session/tool facade was removed; runtime composition now constructs provider routing and `InvocationService` directly.
 2. **Activity-status cleanup is complete.** The segment-backed agent read model derives `activity_status` from actor snapshots directly; the old stamper/runtime activity-status plumbing is gone.
 3. **System prompts are visible without flooding the view.** Segment-backed conversations include `system_prompt` entries, the timeline includes them in rendered text blocks, and `ContextBlock` collapses system prompts by default.
 4. **Live `pueblicos` verification is complete.** After rebuilding and restarting `saivage-pueblicos.service`, `/api/agents` listed planner/executor sessions, checked conversations included `system_prompt` entries, and the old `.saivage/agents/messages` and `.saivage/agents/sessions` artifacts were confirmed as pre-existing files from before the restart rather than newly created outputs.
@@ -66,7 +66,7 @@ Per the workspace architecture rules there is no backward compatibility, no comp
 
 6. **The analyst runs on a separate LLM engine and transcript.** `AnalystHandler` uses `InvocationService` + `AgentSessionRepository` + `.saivage/agents/messages`. Planner/executor/reviewer use `LLMActor` + segments. This split is the source of the dual format and of inconsistent prompt visibility, repair, and recovery semantics.
 
-7. **Dead `AgentExecutionPort` surface lingers in `AgentAdapter`.** `AgentAdapter` implements `AgentExecutionPort` (`invokePlanner`/`invokeExecutor`/`invokeReviewer`/`reinvokeSession`) via `AgentInvocationRunner`. The micro-actor runtime replaced this entire surface — it uses `LLMActor` directly. No production code calls these methods; only tests do. The dead surface keeps `AgentInvocationRunner`, `AgentSessionCoordinator`, `AgentSessionLifecycle`, `SessionMessageLog`, `InvocationModelContext`, and `ContextCompactor` alive as transitive dependencies.
+7. **Dead `AgentExecutionPort` surface lingered in `AgentAdapter`.** `AgentAdapter` implemented `AgentExecutionPort` (`invokePlanner`/`invokeExecutor`/`invokeReviewer`/`reinvokeSession`) via `AgentInvocationRunner`. The micro-actor runtime replaced this entire surface — it uses `LLMActor` directly. No production code called these methods; only tests did. The dead surface kept `AgentInvocationRunner`, `AgentSessionCoordinator`, `AgentSessionLifecycle`, `SessionMessageLog`, `InvocationModelContext`, and `ContextCompactor` alive as transitive dependencies.
 
 ## Desired architecture
 
@@ -256,39 +256,9 @@ No `AgentSession` manifest is created or read. `/api/agents/:id/conversation` re
 
 The analyst tools `list_agent_sessions` and `read_agent_session` use the same read model.
 
-### 6. Slim `AgentAdapter` to production-used services only
+### 6. Remove the old adapter facade
 
-Status: completed for Phase 1. `AgentAdapter` now keeps only the production-used composition services, and the old invocation/session/compaction dependencies are gone.
-
-`AgentAdapter` currently implements `AgentExecutionPort` via `AgentInvocationRunner`. The micro-actor runtime replaced this entire surface — `invokePlanner`/`invokeExecutor`/`invokeReviewer`/`reinvokeSession` are never called from production code, only from tests. The dead surface keeps `AgentInvocationRunner`, `AgentSessionCoordinator`, `AgentSessionLifecycle`, `SessionMessageLog`, `InvocationModelContext`, and `ContextCompactor` alive as transitive dependencies.
-
-Delete from `AgentAdapter`:
-- `AgentExecutionPort` interface implementation (`invokePlanner`, `invokeExecutor`, `invokeReviewer`, `reinvokeSession`, `processToolCall`, `buildModelMessages`, `compensateActivationBarrierThrow`).
-- All fields and constructor wiring for `AgentInvocationRunner`, `AgentSessionCoordinator`, `AgentSessionLifecycle`, `SessionMessageLog`, `InvocationModelContext`, `ContextCompactor`.
-- `cancelSession`, `forceCancelSession`, `getHandoffSummary`, `getActiveSessionHandoffs` (session lifecycle surface).
-
-Keep in `AgentAdapter` only what production callers actually consume. Inspect each remaining field/method against live callers in `runtime-composition.ts`, server routes, and the analyst handler. If a method has no live production caller (e.g. `buildToolsForRole`, `getToolNamesForRole`, `callMcpTool`), delete it. If only tests use it, the test is dead and should be deleted too. The goal is a minimal service container, not a preserved "just in case" surface.
-
-Delete `FakeAgentAdapter`'s `AgentExecutionPort` methods and its session-persistence calls (`createSession`, `markSessionWaiting`, `completeSession`). Keep only the fixture-result machinery if tests still use it; if not, delete the entire file.
-
-Delete `AgentExecutionPort` from `src/contracts/agent-execution.ts` if no consumer remains.
-
-Delete tests that exclusively test the old `AgentAdapter.invoke*` surface:
-- `tests/agents/agent-adapter-llm-attempt.test.ts`
-- `tests/agents/agent-adapter-dispatch-precondition.test.ts`
-- `tests/agents/agent-adapter-activation-barrier.test.ts`
-- `tests/agents/agent-runtime.test.ts`
-- `tests/agents/agent-adapter-abort.test.ts`
-- `tests/agents/agent-adapter-recovery.test.ts`
-- `tests/agents/agent-adapter-reviewer-prompt.test.ts`
-
-`tests/agents/llm-client-integration.test.ts` covers LLM client/transport behavior (auth errors, rate limits, timeouts, parse errors, streaming, config flow-through) that is independent of `AgentAdapter.invoke*`. Port the still-relevant cases to test `InvocationService` + `LlmProviderGateway` directly (creating an `InvocationService` with a mock router/registry, not via `AgentAdapter`). Delete only the cases whose subject is the `AgentAdapter.invoke*` contract. This preserves current provider correctness on the current API; it is not backward compatibility.
-
-**Runtime composition.** Update `src/application/runtime-composition.ts`:
-- Remove `ContextCompactor` construction and from `AnalystRuntimeDeps`.
-- Add `provider` (the `LLMProviderPort` from the exported `createInvocationServiceProvider`) to `AnalystRuntimeDeps`. Do not add `admission` for the analyst (Phase 1: analyst bypasses runtime admission).
-- Remove `SessionStampCounter` and `stamper` from `AnalystRuntimeDeps` if no longer needed after the analyst migration.
-- `AgentAdapter` construction no longer passes `contextCompactor`.
+Status: completed for Phase 1. The old `AgentExecutionPort` implementation, session lifecycle stack, compaction dependencies, and test-only tool/MCP facades are gone. `AgentAdapter` was first slimmed to a provider-routing service container, then removed entirely once `runtime-composition.ts` became the sole production caller. Runtime composition now directly constructs `ProviderRegistry`, `ModelRouter`, and `InvocationService`, and passes the same `InvocationService` to the micro-actor runtime and analyst provider port.
 
 ### 7. Port the UI off raw file discovery and render system prompts
 

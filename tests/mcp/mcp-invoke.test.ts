@@ -2,7 +2,7 @@
  * Stage 35 — MCP Tool Invocation Tests
  *
  * Tests: error types, invokeTool validation, stdio transport,
- * SSE transport, invocation stats, event logging, AgentAdapter + ContentSupervisor.
+ * SSE transport, invocation stats, and event logging.
  */
 
 import { describe, it, expect, beforeEach, afterEach, beforeAll, jest } from '@jest/globals';

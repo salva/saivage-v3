@@ -107,22 +107,6 @@ else
 fi
 
 echo ""
-echo "==> Verifying planner tool docs/source parity..."
-if [ -f docs/agents.md ]; then
-  NODE_OPTIONS=--experimental-vm-modules npx jest tests/agents/agent-adapter-planner-tools.test.ts --runInBand || ALL_OK=false
-else
-  echo "Skipping planner tool docs/source parity; docs/agents.md is not part of current docs"
-fi
-
-echo ""
-echo "==> Verifying non-planner agent tool docs/source parity..."
-if [ -f docs/agents.md ]; then
-  NODE_OPTIONS=--experimental-vm-modules npx jest tests/agents/agent-adapter-non-planner-tools.test.ts --runInBand || ALL_OK=false
-else
-  echo "Skipping non-planner tool docs/source parity; docs/agents.md is not part of current docs"
-fi
-
-echo ""
 node scripts/check-markdown-links.js || ALL_OK=false
 
 echo ""

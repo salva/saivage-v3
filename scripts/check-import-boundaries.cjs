@@ -17,10 +17,9 @@ const DOMAIN_PACKAGES = new Set([
 const CONTRACT_FORBIDDEN = new Set(['server', 'persistence', 'cards', 'notifications', 'runtime', 'tools', 'agents', 'mcp']);
 const AGENT_RUNTIME_RESTRICTED = new Set(['runtime']);
 const SCHEMA_FORBIDDEN = new Set(['events', 'server', 'persistence', 'cards', 'notifications', 'runtime', 'tools', 'agents', 'mcp']);
-const RUNTIME_AGENT_IMPORT_EXCEPTIONS = new Set(['agents/analyst-stage6.js', 'agents/session-persistence.js', 'agents/system-prompt.js', 'agents/skills-engine.js', 'agents/agent-adapter.js', 'agents/config-schema.js']);
+const RUNTIME_AGENT_IMPORT_EXCEPTIONS = new Set(['agents/analyst-stage6.js', 'agents/session-persistence.js', 'agents/system-prompt.js', 'agents/skills-engine.js', 'agents/config-schema.js']);
 const AGENT_RUNTIME_IMPORT_EXCEPTIONS = new Set(['src/agents/analyst-tools.ts', 'src/agents/analyst-stage6.ts', 'src/agents/analyst-handler.ts']);
 const PREEXISTING_DEEP_IMPORT_EXCEPTIONS = new Set([
-  'src/agents/agent-adapter.ts->notifications/notification-delivery.js',
   'src/agents/analyst-secret-classifier.ts->workspace/secret-paths.js',
 ]);
 const PREEXISTING_SERVER_IMPORT_EXCEPTIONS = new Set();

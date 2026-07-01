@@ -35,11 +35,6 @@ describe('workspace tools', () => {
     ]);
   });
 
-  it('can import the agent adapter after workspace tool definitions initialize', async () => {
-    await expect(import('../../src/agents/agent-adapter.js')).resolves.toHaveProperty('AgentAdapter');
-    expect(WORKSPACE_TOOL_DEFINITIONS.some((tool) => tool.function.name === 'run_project_command')).toBe(true);
-  });
-
   it('globs project files without Saivage internal state', async () => {
     writeFileSync(join(root, '.saivage', 'secret.txt'), 'hidden', 'utf8');
     const result = await processWorkspaceToolCall('glob', JSON.stringify({ directory: '.', pattern: '**/*.md' }), context()) as { matches: string[] };

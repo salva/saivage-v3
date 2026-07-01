@@ -1,19 +1,18 @@
-import { join } from 'node:path';
 import type { SaivageConfig } from '../agents/config-api.js';
-import { AgentAdapter } from '../agents/agent-adapter.js';
 import { buildProviderRoutingReadModel, type ProviderRoutingReadModel } from '../agents/provider-routing-read-model.js';
 import { FsCandidateAvailability } from '../agents/candidate-availability-store.js';
 import type { CandidateAvailability } from '../agents/candidate-availability.js';
 import type { AnalystRuntimeDeps } from '../agents/analyst-api.js';
+import { ProviderRegistry } from '../agents/provider.js';
+import { ModelRouter } from '../agents/model-router.js';
 import type { EventPayload } from '../events/index.js';
 import type { EventBus } from '../events/index.js';
 import type { McpManager } from '../mcp/manager-api.js';
 import { EventLogger, ErrorLogger } from '../observability/index.js';
-import { readRuntimeState } from '../runtime/state.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
 
 import { CardStore } from '../cards/card-store.js';
-import type { InvocationService } from '../agents/invocation-service.js';
+import { InvocationService } from '../agents/invocation-service.js';
 import { createInvocationServiceProvider, createMicroActorRuntimeApi } from './micro-actor-runtime-api-factory.js';
 
 export interface RuntimeApiFactoryDeps {
@@ -67,20 +66,28 @@ function buildAnalystDeps(input: {
 
 export function createRuntimeApplication(services: RuntimeApplicationServices): RuntimeApplication {
   const { projectRoot, config, eventBus, eventLogger, errorLogger, cardStore } = services;
-  const saivageDir = join(projectRoot, '.saivage');
   const candidateAvailability = new FsCandidateAvailability(projectRoot, {
     compactBytes: config.runtime.candidateAvailabilityCompactBytes,
   });
   let mcpManager: McpManager | undefined;
 
-  const agentAdapter = new AgentAdapter({
-    projectRoot,
-    saivageDir,
+  const registry = new ProviderRegistry(config);
+  const router = new ModelRouter(
     config,
+    registry,
+    projectRoot,
+    candidateAvailability,
+  );
+  const invocationService = new InvocationService({
+    projectRoot,
+    saivageDir: `${projectRoot}/.saivage`,
+    registry,
+    router,
     eventLogger,
     candidateAvailability,
+    recoveryDelayMs: config.runtime.recoveryDelayMs,
+    maxRecoveryRetries: config.runtime.maxRecoveryRetries,
   });
-  const invocationService = agentAdapter.getInvocationService();
 
   const runtimeFactory = services.runtimeApiFactory ?? createMicroActorRuntimeApi;
   const runtimeComposition = createComposedRuntimeApi({
@@ -115,8 +122,8 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     },
     getProviderRoutingReadModel() {
       return buildProviderRoutingReadModel({
-        registry: agentAdapter.getRegistry(),
-        availability: agentAdapter.getCandidateAvailability(),
+        registry,
+        availability: candidateAvailability,
       });
     },
     setMcpManager(nextMcpManager) {

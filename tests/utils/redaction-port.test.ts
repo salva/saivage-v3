@@ -213,7 +213,7 @@ describe('redacted outbound sinks', () => {
     const redacted = redactTextForOutbound(
       `Provider failed with Bearer ${RAW_TOKEN} {"access_token":"${RAW_ACCESS}"}`,
       'model.issue',
-      { source: 'agent-adapter' },
+      { source: 'invocation-service' },
     );
     expectNoSyntheticSecret(redacted);
   });
