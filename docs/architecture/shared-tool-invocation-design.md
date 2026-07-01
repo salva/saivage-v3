@@ -10,7 +10,7 @@ Saivage currently has duplicated tool execution logic across the Analyst chat pa
 
 This document specifies a tool architecture built on **ToolProviders** — objects that implement the tools for the domain they own. Card management tools are methods on the planner actor. Operator-control tools are methods on the analyst handler. Process, filesystem, web, and inspection tools live in reusable providers constructed with minimal context. There is no global catalog of detached functions and no context bag.
 
-This document is the authority for *how* tools are invoked. `tool-set-reorganization-design.md` remains the authority for *what* the tools are (names, schemas, role assignments) and for the security/scope policy. Where the two conflict on the result contract, this document supersedes (see §3.9).
+This document is the authority for *how* tools are invoked and for the runtime result contract. Providers own their schema instances; the `InvocationSurface` is the runtime authority for what schema the model sees (§3.11). `tool-set-reorganization-design.md` remains the authority for *what* the tools are (names, default schemas, role assignments) and for the security/scope policy. Where a provider defines a surface-local schema variant, the provider's schema wins at runtime. Where the two docs conflict on the result contract, this document supersedes (see §3.9).
 
 ## 2. Current Shape
 

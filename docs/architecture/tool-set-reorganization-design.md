@@ -16,7 +16,7 @@ v3 partially ported those names but never removed the old ones (`read_project_fi
 
 ## 3. Design Principles
 
-1. **One tool vocabulary.** No parallel definitions. No dead catalog entries. No actor-inline definitions that duplicate catalog names. The vocabulary below is the single source of tool names and schemas; actor runtime surfaces are curated subsets of it. Execution and schema authority are realized as `ToolProvider`s per `shared-tool-invocation-design.md` — there is no runtime catalog module; providers own both schema and execution, and surfaces are the aggregate used for prompt export.
+1. **One tool vocabulary.** No parallel definitions. No dead catalog entries. No actor-inline definitions that duplicate catalog names. The vocabulary below is the single source of tool names, default schemas, and role assignments; actor runtime surfaces are curated subsets of it. Providers own their actual schema instances and may define surface-local variants when roles intentionally differ (see `shared-tool-invocation-design.md` §3.11); the `InvocationSurface` is the runtime authority.
 
 2. **Standard names where they exist.** Use the OpenCode/Copilot-Claude canonical names (`read`, `write`, `edit`, `apply_patch`, `glob`, `grep`, `webfetch`, `websearch`, `skill`, `run_command`) for the high-frequency primitives LLMs are trained on. Remove the v3-specific alternatives (`read_file`, `write_file`, `list_directory`, `read_file_metadata`, `run_shell_command`, `run_project_command`, `start_and_wait`, `load_skill`).
 
@@ -118,7 +118,7 @@ This replaces the separate Analyst host-inspection names:
 | `list_directory` | `glob system://...` |
 | `run_shell_command` | `run_command` with `cwd: 'system://...'` |
 
-The remaining Analyst control tools (`start_project`, `stop_project`, `terminate_process`, `pause_runtime`, `resume_runtime`, `abort_goal_subtree`, `restart_card_or_subtree`, `restart_goal`, `navigate_workspace`, `navigate_back`, `read_runtime_events`, `read_runtime_errors`, `read_control_actions`, `list_processes_tool`, `list_agent_sessions`, `read_agent_session`, `show_config`, `reconfigure`, `restart_server`, `queue_notification`, `mark_goal_rework`) keep their current names unless simplified later. They are operator control surface tools, not workspace primitives.
+The remaining Analyst control tools (`start_project`, `stop_project`, `pause_runtime`, `resume_runtime`, `abort_goal_subtree`, `restart_card_or_subtree`, `restart_goal`, `navigate_workspace`, `navigate_back`, `read_runtime_events`, `read_runtime_errors`, `read_control_actions`, `list_processes_tool`, `list_agent_sessions`, `read_agent_session`, `show_config`, `reconfigure`, `restart_server`, `queue_notification`, `mark_goal_rework`) keep their current names unless simplified later. They are operator control surface tools, not workspace primitives. `terminate_process` is removed — `kill_process` from `ProcessProvider` is the single process-termination tool (see §4.2 and the removals table in §5).
 
 ### 4.6 External MCP Wrapper
 
@@ -248,6 +248,7 @@ The following names are removed from the catalog. They are either duplicates of 
 | `emit_executor_result` | `emit_result` | Unified terminal tool name. Common envelope. |
 | `emit_reviewer_result` | `emit_result` | Unified terminal tool name. Common envelope. |
 | `get_plan_diary` | (removed) | Dead code. No runtime component appends diary entries; the tool always returned an empty array for real goals. The whole planner diary subsystem is removed: `src/cards/diary.ts`, `.saivage/diaries/`, `.saivage/reviews/by-goal/`, the `DiaryEntry`/`DiaryKind` schema, and the `plan_diary` navigation kind. Reviewer assessments already live in the `review.md` record slot. |
+| `terminate_process` | `kill_process` | Same concept, same process store. Both called `processApi().terminate()`. `kill_process` from `ProcessProvider` is the single process-termination tool; it also accepts an optional `signal` parameter. Process ownership is scoped by `ownerId` (activation id or session id). |
 
 ## 6. Role Tool Surfaces
 
@@ -307,7 +308,7 @@ The Analyst gets the same workspace tools as the autonomous agents, plus its con
 | MCP | `mcp_tool_call` |
 | Terminal | (none — analyst is not a card processor) |
 
-The Analyst additionally keeps operator-control tools (`start_project`, `stop_project`, `pause_runtime`, `resume_runtime`, `navigate_workspace`, `navigate_back`, `show_config`, `reconfigure`, `restart_server`, `read_runtime_events`, `read_runtime_errors`, `read_control_actions`, `list_processes_tool`, `list_agent_sessions`, `read_agent_session`, `mark_goal_rework`, `abort_goal_subtree`, `restart_card_or_subtree`, `restart_goal`, `terminate_process`).
+The Analyst additionally keeps operator-control tools (`start_project`, `stop_project`, `pause_runtime`, `resume_runtime`, `navigate_workspace`, `navigate_back`, `show_config`, `reconfigure`, `restart_server`, `read_runtime_events`, `read_runtime_errors`, `read_control_actions`, `list_processes_tool`, `list_agent_sessions`, `read_agent_session`, `mark_goal_rework`, `abort_goal_subtree`, `restart_card_or_subtree`, `restart_goal`).
 
 The Analyst does not get `activate_card` — that is a planner-internal sequencing boundary, not an operator action.
 
@@ -359,9 +360,10 @@ Web tools share one egress policy:
 Process tools share one ownership policy:
 - `cwd` defaults to `project://`.
 - `system://` command working directories are available but discouraged in prompts.
-- Background processes are owned by the card activation that started them.
-- `wait_process` and `kill_process` can only act on processes owned by the current activation.
-- Process IDs are scoped to the activation, not global.
+- Background processes are owned by the activation (executor) or session (analyst) that started them, scoped by `ownerId`.
+- `wait_process` and `kill_process` can only act on processes owned by the current context (activation id or session id).
+- Process IDs are scoped to the owner context, not global.
+- The runtime kills owned processes when the activation settles or the analyst session ends (see `shared-tool-invocation-design.md` §3.2).
 
 ## 9. Deferred Capabilities
 
