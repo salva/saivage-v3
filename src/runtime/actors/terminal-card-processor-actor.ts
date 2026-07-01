@@ -13,7 +13,9 @@ import { createCardHistoryProvider } from '../../tools/card-history-provider.js'
 import { createProcessProvider } from '../../tools/process-provider.js';
 import { createPatchProvider, createWorkspaceProvider } from '../../tools/workspace-provider.js';
 import { createSkillProvider } from '../../tools/skill-provider.js';
+import { createMcpProvider } from '../../tools/mcp-provider.js';
 import { createWebProvider } from '../../tools/web-tools.js';
+import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import { processApi } from '../process-api.js';
 import { closeOpenRecordSlot, discardOpenRecordSlot } from '../records/record-slots.js';
 import { cardBriefForPrompt } from '../records/card-brief.js';
@@ -34,10 +36,12 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
 
   readonly store?: CardActorStorePort;
   private activeProcessOwnerId: string | null = null;
+  private readonly mcpManagerProvider: () => McpToolInvocationPort | undefined;
 
-  constructor(args: { projectRoot: string; cardId: string; provider: LLMProviderPort; admission?: LLMAdmissionPort; store?: CardActorStorePort }) {
+  constructor(args: { projectRoot: string; cardId: string; provider: LLMProviderPort; admission?: LLMAdmissionPort; store?: CardActorStorePort; mcpManagerProvider?: () => McpToolInvocationPort | undefined }) {
     super(args);
     this.store = args.store;
+    this.mcpManagerProvider = args.mcpManagerProvider ?? (() => undefined);
   }
 
   _on_enter__executing(): void {
@@ -120,6 +124,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
         createProcessProvider({ projectRoot: this.projectRoot, ownerId: processOwnerId, cardId: this.cardId }),
         createWebProvider({ projectRoot: this.projectRoot, cardId: this.cardId, agentRole: 'executor' }),
         createSkillProvider({ projectRoot: this.projectRoot, agentRole: 'executor' }),
+        createMcpProvider({ mcpManagerProvider: this.mcpManagerProvider, agentRole: 'executor' }),
       ];
       providers.push(createCardHistoryProvider({ projectRoot: this.projectRoot, sessionId: processOwnerId, agentRole: 'executor' }));
       const workspaceSurface = buildInvocationSurface('executor', providers);

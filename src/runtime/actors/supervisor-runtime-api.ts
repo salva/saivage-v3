@@ -15,6 +15,7 @@ import type { RuntimeApi, RuntimeCommandSource, StartProjectResult, StopProjectR
 import type { CardRecord, RuntimeCommandRecord, RuntimeRunRecord, RuntimeState, RuntimeStatus } from '../../schemas/index.js';
 import type { Subscription, SubscriptionOptions } from '../../events/index.js';
 import type { ActorActiveWork, ActorPauseMode, ActorRuntimeReadModel } from '../../application/read-models/actor-runtime-read-model.js';
+import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 
 export interface ProjectRootCardReader {
   read(cardId: string): { id: string; type: string } | null;
@@ -27,6 +28,7 @@ export interface SupervisorRuntimeApiOptions {
   rootCards?: ProjectRootCardReader;
   actorStore: CardActorStorePort;
   provider: LLMProviderPort;
+  mcpManagerProvider?: () => McpToolInvocationPort | undefined;
 }
 
 export class SupervisorRuntimeApi implements RuntimeApi {
@@ -53,8 +55,8 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       projectRoot: this.options.projectRoot,
       store: this.options.actorStore,
       generatedAt: this.now(),
-      makePlanningProcessor: (cardId) => new PlanningCardProcessorActor({ projectRoot: this.options.projectRoot, cardId, store: this.options.actorStore, children: this.childrenPort(), provider: this.options.provider, admission: this }),
-      makeTerminalProcessor: (cardId) => new TerminalCardProcessorActor({ projectRoot: this.options.projectRoot, cardId, provider: this.options.provider, admission: this, store: this.options.actorStore }),
+      makePlanningProcessor: (cardId) => new PlanningCardProcessorActor({ projectRoot: this.options.projectRoot, cardId, store: this.options.actorStore, children: this.childrenPort(), provider: this.options.provider, admission: this, mcpManagerProvider: this.options.mcpManagerProvider }),
+      makeTerminalProcessor: (cardId) => new TerminalCardProcessorActor({ projectRoot: this.options.projectRoot, cardId, provider: this.options.provider, admission: this, store: this.options.actorStore, mcpManagerProvider: this.options.mcpManagerProvider }),
     });
     this.supervisor.start();
     this.supervisor.initialize(this.options.projectRoot);
@@ -284,16 +286,16 @@ export class SupervisorRuntimeApi implements RuntimeApi {
 
   private processorFor(card: CardRecord) {
     if (card.type === 'project') {
-      const processor = new PlanningCardProcessorActor({ projectRoot: this.options.projectRoot, cardId: card.id, store: this.options.actorStore, children: this.childrenPort(), provider: this.options.provider, admission: this });
+      const processor = new PlanningCardProcessorActor({ projectRoot: this.options.projectRoot, cardId: card.id, store: this.options.actorStore, children: this.childrenPort(), provider: this.options.provider, admission: this, mcpManagerProvider: this.options.mcpManagerProvider });
       processor.start();
       return processor;
     }
     if (card.type === 'goal') {
-      const processor = new PlanningCardProcessorActor({ projectRoot: this.options.projectRoot, cardId: card.id, store: this.options.actorStore, children: this.childrenPort(), provider: this.options.provider, admission: this });
+      const processor = new PlanningCardProcessorActor({ projectRoot: this.options.projectRoot, cardId: card.id, store: this.options.actorStore, children: this.childrenPort(), provider: this.options.provider, admission: this, mcpManagerProvider: this.options.mcpManagerProvider });
       processor.start();
       return processor;
     }
-    const processor = new TerminalCardProcessorActor({ projectRoot: this.options.projectRoot, cardId: card.id, provider: this.options.provider, admission: this, store: this.options.actorStore });
+    const processor = new TerminalCardProcessorActor({ projectRoot: this.options.projectRoot, cardId: card.id, provider: this.options.provider, admission: this, store: this.options.actorStore, mcpManagerProvider: this.options.mcpManagerProvider });
     processor.start();
     return processor;
   }

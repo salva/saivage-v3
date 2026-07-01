@@ -29,4 +29,10 @@ describe('actor tool definitions', () => {
     expect(names(TERMINAL_CARD_PROCESSOR_TOOL_DEFINITIONS)).toContain('skill');
     expect(names(REVIEWER_CARD_PROCESSOR_TOOL_DEFINITIONS)).toContain('skill');
   });
+
+  it('advertises MCP wrapper to executor and reviewer actors only', () => {
+    expect(names(PLANNER_CARD_PROCESSOR_TOOL_DEFINITIONS)).not.toContain('mcp_tool_call');
+    expect(names(TERMINAL_CARD_PROCESSOR_TOOL_DEFINITIONS)).toContain('mcp_tool_call');
+    expect(names(REVIEWER_CARD_PROCESSOR_TOOL_DEFINITIONS)).toContain('mcp_tool_call');
+  });
 });

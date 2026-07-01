@@ -5,12 +5,14 @@ import type { LLMProviderPort, ProjectRootCardReader } from '../runtime/actors/i
 import type { CardStore } from '../cards/card-store.js';
 import type { InvocationService } from '../agents/invocation-service.js';
 import type { AgentMessage } from '../schemas/index.js';
+import type { McpToolInvocationPort } from '../mcp/mcp-manager.js';
 
 export interface MicroActorRuntimeApiFactoryDeps {
   projectRoot: string;
   eventBus: EventBus;
   cardStore: CardStore & ProjectRootCardReader;
   invocationService: InvocationService;
+  mcpManagerProvider?: () => McpToolInvocationPort | undefined;
   now?: () => string;
 }
 
@@ -21,6 +23,7 @@ export function createMicroActorRuntimeApi(deps: MicroActorRuntimeApiFactoryDeps
     rootCards: deps.cardStore,
     actorStore: deps.cardStore,
     provider: createInvocationServiceProvider(deps.invocationService),
+    mcpManagerProvider: deps.mcpManagerProvider,
     now: deps.now,
   });
 }

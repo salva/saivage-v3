@@ -20,6 +20,7 @@ export interface RuntimeApiFactoryDeps {
   eventBus: EventBus;
   cardStore: CardStore;
   invocationService: InvocationService;
+  mcpManagerProvider?: () => McpManager | undefined;
 }
 
 type DisposableCandidateAvailability = CandidateAvailability & { dispose(): void };
@@ -91,7 +92,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
 
   const runtimeFactory = services.runtimeApiFactory ?? createMicroActorRuntimeApi;
   const runtimeComposition = createComposedRuntimeApi({
-    runtimeApi: runtimeFactory({ projectRoot, eventBus, cardStore, invocationService }),
+    runtimeApi: runtimeFactory({ projectRoot, eventBus, cardStore, invocationService, mcpManagerProvider: () => mcpManager }),
     candidateAvailability,
     eventLogger,
     errorLogger,

@@ -18,7 +18,9 @@ import { buildInvocationSurface, invokeTool } from '../../tools/invocation.js';
 import { createCardHistoryProvider } from '../../tools/card-history-provider.js';
 import { createWorkspaceProvider } from '../../tools/workspace-provider.js';
 import { createSkillProvider } from '../../tools/skill-provider.js';
+import { createMcpProvider } from '../../tools/mcp-provider.js';
 import { createWebProvider } from '../../tools/web-tools.js';
+import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import { closeOpenRecordSlot, concreteRecordSlot, discardOpenRecordSlot, latestClosedRecordSlot, readRecordSlotIndex, recordFileIsNonEmpty } from '../records/record-slots.js';
 import { cardBriefForPrompt } from '../records/card-brief.js';
 
@@ -49,10 +51,13 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   readonly children: PlannerChildActorPort;
   readonly plannerToolSurface: ActorToolSurface;
 
-  constructor(args: { projectRoot: string; cardId: string; store: CardActorStorePort; children: PlannerChildActorPort; provider: LLMProviderPort; admission?: LLMAdmissionPort }) {
+  private readonly mcpManagerProvider: () => McpToolInvocationPort | undefined;
+
+  constructor(args: { projectRoot: string; cardId: string; store: CardActorStorePort; children: PlannerChildActorPort; provider: LLMProviderPort; admission?: LLMAdmissionPort; mcpManagerProvider?: () => McpToolInvocationPort | undefined }) {
     super(args);
     this.store = args.store;
     this.children = args.children;
+    this.mcpManagerProvider = args.mcpManagerProvider ?? (() => undefined);
     this.plannerToolSurface = this.createPlannerToolSurface();
   }
 
@@ -396,6 +401,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
       createCardHistoryProvider({ projectRoot: this.projectRoot, sessionId, agentRole: 'reviewer' }),
       createWebProvider({ projectRoot: this.projectRoot, cardId: card.id, agentRole: 'reviewer' }),
       createSkillProvider({ projectRoot: this.projectRoot, agentRole: 'reviewer' }),
+      createMcpProvider({ mcpManagerProvider: this.mcpManagerProvider, agentRole: 'reviewer' }),
     ]);
     if (workspaceSurface.tools.has(outcome.toolName)) return invokeTool(workspaceSurface, outcome.toolName, outcome.args);
     return { success: false, error: `Unsupported reviewer tool call '${outcome.toolName}' for session '${sessionId}'.` };
