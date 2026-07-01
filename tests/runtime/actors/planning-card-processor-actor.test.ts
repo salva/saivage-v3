@@ -224,7 +224,7 @@ describe('PlanningCardProcessorActor', () => {
     expect(store.read(goal.id)?.status).toBe('done');
     expect(provider.completeTurn).toHaveBeenCalledTimes(5);
     expect(provider.completeTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      episodeContext: expect.objectContaining({ lastToolResult: expect.objectContaining({ result: expect.objectContaining({ outcome: 'done', card_id: goal.id }) }) }),
+      episodeContext: expect.objectContaining({ lastToolResult: expect.objectContaining({ result: expect.objectContaining({ data: expect.objectContaining({ outcome: 'done', card_id: goal.id }) }) }) }),
     }), expect.any(AbortSignal));
   }));
 
@@ -235,7 +235,7 @@ describe('PlanningCardProcessorActor', () => {
     let createdId = '';
     const provider = withMandatoryRecords((input: LlmInvocationInput) => {
         if (input.role === 'reviewer') return reviewerResult({ evidence_card_ids: [createdId] });
-        const lastToolResult = (input.episodeContext.lastToolResult as { result?: { card?: { id: string }; outcome?: string } } | undefined)?.result;
+        const lastToolResult = (input.episodeContext.lastToolResult as { result?: { data?: { card?: { id: string }; outcome?: string } } } | undefined)?.result?.data;
         if (!lastToolResult) {
           return { kind: 'tool_calls' as const, tool_calls: [{ id: 'create-1', type: 'function' as const, function: { name: 'create_card', arguments: JSON.stringify({ type: 'code', title: 'Implement slice', brief: 'Build the slice\n\nAcceptance: Slice works' }) } }] };
         }
@@ -265,6 +265,9 @@ describe('PlanningCardProcessorActor', () => {
       tools: expect.arrayContaining([
         expect.objectContaining({ function: expect.objectContaining({ name: 'create_card' }) }),
         expect.objectContaining({ function: expect.objectContaining({ name: 'activate_card' }) }),
+        expect.objectContaining({ function: expect.objectContaining({ name: 'list_cards' }) }),
+        expect.objectContaining({ function: expect.objectContaining({ name: 'get_card' }) }),
+        expect.objectContaining({ function: expect.objectContaining({ name: 'get_tree' }) }),
       ]),
     }), expect.any(AbortSignal));
   }));
@@ -275,7 +278,7 @@ describe('PlanningCardProcessorActor', () => {
     const project = createProject(store);
     const provider = withMandatoryRecords((input: LlmInvocationInput) => input.episodeContext.lastToolResult
         ? plannerResult('blocked', 'project create rejected')
-        : { kind: 'tool_calls' as const, tool_calls: [{ id: 'create-project-1', type: 'function' as const, function: { name: 'create_card', arguments: JSON.stringify({ type: 'project', title: 'bad' }) } }] });
+        : { kind: 'tool_calls' as const, tool_calls: [{ id: 'create-project-1', type: 'function' as const, function: { name: 'create_card', arguments: JSON.stringify({ type: 'project', title: 'bad', brief: 'bad' }) } }] });
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
@@ -296,7 +299,7 @@ describe('PlanningCardProcessorActor', () => {
     let edited = false;
     const provider = withMandatoryRecords((input: LlmInvocationInput) => {
         if (input.role === 'reviewer') return reviewerResult({ evidence_card_ids: [failedGoal.id] });
-        const lastToolResult = (input.episodeContext.lastToolResult as { result?: { card?: { id: string; status: string }; outcome?: string } } | undefined)?.result;
+        const lastToolResult = (input.episodeContext.lastToolResult as { result?: { data?: { card?: { id: string; status: string }; outcome?: string } } } | undefined)?.result?.data;
         if (!lastToolResult) return { kind: 'tool_calls' as const, tool_calls: [{ id: 'edit-1', type: 'function' as const, function: { name: 'edit_card', arguments: JSON.stringify({ card_id: failedGoal.id, title: 'Recovered child', priority: 2 }) } }] };
         if (lastToolResult.card) {
           edited = true;
@@ -364,7 +367,7 @@ describe('PlanningCardProcessorActor', () => {
 
     expect(store.read(child.id)?.status).toBe('cancelled');
     expect(outcome).toMatchObject({ status: 'blocked', summary: 'cancelled obsolete child' });
-    expect(provider.completeTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({ episodeContext: expect.objectContaining({ lastToolResult: expect.objectContaining({ result: expect.objectContaining({ success: true, card_id: child.id, status: 'cancelled' }) }) }) }), expect.any(AbortSignal));
+    expect(provider.completeTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({ episodeContext: expect.objectContaining({ lastToolResult: expect.objectContaining({ result: expect.objectContaining({ success: true, data: expect.objectContaining({ card_id: child.id, status: 'cancelled' }) }) }) }) }), expect.any(AbortSignal));
   }));
 
   it('requests cancellation for a running immediate child without synchronously stopping it', async () => withTempProject(async (projectRoot) => {
@@ -386,7 +389,7 @@ describe('PlanningCardProcessorActor', () => {
 
     expect(store.read(child.id)?.status).toBe('running');
     expect(childActor.listPendingNotifications()).toEqual([expect.objectContaining({ reason: 'cancel_requested' })]);
-    expect(provider.completeTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({ episodeContext: expect.objectContaining({ lastToolResult: expect.objectContaining({ result: expect.objectContaining({ success: true, card_id: child.id, status: 'running', summary: 'Cancellation requested.' }) }) }) }), expect.any(AbortSignal));
+    expect(provider.completeTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({ episodeContext: expect.objectContaining({ lastToolResult: expect.objectContaining({ result: expect.objectContaining({ success: true, data: expect.objectContaining({ card_id: child.id, status: 'running', summary: 'Cancellation requested.' }) }) }) }) }), expect.any(AbortSignal));
     expect(outcome).toMatchObject({ status: 'blocked', summary: 'running cancel requested' });
     finish();
     await expect(childActivation).resolves.toMatchObject({ status: 'blocked' });
@@ -449,7 +452,7 @@ describe('PlanningCardProcessorActor', () => {
     expect(provider.completeTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({
       episodeContext: expect.objectContaining({
         lastToolResult: expect.objectContaining({
-          result: { success: false, error: `Card '${failedGoal.id}' in status 'failed' is not activatable.`, card_id: failedGoal.id },
+          result: { success: false, error: `Card '${failedGoal.id}' in status 'failed' is not activatable.` },
         }),
       }),
     }), expect.any(AbortSignal));
@@ -469,7 +472,7 @@ describe('PlanningCardProcessorActor', () => {
 
     expect(outcome).toMatchObject({ status: 'blocked', summary: 'alias rejected' });
     expect(provider.completeTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      episodeContext: expect.objectContaining({ lastToolResult: expect.objectContaining({ result: { success: false, error: 'activate_card requires card_id.' } }) }),
+      episodeContext: expect.objectContaining({ lastToolResult: expect.objectContaining({ result: expect.objectContaining({ success: false, error: expect.stringContaining('card_id') }) }) }),
     }), expect.any(AbortSignal));
   }));
 
