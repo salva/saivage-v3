@@ -41,7 +41,7 @@ These are the tools autonomous agents see. Names follow the OpenCode-aligned con
 | Tool | Args | Roles | Replaces | Notes |
 | --- | --- | --- | --- | --- |
 | `read` | `path`, `offset?`, `limit?`, `read_mode?` | P, E, R, A | `read_project_file`, `read_file`, `read_file_metadata` | Reads files, directories, records, or metadata through URL scopes. Defaults to `project://` for relative paths. Supports `project://`, `record://`, `tmp://`, and `system://`. Bounded. Truncation metadata. Optional multimodal. |
-| `write` | `path`, `content` | E, A | `write_project_file`, `write_file` | Create/replace project files or record files through URL scopes. Defaults to `project://` for relative paths. Supports `record://` for card records. `system://` writes are available but discouraged. The planner does not write files. |
+| `write` | `path`, `content` | P, E, R, A | `write_project_file`, `write_file` | Create/replace files or record slots through URL scopes. All agents write their `record://` slots (planner: `status.md`/`brief.md`; executor: `status.md`; reviewer: `review.md`; analyst: `brief.md`). `project://` file writes are executor-only; slot-writer rules enforce which `record://` slot each role may write. `system://` writes are available but discouraged. |
 | `edit` | `path`, `old_string`, `new_string`, `replace_all?` | E, A | (new in v3) | Exact string replacement. Single file. |
 | `apply_patch` | `patch` | E, A | (new in v3) | Unified diff. Validates before applying. |
 | `glob` | `directory`, `pattern`, `max_results?` | P, E, R, A | `list_project_files`, `list_directory` | Recursive file discovery over URL scopes. Defaults to `project://`. Skips blocked paths. `system://` is available but discouraged for normal work. |
@@ -255,18 +255,18 @@ The actor runtime exposes curated subsets. The catalog's `roles` field is update
 | Category | Tools |
 | --- | --- |
 | Card control | `create_card`, `edit_card`, `cancel_card`, `activate_card`, `reorder_child`, `queue_notification` |
-| Filesystem (read-only) | `read`, `glob`, `grep` |
+| Filesystem | `read`, `write` (`record://status.md`, `record://brief.md` only), `glob`, `grep` |
 | Inspection | `list_cards`, `get_card`, `get_tree`, `list_card_history`, `get_card_history_entry`, `diff_card` |
 | Web | `websearch`, `webfetch` |
 | Terminal | `emit_result` (`done \| blocked \| failed` + `summary`) |
 
-Planner does **not** get `write`, `edit`, `apply_patch`, `run_command`, `skill`, or `mcp_tool_call`. The planner coordinates; it does not write code or run commands.
+Planner does **not** get `edit`, `apply_patch`, `run_command`, `skill`, or `mcp_tool_call`. The planner coordinates; it writes only its card's `status.md`/`brief.md` records, never project files.
 
 ### Executor
 
 | Category | Tools |
 | --- | --- |
-| Filesystem | `read`, `write`, `glob`, `grep`, `edit`, `apply_patch` |
+| Filesystem | `read`, `write` (`record://status.md` + `project://` files), `glob`, `grep`, `edit`, `apply_patch` |
 | Shell | `run_command`, `wait_process`, `kill_process` |
 | Web | `websearch`, `webfetch` |
 | Skill | `skill` |
@@ -274,18 +274,20 @@ Planner does **not** get `write`, `edit`, `apply_patch`, `run_command`, `skill`,
 | Inspection | `list_card_history`, `get_card_history_entry`, `diff_card` |
 | Terminal | `emit_result` (executor: `done \| failed` + `summary`) |
 
+Executor is the only role that writes `project://` files. Record writes follow slot-writer rules.
+
 ### Reviewer
 
 | Category | Tools |
 | --- | --- |
-| Filesystem (read-only) | `read`, `glob`, `grep` |
+| Filesystem | `read`, `write` (`record://review.md` only), `glob`, `grep` |
 | Web | `websearch`, `webfetch` |
 | Skill | `skill` |
 | MCP | `mcp_tool_call` |
 | Inspection | `list_card_history`, `get_card_history_entry`, `diff_card` |
 | Terminal | `emit_result` (reviewer: `done` = pass, `blocked` = needs corrections; detail in `review.md`) |
 
-Reviewer does **not** get `write`, `edit`, `apply_patch`, or `run_command`. The reviewer evaluates; it does not modify.
+Reviewer does **not** get `edit`, `apply_patch`, or `run_command`. The reviewer writes only its `review.md` record; it does not modify project files.
 
 ### Analyst
 
@@ -335,7 +337,15 @@ All filesystem tools share one path policy:
 - Secret-bearing paths and blocked runtime/credential paths are invisible to `glob`, `grep`, and directory reads.
 - Direct access to a blocked path fails with a permission error.
 - Mutating tools reject blocked paths, `.saivage`, `.saivage-work`, symlink targets outside root, credential files, and unsafe `system://` writes.
-- `record://` writes are subject to slot-writer enforcement: only declared slot writers may write each record slot (`status.md` → planner/executor, `review.md` → reviewer, `brief.md` → planner/analyst). The slot registry enforces this at the record-write boundary. `edit` and `apply_patch` on `record://` paths follow the same slot-writer rules as `write`.
+- `record://` writes are subject to slot-writer enforcement at the record-write boundary:
+  - `status.md` → planner/executor (current card only)
+  - `review.md` → reviewer (current card only)
+  - `brief.md` → planner/analyst (current card only)
+  - `card.json` → runtime internal (never agent-writable)
+- `project://` file writes are restricted by role:
+  - Executor and Analyst may write `project://` files (Analyst via `write`/`edit`/`apply_patch` on project paths).
+  - Planner and Reviewer may **not** write `project://` files; they only write their `record://` slots.
+- `edit` and `apply_patch` on `record://` paths follow the same slot-writer rules as `write`. On `project://` paths they follow the same role restriction as `write`.
 
 Web tools share one egress policy:
 - Only `http` and `https`.
