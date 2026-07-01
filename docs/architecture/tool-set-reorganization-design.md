@@ -41,15 +41,15 @@ These are the tools autonomous agents see. Names follow the OpenCode-aligned con
 | Tool | Args | Roles | Replaces | Notes |
 | --- | --- | --- | --- | --- |
 | `read` | `path`, `offset?`, `limit?`, `read_mode?` | P, E, R, A | `read_project_file`, `read_file`, `read_file_metadata` | Reads files, directories, records, or metadata through URL scopes. Defaults to `project://` for relative paths. Supports `project://`, `record://`, `tmp://`, and `system://`. Bounded. Truncation metadata. Optional multimodal. |
-| `write` | `path`, `content` | P, E, A | `write_project_file`, `write_file` | Create/replace project files or record files through URL scopes. Defaults to `project://` for relative paths. Supports `record://` for card records. `system://` writes are available but discouraged. |
+| `write` | `path`, `content` | E, A | `write_project_file`, `write_file` | Create/replace project files or record files through URL scopes. Defaults to `project://` for relative paths. Supports `record://` for card records. `system://` writes are available but discouraged. The planner does not write files. |
 | `edit` | `path`, `old_string`, `new_string`, `replace_all?` | E, A | (new in v3) | Exact string replacement. Single file. |
 | `apply_patch` | `patch` | E, A | (new in v3) | Unified diff. Validates before applying. |
 | `glob` | `directory`, `pattern`, `max_results?` | P, E, R, A | `list_project_files`, `list_directory` | Recursive file discovery over URL scopes. Defaults to `project://`. Skips blocked paths. `system://` is available but discouraged for normal work. |
 | `grep` | `pattern`, `path?`, `include?`, `max_results?` | P, E, R, A | (new in v3) | Regex content search over URL scopes. Defaults to `project://`. Skips blocked/secret paths. |
-| `run_command` | `command`, `cwd?`, `timeout_ms?`, `inactivity_timeout_ms?` | E, A | `run_project_command`, `start_and_wait`, `run_process`, `wait_process`, `inspect_process`, `kill_process`, `run_shell_command` | Single shell execution tool. `cwd` is a URL scope and defaults to `project://`. `system://` cwd is available but discouraged. Process management collapses into this plus `wait_process` when the model needs background control. See §4.2. |
+| `run_command` | `command`, `cwd?`, `timeout_ms?`, `inactivity_timeout_ms?`, `wait?` | E, A | `run_project_command`, `start_and_wait`, `run_process`, `run_shell_command` | Single shell execution tool. `cwd` is a URL scope and defaults to `project://`. `system://` cwd is available but discouraged. `wait` defaults to `true`; `wait: false` starts a background process. Background control uses `wait_process` and `kill_process`. See §4.2. |
 | `websearch` | `query`, `max_results?` | P, E, R, A | (wire into actor surfaces) | Web search. Currently in catalog but not exposed to actors. |
 | `webfetch` | `url`, `read_mode?`, `metadata_only?`, `max_bytes?`, `save_as?` | P, E, R, A | (wire into actor surfaces) | Bounded HTTP fetch. Private-IP egress blocked. |
-| `skill` | `name?` | E, R | `load_skill` | List skills (no arg) or load one (with name). |
+| `skill` | `name?` | E, R, A | `load_skill` | List skills (no arg) or load one (with name). |
 
 ### 4.2 Process Management Sub-Surface (executor)
 
@@ -74,11 +74,11 @@ Unchanged from current v3. These are v3-specific and have no OpenCode equivalent
 | `activate_card` | P | Activate a child card for execution. Sequencing boundary. |
 | `cancel_card` | P, A | Cancel dormant work. |
 | `delete_card` | P, A | Archive-backed delete. |
-| `restart_card` | P | Restart a terminal card. |
+| `restart_card` | P, A | Restart a terminal card. |
 | `reorder_child` | P, A | Reorder children of a non-running parent. |
 | `queue_notification` | P, A | Queue a notification for a future agent session. |
 
-Goal reporting (terminal contract tool): all three roles use one terminal tool name, `emit_result`. The schema is overloaded per-role — each actor sends its own schema to the provider and the contract system verifies the envelope per-role. The old `report_goal_done` / `report_goal_failed` / `report_goal_blocked` tools are dead code from the retired `AgentExecutionPort` surface and are removed (see section 5).
+Goal reporting (terminal contract tool): planner, executor, and reviewer use one terminal tool name, `emit_result`, with a common envelope. Each role's contract validates only the statuses that role may emit. The old `report_goal_done` / `report_goal_failed` / `report_goal_blocked` tools are dead code from the retired `AgentExecutionPort` surface and are removed (see section 5).
 
 See section 4.7 for the unified terminal tool design.
 
@@ -114,7 +114,7 @@ This replaces the separate Analyst host-inspection names:
 | --- | --- |
 | `read_file` | `read system://...` or `read record://...` |
 | `read_file_metadata` | `read system://...` with `metadata_only` / read-mode metadata behavior |
-| `write_file` | `write record://...` or policy-gated `write system://...` |
+| `write_file` | `write record://...` or available-but-discouraged `write system://...` |
 | `list_directory` | `glob system://...` |
 | `run_shell_command` | `run_command` with `cwd: 'system://...'` |
 
@@ -130,9 +130,7 @@ Unchanged. External MCP tools are the extension point; they use their own names 
 
 ### 4.7 Unified Terminal Tool
 
-All three autonomous roles (planner, executor, reviewer) use one terminal tool name: `emit_result`. The model never sees more than one `emit_result` definition at a time because each role runs in its own activation with its own tool list.
-
-This replaces the three role-prefixed names (`emit_planner_result`, `emit_executor_result`, `emit_reviewer_result`) with a single name, and collapses the per-role envelope shapes into one common envelope.
+Planner, executor, and reviewer use one terminal tool name: `emit_result`. The model never sees more than one `emit_result` definition at a time because each role runs in its own activation with its own tool list. The analyst does not get `emit_result` because the analyst is not a card processor.
 
 #### Design principle: common envelope, records carry the detail
 
@@ -141,6 +139,8 @@ The runtime only needs two things from the terminal tool call to drive the card 
 2. **Why** — a short `summary` text that becomes the card's `status_text` and the one-line display in the UI.
 
 Everything else — executor warnings, free-form result blobs, reviewer achieved criteria, issues with severity, evidence card references — is human-readable evidence that belongs in the card record slots, not in the structured envelope. Agents already write `status.md` (planner/executor) and `review.md` (reviewer) during every activation. That's where the rich detail lives. The envelope is just the sign-off.
+
+The envelope is one common schema for all three roles. Each role's contract simply validates that the emitted `status` is one the role is allowed to use.
 
 This eliminates the current per-role envelope specialization:
 - Executor no longer has `status_text` (required), `error`, `result`, `warnings`, `summary` as separate fields — all of that goes into `status.md`. The `summary` field replaces `status_text`.
@@ -175,7 +175,7 @@ There is no planner-specific `continue` status. The planner finishes each planni
 | Reviewer verdict (pass/needs corrections) | Envelope `assessment.result` | Envelope `status` (`done` = pass, `blocked` = needs corrections) |
 | Reviewer achieved criteria | Envelope `assessment.achieved[]` | `review.md` |
 | Reviewer issues (severity, evidence, recommendation) | Envelope `assessment.issues[]` | `review.md` |
-| Reviewer evidence card references | Envelope `assessment.evidence_card_ids[]` | `review.md` (validated on record write, see below) |
+| Reviewer evidence card references | Envelope `assessment.evidence_card_ids[]` | `review.md` |
 | Planner block reason | Envelope `blocked_reason` | Envelope `summary` |
 | Planner "needs more turns" | Envelope `status: 'continue'` | Removed. Planner returns `done` for its current planning task; the runtime schedules later planning if the card still needs work. |
 
@@ -214,10 +214,11 @@ Runtime-internal fields like `blocker_cause` (`'reviewer_unavailable' | 'generic
 #### Why one name works
 
 - Each role's tools are sent independently; the model never sees two `emit_result` schemas at once.
-- The contract system (`src/contracts/contract.ts`) already verifies per-role. Unifying the name and the envelope changes the contract terminal descriptor and schema, but the verification and projection logic stay per-role (each contract knows its own status enum and record slot).
-- `contract.isTerminalToolName(name)` checks `name === 'emit_result'` for all three contracts. Since each actor runs exactly one contract, there is no ambiguity.
+- The contract system (`src/contracts/contract.ts`) already verifies per-role. Unifying the name and the envelope changes the contract terminal descriptor and schema, but the projection logic stays per-role (each contract knows its own record slot and which statuses the role may emit).
+- `contract.isTerminalToolName(name)` checks `name === 'emit_result'` for the three autonomous contracts. Since each actor runs exactly one contract, there is no ambiguity.
 - Transcript entries store `tool_name: 'emit_result'`; the round/role context in the conversation UI disambiguates which role emitted it.
 - The common envelope is simpler for the model: one schema shape to learn, not three.
+- The analyst has no terminal tool; analyst messages end the analyst turn via a normal chat response, not via `emit_result`.
 
 ## 5. Removals
 
@@ -241,9 +242,9 @@ The following names are removed from the catalog. They are either duplicates of 
 | `report_goal_done` | `emit_result` | Dead code from the old `AgentExecutionPort` runtime. Never reached the planner LLM. Removed with the dead `AgentExecutionPort` surface. |
 | `report_goal_failed` | `emit_result` | Dead code, same as above. The old planner envelope had no `failed` status; the unified terminal tool now adds `failed` to the planner schema (see section 4.7). |
 | `report_goal_blocked` | `emit_result` | Dead code, same as above. `emit_result` with `status: 'blocked'` and `blocked_reason` covers this. |
-| `emit_planner_result` | `emit_result` | Unified terminal tool name. Schema is overloaded per-role. |
-| `emit_executor_result` | `emit_result` | Unified terminal tool name. Schema is overloaded per-role. |
-| `emit_reviewer_result` | `emit_result` | Unified terminal tool name. Schema is overloaded per-role. |
+| `emit_planner_result` | `emit_result` | Unified terminal tool name. Common envelope. |
+| `emit_executor_result` | `emit_result` | Unified terminal tool name. Common envelope. |
+| `emit_reviewer_result` | `emit_result` | Unified terminal tool name. Common envelope. |
 
 ## 6. Role Tool Surfaces
 
@@ -282,7 +283,7 @@ Planner does **not** get `write`, `edit`, `apply_patch`, `run_command`, `skill`,
 | Skill | `skill` |
 | MCP | `mcp_tool_call` |
 | Inspection | `list_card_history`, `get_card_history_entry`, `diff_card` |
-| Terminal | `emit_result` (reviewer: `done` = pass, `blocked` = needs corrections, `failed` = broken + `summary`; detail in `review.md`) |
+| Terminal | `emit_result` (reviewer: `done` = pass, `blocked` = needs corrections; detail in `review.md`) |
 
 Reviewer does **not** get `write`, `edit`, `apply_patch`, or `run_command`. The reviewer evaluates; it does not modify.
 
@@ -299,7 +300,7 @@ The Analyst gets the same workspace tools as the autonomous agents, plus its con
 | Card lifecycle | `create_card`, `edit_card`, `cancel_card`, `delete_card`, `reorder_child`, `restart_card`, `queue_notification` |
 | Inspection | `list_cards`, `get_card`, `get_tree`, `list_card_history`, `get_card_history_entry`, `diff_card`, `get_plan_diary`, `get_status` |
 | MCP | `mcp_tool_call` |
-| Terminal | `emit_result` (the analyst is not a card processor; `emit_result` is available if needed but not expected) |
+| Terminal | (none — analyst is not a card processor) |
 
 The Analyst additionally keeps operator-control tools (`start_project`, `stop_project`, `pause_runtime`, `resume_runtime`, `navigate_workspace`, `navigate_back`, `show_config`, `reconfigure`, `restart_server`, `read_runtime_events`, `read_runtime_errors`, `read_control_actions`, `list_processes_tool`, `list_agent_sessions`, `read_agent_session`, `mark_goal_needs_corrections`, `abort_goal_subtree`, `restart_card_or_subtree`, `restart_goal`, `terminate_process`).
 
@@ -307,7 +308,7 @@ The Analyst does not get `activate_card` — that is a planner-internal sequenci
 
 ## 7. Schema Contracts
 
-All tool schemas use snake_case field names to match the OpenCode/Copilot convention LLMs expect.
+All tool schemas use snake_case field names to match the OpenCode/Copilot convention LLMs expect. Failed tool calls return `{ error: string, code?: string }` instead of a success result; the runtime surfaces this as a tool-error transcript entry.
 
 | Tool | Schema | Result shape |
 | --- | --- | --- |
@@ -317,11 +318,11 @@ All tool schemas use snake_case field names to match the OpenCode/Copilot conven
 | `apply_patch` | `patch: string` | `{ changed_files, applied: true }` |
 | `glob` | `directory: string, pattern: string, max_results?: number` | `{ directory, pattern, matches, truncated }` |
 | `grep` | `pattern: string, path?: string, include?: string, max_results?: number` | `{ pattern, matches, truncated }` (match: `{ path, line, preview }`) |
-| `run_command` | `command: string, cwd?: string, timeout_ms?: number, inactivity_timeout_ms?: number, wait?: boolean` | `wait: true` → `{ exit_code, stdout, stderr, truncated, log_path? }`. `wait: false` → `{ process_id, running: true }`. |
+| `run_command` | `command: string, cwd?: string, timeout_ms?: number, inactivity_timeout_ms?: number, wait?: boolean` | `wait: true` → `{ exit_code, stdout, stderr, truncated, log_path? }` (`log_path` is a scoped URL, usually `tmp://` or `record://`). `wait: false` → `{ process_id, running: true }`. |
 | `wait_process` | `process_id: string, timeout_ms?: number` | `{ exit_code, stdout, stderr, truncated, log_path? }` or `{ process_id, still_running: true }` on timeout. |
-| `kill_process` | `process_id: string, signal?: string` | Without signal: `{ process_id, status, pid, command, running }`. With signal: `{ process_id, terminated: true }`. |
+| `kill_process` | `process_id: string, signal?: string` | `{ process_id, terminated: true, signal? }`. Default signal is SIGTERM. |
 | `websearch` | `query: string, max_results?: number` | `{ query, results: [{ title, url, snippet }], skipped? }` |
-| `webfetch` | `url: string, read_mode?: 'auto'\|'text'\|'multimodal', metadata_only?: boolean, max_bytes?: number, save_as?: string` | Metadata: `{ status, headers }`. Text: `{ content, truncated, saved_path? }`. |
+| `webfetch` | `url: string, read_mode?: 'auto'\|'text'\|'multimodal', metadata_only?: boolean, max_bytes?: number, save_as?: string` | Metadata: `{ status, headers }`. Text: `{ content, truncated, saved_path? }` (`save_as` and `saved_path` are scoped URLs, e.g. `tmp://` or `project://`). |
 | `skill` | `name?: string` | No name: `{ skills: [{ name, description }] }`. With name: skill content. |
 
 ## 8. Security Policy
@@ -334,7 +335,7 @@ All filesystem tools share one path policy:
 - Secret-bearing paths and blocked runtime/credential paths are invisible to `glob`, `grep`, and directory reads.
 - Direct access to a blocked path fails with a permission error.
 - Mutating tools reject blocked paths, `.saivage`, `.saivage-work`, symlink targets outside root, credential files, and unsafe `system://` writes.
-- `record://` writes are subject to slot-writer enforcement: only declared slot writers may write each record slot (`status.md` → planner/executor, `review.md` → reviewer, `brief.md` → planner/analyst). The slot registry enforces this at the record-write boundary.
+- `record://` writes are subject to slot-writer enforcement: only declared slot writers may write each record slot (`status.md` → planner/executor, `review.md` → reviewer, `brief.md` → planner/analyst). The slot registry enforces this at the record-write boundary. `edit` and `apply_patch` on `record://` paths follow the same slot-writer rules as `write`.
 
 Web tools share one egress policy:
 - Only `http` and `https`.
@@ -373,7 +374,6 @@ These v2 capabilities are not added in this reorg because v3 does not have the s
 - Unify the three terminal tool names (`emit_planner_result`, `emit_executor_result`, `emit_reviewer_result`) into one: `emit_result`. Update the contract terminal descriptors, event catalog enum, `LlmInvocationSummaryEvent.final_terminal_tool`, and all prompt/messaging references.
 - Collapse the per-role envelope shapes into one common envelope: `{ status: 'done' | 'blocked' | 'failed', summary: string }`. Move executor `warnings`/`result`/`error` and reviewer `assessment`/`achieved`/`issues`/`evidence_card_ids` into the record slots (`status.md`, `review.md`). Replace `status_text` with `summary`.
 - Collapse the 7 lifecycle result kinds into 3 (+ `needs_verification` internal): `DoneResult`, `BlockedResult`, `FailedResult`. Drop `latest_self_report` from the lifecycle result (the record URL is the reference). Keep runtime-internal `blocker_cause` and `verified_at` as internal metadata.
-- Move reviewer `evidence_card_ids` validation to the `review.md` write path: validate that referenced card IDs exist and are descendants when the record is committed.
 - Update all prompt text to instruct agents to write detail into `status.md`/`review.md` and use `emit_result` with only `status` + `summary`.
 - Update all tests that reference removed names.
 - Add negative tests asserting removed names are absent from agent-facing surfaces.
@@ -427,10 +427,10 @@ This reorganization is complete when:
 - system prompts mention only tools that exist in the final catalog;
 - tests assert the final role tool surfaces and fail if removed names reappear;
 - the conversation UI redesign's Phase 2 unblocks because the tool vocabulary is aligned;
-- the terminal tool is `emit_result` for all three roles with a common `{ status: 'done' | 'blocked' | 'failed', summary }` envelope;
+- the terminal tool is `emit_result` for planner, executor, and reviewer with a common `{ status: 'done' | 'blocked' | 'failed', summary }` envelope; the analyst has no terminal tool;
 - planner `done` means the planner completed its current planning task/activation, not that the entire process is complete;
-- lifecycle results are collapsed from 7 kinds to 3 (`DoneResult`, `BlockedResult`, `FailedResult`) plus the internal `NeedsVerificationResult`;
+- lifecycle results are collapsed from 7 kinds to 3 (`DoneResult`, `BlockedResult`, `FailedResult`) plus the internal `NeedsVerificationResult`; reviewer emits only `done` or `blocked`;
 - executor `warnings`, `result`, and `error` go into `status.md`, not the envelope;
 - reviewer `assessment`, `achieved`, `issues`, and `evidence_card_ids` go into `review.md`, not the envelope;
-- reviewer evidence validation runs on the `review.md` write path, not the terminal tool call.
+- reviewer evidence is prose in `review.md`; the runtime does not parse it to validate card IDs.
 - `system://` access is represented as a scoped URL on standard tools, available to all agents, logged, and discouraged in prompts in favor of `project://`.
