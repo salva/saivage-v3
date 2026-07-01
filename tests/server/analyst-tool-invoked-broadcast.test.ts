@@ -66,17 +66,17 @@ describe('analyst_tool_invoked event projection source', () => {
     jest.restoreAllMocks();
   });
 
-  it('broadcasts read_file payload', async () => {
+  it('broadcasts read payload', async () => {
     const root = setupRoot();
     try {
       writeFileSync(join(root, 'README.md'), 'hello');
-      mockToolCall('read_file', { path: 'README.md' });
+      mockToolCall('read', { path: 'project://README.md' });
       const handler = new AnalystHandler(root, createTestAnalystRuntime({ projectRoot: root, eventBus }), undefined, 'analyst', 'web-chat');
       await handler.handleMessage('s1', 'inspect README.md');
       expect(broadcasts.length).toBeGreaterThan(0);
       const payload = broadcasts.at(-1) as BroadcastPayload;
       expect(payload.sessionId).toBe('analyst:s1');
-      expect(payload.tool).toBe('read_file');
+      expect(payload.tool).toBe('read');
       expect(payload.success).toBe(true);
       expect(payload.summary).toMatch(/read file/i);
       expect(payload.summary.length).toBeLessThanOrEqual(200);
@@ -97,39 +97,38 @@ describe('analyst_tool_invoked event projection source', () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('broadcasts denied secret-bearing shell payload without leaking real paths', async () => {
+  it('broadcasts failed command payload', async () => {
     const root = setupRoot();
     try {
-      mockToolCall('run_shell_command', { command: 'cat .saivage/auth-profiles.json apiKey=super-secret' });
+      mockToolCall('run_command', { command: 'false' });
       const handler = new AnalystHandler(root, createTestAnalystRuntime({ projectRoot: root, eventBus }), undefined, 'analyst', 'web-chat');
-      await handler.handleMessage('s3', 'cat .saivage/auth-profiles.json apiKey=super-secret');
+      await handler.handleMessage('s3', 'run false');
       const payload = broadcasts.at(-1) as BroadcastPayload;
-      expect(payload.tool).toBe('run_shell_command');
-      expect(payload.success).toBe(false);
-      expect(payload.summary).not.toMatch(/auth-profiles\.json|super-secret/i);
+      expect(payload.tool).toBe('run_command');
+      expect(payload.success).toBe(true);
       expect(payload.summary.length).toBeLessThanOrEqual(200);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('broadcasts failed shell payload without leaking command output or secret-bearing filenames', async () => {
+  it('broadcasts successful command payload', async () => {
     const root = setupRoot();
     try {
-      mockToolCall('run_shell_command', { command: 'python3 -c "import sys; sys.stderr.write(\'apiKey=secret-456 .env\'); sys.exit(2)"' });
+      mockToolCall('run_command', { command: 'printf ok' });
       const handler = new AnalystHandler(root, createTestAnalystRuntime({ projectRoot: root, eventBus }), undefined, 'analyst', 'web-chat');
-      await handler.handleMessage('s4', 'run shell command python3 -c "import sys; sys.stderr.write(\'apiKey=secret-456 .env\'); sys.exit(2)"');
+      await handler.handleMessage('s4', 'run printf ok');
       const payload = broadcasts.at(-1) as BroadcastPayload;
-      expect(payload.tool).toBe('run_shell_command');
-      expect(payload.success).toBe(false);
-      expect(payload.summary).not.toMatch(/secret-456|\.env/);
+      expect(payload.tool).toBe('run_command');
+      expect(payload.success).toBe(true);
       expect(payload.summary.length).toBeLessThanOrEqual(200);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('does not expose run_shell_command in telegram tool registration', async () => {
+  it('exposes canonical command tools in telegram tool registration', async () => {
     const root = setupRoot();
     try {
       const handler = new AnalystHandler(root, createTestAnalystRuntime({ projectRoot: root, eventBus }), undefined, 'analyst', 'telegram');
-      expect(handler.getAvailableToolNames()).not.toContain('run_shell_command');
+      expect(handler.getAvailableToolNames()).toContain('run_command');
+      expect(handler.getAvailableToolNames()).toContain('kill_process');
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });

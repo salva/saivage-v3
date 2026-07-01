@@ -94,11 +94,11 @@ describe('RoleToolPolicy', () => {
 
 
 
-  it('keeps analyst policy exactly aligned with analyst tool definitions and denies Telegram shell', () => {
+  it('keeps analyst policy exactly aligned with analyst tool definitions and rejects removed shell alias', () => {
     expect(RoleToolPolicy.listToolNamesForRole('analyst').sort()).toEqual([...ANALYST_TOOL_NAMES].sort());
     const telegramShell = RoleToolPolicy.assertAnalystSurfaceTool('run_shell_command', 'telegram');
     expect(telegramShell.allowed).toBe(false);
-    expect(telegramShell.reasonCode).toBe('role_not_allowed');
+    expect(telegramShell.reasonCode).toBe('unknown_tool');
   });
 
   it('keeps list decisions consistent with role tool lists', () => {

@@ -2,9 +2,8 @@ import { describe, expect, it } from '@jest/globals';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { read_file_metadata } from '../../src/tools/analyst-workspace-tools.js';
 import { globProject, grepProject, readProject, writeProject } from '../../src/tools/project-file-tools.js';
-import { closeOpenRecordSlot } from '../../src/runtime/records/record-slots.js';
+import { closeOpenRecordSlot, readClosedRecordSlotMetadata } from '../../src/runtime/records/record-slots.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-project-tools-'));
@@ -36,8 +35,8 @@ describe('project file tools record enforcement', () => {
     closeOpenRecordSlot(projectRoot, { cardId: 'card-1', filename: 'status.md', writer: 'executor', cardVersionSeq: 3 });
 
     await expect(readProject({ projectRoot, cardId: 'card-1', agentRole: 'executor' }, { path: 'record://card.json?card=card-1&v=1' })).rejects.toThrow('internal');
-    const metadata = await read_file_metadata({ projectRoot, store: {} as never, actor: 'analyst', surface: 'web-chat' }, { path: 'record://status.md?card=card-1&v=1' });
-    expect(metadata).toMatchObject({ success: true, data: { url: 'record://status.md?card=card-1&v=1', writer: 'executor', size: 15, format: 'markdown', schema: 'record.status.markdown.v1', cardVersionSeq: 3, globalSeq: 1 } });
+    const metadata = readClosedRecordSlotMetadata(projectRoot, { cardId: 'card-1', filename: 'status.md', version: 1 });
+    expect(metadata).toMatchObject({ url: 'record://status.md?card=card-1&v=1', writer: 'executor', size: 15, format: 'markdown', schema: 'record.status.markdown.v1', cardVersionSeq: 3, globalSeq: 1 });
   }));
 
   it('allows executor project writes but rejects planner project writes', async () => withTempProject(async (projectRoot) => {

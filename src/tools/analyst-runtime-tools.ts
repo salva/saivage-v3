@@ -6,7 +6,7 @@ import { processApi } from '../runtime/process-api.js';
 import { listControlActions } from '../persistence/index.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
-import { describe, emptyInput, type UnifiedToolDefinition } from './tool-catalog.js';
+import { emptyInput, type UnifiedToolDefinition } from './tool-catalog.js';
 import { readJsonlTail, toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
 
 const JSONL_TAIL_DEFAULT = 50;
@@ -24,12 +24,6 @@ export async function stop_project(ctx: ToolContext, params: Record<string, neve
   return runAuditedAnalystTool(ctx, params, { action: 'runtime.stop_project', safety_class: 'destructive', target_kind: 'runtime', getTargetId: () => PROJECT_CARD_ID, run: async () => {
     if (!ctx.runtime) return toolFailure('conflict', 'Active runtime is not available.');
     const data = await ctx.runtime.stopProject('analyst'); return { success: true, data };
-  } });
-}
-
-export async function terminate_process(ctx: ToolContext, params: { processId: string }): Promise<ToolResult> {
-  return runAuditedAnalystTool(ctx, params, { action: 'process.terminate', safety_class: 'destructive', target_kind: 'process', getTargetId: (p) => p.processId, run: async () => {
-    const proc = await processApi(ctx.projectRoot).terminate(params.processId); if (!proc) return toolFailure('not_found', `Process '${params.processId}' not found.`, { processId: params.processId }); return { success: true, data: proc };
   } });
 }
 
@@ -83,7 +77,6 @@ export async function list_processes_tool(ctx: ToolContext, params: { status?: s
 export const analystRuntimeTools: readonly UnifiedToolDefinition<string, any>[] = [
   { name: 'start_project', description: 'Start root project execution.', input: emptyInput, roles: ['analyst'], executor: start_project },
   { name: 'stop_project', description: 'Stop autonomous project execution.', input: emptyInput, roles: ['analyst'], executor: stop_project },
-  { name: 'terminate_process', description: 'Terminate a live runtime process.', input: z.object({ processId: describe(z.string(), 'The process ID to terminate.') }).strict(), roles: ['analyst'], executor: terminate_process },
   { name: 'pause_runtime', description: 'Globally pause the runtime.', input: emptyInput, roles: ['analyst'], executor: pause_runtime },
   { name: 'resume_runtime', description: 'Resume the runtime after a pause.', input: emptyInput, roles: ['analyst'], executor: resume_runtime },
   { name: 'restart_server', description: 'Request a supervised server restart.', input: emptyInput, roles: ['analyst'], executor: restart_server },

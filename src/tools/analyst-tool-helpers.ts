@@ -1,37 +1,12 @@
-import { spawn } from 'node:child_process';
-import { existsSync, readFileSync, statSync } from 'node:fs';
-import { join, relative, resolve as resolvePath } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { PROJECT_CARD_ID, type CardStore } from '../cards/store-api.js';
 import { computeCardDisplayPath } from '../application/read-models/card-view.js';
 import { processApi } from '../runtime/process-api.js';
 import type { CardRecord, CardType } from '../schemas/index.js';
-import { assertSafeShellCwd } from '../workspace/index.js';
-import { isAnalystSecretPath } from '../workspace/file-access-security.js';
-import {
-  DEFAULT_COMMAND_TIMEOUT_MS,
-  DEFAULT_MAX_OUTPUT_BYTES,
-  MAX_ANALYST_OUTPUT_BYTES,
-  MAX_COMMAND_TIMEOUT_MS,
-  redactCommandForPolicy,
-  sanitizedCommandEnv,
-} from '../runtime/command-policy.js';
 import { CARD_STATUS_VALUES, CARD_TYPE_VALUES, URGENCY_VALUES } from './tool-catalog.js';
 import type { ActionPreview, ToolContext, ToolErrorEnvelope, ToolErrorKind, ToolResult } from './analyst-tool-types.js';
-
-export type ShellCommandParams = {
-  command: string;
-  cwd?: string;
-  timeoutMs?: number;
-  maxOutputBytes?: number;
-};
-
-export type NormalizedShellCommandParams = {
-  command: string;
-  cwd: string;
-  timeoutMs: number;
-  maxOutputBytes: number;
-};
 
 export function saivageDir(projectRoot: string): string {
   return join(projectRoot, '.saivage');
@@ -194,106 +169,6 @@ export function buildRestartGoalPreview(projectRoot: string, store: CardStore, g
     }),
     affectedProcesses: processApi(projectRoot).listForAgent().filter((p) => allAffectedIds.includes(p.card_id) && p.status === 'running').map((p) => ({ id: p.id, command: p.command, status: p.status })),
     warnings: ['The goal will be moved to backlog; running children will be cancelled.'],
-  };
-}
-
-export function redactShellText(value: string): string {
-  return redactCommandForPolicy(value);
-}
-
-export function summarizeShellCommand(command: string): string {
-  return redactShellText(command)
-    .split(/\s+/)
-    .map((token) => {
-      try {
-        return isAnalystSecretPath(resolvePath(token)) ? '[SECRET_PATH]' : token;
-      } catch {
-        return token;
-      }
-    })
-    .join(' ')
-    .slice(0, 200);
-}
-
-export function summarizeShellOutcome(exitCode: number | null, truncated: boolean, timedOut: boolean): string {
-  return timedOut ? 'command timed out' : `exit=${exitCode === null ? 'null' : String(exitCode)}${truncated ? ' truncated' : ''}`;
-}
-
-function captureLimited(buffer: Buffer, limit: number): { text: string; truncated: boolean; truncatedBytes: number } {
-  if (buffer.length <= limit) return { text: buffer.toString('utf8'), truncated: false, truncatedBytes: 0 };
-  const sliced = buffer.subarray(0, limit).toString('utf8');
-  const truncatedBytes = buffer.length - limit;
-  return { text: `${sliced}\n[truncated ${truncatedBytes} bytes]`, truncated: true, truncatedBytes };
-}
-
-export async function runShellCommandWithCapture(command: string, cwd: string, timeoutMs: number, maxOutputBytes: number): Promise<{ exitCode: number | null; durationMs: number; stdout: string; stderr: string; truncated: boolean; timedOut: boolean }> {
-  return await new Promise((resolveResult) => {
-    const startedAt = Date.now();
-    const child = spawn('bash', ['-lc', command], { cwd, env: sanitizedCommandEnv(), timeout: timeoutMs, killSignal: 'SIGKILL' });
-    const stdoutChunks: Buffer[] = [];
-    const stderrChunks: Buffer[] = [];
-    let stdoutBytes = 0;
-    let stderrBytes = 0;
-    let timedOut = false;
-    child.stdout.on('data', (chunk) => {
-      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-      if (stdoutBytes < maxOutputBytes) stdoutChunks.push(buf);
-      stdoutBytes += buf.length;
-    });
-    child.stderr.on('data', (chunk) => {
-      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-      if (stderrBytes < maxOutputBytes) stderrChunks.push(buf);
-      stderrBytes += buf.length;
-    });
-    child.on('error', (error) => resolveResult({ exitCode: null, durationMs: Date.now() - startedAt, stdout: '', stderr: redactShellText(error.message), truncated: false, timedOut: false }));
-    child.on('spawn', () => { if (child.stdin) child.stdin.end(); });
-    child.on('close', (code, signal) => {
-      timedOut = signal === 'SIGKILL' && Date.now() - startedAt >= timeoutMs;
-      const stdoutCapture = captureLimited(Buffer.concat(stdoutChunks), maxOutputBytes);
-      const stderrCapture = captureLimited(Buffer.concat(stderrChunks), maxOutputBytes);
-      resolveResult({
-        exitCode: timedOut ? null : code,
-        durationMs: Date.now() - startedAt,
-        stdout: redactShellText(stdoutCapture.text),
-        stderr: redactShellText(stderrCapture.text || (timedOut ? `Command timed out after ${timeoutMs}ms.` : '')),
-        truncated: stdoutCapture.truncated || stderrCapture.truncated || stdoutBytes > maxOutputBytes || stderrBytes > maxOutputBytes,
-        timedOut,
-      });
-    });
-  });
-}
-
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value);
-}
-
-function normalizeShellCwd(projectRoot: string, cwd: unknown): string {
-  if (cwd === undefined) return projectRoot;
-  if (typeof cwd !== 'string') throw new Error('cwd must be a string when provided.');
-  const trimmed = cwd.trim();
-  if (!trimmed) return projectRoot;
-  const resolved = resolvePath(trimmed);
-  const rel = relative(projectRoot, resolved);
-  if (rel !== '' && (rel === '..' || rel.startsWith('../') || rel.startsWith('..\\'))) throw new Error('cwd must stay within the project root.');
-  if (!existsSync(resolved) || !statSync(resolved).isDirectory()) throw new Error('cwd is not a readable directory within the project root.');
-  assertSafeShellCwd(resolved);
-  return resolved;
-}
-
-function normalizeShellNumeric(value: unknown, fallback: number, max: number, field: 'timeoutMs' | 'maxOutputBytes'): number {
-  if (value === undefined) return fallback;
-  if (!isFiniteNumber(value)) throw new Error(`${field} must be a finite number when provided.`);
-  return Math.min(Math.max(1, Math.trunc(value)), max);
-}
-
-export function normalizeShellParams(ctx: ToolContext, params: ShellCommandParams): NormalizedShellCommandParams {
-  if (params === null || typeof params !== 'object' || Array.isArray(params)) throw new Error('run_shell_command params must be an object.');
-  if (typeof params.command !== 'string' || params.command.trim().length === 0) throw new Error('command is required and must be a non-empty string.');
-  return {
-    command: params.command,
-    cwd: normalizeShellCwd(ctx.projectRoot, params.cwd),
-    timeoutMs: normalizeShellNumeric(params.timeoutMs, DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS, 'timeoutMs'),
-    maxOutputBytes: normalizeShellNumeric(params.maxOutputBytes, DEFAULT_MAX_OUTPUT_BYTES, MAX_ANALYST_OUTPUT_BYTES, 'maxOutputBytes'),
   };
 }
 

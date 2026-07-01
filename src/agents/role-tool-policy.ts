@@ -68,7 +68,6 @@ export class RoleToolPolicy {
 
   static assertAnalystSurfaceTool(toolName: string, surface: 'web' | 'telegram' | string): RoleToolPolicyDecision {
     const input: RoleToolPolicyInput = { role: 'analyst', action: 'invoke', surface: 'agent-runtime', toolName, knownRuntimeTool: roleToolNames('analyst').includes(toolName) };
-    if (toolName === 'run_shell_command' && surface === 'telegram') return denied(input, 'role_not_allowed', 'run_shell_command is not available on Telegram.');
     return roleToolNames('analyst').includes(toolName) ? allowed(input) : denied(input, 'unknown_tool');
   }
 

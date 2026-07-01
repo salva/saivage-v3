@@ -26,6 +26,9 @@ import type { LlmInvocationInput } from '../runtime/actors/llm-invocation.js';
 import { resolveAnalystSessionId } from './session-ids.js';
 import { createAnalystProvider } from '../tools/analyst-provider.js';
 import { buildInvocationSurface, invokeToolCall, surfaceToolDefinitions, type InvocationSurface } from '../tools/invocation.js';
+import { createProcessProvider } from '../tools/process-provider.js';
+import { createWebProvider } from '../tools/web-tools.js';
+import { createPatchProvider, createWorkspaceProvider } from '../tools/workspace-provider.js';
 
 
 export interface WorkspaceContext {
@@ -100,19 +103,16 @@ function summarizeForBroadcast(tool: string, result: ToolResult): { summary: str
   let summary = result.success ? (tool === 'edit_card' && related_card_id ? `edited card ${related_card_id}` : 'completed') : (result.errorEnvelope?.message ?? result.error ?? 'failed');
   if (auditSource?.outcome_summary) {
     summary = auditSource.outcome_summary;
-  } else if (tool === 'read_file' && data) {
+  } else if (tool === 'read' && data) {
     const path = typeof data['path'] === 'string' ? data['path'] : 'file';
     const binary = data['binary'] === true;
     const size = typeof data['size'] === 'number' ? ` (${data['size']} bytes)` : '';
     summary = binary ? `read binary file ${path}${size}` : `read file ${path}${size}`;
-  } else if (tool === 'read_file_metadata' && data) {
-    const path = typeof data['path'] === 'string' ? data['path'] : typeof data['url'] === 'string' ? data['url'] : 'file';
-    summary = `read file metadata ${path}`;
-  } else if (tool === 'list_directory' && data) {
+  } else if (tool === 'glob' && data) {
     const path = typeof data['path'] === 'string' ? data['path'] : 'directory';
-    const count = Array.isArray(data['entries']) ? data['entries'].length : 0;
-    summary = `listed directory ${path} (${count} entries)`;
-  } else if (tool === 'run_shell_command') {
+    const count = Array.isArray(data['matches']) ? data['matches'].length : 0;
+    summary = `globbed ${path} (${count} matches)`;
+  } else if (tool === 'run_command') {
     if (preview) {
       summary = typeof preview['summary'] === 'string' ? preview['summary'] : 'shell preview generated';
     } else if (data) {
@@ -154,7 +154,8 @@ export class AnalystHandler {
   }
 
   getAvailableToolNames(): string[] {
-    return getAvailableAnalystToolNames(this.surface);
+    const ctx: ToolContext = { projectRoot: this.projectRoot, store: this.runtimeDeps.cardStore, runtime: this.runtimeDeps.runtime, mcpManager: this.runtimeDeps.mcpManager, requestServerRestart: this.requestServerRestart, actor: this.actor, surface: this.surface, eventBus: this.runtimeDeps.eventBus };
+    return Array.from(this.analystInvocationSurface(ctx).tools.keys());
   }
 
   async handleMessage(sessionId: string, userContent: string, workspaceContext?: WorkspaceContext): Promise<AnalystResponse> {
@@ -309,7 +310,13 @@ export class AnalystHandler {
   }
 
   private analystInvocationSurface(ctx: ToolContext): InvocationSurface {
-    return buildInvocationSurface('analyst', [createAnalystProvider({ toolContext: ctx, surface: this.surface })]);
+    return buildInvocationSurface('analyst', [
+      createAnalystProvider({ toolContext: ctx, surface: this.surface }),
+      createWorkspaceProvider({ projectRoot: this.projectRoot, agentRole: 'analyst' }),
+      createPatchProvider({ projectRoot: this.projectRoot, agentRole: 'analyst' }),
+      createProcessProvider({ projectRoot: this.projectRoot, ownerId: ctx.sessionId ?? 'analyst' }),
+      createWebProvider({ projectRoot: this.projectRoot, agentRole: 'analyst' }),
+    ]);
   }
 
   private appendAssistantTextMessage(sessionId: string, content: string): AgentMessage {
