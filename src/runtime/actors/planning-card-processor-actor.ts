@@ -14,8 +14,8 @@ import { evaluateReviewerTerminalOutcome } from './reviewer-terminal-evaluation.
 import { buildPlannerStateContextMessage } from '../../agents/planner-state-context.js';
 import { ActorToolSurface } from './actor-tool-surface.js';
 import type { NewCardInput } from '../../cards/store-api.js';
-import { processWorkspaceToolCall } from '../../agents/workspace-tools.js';
-import { WORKSPACE_TOOL_NAMES } from '../../tools/definitions/index.js';
+import { buildInvocationSurface, invokeTool } from '../../tools/invocation.js';
+import { createWorkspaceProvider } from '../../tools/workspace-provider.js';
 import { closeOpenRecordSlot, concreteRecordSlot, discardOpenRecordSlot, latestClosedRecordSlot, readRecordSlotIndex, recordFileIsNonEmpty } from '../records/record-slots.js';
 import { cardBriefForPrompt } from '../records/card-brief.js';
 
@@ -152,13 +152,8 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
         return { success: false, error: error instanceof Error ? error.message : String(error) };
       }
     }
-    if (WORKSPACE_TOOL_NAMES.has(outcome.toolName)) {
-      try {
-        return await processWorkspaceToolCall(outcome.toolName, JSON.stringify(outcome.args), { projectRoot: this.projectRoot, cardId: parent.id, sessionId: plannerActorId(parent.id), agentRole: 'planner' });
-      } catch (error) {
-        return { success: false, error: error instanceof Error ? error.message : String(error) };
-      }
-    }
+    const workspaceSurface = buildInvocationSurface('planner', [createWorkspaceProvider({ projectRoot: this.projectRoot, cardId: parent.id, agentRole: 'planner' })]);
+    if (workspaceSurface.tools.has(outcome.toolName)) return invokeTool(workspaceSurface, outcome.toolName, outcome.args);
     if (outcome.toolName !== 'activate_card') return { success: false, error: `Unsupported planner tool call '${outcome.toolName}'.` };
     const parsed = parseChildCardId(outcome.args);
     if (!parsed.success) return { success: false, error: parsed.error };
@@ -389,11 +384,9 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private async handleReviewerToolCall(card: CardRecord, sessionId: string, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): Promise<unknown> {
-    try {
-      return await processWorkspaceToolCall(outcome.toolName, JSON.stringify(outcome.args), { projectRoot: this.projectRoot, cardId: card.id, sessionId, agentRole: 'reviewer' });
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
-    }
+    const workspaceSurface = buildInvocationSurface('reviewer', [createWorkspaceProvider({ projectRoot: this.projectRoot, cardId: card.id, agentRole: 'reviewer' })]);
+    if (workspaceSurface.tools.has(outcome.toolName)) return invokeTool(workspaceSurface, outcome.toolName, outcome.args);
+    return { success: false, error: `Unsupported reviewer tool call '${outcome.toolName}' for session '${sessionId}'.` };
   }
 
   private createPlannerToolSurface(): ActorToolSurface {

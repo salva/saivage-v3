@@ -9,8 +9,8 @@ import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-ac
 import { createExecutorContract } from '../../contracts/executor-contract.js';
 import type { ExecutorResult } from '../../contracts/agent-execution.js';
 import { expectedTerminalToolMessage, verifyTerminalToolOutcome } from './contract-terminal-tools.js';
-import { processWorkspaceToolCall } from '../../agents/workspace-tools.js';
-import { WORKSPACE_TOOL_NAMES } from '../../tools/definitions/index.js';
+import { buildInvocationSurface, invokeTool } from '../../tools/invocation.js';
+import { createPatchProvider, createWorkspaceProvider } from '../../tools/workspace-provider.js';
 import { closeOpenRecordSlot, discardOpenRecordSlot } from '../records/record-slots.js';
 import { cardBriefForPrompt } from '../records/card-brief.js';
 
@@ -113,7 +113,11 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
       if (outcome.toolName === 'wait_process') return await this.waitProcess(outcome.args);
       if (outcome.toolName === 'inspect_process') return await this.inspectProcess(outcome.args);
       if (outcome.toolName === 'kill_process') return await this.killProcess(outcome.args);
-      if (WORKSPACE_TOOL_NAMES.has(outcome.toolName)) return await processWorkspaceToolCall(outcome.toolName, JSON.stringify(outcome.args), { projectRoot: this.projectRoot, cardId: this.cardId, sessionId: executorActorId(this.cardId), agentRole: 'executor' });
+      const workspaceSurface = buildInvocationSurface('executor', [
+        createWorkspaceProvider({ projectRoot: this.projectRoot, cardId: this.cardId, agentRole: 'executor' }),
+        createPatchProvider({ projectRoot: this.projectRoot, cardId: this.cardId, agentRole: 'executor' }),
+      ]);
+      if (workspaceSurface.tools.has(outcome.toolName)) return await invokeTool(workspaceSurface, outcome.toolName, outcome.args);
       throw new Error(`Unsupported executor tool call '${outcome.toolName}'.`);
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) };
