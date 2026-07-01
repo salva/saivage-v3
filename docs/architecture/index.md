@@ -13,3 +13,4 @@ Current architecture documents:
 - [Root settlement and planner recovery plan](./root-settlement-and-planner-recovery-plan.md)
 - [Declarative micro-actor module architecture](./declarative-micro-actor-module.md)
 - [Runtime actor state simplification](./runtime-actor-state-simplification.md)
+- [Shared tool invocation design](./shared-tool-invocation-design.md)
