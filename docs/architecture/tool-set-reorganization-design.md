@@ -41,7 +41,7 @@ These are the tools autonomous agents see. Names follow the OpenCode-aligned con
 | Tool | Args | Roles | Replaces | Notes |
 | --- | --- | --- | --- | --- |
 | `read` | `path`, `offset?`, `limit?`, `read_mode?` | P, E, R, A | `read_project_file`, `read_file`, `read_file_metadata` | Reads files, directories, records, or metadata through URL scopes. Defaults to `project://` for relative paths. Supports `project://`, `record://`, `tmp://`, and `system://`. Bounded. Truncation metadata. Optional multimodal. |
-| `write` | `path`, `content` | P, E, R, A | `write_project_file`, `write_file` | Create/replace files or record slots through URL scopes. All agents write their `record://` slots (planner: `status.md`/`brief.md`; executor: `status.md`; reviewer: `review.md`; analyst: `brief.md`). `project://` file writes are executor-only; slot-writer rules enforce which `record://` slot each role may write. `system://` writes are available but discouraged. |
+| `write` | `path`, `content` | P, E, R, A | `write_project_file`, `write_file` | Create/replace files or record slots through URL scopes. All agents write their `record://` slots (planner: `status.md`/`brief.md`; executor: `status.md`; reviewer: `review.md`; analyst: `brief.md`). `project://` file writes are executor and analyst only; slot-writer rules enforce which `record://` slot each role may write. `system://` writes are available but discouraged. |
 | `edit` | `path`, `old_string`, `new_string`, `replace_all?` | P, E, R, A | (new in v3) | Exact string replacement. Single file. Planner/reviewer use it only on their own `record://` slots; `project://` edits are executor/analyst-only (see §8). |
 | `apply_patch` | `patch` | E, A | (new in v3) | Unified diff. Validates before applying. |
 | `glob` | `directory`, `pattern`, `max_results?` | P, E, R, A | `list_project_files`, `list_directory` | Recursive file discovery over URL scopes. Defaults to `project://`. Skips blocked paths. `system://` is available but discouraged for normal work. |
@@ -277,7 +277,7 @@ Planner does **not** get `apply_patch`, `run_command`, `skill`, or `mcp_tool_cal
 | Inspection | `list_card_history`, `get_card_history_entry`, `diff_card` |
 | Terminal | `emit_result` (executor: `done \| failed` + `summary`) |
 
-Executor is the only role that writes `project://` files. Record writes follow slot-writer rules.
+Executor and Analyst may write `project://` files. Record writes follow slot-writer rules.
 
 ### Reviewer
 
