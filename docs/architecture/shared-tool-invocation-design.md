@@ -88,7 +88,12 @@ interface ToolDefinition {
 }
 ```
 
-The catalog is the single source of tool schemas and executor functions for ordinary side-effect tools. Two provider-visible tools are deliberately not catalog tools: they are **processor-owned control tools**, handled directly by the card processor loops rather than through `invokeTool`.
+The catalog is the single source of tool schemas and executor functions for ordinary side-effect tools. The provider-visible tool surface for each role is the union of:
+
+1. The **invocation surface** — ordinary catalog tools dispatched through `invokeTool`.
+2. **Processor-owned control tools** — handled directly by the card processor loops, never passed through `invokeTool`.
+
+Two provider-visible tools are processor-owned:
 
 | Tool | Class | Reason |
 | --- | --- | --- |
@@ -97,17 +102,17 @@ The catalog is the single source of tool schemas and executor functions for ordi
 
 Everything else the provider sees is a catalog tool dispatched through `invokeTool`.
 
-### 5.2 Role tool surfaces
+### 5.2 Invocation surfaces
 
-A role surface is a curated subset of the catalog, built once per role. Building the surface is a setup-time operation that fails fast: if a configured tool name is missing from the catalog, the surface constructor throws — a code/configuration error, not a model error.
+An invocation surface is the ordinary-tool subset of the catalog for one role, built once. It is distinct from the full provider-visible surface, which additionally includes processor-owned control tools (`activate_card`, `emit_result`). Building the surface is a setup-time operation that fails fast: if a configured tool name is missing from the catalog, the surface constructor throws — a code/configuration error, not a model error.
 
 ```ts
-interface ToolSurface {
+interface InvocationSurface {
   readonly role: AgentRole;
   readonly tools: ReadonlyMap<string, ToolDefinition>;
 }
 
-function buildToolSurface(role: AgentRole, names: readonly string[], capabilities: { mcpAvailable: boolean }): ToolSurface {
+function buildInvocationSurface(role: AgentRole, names: readonly string[], capabilities: { mcpAvailable: boolean }): InvocationSurface {
   const tools = new Map();
   for (const name of names) {
     const definition = TOOL_CATALOG.get(name);
@@ -119,12 +124,12 @@ function buildToolSurface(role: AgentRole, names: readonly string[], capabilitie
 }
 ```
 
-Role surfaces are constructed once per role/capability configuration and reused across activations. Activation-local state such as `processOwner` lives only in `ExecutorToolContext`, never in the surface.
+Invocation surfaces are constructed once per role/capability configuration and reused across activations. Activation-local state such as `processOwner` lives only in `ExecutorToolContext`, never in the surface.
 
 ### 5.3 The invocation function
 
 ```ts
-async function invokeTool(surface: ToolSurface, ctx: ToolContext, name: string, args: unknown): Promise<ToolResult> {
+async function invokeTool(surface: InvocationSurface, ctx: ToolContext, name: string, args: unknown): Promise<ToolResult> {
   if (surface.role !== ctx.role) throw new Error(`Tool surface role '${surface.role}' does not match context role '${ctx.role}'.`);
   const definition = surface.tools.get(name);
   if (!definition) return { success: false, error: `Unsupported tool '${name}' for role '${surface.role}'.` };
@@ -138,15 +143,22 @@ That is the entire shared layer. The `surface.role !== ctx.role` check is fail-f
 
 Three failure modes, all explicit:
 
-- **Setup/configuration error** — `buildToolSurface` throws if a configured tool name is missing from the catalog, or if a tool requiring a capability (e.g. `mcp_tool_call`) is registered when that capability is unavailable. These are code/config bugs; fail fast.
+- **Setup/configuration error** — `buildInvocationSurface` throws if a configured tool name is missing from the catalog, or if a tool requiring a capability (e.g. `mcp_tool_call`) is registered when that capability is unavailable. These are code/config bugs; fail fast.
 - **Programmer error** — `invokeTool` throws if the surface role and context role do not match, or if a tool executor is called with the wrong role/context (e.g. `run_command` with a planner context). These are impossible states under correct wiring; throw.
 - **Model error** — `invokeTool` returns `{ success: false, error }` if the model calls a tool absent from the role surface, passes invalid arguments, or hits a legitimate runtime denial (path policy, slot-writer rule, permission). These are model output or legitimate runtime state; surface a tool error, do not crash the activation.
 
 Authority is enforced by three explicit boundaries, no policy engine:
 
-1. The role surface (which tools the provider sees and `invokeTool` accepts).
+1. The invocation surface (which ordinary tools the provider sees and `invokeTool` accepts).
 2. The path-scope policy inside filesystem/process tools (`project://`, `record://`, `tmp://`, `system://`, slot-writer rules, role-restricted `project://` writes).
 3. Tool executors assert the context they require and throw if called with the wrong role/context (e.g. `create_card` asserts planner/analyst context; `run_command` asserts executor context with `processOwner`). Tools do not branch broadly on role — they assert the single context shape they need.
+
+**Tool executor contract.** `invokeTool` does not catch executor exceptions. Tool executors must follow this rule:
+
+- Expected/model/project failures (path denied, slot-writer violation, card not found, command failed) → return `{ success: false, error }`.
+- Impossible programmer/configuration states (wrong context role, missing required capability that should have been enforced at surface construction) → throw.
+
+This keeps `invokeTool` transparent: it never swallows a bug as a silent tool error, and it never crashes the activation for expected model output.
 
 ### 5.4 The context
 
@@ -186,6 +198,7 @@ interface ReviewerToolContext {
   projectRoot: string;
   cardId: string;
   cardStore: CardStore;
+  mcpManager: McpManager;
 }
 ```
 
@@ -225,7 +238,7 @@ The Analyst handler wraps `invokeTool` with its own pre/post hooks for audit log
 - Mapping selected tool results to final operator replies.
 - Pre/post audit hooks around `invokeTool`.
 
-It delegates execution mechanics to `invokeTool` passing the Analyst tool surface and an `AnalystToolContext`. Unknown tools return a normal `ToolResult` error — no catch-all adapter.
+It delegates execution mechanics to `invokeTool` passing the Analyst invocation surface and an `AnalystToolContext`. Unknown tools return a normal `ToolResult` error — no catch-all adapter.
 
 ### Planner
 
@@ -263,8 +276,8 @@ It delegates workspace/record/MCP tools to `invokeTool`. Reviewer filesystem acc
 One phase. No temporary wrappers.
 
 1. Build the unified `TOOL_CATALOG` from the tool reorganization (one entry per tool name, with executor function and input schema).
-2. Add `ToolSurface` and `invokeTool(surface, ctx, name, args) → ToolResult`.
-3. Point card processors at `invokeTool` for workspace tools; delete `processWorkspaceToolCall` ad-hoc dispatch where it now duplicates the catalog.
+2. Add `InvocationSurface` and `invokeTool(surface, ctx, name, args) → ToolResult`.
+3. Point card processors at `invokeTool` for workspace tools; delete `processWorkspaceToolCall`. Move any useful logic that lived only inside it into the canonical `read`/`write`/`glob`/`grep` executors so there is one dispatch path, not two.
 4. Point the Analyst handler at `invokeTool`; delete `ToolDispatcher` and `AnalystAdapter` in the same change. Move audit logging and event broadcasting into Analyst-handler pre/post hooks.
 5. Delete the duplicated result types (`AdapterResult`, `ToolDispatchResult`). Everything returns `ToolResult`.
 6. Update tests that asserted old adapter internals to assert `invokeTool` behavior instead.
@@ -273,14 +286,14 @@ One phase. No temporary wrappers.
 
 Focused tests should cover:
 
-- Unknown tool handling: `invokeTool` returns `{ success: false, error }` for names not in the catalog, for every role surface.
+- Unknown tool handling: `buildInvocationSurface` throws if a configured name is missing from the catalog; `invokeTool` returns `{ success: false, error }` for names absent from the role invocation surface (even if they exist in the global catalog); nonexistent names from the model also return `{ success: false, error }`.
 - Invalid arguments: schema parse failure returns a model-visible tool error, not a thrown exception.
 - Workspace tool validation errors return model-visible tool errors, not thrown activation failures.
 - Analyst policy denials by `ControlActionSurface` ( Analyst-handler pre-hook, not `invokeTool`).
 - Planner immediate-child card mutation invariant: planner card tools assert planner/analyst context and reject non-immediate-child targets (inside the card tool executor).
 - Executor process lifecycle ownership and cleanup after activation settlement (context constructed per activation, `processOwner` discarded on settlement).
 - Reviewer record-only mutation policy: `write`/`edit` may touch only `record://review.md`; `project://` mutation and `apply_patch` are denied (enforced inside the filesystem tool executors, not by a reviewer adapter).
-- MCP surface construction: `buildToolSurface` throws if `mcp_tool_call` is registered without MCP available; the tool is omitted from the surface instead of denied at runtime.
+- MCP surface construction: `buildInvocationSurface` throws if `mcp_tool_call` is registered without MCP available; the tool is omitted from the surface instead of denied at runtime.
 
 End-to-end validation should include:
 
