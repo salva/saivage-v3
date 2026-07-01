@@ -131,7 +131,7 @@ function createPatchProvider(ctx: { projectRoot: string; agentRole: AgentRole })
 Process tools are a generic provider too. Process state lives in the durable process store (`processApi(projectRoot)` / `.saivage-work/processes/`), not on any actor instance, so process tools take an owner context rather than living on the executor actor:
 
 ```ts
-function createProcessProvider(ctx: { projectRoot: string; ownerId: string }): ToolProvider {
+function createProcessProvider(ctx: { projectRoot: string; ownerId: string; cardId?: string }): ToolProvider {
   return {
     providerName: 'process',
     tools: [
@@ -143,9 +143,9 @@ function createProcessProvider(ctx: { projectRoot: string; ownerId: string }): T
 }
 ```
 
-`ownerId` is the **activation id** for executor activations (unique per activation instance, not the card id) and the **session id** for the analyst. A new activation of the same card must not see the prior activation's processes; the process store scopes ownership to `ownerId`, and the runtime clears that ownership when the activation or session ends. This matches the current source, where the executor actor kills all owned processes on settlement (`onActivationSettled` → `shutdownOwnedProcesses`).
+`ownerId` is the **activation id** for executor activations (unique per activation instance, not the card id) and the **session id** for the analyst. `cardId` is optional provenance metadata: executors pass their activation card id, while analyst sessions pass `undefined` unless a later concrete need introduces explicit card-targeted command execution. A new activation of the same card must not see the prior activation's processes; the process store scopes ownership to `ownerId`, and the runtime clears that ownership when the activation or session ends. This matches the current source, where the executor actor kills all owned processes on settlement (`onActivationSettled` → `shutdownOwnedProcesses`).
 
-**Process store schema change.** The current `ProcessRecord` carries `card_id`, `agent_session_id`, and `owner_kind` (`'agent' | 'operator' | 'runtime'`). This design replaces the two ownership fields (`agent_session_id`, `owner_kind`) with a single `owner_id: string`. The executor passes its activation id as `owner_id`; the analyst passes its session id. `wait_process` and `kill_process` verify that the caller's `ownerId` matches the record's `owner_id`. The runtime kills processes by `owner_id` scope on activation settlement or session end — no actor-instance iteration needed. `card_id` is **kept** as non-authoritative provenance metadata: the operator API exposes it in `ProcessView`, analyst preview helpers filter by it to show affected processes during card delete/abort/restart, and notification messages reference it. Ownership is checked only via `owner_id`; `card_id` is never used as an ownership key. For the analyst, `card_id` is optional (set when the command targeted a specific card; absent otherwise). Existing process records are not migrated; the process store is ephemeral (`.saivage-work/processes/`), so a clean cut-over is safe.
+**Process store schema change.** The current `ProcessRecord` carries `card_id`, `agent_session_id`, and `owner_kind` (`'agent' | 'operator' | 'runtime'`). This design replaces the two ownership fields (`agent_session_id`, `owner_kind`) with a single `owner_id: string`. The executor passes its activation id as `owner_id`; the analyst passes its session id. `wait_process` and `kill_process` verify that the caller's `ownerId` matches the record's `owner_id`. The runtime kills processes by `owner_id` scope on activation settlement or session end — no actor-instance iteration needed. `card_id` is **kept** as non-authoritative provenance metadata: the operator API exposes it in `ProcessView`, analyst preview helpers filter by it to show affected processes during card delete/abort/restart, and notification messages reference it. Ownership is checked only via `owner_id`; `card_id` is never used as an ownership key. Executors stamp `card_id` from the provider context's activation card id. Analysts leave `card_id` absent because the analyst has no implicit card context and `run_command` does not accept a card target. Existing process records are not migrated; the process store is ephemeral (`.saivage-work/processes/`), so a clean cut-over is safe.
 
 The analyst handler owns session-scoped process cleanup: when an analyst session ends (explicitly closed, server restart, or a configurable idle TTL), the runtime kills processes owned by that `sessionId`, paralleling the executor's activation-settlement cleanup. This prevents durable process leaks from long-lived analyst sessions.
 
@@ -222,7 +222,7 @@ PlanningCardProcessorActor (domain provider: card-control tools as methods)
 TerminalCardProcessorActor (no domain provider — executor has no role-specific tools)
   + WorkspaceProvider(projectRoot, cardId, 'executor')
   + PatchProvider(projectRoot, 'executor')
-  + ProcessProvider(projectRoot, activationId)
+  + ProcessProvider(projectRoot, activationId, cardId)
   + CardHistoryProvider(cardStore)
   + WebProvider(projectRoot, cardId, 'executor')
   + McpProvider(mcpManager)
@@ -240,7 +240,7 @@ Reviewer loop (domain provider: none — reviewer has no role-specific tools)
 AnalystHandler (domain provider: analyst-control tools as methods, incl. get_status)
   + WorkspaceProvider(projectRoot, undefined, 'analyst')
   + PatchProvider(projectRoot, 'analyst')
-  + ProcessProvider(projectRoot, sessionId)
+  + ProcessProvider(projectRoot, sessionId, undefined)
   + CardNavigationProvider(cardStore)
   + CardHistoryProvider(cardStore)
   + WebProvider(projectRoot, undefined, 'analyst')
@@ -345,7 +345,7 @@ Focused tests should cover:
 - Workspace tool path-scope enforcement (`project://`, `record://`, `tmp://`, `system://`, slot-writer rules) inside the workspace provider's tool executors, keyed on `agentRole`, including the analyst as a permitted project writer.
 - `webfetch.save_as` path authorization uses the same scoped write policy as `write`, keyed on the web provider's `{ projectRoot, cardId?, agentRole }` context.
 - Analyst record/tmp addressing: analyst `record://` and `tmp://` URLs carry an explicit `?card=<id>`; card processors reject URLs targeting a card other than their activation card.
-- Process ownership: `ProcessProvider` is constructed with an `ownerId` (activation id or session id); `wait_process`/`kill_process` reject processes not owned by that context. A new activation of the same card starts with no inherited processes. Analyst sessions clean up owned processes on session end. `card_id` is retained on `ProcessRecord` as provenance metadata only, never used for ownership checks.
+- Process ownership: `ProcessProvider` is constructed with an `ownerId` (activation id or session id) and optional `cardId` provenance metadata; `wait_process`/`kill_process` reject processes not owned by that context. A new activation of the same card starts with no inherited processes. Analyst sessions clean up owned processes on session end. `card_id` is retained on `ProcessRecord` as provenance metadata only, never used for ownership checks.
 - Surface-local schemas: planner `create_card` schema differs from analyst `create_card` schema; each surface exposes the correct variant.
 - Reviewer record-only mutation: `write`/`edit` restricted to `record://review.md` by the workspace provider's path policy keyed on `agentRole`.
 - MCP availability: `McpProvider` is included in the composition list or not — no runtime denial.
@@ -378,7 +378,7 @@ These are decided, not open. If a concrete need to change them appears later, th
 3. The reviewer has no domain-specific provider. Its tool surface is generic providers only (workspace, web, MCP, skill, card-history) plus the terminal tool.
 4. There is no global catalog module that is the execution or schema authority. Tool schemas and execution live together on providers (domain owners and generic providers). See §3.11 for how this relates to the tool vocabulary in `tool-set-reorganization-design.md`.
 5. The result contract is a discriminated union `{ success: true; data? } | { success: false; error: string }` with no error `code`, no `preview`, no `errorEnvelope`. This supersedes the `{ error, code? }` shape in `tool-set-reorganization-design.md` §7 (see §3.9). Analyst shaping moves into the handler's post-hook, deriving from `data`.
-6. Process tools are a generic `ProcessProvider`, not executor-actor methods. Both executor and analyst compose it with an owner context (`ownerId`). For the executor, `ownerId` is the unique **activation id** (not the card id), so a new activation of the same card starts with no inherited processes. For the analyst, `ownerId` is the **session id**, and the handler kills owned processes on session end. The durable process store is the authority. `card_id` is retained on `ProcessRecord` as provenance metadata for UI, notifications, and analyst preview filtering, but is never used for ownership checks.
+6. Process tools are a generic `ProcessProvider`, not executor-actor methods. Both executor and analyst compose it with an owner context (`ownerId`) and optional provenance context (`cardId`). For the executor, `ownerId` is the unique **activation id** (not the card id) and `cardId` is the activation card id, so a new activation of the same card starts with no inherited processes while process listings still show the associated card. For the analyst, `ownerId` is the **session id** and `cardId` is absent, because the analyst has no implicit card context and `run_command` does not accept a card target. The handler kills owned processes on session end. The durable process store is the authority. `card_id` is retained on `ProcessRecord` as provenance metadata for UI, notifications, and analyst preview filtering, but is never used for ownership checks.
 7. Tool names are global; schemas are surface-local. The same tool name may carry a different schema on different surfaces (e.g., planner `create_card` vs analyst `create_card`). The `InvocationSurface` is the authority for what schema the model sees.
 8. `ToolDefinition` is generic over `Args`; a `defineTool` factory infers the executor's argument type from the schema. The generic is erased to `any` in heterogeneous provider arrays, but each executor remains internally typed.
 9. `WebProvider` takes `{ projectRoot, cardId?, agentRole }` — the same write-policy context as workspace tools — because `webfetch.save_as` writes to the project filesystem under the same scoped authorization as `write`, including `record://` slot rules and analyst explicit `?card=<id>` targets.
