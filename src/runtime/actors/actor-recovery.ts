@@ -337,14 +337,7 @@ function projectReviewerRecoveryOutcome(
   const reviewerLogged = readLoggedToolCall(deps.projectRoot, reviewer.activeReconstruction.input.sessionId, reviewer.actorId, reviewerWaiting.sourceInputId, reviewerWaiting.toolCallId);
   if (reviewerLogged.tool_name !== reviewerWaiting.toolName || !createReviewerContract().isTerminalToolName(reviewerWaiting.toolName)) return null;
   const reviewerOutcome: Extract<LLMActorOutcome, { type: 'tool_call' }> = { type: 'tool_call', agentId: reviewer.actorId, inputId: reviewerWaiting.sourceInputId, toolCallId: reviewerWaiting.toolCallId, toolName: reviewerWaiting.toolName, args: reviewerLogged.args };
-  const projected = evaluateReviewerTerminalOutcome({
-    card,
-    candidatePlanning: { kind: 'done', summary: plannerResult.result.summary ?? 'Planner completed.' },
-    assessmentId,
-    sessionId: reviewer.activeReconstruction.input.sessionId,
-    outcome: reviewerOutcome,
-    store: deps.store,
-  });
+  const projected = evaluateReviewerTerminalOutcome({ outcome: reviewerOutcome });
   if (!closeRecoveredRecordSlot(deps.projectRoot, card.id, 'status.md', 'planner', card.version_seq)) return null;
   if (!closeRecoveredRecordSlot(deps.projectRoot, card.id, 'review.md', 'reviewer', card.version_seq)) return null;
   deps.store.commitTerminalLifecyclePatch(card.id, cardActivationOutcomePatch(projected, generatedAt));

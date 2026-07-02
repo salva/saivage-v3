@@ -391,6 +391,8 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
    Five fields in `ReviewerTerminalEvaluationInput` (`card`, `candidatePlanning`, `sessionId`, `store`, `assessmentId`) are never read. Shrink to `{ outcome }` and update both call sites.
 
+   Status: completed in the reviewer terminal evaluation cleanup slice.
+
 2. **Remove `apply-mutation.ts` async wrappers.**
 
    `applyMutation` and `applyMutationGroup` are async functions that only `return applyMutationSync(...)`. The file comment admits they exist "solely for API stability" — a compatibility shim.

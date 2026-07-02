@@ -234,14 +234,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
           }
           const closeError = this.closeRequiredRecord(input.card.id, 'review.md', 'reviewer', input.card.version_seq);
           if (closeError) return this.plannerFailure(closeError);
-          return evaluateReviewerTerminalOutcome({
-            card: input.card,
-            candidatePlanning: planning,
-            assessmentId,
-            sessionId,
-            outcome,
-            store: this.store,
-          });
+          return evaluateReviewerTerminalOutcome({ outcome });
         }
         const toolResult = await this.handleReviewerToolCall(input.card, sessionId, outcome);
         outcome = await llm.appendToolResult(outcome.toolCallId, toolResult, (inputId) => this.notificationContextMessages(input, inputId));

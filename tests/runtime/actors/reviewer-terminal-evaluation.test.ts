@@ -6,7 +6,7 @@ import { CardStore } from '../../../src/cards/card-store.js';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
 import { evaluateReviewerTerminalOutcome } from '../../../src/runtime/actors/reviewer-terminal-evaluation.js';
 import type { LLMActorOutcome } from '../../../src/runtime/actors/index.js';
-import type { CardRecord, DoneResult } from '../../../src/schemas/index.js';
+import type { CardRecord } from '../../../src/schemas/index.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => T): T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-reviewer-terminal-'));
@@ -39,16 +39,8 @@ function reviewerOutcome(overrides: Record<string, unknown> = {}): Extract<LLMAc
   };
 }
 
-function evaluate(store: CardStore, card: CardRecord, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>) {
-  const planning: DoneResult = { kind: 'done', summary: 'planned' };
-  return evaluateReviewerTerminalOutcome({
-    card,
-    candidatePlanning: planning,
-    assessmentId: 'assessment-card-1-1',
-    sessionId: 'reviewer:card-1:assessment-card-1-1',
-    outcome,
-    store,
-  });
+function evaluate(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>) {
+  return evaluateReviewerTerminalOutcome({ outcome });
 }
 
 describe('evaluateReviewerTerminalOutcome', () => {
@@ -57,7 +49,7 @@ describe('evaluateReviewerTerminalOutcome', () => {
     const store = new CardStore(projectRoot);
     const card = createProject(store);
 
-    const outcome = evaluate(store, card, reviewerOutcome());
+    const outcome = evaluate(reviewerOutcome());
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'ok', result: { kind: 'done', summary: 'ok' } });
   }));
@@ -68,7 +60,7 @@ describe('evaluateReviewerTerminalOutcome', () => {
     const card = createProject(store);
     createDoneChild(store, card.id);
 
-    const outcome = evaluate(store, card, reviewerOutcome());
+    const outcome = evaluate(reviewerOutcome());
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'ok', result: { kind: 'done', summary: 'ok' } });
   }));
@@ -79,7 +71,7 @@ describe('evaluateReviewerTerminalOutcome', () => {
     const card = createProject(store);
     createDoneChild(store, card.id);
 
-    const outcome = evaluate(store, card, reviewerOutcome({ status: 'rework', summary: 'fix it' }));
+    const outcome = evaluate(reviewerOutcome({ status: 'rework', summary: 'fix it' }));
 
     expect(outcome).toMatchObject({ status: 'blocked', summary: 'fix it', result: { kind: 'rework', summary: 'fix it' } });
   }));
@@ -89,7 +81,7 @@ describe('evaluateReviewerTerminalOutcome', () => {
     const store = new CardStore(projectRoot);
     const card = createProject(store);
 
-    const outcome = evaluate(store, card, reviewerOutcome({ status: 'blocked', summary: 'review blocked' }));
+    const outcome = evaluate(reviewerOutcome({ status: 'blocked', summary: 'review blocked' }));
 
     expect(outcome).toMatchObject({ status: 'blocked', summary: 'review blocked', result: { kind: 'blocked', resume_reason: 'reviewer_blocked' } });
   }));
@@ -99,7 +91,7 @@ describe('evaluateReviewerTerminalOutcome', () => {
     const store = new CardStore(projectRoot);
     const card = createProject(store);
 
-    const outcome = evaluate(store, card, { ...reviewerOutcome(), args: { summary: 'missing status' } });
+    const outcome = evaluate({ ...reviewerOutcome(), args: { summary: 'missing status' } });
 
     expect(outcome).toMatchObject({ status: 'failed', result: { kind: 'failed' } });
     expect(outcome.summary).toContain('reviewer');
