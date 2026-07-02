@@ -187,7 +187,7 @@ export class ProviderRegistry {
   /** Compute effective capabilities for a concrete candidate. */
   getEffectiveCapabilities(candidate: Candidate): EffectiveProviderCapabilities {
     const provider = this.get(candidate.provider);
-    if (!provider) return builtInCapabilitiesForProvider(candidate.provider);
+    if (!provider) throw new Error(`Cannot resolve effective capabilities for unknown provider "${candidate.provider}".`);
     return provider.getEffectiveCapabilities(candidate.model, candidate.account);
   }
 }

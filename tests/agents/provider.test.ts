@@ -204,4 +204,12 @@ describe('provider capabilities', () => {
     expect(capabilities.maxOutputTokens).toBe(3000);
     expect(capabilities.transportProtocol).toBe('openai-chat-completions');
   });
+
+  it('throws when resolving capabilities for an unregistered provider candidate', () => {
+    const registry = new ProviderRegistry(mockConfig({
+      providers: { opencode: { models: ['m1'] } },
+    }));
+
+    expect(() => registry.getEffectiveCapabilities({ provider: 'missing-provider', account: null, model: 'm1' })).toThrow(/unknown provider "missing-provider"/);
+  });
 });
