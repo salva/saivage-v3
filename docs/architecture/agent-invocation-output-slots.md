@@ -1,6 +1,6 @@
 # Mandatory Output Files
 
-Status: design proposal. **Partial supersession: terminal tool names (`emit_planner_result`, `emit_executor_result`, `emit_reviewer_result`) have been unified to `emit_result`, and lifecycle result kinds have been collapsed (`done`, `blocked`, `failed`, `rework`). See [Tool Set Reorganization Design §4.7](./tool-set-reorganization-design.md) for current terminal and lifecycle contracts. The record-slot strategy in this doc remains current; only the terminal tool names and lifecycle kind references are stale.**
+Status: design proposal. **Partial supersession: terminal tool names have been unified to `emit_result`, and lifecycle result kinds have been collapsed (`done`, `blocked`, `failed`, `rework`). See [Tool Set Reorganization Design §4.7](./tool-set-reorganization-design.md) for current terminal and lifecycle contracts. The record-slot strategy in this doc remains current.**
 
 ## Problem
 
@@ -74,13 +74,13 @@ For example:
 
 The slot name comes from the record filename without its extension. `review.md` writes to the `review/` slot, and `status.md` writes to the `status/` slot. This makes versions independent per record type: a new review does not advance the status slot, and a new status record does not advance the review slot.
 
-The current writable version is slot-local. A new version is created only when a write asks for `v=next` and the current version for that slot is already closed or discarded. Closing happens when an agent calls its terminal `emit_*` tool and the runtime accepts the declared record file as that agent's output. Blocked activations, parent retries, and missing-file repair attempts do not create new versions unless they need a fresh writable slot after a previous emitted version was closed or discarded.
+The current writable version is slot-local. A new version is created only when a write asks for `v=next` and the current version for that slot is already closed or discarded. Closing happens when an agent calls its terminal `emit_result` tool and the runtime accepts the declared record file as that agent's output. Blocked activations, parent retries, and missing-file repair attempts do not create new versions unless they need a fresh writable slot after a previous emitted version was closed or discarded.
 
 Examples:
 
 - A parent reactivates a previously blocked planner card, but the planner does not emit a new accepted terminal record. No slot version advances.
-- A planner writes `record://status.md?v=next`, gets a concrete URL such as `record://status.md?card=card-1&v=2`, then emits `emit_planner_result`. The runtime closes `status/2.md`.
-- A reviewer writes `record://review.md?v=next`, gets `record://review.md?card=card-1&v=1`, then emits `emit_reviewer_result`. The runtime closes `review/1.md`.
+- A planner writes `record://status.md?v=next`, gets a concrete URL such as `record://status.md?card=card-1&v=2`, then emits `emit_result`. The runtime closes `status/2.md`.
+- A reviewer writes `record://review.md?v=next`, gets `record://review.md?card=card-1&v=1`, then emits `emit_result`. The runtime closes `review/1.md`.
 
 Prior reviews remain available even after a later review becomes the current one. The runtime, UI, and reviewer can read prior versions for comparison.
 
@@ -168,7 +168,7 @@ The prompt passes a symbolic slot URL such as `record://review.md?v=next`. The f
 You must write your review to:
 record://review.md?v=next
 
-Do not call emit_reviewer_result until that file exists.
+Do not call emit_result until that file exists.
 ```
 
 The agent receives:
@@ -225,13 +225,13 @@ The reviewer prompt says:
 Write your review to:
 record://review.md?v=next
 
-Create the file, then call emit_reviewer_result.
+Create the file, then call emit_result.
 ```
 
-After `emit_reviewer_result`, the runtime checks the normalized concrete review URL returned by the write tool exists. If not, the same reviewer session gets:
+After `emit_result`, the runtime checks the normalized concrete review URL returned by the write tool exists. If not, the same reviewer session gets:
 
 ```text
-Required record file record://review.md?v=next was not created. Create it, then call emit_reviewer_result again.
+Required record file record://review.md?v=next was not created. Create it, then call emit_result again.
 ```
 
 ### Planner
@@ -246,7 +246,7 @@ The planner prompt says:
 Write your current invocation status to:
 record://status.md?v=next
 
-Do not call emit_planner_result until the status file exists.
+Do not call emit_result until the status file exists.
 ```
 
 ### Executor
@@ -261,14 +261,14 @@ The executor prompt says:
 Write your current invocation status to:
 record://status.md?v=next
 
-Do not call emit_executor_result until the status file exists.
+Do not call emit_result until the status file exists.
 ```
 
 Executors continue writing code, tests, and other work files directly into the project directory. The mandatory output file is the summary, not the full work product.
 
 ### Status Records
 
-`status.md` is a per-invocation parent-observability record. Planner and executor invocations must close a new `status` slot version every time they reach a terminal `emit_*` call, including blocked or failed results. This gives the parent card a durable, human-readable account of what happened without waiting for a successful result record.
+`status.md` is a per-invocation parent-observability record. Planner and executor invocations must close a new `status` slot version every time they reach a terminal `emit_result` call, including blocked or failed results. This gives the parent card a durable, human-readable account of what happened without waiting for a successful result record.
 
 If an agent emits failure through its terminal tool, the failure still requires a `status.md` record. If the runtime fails before the agent can emit anything, the runtime may write a runtime-authored status record for the failure path so the parent still has a visible explanation. Runtime-authored status writes use the slot open/close helpers directly and bypass `checkAgentWrite` (the runtime is not an agent role). The slot version is authored, marked closed, and `latest` advances.
 
@@ -286,7 +286,7 @@ If the goal card has no descendants, there is no work to assess. Review is skipp
 
 ### Reviewer currentness
 
-When the reviewer starts, the runtime records the reviewed subtree's current state: card versions/statuses plus the latest closed record versions for the slots included in reviewer context. Before accepting `emit_reviewer_result`, the runtime compares that snapshot with the current tree.
+When the reviewer starts, the runtime records the reviewed subtree's current state: card versions/statuses plus the latest closed record versions for the slots included in reviewer context. Before accepting `emit_result`, the runtime compares that snapshot with the current tree.
 
 If any relevant card version, status, or included record-slot latest version changed while the reviewer was running, the reviewer result is stale. The runtime does not accept the result; it relaunches the reviewer with fresh context or routes back through the planner if the change requires planner ownership. This keeps a reviewer pass tied to the exact work snapshot it assessed.
 
@@ -311,8 +311,8 @@ The reviewer currently receives only the goal card's primary brief context and n
 The reviewer must receive descendant summaries as context messages before invocation. For each descendant of the goal card:
 
 - `id`, `type`, `title`, `status`
-- `lifecycle.result.kind` (executor_success, planner_done, planner_blocked, etc.)
-- `lifecycle.result.summary` or `lifecycle.result.error`
+- `lifecycle.result.kind` (`done`, `blocked`, `failed`, `rework`, or internal `executor_needs_verification`)
+- `lifecycle.result.summary` or verification `reason`
 - The descendant's record URLs (e.g., `record://status.md?v=3&card=card-7`) so the reviewer can `read` them
 
 This lets the reviewer cite descendant cards that have real work products and read those products if needed. The reviewer reads descendant files by their `record://` URL; it writes its own review only to its runtime-declared `record://` URL.
@@ -445,8 +445,8 @@ Assessment id: {assessmentId}
 Write your review to:
 record://review.md?v=next
 
-Do not call emit_reviewer_result until the review file exists.
-End by calling emit_reviewer_result with your assessment.
+Do not call emit_result until the review file exists.
+End by calling emit_result with your assessment.
 ```
 
 Planner prompt addition:
@@ -455,7 +455,7 @@ Planner prompt addition:
 Write your current invocation status to:
 record://status.md?v=next
 
-Do not call emit_planner_result until the status file exists.
+Do not call emit_result until the status file exists.
 ```
 
 Executor prompt addition:
@@ -464,7 +464,7 @@ Executor prompt addition:
 Write your current invocation status to:
 record://status.md?v=next
 
-Do not call emit_executor_result until the status file exists.
+Do not call emit_result until the status file exists.
 ```
 
 ## Simplified Evidence Gate

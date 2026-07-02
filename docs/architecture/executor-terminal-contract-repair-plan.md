@@ -2,7 +2,7 @@
 
 Status: Phase 1 implemented on 2026-06-30. This document records the pueblicos runtime failure observed on 2026-06-30 and the implementation plan for two related issues: terminal-tool compliance and card-scoped LLM conversation storage and continuity. Compaction planning moved to [Conversation Compaction Design](./conversation-compaction-design.md).
 
-**Note:** The terminal tool names (`emit_executor_result`, `emit_planner_result`, `emit_reviewer_result`) referenced throughout this doc were subsequently unified to a single `emit_result` with role-specific status subsets. See [Tool Set Reorganization Design §4.7](./tool-set-reorganization-design.md). Historical error messages and repair examples below retain the original names for provenance.
+**Note:** The terminal tool names (`emit_executor_result`, `emit_planner_result`, `emit_reviewer_result`) referenced in the original incident were subsequently unified to a single `emit_result` with role-specific status subsets. See [Tool Set Reorganization Design §4.7](./tool-set-reorganization-design.md). Historical error messages below retain the original names for provenance.
 
 ## Problem
 
@@ -172,10 +172,10 @@ Because the assistant text and repair directive are appended to `input.contextMe
 Repair directive content should be short and role-specific. Executor example:
 
 ```text
-Your previous response was plain assistant text, not an executor terminal result. Do not summarize, simulate file writes, or describe what you would do. Use tools. Write record://status.md?v=next if needed, then call emit_executor_result with valid JSON arguments.
+Your previous response was plain assistant text, not an executor terminal result. Do not summarize, simulate file writes, or describe what you would do. Use tools. Write record://status.md?v=next if needed, then call emit_result with valid JSON arguments.
 ```
 
-Planner and reviewer variants should name `emit_planner_result` and `emit_reviewer_result` respectively.
+Planner and reviewer variants should name `emit_result` with that role's allowed status subset.
 
 If `this.input` is unexpectedly missing while repairing a live result, throw. That is an impossible live-state bug, not a recoverable condition.
 
@@ -260,9 +260,9 @@ Update focused processor tests.
 Required executor tests:
 
 - A plain-text repair turn preserves prior conversation in `input.contextMessages`.
-- Plain executor prose gets a repair turn and succeeds when the next turn writes `status.md` and emits `emit_executor_result`.
+- Plain executor prose gets a repair turn and succeeds when the next turn writes `status.md` and emits `emit_result`.
 - Plain executor prose exhausts the repair budget and then fails.
-- Invalid `emit_executor_result` arguments get a repair turn instead of immediate failure.
+- Invalid `emit_result` arguments get a repair turn instead of immediate failure.
 - Missing `status.md` still repairs and counts against the same budget.
 
 Required planner/reviewer coverage:
