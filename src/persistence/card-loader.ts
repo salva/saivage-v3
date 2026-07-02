@@ -11,14 +11,6 @@ export interface LoadCardStoreStateOptions {
   maxDepth?: number;
 }
 
-export function byIdDir(projectRoot: string): string {
-  return cardRecordsRoot(projectRoot);
-}
-
-export function historyDir(projectRoot: string): string {
-  return cardRecordsRoot(projectRoot);
-}
-
 export function cardByIdPath(projectRoot: string, id: string): string {
   const index = readRecordSlotIndex(projectRoot, id, 'card');
   if (index.latest === null) return recordPath(projectRoot, id, 'card', 1, 'card.json').absolutePath;

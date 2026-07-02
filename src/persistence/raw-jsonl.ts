@@ -2,13 +2,13 @@ import { appendFileSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, 
 import { dirname } from 'node:path';
 import { PersistenceReadError, PersistenceValidationError, PersistenceWriteError } from './errors.js';
 
-export interface LastLineSyncResult {
+interface LastLineSyncResult {
   line: string | null;
   endsWithNewline: boolean;
   partialTail: string | null;
 }
 
-export function lastLineSync(jsonlPath: string): LastLineSyncResult {
+function lastLineSync(jsonlPath: string): LastLineSyncResult {
   if (!existsSync(jsonlPath)) return { line: null, endsWithNewline: true, partialTail: null };
   const buf = readFileSync(jsonlPath);
   if (buf.length === 0) return { line: null, endsWithNewline: true, partialTail: null };
@@ -33,36 +33,6 @@ export function lastLineSync(jsonlPath: string): LastLineSyncResult {
     endsWithNewline: false,
     partialTail: partial,
   };
-}
-
-export function appendSyncIdempotent(
-  jsonlPath: string,
-  entry: { entry_id: string } & Record<string, unknown>,
-): void {
-  const tail = lastLineSync(jsonlPath);
-  if (tail.line !== null) {
-    let parsed: { entry_id?: unknown } | null = null;
-    try {
-      parsed = JSON.parse(tail.line) as { entry_id?: unknown };
-    } catch {
-      throw new PersistenceReadError(
-        jsonlPath,
-        `last complete JSONL line is unparseable; refusing to append entry_id=${entry.entry_id}`,
-      );
-    }
-    if (parsed && parsed.entry_id === entry.entry_id) return;
-  }
-  mkdirSync(dirname(jsonlPath), { recursive: true });
-  let fd: number | null = null;
-  try {
-    fd = openSync(jsonlPath, 'a');
-    appendFileSync(fd, JSON.stringify(entry) + '\n', 'utf-8');
-    fsyncSync(fd);
-  } catch (error) {
-    throw new PersistenceWriteError(jsonlPath, (error as Error).message, { cause: error });
-  } finally {
-    if (fd !== null) closeSync(fd);
-  }
 }
 
 export function appendSyncIdempotentByKey<T extends Record<string, unknown>>(

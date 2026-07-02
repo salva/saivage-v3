@@ -31,15 +31,6 @@ export async function fsyncDirAsync(dirPath: string): Promise<void> {
   }
 }
 
-export function fsyncFile(path: string): void {
-  const fd = openSync(path, 'r+');
-  try {
-    fsyncSync(fd);
-  } finally {
-    closeSync(fd);
-  }
-}
-
 export function writeFileAtomic(targetPath: string, data: string): void {
   const lastSep = targetPath.lastIndexOf('/');
   const dir = lastSep >= 0 ? targetPath.slice(0, lastSep) : '.';

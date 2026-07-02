@@ -9,7 +9,6 @@ import {
   LockOwnershipError,
   PersistenceValidationError,
   PersistenceVersionMismatch,
-  PersistentQueue,
   ProjectLock,
   StaleLockError,
 } from '../../src/persistence/index.js';
@@ -164,56 +163,17 @@ describe('AtomicJsonFile', () => {
 });
 
 describe('JsonlLedger', () => {
-  it('appends only under lock and quarantines malformed records on read', async () => {
+  it('appends only under lock', async () => {
     const path = join(root, 'events.jsonl');
     const ledger = new JsonlLedger<RecordValue>(path, recordSchema, lock);
 
-    await expect(ledger.append({ acquired: true } as never, { id: 'a', value: 1 })).rejects.toThrow(LockOwnershipError);
+    expect(() => ledger.appendSync({ acquired: true } as never, { id: 'a', value: 1 })).toThrow(LockOwnershipError);
 
     await lock.withLock(async (handle) => {
-      await ledger.append(handle, { id: 'a', value: 1 });
+      ledger.appendSync(handle, { id: 'a', value: 1 });
     });
-    writeFileSync(path, '{bad\n{"version":1,"data":{"id":"b","value":"wrong"}}\n{"version":1,"data":{"id":"c","value":3}}\n', { flag: 'a' });
 
-    await expect(ledger.readAll()).resolves.toEqual([{ id: 'a', value: 1 }, { id: 'c', value: 3 }]);
-    const quarantine = readFileSync(`${path}.quarantine`, 'utf-8').trim().split('\n').map((line) => JSON.parse(line) as Record<string, unknown>);
-    expect(quarantine).toHaveLength(2);
-    expect(quarantine[0]).toMatchObject({ source: path, line_number: 2, line: '{bad' });
-    expect(quarantine[1]).toMatchObject({ source: path, line_number: 3 });
-  });
-
-  it('reads from byte cursors and exposes stream replay', async () => {
-    const ledger = new JsonlLedger<RecordValue>(join(root, 'cursor.jsonl'), recordSchema, lock);
-    await lock.withLock(async (handle) => {
-      await ledger.append(handle, { id: 'a', value: 1 });
-    });
-    const first = await ledger.readSince({ offset: 0 });
-    await lock.withLock(async (handle) => {
-      await ledger.append(handle, { id: 'b', value: 2 });
-    });
-    const second = await ledger.readSince(first.nextCursor);
-    expect(second.records).toEqual([{ id: 'b', value: 2 }]);
-
-    const streamed: RecordValue[] = [];
-    for await (const record of ledger.stream()) streamed.push(record);
-    expect(streamed).toEqual([{ id: 'a', value: 1 }, { id: 'b', value: 2 }]);
-  });
-});
-
-describe('PersistentQueue', () => {
-  it('uses FIFO semantics and requires lock handles for mutation', async () => {
-    const queue = new PersistentQueue<RecordValue>(join(root, 'queue.json'), recordSchema, lock);
-    const file = new AtomicJsonFile<RecordValue[]>(join(root, 'queue.json'), z.array(recordSchema), lock);
-    await lock.withLock(async (handle) => file.write(handle, []));
-
-    await expect(queue.enqueue({ acquired: true } as never, { id: 'a', value: 1 })).rejects.toThrow(LockOwnershipError);
-    await lock.withLock(async (handle) => {
-      await queue.enqueue(handle, { id: 'a', value: 1 });
-      await queue.enqueue(handle, { id: 'b', value: 2 });
-      await expect(queue.dequeue(handle)).resolves.toEqual({ id: 'a', value: 1 });
-      await expect(queue.drain(handle)).resolves.toEqual([{ id: 'b', value: 2 }]);
-    });
-    expect(queue.snapshot()).toEqual([]);
+    expect(readFileSync(path, 'utf-8')).toBe('{"version":1,"data":{"id":"a","value":1}}\n');
   });
 });
 

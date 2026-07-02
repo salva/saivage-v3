@@ -13,7 +13,6 @@ import { tmpdir } from 'node:os';
 import {
   initProjectTree,
   isInitialized,
-  listDiscardedSaivageDirs,
 } from '../../src/persistence/file-tree.js';
 import { writeFileAtomic } from '../../src/persistence/durable-write.js';
 
@@ -26,6 +25,12 @@ beforeEach(() => {
 afterEach(() => {
   rmSync(tmpDir, { recursive: true, force: true });
 });
+
+function listDiscardedSaivageDirs(projectRoot: string): string[] {
+  return existsSync(projectRoot)
+    ? readdirSync(projectRoot).filter((entry) => entry.startsWith('.saivage.discarded-'))
+    : [];
+}
 
 describe('isInitialized', () => {
   it('returns false before init', () => {

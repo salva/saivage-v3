@@ -211,9 +211,3 @@ export function initProjectTree(projectRoot: string): { projectRoot: string } {
 export function isInitialized(projectRoot: string): boolean {
   return existsSync(join(projectRoot, '.saivage', 'project.json'));
 }
-
-export function listDiscardedSaivageDirs(projectRoot: string): string[] {
-  return existsSync(projectRoot)
-    ? readdirSync(projectRoot).filter((entry) => entry.startsWith('.saivage.discarded-'))
-    : [];
-}

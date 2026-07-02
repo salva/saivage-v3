@@ -1,14 +1,9 @@
 export { AtomicJsonFile } from './atomic-json-file.js';
-export type { AtomicJsonFileOptions } from './atomic-json-file.js';
 export { JsonlLedger } from './jsonl-ledger.js';
-export type { Cursor, JsonlLedgerOptions } from './jsonl-ledger.js';
-export { appendSyncIdempotent, appendSyncIdempotentByKey, lastLineSync } from './raw-jsonl.js';
-export type { LastLineSyncResult } from './raw-jsonl.js';
-export { fsyncDir, fsyncDirAsync, fsyncFile, writeFileAtomic, writeFileSyncDurable } from './durable-write.js';
-export { PersistentQueue } from './persistent-queue.js';
-export type { PersistentQueueOptions } from './persistent-queue.js';
+export { appendSyncIdempotentByKey } from './raw-jsonl.js';
+export { fsyncDir, fsyncDirAsync, writeFileAtomic, writeFileSyncDurable } from './durable-write.js';
 export { ProjectLock } from './project-lock.js';
-export type { LockHandle, LockMetadata, ProjectLockOptions } from './project-lock.js';
+export type { LockHandle } from './project-lock.js';
 export {
   LockOwnershipError,
   StaleLockError,
