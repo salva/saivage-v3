@@ -365,6 +365,8 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
    `getHealth`, `getConfig`, `getProviders`, `getProcess` have zero callers in `web/src/`.
 
+   Status: completed in the web API client cleanup slice.
+
 3. **Remove dead websocket surface.**
 
    `WsConnectionManager.onType` is dead. `reconnectAttempts` is exposed but unconsumed.
@@ -560,7 +562,7 @@ Goal: remove dead UI, shrink actor interfaces, and simplify tool plumbing.
 
 Tasks (backlog groups F, G, H):
 
-1. Partially completed: delete dead UI components. Dead API client functions remain pending.
+1. Partially completed: delete dead UI components and dead API client functions.
 2. Shrink `evaluateReviewerTerminalOutcome` inputs and remove async mutation wrappers.
 3. Extract shared contract-bounded repair loop.
 4. Collapse Analyst control-tool result envelopes and fix prompt tool-list generation.

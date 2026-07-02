@@ -10,8 +10,6 @@ import type {
   CardListResponse,
   CardDetailResponse,
   RuntimeStateResponse,
-  ConfigResponse,
-  ProvidersResponse,
   AgentConversationResponse,
   AgentSessionsResponse,
   ChatSessionsResponse,
@@ -27,7 +25,6 @@ import type {
   SupervisionResponse,
   McpToolsResponse,
   ProcessListResponse,
-  ProcessDetailResponse,
   CardHistoryListResponse,
   CardHistoryEntryResponse,
   CardDiffResponse,
@@ -176,15 +173,6 @@ export function issueWebSocketTicket(): Promise<OperatorApiSuccess<'auth.wsTicke
   return operatorRequest('auth.wsTicket');
 }
 
-export async function getHealth(): Promise<{ status: string; version: string; project: string; runtime: string }> {
-  const headers = authHeaders();
-  const response = await fetch('/health', { headers });
-  if (!response.ok) {
-    throw new ApiError(response.status, 'Health check failed', {});
-  }
-  return response.json() as Promise<{ status: string; version: string; project: string; runtime: string }>;
-}
-
 export function listCards(): Promise<CardListResponse> {
   return operatorRequest('cards.list');
 }
@@ -233,15 +221,6 @@ export function getAgentLlmExchange(sessionId: string): Promise<{ exchange: LlmE
   return operatorRequest('agents.llmExchange', { params: { id: sessionId } }) as Promise<{ exchange: LlmExchange }>;
 }
 
-export function getConfig(): Promise<ConfigResponse> {
-  return operatorRequest('config.get');
-}
-
-export function getProviders(): Promise<ProvidersResponse> {
-  return operatorRequest('providers.list');
-}
-
-
 export function listControlActions(query?: { card_id?: string; since?: string }): Promise<ControlActionsListResponse> {
   return operatorRequest('controlActions.list', { query });
 }
@@ -270,11 +249,6 @@ export function getFileContent(path: string): Promise<FileContent> {
 export function listProcesses(): Promise<ProcessListResponse> {
   return operatorRequest('processes.list');
 }
-
-export function getProcess(processId: string): Promise<ProcessDetailResponse> {
-  return operatorRequest('processes.get', { params: { id: processId } });
-}
-
 
 export function getDebugState(): Promise<DebugStateResponse> {
   return operatorRequest('debug.state') as Promise<DebugStateResponse>;
