@@ -27,7 +27,7 @@ const MESSAGES: AgentMessage[] = [
 const PLANNER_TERMINAL_TOOL: ToolDefinition = {
   type: 'function',
   function: {
-    name: 'emit_planner_result',
+    name: 'emit_result',
     description: 'planner terminal envelope',
     parameters: { type: 'object', properties: {}, additionalProperties: false },
   },
@@ -48,8 +48,8 @@ describe('buildOpenAIChatRequest wire shape', () => {
       phase: 'terminal',
       contract_id: 'test.v1',
       contractName: 'planner',
-      terminalToolOffered: ['emit_planner_result'],
-      terminalToolName: 'emit_planner_result',
+      terminalToolOffered: ['emit_result'],
+      terminalToolName: 'emit_result',
       terminalToolDefinition: PLANNER_TERMINAL_TOOL,
     };
     const body = buildOpenAIChatRequest(CANDIDATE, SYSTEM, MESSAGES, opts) as unknown as Record<string, unknown>;
@@ -59,13 +59,13 @@ describe('buildOpenAIChatRequest wire shape', () => {
     expect(body.parallel_tool_calls).toBe(false);
     expect(body.tool_choice).toEqual({
       type: 'function',
-      function: { name: 'emit_planner_result' },
+      function: { name: 'emit_result' },
     });
     expect(body.tools).toEqual([
       {
         type: 'function',
         function: {
-          name: 'emit_planner_result',
+          name: 'emit_result',
           description: 'planner terminal envelope',
           parameters: { type: 'object', properties: {}, additionalProperties: false },
         },

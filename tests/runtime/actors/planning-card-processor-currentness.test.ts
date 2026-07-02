@@ -35,11 +35,12 @@ function toolCall(id: string, name: string, args: Record<string, unknown>) {
 }
 
 function plannerDone(id = 'planner-done') {
-  return toolCall(id, 'emit_planner_result', { status: 'done', summary: 'planner done' });
+  return toolCall(id, 'emit_result', { status: 'done', summary: 'planner done' });
 }
 
 function reviewerPass(id: string, evidenceCardId: string) {
-  return toolCall(id, 'emit_reviewer_result', { assessment: { result: 'pass', summary: 'review ok', achieved: ['done'], issues: [], evidence_card_ids: [evidenceCardId] } });
+  void evidenceCardId;
+  return toolCall(id, 'emit_result', { status: 'done', summary: 'review ok' });
 }
 
 function activateInput(card: CardRecord, hasPendingNotifications: () => boolean): CardActivationInput {
@@ -131,7 +132,7 @@ describe('PlanningCardProcessorActor reviewer currentness', () => {
         return plannerDone();
       }
       if (!lastToolResult) return reviewerPass('reviewer-pass-missing-file', child.id);
-      if (lastToolResult.toolName === 'emit_reviewer_result') return toolCall('reviewer-write-repair', 'write', { path: 'record://review.md?v=next', content: 'repaired review' });
+      if (lastToolResult.toolName === 'emit_result') return toolCall('reviewer-write-repair', 'write', { path: 'record://review.md?v=next', content: 'repaired review' });
       return reviewerPass('reviewer-pass-repaired', child.id);
     }) };
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });

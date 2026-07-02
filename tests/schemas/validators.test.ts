@@ -9,7 +9,7 @@ describe('llmAttemptEventSchema envelope', () => {
       id: 'e1', kind: 'llm_attempt', timestamp: isoNow(),
       session_id: 's1', role: 'planner', attempt: 0, same_candidate_attempt: 0,
       provider: 'p', model: 'm', account: '_', started_at: isoNow(), duration_ms: 5,
-      outcome: { kind: 'succeeded', terminal_tool: 'emit_planner_result' },
+      outcome: { kind: 'succeeded', terminal_tool: 'emit_result' },
     };
     expect(() => llmAttemptEventSchema.parse(evt)).not.toThrow();
   });
@@ -21,7 +21,7 @@ describe('llmAttemptEventSchema envelope', () => {
       id: 'e1', kind: 'llm_attempt', timestamp: isoNow(),
       session_id: 's1', role: 'planner', attempt: 0, same_candidate_attempt: 0,
       provider: 'p', model: 'm', account: '_', started_at: isoNow(), duration_ms: 5,
-      outcome: { kind: 'succeeded', terminal_tool: 'emit_planner_result' },
+      outcome: { kind: 'succeeded', terminal_tool: 'emit_result' },
       bogus: true,
     };
     expect(() => llmAttemptEventSchema.parse(evt)).toThrow();
@@ -34,7 +34,7 @@ describe('llmInvocationSummaryEventSchema envelope', () => {
       id: 's1', kind: 'llm_invocation_summary', timestamp: isoNow(),
       session_id: 'sess', role: 'planner', goal_id: 'g', card_id: 'c', contract_id: 'planner.v1',
       attempts_count: 1, repair_attempts: 0, total_duration_ms: 12, verdict: 'succeeded',
-      final_provider: 'p', final_model: 'm', final_account: '_', final_terminal_tool: 'emit_planner_result',
+      final_provider: 'p', final_model: 'm', final_account: '_', final_terminal_tool: 'emit_result',
     };
     expect(() => llmInvocationSummaryEventSchema.parse(evt)).not.toThrow();
   });

@@ -7,7 +7,7 @@ import {
 
 describe('parseToolCallMessage', () => {
   it('rejects legacy {toolCalls:[...]} wrapper as PersistedRowCorruptError(legacy_tool_calls_wrapper)', () => {
-    const legacy = { toolCalls: [{ id: 'c1', name: 'emit_planner_result', args: {} }] };
+    const legacy = { toolCalls: [{ id: 'c1', name: 'emit_result', args: {} }] };
     let caught: unknown;
     try {
       parseToolCallMessage(legacy);
@@ -25,7 +25,7 @@ describe('parseToolCallMessage', () => {
         {
           id: 'c1',
           type: 'function',
-          function: { name: 'emit_planner_result', arguments: '{not json' },
+          function: { name: 'emit_result', arguments: '{not json' },
         },
       ],
     };
@@ -40,7 +40,7 @@ describe('parseToolCallMessage', () => {
   });
 
   it('round-trips a valid tool call through serialize/parse', () => {
-    const original = { id: 'call_xyz', name: 'emit_executor_result', args: { card_id: 'c-1', status: 'done', status_text: 'ok' } };
+    const original = { id: 'call_xyz', name: 'emit_result', args: { status: 'done', summary: 'ok' } };
     const row = serializeToolCallMessage(original);
     const parsed = parseToolCallMessage(row);
     expect(parsed).toEqual(original);

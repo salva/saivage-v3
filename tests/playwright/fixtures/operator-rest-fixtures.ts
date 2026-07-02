@@ -263,7 +263,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
       return json(route, { errors: [{ source: 'planner-smoke', type: 'llm_attempt', severity: 'error', message: 'Synthetic provider failure redacted', timestamp: now }], total: 1 });
     }
     if (request.method() === 'GET' && url.pathname === '/api/debug/timeline') {
-      return json(route, { events: [{ id: 'evt-1', kind: 'llm_attempt', session_id: 'planner-smoke', timestamp: now, provider: 'p', model: 'synthetic-model', account: '_', role: 'planner', attempt: 1, same_candidate_attempt: 1, started_at: now, duration_ms: 0, outcome: { kind: 'succeeded', terminal_tool: 'emit_planner_result' } }, { id: 'evt-2', kind: 'card_status_changed', card_id: 'card-smoke', timestamp: now, status: 'done' }], total: 2 });
+      return json(route, { events: [{ id: 'evt-1', kind: 'llm_attempt', session_id: 'planner-smoke', timestamp: now, provider: 'p', model: 'synthetic-model', account: '_', role: 'planner', attempt: 1, same_candidate_attempt: 1, started_at: now, duration_ms: 0, outcome: { kind: 'succeeded', terminal_tool: 'emit_result' } }, { id: 'evt-2', kind: 'card_status_changed', card_id: 'card-smoke', timestamp: now, status: 'done' }], total: 2 });
     }
     if (request.method() === 'GET' && url.pathname === '/api/debug/doctor') return json(route, { status: 'ok', checks: [], issues: [] });
     if (request.method() === 'GET' && url.pathname === '/api/debug/supervision') return json(route, { reviews: [], quarantine: [], stats: { total: 0, blocked: 0, passed: 0, sanitized: 0, byRisk: {}, bySourceKind: {} } });

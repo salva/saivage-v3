@@ -10,6 +10,7 @@ import {
 import { zodToJsonSchemaMini } from '../agents/zod-to-jsonschema-mini.js';
 import { describeTerminals } from './describe-terminals.js';
 import { verifyAgainstTerminals } from './verify-against-terminals.js';
+import { TERMINAL_RESULT_TOOL_NAME } from './result-envelope.js';
 
 export type PlannerEnvelope =
   | { kind: 'result'; payload: PlannerResultEnvelope };
@@ -22,13 +23,13 @@ const PLANNER_RESULT_TERMINAL_DESC =
 
 export function createPlannerContract(): Contract<PlannerEnvelope, PlannerTypedResult> {
   const resultTerminal: ContractTerminalDescriptor = {
-    name: 'emit_planner_result',
+    name: TERMINAL_RESULT_TOOL_NAME,
     description: PLANNER_RESULT_TERMINAL_DESC,
     schema: PlannerResultEnvelopeSchema,
     toolDefinition: {
       type: 'function',
       function: {
-        name: 'emit_planner_result',
+        name: TERMINAL_RESULT_TOOL_NAME,
         description: PLANNER_RESULT_TERMINAL_DESC,
         parameters: zodToJsonSchemaMini(PlannerResultEnvelopeSchema) as unknown as Record<string, unknown>,
       },
@@ -60,7 +61,6 @@ export function createPlannerContract(): Contract<PlannerEnvelope, PlannerTypedR
         kind: 'result',
         result: {
           status: parsed.status,
-          blocked_reason: parsed.blocked_reason ?? undefined,
           summary: parsed.summary,
         },
       };

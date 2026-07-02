@@ -72,7 +72,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
         const message = `${expectedTerminalToolMessage(contract)} Plain executor messages are not accepted as terminal results.`;
         if (repairAttempts >= MAX_TERMINAL_CONTRACT_REPAIRS) return { status: 'failed', summary: message, result: executorFailure(message) };
         repairAttempts++;
-        outcome = await llm.continueAfterPlainText(`${message} Do not summarize, simulate file writes, or describe what you would do. Use tools. Write record://status.md?v=next if needed, then call emit_executor_result with valid JSON arguments.`);
+        outcome = await llm.continueAfterPlainText(`${message} Do not summarize, simulate file writes, or describe what you would do. Use tools. Write record://status.md?v=next if needed, then call emit_result with valid JSON arguments.`);
         continue;
       }
       if (outcome.type === 'error') return { status: 'failed', summary: outcome.error, result: executorFailure(outcome.error) };
@@ -81,14 +81,14 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
         if (invalidTerminal) {
           if (repairAttempts >= MAX_TERMINAL_CONTRACT_REPAIRS) return { status: 'failed', summary: invalidTerminal, result: executorFailure(invalidTerminal) };
           repairAttempts++;
-          outcome = await llm.appendToolResult(outcome.toolCallId, { success: false, error: invalidTerminal }, () => [{ role: 'user', content: `${invalidTerminal} Call emit_executor_result again with valid JSON arguments.` }]);
+          outcome = await llm.appendToolResult(outcome.toolCallId, { success: false, error: invalidTerminal }, () => [{ role: 'user', content: `${invalidTerminal} Call emit_result again with valid JSON arguments.` }]);
           continue;
         }
         const missingRecord = this.closeRequiredStatusRecord(input.card.version_seq);
         if (missingRecord) {
           if (repairAttempts >= MAX_TERMINAL_CONTRACT_REPAIRS) return { status: 'failed', summary: missingRecord, result: executorFailure(missingRecord) };
           repairAttempts++;
-          outcome = await llm.appendToolResult(outcome.toolCallId, { success: false, error: missingRecord }, () => [{ role: 'user', content: `${missingRecord} Create record://status.md?v=next, then call emit_executor_result again.` }]);
+          outcome = await llm.appendToolResult(outcome.toolCallId, { success: false, error: missingRecord }, () => [{ role: 'user', content: `${missingRecord} Create record://status.md?v=next, then call emit_result again.` }]);
           continue;
         }
         return this.projectExecutorTerminal(outcome, contract);
@@ -106,7 +106,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
       agentId: executorActorId(this.cardId),
       role: 'executor',
       sessionId: executorActorId(this.cardId),
-      systemPrompt: `Execute terminal card ${input.card.id}: ${input.card.title}\n\n${cardBriefForPrompt(this.projectRoot, input.card)}\n\nUse process and file tools when needed. Write your current invocation status to:\nrecord://status.md?v=next\n\nDo not call emit_executor_result until the status file exists. End by calling emit_executor_result; plain text or JSON messages are not accepted as terminal reports.`,
+      systemPrompt: `Execute terminal card ${input.card.id}: ${input.card.title}\n\n${cardBriefForPrompt(this.projectRoot, input.card)}\n\nUse process and file tools when needed. Write your current invocation status to:\nrecord://status.md?v=next\n\nDo not call emit_result until the status file exists. End by calling emit_result with status done or failed and a summary; plain text or JSON messages are not accepted as terminal reports.`,
       contextMessages: this.notificationContextMessages(input, inputId),
       tools: [...surfaceToolDefinitions(surface), ...contract.terminals.map((terminal) => terminal.toolDefinition)],
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),
@@ -156,10 +156,9 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
       const message = error instanceof Error ? error.message : String(error);
       return { status: 'failed', summary: message, result: executorFailure(message) };
     }
-    const summary = result.summary ?? result.status_text;
+    const summary = result.summary;
     if (result.status === 'done') return { status: 'done', summary, result: executorSuccess(result) };
-    const error = result.error ?? summary;
-    return { status: 'failed', summary: error, result: executorFailure(error, executorResultRecord(result), result.status_text) };
+    return { status: 'failed', summary, result: executorFailure(summary) };
   }
 
   private validateExecutorTerminal(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, contract = createExecutorContract()): string | null {
@@ -195,15 +194,10 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
 
 function executorSuccess(result: ExecutorResult) {
   const at = new Date().toISOString();
-  const summary = result.summary ?? result.status_text;
-  return { kind: 'executor_success' as const, executor: executorResultRecord(result), verified_at: at, latest_self_report: { result: 'done', outcome: 'done', summary, status_text: result.status_text, at }, warnings: result.warnings };
+  return { kind: 'executor_success' as const, executor: { summary: result.summary }, verified_at: at, latest_self_report: { result: 'done', outcome: 'done', summary: result.summary, status_text: result.summary, at }, warnings: [] };
 }
 
 function executorFailure(error: string, partialResult: Record<string, unknown> | null = null, statusText = error) {
   const at = new Date().toISOString();
   return { kind: 'executor_failure' as const, error, partial_result: partialResult, latest_self_report: { result: 'failed', outcome: 'failed', summary: error, status_text: statusText, at } };
-}
-
-function executorResultRecord(result: ExecutorResult): Record<string, unknown> {
-  return { ...(result.result ?? {}), warnings: result.warnings };
 }

@@ -32,9 +32,10 @@ function writeBrief(projectRoot: string, cardId: string, content: string, cardVe
 }
 
 function executorResult(cardId: string, statusText: string, status: 'done' | 'failed' = 'done') {
+  void cardId;
   return {
     kind: 'tool_calls' as const,
-    tool_calls: [{ id: `executor-${status}`, type: 'function' as const, function: { name: 'emit_executor_result', arguments: JSON.stringify({ card_id: cardId, status, status_text: statusText, summary: statusText, error: status === 'failed' ? statusText : undefined, result: { summary: statusText }, warnings: [] }) } }],
+    tool_calls: [{ id: `executor-${status}`, type: 'function' as const, function: { name: 'emit_result', arguments: JSON.stringify({ status, summary: statusText }) } }],
   };
 }
 
@@ -61,7 +62,7 @@ function withExecutorStatusRecord(responder: (input: LlmInvocationInput, signal:
         }
       }
       const result = await responder(input, new AbortController().signal);
-      if (result.kind === 'tool_calls' && result.tool_calls.some((toolCall) => toolCall.function.name === 'emit_executor_result')) {
+      if (result.kind === 'tool_calls' && result.tool_calls.some((toolCall) => toolCall.function.name === 'emit_result')) {
         pending.set(key, result);
         const count = (statusWrites.get(key) ?? 0) + 1;
         statusWrites.set(key, count);
@@ -100,7 +101,7 @@ describe('TerminalCardProcessorActor', () => {
     expect(provider.completeTurn).toHaveBeenCalledWith(expect.objectContaining({
       agentId: `executor:${card.id}`,
       role: 'executor',
-      terminalToolNames: ['emit_executor_result'],
+      terminalToolNames: ['emit_result'],
       systemPrompt: expect.stringContaining('record://status.md?v=next'),
       tools: expect.arrayContaining(['read', 'write', 'glob', 'grep', 'edit', 'apply_patch', 'run_command', 'wait_process', 'kill_process', 'list_card_history', 'get_card_history_entry', 'diff_card', 'websearch', 'webfetch', 'skill', 'mcp_tool_call'].map((name) => expect.objectContaining({ function: expect.objectContaining({ name }) }))),
     }), expect.any(AbortSignal));
@@ -171,7 +172,7 @@ describe('TerminalCardProcessorActor', () => {
     const outcome = await actor.activate({ kind: 'parent', cardId: 'project' });
 
     expect(outcome).toMatchObject({ status: 'failed', result: { kind: 'executor_failure' } });
-    expect(outcome.summary).toContain('emit_executor_result');
+    expect(outcome.summary).toContain('emit_result');
     expect(provider.completeTurn).toHaveBeenCalledTimes(3);
   }));
 
@@ -203,7 +204,7 @@ describe('TerminalCardProcessorActor', () => {
     const provider = withExecutorStatusRecord((input: LlmInvocationInput) => {
       if (!emittedInvalid) {
         emittedInvalid = true;
-        return { kind: 'tool_calls' as const, tool_calls: [{ id: 'bad-executor', type: 'function' as const, function: { name: 'emit_executor_result', arguments: JSON.stringify({ status: 'done' }) } }] };
+        return { kind: 'tool_calls' as const, tool_calls: [{ id: 'bad-executor', type: 'function' as const, function: { name: 'emit_result', arguments: JSON.stringify({ status: 'done' }) } }] };
       }
       expect(input.episodeContext.lastToolResult).toMatchObject({ result: { success: false, error: expect.any(String) } });
       return executorResult(card.id, 'valid after terminal repair');

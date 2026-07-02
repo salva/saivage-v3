@@ -6,7 +6,7 @@ const isoNow = () => new Date().toISOString();
 const validAttemptSucceeded = {
   session_id: 's1', role: 'planner', attempt: 0, same_candidate_attempt: 0,
   provider: 'p', model: 'm', account: '_', started_at: isoNow(), duration_ms: 12,
-  outcome: { kind: 'succeeded', terminal_tool: 'emit_planner_result' },
+  outcome: { kind: 'succeeded', terminal_tool: 'emit_result' },
 };
 const validAttemptFailed = {
   session_id: 's1', role: 'planner', attempt: 0, same_candidate_attempt: 0,
@@ -49,7 +49,7 @@ describe('llm_attempt payload schema', () => {
     expect(() => schema.parse({ ...validAttemptSucceeded, outcome: { kind: 'succeeded' } })).toThrow();
   });
   it('rejects failed outcome with terminal_tool', () => {
-    expect(() => schema.parse({ ...validAttemptFailed, outcome: { ...validAttemptFailed.outcome, terminal_tool: 'emit_planner_result' } })).toThrow();
+    expect(() => schema.parse({ ...validAttemptFailed, outcome: { ...validAttemptFailed.outcome, terminal_tool: 'emit_result' } })).toThrow();
   });
 });
 
@@ -60,7 +60,7 @@ describe('llm_invocation_summary payload schema (refine rules)', () => {
     expect(() => schema.parse({ ...base, verdict: 'succeeded' })).toThrow();
     expect(() => schema.parse({
       ...base, verdict: 'succeeded',
-      final_provider: 'p', final_model: 'm', final_account: '_', final_terminal_tool: 'emit_planner_result',
+      final_provider: 'p', final_model: 'm', final_account: '_', final_terminal_tool: 'emit_result',
     })).not.toThrow();
     expect(() => schema.parse({
       ...base, verdict: 'succeeded',
@@ -73,7 +73,7 @@ describe('llm_invocation_summary payload schema (refine rules)', () => {
     expect(() => schema.parse({ ...base, verdict: 'cancelled', last_failure_class: 'cancelled' })).not.toThrow();
   });
   it('accepts optional contract_verdict', () => {
-    expect(() => schema.parse({ ...base, verdict: 'succeeded', final_provider: 'p', final_model: 'm', final_account: '_', final_terminal_tool: 'emit_planner_result', contract_verdict: 'satisfied' })).not.toThrow();
+    expect(() => schema.parse({ ...base, verdict: 'succeeded', final_provider: 'p', final_model: 'm', final_account: '_', final_terminal_tool: 'emit_result', contract_verdict: 'satisfied' })).not.toThrow();
   });
   it('rejects unknown contract_verdict value', () => {
     expect(() => schema.parse({ ...base, verdict: 'exhausted', last_failure_class: 'rate_limit', contract_verdict: 'bogus' })).toThrow();

@@ -1,8 +1,8 @@
 import { z } from 'zod';
-import { reviewerResultSchema } from '../schemas/index.js';
 
 export const ReviewerResultEnvelopeSchema = z.object({
-  assessment: reviewerResultSchema,
+  status: z.enum(['done', 'rework', 'blocked', 'failed']),
+  summary: z.string().min(1),
 }).strict();
 
 export type ReviewerResultEnvelope = z.infer<typeof ReviewerResultEnvelopeSchema>;

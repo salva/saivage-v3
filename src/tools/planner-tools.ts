@@ -64,14 +64,7 @@ export interface PlannerToolsServiceOptions {
   projectRoot?: string;
 }
 
-const REPORTABLE_OUTCOMES: Record<
-  'report_goal_done' | 'report_goal_failed' | 'report_goal_blocked',
-  Extract<CardStatus, 'done' | 'failed' | 'blocked'>
-> = {
-  report_goal_done: 'done',
-  report_goal_failed: 'failed',
-  report_goal_blocked: 'blocked',
-};
+type PlannerReportStatus = Extract<CardStatus, 'done' | 'failed' | 'blocked'>;
 
 function requireCard(store: CardStore, cardId: string): CardRecord {
   const card = store.read(cardId);
@@ -346,17 +339,17 @@ export class PlannerToolsService {
   }
 
   reportGoal(
-    toolName: keyof typeof REPORTABLE_OUTCOMES,
+    status: PlannerReportStatus,
     goalId: string,
     input: ReportGoalInput,
     sessionId?: string,
   ): ReportGoalResult {
     const goal = requireCard(this.store, goalId);
     if ((goal.type !== 'goal' && goal.type !== 'project') || !input.status_text.trim()) {
-      throw new Error(`Tool '${toolName}' requires a goal/project card and non-empty status_text.`);
+      throw new Error(`Planner report '${status}' requires a goal/project card and non-empty status_text.`);
     }
     const evidenceCardIds = input.evidence_card_ids ?? input.report?.evidence_card_ids ?? [];
-    if (toolName === 'report_goal_done') {
+    if (status === 'done') {
       const reasons = collectSubtreeReadinessReasons(this.store, goalId);
       if (reasons.length > 0) {
         throw new PlannerToolError(
@@ -373,8 +366,8 @@ export class PlannerToolsService {
     const report: GoalSelfReport = {
       ...(input.report ?? {}),
       summary: input.report?.summary ?? input.summary ?? '',
-      result: input.report?.result ?? REPORTABLE_OUTCOMES[toolName],
-      outcome: input.report?.outcome ?? REPORTABLE_OUTCOMES[toolName],
+      result: input.report?.result ?? status,
+      outcome: input.report?.outcome ?? status,
       evidence_card_ids: evidenceCardIds,
       status_text: input.status_text,
       at: new Date().toISOString(),
@@ -382,7 +375,7 @@ export class PlannerToolsService {
 
     const updated = this.acceptReport(
       goal,
-      toolName,
+      status,
       report,
       input.status_text,
       sessionId,
@@ -392,13 +385,12 @@ export class PlannerToolsService {
 
   private acceptReport(
     goal: CardRecord,
-    toolName: keyof typeof REPORTABLE_OUTCOMES,
+    status: PlannerReportStatus,
     report: GoalSelfReport,
     statusText: string,
     sessionId: string | undefined,
   ): CardRecord {
     const completedAt = new Date().toISOString();
-    const status = REPORTABLE_OUTCOMES[toolName];
     const lifecycle = reportLifecycle(status, report, statusText, completedAt);
     // Planner terminal reports commit done/failed/blocked lifecycle state with result evidence.
     return this.store.repairTerminalLifecycle(goal.id, {

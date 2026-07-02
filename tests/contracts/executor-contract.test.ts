@@ -4,25 +4,23 @@ import { createExecutorContract } from '../../src/contracts/executor-contract.js
 const contract = createExecutorContract();
 
 describe('executor contract', () => {
-  it('exposes single terminal emit_executor_result', () => {
-    expect(contract.terminals.map((t) => t.name)).toEqual(['emit_executor_result']);
-    expect(contract.isTerminalToolName('emit_executor_result')).toBe(true);
+  it('exposes single terminal emit_result', () => {
+    expect(contract.terminals.map((t) => t.name)).toEqual(['emit_result']);
+    expect(contract.isTerminalToolName('emit_result')).toBe(true);
     expect(contract.isTerminalToolName('other')).toBe(false);
   });
 
-  it('projects envelope including default card_id and null fallback_with_evidence', () => {
+  it('projects the common executor result envelope', () => {
     const r = contract.verify({
       id: 'tc-1',
-      name: 'emit_executor_result',
-      args: { status: 'done', status_text: 'ok' },
+      name: 'emit_result',
+      args: { status: 'done', summary: 'ok' },
     });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     const result = contract.project(r.envelope, r.terminalName);
-    expect(result.card_id).toBe('');
     expect(result.status).toBe('done');
-    expect(result.status_text).toBe('ok');
-    expect(result.fallback_with_evidence).toBeNull();
+    expect(result.summary).toBe('ok');
   });
 
   it('rejects unknown terminal names', () => {

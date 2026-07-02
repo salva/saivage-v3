@@ -10,19 +10,20 @@ import {
 import { zodToJsonSchemaMini } from '../agents/zod-to-jsonschema-mini.js';
 import { describeTerminals } from './describe-terminals.js';
 import { verifyAgainstTerminals } from './verify-against-terminals.js';
+import { TERMINAL_RESULT_TOOL_NAME } from './result-envelope.js';
 
 const REVIEWER_TERMINAL_DESC =
   'Emit the reviewer result envelope as the final action of this turn.';
 
 export function createReviewerContract(): Contract<ReviewerResultEnvelope, ReviewerResult> {
   const terminal: ContractTerminalDescriptor = {
-    name: 'emit_reviewer_result',
+    name: TERMINAL_RESULT_TOOL_NAME,
     description: REVIEWER_TERMINAL_DESC,
     schema: ReviewerResultEnvelopeSchema,
     toolDefinition: {
       type: 'function',
       function: {
-        name: 'emit_reviewer_result',
+        name: TERMINAL_RESULT_TOOL_NAME,
         description: REVIEWER_TERMINAL_DESC,
         parameters: zodToJsonSchemaMini(ReviewerResultEnvelopeSchema) as unknown as Record<string, unknown>,
       },
@@ -43,7 +44,7 @@ export function createReviewerContract(): Contract<ReviewerResultEnvelope, Revie
       return verifyAgainstTerminals<ReviewerResultEnvelope>(call, terminals, 'reviewer');
     },
     project(envelope) {
-      return { assessment: envelope.assessment };
+      return { status: envelope.status, summary: envelope.summary };
     },
   };
 }

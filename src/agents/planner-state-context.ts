@@ -15,7 +15,7 @@ export interface PlannerStateContextInput {
 }
 
 type CandidateNextAction = {
-  kind: 'wait_for_activation' | 'activate_child' | 'report_goal_done' | 'inspect_state' | 'decompose_goal';
+  kind: 'wait_for_activation' | 'activate_child' | 'emit_result_done' | 'inspect_state' | 'decompose_goal';
   card_id?: string;
   confidence: 'high' | 'medium' | 'low';
   reason: string;
@@ -65,7 +65,7 @@ function inferNextAction(children: CardRecord[], runtimeState: RuntimeState | nu
 
   if (children.length > 0 && children.every((child) => child.status === 'done')) {
     return {
-      kind: 'report_goal_done',
+      kind: 'emit_result_done',
       confidence: 'high',
       reason: 'All direct children are done.',
     };

@@ -1,9 +1,8 @@
 import { describe, expect, it } from '@jest/globals';
 import { buildReviewAssessment, nextReviewerAssessmentId, reviewerSessionId, validateReviewerAssessment } from '../../src/runtime/reviewer-assessment.js';
-import type { CardRecord } from '../../src/schemas/types.js';
-import type { ReviewerResult } from '../../src/contracts/index.js';
+import type { CardRecord, ReviewAssessment } from '../../src/schemas/types.js';
 
-function assessment(overrides: Partial<ReviewerResult['assessment']> = {}): ReviewerResult['assessment'] {
+function assessment(overrides: Partial<ReviewAssessment> = {}): Pick<ReviewAssessment, 'result' | 'summary' | 'achieved' | 'issues' | 'evidence_card_ids'> {
   return { result: 'pass', summary: 'ok', achieved: ['a'], issues: [], evidence_card_ids: ['goal-a'], ...overrides };
 }
 

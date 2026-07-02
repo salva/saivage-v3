@@ -24,7 +24,7 @@ function message(partial: Partial<AgentMessage> & { content: string }): AgentMes
 const tool: ToolDefinition = {
   type: 'function',
   function: {
-    name: 'report_goal_done',
+    name: 'emit_result',
     description: 'Report terminal completion.',
     parameters: {
       type: 'object',
@@ -44,7 +44,7 @@ const opts: LlmCompleteOptions = {
   stream: false,
   contract_id: 'planner.v1',
   contractName: 'planner',
-  terminalToolOffered: ['report_goal_done'],
+  terminalToolOffered: ['emit_result'],
 };
 
 describe('LLM request section diagnostics', () => {

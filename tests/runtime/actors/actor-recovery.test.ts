@@ -78,12 +78,12 @@ function appendLoggedToolCall(projectRoot: string, cardId: string, role: 'planne
   writeFileSync(record.absolutePath, `${role} recovery record`, 'utf8');
 }
 
-function reviewerPass(evidenceId: string, summary = 'review ok'): Record<string, unknown> {
-  return { assessment: { result: 'pass', summary, achieved: ['done'], issues: [], evidence_card_ids: [evidenceId] } };
+function reviewerPass(_evidenceId: string, summary = 'review ok'): Record<string, unknown> {
+  return { status: 'done', summary };
 }
 
-function reviewerCorrections(evidenceId: string, summary = 'needs correction'): Record<string, unknown> {
-  return { assessment: { result: 'needs_corrections', summary, achieved: [], issues: [{ severity: 'blocker', summary }], evidence_card_ids: [evidenceId] } };
+function reviewerCorrections(_evidenceId: string, summary = 'needs correction'): Record<string, unknown> {
+  return { status: 'rework', summary };
 }
 
 function recoveryProcessorDeps(projectRoot: string, store: CardStore) {
@@ -358,7 +358,7 @@ describe('actor recovery plan', () => {
 
   it('uses role-agnostic and fact-based recovery diagnostic messages', () => withTempProject((projectRoot) => {
     saveSnapshot(projectRoot, 'planner:G-provider', 'llm', 'calling_provider', { cardId: 'G-provider', active_reconstruction: llmActive('G-provider') });
-    saveSnapshot(projectRoot, 'reviewer:G-tool', 'llm', 'waiting_tool', { cardId: 'G-tool', active_reconstruction: llmWaitingActive('G-tool', 'reviewer', 'emit_reviewer_result') });
+    saveSnapshot(projectRoot, 'reviewer:G-tool', 'llm', 'waiting_tool', { cardId: 'G-tool', active_reconstruction: llmWaitingActive('G-tool', 'reviewer', 'emit_result') });
 
     const diagnostics = projectActorRecovery(buildActorRecoveryPlan(projectRoot, { read: jest.fn(() => ({ id: 'G', type: 'goal' })) })).diagnostics.map((diagnostic) => diagnostic.message).join('\n');
 
@@ -422,8 +422,8 @@ describe('actor recovery plan', () => {
     const { store, cardId } = createRunningGoal(projectRoot);
     saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, active_reconstruction: cardActive(cardId) });
     saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId, active_reconstruction: processorActive(cardId) });
-    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'planner', 'emit_planner_result') });
-    appendLoggedToolCall(projectRoot, cardId, 'planner', 'emit_planner_result', { status: 'blocked', blocked_reason: 'needs operator', summary: 'needs operator' });
+    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'planner', 'emit_result') });
+    appendLoggedToolCall(projectRoot, cardId, 'planner', 'emit_result', { status: 'blocked', summary: 'needs operator' });
     const plan = buildActorRecoveryPlan(projectRoot, store);
 
     const recoveries = recoverProjectedTerminalToolOutcomes(plan, recoveryProcessorDeps(projectRoot, store));
@@ -439,8 +439,8 @@ describe('actor recovery plan', () => {
     const { store, cardId } = createRunningGoal(projectRoot);
     saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, active_reconstruction: cardActive(cardId) });
     saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId, active_reconstruction: processorActive(cardId) });
-    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'planner', 'emit_planner_result') });
-    appendLoggedToolCall(projectRoot, cardId, 'planner', 'emit_planner_result', { status: 'blocked', blocked_reason: 'needs operator', summary: 'needs operator' }, 'call-1', false);
+    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'planner', 'emit_result') });
+    appendLoggedToolCall(projectRoot, cardId, 'planner', 'emit_result', { status: 'blocked', summary: 'needs operator' }, 'call-1', false);
 
     expect(recoverProjectedTerminalToolOutcomes(buildActorRecoveryPlan(projectRoot, store), recoveryProcessorDeps(projectRoot, store))).toEqual([]);
     expect(store.read(cardId)?.status).toBe('running');
@@ -451,8 +451,8 @@ describe('actor recovery plan', () => {
     const { store, cardId } = createRunningGoal(projectRoot);
     saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, active_reconstruction: cardActive(cardId) });
     saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId, active_reconstruction: processorActive(cardId) });
-    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'planner', 'emit_planner_result') });
-    appendLoggedToolCall(projectRoot, cardId, 'planner', 'emit_planner_result', { status: 'done', summary: 'done' });
+    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'planner', 'emit_result') });
+    appendLoggedToolCall(projectRoot, cardId, 'planner', 'emit_result', { status: 'done', summary: 'done' });
     const plan = buildActorRecoveryPlan(projectRoot, store);
 
     expect(recoverProjectedTerminalToolOutcomes(plan, recoveryProcessorDeps(projectRoot, store))).toEqual([]);
@@ -464,10 +464,10 @@ describe('actor recovery plan', () => {
     const evidenceId = createDoneEvidence(store, cardId);
     saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, active_reconstruction: cardActive(cardId) });
     saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId, active_reconstruction: processorActive(cardId) });
-    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'planner', 'emit_planner_result') });
-    saveSnapshot(projectRoot, `reviewer:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'reviewer', 'emit_reviewer_result') });
-    appendLoggedToolCall(projectRoot, cardId, 'planner', 'emit_planner_result', { status: 'done', summary: 'done' });
-    appendLoggedToolCall(projectRoot, cardId, 'reviewer', 'emit_reviewer_result', reviewerPass(evidenceId));
+    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'planner', 'emit_result') });
+    saveSnapshot(projectRoot, `reviewer:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'reviewer', 'emit_result') });
+    appendLoggedToolCall(projectRoot, cardId, 'planner', 'emit_result', { status: 'done', summary: 'done' });
+    appendLoggedToolCall(projectRoot, cardId, 'reviewer', 'emit_result', reviewerPass(evidenceId));
 
     const recoveries = recoverProjectedTerminalToolOutcomes(buildActorRecoveryPlan(projectRoot, store), recoveryProcessorDeps(projectRoot, store));
     cleanupConvertedRecoverySnapshots(projectRoot, recoveries);
@@ -483,10 +483,10 @@ describe('actor recovery plan', () => {
     const evidenceId = createDoneEvidence(store, cardId);
     saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, active_reconstruction: cardActive(cardId) });
     saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId, active_reconstruction: processorActive(cardId) });
-    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'planner', 'emit_planner_result') });
-    saveSnapshot(projectRoot, `reviewer:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'reviewer', 'emit_reviewer_result') });
-    appendLoggedToolCall(projectRoot, cardId, 'planner', 'emit_planner_result', { status: 'done', summary: 'done' });
-    appendLoggedToolCall(projectRoot, cardId, 'reviewer', 'emit_reviewer_result', reviewerPass(evidenceId));
+    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'planner', 'emit_result') });
+    saveSnapshot(projectRoot, `reviewer:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'reviewer', 'emit_result') });
+    appendLoggedToolCall(projectRoot, cardId, 'planner', 'emit_result', { status: 'done', summary: 'done' });
+    appendLoggedToolCall(projectRoot, cardId, 'reviewer', 'emit_result', reviewerPass(evidenceId));
     const deps = recoveryProcessorDeps(projectRoot, store);
     const traversalLessStore = { read: store.read.bind(store), commitTerminalLifecyclePatch: store.commitTerminalLifecyclePatch.bind(store) };
 
@@ -498,10 +498,10 @@ describe('actor recovery plan', () => {
     const evidenceId = createDoneEvidence(store, cardId);
     saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, active_reconstruction: cardActive(cardId) });
     saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId, active_reconstruction: processorActive(cardId) });
-    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'planner', 'emit_planner_result') });
-    saveSnapshot(projectRoot, `reviewer:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'reviewer', 'emit_reviewer_result') });
-    appendLoggedToolCall(projectRoot, cardId, 'planner', 'emit_planner_result', { status: 'done', summary: 'done' });
-    appendLoggedToolCall(projectRoot, cardId, 'reviewer', 'emit_reviewer_result', reviewerCorrections(evidenceId, 'fix issue'));
+    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'planner', 'emit_result') });
+    saveSnapshot(projectRoot, `reviewer:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'reviewer', 'emit_result') });
+    appendLoggedToolCall(projectRoot, cardId, 'planner', 'emit_result', { status: 'done', summary: 'done' });
+    appendLoggedToolCall(projectRoot, cardId, 'reviewer', 'emit_result', reviewerCorrections(evidenceId, 'fix issue'));
 
     const recoveries = recoverProjectedTerminalToolOutcomes(buildActorRecoveryPlan(projectRoot, store), recoveryProcessorDeps(projectRoot, store));
 
@@ -512,14 +512,14 @@ describe('actor recovery plan', () => {
   it('refuses planner done recovery when reviewer reconstruction identity is missing', () => withTempProject((projectRoot) => {
     const { store, cardId } = createRunningGoal(projectRoot);
     const evidenceId = createDoneEvidence(store, cardId);
-    const reviewer = llmWaitingActive(cardId, 'reviewer', 'emit_reviewer_result');
+    const reviewer = llmWaitingActive(cardId, 'reviewer', 'emit_result');
     (reviewer.input as Record<string, unknown>).episodeContext = { cardId };
     saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, active_reconstruction: cardActive(cardId) });
     saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId, active_reconstruction: processorActive(cardId) });
-    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'planner', 'emit_planner_result') });
+    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'planner', 'emit_result') });
     saveSnapshot(projectRoot, `reviewer:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: reviewer });
-    appendLoggedToolCall(projectRoot, cardId, 'planner', 'emit_planner_result', { status: 'done', summary: 'done' });
-    appendLoggedToolCall(projectRoot, cardId, 'reviewer', 'emit_reviewer_result', reviewerPass(evidenceId));
+    appendLoggedToolCall(projectRoot, cardId, 'planner', 'emit_result', { status: 'done', summary: 'done' });
+    appendLoggedToolCall(projectRoot, cardId, 'reviewer', 'emit_result', reviewerPass(evidenceId));
 
     expect(recoverProjectedTerminalToolOutcomes(buildActorRecoveryPlan(projectRoot, store), recoveryProcessorDeps(projectRoot, store))).toEqual([]);
   }));
@@ -529,10 +529,10 @@ describe('actor recovery plan', () => {
     const incomplete = store.create({ type: 'code', parent: cardId, depth: 2, title: 'incomplete', brief: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
     saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, active_reconstruction: cardActive(cardId) });
     saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId, active_reconstruction: processorActive(cardId) });
-    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'planner', 'emit_planner_result') });
-    saveSnapshot(projectRoot, `reviewer:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'reviewer', 'emit_reviewer_result') });
-    appendLoggedToolCall(projectRoot, cardId, 'planner', 'emit_planner_result', { status: 'done', summary: 'done' });
-    appendLoggedToolCall(projectRoot, cardId, 'reviewer', 'emit_reviewer_result', reviewerPass(incomplete.id));
+    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'planner', 'emit_result') });
+    saveSnapshot(projectRoot, `reviewer:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'reviewer', 'emit_result') });
+    appendLoggedToolCall(projectRoot, cardId, 'planner', 'emit_result', { status: 'done', summary: 'done' });
+    appendLoggedToolCall(projectRoot, cardId, 'reviewer', 'emit_result', reviewerPass(incomplete.id));
 
     expect(recoverProjectedTerminalToolOutcomes(buildActorRecoveryPlan(projectRoot, store), recoveryProcessorDeps(projectRoot, store))).toEqual([]);
     expect(store.read(cardId)?.status).toBe('running');
@@ -542,8 +542,8 @@ describe('actor recovery plan', () => {
     const { store, cardId } = createRunningTerminalCard(projectRoot);
     saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, active_reconstruction: cardActive(cardId) });
     saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'executing', { cardId, active_reconstruction: terminalProcessorActive(cardId) });
-    saveSnapshot(projectRoot, `executor:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'executor', 'emit_executor_result') });
-    appendLoggedToolCall(projectRoot, cardId, 'executor', 'emit_executor_result', { card_id: cardId, status: 'done', status_text: 'implemented', summary: 'implemented' });
+    saveSnapshot(projectRoot, `executor:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'executor', 'emit_result') });
+    appendLoggedToolCall(projectRoot, cardId, 'executor', 'emit_result', { status: 'done', summary: 'implemented' });
 
     const recoveries = recoverProjectedTerminalToolOutcomes(buildActorRecoveryPlan(projectRoot, store), recoveryProcessorDeps(projectRoot, store));
 
@@ -567,8 +567,8 @@ describe('actor recovery plan', () => {
     const { store, cardId } = createRunningGoal(projectRoot);
     saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, active_reconstruction: cardActive(cardId) });
     saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId, active_reconstruction: processorActive(cardId) });
-    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'planner', 'emit_planner_result') });
-    appendLoggedToolCall(projectRoot, cardId, 'planner', 'emit_planner_result', { status: 'blocked', blocked_reason: 'needs operator', summary: 'needs operator' });
+    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'planner', 'emit_result') });
+    appendLoggedToolCall(projectRoot, cardId, 'planner', 'emit_result', { status: 'blocked', summary: 'needs operator' });
 
     const recoveries = recoverActorStartupOutcomes(buildActorRecoveryPlan(projectRoot, store), recoveryProcessorDeps(projectRoot, store));
     cleanupConvertedRecoverySnapshots(projectRoot, recoveries);
@@ -583,8 +583,8 @@ describe('actor recovery plan', () => {
     const { store, cardId } = createRunningGoal(projectRoot);
     saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, active_reconstruction: cardActive(cardId) });
     saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId, active_reconstruction: processorActive(cardId) });
-    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'planner', 'emit_planner_result') });
-    appendLoggedToolCall(projectRoot, cardId, 'planner', 'emit_planner_result', { status: 'blocked', blocked_reason: 'needs operator', summary: 'needs operator' });
+    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'planner', 'emit_result') });
+    appendLoggedToolCall(projectRoot, cardId, 'planner', 'emit_result', { status: 'blocked', summary: 'needs operator' });
 
     runActorStartupRecovery(buildActorRecoveryPlan(projectRoot, store), recoveryProcessorDeps(projectRoot, store));
 

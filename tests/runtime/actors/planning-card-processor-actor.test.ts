@@ -54,17 +54,19 @@ function noopNotificationDelivery() {
   return { hasPendingNotifications: () => false, deliverNotificationsForInput: () => [] };
 }
 
-function plannerResult(status: 'done' | 'blocked' | 'continue', summary: string) {
+function plannerResult(status: 'done' | 'blocked' | 'failed', summary: string) {
   return {
     kind: 'tool_calls' as const,
-    tool_calls: [{ id: `planner-${status}`, type: 'function' as const, function: { name: 'emit_planner_result', arguments: JSON.stringify({ status, summary, blocked_reason: status === 'blocked' ? summary : undefined }) } }],
+    tool_calls: [{ id: `planner-${status}`, type: 'function' as const, function: { name: 'emit_result', arguments: JSON.stringify({ status, summary }) } }],
   };
 }
 
 function reviewerResult(overrides: Record<string, unknown> = {}) {
+  const status = overrides.result === 'needs_corrections' ? 'rework' : overrides.status ?? 'done';
+  const summary = typeof overrides.summary === 'string' ? overrides.summary : 'review ok';
   return {
     kind: 'tool_calls' as const,
-    tool_calls: [{ id: 'reviewer-result-1', type: 'function' as const, function: { name: 'emit_reviewer_result', arguments: JSON.stringify({ assessment: { result: 'pass', summary: 'review ok', achieved: ['planned'], issues: [], evidence_card_ids: ['card-1'], ...overrides } }) } }],
+    tool_calls: [{ id: 'reviewer-result-1', type: 'function' as const, function: { name: 'emit_result', arguments: JSON.stringify({ status, summary }) } }],
   };
 }
 
@@ -92,13 +94,13 @@ function withMandatoryRecords(responder: (input: LlmInvocationInput) => Promise<
       }
       const result = await responder(input);
       if (result.kind !== 'tool_calls') return result;
-      if (result.tool_calls.some((toolCall) => toolCall.function.name === 'emit_planner_result')) {
+      if (result.tool_calls.some((toolCall) => toolCall.function.name === 'emit_result') && input.role === 'planner') {
         pending.set(key, result);
         const count = (recordWrites.get(key) ?? 0) + 1;
         recordWrites.set(key, count);
         return recordWrite(`status-${key}-${count}`, 'record://status.md?v=next', `Status for ${input.episodeContext.cardId ?? key}`);
       }
-      if (result.tool_calls.some((toolCall) => toolCall.function.name === 'emit_reviewer_result')) {
+      if (result.tool_calls.some((toolCall) => toolCall.function.name === 'emit_result') && input.role === 'reviewer') {
         pending.set(key, result);
         const count = (recordWrites.get(key) ?? 0) + 1;
         recordWrites.set(key, count);
@@ -136,17 +138,17 @@ describe('PlanningCardProcessorActor', () => {
       contextMessages: expect.arrayContaining([
         expect.objectContaining({ role: 'user', content: 'Cancellation requested: stop' }),
       ]),
-      terminalToolNames: ['emit_planner_result'],
+      terminalToolNames: ['emit_result'],
       systemPrompt: expect.stringContaining('record://status.md?v=next'),
-      tools: expect.arrayContaining([expect.objectContaining({ function: expect.objectContaining({ name: 'emit_planner_result' }) })]),
+      tools: expect.arrayContaining([expect.objectContaining({ function: expect.objectContaining({ name: 'emit_result' }) })]),
     }), expect.any(AbortSignal));
     expect(provider.completeTurn).toHaveBeenCalledWith(expect.objectContaining({
       agentId: `reviewer:${project.id}`,
       role: 'reviewer',
       sessionId: `reviewer:${project.id}:assessment-${project.id}-1`,
-      terminalToolNames: ['emit_reviewer_result'],
+      terminalToolNames: ['emit_result'],
       systemPrompt: expect.stringContaining('record://review.md?v=next'),
-      tools: expect.arrayContaining(['read', 'write', 'glob', 'grep', 'edit', 'list_card_history', 'get_card_history_entry', 'diff_card', 'websearch', 'webfetch', 'skill', 'mcp_tool_call', 'emit_reviewer_result'].map((name) => expect.objectContaining({ function: expect.objectContaining({ name }) }))),
+      tools: expect.arrayContaining(['read', 'write', 'glob', 'grep', 'edit', 'list_card_history', 'get_card_history_entry', 'diff_card', 'websearch', 'webfetch', 'skill', 'mcp_tool_call', 'emit_result'].map((name) => expect.objectContaining({ function: expect.objectContaining({ name }) }))),
     }), expect.any(AbortSignal));
   }));
 
@@ -579,27 +581,27 @@ describe('PlanningCardProcessorActor', () => {
     expect(provider.completeTurn).toHaveBeenCalledWith(expect.objectContaining({ agentId: `reviewer:${goal.id}`, role: 'reviewer', sessionId: `reviewer:${goal.id}:assessment-${goal.id}-1` }), expect.any(AbortSignal));
   }));
 
-  it('blocks planner done when planner-owned reviewer cites invalid evidence', async () => withTempProject(async (projectRoot) => {
+  it('blocks planner done when planner-owned reviewer requests rework', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     const project = createProject(store);
     markDone(store, createGoal(store, project.id));
-    const provider = withMandatoryRecords((input: LlmInvocationInput) => input.role === 'reviewer' ? reviewerResult({ evidence_card_ids: ['missing'] }) : plannerResult('done', 'done'));
+    const provider = withMandatoryRecords((input: LlmInvocationInput) => input.role === 'reviewer' ? reviewerResult({ result: 'needs_corrections', summary: 'missing proof' }) : plannerResult('done', 'done'));
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
 
     expect(outcome).toMatchObject({ status: 'blocked', result: { kind: 'planner_blocked', reviewer_correction: { kind: 'reviewer_correction' } } });
-    expect(outcome.summary).toContain('missing');
+    expect(outcome.summary).toContain('missing proof');
   }));
 
-  it('blocks planner done when reviewer cites only the reviewed card candidate result', async () => withTempProject(async (projectRoot) => {
+  it('blocks planner done when reviewer terminal status is rework', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     const project = createProject(store);
     markDone(store, createGoal(store, project.id));
-    const provider = withMandatoryRecords((input: LlmInvocationInput) => input.role === 'reviewer' ? reviewerResult({ evidence_card_ids: [project.id] }) : plannerResult('done', 'done'));
+    const provider = withMandatoryRecords((input: LlmInvocationInput) => input.role === 'reviewer' ? reviewerResult({ status: 'rework', summary: 'outside the reviewed subtree' }) : plannerResult('done', 'done'));
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
@@ -625,7 +627,7 @@ describe('PlanningCardProcessorActor', () => {
     expect(provider.completeTurn).toHaveBeenCalledTimes(2);
   }));
 
-  it('does not invoke reviewer for blocked or continue planner outcomes', async () => withTempProject(async (projectRoot) => {
+  it('does not invoke reviewer for blocked or failed planner outcomes', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     const project = createProject(store);
@@ -634,11 +636,11 @@ describe('PlanningCardProcessorActor', () => {
     actor.start();
 
     const blocked = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
-    provider.completeTurn = withMandatoryRecords(() => plannerResult('continue', 'continue')).completeTurn;
-    const continued = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
+    provider.completeTurn = withMandatoryRecords(() => plannerResult('failed', 'failed')).completeTurn;
+    const failed = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
 
     expect(blocked).toMatchObject({ status: 'blocked', result: { kind: 'planner_blocked' } });
-    expect(continued).toMatchObject({ status: 'blocked', result: { kind: 'planner_blocked', blocker_cause: 'non_actionable_continue' } });
+    expect(failed).toMatchObject({ status: 'failed', result: { kind: 'planner_failure' } });
     expect(provider.completeTurn).toHaveBeenCalledTimes(2);
   }));
 
@@ -675,7 +677,7 @@ describe('PlanningCardProcessorActor', () => {
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
 
     expect(outcome).toMatchObject({ status: 'failed', result: { kind: 'planner_failure' } });
-    expect(outcome.summary).toContain('emit_reviewer_result');
+    expect(outcome.summary).toContain('emit_result');
   }));
 
   it('repairs plain reviewer prose and accepts a later terminal assessment', async () => withTempProject(async (projectRoot) => {
@@ -714,7 +716,7 @@ describe('PlanningCardProcessorActor', () => {
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
 
     expect(outcome).toMatchObject({ status: 'failed', result: { kind: 'planner_failure' } });
-    expect(outcome.summary).toContain('emit_planner_result');
+    expect(outcome.summary).toContain('emit_result');
   }));
 
   it('repairs plain planner prose and succeeds with a later terminal result', async () => withTempProject(async (projectRoot) => {
@@ -743,7 +745,7 @@ describe('PlanningCardProcessorActor', () => {
     const provider = withMandatoryRecords((input: LlmInvocationInput) => {
       if (!emittedInvalid) {
         emittedInvalid = true;
-        return { kind: 'tool_calls' as const, tool_calls: [{ id: 'bad-planner', type: 'function' as const, function: { name: 'emit_planner_result', arguments: '{not json' } }] };
+        return { kind: 'tool_calls' as const, tool_calls: [{ id: 'bad-planner', type: 'function' as const, function: { name: 'emit_result', arguments: '{not json' } }] };
       }
       expect(input.episodeContext.lastToolResult).toMatchObject({ result: { success: false, error: expect.any(String) } });
       return plannerResult('blocked', 'valid after repair');

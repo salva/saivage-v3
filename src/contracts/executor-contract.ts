@@ -10,19 +10,20 @@ import {
 import { zodToJsonSchemaMini } from '../agents/zod-to-jsonschema-mini.js';
 import { describeTerminals } from './describe-terminals.js';
 import { verifyAgainstTerminals } from './verify-against-terminals.js';
+import { TERMINAL_RESULT_TOOL_NAME } from './result-envelope.js';
 
 const EXECUTOR_TERMINAL_DESC =
   'Emit the executor result envelope as the final action of this turn.';
 
 export function createExecutorContract(): Contract<ExecutorResultEnvelope, ExecutorResult> {
   const terminal: ContractTerminalDescriptor = {
-    name: 'emit_executor_result',
+    name: TERMINAL_RESULT_TOOL_NAME,
     description: EXECUTOR_TERMINAL_DESC,
     schema: ExecutorResultEnvelopeSchema,
     toolDefinition: {
       type: 'function',
       function: {
-        name: 'emit_executor_result',
+        name: TERMINAL_RESULT_TOOL_NAME,
         description: EXECUTOR_TERMINAL_DESC,
         parameters: zodToJsonSchemaMini(ExecutorResultEnvelopeSchema) as unknown as Record<string, unknown>,
       },
@@ -44,14 +45,8 @@ export function createExecutorContract(): Contract<ExecutorResultEnvelope, Execu
     },
     project(envelope) {
       return {
-        card_id: envelope.card_id ?? '',
         status: envelope.status,
-        status_text: envelope.status_text,
-        error: envelope.error,
-        result: envelope.result,
-        warnings: envelope.warnings ?? [],
         summary: envelope.summary,
-        fallback_with_evidence: null,
       };
     },
   };

@@ -27,7 +27,7 @@ const MESSAGES: AgentMessage[] = [
 const PLANNER_TERMINAL_TOOL: ToolDefinition = {
   type: 'function',
   function: {
-    name: 'emit_planner_result',
+    name: 'emit_result',
     description: 'planner terminal envelope',
     parameters: { type: 'object', properties: {}, additionalProperties: false },
   },
@@ -48,8 +48,8 @@ describe('buildOpenAICodexRequest wire shape', () => {
       phase: 'terminal',
       contract_id: 'test.v1',
       contractName: 'planner',
-      terminalToolOffered: ['emit_planner_result'],
-      terminalToolName: 'emit_planner_result',
+      terminalToolOffered: ['emit_result'],
+      terminalToolName: 'emit_result',
       terminalToolDefinition: PLANNER_TERMINAL_TOOL,
     };
     const body = buildOpenAICodexRequest(CANDIDATE, SYSTEM, MESSAGES, opts);
@@ -59,12 +59,12 @@ describe('buildOpenAICodexRequest wire shape', () => {
     expect(body.parallel_tool_calls).toBe(false);
     // Codex Responses API uses a bare string tool_choice for required-named
     // selection (NOT the nested-function shape used by Chat Completions).
-    expect(body.tool_choice).toBe('emit_planner_result');
+    expect(body.tool_choice).toBe('emit_result');
     // Flat tool entry: no nested `function` wrapper.
     expect(body.tools).toEqual([
       {
         type: 'function',
-        name: 'emit_planner_result',
+        name: 'emit_result',
         description: 'planner terminal envelope',
         parameters: { type: 'object', properties: {}, additionalProperties: false },
       },

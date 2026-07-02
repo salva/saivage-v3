@@ -13,7 +13,7 @@ import type { LlmCompleteResult } from '../../src/agents/llm-contracts.js';
 function tempRoot(prefix: string): string { return mkdtempSync(join(tmpdir(), prefix)); }
 
 function blockedPlannerProvider(): LLMProviderPort {
-  const terminal = { kind: 'tool_calls' as const, tool_calls: [{ id: 'planner-result-1', type: 'function' as const, function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'blocked', blocked_reason: 'waiting for operator', summary: 'waiting for operator' }) } }] };
+  const terminal = { kind: 'tool_calls' as const, tool_calls: [{ id: 'planner-result-1', type: 'function' as const, function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked', summary: 'waiting for operator' }) } }] };
   return withMandatoryRecords(() => terminal);
 }
 
@@ -32,11 +32,11 @@ function withMandatoryRecords(responder: (input: LlmInvocationInput) => Promise<
       }
       const result = await responder(input);
       if (result.kind !== 'tool_calls') return result;
-      if (result.tool_calls.some((toolCall) => toolCall.function.name === 'emit_planner_result')) {
+      if (result.tool_calls.some((toolCall) => toolCall.function.name === 'emit_result')) {
         pending.set(input.sessionId, result);
         return recordWrite(`status-${input.sessionId}`, 'record://status.md?v=next', `Status for ${input.episodeContext.cardId}`);
       }
-      if (result.tool_calls.some((toolCall) => toolCall.function.name === 'emit_reviewer_result')) {
+      if (result.tool_calls.some((toolCall) => toolCall.function.name === 'emit_result')) {
         pending.set(input.sessionId, result);
         return recordWrite(`review-${input.sessionId}`, 'record://review.md?v=next', `Review for ${input.episodeContext.cardId}`);
       }

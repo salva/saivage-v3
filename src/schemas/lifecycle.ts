@@ -45,7 +45,7 @@ export interface PlannerBlockedResult extends Record<string, unknown> {
   kind: 'planner_blocked';
   blocked_reason: string;
   resume_reason: string;
-  blocker_cause?: 'reviewer_unavailable' | 'token_budget_exceeded' | 'non_actionable_continue' | 'generic';
+  blocker_cause?: 'reviewer_unavailable' | 'token_budget_exceeded' | 'generic';
   reviewer_correction?: ReviewerCorrectionResult;
 }
 
@@ -154,7 +154,7 @@ export const plannerBlockedResultSchema: z.ZodType<PlannerBlockedResult> = z.obj
   kind: z.literal('planner_blocked'),
   blocked_reason: nonEmptyStringSchema,
   resume_reason: nonEmptyStringSchema,
-  blocker_cause: z.enum(['reviewer_unavailable', 'token_budget_exceeded', 'non_actionable_continue', 'generic']).optional(),
+  blocker_cause: z.enum(['reviewer_unavailable', 'token_budget_exceeded', 'generic']).optional(),
   reviewer_correction: reviewerCorrectionResultSchema.optional(),
 }).strict();
 

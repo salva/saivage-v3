@@ -195,19 +195,19 @@ describe('LLMActor', () => {
     actor.start();
 
     await expect(actor.turn(input())).resolves.toMatchObject({ type: 'result', result: { content: 'plain text' } });
-    const repaired = await actor.continueAfterPlainText('Use emit_planner_result.');
+    const repaired = await actor.continueAfterPlainText('Use emit_result.');
 
     expect(repaired).toMatchObject({ type: 'result', result: { content: 'repaired' } });
     const repairInput = (provider.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls[1]?.[0];
     expect(repairInput.inputId).toBe('turn-1:tool:1');
     expect(repairInput.contextMessages).toEqual([
       { role: 'assistant', content: 'plain text' },
-      { role: 'user', content: 'Use emit_planner_result.' },
+      { role: 'user', content: 'Use emit_result.' },
     ]);
     expect((actor.input?.contextMessages ?? []).filter((message) => (message as { role?: string; content?: string }).role === 'assistant' && (message as { content?: string }).content === 'plain text')).toHaveLength(1);
     const rows = jsonl(conversationSegmentPath(projectRoot, 'planner:project', 'seg-001.jsonl'));
     expect(rows.map((entry) => entry.kind)).toEqual(['system_prompt', 'activity', 'text', 'model_repair', 'activity', 'text']);
-    expect(rows.find((entry) => entry.kind === 'model_repair')).toMatchObject({ role: 'user', content: 'Use emit_planner_result.' });
+    expect(rows.find((entry) => entry.kind === 'model_repair')).toMatchObject({ role: 'user', content: 'Use emit_result.' });
   }));
 
   it('adds provider-visible tool history before hook continuation context', async () => withTempProject(async (projectRoot) => {

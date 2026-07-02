@@ -4,29 +4,22 @@ import { createReviewerContract } from '../../src/contracts/reviewer-contract.js
 const contract = createReviewerContract();
 
 describe('reviewer contract', () => {
-  it('exposes single terminal emit_reviewer_result', () => {
-    expect(contract.terminals.map((t) => t.name)).toEqual(['emit_reviewer_result']);
-    expect(contract.isTerminalToolName('emit_reviewer_result')).toBe(true);
+  it('exposes single terminal emit_result', () => {
+    expect(contract.terminals.map((t) => t.name)).toEqual(['emit_result']);
+    expect(contract.isTerminalToolName('emit_result')).toBe(true);
     expect(contract.isTerminalToolName('other')).toBe(false);
   });
 
-  it('passes assessment straight through projection', () => {
-    const assessment = {
-      result: 'pass' as const,
-      summary: 'looks good',
-      achieved: ['x'],
-      issues: [],
-      evidence_card_ids: ['c1'],
-    };
+  it('projects the common reviewer result envelope', () => {
     const r = contract.verify({
       id: 'tc-1',
-      name: 'emit_reviewer_result',
-      args: { assessment },
+      name: 'emit_result',
+      args: { status: 'rework', summary: 'needs changes' },
     });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     const projected = contract.project(r.envelope, r.terminalName);
-    expect(projected.assessment).toEqual(assessment);
+    expect(projected).toEqual({ status: 'rework', summary: 'needs changes' });
   });
 
   it('rejects unknown terminal names', () => {

@@ -20,9 +20,7 @@ export async function commitPlannerBlocked(input: {
       ? 'token_budget_exceeded'
       : input.resumeReason === 'reviewer_invocation_failed' || input.resumeReason === 'reviewer_unavailable'
           ? 'reviewer_unavailable'
-          : input.resumeReason === 'non_actionable_continue' || input.resumeReason === 'non_actionable_project_done'
-            ? 'non_actionable_continue'
-            : 'generic',
+          : 'generic',
   };
   const lifecycle = { status: 'blocked', result, error: input.blockedReason, completed_at: null } satisfies Extract<CardLifecycleState, { status: 'blocked' }>;
   assertNoTerminalOverlayErrors(input.card, lifecycle);

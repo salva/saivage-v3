@@ -65,7 +65,7 @@ function setStatus(store: CardStore, id: string, status: CardStatus): void {
   if (status !== 'running') store.setStatus(id, status);
 }
 
-describe('PlannerToolsService report_goal_done subtree gate', () => {
+describe('PlannerToolsService done report subtree gate', () => {
   let projectRoot: string;
   let store: CardStore;
   let goalId: string;
@@ -88,9 +88,9 @@ describe('PlannerToolsService report_goal_done subtree gate', () => {
     setStatus(store, childId, status);
     const service = new PlannerToolsService(store);
 
-    expect(() => service.reportGoal('report_goal_done', goalId, { status_text: 'done' })).toThrow(PlannerToolError);
+    expect(() => service.reportGoal('done', goalId, { status_text: 'done' })).toThrow(PlannerToolError);
     try {
-      service.reportGoal('report_goal_done', goalId, { status_text: 'done' });
+      service.reportGoal('done', goalId, { status_text: 'done' });
     } catch (err) {
       expect(err).toBeInstanceOf(PlannerToolError);
       expect((err as PlannerToolError).kind).toBe('subtree_not_ready');
@@ -103,7 +103,7 @@ describe('PlannerToolsService report_goal_done subtree gate', () => {
     setStatus(store, childId, status);
     const service = new PlannerToolsService(store);
 
-    const result = service.reportGoal('report_goal_done', goalId, { status_text: 'done' });
+    const result = service.reportGoal('done', goalId, { status_text: 'done' });
 
     expect(result.card.status).toBe('running');
     expect(result.card.lifecycle).toEqual({

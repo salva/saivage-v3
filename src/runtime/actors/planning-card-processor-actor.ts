@@ -77,11 +77,10 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const parsed = typed.result;
     if (parsed.status === 'done') return null;
     if (parsed.status === 'blocked') {
-      const summary = parsed.summary ?? parsed.blocked_reason ?? 'Planner blocked.';
-      return { status: 'blocked', summary, result: { kind: 'planner_blocked', blocked_reason: parsed.blocked_reason ?? summary, resume_reason: parsed.blocked_reason ?? summary } };
+      const summary = parsed.summary;
+      return { status: 'blocked', summary, result: { kind: 'planner_blocked', blocked_reason: summary, resume_reason: summary } };
     }
-    const summary = parsed.summary ?? 'Planner requested continuation without an action tool.';
-    return { status: 'blocked', summary, result: { kind: 'planner_blocked', blocked_reason: summary, resume_reason: 'non_actionable_continue', blocker_cause: 'non_actionable_continue' } };
+    return { status: 'failed', summary: parsed.summary, result: { kind: 'planner_failure', error: parsed.summary } };
   }
 
   private async runActivation(input: CardActivationInput): Promise<PlannerProcessorOutcome> {
@@ -95,7 +94,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
         const message = `${expectedTerminalToolMessage(contract)} Plain planner messages are not accepted as terminal results.`;
         if (repairAttempts >= MAX_TERMINAL_CONTRACT_REPAIRS) return this.plannerFailure(message);
         repairAttempts++;
-        outcome = await llm.continueAfterPlainText(`${message} Use tools. Write record://status.md?v=next if needed, then call emit_planner_result with valid JSON arguments.`);
+        outcome = await llm.continueAfterPlainText(`${message} Use tools. Write record://status.md?v=next if needed, then call emit_result with valid JSON arguments.`);
         continue;
       }
       if (outcome.type === 'error') return this.plannerFailure(outcome.error);
@@ -104,14 +103,14 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
         if (invalidTerminal) {
           if (repairAttempts >= MAX_TERMINAL_CONTRACT_REPAIRS) return this.plannerFailure(invalidTerminal);
           repairAttempts++;
-          outcome = await llm.appendToolResult(outcome.toolCallId, { success: false, error: invalidTerminal }, () => [{ role: 'user', content: `${invalidTerminal} Call emit_planner_result again with valid JSON arguments.` }]);
+          outcome = await llm.appendToolResult(outcome.toolCallId, { success: false, error: invalidTerminal }, () => [{ role: 'user', content: `${invalidTerminal} Call emit_result again with valid JSON arguments.` }]);
           continue;
         }
         const missingRecord = this.closeRequiredRecord(input.card.id, 'status.md', 'planner', input.card.version_seq);
         if (missingRecord) {
           if (repairAttempts >= MAX_TERMINAL_CONTRACT_REPAIRS) return this.plannerFailure(missingRecord);
           repairAttempts++;
-          outcome = await llm.appendToolResult(outcome.toolCallId, { success: false, error: missingRecord }, () => [{ role: 'user', content: `${missingRecord} Create record://status.md?v=next, then call emit_planner_result again.` }]);
+          outcome = await llm.appendToolResult(outcome.toolCallId, { success: false, error: missingRecord }, () => [{ role: 'user', content: `${missingRecord} Create record://status.md?v=next, then call emit_result again.` }]);
           continue;
         }
         return this.projectPlannerTerminal(input, outcome, contract);
@@ -177,15 +176,14 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     if (parsed.status === 'done') {
       const blocker = firstIncompleteDescendant(this.cardId, this.store);
       if (blocker) return { status: 'blocked', summary: `Cannot complete while descendant '${blocker.id}' is ${blocker.status}.`, result: { kind: 'planner_blocked', blocked_reason: `Descendant '${blocker.id}' is ${blocker.status}.`, resume_reason: 'complete executable descendants before retrying' } };
-      const summary = parsed.summary ?? 'Planner completed.';
+      const summary = parsed.summary;
       return this.reviewPlannerDone(input, { kind: 'planner_done', summary });
     }
     if (parsed.status === 'blocked') {
-      const summary = parsed.summary ?? parsed.blocked_reason ?? 'Planner blocked.';
-      return { status: 'blocked', summary, result: { kind: 'planner_blocked', blocked_reason: parsed.blocked_reason ?? summary, resume_reason: parsed.blocked_reason ?? summary } };
+      const summary = parsed.summary;
+      return { status: 'blocked', summary, result: { kind: 'planner_blocked', blocked_reason: summary, resume_reason: summary } };
     }
-    const summary = parsed.summary ?? 'Planner requested continuation without an action tool.';
-    return { status: 'blocked', summary, result: { kind: 'planner_blocked', blocked_reason: summary, resume_reason: 'non_actionable_continue', blocker_cause: 'non_actionable_continue' } };
+    return { status: 'failed', summary: parsed.summary, result: { kind: 'planner_failure', error: parsed.summary } };
   }
 
   private async reviewPlannerDone(input: CardActivationInput, planning: PlannerDoneResult): Promise<PlannerProcessorOutcome> {
@@ -206,7 +204,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
           const message = `${expectedTerminalToolMessage(reviewerContract)} Plain reviewer messages are not accepted as terminal results.`;
           if (repairAttempts >= MAX_TERMINAL_CONTRACT_REPAIRS) return this.plannerFailure(message);
           repairAttempts++;
-          outcome = await llm.continueAfterPlainText(`${message} Use tools. Write record://review.md?v=next if needed, then call emit_reviewer_result with valid JSON arguments.`);
+          outcome = await llm.continueAfterPlainText(`${message} Use tools. Write record://review.md?v=next if needed, then call emit_result with valid JSON arguments.`);
           continue;
         }
         if (reviewerContract.isTerminalToolName(outcome.toolName)) {
@@ -214,14 +212,14 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
           if (invalidTerminal) {
             if (repairAttempts >= MAX_TERMINAL_CONTRACT_REPAIRS) return this.plannerFailure(invalidTerminal);
             repairAttempts++;
-            outcome = await llm.appendToolResult(outcome.toolCallId, { success: false, error: invalidTerminal }, () => [{ role: 'user', content: `${invalidTerminal} Call emit_reviewer_result again with valid JSON arguments.` }]);
+            outcome = await llm.appendToolResult(outcome.toolCallId, { success: false, error: invalidTerminal }, () => [{ role: 'user', content: `${invalidTerminal} Call emit_result again with valid JSON arguments.` }]);
             continue;
           }
           const missingRecord = this.validateRequiredOpenRecord(input.card.id, 'review.md');
           if (missingRecord) {
             if (repairAttempts >= MAX_TERMINAL_CONTRACT_REPAIRS) return this.plannerFailure(missingRecord);
             repairAttempts++;
-            outcome = await llm.appendToolResult(outcome.toolCallId, { success: false, error: missingRecord }, () => [{ role: 'user', content: `${missingRecord} Create record://review.md?v=next, then call emit_reviewer_result again.` }]);
+            outcome = await llm.appendToolResult(outcome.toolCallId, { success: false, error: missingRecord }, () => [{ role: 'user', content: `${missingRecord} Create record://review.md?v=next, then call emit_result again.` }]);
             continue;
           }
           const staleReason = this.reviewerCurrentnessStaleReason(input, currentness);
@@ -370,11 +368,11 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private plannerPrompt(card: CardRecord): string {
-    return `Plan and coordinate card ${card.id}: ${card.title}\n\n${cardBriefForPrompt(this.projectRoot, card)}\n\nUse create_card for new immediate children of this card. create_card creates a backlog child but does not run it. Use edit_card to correct or refine non-running immediate children. Use reorder_child to reorder immediate children. Use queue_notification to leave targeted context for another agent session. Use cancel_card for obsolete immediate children. Use activate_card for immediate children only when work should execute. If this goal is incomplete and no existing child can make progress, create or edit the next useful immediate child card instead of reporting blocked.\n\nWrite your current invocation status to:\nrecord://status.md?v=next\n\nDo not call emit_planner_result until the status file exists. End by calling emit_planner_result with status done, blocked, or continue; plain text or JSON messages are not accepted as terminal reports.`;
+    return `Plan and coordinate card ${card.id}: ${card.title}\n\n${cardBriefForPrompt(this.projectRoot, card)}\n\nUse create_card for new immediate children of this card. create_card creates a backlog child but does not run it. Use edit_card to correct or refine non-running immediate children. Use reorder_child to reorder immediate children. Use queue_notification to leave targeted context for another agent session. Use cancel_card for obsolete immediate children. Use activate_card for immediate children only when work should execute. If this goal is incomplete and no existing child can make progress, create or edit the next useful immediate child card instead of reporting blocked.\n\nWrite your current invocation status to:\nrecord://status.md?v=next\n\nDo not call emit_result until the status file exists. End by calling emit_result with status done, blocked, or failed and a summary; plain text or JSON messages are not accepted as terminal reports.`;
   }
 
   private reviewerPrompt(card: CardRecord, assessmentId: string): string {
-    return `Review card ${card.id}: ${card.title}\n\n${cardBriefForPrompt(this.projectRoot, card)}\n\nAssessment id: ${assessmentId}\n\nWrite your review to:\nrecord://review.md?v=next\n\nDo not call emit_reviewer_result until the review file exists. End by calling emit_reviewer_result with the assessment envelope; plain text or JSON messages are not accepted as terminal reports.`;
+    return `Review card ${card.id}: ${card.title}\n\n${cardBriefForPrompt(this.projectRoot, card)}\n\nAssessment id: ${assessmentId}\n\nWrite your review to:\nrecord://review.md?v=next\n\nDo not call emit_result until the review file exists. End by calling emit_result with status done, rework, blocked, or failed and a summary; plain text or JSON messages are not accepted as terminal reports.`;
   }
 
   private async handleReviewerToolCall(card: CardRecord, sessionId: string, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): Promise<unknown> {

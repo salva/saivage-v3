@@ -25,7 +25,7 @@ describe('System Prompt Builder', () => {
       const prompt = buildPlannerPrompt(plannerContract);
       expect(prompt).toContain('Planner');
       expect(prompt).toContain('Use tools for all card mutations');
-      expect(prompt).toContain('only reports `status`, optional `blocked_reason`, and `summary`');
+      expect(prompt).toContain('only reports `status`, and `summary`');
       expect(prompt).not.toContain('created_cards');
       expect(prompt).not.toContain('updated_cards');
     });
@@ -37,11 +37,11 @@ describe('System Prompt Builder', () => {
       expect(prompt).toContain('Executors are one-shot per activation');
     });
 
-    it('includes terminal status_text and reviewer_interrupted recovery guidance', () => {
+    it('includes terminal summary and reviewer_interrupted recovery guidance', () => {
       const prompt = buildPlannerPrompt(plannerContract);
-      expect(prompt).toContain('status_text');
+      expect(prompt).toContain('summary');
       expect(prompt).toContain("resume_reason: 'service_restart'");
-      expect(prompt).toContain('re-issue `report_goal_done`');
+      expect(prompt).toContain('re-issue `emit_result`');
     });
 
     it('marks prior-cycle delegation APIs as obsolete instead of making them available planner actions', () => {
@@ -49,7 +49,7 @@ describe('System Prompt Builder', () => {
       expect(prompt).toContain('obsolete tools');
       expect(prompt).toContain('Do **not** use or mention obsolete tools');
       expect(prompt).toContain('activate_card');
-      expect(prompt).toContain('report_goal_done');
+      expect(prompt).toContain('emit_result');
     });
 
     it('mentions named tool errors', () => {
@@ -63,7 +63,7 @@ describe('System Prompt Builder', () => {
     it('describes the planner contract terminal tools', () => {
       const prompt = buildPlannerPrompt(plannerContract);
       expect(prompt).toContain('Terminal Tools (Contract)');
-      expect(prompt).toContain('emit_planner_result');
+      expect(prompt).toContain('emit_result');
       expect(prompt).not.toContain('emit_planner_deferred');
     });
 
@@ -81,10 +81,10 @@ describe('System Prompt Builder', () => {
       expect(prompt.length).toBeGreaterThan(0);
     });
 
-    it('contains required status_text guidance', () => {
+    it('contains required summary guidance', () => {
       const prompt = buildExecutorPrompt(executorContract);
       expect(prompt).toContain('Executor');
-      expect(prompt).toContain('status_text');
+      expect(prompt).toContain('summary');
       expect(prompt).toContain('one-shot');
     });
 
@@ -92,7 +92,7 @@ describe('System Prompt Builder', () => {
       const prompt = buildExecutorPrompt(executorContract);
       expect(prompt).toContain('project files');
       expect(prompt).toContain('record://status.md');
-      expect(prompt).toContain('status_text');
+      expect(prompt).toContain('summary');
       expect(prompt).toContain('.saivage-work');
       expect(prompt).not.toContain('never a project source');
     });
@@ -100,7 +100,7 @@ describe('System Prompt Builder', () => {
     it('describes the executor contract terminal tool', () => {
       const prompt = buildExecutorPrompt(executorContract);
       expect(prompt).toContain('Terminal Tools (Contract)');
-      expect(prompt).toContain('emit_executor_result');
+      expect(prompt).toContain('emit_result');
     });
 
     it('supports type-specific guidance', () => {
@@ -111,15 +111,13 @@ describe('System Prompt Builder', () => {
   });
 
   describe('buildReviewerPrompt', () => {
-    it('returns the canonical reviewer schema without legacy fail/missing fields', () => {
+    it('returns the canonical reviewer terminal guidance without legacy fail/missing fields', () => {
       const prompt = buildReviewerPrompt(reviewerContract);
       expect(typeof prompt).toBe('string');
       expect(prompt.length).toBeGreaterThan(0);
       expect(prompt).toContain('Reviewer');
-      expect(prompt).toContain('assessment');
-      expect(prompt).toContain('needs_corrections');
-      expect(prompt).toContain('issues');
-      expect(prompt).toContain('evidence_card_ids');
+      expect(prompt).toContain('summary');
+      expect(prompt).toContain('rework');
       expect(prompt).not.toContain(" or 'fail'");
       expect(prompt).not.toContain('"missing"');
     });
@@ -132,7 +130,7 @@ describe('System Prompt Builder', () => {
     it('describes the reviewer contract terminal tool', () => {
       const prompt = buildReviewerPrompt(reviewerContract);
       expect(prompt).toContain('Terminal Tools (Contract)');
-      expect(prompt).toContain('emit_reviewer_result');
+      expect(prompt).toContain('emit_result');
     });
   });
 

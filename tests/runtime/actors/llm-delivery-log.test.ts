@@ -49,19 +49,19 @@ describe('llm delivery log recovery helpers', () => {
   }));
 
   it('reads an exact logged tool call by agent, input, and call id', () => withTempProject((projectRoot) => {
-    appendLlmTurnFinished(projectRoot, input(), { kind: 'tool_calls', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'blocked', summary: 'blocked' }) } }] });
+    appendLlmTurnFinished(projectRoot, input(), { kind: 'tool_calls', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked', summary: 'blocked' }) } }] });
 
     expect(readLoggedToolCall(projectRoot, 'planner:G-1', 'planner:G-1', 'planner:G-1:1', 'call-1')).toEqual({
       agent_id: 'planner:G-1',
       source_input_id: 'planner:G-1:1',
       tool_call_id: 'call-1',
-      tool_name: 'emit_planner_result',
+      tool_name: 'emit_result',
       args: { status: 'blocked', summary: 'blocked' },
     });
     const toolCallMessage = jsonl(conversationSegmentPath(projectRoot, 'planner:G-1', 'seg-001.jsonl')).find((entry) => entry.kind === 'tool_call');
     expect(JSON.parse(String(toolCallMessage?.content))).toEqual({
       role: 'assistant',
-      tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'blocked', summary: 'blocked' }) } }],
+      tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked', summary: 'blocked' }) } }],
     });
   }));
 
@@ -70,24 +70,24 @@ describe('llm delivery log recovery helpers', () => {
   }));
 
   it('throws when logged tool arguments are malformed JSON', () => withTempProject((projectRoot) => {
-    appendLlmTurnFinished(projectRoot, input(), { kind: 'tool_calls', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_planner_result', arguments: '{not json' } }] });
+    appendLlmTurnFinished(projectRoot, input(), { kind: 'tool_calls', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_result', arguments: '{not json' } }] });
 
     expect(() => readLoggedToolCall(projectRoot, 'planner:G-1', 'planner:G-1', 'planner:G-1:1', 'call-1')).toThrow(/malformed JSON/);
   }));
 
   it('reads reviewer tool calls by session when session differs from agent id', () => withTempProject((projectRoot) => {
-    appendLlmTurnFinished(projectRoot, { ...input('reviewer:G-1:1'), agentId: 'reviewer:G-1', role: 'reviewer', sessionId: 'reviewer:G-1:assessment-G-1-1' }, { kind: 'tool_calls', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_reviewer_result', arguments: JSON.stringify({ assessment: { result: 'pass', summary: 'ok', achieved: [], issues: [], evidence_card_ids: [] } }) } }] });
+    appendLlmTurnFinished(projectRoot, { ...input('reviewer:G-1:1'), agentId: 'reviewer:G-1', role: 'reviewer', sessionId: 'reviewer:G-1:assessment-G-1-1' }, { kind: 'tool_calls', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'done', summary: 'ok' }) } }] });
 
     expect(readLoggedToolCall(projectRoot, 'reviewer:G-1:assessment-G-1-1', 'reviewer:G-1', 'reviewer:G-1:1', 'call-1')).toMatchObject({
       agent_id: 'reviewer:G-1',
-      tool_name: 'emit_reviewer_result',
+      tool_name: 'emit_result',
     });
     expect(() => readLoggedToolCall(projectRoot, 'reviewer:G-1', 'reviewer:G-1', 'reviewer:G-1:1', 'call-1')).toThrow(/not found/);
   }));
 
   it('treats terminal_projected status as terminal for stale pending abandonment', () => withTempProject((projectRoot) => {
-    appendLlmTurnFinished(projectRoot, input(), { kind: 'tool_calls', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'blocked' }) } }] });
-    appendTerminalToolProjectedStatus(projectRoot, { agent_id: 'planner:G-1', source_input_id: 'planner:G-1:1', tool_call_id: 'call-1', tool_name: 'emit_planner_result' });
+    appendLlmTurnFinished(projectRoot, input(), { kind: 'tool_calls', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked' }) } }] });
+    appendTerminalToolProjectedStatus(projectRoot, { agent_id: 'planner:G-1', source_input_id: 'planner:G-1:1', tool_call_id: 'call-1', tool_name: 'emit_result' });
 
     expect(abandonStalePendingToolCalls(projectRoot)).toEqual([]);
     expect(readToolCallStatuses(projectRoot, 'planner:G-1').map((record) => record.status)).toEqual(['pending', 'terminal_projected']);

@@ -233,9 +233,7 @@ export type {
   RuntimeActivationLedgerPort,
   PlannerStatus,
   PlannerResult,
-  ExecutorFallbackReason,
   ExecutorResult,
-  ReviewerIssue,
   ReviewerResult,
 } from './agent-execution.js';
 
@@ -252,6 +250,12 @@ export type {
 export { verifyAgainstTerminals } from './verify-against-terminals.js';
 export { describeTerminals } from './describe-terminals.js';
 export { jsonSchemaToProse } from './json-schema-to-prose.js';
+
+export {
+  ResultEnvelopeSchema,
+  TERMINAL_RESULT_TOOL_NAME,
+  type ResultEnvelope,
+} from './result-envelope.js';
 
 export {
   PlannerResultEnvelopeSchema,

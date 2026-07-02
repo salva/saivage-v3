@@ -5,24 +5,24 @@ const contract = createPlannerContract();
 
 describe('planner contract', () => {
   it('exposes the planner result terminal', () => {
-    expect(contract.terminals.map((t) => t.name)).toEqual(['emit_planner_result']);
-    expect(contract.isTerminalToolName('emit_planner_result')).toBe(true);
+    expect(contract.terminals.map((t) => t.name)).toEqual(['emit_result']);
+    expect(contract.isTerminalToolName('emit_result')).toBe(true);
     expect(contract.isTerminalToolName('emit_planner_deferred')).toBe(false);
     expect(contract.isTerminalToolName('other')).toBe(false);
   });
 
-  it('round-trips emit_planner_result through verify/project', () => {
+  it('round-trips emit_result through verify/project', () => {
     const r = contract.verify({
       id: 'tc-1',
-      name: 'emit_planner_result',
-      args: { status: 'continue', summary: 'ok' },
+      name: 'emit_result',
+      args: { status: 'done', summary: 'ok' },
     });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     const projected = contract.project(r.envelope, r.terminalName);
     expect(projected.kind).toBe('result');
     if (projected.kind !== 'result') return;
-    expect(projected.result.status).toBe('continue');
+    expect(projected.result.status).toBe('done');
     expect(projected.result.summary).toBe('ok');
     expect(projected.result).not.toHaveProperty('created_cards');
     expect(projected.result).not.toHaveProperty('updated_cards');

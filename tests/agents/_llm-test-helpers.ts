@@ -22,15 +22,15 @@ export function toolCallsResult(calls: ToolCall[]): LlmCompleteResult {
 
 export function plannerResult(payload: { status?: 'continue' | 'done'; summary?: string } = {}): LlmCompleteResult {
   const obj = { status: 'done', summary: 'done', ...payload };
-  return toolCallsResult([envelopeToolCall('emit_planner_result', obj)]);
+  return toolCallsResult([envelopeToolCall('emit_result', obj)]);
 }
 
 export function executorResult(payload: unknown): LlmCompleteResult {
-  return toolCallsResult([envelopeToolCall('emit_executor_result', payload)]);
+  return toolCallsResult([envelopeToolCall('emit_result', payload)]);
 }
 
 export function reviewerResult(payload: unknown): LlmCompleteResult {
-  return toolCallsResult([envelopeToolCall('emit_reviewer_result', payload)]);
+  return toolCallsResult([envelopeToolCall('emit_result', payload)]);
 }
 
 export function asMessage(r: LlmCompleteResult): { content: string; tool_calls: ToolCall[]; finishReason: string } {

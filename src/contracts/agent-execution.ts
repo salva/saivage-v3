@@ -4,42 +4,21 @@ import type {
   RuntimeState,
 } from '../schemas/index.js';
 
-export type PlannerStatus = 'continue' | 'done' | 'blocked';
+export type PlannerStatus = 'done' | 'blocked' | 'failed';
 
 export interface PlannerResult {
   status: PlannerStatus;
-  blocked_reason?: string;
-  summary?: string;
+  summary: string;
 }
-
-export type ExecutorFallbackReason = 'tool_calls_envelope_recovery' | 'parse_failure';
 
 export interface ExecutorResult {
-  card_id: string;
   status: 'done' | 'failed';
-  error?: string;
-  result?: Record<string, unknown>;
-  warnings: string[];
-  summary?: string;
-  status_text: string;
-  fallback_with_evidence: { reason: ExecutorFallbackReason } | null;
-}
-
-export interface ReviewerIssue {
   summary: string;
-  severity: 'info' | 'warning' | 'blocker';
-  evidence_card_id?: string;
-  recommendation?: string;
 }
 
 export interface ReviewerResult {
-  assessment: {
-    result: 'pass' | 'needs_corrections';
-    summary: string;
-    achieved: string[];
-    issues: ReviewerIssue[];
-    evidence_card_ids: string[];
-  };
+  status: 'done' | 'rework' | 'blocked' | 'failed';
+  summary: string;
 }
 
 export interface RuntimeActivationLedgerPort {

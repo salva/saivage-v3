@@ -5,7 +5,7 @@ describe('describeTerminals via planner contract', () => {
   const prose = createPlannerContract().describe();
 
   it('renders a numbered list', () => {
-    expect(prose).toMatch(/^1\. `emit_planner_result`/);
+    expect(prose).toMatch(/^1\. `emit_result`/);
     expect(prose).not.toContain('emit_planner_deferred');
   });
 

@@ -34,8 +34,8 @@ function reviewerOutcome(overrides: Record<string, unknown> = {}): Extract<LLMAc
     agentId: 'reviewer:card-1',
     inputId: 'reviewer:card-1:1',
     toolCallId: 'reviewer-result-1',
-    toolName: 'emit_reviewer_result',
-    args: { assessment: { result: 'pass', summary: 'ok', achieved: ['planned'], issues: [], evidence_card_ids: ['card-1'], ...overrides } },
+    toolName: 'emit_result',
+    args: { status: 'done', summary: 'ok', ...overrides },
   };
 }
 
@@ -52,24 +52,23 @@ function evaluate(store: CardStore, card: CardRecord, outcome: Extract<LLMActorO
 }
 
 describe('evaluateReviewerTerminalOutcome', () => {
-  it('blocks self-citation when the reviewed card has no durable evidence', () => withTempProject((projectRoot) => {
+  it('returns reviewer_pass for done reviewer status', () => withTempProject((projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     const card = createProject(store);
 
-    const outcome = evaluate(store, card, reviewerOutcome({ evidence_card_ids: [card.id] }));
+    const outcome = evaluate(store, card, reviewerOutcome());
 
-    expect(outcome).toMatchObject({ status: 'blocked', result: { kind: 'planner_blocked', reviewer_correction: { kind: 'reviewer_correction', assessment_id: 'assessment-card-1-1' } } });
-    expect(outcome.summary).toContain('outside the reviewed subtree');
+    expect(outcome).toMatchObject({ status: 'done', summary: 'ok', result: { kind: 'reviewer_pass', planning: { kind: 'planner_done', summary: 'planned' }, review_summary: 'ok', assessment_id: 'assessment-card-1-1' } });
   }));
 
-  it('returns reviewer_pass when assessment cites done descendant evidence', () => withTempProject((projectRoot) => {
+  it('does not require terminal evidence fields for reviewer_pass', () => withTempProject((projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     const card = createProject(store);
-    const child = createDoneChild(store, card.id);
+    createDoneChild(store, card.id);
 
-    const outcome = evaluate(store, card, reviewerOutcome({ evidence_card_ids: [child.id] }));
+    const outcome = evaluate(store, card, reviewerOutcome());
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'ok', result: { kind: 'reviewer_pass', planning: { kind: 'planner_done', summary: 'planned' }, review_summary: 'ok', assessment_id: 'assessment-card-1-1' } });
   }));
@@ -78,22 +77,21 @@ describe('evaluateReviewerTerminalOutcome', () => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     const card = createProject(store);
-    const child = createDoneChild(store, card.id);
+    createDoneChild(store, card.id);
 
-    const outcome = evaluate(store, card, reviewerOutcome({ result: 'needs_corrections', summary: 'fix it', issues: [{ summary: 'missing proof', severity: 'blocker' }], evidence_card_ids: [child.id] }));
+    const outcome = evaluate(store, card, reviewerOutcome({ status: 'rework', summary: 'fix it' }));
 
-    expect(outcome).toMatchObject({ status: 'blocked', summary: 'fix it', result: { kind: 'planner_blocked', resume_reason: 'reviewer_needs_corrections', reviewer_correction: { kind: 'reviewer_correction', assessment_id: 'assessment-card-1-1', summary: 'fix it', issues: [{ summary: 'missing proof', severity: 'blocker' }] } } });
+    expect(outcome).toMatchObject({ status: 'blocked', summary: 'fix it', result: { kind: 'planner_blocked', resume_reason: 'reviewer_needs_corrections', reviewer_correction: { kind: 'reviewer_correction', assessment_id: 'assessment-card-1-1', summary: 'fix it', issues: [] } } });
   }));
 
-  it('blocks invalid reviewer evidence instead of approving', () => withTempProject((projectRoot) => {
+  it('returns planner blocked when reviewer status is blocked', () => withTempProject((projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     const card = createProject(store);
 
-    const outcome = evaluate(store, card, reviewerOutcome({ evidence_card_ids: ['missing'] }));
+    const outcome = evaluate(store, card, reviewerOutcome({ status: 'blocked', summary: 'review blocked' }));
 
-    expect(outcome).toMatchObject({ status: 'blocked', result: { kind: 'planner_blocked', reviewer_correction: { kind: 'reviewer_correction', assessment_id: 'assessment-card-1-1' } } });
-    expect(outcome.summary).toContain('missing');
+    expect(outcome).toMatchObject({ status: 'blocked', summary: 'review blocked', result: { kind: 'planner_blocked', resume_reason: 'reviewer_blocked' } });
   }));
 
   it('fails invalid terminal tool payloads', () => withTempProject((projectRoot) => {
@@ -101,7 +99,7 @@ describe('evaluateReviewerTerminalOutcome', () => {
     const store = new CardStore(projectRoot);
     const card = createProject(store);
 
-    const outcome = evaluate(store, card, { ...reviewerOutcome({ evidence_card_ids: [card.id] }), args: { assessment: { summary: 'missing result' } } });
+    const outcome = evaluate(store, card, { ...reviewerOutcome(), args: { summary: 'missing status' } });
 
     expect(outcome).toMatchObject({ status: 'failed', result: { kind: 'planner_failure' } });
     expect(outcome.summary).toContain('reviewer');

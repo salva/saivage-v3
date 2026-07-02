@@ -47,13 +47,13 @@ const inertStore: CardActorStorePort = {
 };
 
 function blockedPlannerProvider(): LLMProviderPort {
-  return withMandatoryRecords(() => ({ kind: 'tool_calls' as const, tool_calls: [{ id: 'planner-result-1', type: 'function' as const, function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'blocked', blocked_reason: 'waiting for operator', summary: 'waiting for operator' }) } }] }));
+  return withMandatoryRecords(() => ({ kind: 'tool_calls' as const, tool_calls: [{ id: 'planner-result-1', type: 'function' as const, function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked', summary: 'waiting for operator' }) } }] }));
 }
 
-function doneProjectProvider(evidenceId: string): LLMProviderPort {
+function doneProjectProvider(_evidenceId: string): LLMProviderPort {
   return withMandatoryRecords((input: LlmInvocationInput) => input.role === 'reviewer'
-    ? { kind: 'tool_calls' as const, tool_calls: [{ id: 'reviewer-result-1', type: 'function' as const, function: { name: 'emit_reviewer_result', arguments: JSON.stringify({ assessment: { result: 'pass', summary: 'project reviewed', achieved: ['project completed'], issues: [], evidence_card_ids: [evidenceId] } }) } }] }
-    : { kind: 'tool_calls' as const, tool_calls: [{ id: 'planner-result-1', type: 'function' as const, function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'done', summary: 'project completed' }) } }] });
+    ? { kind: 'tool_calls' as const, tool_calls: [{ id: 'reviewer-result-1', type: 'function' as const, function: { name: 'emit_result', arguments: JSON.stringify({ status: 'done', summary: 'project reviewed' }) } }] }
+    : { kind: 'tool_calls' as const, tool_calls: [{ id: 'planner-result-1', type: 'function' as const, function: { name: 'emit_result', arguments: JSON.stringify({ status: 'done', summary: 'project completed' }) } }] });
 }
 
 function failedPlannerProvider(): LLMProviderPort {
@@ -75,11 +75,11 @@ function withMandatoryRecords(responder: (input: LlmInvocationInput) => Promise<
       }
       const result = await responder(input);
       if (result.kind !== 'tool_calls') return result;
-      if (result.tool_calls.some((toolCall) => toolCall.function.name === 'emit_planner_result')) {
+      if (result.tool_calls.some((toolCall) => toolCall.function.name === 'emit_result') && input.role === 'planner') {
         pending.set(input.sessionId, result);
         return recordWrite(`status-${input.sessionId}`, 'record://status.md?v=next', `Status for ${input.episodeContext.cardId}`);
       }
-      if (result.tool_calls.some((toolCall) => toolCall.function.name === 'emit_reviewer_result')) {
+      if (result.tool_calls.some((toolCall) => toolCall.function.name === 'emit_result') && input.role === 'reviewer') {
         pending.set(input.sessionId, result);
         return recordWrite(`review-${input.sessionId}`, 'record://review.md?v=next', `Review for ${input.episodeContext.cardId}`);
       }
@@ -115,13 +115,13 @@ function appendPlannerToolCall(projectRoot: string, cardId: string, toolName: st
   const inputId = `planner:${cardId}:1`;
   const agentId = `planner:${cardId}`;
   appendLlmTurnFinished(projectRoot, { inputId, agentId, role: 'planner', sessionId: agentId, systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: { cardId } }, { kind: 'tool_calls', tool_calls: [{ id: toolCallId, type: 'function', function: { name: toolName, arguments: JSON.stringify(args) } }] });
-  if (toolName === 'emit_planner_result') writeRequiredRecord(projectRoot, cardId, 'status.md', 'planner startup recovery record');
+  if (toolName === 'emit_result') writeRequiredRecord(projectRoot, cardId, 'status.md', 'planner startup recovery record');
 }
 
 function appendReviewerToolCall(projectRoot: string, cardId: string, args: unknown, toolCallId = 'call-1', assessmentId = `assessment-${cardId}-1`): void {
   const inputId = `reviewer:${cardId}:1`;
   const agentId = `reviewer:${cardId}`;
-  appendLlmTurnFinished(projectRoot, { inputId, agentId, role: 'reviewer', sessionId: `${agentId}:${assessmentId}`, systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: { cardId, assessmentId } }, { kind: 'tool_calls', tool_calls: [{ id: toolCallId, type: 'function', function: { name: 'emit_reviewer_result', arguments: JSON.stringify(args) } }] });
+  appendLlmTurnFinished(projectRoot, { inputId, agentId, role: 'reviewer', sessionId: `${agentId}:${assessmentId}`, systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: { cardId, assessmentId } }, { kind: 'tool_calls', tool_calls: [{ id: toolCallId, type: 'function', function: { name: 'emit_result', arguments: JSON.stringify(args) } }] });
   writeRequiredRecord(projectRoot, cardId, 'review.md', 'reviewer startup recovery record');
 }
 
@@ -383,7 +383,7 @@ describe('SupervisorRuntimeApi', () => {
       actor_id: 'planner:project',
       actor_kind: 'llm',
       state_value: 'waiting_tool',
-      context: { cardId: 'project', active_reconstruction: plannerWaitingActive('project', 'emit_planner_result') },
+      context: { cardId: 'project', active_reconstruction: plannerWaitingActive('project', 'emit_result') },
       updated_at: '2026-06-12T00:00:00.000Z',
     });
     saveActorSnapshot(projectRoot, {
@@ -393,7 +393,7 @@ describe('SupervisorRuntimeApi', () => {
       context: { cardId: 'project', active_reconstruction: processorActive('project') },
       updated_at: '2026-06-12T00:00:00.000Z',
     });
-    appendPlannerToolCall(projectRoot, 'project', 'emit_planner_result', { status: 'blocked', blocked_reason: 'needs operator', summary: 'needs operator' });
+    appendPlannerToolCall(projectRoot, 'project', 'emit_result', { status: 'blocked', summary: 'needs operator' });
     const api = new SupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), now: () => '2026-06-12T00:00:00.000Z' });
 
     await api.start();
@@ -408,7 +408,7 @@ describe('SupervisorRuntimeApi', () => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     const project = createProject(store);
-    const evidence = createDoneEvidence(store, project.id);
+    createDoneEvidence(store, project.id);
     store.setStatus(project.id, 'running');
     saveActorSnapshot(projectRoot, {
       actor_id: 'card:project',
@@ -421,14 +421,14 @@ describe('SupervisorRuntimeApi', () => {
       actor_id: 'planner:project',
       actor_kind: 'llm',
       state_value: 'waiting_tool',
-      context: { cardId: 'project', active_reconstruction: plannerWaitingActive('project', 'emit_planner_result') },
+      context: { cardId: 'project', active_reconstruction: plannerWaitingActive('project', 'emit_result') },
       updated_at: '2026-06-12T00:00:00.000Z',
     });
     saveActorSnapshot(projectRoot, {
       actor_id: 'reviewer:project',
       actor_kind: 'llm',
       state_value: 'waiting_tool',
-      context: { cardId: 'project', active_reconstruction: reviewerWaitingActive('project', 'emit_reviewer_result') },
+      context: { cardId: 'project', active_reconstruction: reviewerWaitingActive('project', 'emit_result') },
       updated_at: '2026-06-12T00:00:00.000Z',
     });
     saveActorSnapshot(projectRoot, {
@@ -438,8 +438,8 @@ describe('SupervisorRuntimeApi', () => {
       context: { cardId: 'project', active_reconstruction: processorActive('project') },
       updated_at: '2026-06-12T00:00:00.000Z',
     });
-    appendPlannerToolCall(projectRoot, 'project', 'emit_planner_result', { status: 'done', summary: 'project done' });
-    appendReviewerToolCall(projectRoot, 'project', { assessment: { result: 'pass', summary: 'review ok', achieved: ['project done'], issues: [], evidence_card_ids: [evidence.id] } });
+    appendPlannerToolCall(projectRoot, 'project', 'emit_result', { status: 'done', summary: 'project done' });
+    appendReviewerToolCall(projectRoot, 'project', { status: 'done', summary: 'review ok' });
     const api = new SupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), now: () => '2026-06-12T00:00:00.000Z' });
 
     await api.start();

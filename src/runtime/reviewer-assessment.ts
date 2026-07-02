@@ -1,5 +1,4 @@
 import type { CardRecord, CardLifecycleState, PlannerDoneResult, ReviewAssessment } from '../schemas/index.js';
-import type { ReviewerResult } from '../contracts/index.js';
 
 export function nextReviewerAssessmentId(goalId: string, existingResult: CardLifecycleState['result'] | undefined): string {
   const escapedGoal = goalId.replace(/[^A-Za-z0-9_.:-]/g, '-');
@@ -17,7 +16,7 @@ export function buildReviewAssessment(input: {
   goalId: string;
   assessmentId: string;
   reviewerSessionId: string;
-  result: ReviewerResult['assessment'];
+  result: Pick<ReviewAssessment, 'result' | 'summary' | 'achieved' | 'issues' | 'evidence_card_ids'>;
   nowIso: string;
   override?: Partial<Pick<ReviewAssessment, 'result' | 'summary' | 'achieved' | 'issues' | 'evidence_card_ids'>>;
 }): ReviewAssessment {
@@ -39,7 +38,7 @@ export function buildReviewAssessment(input: {
 
 export function validateReviewerAssessment(input: {
   goalId: string;
-  assessment: ReviewerResult['assessment'];
+  assessment: Pick<ReviewAssessment, 'result' | 'summary' | 'achieved' | 'issues' | 'evidence_card_ids'>;
   candidatePlannerResult: PlannerDoneResult;
   readCard(evidenceId: string): CardRecord | null | undefined;
   isDescendantOf(evidenceId: string, goalId: string): boolean;
