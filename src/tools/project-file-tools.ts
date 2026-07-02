@@ -21,13 +21,24 @@ const SKIPPED_DIRS = new Set(['.git', 'node_modules', '.saivage', '.saivage-work
 type WorkspaceContext = { projectRoot: string; cardId?: string; agentRole?: AgentRole; store?: Pick<CardStore, 'read'> };
 type ResolvedToolPath = { kind: 'project' | 'tmp'; absolutePath: string; relativePath: string } | ({ kind: 'record' } & OpenRecordSlot);
 
+export class WorkspaceToolInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'WorkspaceToolInputError';
+  }
+}
+
+function toolInputError(message: string): WorkspaceToolInputError {
+  return new WorkspaceToolInputError(message);
+}
+
 function normalizeRel(path: string): string {
   return path.replace(/\\/g, '/');
 }
 
 function resolveProjectPath(projectRoot: string, path: string, label: string): { absolutePath: string; relativePath: string } {
   const resolved = resolveContainedProjectPath(projectRoot, path);
-  if (!resolved.safe || !resolved.relativePath) throw new Error(resolved.reason ?? `${label} must resolve inside the project root.`);
+  if (!resolved.safe || !resolved.relativePath) throw toolInputError(resolved.reason ?? `${label} must resolve inside the project root.`);
   return { absolutePath: resolved.absolutePath, relativePath: resolved.relativePath };
 }
 
@@ -37,17 +48,17 @@ function isHiddenPath(projectRoot: string, absolutePath: string, relativePath: s
 
 function assertReadable(projectRoot: string, path: string, label = 'read path'): { absolutePath: string; relativePath: string } {
   const resolved = resolveProjectPath(projectRoot, path, label);
-  if (isHiddenPath(projectRoot, resolved.absolutePath, resolved.relativePath)) throw new Error(`Access to '${resolved.relativePath}' is blocked for security reasons.`);
+  if (isHiddenPath(projectRoot, resolved.absolutePath, resolved.relativePath)) throw toolInputError(`Access to '${resolved.relativePath}' is blocked for security reasons.`);
   return resolved;
 }
 
 function assertWritable(projectRoot: string, path: string): { absolutePath: string; relativePath: string } {
   const resolved = resolveProjectPath(projectRoot, path, 'write path');
-  if (resolved.relativePath === '.' || resolved.relativePath.endsWith('/')) throw new Error('write requires a file path, not a directory.');
-  if (resolved.relativePath === '.saivage' || resolved.relativePath.startsWith('.saivage/') || resolved.relativePath === '.saivage-work' || resolved.relativePath.startsWith('.saivage-work/')) throw new Error('Cannot modify Saivage internal state directories.');
-  if (isWriteBlocked(resolved.relativePath) || looksLikeSecretPath(resolved.absolutePath)) throw new Error(`Write access to '${resolved.relativePath}' is blocked for security reasons.`);
+  if (resolved.relativePath === '.' || resolved.relativePath.endsWith('/')) throw toolInputError('write requires a file path, not a directory.');
+  if (resolved.relativePath === '.saivage' || resolved.relativePath.startsWith('.saivage/') || resolved.relativePath === '.saivage-work' || resolved.relativePath.startsWith('.saivage-work/')) throw toolInputError('Cannot modify Saivage internal state directories.');
+  if (isWriteBlocked(resolved.relativePath) || looksLikeSecretPath(resolved.absolutePath)) throw toolInputError(`Write access to '${resolved.relativePath}' is blocked for security reasons.`);
   try {
-    if (lstatSync(resolved.absolutePath).isSymbolicLink()) throw new Error(`Write access to symlink '${resolved.relativePath}' is blocked for security reasons.`);
+    if (lstatSync(resolved.absolutePath).isSymbolicLink()) throw toolInputError(`Write access to symlink '${resolved.relativePath}' is blocked for security reasons.`);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
   }
@@ -59,7 +70,7 @@ function resolveProjectSchemePath(path: string): string {
 }
 
 function requireAgentContext(ctx: WorkspaceContext, scheme: string): { cardId: string; agentRole: AgentRole } {
-  if (!ctx.cardId || !ctx.agentRole) throw new Error(`${scheme} paths require an active runtime agent context.`);
+  if (!ctx.cardId || !ctx.agentRole) throw toolInputError(`${scheme} paths require an active runtime agent context.`);
   return { cardId: ctx.cardId, agentRole: ctx.agentRole };
 }
 
@@ -68,7 +79,7 @@ function parseRecordUrl(ctx: WorkspaceContext, raw: string, mode: 'read' | 'writ
   const url = new URL(raw);
   const rawFilename = decodeURIComponent(`${url.hostname}${url.pathname}`);
   const filename = validRecordSegment(rawFilename, 'record filename', raw);
-  if (!filename) throw new Error(`Invalid record URL '${raw}'.`);
+  if (!filename) throw toolInputError(`Invalid record URL '${raw}'.`);
   exposedRecordSlotDefinitionForFilename(filename);
   const cardId = validRecordSegment(url.searchParams.get('card') ?? agent.cardId, 'card id', raw);
   const version = url.searchParams.get('v') ?? (mode === 'read' ? 'latest' : 'next');
@@ -78,24 +89,24 @@ function parseRecordUrl(ctx: WorkspaceContext, raw: string, mode: 'read' | 'writ
   }
   if (version === 'next') {
     const open = openRecordSlot(ctx.projectRoot, { cardId, filename });
-    if (cardId !== agent.cardId || !exposedRecordSlotDefinitionForFilename(filename).writers.includes(agent.agentRole)) throw new Error('Only the owning agent may read its current open record slot.');
+    if (cardId !== agent.cardId || !exposedRecordSlotDefinitionForFilename(filename).writers.includes(agent.agentRole)) throw toolInputError('Only the owning agent may read its current open record slot.');
     return open;
   }
   if (version === 'latest') return latestClosedRecordSlot(ctx.projectRoot, { cardId, filename });
   const numeric = Number(version);
-  if (!Number.isInteger(numeric) || numeric < 1) throw new Error(`Invalid record version '${version}'.`);
+  if (!Number.isInteger(numeric) || numeric < 1) throw toolInputError(`Invalid record version '${version}'.`);
   const record = concreteRecordSlot(ctx.projectRoot, { cardId, filename, version: numeric });
   const index = readRecordSlotIndex(ctx.projectRoot, cardId, record.slot);
   const entry = index.versions[String(numeric)];
-  if (entry.status !== 'closed' && !(entry.status === 'open' && cardId === agent.cardId && exposedRecordSlotDefinitionForFilename(filename).writers.includes(agent.agentRole))) throw new Error('Only closed records are readable outside the owning open slot.');
+  if (entry.status !== 'closed' && !(entry.status === 'open' && cardId === agent.cardId && exposedRecordSlotDefinitionForFilename(filename).writers.includes(agent.agentRole))) throw toolInputError('Only closed records are readable outside the owning open slot.');
   return record;
 }
 
 function assertRecordWrite(role: AgentRole, currentCardId: string, cardId: string, filename: string, version: string): void {
-  if (cardId !== currentCardId) throw new Error('Agents may write records only for their current card.');
+  if (cardId !== currentCardId) throw toolInputError('Agents may write records only for their current card.');
   const definition = exposedRecordSlotDefinitionForFilename(filename);
-  if (!definition.writers.includes(role)) throw new Error(`${role} cannot write record slot '${definition.slot}'.`);
-  if (version !== 'next') throw new Error('Record writes must use v=next.');
+  if (!definition.writers.includes(role)) throw toolInputError(`${role} cannot write record slot '${definition.slot}'.`);
+  if (version !== 'next') throw toolInputError('Record writes must use v=next.');
 }
 
 function resolveTmpPath(ctx: WorkspaceContext, raw: string, mode: 'read' | 'write'): ResolvedToolPath {
@@ -103,8 +114,8 @@ function resolveTmpPath(ctx: WorkspaceContext, raw: string, mode: 'read' | 'writ
   const url = new URL(raw);
   const cardId = decodeURIComponent(url.hostname);
   const rel = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
-  if (!cardId || !rel || rel.includes('..')) throw new Error(`Invalid tmp URL '${raw}'.`);
-  if (mode === 'write' && cardId !== agent.cardId) throw new Error('Agents may write tmp files only for their current card.');
+  if (!cardId || !rel || rel.includes('..')) throw toolInputError(`Invalid tmp URL '${raw}'.`);
+  if (mode === 'write' && cardId !== agent.cardId) throw toolInputError('Agents may write tmp files only for their current card.');
   const projectRel = `.saivage-work/cards/${cardId}/tmp/${rel}`;
   const resolved = resolveProjectPath(ctx.projectRoot, projectRel, 'tmp path');
   return { kind: 'tmp', ...resolved };
@@ -114,14 +125,14 @@ function resolveToolPath(ctx: WorkspaceContext, raw: string, mode: 'read' | 'wri
   if (raw.startsWith('record://')) return { kind: 'record', ...parseRecordUrl(ctx, raw, mode) };
   if (raw.startsWith('tmp://')) return resolveTmpPath(ctx, raw, mode);
   const projectPath = resolveProjectSchemePath(raw);
-  if (mode === 'write' && ctx.agentRole && ctx.agentRole !== 'executor') throw new Error(`${ctx.agentRole} cannot write project files.`);
+  if (mode === 'write' && ctx.agentRole && ctx.agentRole !== 'executor') throw toolInputError(`${ctx.agentRole} cannot write project files.`);
   const resolved = mode === 'read' ? assertReadable(ctx.projectRoot, projectPath) : assertWritable(ctx.projectRoot, projectPath);
   return { kind: 'project', ...resolved };
 }
 
 function parseNonNegativeInt(value: unknown, fallback: number, max = Number.MAX_SAFE_INTEGER): number {
   if (value === undefined) return fallback;
-  if (!Number.isInteger(value) || Number(value) < 0) throw new Error('Expected a non-negative integer.');
+  if (!Number.isInteger(value) || Number(value) < 0) throw toolInputError('Expected a non-negative integer.');
   return Math.min(Number(value), max);
 }
 
@@ -159,13 +170,13 @@ function walkFiles(projectRoot: string, start: string, visitor: (absolutePath: s
 function patchPaths(patch: string): string[] {
   const paths = new Set<string>();
   for (const line of patch.split('\n')) {
-    if (/^(?:new|deleted) file mode |^old mode |^new mode |^similarity index |^rename from |^rename to |^GIT binary patch/.test(line)) throw new Error('Unsupported patch feature. Only text add/modify/delete diffs are allowed.');
+    if (/^(?:new|deleted) file mode |^old mode |^new mode |^similarity index |^rename from |^rename to |^GIT binary patch/.test(line)) throw toolInputError('Unsupported patch feature. Only text add/modify/delete diffs are allowed.');
     const match = /^(?:---|\+\+\+)\s+(\S+)/.exec(line);
     if (!match) continue;
     const raw = match[1];
     if (raw === '/dev/null') continue;
     const clean = raw.replace(/^[ab]\//, '');
-    if (!clean || isAbsolute(clean) || clean.includes('..')) throw new Error(`Unsafe patch path '${raw}'.`);
+    if (!clean || isAbsolute(clean) || clean.includes('..')) throw toolInputError(`Unsafe patch path '${raw}'.`);
     paths.add(clean);
   }
   return [...paths];
@@ -173,7 +184,7 @@ function patchPaths(patch: string): string[] {
 
 export async function readProject(ctx: WorkspaceContext, params: { path: string; offset?: number; limit?: number; read_mode?: 'auto' | 'text' | 'multimodal' }): Promise<unknown> {
   const mode = params.read_mode ?? 'auto';
-  if (mode === 'multimodal') throw new Error('multimodal read_mode is not supported by v3 project tools yet.');
+  if (mode === 'multimodal') throw toolInputError('multimodal read_mode is not supported by v3 project tools yet.');
   const resolved = resolveToolPath(ctx, params.path, 'read');
   const { absolutePath, relativePath } = resolved;
   const st = statSync(absolutePath);
@@ -187,9 +198,9 @@ export async function readProject(ctx: WorkspaceContext, params: { path: string;
       .sort((a, b) => a.name.localeCompare(b.name));
     return { path: relativePath, ...(resolved.kind === 'record' ? { record_url: resolved.recordUrl } : {}), entries: entries.slice(offset, offset + limit), offset, limit, total_entries: entries.length, truncated: offset + limit < entries.length };
   }
-  if (!st.isFile()) throw new Error(`Unsupported file type: ${relativePath}`);
+  if (!st.isFile()) throw toolInputError(`Unsupported file type: ${relativePath}`);
   const buffer = readFileSync(absolutePath);
-  if (isBinarySample(buffer.subarray(0, Math.min(buffer.length, 1024)))) throw new Error(`Cannot read binary file as text: ${relativePath}`);
+  if (isBinarySample(buffer.subarray(0, Math.min(buffer.length, 1024)))) throw toolInputError(`Cannot read binary file as text: ${relativePath}`);
   const lines = buffer.toString('utf8').split(/\r?\n/);
   const window = lines.slice(offset, offset + limit);
   return { path: relativePath, ...(resolved.kind === 'record' ? { record_url: resolved.recordUrl } : {}), content: window.join('\n'), offset, limit, total_lines: lines.length, truncated: offset + limit < lines.length };
@@ -205,17 +216,17 @@ export async function writeProject(ctx: WorkspaceContext, params: { path: string
 }
 
 function writeAnalystBriefRecord(ctx: WorkspaceContext, params: { path: string; content: string }): unknown {
-  if (!params.path.startsWith('record://')) throw new Error('Analyst write only writes record://brief.md document records. It cannot write host or project files.');
+  if (!params.path.startsWith('record://')) throw toolInputError('Analyst write only writes record://brief.md document records. It cannot write host or project files.');
   if (!ctx.store) throw new Error('Analyst record writes require a card store.');
   const runtimeState = readRuntimeState(ctx.projectRoot);
-  if (runtimeState?.status !== 'stopped' && runtimeState?.status !== 'paused') throw new Error(`Analyst write requires runtime status stopped or paused before mutating card records. Current runtime status is ${runtimeState?.status ?? 'unknown'}.`);
+  if (runtimeState?.status !== 'stopped' && runtimeState?.status !== 'paused') throw toolInputError(`Analyst write requires runtime status stopped or paused before mutating card records. Current runtime status is ${runtimeState?.status ?? 'unknown'}.`);
   const target = parseAnalystBriefWriteUrl(params.path);
-  if (params.content.length === 0) throw new Error('brief.md content must not be empty.');
+  if (params.content.length === 0) throw toolInputError('brief.md content must not be empty.');
   validateBriefMarkdown(params.content);
   const card = ctx.store.read(target.cardId);
-  if (!card) throw new Error(`Card '${target.cardId}' not found.`);
+  if (!card) throw toolInputError(`Card '${target.cardId}' not found.`);
   const index = readRecordSlotIndex(ctx.projectRoot, target.cardId, 'brief');
-  if (index.open !== null) throw new Error(`Cannot write '${target.path}': latest brief.md version is open.`);
+  if (index.open !== null) throw toolInputError(`Cannot write '${target.path}': latest brief.md version is open.`);
   const open = openRecordSlot(ctx.projectRoot, { cardId: target.cardId, filename: 'brief.md' });
   try {
     writeFileSync(open.absolutePath, params.content, 'utf8');
@@ -230,16 +241,16 @@ function writeAnalystBriefRecord(ctx: WorkspaceContext, params: { path: string; 
 function parseAnalystBriefWriteUrl(raw: string): { cardId: string; path: string } {
   const url = new URL(raw);
   const filename = validRecordSegment(decodeURIComponent(`${url.hostname}${url.pathname}`), 'record filename', raw);
-  if (filename !== 'brief.md') throw new Error('Analyst write only supports record://brief.md document writes.');
+  if (filename !== 'brief.md') throw toolInputError('Analyst write only supports record://brief.md document writes.');
   const cardId = validRecordSegment(url.searchParams.get('card') ?? '', 'card id', raw);
   const version = url.searchParams.get('v') ?? 'next';
-  if (version !== 'next') throw new Error('Analyst record writes must use v=next.');
+  if (version !== 'next') throw toolInputError('Analyst record writes must use v=next.');
   return { cardId, path: `record://brief.md?card=${encodeURIComponent(cardId)}&v=next` };
 }
 
 function validateBriefMarkdown(content: string): void {
   for (const heading of ['# Goal', '# Instructions', '# Acceptance Criteria']) {
-    if (!content.includes(heading)) throw new Error(`brief.md must include '${heading}'.`);
+    if (!content.includes(heading)) throw toolInputError(`brief.md must include '${heading}'.`);
   }
 }
 
@@ -292,22 +303,22 @@ export async function editProject(ctx: WorkspaceContext, params: { path: string;
   const { absolutePath, relativePath } = resolved;
   const content = readFileSync(absolutePath, 'utf8');
   const occurrences = content.split(params.old_string).length - 1;
-  if (occurrences === 0) throw new Error('old_string was not found.');
-  if (occurrences > 1 && params.replace_all !== true) throw new Error('old_string appears multiple times; set replace_all to true.');
+  if (occurrences === 0) throw toolInputError('old_string was not found.');
+  if (occurrences > 1 && params.replace_all !== true) throw toolInputError('old_string appears multiple times; set replace_all to true.');
   const next = params.replace_all === true ? content.split(params.old_string).join(params.new_string) : content.replace(params.old_string, params.new_string);
   writeFileSync(absolutePath, next, 'utf8');
   return { path: relativePath, ...(resolved.kind === 'record' ? { record_url: resolved.recordUrl } : {}), replacements: params.replace_all === true ? occurrences : 1, bytes: Buffer.byteLength(next, 'utf8'), edited: true };
 }
 
 export async function applyProjectPatch(ctx: WorkspaceContext, params: { patch: string }): Promise<unknown> {
-  if (ctx.agentRole && ctx.agentRole !== 'executor') throw new Error(`${ctx.agentRole} cannot write project files.`);
+  if (ctx.agentRole && ctx.agentRole !== 'executor') throw toolInputError(`${ctx.agentRole} cannot write project files.`);
   const affected = patchPaths(params.patch);
-  if (affected.length === 0) throw new Error('Patch does not contain any file changes.');
+  if (affected.length === 0) throw toolInputError('Patch does not contain any file changes.');
   for (const path of affected) assertWritable(ctx.projectRoot, path);
   const check = spawnSync('git', ['apply', '--check', '--'], { cwd: ctx.projectRoot, input: params.patch, encoding: 'utf8' });
-  if (check.status !== 0) throw new Error(check.stderr || check.stdout || 'Patch check failed.');
+  if (check.status !== 0) throw toolInputError(check.stderr || check.stdout || 'Patch check failed.');
   const applied = spawnSync('git', ['apply', '--'], { cwd: ctx.projectRoot, input: params.patch, encoding: 'utf8' });
-  if (applied.status !== 0) throw new Error(applied.stderr || applied.stdout || 'Patch apply failed.');
+  if (applied.status !== 0) throw toolInputError(applied.stderr || applied.stdout || 'Patch apply failed.');
   return { changed_files: affected, applied: true };
 }
 
@@ -330,11 +341,11 @@ function resolveRecordSearchPath(ctx: WorkspaceContext, raw: string): { absolute
   const absolutePath = slot ? recordSlotDir(ctx.projectRoot, cardId, exposedRecordSlotDefinitionForFilename(slot.includes('.') ? slot : `${slot}.md`).slot) : join(ctx.projectRoot, RECORD_OUTPUTS_RELATIVE_DIR, cardId);
   const relativePath = normalizeRel(relative(ctx.projectRoot, absolutePath));
   const contained = resolveContainedProjectPath(ctx.projectRoot, relativePath);
-  if (!contained.safe || contained.relativePath !== relativePath || !relativePath.startsWith(`${RECORD_OUTPUTS_RELATIVE_DIR}/${cardId}`)) throw new Error(`Invalid record search URL '${raw}'.`);
+  if (!contained.safe || contained.relativePath !== relativePath || !relativePath.startsWith(`${RECORD_OUTPUTS_RELATIVE_DIR}/${cardId}`)) throw toolInputError(`Invalid record search URL '${raw}'.`);
   return { absolutePath, relativePath };
 }
 
 function validRecordSegment(value: string, label: string, raw: string): string {
-  if (!value || value === '.' || value === '..' || value.includes('/') || value.includes('\\')) throw new Error(`Invalid ${label} in record URL '${raw}'.`);
+  if (!value || value === '.' || value === '..' || value.includes('/') || value.includes('\\')) throw toolInputError(`Invalid ${label} in record URL '${raw}'.`);
   return value;
 }

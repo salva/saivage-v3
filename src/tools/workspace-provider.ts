@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { applyProjectPatch, editProject, globProject, grepProject, readProject, writeProject } from './project-file-tools.js';
+import { applyProjectPatch, editProject, globProject, grepProject, readProject, WorkspaceToolInputError, writeProject } from './project-file-tools.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
 import type { AgentRole } from './tool-catalog.js';
 import type { CardStore } from '../cards/store-api.js';
@@ -16,10 +16,17 @@ function failureFromError(err: unknown): ToolResult {
   return { success: false, error: err instanceof Error ? err.message : String(err) };
 }
 
+function isExpectedWorkspaceFailure(err: unknown): boolean {
+  if (err instanceof WorkspaceToolInputError) return true;
+  const code = typeof err === 'object' && err !== null && 'code' in err ? (err as NodeJS.ErrnoException).code : undefined;
+  return code === 'ENOENT' || code === 'ENOTDIR' || code === 'EISDIR' || code === 'EACCES' || code === 'EPERM';
+}
+
 async function runWorkspaceTool(action: () => Promise<unknown>): Promise<ToolResult> {
   try {
     return { success: true, data: await action() };
   } catch (err) {
+    if (!isExpectedWorkspaceFailure(err)) throw err;
     return failureFromError(err);
   }
 }

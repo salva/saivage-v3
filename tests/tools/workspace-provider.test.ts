@@ -80,4 +80,16 @@ describe('workspace and patch providers', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it('does not mask missing Analyst card-store context as a model-visible tool error', async () => {
+    const { root, store } = setupProject();
+    try {
+      const card = store.create({ type: 'goal', parent: 'project', title: 'Goal', brief: 'old', status: 'backlog', depth: 0, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 });
+      const surface = buildInvocationSurface('analyst', [createWorkspaceProvider({ projectRoot: root, agentRole: 'analyst' })]);
+
+      await expect(invokeTool(surface, 'write', { path: `record://brief.md?card=${card.id}&v=next`, content: VALID_BRIEF })).rejects.toThrow('Analyst record writes require a card store.');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
