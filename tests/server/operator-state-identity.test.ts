@@ -3,6 +3,8 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { ServerInstance } from '../../src/server/server.js';
+import { createServer } from '../../src/server/server.js';
+import { loadEnvironment } from '../../src/config/environment.js';
 import { resetAuthPolicyForTests } from '../../src/server/auth-policy.js';
 import { parseOperatorResponse } from '../../src/contracts/operator-api.js';
 import { initRuntimeState } from '../../src/runtime/state.js';
@@ -21,6 +23,10 @@ describe('operator runtime.getState identity', () => {
   let tmpDir: string;
   let server: ServerInstance | undefined;
   let originalToken: string | undefined;
+
+  function createTestServer(root: string) {
+    return createServer({ environment: loadEnvironment(['node', 'test', '--project-root', root], process.env) });
+  }
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-identity-'));
@@ -42,7 +48,7 @@ describe('operator runtime.getState identity', () => {
 
   it('GET /api/state includes projectRoot and projectId derived from the project directory', async () => {
     const { createServer } = await import('../../src/server/server.js');
-    server = await createServer(tmpDir);
+    server = await createTestServer(tmpDir);
 
     const response = await server.fastify.inject({ method: 'GET', url: '/api/state', headers: { authorization: `Bearer ${AUTH_TOKEN}` } });
     expect(response.statusCode).toBe(200);
@@ -58,7 +64,7 @@ describe('operator runtime.getState identity', () => {
   it('still emits projectRoot and projectId when runtime state file is absent', async () => {
     rmSync(join(tmpDir, '.saivage', 'tmp', 'state', 'runtime.json'), { force: true });
     const { createServer } = await import('../../src/server/server.js');
-    server = await createServer(tmpDir);
+    server = await createTestServer(tmpDir);
 
     const response = await server.fastify.inject({ method: 'GET', url: '/api/state', headers: { authorization: `Bearer ${AUTH_TOKEN}` } });
     expect(response.statusCode).toBe(200);

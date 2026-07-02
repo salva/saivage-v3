@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createTestAnalystRuntime } from '../helpers/test-runtime-application.js';
+import { createTestAnalystRuntime, loadTestConfig } from '../helpers/test-runtime-application.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 import { appendConversationMessage, readConversationMessages } from '../../src/runtime/actors/conversation-store.js';
@@ -18,7 +18,7 @@ function setupRoot(): string {
   const sd = join(root, '.saivage');
   initProjectTree(root);
   writeFileSync(join(sd, 'saivage.json'), JSON.stringify({
-    models: { analyst: [TEST_MODEL] },
+    models: { default: [TEST_MODEL], analyst: [TEST_MODEL] },
     providers: { test: { models: [TEST_MODEL], apiKey: 'test-key', baseUrl: 'http://test-provider.invalid/v1' } },
   }, null, 2));
   materializeProjectCard(root);
@@ -69,7 +69,7 @@ describe('AnalystHandler F05 contract', () => {
     const root = setupRoot();
     try {
       jest.spyOn(globalThis, 'fetch').mockImplementation(async () => messageResponse('Hello user.'));
-      const handler = new AnalystHandler(root, createTestAnalystRuntime({ projectRoot: root }));
+      const handler = new AnalystHandler(root, loadTestConfig(root), createTestAnalystRuntime({ projectRoot: root }));
       const response = await handler.handleMessage('s-msg', 'hi');
       expect(response.message.content).toBe('Hello user.');
       expect(response.toolInvocations ?? []).toHaveLength(0);
@@ -90,7 +90,7 @@ describe('AnalystHandler F05 contract', () => {
         ownerKind: 'operator',
         launchReason: 'analyst workspace run_command',
       });
-      const handler = new AnalystHandler(root, createTestAnalystRuntime({ projectRoot: root }));
+      const handler = new AnalystHandler(root, loadTestConfig(root), createTestAnalystRuntime({ projectRoot: root }));
 
       await handler.shutdownSessionProcesses(sessionId);
 
@@ -109,7 +109,7 @@ describe('AnalystHandler F05 contract', () => {
         ]);
         return messageResponse('Done.');
       });
-      const handler = new AnalystHandler(root, createTestAnalystRuntime({ projectRoot: root }));
+      const handler = new AnalystHandler(root, loadTestConfig(root), createTestAnalystRuntime({ projectRoot: root }));
       const response = await handler.handleMessage('s-multi', 'list everything');
       expect(response.message.content).toBe('Done.');
       const rows = readPersistedRows(root, 's-multi');
@@ -141,7 +141,7 @@ describe('AnalystHandler F05 contract', () => {
         return messageResponse('Done.');
       });
 
-      const handler = new AnalystHandler(root, runtimeDeps);
+      const handler = new AnalystHandler(root, loadTestConfig(root), runtimeDeps);
       const response = await handler.handleMessage('s-bad-json', 'list cards');
 
       expect(response.message.content).toContain('agent_protocol_violation');
@@ -166,7 +166,7 @@ describe('AnalystHandler F05 contract', () => {
         return messageResponse('Done.');
       });
 
-      const handler = new AnalystHandler(root, runtimeDeps, () => { throw new Error('activity boom'); });
+      const handler = new AnalystHandler(root, loadTestConfig(root), runtimeDeps, () => { throw new Error('activity boom'); });
       const response = await handler.handleMessage('s-activity', 'list cards');
 
       expect(response.message.content).toBe('Done.');
@@ -197,7 +197,7 @@ describe('AnalystHandler F05 contract', () => {
         return messageResponse('Done.');
       });
 
-      const handler = new AnalystHandler(root, createTestAnalystRuntime({ projectRoot: root }));
+      const handler = new AnalystHandler(root, loadTestConfig(root), createTestAnalystRuntime({ projectRoot: root }));
       await handler.handleMessage('s-filter', 'hi');
 
       expect(modelInputContents.some((content) => content.includes('provider debug diagnostic'))).toBe(false);

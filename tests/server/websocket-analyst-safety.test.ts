@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import type { WebSocket } from 'ws';
-import { createTestRuntimeApplication } from '../helpers/test-runtime-application.js';
+import { createTestRuntimeApplication, createTestSaivageConfig } from '../helpers/test-runtime-application.js';
 import { LiveSyncSocket } from '../../src/server/live-sync-socket.js';
 
 const mockResolveAnalystSessionId = jest.fn<(id?: string) => string>();
@@ -67,6 +67,7 @@ describe('websocket analyst safety and live-sync control', () => {
     const { route, fastify } = createRoute();
     registerWebSocket(fastify, '/tmp/project', {
       liveSyncSocket: new LiveSyncSocket(),
+      saivageConfig: createTestSaivageConfig(),
       runtimeApplication: createTestRuntimeApplication(),
       requestServerRestart: async () => undefined,
     });
@@ -86,6 +87,7 @@ describe('websocket analyst safety and live-sync control', () => {
     const { route, fastify } = createRoute();
     registerWebSocket(fastify, '/tmp/project', {
       liveSyncSocket,
+      saivageConfig: createTestSaivageConfig(),
       runtimeApplication: createTestRuntimeApplication(),
       requestServerRestart: async () => undefined,
     });
@@ -109,6 +111,7 @@ describe('websocket analyst safety and live-sync control', () => {
     const { route, fastify } = createRoute();
     registerWebSocket(fastify, '/tmp/project', {
       liveSyncSocket: new LiveSyncSocket(),
+      saivageConfig: createTestSaivageConfig(),
       runtimeApplication: createTestRuntimeApplication(),
       requestServerRestart: async () => undefined,
     });

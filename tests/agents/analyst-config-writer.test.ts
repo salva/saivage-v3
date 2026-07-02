@@ -22,15 +22,19 @@ function cleanup() {
 }
 
 let setFailoverChain: typeof import('../../src/agents/analyst-config-writer.js').setFailoverChain;
-let loadConfig: typeof import('../../src/agents/config-schema.js').loadConfig;
+let loadEnvironment: typeof import('../../src/config/environment.js').loadEnvironment;
 
 beforeAll(async () => {
   setFailoverChain = (await import('../../src/agents/analyst-config-writer.js')).setFailoverChain;
-  loadConfig = (await import('../../src/agents/config-schema.js')).loadConfig;
+  loadEnvironment = (await import('../../src/config/environment.js')).loadEnvironment;
 });
 
 beforeEach(() => cleanup());
 afterEach(() => cleanup());
+
+function loadConfig(projectRoot: string) {
+  return { config: loadEnvironment(['node', 'test', '--project-root', projectRoot], process.env).config };
+}
 
 describe('analyst-config-writer.setFailoverChain', () => {
   it('writes the chain under models.failover (not root failover)', () => {

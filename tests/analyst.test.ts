@@ -4,6 +4,8 @@ import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import WebSocket from 'ws';
 import { getAuthPolicy, resetAuthPolicyForTests } from '../src/server/auth-policy.js';
+import { createServer, type ServerInstance } from '../src/server/server.js';
+import { loadEnvironment } from '../src/config/environment.js';
 import { existsSync, rmSync, writeFileSync, readFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -49,6 +51,7 @@ import { cardStatusSchema, cardTypeSchema, urgencySchema } from '../src/schemas/
 import {
   createTestAnalystRuntime,
   createTestRuntimeApplication,
+  loadTestConfig,
 } from './helpers/test-runtime-application.js';
 import { markGoalNeedsCorrections } from '../src/agents/analyst-stage6.js';
 import { getProjectNotificationCenter } from '../src/notifications/notification-delivery.js';
@@ -503,7 +506,7 @@ describe('Analyst Handler', () => {
   });
 
   it('deduplicates the same chat message when two transports submit it together', async () => {
-    const handler = new AnalystHandler(projectRoot, createTestAnalystRuntime({ projectRoot, cardStore: new CardStore(projectRoot) }));
+    const handler = new AnalystHandler(projectRoot, loadTestConfig(projectRoot), createTestAnalystRuntime({ projectRoot, cardStore: new CardStore(projectRoot) }));
     const first = await handler.handleMessage('s16', 'list all cards');
     const second = await handler.handleMessage('s16', 'list all cards');
     expect(second.message.content).toBe(first.message.content);
@@ -512,7 +515,7 @@ describe('Analyst Handler', () => {
 
 describe('API Chat and WebSocket Integration', () => {
   let projectRoot: string;
-  let app: FastifyInstance;
+  let server: ServerInstance;
   let port: number;
   let authToken: string;
 
@@ -523,31 +526,13 @@ describe('API Chat and WebSocket Integration', () => {
     process.env['SAIVAGE_API_TOKEN'] = authToken;
     resetAuthPolicyForTests();
 
-    app = Fastify({ logger: false });
-    await app.register(cors);
-    await app.register(websocket);
-
-    const { registerCardRoutes } = await import('../src/server/routes/cards.js');
-    const { registerChatsFilesDebugRoutes } =
-      await import('../src/server/routes/chats-files-debug.js');
-    const { registerWebSocket } = await import('../src/server/websocket.js');
-    const { LiveSyncSocket } = await import('../src/server/live-sync-socket.js');
-
-    const routeStore = new CardStore(projectRoot);
-    registerCardRoutes(app, projectRoot, createTestRuntimeApplication({ cardStore: routeStore }), routeStore);
-    registerChatsFilesDebugRoutes(app, projectRoot, routeStore);
-    registerWebSocket(app, projectRoot, {
-      runtimeApplication: createTestRuntimeApplication({ cardStore: new CardStore(projectRoot) }),
-      liveSyncSocket: new LiveSyncSocket(),
-      requestServerRestart: async () => undefined,
-    });
-
-    await app.listen({ port: 0, host: '127.0.0.1' });
-    port = (app.server.address() as { port: number }).port;
+    server = await createServer({ environment: loadEnvironment(['node', 'test', '--project-root', projectRoot], process.env) });
+    await server.fastify.listen({ port: 0, host: '127.0.0.1' });
+    port = (server.fastify.server.address() as { port: number }).port;
   }, 30000);
 
   afterAll(async () => {
-    await app.close();
+    await server.stop();
     try {
       rmSync(projectRoot, { recursive: true, force: true });
     } catch {}

@@ -10,6 +10,7 @@ import { writeFileSync, mkdirSync, rmSync, mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawn as realSpawn } from 'node:child_process';
+import { loadEnvironment } from '../../src/config/environment.js';
 
 let nextPid = 12345;
 
@@ -75,6 +76,14 @@ function writeSaivageJson(root: string, overrides: Record<string, unknown>): voi
       2,
     ),
   );
+}
+
+function loadTestConfig(projectRoot: string) {
+  return loadEnvironment(['node', 'test', '--project-root', projectRoot], process.env).config;
+}
+
+function createMcpManager<T extends new (projectRoot: string, options: { config: ReturnType<typeof loadTestConfig> }) => unknown>(McpManager: T, projectRoot: string): InstanceType<T> {
+  return new McpManager(projectRoot, { config: loadTestConfig(projectRoot) }) as InstanceType<T>;
 }
 
 function stdioCfg(overrides: Record<string, unknown> = {}) {
@@ -304,21 +313,21 @@ describe('invokeTool validation', () => {
   it('throws ServerNotRunningError for unknown server name', async () => {
     const r = makeProjectRoot();
     writeSaivageJson(r, {});
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     await expect(mgr.invokeTool('nope', 'greet', {})).rejects.toThrow(ServerNotRunningError);
   });
 
   it('throws ServerNotRunningError when server is not started', async () => {
     const r = makeProjectRoot();
     writeSaivageJson(r, { mcpServers: { test: stdioCfg() } });
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     await expect(mgr.invokeTool('test', 'greet', {})).rejects.toThrow(ServerNotRunningError);
   });
 
   it('throws ToolNotFoundError when tool not in cache', async () => {
     const r = makeProjectRoot();
     writeSaivageJson(r, { mcpServers: { test: stdioCfg() } });
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     await mgr.startServer('test');
     await expect(mgr.invokeTool('test', 'no-such-tool', {})).rejects.toThrow(ToolNotFoundError);
   });
@@ -328,7 +337,7 @@ describe('invokeTool validation', () => {
     writeSaivageJson(r, {
       mcpServers: { srv1: stdioCfg({ command: 'c1' }), srv2: stdioCfg({ command: 'c2' }) },
     });
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     await mgr.startServer('srv1');
     await mgr.startServer('srv2');
     await expect(mgr.invokeTool('srv1', 'anything', {})).rejects.toThrow(ToolNotFoundError);
@@ -367,7 +376,7 @@ describe('invokeTool stdio transport', () => {
     writeSaivageJson(r, {
       mcpServers: { stdio: stdioCfg({ command: 'node', args: ['-e', '1'] }) },
     });
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     const proc = await setupRealProc(mgr, 'stdio', r, mcpScript(), stdioTools);
     const res = await mgr.invokeTool('stdio', 'greet', { name: 'World' });
     expect(res).toEqual([{ type: 'text', text: 'Hello World' }]);
@@ -379,7 +388,7 @@ describe('invokeTool stdio transport', () => {
     writeSaivageJson(r, {
       mcpServers: { stdio: stdioCfg({ command: 'node', args: ['-e', '1'] }) },
     });
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     const proc = await setupRealProc(mgr, 'stdio', r, mcpScript(), stdioTools);
     const res = await mgr.invokeTool('stdio', 'add', { a: 2, b: 3 });
     expect(res).toEqual([{ type: 'text', text: '5' }]);
@@ -391,7 +400,7 @@ describe('invokeTool stdio transport', () => {
     writeSaivageJson(r, {
       mcpServers: { stdio: stdioCfg({ command: 'node', args: ['-e', '1'] }) },
     });
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     const proc = await setupRealProc(mgr, 'stdio', r, mcpScript(), stdioTools);
     await expect(mgr.invokeTool('stdio', 'unknown_tool', {})).rejects.toThrow(
       InvalidArgumentsError,
@@ -404,7 +413,7 @@ describe('invokeTool stdio transport', () => {
     writeSaivageJson(r, {
       mcpServers: { stdio: stdioCfg({ command: 'node', args: ['-e', '1'] }) },
     });
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     const proc = await setupRealProc(mgr, 'stdio', r, mcpScript({ errorCode: -32000 }), stdioTools);
     await expect(mgr.invokeTool('stdio', 'greet', {})).rejects.toThrow(McpInvokeError);
     await expect(mgr.invokeTool('stdio', 'greet', {})).rejects.toThrow('Custom error');
@@ -416,7 +425,7 @@ describe('invokeTool stdio transport', () => {
     writeSaivageJson(r, {
       mcpServers: { stdio: stdioCfg({ command: 'node', args: ['-e', '1'] }) },
     });
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     const proc = await setupRealProc(
       mgr,
       'stdio',
@@ -434,7 +443,7 @@ describe('invokeTool stdio transport', () => {
     writeSaivageJson(r, {
       mcpServers: { stdio: stdioCfg({ command: 'node', args: ['-e', '1'] }) },
     });
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     const proc = await setupRealProc(mgr, 'stdio', r, mcpScript({ hangOnCall: true }), stdioTools);
     await expect(mgr.invokeTool('stdio', 'greet', {}, { timeoutMs: 500 })).rejects.toThrow(
       TimeoutError,
@@ -447,7 +456,7 @@ describe('invokeTool stdio transport', () => {
     writeSaivageJson(r, {
       mcpServers: { stdio: stdioCfg({ command: 'node', args: ['-e', '1'] }) },
     });
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     await mgr.startServer('stdio');
     runtimeFor(mgr, 'stdio').tools = stdioTools;
     await expect(mgr.invokeTool('stdio', 'greet', {})).rejects.toThrow(TransportError);
@@ -481,7 +490,7 @@ describe('invokeTool SSE transport', () => {
   it('sends HTTP POST and returns result.content on success', async () => {
     const r = makeProjectRoot();
     writeSaivageJson(r, { mcpServers: { sse: sseCfg() } });
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     setupSseHandle(mgr, 'sse');
 
     (globalThis as any).fetch = async () => ({
@@ -501,7 +510,7 @@ describe('invokeTool SSE transport', () => {
   it('accepts text/event-stream tools/call responses and ignores unrelated notifications', async () => {
     const r = makeProjectRoot();
     writeSaivageJson(r, { mcpServers: { sse: sseCfg() } });
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     setupSseHandle(mgr, 'sse');
 
     (globalThis as any).fetch = async (_url: string, init?: any) => {
@@ -524,7 +533,7 @@ describe('invokeTool SSE transport', () => {
   it('propagates captured Mcp-Session-Id on tools/call requests', async () => {
     const r = makeProjectRoot();
     writeSaivageJson(r, { mcpServers: { sse: sseCfg() } });
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     setupSseHandle(mgr, 'sse');
     const handle = runtimeFor(mgr, 'sse').handle as Record<string, unknown>;
     handle.streamableHttpSessionId = 'synthetic-session-1';
@@ -547,7 +556,7 @@ describe('invokeTool SSE transport', () => {
   it('surfaces sanitized errors for malformed, overlarge, and closed SSE responses', async () => {
     const r = makeProjectRoot();
     writeSaivageJson(r, { mcpServers: { sse: sseCfg() } });
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     setupSseHandle(mgr, 'sse');
 
     (globalThis as any).fetch = async () =>
@@ -576,7 +585,7 @@ describe('invokeTool SSE transport', () => {
   it('times out if an event-stream tools/call response never emits the matching id', async () => {
     const r = makeProjectRoot();
     writeSaivageJson(r, { mcpServers: { sse: sseCfg() } });
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     setupSseHandle(mgr, 'sse');
 
     (globalThis as any).fetch = async () => {
@@ -596,7 +605,7 @@ describe('invokeTool SSE transport', () => {
   it('non-2xx response -> TransportError', async () => {
     const r = makeProjectRoot();
     writeSaivageJson(r, { mcpServers: { sse: sseCfg() } });
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     setupSseHandle(mgr, 'sse');
 
     (globalThis as any).fetch = async () => ({ ok: false, status: 500 }) as Response;
@@ -607,7 +616,7 @@ describe('invokeTool SSE transport', () => {
   it('timeout -> TimeoutError (SSE)', async () => {
     const r = makeProjectRoot();
     writeSaivageJson(r, { mcpServers: { sse: sseCfg() } });
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     setupSseHandle(mgr, 'sse');
 
     (globalThis as any).fetch = async (_url: string, init?: any) => {
@@ -636,7 +645,7 @@ describe('Invocation stats tracking', () => {
   it('getInvocationStats() returns empty initially', () => {
     const r = makeProjectRoot();
     writeSaivageJson(r, {});
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     expect(mgr.getInvocationStats()).toEqual({});
   });
 
@@ -645,7 +654,7 @@ describe('Invocation stats tracking', () => {
     writeSaivageJson(r, {
       mcpServers: { stdio: stdioCfg({ command: 'node', args: ['-e', '1'] }) },
     });
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     const tools = [
       { name: 'greet', description: 'Hi', inputSchema: { type: 'object', properties: {} } },
     ];
@@ -665,7 +674,7 @@ describe('Invocation stats tracking', () => {
     writeSaivageJson(r, {
       mcpServers: { stdio: stdioCfg({ command: 'node', args: ['-e', '1'] }) },
     });
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     const tools = [
       { name: 'greet', description: 'Hi', inputSchema: { type: 'object', properties: {} } },
       { name: 'bad', description: '?', inputSchema: { type: 'object', properties: {} } },
@@ -696,7 +705,7 @@ describe('Event logging for MCP invocations', () => {
     writeSaivageJson(r, {
       mcpServers: { stdio: stdioCfg({ command: 'node', args: ['-e', '1'] }) },
     });
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     const appended: any[] = [];
     mgr.setEventLogger({
       appendEvent: (e: any) => {
@@ -722,7 +731,7 @@ describe('Event logging for MCP invocations', () => {
     writeSaivageJson(r, {
       mcpServers: { stdio: stdioCfg({ command: 'node', args: ['-e', '1'] }) },
     });
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     const appended: any[] = [];
     mgr.setEventLogger({
       appendEvent: (e: any) => {
@@ -827,7 +836,7 @@ rl.on('line', (line) => {
     writeSaivageJson(r, {
       mcpServers: { stdio: stdioCfg({ command: 'node', args: ['-e', '1'] }) },
     });
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     const proc = await setupRealProc(mgr, 'stdio', r, orderingScript(), stdioTools);
 
     const [res1, res2] = await Promise.all([
@@ -864,7 +873,7 @@ rl.on('line', (line) => {
         srv2: stdioCfg({ command: 'node', args: ['-e', '1'] }),
       },
     });
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     const proc1 = await setupRealProc(mgr, 'srv1', r, orderingScript(), stdioTools);
     const proc2 = await setupRealProc(mgr, 'srv2', r, orderingScript(), stdioTools);
 
@@ -892,7 +901,7 @@ rl.on('line', (line) => {
   it('SSE concurrent calls are NOT serialized', async () => {
     const r = makeProjectRoot();
     writeSaivageJson(r, { mcpServers: { sse: sseCfg() } });
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     seedRuntime(mgr, 'sse', { abortController: new AbortController() }, stdioTools);
 
     let concurrent = 0;
@@ -936,7 +945,7 @@ rl.on('line', (line) => {
     writeSaivageJson(r, {
       mcpServers: { stdio: stdioCfg({ command: 'node', args: ['-e', '1'] }) },
     });
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     const proc = await setupRealProc(mgr, 'stdio', r, errorThenOkScript(), stdioTools);
 
     await expect(mgr.invokeTool('stdio', 'greet', { name: 'Fail' })).rejects.toThrow();
@@ -959,7 +968,7 @@ rl.on('line', (line) => {
     writeSaivageJson(r, {
       mcpServers: { stdio: stdioCfg({ command: 'node', args: ['-e', '1'] }) },
     });
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     const proc = await setupRealProc(mgr, 'stdio', r, mcpScript(), stdioTools);
 
     const promises = [
@@ -1026,7 +1035,7 @@ describe('ARCH-018 local MCP inputSchema validation', () => {
   it('rejects invalid stdio arguments before touching transport', async () => {
     const r = makeProjectRoot();
     writeSaivageJson(r, { mcpServers: { local: stdioCfg({ command: 'node' }) } });
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     setupBareRunningServer(mgr, 'local', [strictTool]);
 
     await expect(mgr.invokeTool('local', 'strict', { name: 'Ada', count: '2' })).rejects.toThrow(
@@ -1046,7 +1055,7 @@ describe('ARCH-018 local MCP inputSchema validation', () => {
   it('allows locally valid stdio arguments through to the existing transport path', async () => {
     const r = makeProjectRoot();
     writeSaivageJson(r, { mcpServers: { local: stdioCfg({ command: 'node' }) } });
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     setupBareRunningServer(mgr, 'local', [strictTool]);
 
     await expect(
@@ -1058,7 +1067,7 @@ describe('ARCH-018 local MCP inputSchema validation', () => {
   it('rejects invalid SSE arguments before issuing fetch', async () => {
     const r = makeProjectRoot();
     writeSaivageJson(r, { mcpServers: { sse: sseCfg() } });
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     setupBareRunningServer(mgr, 'sse', [strictTool], 'sse');
     const fetchMock = jest.fn(async () => ({
       ok: true,
@@ -1078,7 +1087,7 @@ describe('ARCH-018 local MCP inputSchema validation', () => {
   it('fails closed for missing, unsupported, and uncompileable schemas with safe reasons', async () => {
     const r = makeProjectRoot();
     writeSaivageJson(r, { mcpServers: { local: stdioCfg({ command: 'node' }) } });
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     setupBareRunningServer(mgr, 'local', [
       { name: 'missing', inputSchema: undefined },
       { name: 'unsupported', inputSchema: { type: 'array', items: { type: 'string' } } },
@@ -1103,7 +1112,7 @@ describe('ARCH-018 local MCP inputSchema validation', () => {
   it('uses a new validator when the cached tool schema fingerprint changes', async () => {
     const r = makeProjectRoot();
     writeSaivageJson(r, { mcpServers: { local: stdioCfg({ command: 'node' }) } });
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     setupBareRunningServer(mgr, 'local', [
       {
         name: 'flip',
@@ -1137,7 +1146,7 @@ describe('ARCH-018 local MCP inputSchema validation', () => {
   it('keeps local validation diagnostics free of raw synthetic secret values', async () => {
     const r = makeProjectRoot();
     writeSaivageJson(r, { mcpServers: { local: stdioCfg({ command: 'node' }) } });
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     setupBareRunningServer(mgr, 'local', [strictTool]);
     const syntheticSecret = 'sk-test-ARCH018-DO-NOT-ECHO-1234567890';
     const syntheticSecretKey = `x-api-token-${syntheticSecret}`;
@@ -1163,7 +1172,7 @@ describe('ARCH-018 local MCP inputSchema validation', () => {
   it('bounds long enum and pattern diagnostics', async () => {
     const r = makeProjectRoot();
     writeSaivageJson(r, { mcpServers: { local: stdioCfg({ command: 'node' }) } });
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     const longPattern = `^${'a'.repeat(300)}$`;
     const longEnumValue = `enum-${'b'.repeat(300)}`;
     setupBareRunningServer(mgr, 'local', [
@@ -1215,7 +1224,7 @@ describe('ARCH-018 local MCP inputSchema validation', () => {
     writeSaivageJson(r, {
       mcpServers: { stdio: stdioCfg({ command: 'node', args: ['-e', '1'] }) },
     });
-    const mgr = new McpManager(r);
+    const mgr = createMcpManager(McpManager, r);
     const proc = await setupRealProc(mgr, 'stdio', r, mcpScript(), [
       { name: 'unknown_tool', description: '?', inputSchema: { type: 'object', properties: {} } },
     ]);

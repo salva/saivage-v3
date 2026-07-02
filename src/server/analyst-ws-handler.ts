@@ -1,4 +1,5 @@
 import type { WebSocket } from 'ws';
+import type { SaivageConfig } from '../agents/config-api.js';
 import { getAnalystHandler, resolveAnalystSessionId, sanitizeAnalystPayload, sanitizeAnalystText } from '../agents/analyst-api.js';
 import type { RuntimeApplication } from '../application/runtime-composition.js';
 import { InboundAnalystMessageEnvelopeSchema } from '../contracts/index.js';
@@ -9,6 +10,7 @@ import { projectAnalystToolInvocationActivity } from './tool-activity-projection
 
 export interface AnalystWsHandlerOptions {
   projectRoot: string;
+  saivageConfig: SaivageConfig;
   liveSyncSocket: LiveSyncSocket;
   runtimeApplication: RuntimeApplication;
   requestServerRestart: () => Promise<void>;
@@ -38,6 +40,7 @@ export class AnalystWsHandler {
 
         const currentSessionId = resolveAnalystSessionId();
         const handler = getAnalystHandler(this.options.projectRoot, {
+          config: this.options.saivageConfig,
           runtimeDeps: this.options.runtimeApplication.analystDeps,
           requestServerRestart: this.options.requestServerRestart,
           onActivity: (activity) => {
@@ -78,6 +81,7 @@ export class AnalystWsHandler {
     this.sessions.delete(ws);
     if (!sessionId) return;
     const handler = getAnalystHandler(this.options.projectRoot, {
+      config: this.options.saivageConfig,
       runtimeDeps: this.options.runtimeApplication.analystDeps,
       requestServerRestart: this.options.requestServerRestart,
     });

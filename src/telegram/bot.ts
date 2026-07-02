@@ -111,7 +111,7 @@ export class TelegramBot {
       throw new Error('TelegramBot requires validated SaivageConfig from Environment.');
     }
     this.config = { botToken: saivageConfig.telegram?.botToken, allowedUserIds: saivageConfig.telegram?.allowedUserIds };
-    this.analystHandler = new AnalystHandler(projectRoot, runtimeDeps, undefined, 'analyst', 'telegram');
+    this.analystHandler = new AnalystHandler(projectRoot, saivageConfig, runtimeDeps, undefined, 'analyst', 'telegram');
   }
   async start(): Promise<void> { if (this.running) return; if (!this.config.botToken) return; this.running = true; this.pollAbortController = new AbortController(); this.pollPromise = this._pollLoop(this.pollAbortController.signal); }
   async stop(): Promise<void> { if (!this.running) return; this.running = false; if (this.pollAbortController) { this.pollAbortController.abort(); this.pollAbortController = null; } if (this.pollPromise) { try { await raceWithTimeout(this.pollPromise, STOP_TIMEOUT_MS, 'Poll shutdown timeout'); } catch { void 0; } this.pollPromise = null; } }

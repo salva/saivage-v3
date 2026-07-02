@@ -10,6 +10,7 @@
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
+import type { SaivageConfig } from '../agents/config-api.js';
 import type { RuntimeApplication } from '../application/runtime-composition.js';
 import { buildConnectedEnvelope, validateKnownWsEnvelope } from '../contracts/index.js';
 import type { WsEnvelope, WsEventType } from '../contracts/index.js';
@@ -66,6 +67,7 @@ function rejectUnauthorizedWebSocket(ws: WebSocket): void {
 
 export interface RegisterWebSocketOptions {
   liveSyncSocket: LiveSyncSocket;
+  saivageConfig: SaivageConfig;
   runtimeApplication: RuntimeApplication;
   requestServerRestart: () => Promise<void>;
 }
@@ -74,6 +76,7 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string,
   const liveSyncSocket = options.liveSyncSocket;
   const analystWsHandler = new AnalystWsHandler({
     projectRoot,
+    saivageConfig: options.saivageConfig,
     liveSyncSocket,
     runtimeApplication: options.runtimeApplication,
     requestServerRestart: options.requestServerRestart,

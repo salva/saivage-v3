@@ -1,5 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
-import { loadConfig, type SaivageConfig } from '../agents/config-api.js';
+import type { SaivageConfig } from '../agents/config-api.js';
 import type { McpTransport } from './protocol.js';
 
 export interface McpServerHandle {
@@ -35,7 +35,6 @@ export function normalizeMcpServers(config: SaivageConfig): Record<string, McpSe
   return out;
 }
 
-export function loadMcpServersFromConfig(projectRoot: string): Record<string, McpServerConfig> {
-  const { config } = loadConfig(projectRoot);
+export function loadMcpServersFromConfig(config: SaivageConfig): Record<string, McpServerConfig> {
   return normalizeMcpServers(config);
 }

@@ -23,14 +23,14 @@ function cleanup() {
 }
 
 // We need to import after setup since it's ESM
-let loadConfig: typeof import('../../src/agents/config-schema.js').loadConfig;
+let loadEnvironment: typeof import('../../src/config/environment.js').loadEnvironment;
 let getModelListForRole: typeof import('../../src/agents/config-schema.js').getModelListForRole;
 let getRuntimeConfig: typeof import('../../src/agents/config-schema.js').getRuntimeConfig;
 let saivageConfigSchema: typeof import('../../src/agents/config-schema.js').saivageConfigSchema;
 
 beforeAll(async () => {
   const mod = await import('../../src/agents/config-schema.js');
-  loadConfig = mod.loadConfig;
+  loadEnvironment = (await import('../../src/config/environment.js')).loadEnvironment;
   getModelListForRole = mod.getModelListForRole;
   getRuntimeConfig = mod.getRuntimeConfig;
   saivageConfigSchema = mod.saivageConfigSchema;
@@ -38,6 +38,11 @@ beforeAll(async () => {
 
 beforeEach(() => cleanup());
 afterEach(() => cleanup());
+
+function loadConfig(projectRoot: string) {
+  const environment = loadEnvironment(['node', 'test', '--project-root', projectRoot], process.env);
+  return { config: environment.config, warnings: environment.configWarnings };
+}
 
 describe('config-schema', () => {
   describe('loadConfig', () => {
@@ -335,10 +340,7 @@ describe('config-schema', () => {
     });
 
     it('should throw if no default and no matching role', () => {
-      setupConfig({
-        models: {},
-      });
-      const { config } = loadConfig(TEST_ROOT);
+      const config = saivageConfigSchema.parse({ models: {} });
       expect(() => getModelListForRole(config, 'planner')).toThrow(/No model list configured/);
     });
   });

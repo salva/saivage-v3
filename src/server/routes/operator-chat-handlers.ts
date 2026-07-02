@@ -6,6 +6,7 @@ import type {
   OperatorContractHandlerMap,
   OperatorProjectContext,
   OperatorRestartContext,
+  OperatorConfigContext,
   OperatorRuntimeProviderContext,
 } from './operator-handler-context.js';
 
@@ -29,7 +30,7 @@ function validateWorkspaceContext(value: unknown): { ok: true; value: ChatWorksp
   return { ok: true, value: { view: ctx.view, entityId: ctx.entityId, refinement: ctx.refinement } as ChatWorkspaceContext };
 }
 
-type ChatOperatorHandlerOptions = OperatorProjectContext & OperatorRuntimeProviderContext & OperatorRestartContext;
+type ChatOperatorHandlerOptions = OperatorProjectContext & OperatorRuntimeProviderContext & OperatorRestartContext & OperatorConfigContext;
 
 export function buildChatOperatorContractHandlers(options: ChatOperatorHandlerOptions): OperatorContractHandlerMap {
   const { projectRoot } = options;
@@ -64,7 +65,8 @@ export function buildChatOperatorContractHandlers(options: ChatOperatorHandlerOp
       }
       try {
         if (!options.runtimeApplication) return { statusCode: 503, body: { error: 'Runtime application unavailable.' } };
-        const handler = getAnalystHandler(projectRoot, { runtimeDeps: options.runtimeApplication.analystDeps, surface: 'web-chat', requestServerRestart: options.requestServerRestart });
+        if (!options.saivageConfig) return { statusCode: 503, body: { error: 'Runtime configuration unavailable.' } };
+        const handler = getAnalystHandler(projectRoot, { config: options.saivageConfig, runtimeDeps: options.runtimeApplication.analystDeps, surface: 'web-chat', requestServerRestart: options.requestServerRestart });
         const response = await handler.handleMessage(GLOBAL_ANALYST_SESSION_ID, requestBody.content, workspaceContext);
         const message = response.message;
         return {

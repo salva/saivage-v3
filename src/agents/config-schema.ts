@@ -1,6 +1,4 @@
 import { z } from 'zod';
-import { existsSync, readFileSync } from 'node:fs';
-import { interpolateValue, type EnvironmentSource } from '../config/index.js';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -245,49 +243,6 @@ export function getModelParamsForRole(
     4096;
 
   return { temperature, maxTokens };
-}
-
-// ── Loading ───────────────────────────────────────────────────
-
-export interface ConfigLoadResult {
-  config: SaivageConfig;
-  warnings: string[];
-}
-
-/**
- * Load saivage.json from a project root directory.
- * Performs env interpolation first, then Zod validation.
- * Returns the validated config and any interpolation warnings.
- */
-export function loadConfig(projectRoot: string, env: EnvironmentSource = process.env): ConfigLoadResult {
-  const configPath = `${projectRoot}/.saivage/saivage.json`;
-  if (!existsSync(configPath)) {
-    throw new Error(`Configuration not found at ${configPath}`);
-  }
-
-  const raw = readFileSync(configPath, 'utf-8');
-  let rawObj: unknown;
-  try {
-    rawObj = JSON.parse(raw);
-  } catch (err) {
-    throw new Error(
-      `Failed to parse saivage.json: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-
-  // Interpolate env vars
-  const { value: interpolated, warnings } = interpolateValue(rawObj, env);
-
-  // Validate with Zod
-  const parsed = saivageConfigSchema.safeParse(interpolated);
-  if (!parsed.success) {
-    const issues = parsed.error.issues
-      .map((i) => `  - ${i.path.join('.')}: ${i.message}`)
-      .join('\n');
-    throw new Error(`Configuration validation failed:\n${issues}`);
-  }
-
-  return { config: parsed.data, warnings };
 }
 
 /**

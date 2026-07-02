@@ -8,7 +8,8 @@
 // row has status "ok"; any error or skip yields exit 1 (the operator inspects
 // the rows to decide which findings warrant follow-up issues).
 
-import { loadConfig } from '../agents/config-schema.js';
+import type { SaivageConfig } from '../agents/config-schema.js';
+import { loadEnvironment } from '../config/index.js';
 import { ProviderRegistry, type Candidate, type Provider } from '../agents/provider.js';
 import { LlmProviderGateway } from '../agents/llm-provider-gateway.js';
 import { buildLlmOptions } from '../agents/llm-options-factory.js';
@@ -66,7 +67,7 @@ function buildCandidate(provider: Provider, model: string): { candidate: Candida
   };
 }
 
-function resolveRoleModels(config: ReturnType<typeof loadConfig>['config'], role: OperationalAgentRole): string[] {
+function resolveRoleModels(config: SaivageConfig, role: OperationalAgentRole): string[] {
   const models = config.models as unknown as Record<string, unknown>;
   const direct = models[role];
   if (Array.isArray(direct)) return direct as string[];
@@ -121,7 +122,7 @@ function emit(row: ProbeRow): void {
 async function probeOne(
   provider: Provider,
   role: OperationalAgentRole,
-  config: ReturnType<typeof loadConfig>['config'],
+  config: SaivageConfig,
   registry: ProviderRegistry,
 ): Promise<ProbeRow> {
   const start = Date.now();
@@ -163,7 +164,7 @@ async function probeOne(
 
 async function main(): Promise<number> {
   const projectRoot = process.argv[2] ?? process.cwd();
-  const { config } = loadConfig(projectRoot);
+  const { config } = loadEnvironment(['node', 'probe-llm-contract', '--project-root', projectRoot], process.env);
   const registry = new ProviderRegistry(config);
   const providers = registry.getAll();
   let allOk = providers.length > 0;

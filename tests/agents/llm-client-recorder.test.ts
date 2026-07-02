@@ -13,7 +13,7 @@ import type { LlmExchangeRecorder, ExchangeHandle } from '../../src/agents/llm-e
 
 let LlmProviderGateway: typeof import('../../src/agents/llm-provider-gateway.js').LlmProviderGateway;
 let LlmRequestError: typeof import('../../src/contracts/llm-failure.js').LlmRequestError;
-let loadConfig: typeof import('../../src/agents/config-schema.js').loadConfig;
+let loadEnvironment: typeof import('../../src/config/environment.js').loadEnvironment;
 let ProviderRegistry: typeof import('../../src/agents/provider.js').ProviderRegistry;
 let AgentLlmInvocationGateway: typeof import('../../src/agents/agent-llm-gateway.js').AgentLlmInvocationGateway;
 
@@ -22,7 +22,7 @@ beforeAll(async () => {
   const failureMod = await import('../../src/contracts/llm-failure.js');
   LlmProviderGateway = gatewayMod.LlmProviderGateway;
   LlmRequestError = failureMod.LlmRequestError;
-  loadConfig = (await import('../../src/agents/config-schema.js')).loadConfig;
+  loadEnvironment = (await import('../../src/config/environment.js')).loadEnvironment;
   ProviderRegistry = (await import('../../src/agents/provider.js')).ProviderRegistry;
   AgentLlmInvocationGateway = (await import('../../src/agents/agent-llm-gateway.js')).AgentLlmInvocationGateway;
 });
@@ -32,6 +32,10 @@ import type { LlmCompleteOptions, LlmCompleteResult, ToolCall } from '../../src/
 
 function toolsOpts(extra: Partial<LlmCompleteOptions> = {}): LlmCompleteOptions {
   return { phase: 'tools', tools: [], tool_choice: { kind: 'auto' }, contract_id: 'test.v1', contractName: 'test', terminalToolOffered: [], ...(extra as object) } as LlmCompleteOptions;
+}
+
+function loadTestConfig(projectRoot: string) {
+  return loadEnvironment(['node', 'test', '--project-root', projectRoot], process.env).config;
 }
 
 function asMessage(r: LlmCompleteResult): { content: string; tool_calls: ToolCall[]; finishReason: string } {
@@ -310,7 +314,7 @@ describe('AgentLlmInvocationGateway recorder wiring', () => {
           runtime: {},
         }),
       );
-      const { config } = loadConfig(root);
+      const config = loadTestConfig(root);
       const gateway = new AgentLlmInvocationGateway({
         projectRoot: root,
         saivageDir: join(root, '.saivage'),

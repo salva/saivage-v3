@@ -3,6 +3,8 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { ServerInstance } from '../../src/server/server.js';
+import { createServer } from '../../src/server/server.js';
+import { loadEnvironment } from '../../src/config/environment.js';
 import { buildServerAvailability } from '../../src/server/availability.js';
 import { resetAuthPolicyForTests } from '../../src/server/auth-policy.js';
 import { createTestRuntimeApplication } from '../helpers/test-runtime-application.js';
@@ -22,6 +24,10 @@ describe('server availability contract', () => {
   let tmpDir: string;
   let server: ServerInstance | undefined;
   let originalToken: string | undefined;
+
+  function createTestServer(root: string) {
+    return createServer({ environment: loadEnvironment(['node', 'test', '--project-root', root], process.env) });
+  }
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-availability-'));
@@ -71,7 +77,7 @@ describe('server availability contract', () => {
   it('adds serverAvailability to health, runtime status, MCP status, and state without removing existing fields', async () => {
     setupProject(tmpDir, true);
     const { createServer } = await import('../../src/server/server.js');
-    server = await createServer(tmpDir);
+    server = await createTestServer(tmpDir);
 
     const health = await server.fastify.inject({ method: 'GET', url: '/health' });
     expect(health.statusCode).toBe(200);

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { initRuntimeState, readRuntimeState } from '../../src/runtime/state.js';
 import { createServer, type ServerInstance } from '../../src/server/server.js';
+import { loadEnvironment } from '../../src/config/environment.js';
 import { runtimeStateSchema } from '../../src/schemas/validators.js';
 
 const CORE_RUNTIME_STATE_KEYS = [
@@ -35,7 +36,7 @@ beforeEach(async () => {
   root = mkdtempSync(join(tmpdir(), 'saivage-operator-api-contract-'));
   initProjectTree(root);
   initRuntimeState(root);
-  server = await createServer(root);
+  server = await createServer({ environment: loadEnvironment(['node', 'test', '--project-root', root], process.env) });
 });
 
 afterEach(async () => {

@@ -14,7 +14,7 @@ import { reconfigure } from '../../src/tools/analyst-misc-tools.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { initRuntimeState, updateRuntimeState } from '../../src/runtime/state.js';
 import { startProcess, killProcess } from '../../src/runtime/process-runner.js';
-import { loadConfig } from '../../src/agents/config-schema.js';
+import { loadEnvironment } from '../../src/config/environment.js';
 import { McpManager } from '../../src/mcp/mcp-manager.js';
 import { createTestAnalystRuntime } from '../helpers/test-runtime-application.js';
 import { createRuntimeApplication } from '../../src/application/runtime-composition.js';
@@ -38,7 +38,7 @@ function setupRoot(): string {
   const sd = join(root, '.saivage');
   initProjectTree(root);
   writeFileSync(join(sd, 'saivage.json'), JSON.stringify({
-    models: { analyst: [TEST_MODEL] },
+    models: { default: [TEST_MODEL], analyst: [TEST_MODEL] },
     providers: { test: { models: [TEST_MODEL], apiKey: 'test-key', baseUrl: 'http://test-provider.invalid/v1' } },
     server: { port: 8080, host: '127.0.0.1' },
   }, null, 2));
@@ -52,7 +52,7 @@ function setupEmptyRoot(): string {
   const sd = join(root, '.saivage');
   initProjectTree(root);
   writeFileSync(join(sd, 'saivage.json'), JSON.stringify({
-    models: { analyst: [TEST_MODEL] },
+    models: { default: [TEST_MODEL], analyst: [TEST_MODEL] },
     providers: { test: { models: [TEST_MODEL], apiKey: 'test-key', baseUrl: 'http://test-provider.invalid/v1' } },
     server: { port: 8080, host: '127.0.0.1' },
   }, null, 2));
@@ -69,6 +69,10 @@ function seedDeleteCards(root: string): CardStore {
 
 function pauseRuntime(root: string): void {
   updateRuntimeState(root, { status: 'paused' });
+}
+
+function loadTestConfig(root: string) {
+  return loadEnvironment(['node', 'test', '--project-root', root], process.env).config;
 }
 
 function lifecycleForStatus(status: CardStatus): CardLifecycleState {
@@ -111,7 +115,7 @@ describe('Tool inventory mirrors SPEC-r7 capability classes', () => {
   it('exposes Analyst shared provider tools through the active invocation surface', () => {
     const root = setupRoot();
     try {
-      const handler = new AnalystHandler(root, createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) }));
+      const handler = new AnalystHandler(root, loadTestConfig(root), createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) }));
 
       expect(handler.getAvailableToolNames()).toEqual(expect.arrayContaining(['list_cards', 'get_card', 'get_tree', 'list_card_history', 'get_card_history_entry', 'diff_card', 'skill', 'mcp_tool_call', 'websearch', 'webfetch', 'run_command']));
     } finally { rmSync(root, { recursive: true, force: true }); }
@@ -240,7 +244,7 @@ describe('Contract C1 unsupported-action reply', () => {
     const root = setupRoot();
     try {
       jest.spyOn(globalThis, 'fetch').mockImplementation(async () => toolResponse('not_a_tool', {}));
-      const response = await new AnalystHandler(root, createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) })).handleMessage('s-c1', 'perform unsupported action');
+      const response = await new AnalystHandler(root, loadTestConfig(root), createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) })).handleMessage('s-c1', 'perform unsupported action');
       expect(response.message.content).toContain('That action is not supported by the Analyst on this surface.');
       expect(response.toolInvocations ?? []).toHaveLength(0);
     } finally { rmSync(root, { recursive: true, force: true }); }
@@ -281,7 +285,7 @@ describe('Contract C2 partial-success reporting', () => {
       store.setStatus(codeIds[1], 'running');
       store.setStatus(codeIds[1], 'running');
       jest.spyOn(globalThis, 'fetch').mockImplementation(async () => toolResponse('delete_card', { ids: codeIds }));
-      const handler = new AnalystHandler(root, createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) }));
+      const handler = new AnalystHandler(root, loadTestConfig(root), createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) }));
       const response = await handler.handleMessage('s-c2', 'delete code cards');
       expect(response.toolInvocations ?? []).toHaveLength(1);
       expect(response.toolInvocations?.[0].tool).toBe('delete_card');
@@ -296,10 +300,10 @@ describe('Reconfigure MCP live manager refresh', () => {
   it('adds, edits, and removes MCP servers in active manager state', async () => {
       const root = setupRoot();
       try {
-        const config = loadConfig(root).config;
+        const config = loadTestConfig(root);
       const eventBus = new EventBus();
       const runtimeApplication = createRuntimeApplication({ projectRoot: root, config, eventBus, eventLogger: new EventLogger(join(root, '.saivage')), errorLogger: new ErrorLogger(join(root, '.saivage')), cardStore: new CardStore(root, undefined, eventBus) });
-      const mcpManager = new McpManager(root);
+      const mcpManager = new McpManager(root, { config });
       const depsBeforeMcp = runtimeApplication.analystDeps;
       expect(runtimeApplication.analystDeps).toBe(depsBeforeMcp);
       runtimeApplication.setMcpManager(mcpManager);

@@ -2,7 +2,7 @@ import { describe, expect, it, jest, beforeEach, afterEach } from '@jest/globals
 import { AnalystHandler } from '../../src/agents/analyst-handler.js';
 import { EventBus } from '../../src/events/bus.js';
 import { initRuntimeState } from '../../src/runtime/state.js';
-import { createTestAnalystRuntime } from '../helpers/test-runtime-application.js';
+import { createTestAnalystRuntime, loadTestConfig } from '../helpers/test-runtime-application.js';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -25,7 +25,7 @@ function setupRoot(): string {
   const sd = join(root, '.saivage');
   initProjectTree(root);
   writeFileSync(join(sd, 'saivage.json'), JSON.stringify({
-    models: { analyst: ['test-model'] },
+    models: { default: ['test-model'], analyst: ['test-model'] },
     providers: { test: { models: ['test-model'], apiKey: 'test-key', baseUrl: 'http://test-provider.invalid/v1' } },
   }));
   materializeProjectCard(root);
@@ -71,7 +71,7 @@ describe('analyst_tool_invoked event projection source', () => {
     try {
       writeFileSync(join(root, 'README.md'), 'hello');
       mockToolCall('read', { path: 'project://README.md' });
-      const handler = new AnalystHandler(root, createTestAnalystRuntime({ projectRoot: root, eventBus }), undefined, 'analyst', 'web-chat');
+      const handler = new AnalystHandler(root, loadTestConfig(root), createTestAnalystRuntime({ projectRoot: root, eventBus }), undefined, 'analyst', 'web-chat');
       await handler.handleMessage('s1', 'inspect README.md');
       expect(broadcasts.length).toBeGreaterThan(0);
       const payload = broadcasts.at(-1) as BroadcastPayload;
@@ -87,7 +87,7 @@ describe('analyst_tool_invoked event projection source', () => {
     const root = setupRoot();
     try {
       mockToolCall('delete_card', { ids: ['card-1'] });
-      const handler = new AnalystHandler(root, createTestAnalystRuntime({ projectRoot: root, eventBus }), undefined, 'analyst', 'web-chat');
+      const handler = new AnalystHandler(root, loadTestConfig(root), createTestAnalystRuntime({ projectRoot: root, eventBus }), undefined, 'analyst', 'web-chat');
       await handler.handleMessage('s2', 'delete card card-1');
       const payload = broadcasts.at(-1) as BroadcastPayload;
       expect(payload.tool).toBe('delete_card');
@@ -101,7 +101,7 @@ describe('analyst_tool_invoked event projection source', () => {
     const root = setupRoot();
     try {
       mockToolCall('run_command', { command: 'false' });
-      const handler = new AnalystHandler(root, createTestAnalystRuntime({ projectRoot: root, eventBus }), undefined, 'analyst', 'web-chat');
+      const handler = new AnalystHandler(root, loadTestConfig(root), createTestAnalystRuntime({ projectRoot: root, eventBus }), undefined, 'analyst', 'web-chat');
       await handler.handleMessage('s3', 'run false');
       const payload = broadcasts.at(-1) as BroadcastPayload;
       expect(payload.tool).toBe('run_command');
@@ -114,7 +114,7 @@ describe('analyst_tool_invoked event projection source', () => {
     const root = setupRoot();
     try {
       mockToolCall('run_command', { command: 'printf ok' });
-      const handler = new AnalystHandler(root, createTestAnalystRuntime({ projectRoot: root, eventBus }), undefined, 'analyst', 'web-chat');
+      const handler = new AnalystHandler(root, loadTestConfig(root), createTestAnalystRuntime({ projectRoot: root, eventBus }), undefined, 'analyst', 'web-chat');
       await handler.handleMessage('s4', 'run printf ok');
       const payload = broadcasts.at(-1) as BroadcastPayload;
       expect(payload.tool).toBe('run_command');
@@ -126,7 +126,7 @@ describe('analyst_tool_invoked event projection source', () => {
   it('exposes canonical command tools in telegram tool registration', async () => {
     const root = setupRoot();
     try {
-      const handler = new AnalystHandler(root, createTestAnalystRuntime({ projectRoot: root, eventBus }), undefined, 'analyst', 'telegram');
+      const handler = new AnalystHandler(root, loadTestConfig(root), createTestAnalystRuntime({ projectRoot: root, eventBus }), undefined, 'analyst', 'telegram');
       expect(handler.getAvailableToolNames()).toContain('run_command');
       expect(handler.getAvailableToolNames()).toContain('kill_process');
     } finally { rmSync(root, { recursive: true, force: true }); }

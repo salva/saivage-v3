@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { RuntimeApplication } from '../../src/application/runtime-composition.js';
 import type { AnalystRuntimeDeps } from '../../src/agents/analyst-api.js';
+import type { SaivageConfig } from '../../src/agents/config-api.js';
 import type { RuntimeApi } from '../../src/runtime/runtime-api.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import { createInvocationServiceProvider } from '../../src/application/micro-actor-runtime-api-factory.js';
@@ -11,7 +12,7 @@ import { InvocationService } from '../../src/agents/invocation-service.js';
 import { ProviderRegistry } from '../../src/agents/provider.js';
 import { ModelRouter } from '../../src/agents/model-router.js';
 import { MemoryCandidateAvailability } from '../../src/agents/candidate-availability.js';
-import { loadConfig } from '../../src/agents/config-schema.js';
+import { loadEnvironment } from '../../src/config/environment.js';
 
 const TEST_MODEL = 'test-analyst-model';
 
@@ -19,9 +20,19 @@ function ensureTestSaivageConfig(projectRoot: string): void {
   const saivageDir = join(projectRoot, '.saivage');
   mkdirSync(saivageDir, { recursive: true });
   writeFileSync(join(saivageDir, 'saivage.json'), JSON.stringify({
-    models: { analyst: [TEST_MODEL] },
+    models: { default: [TEST_MODEL], analyst: [TEST_MODEL] },
     providers: { test: { models: [TEST_MODEL], apiKey: 'test-key', baseUrl: 'http://test-provider.invalid/v1' } },
   }, null, 2));
+}
+
+export function loadTestConfig(projectRoot: string) {
+  return loadEnvironment(['node', 'test', '--project-root', projectRoot], process.env).config;
+}
+
+export function createTestSaivageConfig(): SaivageConfig {
+  const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-test-config-'));
+  ensureTestSaivageConfig(projectRoot);
+  return loadTestConfig(projectRoot);
 }
 
 function testRuntimeTimestamp(): string { return new Date(0).toISOString(); }
@@ -84,7 +95,7 @@ export function createTestAnalystRuntime(opts: { eventBus?: EventBus; cardStore?
   const analystRuntime = createFlatTestAnalystRuntime({ ...opts, eventBus });
   const projectRoot = opts.projectRoot ?? mkdtempSync(join(tmpdir(), 'saivage-test-analyst-runtime-'));
   if (!opts.projectRoot) ensureTestSaivageConfig(projectRoot);
-  const config = loadConfig(projectRoot).config;
+  const config = loadTestConfig(projectRoot);
   const availability = new MemoryCandidateAvailability();
   const registry = new ProviderRegistry(config);
   const invocationService = new InvocationService({
@@ -127,7 +138,7 @@ export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardSt
       getActorRuntimeReadModel: () => analystRuntime.getActorRuntimeReadModel(),
     },
     get analystDeps() {
-      const config = loadConfig(projectRoot).config;
+      const config = loadTestConfig(projectRoot);
       const availability = new MemoryCandidateAvailability();
       const registry = new ProviderRegistry(config);
       const invocationService = new InvocationService({

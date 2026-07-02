@@ -36,6 +36,7 @@ export function registerServerRoutes(options: {
   registerInternalDebugRoutes(options.fastify, options.projectRoot, options.cardStore);
   registerWebSocket(options.fastify, options.projectRoot, {
     liveSyncSocket: options.liveSyncSocket,
+    saivageConfig: options.saivageConfig,
     runtimeApplication: options.runtimeApplication,
     requestServerRestart: options.requestServerRestart,
   });

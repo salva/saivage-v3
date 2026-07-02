@@ -16,7 +16,7 @@ import type { McpManager } from '../mcp/manager-api.js';
 import type { ActorRole } from './authz.js';
 import { sanitizeAnalystText } from '../agents/analyst-sanitization.js';
 import { ANALYST_PARTIAL_SUCCESS_TEMPLATE, ANALYST_UNSUPPORTED_ACTION_TEMPLATE } from './analyst-tool-runner.js';
-import { loadConfig, getModelParamsForRole } from './config-schema.js';
+import { getModelParamsForRole } from './config-schema.js';
 import type { SaivageConfig } from './config-schema.js';
 import { capabilityRequestForLlmOptions } from './provider-capabilities.js';
 import { buildAgentProtocolViolation, parseProtocolToolArgs } from './agent-protocol-violation.js';
@@ -145,11 +145,11 @@ export class AnalystHandler {
   private requestServerRestart?: () => Promise<void>;
   private readonly config: SaivageConfig;
 
-  constructor(projectRoot: string, runtimeDeps: AnalystRuntimeDeps, onActivity?: ActivityCallback, actor: ActorRole = 'analyst', surface: ControlActionSurface = 'web-chat', requestServerRestart?: () => Promise<void>) {
+  constructor(projectRoot: string, config: SaivageConfig, runtimeDeps: AnalystRuntimeDeps, onActivity?: ActivityCallback, actor: ActorRole = 'analyst', surface: ControlActionSurface = 'web-chat', requestServerRestart?: () => Promise<void>) {
     this.projectRoot = projectRoot;
     this.onActivity = onActivity;
     this.runtimeDeps = runtimeDeps;
-    this.config = loadConfig(projectRoot).config;
+    this.config = config;
     this.actor = actor;
     this.surface = surface;
     this.requestServerRestart = requestServerRestart;
@@ -387,8 +387,8 @@ export class AnalystHandler {
   }
 }
 
-export function getAnalystHandler(projectRoot: string, opts: { runtimeDeps: AnalystRuntimeDeps; onActivity?: ActivityCallback; actor?: ActorRole; surface?: ControlActionSurface; requestServerRestart?: () => Promise<void> }): AnalystHandler {
+export function getAnalystHandler(projectRoot: string, opts: { config: SaivageConfig; runtimeDeps: AnalystRuntimeDeps; onActivity?: ActivityCallback; actor?: ActorRole; surface?: ControlActionSurface; requestServerRestart?: () => Promise<void> }): AnalystHandler {
   const actor = opts.actor ?? 'analyst';
   const surface = opts.surface ?? 'web-chat';
-  return new AnalystHandler(projectRoot, opts.runtimeDeps, opts.onActivity, actor, surface, opts.requestServerRestart);
+  return new AnalystHandler(projectRoot, opts.config, opts.runtimeDeps, opts.onActivity, actor, surface, opts.requestServerRestart);
 }

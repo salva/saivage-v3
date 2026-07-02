@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createServer } from '../../src/server/server.js';
+import { loadEnvironment } from '../../src/config/environment.js';
 import { getProjectNotificationDeliveryAdapters } from '../../src/notifications/notification-delivery.js';
 
 const roots: string[] = [];
@@ -36,6 +37,10 @@ function operatorLog(root: string): string {
   return existsSync(path) ? readFileSync(path, 'utf-8') : '';
 }
 
+function createTestServer(root: string) {
+  return createServer({ environment: loadEnvironment(['node', 'test', '--project-root', root], process.env) });
+}
+
 
 async function captureProcessOutput<T>(fn: () => Promise<T>): Promise<{ result: T; output: string }> {
   const chunks: string[] = [];
@@ -65,7 +70,7 @@ describe('server Telegram startup diagnostics', () => {
     mockTelegramLongPoll();
     const root = makeRoot({ telegram: { botToken: '123456:TEST_TOKEN' }, notifications: { channels: ['telegram'] } });
     const { output } = await captureProcessOutput(async () => {
-      const server = await createServer(root);
+      const server = await createTestServer(root);
       await server.stop();
     });
     expect(output).toContain('Telegram bot started');
@@ -77,7 +82,7 @@ describe('server Telegram startup diagnostics', () => {
   it('persists a secret-safe diagnostic for recipients without a bot and registers no adapter', async () => {
     const root = makeRoot({ telegram: { notificationChatIds: [111111] }, notifications: { channels: ['telegram'] } });
     const { output } = await captureProcessOutput(async () => {
-      const server = await createServer(root);
+      const server = await createTestServer(root);
       expect(getProjectNotificationDeliveryAdapters(root)).toEqual([]);
       await server.stop();
     });
@@ -90,7 +95,7 @@ describe('server Telegram startup diagnostics', () => {
   it('registers a Telegram adapter when runtime analyst services and recipients are configured', async () => {
     mockTelegramLongPoll();
     const root = makeRoot({ telegram: { botToken: '123456:TEST_TOKEN', notificationChatIds: [111111, 222222, 111111] }, notifications: { channels: ['telegram'] } });
-    const server = await createServer(root);
+    const server = await createTestServer(root);
     try {
       expect(getProjectNotificationDeliveryAdapters(root)).toHaveLength(1);
     } finally {

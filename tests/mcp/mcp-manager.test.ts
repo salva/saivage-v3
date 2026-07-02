@@ -19,6 +19,7 @@ import { describe, it, expect, beforeEach, afterEach, beforeAll, jest } from '@j
 import { writeFileSync, mkdirSync, rmSync, mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { loadEnvironment } from '../../src/config/environment.js';
 
 // ── Mocks ─────────────────────────────────────────────────────
 
@@ -122,6 +123,14 @@ function writeSaivageJson(projectRoot: string, overrides: Record<string, unknown
   writeFileSync(join(saivageDir, 'saivage.json'), JSON.stringify(config, null, 2));
 }
 
+function loadTestConfig(projectRoot: string) {
+  return loadEnvironment(['node', 'test', '--project-root', projectRoot], process.env).config;
+}
+
+function createMcpManager(McpManager: Awaited<ReturnType<typeof importMcpManager>>['McpManager'], projectRoot: string, options: { scope?: import('../../src/lifecycle/index.js').ResourceScope } = {}) {
+  return new McpManager(projectRoot, { ...options, config: loadTestConfig(projectRoot) });
+}
+
 function stdioConfig(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     command: 'echo',
@@ -198,7 +207,7 @@ describe('McpManager config loading', () => {
       },
     });
 
-    const mgr = new McpManager(root);
+    const mgr = createMcpManager(McpManager, root);
     const status = mgr.getStatus();
     expect(status).toHaveLength(2);
     expect(status.map((s) => s.name).sort()).toEqual(['test-sse', 'test-stdio']);
@@ -210,7 +219,7 @@ describe('McpManager config loading', () => {
     const root = makeProjectRoot();
     writeSaivageJson(root, {});
 
-    const mgr = new McpManager(root);
+    const mgr = createMcpManager(McpManager, root);
     const status = mgr.getStatus();
     expect(status).toEqual([]);
   });
@@ -223,7 +232,7 @@ describe('McpManager config loading', () => {
       },
     });
 
-    const mgr = new McpManager(root);
+    const mgr = createMcpManager(McpManager, root);
     const status = mgr.getStatus();
     expect(status).toHaveLength(1);
     expect(status[0].status).toBe('stopped');
@@ -237,7 +246,7 @@ describe('McpManager config loading', () => {
       },
     });
 
-    const mgr = new McpManager(root);
+    const mgr = createMcpManager(McpManager, root);
     expect(mgr.getServerStatus('nonexistent')).toBeUndefined();
   });
 
@@ -249,7 +258,7 @@ describe('McpManager config loading', () => {
       },
     });
 
-    const mgr = new McpManager(root);
+    const mgr = createMcpManager(McpManager, root);
     const s = mgr.getServerStatus('test-stdio');
     expect(s).toBeDefined();
     expect(s!.name).toBe('test-stdio');
@@ -278,7 +287,7 @@ describe('McpManager disabled servers', () => {
       },
     });
 
-    const mgr = new McpManager(root);
+    const mgr = createMcpManager(McpManager, root);
     await mgr.startAll();
 
     // wait a tick for the async start to settle
@@ -301,7 +310,7 @@ describe('McpManager disabled servers', () => {
       },
     });
 
-    const mgr = new McpManager(root);
+    const mgr = createMcpManager(McpManager, root);
     await expect(mgr.startServer('test-disabled')).resolves.toBeUndefined();
     expect(mockSpawn).not.toHaveBeenCalled();
   });
@@ -314,7 +323,7 @@ describe('McpManager disabled servers', () => {
       },
     });
 
-    const mgr = new McpManager(root);
+    const mgr = createMcpManager(McpManager, root);
     const healthy = await mgr.healthCheck('test-disabled');
     expect(healthy).toBe(false);
   });
@@ -323,7 +332,7 @@ describe('McpManager disabled servers', () => {
     const root = makeProjectRoot();
     writeSaivageJson(root, {});
 
-    const mgr = new McpManager(root);
+    const mgr = createMcpManager(McpManager, root);
     const healthy = await mgr.healthCheck('nonexistent');
     expect(healthy).toBe(false);
   });
@@ -345,7 +354,7 @@ describe('McpManager error handling', () => {
     const root = makeProjectRoot();
     writeSaivageJson(root, {});
 
-    const mgr = new McpManager(root);
+    const mgr = createMcpManager(McpManager, root);
     await expect(mgr.startServer('nonexistent')).rejects.toThrow(
       "MCP server 'nonexistent' not found in configuration.",
     );
@@ -359,7 +368,7 @@ describe('McpManager error handling', () => {
       },
     });
 
-    const mgr = new McpManager(root);
+    const mgr = createMcpManager(McpManager, root);
     await expect(mgr.startServer('no-command')).rejects.toThrow(
       "stdio MCP server 'no-command' has no 'command' configured.",
     );
@@ -378,7 +387,7 @@ describe('McpManager error handling', () => {
       },
     });
 
-    const mgr = new McpManager(root);
+    const mgr = createMcpManager(McpManager, root);
     await expect(mgr.startServer('no-url')).rejects.toThrow(
       "sse MCP server 'no-url' has no 'url' configured.",
     );
@@ -415,7 +424,7 @@ describe('McpManager lifecycle', () => {
       },
     });
 
-    const mgr = new McpManager(root);
+    const mgr = createMcpManager(McpManager, root);
     await mgr.startServer('test-stdio');
 
     expect(mockSpawn).toHaveBeenCalledTimes(1);
@@ -443,7 +452,7 @@ describe('McpManager lifecycle', () => {
       },
     });
 
-    const mgr = new McpManager(root);
+    const mgr = createMcpManager(McpManager, root);
     await mgr.startServer('test-stdio');
     expect(mgr.getServerStatus('test-stdio')!.status).toBe('running');
 
@@ -461,7 +470,7 @@ describe('McpManager lifecycle', () => {
       },
     });
 
-    const mgr = new McpManager(root);
+    const mgr = createMcpManager(McpManager, root);
     // Start first, then restart (stop + start)
     await mgr.startServer('test-stdio');
     expect(mgr.getServerStatus('test-stdio')!.status).toBe('running');
@@ -484,7 +493,7 @@ describe('McpManager lifecycle', () => {
       },
     });
 
-    const mgr = new McpManager(root);
+    const mgr = createMcpManager(McpManager, root);
     await mgr.startServer('srv1');
     await mgr.startServer('srv2');
 
@@ -507,7 +516,7 @@ describe('McpManager lifecycle', () => {
       },
     });
 
-    const mgr = new McpManager(root);
+    const mgr = createMcpManager(McpManager, root);
     await mgr.startServer('test-stdio');
     expect(mockSpawn).toHaveBeenCalledTimes(1);
 
@@ -542,7 +551,7 @@ describe('McpManager health check', () => {
       },
     });
 
-    const mgr = new McpManager(root);
+    const mgr = createMcpManager(McpManager, root);
     // Not started — no handle
     const healthy = await mgr.healthCheck('test-stdio');
     expect(healthy).toBe(false);
@@ -556,7 +565,7 @@ describe('McpManager health check', () => {
       },
     });
 
-    const mgr = new McpManager(root);
+    const mgr = createMcpManager(McpManager, root);
     await mgr.startServer('test-stdio');
 
     // healthCheck calls process.kill(pid, 0) which checks if the PID exists
@@ -629,7 +638,7 @@ describe('McpManager tool discovery', () => {
       );
     });
 
-    const mgr = new McpManager(root);
+    const mgr = createMcpManager(McpManager, root);
     await mgr.startServer('stream');
 
     expect(mgr.getServerTools('stream')?.map((tool) => tool.name)).toEqual(['one', 'two']);
@@ -661,7 +670,7 @@ describe('McpManager tool discovery', () => {
       });
     });
 
-    const mgr = new McpManager(root);
+    const mgr = createMcpManager(McpManager, root);
     await mgr.startServer('legacy');
 
     expect(mgr.getServerTools('legacy')).toBeUndefined();
@@ -671,7 +680,7 @@ describe('McpManager tool discovery', () => {
   it('getTools() returns empty array initially', () => {
     const root = makeProjectRoot();
     writeSaivageJson(root, {});
-    const mgr = new McpManager(root);
+    const mgr = createMcpManager(McpManager, root);
     expect(mgr.getTools()).toEqual([]);
     expect(mgr.getToolServers()).toEqual([]);
   });
@@ -679,7 +688,7 @@ describe('McpManager tool discovery', () => {
   it('getServerTools returns undefined for unknown server', () => {
     const root = makeProjectRoot();
     writeSaivageJson(root, {});
-    const mgr = new McpManager(root);
+    const mgr = createMcpManager(McpManager, root);
     expect(mgr.getServerTools('nonexistent')).toBeUndefined();
   });
 
@@ -690,7 +699,7 @@ describe('McpManager tool discovery', () => {
         'test-stdio': stdioConfig(),
       },
     });
-    const mgr = new McpManager(root);
+    const mgr = createMcpManager(McpManager, root);
     await mgr.startServer('test-stdio');
 
     const status = mgr.getServerStatus('test-stdio');
@@ -708,7 +717,7 @@ describe('McpManager tool discovery', () => {
         'test-stdio': stdioConfig(),
       },
     });
-    const mgr = new McpManager(root);
+    const mgr = createMcpManager(McpManager, root);
     await mgr.startServer('test-stdio');
 
     // Start populates tools_cache (even if empty from failed discovery)
@@ -726,7 +735,7 @@ describe('McpManager tool discovery', () => {
         'test-stdio': stdioConfig(),
       },
     });
-    const mgr = new McpManager(root);
+    const mgr = createMcpManager(McpManager, root);
     await mgr.startServer('test-stdio');
     await mgr.stopServer('test-stdio');
 
@@ -740,7 +749,7 @@ describe('McpManager tool discovery', () => {
         'test-disabled': stdioConfig({ disabled: true }),
       },
     });
-    const mgr = new McpManager(root);
+    const mgr = createMcpManager(McpManager, root);
     const status = mgr.getServerStatus('test-disabled')!;
     // Disabled servers don't have tools_count field
     expect(status.tools_count).toBeUndefined();
@@ -776,7 +785,7 @@ describe('McpManager bad stdio fixtures (early exit / EPIPE)', () => {
       },
     });
 
-    const mgr = new McpManager(root);
+    const mgr = createMcpManager(McpManager, root);
 
     // startServer should resolve without throwing
     await expect(mgr.startServer('bad-cmd')).resolves.toBeUndefined();
@@ -804,7 +813,7 @@ describe('McpManager bad stdio fixtures (early exit / EPIPE)', () => {
       },
     });
 
-    const mgr = new McpManager(root);
+    const mgr = createMcpManager(McpManager, root);
 
     // startAll should not throw — Promise.allSettled absorbs individual failures
     await expect(mgr.startAll()).resolves.toBeUndefined();
@@ -827,7 +836,7 @@ describe('McpManager bad stdio fixtures (early exit / EPIPE)', () => {
       },
     });
 
-    const mgr = new McpManager(root);
+    const mgr = createMcpManager(McpManager, root);
 
     // startServer should not throw
     await mgr.startServer('bad-exit');
@@ -853,7 +862,7 @@ describe('McpManager bad stdio fixtures (early exit / EPIPE)', () => {
       },
     });
 
-    const mgr = new McpManager(root);
+    const mgr = createMcpManager(McpManager, root);
     await mgr.startAll();
     await new Promise((r) => setTimeout(r, 50));
 
@@ -884,7 +893,7 @@ describe('McpManager bad stdio fixtures (early exit / EPIPE)', () => {
       },
     });
 
-    const mgr = new McpManager(root);
+    const mgr = createMcpManager(McpManager, root);
     await mgr.startServer('fast-exit');
     await new Promise((r) => setTimeout(r, 50));
 

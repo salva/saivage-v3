@@ -38,9 +38,9 @@ export async function reconfigure(ctx: ToolContext, params: ReconfigureParams): 
     switch (params.action) {
       case 'set_role_routing': result = setRoleRouting(ctx.projectRoot, params.role!, params.model_candidate!); break;
       case 'set_failover_chain': result = setFailoverChain(ctx.projectRoot, params.for_model!, params.ordered_failover_models!); break;
-      case 'mcp_add': result = mcpAdd(ctx.projectRoot, params.name!, params.command!, params.args, params.env); if (result.success) { ctx.mcpManager?.reloadServersFromConfig(); await ctx.mcpManager?.startServer(params.name!); } break;
-      case 'mcp_edit': result = mcpEdit(ctx.projectRoot, params.name!, { command: params.command, args: params.args, env: params.env }); if (result.success) { ctx.mcpManager?.reloadServersFromConfig(); await ctx.mcpManager?.restartServer(params.name!); } break;
-      case 'mcp_remove': await ctx.mcpManager?.stopServer(params.name!); result = mcpRemove(ctx.projectRoot, params.name!); if (result.success) ctx.mcpManager?.reloadServersFromConfig(); break;
+      case 'mcp_add': result = mcpAdd(ctx.projectRoot, params.name!, params.command!, params.args, params.env); if (result.success) { ctx.mcpManager?.reloadServersFromConfig(result.config); await ctx.mcpManager?.startServer(params.name!); } break;
+      case 'mcp_edit': result = mcpEdit(ctx.projectRoot, params.name!, { command: params.command, args: params.args, env: params.env }); if (result.success) { ctx.mcpManager?.reloadServersFromConfig(result.config); await ctx.mcpManager?.restartServer(params.name!); } break;
+      case 'mcp_remove': await ctx.mcpManager?.stopServer(params.name!); result = mcpRemove(ctx.projectRoot, params.name!); if (result.success) ctx.mcpManager?.reloadServersFromConfig(result.config); break;
       case 'set_runtime_setting': result = setRuntimeSetting(ctx.projectRoot, params.key!, params.value); break;
       case 'set_server_setting': result = setServerSetting(ctx.projectRoot, params.key!, params.value); break;
       default: return invalid('action', 'Unknown reconfigure action.');
