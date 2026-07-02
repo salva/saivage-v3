@@ -2,7 +2,7 @@
 
 Status: current planning document.
 
-Last reviewed: 2026-07-02.
+Last reviewed: 2026-07-03.
 
 This plan consolidates the still-relevant follow-up work from the record-slot, tool-surface, deferred-capability, and conversation-compaction plans. It intentionally filters out tasks that have drifted, have already been implemented, or would now conflict with the current Saivage v3 architecture.
 
@@ -249,17 +249,21 @@ Config, events, and modules for features that were never built and are not in th
 
    Status: completed in the ContentSupervisor cleanup slice; supervision storage/API/UI remain as a separate decision.
 
-2. **Delete the unwired `supervisor` config section.**
+ 2. **Delete the unwired `supervisor` config section.**
 
-   `config-schema.ts` defines `supervisorSectionSchema` with five fields, none of which are read by any production code. This is the upstream cause of the dead stuck-supervisor event chain. The micro-actor `RuntimeSupervisorActor` is an unrelated name collision — it has no stuck-detection.
+    `config-schema.ts` defines `supervisorSectionSchema` with five fields, none of which are read by any production code. This is the upstream cause of the dead stuck-supervisor event chain. The micro-actor `RuntimeSupervisorActor` is an unrelated name collision — it has no stuck-detection.
+
+    **Deployment blocker:** as of 2026-07-03, checked-in and local target-project configs (`diedrico`, `diedrico-lessons`, `getrich`, `getrich-v2`, `pm`, `pueblicos`, `saivage-e2e-checkers`) still contain a top-level `supervisor` key. The schema is strict, so removing the key will reject these configs on startup. This cleanup must either update all deployed `.saivage/saivage.json` files in the same change, or the cleanup must be sequenced after confirming no running deployment reads the old key.
 
 3. **Split runtime config cleanup into persisted fields vs transform-only defaults.**
 
    The persisted `runtime` schema currently accepts only a small set of fields, including live `candidateAvailabilityCompactBytes` (read at `src/application/runtime-composition.ts:71`). `recoveryDelayMs` and `maxRecoveryRetries` are transform-added runtime defaults, not persisted `runtime.*` config fields, and are live (read at `src/application/runtime-composition.ts:89-90`). Clean cut: remove unused transform-only defaults separately from auditing persisted runtime fields. `maxGoalDepth` remains misleading if still accepted anywhere while `CardStore` hardcodes `5`; either thread it or delete it.
 
-4. **Remove dead config catchalls.**
+ 4. **Remove dead config catchalls.**
 
-   `rag: z.unknown().optional()` and `notifications.filters` are accepted by the schema but never read.
+    `rag: z.unknown().optional()` and `notifications.filters` are accepted by the schema but never read.
+
+    **Deployment blocker:** as of 2026-07-03, several deployed configs contain `rag` (`diedrico`, `diedrico-lessons`, `getrich`, `pm`, `pueblicos`) and `notifications.filters` (`pm`). Same caveat as B.2 applies.
 
 ### C. Dead Event And Schema Surface `[DELETE-OLD-REMNANT]`
 
@@ -279,11 +283,17 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
    Status: completed in the event catalog cleanup slice.
 
-2. **Delete drifted per-event-kind schemas.**
+   **Note:** `model_issue` was removed as an *event kind* but remains live as a *conversation message kind* (`MessageKind` in `schemas/types.ts`, persisted in agent messages). The two are independent — do not remove the message kind.
 
-   `schemas/validators.ts` defines ~37 hand-written per-event schemas that are test-only and have already drifted from the catalog. Production uses catalog-derived `loggedEventSchema`. Delete the hand-written schemas, their exports, and their tests.
+2. **Delete remaining hand-written per-event schemas.**
 
-3. **Remove stale reviewer assessment code, then schema surface.**
+    After the event catalog cleanup, only 5 hand-written per-event schemas remain in `schemas/validators.ts` (`processReconciledDeadEventSchema`, `processReattachRejectedEventSchema`, `runtimeDiagnosticEventSchema`, `runtimeActionableErrorEventSchema`, `mcpToolInvocationEventSchema`) plus their `baseEventSchema`/`passthroughBaseEventSchema` helpers. All 5 are redundant with catalog-derived `loggedEventSchemaByKind`/`payloadSchemaByKind` and have zero production importers. Two are exercised by `tests/schemas.test.ts`; the other three are only re-exported. Delete the hand-written schemas, their `schemas/index.ts` re-exports, and update tests to use catalog-derived validators.
+
+3. **Remove dead `runtime_activation` redaction allowlist.**
+
+    After removing the `runtime_activation` event kind, the redaction exception in `src/redaction/index.ts` is dead: `preserveRuntimeActivationIdempotencyKey` (interface field, line 33), the `observability.log` policy setting (line 70), `isRuntimeActivationLedgerIdempotencyKey()` (lines 198-206), and the `shouldRedactKey` branch (line 209) can never match because no emitted event has `kind === 'runtime_activation'`. Delete all four.
+
+4. **Remove stale reviewer assessment code, then schema surface.**
 
    The active reviewer terminal contract is `emit_result` with `{ status, summary }`. `runtime/reviewer-assessment.ts` (`buildReviewAssessment`, `validateReviewerAssessment`), reviewer assessment schema fields (`achieved`, `issues`, `evidence_card_ids`), and related tests preserve the older structured `pass` / `needs_corrections` path. Also update the reviewer prompt to use `done | rework | blocked | failed` and direct evidence narrative to `review.md`.
 
@@ -353,9 +363,13 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
    `WsConnectionManager.onType` is dead. `reconnectAttempts` is exposed but unconsumed.
 
-4. **Remove over-defensive environment guards.**
+ 4. **Remove over-defensive environment guards.**
 
-   `web/src/api/auth.ts` guards `typeof localStorage` / `typeof import.meta` in a Vite SPA with no SSR.
+    `web/src/api/auth.ts` guards `typeof localStorage` / `typeof import.meta` in a Vite SPA with no SSR.
+
+ 5. **Remove dead `terminal_tool` timeline rendering in `DebugView.vue`.**
+
+    After the event catalog cleanup removed `llm_attempt`/`llm_invocation_summary` events, the `eventTerminalTool()` helper (`web/src/views/DebugView.vue`), the template chip, the CSS rule (`.tl-event-terminal-tool`), and the `'terminal_tool'` filter key in `timelineDetails` are all dead — no emitted event carries `outcome.terminal_tool`, `final_terminal_tool`, or legacy `terminal_tool`. The test that covered this path (`event-log-terminal-tool.test.ts`) was already deleted. Note: `RawLlmExchangePanel`'s `terminal_tool` badge is a separate live feature reading raw LLM exchange files, not timeline events.
 
 ### F. Actor And Card Simplification
 
@@ -375,9 +389,11 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
    `CardStore.open`, `validateHistoryEntry`, `loadCardHistoryEntries` are dead. `deriveCurrentAgentSessionId*` in `current-run.ts` are dead.
 
-5. **Remove dead `changed-propagation` return fields.**
+ 5. **Remove dead `changed-propagation` return fields.**
 
-   Only `stopped_at_running` is dead (never read by production). `flipped` IS live — `src/agents/analyst-stage6.ts:15` reads it to derive `status_transition`. `notified_planner_session_ids` is live but will become dead after Stage 0's notification rewrite. Remove `stopped_at_running` now; remove `notified_planner_session_ids` only after Stage 0.
+    Both `stopped_at_running` and `notified_planner_session_ids` have been removed from code — `propagateChange` now returns only `{ flipped }`. Stage 0's notification fix (`69b5845a`) eliminated the need for `notified_planner_session_ids`, and both fields were deleted in the same change. `flipped` remains live (`src/agents/analyst-stage6.ts:15`).
+
+    Status: completed.
 
 6. **Narrow over-broad `catch {}` in record-slot helpers.**
 
@@ -500,11 +516,12 @@ Goal: remove config/events/schemas for features that were never built or were re
 Tasks (backlog groups B and C):
 
 1. Completed: delete `ContentSupervisor` module/export; remove supervision route/storage/UI only if intentionally deleting the whole supervision concept.
-2. Remove unwired `supervisor` config section and split runtime config cleanup into persisted fields vs transform-only defaults.
-3. Remove dead config catchalls (`rag`, `notifications.filters`).
+2. Remove unwired `supervisor` config section and split runtime config cleanup into persisted fields vs transform-only defaults. **Blocked:** deployed configs still contain the key (see B.2 caveat).
+3. Remove dead config catchalls (`rag`, `notifications.filters`). **Blocked:** deployed configs still contain these keys (see B.4 caveat).
 4. Completed: remove unwired event kinds from the catalog (all confirmed old-remnant).
-5. Delete drifted per-event-kind schemas.
-6. Remove stale reviewer assessment schemas and code; update reviewer prompt.
+5. Delete remaining 5 hand-written per-event schemas (C.2). Safe, no deployment dependency.
+6. Remove dead `runtime_activation` redaction allowlist (C.3). Safe, no deployment dependency.
+7. Remove stale reviewer assessment schemas and code; update reviewer prompt (C.4). Requires relocating live helpers first.
 
 Validation:
 
@@ -576,4 +593,11 @@ Validation:
 
 ## Recommended Next Action
 
-Start with Stage 0 (fix notifications). It is a broken spec-promised feature and blocks safe deletion of the old notification plumbing. Then proceed to Stage 1 dead-code removal in small, separately validated slices.
+Stage 0 (notification fix) and Stage 1 (dead subsystem deletion) are complete. Stage 2 is partially complete (ContentSupervisor deleted, event kinds removed). The remaining Stage 2 work is:
+
+1. Config cleanup (B.2–B.4) — blocked by deployed configs containing the keys; requires either updating those configs or confirming no running deployment depends on them.
+2. Remaining hand-written per-event schemas (C.2) — safe, small slice.
+3. Dead `runtime_activation` redaction allowlist (C.3) — safe, small slice.
+4. Stale reviewer assessment code (C.4) — requires relocating live helpers first.
+
+After Stage 2, proceed to Stage 3 (config/provider/persistence deduplication) and Stage 4 (web/actor/tool-surface cleanup) in small, separately validated slices.
