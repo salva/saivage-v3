@@ -78,7 +78,7 @@ Unchanged from current v3. These are v3-specific and have no OpenCode equivalent
 | `reorder_child` | P, A | Reorder children of a non-running parent. |
 | `queue_notification` | P, A | Queue a notification for a future agent session. |
 
-Goal reporting (terminal contract tool): planner, executor, and reviewer use one terminal tool name, `emit_result`, with a common envelope. Each role's contract validates only the statuses that role may emit. The old `report_goal_done` / `report_goal_failed` / `report_goal_blocked` tools are dead code from the retired `AgentExecutionPort` surface and are removed (see section 5).
+Goal reporting (terminal contract tool): planner, executor, and reviewer use one terminal tool name, `emit_result`, with a common envelope. Each role's contract validates only the statuses that role may emit. The old `report_goal_done` / `report_goal_failed` / `report_goal_blocked` names are not in the provider-composed runtime tool surfaces, but legacy planner-support remnants still exist and must be retired in Phase 4 (see sections 5 and 10).
 
 See section 4.7 for the unified terminal tool design.
 
@@ -241,9 +241,9 @@ The following names are removed from the catalog. They are either duplicates of 
 | `wait_process` (actor-inline) | `wait_process` (catalog) | Move from inline to catalog. |
 | `read_file` | `read` | The catalog `read_file` was the Analyst host-inspection tool. Replaced by `read` with `system://` or `record://` scope. No separate workspace variant exists. |
 | `load_skill` | `skill` | Standard name. |
-| `report_goal_done` | `emit_result` | Dead code from the old `AgentExecutionPort` runtime. Never reached the planner LLM. Removed with the dead `AgentExecutionPort` surface. |
-| `report_goal_failed` | `emit_result` | Dead code, same as above. The old planner envelope had no `failed` status; the unified terminal tool now adds `failed` to the planner schema (see section 4.7). |
-| `report_goal_blocked` | `emit_result` | Dead code, same as above. `emit_result` with `status: 'blocked'` and `blocked_reason` covers this. |
+| `report_goal_done` | `emit_result` | Removed from provider-composed runtime surfaces; legacy planner-support references remain and are Phase 4 cleanup debt. |
+| `report_goal_failed` | `emit_result` | Removed from provider-composed runtime surfaces; legacy planner-support references remain and are Phase 4 cleanup debt. The unified terminal tool adds `failed` to the planner schema (see section 4.7). |
+| `report_goal_blocked` | `emit_result` | Removed from provider-composed runtime surfaces; legacy planner-support references remain and are Phase 4 cleanup debt. `emit_result` with `status: 'blocked'` and `summary` covers this. |
 | `emit_planner_result` | `emit_result` | Unified terminal tool name. Common envelope. |
 | `emit_executor_result` | `emit_result` | Unified terminal tool name. Common envelope. |
 | `emit_reviewer_result` | `emit_result` | Unified terminal tool name. Common envelope. |
@@ -393,7 +393,7 @@ Done:
 - Updated role-tool-policy, executor prompt, web presenters, and tests for canonical process names.
 - Removed `write_file` from active source. Canonical `write` now handles Analyst explicit-card brief record writes (`record://brief.md?card=<id>&v=next`) with the stopped/paused gate, brief-only restriction, required-heading validation, and record-slot close/discard behavior.
 
-The old `report_goal_done`, `report_goal_failed`, and `report_goal_blocked` planner-control surface has been removed from active source with the detached catalog cleanup. Terminal unification is still tracked separately in Phase 4.
+The old `report_goal_done`, `report_goal_failed`, and `report_goal_blocked` names are removed from the provider-composed runtime tool surfaces and the detached catalog is gone. They still exist in legacy planner-support code (`src/tools/planner-tools.ts`, `src/agents/prompts/system-prompt.ts`, planner next-action hints, and related tests). Treat those as Phase 4 cleanup debt: either delete the legacy service/prompt path if it is not reachable, or migrate it to the unified terminal contract. Do not leave `report_goal_*` model-facing or package-root-supported after terminal unification.
 
 ### Phase 2: Introduce provider-owned invocation surfaces — partially done
 
@@ -442,6 +442,8 @@ Not yet done:
 - Rename the three terminal tools (`emit_planner_result`, `emit_executor_result`, `emit_reviewer_result`) to a single `emit_result`.
 - Replace per-role envelopes with the common `{ status, summary }` schema (`ResultEnvelopeSchema`).
 - Remove the planner `continue` status (planner prompt and `PlannerResultEnvelopeSchema` still offer it). Planner returns `done | blocked | failed`; the runtime schedules further planning from card-tree state. Also remove the `'non_actionable_continue'` blocker cause.
+- Audit and remove the legacy `report_goal_done`, `report_goal_failed`, and `report_goal_blocked` support path. Current known locations are `src/tools/planner-tools.ts`, `src/agents/prompts/system-prompt.ts`, `src/agents/planner-state-context.ts`, and tests that exercise `PlannerToolsService.reportGoal`. If the service is still needed as a non-model lifecycle helper, migrate it to status-based inputs or the common result envelope; otherwise delete it and the package-root export. The final endpoint must not expose or prompt `report_goal_*` names.
+- Update planner prompts and repair messages consistently: the active micro-actor planner prompt currently says `emit_planner_result`, while older system-prompt helpers still mention `report_goal_*`. After Phase 4, all planner/reviewer/executor prompts, repair prompts, contracts, and tests should mention only `emit_result` plus role-allowed statuses.
 - Move executor `warnings`/`result`/`error` and reviewer `assessment`/`achieved`/`issues`/`evidence_card_ids` into `status.md`/`review.md`.
 - Collapse lifecycle results from 7 kinds to 4 (`DoneResult`, `BlockedResult`, `FailedResult`, `ReworkResult`) plus internal `NeedsVerificationResult`.
 - Update `src/schemas/event-catalog.ts` and `src/schemas/types.ts` terminal-tool enums.
