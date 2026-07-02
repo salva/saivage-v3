@@ -92,6 +92,10 @@ function assertWritableSystemPath(raw: string): { absolutePath: string; relative
   return resolved;
 }
 
+function canWriteWorkspaceFiles(role: AgentRole | undefined): boolean {
+  return role === undefined || role === 'executor' || role === 'analyst';
+}
+
 function resolveProjectSchemePath(path: string): string {
   return path.startsWith('project://') ? path.slice('project://'.length) : path;
 }
@@ -157,12 +161,12 @@ function resolveToolPath(ctx: WorkspaceContext, raw: string, mode: 'read' | 'wri
   if (raw.startsWith('record://')) return { kind: 'record', ...parseRecordUrl(ctx, raw, mode) };
   if (raw.startsWith('tmp://')) return resolveTmpPath(ctx, raw, mode);
   if (raw.startsWith('system://')) {
-    if (mode === 'write' && ctx.agentRole && ctx.agentRole !== 'executor') throw toolInputError(`${ctx.agentRole} cannot write system files.`);
+    if (mode === 'write' && !canWriteWorkspaceFiles(ctx.agentRole)) throw toolInputError(`${ctx.agentRole} cannot write system files.`);
     const resolved = mode === 'read' ? assertReadableSystemPath(raw) : assertWritableSystemPath(raw);
     return { kind: 'system', ...resolved };
   }
   const projectPath = resolveProjectSchemePath(raw);
-  if (mode === 'write' && ctx.agentRole && ctx.agentRole !== 'executor') throw toolInputError(`${ctx.agentRole} cannot write project files.`);
+  if (mode === 'write' && !canWriteWorkspaceFiles(ctx.agentRole)) throw toolInputError(`${ctx.agentRole} cannot write project files.`);
   const resolved = mode === 'read' ? assertReadable(ctx.projectRoot, projectPath) : assertWritable(ctx.projectRoot, projectPath);
   return { kind: 'project', ...resolved };
 }
@@ -245,7 +249,7 @@ export async function readProject(ctx: WorkspaceContext, params: { path: string;
 }
 
 export async function writeProject(ctx: WorkspaceContext, params: { path: string; content: string }): Promise<unknown> {
-  if (ctx.agentRole === 'analyst') return writeAnalystBriefRecord(ctx, params);
+  if (ctx.agentRole === 'analyst' && params.path.startsWith('record://')) return writeAnalystBriefRecord(ctx, params);
   const resolved = resolveToolPath(ctx, params.path, 'write');
   const { absolutePath, relativePath } = resolved;
   mkdirSync(dirname(absolutePath), { recursive: true });
@@ -268,12 +272,12 @@ export function authorizeWriteProject(ctx: WorkspaceContext, params: { path: str
     return;
   }
   if (params.path.startsWith('system://')) {
-    if (ctx.agentRole && ctx.agentRole !== 'executor') throw toolInputError(`${ctx.agentRole} cannot write system files.`);
+    if (!canWriteWorkspaceFiles(ctx.agentRole)) throw toolInputError(`${ctx.agentRole} cannot write system files.`);
     assertWritableSystemPath(params.path);
     return;
   }
   const projectPath = resolveProjectSchemePath(params.path);
-  if (ctx.agentRole && ctx.agentRole !== 'executor') throw toolInputError(`${ctx.agentRole} cannot write project files.`);
+  if (!canWriteWorkspaceFiles(ctx.agentRole)) throw toolInputError(`${ctx.agentRole} cannot write project files.`);
   assertWritable(ctx.projectRoot, projectPath);
 }
 
@@ -384,7 +388,7 @@ export async function editProject(ctx: WorkspaceContext, params: { path: string;
 }
 
 export async function applyProjectPatch(ctx: WorkspaceContext, params: { patch: string }): Promise<unknown> {
-  if (ctx.agentRole && ctx.agentRole !== 'executor') throw toolInputError(`${ctx.agentRole} cannot write project files.`);
+  if (!canWriteWorkspaceFiles(ctx.agentRole)) throw toolInputError(`${ctx.agentRole} cannot write project files.`);
   const affected = patchPaths(params.patch);
   if (affected.length === 0) throw toolInputError('Patch does not contain any file changes.');
   for (const path of affected) assertWritable(ctx.projectRoot, path);

@@ -155,4 +155,47 @@ describe('workspace and patch providers', () => {
       rmSync(systemRoot, { recursive: true, force: true });
     }
   });
+
+  it('allows Analyst project write/edit/apply_patch through canonical workspace tools', async () => {
+    const { root } = setupProject();
+    try {
+      const surface = buildInvocationSurface('analyst', [
+        createWorkspaceProvider({ projectRoot: root, agentRole: 'analyst' }),
+        createPatchProvider({ projectRoot: root, agentRole: 'analyst' }),
+      ]);
+
+      const write = await invokeTool(surface, 'write', { path: 'notes.txt', content: 'before' });
+      const edit = await invokeTool(surface, 'edit', { path: 'notes.txt', old_string: 'before', new_string: 'after' });
+      const patch = await invokeTool(surface, 'apply_patch', { patch: '--- /dev/null\n+++ b/patched.txt\n@@ -0,0 +1 @@\n+patched\n' });
+
+      expect(write.success).toBe(true);
+      expect(edit.success).toBe(true);
+      expect(patch.success).toBe(true);
+      expect(readFileSync(join(root, 'notes.txt'), 'utf8')).toBe('after');
+      expect(readFileSync(join(root, 'patched.txt'), 'utf8')).toBe('patched\n');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('allows Analyst system:// writes while preserving planner write denial', async () => {
+    const { root } = setupProject();
+    const systemRoot = mkdtempSync(join(tmpdir(), 'workspace-provider-system-'));
+    try {
+      const analystSurface = buildInvocationSurface('analyst', [createWorkspaceProvider({ projectRoot: root, agentRole: 'analyst' })]);
+      const plannerSurface = buildInvocationSurface('planner', [createWorkspaceProvider({ projectRoot: root, cardId: 'card-1', agentRole: 'planner' })]);
+      const target = join(systemRoot, 'analyst-out.txt');
+
+      const analystWrite = await invokeTool(analystSurface, 'write', { path: `system://${target}`, content: 'operator' });
+      const plannerWrite = await invokeTool(plannerSurface, 'write', { path: 'planner-out.txt', content: 'nope' });
+
+      expect(analystWrite.success).toBe(true);
+      expect(readFileSync(target, 'utf8')).toBe('operator');
+      expect(plannerWrite.success).toBe(false);
+      if (!plannerWrite.success) expect(plannerWrite.error).toContain('planner cannot write project files');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(systemRoot, { recursive: true, force: true });
+    }
+  });
 });
