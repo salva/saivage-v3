@@ -78,7 +78,7 @@ Unchanged from current v3. These are v3-specific and have no OpenCode equivalent
 | `reorder_child` | P, A | Reorder children of a non-running parent. |
 | `queue_notification` | P, A | Queue a notification for a future agent session. |
 
-Goal reporting (terminal contract tool): planner, executor, and reviewer use one terminal tool name, `emit_result`, with a common envelope. Each role's contract validates only the statuses that role may emit. The old `report_goal_done` / `report_goal_failed` / `report_goal_blocked` names are not in the provider-composed runtime tool surfaces, but legacy planner-support remnants still exist and must be retired in Phase 4 (see sections 5 and 10).
+Goal reporting (terminal contract tool): planner, executor, and reviewer use one terminal tool name, `emit_result`, with a common envelope. Each role's contract validates only the statuses that role may emit. The old `report_goal_done` / `report_goal_failed` / `report_goal_blocked` names and role-specific `emit_*_result` names are removed from active provider-composed runtime surfaces, prompts, repair prompts, schemas, and tests.
 
 See section 4.7 for the unified terminal tool design.
 
@@ -241,9 +241,9 @@ The following names are removed from the catalog. They are either duplicates of 
 | `wait_process` (actor-inline) | `wait_process` (catalog) | Move from inline to catalog. |
 | `read_file` | `read` | The catalog `read_file` was the Analyst host-inspection tool. Replaced by `read` with `system://` or `record://` scope. No separate workspace variant exists. |
 | `load_skill` | `skill` | Standard name. |
-| `report_goal_done` | `emit_result` | Removed from provider-composed runtime surfaces; legacy planner-support references remain and are Phase 4 cleanup debt. |
-| `report_goal_failed` | `emit_result` | Removed from provider-composed runtime surfaces; legacy planner-support references remain and are Phase 4 cleanup debt. The unified terminal tool adds `failed` to the planner schema (see section 4.7). |
-| `report_goal_blocked` | `emit_result` | Removed from provider-composed runtime surfaces; legacy planner-support references remain and are Phase 4 cleanup debt. `emit_result` with `status: 'blocked'` and `summary` covers this. |
+| `report_goal_done` | `emit_result` | Removed from provider-composed runtime surfaces and legacy planner support. |
+| `report_goal_failed` | `emit_result` | Removed from provider-composed runtime surfaces and legacy planner support. The unified terminal tool adds `failed` to the planner schema (see section 4.7). |
+| `report_goal_blocked` | `emit_result` | Removed from provider-composed runtime surfaces and legacy planner support. `emit_result` with `status: 'blocked'` and `summary` covers this. |
 | `emit_planner_result` | `emit_result` | Unified terminal tool name. Common envelope. |
 | `emit_executor_result` | `emit_result` | Unified terminal tool name. Common envelope. |
 | `emit_reviewer_result` | `emit_result` | Unified terminal tool name. Common envelope. |
@@ -393,7 +393,7 @@ Done:
 - Updated role-tool-policy, executor prompt, web presenters, and tests for canonical process names.
 - Removed `write_file` from active source. Canonical `write` now handles Analyst explicit-card brief record writes (`record://brief.md?card=<id>&v=next`) with the stopped/paused gate, brief-only restriction, required-heading validation, and record-slot close/discard behavior.
 
-The old `report_goal_done`, `report_goal_failed`, and `report_goal_blocked` names are removed from the provider-composed runtime tool surfaces and the detached catalog is gone. They still exist in legacy planner-support code (`src/tools/planner-tools.ts`, `src/agents/prompts/system-prompt.ts`, planner next-action hints, and related tests). Treat those as Phase 4 cleanup debt: either delete the legacy service/prompt path if it is not reachable, or migrate it to the unified terminal contract. Do not leave `report_goal_*` model-facing or package-root-supported after terminal unification.
+The old `report_goal_done`, `report_goal_failed`, and `report_goal_blocked` names are removed from the provider-composed runtime tool surfaces, the detached catalog is gone, and legacy planner-support code has been migrated to status-based `emit_result` guidance. No active source/test prompt or package-root-supported path exposes `report_goal_*` after terminal unification.
 
 ### Phase 2: Introduce provider-owned invocation surfaces — partially done
 
@@ -433,17 +433,19 @@ Done:
 - `websearch`/`webfetch` present on Analyst through `WebProvider`.
 - Non-runtime Analyst docs/helpers align with the active `InvocationSurface`: runtime model advertisements come from `surfaceToolDefinitions(surface)`, and `analyst-prompt.ts` uses the explicit control registry plus provider-era shared names.
 
-### Phase 4: Unify the terminal contract — not started
+### Phase 4: Unify the terminal contract — mostly done
 
-- Rename the three terminal tools (`emit_planner_result`, `emit_executor_result`, `emit_reviewer_result`) to a single `emit_result`.
-- Replace per-role envelopes with the common `{ status, summary }` schema (`ResultEnvelopeSchema`).
-- Remove the planner `continue` status (planner prompt and `PlannerResultEnvelopeSchema` still offer it). Planner returns `done | blocked | failed`; the runtime schedules further planning from card-tree state. Also remove the `'non_actionable_continue'` blocker cause.
-- Audit and remove the legacy `report_goal_done`, `report_goal_failed`, and `report_goal_blocked` support path. Current known locations are `src/tools/planner-tools.ts`, `src/agents/prompts/system-prompt.ts`, `src/agents/planner-state-context.ts`, and tests that exercise `PlannerToolsService.reportGoal`. If the service is still needed as a non-model lifecycle helper, migrate it to status-based inputs or the common result envelope; otherwise delete it and the package-root export. The final endpoint must not expose or prompt `report_goal_*` names.
-- Update planner prompts and repair messages consistently: the active micro-actor planner prompt currently says `emit_planner_result`, while older system-prompt helpers still mention `report_goal_*`. After Phase 4, all planner/reviewer/executor prompts, repair prompts, contracts, and tests should mention only `emit_result` plus role-allowed statuses.
-- Move executor `warnings`/`result`/`error` and reviewer `assessment`/`achieved`/`issues`/`evidence_card_ids` into `status.md`/`review.md`.
-- Collapse lifecycle results from 7 kinds to 4 (`DoneResult`, `BlockedResult`, `FailedResult`, `ReworkResult`) plus internal `NeedsVerificationResult`.
-- Update `src/schemas/event-catalog.ts` and `src/schemas/types.ts` terminal-tool enums.
-- Update planner/reviewer prompts to reference `emit_result` and the allowed status subsets.
+Done:
+- Renamed the three terminal tools (`emit_planner_result`, `emit_executor_result`, `emit_reviewer_result`) to a single `emit_result`.
+- Replaced per-role model-facing terminal envelopes with the common `{ status, summary }` shape (`ResultEnvelopeSchema`) and role-specific allowed status subsets.
+- Removed the planner `continue` status and the `'non_actionable_continue'` blocker cause. Planner terminals now return `done | blocked | failed`; the runtime schedules further planning from card-tree state.
+- Migrated legacy `report_goal_done`, `report_goal_failed`, and `report_goal_blocked` planner-support references to status-based `emit_result` guidance. The final active endpoint no longer exposes or prompts `report_goal_*` names.
+- Updated planner, executor, and reviewer prompts, repair messages, contracts, schemas, recovery fixtures, and tests to mention only `emit_result` plus role-allowed statuses.
+- Moved executor terminal `warnings`/`result`/`error` and reviewer terminal `assessment`/`achieved`/`issues`/`evidence_card_ids` out of terminal envelopes. Rich detail belongs in `status.md` and `review.md`.
+- Updated `src/schemas/event-catalog.ts` and `src/schemas/types.ts` terminal-tool enums.
+
+Not yet done:
+- Collapse lifecycle results from the current persisted/API-facing legacy kinds to 4 (`DoneResult`, `BlockedResult`, `FailedResult`, `ReworkResult`) plus internal `NeedsVerificationResult`. This is a broad schema/API/storage cutover and remains the main incomplete Phase 4 item.
 
 ### Phase 5: Align scoped URL policy, prompts, and specs — partially done
 
@@ -451,7 +453,7 @@ Done:
 - `webfetch.save_as` accepts and enforces scoped URLs (`record://`, `tmp://`, `project://`) with the same role/slot-write authorization as `write`. It pre-authorizes before network fetch and writes through canonical workspace write behavior, including record-slot rules and analyst explicit-card `brief.md` writes.
 
 Not yet done:
-- Align system prompts and specs with the final tool vocabulary once Phases 1–4 land.
+- Complete the lifecycle-result cutover described in Phase 4 and acceptance criteria.
 
 ## 11. Relationship To Other Documents
 
