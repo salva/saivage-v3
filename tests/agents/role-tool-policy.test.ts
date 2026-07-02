@@ -11,6 +11,8 @@ describe('RoleToolPolicy', () => {
     expect(RoleToolPolicy.listToolNamesForRole('planner')).toEqual([
       'create_card',
       'edit_card',
+      'cancel_card',
+      'activate_card',
       'reorder_child',
       'queue_notification',
       'list_cards',
@@ -26,13 +28,6 @@ describe('RoleToolPolicy', () => {
       'edit',
       'websearch',
       'webfetch',
-      'activate_card',
-      'cancel_card',
-      'delete_card',
-      'restart_card',
-      'report_goal_done',
-      'report_goal_failed',
-      'report_goal_blocked',
     ]);
     expect(RoleToolPolicy.listToolNamesForRole('executor')).toContain('mcp_tool_call');
     expect(RoleToolPolicy.listToolNamesForRole('reviewer')).toContain('mcp_tool_call');
@@ -89,7 +84,8 @@ describe('RoleToolPolicy', () => {
   });
 
   it('allows known planner-control lifecycle tools at the planner-control boundary', () => {
-    expect(RoleToolPolicy.decide({ role: 'planner', action: 'invoke', surface: 'planner-control', toolName: 'restart_card', knownPlannerTool: true }).allowed).toBe(true);
+    expect(RoleToolPolicy.decide({ role: 'planner', action: 'invoke', surface: 'planner-control', toolName: 'activate_card', knownPlannerTool: true }).allowed).toBe(true);
+    expect(RoleToolPolicy.decide({ role: 'planner', action: 'invoke', surface: 'planner-control', toolName: 'restart_card', knownPlannerTool: true }).allowed).toBe(false);
   });
 
 

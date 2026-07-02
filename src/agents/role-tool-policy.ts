@@ -1,7 +1,6 @@
 import type { McpToolAnnotations } from '../mcp/protocol-api.js';
 import type { OperationalAgentRole } from '../schemas/index.js';
 import { ANALYST_TOOL_NAMES } from '../tools/analyst-tool-registry.js';
-import { MCP_WRAPPER_TOOL_NAMES, PLANNER_CONTROL_TOOL_NAMES, ROLE_TOOL_NAMES, SKILL_TOOL_NAMES, WORKSPACE_TOOL_NAMES } from './agent-tool-catalog.js';
 
 export type RoleToolPolicyRole = OperationalAgentRole;
 export type RoleToolPolicyAction = 'list' | 'invoke';
@@ -38,10 +37,22 @@ export interface RoleToolPolicyDecision {
   auditTags: string[];
 }
 
+const PLANNER_CONTROL_TOOL_NAMES: ReadonlySet<string> = new Set(['create_card', 'edit_card', 'cancel_card', 'activate_card', 'reorder_child', 'queue_notification']);
+const WORKSPACE_TOOL_NAMES: ReadonlySet<string> = new Set(['read', 'write', 'glob', 'grep', 'edit', 'apply_patch', 'run_command', 'wait_process', 'kill_process']);
+const SKILL_TOOL_NAMES: ReadonlySet<string> = new Set(['skill']);
+const MCP_WRAPPER_TOOL_NAMES: ReadonlySet<string> = new Set(['mcp_tool_call']);
+
+const ROLE_TOOL_NAMES: Record<RoleToolPolicyRole, readonly string[]> = {
+  planner: ['create_card', 'edit_card', 'cancel_card', 'activate_card', 'reorder_child', 'queue_notification', 'list_cards', 'get_card', 'get_tree', 'list_card_history', 'get_card_history_entry', 'diff_card', 'read', 'write', 'glob', 'grep', 'edit', 'websearch', 'webfetch'],
+  executor: ['read', 'write', 'glob', 'grep', 'edit', 'apply_patch', 'run_command', 'wait_process', 'kill_process', 'list_card_history', 'get_card_history_entry', 'diff_card', 'websearch', 'webfetch', 'skill', 'mcp_tool_call'],
+  reviewer: ['read', 'write', 'glob', 'grep', 'edit', 'list_card_history', 'get_card_history_entry', 'diff_card', 'websearch', 'webfetch', 'skill', 'mcp_tool_call'],
+  analyst: ANALYST_TOOL_NAMES,
+};
+
 const VALID_ROLES = new Set<RoleToolPolicyRole>(Object.keys(ROLE_TOOL_NAMES) as RoleToolPolicyRole[]);
 const VALID_SURFACES = new Set<RoleToolPolicySurface>(['planner-control', 'agent-runtime', 'workspace', 'external-mcp', 'skill', 'contract-terminal']);
 
-function roleToolNames(role: RoleToolPolicyRole): readonly string[] { return role === 'analyst' ? ANALYST_TOOL_NAMES : ROLE_TOOL_NAMES[role] ?? []; }
+function roleToolNames(role: RoleToolPolicyRole): readonly string[] { return ROLE_TOOL_NAMES[role] ?? []; }
 
 function decision(input: RoleToolPolicyInput, allowed: boolean, reasonCode: RoleToolPolicyReasonCode, message: string): RoleToolPolicyDecision {
   const auditTags = [
