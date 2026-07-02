@@ -2,7 +2,7 @@
 
 Status: current planning document.
 
-Last reviewed: 2026-07-03.
+Last reviewed: 2026-07-02.
 
 This plan consolidates the still-relevant follow-up work from the record-slot, tool-surface, deferred-capability, and conversation-compaction plans. It intentionally filters out tasks that have drifted, have already been implemented, or would now conflict with the current Saivage v3 architecture.
 
@@ -253,7 +253,7 @@ Config, events, and modules for features that were never built and are not in th
 
     `config-schema.ts` defines `supervisorSectionSchema` with five fields, none of which are read by any production code. This is the upstream cause of the dead stuck-supervisor event chain. The micro-actor `RuntimeSupervisorActor` is an unrelated name collision — it has no stuck-detection.
 
-    **Deployment blocker:** as of 2026-07-03, checked-in and local target-project configs (`diedrico`, `diedrico-lessons`, `getrich`, `getrich-v2`, `pm`, `pueblicos`, `saivage-e2e-checkers`) still contain a top-level `supervisor` key. The schema is strict, so removing the key will reject these configs on startup. This cleanup must either update all deployed `.saivage/saivage.json` files in the same change, or the cleanup must be sequenced after confirming no running deployment reads the old key.
+    **Deployment blocker:** as of 2026-07-02, checked-in and local target-project configs (`diedrico`, `diedrico-lessons`, `getrich`, `getrich-v2`, `pm`, `pueblicos`, `saivage-e2e-checkers`) still contain a top-level `supervisor` key. The schema is strict, so removing the key will reject these configs on startup. This cleanup must either update all deployed `.saivage/saivage.json` files in the same change, or the cleanup must be sequenced after confirming no running deployment reads the old key.
 
 3. **Split runtime config cleanup into persisted fields vs transform-only defaults.**
 
@@ -263,7 +263,7 @@ Config, events, and modules for features that were never built and are not in th
 
     `rag: z.unknown().optional()` and `notifications.filters` are accepted by the schema but never read.
 
-    **Deployment blocker:** as of 2026-07-03, several deployed configs contain `rag` (`diedrico`, `diedrico-lessons`, `getrich`, `pm`, `pueblicos`) and `notifications.filters` (`pm`). Same caveat as B.2 applies.
+    **Deployment blocker:** as of 2026-07-02, several deployed configs contain `rag` (`diedrico`, `diedrico-lessons`, `getrich`, `pm`) and `notifications.filters` (`pm`). Same caveat as B.2 applies.
 
 ### C. Dead Event And Schema Surface `[DELETE-OLD-REMNANT]`
 
