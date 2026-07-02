@@ -3,8 +3,6 @@ import { mount } from '@vue/test-utils';
 import Button from '../../components/ui/Button.vue';
 import Card from '../../components/ui/Card.vue';
 import Overlay from '../../components/ui/Overlay.vue';
-import Pill from '../../components/ui/Pill.vue';
-import StatusDot from '../../components/ui/StatusDot.vue';
 
 
 describe('ui primitives', () => {
@@ -16,10 +14,8 @@ describe('ui primitives', () => {
     expect(wrapper.text()).toBe('Save');
   });
 
-  it('renders Card, Pill, and StatusDot with semantic classes', () => {
+  it('renders Card with semantic classes', () => {
     expect(mount(Card, { slots: { default: 'Body' } }).classes()).toContain('ui-card');
-    expect(mount(Pill, { props: { tone: 'warning' }, slots: { default: 'Warn' } }).classes()).toContain('ui-pill--warning');
-    expect(mount(StatusDot, { props: { tone: 'danger', label: 'Down' } }).attributes('aria-label')).toBe('Down');
   });
 
   it('renders Overlay visibility and slot content', async () => {

@@ -343,6 +343,8 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
    `PanelHeading.vue`, `Spinner.vue`, `Pill.vue`, `StatusDot.vue` have zero production renderers (some are kept alive only by a primitives test).
 
+   Status: completed in the UI primitive cleanup slice.
+
 2. **Delete dead API client functions.**
 
    `getHealth`, `getConfig`, `getProviders`, `getProcess` have zero callers in `web/src/`.
@@ -533,7 +535,7 @@ Goal: remove dead UI, shrink actor interfaces, and simplify tool plumbing.
 
 Tasks (backlog groups F, G, H):
 
-1. Delete dead UI components and API client functions.
+1. Partially completed: delete dead UI components. Dead API client functions remain pending.
 2. Shrink `evaluateReviewerTerminalOutcome` inputs and remove async mutation wrappers.
 3. Extract shared contract-bounded repair loop.
 4. Collapse Analyst control-tool result envelopes and fix prompt tool-list generation.
