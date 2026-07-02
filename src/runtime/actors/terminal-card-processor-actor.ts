@@ -2,13 +2,12 @@ import type { ActorDefinition } from '../micro-actor/index.js';
 import type { CardActivationInput, CardActivationOutcome, CardActorStorePort, CardProcessorActor } from './card-actor.js';
 import { executorActorId } from './ids.js';
 import type { LLMActorOutcome, LLMAdmissionPort, LLMProviderPort } from './llm-actor.js';
-import { TERMINAL_CARD_PROCESSOR_TOOL_DEFINITIONS } from './actor-tool-definitions.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
 import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
 import { createExecutorContract } from '../../contracts/executor-contract.js';
 import type { ExecutorResult } from '../../contracts/agent-execution.js';
 import { expectedTerminalToolMessage, verifyTerminalToolOutcome } from './contract-terminal-tools.js';
-import { buildInvocationSurface, invokeTool } from '../../tools/invocation.js';
+import { buildInvocationSurface, invokeTool, surfaceToolDefinitions, type InvocationSurface } from '../../tools/invocation.js';
 import { createCardHistoryProvider } from '../../tools/card-history-provider.js';
 import { createProcessProvider } from '../../tools/process-provider.js';
 import { createPatchProvider, createWorkspaceProvider } from '../../tools/workspace-provider.js';
@@ -101,6 +100,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
 
   private buildLlmInput(input: CardActivationInput, contract = createExecutorContract()): LlmInvocationInput {
     const inputId = this.nextInvocationInputId('terminal');
+    const surface = this.executorInvocationSurface(inputId);
     return {
       inputId,
       agentId: executorActorId(this.cardId),
@@ -108,7 +108,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
       sessionId: executorActorId(this.cardId),
       systemPrompt: `Execute terminal card ${input.card.id}: ${input.card.title}\n\n${cardBriefForPrompt(this.projectRoot, input.card)}\n\nUse process and file tools when needed. Write your current invocation status to:\nrecord://status.md?v=next\n\nDo not call emit_executor_result until the status file exists. End by calling emit_executor_result; plain text or JSON messages are not accepted as terminal reports.`,
       contextMessages: this.notificationContextMessages(input, inputId),
-      tools: [...TERMINAL_CARD_PROCESSOR_TOOL_DEFINITIONS, ...contract.terminals.map((terminal) => terminal.toolDefinition)],
+      tools: [...surfaceToolDefinitions(surface), ...contract.terminals.map((terminal) => terminal.toolDefinition)],
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),
       modelParams: {},
       capabilityRequest: { requiresTools: true },
@@ -118,21 +118,24 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
 
   private async handleToolCall(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, processOwnerId: string): Promise<unknown> {
     try {
-      const providers = [
-        createWorkspaceProvider({ projectRoot: this.projectRoot, cardId: this.cardId, agentRole: 'executor' }),
-        createPatchProvider({ projectRoot: this.projectRoot, cardId: this.cardId, agentRole: 'executor' }),
-        createProcessProvider({ projectRoot: this.projectRoot, ownerId: processOwnerId, cardId: this.cardId }),
-        createWebProvider({ projectRoot: this.projectRoot, cardId: this.cardId, agentRole: 'executor' }),
-        createSkillProvider({ projectRoot: this.projectRoot, agentRole: 'executor' }),
-        createMcpProvider({ mcpManagerProvider: this.mcpManagerProvider, agentRole: 'executor' }),
-      ];
-      providers.push(createCardHistoryProvider({ projectRoot: this.projectRoot, sessionId: processOwnerId, agentRole: 'executor' }));
-      const workspaceSurface = buildInvocationSurface('executor', providers);
+      const workspaceSurface = this.executorInvocationSurface(processOwnerId);
       if (workspaceSurface.tools.has(outcome.toolName)) return await invokeTool(workspaceSurface, outcome.toolName, outcome.args);
       throw new Error(`Unsupported executor tool call '${outcome.toolName}'.`);
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
+  }
+
+  private executorInvocationSurface(processOwnerId: string): InvocationSurface {
+    return buildInvocationSurface('executor', [
+      createWorkspaceProvider({ projectRoot: this.projectRoot, cardId: this.cardId, agentRole: 'executor' }),
+      createPatchProvider({ projectRoot: this.projectRoot, cardId: this.cardId, agentRole: 'executor' }),
+      createProcessProvider({ projectRoot: this.projectRoot, ownerId: processOwnerId, cardId: this.cardId }),
+      createCardHistoryProvider({ projectRoot: this.projectRoot, sessionId: processOwnerId, agentRole: 'executor' }),
+      createWebProvider({ projectRoot: this.projectRoot, cardId: this.cardId, agentRole: 'executor' }),
+      createSkillProvider({ projectRoot: this.projectRoot, agentRole: 'executor' }),
+      createMcpProvider({ mcpManagerProvider: this.mcpManagerProvider, agentRole: 'executor' }),
+    ]);
   }
 
   shutdownOwnedProcesses(reason = 'terminal processor shutdown'): void {

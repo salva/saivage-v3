@@ -97,7 +97,13 @@ describe('TerminalCardProcessorActor', () => {
     expect(outcome).toMatchObject({ status: 'done', summary: 'implemented' });
     expect(store.read(card.id)).toMatchObject({ status: 'done', status_text: 'implemented' });
     expect(store.read(card.id)?.lifecycle.result).toMatchObject({ kind: 'executor_success', executor: { summary: 'implemented' } });
-    expect(provider.completeTurn).toHaveBeenCalledWith(expect.objectContaining({ agentId: `executor:${card.id}`, role: 'executor', terminalToolNames: ['emit_executor_result'], systemPrompt: expect.stringContaining('record://status.md?v=next') }), expect.any(AbortSignal));
+    expect(provider.completeTurn).toHaveBeenCalledWith(expect.objectContaining({
+      agentId: `executor:${card.id}`,
+      role: 'executor',
+      terminalToolNames: ['emit_executor_result'],
+      systemPrompt: expect.stringContaining('record://status.md?v=next'),
+      tools: expect.arrayContaining(['read', 'write', 'glob', 'grep', 'edit', 'apply_patch', 'run_command', 'wait_process', 'kill_process', 'list_card_history', 'get_card_history_entry', 'diff_card', 'websearch', 'webfetch', 'skill', 'mcp_tool_call'].map((name) => expect.objectContaining({ function: expect.objectContaining({ name }) }))),
+    }), expect.any(AbortSignal));
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_kind)).toEqual(expect.arrayContaining(['card', 'llm', 'processor']));
   }));
 

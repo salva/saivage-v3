@@ -146,7 +146,7 @@ describe('PlanningCardProcessorActor', () => {
       sessionId: `reviewer:${project.id}:assessment-${project.id}-1`,
       terminalToolNames: ['emit_reviewer_result'],
       systemPrompt: expect.stringContaining('record://review.md?v=next'),
-      tools: expect.arrayContaining([expect.objectContaining({ function: expect.objectContaining({ name: 'emit_reviewer_result' }) })]),
+      tools: expect.arrayContaining(['read', 'write', 'glob', 'grep', 'edit', 'list_card_history', 'get_card_history_entry', 'diff_card', 'websearch', 'webfetch', 'skill', 'mcp_tool_call', 'emit_reviewer_result'].map((name) => expect.objectContaining({ function: expect.objectContaining({ name }) }))),
     }), expect.any(AbortSignal));
   }));
 

@@ -2,7 +2,6 @@ import type { ActorDefinition } from '../micro-actor/index.js';
 import type { CardRecord, CardStatus, PlannerDoneResult } from '../../schemas/index.js';
 import type { LLMActorOutcome, LLMAdmissionPort, LLMProviderPort } from './llm-actor.js';
 import { plannerActorId, reviewerActorId } from './ids.js';
-import { REVIEWER_CARD_PROCESSOR_TOOL_DEFINITIONS } from './actor-tool-definitions.js';
 import type { CardActivationInput, CardActivationOutcome, CardActor, CardActorStorePort, CardProcessorActor } from './card-actor.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
 import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
@@ -260,7 +259,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
       sessionId,
       systemPrompt: this.reviewerPrompt(input.card, assessmentId),
       contextMessages: [this.reviewerDescendantContext(input.card.id, currentness)],
-      tools: [...REVIEWER_CARD_PROCESSOR_TOOL_DEFINITIONS, ...contract.terminals.map((terminal) => terminal.toolDefinition)],
+      tools: [...surfaceToolDefinitions(this.reviewerInvocationSurface(input.card.id, sessionId)), ...contract.terminals.map((terminal) => terminal.toolDefinition)],
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),
       modelParams: {},
       capabilityRequest: { requiresTools: true },
@@ -379,15 +378,19 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private async handleReviewerToolCall(card: CardRecord, sessionId: string, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): Promise<unknown> {
-    const workspaceSurface = buildInvocationSurface('reviewer', [
-      createWorkspaceProvider({ projectRoot: this.projectRoot, cardId: card.id, agentRole: 'reviewer' }),
+    const workspaceSurface = this.reviewerInvocationSurface(card.id, sessionId);
+    if (workspaceSurface.tools.has(outcome.toolName)) return invokeTool(workspaceSurface, outcome.toolName, outcome.args);
+    return { success: false, error: `Unsupported reviewer tool call '${outcome.toolName}' for session '${sessionId}'.` };
+  }
+
+  private reviewerInvocationSurface(cardId: string, sessionId: string) {
+    return buildInvocationSurface('reviewer', [
+      createWorkspaceProvider({ projectRoot: this.projectRoot, cardId, agentRole: 'reviewer' }),
       createCardHistoryProvider({ projectRoot: this.projectRoot, sessionId, agentRole: 'reviewer' }),
-      createWebProvider({ projectRoot: this.projectRoot, cardId: card.id, agentRole: 'reviewer' }),
+      createWebProvider({ projectRoot: this.projectRoot, cardId, agentRole: 'reviewer' }),
       createSkillProvider({ projectRoot: this.projectRoot, agentRole: 'reviewer' }),
       createMcpProvider({ mcpManagerProvider: this.mcpManagerProvider, agentRole: 'reviewer' }),
     ]);
-    if (workspaceSurface.tools.has(outcome.toolName)) return invokeTool(workspaceSurface, outcome.toolName, outcome.args);
-    return { success: false, error: `Unsupported reviewer tool call '${outcome.toolName}' for session '${sessionId}'.` };
   }
 
   protected get processorLabel(): string {
