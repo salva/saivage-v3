@@ -98,19 +98,9 @@ function withLockOnly<T>(
  * Per F13 r5 §"On-disk write sequence" steps 1–10 for a single-card mutation.
  * For `create`, no history row is written and no event is emitted.
  *
- * NOTE (Batch 2b deviation): JavaScript
- * single-thread serialization already protects the sync body, and
- * `withLockSync` provides cross-process serialization. Callers receive a
- * synchronous result — the function returns an already-resolved Promise solely
- * for API stability.
+ * JavaScript single-thread serialization protects the sync body, and
+ * `withLockSync` provides cross-process serialization.
  */
-export async function applyMutation(
-  deps: ApplyMutationDeps,
-  op: ApplyMutationOp,
-): Promise<ApplyMutationResult> {
-  return applyMutationSync(deps, op);
-}
-
 export function applyMutationSync(
   deps: ApplyMutationDeps,
   op: ApplyMutationOp,
@@ -226,19 +216,7 @@ function applyMutationLocked(
   return { card: null, historyEntry, event };
 }
 
-/**
- * Apply a sequence of single-card ops under one lock cycle. The group marker is
- * only a non-authoritative recovery breadcrumb; per-card markers remain the
- * authoritative recovery records. Events are emitted after the lock releases in
- * the order the ops were applied.
- */
-export async function applyMutationGroup(
-  deps: ApplyMutationDeps,
-  ops: ApplyMutationOp[],
-): Promise<ApplyMutationResult[]> {
-  return applyMutationGroupSync(deps, ops);
-}
-
+/** Apply a sequence of single-card ops under one lock cycle. */
 export function applyMutationGroupSync(
   deps: ApplyMutationDeps,
   ops: ApplyMutationOp[],

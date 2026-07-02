@@ -397,6 +397,8 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
    `applyMutation` and `applyMutationGroup` are async functions that only `return applyMutationSync(...)`. The file comment admits they exist "solely for API stability" — a compatibility shim.
 
+   Status: completed in the apply-mutation cleanup slice.
+
 3. **Extract shared contract-bounded repair loop.**
 
    Both processor actors duplicate the same repair-loop skeleton (`result`→repair, `error`→fail, terminal→validate, `MAX_TERMINAL_CONTRACT_REPAIRS = 2`). Extract a shared helper.
@@ -569,7 +571,7 @@ Goal: remove dead UI, shrink actor interfaces, and simplify tool plumbing.
 Tasks (backlog groups F, G, H):
 
 1. Partially completed: delete dead UI components, dead API client functions, dead websocket surface, and auth environment guards.
-2. Shrink `evaluateReviewerTerminalOutcome` inputs and remove async mutation wrappers.
+2. Completed: shrink `evaluateReviewerTerminalOutcome` inputs and remove async mutation wrappers.
 3. Extract shared contract-bounded repair loop.
 4. Collapse Analyst control-tool result envelopes and fix prompt tool-list generation.
 5. Rename/split `tool-catalog.ts` without inlining shared definition helpers, and remove dead `ToolRuntime`.
