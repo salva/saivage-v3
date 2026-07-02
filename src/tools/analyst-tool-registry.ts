@@ -10,13 +10,7 @@ const analystToolOrder = [
   'create_card',
   'reorder_child',
   'queue_notification',
-  'list_cards',
-  'get_card',
-  'get_tree',
   'get_status',
-  'list_card_history',
-  'get_card_history_entry',
-  'diff_card',
   'start_project',
   'stop_project',
   'pause_runtime',
@@ -37,6 +31,12 @@ const analystToolOrder = [
 ] as const;
 
 export const ANALYST_SHARED_PROVIDER_TOOL_NAMES = [
+  'list_cards',
+  'get_card',
+  'get_tree',
+  'list_card_history',
+  'get_card_history_entry',
+  'diff_card',
   'read',
   'write',
   'edit',

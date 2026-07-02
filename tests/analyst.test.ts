@@ -129,7 +129,7 @@ describe('Analyst Tool Definitions', () => {
     expect(toolNames).not.toContain('restart_card_or_subtree');
     expect(toolNames).not.toContain('edit_card');
     expect(toolNames).toContain('queue_notification');
-    expect(toolNames).toContain('list_card_history');
+    expect(toolNames).not.toContain('list_card_history');
   });
 
   function toolByName(name: string) {
@@ -157,20 +157,6 @@ describe('Analyst Tool Definitions', () => {
     const createProps = propertiesFor('create_card');
     expect(createProps.type.enum).toEqual([...CREATE_CARD_TYPE_VALUES]);
     expect(toolByName('create_card').function.description).toContain('without dispatching work');
-
-    const listProps = propertiesFor('list_cards');
-    const listStatus = listProps.status as {
-      anyOf?: Array<{ enum?: unknown; items?: { enum?: unknown } }>;
-    };
-    const listType = listProps.type as {
-      anyOf?: Array<{ enum?: unknown; items?: { enum?: unknown } }>;
-    };
-    expect(listStatus.anyOf?.[0]?.enum).toEqual([...CARD_STATUS_VALUES]);
-    expect(listStatus.anyOf?.[1]?.items?.enum).toEqual([...CARD_STATUS_VALUES]);
-    expect(listType.anyOf?.[0]?.enum).toEqual([...CARD_TYPE_VALUES]);
-    expect(listType.anyOf?.[1]?.items?.enum).toEqual([...CARD_TYPE_VALUES]);
-    expect(listProps.status.enum).toBeUndefined();
-    expect(listProps.type.enum).toBeUndefined();
 
     expect(toolByName('queue_notification').function.description).toContain('Queue a notification');
   });

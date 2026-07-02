@@ -113,7 +113,7 @@ describe('Tool inventory mirrors SPEC-r7 capability classes', () => {
     try {
       const handler = new AnalystHandler(root, createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) }));
 
-      expect(handler.getAvailableToolNames()).toEqual(expect.arrayContaining(['skill', 'mcp_tool_call', 'websearch', 'webfetch', 'run_command']));
+      expect(handler.getAvailableToolNames()).toEqual(expect.arrayContaining(['list_cards', 'get_card', 'get_tree', 'list_card_history', 'get_card_history_entry', 'diff_card', 'skill', 'mcp_tool_call', 'websearch', 'webfetch', 'run_command']));
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });

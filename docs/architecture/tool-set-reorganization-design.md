@@ -421,21 +421,17 @@ Done in the final cleanup slice:
 
 There is no remaining detached schema/execution catalog. Provider-owned schemas and runtime `InvocationSurface` composition are the active authority.
 
-### Phase 3: Compose the role surfaces and derive prompts from surfaces — partially done
+### Phase 3: Compose the role surfaces and derive prompts from surfaces — done
 
 Done:
 - Planner: workspace, card-control, card-inspection, card-history, web.
 - Executor: workspace, patch, process, card-history, web, MCP, skill.
 - Reviewer: workspace, card-history, web, MCP, skill.
 - Analyst: control-provider, workspace, patch, process, web, skill, MCP. The Analyst prompt/tool list uses the explicit Analyst registry plus provider-era shared tool names, and the handler sends model tool advertisements from the active `InvocationSurface`.
+- Analyst card inspection/history now come from `CardInspectionProvider` and `CardHistoryProvider`, not the Analyst control-provider registry. `CardInspectionProvider` preserves the Analyst read model shape (numeric display paths, operator summaries, effective update time, and record summaries) while remaining reusable by planner surfaces.
 - `websearch`/`webfetch` present on planner, executor, reviewer.
 - `websearch`/`webfetch` present on Analyst through `WebProvider`.
-
-Not yet done:
-
-1. **Complete Analyst surface composition.** The Analyst currently receives card inspection/history through the explicit Analyst control registry rather than the generic `CardInspectionProvider`/`CardHistoryProvider`. Decide whether to compose those generic providers for the Analyst or explicitly keep inspection/history as Analyst control tools.
-
-2. **Align non-runtime Analyst docs/helpers with the active `InvocationSurface`.** Runtime Analyst model advertisements already come from `surfaceToolDefinitions(surface)`, and `analyst-prompt.ts` uses the explicit Analyst registry plus provider-era shared names. Tests and helper exports no longer rely on catalog-derived Analyst definitions.
+- Non-runtime Analyst docs/helpers align with the active `InvocationSurface`: runtime model advertisements come from `surfaceToolDefinitions(surface)`, and `analyst-prompt.ts` uses the explicit control registry plus provider-era shared names.
 
 ### Phase 4: Unify the terminal contract — not started
 

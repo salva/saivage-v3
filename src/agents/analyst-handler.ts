@@ -31,6 +31,8 @@ import { createWebProvider } from '../tools/web-tools.js';
 import { createPatchProvider, createWorkspaceProvider } from '../tools/workspace-provider.js';
 import { createSkillProvider } from '../tools/skill-provider.js';
 import { createMcpProvider } from '../tools/mcp-provider.js';
+import { createCardInspectionProvider } from '../tools/card-inspection-provider.js';
+import { createCardHistoryProvider } from '../tools/card-history-provider.js';
 import { RoleToolPolicy } from './role-tool-policy.js';
 
 
@@ -307,6 +309,8 @@ export class AnalystHandler {
   private analystInvocationSurface(ctx: ToolContext): InvocationSurface {
     return buildInvocationSurface('analyst', [
       this.analystControlProvider(ctx),
+      createCardInspectionProvider({ projectRoot: this.projectRoot, store: this.runtimeDeps.cardStore, agentRole: 'analyst' }),
+      createCardHistoryProvider({ projectRoot: this.projectRoot, store: this.runtimeDeps.cardStore, sessionId: ctx.sessionId, agentRole: 'analyst' }),
       createWorkspaceProvider({ projectRoot: this.projectRoot, agentRole: 'analyst', store: this.runtimeDeps.cardStore }),
       createPatchProvider({ projectRoot: this.projectRoot, agentRole: 'analyst' }),
       createProcessProvider({ projectRoot: this.projectRoot, ownerId: ctx.sessionId ?? 'analyst' }),

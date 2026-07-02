@@ -343,7 +343,7 @@ As of 2026-07-02, the provider migration is mostly implemented but not accepted 
 
 Confirmed remaining gaps before this design is complete:
 
-- The Analyst active surface still does not fully match §3.5: card inspection/history reach the Analyst through the explicit control registry rather than generic providers.
+- The Analyst active surface now matches §3.5 for inspection/history: `CardInspectionProvider` and `CardHistoryProvider` are composed into the Analyst `InvocationSurface`, while the Analyst control registry owns only operator-control tools.
 - Legacy planner-support code still references the retired `report_goal_done`, `report_goal_failed`, and `report_goal_blocked` names outside the provider `InvocationSurface` path (`src/tools/planner-tools.ts`, `src/agents/prompts/system-prompt.ts`, and `planner-state-context` next-action hints). These are not part of the new provider-composed runtime tool surface, but they are still active source and must be removed or migrated during terminal unification before the design is accepted.
 - `webfetch.save_as` now pre-authorizes and writes through the same scoped URL write path used by `write` (`project://`, `record://`, `tmp://`, and role/slot policy), including analyst explicit-card `brief.md` writes.
 - Terminal unification is not started: the code still uses `emit_planner_result`, `emit_executor_result`, and `emit_reviewer_result`, with per-role envelopes and planner `continue`.
