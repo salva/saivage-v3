@@ -210,12 +210,6 @@ export {
   runtimeEventKindSchema,
   agentEventKindSchema,
   eventKindSchema,
-  baseEventSchema,
-  processReconciledDeadEventSchema,
-  processReattachRejectedEventSchema,
-  runtimeDiagnosticEventSchema,
-  runtimeActionableErrorEventSchema,
-  mcpToolInvocationEventSchema,
   loggedEventSchemaByKind,
   loggedEventSchema,
 } from './validators.js';

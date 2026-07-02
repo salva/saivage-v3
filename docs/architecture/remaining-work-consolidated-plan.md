@@ -289,6 +289,8 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
     After the event catalog cleanup, only 5 hand-written per-event schemas remain in `schemas/validators.ts` (`processReconciledDeadEventSchema`, `processReattachRejectedEventSchema`, `runtimeDiagnosticEventSchema`, `runtimeActionableErrorEventSchema`, `mcpToolInvocationEventSchema`) plus their `baseEventSchema`/`passthroughBaseEventSchema` helpers. All 5 are redundant with catalog-derived `loggedEventSchemaByKind`/`payloadSchemaByKind` and have zero production importers. Two are exercised by `tests/schemas.test.ts`; the other three are only re-exported. Delete the hand-written schemas, their `schemas/index.ts` re-exports, and update tests to use catalog-derived validators.
 
+   Status: completed in the per-event schema cleanup slice.
+
 3. **Remove dead `runtime_activation` redaction allowlist.**
 
     After removing the `runtime_activation` event kind, the redaction exception in `src/redaction/index.ts` is dead: `preserveRuntimeActivationIdempotencyKey` (interface field, line 33), the `observability.log` policy setting (line 70), `isRuntimeActivationLedgerIdempotencyKey()` (lines 198-206), and the `shouldRedactKey` branch (line 209) can never match because no emitted event has `kind === 'runtime_activation'`. Delete all four.
@@ -519,7 +521,7 @@ Tasks (backlog groups B and C):
 2. Remove unwired `supervisor` config section and split runtime config cleanup into persisted fields vs transform-only defaults. **Blocked:** deployed configs still contain the key (see B.2 caveat).
 3. Remove dead config catchalls (`rag`, `notifications.filters`). **Blocked:** deployed configs still contain these keys (see B.4 caveat).
 4. Completed: remove unwired event kinds from the catalog (all confirmed old-remnant).
-5. Delete remaining 5 hand-written per-event schemas (C.2). Safe, no deployment dependency.
+5. Completed: delete remaining 5 hand-written per-event schemas (C.2).
 6. Remove dead `runtime_activation` redaction allowlist (C.3). Safe, no deployment dependency.
 7. Remove stale reviewer assessment schemas and code; update reviewer prompt (C.4). Requires relocating live helpers first.
 

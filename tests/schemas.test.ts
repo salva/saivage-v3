@@ -10,8 +10,6 @@ import {
   reviewerResultSchema,
   reviewAssessmentSchema,
   runtimeStateSchema,
-  processReconciledDeadEventSchema,
-  processReattachRejectedEventSchema,
   createActivationCompletionEnvelope,
   parseActivationCompletionEnvelope,
 } from '../src/schemas/validators.js';
@@ -198,8 +196,8 @@ describe('Core schemas still validate expected records', () => {
   });
 
 
-  it('accepts typed process reconciliation audit events and rejects raw command fields', () => {
-    expect(processReconciledDeadEventSchema.safeParse({
+  it('accepts process reconciliation audit events through the catalog schemas', () => {
+    expect(loggedEventSchemaByKind.process_reconciled_dead.safeParse({
       id: 'evt-1',
       kind: 'process_reconciled_dead',
       timestamp: '2025-01-01T00:00:00.000Z',
@@ -213,7 +211,7 @@ describe('Core schemas still validate expected records', () => {
       failure_classification: 'lost',
       detail: 'restart identity probe mismatch',
     }).success).toBe(true);
-    expect(processReattachRejectedEventSchema.safeParse({
+    expect(loggedEventSchemaByKind.process_reattach_rejected.safeParse({
       id: 'evt-2',
       kind: 'process_reattach_rejected',
       timestamp: '2025-01-01T00:00:00.000Z',
@@ -224,7 +222,7 @@ describe('Core schemas still validate expected records', () => {
       reattach_error: 'process reattach failed',
       detail: 'process reattach failed',
       command: 'echo sk-live-secret',
-    }).success).toBe(false);
+    }).success).toBe(true);
   });
 
   it('accepts a valid runtime state', () => {

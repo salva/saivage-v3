@@ -117,13 +117,6 @@ export const skillIndexSchema = z.array(skillIndexEntrySchema);
 export const runtimeEventKindSchema = enumFromCatalog(runtimeEventKindValues);
 export const agentEventKindSchema = enumFromCatalog(agentEventKindValues);
 export const eventKindSchema = enumFromCatalog(eventKindValues);
-export const baseEventSchema = z.object({ id: z.string().min(1), kind: eventKindSchema, timestamp: z.string().datetime(), session_id: z.string().optional(), goal_id: z.string().optional(), card_id: z.string().optional() });
-const passthroughBaseEventSchema = baseEventSchema.passthrough();
-export const processReconciledDeadEventSchema = baseEventSchema.extend({ kind: z.literal('process_reconciled_dead'), process_id: z.string().min(1), card_id: z.string().min(1), goal_id: z.string().min(1).optional(), session_id: z.string().min(1).optional(), pid: z.number().int().nullable().optional(), probe_status: z.enum(['not_running', 'identity_mismatch', 'clock_skew']), terminal_reason: z.literal('lost'), failure_classification: z.literal('lost'), detail: z.string().min(1) }).strict();
-export const processReattachRejectedEventSchema = baseEventSchema.extend({ kind: z.literal('process_reattach_rejected'), process_id: z.string().min(1), card_id: z.string().min(1), goal_id: z.string().min(1).optional(), session_id: z.string().min(1).optional(), pid: z.number().int().nullable().optional(), terminal_reason: z.literal('lost'), failure_classification: z.literal('lost'), reattach_error: z.string().min(1), detail: z.string().min(1) }).strict();
-export const runtimeDiagnosticEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('runtime_diagnostic'), goal_id: z.string().optional(), card_id: z.string().optional(), phase: z.string().optional(), error_message: z.string(), error_name: z.string().optional() });
-export const runtimeActionableErrorEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('runtime_actionable_error'), actionable_error: actionableErrorEnvelopeSchema });
-export const mcpToolInvocationEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('mcp_tool_invocation'), session_id: z.string(), role: agentRoleSchema, server_name: z.string(), tool_name: z.string(), success: z.boolean(), error_message: z.string().optional() });
 
 export const loggedEventSchemaByKind = Object.fromEntries(
   eventKindValues.map((kind) => [kind, buildLoggedEventSchema(kind)]),
