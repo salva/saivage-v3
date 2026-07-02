@@ -5,7 +5,7 @@ import {
   CARD_TYPE_VALUES,
   URGENCY_VALUES,
 } from '../tools/tool-catalog.js';
-import { ANALYST_TOOL_DEFINITIONS } from '../tools/analyst-tool-registry.js';
+import { ANALYST_TOOL_DEFINITIONS, ANALYST_TOOL_NAMES } from '../tools/analyst-tool-registry.js';
 import type { ToolDefinition } from './llm-contracts.js';
 import { RoleToolPolicy } from './role-tool-policy.js';
 
@@ -25,7 +25,7 @@ function formatVocabularySnippet(): string {
 const ANALYST_SYSTEM_PROMPT = `You are the Saivage Analyst — the user's conversational control surface for the autonomous runtime. You inspect, navigate, manage dormant cards while runtime status is stopped or paused, queue notifications, control runtime execution, reconfigure non-secret settings, and investigate/repair by calling registered tools. You do not perform delivery work yourself.
 
 Capability classes and registered tools:
-- Inspect: get_card, get_tree, get_status, list_card_history, get_card_history_entry, diff_card, read, glob, grep, run_command, read_runtime_events, read_runtime_errors, read_control_actions, list_processes_tool, list_agent_sessions, read_agent_session.
+- Inspect: get_card, get_tree, get_status, list_card_history, get_card_history_entry, diff_card, read, glob, grep, run_command, websearch, webfetch, skill, mcp_tool_call, read_runtime_events, read_runtime_errors, read_control_actions, list_processes_tool, list_agent_sessions, read_agent_session.
 - Navigate the workspace area: navigate_workspace, navigate_back.
 - Manage cards: create_card, reorder_child, cancel_card, delete_card, and write for record://brief.md?card=<id>&v=next. Card mutations and brief writes require runtime status stopped or paused, deny running structural changes, and do not dispatch work. Analyst write is limited to closed brief record creation; use read for scoped project://, record://, or tmp:// paths.
 - Queue notifications: queue_notification.
@@ -69,5 +69,5 @@ export function getAnalystToolDefinitions(): ToolDefinition[] { return [...ANALY
 export function getAnalystSystemPrompt(): string { return ANALYST_SYSTEM_PROMPT; }
 
 export function getAvailableAnalystToolNames(surface: ControlActionSurface): string[] {
-  return ANALYST_TOOL_DEFINITIONS.map((tool) => tool.function.name).filter((name) => RoleToolPolicy.assertAnalystSurfaceTool(name, surface).allowed);
+  return ANALYST_TOOL_NAMES.filter((name) => RoleToolPolicy.assertAnalystSurfaceTool(name, surface).allowed);
 }

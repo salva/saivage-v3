@@ -112,8 +112,7 @@ export class RoleToolPolicy {
   private static decideExternalMcp(input: RoleToolPolicyInput): RoleToolPolicyDecision {
     if (!MCP_WRAPPER_TOOL_NAMES.has(input.toolName) && input.toolName !== '') return denied(input, 'unknown_tool');
     if (!roleToolNames(input.role).includes('mcp_tool_call')) return denied(input, 'role_not_allowed');
-    if (input.role === 'analyst') return denied(input, 'role_not_allowed');
-    if (input.role === 'executor') return allowed(input);
+    if (input.role === 'executor' || input.role === 'analyst') return allowed(input);
     if (!input.hasMcpDefinition || !input.mcpAnnotations) return denied(input, 'mcp_missing_metadata');
     if (input.mcpAnnotations.destructiveHint === true) return denied(input, 'mcp_destructive_denied');
     if (input.mcpAnnotations.readOnlyHint !== true) return denied(input, 'mcp_not_read_only');

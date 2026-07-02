@@ -5,7 +5,7 @@ import { defineTool, type ToolProvider } from './invocation.js';
 
 export interface McpProviderContext {
   readonly mcpManagerProvider: () => McpToolInvocationPort | undefined;
-  readonly agentRole: 'executor' | 'reviewer';
+  readonly agentRole: 'executor' | 'reviewer' | 'analyst';
 }
 
 const mcpToolCallSchema = z.object({

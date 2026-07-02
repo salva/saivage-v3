@@ -107,6 +107,15 @@ describe('Tool inventory mirrors SPEC-r7 capability classes', () => {
     for (const capability of ['Inspect','Navigate the workspace area','Manage cards','Queue notifications','Control the runtime','Reconfigure','Investigate and repair']) expect(prompt).toContain(capability);
     expect(prompt).toContain('record://brief.md');
   });
+
+  it('exposes Analyst shared provider tools through the active invocation surface', () => {
+    const root = setupRoot();
+    try {
+      const handler = new AnalystHandler(root, createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) }));
+
+      expect(handler.getAvailableToolNames()).toEqual(expect.arrayContaining(['skill', 'mcp_tool_call', 'websearch', 'webfetch', 'run_command']));
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
 });
 
 describe('Analyst project bootstrap', () => {

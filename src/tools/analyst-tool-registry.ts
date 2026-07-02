@@ -36,6 +36,22 @@ const analystToolOrder = [
   'delete_card',
 ] as const;
 
+export const ANALYST_SHARED_PROVIDER_TOOL_NAMES = [
+  'read',
+  'write',
+  'edit',
+  'apply_patch',
+  'glob',
+  'grep',
+  'run_command',
+  'wait_process',
+  'kill_process',
+  'websearch',
+  'webfetch',
+  'skill',
+  'mcp_tool_call',
+] as const;
+
 const analystDefinitions = [
   ...analystCardTools,
   ...analystRuntimeTools,
@@ -53,7 +69,7 @@ export const ANALYST_CONTROL_TOOLS: readonly UnifiedToolDefinition[] = analystTo
 });
 
 export const ANALYST_CONTROL_TOOL_NAMES: ReadonlySet<string> = new Set(ANALYST_CONTROL_TOOLS.map((tool) => tool.name));
-export const ANALYST_TOOL_NAMES: readonly string[] = ANALYST_CONTROL_TOOLS.map((tool) => tool.name);
+export const ANALYST_TOOL_NAMES: readonly string[] = [...ANALYST_CONTROL_TOOLS.map((tool) => tool.name), ...ANALYST_SHARED_PROVIDER_TOOL_NAMES];
 
 export function llmAnalystToolDefinition(tool: UnifiedToolDefinition): LlmToolDefinition {
   return {

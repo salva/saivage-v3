@@ -6,7 +6,7 @@ import { defineTool, type ToolProvider } from './invocation.js';
 
 export interface SkillProviderContext {
   readonly projectRoot: string;
-  readonly agentRole: 'executor' | 'reviewer';
+  readonly agentRole: 'executor' | 'reviewer' | 'analyst';
   readonly skillsEngine?: SkillsEngine;
 }
 

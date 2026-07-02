@@ -29,6 +29,8 @@ import { buildInvocationSurface, defineTool, invokeToolCall, surfaceToolDefiniti
 import { createProcessProvider } from '../tools/process-provider.js';
 import { createWebProvider } from '../tools/web-tools.js';
 import { createPatchProvider, createWorkspaceProvider } from '../tools/workspace-provider.js';
+import { createSkillProvider } from '../tools/skill-provider.js';
+import { createMcpProvider } from '../tools/mcp-provider.js';
 import { RoleToolPolicy } from './role-tool-policy.js';
 
 
@@ -309,6 +311,8 @@ export class AnalystHandler {
       createPatchProvider({ projectRoot: this.projectRoot, agentRole: 'analyst' }),
       createProcessProvider({ projectRoot: this.projectRoot, ownerId: ctx.sessionId ?? 'analyst' }),
       createWebProvider({ projectRoot: this.projectRoot, agentRole: 'analyst' }),
+      createSkillProvider({ projectRoot: this.projectRoot, agentRole: 'analyst' }),
+      createMcpProvider({ mcpManagerProvider: () => this.runtimeDeps.mcpManager, agentRole: 'analyst' }),
     ]);
   }
 

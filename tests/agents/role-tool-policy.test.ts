@@ -36,7 +36,8 @@ describe('RoleToolPolicy', () => {
     ]);
     expect(RoleToolPolicy.listToolNamesForRole('executor')).toContain('mcp_tool_call');
     expect(RoleToolPolicy.listToolNamesForRole('reviewer')).toContain('mcp_tool_call');
-    expect(RoleToolPolicy.listToolNamesForRole('analyst')).not.toContain('mcp_tool_call');
+    expect(RoleToolPolicy.listToolNamesForRole('analyst')).toContain('mcp_tool_call');
+    expect(RoleToolPolicy.listToolNamesForRole('analyst')).toContain('skill');
     expect(RoleToolPolicy.listToolNamesForRole('analyst')).not.toContain('move_card');
     expect(RoleToolPolicy.listToolNamesForRole('planner')).not.toContain('move_card');
   });
@@ -53,10 +54,9 @@ describe('RoleToolPolicy', () => {
     expect(unknownSurface.reasonCode).toBe('surface_not_listed');
   });
 
-  it('fails external MCP closed for analysts and missing or unsafe metadata', () => {
+  it('allows analyst external MCP and fails reviewer missing or unsafe metadata', () => {
     const analyst = RoleToolPolicy.decide({ role: 'analyst', action: 'invoke', surface: 'external-mcp', toolName: 'mcp_tool_call', serverName: 'svc', hasMcpDefinition: true, mcpAnnotations: { readOnlyHint: true, destructiveHint: false } });
-    expect(analyst.allowed).toBe(false);
-    expect(analyst.reasonCode).toBe('role_not_allowed');
+    expect(analyst.allowed).toBe(true);
 
     const missingMetadata = RoleToolPolicy.decide({ role: 'reviewer', action: 'invoke', surface: 'external-mcp', toolName: 'mcp_tool_call', serverName: 'svc', hasMcpDefinition: false });
     expect(missingMetadata.allowed).toBe(false);
@@ -96,6 +96,8 @@ describe('RoleToolPolicy', () => {
 
   it('keeps analyst policy exactly aligned with analyst tool definitions and rejects removed shell alias', () => {
     expect(RoleToolPolicy.listToolNamesForRole('analyst').sort()).toEqual([...ANALYST_TOOL_NAMES].sort());
+    expect(RoleToolPolicy.assertAnalystSurfaceTool('skill', 'web-chat').allowed).toBe(true);
+    expect(RoleToolPolicy.assertAnalystSurfaceTool('mcp_tool_call', 'web-chat').allowed).toBe(true);
     const telegramShell = RoleToolPolicy.assertAnalystSurfaceTool('run_shell_command', 'telegram');
     expect(telegramShell.allowed).toBe(false);
     expect(telegramShell.reasonCode).toBe('unknown_tool');

@@ -428,13 +428,13 @@ Done:
 - Planner: workspace, card-control, card-inspection, card-history, web.
 - Executor: workspace, patch, process, card-history, web, MCP, skill.
 - Reviewer: workspace, card-history, web, MCP, skill.
-- Analyst: control-provider, workspace, patch, process, web. The Analyst prompt/tool list uses the explicit Analyst registry and the handler sends model tool advertisements from the active `InvocationSurface`.
+- Analyst: control-provider, workspace, patch, process, web, skill, MCP. The Analyst prompt/tool list uses the explicit Analyst registry plus provider-era shared tool names, and the handler sends model tool advertisements from the active `InvocationSurface`.
 - `websearch`/`webfetch` present on planner, executor, reviewer.
 - `websearch`/`webfetch` present on Analyst through `WebProvider`.
 
 Not yet done:
 
-1. **Complete Analyst surface composition.** The Analyst currently receives card inspection/history through the explicit Analyst control registry rather than the generic `CardInspectionProvider`/`CardHistoryProvider`, and it does not compose `SkillProvider` or `McpProvider`. Per §6, decide and implement the final Analyst surface: either compose the generic providers (`CardInspectionProvider`, `CardHistoryProvider`, `SkillProvider`, `McpProvider`) or explicitly amend this design to narrow Analyst capabilities. Current source also denies Analyst external MCP in `RoleToolPolicy`; that policy must be reconciled with the role-surface table before implementation.
+1. **Complete Analyst surface composition.** The Analyst currently receives card inspection/history through the explicit Analyst control registry rather than the generic `CardInspectionProvider`/`CardHistoryProvider`. Decide whether to compose those generic providers for the Analyst or explicitly keep inspection/history as Analyst control tools.
 
 2. **Align non-runtime Analyst docs/helpers with the active `InvocationSurface`.** Runtime Analyst model advertisements already come from `surfaceToolDefinitions(surface)`, and `analyst-prompt.ts` uses the explicit Analyst registry rather than the global catalog. Remaining helper exports and tests should stop relying on any catalog-derived Analyst definitions when the global catalog is deleted.
 

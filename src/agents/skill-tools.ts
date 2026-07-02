@@ -40,11 +40,12 @@ export class LoadSkillError extends Error {
 
 /**
   * Agent roles that are permitted to call skill.
-  * This wave exposes skill only to executor and reviewer agents.
+  * This wave exposes skill to executor, reviewer, and analyst agents.
  */
 export const PERMITTED_ROLES: readonly string[] = [
   'executor',
   'reviewer',
+  'analyst',
 ] as const;
 
 // ── Tool Definitions ─────────────────────────────────────────
