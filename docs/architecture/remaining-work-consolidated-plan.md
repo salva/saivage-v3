@@ -375,6 +375,8 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
     After the event catalog cleanup removed `llm_attempt`/`llm_invocation_summary` events, the `eventTerminalTool()` helper (`web/src/views/DebugView.vue`), the template chip, the CSS rule (`.tl-event-terminal-tool`), and the `'terminal_tool'` filter key in `timelineDetails` are all dead — no emitted event carries `outcome.terminal_tool`, `final_terminal_tool`, or legacy `terminal_tool`. The test that covered this path (`event-log-terminal-tool.test.ts`) was already deleted. Note: `RawLlmExchangePanel`'s `terminal_tool` badge is a separate live feature reading raw LLM exchange files, not timeline events.
 
+    Status: completed in the DebugView timeline cleanup slice.
+
 ### F. Actor And Card Simplification
 
 1. **Shrink `evaluateReviewerTerminalOutcome` inputs.**

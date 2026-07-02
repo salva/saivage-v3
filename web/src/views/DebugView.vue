@@ -155,11 +155,6 @@
           <div v-else class="timeline-list">
             <div v-for="event in filteredTimeline" :key="timelineKey(event)" class="tl-event">
               <span class="tl-event-type">{{ formatEventKind(event.kind) }}</span>
-              <span
-                v-if="eventTerminalTool(event)"
-                class="tl-event-terminal-tool"
-                title="terminal tool emitted on this attempt"
-              >{{ eventTerminalTool(event) }}</span>
               <span v-if="event.card_id" class="tl-event-card mono">Card: {{ event.card_id }}</span>
               <span v-if="event.goal_id" class="tl-event-card mono">Goal: {{ event.goal_id }}</span>
               <span v-if="event.session_id" class="tl-event-card mono">Session: {{ event.session_id }}</span>
@@ -580,15 +575,7 @@ function formatAgentDebugContent(content: string, path: string | null): string {
 function fmtDate(ts: string): string { return formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute'); }
 function formatEventKind(kind: string): string { return kind.replace(/_/g, ' '); }
 function timelineKey(event: DebugTimelineEvent): string { return String(event.id || `${event.timestamp}:${event.kind}:${event.card_id || event.goal_id || event.session_id || ''}`); }
-function eventTerminalTool(event: DebugTimelineEvent): string | null {
-  const outcome = (event as { outcome?: { kind?: string; terminal_tool?: unknown } }).outcome;
-  if (outcome && outcome.kind === 'succeeded' && typeof outcome.terminal_tool === 'string') return outcome.terminal_tool;
-  const direct = (event as { final_terminal_tool?: unknown }).final_terminal_tool;
-  if (typeof direct === 'string') return direct;
-  const legacy = (event as { terminal_tool?: unknown }).terminal_tool;
-  return typeof legacy === 'string' ? legacy : null;
-}
-function timelineDetails(event: DebugTimelineEvent): Record<string, unknown> { const details: Record<string, unknown> = {}; for (const [key, value] of Object.entries(event)) { if (['id', 'kind', 'timestamp', 'card_id', 'goal_id', 'session_id', 'terminal_tool'].includes(key)) continue; if (value === undefined || value === null) continue; details[key] = value; } return redactObservabilityValue(details); }
+function timelineDetails(event: DebugTimelineEvent): Record<string, unknown> { const details: Record<string, unknown> = {}; for (const [key, value] of Object.entries(event)) { if (['id', 'kind', 'timestamp', 'card_id', 'goal_id', 'session_id'].includes(key)) continue; if (value === undefined || value === null) continue; details[key] = value; } return redactObservabilityValue(details); }
 
 let unregisterTimeline: (() => void) | null = null;
 let unregisterProcesses: (() => void) | null = null;
@@ -699,7 +686,6 @@ onUnmounted(() => {
 .tl-event-type { font-family:'SF Mono',monospace; font-size:11px; color:var(--accent-2); font-weight:500; }
 .tl-event-card { font-size:10px; color:var(--text-muted); }
 .tl-event-time { font-size:10px; color:var(--border-strong); margin-left:auto; }
-.tl-event-terminal-tool { padding:1px 6px; background:var(--surface-3); border:1px solid var(--border); border-radius:8px; color:var(--accent-2); font-family:'SF Mono',monospace; font-size:10px; }
 .agent-debug-layout { display:grid; grid-template-columns:minmax(220px,280px) 1fr; gap:16px; align-items:start; }
 .agent-debug-sidebar { display:flex; flex-direction:column; gap:6px; max-height:70vh; overflow:auto; }
 .agent-debug-session { display:flex; flex-direction:column; align-items:flex-start; gap:4px; padding:9px 10px; background:var(--surface-1); border:1px solid var(--surface-3); border-radius:6px; color:var(--text); cursor:pointer; font-family:inherit; text-align:left; }
