@@ -194,7 +194,7 @@ The `changed` state does not by itself dispatch work. For activation and cancell
 
 ## 10. Planner Completion Gates
 
-A planner can report a goal `done`, `failed`, or `blocked`. Planner, executor, and reviewer terminal reports are accepted only through their role-specific terminal tools. Plain prose, ad-hoc JSON, or unsupported tool calls must not be treated as accepted card outcomes.
+A planner can report a goal `done`, `failed`, or `blocked`. Planner, executor, and reviewer terminal reports are accepted only through the unified `emit_result` terminal tool, with each role's contract validating the statuses that role may emit. Plain prose, ad-hoc JSON, or unsupported tool calls must not be treated as accepted card outcomes.
 
 Before accepting `done`, the runtime must verify:
 
@@ -318,7 +318,7 @@ Recovery diagnostics are persisted under runtime state and projected through `ac
 
 Known interrupted running card work may be converted into an explicit blocked card outcome when the owning card and valid transition are known. Running or killing process snapshots are abandoned with diagnostics by default; live process reattachment is not required unless a later design explicitly adds it.
 
-If startup finds a persisted LLM waiting on a terminal tool call and the logged tool-call message contains a complete validated terminal decision, the runtime may project that terminal decision directly into the owning card outcome. This is limited to safe terminal projections, such as executor terminal outcomes, planner blocked/continue outcomes, and planner `done` outcomes only when paired with a matching persisted reviewer terminal result. Planner `done` must not be projected as completed merely because the planner emitted a done terminal tool.
+If startup finds a persisted LLM waiting on a terminal tool call and the logged tool-call message contains a complete validated terminal decision, the runtime may project that terminal decision directly into the owning card outcome. This is limited to safe terminal projections, such as executor terminal outcomes, planner `blocked`/`failed` outcomes, and planner `done` outcomes only when paired with a matching persisted reviewer terminal result. Planner `done` must not be projected as completed merely because the planner emitted a done terminal tool.
 
 Actor snapshots may include `active_reconstruction` records for active card, processor, and LLM work. Those records exist so future active recovery can be implemented from durable facts rather than in-memory queues or raw actor internals. They do not by themselves mean active provider calls or process waits are automatically resumed.
 

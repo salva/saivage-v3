@@ -65,12 +65,12 @@ describe('DebugView timeline terminal_tool chip', () => {
         kind: 'llm_attempt',
         timestamp: '2026-05-23T10:00:00Z',
         session_id: 'sess-1',
-        outcome: { kind: 'succeeded', terminal_tool: 'emit_planner_result' },
+        outcome: { kind: 'succeeded', terminal_tool: 'emit_result' },
       } as unknown as DebugTimelineEvent,
     ]);
     const chips = wrapper.findAll('.tl-event-terminal-tool');
     expect(chips).toHaveLength(1);
-    expect(chips[0].text()).toBe('emit_planner_result');
+    expect(chips[0].text()).toBe('emit_result');
   });
 
   it('omits the chip on events without terminal_tool', async () => {

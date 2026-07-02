@@ -52,14 +52,12 @@ async function mountWithExchange(exchange: LlmExchange) {
 describe('RawLlmExchangePanel terminal_tool badge', () => {
   beforeEach(() => { setActivePinia(createPinia()); });
 
-  for (const name of ['emit_planner_result', 'emit_executor_result', 'emit_reviewer_result'] as const) {
-    it(`renders the terminal_tool badge with ${name}`, async () => {
-      const wrapper = await mountWithExchange(makeExchange(makeAttempt({ terminalToolFired: name, terminalToolOffered: [name] })));
-      const badge = wrapper.find('.rlp-terminal-tool-badge');
-      expect(badge.exists()).toBe(true);
-      expect(badge.text()).toBe(name);
-    });
-  }
+  it('renders the terminal_tool badge with emit_result', async () => {
+    const wrapper = await mountWithExchange(makeExchange(makeAttempt({ terminalToolFired: 'emit_result', terminalToolOffered: ['emit_result'] })));
+    const badge = wrapper.find('.rlp-terminal-tool-badge');
+    expect(badge.exists()).toBe(true);
+    expect(badge.text()).toBe('emit_result');
+  });
 
   it('omits the badge when terminalToolFired is null', async () => {
     const wrapper = await mountWithExchange(makeExchange(makeAttempt({ terminalToolFired: null, terminalToolOffered: [] })));

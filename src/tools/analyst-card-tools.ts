@@ -7,7 +7,6 @@ import { deriveCurrentCardId } from '../runtime/current-run.js';
 import { readRuntimeState } from '../runtime/state-api.js';
 import { processApi } from '../runtime/process-api.js';
 import { decide } from '../permissions/index.js';
-import { markGoalNeedsCorrections, normalizeAnalystIssues } from '../agents/analyst-stage6.js';
 import { propagateChange } from '../runtime/changed-propagation.js';
 import { queueNotification } from '../notifications/index.js';
 import { orderedCardsForTree, toCardView, computeCardDisplayPath } from '../application/read-models/card-view.js';
@@ -17,7 +16,6 @@ import {
   CARD_TYPE_VALUES,
   CREATE_CARD_TYPE_VALUES,
   URGENCY_VALUES,
-  analystIssueSeveritySchema,
   cardIdArraySchema,
   cardStatusSchema,
   cardTypeSchema,
@@ -32,12 +30,6 @@ import {
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
 import { buildDeletePreview, cardSummary, defaultParentForCreate, getStore, humanizeToolError, normalizeParentValue, preflightEnum, saivageDir, toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
 import { readRecordSlotIndex, recordPath, recordSlotDefinitions } from '../runtime/records/record-slots.js';
-
-const markGoalNeedsCorrectionsInput = z.object({
-  goalId: describe(z.string(), 'Goal/project card ID.'),
-  issues: describe(z.array(z.object({ summary: describe(z.string(), 'Issue summary.'), severity: analystIssueSeveritySchema.optional(), evidence_path: describe(z.string(), 'Optional evidence path.').optional() }).strict()), 'Canonical AnalystIssue entries.'),
-  note: describe(z.string(), 'Optional note.').optional(),
-}).strict();
 
 const createCardInput = z.object({
   type: enumSchema('The non-project card type.', CARD_TYPE_VALUES),
@@ -77,13 +69,6 @@ const plannerCreateCardInput = z.object({
   related: describe(cardIdArraySchema.optional(), 'Optional related-card list.'),
 }).strict();
 const plannerEditCardInput = editCardInput.extend({ related: describe(stringArraySchema.optional(), 'New related-card list.') }).strict();
-
-export async function mark_goal_needs_corrections(ctx: ToolContext, params: { goalId: string; issues: unknown[]; note?: string }): Promise<ToolResult> {
-  return runAuditedAnalystTool(ctx, params, { action: 'goal.needs_corrections', safety_class: 'destructive', target_kind: 'card', getTargetId: (p) => p.goalId, run: async () => {
-    try { const issues = normalizeAnalystIssues(params.issues); return { success: true, data: markGoalNeedsCorrections(ctx.projectRoot, ctx.store, params.goalId, issues, params.note) }; }
-    catch (err) { return toolFailureFromError(err); }
-  } });
-}
 
 export async function create_card(ctx: ToolContext, params: { type: CardType; parent: string | null; title: string; brief: string; status?: CardStatus; tags?: string[]; priority?: number; urgency?: 'low' | 'normal' | 'high' | 'critical'; depends_on?: string[]; related?: string[] }): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, params, { action: 'card.create', safety_class: 'low', target_kind: 'card', getTargetId: () => null, run: async () => {
@@ -317,11 +302,10 @@ export async function reorder_child(ctx: ToolContext, params: { parentId: string
 }
 
 export const analystCardTools: readonly UnifiedToolDefinition<string, any>[] = [
-  { name: 'mark_goal_needs_corrections', description: 'Mark a goal/project subtree as needing corrections using canonical AnalystIssue entries.', input: markGoalNeedsCorrectionsInput, roles: [], executor: mark_goal_needs_corrections },
   { name: 'create_card', description: `Create a card without dispatching work. Analyst use requires runtime status stopped or paused and an existing non-running parent. Analyst-created child cards must start as backlog.`, input: createCardInput, roles: ['analyst', 'planner'], executor: create_card, plannerControl: true, plannerInput: plannerCreateCardInput, plannerDescription: 'Create a direct child card under the current planner card. The parent is inferred from the planner session and cannot be supplied.' },
   { name: 'edit_card', description: `Planner/internal transitional broad card edit. Not exposed to the Analyst LLM surface; Analyst card brief writes should use record-backed file tools once available.`, input: analystEditCardInput, roles: ['planner'], executor: edit_card, plannerControl: true, plannerInput: plannerEditCardInput, plannerDescription: 'Edit one immediate child of the current planner card. The target must be a direct child; parent/depth changes are not accepted.' },
   { name: 'reorder_child', description: 'Reorder children of a non-running parent while runtime status is stopped or paused. Denies running parents and running children; orderedChildIds must be a permutation of the current child set.', input: z.object({ parentId: describe(z.string(), 'Parent whose children to reorder.'), orderedChildIds: describe(z.array(z.string()), 'New child id order; must be a permutation of the current child set.') }).strict(), roles: ['analyst', 'planner'], executor: reorder_child, plannerControl: true, plannerInput: z.object({ orderedChildIds: z.array(z.string()) }).strict(), plannerDescription: 'Reorder the immediate children of the current planner card. orderedChildIds must be a permutation of that child set.' },
   { name: 'get_status', description: 'Get the overall project status.', input: emptyInput, roles: ['analyst'], executor: get_status },
   { name: 'cancel_card', description: 'Cancel dormant work while runtime status is stopped or paused. Analyst cancellation allows backlog, changed, blocked, and needs_verification cards; denies running, done, failed, cancelled, and the root project card.', input: z.object({ cardId: describe(z.string(), 'The ID of the card to cancel.'), reason: describe(z.string().optional(), 'Optional cancellation reason.') }).strict(), roles: ['analyst', 'planner'], executor: cancel_card, plannerControl: true, plannerInput: z.object({ cardId: describe(z.string(), 'The ID of the card to cancel.') }).strict(), plannerDescription: 'Destructively cancel a planner-managed immediate child only when it is obsolete, duplicate, mis-scoped, or explicitly rejected; not a scheduling/defer primitive and not for avoiding actionable backlog work.' },
-  { name: 'delete_card', description: 'Delete one or more non-running card subtrees while runtime status is stopped or paused using archive-backed removal. Denies the root project card and any running subtree member.', input: z.object({ ids: describe(z.array(z.string()).min(1), 'Card ids to delete.') }).strict(), roles: ['analyst', 'planner'], executor: delete_card, plannerControl: true, plannerInput: z.object({ cardId: z.string() }).strict(), plannerDescription: 'Delete a backlog or terminal card and cascade through descendants.' },
+  { name: 'delete_card', description: 'Delete one or more non-running card subtrees while runtime status is stopped or paused using archive-backed removal. Denies the root project card and any running subtree member.', input: z.object({ ids: describe(z.array(z.string()).min(1), 'Card ids to delete.') }).strict(), roles: ['analyst'], executor: delete_card },
 ] as const;

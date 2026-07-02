@@ -42,7 +42,7 @@ Completed post-review fixes:
 - Reviewer approval is invalidated when main-agent notifications remain pending after the reviewer turn; reviewer turns do not drain main-agent notification queues.
 - Startup converts known interrupted running card work into explicit blocked card outcomes when the owner card and transition are valid.
 - Safe parked-state recovery hooks avoid normal-entry side effects where needed.
-- Terminal tool-call recovery projects safe executor terminal outcomes, planner blocked/continue outcomes, and planner `done` outcomes paired with matching persisted reviewer terminal results.
+- Terminal tool-call recovery projects safe executor terminal outcomes, planner `blocked`/`failed` outcomes, and planner `done` outcomes paired with matching persisted reviewer terminal results.
 - Completed child activation waits are handled by the generic interrupted-work conversion path rather than a dedicated special case; stale pending tool calls are abandoned after converted snapshots are cleaned.
 - Startup recovery now uses a single initial recovery plan, projects safe terminal outcomes first, blocks remaining active card work including `block_tool_wait` actors, cleans handled snapshots once, and then abandons stale pending tool calls.
 - Recovery diagnostics are rebuilt after handled snapshot cleanup, so `.saivage/runtime/recovery-diagnostics.json` and `actorRuntime.recovery` report only currently outstanding recovery work.
@@ -362,7 +362,7 @@ Completed:
 - `CardActor` recovery to `done` does not run normal `done` entry side effects that reopen cards with pending notifications.
 - Card, processor, and LLM snapshots persist explicit `active_reconstruction` records for active card activation, processor activation, provider calls, and LLM tool waits.
 - Recovery planning exposes active reconstruction records and derives card/LLM/processor active status from those records rather than public-status or state-name heuristics.
-- Startup projects persisted terminal tool calls for safe executor terminal outcomes, planner blocked/continue outcomes, and planner `done` outcomes paired with a matching persisted reviewer terminal result before broad interrupted-work conversion.
+- Startup projects persisted terminal tool calls for safe executor terminal outcomes, planner `blocked`/`failed` outcomes, and planner `done` outcomes paired with a matching persisted reviewer terminal result before broad interrupted-work conversion.
 - Projected terminal tool calls are marked `terminal_projected`, so stale pending tool-call cleanup does not abandon already-recovered terminal decisions.
 - Startup refuses planner `done` projection unless reviewer reconstruction identity, reviewer terminal output, and descendant readiness are all available from durable records.
 - Startup handles completed child `activate_card` waits through generic interrupted-work conversion instead of a dedicated child-activation recovery function.

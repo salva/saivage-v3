@@ -29,7 +29,6 @@ import {
   pause_runtime,
   resume_runtime,
   reorder_child,
-  abort_goal_subtree,
 } from '../src/agents/tool-api.js';
 import type { ToolContext } from '../src/tools/analyst-tool-types.js';
 
@@ -220,14 +219,6 @@ describe('Analyst Tools', () => {
 
     expect(result.status_transition).toEqual({ from: 'done', to: 'changed' });
     expect(store.read('card-1')?.status).toBe('changed');
-  });
-
-  it('denies analyst subtree abort through explicit card.cancel permission checks', async () => {
-    const result = await abort_goal_subtree(ctx(projectRoot, store), { goalId: 'card-1' });
-
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('cannot be cancelled by analyst');
-    expect(store.read('card-1')?.status).toBe('running');
   });
 
   it('includes display paths in analyst card projections', async () => {
