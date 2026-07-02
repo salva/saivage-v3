@@ -265,6 +265,8 @@ describe('PlanningCardProcessorActor', () => {
       tools: expect.arrayContaining([
         expect.objectContaining({ function: expect.objectContaining({ name: 'create_card' }) }),
         expect.objectContaining({ function: expect.objectContaining({ name: 'activate_card' }) }),
+        expect.objectContaining({ function: expect.objectContaining({ name: 'reorder_child' }) }),
+        expect.objectContaining({ function: expect.objectContaining({ name: 'queue_notification' }) }),
         expect.objectContaining({ function: expect.objectContaining({ name: 'list_cards' }) }),
         expect.objectContaining({ function: expect.objectContaining({ name: 'get_card' }) }),
         expect.objectContaining({ function: expect.objectContaining({ name: 'get_tree' }) }),

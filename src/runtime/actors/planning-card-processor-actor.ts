@@ -157,7 +157,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
 
   private plannerInvocationSurface(parentCardId: string) {
     return buildInvocationSurface('planner', [
-      createPlannerControlProvider({ parentCardId, sessionId: plannerActorId(parentCardId), store: this.store, children: this.children }),
+      createPlannerControlProvider({ projectRoot: this.projectRoot, parentCardId, sessionId: plannerActorId(parentCardId), store: this.store, children: this.children }),
       createCardInspectionProvider({ projectRoot: this.projectRoot, store: this.store, agentRole: 'planner' }),
       createWorkspaceProvider({ projectRoot: this.projectRoot, cardId: parentCardId, agentRole: 'planner' }),
       createCardHistoryProvider({ projectRoot: this.projectRoot, sessionId: plannerActorId(parentCardId), agentRole: 'planner' }),
@@ -370,7 +370,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private plannerPrompt(card: CardRecord): string {
-    return `Plan and coordinate card ${card.id}: ${card.title}\n\n${cardBriefForPrompt(this.projectRoot, card)}\n\nUse create_card for new immediate children of this card. create_card creates a backlog child but does not run it. Use edit_card to correct or refine non-running immediate children. Use cancel_card for obsolete immediate children. Use activate_card for immediate children only when work should execute. If this goal is incomplete and no existing child can make progress, create or edit the next useful immediate child card instead of reporting blocked.\n\nWrite your current invocation status to:\nrecord://status.md?v=next\n\nDo not call emit_planner_result until the status file exists. End by calling emit_planner_result with status done, blocked, or continue; plain text or JSON messages are not accepted as terminal reports.`;
+    return `Plan and coordinate card ${card.id}: ${card.title}\n\n${cardBriefForPrompt(this.projectRoot, card)}\n\nUse create_card for new immediate children of this card. create_card creates a backlog child but does not run it. Use edit_card to correct or refine non-running immediate children. Use reorder_child to reorder immediate children. Use queue_notification to leave targeted context for another agent session. Use cancel_card for obsolete immediate children. Use activate_card for immediate children only when work should execute. If this goal is incomplete and no existing child can make progress, create or edit the next useful immediate child card instead of reporting blocked.\n\nWrite your current invocation status to:\nrecord://status.md?v=next\n\nDo not call emit_planner_result until the status file exists. End by calling emit_planner_result with status done, blocked, or continue; plain text or JSON messages are not accepted as terminal reports.`;
   }
 
   private reviewerPrompt(card: CardRecord, assessmentId: string): string {
