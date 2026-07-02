@@ -27,5 +27,3 @@ export {
   type EventHandler,
   type SubscriptionOptions,
 } from './bus.js';
-
-export { emitLoggedEvent, type TypedEventEmitter } from './logged-event.js';

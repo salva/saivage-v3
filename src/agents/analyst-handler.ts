@@ -9,7 +9,7 @@ import {
 import { CardStore } from '../cards/store-api.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
 import type { EventBus, EventPayload } from '../events/index.js';
-import { buildRuntimeDiagnosticEvent } from '../runtime/runtime-event-publisher.js';
+import { buildRuntimeDiagnosticEvent } from '../runtime/runtime-diagnostic-event.js';
 import type { CandidateAvailability } from './candidate-availability.js';
 import type { EventLogger } from '../observability/index.js';
 import type { McpManager } from '../mcp/manager-api.js';

@@ -196,32 +196,48 @@ Whole modules from the pre-micro-actor runtime that were replaced by working equ
 
    `src/runtime/actors/process-actor.ts` is never instantiated in production; process execution goes through `process-runner.ts` + `ProcessProvider`. Cascading dead surface: `processActorId`/`parseProcessActorId` in `ids.ts`, the `'process'` actor kind in `actor-vocabulary.ts`, the `process/` snapshot scan in `snapshots.ts`, and the `processes` recovery branch in `actor-recovery.ts`. Spec §17 confirms live process reattachment is intentionally not required.
 
+   Status: remaining Stage 1 slice.
+
 2. **Delete dead `runtime/context-builder.ts` and `runtime/goal-context.ts`.**
 
    Both files are vestigial pre-micro-actor prompt assembly. The live planner prompt path uses `buildPlannerStateContextMessage` in `agents/planner-state-context.ts`. `goal-context.ts` also duplicates a type union already present in `context-builder.ts`.
+
+   Status: completed in the Stage 1 cleanup slice after the notification fix.
 
 3. **Delete dead `runtime/transition-policy.ts`.**
 
    The legacy state-machine dispatch policy was superseded by the micro-actor `CardActor` state machine and `cards/lifecycle.ts` validation. No production caller imports it.
 
+   Status: completed in the Stage 1 cleanup slice after the notification fix.
+
 4. **Delete dead `RuntimeEventPublisher` class — but relocate `buildRuntimeDiagnosticEvent` first.**
 
    `RuntimeEventPublisher` is never instantiated in production. It was superseded by direct `appendEvent` calls. Its test even asserts that `emitAgentEvent` is a forbidden API. **Important:** the same file exports `buildRuntimeDiagnosticEvent`, which IS live (called from `analyst-handler.ts`). Relocate that helper before deleting the class.
+
+   Status: completed in the Stage 1 cleanup slice after the notification fix; helper now lives in `src/runtime/runtime-diagnostic-event.ts`.
 5. **Delete dead worker/stage/clearance normalizer modules.**
 
    `schemas/worker-report-normalizer.ts`, `schemas/worker-dispatch-envelope-normalizer.ts`, and `schemas/sanitized-clearance-report.ts` have zero production callers and belong to an abandoned worker/dispatch/clearance concept not present in the card-centered spec.
+
+   Status: completed in the Stage 1 cleanup slice after the notification fix.
 
 6. **Delete tests-only `runtime/terminal-commit` abstraction.**
 
    `src/runtime/terminal-commit/*` has no production imports and is kept alive by `tests/runtime/terminal-commit.test.ts`. Delete the source module and its tests; do not preserve a compatibility facade.
 
+   Status: completed in the Stage 1 cleanup slice after the notification fix.
+
 7. **Delete dead server lifecycle composition modules.**
 
    `server/composition/mcp-lifecycle.ts`, `runtime-lifecycle.ts`, and `server-shutdown.ts` are source-dead duplicates of logic inlined in `server-services.ts`. Delete only those lifecycle files. Keep live route/server composition modules (`route-composition.ts`, `fastify-app.ts`, `server-services.ts`, `telegram-lifecycle.ts`).
 
+   Status: completed in the Stage 1 cleanup slice after the notification fix.
+
 8. **Delete old notification remnant plumbing — only after fixing notifications (§0.1).**
 
    After `queue_notification` and `propagateChange` are rewired to `CardActor`: delete `ActiveGoalNoteSinks` (`active-goal-note-sinks.ts`), `synthetic-planner-notes.ts`, and the `queuePlannerNote`/live-sink branches in `changed-propagation.ts`. These are old-runtime remnants whose consumers were deleted during the micro-actor refactor.
+
+   Status: completed in `69b5845a`.
 
 ### B. Never-Implemented Scaffolding `[DELETE-NEVER-IMPLEMENTED]`
 
@@ -458,12 +474,12 @@ Goal: remove entire modules that exist only in tests or were superseded by the m
 Tasks (backlog group A, excluding A.8 which depends on Stage 0):
 
 1. Delete dead `ProcessActor` + recovery path + actor kind.
-2. Delete dead `context-builder.ts`, `goal-context.ts`, `transition-policy.ts`.
-3. Relocate `buildRuntimeDiagnosticEvent`, then delete dead `RuntimeEventPublisher` class + `logged-event.ts`.
-4. Delete dead worker/clearance normalizer modules.
-5. Delete tests-only `runtime/terminal-commit` source and tests.
-6. Delete only the dead server lifecycle composition modules (`mcp-lifecycle.ts`, `runtime-lifecycle.ts`, `server-shutdown.ts`).
-7. After Stage 0 lands, delete old notification remnant plumbing (A.8).
+2. Completed: delete dead `context-builder.ts`, `goal-context.ts`, `transition-policy.ts`.
+3. Completed: relocate `buildRuntimeDiagnosticEvent`, then delete dead `RuntimeEventPublisher` class + `logged-event.ts`.
+4. Completed: delete dead worker/clearance normalizer modules.
+5. Completed: delete tests-only `runtime/terminal-commit` source and tests.
+6. Completed: delete only the dead server lifecycle composition modules (`mcp-lifecycle.ts`, `runtime-lifecycle.ts`, `server-shutdown.ts`).
+7. Completed: after Stage 0 lands, delete old notification remnant plumbing (A.8).
 
 Validation:
 
