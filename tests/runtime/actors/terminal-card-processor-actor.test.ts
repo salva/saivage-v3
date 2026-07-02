@@ -97,7 +97,7 @@ describe('TerminalCardProcessorActor', () => {
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'implemented' });
     expect(store.read(card.id)).toMatchObject({ status: 'done', status_text: 'implemented' });
-    expect(store.read(card.id)?.lifecycle.result).toMatchObject({ kind: 'executor_success', executor: { summary: 'implemented' } });
+    expect(store.read(card.id)?.lifecycle.result).toMatchObject({ kind: 'done', summary: 'implemented' });
     expect(provider.completeTurn).toHaveBeenCalledWith(expect.objectContaining({
       agentId: `executor:${card.id}`,
       role: 'executor',
@@ -136,7 +136,7 @@ describe('TerminalCardProcessorActor', () => {
     const outcome = await actor.activate({ kind: 'parent', cardId: 'project' });
 
     expect(outcome).toMatchObject({ status: 'failed', summary: 'model unavailable' });
-    expect(store.read(card.id)?.lifecycle.result).toMatchObject({ kind: 'executor_failure', error: 'model unavailable' });
+    expect(store.read(card.id)?.lifecycle.result).toMatchObject({ kind: 'failed', summary: 'model unavailable' });
   }));
 
   it('persists active reconstruction during terminal processor activation and clears it on settlement', async () => withTempProject(async (projectRoot) => {
@@ -171,7 +171,7 @@ describe('TerminalCardProcessorActor', () => {
 
     const outcome = await actor.activate({ kind: 'parent', cardId: 'project' });
 
-    expect(outcome).toMatchObject({ status: 'failed', result: { kind: 'executor_failure' } });
+    expect(outcome).toMatchObject({ status: 'failed', result: { kind: 'failed' } });
     expect(outcome.summary).toContain('emit_result');
     expect(provider.completeTurn).toHaveBeenCalledTimes(3);
   }));

@@ -1,6 +1,6 @@
 import { BaseActor } from '../micro-actor/index.js';
 import type { ActorDefinition } from '../micro-actor/index.js';
-import type { BlockedResult, CardRecord, CardStatus, DoneResult, FailureResult } from '../../schemas/index.js';
+import type { BlockedResult, CardRecord, CardStatus, DoneResult, FailedResult, ReworkResult } from '../../schemas/index.js';
 import type { NewCardInput } from '../../cards/store-api.js';
 import type { CardMutationContext } from '../../cards/lifecycle.js';
 import { cardActorId, processorActorId } from './ids.js';
@@ -15,8 +15,8 @@ export type CardActorStatus = Exclude<CardActorState, 'needs_verification'>;
 
 export type CardActivationOutcome =
   | { status: 'done'; summary: string; result: DoneResult }
-  | { status: 'failed'; summary: string; result: FailureResult }
-  | { status: 'blocked'; summary: string; result: BlockedResult }
+  | { status: 'failed'; summary: string; result: FailedResult }
+  | { status: 'blocked'; summary: string; result: BlockedResult | ReworkResult }
   | { status: 'cancelled'; summary: string };
 
 export interface CardActivationInput {
@@ -214,7 +214,7 @@ export class CardActor extends BaseActor {
       on_failed: (error) => this.commitOutcome({
         status: 'failed',
         summary: error.message,
-        result: { kind: 'planner_failure', error: error.message },
+        result: { kind: 'failed', summary: error.message },
       }),
     });
   }

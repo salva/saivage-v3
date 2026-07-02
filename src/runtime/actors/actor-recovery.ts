@@ -273,7 +273,7 @@ export function convertActorRecoveryOutcomes(plan: ActorRecoveryPlan, store: Act
     const reason = 'Startup recovery blocked this card because its previous actor activation was interrupted and cannot be safely resumed.';
     store.commitTerminalLifecyclePatch(cardId, {
       status: 'blocked',
-      lifecycle: { status: 'blocked', result: { kind: 'planner_blocked', blocked_reason: reason, resume_reason: 'Inspect recovery diagnostics, then reactivate the card if the work should continue.', blocker_cause: 'generic' }, error: reason, completed_at: null },
+      lifecycle: { status: 'blocked', result: { kind: 'blocked', summary: reason, resume_reason: 'Inspect recovery diagnostics, then reactivate the card if the work should continue.', blocker_cause: 'generic' }, error: reason, completed_at: null },
       status_text: reason,
       status_text_updated_at: generatedAt,
     });
@@ -364,7 +364,7 @@ function projectReviewerRecoveryOutcome(
   const reviewerOutcome: Extract<LLMActorOutcome, { type: 'tool_call' }> = { type: 'tool_call', agentId: reviewer.actorId, inputId: reviewerWaiting.sourceInputId, toolCallId: reviewerWaiting.toolCallId, toolName: reviewerWaiting.toolName, args: reviewerLogged.args };
   const projected = evaluateReviewerTerminalOutcome({
     card,
-    candidatePlanning: { kind: 'planner_done', summary: plannerResult.result.summary ?? 'Planner completed.' },
+    candidatePlanning: { kind: 'done', summary: plannerResult.result.summary ?? 'Planner completed.' },
     assessmentId,
     sessionId: reviewer.activeReconstruction.input.sessionId,
     outcome: reviewerOutcome,

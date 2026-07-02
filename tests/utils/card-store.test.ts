@@ -356,12 +356,7 @@ describe('CardStore CRUD still works with validated indexes', () => {
       status: 'done',
       lifecycle: {
         status: 'done',
-        result: {
-          kind: 'reviewer_pass',
-          planning: { kind: 'planner_done', summary: 'complete' },
-          review_summary: 'passed',
-          assessment_id: 'assessment-1',
-        },
+        result: { kind: 'done', summary: 'passed' },
         error: null,
         completed_at: completedAt,
       },

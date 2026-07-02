@@ -20,7 +20,7 @@ describe('RoleToolPolicy contract-terminal surface', () => {
       role: 'planner',
       action: 'invoke',
       surface: 'contract-terminal',
-      toolName: 'emit_result',
+      toolName: 'not_emit_result',
       contractTerminals: ['emit_result'],
     });
     expect(decision.allowed).toBe(false);

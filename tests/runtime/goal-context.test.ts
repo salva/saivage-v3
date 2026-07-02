@@ -16,6 +16,6 @@ describe('goal context helpers', () => {
     expect(inferGoalResumeReason({ goalId: 'goal-a', activeRun: null, notes: [{ kind: 'reviewer_interrupted' }, { kind: 'subtree_changed' }] })).toBe('service_restart');
     expect(inferGoalResumeReason({ goalId: 'goal-a', activeRun: null, notes: [{ kind: 'pending_subtree_correction' }] })).toBe('analyst_directive');
     expect(inferGoalResumeReason({ goalId: 'goal-a', activeRun: null, notes: [{ kind: 'subtree_changed' }] })).toBe('subtree_changed');
-    expect(inferGoalResumeReason({ goalId: 'goal-a', fallback: 'reviewer_correction', activeRun: null, notes: [] })).toBe('reviewer_correction');
+    expect(inferGoalResumeReason({ goalId: 'goal-a', fallback: 'reviewer_rework', activeRun: null, notes: [] })).toBe('reviewer_rework');
   });
 });

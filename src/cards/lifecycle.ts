@@ -157,9 +157,9 @@ export function buildSetStatusLifecycle(
       return {
         status: 'blocked',
         result: {
-          kind: 'planner_blocked',
-          blocked_reason: blockedReason,
-          resume_reason: 'planner_blocked',
+          kind: 'blocked',
+          summary: blockedReason,
+          resume_reason: 'manual_blocked_status',
           blocker_cause: 'generic',
         },
         error: blockedReason,

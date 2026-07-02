@@ -42,7 +42,7 @@ function setStatus(store: CardStore, id: string, status: CardStatus): void {
       status,
       lifecycle: {
         status,
-        result: { kind: 'executor_success', executor: { summary: 'done' }, verified_at: '2026-01-01T00:00:00.000Z', latest_self_report: { result: 'done', outcome: 'done', summary: 'done', status_text: 'done', at: '2026-01-01T00:00:00.000Z' }, warnings: [] },
+        result: { kind: 'done', summary: 'done' },
         error: null,
         completed_at: '2026-01-01T00:00:00.000Z',
       },
@@ -54,7 +54,7 @@ function setStatus(store: CardStore, id: string, status: CardStatus): void {
       status,
       lifecycle: {
         status,
-        result: { kind: 'executor_failure', error: 'failed', partial_result: null, latest_self_report: { result: 'failed', outcome: 'failed', summary: 'failed', status_text: 'failed', at: '2026-01-01T00:00:00.000Z' } },
+        result: { kind: 'failed', summary: 'failed' },
         error: 'failed',
         completed_at: '2026-01-01T00:00:00.000Z',
       },
@@ -108,7 +108,7 @@ describe('PlannerToolsService done report subtree gate', () => {
     expect(result.card.status).toBe('running');
     expect(result.card.lifecycle).toEqual({
       status: 'running',
-      result: { kind: 'planner_done', summary: 'done' },
+      result: { kind: 'done', summary: 'done' },
       error: null,
       completed_at: null,
     });

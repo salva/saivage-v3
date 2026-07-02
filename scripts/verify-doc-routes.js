@@ -231,7 +231,7 @@ function extractImplementedAgentTools(projectRoot) {
     'src/tools/project-file-tools.ts',
     'src/tools/web-tools.ts',
     'src/tools/planner-control-provider.ts',
-    'src/tools/mcp-skill-tools.ts',
+    'src/agents/skill-tools.ts',
   ].map((file) => readSource(projectRoot, file)).join('\n');
   return new Map([
     ['planner', uniqueSorted(extractObjectArray(rolePolicy, 'planner').length > 0 ? extractObjectArray(rolePolicy, 'planner') : extractUnifiedToolRoleNames(toolDefinitions, 'planner'))],

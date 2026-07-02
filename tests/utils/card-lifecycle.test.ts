@@ -86,7 +86,7 @@ describe('card lifecycle domain rules', () => {
   });
 
   it('locks terminal lifecycle fields behind explicit commit or repair contexts', () => {
-    const done = baseCard({ status: 'done', lifecycle: { status: 'done', result: { kind: 'planner_done', summary: 'done' }, error: null, completed_at: '2026-01-01T00:10:00.000Z' } });
+    const done = baseCard({ status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-01-01T00:10:00.000Z' } });
     expect(() => validateMutablePatch(done, { lifecycle: { ...done.lifecycle, error: 'stale' } as never }, { childCount: 0 })).toThrow(/lifecycle-owned/);
     expect(() => validateMutablePatch(done, { lifecycle: { ...done.lifecycle, result: { ok: false } } as never }, { childCount: 0 }, { actor: 'analyst', surface: 'web-chat', reason: 'analyst edit' })).toThrow(/lifecycle-owned/);
     expect(() => validateMutablePatch(done, { lifecycle: { ...done.lifecycle, completed_at: '2026-01-01T00:11:00.000Z' } as never }, { childCount: 0 }, { actor: 'runtime', surface: 'runtime', reason: 'terminal lifecycle commit' })).not.toThrow();
@@ -94,7 +94,7 @@ describe('card lifecycle domain rules', () => {
   });
 
   it('allows restart patches to clear lifecycle fields while reopening', () => {
-    const blocked = baseCard({ status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'planner_blocked', blocked_reason: 'blocked', resume_reason: 'planner_blocked' }, error: 'blocked', completed_at: null } });
+    const blocked = baseCard({ status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'blocked', summary: 'blocked', resume_reason: 'blocked' }, error: 'blocked', completed_at: null } });
     expect(() => validateMutablePatch(blocked, { status: 'backlog', lifecycle: { status: 'backlog', result: null, error: null, completed_at: null } }, { childCount: 0 }, { actor: 'runtime', surface: 'runtime', reason: 'status -> backlog' })).not.toThrow();
   });
 

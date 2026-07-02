@@ -13,20 +13,21 @@ import {
   validatePersistedCardLifecycle,
   type CardLifecycleState,
   type CardRecord,
-  type ExecutorFailureResult,
-  type ExecutorNeedsVerificationResult,
-  type PlannerBlockedResult,
-  type PlannerDoneResult,
+  type FailedResult,
+  type NeedsVerificationResult,
+  type BlockedResult,
+  type DoneResult,
+  type ReworkResult,
 } from '../../src/schemas/index.js';
 
 const now = '2026-01-01T00:00:00.000Z';
 
 const selfReport = { result: 'done', outcome: 'done', summary: 'ok', status_text: 'done', at: now };
-const plannerDone: PlannerDoneResult = { kind: 'planner_done', summary: 'done' };
-const plannerBlocked: PlannerBlockedResult = { kind: 'planner_blocked', blocked_reason: 'input needed', resume_reason: 'operator_input' };
-const reviewerBlocked: PlannerBlockedResult = { kind: 'planner_blocked', blocked_reason: 'fix it', resume_reason: 'reviewer_needs_corrections', reviewer_correction: { kind: 'reviewer_correction', assessment_id: 'assessment-card-1-1', summary: 'fix it', issues: [{ summary: 'missing proof' }] } };
-const executorFailure: ExecutorFailureResult = { kind: 'executor_failure', error: 'boom', partial_result: null, latest_self_report: { ...selfReport, result: 'failed', outcome: 'failed', summary: 'boom', status_text: 'failed' } };
-const executorNeedsVerification: ExecutorNeedsVerificationResult = { kind: 'executor_needs_verification', reason: 'check output', preserved_result: {}, fallback_reason: null, latest_self_report: { ...selfReport, result: 'needs_verification', outcome: 'needs_verification', summary: 'check output', status_text: 'verify' } };
+const plannerDone: DoneResult = { kind: 'done', summary: 'done' };
+const plannerBlocked: BlockedResult = { kind: 'blocked', summary: 'input needed', resume_reason: 'operator_input' };
+const reviewerBlocked: ReworkResult = { kind: 'rework', summary: 'fix it' };
+const executorFailure: FailedResult = { kind: 'failed', summary: 'boom' };
+const executorNeedsVerification: NeedsVerificationResult = { kind: 'executor_needs_verification', reason: 'check output', preserved_result: {}, fallback_reason: null, latest_self_report: { ...selfReport, result: 'needs_verification', outcome: 'needs_verification', summary: 'check output', status_text: 'verify' } };
 
 function card(overrides: Partial<CardRecord> = {}): CardRecord {
   const lifecycle = overrides.lifecycle ?? ({ status: overrides.status ?? 'backlog', result: null, error: null, completed_at: null } as CardLifecycleState);

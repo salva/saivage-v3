@@ -1,4 +1,4 @@
-import type { CardLifecycleState, CardRecord, ExecutorFailureResult, ExecutorNeedsVerificationResult, ExecutorSuccessResult, SelfReport } from '../../schemas/index.js';
+import type { CardLifecycleState, CardRecord, DoneResult, FailedResult, NeedsVerificationResult, SelfReport } from '../../schemas/index.js';
 import { lifecycleCardPatch } from './lifecycle-patch.js';
 import { validateTerminalOverlay } from './validators.js';
 
@@ -24,15 +24,9 @@ export async function commitExecutorSuccess(input: {
   sessionId: string | null;
   warnings?: string[];
   effects: TerminalCommitEffects;
-}): Promise<TerminalCommitReceipt<Extract<CardLifecycleState, { status: 'done' }>, ExecutorSuccessResult>> {
+}): Promise<TerminalCommitReceipt<Extract<CardLifecycleState, { status: 'done' }>, DoneResult>> {
   const latestSelfReport = selfReport('done', input.summary, input.statusText, input.acceptedAt);
-  const result: ExecutorSuccessResult = {
-    kind: 'executor_success',
-    executor: input.executor,
-    verified_at: input.acceptedAt,
-    latest_self_report: latestSelfReport,
-    warnings: input.warnings ?? [],
-  };
+  const result: DoneResult = { kind: 'done', summary: input.summary };
   const lifecycle = { status: 'done', result, error: null, completed_at: input.completedAt } satisfies Extract<CardLifecycleState, { status: 'done' }>;
   assertNoTerminalOverlayErrors(input.card, lifecycle);
   await input.effects.transitionCard(input.card.id, 'executor_finish', { goalId: input.goalId, finalStatus: 'done' });
@@ -52,10 +46,10 @@ export async function commitExecutorFailure(input: {
   sessionId?: string | null;
   transitionReason?: string;
   effects: TerminalCommitEffects;
-}): Promise<TerminalCommitReceipt<Extract<CardLifecycleState, { status: 'failed' }>, ExecutorFailureResult>> {
+}): Promise<TerminalCommitReceipt<Extract<CardLifecycleState, { status: 'failed' }>, FailedResult>> {
   if (!input.error.trim()) throw new Error('Cannot commit executor failure without a non-empty error.');
   const latestSelfReport = selfReport('failed', input.error, input.statusText, input.acceptedAt);
-  const result: ExecutorFailureResult = { kind: 'executor_failure', error: input.error, partial_result: input.partialResult, latest_self_report: latestSelfReport };
+  const result: FailedResult = { kind: 'failed', summary: input.error };
   const lifecycle = { status: 'failed', result, error: input.error, completed_at: input.completedAt } satisfies Extract<CardLifecycleState, { status: 'failed' }>;
   assertNoTerminalOverlayErrors(input.card, lifecycle);
   await input.effects.transitionCard(input.card.id, 'executor_finish', { goalId: input.goalId, finalStatus: 'failed', reason: input.transitionReason });
@@ -71,15 +65,10 @@ export async function commitExecutorInvocationFailure(input: {
   error: string;
   at: string;
   effects: TerminalCommitEffects;
-}): Promise<TerminalCommitReceipt<Extract<CardLifecycleState, { status: 'failed' }>, ExecutorFailureResult>> {
+}): Promise<TerminalCommitReceipt<Extract<CardLifecycleState, { status: 'failed' }>, FailedResult>> {
   if (!input.error.trim()) throw new Error('Cannot commit executor invocation failure without a non-empty error.');
   const latestSelfReport = selfReport('failed', input.error, input.error, input.at);
-  const result: ExecutorFailureResult = {
-    kind: 'executor_failure',
-    error: input.error,
-    partial_result: { failure_kind: input.reason },
-    latest_self_report: latestSelfReport,
-  };
+  const result: FailedResult = { kind: 'failed', summary: input.error };
   const lifecycle = { status: 'failed', result, error: input.error, completed_at: input.at } satisfies Extract<CardLifecycleState, { status: 'failed' }>;
   assertNoTerminalOverlayErrors(input.card, lifecycle);
   await input.effects.transitionCard(input.card.id, 'fail', { reason: input.reason, error: input.error, goalId: input.goalId });
@@ -104,10 +93,10 @@ export async function commitExecutorParkedVerification(input: {
   statusText: string;
   sessionId?: string | null;
   effects: TerminalCommitEffects;
-}): Promise<TerminalCommitReceipt<Extract<CardLifecycleState, { status: 'needs_verification' }>, ExecutorNeedsVerificationResult>> {
+}): Promise<TerminalCommitReceipt<Extract<CardLifecycleState, { status: 'needs_verification' }>, NeedsVerificationResult>> {
   if (!input.reason.trim()) throw new Error('Cannot park executor for verification without a non-empty reason.');
   const latestSelfReport = selfReport('needs_verification', input.reason, input.statusText, input.acceptedAt);
-  const result: ExecutorNeedsVerificationResult = { kind: 'executor_needs_verification', reason: input.reason, preserved_result: input.preservedResult, fallback_reason: input.fallbackReason, latest_self_report: latestSelfReport };
+  const result: NeedsVerificationResult = { kind: 'executor_needs_verification', reason: input.reason, preserved_result: input.preservedResult, fallback_reason: input.fallbackReason, latest_self_report: latestSelfReport };
   const lifecycle = { status: 'needs_verification', result, error: null, completed_at: null } satisfies Extract<CardLifecycleState, { status: 'needs_verification' }>;
   assertNoTerminalOverlayErrors(input.card, lifecycle);
   await input.effects.transitionCard(input.card.id, 'executor_partial_finish', { goalId: input.goalId, finalStatus: 'needs_verification', reason: input.reason });

@@ -3,10 +3,10 @@ import { describe, expect, it } from '@jest/globals';
 import { reduceActivationCompletion } from '../../src/runtime/activation-completion-reducer.js';
 import { planOpenPlannerRunTerminalUpdate, planPlannerRunSessionBinding } from '../../src/runtime/planner-run-reducers.js';
 import { buildCompletedRuntimeCommandState, buildRejectedRuntimeCommandState } from '../../src/runtime/runtime-command-state.js';
-import type { PlannerDoneResult } from '../../src/schemas/index.js';
+import type { DoneResult } from '../../src/schemas/index.js';
 import type { RuntimeState } from '../../src/schemas/types.js';
 
-const plannerDone: PlannerDoneResult = { kind: 'planner_done', summary: 'done' };
+const plannerDone: DoneResult = { kind: 'done', summary: 'done' };
 
 function state(overrides: Partial<RuntimeState> = {}): RuntimeState {
   return {

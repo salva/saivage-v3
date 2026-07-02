@@ -208,7 +208,7 @@ describe('Analyst Tools', () => {
       status: 'done',
       lifecycle: {
         status: 'done',
-        result: { kind: 'planner_done', summary: 'accepted' },
+        result: { kind: 'done', summary: 'accepted' },
         error: null,
         completed_at: new Date().toISOString(),
       },

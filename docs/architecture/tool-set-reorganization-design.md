@@ -199,17 +199,17 @@ No new slots are needed. If a future role needs its own dedicated record, it can
 
 #### Simplified lifecycle results
 
-Currently there are 7 lifecycle result kinds (`executor_success`, `executor_failure`, `executor_needs_verification`, `planner_done`, `planner_blocked`, `planner_failure`, `reviewer_pass`, `reviewer_correction`). With the common envelope, these collapse to 4 (plus 1 internal):
+The old role-specific lifecycle result kinds (`executor_success`, `executor_failure`, `planner_done`, `planner_blocked`, `planner_failure`, `reviewer_pass`, `reviewer_correction`) are collapsed to 4 common result kinds, plus the existing internal verification result:
 
 | Lifecycle result | `card.status` | Fields | Replaces |
 | --- | --- | --- | --- |
 | `DoneResult` | `done` | `summary` | `executor_success`, `planner_done`, `reviewer_pass` |
 | `BlockedResult` | `blocked` | `summary` (reason) | `planner_blocked` |
 | `FailedResult` | `failed` | `summary` (error/reason) | `executor_failure`, `planner_failure` |
-| `ReworkResult` | `rework` | `summary` (reason) | `reviewer_correction` — the correction detail is in `review.md` |
+| `ReworkResult` | `blocked` | `summary` (reason) | `reviewer_correction` — the correction detail is in `review.md` |
 | `NeedsVerificationResult` | `needs_verification` | `reason`, `preserved_result` | `executor_needs_verification` (internal runtime concept, not agent-emitted — keep as-is) |
 
-The `latest_self_report` field currently embedded in executor results is a mirror of `status.md` content. With the detail living in `status.md`, `latest_self_report` can be dropped from the lifecycle result — the record URL is the durable reference.
+The old `latest_self_report` field embedded in executor results was a mirror of `status.md` content. With the detail living in `status.md`, `latest_self_report` is dropped from `DoneResult` and `FailedResult` — the record URL is the durable reference.
 
 Runtime-internal fields like `blocker_cause` (`'reviewer_unavailable' | 'generic' | ...`) and `verified_at` are set by the runtime, not emitted by the agent. They stay on the lifecycle result as internal metadata. The `'non_actionable_continue'` cause is removed — with no `continue` status, a planner that returns `done` without useful work is a prompt-quality issue, not a distinct blocker cause.
 
@@ -433,7 +433,7 @@ Done:
 - `websearch`/`webfetch` present on Analyst through `WebProvider`.
 - Non-runtime Analyst docs/helpers align with the active `InvocationSurface`: runtime model advertisements come from `surfaceToolDefinitions(surface)`, and `analyst-prompt.ts` uses the explicit control registry plus provider-era shared names.
 
-### Phase 4: Unify the terminal contract — mostly done
+### Phase 4: Unify the terminal contract — done
 
 Done:
 - Renamed the three terminal tools (`emit_planner_result`, `emit_executor_result`, `emit_reviewer_result`) to a single `emit_result`.
@@ -443,9 +443,7 @@ Done:
 - Updated planner, executor, and reviewer prompts, repair messages, contracts, schemas, recovery fixtures, and tests to mention only `emit_result` plus role-allowed statuses.
 - Moved executor terminal `warnings`/`result`/`error` and reviewer terminal `assessment`/`achieved`/`issues`/`evidence_card_ids` out of terminal envelopes. Rich detail belongs in `status.md` and `review.md`.
 - Updated `src/schemas/event-catalog.ts` and `src/schemas/types.ts` terminal-tool enums.
-
-Not yet done:
-- Collapse lifecycle results from the current persisted/API-facing legacy kinds to 4 (`DoneResult`, `BlockedResult`, `FailedResult`, `ReworkResult`) plus internal `NeedsVerificationResult`. This is a broad schema/API/storage cutover and remains the main incomplete Phase 4 item.
+- Collapsed lifecycle results from persisted/API-facing legacy kinds to `DoneResult`, `BlockedResult`, `FailedResult`, and `ReworkResult`, plus internal `NeedsVerificationResult`. Reviewer `rework` emits a `ReworkResult` while the card status remains `blocked`.
 
 ### Phase 5: Align scoped URL policy, prompts, and specs — partially done
 
@@ -453,7 +451,7 @@ Done:
 - `webfetch.save_as` accepts and enforces scoped URLs (`record://`, `tmp://`, `project://`) with the same role/slot-write authorization as `write`. It pre-authorizes before network fetch and writes through canonical workspace write behavior, including record-slot rules and analyst explicit-card `brief.md` writes.
 
 Not yet done:
-- Complete the lifecycle-result cutover described in Phase 4 and acceptance criteria.
+- None for the lifecycle-result cutover described in Phase 4 and acceptance criteria.
 
 ## 11. Relationship To Other Documents
 
@@ -482,7 +480,7 @@ This reorganization is complete when:
 - the conversation UI redesign's Phase 2 unblocks because the tool vocabulary is aligned;
 - the terminal tool is `emit_result` for planner, executor, and reviewer with a common `{ status: 'done' | 'blocked' | 'failed' | 'rework', summary }` envelope; the analyst has no terminal tool;
 - planner `done` means the planner completed its current planning task/activation, not that the entire process is complete;
-- lifecycle results are collapsed from 7 kinds to 4 (`DoneResult`, `BlockedResult`, `FailedResult`, `ReworkResult`) plus the internal `NeedsVerificationResult`; reviewer may emit `done`, `rework`, `blocked`, or `failed`;
+- lifecycle results are collapsed from legacy role-specific kinds to 4 (`DoneResult`, `BlockedResult`, `FailedResult`, `ReworkResult`) plus the internal `NeedsVerificationResult`; reviewer may emit `done`, `rework`, `blocked`, or `failed`, and reviewer `rework` stores a `ReworkResult` on a blocked card;
 - executor `warnings`, `result`, and `error` go into `status.md`, not the envelope;
 - reviewer `assessment`, `achieved`, `issues`, and `evidence_card_ids` go into `review.md`, not the envelope;
 - reviewer evidence is prose in `review.md`; the runtime does not parse it to validate card IDs.

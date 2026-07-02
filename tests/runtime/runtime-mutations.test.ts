@@ -5,9 +5,9 @@ import { join } from 'node:path';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { createRuntimeStateMutationPort } from '../../src/runtime/mutations.js';
 import { initRuntimeState, readRuntimeState, RuntimeActivationInvariantError, updateRuntimeState } from '../../src/runtime/state.js';
-import type { PlannerDoneResult } from '../../src/schemas/index.js';
+import type { DoneResult } from '../../src/schemas/index.js';
 
-const plannerDone: PlannerDoneResult = { kind: 'planner_done', summary: 'done' };
+const plannerDone: DoneResult = { kind: 'done', summary: 'done' };
 
 describe('runtime mutations', () => {
   it('applies runtime state patches through the mutation port', () => {

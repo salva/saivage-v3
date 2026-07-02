@@ -89,7 +89,7 @@ describe('terminal commit validators', () => {
   it('validates done overlays by typed result discriminant', () => {
     expect(validateTerminalOverlay(card(), {
       status: 'done',
-      result: { kind: 'planner_blocked', blocked_reason: 'blocked', resume_reason: 'planner_blocked' },
+      result: { kind: 'blocked', summary: 'blocked', resume_reason: 'blocked' },
       error: null,
       completed_at: now,
     } as never)).toEqual(expect.arrayContaining([
@@ -98,12 +98,7 @@ describe('terminal commit validators', () => {
 
     expect(validateTerminalOverlay(card(), {
       status: 'done',
-      result: {
-        kind: 'reviewer_pass',
-        planning: { kind: 'planner_blocked', blocked_reason: 'blocked', resume_reason: 'planner_blocked' },
-        review_summary: 'blocked planning reviewed',
-        assessment_id: 'assessment-1',
-      },
+      result: { kind: 'done', summary: 'blocked planning reviewed' },
       error: null,
       completed_at: now,
     })).toEqual([]);
@@ -152,8 +147,8 @@ describe('terminal commit functions', () => {
   it('commits reviewer pass and clears stale card error', async () => {
     const fx = effects();
     const receipt = await commitReviewerPass({
-      card: card({ id: 'goal-a', type: 'goal', status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'planner_blocked', blocked_reason: 'stale blocked reason', resume_reason: 'planner_blocked' }, error: 'stale blocked reason', completed_at: null } }),
-      planning: { kind: 'planner_done', summary: 'planned' },
+      card: card({ id: 'goal-a', type: 'goal', status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'blocked', summary: 'stale blocked reason', resume_reason: 'blocked' }, error: 'stale blocked reason', completed_at: null } }),
+      planning: { kind: 'done', summary: 'planned' },
       reviewSummary: 'passed',
       assessmentId: 'assessment-1',
       completedAt: now,
@@ -162,7 +157,7 @@ describe('terminal commit functions', () => {
 
     expect(receipt.lifecycle.error).toBeNull();
     expect(receipt.patch).toEqual(expect.objectContaining({ status: 'done', lifecycle: expect.objectContaining({ status: 'done', error: null, completed_at: now }) }));
-    expect(receipt.result).toEqual(expect.objectContaining({ kind: 'reviewer_pass', review_summary: 'passed' }));
+    expect(receipt.result).toEqual({ kind: 'done', summary: 'passed' });
   });
 
   it('rejects reviewer pass without typed planning context', async () => {
@@ -186,10 +181,10 @@ describe('terminal commit functions', () => {
       effects: fx,
     });
 
-    expect(receipt.result).toEqual({ kind: 'planner_blocked', blocked_reason: 'token budget', resume_reason: 'planner_context_length_exceeded', blocker_cause: 'token_budget_exceeded' });
+    expect(receipt.result).toEqual({ kind: 'blocked', summary: 'token budget', resume_reason: 'planner_context_length_exceeded', blocker_cause: 'token_budget_exceeded' });
     expect(receipt.patch).toEqual(expect.objectContaining({
       status: 'blocked',
-      lifecycle: { status: 'blocked', error: 'token budget', completed_at: null, result: { kind: 'planner_blocked', blocked_reason: 'token budget', resume_reason: 'planner_context_length_exceeded', blocker_cause: 'token_budget_exceeded' } },
+      lifecycle: { status: 'blocked', error: 'token budget', completed_at: null, result: { kind: 'blocked', summary: 'token budget', resume_reason: 'planner_context_length_exceeded', blocker_cause: 'token_budget_exceeded' } },
     }));
     expect(fx.transitions[0]).toEqual(expect.objectContaining({ event: 'block' }));
   });
@@ -203,7 +198,7 @@ describe('terminal commit functions', () => {
       id: 'card-25',
       type: 'goal',
       status: 'blocked',
-      lifecycle: { status: 'blocked', result: { kind: 'planner_blocked', blocked_reason: 'first block', resume_reason: 'reviewer_unavailable' }, error: 'first block', completed_at: null },
+      lifecycle: { status: 'blocked', result: { kind: 'blocked', summary: 'first block', resume_reason: 'reviewer_unavailable' }, error: 'first block', completed_at: null },
     });
 
     const receipt = await commitPlannerBlocked({
@@ -224,7 +219,7 @@ describe('terminal commit functions', () => {
       id: 'card-25',
       type: 'goal',
       status: 'blocked',
-      lifecycle: { status: 'blocked', result: { kind: 'planner_blocked', blocked_reason: 'first block', resume_reason: 'planner_blocked' }, error: 'first block', completed_at: null },
+      lifecycle: { status: 'blocked', result: { kind: 'blocked', summary: 'first block', resume_reason: 'blocked' }, error: 'first block', completed_at: null },
     });
 
     const receipt = await commitReviewerInvocationFailure({
@@ -235,7 +230,7 @@ describe('terminal commit functions', () => {
 
     expect(fx.transitions).toEqual([]);
     expect(receipt.patch).toEqual(expect.objectContaining({ status: 'blocked' }));
-    expect(receipt.result).toEqual(expect.objectContaining({ kind: 'planner_blocked', blocker_cause: 'reviewer_unavailable' }));
+    expect(receipt.result).toEqual(expect.objectContaining({ kind: 'blocked', blocker_cause: 'reviewer_unavailable' }));
     expect(fx.patches).toHaveLength(1);
   });
 
@@ -257,7 +252,7 @@ describe('terminal commit functions', () => {
     // matching the real state machine rejecting 'done' -> 'block'.
     const fx = strictBlockingEffects('done');
     await expect(commitPlannerBlocked({
-      card: card({ id: 'goal-a', type: 'goal', status: 'done', lifecycle: { status: 'done', result: { kind: 'planner_done', summary: 'done' }, error: null, completed_at: now } }),
+      card: card({ id: 'goal-a', type: 'goal', status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'done' }, error: null, completed_at: now } }),
       blockedReason: 'should not block a done card',
       resumeReason: 'reviewer_unavailable',
       effects: fx,

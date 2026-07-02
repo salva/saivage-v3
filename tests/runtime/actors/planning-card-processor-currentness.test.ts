@@ -27,7 +27,7 @@ function createGoal(store: CardStore, parent: string): CardRecord {
 }
 
 function markDone(store: CardStore, card: CardRecord): CardRecord {
-  return store.commitTerminalLifecyclePatch(card.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'planner_done', summary: `${card.id} done` }, error: null, completed_at: '2026-06-12T00:00:00.000Z' } });
+  return store.commitTerminalLifecyclePatch(card.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: `${card.id} done` }, error: null, completed_at: '2026-06-12T00:00:00.000Z' } });
 }
 
 function toolCall(id: string, name: string, args: Record<string, unknown>) {
@@ -171,7 +171,7 @@ describe('PlanningCardProcessorActor reviewer currentness', () => {
 
     const outcome = await actor.activate(activateInput(project, () => pending));
 
-    expect(outcome).toMatchObject({ status: 'failed', result: { kind: 'planner_failure' } });
+    expect(outcome).toMatchObject({ status: 'failed', result: { kind: 'failed' } });
     expect(outcome.summary).toContain('Reviewer currentness relaunch budget exhausted');
     expect(reviewerAttempt).toBe(3);
     const index = readRecordSlotIndex(projectRoot, project.id, 'review');

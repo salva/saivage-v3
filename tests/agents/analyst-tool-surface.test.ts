@@ -78,9 +78,9 @@ function lifecycleForStatus(status: CardStatus): CardLifecycleState {
     case 'backlog': return { status, result: null, error: null, completed_at: null };
     case 'running': return { status, result: null, error: null, completed_at: null };
     case 'changed': return { status, result: null, error: null, completed_at: null };
-    case 'done': return { status, result: { kind: 'planner_done', summary: 'done' }, error: null, completed_at: at };
-    case 'failed': return { status, result: { kind: 'planner_failure', error: 'failed' }, error: 'failed', completed_at: at };
-    case 'blocked': return { status, result: { kind: 'planner_blocked', blocked_reason: 'blocked', resume_reason: 'resume' }, error: 'blocked', completed_at: null };
+    case 'done': return { status, result: { kind: 'done', summary: 'done' }, error: null, completed_at: at };
+    case 'failed': return { status, result: { kind: 'failed', summary: 'failed' }, error: 'failed', completed_at: at };
+    case 'blocked': return { status, result: { kind: 'blocked', summary: 'blocked', resume_reason: 'resume' }, error: 'blocked', completed_at: null };
     case 'needs_verification': return { status, result: { kind: 'executor_needs_verification', reason: 'verify', preserved_result: {}, fallback_reason: null, latest_self_report: selfReport }, error: null, completed_at: null };
     case 'cancelled': return { status, result: null, error: null, completed_at: at };
   }

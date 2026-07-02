@@ -6,7 +6,7 @@ import { CardStore } from '../../../src/cards/card-store.js';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
 import { evaluateReviewerTerminalOutcome } from '../../../src/runtime/actors/reviewer-terminal-evaluation.js';
 import type { LLMActorOutcome } from '../../../src/runtime/actors/index.js';
-import type { CardRecord, PlannerDoneResult } from '../../../src/schemas/index.js';
+import type { CardRecord, DoneResult } from '../../../src/schemas/index.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => T): T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-reviewer-terminal-'));
@@ -25,7 +25,7 @@ function createProject(store: CardStore): CardRecord {
 
 function createDoneChild(store: CardStore, parent: string): CardRecord {
   const child = store.create({ type: 'goal', parent, depth: 1, title: 'child', brief: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
-  return store.commitTerminalLifecyclePatch(child.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'planner_done', summary: 'child done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' } });
+  return store.commitTerminalLifecyclePatch(child.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'child done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' } });
 }
 
 function reviewerOutcome(overrides: Record<string, unknown> = {}): Extract<LLMActorOutcome, { type: 'tool_call' }> {
@@ -40,7 +40,7 @@ function reviewerOutcome(overrides: Record<string, unknown> = {}): Extract<LLMAc
 }
 
 function evaluate(store: CardStore, card: CardRecord, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>) {
-  const planning: PlannerDoneResult = { kind: 'planner_done', summary: 'planned' };
+  const planning: DoneResult = { kind: 'done', summary: 'planned' };
   return evaluateReviewerTerminalOutcome({
     card,
     candidatePlanning: planning,
@@ -52,17 +52,17 @@ function evaluate(store: CardStore, card: CardRecord, outcome: Extract<LLMActorO
 }
 
 describe('evaluateReviewerTerminalOutcome', () => {
-  it('returns reviewer_pass for done reviewer status', () => withTempProject((projectRoot) => {
+  it('returns done for done reviewer status', () => withTempProject((projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     const card = createProject(store);
 
     const outcome = evaluate(store, card, reviewerOutcome());
 
-    expect(outcome).toMatchObject({ status: 'done', summary: 'ok', result: { kind: 'reviewer_pass', planning: { kind: 'planner_done', summary: 'planned' }, review_summary: 'ok', assessment_id: 'assessment-card-1-1' } });
+    expect(outcome).toMatchObject({ status: 'done', summary: 'ok', result: { kind: 'done', summary: 'ok' } });
   }));
 
-  it('does not require terminal evidence fields for reviewer_pass', () => withTempProject((projectRoot) => {
+  it('does not require terminal evidence fields for done', () => withTempProject((projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     const card = createProject(store);
@@ -70,7 +70,7 @@ describe('evaluateReviewerTerminalOutcome', () => {
 
     const outcome = evaluate(store, card, reviewerOutcome());
 
-    expect(outcome).toMatchObject({ status: 'done', summary: 'ok', result: { kind: 'reviewer_pass', planning: { kind: 'planner_done', summary: 'planned' }, review_summary: 'ok', assessment_id: 'assessment-card-1-1' } });
+    expect(outcome).toMatchObject({ status: 'done', summary: 'ok', result: { kind: 'done', summary: 'ok' } });
   }));
 
   it('returns reviewer correction when reviewer asks for corrections', () => withTempProject((projectRoot) => {
@@ -81,7 +81,7 @@ describe('evaluateReviewerTerminalOutcome', () => {
 
     const outcome = evaluate(store, card, reviewerOutcome({ status: 'rework', summary: 'fix it' }));
 
-    expect(outcome).toMatchObject({ status: 'blocked', summary: 'fix it', result: { kind: 'planner_blocked', resume_reason: 'reviewer_needs_corrections', reviewer_correction: { kind: 'reviewer_correction', assessment_id: 'assessment-card-1-1', summary: 'fix it', issues: [] } } });
+    expect(outcome).toMatchObject({ status: 'blocked', summary: 'fix it', result: { kind: 'rework', summary: 'fix it' } });
   }));
 
   it('returns planner blocked when reviewer status is blocked', () => withTempProject((projectRoot) => {
@@ -91,7 +91,7 @@ describe('evaluateReviewerTerminalOutcome', () => {
 
     const outcome = evaluate(store, card, reviewerOutcome({ status: 'blocked', summary: 'review blocked' }));
 
-    expect(outcome).toMatchObject({ status: 'blocked', summary: 'review blocked', result: { kind: 'planner_blocked', resume_reason: 'reviewer_blocked' } });
+    expect(outcome).toMatchObject({ status: 'blocked', summary: 'review blocked', result: { kind: 'blocked', resume_reason: 'reviewer_blocked' } });
   }));
 
   it('fails invalid terminal tool payloads', () => withTempProject((projectRoot) => {
@@ -101,7 +101,7 @@ describe('evaluateReviewerTerminalOutcome', () => {
 
     const outcome = evaluate(store, card, { ...reviewerOutcome(), args: { summary: 'missing status' } });
 
-    expect(outcome).toMatchObject({ status: 'failed', result: { kind: 'planner_failure' } });
+    expect(outcome).toMatchObject({ status: 'failed', result: { kind: 'failed' } });
     expect(outcome.summary).toContain('reviewer');
   }));
 });

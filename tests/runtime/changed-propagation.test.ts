@@ -47,7 +47,7 @@ function setStatus(store: CardStore, id: string, status: CardStatus): void {
       status,
       lifecycle: {
         status,
-        result: { kind: 'planner_done', summary: 'done' },
+        result: { kind: 'done', summary: 'done' },
         error: null,
         completed_at: '2026-01-01T00:00:00.000Z',
       },
@@ -59,7 +59,7 @@ function setStatus(store: CardStore, id: string, status: CardStatus): void {
       status,
       lifecycle: {
         status,
-        result: { kind: 'planner_failure', error: 'failed' },
+        result: { kind: 'failed', summary: 'failed' },
         error: 'failed',
         completed_at: '2026-01-01T00:00:00.000Z',
       },

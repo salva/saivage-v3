@@ -1,7 +1,5 @@
 import { z } from 'zod';
 
-const arbitraryRecordSchema = z.record(z.string(), z.unknown());
-const nullableArbitraryRecordSchema = arbitraryRecordSchema.nullable();
 const nonEmptyStringSchema = z.string().min(1);
 const timestampSchema = z.string().datetime();
 
@@ -13,22 +11,29 @@ export interface SelfReport {
   at: string;
 }
 
-export interface ExecutorSuccessResult extends Record<string, unknown> {
-  kind: 'executor_success';
-  executor: Record<string, unknown>;
-  verified_at: string;
-  latest_self_report: SelfReport;
-  warnings: string[];
+export interface DoneResult extends Record<string, unknown> {
+  kind: 'done';
+  summary: string;
 }
 
-export interface ExecutorFailureResult extends Record<string, unknown> {
-  kind: 'executor_failure';
-  error: string;
-  partial_result: Record<string, unknown> | null;
-  latest_self_report: SelfReport;
+export interface FailedResult extends Record<string, unknown> {
+  kind: 'failed';
+  summary: string;
 }
 
-export interface ExecutorNeedsVerificationResult extends Record<string, unknown> {
+export interface BlockedResult extends Record<string, unknown> {
+  kind: 'blocked';
+  summary: string;
+  resume_reason?: string;
+  blocker_cause?: 'reviewer_unavailable' | 'token_budget_exceeded' | 'generic';
+}
+
+export interface ReworkResult extends Record<string, unknown> {
+  kind: 'rework';
+  summary: string;
+}
+
+export interface NeedsVerificationResult extends Record<string, unknown> {
   kind: 'executor_needs_verification';
   reason: string;
   preserved_result: Record<string, unknown>;
@@ -36,73 +41,29 @@ export interface ExecutorNeedsVerificationResult extends Record<string, unknown>
   latest_self_report: SelfReport;
 }
 
-export interface PlannerDoneResult extends Record<string, unknown> {
-  kind: 'planner_done';
-  summary: string;
-}
-
-export interface PlannerBlockedResult extends Record<string, unknown> {
-  kind: 'planner_blocked';
-  blocked_reason: string;
-  resume_reason: string;
-  blocker_cause?: 'reviewer_unavailable' | 'token_budget_exceeded' | 'generic';
-  reviewer_correction?: ReviewerCorrectionResult;
-}
-
-export interface PlannerFailureResult extends Record<string, unknown> {
-  kind: 'planner_failure';
-  error: string;
-}
-
-export interface ReviewerPassResult extends Record<string, unknown> {
-  kind: 'reviewer_pass';
-  planning: PlannerDoneResult | PlannerBlockedResult;
-  review_summary: string;
-  assessment_id: string;
-}
-
-export interface ReviewerCorrectionResult {
-  kind: 'reviewer_correction';
-  issues: Array<Record<string, unknown>>;
-  summary: string;
-  assessment_id: string;
-}
-
-export type CardResult =
-  | ExecutorSuccessResult
-  | ExecutorFailureResult
-  | ExecutorNeedsVerificationResult
-  | PlannerDoneResult
-  | PlannerBlockedResult
-  | PlannerFailureResult
-  | ReviewerPassResult;
-
-export type DoneResult = ExecutorSuccessResult | PlannerDoneResult | ReviewerPassResult;
-export type FailureResult = ExecutorFailureResult | PlannerFailureResult;
-export type BlockedResult = PlannerBlockedResult;
-export type NeedsVerificationResult = ExecutorNeedsVerificationResult;
+export type CardResult = DoneResult | FailedResult | BlockedResult | ReworkResult | NeedsVerificationResult;
 
 export type CardLifecycleState =
   | { status: 'backlog'; result: null; error: null; completed_at: null }
   | { status: 'running'; result: CardResult | null; error: string | null; completed_at: null }
   | { status: 'changed'; result: CardResult | null; error: string | null; completed_at: null }
   | { status: 'done'; result: DoneResult; error: null; completed_at: string }
-  | { status: 'failed'; result: FailureResult; error: string; completed_at: string }
-  | { status: 'blocked'; result: BlockedResult; error: string; completed_at: null }
+  | { status: 'failed'; result: FailedResult; error: string; completed_at: string }
+  | { status: 'blocked'; result: BlockedResult | ReworkResult; error: string; completed_at: null }
   | { status: 'needs_verification'; result: NeedsVerificationResult; error: null; completed_at: null }
   | { status: 'cancelled'; result: null; error: null; completed_at: string | null };
 
 export type ActivationOutcome =
   | { outcome: 'done'; completed_at: string; result: DoneResult }
-  | { outcome: 'failed'; completed_at: string; error: string; result: FailureResult }
-  | { outcome: 'blocked'; error: string; result: BlockedResult }
+  | { outcome: 'failed'; completed_at: string; error: string; result: FailedResult }
+  | { outcome: 'blocked'; error: string; result: BlockedResult | ReworkResult }
   | { outcome: 'cancelled'; completed_at: string | null }
   | { outcome: 'needs_verification'; reason: string; result: NeedsVerificationResult };
 
 export type RuntimeRunOutcome =
   | { outcome: 'done'; completed_at: string; result: DoneResult }
-  | { outcome: 'failed'; completed_at: string; error: string; result: FailureResult }
-  | { outcome: 'blocked'; error: string; result: BlockedResult }
+  | { outcome: 'failed'; completed_at: string; error: string; result: FailedResult }
+  | { outcome: 'blocked'; error: string; result: BlockedResult | ReworkResult }
   | { outcome: 'cancelled'; completed_at: string | null }
   | { outcome: 'stopped'; stopped_at: string; reason: string | null }
   | { outcome: 'needs_verification'; reason: string; result: NeedsVerificationResult };
@@ -115,99 +76,70 @@ export const selfReportSchema: z.ZodType<SelfReport> = z.object({
   at: timestampSchema,
 }).strict();
 
-export const executorSuccessResultSchema: z.ZodType<ExecutorSuccessResult> = z.object({
-  kind: z.literal('executor_success'),
-  executor: arbitraryRecordSchema,
-  verified_at: timestampSchema,
-  latest_self_report: selfReportSchema,
-  warnings: z.array(z.string()),
+export const doneResultSchema: z.ZodType<DoneResult> = z.object({
+  kind: z.literal('done'),
+  summary: nonEmptyStringSchema,
 }).strict();
 
-export const executorFailureResultSchema: z.ZodType<ExecutorFailureResult> = z.object({
-  kind: z.literal('executor_failure'),
-  error: nonEmptyStringSchema,
-  partial_result: nullableArbitraryRecordSchema,
-  latest_self_report: selfReportSchema,
+export const failedResultSchema: z.ZodType<FailedResult> = z.object({
+  kind: z.literal('failed'),
+  summary: nonEmptyStringSchema,
 }).strict();
 
-export const executorNeedsVerificationResultSchema: z.ZodType<ExecutorNeedsVerificationResult> = z.object({
+export const blockedResultSchema: z.ZodType<BlockedResult> = z.object({
+  kind: z.literal('blocked'),
+  summary: nonEmptyStringSchema,
+  resume_reason: nonEmptyStringSchema.optional(),
+  blocker_cause: z.enum(['reviewer_unavailable', 'token_budget_exceeded', 'generic']).optional(),
+}).strict();
+
+export const reworkResultSchema: z.ZodType<ReworkResult> = z.object({
+  kind: z.literal('rework'),
+  summary: nonEmptyStringSchema,
+}).strict();
+
+export const needsVerificationResultSchema: z.ZodType<NeedsVerificationResult> = z.object({
   kind: z.literal('executor_needs_verification'),
   reason: nonEmptyStringSchema,
-  preserved_result: arbitraryRecordSchema,
+  preserved_result: z.record(z.string(), z.unknown()),
   fallback_reason: z.string().nullable(),
   latest_self_report: selfReportSchema,
 }).strict();
 
-export const plannerDoneResultSchema: z.ZodType<PlannerDoneResult> = z.object({
-  kind: z.literal('planner_done'),
-  summary: z.string(),
-}).strict();
-
-export const reviewerCorrectionResultSchema: z.ZodType<ReviewerCorrectionResult> = z.object({
-  kind: z.literal('reviewer_correction'),
-  issues: z.array(arbitraryRecordSchema),
-  summary: z.string(),
-  assessment_id: nonEmptyStringSchema,
-}).strict();
-
-export const plannerBlockedResultSchema: z.ZodType<PlannerBlockedResult> = z.object({
-  kind: z.literal('planner_blocked'),
-  blocked_reason: nonEmptyStringSchema,
-  resume_reason: nonEmptyStringSchema,
-  blocker_cause: z.enum(['reviewer_unavailable', 'token_budget_exceeded', 'generic']).optional(),
-  reviewer_correction: reviewerCorrectionResultSchema.optional(),
-}).strict();
-
-export const plannerFailureResultSchema: z.ZodType<PlannerFailureResult> = z.object({
-  kind: z.literal('planner_failure'),
-  error: nonEmptyStringSchema,
-}).strict();
-
-export const reviewerPassResultSchema: z.ZodType<ReviewerPassResult> = z.object({
-  kind: z.literal('reviewer_pass'),
-  planning: z.union([plannerDoneResultSchema, plannerBlockedResultSchema]),
-  review_summary: z.string(),
-  assessment_id: nonEmptyStringSchema,
-}).strict();
-
 export const cardResultSchema: z.ZodType<CardResult> = z.union([
-  executorSuccessResultSchema,
-  executorFailureResultSchema,
-  executorNeedsVerificationResultSchema,
-  plannerDoneResultSchema,
-  plannerBlockedResultSchema,
-  plannerFailureResultSchema,
-  reviewerPassResultSchema,
+  doneResultSchema,
+  failedResultSchema,
+  blockedResultSchema,
+  reworkResultSchema,
+  needsVerificationResultSchema,
 ]);
 
-export const doneResultSchema: z.ZodType<DoneResult> = z.union([executorSuccessResultSchema, plannerDoneResultSchema, reviewerPassResultSchema]);
-export const failureResultSchema: z.ZodType<FailureResult> = z.union([executorFailureResultSchema, plannerFailureResultSchema]);
-export const blockedResultSchema: z.ZodType<BlockedResult> = plannerBlockedResultSchema;
-export const needsVerificationResultSchema: z.ZodType<NeedsVerificationResult> = executorNeedsVerificationResultSchema;
+export const failedLifecycleResultSchema: z.ZodType<FailedResult> = failedResultSchema;
+export const blockedLifecycleResultSchema: z.ZodType<BlockedResult | ReworkResult> = z.union([blockedResultSchema, reworkResultSchema]);
 
 export const cardLifecycleStateSchema: z.ZodType<CardLifecycleState> = z.discriminatedUnion('status', [
   z.object({ status: z.literal('backlog'), result: z.null(), error: z.null(), completed_at: z.null() }).strict(),
   z.object({ status: z.literal('running'), result: cardResultSchema.nullable(), error: z.string().nullable(), completed_at: z.null() }).strict(),
   z.object({ status: z.literal('changed'), result: cardResultSchema.nullable(), error: z.string().nullable(), completed_at: z.null() }).strict(),
   z.object({ status: z.literal('done'), result: doneResultSchema, error: z.null(), completed_at: timestampSchema }).strict(),
-  z.object({ status: z.literal('failed'), result: failureResultSchema, error: nonEmptyStringSchema, completed_at: timestampSchema }).strict(),
-  z.object({ status: z.literal('blocked'), result: blockedResultSchema, error: nonEmptyStringSchema, completed_at: z.null() }).strict(),
+  z.object({ status: z.literal('failed'), result: failedLifecycleResultSchema, error: nonEmptyStringSchema, completed_at: timestampSchema }).strict(),
+  z.object({ status: z.literal('blocked'), result: blockedLifecycleResultSchema, error: nonEmptyStringSchema, completed_at: z.null() }).strict(),
   z.object({ status: z.literal('needs_verification'), result: needsVerificationResultSchema, error: z.null(), completed_at: z.null() }).strict(),
   z.object({ status: z.literal('cancelled'), result: z.null(), error: z.null(), completed_at: timestampSchema.nullable() }).strict(),
 ]);
 
 export const activationOutcomeSchema: z.ZodType<ActivationOutcome> = z.discriminatedUnion('outcome', [
   z.object({ outcome: z.literal('done'), completed_at: timestampSchema, result: doneResultSchema }).strict(),
-  z.object({ outcome: z.literal('failed'), completed_at: timestampSchema, error: nonEmptyStringSchema, result: failureResultSchema }).strict(),
-  z.object({ outcome: z.literal('blocked'), error: nonEmptyStringSchema, result: blockedResultSchema }).strict(),
+  z.object({ outcome: z.literal('failed'), completed_at: timestampSchema, error: nonEmptyStringSchema, result: failedLifecycleResultSchema }).strict(),
+  z.object({ outcome: z.literal('blocked'), error: nonEmptyStringSchema, result: blockedLifecycleResultSchema }).strict(),
   z.object({ outcome: z.literal('cancelled'), completed_at: timestampSchema.nullable() }).strict(),
   z.object({ outcome: z.literal('needs_verification'), reason: nonEmptyStringSchema, result: needsVerificationResultSchema }).strict(),
 ]);
 
 export const runtimeRunOutcomeSchema: z.ZodType<RuntimeRunOutcome> = z.discriminatedUnion('outcome', [
   z.object({ outcome: z.literal('done'), completed_at: timestampSchema, result: doneResultSchema }).strict(),
-  z.object({ outcome: z.literal('failed'), completed_at: timestampSchema, error: nonEmptyStringSchema, result: failureResultSchema }).strict(),
-  z.object({ outcome: z.literal('blocked'), error: nonEmptyStringSchema, result: blockedResultSchema }).strict(),
+  z.object({ outcome: z.literal('failed'), completed_at: timestampSchema, error: nonEmptyStringSchema, result: failedLifecycleResultSchema }).strict(),
+  z.object({ outcome: z.literal('blocked'), error: nonEmptyStringSchema, result: blockedLifecycleResultSchema }).strict(),
   z.object({ outcome: z.literal('cancelled'), completed_at: timestampSchema.nullable() }).strict(),
   z.object({ outcome: z.literal('stopped'), stopped_at: timestampSchema, reason: z.string().nullable() }).strict(),
   z.object({ outcome: z.literal('needs_verification'), reason: nonEmptyStringSchema, result: needsVerificationResultSchema }).strict(),

@@ -161,7 +161,7 @@ describe('Cleanup Utility Smoke Tests', () => {
       status: 'done',
       lifecycle: {
         status: 'done',
-        result: { kind: 'planner_done', summary: 'done' },
+        result: { kind: 'done', summary: 'done' },
         error: null,
         completed_at: new Date().toISOString(),
       },

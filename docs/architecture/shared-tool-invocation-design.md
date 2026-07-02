@@ -333,7 +333,7 @@ No temporary wrappers, aliases, or adapter providers over old catalog functions 
 
 ### 5.1 Current Implementation Audit
 
-As of 2026-07-02, the provider migration is mostly implemented but not accepted as complete. Confirmed status:
+As of 2026-07-02, the provider migration and result-contract collapse are implemented. Confirmed status:
 
 - `ToolDispatcher`, `AnalystAdapter`, `processWorkspaceToolCall`, `ActorToolSurface`, and the old actor tool-definition module are gone from active source.
 - Planner, executor, reviewer, and Analyst runtime model tool advertisements derive from each active `InvocationSurface` plus each role's contract terminal where applicable.
@@ -341,12 +341,12 @@ As of 2026-07-02, the provider migration is mostly implemented but not accepted 
 - `write_file` is removed from active source; Analyst explicit-card brief writes use canonical `write`.
 - The stale global catalog (`src/tools/definitions/index.ts`), catalog-only wrappers, `agent-tool-catalog.ts`, and the legacy planner-control executor are deleted. `InvocationSurface` and provider-owned schemas are the only runtime tool schema/execution authority.
 
-Confirmed remaining gaps before this design is complete:
+Confirmed completed cleanup:
 
 - The Analyst active surface now matches §3.5 for inspection/history: `CardInspectionProvider` and `CardHistoryProvider` are composed into the Analyst `InvocationSurface`, while the Analyst control registry owns only operator-control tools.
 - Terminal unification is implemented: planner, executor, and reviewer use `emit_result` with role-specific status subsets over the common `{ status, summary }` envelope. Legacy `report_goal_*` support and role-specific `emit_*_result` names are removed from active prompts, repair prompts, schemas, and tests.
 - `webfetch.save_as` now pre-authorizes and writes through the same scoped URL write path used by `write` (`project://`, `record://`, `tmp://`, and role/slot policy), including analyst explicit-card `brief.md` writes.
-- The remaining result-contract gap is lifecycle storage/API shape: card lifecycle results still use legacy persisted kinds such as `executor_success`, `planner_done`, `planner_blocked`, `planner_failure`, and `reviewer_pass`. The terminal envelope is unified, but lifecycle-result collapse is still pending.
+- Lifecycle storage/API shape is collapsed to `done`, `blocked`, `failed`, and `rework` result kinds, plus the internal `executor_needs_verification` runtime result. Legacy persisted result kinds such as `executor_success`, `planner_done`, `planner_blocked`, `planner_failure`, `reviewer_pass`, and `reviewer_correction` are removed from active schemas and tests.
 
 ## 6. Validation Strategy
 

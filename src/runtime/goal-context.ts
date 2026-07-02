@@ -2,7 +2,7 @@ import type { RuntimeState } from '../schemas/index.js';
 
 export type GoalResumeReason =
   | 'initial'
-  | 'reviewer_correction'
+  | 'reviewer_rework'
   | 'analyst_directive'
   | 'subtree_changed'
   | 'service_restart';

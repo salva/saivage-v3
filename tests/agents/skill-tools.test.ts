@@ -74,18 +74,6 @@ describe('loadSkill', () => {
       writeFileSync(join(skillsDir, 'test-skill.md'), '# Skill', 'utf-8');
     });
 
-    it('rejects analyst role', async () => {
-      try {
-        await loadSkill('test-skill', 'analyst', engine);
-        // Should not reach here
-        expect('should have thrown').toBe(false);
-      } catch (err) {
-        expect(err).toBeInstanceOf(LoadSkillError);
-        expect((err as LoadSkillError).message).toContain('not permitted');
-        expect((err as LoadSkillError).message).toContain('analyst');
-      }
-    });
-
     it('rejects content_supervisor role', async () => {
       try {
         await loadSkill('test-skill', 'content_supervisor', engine);
@@ -161,8 +149,14 @@ describe('loadSkill', () => {
       expect(result.loaded).toBe(true);
     });
 
-    it('PERMITTED_ROLES contains exactly executor and reviewer', () => {
-      expect(PERMITTED_ROLES).toEqual(['executor', 'reviewer']);
+    it('analyst can load skill', async () => {
+      const result = await loadSkill('common', 'analyst', engine);
+      expect(result.skill_name).toBe('common');
+      expect(result.loaded).toBe(true);
+    });
+
+    it('PERMITTED_ROLES contains exactly executor, reviewer, and analyst', () => {
+      expect(PERMITTED_ROLES).toEqual(['executor', 'reviewer', 'analyst']);
     });
   });
 

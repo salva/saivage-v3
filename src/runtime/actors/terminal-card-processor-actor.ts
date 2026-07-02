@@ -193,11 +193,9 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
 }
 
 function executorSuccess(result: ExecutorResult) {
-  const at = new Date().toISOString();
-  return { kind: 'executor_success' as const, executor: { summary: result.summary }, verified_at: at, latest_self_report: { result: 'done', outcome: 'done', summary: result.summary, status_text: result.summary, at }, warnings: [] };
+  return { kind: 'done' as const, summary: result.summary };
 }
 
-function executorFailure(error: string, partialResult: Record<string, unknown> | null = null, statusText = error) {
-  const at = new Date().toISOString();
-  return { kind: 'executor_failure' as const, error, partial_result: partialResult, latest_self_report: { result: 'failed', outcome: 'failed', summary: error, status_text: statusText, at } };
+function executorFailure(error: string) {
+  return { kind: 'failed' as const, summary: error };
 }

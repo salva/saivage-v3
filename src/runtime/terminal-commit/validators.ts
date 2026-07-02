@@ -15,22 +15,13 @@ export function validateTerminalOverlay(_previousCard: CardRecord, nextLifecycle
   if (nextLifecycle.status === 'done') {
     if (nextLifecycle.error !== null) diagnostics.push("Done lifecycle must clear error.");
     if (nextLifecycle.completed_at === null) diagnostics.push("Done lifecycle requires completed_at.");
-    switch (nextLifecycle.result.kind) {
-      case 'executor_success':
-      case 'planner_done':
-      case 'reviewer_pass':
-        break;
-    }
+    if (nextLifecycle.result.kind !== 'done') diagnostics.push("Done lifecycle requires result kind 'done'.");
   }
   if (nextLifecycle.status === 'failed' && (!nextLifecycle.error || nextLifecycle.completed_at === null)) {
     diagnostics.push('Failed lifecycle requires non-empty error and completed_at.');
   }
   if (nextLifecycle.status === 'failed') {
-    switch (nextLifecycle.result.kind) {
-      case 'executor_failure':
-      case 'planner_failure':
-        break;
-    }
+    if (nextLifecycle.result.kind !== 'failed') diagnostics.push("Failed lifecycle requires result kind 'failed'.");
   }
   if (nextLifecycle.status === 'blocked' && (!nextLifecycle.error || nextLifecycle.completed_at !== null)) {
     diagnostics.push('Blocked lifecycle requires non-empty error and completed_at:null.');

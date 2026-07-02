@@ -1,5 +1,5 @@
 import type { ActorDefinition } from '../micro-actor/index.js';
-import type { CardRecord, CardStatus, PlannerDoneResult } from '../../schemas/index.js';
+import type { CardRecord, CardStatus, DoneResult } from '../../schemas/index.js';
 import type { LLMActorOutcome, LLMAdmissionPort, LLMProviderPort } from './llm-actor.js';
 import { plannerActorId, reviewerActorId } from './ids.js';
 import type { CardActivationInput, CardActivationOutcome, CardActor, CardActorStorePort, CardProcessorActor } from './card-actor.js';
@@ -78,9 +78,9 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     if (parsed.status === 'done') return null;
     if (parsed.status === 'blocked') {
       const summary = parsed.summary;
-      return { status: 'blocked', summary, result: { kind: 'planner_blocked', blocked_reason: summary, resume_reason: summary } };
+      return { status: 'blocked', summary, result: { kind: 'blocked', summary, resume_reason: summary } };
     }
-    return { status: 'failed', summary: parsed.summary, result: { kind: 'planner_failure', error: parsed.summary } };
+    return { status: 'failed', summary: parsed.summary, result: { kind: 'failed', summary: parsed.summary } };
   }
 
   private async runActivation(input: CardActivationInput): Promise<PlannerProcessorOutcome> {
@@ -175,18 +175,18 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const parsed = typed.result;
     if (parsed.status === 'done') {
       const blocker = firstIncompleteDescendant(this.cardId, this.store);
-      if (blocker) return { status: 'blocked', summary: `Cannot complete while descendant '${blocker.id}' is ${blocker.status}.`, result: { kind: 'planner_blocked', blocked_reason: `Descendant '${blocker.id}' is ${blocker.status}.`, resume_reason: 'complete executable descendants before retrying' } };
+      if (blocker) return { status: 'blocked', summary: `Cannot complete while descendant '${blocker.id}' is ${blocker.status}.`, result: { kind: 'blocked', summary: `Descendant '${blocker.id}' is ${blocker.status}.`, resume_reason: 'complete executable descendants before retrying' } };
       const summary = parsed.summary;
-      return this.reviewPlannerDone(input, { kind: 'planner_done', summary });
+      return this.reviewPlannerDone(input, { kind: 'done', summary });
     }
     if (parsed.status === 'blocked') {
       const summary = parsed.summary;
-      return { status: 'blocked', summary, result: { kind: 'planner_blocked', blocked_reason: summary, resume_reason: summary } };
+      return { status: 'blocked', summary, result: { kind: 'blocked', summary, resume_reason: summary } };
     }
-    return { status: 'failed', summary: parsed.summary, result: { kind: 'planner_failure', error: parsed.summary } };
+    return { status: 'failed', summary: parsed.summary, result: { kind: 'failed', summary: parsed.summary } };
   }
 
-  private async reviewPlannerDone(input: CardActivationInput, planning: PlannerDoneResult): Promise<PlannerProcessorOutcome> {
+  private async reviewPlannerDone(input: CardActivationInput, planning: DoneResult): Promise<PlannerProcessorOutcome> {
     if (this.directChildren(input.card.id).length === 0) return { status: 'done', summary: planning.summary, result: planning };
     const assessmentId = nextReviewerAssessmentId(input.card.id, input.card.lifecycle.result);
     const sessionId = reviewerSessionId(input.card.id, assessmentId);
@@ -199,7 +199,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
       let outcome = await llm.turn(this.buildReviewerLlmInput(input, assessmentId, sessionId, currentness));
       let repairAttempts = 0;
       while (true) {
-        if (outcome.type === 'error') return { status: 'failed', summary: outcome.error, result: { kind: 'planner_failure', error: outcome.error } };
+        if (outcome.type === 'error') return { status: 'failed', summary: outcome.error, result: { kind: 'failed', summary: outcome.error } };
         if (outcome.type === 'result') {
           const message = `${expectedTerminalToolMessage(reviewerContract)} Plain reviewer messages are not accepted as terminal results.`;
           if (repairAttempts >= MAX_TERMINAL_CONTRACT_REPAIRS) return this.plannerFailure(message);
@@ -266,7 +266,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private plannerFailure(error: string): PlannerProcessorOutcome {
-    return { status: 'failed', summary: error, result: { kind: 'planner_failure', error } };
+    return { status: 'failed', summary: error, result: { kind: 'failed', summary: error } };
   }
 
   private validatePlannerTerminal(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, contract = createPlannerContract()): string | null {
@@ -400,7 +400,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   protected activationFailureOutcome(error: string): PlannerProcessorOutcome {
-    return { status: 'failed', summary: error, result: { kind: 'planner_failure', error } };
+    return { status: 'failed', summary: error, result: { kind: 'failed', summary: error } };
   }
 }
 

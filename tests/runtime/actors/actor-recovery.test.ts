@@ -107,7 +107,7 @@ function createRunningGoal(projectRoot: string): { store: CardStore; cardId: str
 
 function createDoneEvidence(store: CardStore, parent: string): string {
   const card = store.create({ type: 'code', parent, depth: 2, title: 'evidence', brief: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
-  store.commitTerminalLifecyclePatch(card.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'executor_success', executor: { summary: 'done' }, verified_at: '2026-06-12T00:00:00.000Z', latest_self_report: { result: 'done', outcome: 'done', summary: 'done', status_text: 'done', at: '2026-06-12T00:00:00.000Z' }, warnings: [] }, error: null, completed_at: '2026-06-12T00:00:00.000Z' } });
+  store.commitTerminalLifecyclePatch(card.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' } });
   return card.id;
 }
 
@@ -387,7 +387,7 @@ describe('actor recovery plan', () => {
 
   it('reports abandoned process startup incidents after cleanup while outstanding diagnostics stay unresolved-only', () => withTempProject((projectRoot) => {
     const { store, cardId } = createRunningGoal(projectRoot);
-    store.commitTerminalLifecyclePatch(cardId, { status: 'done', lifecycle: { status: 'done', result: { kind: 'planner_done', summary: 'done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' } });
+    store.commitTerminalLifecyclePatch(cardId, { status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' } });
     saveSnapshot(projectRoot, 'process:build-1', 'process', 'running', { processId: 'build-1' });
     saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'calling_provider', { cardId, active_reconstruction: llmActive(cardId) });
     const report = runActorStartupRecovery(buildActorRecoveryPlan(projectRoot, store), recoveryProcessorDeps(projectRoot, store));
@@ -413,7 +413,7 @@ describe('actor recovery plan', () => {
     expect(conversions).toEqual([{ cardId, status: 'blocked', reason: expect.stringContaining('cannot be safely resumed'), actorIds: [`card:${cardId}`, `planner:${cardId}`, `processor:${cardId}`].sort() }]);
     expect(store.read(cardId)).toMatchObject({
       status: 'blocked',
-      lifecycle: { status: 'blocked', result: { kind: 'planner_blocked', blocker_cause: 'generic' } },
+      lifecycle: { status: 'blocked', result: { kind: 'blocked', blocker_cause: 'generic' } },
       status_text: expect.stringContaining('cannot be safely resumed'),
     });
   }));
@@ -430,7 +430,7 @@ describe('actor recovery plan', () => {
     cleanupConvertedRecoverySnapshots(projectRoot, recoveries);
 
     expect(recoveries).toEqual([{ cardId, status: 'blocked', reason: expect.stringContaining('terminal tool call'), actorIds: [`card:${cardId}`, `planner:${cardId}`, `processor:${cardId}`].sort() }]);
-    expect(store.read(cardId)).toMatchObject({ status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'planner_blocked', blocked_reason: 'needs operator' } } });
+    expect(store.read(cardId)).toMatchObject({ status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'blocked', summary: 'needs operator' } } });
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toEqual([]);
     expect(convertActorRecoveryOutcomes(buildActorRecoveryPlan(projectRoot, store), store)).toEqual([]);
   }));
@@ -473,7 +473,7 @@ describe('actor recovery plan', () => {
     cleanupConvertedRecoverySnapshots(projectRoot, recoveries);
 
     expect(recoveries).toEqual([{ cardId, status: 'done', reason: expect.stringContaining('planner and reviewer'), actorIds: [`card:${cardId}`, `planner:${cardId}`, `processor:${cardId}`, `reviewer:${cardId}`].sort() }]);
-    expect(store.read(cardId)).toMatchObject({ status: 'done', lifecycle: { status: 'done', result: { kind: 'reviewer_pass', planning: { kind: 'planner_done', summary: 'done' } } } });
+    expect(store.read(cardId)).toMatchObject({ status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'review ok' } } });
     expect(readToolCallStatuses(projectRoot).filter((record) => record.status === 'terminal_projected').map((record) => record.agent_id).sort()).toEqual([`planner:${cardId}`, `reviewer:${cardId}`].sort());
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toEqual([]);
   }));
@@ -506,7 +506,7 @@ describe('actor recovery plan', () => {
     const recoveries = recoverProjectedTerminalToolOutcomes(buildActorRecoveryPlan(projectRoot, store), recoveryProcessorDeps(projectRoot, store));
 
     expect(recoveries).toEqual([{ cardId, status: 'blocked', reason: expect.stringContaining('planner and reviewer'), actorIds: [`card:${cardId}`, `planner:${cardId}`, `processor:${cardId}`, `reviewer:${cardId}`].sort() }]);
-    expect(store.read(cardId)).toMatchObject({ status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'planner_blocked', reviewer_correction: { assessment_id: `assessment-${cardId}-1`, summary: 'fix issue' } } } });
+    expect(store.read(cardId)).toMatchObject({ status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'rework', summary: 'fix issue' } } });
   }));
 
   it('refuses planner done recovery when reviewer reconstruction identity is missing', () => withTempProject((projectRoot) => {
@@ -548,7 +548,7 @@ describe('actor recovery plan', () => {
     const recoveries = recoverProjectedTerminalToolOutcomes(buildActorRecoveryPlan(projectRoot, store), recoveryProcessorDeps(projectRoot, store));
 
     expect(recoveries).toEqual([{ cardId, status: 'done', reason: expect.stringContaining('terminal tool call'), actorIds: [`card:${cardId}`, `executor:${cardId}`, `processor:${cardId}`].sort() }]);
-    expect(store.read(cardId)).toMatchObject({ status: 'done', lifecycle: { status: 'done', result: { kind: 'executor_success' } }, status_text: 'implemented' });
+    expect(store.read(cardId)).toMatchObject({ status: 'done', lifecycle: { status: 'done', result: { kind: 'done' } }, status_text: 'implemented' });
   }));
 
   it('converts nonterminal waiting tool calls through the generic blocked path', () => withTempProject((projectRoot) => {
@@ -574,7 +574,7 @@ describe('actor recovery plan', () => {
     cleanupConvertedRecoverySnapshots(projectRoot, recoveries);
 
     expect(recoveries).toEqual([{ cardId, status: 'blocked', reason: expect.stringContaining('terminal tool call'), actorIds: [`card:${cardId}`, `planner:${cardId}`, `processor:${cardId}`].sort() }]);
-    expect(store.read(cardId)).toMatchObject({ status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'planner_blocked', blocked_reason: 'needs operator' } } });
+    expect(store.read(cardId)).toMatchObject({ status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'blocked', summary: 'needs operator' } } });
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toEqual([]);
     expect(convertActorRecoveryOutcomes(buildActorRecoveryPlan(projectRoot, store), store)).toEqual([]);
   }));
@@ -596,7 +596,7 @@ describe('actor recovery plan', () => {
     const { store, cardId } = createRunningGoal(projectRoot);
     saveSnapshot(projectRoot, 'process:build-1', 'process', 'running', { processId: 'build-1' });
     const done = store.create({ type: 'goal', parent: 'project', depth: 1, title: 'done', brief: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
-    store.commitTerminalLifecyclePatch(done.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'planner_done', summary: 'done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' } });
+    store.commitTerminalLifecyclePatch(done.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' } });
     saveSnapshot(projectRoot, `planner:${done.id}`, 'llm', 'calling_provider', { cardId: done.id, active_reconstruction: llmActive(done.id) });
     const plan = buildActorRecoveryPlan(projectRoot, store);
 

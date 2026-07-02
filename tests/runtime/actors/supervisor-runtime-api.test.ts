@@ -37,7 +37,7 @@ function createProject(store: CardStore): CardRecord {
 
 function createDoneEvidence(store: CardStore, parent = 'project'): CardRecord {
   const card = store.create({ type: 'goal', parent, depth: 1, title: 'evidence', brief: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
-  return store.commitTerminalLifecyclePatch(card.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'planner_done', summary: 'evidence done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' } });
+  return store.commitTerminalLifecyclePatch(card.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'evidence done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' } });
 }
 
 const inertStore: CardActorStorePort = {
@@ -363,7 +363,7 @@ describe('SupervisorRuntimeApi', () => {
     await api.start();
 
     expect(readRecoveryDiagnostics(projectRoot)).toBeNull();
-    expect(store.read(project.id)).toMatchObject({ status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'planner_blocked' } } });
+    expect(store.read(project.id)).toMatchObject({ status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'blocked' } } });
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).not.toEqual(expect.arrayContaining(['card:project', 'planner:project', 'processor:project']));
   }));
 
@@ -398,7 +398,7 @@ describe('SupervisorRuntimeApi', () => {
 
     await api.start();
 
-    expect(store.read(project.id)).toMatchObject({ status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'planner_blocked', blocked_reason: 'needs operator' } } });
+    expect(store.read(project.id)).toMatchObject({ status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'blocked', summary: 'needs operator' } } });
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).not.toEqual(expect.arrayContaining(['card:project', 'planner:project', 'processor:project']));
     expect(readToolCallStatuses(projectRoot, 'planner:project').map((record) => record.status)).toEqual(['pending', 'terminal_projected']);
     expect(readRecoveryDiagnostics(projectRoot)).toBeNull();
@@ -444,7 +444,7 @@ describe('SupervisorRuntimeApi', () => {
 
     await api.start();
 
-    expect(store.read(project.id)).toMatchObject({ status: 'done', lifecycle: { status: 'done', result: { kind: 'reviewer_pass', planning: { kind: 'planner_done', summary: 'project done' } } } });
+    expect(store.read(project.id)).toMatchObject({ status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'review ok' } } });
     expect(readToolCallStatuses(projectRoot).filter((record) => record.status === 'terminal_projected').map((record) => record.agent_id).sort()).toEqual(['planner:project', 'reviewer:project']);
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).not.toEqual(expect.arrayContaining(['card:project', 'planner:project', 'processor:project', 'reviewer:project']));
   }));
@@ -527,7 +527,7 @@ describe('SupervisorRuntimeApi', () => {
 
     expect(result.success).toBe(true);
     if (result.success) expect(result.run).toMatchObject({ phase: 'completed', runtime_status: 'stopped', outcome: { kind: 'completed', result: 'done' } });
-    expect(store.read('project')).toMatchObject({ status: 'done', status_text: 'project reviewed', lifecycle: { result: { kind: 'reviewer_pass', planning: { kind: 'planner_done', summary: 'project completed' } } } });
+    expect(store.read('project')).toMatchObject({ status: 'done', status_text: 'project reviewed', lifecycle: { result: { kind: 'done', summary: 'project reviewed' } } });
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toEqual(expect.arrayContaining(['card:project', 'planner:project', 'reviewer:project', 'processor:project', 'supervisor']));
   }));
 

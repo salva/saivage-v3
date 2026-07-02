@@ -1,19 +1,19 @@
-import type { CardLifecycleState, CardRecord, PlannerBlockedResult, PlannerDoneResult, ReviewerPassResult } from '../../schemas/index.js';
+import type { BlockedResult, CardLifecycleState, CardRecord, DoneResult } from '../../schemas/index.js';
 import { lifecycleCardPatch } from './lifecycle-patch.js';
 import type { TerminalCommitEffects, TerminalCommitReceipt } from './commit-executor.js';
 import { validateTerminalOverlay } from './validators.js';
 
 export async function commitReviewerPass(input: {
   card: CardRecord;
-  planning: PlannerDoneResult | PlannerBlockedResult | null | undefined;
+  planning: DoneResult | BlockedResult | null | undefined;
   reviewSummary: string;
   assessmentId: string;
   completedAt: string;
   transitionDetails?: Record<string, unknown>;
   effects: TerminalCommitEffects;
-}): Promise<TerminalCommitReceipt<Extract<CardLifecycleState, { status: 'done' }>, ReviewerPassResult>> {
+}): Promise<TerminalCommitReceipt<Extract<CardLifecycleState, { status: 'done' }>, DoneResult>> {
   if (!input.planning) throw new Error(`Cannot commit reviewer pass for card '${input.card.id}' without typed planner lifecycle context.`);
-  const result: ReviewerPassResult = { kind: 'reviewer_pass', planning: input.planning, review_summary: input.reviewSummary, assessment_id: input.assessmentId };
+  const result: DoneResult = { kind: 'done', summary: input.reviewSummary };
   const lifecycle = { status: 'done', result, error: null, completed_at: input.completedAt } satisfies Extract<CardLifecycleState, { status: 'done' }>;
   assertNoTerminalOverlayErrors(input.card, lifecycle);
   if (input.card.status !== 'done') {
@@ -28,10 +28,10 @@ export async function commitReviewerInvocationFailure(input: {
   card: CardRecord;
   blockedReason: string;
   effects: TerminalCommitEffects;
-}): Promise<TerminalCommitReceipt<Extract<CardLifecycleState, { status: 'blocked' }>, PlannerBlockedResult>> {
-  const result: PlannerBlockedResult = {
-    kind: 'planner_blocked',
-    blocked_reason: input.blockedReason,
+}): Promise<TerminalCommitReceipt<Extract<CardLifecycleState, { status: 'blocked' }>, BlockedResult>> {
+  const result: BlockedResult = {
+    kind: 'blocked',
+    summary: input.blockedReason,
     resume_reason: 'reviewer_unavailable',
     blocker_cause: 'reviewer_unavailable',
   };

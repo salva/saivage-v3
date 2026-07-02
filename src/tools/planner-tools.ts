@@ -102,7 +102,7 @@ function reportLifecycle(status: Extract<CardStatus, 'done' | 'failed' | 'blocke
   if (status === 'done') {
     return {
       status: 'running',
-      result: { kind: 'planner_done', summary: report.summary?.trim() ? report.summary : statusText },
+      result: { kind: 'done', summary: report.summary?.trim() ? report.summary : statusText },
       error: null,
       completed_at: null,
     };
@@ -110,7 +110,7 @@ function reportLifecycle(status: Extract<CardStatus, 'done' | 'failed' | 'blocke
   if (status === 'blocked') {
     return {
       status,
-      result: { kind: 'planner_blocked', blocked_reason: statusText, resume_reason: 'planner_report_blocked', blocker_cause: 'generic' },
+      result: { kind: 'blocked', summary: statusText, resume_reason: 'planner_report_blocked', blocker_cause: 'generic' },
       error: statusText,
       completed_at: null,
     };
@@ -118,8 +118,8 @@ function reportLifecycle(status: Extract<CardStatus, 'done' | 'failed' | 'blocke
   return {
     status,
     result: {
-      kind: 'planner_failure',
-      error: statusText,
+      kind: 'failed',
+      summary: statusText,
     },
     error: statusText,
     completed_at: completedAt,

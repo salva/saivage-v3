@@ -8,7 +8,7 @@ const PLANNER_CONTEXT_MAX_DEPTH = 3;
 
 export type GoalContextResumeReason =
   | 'initial'
-  | 'reviewer_correction'
+  | 'reviewer_rework'
   | 'analyst_directive'
   | 'subtree_changed'
   | 'service_restart';
@@ -53,7 +53,7 @@ export function summarizeForPlannerContext(value: unknown, depth = 0): unknown {
 
 export function buildGoalEvidenceContext(input: { goalId: string; cards: RuntimeContextCardReader }): string {
   const goalResult = input.cards.read(input.goalId)?.lifecycle.result;
-  const reviewState = goalResult?.kind === 'reviewer_pass' ? goalResult : undefined;
+  const reviewState = goalResult?.kind === 'done' ? goalResult : undefined;
   const children = input.cards
     .listChildren(input.goalId)
     .map((id) => input.cards.read(id))
@@ -114,7 +114,7 @@ export function buildGoalContextPayload(input: {
 }): Record<string, unknown> | null {
   const goal = input.cards.read(input.goalId);
   if (!goal) return null;
-  const review = goal.lifecycle.result?.kind === 'reviewer_pass' ? goal.lifecycle.result : null;
+  const review = goal.lifecycle.result?.kind === 'done' ? goal.lifecycle.result : null;
   return {
     id: goal.id,
     type: goal.type,

@@ -1,11 +1,8 @@
-import type { CardRecord, CardLifecycleState, PlannerDoneResult, ReviewAssessment } from '../schemas/index.js';
+import type { CardRecord, DoneResult, ReviewAssessment } from '../schemas/index.js';
 
-export function nextReviewerAssessmentId(goalId: string, existingResult: CardLifecycleState['result'] | undefined): string {
+export function nextReviewerAssessmentId(goalId: string, _existingResult: unknown): string {
   const escapedGoal = goalId.replace(/[^A-Za-z0-9_.:-]/g, '-');
-  const prior = existingResult?.kind === 'reviewer_pass' ? existingResult.assessment_id : '';
-  const match = prior.match(new RegExp(`^assessment-${escapedGoal}-(\\d+)$`));
-  const next = match ? Number(match[1]) + 1 : 1;
-  return `assessment-${escapedGoal}-${next}`;
+  return `assessment-${escapedGoal}-1`;
 }
 
 export function reviewerSessionId(goalId: string, assessmentId: string): string {
@@ -39,7 +36,7 @@ export function buildReviewAssessment(input: {
 export function validateReviewerAssessment(input: {
   goalId: string;
   assessment: Pick<ReviewAssessment, 'result' | 'summary' | 'achieved' | 'issues' | 'evidence_card_ids'>;
-  candidatePlannerResult: PlannerDoneResult;
+  candidatePlannerResult: DoneResult;
   readCard(evidenceId: string): CardRecord | null | undefined;
   isDescendantOf(evidenceId: string, goalId: string): boolean;
 }): { valid: boolean; reason?: string } {
@@ -47,8 +44,8 @@ export function validateReviewerAssessment(input: {
   if (assessment.evidence_card_ids.length === 0) {
     return { valid: false, reason: 'Reviewer assessment must cite at least one evidence_card_id.' };
   }
-  if (input.candidatePlannerResult.kind !== 'planner_done') {
-    return { valid: false, reason: 'Reviewer assessment can only approve a candidate planner_done result.' };
+  if (input.candidatePlannerResult.kind !== 'done') {
+    return { valid: false, reason: 'Reviewer assessment can only approve a candidate done result.' };
   }
   for (const evidenceId of assessment.evidence_card_ids) {
     const card = readCard(evidenceId);
