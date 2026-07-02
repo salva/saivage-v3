@@ -78,7 +78,6 @@ const stableToolOrder = [
   'show_config',
   'restart_server',
   'reconfigure',
-  'write_file',
   'read_runtime_events',
   'read_runtime_errors',
   'read_control_actions',

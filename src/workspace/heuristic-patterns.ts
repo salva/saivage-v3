@@ -285,7 +285,7 @@ const PATTERN_DEFS: PatternDef[] = [
 
   // medium: verb + determiner + ONE intermediate word + tool/function/command
   // This avoids matching "Call the function with params" (no intermediate word)
-  // while catching "Call the write_file tool", "Invoke the shell tool", etc.
+  // while catching "Call the write tool", "Invoke the shell tool", etc.
   {
     id: 'tool-med-1',
     pattern: '(?:call|use|invoke|run|execute)\\s+(?:the|a)\\s+\\w+\\s+(?:tool|function|command|utility|method|endpoint|API|script|binary|program|shell)\\b',

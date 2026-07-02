@@ -139,7 +139,7 @@ export async function edit_card(ctx: ToolContext, params: { id: string } & Recor
       const statusCheck = preflightEnum(params.status, CARD_STATUS_VALUES, 'status', 'edit_card'); if (!statusCheck.ok) return { success: false, error: statusCheck.error, errorEnvelope: statusCheck.errorEnvelope };
       const urgencyCheck = preflightEnum(params.urgency, URGENCY_VALUES, 'urgency', 'edit_card'); if (!urgencyCheck.ok) return { success: false, error: urgencyCheck.error, errorEnvelope: urgencyCheck.errorEnvelope };
       const typeCheck = preflightEnum(params.type, CARD_TYPE_VALUES, 'type', 'edit_card'); if (!typeCheck.ok) return { success: false, error: typeCheck.error, errorEnvelope: typeCheck.errorEnvelope };
-      if (ctx.actor === 'analyst') return toolFailure('permission', 'edit_card is not available to the Analyst. Use write_file on record://brief.md while runtime status is stopped or paused for brief changes, or semantic card-management tools for structure/lifecycle.', { id: params.id });
+      if (ctx.actor === 'analyst') return toolFailure('permission', 'edit_card is not available to the Analyst. Use write on record://brief.md while runtime status is stopped or paused for brief changes, or semantic card-management tools for structure/lifecycle.', { id: params.id });
       const store = getStore(ctx); const card = store.read(params.id); if (!card) return toolFailure('not_found', `Card '${params.id}' not found.`, { id: params.id });
       const allowedFields = PLANNER_ALLOWED_EDIT_FIELDS;
       const changes: Record<string, unknown> = {}; const rejected: string[] = [];

@@ -3,11 +3,13 @@ import { z } from 'zod';
 import { applyProjectPatch, editProject, globProject, grepProject, readProject, writeProject } from './project-file-tools.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
 import type { AgentRole } from './tool-catalog.js';
+import type { CardStore } from '../cards/store-api.js';
 
 export interface WorkspaceProviderContext {
   readonly projectRoot: string;
   readonly cardId?: string;
   readonly agentRole: AgentRole;
+  readonly store?: Pick<CardStore, 'read'>;
 }
 
 function failureFromError(err: unknown): ToolResult {

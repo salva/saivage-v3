@@ -99,7 +99,8 @@ describe('Tool inventory mirrors SPEC-r7 capability classes', () => {
     const names = ANALYST_TOOL_DEFINITIONS.map((tool) => tool.function.name).sort();
     expect(ANALYST_TOOL_DEFINITIONS.map((tool) => tool.function.name).sort()).toEqual(names);
     for (const retired of RETIRED_NOTE_TOOLS) expect(names).not.toContain(retired);
-    for (const required of ['start_project','stop_project','queue_notification','create_card','reorder_child','cancel_card','delete_card','write_file','navigate_workspace','navigate_back','show_config','restart_server','reconfigure']) expect(names).toContain(required);
+    for (const required of ['start_project','stop_project','queue_notification','create_card','reorder_child','cancel_card','delete_card','navigate_workspace','navigate_back','show_config','restart_server','reconfigure']) expect(names).toContain(required);
+    expect(names).not.toContain('write_file');
     expect(names).not.toContain('terminate_process');
     for (const removed of ['edit_card','get_card_output','abort_goal_subtree','restart_card_or_subtree','restart_goal','mark_goal_needs_corrections']) expect(names).not.toContain(removed);
     const prompt = getAnalystSystemPrompt();

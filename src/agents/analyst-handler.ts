@@ -305,7 +305,7 @@ export class AnalystHandler {
   private analystInvocationSurface(ctx: ToolContext): InvocationSurface {
     return buildInvocationSurface('analyst', [
       this.analystControlProvider(ctx),
-      createWorkspaceProvider({ projectRoot: this.projectRoot, agentRole: 'analyst' }),
+      createWorkspaceProvider({ projectRoot: this.projectRoot, agentRole: 'analyst', store: this.runtimeDeps.cardStore }),
       createPatchProvider({ projectRoot: this.projectRoot, agentRole: 'analyst' }),
       createProcessProvider({ projectRoot: this.projectRoot, ownerId: ctx.sessionId ?? 'analyst' }),
       createWebProvider({ projectRoot: this.projectRoot, agentRole: 'analyst' }),

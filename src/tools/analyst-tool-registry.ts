@@ -26,7 +26,6 @@ const analystToolOrder = [
   'navigate_back',
   'show_config',
   'reconfigure',
-  'write_file',
   'read_runtime_events',
   'read_runtime_errors',
   'read_control_actions',
