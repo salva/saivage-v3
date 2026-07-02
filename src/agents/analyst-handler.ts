@@ -24,11 +24,12 @@ import { appendConversationMessage, buildContextTextMessage, conversationMessage
 import { LLMActor, type LLMActorOutcome, type LLMProviderPort } from '../runtime/actors/llm-actor.js';
 import type { LlmInvocationInput } from '../runtime/actors/llm-invocation.js';
 import { resolveAnalystSessionId } from './session-ids.js';
-import { createAnalystProvider } from '../tools/analyst-provider.js';
-import { buildInvocationSurface, invokeToolCall, surfaceToolDefinitions, type InvocationSurface, type ToolResult } from '../tools/invocation.js';
+import { ANALYST_CONTROL_TOOLS } from '../tools/analyst-tool-registry.js';
+import { buildInvocationSurface, defineTool, invokeToolCall, surfaceToolDefinitions, type InvocationSurface, type ToolProvider, type ToolResult } from '../tools/invocation.js';
 import { createProcessProvider } from '../tools/process-provider.js';
 import { createWebProvider } from '../tools/web-tools.js';
 import { createPatchProvider, createWorkspaceProvider } from '../tools/workspace-provider.js';
+import { RoleToolPolicy } from './role-tool-policy.js';
 
 
 export interface WorkspaceContext {
@@ -303,12 +304,31 @@ export class AnalystHandler {
 
   private analystInvocationSurface(ctx: ToolContext): InvocationSurface {
     return buildInvocationSurface('analyst', [
-      createAnalystProvider({ toolContext: ctx, surface: this.surface }),
+      this.analystControlProvider(ctx),
       createWorkspaceProvider({ projectRoot: this.projectRoot, agentRole: 'analyst' }),
       createPatchProvider({ projectRoot: this.projectRoot, agentRole: 'analyst' }),
       createProcessProvider({ projectRoot: this.projectRoot, ownerId: ctx.sessionId ?? 'analyst' }),
       createWebProvider({ projectRoot: this.projectRoot, agentRole: 'analyst' }),
     ]);
+  }
+
+  private analystControlProvider(ctx: ToolContext): ToolProvider {
+    return {
+      providerName: 'analyst',
+      tools: ANALYST_CONTROL_TOOLS
+        .filter((tool) => RoleToolPolicy.assertAnalystSurfaceTool(tool.name, this.surface).allowed)
+        .map((tool) => defineTool({
+          name: tool.name,
+          description: tool.description,
+          inputSchema: tool.input,
+          executor: async (args): Promise<ToolResult> => {
+            if (!tool.executor) throw new Error(`Analyst tool '${tool.name}' has no executor.`);
+            const result = await tool.executor(ctx, args as Record<string, unknown>);
+            if (result.success) return { success: true, data: result.data };
+            return { success: false, error: result.error ?? result.errorEnvelope?.message ?? 'Tool failed.' };
+          },
+        })),
+    };
   }
 
   private appendAssistantTextMessage(sessionId: string, content: string): AgentMessage {
