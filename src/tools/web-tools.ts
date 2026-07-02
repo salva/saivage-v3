@@ -6,7 +6,7 @@ import net from 'node:net';
 import { z } from 'zod';
 
 import { describe, type UnifiedToolDefinition } from './tool-catalog.js';
-import type { ToolContext, ToolResult } from './analyst-tool-types.js';
+import type { ToolContext, ToolResult as AnalystToolResult } from './analyst-tool-types.js';
 import { toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
 import { isWriteBlocked, looksLikeSecretPath, resolveContainedProjectPath } from '../workspace/index.js';
 import { defineTool, type ToolProvider, type ToolResult as InvocationToolResult } from './invocation.js';
@@ -29,13 +29,14 @@ export interface WebProviderContext {
 const websearchSchema = z.object({ query: z.string(), max_results: z.number().int().optional() }).strict();
 const webfetchSchema = z.object({ url: z.string(), read_mode: z.enum(['auto', 'text', 'multimodal']).optional(), metadata_only: z.boolean().optional(), max_bytes: z.number().int().optional(), max_inline_bytes: z.number().int().optional(), save_as: describe(z.string().optional(), 'Optional project-relative path to save fetched text content.') }).strict();
 
-function toolContext(ctx: WebProviderContext): ToolContext {
-  return { projectRoot: ctx.projectRoot, store: {} as never, actor: ctx.agentRole, surface: 'runtime' };
+function webContext(ctx: ToolContext): WebProviderContext {
+  if (ctx.actor === 'planner' || ctx.actor === 'executor' || ctx.actor === 'reviewer' || ctx.actor === 'analyst') return { projectRoot: ctx.projectRoot, agentRole: ctx.actor };
+  throw new Error(`Unsupported web tool actor '${ctx.actor}'.`);
 }
 
-function invocationResult(result: ToolResult): InvocationToolResult {
-  if (result.success) return { success: true, data: result.data };
-  return { success: false, error: result.error ?? result.errorEnvelope?.message ?? 'Tool failed.' };
+function analystResult(result: InvocationToolResult): AnalystToolResult {
+  if (result.success) return result;
+  return toolFailure('provider', result.error);
 }
 
 function redactUrl(raw: string): string {
@@ -151,32 +152,32 @@ function authorizeSavePath(projectRoot: string, path: string): { absolutePath: s
   return { absolutePath: resolved.absolutePath, relativePath: resolved.relativePath };
 }
 
-export async function websearch(_ctx: ToolContext, params: { query: string; max_results?: number }): Promise<ToolResult> {
+async function websearchCore(params: { query: string; max_results?: number }): Promise<InvocationToolResult> {
   try {
     const query = params.query.trim();
-    if (!query) return toolFailure('validation', 'query is required.', { field: 'query' });
+    if (!query) return { success: false, error: 'query is required.' };
     const max = Math.min(Math.max(params.max_results ?? 10, 1), MAX_RESULTS);
     const url = parseHttpUrl(`https://duckduckgo.com/html/?q=${encodeURIComponent(query)}`);
     const fetched = await fetchPublic(url, DEFAULT_MAX_BYTES);
-    if (!fetched.response.ok) return toolFailure('provider', `Search provider returned HTTP ${fetched.response.status}.`, { status: fetched.response.status });
+    if (!fetched.response.ok) return { success: false, error: `Search provider returned HTTP ${fetched.response.status}.` };
     const html = Buffer.from(fetched.body).toString('utf8');
     return { success: true, data: { query, results: ddgResults(html, fetched.url, max) } };
   } catch (err) {
-    return toolFailureFromError(err, 'provider', err instanceof Error ? err.message : String(err));
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
-export async function webfetch(ctx: ToolContext, params: { url: string; read_mode?: ReadMode; metadata_only?: boolean; max_bytes?: number; max_inline_bytes?: number; save_as?: string }): Promise<ToolResult> {
+async function webfetchCore(ctx: WebProviderContext, params: { url: string; read_mode?: ReadMode; metadata_only?: boolean; max_bytes?: number; max_inline_bytes?: number; save_as?: string }): Promise<InvocationToolResult> {
   try {
     const url = parseHttpUrl(params.url);
     const maxBytes = Math.min(Math.max(params.max_bytes ?? DEFAULT_MAX_BYTES, 1), 1_000_000);
-    if (params.metadata_only && params.save_as) return toolFailure('validation', 'metadata_only cannot be combined with save_as.');
-    if (params.save_as && ctx.actor === 'reviewer') return toolFailure('permission', 'reviewer cannot use webfetch save_as.');
+    if (params.metadata_only && params.save_as) return { success: false, error: 'metadata_only cannot be combined with save_as.' };
+    if (params.save_as && ctx.agentRole === 'reviewer') return { success: false, error: 'reviewer cannot use webfetch save_as.' };
     const fetched = await fetchPublic(url, params.metadata_only ? 1 : maxBytes);
     const headers = headersObject(fetched.response.headers);
     const metadata = { url: fetched.url.toString(), redacted_url: redactUrl(fetched.url.toString()), status: fetched.response.status, headers };
     if (params.metadata_only) return { success: true, data: { ...metadata, metadata_only: true } };
-    if (!fetched.response.ok) return toolFailure('provider', `HTTP ${fetched.response.status} for ${redactUrl(fetched.url.toString())}.`, { status: fetched.response.status });
+    if (!fetched.response.ok) return { success: false, error: `HTTP ${fetched.response.status} for ${redactUrl(fetched.url.toString())}.` };
     const contentType = headers['content-type'] ?? '';
     const mode = params.read_mode ?? 'auto';
     const isText = mode === 'text' || (mode === 'auto' && /^(text\/)|application\/(json|xml|javascript|xhtml\+xml)/i.test(contentType));
@@ -197,6 +198,18 @@ export async function webfetch(ctx: ToolContext, params: { url: string; read_mod
     writeFileSync(absolute, text, 'utf8');
     return { success: true, data: { ...metadata, stash_path: stash, bytes: Buffer.byteLength(text, 'utf8'), truncated: true } };
   } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function websearch(_ctx: ToolContext, params: { query: string; max_results?: number }): Promise<AnalystToolResult> {
+  return analystResult(await websearchCore(params));
+}
+
+export async function webfetch(ctx: ToolContext, params: { url: string; read_mode?: ReadMode; metadata_only?: boolean; max_bytes?: number; max_inline_bytes?: number; save_as?: string }): Promise<AnalystToolResult> {
+  try {
+    return analystResult(await webfetchCore(webContext(ctx), params));
+  } catch (err) {
     return toolFailureFromError(err, 'provider', err instanceof Error ? err.message : String(err));
   }
 }
@@ -214,13 +227,13 @@ export function createWebProvider(ctx: WebProviderContext): ToolProvider {
         name: 'websearch',
         description: 'Search the public web for documentation and data sources.',
         inputSchema: websearchSchema,
-        executor: async (args) => invocationResult(await websearch(toolContext(ctx), args)),
+        executor: async (args) => websearchCore(args),
       }),
       defineTool({
         name: 'webfetch',
         description: 'Fetch a public HTTP(S) URL with bounded size and private-network protections.',
         inputSchema: webfetchSchema,
-        executor: async (args) => invocationResult(await webfetch(toolContext(ctx), args)),
+        executor: async (args) => webfetchCore(ctx, args),
       }),
     ],
   };
