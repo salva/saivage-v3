@@ -282,7 +282,7 @@ This avoids misleading messages that tell the user to pause a stopped project.
    - `reorder_child`
    - `cancel_card`
    - `delete_card`
-   - `write_file(record://brief.md...)`
+   - `write(record://brief.md...)`
 4. Update tool descriptions and Analyst prompt text to say stopped or paused.
 5. Remove the missing-root-project bootstrap path from `create_card` after initialization guarantees root creation.
 

@@ -4,7 +4,7 @@ Status: partially implemented. Scope: card persistence, card records, record acc
 
 ## Remaining Work
 
-- Add the audited Analyst `write_file` surface for `record://brief.md?card=<id>&v=next`, gated on stopped-or-paused runtime status and closed latest versions.
+- Add the audited Analyst `write` surface for `record://brief.md?card=<id>&v=next`, gated on stopped-or-paused runtime status and closed latest versions.
 - Finish `get_card` read-model parity by adding `effective_updated_at` computed from current card/document record metadata.
 - Finish the brief source-of-truth cutover by removing `description`, `acceptance`, and `instructions_file` after all card creation, prompt, and API paths use `brief.md` directly.
 - Remove the retired `get_card_output` executable surface once durable record URLs and generic file reads fully cover card-output inspection.
@@ -22,7 +22,7 @@ Use the same versioned record structure for card state and card-authored documen
 - Do not add `result.json` initially. Structured outputs that matter to scheduling, review, or display belong directly in `card.json`; narrative outputs belong in `status.md` or `review.md`.
 - All writes use shared commit infrastructure. There is no batch/transaction primitive; multi-card structural changes apply as a sequence of single-card commits. In case of dirty shutdown mid-sequence, recovery is best-effort and partial state is acceptable.
 - Analyst card mutations are accepted only while runtime status is `stopped` or `paused`. They are committed while autonomous execution is inactive and announced to affected cards when the runtime resumes or starts.
-- There is no broad card edit tool. Card structure changes happen through semantic card operations; document changes happen through scheme-aware `write_file` on writable record slots.
+- There is no broad card edit tool. Card structure changes happen through semantic card operations; document changes happen through scheme-aware `write` on writable record slots.
 
 This is a brave refactor, but it removes duplicate persistence models and makes versioned storage uniform.
 
@@ -149,7 +149,7 @@ Why one record:
 - goal, instructions, and acceptance criteria are interdependent;
 - agents usually need to read all three together;
 - one version history is easier to reason about than coordinated versions across three slots;
-- one `write_file` call can update the whole intent coherently.
+- one `write` call can update the whole intent coherently.
 
 ## Record URLs
 
@@ -316,7 +316,7 @@ Analyst card mutations are intentionally permissive but only while runtime statu
 
 Rules:
 
-- If runtime status is `running` or `error`, Analyst `write_file(record://...)`, `create_card`, `reorder_child`, `cancel_card`, and `delete_card` fail with a runtime-state error.
+- If runtime status is `running` or `error`, Analyst `write(record://...)`, `create_card`, `reorder_child`, `cancel_card`, and `delete_card` fail with a runtime-state error.
 - Paused runtime means no actor is executing, but cards may still have `running` or other active statuses. Stopped runtime has left autonomous execution.
 - The Analyst may write a running card's `brief.md` while paused if the latest version is closed and the new content passes schema checks.
 - Structural mutations that would invalidate an active subtree remain denied for `running` cards unless explicitly designed later.
@@ -349,9 +349,9 @@ The old card persistence and separate card history files should be removed after
 
 Do not add a broad card-edit tool. Card structure is not a general user-editable document. Primary card state is read through `get_card` and changed through semantic card operations such as `create_card`, `reorder_child`, `cancel_card`, and `delete_card`.
 
-Use the existing `write_file` tool for document records. When the path uses the `record://` scheme, `write_file` routes through record storage rather than performing a raw filesystem write.
+Use the existing `write` tool for document records. When the path uses the `record://` scheme, `write` routes through record storage rather than performing a raw filesystem write.
 
-`write_file(record://...)` behavior depends on caller context:
+`write(record://...)` behavior depends on caller context:
 
 | Caller | Behavior |
 |---|---|
@@ -380,7 +380,7 @@ Target card-facing tools:
 | `read_file` | Read `record://` URLs returned by `get_card`. |
 | `read_file_metadata` | Inspect versions and metadata for `brief.md`, `status.md`, and `review.md`. |
 | `create_card` | Create `card.json` plus initial `brief.md`. |
-| `write_file` | Write writable `record://` document slots such as `brief.md`. |
+| `write` | Write writable `record://` document slots such as `brief.md`. |
 | `reorder_child` | Reorder children of a non-running parent by committing changed `card.json` records. |
 | `cancel_card` | Cancel obsolete work by committing changed `card.json` while stopped or paused. |
 | `delete_card` | Remove cards/subtrees from the active index while moving their full record namespaces to archive storage. |
@@ -390,7 +390,7 @@ Tools to remove or avoid as Analyst card-specific tools:
 
 - `get_card_output`: replaced by record URLs and generic reads.
 - `get_card_record`: unnecessary if generic reads support `record://`.
-- Broad card-edit surfaces are unnecessary. Use `write_file(record://...)` for document records and semantic card operations for structure/lifecycle.
+- Broad card-edit surfaces are unnecessary. Use `write(record://...)` for document records and semantic card operations for structure/lifecycle.
 - `move_card`: not needed.
 - `restart_card`, `restart_goal`, `restart_card_or_subtree`: not needed for Analyst card steering.
 - `archive_card`: use `delete_card`; deletion archives records under the hood instead of removing them.
@@ -411,7 +411,7 @@ Tools to remove or avoid as Analyst card-specific tools:
 | `needs_verification` | yes | yes | yes | yes | yes |
 | `running` | no | yes while paused | no | notify only | no |
 
-All Analyst mutations require runtime status `stopped` or `paused`. `write_file(record://brief.md?card=...)` may target running cards while paused if the touched slot is Analyst-writable, closed, and schema-valid. Structural mutations that invalidate running subtrees remain denied unless designed explicitly later.
+All Analyst mutations require runtime status `stopped` or `paused`. `write(record://brief.md?card=...)` may target running cards while paused if the touched slot is Analyst-writable, closed, and schema-valid. Structural mutations that invalidate running subtrees remain denied unless designed explicitly later.
 
 ## Delete/Archive Semantics
 
@@ -468,7 +468,7 @@ Rules:
 ### Phase 7: Enriched Reads And Record-Aware File Writes
 
 - Update `get_card` to return record summaries and bounded inline snippets.
-- Extend `write_file` to support schema-aware `record://` writes with actor-specific open/commit behavior.
+- Extend `write` to support schema-aware `record://` writes with actor-specific open/commit behavior.
 - Update Analyst prompt/tool descriptions.
 - Remove broad card-edit designs.
 
@@ -495,7 +495,7 @@ Add focused tests for:
 - effective update time is computed from record metadata instead of stored `updated_at`.
 - `get_card` returns card state, record URLs, and bounded snippets.
 - card actors reconcile from latest records on activation.
-- Analyst `write_file(record://brief.md?card=...)` commits a new `brief.md` version while stopped or paused and queues resume/start notifications.
+- Analyst `write(record://brief.md?card=...)` commits a new `brief.md` version while stopped or paused and queues resume/start notifications.
 - Analyst edits queue affected-card notifications for runtime resume/start.
 - `delete_card` moves full record namespaces with all versions to archive storage.
 - prompt assembly uses `brief.md` as source of truth.

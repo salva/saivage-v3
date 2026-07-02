@@ -58,7 +58,7 @@ This section is intentionally limited to card handling. It does not propose remo
 | Tool | Analyst scope | Behavior |
 |---|---|---|
 | `create_card` | Any existing non-running parent while runtime status is `stopped` or `paused`. | Create a child under an existing non-running parent with initial metadata and required initial records. Does not dispatch work. Runs propagation for the parent/ancestor chain. |
-| `write_file` for `record://brief.md` | Any card while runtime status is `stopped` or `paused`. | Commit approved `brief.md` updates. Touched records must be closed. Validation, commit, notification registration, and propagation run once. |
+| `write` for `record://brief.md` | Any card while runtime status is `stopped` or `paused`. | Commit approved `brief.md` updates. Touched records must be closed. Validation, commit, notification registration, and propagation run once. |
 | `reorder_child` | Any non-running parent whose children are not running. | Reorder children by permutation. Propagate on the parent. |
 | `cancel_card` | Non-running `backlog`, `changed`, `blocked`, `needs_verification`. | Mark obsolete dormant work as `cancelled`. Deny running and terminal cards. Propagate on parent/ancestors. |
 | `delete_card` | Any subtree with no running member and status in deletable states. | Remove from the active tree and move the full card record namespaces to archive storage for forensics. |
@@ -70,10 +70,10 @@ Detailed card-tool availability:
 | Tool | Should be available when | Should be denied when | Replacement guidance |
 |---|---|---|---|
 | `create_card` | Runtime status is `stopped` or `paused`; target parent exists, is non-running, and no running descendant would be structurally disrupted. | Parent is `running`; parent is missing; requested type/parent would violate tree invariants; creation would imply dispatching work immediately. | If parent is running, `queue_notification` to the active planner/card. |
-| `write_file` for `record://brief.md` | Runtime status is `stopped` or `paused`; target exists; latest brief is closed; slot is approved for Analyst writes. | Runtime status is `running` or `error`; touched slot is open; content fails schema validation; slot is not Analyst-writable. | For running work, pause first or use `queue_notification`. |
+| `write` for `record://brief.md` | Runtime status is `stopped` or `paused`; target exists; latest brief is closed; slot is approved for Analyst writes. | Runtime status is `running` or `error`; touched slot is open; content fails schema validation; slot is not Analyst-writable. | For running work, pause first or use `queue_notification`. |
 | `reorder_child` | Parent exists and is non-running; child list is a permutation of current children; no listed child is running. | Parent or any reordered child is `running`; child set mismatch. | Notify active planner with preferred order. |
 | `cancel_card` | Target/subtree is non-running and status is `backlog`, `changed`, `blocked`, or `needs_verification`. | Target/subtree includes `running`; target is `done`, `failed`, or `cancelled`; target is root project unless the whole runtime is stopped and operator confirms. | For running work, `queue_notification`; for global stop, `pause_runtime` or `stop_project`. |
-| `delete_card` | Runtime status is `stopped` or `paused`; target/subtree has no running card; operator intent is removal from active plan. | Runtime status is `running` or `error`; target/subtree includes `running`; target is root project; deletion would orphan dependencies without explicit handling. | `cancel_card` if the work should remain visible as cancelled; `write_file` to update `brief.md` or `create_card` if the work should be redone differently. |
+| `delete_card` | Runtime status is `stopped` or `paused`; target/subtree has no running card; operator intent is removal from active plan. | Runtime status is `running` or `error`; target/subtree includes `running`; target is root project; deletion would orphan dependencies without explicit handling. | `cancel_card` if the work should remain visible as cancelled; `write` to update `brief.md` or `create_card` if the work should be redone differently. |
 
 ### Card Inspection And Coordination
 
@@ -103,8 +103,8 @@ Detailed card-inspection and card-coordination availability:
 | Tool or class | Reason |
 |---|---|
 | `abort_goal_subtree` | Legacy broad cancellation primitive. Replace with state-gated `cancel_card` for dormant work and `queue_notification`/runtime controls for running work. |
-| `restart_card`, `restart_goal`, `restart_card_or_subtree` | Restart is not needed as an Analyst card tool. Use `write_file` on `brief.md`, `create_card`, `cancel_card`, or `delete_card` to express the desired plan change without resetting lifecycle state. |
-| `move_card` | Reparenting is structural churn that agents do not need for normal operation. Use `create_card`, `write_file` on `brief.md`, `reorder_child`, `cancel_card`, or `delete_card` instead. |
+| `restart_card`, `restart_goal`, `restart_card_or_subtree` | Restart is not needed as an Analyst card tool. Use `write` on `brief.md`, `create_card`, `cancel_card`, or `delete_card` to express the desired plan change without resetting lifecycle state. |
+| `move_card` | Reparenting is structural churn that agents do not need for normal operation. Use `create_card`, `write` on `brief.md`, `reorder_child`, `cancel_card`, or `delete_card` instead. |
 | `archive_card` | Public operator intent is deletion from the active project; the implementation archives data under the hood. |
 | `get_card_output` | Process-output shaped reads should be replaced by durable record URLs returned by `get_card` and generic reads of those URLs. |
 | `get_card_record` | A card-specific record reader is unnecessary if generic file reads support `record://` URLs. |
@@ -158,7 +158,7 @@ This keeps the Analyst powerful for dormant cards while avoiding surprise interf
 1. Update specs to authorize Analyst direct management of cards while runtime status is `stopped` or `paused`, including permissive `brief.md` writes to running cards whose touched records are closed while paused.
 2. Extend `cardActionValues` and permission logic for `card.create`, `card.reorder_child`, `card.delete`, and state-sensitive Analyst `card.cancel`.
 3. Implement public `delete_card` as archive-backed active-tree removal.
-4. Expose Analyst `create_card`, `reorder_child`, `cancel_card`, and `delete_card` with runtime-paused and state preflight checks; use generic `write_file` for `brief.md` edits.
+4. Expose Analyst `create_card`, `reorder_child`, `cancel_card`, and `delete_card` with runtime-paused and state preflight checks; use generic `write` for `brief.md` edits.
 5. Generalize propagation so every structural mutation returns the common propagation result.
 6. Remove `get_card_output` and card-specific record readers once generic file read and metadata APIs support `record://` URLs.
 7. Update `get_card` to include authored record summaries and bounded inline main-record content.
@@ -185,4 +185,4 @@ No compatibility aliases are needed. Remove or rename old internal tool paths as
 
 ## Conclusion
 
-The Analyst should become the global operator for card management while runtime status is `stopped` or `paused`. Running cards are not executing while paused, so their closed writable document records may be updated through `write_file`, but structural delete/reorder/cancel of running subtrees remains protected. The main implementation work is making card documents addressable through `record://` URLs, exposing audited stopped-or-paused runtime card mutations, and notifying affected cards on resume/start.
+The Analyst should become the global operator for card management while runtime status is `stopped` or `paused`. Running cards are not executing while paused, so their closed writable document records may be updated through `write`, but structural delete/reorder/cancel of running subtrees remains protected. The main implementation work is making card documents addressable through `record://` URLs, exposing audited stopped-or-paused runtime card mutations, and notifying affected cards on resume/start.
