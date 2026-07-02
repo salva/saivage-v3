@@ -117,13 +117,9 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private async handleToolCall(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, processOwnerId: string): Promise<unknown> {
-    try {
-      const workspaceSurface = this.executorInvocationSurface(processOwnerId);
-      if (workspaceSurface.tools.has(outcome.toolName)) return await invokeTool(workspaceSurface, outcome.toolName, outcome.args);
-      throw new Error(`Unsupported executor tool call '${outcome.toolName}'.`);
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
-    }
+    const workspaceSurface = this.executorInvocationSurface(processOwnerId);
+    if (workspaceSurface.tools.has(outcome.toolName)) return await invokeTool(workspaceSurface, outcome.toolName, outcome.args);
+    return { success: false, error: `Unsupported executor tool call '${outcome.toolName}'.` };
   }
 
   private executorInvocationSurface(processOwnerId: string): InvocationSurface {
