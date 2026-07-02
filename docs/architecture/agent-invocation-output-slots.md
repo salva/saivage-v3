@@ -45,7 +45,7 @@ No best-effort. No advisory warnings. No optional evidence. No soft gates.
 | Cards, card tree, lifecycle, status | Core. |
 | Agent sessions and transcripts | Core observability. |
 | Process actors | Core execution. |
-| Terminal tools (`emit_*_result`) | Role contracts. |
+| Terminal tool (`emit_result`) | Role contracts. |
 | Notifications | Coordination. |
 | Card field-level history | Already works. |
 
@@ -187,9 +187,9 @@ The runtime checks whether each mandatory record slot has a concrete normalized 
 
 ### What the agent uses to write files
 
-The agent uses normal file-writing tools (`write`, `edit`, `apply_patch`) with the `record://` scheme to create the runtime-declared mandatory file. There is no special `register_evidence` tool. The file existing at the resolved path is the evidence. The agent cannot use `record://` for discretionary writes.
+The agent uses normal record-aware file-writing tools (`write`, `edit`) with the `record://` scheme to create the runtime-declared mandatory file. `apply_patch` is project-diff only and is not a record-slot patching mechanism. There is no special `register_evidence` tool. The file existing at the resolved path is the evidence. The agent cannot use `record://` for discretionary writes.
 
-For project work files (code, tests, docs), the agent uses `project://` or absolute paths with the same tools.
+For project work files (code, tests, docs), executors use `project://` paths with `write`, `edit`, or project-relative `apply_patch` diffs.
 
 ### Cross-agent references
 
@@ -321,14 +321,14 @@ This was already designed in `agent-tool-surfaces-and-information-flow.md` (sect
 
 ## File Tools For Reviewer And Planner
 
-The reviewer and planner currently have no file-writing tools. All agents share the same file tools (`read`, `write`, `edit`, `apply_patch`, `glob`, `grep`), but path resolution and write enforcement are scheme-based and return normalized concrete URLs.
+Planner, executor, reviewer, and Analyst surfaces share the same core file-inspection vocabulary (`read`, `write`, `edit`, `glob`, `grep`) where their role allows it, but path resolution and write enforcement are scheme-based and return normalized concrete URLs. `apply_patch` is composed only into executor and Analyst surfaces and accepts project-relative unified diffs.
 
 ### Path resolution
 
 | Scheme | Format | Resolves to |
 |---|---|---|
 | `record://{slot}.md?card={cardId}&v={version}` | Durable record slot URL | `.saivage/outputs/cards/{cardId}/{slot}/{version}.md` |
-| `tmp://{cardId}/{relative}` | Per-card scratch URL | `.saivage/work/cards/{cardId}/tmp/{relative}` |
+| `tmp://{cardId}/{relative}` | Per-card scratch URL | `.saivage-work/cards/{cardId}/tmp/{relative}` |
 | `project://{relative}` | Project-relative path | `{projectRoot}/{relative}` |
 | Absolute path `/...` | Same filesystem path | Same filesystem path |
 
@@ -336,11 +336,11 @@ The `record://` URL names a record slot plus optional `card` and `v` selectors. 
 
 Read access:
 - Any agent can read any **closed** `record://` URL from any card.
-- The current card's role-designated agent may also **read its own open slot version** so that `edit` and `apply_patch` can modify the in-progress file within the same invocation.
+- The current card's role-designated agent may also **read its own open slot version** so that `edit` can modify the in-progress file within the same invocation.
 
 Write access is restricted to the current card's role-designated slot and is allowed only for declared mandatory record files. File tools return the normalized concrete URL they resolved.
 
-Repeated writes within a single invocation: `write`, `edit`, and `apply_patch` to the same `v=next` URL all operate on the same open file in that slot. A second `write` replaces the file content; `edit`/`apply_patch` modify it in place. The slot version is not closed until the terminal `emit_*` call accepts it.
+Repeated writes within a single invocation: `write` and `edit` to the same `v=next` URL operate on the same open file in that slot. A second `write` replaces the file content; `edit` modifies it in place. The slot version is not closed until the terminal `emit_result` call accepts it.
 
 The `tmp://` URL is card-scoped scratch. Any agent can read any `tmp://` URL, but writes are allowed only under `tmp://{currentCardId}/...`.
 
@@ -362,7 +362,7 @@ This replaces the current advisory write-territory system with hard scheme-based
 runtime invokes agent with mandatory record://{slot}.md?v=next URL(s) in prompt
 agent writes mandatory file(s) using file tools with record:// scheme
 file tool resolves and returns concrete record://{slot}.md?card=C&v=N URL(s)
-agent calls terminal tool (emit_*_result)
+agent calls terminal tool (`emit_result`)
 runtime checks mandatory concrete record URL(s) exist and are non-empty
   if missing:
     append continuation message to same LLM session:
@@ -409,7 +409,7 @@ Each slot index is persisted next to the slot files:
 }
 ```
 
-When a write requests `v=next`, the runtime reads the slot index. If there is an open version, it returns that concrete URL. If there is no open version, it creates the next unused version number, marks it open, and returns the concrete URL. It marks the version closed only after a terminal `emit_*` call selects an existing non-empty file as the accepted record. A stale reviewer record is marked `discarded`, clears `open`, and does not advance `latest`; the next `v=next` write creates the next unused version number instead of reusing stale content. The files themselves are durable on disk under `.saivage/outputs/cards/{cardId}/{slot}/`.
+When a write requests `v=next`, the runtime reads the slot index. If there is an open version, it returns that concrete URL. If there is no open version, it creates the next unused version number, marks it open, and returns the concrete URL. It marks the version closed only after a terminal `emit_result` call selects an existing non-empty file as the accepted record. A stale reviewer record is marked `discarded`, clears `open`, and does not advance `latest`; the next `v=next` write creates the next unused version number instead of reusing stale content. The files themselves are durable on disk under `.saivage/outputs/cards/{cardId}/{slot}/`.
 
 ## Crash Recovery
 
