@@ -8,7 +8,7 @@ import {
   CandidateAvailabilityLockedError,
   FsCandidateAvailability,
 } from '../../src/agents/candidate-availability-store.js';
-import type { Candidate } from '../../src/agents/provider.js';
+import type { Candidate } from '../../src/contracts/provider-candidate.js';
 
 const c: Candidate = { provider: 'p', account: 'a', model: 'm' };
 

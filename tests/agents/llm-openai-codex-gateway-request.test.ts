@@ -5,7 +5,7 @@ import type {
   LlmCompleteOptions,
   ToolDefinition,
 } from '../../src/agents/llm-contracts.js';
-import type { Candidate } from '../../src/agents/provider.js';
+import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
 
 const CANDIDATE: Candidate = { provider: 'openai-codex', account: null, model: 'gpt-5' };

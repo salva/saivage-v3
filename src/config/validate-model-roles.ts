@@ -1,6 +1,7 @@
 import type { SaivageConfig } from '../agents/config-api.js';
 import { operationalAgentRoleValues } from '../schemas/index.js';
 import type { OperationalAgentRole } from '../schemas/index.js';
+import { resolveModelListForRole } from './model-role-resolution.js';
 
 export const REQUIRED_ROLES = operationalAgentRoleValues;
 
@@ -9,31 +10,13 @@ export type ValidateModelRolesResult =
   | { ok: false; missingRoles: OperationalAgentRole[]; configuredRoles: Partial<Record<OperationalAgentRole, string[]>> };
 
 export function validateModelRoles(config: SaivageConfig): ValidateModelRolesResult {
-  const models = config.models;
-  const defaultList = Array.isArray(models.default) && models.default.length > 0 ? models.default : null;
-  const profiles = models.profiles ?? {};
-  const routing = models.routing ?? {};
-
   const configuredRoles: Partial<Record<OperationalAgentRole, string[]>> = {};
   const missingRoles: OperationalAgentRole[] = [];
 
   for (const role of REQUIRED_ROLES) {
-    const direct = (models as Record<string, unknown>)[role];
-    if (Array.isArray(direct) && direct.length > 0) {
-      configuredRoles[role] = direct as string[];
-      continue;
-    }
-    const profileName = routing[role];
-    const profile = profileName ? profiles[profileName] : undefined;
-    if (profile) {
-      const merged = [...profile.preferred, ...profile.allowed];
-      if (merged.length > 0) {
-        configuredRoles[role] = merged;
-        continue;
-      }
-    }
-    if (defaultList) {
-      configuredRoles[role] = defaultList;
+    const models = resolveModelListForRole(config, role);
+    if (models) {
+      configuredRoles[role] = models;
       continue;
     }
     missingRoles.push(role);

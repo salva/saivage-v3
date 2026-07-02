@@ -7,10 +7,8 @@ import {
   Provider,
   Account,
   ProviderRegistry,
-  candidateKey,
-  parseCandidateKey,
-  type Candidate,
 } from '../../src/agents/provider.js';
+import { candidateKey, parseCandidateKey, type Candidate } from '../../src/contracts/provider-candidate.js';
 import type { SaivageConfig } from '../../src/agents/config-schema.js';
 
 function mockConfig(overrides: Partial<SaivageConfig> = {}): SaivageConfig {

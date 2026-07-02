@@ -1,5 +1,6 @@
 import { describe, it, expect } from '@jest/globals';
 import { validateModelRoles, REQUIRED_ROLES } from '../../src/config/validate-model-roles.js';
+import { getModelListForRole } from '../../src/agents/config-schema.js';
 import type { SaivageConfig } from '../../src/agents/config-api.js';
 
 function makeConfig(models: Record<string, unknown>): SaivageConfig {
@@ -44,6 +45,25 @@ describe('validateModelRoles', () => {
         analyst: ['gpt-4.1'],
       },
     });
+  });
+
+  it('uses the same precedence as getModelListForRole', () => {
+    const config = makeConfig({
+      default: ['default-model'],
+      planner: ['direct-model'],
+      profiles: { heavy: { preferred: ['profile-preferred'], allowed: ['profile-allowed'] } },
+      routing: { planner: 'heavy', executor: 'heavy' },
+    });
+
+    const res = validateModelRoles(config);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.configuredRoles.planner).toEqual(['direct-model']);
+    expect(getModelListForRole(config, 'planner')).toEqual(['direct-model']);
+    expect(res.configuredRoles.executor).toEqual(['profile-preferred', 'profile-allowed']);
+    expect(getModelListForRole(config, 'executor')).toEqual(['profile-preferred', 'profile-allowed']);
+    expect(res.configuredRoles.reviewer).toEqual(['default-model']);
+    expect(getModelListForRole(config, 'reviewer')).toEqual(['default-model']);
   });
 
   it('treats an empty direct array as unset', () => {

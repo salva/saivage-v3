@@ -2,7 +2,8 @@ import type { AgentMessage } from '../schemas/index.js';
 import type { EventLogger } from '../observability/index.js';
 import type { LlmCompleteOptions, LlmCompleteResult, LlmCallFn, LlmInvocationClient } from './llm-contracts.js';
 import { LlmProviderGateway } from './llm-provider-gateway.js';
-import type { Candidate, ProviderRegistry } from './provider.js';
+import type { Candidate } from '../contracts/provider-candidate.js';
+import type { ProviderRegistry } from './provider.js';
 import { createLlmExchangeRecorder, toRecorderLogger, type LlmExchangeRecorder } from './llm-exchange-recorder.js';
 import { resolveLlmTransportConfig } from './llm-transport.js';
 

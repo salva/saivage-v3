@@ -1,6 +1,7 @@
 import type { SaivageConfig } from './config-schema.js';
 import { getModelListForRole } from './config-schema.js';
-import { ProviderRegistry, type Candidate } from './provider.js';
+import type { Candidate } from '../contracts/provider-candidate.js';
+import { ProviderRegistry } from './provider.js';
 import { type CandidateAvailability, MemoryCandidateAvailability } from './candidate-availability.js';
 import {
   supportsCapabilityRequest,

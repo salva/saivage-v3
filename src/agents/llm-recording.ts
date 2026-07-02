@@ -1,4 +1,4 @@
-import type { Candidate } from './provider.js';
+import type { Candidate } from '../contracts/provider-candidate.js';
 import type { LlmExchangeRecorder } from './llm-exchange-recorder.js';
 import { LlmRequestError } from './llm-errors.js';
 

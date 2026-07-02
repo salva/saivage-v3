@@ -1,4 +1,4 @@
-import type { Candidate } from './provider.js';
+import type { Candidate } from '../contracts/provider-candidate.js';
 import type { ProviderCapabilities } from './config-schema.js';
 
 export type TransportProtocol = NonNullable<ProviderCapabilities['transportProtocol']>;

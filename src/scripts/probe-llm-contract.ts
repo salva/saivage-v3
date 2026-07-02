@@ -10,7 +10,9 @@
 
 import type { SaivageConfig } from '../agents/config-schema.js';
 import { loadEnvironment } from '../config/index.js';
-import { ProviderRegistry, type Candidate, type Provider } from '../agents/provider.js';
+import { resolveModelListForRole } from '../config/model-role-resolution.js';
+import type { Candidate } from '../contracts/provider-candidate.js';
+import { ProviderRegistry, type Provider } from '../agents/provider.js';
 import { LlmProviderGateway } from '../agents/llm-provider-gateway.js';
 import { buildLlmOptions } from '../agents/llm-options-factory.js';
 import { createPlannerContract } from '../contracts/planner-contract.js';
@@ -67,24 +69,6 @@ function buildCandidate(provider: Provider, model: string): { candidate: Candida
   };
 }
 
-function resolveRoleModels(config: SaivageConfig, role: OperationalAgentRole): string[] {
-  const models = config.models as unknown as Record<string, unknown>;
-  const direct = models[role];
-  if (Array.isArray(direct)) return direct as string[];
-  const routing = config.models.routing;
-  const profiles = config.models.profiles;
-  if (routing && profiles) {
-    const profileName = routing[role];
-    if (profileName && profiles[profileName]) {
-      const profile = profiles[profileName];
-      return [...profile.preferred, ...profile.allowed];
-    }
-  }
-  const fallback = models.default;
-  if (Array.isArray(fallback)) return fallback as string[];
-  return [];
-}
-
 function buildOptionsForRole(role: OperationalAgentRole) {
   if (role === 'analyst') {
     return buildLlmOptions(role, [PING_TOOL], [], { temperature: 0, max_tokens: 64 }, undefined, undefined);
@@ -126,7 +110,7 @@ async function probeOne(
   registry: ProviderRegistry,
 ): Promise<ProbeRow> {
   const start = Date.now();
-  const roleModels = resolveRoleModels(config, role);
+  const roleModels = resolveModelListForRole(config, role) ?? [];
   const model = pickModelForRole(provider, roleModels);
   if (!model) {
     return { provider: provider.name, role, status: 'skipped', ms: Date.now() - start, reason: 'no_supported_model' };

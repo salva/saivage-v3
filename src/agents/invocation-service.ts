@@ -1,7 +1,8 @@
 import type { AgentMessage, OperationalAgentRole } from '../schemas/index.js';
 import type { EventLogger } from '../observability/index.js';
 import { buildLlmOptions } from './llm-options-factory.js';
-import type { Candidate, ProviderRegistry } from './provider.js';
+import type { Candidate } from '../contracts/provider-candidate.js';
+import type { ProviderRegistry } from './provider.js';
 import type { ModelRouter } from './model-router.js';
 import {
   type CandidateAvailability,

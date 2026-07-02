@@ -6,32 +6,9 @@
  * `AvailabilityDecision` values that this substrate persists.
  */
 
-import { type Candidate, candidateKey } from './provider.js';
-
-export type CandidateState = 'HEALTHY' | 'BLOCKED_UNTIL' | 'COOLING';
-
-export interface CandidateAvailabilityEntry {
-  candidate: Candidate;
-  state: CandidateState;
-  /** Wall-clock ms when BLOCKED_UNTIL or COOLING expires (0 for HEALTHY). */
-  untilMs: number;
-  reason?: string;
-  updatedAtMs: number;
-}
-
-export interface AvailabilityDecision {
-  state: Exclude<CandidateState, 'HEALTHY'>;
-  untilMs: number;
-  reason?: string;
-}
-
-export interface CandidateAvailability {
-  isAvailable(candidate: Candidate): boolean;
-  markSucceeded(candidate: Candidate): Promise<void>;
-  markFailed(candidate: Candidate, decision: AvailabilityDecision): Promise<void>;
-  getEntry(candidate: Candidate): CandidateAvailabilityEntry | undefined;
-  getAllEntries(): CandidateAvailabilityEntry[];
-}
+import { candidateKey, type Candidate } from '../contracts/provider-candidate.js';
+import type { AvailabilityDecision, CandidateAvailability, CandidateAvailabilityEntry } from '../contracts/candidate-availability.js';
+export type { AvailabilityDecision, CandidateAvailability, CandidateAvailabilityEntry, CandidateState } from '../contracts/candidate-availability.js';
 
 /** In-memory implementation suitable for tests and short-lived processes. */
 export class MemoryCandidateAvailability implements CandidateAvailability {

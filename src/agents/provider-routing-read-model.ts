@@ -1,5 +1,6 @@
 import type { CandidateAvailability } from './candidate-availability.js';
-import type { Candidate, ProviderRegistry } from './provider.js';
+import type { Candidate } from '../contracts/provider-candidate.js';
+import type { ProviderRegistry } from './provider.js';
 
 export interface ProviderRoutingSummary {
   priority: number;

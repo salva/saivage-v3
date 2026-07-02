@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer';
 import type { AgentMessage } from '../schemas/index.js';
-import type { Candidate } from './provider.js';
+import type { Candidate } from '../contracts/provider-candidate.js';
 import type { LlmCompleteOptions, LlmCompleteResult, ToolDefinition } from './llm-contracts.js';
 import { parseToolCallMessage } from '../contracts/persisted-tool-call.js';
 import { LlmRequestError } from './llm-errors.js';

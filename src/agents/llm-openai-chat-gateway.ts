@@ -1,5 +1,5 @@
 import type { AgentMessage } from '../schemas/index.js';
-import type { Candidate } from './provider.js';
+import type { Candidate } from '../contracts/provider-candidate.js';
 import type {
   LlmCompleteOptions,
   LlmCompleteResult,

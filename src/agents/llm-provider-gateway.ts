@@ -1,5 +1,6 @@
 import type { AgentMessage } from '../schemas/index.js';
-import type { Candidate, ProviderRegistry } from './provider.js';
+import type { Candidate } from '../contracts/provider-candidate.js';
+import type { ProviderRegistry } from './provider.js';
 import { capabilityRequestForLlmOptions, supportsCapabilityRequest } from './provider-capabilities.js';
 import type { LlmCompleteOptions, LlmCompleteResult, LlmInvocationClient } from './llm-contracts.js';
 import { LlmRequestError } from './llm-errors.js';

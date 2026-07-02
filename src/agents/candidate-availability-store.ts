@@ -29,7 +29,7 @@ import {
   type CandidateAvailabilityEntry,
   MemoryCandidateAvailability,
 } from './candidate-availability.js';
-import { type Candidate, candidateKey } from './provider.js';
+import { candidateKey, type Candidate } from '../contracts/provider-candidate.js';
 
 export class CandidateAvailabilityLockedError extends Error {
   readonly holderPid: number | null;

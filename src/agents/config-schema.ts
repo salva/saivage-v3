@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { resolveModelListForRole } from '../config/model-role-resolution.js';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -253,29 +254,8 @@ export function getModelListForRole(
   config: SaivageConfig,
   role: string,
 ): string[] {
-  // First try direct model list
-  const models = config.models;
-  const direct = (models as Record<string, unknown>)[role];
-  if (Array.isArray(direct)) {
-    return direct as string[];
-  }
-
-  // Check routing profiles
-  if (models.routing && models.profiles) {
-    const profileName = models.routing[role];
-    if (profileName) {
-      const profile = models.profiles[profileName];
-      if (profile) {
-        return [...profile.preferred, ...profile.allowed];
-      }
-    }
-  }
-
-  // Fallback to default
-  const fallback = models.default;
-  if (Array.isArray(fallback)) {
-    return fallback;
-  }
+  const resolved = resolveModelListForRole(config, role);
+  if (resolved) return resolved;
 
   throw new Error(`No model list configured for role '${role}' and no default.`);
 }

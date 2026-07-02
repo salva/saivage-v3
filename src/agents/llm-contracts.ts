@@ -1,5 +1,5 @@
 import type { AgentMessage } from '../schemas/index.js';
-import type { Candidate } from './provider.js';
+import type { Candidate } from '../contracts/provider-candidate.js';
 import type { LlmExchangeRecorder } from './llm-exchange-recorder.js';
 import type { CapabilityRequest } from './provider-capabilities.js';
 
