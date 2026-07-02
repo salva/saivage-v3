@@ -255,15 +255,21 @@ Config, events, and modules for features that were never built and are not in th
 
     **Deployment blocker:** as of 2026-07-02, checked-in and local target-project configs (`diedrico`, `diedrico-lessons`, `getrich`, `getrich-v2`, `pm`, `pueblicos`, `saivage-e2e-checkers`) still contain a top-level `supervisor` key. The schema is strict, so removing the key will reject these configs on startup. This cleanup must either update all deployed `.saivage/saivage.json` files in the same change, or the cleanup must be sequenced after confirming no running deployment reads the old key.
 
+    Status: completed in the Stage 2 config cleanup slice; listed local target-project configs were updated in the same change.
+
 3. **Split runtime config cleanup into persisted fields vs transform-only defaults.**
 
    The persisted `runtime` schema currently accepts only a small set of fields, including live `candidateAvailabilityCompactBytes` (read at `src/application/runtime-composition.ts:71`). `recoveryDelayMs` and `maxRecoveryRetries` are transform-added runtime defaults, not persisted `runtime.*` config fields, and are live (read at `src/application/runtime-composition.ts:89-90`). Clean cut: remove unused transform-only defaults separately from auditing persisted runtime fields. `maxGoalDepth` remains misleading if still accepted anywhere while `CardStore` hardcodes `5`; either thread it or delete it.
+
+   Status: completed in the Stage 2 config cleanup slice; persisted runtime config now exposes only persisted fields, and invocation recovery uses `InvocationService` defaults.
 
  4. **Remove dead config catchalls.**
 
     `rag: z.unknown().optional()` and `notifications.filters` are accepted by the schema but never read.
 
     **Deployment blocker:** as of 2026-07-02, several deployed configs contain `rag` (`diedrico`, `diedrico-lessons`, `getrich`, `pm`) and `notifications.filters` (`pm`). Same caveat as B.2 applies.
+
+    Status: completed in the Stage 2 config cleanup slice; listed local target-project configs were updated in the same change.
 
 ### C. Dead Event And Schema Surface `[DELETE-OLD-REMNANT]`
 
@@ -534,8 +540,8 @@ Goal: remove config/events/schemas for features that were never built or were re
 Tasks (backlog groups B and C):
 
 1. Completed: delete `ContentSupervisor` module/export; remove supervision route/storage/UI only if intentionally deleting the whole supervision concept.
-2. Remove unwired `supervisor` config section and split runtime config cleanup into persisted fields vs transform-only defaults. **Blocked:** deployed configs still contain the key (see B.2 caveat).
-3. Remove dead config catchalls (`rag`, `notifications.filters`). **Blocked:** deployed configs still contain these keys (see B.4 caveat).
+2. Completed: remove unwired `supervisor` config section and split runtime config cleanup into persisted fields vs transform-only defaults.
+3. Completed: remove dead config catchalls (`rag`, `notifications.filters`).
 4. Completed: remove unwired event kinds from the catalog (all confirmed old-remnant).
 5. Completed: delete remaining 5 hand-written per-event schemas (C.2).
 6. Completed: remove dead `runtime_activation` redaction allowlist (C.3).
@@ -611,8 +617,6 @@ Validation:
 
 ## Recommended Next Action
 
-Stage 0 (notification fix) and Stage 1 (dead subsystem deletion) are complete. Stage 2 code cleanup is complete. The remaining Stage 2 work is blocked config cleanup:
+Stage 0 (notification fix), Stage 1 (dead subsystem deletion), and Stage 2 (never-implemented scaffolding and dead event/config surface) are complete.
 
-1. Config cleanup (B.2–B.4) — blocked by deployed configs containing the keys; requires either updating those configs or confirming no running deployment depends on them.
-
-After Stage 2, proceed to Stage 3 (config/provider/persistence deduplication) and Stage 4 (web/actor/tool-surface cleanup) in small, separately validated slices.
+Proceed to Stage 3 (config/provider/persistence deduplication), then Stage 4 (web/actor/tool-surface cleanup) in small, separately validated slices.

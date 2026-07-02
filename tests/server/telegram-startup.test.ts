@@ -17,7 +17,6 @@ function makeRoot(config: Record<string, unknown>): string {
     models: { default: ['test-model'] },
     providers: { test: { models: ['test-model'], apiKey: 'test-key', baseUrl: 'http://test-provider.invalid/v1' } },
     runtime: {},
-    supervisor: { enabled: false, intervalMs: 60000, consecutiveStuckVerdicts: 3, logLines: 10 },
     server: { host: '127.0.0.1', port: 18080 },
     ...config,
   }, null, 2));

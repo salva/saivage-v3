@@ -145,8 +145,7 @@ describe('config-schema', () => {
       const { config } = loadConfig(TEST_ROOT);
       expect(config.server.port).toBe(8080);
       expect(config.server.host).toBe('0.0.0.0');
-      expect(config.runtime.recoveryDelayMs).toBe(60000);
-      expect(config.runtime.maxGoalDepth).toBe(5);
+      expect(config.runtime.candidateAvailabilityCompactBytes).toBe(262144);
       expect(config.security.injectionScanner).toBe(true);
     });
 
@@ -181,7 +180,6 @@ describe('config-schema', () => {
           process_timeouts: { planner_ms: 1000, executor_ms: 2000, reviewer_ms: 3000 },
         },
         security: { injectionScanner: false },
-        supervisor: { enabled: false },
         telegram: { botToken: 'token123', allowedUserIds: [123] },
         notifications: { channels: ['telegram', 'web'] },
         mcpServers: {
@@ -201,7 +199,6 @@ describe('config-schema', () => {
       expect(config.runtime.maxReviewRetries).toBe(4);
       expect(config.runtime.processTimeouts).toEqual({ plannerMs: 1000, executorMs: 2000, reviewerMs: 3000 });
       expect(config.security.injectionScanner).toBe(false);
-      expect(config.supervisor?.enabled).toBe(false);
       expect(config.telegram?.botToken).toBe('token123');
       expect(config.notifications?.channels).toEqual(['telegram', 'web']);
       expect(config.mcpServers?.test_server?.transport).toBe('stdio');
@@ -354,8 +351,7 @@ describe('config-schema', () => {
       expect(rt.continuousImprovement).toBe(false);
       expect(rt.maxReviewRetries).toBe(3);
       expect(rt.processTimeouts).toEqual({ plannerMs: 1200000, executorMs: 1200000, reviewerMs: 1200000 });
-      expect(rt.recoveryDelayMs).toBe(60000);
-      expect(rt.maxRecoveryRetries).toBe(3);
+      expect(rt.candidateAvailabilityCompactBytes).toBe(262144);
     });
   });
 });
@@ -423,38 +419,27 @@ describe('telegram notification recipient config', () => {
 
 
 describe('notification config strict enums', () => {
-  it('accepts allowed notification channels, router severities, open categories, and default omission', () => {
+  it('accepts allowed notification channels and default omission', () => {
     expect(saivageConfigSchema.safeParse({ models: { default: ['test'] } }).success).toBe(true);
 
     for (const channels of [['web'], ['telegram', 'web']] as const) {
       const result = saivageConfigSchema.safeParse({
         models: { default: ['test'] },
-        notifications: {
-          channels,
-          filters: { min_severity: 'critical', categories: ['custom_category', 'goal_completed'] },
-        },
+        notifications: { channels },
       });
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.data.notifications?.channels).toEqual([...channels]);
-        expect(result.data.notifications?.filters?.categories).toEqual(['custom_category', 'goal_completed']);
       }
-    }
-
-    for (const minSeverity of ['info', 'warning', 'error', 'critical'] as const) {
-      expect(saivageConfigSchema.safeParse({
-        models: { default: ['test'] },
-        notifications: { channels: ['web'], filters: { min_severity: minSeverity } },
-      }).success).toBe(true);
     }
   });
 
-  it('rejects invalid notification channels and router severities at parse time with path-oriented safe errors', () => {
+  it('rejects invalid notification channels and removed filters at parse time with path-oriented safe errors', () => {
     for (const channel of ['email', 'telegrm', 'WEB', 123] as const) {
       const result = saivageConfigSchema.safeParse({
         models: { default: ['test'] },
         telegram: { botToken: '123456:TEST_TOKEN', notificationChatIds: [111111] },
-        notifications: { channels: [channel], filters: { min_severity: 'info' } },
+        notifications: { channels: [channel] },
       });
       expect(result.success).toBe(false);
       if (!result.success) {
@@ -465,16 +450,15 @@ describe('notification config strict enums', () => {
       }
     }
 
-    for (const minSeverity of ['warn', 'block', 'fatal', 'WARNING'] as const) {
-      const result = saivageConfigSchema.safeParse({
-        models: { default: ['test'] },
-        notifications: { channels: ['web'], filters: { min_severity: minSeverity } },
-      });
-      expect(result.success).toBe(false);
-      if (!result.success) {
-        const text = result.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('\n');
-        expect(text).toContain('notifications.filters.min_severity');
-      }
+    const filtersResult = saivageConfigSchema.safeParse({
+      models: { default: ['test'] },
+      notifications: { channels: ['web'], filters: { min_severity: 'warning' } },
+    });
+    expect(filtersResult.success).toBe(false);
+    if (!filtersResult.success) {
+      const text = filtersResult.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('\n');
+      expect(text).toContain('notifications');
+      expect(text).toContain('filters');
     }
   });
 
@@ -486,7 +470,7 @@ describe('notification config strict enums', () => {
         allowedUserIds: [9001],
         notificationChatIds: [111111, -222222],
       },
-      notifications: { channels: ['telegram'], filters: { min_severity: 'warning' } },
+      notifications: { channels: ['telegram'] },
     });
 
     expect(result.success).toBe(true);

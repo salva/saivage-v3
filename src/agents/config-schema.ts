@@ -132,20 +132,6 @@ export const runtimeSectionSchema = z.object({
     reviewerMs: runtime.process_timeouts.reviewer_ms,
   },
   candidateAvailabilityCompactBytes: runtime.candidate_availability_compact_bytes,
-  // Operational defaults retained for existing invocation recovery/self-check code.
-  // These are intentionally not accepted from persisted runtime config; §13 is
-  // authoritative for the operator-facing on-disk runtime section.
-  recoverAgentInvocations: true,
-  healthCheckIntervalMs: 30000,
-  idleShutdownMs: 300000,
-  maxGoalDepth: 5,
-  recoveryDelayMs: 60000,
-  autoDispatchBacklog: true,
-  compactionThreshold: 0.8,
-  maxCompactions: 3,
-  compactionTimeoutMs: 1200000,
-  compactionKeepFraction: 0.2,
-  maxRecoveryRetries: 3,
 }));
 
 // Security section
@@ -153,15 +139,6 @@ const securitySectionSchema = z.object({
   injectionScanner: z.boolean().default(true),
   injectionModel: z.string().optional(),
   maxScanLengthBytes: z.number().int().positive().default(102400),
-});
-
-// Supervisor section
-const supervisorSectionSchema = z.object({
-  enabled: z.boolean().default(false),
-  model: z.string().optional(),
-  intervalMs: z.number().int().positive().default(1200000),
-  consecutiveStuckVerdicts: z.number().int().positive().default(3),
-  logLines: z.number().int().positive().default(400),
 });
 
 // Telegram section
@@ -173,17 +150,10 @@ const telegramSectionSchema = z.object({
 
 // Notifications section
 export const notificationChannelSchema = z.enum(['web', 'telegram']);
-export const notificationSeveritySchema = z.enum(['info', 'warning', 'error', 'critical']);
 
 const notificationsSectionSchema = z.object({
   channels: z.array(notificationChannelSchema).default(['web']),
-  filters: z
-    .object({
-      min_severity: notificationSeveritySchema.default('info'),
-      categories: z.array(z.string()).optional(),
-    })
-    .optional(),
-});
+}).strict();
 
 // MCP Server entry
 const mcpServerEntrySchema = z.object({
@@ -204,11 +174,9 @@ export const saivageConfigSchema = z.object({
   server: serverSectionSchema.default({}),
   runtime: runtimeSectionSchema.default({}),
   security: securitySectionSchema.default({}),
-  supervisor: supervisorSectionSchema.default({}),
   telegram: telegramSectionSchema.optional(),
   notifications: notificationsSectionSchema.optional(),
   mcpServers: z.record(z.string(), mcpServerEntrySchema).optional(),
-  rag: z.unknown().optional(),
 }).strict();
 
 // ── Derived Types ─────────────────────────────────────────────
@@ -222,7 +190,6 @@ export type ProviderCapabilities = z.infer<typeof providerCapabilitySchema>;
 export type RuntimeSection = z.infer<typeof runtimeSectionSchema>;
 export type ModelsSection = z.infer<typeof modelsSectionSchema>;
 export type NotificationChannelConfig = z.infer<typeof notificationChannelSchema>;
-export type NotificationSeverityConfig = z.infer<typeof notificationSeveritySchema>;
 
 // ── Token Endpoint Resolution ─────────────────────────────────
 

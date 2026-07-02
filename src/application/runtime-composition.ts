@@ -86,8 +86,6 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     router,
     eventLogger,
     candidateAvailability,
-    recoveryDelayMs: config.runtime.recoveryDelayMs,
-    maxRecoveryRetries: config.runtime.maxRecoveryRetries,
   });
 
   const runtimeFactory = services.runtimeApiFactory ?? createMicroActorRuntimeApi;

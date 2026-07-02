@@ -67,4 +67,15 @@ describe('loadEnvironment', () => {
       expect(String((err as Error).message)).not.toContain('super-secret-value');
     }
   });
+
+  it('fails closed on removed config keys', () => {
+    for (const removed of [
+      { supervisor: { enabled: false } },
+      { rag: {} },
+      { notifications: { channels: ['web'], filters: { min_severity: 'warning' } } },
+    ]) {
+      const root = makeProject({ models: { default: ['test-model'] }, ...removed });
+      expect(() => loadEnvironment(['node', 'saivage', 'start'], { SAIVAGE_PROJECT_ROOT: root })).toThrow(/Configuration validation failed/);
+    }
+  });
 });
