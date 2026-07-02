@@ -2,7 +2,7 @@ import type { ActorDefinition } from '../micro-actor/index.js';
 import type { CardRecord, CardStatus, DoneResult } from '../../schemas/index.js';
 import type { LLMActorOutcome, LLMAdmissionPort, LLMProviderPort } from './llm-actor.js';
 import { plannerActorId, reviewerActorId } from './ids.js';
-import type { CardActivationInput, CardActivationOutcome, CardActor, CardActorStorePort, CardProcessorActor } from './card-actor.js';
+import type { CardActivationInput, CardActivationOutcome, CardActor, CardActorStorePort, CardNotification, CardProcessorActor } from './card-actor.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
 import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
 import { createPlannerContract, type PlannerTypedResult } from '../../contracts/planner-contract.js';
@@ -48,13 +48,15 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
 
   readonly store: CardActorStorePort;
   readonly children: PlannerChildActorPort;
+  readonly notifyCard?: (cardId: string, notification: CardNotification) => void;
 
   private readonly mcpManagerProvider: () => McpToolInvocationPort | undefined;
 
-  constructor(args: { projectRoot: string; cardId: string; store: CardActorStorePort; children: PlannerChildActorPort; provider: LLMProviderPort; admission?: LLMAdmissionPort; mcpManagerProvider?: () => McpToolInvocationPort | undefined }) {
+  constructor(args: { projectRoot: string; cardId: string; store: CardActorStorePort; children: PlannerChildActorPort; provider: LLMProviderPort; admission?: LLMAdmissionPort; notifyCard?: (cardId: string, notification: CardNotification) => void; mcpManagerProvider?: () => McpToolInvocationPort | undefined }) {
     super(args);
     this.store = args.store;
     this.children = args.children;
+    this.notifyCard = args.notifyCard;
     this.mcpManagerProvider = args.mcpManagerProvider ?? (() => undefined);
   }
 
@@ -156,7 +158,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
 
   private plannerInvocationSurface(parentCardId: string) {
     return buildInvocationSurface('planner', [
-      createPlannerControlProvider({ projectRoot: this.projectRoot, parentCardId, sessionId: plannerActorId(parentCardId), store: this.store, children: this.children }),
+      createPlannerControlProvider({ projectRoot: this.projectRoot, parentCardId, sessionId: plannerActorId(parentCardId), store: this.store, children: this.children, notifyCard: this.notifyCard }),
       createCardInspectionProvider({ projectRoot: this.projectRoot, store: this.store, agentRole: 'planner' }),
       createWorkspaceProvider({ projectRoot: this.projectRoot, cardId: parentCardId, agentRole: 'planner' }),
       createCardHistoryProvider({ projectRoot: this.projectRoot, sessionId: plannerActorId(parentCardId), agentRole: 'planner' }),

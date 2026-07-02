@@ -395,7 +395,7 @@ describe('Analyst Tools', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('edit_card is not available to the Analyst');
-    expect(getProjectNotificationCenter(projectRoot).drainPendingForSession('executor-session')).toEqual([]);
+    expect(getProjectNotificationCenter(projectRoot).queueLengthForSession('executor-session')).toBe(0);
   });
 
   it('rejects analyst lifecycle/status edits through unavailable edit_card', async () => {

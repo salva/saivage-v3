@@ -18,7 +18,7 @@ export async function queue_notification(ctx: ToolContext, params: { recipient: 
   return runAuditedAnalystTool(ctx, { recipient: params.recipient, kind: params.kind }, { action: 'notification.queue', safety_class: 'low', target_kind: 'session', getTargetId: () => params.recipient, run: async () => {
     const resolved = resolveRecipient(ctx.projectRoot, ctx.store, params.recipient);
     if (resolved === null) return { ...toolFailure('not_found', `Unknown notification recipient '${params.recipient}'.`, { reason: 'unknown_recipient', recipient: params.recipient }), data: { reason: 'unknown_recipient', recipient: params.recipient } };
-    queueNotification(ctx.projectRoot, resolved, params.kind, params.body, { actor: 'analyst', surface: ctx.surface }, ctx.store);
+    queueNotification(ctx.projectRoot, resolved, params.kind, params.body, { actor: 'analyst', surface: ctx.surface }, ctx.store, ctx.runtime?.notifyCard);
     return { success: true, data: { queued: true, recipient: params.recipient } };
   } });
 }

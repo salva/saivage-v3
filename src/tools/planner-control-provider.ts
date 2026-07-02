@@ -5,6 +5,7 @@ import type { ReorderChildrenResult } from '../cards/card-store.js';
 import { queueNotification, resolveRecipient } from '../notifications/index.js';
 import { recordControlAction, stableStringify } from '../persistence/control-action-audit.js';
 import { cardTypeValues, urgencyValues, type CardRecord, type CardType, type Urgency } from '../schemas/index.js';
+import type { CardNotification } from '../runtime/actors/card-actor.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
 
 interface PlannerChildActor {
@@ -26,6 +27,7 @@ export interface PlannerControlProviderContext {
   readonly sessionId: string;
   readonly store: PlannerControlStore;
   readonly children: { get(cardId: string): PlannerChildActor | null };
+  readonly notifyCard?: (cardId: string, notification: CardNotification) => void;
 }
 
 const createCardSchema = z.object({
@@ -130,7 +132,7 @@ function reorderChild(ctx: PlannerControlProviderContext, record: z.infer<typeof
 function queueNotificationTool(ctx: PlannerControlProviderContext, record: z.infer<typeof queueNotificationSchema>): ToolResult {
   const recipient = resolveRecipient(ctx.projectRoot, ctx.store as CardStore, record.recipient);
   if (recipient === null) return { success: false, error: `Unknown notification recipient '${record.recipient}'.` };
-  queueNotification(ctx.projectRoot, recipient, record.kind, record.body, { actor: 'planner', surface: 'runtime' }, ctx.store as CardStore);
+  queueNotification(ctx.projectRoot, recipient, record.kind, record.body, { actor: 'planner', surface: 'runtime' }, ctx.store as CardStore, ctx.notifyCard);
   const targetId = recipient.kind === 'card' ? recipient.cardId : recipient.kind === 'role' ? recipient.role : recipient.sessionId;
   recordControlAction(ctx.projectRoot, {
     actor: 'planner',

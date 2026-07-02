@@ -2,6 +2,7 @@ import { createNotificationDeliveryService } from './notification-delivery.js';
 import type { CardStore } from '../cards/store-api.js';
 import type { AgentRole, ControlActionSurface, NoteAuthor } from '../schemas/index.js';
 import { readActorSnapshots } from '../runtime/actors/snapshots.js';
+import type { CardNotification } from '../runtime/actors/card-actor.js';
 
 interface ActiveSession {
   id: string;
@@ -82,6 +83,22 @@ function resolveSessionIds(projectRoot: string, recipient: Recipient, store?: Ca
   return findAffectedActiveSessionsForCard(projectRoot, store, recipient.cardId).map((target) => target.sessionId);
 }
 
+function resolveRecipientCardIds(projectRoot: string, recipient: Recipient): string[] {
+  if (recipient.kind === 'card') return [recipient.cardId];
+  if (recipient.kind === 'session') return parseAgentSessionId(recipient.sessionId).flatMap((session) => session.card_id ? [session.card_id] : []);
+  return getActiveSessions(projectRoot).filter((session) => session.role === recipient.role).flatMap((session) => session.card_id ? [session.card_id] : []);
+}
+
+function buildCardNotification(kind: string, body: string): CardNotification {
+  const createdAt = new Date().toISOString();
+  return {
+    id: `notify:${kind}:${createdAt}:${Math.random().toString(36).slice(2, 8)}`,
+    message: body,
+    created_at: createdAt,
+    reason: kind,
+  };
+}
+
 export function resolveRecipient(projectRoot: string, store: CardStore, recipientLiteral: string): Recipient | null {
   const literal = recipientLiteral.trim();
   if (!literal) return null;
@@ -99,7 +116,12 @@ export function queueNotification(
   body: string,
   source: NotificationSourceMeta,
   store?: CardStore,
+  notifyCard?: (cardId: string, notification: CardNotification) => void,
 ): void {
+  const notification = buildCardNotification(kind, body);
+  if (notifyCard) {
+    for (const cardId of resolveRecipientCardIds(projectRoot, recipient)) notifyCard(cardId, notification);
+  }
   const delivery = createNotificationDeliveryService(projectRoot);
   const queued_at = new Date().toISOString();
   for (const sessionId of resolveSessionIds(projectRoot, recipient, store)) {

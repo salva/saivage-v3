@@ -41,7 +41,7 @@ export interface ToolContext {
   projectRoot: string;
   store: CardStore;
   sessionId?: string;
-  runtime?: Pick<RuntimeApi, 'startProject' | 'stopProject' | 'pause' | 'resume' | 'getStatus'>;
+  runtime?: Pick<RuntimeApi, 'startProject' | 'stopProject' | 'pause' | 'resume' | 'notifyCard' | 'getStatus'>;
   mcpManager?: McpManager;
   requestServerRestart?: () => Promise<void>;
   actor: ActorRole;

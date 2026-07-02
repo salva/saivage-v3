@@ -224,7 +224,6 @@ function extractImplementedAgentTools(projectRoot) {
   const toolDefinitions = [
     'src/tools/analyst-tool-registry.ts',
     'src/tools/analyst-card-tools.ts',
-    'src/tools/analyst-subtree-tools.ts',
     'src/tools/analyst-runtime-tools.ts',
     'src/tools/analyst-workspace-tools.ts',
     'src/tools/analyst-misc-tools.ts',

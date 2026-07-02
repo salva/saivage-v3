@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -6,11 +6,7 @@ import { tmpdir } from 'node:os';
 import { CardStore } from '../../src/cards/card-store.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { propagateChange } from '../../src/runtime/changed-propagation.js';
-import { peekSyntheticPlannerNotes } from '../../src/runtime/synthetic-planner-notes.js';
-import { clearActiveGoalNoteSinks, getActiveGoalNoteSinks } from '../../src/runtime/actors/index.js';
-import { appendConversationMessage, buildContextTextMessage } from '../../src/runtime/actors/conversation-store.js';
 import type { CardRecord, CardStatus } from '../../src/schemas/index.js';
-import type { GoalNote } from '../../src/runtime/actors/index.js';
 import type { NewCardInput } from '../../src/cards/lifecycle.js';
 
 function makeCard(overrides: Partial<NewCardInput> & { id: string; type: NewCardInput['type']; parent: string | null; depth: number; title: string }): NewCardInput & { id: string } {
@@ -70,10 +66,6 @@ function setStatus(store: CardStore, id: string, status: CardStatus): void {
   if (status !== 'running') store.setStatus(id, status);
 }
 
-function createPlannerConversation(projectRoot: string, goalId: string): void {
-  appendConversationMessage(projectRoot, buildContextTextMessage(`planner:${goalId}`, 'system', `planner ${goalId}`));
-}
-
 describe('changed propagation', () => {
   let projectRoot: string;
   let store: CardStore;
@@ -92,80 +84,55 @@ describe('changed propagation', () => {
     goalBId = store.create(makeCard({ id: 'goal-b', type: 'goal', parent: goalAId, depth: 2, title: 'B' })).id;
     cardCId = store.create(makeCard({ id: 'card-c', type: 'code', parent: goalBId, depth: 3, title: 'C' })).id;
     siblingId = store.create(makeCard({ id: 'sibling', type: 'code', parent: goalBId, depth: 3, title: 'Sibling' })).id;
-    createPlannerConversation(projectRoot, projectId);
-    createPlannerConversation(projectRoot, goalAId);
-    createPlannerConversation(projectRoot, goalBId);
   });
 
   afterEach(() => {
-    clearActiveGoalNoteSinks(projectRoot);
     rmSync(projectRoot, { recursive: true, force: true });
   });
 
-  it('walks nearest-first, stops flipping at running, fans out to the full planner chain, and records previous_status', () => {
+  it('walks nearest-first, stops flipping at running, and notifies edited card plus running ancestor', () => {
     setStatus(store, projectId, 'done');
     setStatus(store, goalAId, 'running');
     setStatus(store, goalBId, 'done');
     setStatus(store, cardCId, 'done');
     setStatus(store, siblingId, 'done');
 
-    const result = propagateChange(projectRoot, store, cardCId, { kind: 'analyst_edit', summary: 'analyst edit' });
+    const notifyCard = jest.fn();
+    const result = propagateChange(projectRoot, store, cardCId, { kind: 'analyst_edit', summary: 'analyst edit' }, notifyCard);
 
     expect(result.flipped).toEqual([
       { card_id: cardCId, previous_status: 'done' },
       { card_id: goalBId, previous_status: 'done' },
     ]);
-    expect(result.stopped_at_running).toBe(goalAId);
     expect(store.read(cardCId)?.status).toBe('changed');
     expect(store.read(goalBId)?.status).toBe('changed');
     expect(store.read(goalAId)?.status).toBe('running');
     expect(store.read(projectId)?.status).toBe('done');
     expect(store.read(siblingId)?.status).toBe('done');
-    expect(result.notified_planner_session_ids).toEqual([`planner:${goalBId}`, `planner:${goalAId}`, `planner:${projectId}`]);
-    expect(peekSyntheticPlannerNotes(projectRoot, `planner:${goalBId}`)).toEqual([
-      expect.objectContaining({ kind: 'subtree_changed', affected_card_id: cardCId, previous_status: 'done' }),
-    ]);
-    expect(peekSyntheticPlannerNotes(projectRoot, `planner:${goalAId}`)).toEqual([
-      expect.objectContaining({ kind: 'subtree_changed', affected_card_id: cardCId, previous_status: 'running' }),
-    ]);
-    expect(peekSyntheticPlannerNotes(projectRoot, `planner:${projectId}`)).toEqual([
-      expect.objectContaining({ kind: 'subtree_changed', affected_card_id: cardCId, previous_status: 'done' }),
-    ]);
+    expect(notifyCard).toHaveBeenCalledTimes(2);
+    expect(notifyCard).toHaveBeenCalledWith(cardCId, expect.objectContaining({ message: 'Card changed: analyst edit', reason: 'card_changed' }));
+    expect(notifyCard).toHaveBeenCalledWith(goalAId, expect.objectContaining({ message: 'Card changed: analyst edit', reason: 'card_changed' }));
   });
 
-  it('queues an analyst_note and pending_subtree_correction for own-goal analyst corrections', () => {
+  it('notifies own-goal analyst corrections and records status transition', () => {
     setStatus(store, goalBId, 'done');
 
-    const result = propagateChange(projectRoot, store, goalBId, { kind: 'analyst_correction', issues: [{ summary: 'needs fix' }], note: 'operator note' });
+    const notifyCard = jest.fn();
+    const result = propagateChange(projectRoot, store, goalBId, { kind: 'analyst_correction', issues: [{ summary: 'needs fix' }], note: 'operator note' }, notifyCard);
 
     expect(result.flipped).toEqual([{ card_id: goalBId, previous_status: 'done' }]);
-    expect(peekSyntheticPlannerNotes(projectRoot, `planner:${goalBId}`)).toEqual([
-      expect.objectContaining({ kind: 'analyst_note', affected_card_id: goalBId, previous_status: 'done' }),
-      expect.objectContaining({ kind: 'pending_subtree_correction', affected_card_id: goalBId, previous_status: 'done' }),
-    ]);
+    expect(notifyCard).toHaveBeenCalledTimes(1);
+    expect(notifyCard).toHaveBeenCalledWith(goalBId, expect.objectContaining({ message: 'Card changed: needs fix operator note', reason: 'analyst_correction' }));
   });
 
-  it('delivers changed notes to active actor goal note sink before synthetic fallback', () => {
-    const deliveredNotes: GoalNote[] = [];
-    getActiveGoalNoteSinks(projectRoot).register(goalBId, { addNote: (note) => deliveredNotes.push(note) });
+  it('deduplicates notifications when the edited card is the first running card', () => {
     setStatus(store, goalBId, 'running');
-    setStatus(store, cardCId, 'done');
 
-    const result = propagateChange(projectRoot, store, cardCId, { kind: 'analyst_edit', summary: 'analyst edited code' });
+    const notifyCard = jest.fn();
+    const result = propagateChange(projectRoot, store, goalBId, { kind: 'analyst_edit', summary: 'analyst edited goal' }, notifyCard);
 
-    expect(result.notified_planner_session_ids).toContain(`planner:${goalBId}`);
-    expect(deliveredNotes).toEqual([
-      expect.objectContaining({ id: expect.stringContaining(`subtree_changed:${goalBId}:${cardCId}`) }),
-    ]);
-    expect(JSON.parse(deliveredNotes[0]!.content)).toMatchObject({
-      kind: 'subtree_changed',
-      affected_card_id: cardCId,
-      summary: 'analyst edited code',
-      previous_status: 'running',
-    });
-    expect(peekSyntheticPlannerNotes(projectRoot, `planner:${goalBId}`)).toEqual([]);
-    expect(peekSyntheticPlannerNotes(projectRoot, `planner:${goalAId}`)).toEqual([
-      expect.objectContaining({ kind: 'subtree_changed', affected_card_id: cardCId }),
-    ]);
+    expect(result.flipped).toEqual([]);
+    expect(notifyCard).toHaveBeenCalledTimes(1);
+    expect(notifyCard).toHaveBeenCalledWith(goalBId, expect.objectContaining({ message: 'Card changed: analyst edited goal' }));
   });
 });

@@ -2,20 +2,21 @@ import { EventBus } from '../../events/index.js';
 import { createActionableErrorEnvelope } from '../../schemas/index.js';
 import { PROJECT_CARD_ID } from '../../cards/project-card.js';
 import { buildActorRecoveryPlan, runActorStartupRecovery, type ActorStartupRecoveryReport } from './actor-recovery.js';
-import { plannerActorId } from './ids.js';
+import { cardActorId, plannerActorId, parseLlmActorId } from './ids.js';
 import { RuntimeSupervisorActor } from './runtime-supervisor.js';
 import { CardActor, type CardActivationOutcome, type CardActorStorePort } from './card-actor.js';
 import { PlanningCardProcessorActor, type PlannerChildActorPort } from './planning-card-processor-actor.js';
 import { TerminalCardProcessorActor } from './terminal-card-processor-actor.js';
 import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
 import { toPublicAgentPhase, toPublicCardActorState } from './actor-vocabulary.js';
-import { parseLlmActorId } from './ids.js';
+import { appendNotificationToActorSnapshot } from './snapshots.js';
 import type { LLMProviderPort } from './llm-actor.js';
 import type { RuntimeApi, RuntimeCommandSource, StartProjectResult, StopProjectResult } from '../runtime-api.js';
 import type { CardRecord, RuntimeCommandRecord, RuntimeRunRecord, RuntimeState, RuntimeStatus } from '../../schemas/index.js';
 import type { Subscription, SubscriptionOptions } from '../../events/index.js';
 import type { ActorActiveWork, ActorPauseMode, ActorRuntimeReadModel } from '../../application/read-models/actor-runtime-read-model.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
+import type { CardNotification } from './card-actor.js';
 
 export interface ProjectRootCardReader {
   read(cardId: string): { id: string; type: string } | null;
@@ -55,7 +56,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       projectRoot: this.options.projectRoot,
       store: this.options.actorStore,
       generatedAt: this.now(),
-      makePlanningProcessor: (cardId) => new PlanningCardProcessorActor({ projectRoot: this.options.projectRoot, cardId, store: this.options.actorStore, children: this.childrenPort(), provider: this.options.provider, admission: this, mcpManagerProvider: this.options.mcpManagerProvider }),
+      makePlanningProcessor: (cardId) => new PlanningCardProcessorActor({ projectRoot: this.options.projectRoot, cardId, store: this.options.actorStore, children: this.childrenPort(), provider: this.options.provider, admission: this, notifyCard: (targetCardId, notification) => this.notifyCard(targetCardId, notification), mcpManagerProvider: this.options.mcpManagerProvider }),
       makeTerminalProcessor: (cardId) => new TerminalCardProcessorActor({ projectRoot: this.options.projectRoot, cardId, provider: this.options.provider, admission: this, store: this.options.actorStore, mcpManagerProvider: this.options.mcpManagerProvider }),
     });
     this.supervisor.start();
@@ -85,6 +86,18 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     if (!this.started) return;
     if (!this.currentCardId) return;
     this.supervisor.run();
+  }
+
+  notifyCard(cardId: string, notification: CardNotification): void {
+    const actor = this.cardActors.get(cardId);
+    if (actor) {
+      actor.enqueueNotification(notification);
+      return;
+    }
+    const card = this.options.actorStore.read(cardId);
+    if (!card) throw new Error(`Cannot notify missing card '${cardId}'.`);
+    appendNotificationToActorSnapshot(this.options.projectRoot, cardActorId(cardId), notification);
+    if (card.status === 'done' || card.status === 'failed') this.options.actorStore.setStatus(cardId, 'changed');
   }
 
   async startProject(source: RuntimeCommandSource = 'operator'): Promise<StartProjectResult> {
@@ -286,12 +299,12 @@ export class SupervisorRuntimeApi implements RuntimeApi {
 
   private processorFor(card: CardRecord) {
     if (card.type === 'project') {
-      const processor = new PlanningCardProcessorActor({ projectRoot: this.options.projectRoot, cardId: card.id, store: this.options.actorStore, children: this.childrenPort(), provider: this.options.provider, admission: this, mcpManagerProvider: this.options.mcpManagerProvider });
+      const processor = new PlanningCardProcessorActor({ projectRoot: this.options.projectRoot, cardId: card.id, store: this.options.actorStore, children: this.childrenPort(), provider: this.options.provider, admission: this, notifyCard: (targetCardId, notification) => this.notifyCard(targetCardId, notification), mcpManagerProvider: this.options.mcpManagerProvider });
       processor.start();
       return processor;
     }
     if (card.type === 'goal') {
-      const processor = new PlanningCardProcessorActor({ projectRoot: this.options.projectRoot, cardId: card.id, store: this.options.actorStore, children: this.childrenPort(), provider: this.options.provider, admission: this, mcpManagerProvider: this.options.mcpManagerProvider });
+      const processor = new PlanningCardProcessorActor({ projectRoot: this.options.projectRoot, cardId: card.id, store: this.options.actorStore, children: this.childrenPort(), provider: this.options.provider, admission: this, notifyCard: (targetCardId, notification) => this.notifyCard(targetCardId, notification), mcpManagerProvider: this.options.mcpManagerProvider });
       processor.start();
       return processor;
     }

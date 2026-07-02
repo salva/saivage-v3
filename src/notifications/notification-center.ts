@@ -28,12 +28,6 @@ export class NotificationCenter {
     this.eventBus.emit('notification_added', { session_id: sessionId, kind: entry.kind });
   }
 
-  drainPendingForSession(sessionId: string): NotificationQueueEntry[] {
-    const pending = this.queues.get(sessionId) ?? [];
-    this.queues.delete(sessionId);
-    return [...pending];
-  }
-
   queueLengthForSession(sessionId: string): number {
     return this.queues.get(sessionId)?.length ?? 0;
   }

@@ -11,6 +11,7 @@ function process(overrides: Partial<ProcessView>): ProcessView {
     exit_code: null,
     timed_out: false,
     owner: 'agent',
+    owner_id: null,
     session_id: null,
     card_id: 'card',
     command: 'echo ok',

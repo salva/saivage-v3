@@ -8,7 +8,6 @@ import { readRuntimeState } from '../runtime/state-api.js';
 import { processApi } from '../runtime/process-api.js';
 import { decide } from '../permissions/index.js';
 import { propagateChange } from '../runtime/changed-propagation.js';
-import { queueNotification } from '../notifications/index.js';
 import { orderedCardsForTree, toCardView, computeCardDisplayPath } from '../application/read-models/card-view.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import {
@@ -92,7 +91,7 @@ export async function create_card(ctx: ToolContext, params: { type: CardType; pa
       if (parent !== null && parent !== PROJECT_CARD_ID && !store.read(parent)) return toolFailure('not_found', `Parent card '${parent}' does not exist.`, { parent });
       const card = store.create({ type: params.type, parent, depth: 0, title: params.title, brief: params.brief, status: params.status ?? 'backlog', tags: params.tags ?? [], priority: params.priority ?? 0, urgency: params.urgency ?? 'normal', created_by: 'analyst', depends_on: params.depends_on ?? [], related: params.related ?? [], retries: 0 });
       if (ctx.actor === 'analyst' && parent !== null) {
-        try { propagateChange(ctx.projectRoot, store, parent, { kind: 'analyst_edit', summary: `analyst created child card ${card.id}` }); } catch { /* best-effort planner notification; create result remains authoritative */ }
+        try { propagateChange(ctx.projectRoot, store, parent, { kind: 'analyst_edit', summary: `analyst created child card ${card.id}` }, ctx.runtime?.notifyCard); } catch { /* best-effort planner notification; create result remains authoritative */ }
       }
       return { success: true, data: toCardView(store, card) };
     } catch (err) { return toolFailureFromError(err, 'validation', humanizeToolError('create_card', err instanceof Error ? err.message : String(err))); }
@@ -159,7 +158,7 @@ export async function delete_card(ctx: ToolContext, params: { ids: string[] }): 
         store.archiveAndDeleteSubtree(cards.map((c) => c.id));
         for (const c of cards) deletedAll.push(c.id);
         if (ctx.actor === 'analyst' && card.parent) {
-          try { propagateChange(ctx.projectRoot, store, card.parent, { kind: 'analyst_edit', summary: `analyst deleted card subtree ${targetId}` }); } catch { /* best-effort planner notification; delete result remains authoritative */ }
+          try { propagateChange(ctx.projectRoot, store, card.parent, { kind: 'analyst_edit', summary: `analyst deleted card subtree ${targetId}` }, ctx.runtime?.notifyCard); } catch { /* best-effort planner notification; delete result remains authoritative */ }
         }
         deletedTopLevel.push(targetId);
       } catch (err) { failures.push({ id: targetId, reason: err instanceof Error ? err.message : String(err) }); }
@@ -188,7 +187,7 @@ export async function cancel_card(ctx: ToolContext, params: { cardId: string; re
       if (ctx.actor === 'analyst') {
         const summary = params.reason ? `analyst cancelled card: ${params.reason}` : 'analyst cancelled card';
         const propagationAnchor = card.parent ?? params.cardId;
-        try { propagateChange(ctx.projectRoot, store, propagationAnchor, { kind: 'analyst_edit', summary }); } catch { /* best-effort planner notification; cancel result remains authoritative */ }
+        try { propagateChange(ctx.projectRoot, store, propagationAnchor, { kind: 'analyst_edit', summary }, ctx.runtime?.notifyCard); } catch { /* best-effort planner notification; cancel result remains authoritative */ }
       }
       return { success: true, data: { cancelled: updatedCards.map((c) => c.id), root: params.cardId } };
     } catch (err) { return toolFailureFromError(err, 'validation', humanizeToolError('cancel_card', err instanceof Error ? err.message : String(err))); }
@@ -292,7 +291,7 @@ export async function reorder_child(ctx: ToolContext, params: { parentId: string
       const r = store.reorderChildren(params.parentId, params.orderedChildIds, { actor: ctx.actor, surface: ctx.surface, reason: `${ctx.actor} reorder_child` });
       if (r.ok) {
         if (ctx.actor === 'analyst') {
-          try { propagateChange(ctx.projectRoot, store, params.parentId, { kind: 'analyst_edit', summary: `analyst reordered children of ${params.parentId}` }); } catch { /* best-effort planner notification; reorder result remains authoritative */ }
+          try { propagateChange(ctx.projectRoot, store, params.parentId, { kind: 'analyst_edit', summary: `analyst reordered children of ${params.parentId}` }, ctx.runtime?.notifyCard); } catch { /* best-effort planner notification; reorder result remains authoritative */ }
         }
         return { success: true, data: { parent_id: params.parentId, changed: r.changed } };
       }

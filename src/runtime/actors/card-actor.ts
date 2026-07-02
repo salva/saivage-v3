@@ -4,7 +4,7 @@ import type { BlockedResult, CardRecord, CardStatus, DoneResult, FailedResult, R
 import type { NewCardInput } from '../../cards/store-api.js';
 import type { CardMutationContext } from '../../cards/lifecycle.js';
 import { cardActorId, processorActorId } from './ids.js';
-import { saveActorSnapshot } from './snapshots.js';
+import { readActorSnapshot, saveActorSnapshot } from './snapshots.js';
 import type { CardActiveReconstructionRecord } from './active-reconstruction.js';
 import { parseCardActorState } from './actor-vocabulary.js';
 import type { CardActorState } from './actor-vocabulary.js';
@@ -113,6 +113,13 @@ export class CardActor extends BaseActor {
 
   static fromCard(args: { projectRoot: string; card: CardRecord; store: CardActorStorePort; processor: CardProcessorActor }): CardActor {
     const actor = new CardActor({ projectRoot: args.projectRoot, cardId: args.card.id, store: args.store, processor: args.processor });
+    const snapshot = readActorSnapshot(args.projectRoot, cardActorId(args.card.id));
+    if (snapshot) {
+      actor.notifications = Array.isArray(snapshot.context.notifications) ? snapshot.context.notifications as CardNotification[] : [];
+      actor.notificationDeliveryMarkers = Array.isArray(snapshot.context.notificationDeliveryMarkers) ? snapshot.context.notificationDeliveryMarkers as CardNotificationDeliveryMarker[] : [];
+      actor.lastChange = snapshot.context.lastChange && typeof snapshot.context.lastChange === 'object' ? snapshot.context.lastChange as CardChange : null;
+      actor.cancelReason = snapshot.context.cancelReason && typeof snapshot.context.cancelReason === 'object' ? snapshot.context.cancelReason as CardCancelReason : null;
+    }
     actor.recover(cardActorState(args.card.status));
     return actor;
   }

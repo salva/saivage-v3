@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardStore } from '../../../src/cards/card-store.js';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { CardActor, MAX_NOTIFICATION_DELIVERY_MARKERS, isActivatable, readActorSnapshots, type CardActivationInput, type CardActivationOutcome, type CardProcessorActor } from '../../../src/runtime/actors/index.js';
+import { CardActor, MAX_NOTIFICATION_DELIVERY_MARKERS, appendNotificationToActorSnapshot, cardActorId, createSupervisorRuntimeApi, isActivatable, readActorSnapshots, type CardActivationInput, type CardActivationOutcome, type CardProcessorActor } from '../../../src/runtime/actors/index.js';
 import type { CardRecord } from '../../../src/schemas/index.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
@@ -131,6 +131,41 @@ describe('CardActor', () => {
     expect(actor.notificationDeliveryMarkers).toEqual([
       expect.objectContaining({ notification_id: 'n1', delivered_to_input_id: 'planner:project:1' }),
       expect.objectContaining({ notification_id: 'n2', delivered_to_input_id: 'planner:project:1' }),
+    ]);
+  }));
+
+  it('restores pending notifications from the actor snapshot on materialization', () => withTempProject((projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+
+    appendNotificationToActorSnapshot(projectRoot, cardActorId(project.id), { id: 'restored', message: 'from snapshot', created_at: '2026-06-12T00:00:00.000Z', reason: 'test' });
+
+    const actor = CardActor.fromCard({ projectRoot, card: project, store, processor: processor({ status: 'done', summary: 'done', result: { kind: 'done', summary: 'done' } }) });
+
+    expect(actor.listPendingNotifications()).toEqual([expect.objectContaining({ id: 'restored', message: 'from snapshot' })]);
+  }));
+
+  it('runtime notifyCard persists inactive card notifications and reopens done cards', () => withTempProject((projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    createProject(store);
+    const goal = createGoal(store);
+    store.repairTerminalLifecycle(goal.id, {
+      status: 'done',
+      lifecycle: { status: 'done', result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' },
+    });
+    const runtime = createSupervisorRuntimeApi({
+      projectRoot,
+      actorStore: store,
+      provider: { completeTurn: jest.fn() as never },
+    });
+
+    runtime.notifyCard(goal.id, { id: 'inactive', message: 'wake up', created_at: '2026-06-12T00:00:00.000Z', reason: 'test' });
+
+    expect(store.read(goal.id)?.status).toBe('changed');
+    expect(readActorSnapshots(projectRoot).find((item) => item.actor_id === cardActorId(goal.id))?.context.notifications).toEqual([
+      expect.objectContaining({ id: 'inactive', message: 'wake up' }),
     ]);
   }));
 

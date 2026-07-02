@@ -38,9 +38,9 @@ interface TestAnalystRuntime {
   setMcpManager(mcpManager: NonNullable<AnalystRuntimeDeps['mcpManager']>): void;
 }
 
-function createFlatTestAnalystRuntime(opts: { eventBus?: EventBus } = {}): TestAnalystRuntime & Pick<RuntimeApi, 'start' | 'shutdown' | 'pause' | 'resume' | 'startProject' | 'stopProject' | 'subscribe' | 'getStatus' | 'getActorRuntimeReadModel'> {
+function createFlatTestAnalystRuntime(opts: { eventBus?: EventBus } = {}): TestAnalystRuntime & Pick<RuntimeApi, 'start' | 'shutdown' | 'pause' | 'resume' | 'notifyCard' | 'startProject' | 'stopProject' | 'subscribe' | 'getStatus' | 'getActorRuntimeReadModel'> {
   const eventBus = opts.eventBus ?? new EventBus();
-  const runtime: TestAnalystRuntime & Pick<RuntimeApi, 'start' | 'shutdown' | 'pause' | 'resume' | 'startProject' | 'stopProject' | 'subscribe' | 'getStatus' | 'getActorRuntimeReadModel'> = {
+  const runtime: TestAnalystRuntime & Pick<RuntimeApi, 'start' | 'shutdown' | 'pause' | 'resume' | 'notifyCard' | 'startProject' | 'stopProject' | 'subscribe' | 'getStatus' | 'getActorRuntimeReadModel'> = {
     eventLogger: undefined,
     candidateAvailability: undefined,
     mcpManager: undefined,
@@ -48,6 +48,7 @@ function createFlatTestAnalystRuntime(opts: { eventBus?: EventBus } = {}): TestA
     async shutdown(): Promise<void> {},
     pause(): void {},
     resume(): void {},
+    notifyCard(): void {},
     async startProject(): ReturnType<RuntimeApi['startProject']> {
       const timestamp = testRuntimeTimestamp();
       const command = testRuntimeCommand('start_project');
@@ -118,6 +119,7 @@ export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardSt
       shutdown: () => analystRuntime.shutdown(),
       pause: () => analystRuntime.pause(),
       resume: () => analystRuntime.resume(),
+      notifyCard: (cardId, notification) => analystRuntime.notifyCard(cardId, notification),
       startProject: (source) => analystRuntime.startProject(source),
       stopProject: (source) => analystRuntime.stopProject(source),
       subscribe: (options) => analystRuntime.subscribe(options),

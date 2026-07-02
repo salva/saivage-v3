@@ -2,9 +2,10 @@ import { existsSync, readdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { AtomicJsonFile, ProjectLock } from '../../persistence/index.js';
-import { actorKindFromId } from './ids.js';
+import { actorKindFromId, parseCardActorId } from './ids.js';
 import { actorKindSchema, actorKinds } from './actor-vocabulary.js';
 import type { ActorKind } from './ids.js';
+import type { CardNotification } from './card-actor.js';
 
 export const ACTOR_SNAPSHOT_SCHEMA_VERSION = 1;
 
@@ -52,6 +53,15 @@ export function readActorSnapshots(projectRoot: string): ActorSnapshotRecord[] {
     .sort((a, b) => a.actor_id.localeCompare(b.actor_id));
 }
 
+export function readActorSnapshot(projectRoot: string, actorId: string): ActorSnapshotRecord | null {
+  const path = actorSnapshotPath(projectRoot, actorId);
+  if (!existsSync(path)) return null;
+  const file = actorSnapshotFile(projectRoot, actorId);
+  const snapshot = file.read();
+  assertSnapshotKind(snapshot);
+  return snapshot;
+}
+
 export function saveActorSnapshot(projectRoot: string, snapshot: ActorSnapshotRecord): ActorSnapshotRecord {
   assertSnapshotKind(snapshot);
   const lock = actorSnapshotsLock(projectRoot);
@@ -59,6 +69,23 @@ export function saveActorSnapshot(projectRoot: string, snapshot: ActorSnapshotRe
   return lock.withLockSync((handle) => {
     file.writeSync(handle, snapshot);
     return snapshot;
+  });
+}
+
+export function appendNotificationToActorSnapshot(projectRoot: string, actorId: string, notification: CardNotification): ActorSnapshotRecord {
+  if (actorKindFromId(actorId) !== 'card') throw new Error(`Cannot append card notification to non-card actor '${actorId}'.`);
+  const existing = readActorSnapshot(projectRoot, actorId);
+  const context = existing?.context ?? { projectRoot, cardId: parseCardActorId(actorId) };
+  const notifications = Array.isArray(context.notifications) ? context.notifications : [];
+  return saveActorSnapshot(projectRoot, {
+    actor_id: actorId,
+    actor_kind: 'card',
+    state_value: existing?.state_value ?? 'backlog',
+    context: {
+      ...context,
+      notifications: [...notifications, notification],
+    },
+    updated_at: new Date().toISOString(),
   });
 }
 

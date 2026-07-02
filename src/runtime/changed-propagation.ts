@@ -1,8 +1,7 @@
 import type { AnalystIssue, CardStatus } from '../schemas/index.js';
 import type { CardStore } from '../cards/store-api.js';
 import { sanitizeAnalystText } from '../sanitization/analyst-sanitization.js';
-import { getActiveGoalNoteSinks } from './actors/active-goal-note-sinks.js';
-import { findContainingPlannerChain, queueSyntheticPlannerNote } from './synthetic-planner-notes.js';
+import type { CardNotification } from './actors/card-actor.js';
 
 const FLIPPABLE_RESTING: ReadonlySet<CardStatus> = new Set(['done', 'failed', 'cancelled', 'blocked']);
 
@@ -12,18 +11,6 @@ export type ChangeOrigin =
 
 export interface ChangedPropagation {
   flipped: Array<{ card_id: string; previous_status: CardStatus }>;
-  stopped_at_running: string | null;
-  notified_planner_session_ids: string[];
-}
-
-interface RoutedPlannerNoteInput {
-  target_planner_session_id: string;
-  target_goal_card_id: string;
-  kind: 'analyst_note' | 'pending_subtree_correction' | 'subtree_changed';
-  affected_card_id: string;
-  descendant_card_ids: string[];
-  summary: string;
-  previous_status?: CardStatus;
 }
 
 function originSummary(origin: ChangeOrigin): string {
@@ -32,25 +19,19 @@ function originSummary(origin: ChangeOrigin): string {
   return sanitizeAnalystText(`${issueSummary}${origin.note ? `\n${origin.note}` : ''}`, 1000);
 }
 
-export function propagateChange(projectRoot: string, store: CardStore, editedCardId: string, origin: ChangeOrigin): ChangedPropagation {
+export function propagateChange(_projectRoot: string, store: CardStore, editedCardId: string, origin: ChangeOrigin, notifyCard?: (cardId: string, notification: CardNotification) => void): ChangedPropagation {
   const edited = store.read(editedCardId);
   if (!edited) throw new Error(`Card '${editedCardId}' not found.`);
 
   const path = [editedCardId, ...store.getAncestors(editedCardId).reverse()];
-  const previousStatusByCardId = new Map<string, CardStatus>();
   const flipped: ChangedPropagation['flipped'] = [];
-  let stopped_at_running: string | null = null;
-
-  for (const cardId of path) {
-    const card = store.read(cardId);
-    if (card) previousStatusByCardId.set(cardId, card.status);
-  }
+  let runningAncestorId: string | null = null;
 
   for (const cardId of path) {
     const card = store.read(cardId);
     if (!card) continue;
     if (card.status === 'running') {
-      stopped_at_running = cardId;
+      runningAncestorId = cardId;
       break;
     }
     if (FLIPPABLE_RESTING.has(card.status)) {
@@ -60,52 +41,26 @@ export function propagateChange(projectRoot: string, store: CardStore, editedCar
   }
 
   const summary = originSummary(origin);
-  const notified = new Set<string>();
-  const liveNotes = getActiveGoalNoteSinks(projectRoot);
-  for (const routed of findContainingPlannerChain(projectRoot, store, editedCardId)) {
-    const kind = editedCardId === routed.goalId ? 'analyst_note' : 'subtree_changed';
-    queuePlannerNote(projectRoot, liveNotes, {
-      target_planner_session_id: routed.sessionId,
-      target_goal_card_id: routed.goalId,
-      kind,
-      affected_card_id: editedCardId,
-      descendant_card_ids: editedCardId === routed.goalId ? [] : [editedCardId],
-      summary,
-      ...(previousStatusByCardId.get(routed.goalId) ? { previous_status: previousStatusByCardId.get(routed.goalId)! } : {}),
-    });
-    notified.add(routed.sessionId);
+  if (notifyCard) {
+    const notified = new Set<string>();
+    const notify = (cardId: string) => {
+      if (notified.has(cardId)) return;
+      notified.add(cardId);
+      notifyCard(cardId, changeNotification(cardId, origin.kind, summary));
+    };
+    notify(editedCardId);
+    if (runningAncestorId) notify(runningAncestorId);
   }
 
-  if (origin.kind === 'analyst_correction') {
-    const routed = findContainingPlannerChain(projectRoot, store, editedCardId)[0];
-    if (routed) {
-      queuePlannerNote(projectRoot, liveNotes, {
-        target_planner_session_id: routed.sessionId,
-        target_goal_card_id: routed.goalId,
-        kind: 'pending_subtree_correction',
-        affected_card_id: editedCardId,
-        descendant_card_ids: [],
-        summary,
-        ...(previousStatusByCardId.get(routed.goalId) ? { previous_status: previousStatusByCardId.get(routed.goalId)! } : {}),
-      });
-      notified.add(routed.sessionId);
-    }
-  }
-
-  return { flipped, stopped_at_running, notified_planner_session_ids: [...notified] };
+  return { flipped };
 }
 
-function queuePlannerNote(projectRoot: string, liveNotes: ReturnType<typeof getActiveGoalNoteSinks>, input: RoutedPlannerNoteInput): void {
-  const deliveredLive = liveNotes.addNote(input.target_goal_card_id, {
-    id: `changed:${input.kind}:${input.target_goal_card_id}:${input.affected_card_id}:${input.summary}`,
-    content: JSON.stringify({
-      kind: input.kind,
-      affected_card_id: input.affected_card_id,
-      descendant_card_ids: input.descendant_card_ids,
-      summary: input.summary,
-      previous_status: input.previous_status ?? null,
-    }),
-  });
-  if (deliveredLive) return;
-  queueSyntheticPlannerNote(projectRoot, input);
+function changeNotification(cardId: string, kind: ChangeOrigin['kind'], summary: string): CardNotification {
+  const createdAt = new Date().toISOString();
+  return {
+    id: `change:${cardId}:${createdAt}`,
+    message: `Card changed: ${summary}`,
+    created_at: createdAt,
+    reason: kind === 'analyst_correction' ? 'analyst_correction' : 'card_changed',
+  };
 }
