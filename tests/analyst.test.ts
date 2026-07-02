@@ -37,15 +37,15 @@ const TEST_BRIEF = '# Goal\n\nTest card goal\n\n# Instructions\n\nFollow the tes
 
 import { AnalystHandler } from '../src/agents/analyst-handler.js';
 import { resolveAnalystSessionId } from '../src/agents/session-ids.js';
+import { ANALYST_TOOL_DEFINITIONS } from '../src/tools/analyst-tool-registry.js';
 import {
-  ANALYST_TOOL_DEFINITIONS,
   ANALYST_ISSUE_SEVERITY_VALUES,
   CARD_STATUS_VALUES,
   CARD_TYPE_VALUES,
   CREATE_CARD_TYPE_VALUES,
   NOTE_KIND_VALUES,
   URGENCY_VALUES,
-} from '../src/tools/definitions/index.js';
+} from '../src/tools/tool-catalog.js';
 import { cardStatusSchema, cardTypeSchema, urgencySchema } from '../src/schemas/validators.js';
 import {
   createTestAnalystRuntime,

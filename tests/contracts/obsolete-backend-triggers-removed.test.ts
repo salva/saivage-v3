@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { ANALYST_TOOL_NAMES } from '../../src/tools/definitions/index.js';
+import { ANALYST_TOOL_NAMES } from '../../src/tools/analyst-tool-registry.js';
 import { operatorApiContracts } from '../../src/contracts/operator-api.js';
 
 describe('obsolete backend trigger contracts are removed', () => {

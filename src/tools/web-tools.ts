@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 import net from 'node:net';
 import { z } from 'zod';
 
-import { describe, type UnifiedToolDefinition } from './tool-catalog.js';
+import { describe } from './tool-catalog.js';
 import type { ToolContext, ToolResult as AnalystToolResult } from './analyst-tool-types.js';
 import { toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
 import { isWriteBlocked, looksLikeSecretPath, resolveContainedProjectPath } from '../workspace/index.js';
@@ -213,11 +213,6 @@ export async function webfetch(ctx: ToolContext, params: { url: string; read_mod
     return toolFailureFromError(err, 'provider', err instanceof Error ? err.message : String(err));
   }
 }
-
-export const webTools: readonly UnifiedToolDefinition<string, any>[] = [
-  { name: 'websearch', description: 'Search the public web for documentation and data sources.', input: websearchSchema, roles: ['planner', 'executor', 'reviewer'], executor: websearch },
-  { name: 'webfetch', description: 'Fetch a public HTTP(S) URL with bounded size and private-network protections.', input: webfetchSchema, roles: ['planner', 'executor', 'reviewer'], executor: webfetch },
-] as const;
 
 export function createWebProvider(ctx: WebProviderContext): ToolProvider {
   return {

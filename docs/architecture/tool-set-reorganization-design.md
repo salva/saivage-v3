@@ -393,8 +393,7 @@ Done:
 - Updated role-tool-policy, executor prompt, web presenters, and tests for canonical process names.
 - Removed `write_file` from active source. Canonical `write` now handles Analyst explicit-card brief record writes (`record://brief.md?card=<id>&v=next`) with the stopped/paused gate, brief-only restriction, required-heading validation, and record-slot close/discard behavior.
 
-Not yet done:
-- Remove the old `report_goal_done`, `report_goal_failed`, and `report_goal_blocked` planner-control surface. They still exist in the detached catalog and legacy planner prompt/support files; the active card-processor terminal path uses contract terminals instead. Delete these names with the global catalog cleanup and terminal unification.
+The old `report_goal_done`, `report_goal_failed`, and `report_goal_blocked` planner-control surface has been removed from active source with the detached catalog cleanup. Terminal unification is still tracked separately in Phase 4.
 
 ### Phase 2: Introduce provider-owned invocation surfaces — partially done
 
@@ -405,7 +404,7 @@ Done:
 - `SkillProvider`, `McpProvider` are clean generic providers (own implementation, no catalog dependency).
 - `CardInspectionProvider` (`list_cards`, `get_card`, `get_tree`) and `PlannerControlProvider` (`create_card`, `edit_card`, `cancel_card`, `activate_card`) own their implementation directly with captured context.
 - `CardHistoryProvider` owns `list_card_history`, `get_card_history_entry`, and `diff_card` directly rather than adapting `analyst-card-tools`.
-- `WebProvider` invokes clean provider-core implementations directly; the detached `webTools` catalog wrappers remain only until the global catalog is removed.
+- `WebProvider` invokes clean provider-core implementations directly; detached `webTools` catalog wrappers are deleted.
 - Card processors (planner, executor, reviewer) compose providers and invoke through `buildInvocationSurface`/`invokeTool`.
 - Planner, executor, and reviewer model tool advertisements derive from each activation's `InvocationSurface` via `surfaceToolDefinitions(surface)`.
 - The shared invocation `ToolResult` is the clean discriminated union (`{ success: true; data? } | { success: false; error: string }`); analyst UI shaping no longer depends on shared `preview`/`errorEnvelope` fields.
@@ -414,13 +413,13 @@ Done:
 - `AnalystHandler` owns construction of the Analyst control provider inline; `analyst-provider.ts` is deleted.
 - `processWorkspaceToolCall`, `ToolDispatcher`, `AnalystAdapter`, `TOOL_REGISTRY`, and `ActorToolSurface` are deleted from active source.
 
-Not yet done (in dependency order):
+Done in the final cleanup slice:
 
-1. **Delete the global catalog** (`src/tools/definitions/index.ts`) as execution/schema authority, and its dead duplicate `plannerControlTools`. The Analyst path no longer depends on it, but `role-tool-policy.ts`, `agent-tool-catalog.ts`, `planner-control-executor.ts`, and `src/tools/index.ts` still consume catalog-derived sets/exports. Replace those with explicit provider-era name sets before deleting the catalog.
+- Deleted the global catalog (`src/tools/definitions/index.ts`) and catalog-only wrappers (`workspace-tools.ts`, `planner-control-tools.ts`, `mcp-skill-tools.ts`, `projectFileTools`, detached `webTools`).
+- Deleted duplicate package-root `AGENT_TOOL_DEFINITIONS` export. Package-root tools exports now expose only runtime/source-proven production values.
+- Retired the legacy planner-control executor surface and old report-goal planner controls with the catalog cleanup.
 
-2. **Delete stale catalog wrappers and duplicate exports.** `workspace-tools.ts`, `projectFileTools`, detached `webTools`, old `plannerControlTools`, `AGENT_TOOL_DEFINITIONS`, `ALL_TOOL_DEFINITIONS_BY_NAME`, and the catalog-derived `ANALYST_TOOL_DEFINITIONS` remain only because the global catalog remains. The active Analyst prompt/API uses `src/tools/analyst-tool-registry.ts`; the duplicate catalog export is stale cleanup debt and must not be treated as authority.
-
-3. **Retire the legacy planner-control executor surface.** `PlannerControlExecutor` still derives `handles()` from catalog `PLANNER_CONTROL_TOOL_NAMES` and contains cases for `report_goal_done`, `report_goal_failed`, and `report_goal_blocked`. Verify whether this executor is still reachable; if not, delete it with the catalog cleanup. If it is reachable, migrate it to the provider-era planner control names and remove the report-goal cases.
+There is no remaining detached schema/execution catalog. Provider-owned schemas and runtime `InvocationSurface` composition are the active authority.
 
 ### Phase 3: Compose the role surfaces and derive prompts from surfaces — partially done
 
@@ -436,7 +435,7 @@ Not yet done:
 
 1. **Complete Analyst surface composition.** The Analyst currently receives card inspection/history through the explicit Analyst control registry rather than the generic `CardInspectionProvider`/`CardHistoryProvider`. Decide whether to compose those generic providers for the Analyst or explicitly keep inspection/history as Analyst control tools.
 
-2. **Align non-runtime Analyst docs/helpers with the active `InvocationSurface`.** Runtime Analyst model advertisements already come from `surfaceToolDefinitions(surface)`, and `analyst-prompt.ts` uses the explicit Analyst registry rather than the global catalog. Remaining helper exports and tests should stop relying on any catalog-derived Analyst definitions when the global catalog is deleted.
+2. **Align non-runtime Analyst docs/helpers with the active `InvocationSurface`.** Runtime Analyst model advertisements already come from `surfaceToolDefinitions(surface)`, and `analyst-prompt.ts` uses the explicit Analyst registry plus provider-era shared names. Tests and helper exports no longer rely on catalog-derived Analyst definitions.
 
 ### Phase 4: Unify the terminal contract — not started
 

@@ -2,7 +2,7 @@ import { describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ANALYST_TOOL_NAMES } from '../../src/tools/definitions/index.js';
+import { ANALYST_TOOL_NAMES } from '../../src/tools/analyst-tool-registry.js';
 import { operatorApiContracts } from '../../src/contracts/operator-api.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
@@ -97,7 +97,6 @@ describe('runtime redesign final golden behavior', () => {
       'docs/spec/system-specification.md',
       'src/agents/system-prompt.ts',
       'src/agents/analyst-prompt.ts',
-      'src/tools/definitions/index.ts',
     ];
     const combined = activeFiles.map((file) => readFileSync(file, 'utf-8')).join('\n');
     expect(combined).toContain('start_project');

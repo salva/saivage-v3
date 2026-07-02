@@ -1,10 +1,8 @@
 import * as childProcess from 'node:child_process';
 import { lstatSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import { z } from 'zod';
 
 import { isBinarySample } from './analyst-tool-helpers.js';
-import { describe, type UnifiedToolDefinition } from './tool-catalog.js';
 import { isReadBlocked, isWriteBlocked, looksLikeSecretPath, resolveContainedProjectPath } from '../workspace/index.js';
 import { closeOpenRecordSlot, concreteRecordSlot, discardOpenRecordSlot, exposedRecordSlotDefinitionForFilename, latestClosedRecordSlot, openRecordSlot, readRecordSlotIndex, RECORD_OUTPUTS_RELATIVE_DIR, recordSlotDir, type OpenRecordSlot } from '../runtime/records/record-slots.js';
 import type { AgentRole } from './tool-catalog.js';
@@ -321,15 +319,6 @@ export async function applyProjectPatch(ctx: WorkspaceContext, params: { patch: 
   if (applied.status !== 0) throw toolInputError(applied.stderr || applied.stdout || 'Patch apply failed.');
   return { changed_files: affected, applied: true };
 }
-
-export const projectFileTools: readonly UnifiedToolDefinition<string, any>[] = [
-  { name: 'read', description: 'Read a project file or directory. Text reads support zero-based offset and line limit.', input: z.object({ path: z.string(), offset: z.number().int().optional(), limit: z.number().int().optional(), read_mode: z.enum(['auto', 'text', 'multimodal']).optional() }).strict(), roles: ['planner', 'executor', 'reviewer'], workspace: true },
-  { name: 'write', description: 'Create or replace a project, tmp, or runtime record file according to the agent role.', input: z.object({ path: z.string(), content: z.string() }).strict(), roles: ['planner', 'executor', 'reviewer'], workspace: true },
-  { name: 'glob', description: 'Search project files by glob pattern under a project directory.', input: z.object({ directory: z.string(), pattern: z.string(), max_results: z.number().int().optional() }).strict(), roles: ['planner', 'executor', 'reviewer'], workspace: true },
-  { name: 'grep', description: 'Search project text files with a JavaScript regular expression.', input: z.object({ pattern: z.string(), path: z.string().optional(), include: z.string().optional(), max_results: z.number().int().optional() }).strict(), roles: ['planner', 'executor', 'reviewer'], workspace: true },
-  { name: 'edit', description: 'Replace exact text in one project, tmp, or runtime record file according to the agent role.', input: z.object({ path: z.string(), old_string: z.string(), new_string: z.string(), replace_all: z.boolean().optional() }).strict(), roles: ['planner', 'executor', 'reviewer'], workspace: true },
-  { name: 'apply_patch', description: 'Apply a text-only unified diff after project path validation.', input: z.object({ patch: describe(z.string(), 'Unified diff text.') }).strict(), roles: ['executor'], workspace: true },
-] as const;
 
 function resolveRecordSearchPath(ctx: WorkspaceContext, raw: string): { absolutePath: string; relativePath: string } {
   const agent = requireAgentContext(ctx, 'record://');

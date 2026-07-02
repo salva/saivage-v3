@@ -339,13 +339,11 @@ As of 2026-07-02, the provider migration is mostly implemented but not accepted 
 - Planner, executor, reviewer, and Analyst runtime model tool advertisements derive from each active `InvocationSurface` plus each role's contract terminal where applicable.
 - `ToolResult` is the clean discriminated union, and `WorkspaceProvider` only converts expected workspace/input/filesystem failures into model-visible tool errors.
 - `write_file` is removed from active source; Analyst explicit-card brief writes use canonical `write`.
+- The stale global catalog (`src/tools/definitions/index.ts`), catalog-only wrappers, `agent-tool-catalog.ts`, and the legacy planner-control executor are deleted. `InvocationSurface` and provider-owned schemas are the only runtime tool schema/execution authority.
 
 Confirmed remaining gaps before this design is complete:
 
-- The global catalog (`src/tools/definitions/index.ts`) still exists as a stale aggregate and still feeds some legacy name sets and exports. It is no longer the Analyst prompt authority, but it remains a cleanup blocker.
-- `agent-tool-catalog.ts` still re-exports catalog-derived sets; its `AgentToolCatalog` class appears unused in active source, but the sets are still consumed by `role-tool-policy.ts` and `planner-control-executor.ts`.
 - The Analyst active surface still does not fully match §3.5: card inspection/history reach the Analyst through the explicit control registry rather than generic providers.
-- `PlannerControlExecutor` and legacy planner-support files still reference `report_goal_done`, `report_goal_failed`, and `report_goal_blocked`; these are not in the active planner `InvocationSurface` but must be deleted or migrated before the catalog is removed.
 - `webfetch.save_as` still uses a plain project-contained path authorization instead of the same scoped URL write path used by `write` (`project://`, `record://`, `tmp://`, and role/slot policy).
 - Terminal unification is not started: the code still uses `emit_planner_result`, `emit_executor_result`, and `emit_reviewer_result`, with per-role envelopes and planner `continue`.
 
