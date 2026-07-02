@@ -6,16 +6,19 @@ Last reviewed: 2026-07-02.
 
 This plan consolidates the still-relevant follow-up work from the record-slot, tool-surface, deferred-capability, and conversation-compaction plans. It intentionally filters out tasks that have drifted, have already been implemented, or would now conflict with the current Saivage v3 architecture.
 
+The active execution backlog in this document is limited to improvements of the current codebase: simplification, dead-code removal, test hardening, and documentation cleanup. Completely new capabilities such as Git tools, RAG, memory, notes, and conversation compaction remain out of the active backlog until separately prioritized.
+
 Current authorities:
 
 - [System Specification](../spec/system-specification.md)
 - [Operator UI Specification](../spec/operator-ui.md)
 - [System Architecture](./system-architecture.md)
-- [Tool Set Reorganization Design](./tool-set-reorganization-design.md)
-- [Shared Tool Invocation Design](./shared-tool-invocation-design.md)
-- [Mandatory Output Files](./agent-invocation-output-slots.md)
-- [Record-Backed Card Storage Plan](./record-backed-card-storage-plan.md)
-- [Conversation Compaction Design](./conversation-compaction-design.md)
+- [Remaining Work Consolidated Plan](./remaining-work-consolidated-plan.md) (this document)
+- [Tool Set Reorganization Design](./tool-set-reorganization-design.md) (implemented rationale; obsolete checklist)
+- [Shared Tool Invocation Design](./shared-tool-invocation-design.md) (implemented rationale; obsolete checklist)
+- [Mandatory Output Files](./agent-invocation-output-slots.md) (historical design context; obsolete checklist)
+- [Record-Backed Card Storage Plan](./record-backed-card-storage-plan.md) (historical design context; obsolete checklist)
+- [Conversation Compaction Design](./conversation-compaction-design.md) (deferred design context; not active backlog)
 
 ## Current Baseline
 
@@ -64,15 +67,24 @@ Keep these ideas as active remaining work because they still match the architect
 
    `brief.md`, `status.md`, and `review.md` remain the right place for human-readable durable intent, progress, and review content. Do not reintroduce artifact/attachment/generated-file evidence registries unless a new concrete use case appears.
 
-4. **Plan read-only Git tools as the only near-term deferred capability.**
+4. **Simplify current tool/runtime architecture after the provider refactor.**
 
-   Add a small read-only Git provider later for `git_status`, `git_diff`, and `git_log` if the operator UI or agents need structured Git inspection beyond `run_command`.
+   The provider-owned invocation cutover made several intermediate abstractions obsolete. Cleanup should remove dead modules and duplicate policy lists rather than keeping them as compatibility layers.
 
-   Constraints:
+   Candidate targets:
 
-   - No branch, commit, merge, checkout, reset, or delete tools in the first slice.
-   - No mutation without explicit authorization and a separate design.
-   - Tool results must be structured and redacted where needed.
+   - tests-only `runtime/terminal-commit` abstractions if they are not production-owned;
+   - tests-only `ToolRuntime` and package-root barrels;
+   - stale static role/tool policy lists that duplicate provider composition;
+   - misleading `tool-catalog.ts` naming now that it is vocabulary/schema helper code, not execution authority.
+
+5. **Simplify current Analyst control-tool result plumbing.**
+
+   Analyst control tools still have preview/error-envelope types that are projected away before reaching the shared invocation contract. Remove or collapse that machinery unless a real preview/confirmation UI consumes it.
+
+6. **Fix current prompt/spec/test drift.**
+
+   Current docs and prompts still contain pockets of stale vocabulary such as `wait_for_process`, `read_file`, `read_file_metadata`, `ToolDispatcher`, `ActorToolSurface`, and old reviewer `pass` / `needs_corrections` structured-output guidance. These should be updated or marked historical so current agents are not misled.
 
 ### Revise
 
@@ -84,7 +96,7 @@ Revise these original ideas before implementing anything, because the architectu
 
    Current direction: reviewer evidence detail belongs in `review.md` prose; the terminal envelope is only `{ status, summary }`. The runtime should not parse markdown to enforce evidence IDs unless a future product need justifies structured evidence again.
 
-   Decision: revise docs to mark `validateReviewerAssessment` and structured evidence validation as stale unless explicitly reintroduced by a new design.
+   Decision: revise docs to mark `validateReviewerAssessment` and structured evidence validation as stale unless explicitly reintroduced by a new design. Also evaluate removing the unused production code and tests for structured reviewer assessment.
 
 2. **Planner/reviewer workspace write policy descriptions.**
 
@@ -121,6 +133,14 @@ Revise these original ideas before implementing anything, because the architectu
    - Ensure active reconstruction snapshots and in-memory actor context are compacted consistently.
    - Define a real backend compaction state before exposing `compacting` in UI read models.
 
+6. **Process schema cleanup.**
+
+   Original idea: make Analyst process records omit `card_id`.
+
+   Current implementation: `ProcessRecord.card_id` is required, and Analyst records use the session id there as schema-compatible non-authoritative provenance while `owner_id` remains the ownership authority.
+
+   Decision: do not change this opportunistically. First audit operator API, UI, notifications, and process read models. Either keep the current invariant and remove stale null/optional defensive code, or make `card_id` nullable in one focused process-schema change.
+
 ### Drop
 
 Drop these tasks because they are done, stale, or now conflict with the architecture.
@@ -149,6 +169,14 @@ Drop these tasks because they are done, stale, or now conflict with the architec
 
    Tool names without a native subsystem would mislead models and operators. Keep them out of the active surface until the subsystem exists.
 
+7. **Make `create_note` a model-facing capability.**
+
+   The product spec rejects user-managed note objects and notification inboxes. Durable context belongs in card records and card history; transient coordination belongs in `queue_notification`.
+
+8. **Add Git mutation tools.**
+
+   Git mutation tools are out of scope for the current cleanup plan. They require separate authorization, dirty-worktree, and operator-confirmation design.
+
 ### Defer
 
 Defer these items until a concrete need or telemetry justifies them.
@@ -169,17 +197,96 @@ Defer these items until a concrete need or telemetry justifies them.
 
    Requires product semantics, lifecycle, visibility, ACLs, and compaction interactions. Current card-centered records are sufficient.
 
-5. **Git mutation tools.**
+5. **Read-only Git inspection tools.**
+
+   Structured `git_status`, `git_diff`, and `git_log` may be useful later, but they are new capability work and are excluded from the current improvement backlog.
+
+6. **Git mutation tools.**
 
    Read-only Git inspection may be planned soon; mutating Git tools remain deferred pending explicit operator-confirmation and dirty-worktree policy.
 
-6. **Nullable Analyst `ProcessRecord.card_id`.**
+7. **Nullable Analyst `ProcessRecord.card_id`.**
 
    Current schema requires `card_id`, so Analyst processes use the session id there as non-authoritative scope metadata and mark `owner_kind: 'operator'`. Making `card_id` nullable is cleaner, but it touches API contracts and UI assumptions. Defer to a focused process-schema cleanup.
 
+## Current-Code Improvement Backlog
+
+These are cleanup and simplification opportunities on the existing implementation. They are not new features.
+
+### High Priority
+
+1. **Remove or retire structured reviewer assessment code.**
+
+   The active reviewer terminal contract is `emit_result` with `{ status, summary }`, and review detail belongs in `review.md`. `runtime/reviewer-assessment.ts`, reviewer assessment schemas, and related tests preserve older structured `pass` / `needs_corrections` / `evidence_card_ids` behavior.
+
+   Work:
+
+   - Update `src/agents/prompts/system-prompt.ts` reviewer prompt to use `done | rework | blocked | failed` and direct evidence narrative to `review.md`.
+   - Remove or quarantine `validateReviewerAssessment` and `buildReviewAssessment` if no production path needs them.
+   - Remove stale schema fields only after checking event/API compatibility.
+   - Delete or rewrite tests that assert the obsolete structured assessment path.
+
+2. **Delete dead `runtime/terminal-commit` abstraction if still tests-only.**
+
+   Audit `src/runtime/terminal-commit/*`. If the module is no longer imported by production source, delete it and the tests that keep it alive. If any code path still needs it, reconnect it deliberately and document ownership.
+
+3. **Collapse Analyst control-tool result envelopes.**
+
+   Analyst control tools return preview/error-envelope shapes that the handler strips to the shared invocation `ToolResult`. Replace the Analyst-specific result envelope with the common result type unless a concrete UI preview path exists.
+
+4. **Replace stale Analyst prompt/tool-list generation.**
+
+   The Analyst prompt's static `<TOOL_LIST>` is based on control-tool definitions, while the actual surface is composed from providers. Either derive the visible tool list from the active `InvocationSurface` or make the prompt explicitly say the static list covers control tools only.
+
+### Medium Priority
+
+5. **Reduce duplicate role/tool policy lists.**
+
+   Provider composition is now the authority. Remove or shrink `RoleToolPolicy` and tests where they duplicate provider surfaces. Keep only concrete Analyst surface gating that is still active.
+
+6. **Rename or split `tool-catalog.ts`.**
+
+   The file name implies an execution catalog, but execution authority now lives in providers and `InvocationSurface`. Move vocabulary constants and schema helpers into narrower modules such as `tool-vocabulary.ts`; move Analyst `UnifiedToolDefinition` types near the Analyst registry.
+
+7. **Remove tests-only `ToolRuntime` and package-root barrels if unnecessary.**
+
+   Production source now uses provider invocation. If `src/tools/runtime.ts`, `src/tools/index.ts`, `src/runtime/index.ts`, or `src/boot/index.ts` exist only to satisfy boundary tests, delete or shrink them. Keep public barrels only where the web/package boundary really uses them.
+
+8. **Clean stale current docs/spec vocabulary.**
+
+   Known stale references to update or mark historical:
+
+   - `wait_for_process` in the system spec; canonical tool is `wait_process`.
+   - `read_file` / `read_file_metadata` in Analyst tool-surface review docs.
+   - `ToolDispatcher` in tool repair/conversation docs.
+   - `ActorToolSurface` assumptions in old tool-set relationship notes.
+   - Architecture index entries that omit the consolidated remaining-work plan.
+
+9. **Harden current tests around removed names and provider surfaces.**
+
+   Add tests that assert the actual Analyst surface excludes the full retired vocabulary and never includes `emit_result`. Add surface tests proving planner/reviewer do not get `apply_patch` through composition.
+
+10. **Add websocket-level Analyst process cleanup test.**
+
+   `AnalystHandler.shutdownSessionProcesses` is tested, but the websocket `close`/`error` cleanup path should also be covered so the actual socket lifecycle remains wired.
+
+### Low Priority
+
+11. **Process API cleanup.**
+
+   Operator process read models still expose termination availability as unavailable even though agent-owned `kill_process` exists. Decide whether operator process API should expose termination or remove misleading control availability fields. Keep ownership scoped by `owner_id` either way.
+
+12. **Legacy runtime-state layout cleanup.**
+
+   If the project no longer needs legacy `.saivage/runtime/state.json` diagnostics, simplify runtime state handling to the authoritative path only. This is a cleanup candidate, not a compatibility requirement.
+
+13. **Lessons module audit.**
+
+   If `src/lessons/*` is not part of the Saivage runtime product and is only test-supported, move it out of `src/` or delete it with tests.
+
 ## Execution Plan
 
-### Stage 1: Clean Current Docs And Tests
+### Stage 1: Clean Current Docs, Prompts, And Tests
 
 Goal: remove stale planning noise so future agents do not reimplement completed work.
 
@@ -188,39 +295,43 @@ Tasks:
 1. Update `agent-invocation-output-slots.md` phase/status section to reflect implemented reviewer currentness and discard/relaunch behavior.
 2. Update `record-backed-card-storage-plan.md` remaining-work section to remove already-landed items and move field cleanup to a separate future plan.
 3. Mark structured reviewer evidence validation as superseded by `review.md` narrative evidence, unless a new design explicitly reintroduces structured evidence.
-4. Add focused missing-record repair tests for planner and executor if coverage is still thin.
+4. Update reviewer prompt text to match `emit_result` and `review.md` narrative evidence.
+5. Add focused missing-record repair tests for planner and executor if coverage is still thin.
+6. Add actual-surface tests for retired tool names, planner/reviewer `apply_patch` absence, and websocket Analyst process cleanup.
 
 Validation:
 
 - `npm run test:direct -- tests/runtime/actors/planning-card-processor-actor.test.ts tests/runtime/actors/planning-card-processor-currentness.test.ts tests/runtime/actors/terminal-card-processor-actor.test.ts --runInBand`
 - `npm run validate:routine`
 
-### Stage 2: Decide Read-Only Git Tools
+### Stage 2: Remove Dead Current-Code Abstractions
 
-Goal: determine whether structured Git inspection is useful enough now.
+Goal: remove code that exists only because of superseded intermediate designs.
 
 Tasks:
 
-1. Design a read-only `GitProvider` with `git_status`, `git_diff`, and `git_log` only.
-2. Define result schemas suitable for model use and UI rendering.
-3. Decide role composition: likely executor and Analyst; planner/reviewer only if a concrete review/planning use case exists.
-4. Keep all Git mutation tools out of scope.
+1. Delete or reconnect tests-only `runtime/terminal-commit` modules.
+2. Remove tests-only `ToolRuntime` and unnecessary package-root barrels if no production boundary uses them.
+3. Collapse Analyst-specific result envelopes into the common invocation result type.
+4. Shrink or remove duplicate `RoleToolPolicy` static lists.
+5. Rename or split `tool-catalog.ts` into vocabulary/schema helper modules.
 
-Validation if implemented:
+Validation:
 
-- Focused provider tests with temporary Git repositories.
-- Role-surface tests proving mutation tools are absent.
+- Focused tests for any touched module.
+- `npm run test:direct -- tests/agents/analyst-tool-surface.test.ts tests/tools/workspace-provider.test.ts --runInBand`
 - `npm run validate:routine`.
 
-### Stage 3: Process Schema Cleanup Decision
+### Stage 3: Process And Runtime-State Cleanup Decisions
 
-Goal: decide whether to make `ProcessRecord.card_id` nullable.
+Goal: remove stale defensive or misleading current-code behavior without introducing new capabilities.
 
 Tasks:
 
 1. Audit operator API, UI, notifications, process read models, and tests for `card_id` assumptions.
-2. If nullable is worth it, update schemas and API contracts in one focused change.
-3. Otherwise keep the current session-id provenance behavior documented and tested.
+2. Decide whether to keep required `ProcessRecord.card_id` and remove stale nullable assumptions, or make it nullable in one focused schema/API change.
+3. Decide whether operator process termination controls should remain unavailable or be represented differently now that agent `kill_process` exists.
+4. Remove legacy runtime-state layout compatibility diagnostics only if no deployment/runtime path still needs them.
 
 Validation:
 
@@ -228,21 +339,21 @@ Validation:
 - Operator API process contract tests.
 - UI smoke if process views are touched.
 
-### Stage 4: Measured Analyst Compaction Design
+### Stage 4: New Capability Parking Lot
 
-Goal: keep compaction ready but avoid speculative implementation.
+Goal: keep new features explicitly parked so cleanup work does not accidentally expand scope.
 
-Tasks:
+Parked items:
 
-1. Add or review token-budget diagnostics for long Analyst sessions.
-2. Update `conversation-compaction-design.md` with an Analyst-first trigger and provider-visible summary decision.
-3. Do not implement compaction until diagnostics show recurring need or the operator explicitly prioritizes it.
+1. Read-only Git tools: potentially useful later, but excluded from the current cleanup backlog.
+2. Conversation compaction: keep deferred until token-budget diagnostics or operator reports justify it.
+3. RAG: requires a native subsystem before tool names exist.
+4. Memory: requires product semantics and storage/lifecycle design.
+5. Notes: dropped as a model-facing object class; use records and notifications.
 
-Validation if later implemented:
+Validation if any parked item is later activated:
 
-- Conversation reconstruction tests.
-- Provider request serialization tests showing compacted summaries are included exactly once.
-- UI transcript tests for compaction rows.
+- A separate design update and focused validation profile for that capability.
 
 ## Non-Goals
 
@@ -250,9 +361,9 @@ Validation if later implemented:
 - No global tool execution catalog revival.
 - No model-facing notes object class.
 - No RAG or memory tool names without native subsystems.
-- No Git mutation tools in the read-only Git slice.
+- No Git tooling in the current cleanup backlog.
 - No broad card schema cleanup bundled into record-slot work.
 
 ## Recommended Next Action
 
-Start with Stage 1. It is low risk and prevents future agents from chasing stale remaining-work text. Then decide whether read-only Git inspection is useful enough to implement now.
+Start with Stage 1. It is low risk and prevents future agents from chasing stale remaining-work text. Then proceed to Stage 2 dead-code removal in small, separately validated slices.
