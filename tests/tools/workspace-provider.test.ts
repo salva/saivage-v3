@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -90,6 +90,69 @@ describe('workspace and patch providers', () => {
       await expect(invokeTool(surface, 'write', { path: `record://brief.md?card=${card.id}&v=next`, content: VALID_BRIEF })).rejects.toThrow('Analyst record writes require a card store.');
     } finally {
       rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('reads files outside the project through system:// scope', async () => {
+    const { root } = setupProject();
+    const systemRoot = mkdtempSync(join(tmpdir(), 'workspace-provider-system-'));
+    try {
+      const file = join(systemRoot, 'outside.txt');
+      writeFileSync(file, 'outside content', 'utf8');
+      const surface = buildInvocationSurface('executor', [createWorkspaceProvider({ projectRoot: root, cardId: 'card-1', agentRole: 'executor' })]);
+
+      const result = await invokeTool(surface, 'read', { path: `system://${file}` });
+
+      expect(result.success).toBe(true);
+      if (result.success) expect(result.data).toMatchObject({ path: `system://${file}`, content: 'outside content' });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(systemRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('globs and greps files outside the project through system:// scope while skipping secrets', async () => {
+    const { root } = setupProject();
+    const systemRoot = mkdtempSync(join(tmpdir(), 'workspace-provider-system-'));
+    try {
+      mkdirSync(join(systemRoot, 'nested'));
+      writeFileSync(join(systemRoot, 'nested', 'match.md'), 'UNIQUE_TOKEN visible', 'utf8');
+      writeFileSync(join(systemRoot, '.env'), 'UNIQUE_TOKEN secret', 'utf8');
+      const surface = buildInvocationSurface('executor', [createWorkspaceProvider({ projectRoot: root, cardId: 'card-1', agentRole: 'executor' })]);
+
+      const globResult = await invokeTool(surface, 'glob', { directory: `system://${systemRoot}`, pattern: '**/*.md' });
+      const grepResult = await invokeTool(surface, 'grep', { path: `system://${systemRoot}`, pattern: 'UNIQUE_TOKEN' });
+
+      expect(globResult.success).toBe(true);
+      if (globResult.success) expect((globResult.data as { matches: string[] }).matches).toEqual([`system://${join(systemRoot, 'nested', 'match.md')}`]);
+      expect(grepResult.success).toBe(true);
+      if (grepResult.success) {
+        const matches = (grepResult.data as { matches: Array<{ path: string }> }).matches;
+        expect(matches.map((match) => match.path)).toEqual([`system://${join(systemRoot, 'nested', 'match.md')}`]);
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(systemRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('allows executor system:// writes and denies secret-looking system writes', async () => {
+    const { root } = setupProject();
+    const systemRoot = mkdtempSync(join(tmpdir(), 'workspace-provider-system-'));
+    try {
+      const surface = buildInvocationSurface('executor', [createWorkspaceProvider({ projectRoot: root, cardId: 'card-1', agentRole: 'executor' })]);
+      const target = join(systemRoot, 'out.txt');
+
+      const ok = await invokeTool(surface, 'write', { path: `system://${target}`, content: 'ok' });
+      const denied = await invokeTool(surface, 'write', { path: `system://${join(systemRoot, '.env')}`, content: 'SECRET=1' });
+
+      expect(ok.success).toBe(true);
+      expect(readFileSync(target, 'utf8')).toBe('ok');
+      expect(denied.success).toBe(false);
+      if (!denied.success) expect(denied.error).toContain('blocked for security reasons');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(systemRoot, { recursive: true, force: true });
     }
   });
 });

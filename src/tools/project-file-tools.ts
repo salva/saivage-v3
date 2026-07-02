@@ -17,7 +17,7 @@ const MAX_SEARCH_LIMIT = 1000;
 const SKIPPED_DIRS = new Set(['.git', 'node_modules', '.saivage', '.saivage-work', 'dist', 'build', '__pycache__']);
 
 export type WorkspaceContext = { projectRoot: string; cardId?: string; agentRole?: AgentRole; store?: Pick<CardStore, 'read'> };
-type ResolvedToolPath = { kind: 'project' | 'tmp'; absolutePath: string; relativePath: string } | ({ kind: 'record' } & OpenRecordSlot);
+type ResolvedToolPath = { kind: 'project' | 'tmp' | 'system'; absolutePath: string; relativePath: string } | ({ kind: 'record' } & OpenRecordSlot);
 
 export class WorkspaceToolInputError extends Error {
   constructor(message: string) {
@@ -55,6 +55,35 @@ function assertWritable(projectRoot: string, path: string): { absolutePath: stri
   if (resolved.relativePath === '.' || resolved.relativePath.endsWith('/')) throw toolInputError('write requires a file path, not a directory.');
   if (resolved.relativePath === '.saivage' || resolved.relativePath.startsWith('.saivage/') || resolved.relativePath === '.saivage-work' || resolved.relativePath.startsWith('.saivage-work/')) throw toolInputError('Cannot modify Saivage internal state directories.');
   if (isWriteBlocked(resolved.relativePath) || looksLikeSecretPath(resolved.absolutePath)) throw toolInputError(`Write access to '${resolved.relativePath}' is blocked for security reasons.`);
+  try {
+    if (lstatSync(resolved.absolutePath).isSymbolicLink()) throw toolInputError(`Write access to symlink '${resolved.relativePath}' is blocked for security reasons.`);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+  }
+  return resolved;
+}
+
+function systemDisplayPath(absolutePath: string): string {
+  return `system://${absolutePath}`;
+}
+
+function resolveSystemPath(raw: string): { absolutePath: string; relativePath: string } {
+  const target = decodeURIComponent(raw.slice('system://'.length));
+  if (!target.startsWith('/')) throw toolInputError(`system:// paths must use an absolute path: '${raw}'.`);
+  const absolutePath = resolve(target);
+  return { absolutePath, relativePath: systemDisplayPath(absolutePath) };
+}
+
+function assertReadableSystemPath(raw: string): { absolutePath: string; relativePath: string } {
+  const resolved = resolveSystemPath(raw);
+  if (isHiddenPath('', resolved.absolutePath, normalizeRel(resolved.absolutePath))) throw toolInputError(`Access to '${resolved.relativePath}' is blocked for security reasons.`);
+  return resolved;
+}
+
+function assertWritableSystemPath(raw: string): { absolutePath: string; relativePath: string } {
+  const resolved = resolveSystemPath(raw);
+  if (resolved.absolutePath === '/' || raw.endsWith('/')) throw toolInputError('write requires a file path, not a directory.');
+  if (isWriteBlocked(normalizeRel(resolved.absolutePath)) || looksLikeSecretPath(resolved.absolutePath)) throw toolInputError(`Write access to '${resolved.relativePath}' is blocked for security reasons.`);
   try {
     if (lstatSync(resolved.absolutePath).isSymbolicLink()) throw toolInputError(`Write access to symlink '${resolved.relativePath}' is blocked for security reasons.`);
   } catch (err) {
@@ -127,6 +156,11 @@ function resolveTmpPath(ctx: WorkspaceContext, raw: string, mode: 'read' | 'writ
 function resolveToolPath(ctx: WorkspaceContext, raw: string, mode: 'read' | 'write'): ResolvedToolPath {
   if (raw.startsWith('record://')) return { kind: 'record', ...parseRecordUrl(ctx, raw, mode) };
   if (raw.startsWith('tmp://')) return resolveTmpPath(ctx, raw, mode);
+  if (raw.startsWith('system://')) {
+    if (mode === 'write' && ctx.agentRole && ctx.agentRole !== 'executor') throw toolInputError(`${ctx.agentRole} cannot write system files.`);
+    const resolved = mode === 'read' ? assertReadableSystemPath(raw) : assertWritableSystemPath(raw);
+    return { kind: 'system', ...resolved };
+  }
   const projectPath = resolveProjectSchemePath(raw);
   if (mode === 'write' && ctx.agentRole && ctx.agentRole !== 'executor') throw toolInputError(`${ctx.agentRole} cannot write project files.`);
   const resolved = mode === 'read' ? assertReadable(ctx.projectRoot, projectPath) : assertWritable(ctx.projectRoot, projectPath);
@@ -156,17 +190,18 @@ function globToRegExp(pattern: string): RegExp {
   return new RegExp(parts.join(''));
 }
 
-function walkFiles(projectRoot: string, start: string, visitor: (absolutePath: string, relativePath: string) => boolean | void, options: { includeHidden: boolean } = { includeHidden: false }): void {
+function walkFiles(projectRoot: string, start: string, visitor: (absolutePath: string, relativePath: string) => boolean | void, options: { includeHidden: boolean; root?: string; displayPath?: (absolutePath: string, relativePath: string) => string } = { includeHidden: false }): void {
+  const root = options.root ?? projectRoot;
   for (const entry of readdirSync(start, { withFileTypes: true })) {
     const absolutePath = join(start, entry.name);
-    const relativePath = normalizeRel(relative(projectRoot, absolutePath));
+    const relativePath = normalizeRel(relative(root, absolutePath));
     if (entry.isDirectory()) {
       if (!options.includeHidden && (SKIPPED_DIRS.has(entry.name) || isHiddenPath(projectRoot, absolutePath, relativePath))) continue;
       walkFiles(projectRoot, absolutePath, visitor, options);
       continue;
     }
     if (!entry.isFile() || (!options.includeHidden && isHiddenPath(projectRoot, absolutePath, relativePath))) continue;
-    if (visitor(absolutePath, relativePath) === false) return;
+    if (visitor(absolutePath, options.displayPath ? options.displayPath(absolutePath, relativePath) : relativePath) === false) return;
   }
 }
 
@@ -232,6 +267,11 @@ export function authorizeWriteProject(ctx: WorkspaceContext, params: { path: str
     resolveTmpPath(ctx, params.path, 'write');
     return;
   }
+  if (params.path.startsWith('system://')) {
+    if (ctx.agentRole && ctx.agentRole !== 'executor') throw toolInputError(`${ctx.agentRole} cannot write system files.`);
+    assertWritableSystemPath(params.path);
+    return;
+  }
   const projectPath = resolveProjectSchemePath(params.path);
   if (ctx.agentRole && ctx.agentRole !== 'executor') throw toolInputError(`${ctx.agentRole} cannot write project files.`);
   assertWritable(ctx.projectRoot, projectPath);
@@ -286,9 +326,11 @@ function validateBriefMarkdown(content: string): void {
 
 export async function globProject(ctx: WorkspaceContext, params: { directory: string; pattern: string; max_results?: number }): Promise<unknown> {
   const isRecordSearch = params.directory.startsWith('record://');
-  const { absolutePath, relativePath } = isRecordSearch
+  const isSystemSearch = params.directory.startsWith('system://');
+  const resolved = isRecordSearch
     ? resolveRecordSearchPath(ctx, params.directory)
     : resolveToolPath(ctx, params.directory, 'read');
+  const { absolutePath, relativePath } = resolved;
   const st = statSync(absolutePath);
   const pattern = globToRegExp(params.pattern);
   const limit = parseNonNegativeInt(params.max_results, DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT);
@@ -299,12 +341,13 @@ export async function globProject(ctx: WorkspaceContext, params: { directory: st
     if (matches.length >= limit) return false;
   };
   if (st.isFile()) consider(absolutePath, relativePath);
-  else walkFiles(ctx.projectRoot, absolutePath, consider, { includeHidden: isRecordSearch });
+  else walkFiles(ctx.projectRoot, absolutePath, consider, { includeHidden: isRecordSearch, root: isSystemSearch ? absolutePath : undefined, displayPath: isSystemSearch ? (abs) => systemDisplayPath(abs) : undefined });
   return { directory: relativePath, pattern: params.pattern, matches, truncated: matches.length >= limit };
 }
 
 export async function grepProject(ctx: WorkspaceContext, params: { pattern: string; path?: string; include?: string; max_results?: number }): Promise<unknown> {
   const isRecordSearch = params.path?.startsWith('record://') ?? false;
+  const isSystemSearch = params.path?.startsWith('system://') ?? false;
   const target = isRecordSearch
     ? resolveRecordSearchPath(ctx, params.path!)
     : resolveToolPath(ctx, params.path ?? '.', 'read');
@@ -324,7 +367,7 @@ export async function grepProject(ctx: WorkspaceContext, params: { pattern: stri
   };
   const st = statSync(target.absolutePath);
   if (st.isFile()) scan(target.absolutePath, target.relativePath);
-  else walkFiles(ctx.projectRoot, target.absolutePath, scan, { includeHidden: isRecordSearch });
+  else walkFiles(ctx.projectRoot, target.absolutePath, scan, { includeHidden: isRecordSearch, root: isSystemSearch ? target.absolutePath : undefined, displayPath: isSystemSearch ? (abs) => systemDisplayPath(abs) : undefined });
   return { pattern: params.pattern, matches, truncated: matches.length >= limit };
 }
 

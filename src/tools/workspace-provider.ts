@@ -67,9 +67,9 @@ export function createWorkspaceProvider(ctx: WorkspaceProviderContext): ToolProv
   return {
     providerName: 'workspace',
     tools: [
-      defineTool({ name: 'read', description: 'Read a project, record, or tmp file or directory through scoped URLs.', inputSchema: readSchema, executor: (args) => runWorkspaceTool(() => readProject(ctx, args)) }),
-      defineTool({ name: 'write', description: 'Create or replace a project, record, or tmp file according to role policy.', inputSchema: writeSchema, executor: (args) => runWorkspaceTool(() => writeProject(ctx, args)) }),
-      defineTool({ name: 'edit', description: 'Replace exact text in a project, record, or tmp file according to role policy.', inputSchema: editSchema, executor: (args) => runWorkspaceTool(() => editProject(ctx, args)) }),
+      defineTool({ name: 'read', description: 'Read a project, record, tmp, or system file or directory through scoped URLs.', inputSchema: readSchema, executor: (args) => runWorkspaceTool(() => readProject(ctx, args)) }),
+      defineTool({ name: 'write', description: 'Create or replace a project, record, tmp, or system file according to role policy.', inputSchema: writeSchema, executor: (args) => runWorkspaceTool(() => writeProject(ctx, args)) }),
+      defineTool({ name: 'edit', description: 'Replace exact text in a project, record, tmp, or system file according to role policy.', inputSchema: editSchema, executor: (args) => runWorkspaceTool(() => editProject(ctx, args)) }),
       defineTool({ name: 'glob', description: 'Search files by glob pattern under a scoped directory.', inputSchema: globSchema, executor: (args) => runWorkspaceTool(() => globProject(ctx, args)) }),
       defineTool({ name: 'grep', description: 'Search text files with a JavaScript regular expression.', inputSchema: grepSchema, executor: (args) => runWorkspaceTool(() => grepProject(ctx, args)) }),
     ],
