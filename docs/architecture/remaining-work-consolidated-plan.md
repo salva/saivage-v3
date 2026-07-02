@@ -186,15 +186,9 @@ These are not dead code. They are features the spec promises and tools expose, b
    - **Subsystem B** (analyst card edits → `propagateChange` → `ActiveGoalNoteSinks` / synthetic-planner-notes): the card-status flip to `changed` works, but notification delivery to running planners is broken. `ActiveGoalNoteSinks` is never registered. Synthetic notes are written to disk but never drained.
    - **Subsystem C** (`CardActor.enqueueNotification` → `deliverNotificationsForInput` → LLM context): this is the working delivery mechanism endorsed by the micro-actor design. It works for cancellation-while-running. But its public entry points (`CardActor.notify()`, `CardActor.markChanged()`) have zero callers — nothing connects A or B to C.
 
-   The fix: bridge subsystems A and B to subsystem C.
+   The fix uses a **single-method `CardNotificationPort`** (`notify(cardId, notification)`) implemented by `SupervisorRuntimeApi`. It delivers to the live CardActor if one exists, or writes directly to the actor snapshot for inactive cards (avoiding lazy-materialization hazards). Snapshot restore is fixed in `CardActor.fromCard()` so persisted notifications survive restart. See the design doc for details.
 
-   Required work:
-
-   - Expose the CardActor registry so `queue_notification` and `propagateChange` can find a card's live actor.
-   - Rewire `queue_notification` to resolve a recipient to a card id and call `cardActor.notify(...)`. For inactive cards (no live actor), use a durable pending home.
-   - Rewire `propagateChange` so that when it reaches a running card, it calls `cardActor.markChanged()` instead of just recording `stopped_at_running` and stopping.
-   - Delete the old remnant plumbing (`ActiveGoalNoteSinks`, `synthetic-planner-notes.ts`, the `queuePlannerNote` branches in `changed-propagation.ts`) only after the bridge to subsystem C is working.
-   - Decide the fate of the session-keyed `NotificationCenter`: keep it as the Telegram adapter host, or retire it for agent delivery entirely.
+   Key correction from code review: `propagateChange`'s `flipped` field IS read by `analyst-stage6.ts` and must be kept. Only `notified_planner_session_ids` and `stopped_at_running` can be removed. `markGoalNeedsCorrections` callers must be updated when `notified_planner_session_ids` is dropped.
 
    Do NOT delete `CardActor.notify()`, `markChanged()`, or the notification delivery mechanics — they are the intended design, just unwired.
 
@@ -219,7 +213,6 @@ Whole modules from the pre-micro-actor runtime that were replaced by working equ
 4. **Delete dead `RuntimeEventPublisher` class — but relocate `buildRuntimeDiagnosticEvent` first.**
 
    `RuntimeEventPublisher` is never instantiated in production. It was superseded by direct `appendEvent` calls. Its test even asserts that `emitAgentEvent` is a forbidden API. **Important:** the same file exports `buildRuntimeDiagnosticEvent`, which IS live (called from `analyst-handler.ts`). Relocate that helper before deleting the class.
-
 5. **Delete dead worker/stage/clearance normalizer modules.**
 
    `schemas/worker-report-normalizer.ts`, `schemas/worker-dispatch-envelope-normalizer.ts`, and `schemas/sanitized-clearance-report.ts` have zero production callers and belong to an abandoned worker/dispatch/clearance concept not present in the card-centered spec.
@@ -242,7 +235,7 @@ Config, events, and modules for features that were never built and are not in th
 
 1. **Delete `ContentSupervisor` module entirely.**
 
-   `src/workspace/content-supervisor.ts` is never constructed in production. The spec does not mention content supervision. Its `eventBus` field, `emitBlocked` method, and silent error swallowing are dead. The `/api/debug/supervision` route works but returns empty because the supervisor never populates the stores.
+   `src/workspace/content-supervisor.ts` is never constructed in production. The spec does not mention content supervision. Its `eventBus` field, `emitBlocked` method, and silent error swallowing are dead. The `/api/debug/supervision` route works but returns empty because the supervisor never populates the stores. **Coordinate with web UI:** `web/src/views/DebugView.vue` has a live "Supervision" tab that calls this route. Remove the UI tab in the same change.
 
 2. **Delete the unwired `supervisor` config section.**
 
@@ -250,7 +243,7 @@ Config, events, and modules for features that were never built and are not in th
 
 3. **Remove dead `runtime` config fields.**
 
-   Nine of ten `runtime.*` defaults in the config transform are read only by test fixtures, never production. `maxGoalDepth` is especially misleading: the config value is silently dead because `CardStore` hardcodes `5` independently. Either thread the config or remove the field.
+   Approximately nine of eleven `runtime.*` defaults in the config transform are read only by test fixtures, never production. `recoveryDelayMs` and `maxRecoveryRetries` ARE live (read at `src/application/runtime-composition.ts:89-90`). `maxGoalDepth` is especially misleading: the config value is silently dead because `CardStore` hardcodes `5` independently. Either thread the config or remove the field.
 
 4. **Remove dead config catchalls.**
 
@@ -270,6 +263,8 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
    - Stuck-supervisor: `stuck_supervisor_started`/`stuck_supervisor_stopped`/`stuck_verdict`/`abort_target_selected`/`force_cancel_sent` — tied to dead supervisor config.
    - Diagnostic: `runtime_fatal_error`/`startup_session_sweep` — replaced by `runtime_diagnostic` (still emitted) and snapshot-based recovery.
 
+   **Compile dependency:** `src/server/sync-hub.ts` `liveSyncEventKinds` array and `mapLiveSyncEvent` switch reference many of these kinds. They must be stripped from `sync-hub.ts` in the same change, or TypeScript compilation will fail.
+
 2. **Delete drifted per-event-kind schemas.**
 
    `schemas/validators.ts` defines ~37 hand-written per-event schemas that are test-only and have already drifted from the catalog. Production uses catalog-derived `loggedEventSchema`. Delete the hand-written schemas, their exports, and their tests.
@@ -277,6 +272,8 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 3. **Remove stale reviewer assessment schemas and code.**
 
    The active reviewer terminal contract is `emit_result` with `{ status, summary }`. `runtime/reviewer-assessment.ts` (`buildReviewAssessment`, `validateReviewerAssessment`), reviewer assessment schema fields (`achieved`, `issues`, `evidence_card_ids`), and related tests preserve the older structured `pass` / `needs_corrections` path. Also update the reviewer prompt to use `done | rework | blocked | failed` and direct evidence narrative to `review.md`.
+
+   **Important:** `reviewer-assessment.ts` also exports `nextReviewerAssessmentId` and `reviewerSessionId`, which ARE live (called from `src/runtime/actors/planning-card-processor-actor.ts:191-192`). Relocate these before deleting the file.
 
 ### C. Config And Provider Duplication
 
@@ -316,7 +313,7 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
 3. **Remove no-op logger lifecycle methods.**
 
-   `EventLogger` and `ErrorLogger` `flush`/`flushSync`/`close` are empty bodies with live callers. Delete the methods and all call sites.
+   `EventLogger` and `ErrorLogger` `flush`/`flushSync`/`close` are empty bodies with live callers. Delete the methods and all call sites, including `src/application/runtime-composition.ts:151-152`, `src/runtime/process-runner.ts:784-786`, and `src/application/read-models/events-read-model.ts:40`.
 
 4. **Remove dead server barrels and exports.**
 
@@ -364,7 +361,7 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
 5. **Remove dead `changed-propagation` return fields.**
 
-   `flipped` and `stopped_at_running` are computed but never read by production callers.
+   Only `stopped_at_running` is dead (never read by production). `flipped` IS live — `src/agents/analyst-stage6.ts:15` reads it to derive `status_transition`. `notified_planner_session_ids` is live but will become dead after Stage 0's notification rewrite. Remove `stopped_at_running` now; remove `notified_planner_session_ids` only after Stage 0.
 
 6. **Narrow over-broad `catch {}` in record-slot helpers.**
 
@@ -384,9 +381,9 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
    Provider composition is now the authority. Remove or shrink `RoleToolPolicy` where it duplicates provider surfaces.
 
-4. **Rename or split `tool-catalog.ts`.**
+4. **Rename or inline `tool-catalog.ts`.**
 
-   The file name implies an execution catalog, but it is now vocabulary/schema helper code. Move to narrower modules.
+   The file is 57 lines of vocabulary constants. Simpler than splitting: inline the constants directly into their consumers (`analyst-prompt.ts`, `analyst-tool-types.ts`) and delete the file. Also consolidate the duplicated `AgentRole` type (defined in both `schemas/types.ts` and `tool-catalog.ts`) — keep only the `schemas/types.ts` one and update `record-slots.ts`'s import.
 
 5. **Remove tests-only `ToolRuntime` and package-root barrels.**
 
