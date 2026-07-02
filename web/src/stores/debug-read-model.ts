@@ -10,7 +10,7 @@ export function filterCanonicalEvents(events: DebugTimelineEvent[]): DebugTimeli
   return events.filter((event) => isCanonicalEventKind(event.kind));
 }
 
-const FAILURE_EVENT_KIND_RE = /^llm_attempt$|_error$|_failed$/;
+const FAILURE_EVENT_KIND_RE = /_error$|_failed$/;
 export const OPERATOR_STALE_AGE_MS = 60_000;
 
 function eventFieldAsString(event: DebugTimelineEvent, field: string): string | null {
@@ -50,7 +50,7 @@ export function selectTimelineDerivedErrors(events: DebugTimelineEvent[]): Debug
     .map((event) => ({
       source: sessionFromEvent(event),
       type: event.kind,
-      severity: (event.kind === 'llm_attempt' && (event as { outcome?: { kind?: string } }).outcome?.kind === 'failed') || event.kind.endsWith('_failed') ? 'warning' : 'error',
+      severity: event.kind.endsWith('_failed') ? 'warning' : 'error',
       message: errorMessageFromEvent(event),
       details: eventErrorDetails(event),
       timestamp: event.timestamp,

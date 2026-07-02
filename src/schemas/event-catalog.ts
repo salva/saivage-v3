@@ -7,83 +7,7 @@ export type EventDomain = 'runtime' | 'agent';
 const anyRecord = z.record(z.string(), z.unknown());
 
 const agentRoleSchema = z.enum(['planner', 'executor', 'reviewer', 'manager', 'researcher', 'coder', 'tester', 'ux', 'critic']);
-const terminalToolNameSchema = z.literal('emit_result');
-const runtimeRecordSchema = anyRecord;
 const actionableErrorEnvelopeSchema = anyRecord;
-const projectRunCompletedShape = { project_card_id: z.string().optional(), result: z.enum(['done', 'failed', 'blocked']).optional(), summary: z.string().optional(), failure_kind: z.string().optional(), blocked_reason: z.string().optional() } satisfies z.ZodRawShape;
-
-const failureClassSchema = z.enum(['auth_permanent', 'rate_limit', 'server_transient', 'timeout', 'provider_protocol_error', 'capability_mismatch', 'token_budget_exceeded', 'parse_error', 'cancelled', 'unknown']);
-const recoveryActionSchema = z.enum(['mark_succeeded', 'cooldown_and_failover', 'failover_without_cooldown', 'retry_same_after_delay', 'abort_without_retry', 'fail_invocation']);
-const verdictSchema = z.enum(['succeeded', 'exhausted', 'cancelled']);
-
-const llmAttemptBaseShape = {
-  session_id: z.string(),
-  role: agentRoleSchema,
-  attempt: z.number().int().nonnegative(),
-  same_candidate_attempt: z.number().int().nonnegative(),
-  provider: z.string(),
-  model: z.string(),
-  account: z.string(),
-  started_at: z.string().datetime(),
-  duration_ms: z.number().nonnegative(),
-  outcome: z.discriminatedUnion('kind', [
-    z.object({ kind: z.literal('succeeded'), terminal_tool: terminalToolNameSchema }).strict(),
-    z.object({
-      kind: z.literal('failed'),
-      failure_class: failureClassSchema,
-      recovery_action: recoveryActionSchema,
-      error_name: z.string(),
-      error_message: z.string(),
-      error_preview: z.string().optional(),
-      cooldown_ms: z.number().nonnegative().optional(),
-      retry_delay_ms: z.number().nonnegative().optional(),
-    }).strict(),
-  ]),
-  capability_skip_reasons: z.array(z.object({ provider: z.string(), model: z.string(), reasons: z.array(z.string()) }).strict()).optional(),
-} satisfies z.ZodRawShape;
-
-const llmInvocationSummaryBaseShape = {
-  session_id: z.string(),
-  role: agentRoleSchema,
-  goal_id: z.string(),
-  card_id: z.string(),
-  contract_id: z.string(),
-  attempts_count: z.number().int().nonnegative(),
-  total_duration_ms: z.number().nonnegative(),
-  verdict: verdictSchema,
-  repair_attempts: z.number().int().nonnegative(),
-  contract_verdict: z.enum(['satisfied']).optional(),
-  final_provider: z.string().optional(),
-  final_model: z.string().optional(),
-  final_account: z.string().optional(),
-  final_terminal_tool: terminalToolNameSchema.optional(),
-  last_failure_class: failureClassSchema.optional(),
-} satisfies z.ZodRawShape;
-
-const llmVerifierRejectionBaseShape = {
-  session_id: z.string(),
-  role: agentRoleSchema,
-  contract_id: z.string(),
-  attempt: z.number().int().nonnegative(),
-  repair_round: z.number().int().positive(),
-  obligation_codes: z.array(z.string()),
-  proposed_present: z.boolean(),
-} satisfies z.ZodRawShape;
-
-export const llmInvocationSummaryRefine = (data: unknown, ctx: z.RefinementCtx): void => {
-  const d = data as {
-    verdict: 'succeeded' | 'exhausted' | 'cancelled';
-    final_provider?: string; final_model?: string; final_account?: string; final_terminal_tool?: string;
-    last_failure_class?: string;
-  };
-  if (d.verdict === 'succeeded') {
-    for (const k of ['final_provider', 'final_model', 'final_account', 'final_terminal_tool'] as const) {
-      if (!d[k]) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [k], message: `${k} required when verdict='succeeded'` });
-    }
-  } else {
-    if (!d.last_failure_class) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['last_failure_class'], message: "last_failure_class required when verdict!='succeeded'" });
-  }
-};
 
 type RegistryEntry = {
   domain: EventDomain;
@@ -102,42 +26,9 @@ const open = <T extends z.ZodRawShape>(baseShape: T, rest: Omit<RegistryEntry, '
 export const EventRegistry = {
   process_reconciled_dead: open({ process_id: z.string(), card_id: z.string(), goal_id: z.string().optional(), session_id: z.string().optional(), pid: z.number().nullable().optional(), probe_status: z.enum(['not_running', 'identity_mismatch', 'clock_skew']), terminal_reason: z.literal('lost'), failure_classification: z.literal('lost'), detail: z.string() }, { domain: 'runtime', severity: 'warning', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
   process_reattach_rejected: open({ process_id: z.string(), card_id: z.string(), goal_id: z.string().optional(), session_id: z.string().optional(), pid: z.number().nullable().optional(), terminal_reason: z.literal('lost'), failure_classification: z.literal('lost'), reattach_error: z.string(), detail: z.string() }, { domain: 'runtime', severity: 'warning', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
-  goal_report_rejected: open({ goal_id: z.string().optional(), reason: z.string().optional(), reviewer_summary: z.string().optional(), missing: z.array(z.string()).optional() }, { domain: 'runtime', severity: 'warning', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
-  started: open({}, { domain: 'runtime', severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
-  goal_completed: open({ goal_id: z.string() }, { domain: 'runtime', severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
-  goal_failed: open({ goal_id: z.string(), error_message: z.string().optional() }, { domain: 'runtime', severity: 'error', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
-  review_complete: open({ goal_id: z.string(), assessment: z.unknown().optional() }, { domain: 'runtime', severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
-  review_failed: open({ goal_id: z.string(), assessment: z.unknown().optional() }, { domain: 'runtime', severity: 'warning', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
-  shutdown: open({}, { domain: 'runtime', severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
-  paused: open({}, { domain: 'runtime', severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
-  resumed: open({}, { domain: 'runtime', severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
-  card_failed: open({ card_id: z.string().optional(), goal_id: z.string().optional() }, { domain: 'runtime', severity: 'warning', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
-  escalation: open({ goal_id: z.string(), reason: z.string().optional(), message: z.string().optional() }, { domain: 'runtime', severity: 'warning', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
-  plan_updated: open({ goal_id: z.string(), changes: z.array(z.string()).optional() }, { domain: 'runtime', severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
-  dispatch_blocked: open({ reason: z.string(), goal_id: z.string() }, { domain: 'runtime', severity: 'warning', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
-  dispatch_interrupted: open({ goal_id: z.string(), reason: z.string() }, { domain: 'runtime', severity: 'warning', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
   runtime_diagnostic: open({ goal_id: z.string().optional(), card_id: z.string().optional(), phase: z.string().optional(), error_message: z.string(), error_name: z.string().optional() }, { domain: 'runtime', severity: 'error', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
   runtime_actionable_error: open({ actionable_error: actionableErrorEnvelopeSchema }, { domain: 'runtime', severity: 'error', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
-  runtime_fatal_error: open({ phase: z.string().optional(), error_message: z.string(), error_name: z.string().optional() }, { domain: 'runtime', severity: 'error', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
-  startup_session_sweep: open({ swept_session_ids: z.array(z.string()) }, { domain: 'runtime', severity: 'warning', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
   subscriber_error: open({ subscription_id: z.string(), source_kind: z.string(), error_message: z.string(), error_name: z.string().optional(), timed_out: z.boolean().optional() }, { domain: 'runtime', severity: 'error', tracked: false, audit: false, broadcast: false, outbound: 'internal' }),
-  stuck_supervisor_started: open({ interval_ms: z.number(), consecutive_threshold: z.number() }, { domain: 'runtime', severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
-  stuck_supervisor_stopped: open({ checks_performed: z.number() }, { domain: 'runtime', severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
-  stuck_verdict: open({ verdict: z.boolean(), confidence: z.number(), reason: z.string(), evidence: z.array(z.string()), consecutive_count: z.number(), threshold: z.number() }, { domain: 'runtime', severity: 'warning', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
-  abort_target_selected: open({ target_role: z.string(), target_session_id: z.string(), reason: z.string(), consecutive_count: z.number() }, { domain: 'runtime', severity: 'warning', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
-  force_cancel_sent: open({ target_role: z.string(), target_session_id: z.string(), reason: z.string() }, { domain: 'runtime', severity: 'error', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
-  project_run_completed: open(projectRunCompletedShape, { domain: 'runtime', severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
-  runtime_command: open({ command: runtimeRecordSchema }, { domain: 'runtime', severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
-  runtime_run: open({ run: runtimeRecordSchema }, { domain: 'runtime', severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
-  runtime_activation: open({ activation: runtimeRecordSchema }, { domain: 'runtime', severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
-  session_started: open({ session_id: z.string(), role: agentRoleSchema, goal_id: z.string(), card_id: z.string() }, { domain: 'agent', severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
-  llm_attempt: { domain: 'agent', strict: true as const, baseShape: llmAttemptBaseShape, refine: undefined as ((data: unknown, ctx: z.RefinementCtx) => void) | undefined, severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' },
-  llm_invocation_summary: { domain: 'agent', strict: true as const, baseShape: llmInvocationSummaryBaseShape, refine: llmInvocationSummaryRefine as ((data: unknown, ctx: z.RefinementCtx) => void) | undefined, severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' },
-  llm_verifier_rejection: { domain: 'agent', strict: true as const, baseShape: llmVerifierRejectionBaseShape, refine: undefined as ((data: unknown, ctx: z.RefinementCtx) => void) | undefined, severity: 'warning', tracked: true, audit: true, broadcast: true, outbound: 'operator' },
-  compaction_triggered: open({ session_id: z.string(), role: agentRoleSchema, tokens_before: z.number(), tokens_after: z.number() }, { domain: 'agent', severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
-  model_issue: open({ session_id: z.string(), role: agentRoleSchema.optional(), message: z.string() }, { domain: 'agent', severity: 'warning', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
-  session_cancelled: open({ session_id: z.string() }, { domain: 'agent', severity: 'warning', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
-  session_force_cancelled: open({ session_id: z.string() }, { domain: 'agent', severity: 'error', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
   mcp_tool_invocation: open({ session_id: z.string(), role: agentRoleSchema, server_name: z.string(), tool_name: z.string(), success: z.boolean(), error_message: z.string().optional() }, { domain: 'agent', severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
   card_history_appended: open({ entry_id: z.string().uuid(), entry_kind: z.enum(['update', 'status', 'mutate', 'depends', 'delete', 'archive']), card_id: z.string(), version_seq: z.number(), changed_fields: z.array(z.string()), changed_at: z.string() }, { domain: 'runtime', severity: 'info', tracked: false, audit: true, broadcast: true, outbound: 'operator' }),
   notification_added: open({ session_id: z.string().nullable(), kind: z.string() }, { domain: 'runtime', severity: 'info', tracked: false, audit: true, broadcast: true, outbound: 'operator' }),

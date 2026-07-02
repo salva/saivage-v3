@@ -5,19 +5,18 @@ describe('typed EventBus', () => {
   it('derives severity and known event metadata from the registry', () => {
     expect(EventRegistry.runtime_diagnostic.severity).toBe('error');
     expect(EventRegistry.subscriber_error.broadcast).toBe(false);
-    expect(getEventSeverity('goal_completed')).toBe('info');
+    expect(getEventSeverity('card_history_appended')).toBe('info');
   });
 
   it('derives disjoint runtime and agent event catalogs from registry domain metadata', () => {
     const runtimeKinds = new Set(runtimeEventKindValues);
     const agentKinds = new Set(agentEventKindValues);
 
-    expect(EventRegistry.session_started.domain).toBe('agent');
+    expect(EventRegistry.mcp_tool_invocation.domain).toBe('agent');
     expect(EventRegistry.runtime_diagnostic.domain).toBe('runtime');
-    expect(agentKinds.has('session_started')).toBe(true);
     expect(agentKinds.has('mcp_tool_invocation')).toBe(true);
     expect(runtimeKinds.has('runtime_diagnostic')).toBe(true);
-    expect(runtimeKinds.has('goal_completed')).toBe(true);
+    expect(runtimeKinds.has('card_history_appended')).toBe(true);
     expect(runtimeEventKindValues.filter((kind) => agentKinds.has(kind))).toEqual([]);
     expect([...runtimeEventKindValues, ...agentEventKindValues].sort()).toEqual([...eventKindValues].sort());
   });
@@ -25,15 +24,15 @@ describe('typed EventBus', () => {
   it('delivers typed events and supports subscribeMany filtering', () => {
     const bus = new EventBus();
     const seen: string[] = [];
-    bus.subscribeMany(['goal_completed'], (event) => { seen.push(event.kind); });
-    bus.emit('started', { project_root: '/tmp/project' });
-    bus.emit('goal_completed', { goal_id: 'goal-1' });
-    expect(seen).toEqual(['goal_completed']);
+    bus.subscribeMany(['runtime_diagnostic'], (event) => { seen.push(event.kind); });
+    bus.emit('card_history_appended', { entry_id: '11111111-1111-4111-8111-111111111111', entry_kind: 'update', card_id: 'card-1', version_seq: 1, changed_fields: [], changed_at: '2026-01-01T00:00:00.000Z' });
+    bus.emit('runtime_diagnostic', { error_message: 'boom' });
+    expect(seen).toEqual(['runtime_diagnostic']);
   });
 
   it('validates typed emit payloads against the event registry schema', () => {
     const bus = new EventBus();
-    expect(() => bus.emit('goal_completed', {} as never)).toThrow();
+    expect(() => bus.emit('runtime_diagnostic', {} as never)).toThrow();
   });
 
   it('preserves pause/resume buffering with drop-oldest overflow', () => {
@@ -41,12 +40,12 @@ describe('typed EventBus', () => {
     const seen: string[] = [];
     const sub = bus.subscribe({
       bufferSize: 2,
-      handler: (event) => { seen.push(String(event.payload.goal_id ?? event.kind)); },
+      handler: (event) => { seen.push(String(event.payload.goal_id ?? event.payload.error_message ?? event.kind)); },
     });
     sub.pause();
-    bus.emit('goal_completed', { goal_id: 'one' });
-    bus.emit('goal_completed', { goal_id: 'two' });
-    bus.emit('goal_completed', { goal_id: 'three' });
+    bus.emit('runtime_diagnostic', { error_message: 'one' });
+    bus.emit('runtime_diagnostic', { error_message: 'two' });
+    bus.emit('runtime_diagnostic', { error_message: 'three' });
     expect(bus.bufferedCount).toBe(2);
     sub.resume();
     expect(seen).toEqual(['two', 'three']);
@@ -56,10 +55,10 @@ describe('typed EventBus', () => {
     const bus = new EventBus();
     const seen: string[] = [];
     bus.subscribe('subscriber_error', (event) => { seen.push(`err:${event.payload.source_kind}`); });
-    bus.subscribe('goal_completed', () => { throw new Error('boom'); });
-    bus.subscribe('goal_completed', (event) => { seen.push(event.kind); });
-    bus.emit('goal_completed', { goal_id: 'goal-1' });
-    expect(seen).toEqual(['err:goal_completed', 'goal_completed']);
+    bus.subscribe('runtime_diagnostic', () => { throw new Error('boom'); });
+    bus.subscribe('runtime_diagnostic', (event) => { seen.push(event.kind); });
+    bus.emit('runtime_diagnostic', { error_message: 'boom' });
+    expect(seen).toEqual(['err:runtime_diagnostic', 'runtime_diagnostic']);
   });
 
   it('isolates subscriber timeouts as subscriber_error', () => {
@@ -68,7 +67,7 @@ describe('typed EventBus', () => {
     const seen: string[] = [];
     bus.subscribe('subscriber_error', (event) => { seen.push(String(event.payload.timed_out)); });
     bus.subscribe({ deliveryTimeoutMs: 10, handler: async () => new Promise<void>(() => undefined) });
-    bus.emit('goal_completed', { goal_id: 'goal-1' });
+    bus.emit('runtime_diagnostic', { error_message: 'boom' });
     jest.advanceTimersByTime(11);
     expect(seen).toEqual(['true']);
     jest.useRealTimers();
@@ -77,17 +76,17 @@ describe('typed EventBus', () => {
   it('converts domain events to legacy logged-event records for transitional sinks', () => {
     const bus = new EventBus();
     let logged: Record<string, unknown> | null = null;
-    bus.subscribe('goal_completed', (event) => { logged = toLoggedEvent(event); });
-    bus.emit('goal_completed', { goal_id: 'goal-1' });
-    expect(logged).toMatchObject({ kind: 'goal_completed', goal_id: 'goal-1' });
+    bus.subscribe('runtime_diagnostic', (event) => { logged = toLoggedEvent(event); });
+    bus.emit('runtime_diagnostic', { error_message: 'boom', goal_id: 'goal-1' });
+    expect(logged).toMatchObject({ kind: 'runtime_diagnostic', goal_id: 'goal-1', error_message: 'boom' });
   });
 
   it('dispose unsubscribes and rejects later emits', () => {
     const bus = new EventBus();
-    bus.subscribe('goal_completed', () => undefined);
+    bus.subscribe('runtime_diagnostic', () => undefined);
     expect(bus.subscriberCount).toBe(1);
     bus.dispose();
     expect(bus.subscriberCount).toBe(0);
-    expect(() => bus.emit('goal_completed', { goal_id: 'goal-1' })).toThrow('EventBus has been disposed');
+    expect(() => bus.emit('runtime_diagnostic', { error_message: 'boom' })).toThrow('EventBus has been disposed');
   });
 });

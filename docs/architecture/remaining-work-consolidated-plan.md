@@ -275,7 +275,9 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
    - Stuck-supervisor: `stuck_supervisor_started`/`stuck_supervisor_stopped`/`stuck_verdict`/`abort_target_selected`/`force_cancel_sent` — tied to dead supervisor config.
    - Diagnostic: `runtime_fatal_error`/`startup_session_sweep` — replaced by `runtime_diagnostic` (still emitted) and snapshot-based recovery.
 
-   **Compile dependency:** `src/server/sync-hub.ts` `liveSyncEventKinds` array and `mapLiveSyncEvent` switch reference many of these kinds. They must be stripped from `sync-hub.ts` in the same change, or TypeScript compilation will fail.
+    **Compile dependency:** `src/server/sync-hub.ts` `liveSyncEventKinds` array and `mapLiveSyncEvent` switch reference many of these kinds. They must be stripped from `sync-hub.ts` in the same change, or TypeScript compilation will fail.
+
+   Status: completed in the event catalog cleanup slice.
 
 2. **Delete drifted per-event-kind schemas.**
 
@@ -498,7 +500,7 @@ Tasks (backlog groups B and C):
 1. Completed: delete `ContentSupervisor` module/export; remove supervision route/storage/UI only if intentionally deleting the whole supervision concept.
 2. Remove unwired `supervisor` config section and split runtime config cleanup into persisted fields vs transform-only defaults.
 3. Remove dead config catchalls (`rag`, `notifications.filters`).
-4. Remove unwired event kinds from the catalog (all confirmed old-remnant).
+4. Completed: remove unwired event kinds from the catalog (all confirmed old-remnant).
 5. Delete drifted per-event-kind schemas.
 6. Remove stale reviewer assessment schemas and code; update reviewer prompt.
 

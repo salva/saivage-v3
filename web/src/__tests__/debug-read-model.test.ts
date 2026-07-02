@@ -24,11 +24,11 @@ function process(overrides: Partial<ProcessView>): ProcessView {
 
 describe('debug-read-model', () => {
   it('derives redacted errors from timeline events and groups them by source', () => {
-    const events: DebugTimelineEvent[] = [{ kind: 'card_failed', session_id: 'session-a', timestamp: '2025-01-01T00:00:00Z', error_message: 'token secret' }];
+    const events: DebugTimelineEvent[] = [{ kind: 'runtime_diagnostic', session_id: 'session-a', timestamp: '2025-01-01T00:00:00Z', error_message: 'token secret' }];
     const errors = selectTimelineDerivedErrors(events);
 
     expect(errors[0].source).toBe('session-a');
-    expect(errors[0].severity).toBe('warning');
+    expect(errors[0].severity).toBe('error');
     expect([...selectErrorsBySource(errors).keys()]).toEqual(['session-a']);
   });
 
@@ -44,10 +44,10 @@ describe('debug-read-model', () => {
 
   it('drops deprecated event kinds from both timeline and derived errors', () => {
     const events: DebugTimelineEvent[] = [
-      { kind: 'card_failed', session_id: 's', timestamp: '2025-01-01T00:00:00Z', error_message: 'boom' },
+      { kind: 'runtime_diagnostic', session_id: 's', timestamp: '2025-01-01T00:00:00Z', error_message: 'boom' },
       { kind: 'invocation_failed', session_id: 's', timestamp: '2025-01-01T00:00:01Z', error_message: 'legacy' } as DebugTimelineEvent,
     ];
-    expect(selectSortedTimeline(events).map((e) => e.kind)).toEqual(['card_failed']);
-    expect(selectTimelineDerivedErrors(events).map((e) => e.type)).toEqual(['card_failed']);
+    expect(selectSortedTimeline(events).map((e) => e.kind)).toEqual(['runtime_diagnostic']);
+    expect(selectTimelineDerivedErrors(events).map((e) => e.type)).toEqual(['runtime_diagnostic']);
   });
 });

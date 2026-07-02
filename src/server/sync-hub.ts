@@ -6,32 +6,9 @@ import type { LiveSyncSocket } from './live-sync-socket.js';
 
 export const liveSyncEventKinds = [
   'card_history_appended',
-  'card_failed',
-  'goal_completed',
-  'goal_failed',
-  'plan_updated',
-  'session_started',
-  'session_cancelled',
-  'session_force_cancelled',
-  'llm_attempt',
-  'llm_invocation_summary',
-  'llm_verifier_rejection',
-  'compaction_triggered',
-  'model_issue',
   'mcp_tool_invocation',
-  'runtime_run',
-  'runtime_activation',
-  'runtime_command',
-  'paused',
-  'resumed',
-  'project_run_completed',
   'runtime_actionable_error',
   'runtime_diagnostic',
-  'runtime_fatal_error',
-  'review_complete',
-  'review_failed',
-  'escalation',
-  'dispatch_blocked',
   'notification_added',
   'control_action_recorded',
   'analyst_tool_invoked',
@@ -76,50 +53,19 @@ export function mapLiveSyncEvent(event: DomainEvent<LiveSyncEventKind>): LiveSyn
 
   switch (event.kind) {
     case 'card_history_appended':
-    case 'card_failed':
-    case 'goal_completed':
-    case 'goal_failed':
-    case 'plan_updated':
       add({ resource: 'cards' });
-      if (event.kind !== 'plan_updated') add({ resource: 'timeline' });
       break;
 
-    case 'session_started':
-    case 'session_cancelled':
-    case 'session_force_cancelled':
-    case 'llm_invocation_summary':
-    case 'compaction_triggered':
-    case 'model_issue':
-      add({ resource: 'agents' });
-      addConversation();
-      break;
-
-    case 'llm_attempt':
-    case 'llm_verifier_rejection':
     case 'mcp_tool_invocation':
       addConversation();
       break;
 
-    case 'runtime_run':
-    case 'runtime_activation':
-    case 'runtime_command':
-    case 'paused':
-    case 'resumed':
-    case 'project_run_completed':
-      add({ resource: 'runtime' });
-      break;
-
     case 'runtime_actionable_error':
     case 'runtime_diagnostic':
-    case 'runtime_fatal_error':
       add({ resource: 'runtime' });
       add({ resource: 'timeline' });
       break;
 
-    case 'review_complete':
-    case 'review_failed':
-    case 'escalation':
-    case 'dispatch_blocked':
     case 'notification_added':
     case 'control_action_recorded':
       if (isCardControlAction(event)) add({ resource: 'cards' });

@@ -24,7 +24,7 @@ describe('EventLogger runtime event validation', () => {
   it('strictly rejects invalid current appends before persistence', () => {
     const logger = new EventLogger(makeSaivageDir());
     try {
-      expect(() => logger.appendEvent({ kind: 'goal_completed', timestamp })).toThrow(/LoggedEvent validation failed for kind 'goal_completed'/);
+      expect(() => logger.appendEvent({ kind: 'runtime_diagnostic', timestamp })).toThrow(/LoggedEvent validation failed for kind 'runtime_diagnostic'/);
       logger.flushSync();
       expect(logger.getEvents()).toEqual([]);
     } finally {
@@ -40,7 +40,7 @@ describe('EventLogger runtime event validation', () => {
       writeFileSync(
         logger.getLogPath(),
         [
-          JSON.stringify({ id: 'evt-known', kind: 'started', timestamp, project_root: '/tmp/project' }),
+          JSON.stringify({ id: 'evt-known', kind: 'runtime_diagnostic', timestamp, error_message: 'known' }),
           JSON.stringify({ id: 'evt-old', kind: 'legacy_historical_kind', timestamp, old_payload: true }),
           '{malformed json',
           '',
@@ -48,7 +48,7 @@ describe('EventLogger runtime event validation', () => {
       );
 
       const events = logger.getEvents();
-      expect(events.map((event) => event.kind)).toEqual(['started']);
+      expect(events.map((event) => event.kind)).toEqual(['runtime_diagnostic']);
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('Ignoring invalid runtime event log record'));
     } finally {
       logger.close();
@@ -61,26 +61,12 @@ describe('EventLogger runtime event validation', () => {
     const logger = new EventLogger(makeSaivageDir());
     try {
       logger.appendEvent({
-        kind: 'llm_attempt',
+        kind: 'runtime_diagnostic',
         id: 'evt-secret-variant-redaction',
         timestamp,
         session_id: 'planner:secret-variant-test',
-        role: 'planner',
-        attempt: 1,
-        same_candidate_attempt: 1,
-        provider: 'openai',
-        model: 'gpt-test',
-        account: '_',
-        started_at: timestamp,
-        duration_ms: 0,
-        outcome: {
-          kind: 'failed',
-          failure_class: 'unknown',
-          recovery_action: 'abort_without_retry',
-          error_name: 'TestError',
-          error_message: 'variant redaction test',
-          error_preview: 'variant redaction test',
-        },
+        error_message: 'variant redaction test',
+        error_name: 'TestError',
         provider_error: {
           api_key: 'SYNTHETIC_API_KEY',
           access_token: 'SYNTHETIC_ACCESS_TOKEN',
@@ -91,7 +77,7 @@ describe('EventLogger runtime event validation', () => {
           safe: 'visible',
         },
       });
-      const [event] = logger.getEvents({ kind: 'llm_attempt' });
+      const [event] = logger.getEvents({ kind: 'runtime_diagnostic' });
       const serialized = JSON.stringify(event);
       expect(serialized).not.toContain('SYNTHETIC_API_KEY');
       expect(serialized).not.toContain('SYNTHETIC_ACCESS_TOKEN');
@@ -106,31 +92,22 @@ describe('EventLogger runtime event validation', () => {
     }
   });
 
-  it('persists schema-valid runtime_activation activation idempotency_key', () => {
+  it('redacts runtime_actionable_error idempotency_key', () => {
     const logger = new EventLogger(makeSaivageDir());
     try {
       logger.appendEvent({
-        kind: 'runtime_activation',
+        kind: 'runtime_actionable_error',
         id: 'evt-runtime-activation-redaction',
         timestamp,
-        activation: {
-          activation_id: 'act-1',
+        actionable_error: {
+          code: 'test',
+          message: 'test',
+          nextAction: 'test',
           idempotency_key: 'run-parent:planner:call-a:code-a',
-          parent_card_id: 'goal-a',
-          parent_run_id: 'run-parent',
-          parent_session_id: 'planner:goal-a',
-          parent_tool_call_id: 'call-a',
-          child_card_id: 'code-a',
-          status: 'pending',
-          requested_at: timestamp,
-          updated_at: timestamp,
-          precondition: 'accepted',
-          runtime_run_id: 'run-child',
-          error: null,
         },
       });
-      const [event] = logger.getEvents({ kind: 'runtime_activation' });
-      expect((event as any).activation.idempotency_key).toBe('run-parent:planner:call-a:code-a');
+      const [event] = logger.getEvents({ kind: 'runtime_actionable_error' });
+      expect((event as any).actionable_error.idempotency_key).toBe('[REDACTED]');
     } finally {
       logger.close();
     }

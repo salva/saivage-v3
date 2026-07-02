@@ -316,8 +316,8 @@ describe('Runtime event catalog schemas', () => {
     expect(getEventSeverity('runtime_diagnostic')).toBe(SchemaEventRegistry.runtime_diagnostic.severity);
   });
 
-  it('strictly validates formerly missing event kinds with their payloads', () => {
-    expect(loggedEventSchema.parse({ id: 'evt-session-cancelled', kind: 'session_cancelled', timestamp, session_id: 'sess-1' })).toMatchObject({ kind: 'session_cancelled', session_id: 'sess-1' });
+  it('strictly validates kept event kinds with their payloads', () => {
+    expect(loggedEventSchema.parse({ id: 'evt-runtime-diagnostic', kind: 'runtime_diagnostic', timestamp, session_id: 'sess-1', error_message: 'boom' })).toMatchObject({ kind: 'runtime_diagnostic', session_id: 'sess-1' });
     expect(loggedEventSchema.parse({ id: 'evt-mcp', kind: 'mcp_tool_invocation', timestamp, session_id: 'sess-1', role: 'planner', server_name: 'planner-control', tool_name: 'activate_card', success: true })).toMatchObject({ kind: 'mcp_tool_invocation', tool_name: 'activate_card' });
   });
 

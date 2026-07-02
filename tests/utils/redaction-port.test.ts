@@ -90,27 +90,27 @@ describe('redaction port policies', () => {
     expect(serialized).toContain('visible');
   });
 
-  it('preserves runtime_activation activation idempotency_key only for observability logs', () => {
+  it('redacts runtime action idempotency_key in outbound payloads', () => {
     const idempotencyKey = 'run-parent:planner-session:call-a:code-a';
     const activationEvent = redactForOutbound({
-      kind: 'runtime_activation',
-      activation: {
-        activation_id: 'act-1',
+      kind: 'runtime_actionable_error',
+      actionable_error: {
+        code: 'test',
         idempotency_key: idempotencyKey,
         idempotency_token: 'SYNTHETIC_IDEMPOTENCY_TOKEN',
         idempotency_secret: 'SYNTHETIC_IDEMPOTENCY_SECRET',
       },
     }, 'observability.log', { source: 'redaction-port-test' });
 
-    expect(activationEvent.activation.idempotency_key).toBe(idempotencyKey);
-    expect(activationEvent.activation.idempotency_token).toBe(SECRET_REDACTION_PLACEHOLDER);
-    expect(activationEvent.activation.idempotency_secret).toBe(SECRET_REDACTION_PLACEHOLDER);
+    expect(activationEvent.actionable_error.idempotency_key).toBe(SECRET_REDACTION_PLACEHOLDER);
+    expect(activationEvent.actionable_error.idempotency_token).toBe(SECRET_REDACTION_PLACEHOLDER);
+    expect(activationEvent.actionable_error.idempotency_secret).toBe(SECRET_REDACTION_PLACEHOLDER);
 
     const operatorPayload = redactForOutbound({
-      kind: 'runtime_activation',
-      activation: { idempotency_key: 'SYNTHETIC_IDEMPOTENCY_KEY' },
+      kind: 'runtime_actionable_error',
+      actionable_error: { idempotency_key: 'SYNTHETIC_IDEMPOTENCY_KEY' },
     }, 'operator.websocket', { source: 'redaction-port-test' });
-    expect(operatorPayload.activation.idempotency_key).toBe(SECRET_REDACTION_PLACEHOLDER);
+    expect(operatorPayload.actionable_error.idempotency_key).toBe(SECRET_REDACTION_PLACEHOLDER);
   });
 
   it('brands redacted values for compile-time sink APIs and Secret serializes redacted', () => {
@@ -134,26 +134,12 @@ describe('redacted outbound sinks', () => {
     const errorLogger = new ErrorLogger(saivageDir);
     try {
       eventLogger.appendEvent({
-        kind: 'llm_attempt',
+        kind: 'runtime_diagnostic',
         id: 'evt-redaction-port',
         timestamp: '2026-05-23T00:00:00.000Z',
         session_id: 'planner:redaction-port-test',
-        role: 'planner',
-        attempt: 1,
-        same_candidate_attempt: 1,
-        provider: 'openai',
-        model: 'gpt-test',
-        account: '_',
-        started_at: '2026-05-23T00:00:00.000Z',
-        duration_ms: 0,
-        outcome: {
-          kind: 'failed',
-          failure_class: 'unknown',
-          recovery_action: 'abort_without_retry',
-          error_name: 'TestError',
-          error_message: `Provider failed Bearer ${RAW_TOKEN}`,
-          error_preview: `Provider failed Bearer ${RAW_TOKEN}`,
-        },
+        error_name: 'TestError',
+        error_message: `Provider failed Bearer ${RAW_TOKEN}`,
         provider_error: { access_token: RAW_ACCESS, safe: 'visible' },
       });
       errorLogger.appendError({
@@ -161,7 +147,7 @@ describe('redacted outbound sinks', () => {
         provider_error: { authorization: `Bearer ${RAW_TOKEN}`, safe: 'visible' },
       });
 
-      const [event] = eventLogger.getEvents({ kind: 'llm_attempt' });
+      const [event] = eventLogger.getEvents({ kind: 'runtime_diagnostic' });
       const [error] = errorLogger.getErrors();
       expectNoSyntheticSecret(JSON.stringify(event));
       expectNoSyntheticSecret(JSON.stringify(error));
