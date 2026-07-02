@@ -1,15 +1,15 @@
 import type { ControlActionSurface } from '../schemas/index.js';
 import {
   ANALYST_ISSUE_SEVERITY_VALUES,
-  ANALYST_TOOL_DEFINITIONS,
   CARD_STATUS_VALUES,
   CARD_TYPE_VALUES,
   URGENCY_VALUES,
-} from '../tools/definitions/index.js';
+} from '../tools/tool-catalog.js';
+import { ANALYST_TOOL_DEFINITIONS } from '../tools/analyst-tool-registry.js';
 import type { ToolDefinition } from './llm-contracts.js';
 import { RoleToolPolicy } from './role-tool-policy.js';
 
-function formatToolList(tools: ToolDefinition[]): string {
+function formatToolList(tools: readonly ToolDefinition[]): string {
   return tools.map((tool) => `- ${tool.function.name}: ${tool.function.description}`).join('\n');
 }
 
@@ -65,7 +65,7 @@ export class AnalystOfflineError extends Error {
   }
 }
 
-export function getAnalystToolDefinitions(): ToolDefinition[] { return ANALYST_TOOL_DEFINITIONS; }
+export function getAnalystToolDefinitions(): ToolDefinition[] { return [...ANALYST_TOOL_DEFINITIONS]; }
 export function getAnalystSystemPrompt(): string { return ANALYST_SYSTEM_PROMPT; }
 
 export function getAvailableAnalystToolNames(surface: ControlActionSurface): string[] {

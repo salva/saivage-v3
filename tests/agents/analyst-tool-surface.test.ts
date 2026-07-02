@@ -7,7 +7,7 @@ import { CardStore } from '../../src/cards/card-store.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 import { AnalystHandler } from '../../src/agents/analyst-handler.js';
-import { ANALYST_TOOL_DEFINITIONS } from '../../src/tools/definitions/index.js';
+import { ANALYST_TOOL_DEFINITIONS } from '../../src/tools/analyst-tool-registry.js';
 import { getAnalystSystemPrompt } from '../../src/agents/analyst-prompt.js';
 import { cancel_card, create_card, delete_card, reorder_child } from '../../src/tools/analyst-card-tools.js';
 import { reconfigure } from '../../src/tools/analyst-misc-tools.js';

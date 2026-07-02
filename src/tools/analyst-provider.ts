@@ -1,7 +1,7 @@
 import type { ControlActionSurface } from '../schemas/index.js';
 import type { ToolContext } from './analyst-tool-types.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
-import { TOOL_DEFINITIONS } from './definitions/index.js';
+import { ANALYST_CONTROL_TOOLS } from './analyst-tool-registry.js';
 import { toolFailureFromError } from './analyst-tool-helpers.js';
 import { RoleToolPolicy } from '../agents/role-tool-policy.js';
 
@@ -13,8 +13,7 @@ export interface AnalystProviderContext {
 export function createAnalystProvider(ctx: AnalystProviderContext): ToolProvider {
   return {
     providerName: 'analyst',
-    tools: TOOL_DEFINITIONS
-      .filter((tool) => tool.roles.includes('analyst') && !tool.workspace)
+    tools: ANALYST_CONTROL_TOOLS
       .filter((tool) => RoleToolPolicy.assertAnalystSurfaceTool(tool.name, ctx.surface).allowed)
       .map((tool) => defineTool({
         name: tool.name,
