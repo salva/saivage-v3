@@ -273,7 +273,7 @@ Update the planner prompt only after handlers exist. It should mention exactly a
 - `edit_card` for correcting or refining non-running immediate children.
 - `cancel_card` for obsolete immediate children.
 - `activate_card` for running immediate children.
-- `emit_planner_result` for terminal planner outcomes.
+- `emit_result` for terminal planner outcomes.
 
 ## Create Card Cleanup
 

@@ -1,6 +1,6 @@
 # Mandatory Output Files
 
-Status: design proposal.
+Status: design proposal. **Partial supersession: terminal tool names (`emit_planner_result`, `emit_executor_result`, `emit_reviewer_result`) have been unified to `emit_result`, and lifecycle result kinds have been collapsed (`done`, `blocked`, `failed`, `rework`). See [Tool Set Reorganization Design §4.7](./tool-set-reorganization-design.md) for current terminal and lifecycle contracts. The record-slot strategy in this doc remains current; only the terminal tool names and lifecycle kind references are stale.**
 
 ## Problem
 

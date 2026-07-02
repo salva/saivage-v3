@@ -2,6 +2,8 @@
 
 Status: Phase 1 implemented on 2026-06-30. This document records the pueblicos runtime failure observed on 2026-06-30 and the implementation plan for two related issues: terminal-tool compliance and card-scoped LLM conversation storage and continuity. Compaction planning moved to [Conversation Compaction Design](./conversation-compaction-design.md).
 
+**Note:** The terminal tool names (`emit_executor_result`, `emit_planner_result`, `emit_reviewer_result`) referenced throughout this doc were subsequently unified to a single `emit_result` with role-specific status subsets. See [Tool Set Reorganization Design §4.7](./tool-set-reorganization-design.md). Historical error messages and repair examples below retain the original names for provenance.
+
 ## Problem
 
 Micro-actor processors fail immediately when a model returns plain assistant text instead of the required terminal tool. In pueblicos, terminal executors returned prose, claimed to have simulated file writes, never called `write`, and never called `emit_executor_result`. The runtime then failed the child cards with:

@@ -207,7 +207,9 @@ The old role-specific lifecycle result kinds (`executor_success`, `executor_fail
 | `BlockedResult` | `blocked` | `summary` (reason) | `planner_blocked` |
 | `FailedResult` | `failed` | `summary` (error/reason) | `executor_failure`, `planner_failure` |
 | `ReworkResult` | `blocked` | `summary` (reason) | `reviewer_correction` — the correction detail is in `review.md` |
-| `NeedsVerificationResult` | `needs_verification` | `reason`, `preserved_result` | `executor_needs_verification` (internal runtime concept, not agent-emitted — keep as-is) |
+| `NeedsVerificationResult` | `needs_verification` | `reason`, `preserved_result`, `latest_self_report` | — (unchanged; internal runtime concept, not agent-emitted) |
+
+`NeedsVerificationResult` is the one result type that keeps its pre-collapse discriminator: the `kind` is still `executor_needs_verification`, not `needs_verification`. It is an internal runtime concern (executor parked for operator verification), never emitted by an agent through the terminal tool, so it was not renamed alongside the agent-facing kinds.
 
 The old `latest_self_report` field embedded in executor results was a mirror of `status.md` content. With the detail living in `status.md`, `latest_self_report` is dropped from `DoneResult` and `FailedResult` — the record URL is the durable reference.
 

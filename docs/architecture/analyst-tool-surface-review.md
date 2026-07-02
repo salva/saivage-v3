@@ -109,7 +109,7 @@ Detailed card-inspection and card-coordination availability:
 | `get_card_output` | Process-output shaped reads should be replaced by durable record URLs returned by `get_card` and generic reads of those URLs. |
 | `get_card_record` | A card-specific record reader is unnecessary if generic file reads support `record://` URLs. |
 | `activate_card` | Planner/runtime dispatcher authority. Analyst must not manually step through card execution. |
-| Planner report tools: `report_goal_done`, `report_goal_failed`, `report_goal_blocked` | Planner self-report authority; Analyst must not forge lifecycle results. |
+| `emit_result` (terminal tool) | Planner/executor/reviewer self-report authority; Analyst must not forge lifecycle results. |
 | Notification management: list/get/ack/delete notification inbox tools | Notifications are delivery events, not durable operator-managed records. Delivery is verified through session/event inspection. |
 
 ## Propagation Contract

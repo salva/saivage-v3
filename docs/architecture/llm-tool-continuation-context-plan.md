@@ -181,7 +181,7 @@ Potential follow-up changes:
 
 - Add no-progress detection for repeated read-only process commands.
 - Inject a final-turn instruction before budget failure.
-- Restrict final-turn tools to `emit_executor_result`.
+- Restrict final-turn tools to `emit_result`.
 - Split broad executable cards into smaller scaffold tasks.
 
 Acceptance:

@@ -1,6 +1,6 @@
 # Agent Tool Surfaces And Information Flow Design
 
-Status: proposed.
+Status: proposed. **Superseded by [Shared Tool Invocation Design](./shared-tool-invocation-design.md) and [Tool Set Reorganization Design](./tool-set-reorganization-design.md).** This doc predates the provider-owned invocation architecture, the unified terminal tool (`emit_result`), and the lifecycle-result kind collapse. Lifecycle result kinds, fields, terminal tool names, and the `ActorToolSurface` abstraction described below are no longer current. Read for historical context only.
 
 ## Problem
 
