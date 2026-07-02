@@ -180,19 +180,13 @@ These are not dead code. They are features the spec promises and tools expose, b
 
    **Full design:** [Notification Delivery Fix Design](./notification-delivery-fix-design.md).
 
-   Three disconnected subsystems exist:
+   The working delivery mechanism (`CardActor.enqueueNotification` → `deliverNotificationsForInput` → LLM context) already exists for cancellation-while-running. Nothing connects the queuing tools to it. `queue_notification` writes to a session-keyed `NotificationCenter` that no agent drains. `propagateChange` routes through dead `ActiveGoalNoteSinks` / synthetic-planner-notes.
 
-   - **Subsystem A** (`queue_notification` tool → `NotificationCenter` in-memory queue): writes to a session-keyed `Map` that is never drained by any agent. Only Telegram (operator) delivery works. `drainPendingForSession` has zero production callers.
-   - **Subsystem B** (analyst card edits → `propagateChange` → `ActiveGoalNoteSinks` / synthetic-planner-notes): the card-status flip to `changed` works, but notification delivery to running planners is broken. `ActiveGoalNoteSinks` is never registered. Synthetic notes are written to disk but never drained.
-   - **Subsystem C** (`CardActor.enqueueNotification` → `deliverNotificationsForInput` → LLM context): this is the working delivery mechanism endorsed by the micro-actor design. It works for cancellation-while-running. But its public entry points (`CardActor.notify()`, `CardActor.markChanged()`) have zero callers — nothing connects A or B to C.
+   The fix adds `notifyCard(cardId, notification)` to `RuntimeApi` — the runtime owns the `CardActor` registry and tools already have runtime access. Live actor → `enqueueNotification`. Inactive card → append to actor snapshot (no processor allocation). `CardActor.fromCard()` is fixed to restore notification state from snapshots so persisted notifications survive restart.
 
-   The fix uses a **single-method `CardNotificationPort`** (`notify(cardId, notification)`) implemented by `SupervisorRuntimeApi`. It delivers to the live CardActor if one exists, or writes directly to the actor snapshot for inactive cards (avoiding lazy-materialization hazards). Snapshot restore is fixed in `CardActor.fromCard()` so persisted notifications survive restart. See the design doc for details.
+   `propagateChange`'s `flipped` field IS read by `analyst-stage6.ts` and must be kept. `notified_planner_session_ids` and `stopped_at_running` become dead after the fix and are removed.
 
-   Key correction from code review: `propagateChange`'s `flipped` field IS read by `analyst-stage6.ts` and must be kept. Only `notified_planner_session_ids` and `stopped_at_running` can be removed. `markGoalNeedsCorrections` callers must be updated when `notified_planner_session_ids` is dropped.
-
-   Do NOT delete `CardActor.notify()`, `markChanged()`, or the notification delivery mechanics — they are the intended design, just unwired.
-
-   References: `src/notifications/*`, `src/runtime/changed-propagation.ts`, `src/runtime/actors/active-goal-note-sinks.ts`, `src/runtime/synthetic-planner-notes.ts`, `src/runtime/actors/card-actor.ts` (notification methods), `src/runtime/actors/base-main-llm-card-processor-actor.ts`, `src/tools/planner-control-provider.ts` (`queue_notification`).
+   References: `src/notifications/*`, `src/runtime/changed-propagation.ts`, `src/runtime/actors/card-actor.ts`, `src/runtime/actors/snapshots.ts`, `src/runtime/actors/supervisor-runtime-api.ts`, `src/tools/planner-control-provider.ts`, `src/tools/analyst-misc-tools.ts`, `src/tools/analyst-card-tools.ts`, `src/agents/analyst-stage6.ts`.
 
 ### A. Dead Subsystems — Old Remnants With Working Replacements `[DELETE-OLD-REMNANT]`
 
@@ -441,12 +435,14 @@ Goal: make `queue_notification` and analyst card edits actually reach agents.
 
 Tasks (backlog §0.1):
 
-1. Add a narrow `CardNotificationPort.notify(cardId, notification)`; do not expose the CardActor registry or CardActor methods to tools.
-2. Add singular snapshot read/write helpers and make `CardActor.fromCard()` restore notification-related context from snapshots.
-3. Implement the port in `SupervisorRuntimeApi`: live actor enqueue if present, otherwise append to the actor snapshot and flip inactive non-running deliverable cards to `changed` where required so future activation can observe pending context.
-4. Rewire `queue_notification` to resolve recipients to card ids and call the port while keeping external adapter delivery separate.
-5. Rewire `propagateChange` to call the port for the edited card and the first running ancestor, preserving `flipped` and dropping `notified_planner_session_ids` only when `analyst-stage6.ts` is updated.
-6. After the bridge works, delete old remnant plumbing (`ActiveGoalNoteSinks`, `synthetic-planner-notes.ts`, `queuePlannerNote` branches) and remove `NotificationCenter.drainPendingForSession` from agent-delivery tests.
+1. Add `notifyCard(cardId, notification)` to `RuntimeApi` interface; implement in `SupervisorRuntimeApi` (live actor → enqueueNotification; inactive → snapshot write + done→changed flip).
+2. Add `readActorSnapshot` and `appendNotificationToActorSnapshot` helpers to `snapshots.ts`.
+3. Fix `CardActor.fromCard()` to restore notification state from snapshot.
+4. Add `notifyCard` forwarding to `createComposedRuntimeApi`.
+5. Rewire `queueNotification()` to resolve recipients to card IDs and call `notifyCard`; keep external adapter delivery.
+6. Rewire `propagateChange()` to call `notifyCard` for the edited card and the first running ancestor; drop dead return fields.
+7. Update `markGoalNeedsCorrections` callers for the dropped `notified_planner_session_ids`.
+8. After tests pass, delete old remnant plumbing (`ActiveGoalNoteSinks`, `synthetic-planner-notes.ts`, `queuePlannerNote` branches).
 
 Validation:
 
