@@ -30,7 +30,6 @@ export interface RedactionPolicy {
   readonly name: RedactionPolicyName;
   readonly maxDepth?: number;
   readonly maxEntries?: number;
-  readonly preserveRuntimeActivationIdempotencyKey?: boolean;
 }
 
 export interface RedactionPort {
@@ -67,7 +66,7 @@ const DEFAULT_MAX_DEPTH = 8;
 const DEFAULT_MAX_ENTRIES = 100;
 
 const POLICIES: ReadonlyMap<RedactionPolicyName, RedactionPolicy> = new Map<RedactionPolicyName, RedactionPolicy>([
-  ['observability.log', { name: 'observability.log', preserveRuntimeActivationIdempotencyKey: true }],
+  ['observability.log', { name: 'observability.log' }],
   ['error.log', { name: 'error.log' }],
   ['provider.diagnostic', { name: 'provider.diagnostic' }],
   ['provider.message', { name: 'provider.message' }],
@@ -195,24 +194,13 @@ function rawDynamicText(value: unknown, seen = new WeakSet<object>()): string {
   }
 }
 
-function isRuntimeActivationLedgerIdempotencyKey(policy: RedactionPolicy, path: readonly string[], root: unknown): boolean {
-  if (!policy.preserveRuntimeActivationIdempotencyKey) return false;
-  if (path.length !== 2 || path[0] !== 'activation' || path[1] !== 'idempotency_key') return false;
-  if (root === null || typeof root !== 'object' || Array.isArray(root)) return false;
-  const rootRecord = root as Record<string, unknown>;
-  const activation = rootRecord.activation;
-  if (rootRecord.kind !== 'runtime_activation') return false;
-  return activation !== null && typeof activation === 'object' && !Array.isArray(activation);
-}
-
-function shouldRedactKey(key: string, policy: RedactionPolicy, path: readonly string[], root: unknown): boolean {
-  if (key === 'idempotency_key' && isRuntimeActivationLedgerIdempotencyKey(policy, path, root)) return false;
+function shouldRedactKey(key: string): boolean {
   return isSecretKey(key);
 }
 
-function redactObjectValue(value: unknown, policy: RedactionPolicy, keyHint: string | undefined, depth: number, seen: WeakSet<object>, path: readonly string[], root: unknown, options: RedactionOptions): unknown {
+function redactObjectValue(value: unknown, policy: RedactionPolicy, keyHint: string | undefined, depth: number, seen: WeakSet<object>, options: RedactionOptions): unknown {
   if (typeof value === 'string') {
-    return keyHint && shouldRedactKey(keyHint, policy, path, root) ? SECRET_REDACTION_PLACEHOLDER : redactProviderLikeText(value);
+    return keyHint && shouldRedactKey(keyHint) ? SECRET_REDACTION_PLACEHOLDER : redactProviderLikeText(value);
   }
 
   if (value instanceof Error) {
@@ -229,7 +217,7 @@ function redactObjectValue(value: unknown, policy: RedactionPolicy, keyHint: str
   const maxEntries = options.maxEntries ?? policy.maxEntries ?? DEFAULT_MAX_ENTRIES;
 
   if (Array.isArray(value)) {
-    const output = value.slice(0, maxEntries).map((entry, index) => redactObjectValue(entry, policy, undefined, depth + 1, seen, [...path, String(index)], root, options));
+    const output = value.slice(0, maxEntries).map((entry) => redactObjectValue(entry, policy, undefined, depth + 1, seen, options));
     if (value.length > maxEntries) output.push(`[${value.length - maxEntries} entries truncated]`);
     seen.delete(value);
     return output;
@@ -242,10 +230,9 @@ function redactObjectValue(value: unknown, policy: RedactionPolicy, keyHint: str
       output.__truncated__ = `${Object.keys(value as Record<string, unknown>).length - maxEntries} entries truncated`;
       break;
     }
-    const entryPath = [...path, key];
-    output[key] = shouldRedactKey(key, policy, entryPath, root)
+    output[key] = shouldRedactKey(key)
       ? SECRET_REDACTION_PLACEHOLDER
-      : redactObjectValue(entryValue, policy, key, depth + 1, seen, entryPath, root, options);
+      : redactObjectValue(entryValue, policy, key, depth + 1, seen, options);
     count += 1;
   }
   seen.delete(value);
@@ -272,7 +259,7 @@ export const redactionPort: RedactionPort = {
 
   redact<T>(value: T, policyName: RedactionPolicyName, options: RedactionOptions = {}): Redacted<T> {
     const policy = requirePolicy(policyName);
-    return brandRedacted(redactObjectValue(value, policy, undefined, 0, new WeakSet<object>(), [], value, options) as T);
+    return brandRedacted(redactObjectValue(value, policy, undefined, 0, new WeakSet<object>(), options) as T);
   },
 
   redactText(value: unknown, policyName: RedactionPolicyName): Redacted<string> {

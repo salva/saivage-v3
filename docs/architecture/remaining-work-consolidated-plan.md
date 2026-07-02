@@ -295,6 +295,8 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
     After removing the `runtime_activation` event kind, the redaction exception in `src/redaction/index.ts` is dead: `preserveRuntimeActivationIdempotencyKey` (interface field, line 33), the `observability.log` policy setting (line 70), `isRuntimeActivationLedgerIdempotencyKey()` (lines 198-206), and the `shouldRedactKey` branch (line 209) can never match because no emitted event has `kind === 'runtime_activation'`. Delete all four.
 
+    Status: completed in the redaction cleanup slice.
+
 4. **Remove stale reviewer assessment code, then schema surface.**
 
    The active reviewer terminal contract is `emit_result` with `{ status, summary }`. `runtime/reviewer-assessment.ts` (`buildReviewAssessment`, `validateReviewerAssessment`), reviewer assessment schema fields (`achieved`, `issues`, `evidence_card_ids`), and related tests preserve the older structured `pass` / `needs_corrections` path. Also update the reviewer prompt to use `done | rework | blocked | failed` and direct evidence narrative to `review.md`.
@@ -522,7 +524,7 @@ Tasks (backlog groups B and C):
 3. Remove dead config catchalls (`rag`, `notifications.filters`). **Blocked:** deployed configs still contain these keys (see B.4 caveat).
 4. Completed: remove unwired event kinds from the catalog (all confirmed old-remnant).
 5. Completed: delete remaining 5 hand-written per-event schemas (C.2).
-6. Remove dead `runtime_activation` redaction allowlist (C.3). Safe, no deployment dependency.
+6. Completed: remove dead `runtime_activation` redaction allowlist (C.3).
 7. Remove stale reviewer assessment schemas and code; update reviewer prompt (C.4). Requires relocating live helpers first.
 
 Validation:
@@ -595,11 +597,9 @@ Validation:
 
 ## Recommended Next Action
 
-Stage 0 (notification fix) and Stage 1 (dead subsystem deletion) are complete. Stage 2 is partially complete (ContentSupervisor deleted, event kinds removed). The remaining Stage 2 work is:
+Stage 0 (notification fix) and Stage 1 (dead subsystem deletion) are complete. Stage 2 is partially complete (ContentSupervisor deleted, event kinds removed, per-event schema cleanup complete, redaction allowlist removed). The remaining Stage 2 work is:
 
 1. Config cleanup (B.2–B.4) — blocked by deployed configs containing the keys; requires either updating those configs or confirming no running deployment depends on them.
-2. Remaining hand-written per-event schemas (C.2) — safe, small slice.
-3. Dead `runtime_activation` redaction allowlist (C.3) — safe, small slice.
-4. Stale reviewer assessment code (C.4) — requires relocating live helpers first.
+2. Stale reviewer assessment code (C.4) — requires relocating live helpers first.
 
 After Stage 2, proceed to Stage 3 (config/provider/persistence deduplication) and Stage 4 (web/actor/tool-surface cleanup) in small, separately validated slices.
