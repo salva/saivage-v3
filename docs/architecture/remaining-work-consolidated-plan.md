@@ -6,7 +6,7 @@ Last reviewed: 2026-07-02.
 
 This plan consolidates the still-relevant follow-up work from the record-slot, tool-surface, deferred-capability, and conversation-compaction plans. It intentionally filters out tasks that have drifted, have already been implemented, or would now conflict with the current Saivage v3 architecture.
 
-The active execution backlog in this document is limited to improvements of the current codebase: simplification, dead-code removal, test hardening, and documentation cleanup. Completely new capabilities such as Git tools, RAG, memory, notes, and conversation compaction remain out of the active backlog until separately prioritized.
+The active execution backlog in this document is limited to improvements of the current codebase: simplification, dead-code removal, test hardening, and documentation cleanup. Completely new capabilities such as Git tools, RAG, memory, notes, and conversation compaction are parked in [Future Capabilities Plan](./future-capabilities-plan.md).
 
 Current authorities:
 
@@ -19,6 +19,7 @@ Current authorities:
 - [Mandatory Output Files](./agent-invocation-output-slots.md) (historical design context; obsolete checklist)
 - [Record-Backed Card Storage Plan](./record-backed-card-storage-plan.md) (historical design context; obsolete checklist)
 - [Conversation Compaction Design](./conversation-compaction-design.md) (deferred design context; not active backlog)
+- [Future Capabilities Plan](./future-capabilities-plan.md) (deferred capabilities; not active cleanup backlog)
 
 ## Current Baseline
 
@@ -120,20 +121,7 @@ Revise these original ideas before implementing anything, because the architectu
 
    Decision: treat field cleanup as a separate field-by-field schema migration plan. Do not bundle it into record-slot cleanup.
 
-5. **Conversation compaction.**
-
-   Original idea: general role-wide compaction.
-
-   Current direction: keep compaction deferred and, if implemented, start with measured Analyst-only compaction. Analyst sessions are the clearest unbounded context risk; planner/executor/reviewer activations are shorter-lived.
-
-   Required design updates before implementation:
-
-   - Decide whether compacted summaries are provider-visible system messages, user messages, or boundary-aware reconstruction data.
-   - Update `conversationMessagesForModel()` behavior deliberately; `context_compaction` rows are schema-valid but not currently provider-visible.
-   - Ensure active reconstruction snapshots and in-memory actor context are compacted consistently.
-   - Define a real backend compaction state before exposing `compacting` in UI read models.
-
-6. **Process schema cleanup.**
+5. **Process schema cleanup.**
 
    Original idea: make Analyst process records omit `card_id`.
 
@@ -161,51 +149,15 @@ Drop these tasks because they are done, stale, or now conflict with the architec
 
    Conflicts with the record-slot evidence model. Keep old references only as historical problem statements.
 
-5. **Make `create_note` a model-facing capability.**
-
-   The product spec rejects a user-managed notes object class and notification inbox. Durable context belongs in card records and card history; transient coordination belongs in `queue_notification`.
-
-6. **Implement RAG or memory tools by name only.**
-
-   Tool names without a native subsystem would mislead models and operators. Keep them out of the active surface until the subsystem exists.
-
-7. **Make `create_note` a model-facing capability.**
-
-   The product spec rejects user-managed note objects and notification inboxes. Durable context belongs in card records and card history; transient coordination belongs in `queue_notification`.
-
-8. **Add Git mutation tools.**
-
-   Git mutation tools are out of scope for the current cleanup plan. They require separate authorization, dirty-worktree, and operator-confirmation design.
-
 ### Defer
 
 Defer these items until a concrete need or telemetry justifies them.
 
-1. **Conversation compaction implementation.**
-
-   Defer until token-budget diagnostics or operator reports show recurring failures. When needed, implement Analyst-only first.
-
-2. **Dedicated record metadata tool.**
+1. **Dedicated record metadata tool.**
 
    Current `get_card` record summaries and `record://` reads cover most needs. A generic metadata tool can wait until a caller needs standalone metadata for arbitrary URLs.
 
-3. **Structured RAG subsystem.**
-
-   Requires strict config, embeddings/provider routing, storage lifecycle, ingestion, secret filtering, diagnostics, tests, and docs. Do not expose `rag_*` first.
-
-4. **Durable memory subsystem.**
-
-   Requires product semantics, lifecycle, visibility, ACLs, and compaction interactions. Current card-centered records are sufficient.
-
-5. **Read-only Git inspection tools.**
-
-   Structured `git_status`, `git_diff`, and `git_log` may be useful later, but they are new capability work and are excluded from the current improvement backlog.
-
-6. **Git mutation tools.**
-
-   Read-only Git inspection may be planned soon; mutating Git tools remain deferred pending explicit operator-confirmation and dirty-worktree policy.
-
-7. **Nullable Analyst `ProcessRecord.card_id`.**
+2. **Nullable Analyst `ProcessRecord.card_id`.**
 
    Current schema requires `card_id`, so Analyst processes use the session id there as non-authoritative scope metadata and mark `owner_kind: 'operator'`. Making `card_id` nullable is cleaner, but it touches API contracts and UI assumptions. Defer to a focused process-schema cleanup.
 
@@ -339,29 +291,11 @@ Validation:
 - Operator API process contract tests.
 - UI smoke if process views are touched.
 
-### Stage 4: New Capability Parking Lot
-
-Goal: keep new features explicitly parked so cleanup work does not accidentally expand scope.
-
-Parked items:
-
-1. Read-only Git tools: potentially useful later, but excluded from the current cleanup backlog.
-2. Conversation compaction: keep deferred until token-budget diagnostics or operator reports justify it.
-3. RAG: requires a native subsystem before tool names exist.
-4. Memory: requires product semantics and storage/lifecycle design.
-5. Notes: dropped as a model-facing object class; use records and notifications.
-
-Validation if any parked item is later activated:
-
-- A separate design update and focused validation profile for that capability.
-
 ## Non-Goals
 
 - No compatibility shims for removed tool names.
 - No global tool execution catalog revival.
-- No model-facing notes object class.
-- No RAG or memory tool names without native subsystems.
-- No Git tooling in the current cleanup backlog.
+- No new feature work in the current cleanup backlog; see [Future Capabilities Plan](./future-capabilities-plan.md).
 - No broad card schema cleanup bundled into record-slot work.
 
 ## Recommended Next Action
