@@ -178,6 +178,8 @@ These are not dead code. They are features the spec promises and tools expose, b
 
    The spec promises that `queue_notification` delivers content into the next agent session, and that analyst card edits notify affected running planners. Neither works today.
 
+   **Full design:** [Notification Delivery Fix Design](./notification-delivery-fix-design.md).
+
    Three disconnected subsystems exist:
 
    - **Subsystem A** (`queue_notification` tool → `NotificationCenter` in-memory queue): writes to a session-keyed `Map` that is never drained by any agent. Only Telegram (operator) delivery works. `drainPendingForSession` has zero production callers.
