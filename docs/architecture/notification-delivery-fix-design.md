@@ -76,7 +76,7 @@ File: `src/runtime/actors/supervisor-runtime-api.ts:44,277-285`.
 
 1. `queue_notification` must deliver notifications to the target card's main agent via the CardActor.
 2. Analyst card edits must notify affected running planners.
-3. Notifications for inactive cards must persist durably until the card is next activated.
+3. Notifications for inactive cards must persist durably until the card is next activated, and inactive cards that would otherwise never be reactivated must be moved to an activatable changed state where the spec requires future delivery.
 4. The working cancellation-while-running path must not break.
 5. Telegram/operator notification delivery must continue to work.
 6. Old remnant plumbing is deleted only after the new path is proven.
@@ -127,12 +127,15 @@ notify(cardId: string, notification: CardNotification): void {
 
 `appendNotificationToSnapshot` is a new helper in `snapshots.ts` that reads the card-actor snapshot (if it exists), appends the notification to `context.notifications`, and writes it back. If no snapshot exists, it creates a minimal one with the notification. This avoids all lazy-materialization hazards.
 
+The port must also handle the status consequence of queuing onto inactive terminal/resting cards. A notification persisted to a `done` card would otherwise never be delivered because `done` is not activatable. When `notify()` targets an inactive non-running card that needs future agent observation, it should store the notification and move completion statuses that are not activatable back to `changed` where lifecycle rules allow. `blocked` and `failed` are already activatable; `backlog` and `changed` are already activatable. This keeps notification persistence aligned with spec §12 instead of creating unreachable pending context.
+
 **Hazards avoided by not materializing CardActors for notifications:**
 
 1. **No registry pollution.** Inactive-card notifications do not add entries to `cardActors`, so the operator UI and `shutdownOwnedProcesses` are unaffected.
 2. **No processor allocation.** No `processorFor()` call, no `processor.start()`.
 3. **No throw for running-in-store cards.** A card the store thinks is `running` but has no live actor gets a snapshot-persisted notification, not a `fromCard('running')` recovery that throws.
 4. **No duplicate-actor notification loss.** A notification written to the snapshot of the real actor (not a stale duplicate) will be restored when the real CardActor is materialized.
+5. **No unreachable pending notification on `done`.** Persisting a notification to an inactive `done` card must also make the card re-observable by changing it to `changed`; otherwise no future main session can be started.
 
 ### 3. Snapshot Restore In `CardActor.fromCard()`
 
@@ -181,13 +184,13 @@ queueNotification() → resolveRecipientCardIds() → port.notify(cardId, notifi
 
 Step-by-step:
 
-1. **Resolve recipient to card IDs.** The existing `resolveRecipient()` supports `{ kind: 'card', cardId }`, `{ kind: 'role', role }`, and `{ kind: 'session', sessionId }`. For card recipients, use directly. For session recipients, parse the session id to extract the card id using the existing `parseAgentSessionId()` logic in `src/notifications/notification-triggers.ts:35-54`:
+1. **Resolve recipient to card IDs.** The current `queueNotification()` resolves everything to active session ids first, which loses inactive-card semantics. Replace that with a card-id resolver for agent delivery. The existing recipient shape supports `{ kind: 'card', cardId }`, `{ kind: 'role', role }`, and `{ kind: 'session', sessionId }`. For card recipients, use directly. For session recipients, parse the session id to extract the card id using the existing `parseAgentSessionId()` logic in `src/notifications/notification-triggers.ts:35-54`:
    - `planner:<goalId>` → goalId
    - `executor:<cardId>` → cardId
    - `reviewer:<goalId>:<assessmentId>` → goalId
    - `analyst:<sessionId>` → no card target (analyst has no card)
 
-   For role recipients, find all active LLM actor snapshots of that role and map each to its card id using the same parsing.
+   For role recipients, find all active LLM actor snapshots of that role and map each to its card id using the same parsing. If no unambiguous card target exists, do not invent one; surface a tool error or ask for a card-addressed recipient instead.
 
 2. **For each target card ID**, call `port.notify(cardId, notification)`.
 
@@ -299,7 +302,7 @@ export function propagateChange(
 
 Spec §9 line 185 says: "the runtime queues a notification to the **modified card** so that the main agent handling that card becomes aware of the change." The current `propagateChange` starts the path at the edited card but only acts on it if it is `running` or resting-flippable. A `backlog` edited card is neither — it gets no notification and no status change, yet the spec says it should be notified for its next session.
 
-This is a pre-existing gap. The fix should add: if the edited card itself is not running and not flipped, still call `port.notify(editedCardId, changeNotification(reason))` so the notification persists for the card's next activation. This does not change the status (backlog stays backlog) but queues the context.
+This is a pre-existing gap. The fix should add: always call `port.notify(editedCardId, changeNotification(reason))` for the edited card itself. The port handles whether the card is live, already activatable, or must become `changed` so the pending context can be observed later.
 
 ### 7. Reviewer Currentness Interaction
 
@@ -321,11 +324,13 @@ Both paths work correctly with the proposed design.
 
 The port must reach:
 
-1. **`queue_notification` tool** (planner and Analyst): Add `cardNotification?: CardNotificationPort` to `PlannerControlProviderContext` and `ToolContext`. Wire the concrete `SupervisorRuntimeApi` instance as the port in `runtime-composition.ts` where the runtime API and analyst deps are assembled.
+1. **`queue_notification` tool** (planner and Analyst): Add `cardNotification?: CardNotificationPort` to `PlannerControlProviderContext` and `ToolContext`. Thread the concrete `SupervisorRuntimeApi` instance, or a narrow bound callback, directly into those contexts where the runtime API and analyst deps are assembled. Do not expand the public `RuntimeApi` just to carry notification internals; `createComposedRuntimeApi()` currently forwards only known runtime methods and would otherwise drop the method.
 
 2. **`propagateChange` callers** (`analyst-card-tools.ts`, `analyst-stage6.ts`): These already receive `projectRoot` and `store` from `ToolContext`. Add `cardNotification` to the function signature and pass `ctx.cardNotification` from each call site.
 
-Note: `ToolContext` intentionally does not see runtime internals. Adding `cardNotification` as a narrow port (one method) is the minimal cross-cutting change. The analyst runs outside the runtime's sequential execution, but the port only writes to actor state (either live or snapshot) — it does not trigger execution.
+3. **Planner processor construction:** `PlanningCardProcessorActor` currently builds planner tools without a notification port, and `SupervisorRuntimeApi.processorFor()` constructs processors without passing itself in. Thread the narrow port through this constructor chain explicitly rather than giving processors broader runtime access.
+
+Note: `ToolContext` intentionally does not see runtime internals. Adding `cardNotification` as a narrow port (one method) is the minimal cross-cutting change. The analyst runs outside the runtime's sequential execution, but the port only writes to actor state (either live or snapshot) and possibly flips inactive cards to `changed`; it does not trigger execution.
 
 ## What Stays, What Is Deleted
 
@@ -357,7 +362,7 @@ Note: `ToolContext` intentionally does not see runtime internals. Adding `cardNo
 2. Add `readActorSnapshot(projectRoot, actorId)` helper to `snapshots.ts`.
 3. Add `appendNotificationToSnapshot(projectRoot, actorId, notification)` helper to `snapshots.ts`.
 4. Fix `CardActor.fromCard()` to restore notifications/markers/change/cancel from snapshot.
-5. Implement `CardNotificationPort` in `SupervisorRuntimeApi` (live actor or snapshot write).
+5. Implement `CardNotificationPort` in `SupervisorRuntimeApi` (live actor or snapshot write plus required inactive-card status update).
 6. Rewire `queueNotification()` in `notification-triggers.ts` to call `port.notify()`.
 7. Rewire `propagateChange()` to call `port.notify()` for running ancestors.
 8. Add notification for the edited card itself (§9 gap fix).
