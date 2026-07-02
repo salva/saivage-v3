@@ -25,14 +25,12 @@ function cleanup() {
 // We need to import after setup since it's ESM
 let loadEnvironment: typeof import('../../src/config/environment.js').loadEnvironment;
 let getModelListForRole: typeof import('../../src/agents/config-schema.js').getModelListForRole;
-let getRuntimeConfig: typeof import('../../src/agents/config-schema.js').getRuntimeConfig;
 let saivageConfigSchema: typeof import('../../src/agents/config-schema.js').saivageConfigSchema;
 
 beforeAll(async () => {
   const mod = await import('../../src/agents/config-schema.js');
   loadEnvironment = (await import('../../src/config/environment.js')).loadEnvironment;
   getModelListForRole = mod.getModelListForRole;
-  getRuntimeConfig = mod.getRuntimeConfig;
   saivageConfigSchema = mod.saivageConfigSchema;
 });
 
@@ -342,18 +340,6 @@ describe('config-schema', () => {
     it('should throw if no default and no matching role', () => {
       const config = saivageConfigSchema.parse({ models: {} });
       expect(() => getModelListForRole(config, 'planner')).toThrow(/No model list configured/);
-    });
-  });
-
-  describe('getRuntimeConfig', () => {
-    it('should return runtime section with defaults', () => {
-      setupConfig({ models: { default: ['test'] } });
-      const { config } = loadConfig(TEST_ROOT);
-      const rt = getRuntimeConfig(config);
-      expect(rt.continuousImprovement).toBe(false);
-      expect(rt.maxReviewRetries).toBe(3);
-      expect(rt.processTimeouts).toEqual({ plannerMs: 1200000, executorMs: 1200000, reviewerMs: 1200000 });
-      expect(rt.candidateAvailabilityCompactBytes).toBe(262144);
     });
   });
 });

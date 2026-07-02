@@ -125,7 +125,7 @@ describe('ModelRouter', () => {
         { provider: 'github', account: 'primary', model: 'gpt-5.5' },
         blockedDecision(),
       );
-      const router = new ModelRouter(cfg, registry, undefined, availability);
+      const router = new ModelRouter(cfg, registry, availability);
 
       const chain = await router.resolve('planner');
       expect(chain).toHaveLength(1);
@@ -152,7 +152,7 @@ describe('ModelRouter', () => {
         { provider: 'github', account: null, model: 'gpt-5.5' },
         blockedDecision(),
       );
-      const router = new ModelRouter(cfg, registry, undefined, availability);
+      const router = new ModelRouter(cfg, registry, availability);
 
       const chain = await router.resolve('planner');
       expect(chain).toHaveLength(1);
@@ -183,7 +183,7 @@ describe('ModelRouter', () => {
         { provider: 'github', account: null, model: 'gpt-5.5' },
         blockedDecision(),
       );
-      const router = new ModelRouter(cfg, registry, undefined, availability);
+      const router = new ModelRouter(cfg, registry, availability);
 
       const chain = await router.resolve('planner');
       expect(chain.length).toBeGreaterThan(0);
@@ -213,7 +213,7 @@ describe('ModelRouter', () => {
         { provider: 'github', account: null, model: 'gpt-5.5' },
         blockedDecision(),
       );
-      const router = new ModelRouter(cfg, registry, undefined, availability);
+      const router = new ModelRouter(cfg, registry, availability);
 
       const chain = await router.resolve('planner');
       expect(chain.length).toBeGreaterThan(0);
@@ -278,7 +278,7 @@ describe('ModelRouter', () => {
         { provider: 'github', account: null, model: 'gpt-5.5' },
         blockedDecision(),
       );
-      const router = new ModelRouter(cfg, registry, undefined, availability);
+      const router = new ModelRouter(cfg, registry, availability);
 
       const chain = await router.resolve('planner');
       expect(chain.find((c) => c.model === 'deepseek-v4-pro')).toBeUndefined();
@@ -308,7 +308,7 @@ describe('ModelRouter', () => {
           },
         });
         const registry = new ProviderRegistry(cfg);
-        const router = new ModelRouter(cfg, registry, root);
+        const router = new ModelRouter(cfg, registry);
 
         const chain = await router.resolve('planner');
         expect(chain).toHaveLength(1);
@@ -360,7 +360,7 @@ describe('ModelRouter', () => {
           },
         });
         const registry = new ProviderRegistry(cfg);
-        const router = new ModelRouter(cfg, registry, root);
+        const router = new ModelRouter(cfg, registry);
 
         const chain = await router.resolve('planner');
         expect(chain).toHaveLength(2);
@@ -385,7 +385,7 @@ describe('ModelRouter', () => {
           },
         });
         const registry = new ProviderRegistry(cfg);
-        const router = new ModelRouter(cfg, registry, root);
+        const router = new ModelRouter(cfg, registry);
 
         const chain = await router.resolve('planner');
         expect(chain).toHaveLength(2);
@@ -416,7 +416,7 @@ describe('ModelRouter', () => {
           },
         });
         const registry = new ProviderRegistry(cfg);
-        const router = new ModelRouter(cfg, registry, root);
+        const router = new ModelRouter(cfg, registry);
 
         const candidate = (await router.resolve('planner'))[0];
         const transport = await resolveLlmTransportConfig(root, registry, candidate);
@@ -455,7 +455,7 @@ describe('ModelRouter', () => {
           },
         });
         const registry = new ProviderRegistry(cfg);
-        const router = new ModelRouter(cfg, registry, root);
+        const router = new ModelRouter(cfg, registry);
 
         const chain = await router.resolve('planner');
         expect(chain.length).toBe(2);
@@ -465,41 +465,6 @@ describe('ModelRouter', () => {
     });
   });
 
-  describe('nextCandidate', () => {
-    it('should return the first healthy candidate', async () => {
-      const cfg = mockConfig({
-        models: { planner: ['gpt-5.5'] },
-        providers: {
-          github: { priority: 10, models: ['gpt-5.5'] },
-        },
-      });
-      const registry = new ProviderRegistry(cfg);
-      const router = new ModelRouter(cfg, registry);
-
-      const c = await router.nextCandidate('planner');
-      expect(c).not.toBeNull();
-      expect(c!.model).toBe('gpt-5.5');
-    });
-
-    it('should return null if no candidates available', async () => {
-      const cfg = mockConfig({
-        models: { planner: ['gpt-5.5'] },
-        providers: {
-          github: { priority: 10, models: ['gpt-5.5'] },
-        },
-      });
-      const registry = new ProviderRegistry(cfg);
-      const availability = new MemoryCandidateAvailability();
-      await availability.markFailed(
-        { provider: 'github', account: null, model: 'gpt-5.5' },
-        blockedDecision(),
-      );
-      const router = new ModelRouter(cfg, registry, undefined, availability);
-
-      const c = await router.nextCandidate('planner');
-      expect(c).toBeNull();
-    });
-  });
 });
 
 describe('ModelRouter capability filtering', () => {
@@ -516,7 +481,7 @@ describe('ModelRouter capability filtering', () => {
     });
     const registry = new ProviderRegistry(cfg);
     const availability = new MemoryCandidateAvailability();
-    const router = new ModelRouter(cfg, registry, undefined, availability);
+    const router = new ModelRouter(cfg, registry, availability);
 
     const chain = await router.resolve('planner', { requiresTools: true });
 
@@ -538,7 +503,7 @@ describe('ModelRouter capability filtering', () => {
     const registry = new ProviderRegistry(cfg);
     const availability = new MemoryCandidateAvailability();
     await availability.markFailed({ provider: 'compatibleButCooling', account: null, model: 'm1' }, blockedDecision());
-    const router = new ModelRouter(cfg, registry, undefined, availability);
+    const router = new ModelRouter(cfg, registry, availability);
 
     const chain = await router.resolve('planner', { requiresExclusiveToolChoice: true });
 

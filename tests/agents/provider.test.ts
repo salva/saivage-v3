@@ -66,17 +66,6 @@ describe('Account', () => {
     expect(acct.canServe('kimi-k2.6', modelSet)).toBe(false);
   });
 
-  it('should compute effective API key (account overrides provider)', () => {
-    const acct = new Account('primary', { priority: 10, apiKey: 'acct-key' });
-    expect(acct.effectiveApiKey('provider-key')).toBe('acct-key');
-    expect(acct.effectiveApiKey()).toBe('acct-key');
-  });
-
-  it('should compute effective base URL', () => {
-    const acct = new Account('primary', { priority: 10, baseUrl: 'https://acct.example.com' });
-    expect(acct.effectiveBaseUrl('https://provider.example.com')).toBe('https://acct.example.com');
-    expect(acct.effectiveBaseUrl()).toBe('https://acct.example.com');
-  });
 });
 
 describe('Provider', () => {
@@ -214,34 +203,5 @@ describe('provider capabilities', () => {
     expect(capabilities.contextWindowTokens).toBe(2000);
     expect(capabilities.maxOutputTokens).toBe(3000);
     expect(capabilities.transportProtocol).toBe('openai-chat-completions');
-  });
-});
-
-describe('Account token endpoint precedence', () => {
-  it('uses account tokenEndpoint over provider tokenEndpoint over inferred provider base URL', () => {
-    const acct = new Account('primary', {
-      priority: 10,
-      tokenEndpoint: 'https://account.example.test/oauth/token',
-    });
-    expect(acct.effectiveTokenEndpoint(
-      'https://provider.example.test/oauth/token',
-      'https://provider.example.test/v1',
-    )).toBe('https://account.example.test/oauth/token');
-
-    const providerOnly = new Account('secondary', { priority: 20 });
-    expect(providerOnly.effectiveTokenEndpoint(
-      'https://provider.example.test/oauth/token',
-      'https://provider.example.test/v1',
-    )).toBe('https://provider.example.test/oauth/token');
-
-    expect(providerOnly.effectiveTokenEndpoint(
-      undefined,
-      'https://provider.example.test/v1',
-    )).toBe('https://provider.example.test/oauth/token');
-  });
-
-  it('does not infer a tokenEndpoint from malformed provider base URL', () => {
-    const acct = new Account('primary', { priority: 10 });
-    expect(acct.effectiveTokenEndpoint(undefined, 'not a valid url')).toBeUndefined();
   });
 });

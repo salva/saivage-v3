@@ -64,8 +64,8 @@ function buildCandidate(provider: Provider, model: string): { candidate: Candida
     : provider.implicitAccount;
   return {
     candidate,
-    baseUrl: account.effectiveBaseUrl(provider.baseUrl),
-    apiKey: account.effectiveApiKey(provider.apiKey),
+    baseUrl: account.baseUrl ?? provider.baseUrl,
+    apiKey: account.apiKey ?? provider.apiKey,
   };
 }
 

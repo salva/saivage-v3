@@ -42,36 +42,6 @@ export class Account {
     return providerModelSet.has(model);
   }
 
-  /** Compute the effective API key (account overrides provider). */
-  effectiveApiKey(providerApiKey?: string): string | undefined {
-    return this.apiKey ?? providerApiKey;
-  }
-
-  /** Compute the effective base URL. */
-  effectiveBaseUrl(providerBaseUrl?: string): string | undefined {
-    return this.baseUrl ?? providerBaseUrl;
-  }
-
-  /**
-   * Compute the effective OAuth token endpoint.
-   * Resolution order: account → provider → inferred from provider baseUrl.
-   */
-  effectiveTokenEndpoint(
-    providerTokenEndpoint?: string,
-    providerBaseUrl?: string,
-  ): string | undefined {
-    if (this.tokenEndpoint) return this.tokenEndpoint;
-    if (providerTokenEndpoint) return providerTokenEndpoint;
-    if (providerBaseUrl) {
-      try {
-        const url = new URL(providerBaseUrl);
-        return `${url.origin}/oauth/token`;
-      } catch {
-        return undefined;
-      }
-    }
-    return undefined;
-  }
 }
 
 // ── Provider ──────────────────────────────────────────────────

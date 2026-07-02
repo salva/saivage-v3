@@ -190,30 +190,6 @@ export type RuntimeSection = z.infer<typeof runtimeSectionSchema>;
 export type ModelsSection = z.infer<typeof modelsSectionSchema>;
 export type NotificationChannelConfig = z.infer<typeof notificationChannelSchema>;
 
-// ── Token Endpoint Resolution ─────────────────────────────────
-
-/**
- * Resolve the effective OAuth token endpoint URI.
- *
- * Resolution order:
- * 1. If tokenEndpoint is explicitly set, use it.
- * 2. Otherwise, infer from baseUrl as `{origin}/oauth/token`.
- * 3. If neither is usable, return undefined.
- */
-export function resolveTokenEndpoint(
-  tokenEndpoint: string | undefined,
-  baseUrl: string | undefined,
-): string | undefined {
-  if (tokenEndpoint) return tokenEndpoint;
-  if (!baseUrl) return undefined;
-  try {
-    const url = new URL(baseUrl);
-    return `${url.origin}/oauth/token`;
-  } catch {
-    return undefined;
-  }
-}
-
 // ── Model Params ──────────────────────────────────────────────
 
 export interface ModelParams {
@@ -258,11 +234,4 @@ export function getModelListForRole(
   if (resolved) return resolved;
 
   throw new Error(`No model list configured for role '${role}' and no default.`);
-}
-
-/**
- * Get the runtime section with all defaults applied.
- */
-export function getRuntimeConfig(config: SaivageConfig): RuntimeSection {
-  return config.runtime;
 }

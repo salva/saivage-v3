@@ -24,7 +24,6 @@ export class ModelRouter {
   constructor(
     config: SaivageConfig,
     registry: ProviderRegistry,
-    _projectRoot?: string,
     availability: CandidateAvailability = new MemoryCandidateAvailability(),
   ) {
     this.config = config;
@@ -129,31 +128,8 @@ export class ModelRouter {
     return candidates;
   }
 
-  /**
-   * Get the next healthy candidate for a role, skipping ones
-   * that are in cooldown. Returns null if none available.
-   */
-  async nextCandidate(role: string, request?: CapabilityRequest): Promise<Candidate | null> {
-    const chain = await this.resolve(role, request);
-    return chain.length > 0 ? chain[0] : null;
-  }
-
   /** Return non-secret diagnostics for candidates skipped by the last resolve call. */
   getLastCapabilitySkips(): CapabilitySkipDiagnostic[] {
     return [...this.lastCapabilitySkips];
-  }
-
-  /**
-   * Get the underlying provider registry.
-   */
-  getRegistry(): ProviderRegistry {
-    return this.registry;
-  }
-
-  /**
-   * Get the config.
-   */
-  getConfig(): SaivageConfig {
-    return this.config;
   }
 }
