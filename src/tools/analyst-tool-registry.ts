@@ -54,6 +54,7 @@ export const ANALYST_CONTROL_TOOLS: readonly UnifiedToolDefinition[] = analystTo
 });
 
 export const ANALYST_CONTROL_TOOL_NAMES: ReadonlySet<string> = new Set(ANALYST_CONTROL_TOOLS.map((tool) => tool.name));
+export const ANALYST_TOOL_NAMES: readonly string[] = ANALYST_CONTROL_TOOLS.map((tool) => tool.name);
 
 export function llmAnalystToolDefinition(tool: UnifiedToolDefinition): LlmToolDefinition {
   return {

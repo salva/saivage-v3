@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 
 import { RoleToolPolicy } from '../../src/agents/role-tool-policy.js';
-import { ANALYST_TOOL_NAMES } from '../../src/tools/definitions/index.js';
+import { ANALYST_TOOL_NAMES } from '../../src/tools/analyst-tool-registry.js';
 import type { RoleToolPolicyRole } from '../../src/agents/role-tool-policy.js';
 
 const roles: RoleToolPolicyRole[] = ['planner', 'executor', 'reviewer', 'analyst'];

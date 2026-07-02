@@ -1,5 +1,6 @@
 import type { McpToolAnnotations } from '../mcp/protocol-api.js';
 import type { OperationalAgentRole } from '../schemas/index.js';
+import { ANALYST_TOOL_NAMES } from '../tools/analyst-tool-registry.js';
 import { MCP_WRAPPER_TOOL_NAMES, PLANNER_CONTROL_TOOL_NAMES, ROLE_TOOL_NAMES, SKILL_TOOL_NAMES, WORKSPACE_TOOL_NAMES } from './agent-tool-catalog.js';
 
 export type RoleToolPolicyRole = OperationalAgentRole;
@@ -40,7 +41,7 @@ export interface RoleToolPolicyDecision {
 const VALID_ROLES = new Set<RoleToolPolicyRole>(Object.keys(ROLE_TOOL_NAMES) as RoleToolPolicyRole[]);
 const VALID_SURFACES = new Set<RoleToolPolicySurface>(['planner-control', 'agent-runtime', 'workspace', 'external-mcp', 'skill', 'contract-terminal']);
 
-function roleToolNames(role: RoleToolPolicyRole): readonly string[] { return ROLE_TOOL_NAMES[role] ?? []; }
+function roleToolNames(role: RoleToolPolicyRole): readonly string[] { return role === 'analyst' ? ANALYST_TOOL_NAMES : ROLE_TOOL_NAMES[role] ?? []; }
 
 function decision(input: RoleToolPolicyInput, allowed: boolean, reasonCode: RoleToolPolicyReasonCode, message: string): RoleToolPolicyDecision {
   const auditTags = [
