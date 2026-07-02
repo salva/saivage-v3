@@ -6,13 +6,11 @@ export interface AnalystToolInvocationActivityInput {
   result: {
     success: boolean;
     error?: unknown;
-    preview?: unknown;
     data?: unknown;
   };
 }
 
 export function projectAnalystToolInvocationActivity(invocation: AnalystToolInvocationActivityInput): Record<string, unknown> {
-  const preview = invocation.result.preview as Record<string, unknown> | undefined;
   const data = invocation.result.data as Record<string, unknown> | undefined;
   return {
     event: 'tool_invocation',
@@ -21,14 +19,6 @@ export function projectAnalystToolInvocationActivity(invocation: AnalystToolInvo
     result: sanitizeAnalystPayload({
       success: invocation.result.success,
       error: invocation.result.error,
-      preview: preview
-        ? {
-            type: preview.type,
-            summary: preview.summary,
-            warnings: preview.warnings,
-            classified_as: preview.classified_as,
-          }
-        : undefined,
       data: data && typeof data === 'object'
         ? {
             classified_as: data.classified_as,

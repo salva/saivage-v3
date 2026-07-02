@@ -24,11 +24,11 @@ export function createAnalystProvider(ctx: AnalystProviderContext): ToolProvider
           if (!tool.executor) throw new Error(`Analyst tool '${tool.name}' has no executor.`);
           try {
             const result = await tool.executor(ctx.toolContext, args as Record<string, unknown>);
-            if (result.success) return { success: true, data: result.data, preview: result.preview };
-            return { success: false, error: result.error ?? result.errorEnvelope?.message ?? 'Tool failed.', data: result.data, preview: result.preview, errorEnvelope: result.errorEnvelope };
+            if (result.success) return { success: true, data: result.data };
+            return { success: false, error: result.error ?? result.errorEnvelope?.message ?? 'Tool failed.' };
           } catch (error) {
             const result = toolFailureFromError(error);
-            return { success: false, error: result.error ?? result.errorEnvelope?.message ?? 'Tool failed.', data: result.data, preview: result.preview, errorEnvelope: result.errorEnvelope };
+            return { success: false, error: result.error ?? result.errorEnvelope?.message ?? 'Tool failed.' };
           }
         },
       })),

@@ -276,7 +276,8 @@ describe('Contract C2 partial-success reporting', () => {
       expect(response.toolInvocations ?? []).toHaveLength(1);
       expect(response.toolInvocations?.[0].tool).toBe('delete_card');
       expect(response.toolInvocations?.[0].result.success).toBe(true);
-      expect(response.toolInvocations?.[0].result.data).toMatchObject({ partial: true, succeeded: 2 });
+      if (!response.toolInvocations?.[0].result.success) throw new Error('Expected successful delete_card result.');
+      expect(response.toolInvocations[0].result.data).toMatchObject({ partial: true, succeeded: 2 });
     } finally { if (procId) await killProcess(root, procId, 'SIGTERM'); rmSync(root, { recursive: true, force: true }); }
   });
 });

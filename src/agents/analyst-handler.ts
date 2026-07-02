@@ -1,5 +1,5 @@
 import type { AgentMessage, ControlActionSurface, ControlActionAuditEntry } from '../schemas/index.js';
-import type { ToolResult, ToolContext } from '../tools/analyst-tool-types.js';
+import type { ToolContext } from '../tools/analyst-tool-types.js';
 import {
   ANALYST_NO_MODEL_REPLY,
   AnalystOfflineError,
@@ -25,7 +25,7 @@ import { LLMActor, type LLMActorOutcome, type LLMProviderPort } from '../runtime
 import type { LlmInvocationInput } from '../runtime/actors/llm-invocation.js';
 import { resolveAnalystSessionId } from './session-ids.js';
 import { createAnalystProvider } from '../tools/analyst-provider.js';
-import { buildInvocationSurface, invokeToolCall, surfaceToolDefinitions, type InvocationSurface } from '../tools/invocation.js';
+import { buildInvocationSurface, invokeToolCall, surfaceToolDefinitions, type InvocationSurface, type ToolResult } from '../tools/invocation.js';
 import { createProcessProvider } from '../tools/process-provider.js';
 import { createWebProvider } from '../tools/web-tools.js';
 import { createPatchProvider, createWorkspaceProvider } from '../tools/workspace-provider.js';
@@ -89,18 +89,16 @@ export interface AnalystRuntimeDeps {
 }
 
 function summarizeForBroadcast(tool: string, result: ToolResult): { summary: string; classified_as?: string; related_card_id?: string; related_note_id?: string; related_process_id?: string } {
-  const data = result.data && typeof result.data === 'object' ? result.data as Record<string, unknown> : null;
-  const preview = result.preview && typeof result.preview === 'object' ? result.preview as unknown as Record<string, unknown> : null;
-  const source = data ?? preview ?? {};
+  const data = result.success && result.data && typeof result.data === 'object' ? result.data as Record<string, unknown> : null;
+  const source = data ?? {};
   const auditSource = data?.['audit_entry'] && typeof data['audit_entry'] === 'object' ? data['audit_entry'] as ControlActionAuditEntry : null;
   const classified_as = typeof source['classified_as'] === 'string' ? String(source['classified_as']) : undefined;
   const relatedCardFromData = typeof data?.['id'] === 'string' && (tool === 'edit_card' || tool === 'get_card' || tool === 'create_card') ? String(data['id']) : undefined;
-  const relatedCardFromPreview = Array.isArray(preview?.['affectedCards']) && preview['affectedCards'].length > 0 && preview['affectedCards'][0] && typeof (preview['affectedCards'][0] as Record<string, unknown>)['id'] === 'string' ? String((preview['affectedCards'][0] as Record<string, unknown>)['id']) : undefined;
-  const related_card_id = typeof source['card_id'] === 'string' ? String(source['card_id']) : relatedCardFromData ?? relatedCardFromPreview ?? (typeof source['related_card_id'] === 'string' ? String(source['related_card_id']) : auditSource?.target_kind === 'card' && auditSource.target_id ? auditSource.target_id : undefined);
+  const related_card_id = typeof source['card_id'] === 'string' ? String(source['card_id']) : relatedCardFromData ?? (typeof source['related_card_id'] === 'string' ? String(source['related_card_id']) : auditSource?.target_kind === 'card' && auditSource.target_id ? auditSource.target_id : undefined);
   const related_note_id = typeof source['note_id'] === 'string' ? String(source['note_id']) : typeof source['related_note_id'] === 'string' ? String(source['related_note_id']) : auditSource?.target_kind === 'note' && auditSource.target_id ? auditSource.target_id : undefined;
   const related_process_id = typeof source['process_id'] === 'string' ? String(source['process_id']) : typeof source['related_process_id'] === 'string' ? String(source['related_process_id']) : auditSource?.target_kind === 'process' && auditSource.target_id ? auditSource.target_id : undefined;
 
-  let summary = result.success ? (tool === 'edit_card' && related_card_id ? `edited card ${related_card_id}` : 'completed') : (result.errorEnvelope?.message ?? result.error ?? 'failed');
+  let summary = result.success ? (tool === 'edit_card' && related_card_id ? `edited card ${related_card_id}` : 'completed') : result.error;
   if (auditSource?.outcome_summary) {
     summary = auditSource.outcome_summary;
   } else if (tool === 'read' && data) {
@@ -113,9 +111,7 @@ function summarizeForBroadcast(tool: string, result: ToolResult): { summary: str
     const count = Array.isArray(data['matches']) ? data['matches'].length : 0;
     summary = `globbed ${path} (${count} matches)`;
   } else if (tool === 'run_command') {
-    if (preview) {
-      summary = typeof preview['summary'] === 'string' ? preview['summary'] : 'shell preview generated';
-    } else if (data) {
+    if (data) {
       const code = data['exit_code'];
       summary = `${classified_as ?? 'shell'} command exit=${code === null ? 'null' : String(code)}`;
     }
@@ -192,10 +188,6 @@ export class AnalystHandler {
       const failures = Array.isArray(data['failures']) ? data['failures'] as Array<Record<string, unknown>> : [];
       return ANALYST_PARTIAL_SUCCESS_TEMPLATE(Number(data['succeeded'] ?? 0), Number(data['total'] ?? 0), failures.map((failure) => String(failure['id'] ?? 'unknown')), failures.map((failure) => String(failure['reason'] ?? 'unknown reason')));
     }
-    if (!result.success && result.data && typeof result.data === 'object' && (result.data as Record<string, unknown>)['reason'] === 'not_yet_available') {
-      const data = result.data as Record<string, unknown>;
-      return `Not yet available: this capability is owned by ${String(data['stage_owner'] ?? 'a later stage')}.`;
-    }
     return null;
   }
 
@@ -246,7 +238,7 @@ export class AnalystHandler {
         const violation = buildAgentProtocolViolation({ session_id: sessionId, role: 'analyst', tool_call_id: toolCall.toolCallId, tool_name: toolCall.toolName, violation: parsed.violation, raw: rawArguments });
         this.logBoundaryDiagnostic('analyst_tool_arguments_protocol_violation', new Error(`${parsed.violation}: ${parsed.detail}`));
         const content = JSON.stringify(violation);
-        const result: ToolResult = { success: false, error: content, errorEnvelope: { kind: 'internal', message: content } };
+        const result: ToolResult = { success: false, error: content };
         this.emitActivity({ type: 'tool_result', content: { tool: toolCall.toolName, success: false, errorKind: 'agent_protocol_violation' } });
         toolInvocations.push({ tool: toolCall.toolName, params: {}, result });
         outcome = await actor.appendToolResult(toolCall.toolCallId, result);
@@ -259,12 +251,12 @@ export class AnalystHandler {
 
       const params = parsed.args;
       this.emitActivity({ type: 'tool_call', content: { tool: toolCall.toolName, params } });
-      const result = await invokeToolCall(surface, toolCall.toolName, rawArguments) as ToolResult;
+      const result = await invokeToolCall(surface, toolCall.toolName, rawArguments);
 
-      this.emitActivity({ type: 'tool_result', content: { tool: toolCall.toolName, success: result.success, hasPreview: !!result.preview, errorKind: result.errorEnvelope?.kind } });
+      this.emitActivity({ type: 'tool_result', content: { tool: toolCall.toolName, success: result.success } });
       toolInvocations.push({ tool: toolCall.toolName, params, result });
       broadcastToolInvocation(this.runtimeDeps, sessionId, toolCall.toolName, result);
-      const contractText = result.errorEnvelope?.kind === 'not_found' ? result.errorEnvelope.message : this.responseTextForResult(result);
+      const contractText = this.responseTextForResult(result);
       try {
         outcome = await actor.appendToolResult(toolCall.toolCallId, result);
       } catch (err) {
