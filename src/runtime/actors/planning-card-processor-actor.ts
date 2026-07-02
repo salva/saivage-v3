@@ -8,7 +8,7 @@ import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-ac
 import { createPlannerContract, type PlannerTypedResult } from '../../contracts/planner-contract.js';
 import { createReviewerContract } from '../../contracts/reviewer-contract.js';
 import { expectedTerminalToolMessage, verifyTerminalToolOutcome } from './contract-terminal-tools.js';
-import { nextReviewerAssessmentId, reviewerSessionId } from '../reviewer-assessment.js';
+import { nextReviewerAssessmentId, reviewerSessionId } from '../reviewer-session.js';
 import { evaluateReviewerTerminalOutcome } from './reviewer-terminal-evaluation.js';
 import { buildPlannerStateContextMessage } from '../../agents/planner-state-context.js';
 import { buildInvocationSurface, invokeTool, surfaceToolDefinitions } from '../../tools/invocation.js';

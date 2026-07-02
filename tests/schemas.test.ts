@@ -7,8 +7,6 @@ import {
   
   processRecordSchema,
   projectConfigSchema,
-  reviewerResultSchema,
-  reviewAssessmentSchema,
   runtimeStateSchema,
   createActivationCompletionEnvelope,
   parseActivationCompletionEnvelope,
@@ -98,81 +96,6 @@ describe('Core schemas still validate expected records', () => {
     };
     expect(cardRecordSchema.safeParse({ ...base, metadata: { max_review_retries: 4 } }).success).toBe(true);
     expect(cardRecordSchema.safeParse({ ...base, metadata: { max_review_retries: -1 } }).success).toBe(false);
-  });
-
-  it('accepts valid reviewer pass and needs_corrections results', () => {
-    expect(reviewerResultSchema.safeParse({
-      result: 'pass',
-      summary: 'ok',
-      achieved: ['implemented'],
-      issues: [],
-      evidence_card_ids: ['code-1'],
-    }).success).toBe(true);
-
-    expect(reviewerResultSchema.safeParse({
-      result: 'needs_corrections',
-      summary: 'fix required',
-      achieved: [],
-      issues: [{ summary: 'missing test', severity: 'blocker', evidence_card_id: 'test-1', recommendation: 'add coverage' }],
-      evidence_card_ids: [],
-    }).success).toBe(true);
-  });
-
-  it('rejects legacy reviewer result fail/missing payloads at the schema boundary', () => {
-    expect(reviewerResultSchema.safeParse({
-      result: 'fail',
-      summary: 'old failure shape',
-      achieved: [],
-      issues: [],
-      evidence_card_ids: [],
-    }).success).toBe(false);
-
-    expect(reviewerResultSchema.safeParse({
-      result: 'needs_corrections',
-      summary: 'old missing shape',
-      achieved: [],
-      missing: ['legacy missing entry'],
-      evidence_card_ids: [],
-    }).success).toBe(false);
-  });
-
-  it('accepts a valid review assessment with required preallocated metadata', () => {
-    expect(reviewAssessmentSchema.safeParse({
-      assessment_id: 'assessment-1',
-      at: '2025-01-01T00:00:00.000Z',
-      goal_card_id: 'goal-1',
-      reviewer_session_id: 'reviewer:goal-1:assessment-1',
-      result: 'pass',
-      summary: 'ok',
-      achieved: [],
-      issues: [],
-      evidence_card_ids: [],
-    }).success).toBe(true);
-  });
-
-  it('rejects legacy review assessments without required metadata or with missing[]', () => {
-    expect(reviewAssessmentSchema.safeParse({
-      id: 'review-1',
-      goal_card_id: 'goal-1',
-      reviewer_session_id: 'reviewer-1',
-      result: 'pass',
-      summary: 'ok',
-      achieved: [],
-      issues: [],
-      evidence_card_ids: [],
-      created_at: '2025-01-01T00:00:00.000Z',
-    }).success).toBe(false);
-
-    expect(reviewAssessmentSchema.safeParse({
-      assessment_id: 'assessment-2',
-      at: '2025-01-01T00:00:00.000Z',
-      result: 'needs_corrections',
-      summary: 'legacy missing shape',
-      achieved: [],
-      issues: [],
-      missing: ['legacy missing entry'],
-      evidence_card_ids: [],
-    }).success).toBe(false);
   });
 
   it('accepts a valid process record', () => {

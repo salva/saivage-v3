@@ -61,8 +61,8 @@ function plannerResult(status: 'done' | 'blocked' | 'failed', summary: string) {
   };
 }
 
-function reviewerResult(overrides: Record<string, unknown> = {}) {
-  const status = overrides.result === 'needs_corrections' ? 'rework' : overrides.status ?? 'done';
+function reviewerResult(overrides: { status?: 'done' | 'rework' | 'blocked' | 'failed'; summary?: string } = {}) {
+  const status = overrides.status ?? 'done';
   const summary = typeof overrides.summary === 'string' ? overrides.summary : 'review ok';
   return {
     kind: 'tool_calls' as const,
@@ -125,7 +125,7 @@ describe('PlanningCardProcessorActor', () => {
     const store = new CardStore(projectRoot);
     const project = createProject(store);
     const child = markDone(store, createGoal(store, project.id));
-    const provider = withMandatoryRecords((input: LlmInvocationInput) => input.role === 'reviewer' ? reviewerResult({ evidence_card_ids: [child.id] }) : plannerResult('done', 'done'));
+    const provider = withMandatoryRecords((input: LlmInvocationInput) => input.role === 'reviewer' ? reviewerResult() : plannerResult('done', 'done'));
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
@@ -163,7 +163,7 @@ describe('PlanningCardProcessorActor', () => {
         expect(input.systemPrompt).toContain('Plan from brief record.');
         expect(input.systemPrompt).toContain('Review from brief record.');
         expect(input.systemPrompt).not.toContain('\n\nAcceptance:\n');
-        return reviewerResult({ evidence_card_ids: [child.id] });
+        return reviewerResult();
       }
       expect(input.systemPrompt).toContain('Plan from brief record.');
       expect(input.systemPrompt).toContain('Review from brief record.');
@@ -185,7 +185,7 @@ describe('PlanningCardProcessorActor', () => {
     const child = markDone(store, createGoal(store, project.id));
     let finish!: () => void;
     const provider = withMandatoryRecords((input: LlmInvocationInput) => input.role === 'reviewer'
-      ? reviewerResult({ evidence_card_ids: [child.id] })
+      ? reviewerResult()
       : new Promise<LlmCompleteResult>((resolve) => { finish = () => resolve(plannerResult('done', 'done')); }));
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
@@ -213,7 +213,7 @@ describe('PlanningCardProcessorActor', () => {
     const goal = createGoal(store);
     const childActor = CardActor.fromCard({ projectRoot, card: goal, store, processor: terminalProcessor({ status: 'done', summary: 'child done', result: { kind: 'done', summary: 'child done' } }) });
     const provider = withMandatoryRecords((input: LlmInvocationInput) => input.role === 'reviewer'
-        ? reviewerResult({ evidence_card_ids: [goal.id] })
+        ? reviewerResult()
         : input.episodeContext.lastToolResult
         ? plannerResult('done', 'project done')
         : { kind: 'tool_calls' as const, tool_calls: [{ id: 'call-1', type: 'function' as const, function: { name: 'activate_card', arguments: JSON.stringify({ card_id: goal.id }) } }] });
@@ -236,7 +236,7 @@ describe('PlanningCardProcessorActor', () => {
     const project = createProject(store);
     let createdId = '';
     const provider = withMandatoryRecords((input: LlmInvocationInput) => {
-        if (input.role === 'reviewer') return reviewerResult({ evidence_card_ids: [createdId] });
+        if (input.role === 'reviewer') return reviewerResult();
         const lastToolResult = (input.episodeContext.lastToolResult as { result?: { data?: { card?: { id: string }; outcome?: string } } } | undefined)?.result?.data;
         if (!lastToolResult) {
           return { kind: 'tool_calls' as const, tool_calls: [{ id: 'create-1', type: 'function' as const, function: { name: 'create_card', arguments: JSON.stringify({ type: 'code', title: 'Implement slice', brief: 'Build the slice\n\nAcceptance: Slice works' }) } }] };
@@ -302,7 +302,7 @@ describe('PlanningCardProcessorActor', () => {
     const childActor = CardActor.fromCard({ projectRoot, card: failedGoal, store, processor: terminalProcessor({ status: 'done', summary: 'child recovered', result: { kind: 'done', summary: 'child recovered' } }) });
     let edited = false;
     const provider = withMandatoryRecords((input: LlmInvocationInput) => {
-        if (input.role === 'reviewer') return reviewerResult({ evidence_card_ids: [failedGoal.id] });
+        if (input.role === 'reviewer') return reviewerResult();
         const lastToolResult = (input.episodeContext.lastToolResult as { result?: { data?: { card?: { id: string; status: string }; outcome?: string } } } | undefined)?.result?.data;
         if (!lastToolResult) return { kind: 'tool_calls' as const, tool_calls: [{ id: 'edit-1', type: 'function' as const, function: { name: 'edit_card', arguments: JSON.stringify({ card_id: failedGoal.id, title: 'Recovered child', priority: 2 }) } }] };
         if (lastToolResult.card) {
@@ -487,7 +487,7 @@ describe('PlanningCardProcessorActor', () => {
     const goal = createGoal(store);
     const childActor = CardActor.fromCard({ projectRoot, card: goal, store, processor: terminalProcessor({ status: 'done', summary: 'child done', result: { kind: 'done', summary: 'child done' } }) });
     const provider = withMandatoryRecords((input: LlmInvocationInput) => input.role === 'reviewer'
-        ? reviewerResult({ evidence_card_ids: [goal.id] })
+        ? reviewerResult()
         : input.episodeContext.lastToolResult
         ? plannerResult('done', 'project done')
         : { kind: 'tool_calls' as const, tool_calls: [{ id: 'call-1', type: 'function' as const, function: { name: 'activate_card', arguments: JSON.stringify({ card_id: goal.id }) } }] });
@@ -512,7 +512,7 @@ describe('PlanningCardProcessorActor', () => {
     const store = new CardStore(projectRoot);
     const project = createProject(store);
     const child = markDone(store, createGoal(store, project.id));
-    const provider = withMandatoryRecords((input: LlmInvocationInput) => input.role === 'reviewer' ? reviewerResult({ evidence_card_ids: [child.id] }) : plannerResult('done', 'done'));
+    const provider = withMandatoryRecords((input: LlmInvocationInput) => input.role === 'reviewer' ? reviewerResult() : plannerResult('done', 'done'));
     const delivery = { hasPendingNotifications: jest.fn(() => false), deliverNotificationsForInput: jest.fn(() => []) };
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
@@ -537,7 +537,7 @@ describe('PlanningCardProcessorActor', () => {
         if (input.role === 'reviewer') {
           reviewerAttempts++;
           if (reviewerAttempts === 1) delivery.hasPendingNotifications.mockReturnValue(true);
-          return reviewerResult({ evidence_card_ids: [child.id] });
+          return reviewerResult();
         }
         return plannerResult('done', 'done');
     });
@@ -556,7 +556,7 @@ describe('PlanningCardProcessorActor', () => {
     const store = new CardStore(projectRoot);
     const project = createProject(store);
     const child = markDone(store, createGoal(store, project.id));
-    const provider = withMandatoryRecords((input: LlmInvocationInput) => input.role === 'reviewer' ? reviewerResult({ result: 'needs_corrections', summary: 'fix it', issues: [{ summary: 'missing proof', severity: 'blocker' }], evidence_card_ids: [child.id] }) : plannerResult('done', 'done'));
+    const provider = withMandatoryRecords((input: LlmInvocationInput) => input.role === 'reviewer' ? reviewerResult({ status: 'rework', summary: 'fix it' }) : plannerResult('done', 'done'));
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
@@ -571,7 +571,7 @@ describe('PlanningCardProcessorActor', () => {
     createProject(store);
     const goal = createGoal(store);
     const child = markDone(store, createGoal(store, goal.id));
-    const provider = withMandatoryRecords((input: LlmInvocationInput) => input.role === 'reviewer' ? reviewerResult({ evidence_card_ids: [child.id] }) : plannerResult('done', 'goal done'));
+    const provider = withMandatoryRecords((input: LlmInvocationInput) => input.role === 'reviewer' ? reviewerResult() : plannerResult('done', 'goal done'));
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: goal.id, store, children: { get: () => null }, provider });
     actor.start();
 
@@ -586,7 +586,7 @@ describe('PlanningCardProcessorActor', () => {
     const store = new CardStore(projectRoot);
     const project = createProject(store);
     markDone(store, createGoal(store, project.id));
-    const provider = withMandatoryRecords((input: LlmInvocationInput) => input.role === 'reviewer' ? reviewerResult({ result: 'needs_corrections', summary: 'missing proof' }) : plannerResult('done', 'done'));
+    const provider = withMandatoryRecords((input: LlmInvocationInput) => input.role === 'reviewer' ? reviewerResult({ status: 'rework', summary: 'missing proof' }) : plannerResult('done', 'done'));
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
@@ -650,7 +650,7 @@ describe('PlanningCardProcessorActor', () => {
     const project = createProject(store);
     let plannerTurns = 0;
     const provider = withMandatoryRecords((input: LlmInvocationInput) => {
-        if (input.role === 'reviewer') return reviewerResult({ evidence_card_ids: [] });
+        if (input.role === 'reviewer') return reviewerResult();
         plannerTurns++;
         if (plannerTurns <= 25) return { kind: 'tool_calls' as const, tool_calls: [{ id: `activate-${plannerTurns}`, type: 'function' as const, function: { name: 'activate_card', arguments: JSON.stringify({ card_id: '' }) } }] };
         return plannerResult('blocked', 'blocked after extended planning');
@@ -670,7 +670,7 @@ describe('PlanningCardProcessorActor', () => {
     const store = new CardStore(projectRoot);
     const project = createProject(store);
     markDone(store, createGoal(store, project.id));
-    const provider = withMandatoryRecords((input: LlmInvocationInput) => input.role === 'reviewer' ? { kind: 'message' as const, content: JSON.stringify({ result: 'pass', summary: 'ok', achieved: ['planned'], issues: [], evidence_card_ids: [project.id] }) } : plannerResult('done', 'done'));
+    const provider = withMandatoryRecords((input: LlmInvocationInput) => input.role === 'reviewer' ? { kind: 'message' as const, content: JSON.stringify({ status: 'done', summary: 'ok' }) } : plannerResult('done', 'done'));
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
@@ -690,7 +690,7 @@ describe('PlanningCardProcessorActor', () => {
       if (input.role !== 'reviewer') return plannerResult('done', 'done');
       reviewerTurns++;
       if (reviewerTurns === 1) return { kind: 'message' as const, content: 'Review passes.' };
-      return reviewerResult({ evidence_card_ids: [child.id] });
+      return reviewerResult();
     });
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();

@@ -134,7 +134,6 @@ export type {
   RuntimeRunRecord,
   RuntimeState,
   RuntimeStatus,
-  ReviewAssessment,
   ReviewStatus,
   RiskLevel,
   SessionStatus,

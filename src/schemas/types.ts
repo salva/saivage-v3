@@ -77,9 +77,6 @@ export type CardBlocksIndex = Record<string, string[]>;
 export interface ProjectConfig { id: 'project'; name: string; context: string; goals_summary: string; constraints: string[]; max_goal_depth: number; planner_enabled: boolean; created_at: string; updated_at: string; }
 export const analystIssueSeverityValues = ['info', 'warning', 'blocker'] as const;
 export interface AnalystIssue { summary: string; severity?: typeof analystIssueSeverityValues[number]; evidence_path?: string; }
-export interface ReviewerIssue { summary: string; severity: typeof analystIssueSeverityValues[number]; evidence_card_id?: string; recommendation?: string; }
-export interface ReviewerResult { result: 'pass' | 'needs_corrections'; summary: string; achieved: string[]; issues: ReviewerIssue[]; evidence_card_ids: string[]; }
-export interface ReviewAssessment extends ReviewerResult { assessment_id: string; at: string; reviewer_session_id?: string; goal_card_id?: string; id?: string; created_at?: string; }
 export type ProcessStatus = 'running' | 'exited' | 'failed' | 'killed';
 export interface ProcessRecord { id: string; card_id: string; owner_id: string | null; command: string; command_hash: string; cwd: string; cwd_canonical: string; status: ProcessStatus; pid?: number | null; started_at: string; started_at_monotonic: number; completed_at?: string | null; exit_code?: number | null; signal?: string | null; terminal_reason?: 'exit' | 'signal' | 'spawn_error' | 'lost' | 'kill_unattached' | null; required_for_card_completion: boolean; output_dir: string; stdout_path: string; stderr_path: string; combined_log_path: string; agent_session_id?: string | null; goal_id?: string | null; launch_reason?: string | null; owner_kind?: 'agent' | 'operator' | 'runtime' | null; background_policy?: 'foreground' | null; process_group_id?: number | null; reattach_state?: 'attached' | 'reattached' | 'lost' | null; failure_classification?: 'lost' | 'spawn_error' | null; reattach_error?: string | null; }
 export const agentRoleValues = ['analyst', 'planner', 'executor', 'reviewer', 'content_supervisor'] as const;
@@ -95,7 +92,7 @@ export type MessageKind = 'text' | 'activity' | 'tool_call' | 'tool_result' | 't
 export interface EntityLink { entity_type: 'card' | 'process' | 'artifact' | 'attachment' | 'quarantine'; entity_id: string; label?: string; }
 export interface AgentMessage { id: string; session_id: string; role: MessageRole; kind: MessageKind; content: string; round_id: string; message_index: number; block_index: number; tool?: string; tool_call_id?: string; timestamp: string; links?: EntityLink[]; model_spec?: string; requested_model_spec?: string; }
 export type ActivationCompletionOutcome = 'done' | 'failed' | 'blocked' | 'cancelled' | 'timed_out' | 'needs_verification';
-export interface ActivationCompletionEnvelopeV1 { kind: 'activate_card_completion'; version: 1; child_card_id: string; outcome: ActivationCompletionOutcome; summary: string; result?: Record<string, unknown> | null; review?: ReviewAssessment | null; evidence_card_ids?: string[]; error?: string | null; completed_by_session_id?: string | null; success: boolean; cardId: string; failure_kind?: string; }
+export interface ActivationCompletionEnvelopeV1 { kind: 'activate_card_completion'; version: 1; child_card_id: string; outcome: ActivationCompletionOutcome; summary: string; result?: Record<string, unknown> | null; evidence_card_ids?: string[]; error?: string | null; completed_by_session_id?: string | null; success: boolean; cardId: string; failure_kind?: string; }
 export type RuntimeStatus = 'stopped' | 'running' | 'paused' | 'error';
 export type RuntimeRunStatus = RuntimeStatus | 'stopped' | 'cancelled';
 export type ActiveCardRunRuntimeStatus = 'running';

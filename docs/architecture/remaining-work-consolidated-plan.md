@@ -303,6 +303,8 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
    **Important:** `reviewer-assessment.ts` also exports `nextReviewerAssessmentId` and `reviewerSessionId`, which ARE live (called from `src/runtime/actors/planning-card-processor-actor.ts:191-192`). Relocate these before deleting the file. Also account for `reviewAssessmentSchema` being embedded in `activationCompletionEnvelopeV1Schema.review`; remove that schema only after the activation-completion envelope no longer references structured reviewer assessment.
 
+   Status: completed in the reviewer assessment cleanup slice.
+
 ### C. Config And Provider Duplication
 
 1. **Unify config loading.**
@@ -527,7 +529,7 @@ Tasks (backlog groups B and C):
 4. Completed: remove unwired event kinds from the catalog (all confirmed old-remnant).
 5. Completed: delete remaining 5 hand-written per-event schemas (C.2).
 6. Completed: remove dead `runtime_activation` redaction allowlist (C.3).
-7. Remove stale reviewer assessment schemas and code; update reviewer prompt (C.4). Requires relocating live helpers first.
+7. Completed: remove stale reviewer assessment schemas and code; update reviewer prompt (C.4).
 
 Validation:
 
@@ -599,9 +601,8 @@ Validation:
 
 ## Recommended Next Action
 
-Stage 0 (notification fix) and Stage 1 (dead subsystem deletion) are complete. Stage 2 is partially complete (ContentSupervisor deleted, event kinds removed, per-event schema cleanup complete, redaction allowlist removed). The remaining Stage 2 work is:
+Stage 0 (notification fix) and Stage 1 (dead subsystem deletion) are complete. Stage 2 code cleanup is complete. The remaining Stage 2 work is blocked config cleanup:
 
 1. Config cleanup (B.2–B.4) — blocked by deployed configs containing the keys; requires either updating those configs or confirming no running deployment depends on them.
-2. Stale reviewer assessment code (C.4) — requires relocating live helpers first.
 
 After Stage 2, proceed to Stage 3 (config/provider/persistence deduplication) and Stage 4 (web/actor/tool-surface cleanup) in small, separately validated slices.
