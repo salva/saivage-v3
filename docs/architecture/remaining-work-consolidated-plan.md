@@ -377,6 +377,8 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
     `web/src/api/auth.ts` guards `typeof localStorage` / `typeof import.meta` in a Vite SPA with no SSR.
 
+    Status: completed in the auth cleanup slice.
+
  5. **Remove dead `terminal_tool` timeline rendering in `DebugView.vue`.**
 
     After the event catalog cleanup removed `llm_attempt`/`llm_invocation_summary` events, the `eventTerminalTool()` helper (`web/src/views/DebugView.vue`), the template chip, the CSS rule (`.tl-event-terminal-tool`), and the `'terminal_tool'` filter key in `timelineDetails` are all dead — no emitted event carries `outcome.terminal_tool`, `final_terminal_tool`, or legacy `terminal_tool`. The test that covered this path (`event-log-terminal-tool.test.ts`) was already deleted. Note: `RawLlmExchangePanel`'s `terminal_tool` badge is a separate live feature reading raw LLM exchange files, not timeline events.
@@ -564,7 +566,7 @@ Goal: remove dead UI, shrink actor interfaces, and simplify tool plumbing.
 
 Tasks (backlog groups F, G, H):
 
-1. Partially completed: delete dead UI components, dead API client functions, and dead websocket surface.
+1. Partially completed: delete dead UI components, dead API client functions, dead websocket surface, and auth environment guards.
 2. Shrink `evaluateReviewerTerminalOutcome` inputs and remove async mutation wrappers.
 3. Extract shared contract-bounded repair loop.
 4. Collapse Analyst control-tool result envelopes and fix prompt tool-list generation.
