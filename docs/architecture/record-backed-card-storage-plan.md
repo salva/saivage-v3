@@ -1,6 +1,6 @@
 # Record-Backed Card Storage Plan
 
-Status: partially implemented. Scope: card persistence, card records, record access, commit infrastructure, and card-facing tools. This plan does not change non-card Analyst tools.
+Status: obsolete planning document. Keep for historical design context only. Current remaining work, drift decisions, and execution order are consolidated in [Remaining Work Consolidated Plan](./remaining-work-consolidated-plan.md). The record-backed card storage architecture remains relevant, but this document's remaining-work checklist is superseded.
 
 ## Remaining Work
 

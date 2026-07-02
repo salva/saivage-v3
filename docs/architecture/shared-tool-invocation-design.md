@@ -1,6 +1,6 @@
 # Shared Tool Invocation Design
 
-Status: design proposal.
+Status: implemented design proposal with obsolete phase checklist. Keep for provider-owned invocation architecture rationale. Current remaining work, drift decisions, and execution order are consolidated in [Remaining Work Consolidated Plan](./remaining-work-consolidated-plan.md).
 
 Date: 2026-07-01
 

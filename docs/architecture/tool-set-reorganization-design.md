@@ -1,6 +1,6 @@
 # Tool Set Reorganization Design
 
-Status: current design proposal.
+Status: implemented design proposal with obsolete phase checklist. Keep for tool vocabulary and architecture rationale. Current remaining work, drift decisions, and execution order are consolidated in [Remaining Work Consolidated Plan](./remaining-work-consolidated-plan.md).
 
 Date: 2026-06-30
 

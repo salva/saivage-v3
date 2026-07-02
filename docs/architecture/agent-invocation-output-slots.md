@@ -1,6 +1,6 @@
 # Mandatory Output Files
 
-Status: design proposal. **Partial supersession: terminal tool names have been unified to `emit_result`, and lifecycle result kinds have been collapsed (`done`, `blocked`, `failed`, `rework`). See [Tool Set Reorganization Design §4.7](./tool-set-reorganization-design.md) for current terminal and lifecycle contracts. The record-slot strategy in this doc remains current.**
+Status: obsolete planning document. Keep for historical design context only. Current remaining work, drift decisions, and execution order are consolidated in [Remaining Work Consolidated Plan](./remaining-work-consolidated-plan.md). The record-slot strategy remains current, but this document's phase/status checklist is superseded.
 
 ## Problem
 

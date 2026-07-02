@@ -1,6 +1,6 @@
 # Conversation Compaction Design
 
-Status: deferred design. Do not implement compaction until the open decisions in this document are resolved.
+Status: obsolete planning document. Keep for historical design context only. Current compaction recommendation, drift decisions, and execution order are consolidated in [Remaining Work Consolidated Plan](./remaining-work-consolidated-plan.md). Do not implement compaction from this document directly.
 
 ## Context
 
