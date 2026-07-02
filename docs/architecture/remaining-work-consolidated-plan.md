@@ -247,6 +247,8 @@ Config, events, and modules for features that were never built and are not in th
 
    `src/workspace/content-supervisor.ts` is never constructed in production. The spec does not mention content supervision. Its `eventBus` field, `emitBlocked` method, and silent error swallowing are dead. However, `/api/debug/supervision` does not call `ContentSupervisor`; it reads quarantine/review files directly, and file-tree initialization creates those files independently. Clean cut: delete the dead module/export first. If removing the supervision concept entirely, delete the storage files, route, `web/src/views/DebugView.vue` supervision tab, debug store/read-model state, and supervision tests in the same focused change.
 
+   Status: completed in the ContentSupervisor cleanup slice; supervision storage/API/UI remain as a separate decision.
+
 2. **Delete the unwired `supervisor` config section.**
 
    `config-schema.ts` defines `supervisorSectionSchema` with five fields, none of which are read by any production code. This is the upstream cause of the dead stuck-supervisor event chain. The micro-actor `RuntimeSupervisorActor` is an unrelated name collision — it has no stuck-detection.
@@ -493,7 +495,7 @@ Goal: remove config/events/schemas for features that were never built or were re
 
 Tasks (backlog groups B and C):
 
-1. Delete `ContentSupervisor` module/export; remove supervision route/storage/UI only if intentionally deleting the whole supervision concept.
+1. Completed: delete `ContentSupervisor` module/export; remove supervision route/storage/UI only if intentionally deleting the whole supervision concept.
 2. Remove unwired `supervisor` config section and split runtime config cleanup into persisted fields vs transform-only defaults.
 3. Remove dead config catchalls (`rag`, `notifications.filters`).
 4. Remove unwired event kinds from the catalog (all confirmed old-remnant).

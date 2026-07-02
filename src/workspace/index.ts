@@ -1,9 +1,4 @@
 export {
-  ContentSupervisor,
-  type ContentSupervisorConfig,
-  type ScreenContentResult,
-} from './content-supervisor.js';
-export {
   SecretPathError,
   assertNotSecretPath,
   assertSafeShellCwd,
