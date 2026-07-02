@@ -384,54 +384,69 @@ Implementation should follow `shared-tool-invocation-design.md`: providers own s
 
 Each phase should typecheck and pass focused tests before moving on.
 
-### Phase 1: Delete duplicate/dead model-facing names — partially done
+### Phase 1: Delete duplicate/dead model-facing names — mostly done
 
 Done:
-- Removed `run_project_command`, `start_and_wait`, `wait_for_process`, and `inspect_process` from workspace tools and catalog stable order.
+- Removed `run_project_command`, `start_and_wait`, `wait_for_process`, `inspect_process`, `read_file`, `read_file_metadata`, `list_directory`, `run_shell_command` from active source and the web presenter registry.
 - Removed `report_goal_done`, `report_goal_failed`, `report_goal_blocked` (dead code from retired `AgentExecutionPort`).
-- Updated role-tool-policy, executor prompt, and tests for canonical process names.
+- Removed `terminate_process` (analyst runtime tool; `kill_process` from `ProcessProvider` is the canonical replacement).
+- Removed `load_skill` (replaced by `skill`).
+- Updated role-tool-policy, executor prompt, web presenters, and tests for canonical process names.
 
 Not yet done:
-- Remove `read_file_metadata`, `read_file`, `write_file`, `list_directory`, and `run_shell_command` as separate model-facing tool names. These are still the analyst host-inspection surface and will be removed when the analyst path migrates to standard tools with scoped URLs.
-- Remove `load_skill` from the catalog (currently coexists with `skill`).
-- Remove `terminate_process` (analyst runtime tool; `kill_process` from `ProcessProvider` is the canonical replacement).
+- Remove `write_file`. It survives as an analyst-only `record://brief.md?card=<id>&v=next` writer (`analyst-workspace-tools.ts`). Fold its semantics (runtime stopped/paused gate, brief-only, `v=next`) into the `write` tool's `record://` slot policy and delete the separate name. This lands with the analyst domain-provider migration (Phase 2/3), because the stopped/paused gate must move into `write`'s record-slot authorization.
 
 ### Phase 2: Introduce provider-owned invocation surfaces — partially done
 
 Done:
-- Invocation primitives (`ToolDefinition`, `ToolProvider`, `InvocationSurface`, `invokeTool`, `invokeToolCall`, `defineTool`).
-- `WorkspaceProvider`, `PatchProvider` own their implementation.
+- Invocation primitives (`ToolDefinition`, `ToolProvider`, `InvocationSurface`, `invokeTool`, `invokeToolCall`, `defineTool`) in `src/tools/invocation.ts`.
+- `WorkspaceProvider`, `PatchProvider` own their implementation directly.
 - `ProcessProvider` owns its implementation with `ownerId` ownership.
-- `WebProvider`, `CardHistoryProvider`, `McpProvider`, `SkillProvider` composed into card processor actor surfaces.
+- `SkillProvider`, `McpProvider` are clean domain providers (own implementation, no catalog dependency).
+- `CardInspectionProvider` (`list_cards`, `get_card`, `get_tree`) and `PlannerControlProvider` (`create_card`, `edit_card`, `cancel_card`, `activate_card`) own their implementation directly with captured context.
+- Card processors (planner, executor, reviewer) compose providers and invoke through `buildInvocationSurface`/`invokeTool`.
+- `processWorkspaceToolCall`, `ToolDispatcher`, `AnalystAdapter`, `TOOL_REGISTRY`, and `ActorToolSurface` are deleted from active source.
 
-Not yet done:
-- `CardInspectionProvider` (`list_cards`, `get_card`, `get_tree`) for the planner — not implemented. The planner actor surface is missing these tools.
-- Move planner card-control tools onto `PlanningCardProcessorActor` as a domain provider (currently uses `ActorToolSurface`).
-- Move analyst operator-control tools, including `navigate_workspace` and `navigate_back`, onto `AnalystHandler` as a domain provider.
-- Collapse adapter providers: move implementation from catalog functions into `WebProvider`, `CardHistoryProvider`, `SkillProvider` and delete the detached catalog functions.
-- Delete `processWorkspaceToolCall` (dead code after provider migration).
+Not yet done (in dependency order):
 
-### Phase 3: Compose the role surfaces — partially done
+1. **Restore the clean `ToolResult` discriminated union** (`{ success: true; data? } | { success: false; error: string }`). The current `src/tools/invocation.ts:7-9` was expanded with `preview?`/`errorEnvelope?`/failure-side `data?`, which contradicts `shared-tool-invocation-design.md` §3.9. This is a regression from the decided design and must be fixed before the analyst adapter is removed, because the adapter currently preserves those fields. Analyst UI shaping moves into the `AnalystHandler` post-hook deriving from `data` content (tool-specific shapes inspected inside the hook), not from typed envelope fields on the shared result type.
+
+2. **Stop converting impossible states into tool errors.** `runWorkspaceTool` (`workspace-provider.ts`) and the terminal/analyst call sites catch *all* exceptions and return `{ success: false }`. Per §3.10, expected/model/project failures return `ToolResult`; impossible programmer/configuration states throw and fail the activation at the normal boundary. `PlannerControlProvider` already does this correctly (returns `failure()` for expected, `throw` for impossible) — match that pattern. Concretely: remove the broad try/catch in `runWorkspaceTool` and have the underlying `project-file-tools` executors return `ToolResult` for expected failures (permission denied, not found, slot-writer violation) while throwing for impossible states; remove the catch-all around `invokeTool` in `terminal-card-processor-actor.ts` and `analyst-provider.ts`/the analyst handler.
+
+3. **Make `AnalystHandler` a domain provider.** It currently delegates to `createAnalystProvider` (`analyst-provider.ts`), which filters `TOOL_DEFINITIONS` and wraps detached catalog executors — an adapter shim. Move analyst operator-control tools (`navigate_workspace`, `navigate_back`, `get_status`, `start_project`, `stop_project`, `pause_runtime`, `resume_runtime`, `show_config`, `reconfigure`, `restart_server`, card lifecycle, etc.) onto `AnalystHandler` as bound methods/closures that own their implementation and close over handler domain state. Delete `analyst-provider.ts`.
+
+4. **Collapse `CardHistoryProvider` and `WebProvider` adapter shims.** Both currently wrap detached functions (`analyst-card-tools`, `webTools`) and translate the rich result. Move the implementation into the provider directly and delete the detached catalog arrays (`webTools`, the card-history functions).
+
+5. **Delete the global catalog** (`src/tools/definitions/index.ts`) as execution/schema authority, and its dead duplicate `plannerControlTools`, once the analyst path no longer depends on it.
+
+### Phase 3: Compose the role surfaces and derive prompts from surfaces — partially done
 
 Done:
-- Planner: workspace, card-history, web. (Missing: `CardInspectionProvider` for `list_cards`/`get_card`/`get_tree`.)
+- Planner: workspace, card-control, card-inspection, card-history, web.
 - Executor: workspace, patch, process, card-history, web, MCP, skill.
 - Reviewer: workspace, card-history, web, MCP, skill.
 - `websearch`/`webfetch` present on planner, executor, reviewer.
 
 Not yet done:
-- Analyst surface composition (pending analyst handler migration).
-- Planner `list_cards`/`get_card`/`get_tree` through `CardInspectionProvider`.
-- Confirm `webfetch.save_as` write authorization matches `write` once scoped URL policy is finalized.
+
+1. **Analyst surface composition** — pending the Phase 2 analyst domain-provider migration. Once `AnalystHandler` is a domain provider, compose its surface with `WorkspaceProvider`, `PatchProvider`, `ProcessProvider`, `CardInspectionProvider`, `CardHistoryProvider`, `WebProvider`, `McpProvider`, `SkillProvider` per §3.5.
+
+2. **Derive runtime model tool advertisements from the active `InvocationSurface`, not from the global catalog.** `actor-tool-definitions.ts` currently builds the executor/reviewer LLM `tools` arrays from `ALL_TOOL_DEFINITIONS_BY_NAME`, while execution validates against provider schemas. This means the schema the model sees can diverge from the schema the provider enforces. Replace the static `TERMINAL_CARD_PROCESSOR_TOOL_DEFINITIONS`/`REVIEWER_CARD_PROCESSOR_TOOL_DEFINITIONS` arrays with `surfaceToolDefinitions(surface)` projected from each activation's composed surface (plus the contract terminal). Delete `actor-tool-definitions.ts`. This is required by §3.11: "Runtime model prompts derive only from the active InvocationSurface, never from a global aggregate."
 
 ### Phase 4: Unify the terminal contract — not started
 
-- Rename the three terminal tools to `emit_result`.
-- Replace per-role envelopes with common `{ status, summary }`.
-- Move executor/reviewer detail into record slots.
-- Collapse lifecycle results.
+- Rename the three terminal tools (`emit_planner_result`, `emit_executor_result`, `emit_reviewer_result`) to a single `emit_result`.
+- Replace per-role envelopes with the common `{ status, summary }` schema (`ResultEnvelopeSchema`).
+- Remove the planner `continue` status (planner prompt and `PlannerResultEnvelopeSchema` still offer it). Planner returns `done | blocked | failed`; the runtime schedules further planning from card-tree state. Also remove the `'non_actionable_continue'` blocker cause.
+- Move executor `warnings`/`result`/`error` and reviewer `assessment`/`achieved`/`issues`/`evidence_card_ids` into `status.md`/`review.md`.
+- Collapse lifecycle results from 7 kinds to 4 (`DoneResult`, `BlockedResult`, `FailedResult`, `ReworkResult`) plus internal `NeedsVerificationResult`.
+- Update `src/schemas/event-catalog.ts` and `src/schemas/types.ts` terminal-tool enums.
+- Update planner/reviewer prompts to reference `emit_result` and the allowed status subsets.
 
 ### Phase 5: Align scoped URL policy, prompts, and specs — not started
+
+- Make `webfetch.save_as` accept and enforce scoped URLs (`record://`, `tmp://`, `project://`) with the same role/slot-write authorization as `write`, instead of the current plain project-relative path (`web-tools.ts:30,146-151`). Currently `write` routes through scoped URL resolution in `project-file-tools` while `webfetch.save_as` bypasses it — a real asymmetry.
+- Align system prompts and specs with the final tool vocabulary once Phases 1–4 land.
 
 ## 11. Relationship To Other Documents
 
@@ -465,3 +480,6 @@ This reorganization is complete when:
 - reviewer `assessment`, `achieved`, `issues`, and `evidence_card_ids` go into `review.md`, not the envelope;
 - reviewer evidence is prose in `review.md`; the runtime does not parse it to validate card IDs.
 - `system://` access is represented as a scoped URL on standard tools, available to all agents, logged, and discouraged in prompts in favor of `project://`.
+- the shared `ToolResult` is the clean discriminated union `{ success: true; data? } | { success: false; error: string }` with no `preview`, `errorEnvelope`, or failure-side `data`; analyst UI shaping derives from `data` content in the handler post-hook.
+- runtime model tool advertisements derive only from each activation's composed `InvocationSurface` (plus the contract terminal); no static catalog-derived tool list feeds the model.
+- `invokeTool` and provider executors do not catch impossible/programmer states; expected failures return `ToolResult`, impossible states throw and fail the activation at the normal boundary.
