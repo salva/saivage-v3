@@ -113,10 +113,9 @@ export const RuntimeStatusResponseSchema = z.object({
       })),
       actions: z.array(z.object({
         actorId: z.string(),
-        kind: z.enum(['active_card', 'active_llm', 'llm_recovery_action', 'active_processor', 'running_process', 'discarded_supervisor']),
+        kind: z.enum(['active_card', 'active_llm', 'llm_recovery_action', 'active_processor', 'discarded_supervisor']),
         action: z.string(),
         cardId: z.string().optional(),
-        processId: z.string().optional(),
       })),
     }).nullable(),
   }),

@@ -123,9 +123,9 @@ describe('actor runtime read model', () => {
 
   it('projects sanitized recovery diagnostics', () => withTempProject((projectRoot) => {
     saveActorSnapshot(projectRoot, {
-      actor_id: 'process:build-1',
-      actor_kind: 'process',
-      state_value: 'running',
+      actor_id: 'supervisor',
+      actor_kind: 'supervisor',
+      state_value: { mode: 'running', work: 'model_invocation_active' },
       context: { providerPayload: 'not projected' },
       updated_at: '2026-06-12T00:00:00.000Z',
     });
@@ -135,8 +135,8 @@ describe('actor runtime read model', () => {
 
     expect(model.recovery).toMatchObject({
       generated_at: '2026-06-12T00:00:00.000Z',
-      diagnostics: [expect.objectContaining({ actorId: 'process:build-1', severity: 'warning' })],
-      actions: [expect.objectContaining({ actorId: 'process:build-1', kind: 'running_process', action: 'abandon_running_process', processId: 'build-1' })],
+      diagnostics: [expect.objectContaining({ actorId: 'supervisor', severity: 'warning' })],
+      actions: [expect.objectContaining({ actorId: 'supervisor', kind: 'discarded_supervisor', action: 'discard_stale_supervisor' })],
     });
     expect(JSON.stringify(model.recovery)).not.toContain('not projected');
   }));

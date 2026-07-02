@@ -196,7 +196,7 @@ Whole modules from the pre-micro-actor runtime that were replaced by working equ
 
    `src/runtime/actors/process-actor.ts` is never instantiated in production; process execution goes through `process-runner.ts` + `ProcessProvider`. Cascading dead surface: `processActorId`/`parseProcessActorId` in `ids.ts`, the `'process'` actor kind in `actor-vocabulary.ts`, the `process/` snapshot scan in `snapshots.ts`, and the `processes` recovery branch in `actor-recovery.ts`. Spec §17 confirms live process reattachment is intentionally not required.
 
-   Status: remaining Stage 1 slice.
+   Status: completed in the ProcessActor cleanup slice.
 
 2. **Delete dead `runtime/context-builder.ts` and `runtime/goal-context.ts`.**
 
@@ -473,7 +473,7 @@ Goal: remove entire modules that exist only in tests or were superseded by the m
 
 Tasks (backlog group A, excluding A.8 which depends on Stage 0):
 
-1. Delete dead `ProcessActor` + recovery path + actor kind.
+1. Completed: delete dead `ProcessActor` + recovery path + actor kind.
 2. Completed: delete dead `context-builder.ts`, `goal-context.ts`, `transition-policy.ts`.
 3. Completed: relocate `buildRuntimeDiagnosticEvent`, then delete dead `RuntimeEventPublisher` class + `logged-event.ts`.
 4. Completed: delete dead worker/clearance normalizer modules.

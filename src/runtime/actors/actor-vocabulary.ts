@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const actorKinds = ['supervisor', 'card', 'llm', 'process', 'processor'] as const;
+export const actorKinds = ['supervisor', 'card', 'llm', 'processor'] as const;
 export type ActorKind = typeof actorKinds[number];
 export const actorKindSchema = z.enum(actorKinds);
 

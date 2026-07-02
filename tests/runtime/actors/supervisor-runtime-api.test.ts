@@ -269,13 +269,6 @@ describe('SupervisorRuntimeApi', () => {
       context: { cardId: 'G-recover', active_reconstruction: processorActive('G-recover') },
       updated_at: '2026-06-12T00:00:00.000Z',
     });
-    saveActorSnapshot(projectRoot, {
-      actor_id: 'process:build-1',
-      actor_kind: 'process',
-      state_value: 'running',
-      context: { processId: 'build-1' },
-      updated_at: '2026-06-12T00:00:00.000Z',
-    });
     const api = new SupervisorRuntimeApi({ projectRoot, actorStore: inertStore, provider: blockedPlannerProvider(), now: () => '2026-06-12T00:00:00.000Z' });
 
     await api.start();
@@ -294,11 +287,7 @@ describe('SupervisorRuntimeApi', () => {
         expect.objectContaining({ actorId: 'processor:G-recover', kind: 'active_processor', cardId: 'G-recover' }),
       ]),
     });
-    expect(readRecoveryDiagnostics(projectRoot)?.diagnostics.map((item) => item.actorId)).not.toContain('process:build-1');
-    expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).not.toContain('process:build-1');
-    expect(api.getStartupRecoveryReport()?.incidents).toEqual(expect.arrayContaining([
-      expect.objectContaining({ actorId: 'process:build-1', kind: 'running_process', action: 'abandon_running_process', processId: 'build-1' }),
-    ]));
+    expect(api.getStartupRecoveryReport()?.incidents).toEqual([]);
   }));
 
   it('abandons stale pending tool calls during startup recovery', async () => withTempProject(async (projectRoot) => {

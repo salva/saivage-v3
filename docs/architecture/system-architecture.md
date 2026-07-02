@@ -164,9 +164,8 @@ Target actor ownership:
 - `BaseCardProcessorActor` owns shared activation, cancellation, settlement, parent outcome reporting, and processor snapshot mechanics;
 - `BaseMainLLMCardProcessorActor` owns shared main-agent LLM loop mechanics and per-turn notification delivery without role-specific policy;
 - `PlanningCardProcessorActor` owns project/goal planner and reviewer semantics;
-- `TerminalCardProcessorActor` owns executor semantics for terminal cards; it constructs card-scoped capabilities and does not own child cards;
-- process actors manage OS process lifecycle.
+- `TerminalCardProcessorActor` owns executor semantics for terminal cards; it constructs card-scoped capabilities and does not own child cards.
 
-Process execution follows a launch-and-monitor model. Agents launch project commands through runtime-owned process actors, inspect status/logs over time, use bounded waits for completion, and explicitly terminate processes when needed. The functional specification does not impose process concurrency limits for now.
+Process execution follows a launch-and-monitor model through the process runner, process registry, and process tool provider. Agents launch project commands, inspect status/logs over time, use bounded waits for completion, and explicitly terminate processes when needed. The functional specification does not impose process concurrency limits for now.
 
 Controllers that advance runtime behavior are disallowed by default. A retained `RuntimeApi` may accept commands, call actor public methods, wait on projections, and project read models; it must not execute workflow logic itself.
