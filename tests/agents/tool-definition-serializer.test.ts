@@ -5,13 +5,30 @@ import {
   serializeToolsForCodex,
   type RuntimeToolEntry,
 } from '../../src/agents/tool-definition-serializer.js';
-import { ALL_TOOL_DEFINITIONS_BY_NAME, PLANNER_TOOL_DEFINITIONS } from '../../src/agents/agent-tool-catalog.js';
+
+function tool(name: string, description: string, properties: Record<string, unknown> = {}): RuntimeToolEntry {
+  return {
+    type: 'function',
+    function: {
+      name,
+      description,
+      parameters: {
+        type: 'object',
+        properties,
+        required: [],
+        additionalProperties: false,
+      },
+    },
+  } as RuntimeToolEntry;
+}
 
 const SAMPLE: RuntimeToolEntry[] = [
-  ALL_TOOL_DEFINITIONS_BY_NAME.get('glob')!,
-  ALL_TOOL_DEFINITIONS_BY_NAME.get('create_card')!,
-  ALL_TOOL_DEFINITIONS_BY_NAME.get('skill')!,
+  tool('glob', 'Search files by glob pattern.', { pattern: { type: 'string' } }),
+  tool('create_card', 'Create a direct child card.', { title: { type: 'string' } }),
+  tool('skill', 'List or load a skill.', { name: { type: 'string' } }),
 ];
+
+const ACTIVATE_CARD = tool('activate_card', 'Activate one immediate child card.', { card_id: { type: 'string' } });
 
 const RUNTIME_STYLE = {
   type: 'function',
@@ -31,13 +48,11 @@ const RUNTIME_STYLE = {
 
 describe('tool-definition-serializer', () => {
   it('snapshots Chat wire shape for a planner tool (activate_card)', () => {
-    const tool = ALL_TOOL_DEFINITIONS_BY_NAME.get('activate_card')!;
-    expect(serializeToolsForChat([tool])).toMatchSnapshot();
+    expect(serializeToolsForChat([ACTIVATE_CARD])).toMatchSnapshot();
   });
 
   it('snapshots Codex wire shape for a planner tool (activate_card)', () => {
-    const tool = ALL_TOOL_DEFINITIONS_BY_NAME.get('activate_card')!;
-    expect(serializeToolsForCodex([tool])).toMatchSnapshot();
+    expect(serializeToolsForCodex([ACTIVATE_CARD])).toMatchSnapshot();
   });
 
   it('snapshots Chat wire shape for sample catalog tools', () => {
@@ -64,23 +79,6 @@ describe('tool-definition-serializer', () => {
     expect(raw.roles).toBeUndefined();
     expect(raw.action).toBeUndefined();
     expect(raw.function).toBeUndefined();
-  });
-
-  it('projects the full planner catalog for Chat without throwing', () => {
-    const wire = serializeToolsForChat(PLANNER_TOOL_DEFINITIONS);
-    expect(wire.length).toBe(PLANNER_TOOL_DEFINITIONS.length);
-    for (const t of wire) expect(t.type).toBe('function');
-  });
-
-  it('projects the full planner catalog for Codex without throwing', () => {
-    const wire = serializeToolsForCodex(PLANNER_TOOL_DEFINITIONS);
-    expect(wire.length).toBe(PLANNER_TOOL_DEFINITIONS.length);
-    for (const t of wire) {
-      expect(t.type).toBe('function');
-      expect(typeof t.name).toBe('string');
-      expect(typeof t.description).toBe('string');
-      expect(typeof t.parameters).toBe('object');
-    }
   });
 
   it('rejects empty arrays', () => {

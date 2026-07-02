@@ -16,7 +16,7 @@ const RUNTIME_CONTROL_ROW_RE = /^\|\s*`(POST\s+\/api\/runtime\/(?:pause|resume|f
 
 const DEFAULT_REMOVED_ROUTES = new Set(['POST /api/runtime/dispatch']);
 const DEFAULT_OPERATOR_DOCS = new Set(['README.md','docs/index.md','docs/install.md','docs/configuration.md','docs/operation.md','docs/operator-runbook.md','docs/troubleshooting.md','docs/release-checklist.md']);
-const STATIC_SOURCE_FILES = ['src/server/server.ts', 'src/server/composition/fastify-app.ts', 'src/server/composition/route-composition.ts', 'src/server/routes', 'src/server/routes/operator-contracts.ts', 'src/server/contract-runtime.ts', 'src/agents/agent-tool-catalog.ts', 'src/agents/workspace-tools.ts', 'src/agents/config-schema.ts'];
+const STATIC_SOURCE_FILES = ['src/server/server.ts', 'src/server/composition/fastify-app.ts', 'src/server/composition/route-composition.ts', 'src/server/routes', 'src/server/routes/operator-contracts.ts', 'src/server/contract-runtime.ts', 'src/agents/role-tool-policy.ts', 'src/agents/config-schema.ts'];
 const OPERATION_DOC = 'docs/operation.md';
 const AGENTS_DOC = 'docs/agents.md';
 const CONFIG_DOC = 'docs/configuration.md';
@@ -220,26 +220,24 @@ function extractUnifiedToolRoleNames(content, role) {
 }
 
 function extractImplementedAgentTools(projectRoot) {
-  const catalog = readSource(projectRoot, 'src/agents/agent-tool-catalog.ts');
+  const rolePolicy = readSource(projectRoot, 'src/agents/role-tool-policy.ts');
   const toolDefinitions = [
-    'src/tools/definitions/index.ts',
+    'src/tools/analyst-tool-registry.ts',
     'src/tools/analyst-card-tools.ts',
     'src/tools/analyst-subtree-tools.ts',
     'src/tools/analyst-runtime-tools.ts',
     'src/tools/analyst-workspace-tools.ts',
     'src/tools/analyst-misc-tools.ts',
-    'src/tools/workspace-tools.ts',
     'src/tools/project-file-tools.ts',
     'src/tools/web-tools.ts',
-    'src/tools/planner-control-tools.ts',
+    'src/tools/planner-control-provider.ts',
     'src/tools/mcp-skill-tools.ts',
   ].map((file) => readSource(projectRoot, file)).join('\n');
-  const catalogAnalystTools = extractObjectArray(catalog, 'analyst');
   return new Map([
-    ['planner', uniqueSorted(extractObjectArray(catalog, 'planner').length > 0 ? extractObjectArray(catalog, 'planner') : extractUnifiedToolRoleNames(toolDefinitions, 'planner'))],
-    ['executor', uniqueSorted(extractObjectArray(catalog, 'executor').length > 0 ? extractObjectArray(catalog, 'executor') : extractUnifiedToolRoleNames(toolDefinitions, 'executor'))],
-    ['reviewer', uniqueSorted(extractObjectArray(catalog, 'reviewer').length > 0 ? extractObjectArray(catalog, 'reviewer') : extractUnifiedToolRoleNames(toolDefinitions, 'reviewer'))],
-    ['analyst', uniqueSorted(catalogAnalystTools.length > 0 ? catalogAnalystTools : extractUnifiedToolRoleNames(toolDefinitions, 'analyst'))],
+    ['planner', uniqueSorted(extractObjectArray(rolePolicy, 'planner').length > 0 ? extractObjectArray(rolePolicy, 'planner') : extractUnifiedToolRoleNames(toolDefinitions, 'planner'))],
+    ['executor', uniqueSorted(extractObjectArray(rolePolicy, 'executor').length > 0 ? extractObjectArray(rolePolicy, 'executor') : extractUnifiedToolRoleNames(toolDefinitions, 'executor'))],
+    ['reviewer', uniqueSorted(extractObjectArray(rolePolicy, 'reviewer').length > 0 ? extractObjectArray(rolePolicy, 'reviewer') : extractUnifiedToolRoleNames(toolDefinitions, 'reviewer'))],
+    ['analyst', uniqueSorted(extractUnifiedToolRoleNames(toolDefinitions, 'analyst'))],
   ]);
 }
 
@@ -409,7 +407,7 @@ export function verifyAgentToolDocs(options = {}) {
     const row = documented.get(role);
     if (!row) { failures.push({ type: 'missing-agent-role', message: `${AGENTS_DOC} is missing agent-tool row for ${role}` }); continue; }
     verifyAnchor(projectRoot, row.anchor, failures, `agent tool row ${role}`);
-    if (!sameArray(row.tools, tools)) failures.push({ type: 'agent-tool-parity', role, message: `${AGENTS_DOC} tools for ${role} do not match src/agents/agent-tool-catalog.ts (doc=${row.tools.join(',')} source=${tools.join(',')})` });
+    if (!sameArray(row.tools, tools)) failures.push({ type: 'agent-tool-parity', role, message: `${AGENTS_DOC} tools for ${role} do not match provider-era tool source (doc=${row.tools.join(',')} source=${tools.join(',')})` });
   }
   return { ok: failures.length === 0, failures, expected, documented };
 }

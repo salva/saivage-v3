@@ -4,19 +4,16 @@ exports[`tool-definition-serializer snapshots Chat wire shape for a planner tool
 [
   {
     "function": {
-      "description": "Activate a card so runtime can proceed with the next planner-controlled step.",
+      "description": "Activate one immediate child card.",
       "name": "activate_card",
       "parameters": {
         "additionalProperties": false,
         "properties": {
           "card_id": {
-            "description": "The ID of the card to activate.",
             "type": "string",
           },
         },
-        "required": [
-          "card_id",
-        ],
+        "required": [],
         "type": "object",
       },
     },
@@ -29,25 +26,16 @@ exports[`tool-definition-serializer snapshots Chat wire shape for sample catalog
 [
   {
     "function": {
-      "description": "Search project files by glob pattern under a project directory.",
+      "description": "Search files by glob pattern.",
       "name": "glob",
       "parameters": {
         "additionalProperties": false,
         "properties": {
-          "directory": {
-            "type": "string",
-          },
-          "max_results": {
-            "type": "integer",
-          },
           "pattern": {
             "type": "string",
           },
         },
-        "required": [
-          "directory",
-          "pattern",
-        ],
+        "required": [],
         "type": "object",
       },
     },
@@ -55,91 +43,16 @@ exports[`tool-definition-serializer snapshots Chat wire shape for sample catalog
   },
   {
     "function": {
-      "description": "Create a direct child card under the current planner card. The parent is inferred from the planner session and cannot be supplied.",
+      "description": "Create a direct child card.",
       "name": "create_card",
       "parameters": {
         "additionalProperties": false,
         "properties": {
-          "brief": {
-            "description": "Full brief.md content including Goal, Instructions, and Acceptance Criteria headings.",
-            "type": "string",
-          },
-          "depends_on": {
-            "description": "Optional dependency list.",
-            "items": {
-              "description": "A card ID",
-              "type": "string",
-            },
-            "type": "array",
-          },
-          "priority": {
-            "description": "Optional priority value (0-100).",
-            "type": "integer",
-          },
-          "related": {
-            "description": "Optional related-card list.",
-            "items": {
-              "description": "A card ID",
-              "type": "string",
-            },
-            "type": "array",
-          },
-          "status": {
-            "description": "Optional initial planner status.",
-            "enum": [
-              "backlog",
-              "running",
-              "blocked",
-              "changed",
-              "done",
-              "failed",
-              "cancelled",
-              "needs_verification",
-            ],
-            "type": "string",
-          },
-          "tags": {
-            "description": "Optional tags.",
-            "items": {
-              "description": "A tag string",
-              "type": "string",
-            },
-            "type": "array",
-          },
           "title": {
-            "description": "A short title.",
-            "type": "string",
-          },
-          "type": {
-            "description": "The card type.",
-            "enum": [
-              "goal",
-              "architecture",
-              "code",
-              "test",
-              "doc",
-              "data",
-              "research",
-              "ops",
-            ],
-            "type": "string",
-          },
-          "urgency": {
-            "description": "Optional urgency level.",
-            "enum": [
-              "low",
-              "normal",
-              "high",
-              "critical",
-            ],
             "type": "string",
           },
         },
-        "required": [
-          "type",
-          "title",
-          "brief",
-        ],
+        "required": [],
         "type": "object",
       },
     },
@@ -147,13 +60,12 @@ exports[`tool-definition-serializer snapshots Chat wire shape for sample catalog
   },
   {
     "function": {
-      "description": "List available skills or load one skill on-demand during an agent session. Omit name to list compact skill metadata; provide name to load full skill content.",
+      "description": "List or load a skill.",
       "name": "skill",
       "parameters": {
         "additionalProperties": false,
         "properties": {
           "name": {
-            "description": "Optional skill name to load. Omit to list available skills.",
             "type": "string",
           },
         },
@@ -169,19 +81,16 @@ exports[`tool-definition-serializer snapshots Chat wire shape for sample catalog
 exports[`tool-definition-serializer snapshots Codex wire shape for a planner tool (activate_card) 1`] = `
 [
   {
-    "description": "Activate a card so runtime can proceed with the next planner-controlled step.",
+    "description": "Activate one immediate child card.",
     "name": "activate_card",
     "parameters": {
       "additionalProperties": false,
       "properties": {
         "card_id": {
-          "description": "The ID of the card to activate.",
           "type": "string",
         },
       },
-      "required": [
-        "card_id",
-      ],
+      "required": [],
       "type": "object",
     },
     "type": "function",
@@ -192,127 +101,42 @@ exports[`tool-definition-serializer snapshots Codex wire shape for a planner too
 exports[`tool-definition-serializer snapshots Codex wire shape for sample catalog tools 1`] = `
 [
   {
-    "description": "Search project files by glob pattern under a project directory.",
+    "description": "Search files by glob pattern.",
     "name": "glob",
     "parameters": {
       "additionalProperties": false,
       "properties": {
-        "directory": {
-          "type": "string",
-        },
-        "max_results": {
-          "type": "integer",
-        },
         "pattern": {
           "type": "string",
         },
       },
-      "required": [
-        "directory",
-        "pattern",
-      ],
+      "required": [],
       "type": "object",
     },
     "type": "function",
   },
   {
-    "description": "Create a direct child card under the current planner card. The parent is inferred from the planner session and cannot be supplied.",
+    "description": "Create a direct child card.",
     "name": "create_card",
     "parameters": {
       "additionalProperties": false,
       "properties": {
-        "brief": {
-          "description": "Full brief.md content including Goal, Instructions, and Acceptance Criteria headings.",
-          "type": "string",
-        },
-        "depends_on": {
-          "description": "Optional dependency list.",
-          "items": {
-            "description": "A card ID",
-            "type": "string",
-          },
-          "type": "array",
-        },
-        "priority": {
-          "description": "Optional priority value (0-100).",
-          "type": "integer",
-        },
-        "related": {
-          "description": "Optional related-card list.",
-          "items": {
-            "description": "A card ID",
-            "type": "string",
-          },
-          "type": "array",
-        },
-        "status": {
-          "description": "Optional initial planner status.",
-          "enum": [
-            "backlog",
-            "running",
-            "blocked",
-            "changed",
-            "done",
-            "failed",
-            "cancelled",
-            "needs_verification",
-          ],
-          "type": "string",
-        },
-        "tags": {
-          "description": "Optional tags.",
-          "items": {
-            "description": "A tag string",
-            "type": "string",
-          },
-          "type": "array",
-        },
         "title": {
-          "description": "A short title.",
-          "type": "string",
-        },
-        "type": {
-          "description": "The card type.",
-          "enum": [
-            "goal",
-            "architecture",
-            "code",
-            "test",
-            "doc",
-            "data",
-            "research",
-            "ops",
-          ],
-          "type": "string",
-        },
-        "urgency": {
-          "description": "Optional urgency level.",
-          "enum": [
-            "low",
-            "normal",
-            "high",
-            "critical",
-          ],
           "type": "string",
         },
       },
-      "required": [
-        "type",
-        "title",
-        "brief",
-      ],
+      "required": [],
       "type": "object",
     },
     "type": "function",
   },
   {
-    "description": "List available skills or load one skill on-demand during an agent session. Omit name to list compact skill metadata; provide name to load full skill content.",
+    "description": "List or load a skill.",
     "name": "skill",
     "parameters": {
       "additionalProperties": false,
       "properties": {
         "name": {
-          "description": "Optional skill name to load. Omit to list available skills.",
           "type": "string",
         },
       },
