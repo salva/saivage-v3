@@ -388,13 +388,13 @@ Each phase should typecheck and pass focused tests before moving on.
 
 Done:
 - Removed `run_project_command`, `start_and_wait`, `wait_for_process`, `inspect_process`, `read_file`, `read_file_metadata`, `list_directory`, `run_shell_command` from active source and the web presenter registry.
-- Removed `report_goal_done`, `report_goal_failed`, `report_goal_blocked` (dead code from retired `AgentExecutionPort`).
 - Removed `terminate_process` (analyst runtime tool; `kill_process` from `ProcessProvider` is the canonical replacement).
 - Removed `load_skill` (replaced by `skill`).
 - Updated role-tool-policy, executor prompt, web presenters, and tests for canonical process names.
 
 Not yet done:
 - Remove `write_file`. It survives as an analyst-only `record://brief.md?card=<id>&v=next` writer (`analyst-workspace-tools.ts`). Fold its semantics (runtime stopped/paused gate, brief-only, `v=next`) into the `write` tool's `record://` slot policy and delete the separate name. This lands with the analyst domain-provider migration (Phase 2/3), because the stopped/paused gate must move into `write`'s record-slot authorization.
+- Remove the old `report_goal_done`, `report_goal_failed`, and `report_goal_blocked` planner-control surface. They still exist in the detached catalog and legacy planner prompt/support files; the active card-processor terminal path uses contract terminals instead. Delete these names with the global catalog cleanup and terminal unification.
 
 ### Phase 2: Introduce provider-owned invocation surfaces — partially done
 
@@ -402,7 +402,7 @@ Done:
 - Invocation primitives (`ToolDefinition`, `ToolProvider`, `InvocationSurface`, `invokeTool`, `invokeToolCall`, `defineTool`) in `src/tools/invocation.ts`.
 - `WorkspaceProvider`, `PatchProvider` own their implementation directly.
 - `ProcessProvider` owns its implementation with `ownerId` ownership.
-- `SkillProvider`, `McpProvider` are clean domain providers (own implementation, no catalog dependency).
+- `SkillProvider`, `McpProvider` are clean generic providers (own implementation, no catalog dependency).
 - `CardInspectionProvider` (`list_cards`, `get_card`, `get_tree`) and `PlannerControlProvider` (`create_card`, `edit_card`, `cancel_card`, `activate_card`) own their implementation directly with captured context.
 - Card processors (planner, executor, reviewer) compose providers and invoke through `buildInvocationSurface`/`invokeTool`.
 - `processWorkspaceToolCall`, `ToolDispatcher`, `AnalystAdapter`, `TOOL_REGISTRY`, and `ActorToolSurface` are deleted from active source.
