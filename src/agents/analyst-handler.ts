@@ -31,6 +31,7 @@ import { createWebProvider } from '../tools/web-tools.js';
 import { createPatchProvider, createWorkspaceProvider } from '../tools/workspace-provider.js';
 import { createSkillProvider } from '../tools/skill-provider.js';
 import { createMcpProvider } from '../tools/mcp-provider.js';
+import { processApi } from '../runtime/process-api.js';
 import { createCardInspectionProvider } from '../tools/card-inspection-provider.js';
 import { createCardHistoryProvider } from '../tools/card-history-provider.js';
 import { RoleToolPolicy } from './role-tool-policy.js';
@@ -164,6 +165,13 @@ export class AnalystHandler {
     const next = previous.catch(() => null as never).then(() => this.handleMessageSerial(sessionId, userContent, workspaceContext));
     this.sessionQueues.set(sessionId, next);
     try { return await next; } finally { if (this.sessionQueues.get(sessionId) === next) this.sessionQueues.delete(sessionId); }
+  }
+
+  async shutdownSessionProcesses(sessionId: string): Promise<void> {
+    const resolvedSessionId = resolveAnalystSessionId(sessionId);
+    await Promise.all(processApi(this.projectRoot).listForRuntime()
+      .filter((process) => process.owner_id === resolvedSessionId && process.status === 'running')
+      .map((record) => processApi(this.projectRoot).terminate(record.id, 'SIGTERM')));
   }
 
   private emitActivity(activity: { type: 'tool_call' | 'tool_result' | 'thinking'; content: Record<string, unknown> }): void {
@@ -313,7 +321,7 @@ export class AnalystHandler {
       createCardHistoryProvider({ projectRoot: this.projectRoot, store: this.runtimeDeps.cardStore, sessionId: ctx.sessionId, agentRole: 'analyst' }),
       createWorkspaceProvider({ projectRoot: this.projectRoot, agentRole: 'analyst', store: this.runtimeDeps.cardStore }),
       createPatchProvider({ projectRoot: this.projectRoot, agentRole: 'analyst' }),
-      createProcessProvider({ projectRoot: this.projectRoot, ownerId: ctx.sessionId ?? 'analyst' }),
+      createProcessProvider({ projectRoot: this.projectRoot, ownerId: ctx.sessionId ?? 'analyst', agentRole: 'analyst', ownerKind: 'operator', launchReason: 'analyst workspace run_command' }),
       createWebProvider({ projectRoot: this.projectRoot, agentRole: 'analyst', store: this.runtimeDeps.cardStore }),
       createSkillProvider({ projectRoot: this.projectRoot, agentRole: 'analyst' }),
       createMcpProvider({ mcpManagerProvider: () => this.runtimeDeps.mcpManager, agentRole: 'analyst' }),

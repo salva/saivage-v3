@@ -5,6 +5,7 @@ import { join } from 'node:path';
 
 import { buildInvocationSurface, invokeTool } from '../../src/tools/invocation.js';
 import { createProcessProvider } from '../../src/tools/process-provider.js';
+import { getProcess } from '../../src/runtime/process-runner.js';
 
 function withRoot<T>(fn: (root: string) => Promise<T>): Promise<T> {
   const root = mkdtempSync(join(tmpdir(), 'saivage-process-provider-'));
@@ -47,5 +48,39 @@ describe('process provider', () => {
     expect(denied.success).toBe(false);
     if (!denied.success) expect(denied.error).toContain('not owned');
     await invokeTool(owner, 'kill_process', { process_id: processId });
+  }));
+
+  it('records Analyst command provenance as operator-owned session work', async () => withRoot(async (root) => {
+    const surface = buildInvocationSurface('analyst', [createProcessProvider({ projectRoot: root, ownerId: 'analyst:global', agentRole: 'analyst', ownerKind: 'operator', launchReason: 'analyst workspace run_command' })]);
+
+    const result = await invokeTool(surface, 'run_command', { command: 'printf analyst', timeout_ms: 1000 });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    const processId = (result.data as { process_id: string }).process_id;
+    expect(getProcess(root, processId)).toEqual(expect.objectContaining({
+      card_id: 'analyst:global',
+      owner_id: 'analyst:global',
+      agent_session_id: 'analyst:global',
+      owner_kind: 'operator',
+      launch_reason: 'analyst workspace run_command',
+    }));
+  }));
+
+  it('records executor command provenance as agent-owned card work', async () => withRoot(async (root) => {
+    const surface = buildInvocationSurface('executor', [createProcessProvider({ projectRoot: root, ownerId: 'activation-1', cardId: 'card-1', agentRole: 'executor' })]);
+
+    const result = await invokeTool(surface, 'run_command', { command: 'printf executor', timeout_ms: 1000 });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    const processId = (result.data as { process_id: string }).process_id;
+    expect(getProcess(root, processId)).toEqual(expect.objectContaining({
+      card_id: 'card-1',
+      owner_id: 'activation-1',
+      agent_session_id: 'activation-1',
+      owner_kind: 'agent',
+      launch_reason: 'executor process provider run_command',
+    }));
   }));
 });

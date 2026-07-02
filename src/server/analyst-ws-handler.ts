@@ -18,11 +18,14 @@ export interface AnalystWsHandlerOptions {
 
 export class AnalystWsHandler {
   private readonly turnQueues = new WeakMap<WebSocket, Promise<void>>();
+  private readonly sessions = new WeakMap<WebSocket, string>();
 
   constructor(private readonly options: AnalystWsHandlerOptions) {}
 
-  initialize(_ws: WebSocket): string {
-    return resolveAnalystSessionId();
+  initialize(ws: WebSocket): string {
+    const sessionId = resolveAnalystSessionId();
+    this.sessions.set(ws, sessionId);
+    return sessionId;
   }
 
   handleRawMessage(ws: WebSocket, raw: Buffer | ArrayBuffer | Buffer[]): Promise<void> {
@@ -70,7 +73,15 @@ export class AnalystWsHandler {
   }
 
   cleanup(ws: WebSocket): void {
+    const sessionId = this.sessions.get(ws);
     this.turnQueues.delete(ws);
+    this.sessions.delete(ws);
+    if (!sessionId) return;
+    const handler = getAnalystHandler(this.options.projectRoot, {
+      runtimeDeps: this.options.runtimeApplication.analystDeps,
+      requestServerRestart: this.options.requestServerRestart,
+    });
+    void handler.shutdownSessionProcesses(sessionId);
   }
 
   private queueTurn(ws: WebSocket, turn: () => Promise<void>): Promise<void> {

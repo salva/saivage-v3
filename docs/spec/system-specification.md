@@ -273,6 +273,8 @@ The Analyst must let the user complete these tasks in natural language:
 
 When a request is ambiguous, the Analyst asks one clarifying question rather than guessing.
 
+For operator-directed repair, the Analyst may use canonical workspace tools directly: `read`, `write`, `edit`, `glob`, and `grep` over scoped `project://`, `record://`, `tmp://`, or `system://` paths, and `apply_patch` for project-relative unified diffs. This authority is for inspection, diagnosis, and repair, not for replacing executor delivery work. Card objective changes still use semantic card tools or `write(record://brief.md?card=<id>&v=next)` when that is the correct operation.
+
 For destructive or hard-to-reverse actions, the Analyst confirms in conversation before executing. Confirmation is conversational, not a modal.
 
 ## 14. UI Integration
@@ -302,7 +304,7 @@ API bearer tokens must not be placed in URLs.
 
 Agents may start project commands through runtime-owned process facilities. Process records expose safe read models: status, timestamps, command text, contained working directory, logs, and termination availability.
 
-The Analyst may inspect process state and terminate a live runtime process when the canonical process control supports it. Shutdown also terminates runtime-owned running processes after pausing scheduling.
+The Analyst may inspect process state and terminate processes owned by its current session when canonical process control supports it. Analyst-started commands are session-owned operator work; websocket session cleanup terminates running processes owned by that session. Shutdown also terminates runtime-owned running processes after pausing scheduling.
 
 Process handling uses a launch-and-monitor model rather than unbounded synchronous shell tools. An agent may launch a project command, inspect its evolving status and logs over time, wait for completion with a bounded `wait_for_process` operation, and then decide whether to wait again, terminate the process, or continue other work. A wait timeout must not by itself kill the process.
 

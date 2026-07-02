@@ -301,7 +301,7 @@ The Analyst gets the same workspace tools as the autonomous agents, plus its con
 
 | Category | Tools |
 | --- | --- |
-| Filesystem | `read`, `write`, `edit`, `apply_patch`, `glob`, `grep` over `project://`, `record://`, `tmp://`, and `system://` |
+| Filesystem | `read`, `write`, `edit`, `glob`, `grep` over `project://`, `record://`, `tmp://`, and `system://`; `apply_patch` for project-relative unified diffs |
 | Shell | `run_command`, `wait_process`, `kill_process` with `cwd` scoped by `project://` or `system://` |
 | Web | `websearch`, `webfetch` |
 | Skill | `skill` |
@@ -351,7 +351,7 @@ All filesystem tools share one path policy:
 - `project://` file writes are restricted by role:
   - Executor and Analyst may write `project://` files (Analyst via `write`/`edit`/`apply_patch` on project paths).
   - Planner and Reviewer may **not** write `project://` files; they only write their `record://` slots.
-- `edit` and `apply_patch` on `record://` paths follow the same slot-writer rules as `write`. On `project://` paths they follow the same role restriction as `write`.
+- `edit` on `record://` paths follows the same slot-writer rules as `write`. On `project://` paths, `edit` and `apply_patch` follow the same role restriction as `write`; `apply_patch` accepts project-relative unified diffs rather than scoped URLs inside the diff headers.
 
 Web tools share one egress policy:
 - Only `http` and `https`.

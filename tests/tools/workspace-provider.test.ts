@@ -198,4 +198,43 @@ describe('workspace and patch providers', () => {
       rmSync(systemRoot, { recursive: true, force: true });
     }
   });
+
+  it('allows Analyst explicit-card record reads and searches without an active card context', async () => {
+    const { root, store } = setupProject();
+    try {
+      const card = store.create({ type: 'goal', parent: 'project', title: 'Goal', brief: 'old', status: 'backlog', depth: 0, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 });
+      const surface = buildInvocationSurface('analyst', [createWorkspaceProvider({ projectRoot: root, agentRole: 'analyst', store })]);
+
+      const write = await invokeTool(surface, 'write', { path: `record://brief.md?card=${card.id}&v=next`, content: VALID_BRIEF });
+      const read = await invokeTool(surface, 'read', { path: `record://brief.md?card=${card.id}` });
+      const glob = await invokeTool(surface, 'glob', { directory: `record://${card.id}`, pattern: '**/*.md' });
+      const grep = await invokeTool(surface, 'grep', { path: `record://${card.id}/brief.md`, pattern: 'Acceptance Criteria' });
+
+      expect(write.success).toBe(true);
+      expect(read.success).toBe(true);
+      if (read.success) expect(read.data).toMatchObject({ content: VALID_BRIEF, record_url: `record://brief.md?card=${card.id}&v=2` });
+      expect(glob.success).toBe(true);
+      if (glob.success) expect((glob.data as { matches: string[] }).matches.some((path) => path.endsWith('/brief/2.md'))).toBe(true);
+      expect(grep.success).toBe(true);
+      if (grep.success) expect((grep.data as { matches: Array<{ preview: string }> }).matches.some((match) => match.preview.includes('Acceptance Criteria'))).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('allows Analyst tmp:// access for an explicit card without an active card context', async () => {
+    const { root } = setupProject();
+    try {
+      const surface = buildInvocationSurface('analyst', [createWorkspaceProvider({ projectRoot: root, agentRole: 'analyst' })]);
+
+      const write = await invokeTool(surface, 'write', { path: 'tmp://card-1/notes.txt', content: 'temporary note' });
+      const read = await invokeTool(surface, 'read', { path: 'tmp://card-1/notes.txt' });
+
+      expect(write.success).toBe(true);
+      expect(read.success).toBe(true);
+      if (read.success) expect(read.data).toMatchObject({ content: 'temporary note' });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

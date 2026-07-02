@@ -4,7 +4,7 @@ import { z } from 'zod';
 
 import { DEFAULT_COMMAND_TIMEOUT_MS, DEFAULT_MAX_OUTPUT_BYTES, MAX_COMMAND_TIMEOUT_MS, truncateCommandOutput } from '../runtime/command-policy.js';
 import { getProcess, killProcess, startProcess, waitProcess } from '../runtime/process-runner.js';
-import type { ProcessRecord } from '../schemas/index.js';
+import type { AgentRole, ProcessRecord } from '../schemas/index.js';
 import { resolveContainedProjectPath } from '../workspace/index.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
 
@@ -12,6 +12,9 @@ export interface ProcessProviderContext {
   readonly projectRoot: string;
   readonly ownerId: string;
   readonly cardId?: string;
+  readonly agentRole?: AgentRole;
+  readonly ownerKind?: 'agent' | 'operator' | 'runtime';
+  readonly launchReason?: string;
 }
 
 function failureFromError(err: unknown): ToolResult {
@@ -84,6 +87,8 @@ const killProcessSchema = z.object({
 }).strict();
 
 export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider {
+  const ownerKind = ctx.ownerKind ?? (ctx.agentRole === 'analyst' ? 'operator' : 'agent');
+  const launchReason = ctx.launchReason ?? `${ctx.agentRole ?? 'agent'} process provider run_command`;
   return {
     providerName: 'process',
     tools: [
@@ -99,8 +104,8 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
               agentSessionId: ctx.ownerId,
               cwd: scopedCwd(ctx.projectRoot, args.cwd),
               requiredForCardCompletion: true,
-              ownerKind: 'agent',
-              launchReason: 'agent process provider run_command',
+              ownerKind,
+              launchReason,
               backgroundPolicy: args.wait === false ? undefined : 'foreground',
             });
             if (args.wait === false) return { success: true, data: { process_id: record.id, running: true } };

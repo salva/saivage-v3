@@ -18,6 +18,7 @@ const SKIPPED_DIRS = new Set(['.git', 'node_modules', '.saivage', '.saivage-work
 
 export type WorkspaceContext = { projectRoot: string; cardId?: string; agentRole?: AgentRole; store?: Pick<CardStore, 'read'> };
 type ResolvedToolPath = { kind: 'project' | 'tmp' | 'system'; absolutePath: string; relativePath: string } | ({ kind: 'record' } & OpenRecordSlot);
+type ScopedAgentContext = { cardId?: string; agentRole: AgentRole };
 
 export class WorkspaceToolInputError extends Error {
   constructor(message: string) {
@@ -100,19 +101,19 @@ function resolveProjectSchemePath(path: string): string {
   return path.startsWith('project://') ? path.slice('project://'.length) : path;
 }
 
-function requireAgentContext(ctx: WorkspaceContext, scheme: string): { cardId: string; agentRole: AgentRole } {
-  if (!ctx.cardId || !ctx.agentRole) throw toolInputError(`${scheme} paths require an active runtime agent context.`);
+function requireAgentRole(ctx: WorkspaceContext, scheme: string): ScopedAgentContext {
+  if (!ctx.agentRole) throw toolInputError(`${scheme} paths require an active agent role.`);
   return { cardId: ctx.cardId, agentRole: ctx.agentRole };
 }
 
-function parseRecordUrlParts(ctx: WorkspaceContext, raw: string, defaultVersion: string): { agent: { cardId: string; agentRole: AgentRole }; filename: string; cardId: string; version: string } {
-  const agent = requireAgentContext(ctx, 'record://');
+function parseRecordUrlParts(ctx: WorkspaceContext, raw: string, defaultVersion: string): { agent: ScopedAgentContext; filename: string; cardId: string; version: string } {
+  const agent = requireAgentRole(ctx, 'record://');
   const url = new URL(raw);
   const rawFilename = decodeURIComponent(`${url.hostname}${url.pathname}`);
   const filename = validRecordSegment(rawFilename, 'record filename', raw);
   if (!filename) throw toolInputError(`Invalid record URL '${raw}'.`);
   exposedRecordSlotDefinitionForFilename(filename);
-  const cardId = validRecordSegment(url.searchParams.get('card') ?? agent.cardId, 'card id', raw);
+  const cardId = validRecordSegment(url.searchParams.get('card') ?? agent.cardId ?? '', 'card id', raw);
   const version = url.searchParams.get('v') ?? defaultVersion;
   return { agent, filename, cardId, version };
 }
@@ -120,12 +121,13 @@ function parseRecordUrlParts(ctx: WorkspaceContext, raw: string, defaultVersion:
 function parseRecordUrl(ctx: WorkspaceContext, raw: string, mode: 'read' | 'write'): OpenRecordSlot {
   const { agent, filename, cardId, version } = parseRecordUrlParts(ctx, raw, mode === 'read' ? 'latest' : 'next');
   if (mode === 'write') {
+    if (!agent.cardId) throw toolInputError('Record writes require an active card context.');
     assertRecordWrite(agent.agentRole, agent.cardId, cardId, filename, version);
     return openRecordSlot(ctx.projectRoot, { cardId, filename });
   }
   if (version === 'next') {
     const open = openRecordSlot(ctx.projectRoot, { cardId, filename });
-    if (cardId !== agent.cardId || !exposedRecordSlotDefinitionForFilename(filename).writers.includes(agent.agentRole)) throw toolInputError('Only the owning agent may read its current open record slot.');
+    if (!agent.cardId || cardId !== agent.cardId || !exposedRecordSlotDefinitionForFilename(filename).writers.includes(agent.agentRole)) throw toolInputError('Only the owning agent may read its current open record slot.');
     return open;
   }
   if (version === 'latest') return latestClosedRecordSlot(ctx.projectRoot, { cardId, filename });
@@ -146,12 +148,12 @@ function assertRecordWrite(role: AgentRole, currentCardId: string, cardId: strin
 }
 
 function resolveTmpPath(ctx: WorkspaceContext, raw: string, mode: 'read' | 'write'): ResolvedToolPath {
-  const agent = requireAgentContext(ctx, 'tmp://');
+  const agent = requireAgentRole(ctx, 'tmp://');
   const url = new URL(raw);
   const cardId = decodeURIComponent(url.hostname);
   const rel = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
   if (!cardId || !rel || rel.includes('..')) throw toolInputError(`Invalid tmp URL '${raw}'.`);
-  if (mode === 'write' && cardId !== agent.cardId) throw toolInputError('Agents may write tmp files only for their current card.');
+  if (mode === 'write' && agent.agentRole !== 'analyst' && cardId !== agent.cardId) throw toolInputError('Agents may write tmp files only for their current card.');
   const projectRel = `.saivage-work/cards/${cardId}/tmp/${rel}`;
   const resolved = resolveProjectPath(ctx.projectRoot, projectRel, 'tmp path');
   return { kind: 'tmp', ...resolved };
@@ -258,12 +260,13 @@ export async function writeProject(ctx: WorkspaceContext, params: { path: string
 }
 
 export function authorizeWriteProject(ctx: WorkspaceContext, params: { path: string; content?: string }): void {
-  if (ctx.agentRole === 'analyst') {
+  if (ctx.agentRole === 'analyst' && params.path.startsWith('record://')) {
     assertAnalystBriefRecordWritable(ctx, params);
     return;
   }
   if (params.path.startsWith('record://')) {
     const { agent, filename, cardId, version } = parseRecordUrlParts(ctx, params.path, 'next');
+    if (!agent.cardId) throw toolInputError('Record writes require an active card context.');
     assertRecordWrite(agent.agentRole, agent.cardId, cardId, filename, version);
     return;
   }
@@ -400,11 +403,11 @@ export async function applyProjectPatch(ctx: WorkspaceContext, params: { patch: 
 }
 
 function resolveRecordSearchPath(ctx: WorkspaceContext, raw: string): { absolutePath: string; relativePath: string } {
-  const agent = requireAgentContext(ctx, 'record://');
+  const agent = requireAgentRole(ctx, 'record://');
   const url = new URL(raw);
   const host = decodeURIComponent(url.hostname);
   const path = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
-  const cardId = validRecordSegment(host || url.searchParams.get('card') || agent.cardId, 'card id', raw);
+  const cardId = validRecordSegment(host || url.searchParams.get('card') || agent.cardId || '', 'card id', raw);
   const slot = path ? validRecordSegment(path, 'record slot', raw) : '';
   const absolutePath = slot ? recordSlotDir(ctx.projectRoot, cardId, exposedRecordSlotDefinitionForFilename(slot.includes('.') ? slot : `${slot}.md`).slot) : join(ctx.projectRoot, RECORD_OUTPUTS_RELATIVE_DIR, cardId);
   const relativePath = normalizeRel(relative(ctx.projectRoot, absolutePath));
