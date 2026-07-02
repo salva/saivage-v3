@@ -331,6 +331,24 @@ No temporary wrappers, aliases, or adapter providers over old catalog functions 
 7. Delete duplicated result types (`AdapterResult`, `ToolDispatchResult`, `ToolErrorEnvelope`, `ActionPreview`). Everything returns `ToolResult`.
 8. Update tests to assert `invokeTool` behavior per role surface instead of old adapter internals.
 
+### 5.1 Current Implementation Audit
+
+As of 2026-07-02, the provider migration is mostly implemented but not accepted as complete. Confirmed status:
+
+- `ToolDispatcher`, `AnalystAdapter`, `processWorkspaceToolCall`, `ActorToolSurface`, and the old actor tool-definition module are gone from active source.
+- Planner, executor, reviewer, and Analyst runtime model tool advertisements derive from each active `InvocationSurface` plus each role's contract terminal where applicable.
+- `ToolResult` is the clean discriminated union, and `WorkspaceProvider` only converts expected workspace/input/filesystem failures into model-visible tool errors.
+- `write_file` is removed from active source; Analyst explicit-card brief writes use canonical `write`.
+
+Confirmed remaining gaps before this design is complete:
+
+- The global catalog (`src/tools/definitions/index.ts`) still exists as a stale aggregate and still feeds some legacy name sets and exports. It is no longer the Analyst prompt authority, but it remains a cleanup blocker.
+- `agent-tool-catalog.ts` still re-exports catalog-derived sets; its `AgentToolCatalog` class appears unused in active source, but the sets are still consumed by `role-tool-policy.ts` and `planner-control-executor.ts`.
+- The Analyst active surface does not yet match §3.5: it lacks `SkillProvider` and `McpProvider`, and card inspection/history still reach the Analyst through the explicit control registry rather than generic providers.
+- `PlannerControlExecutor` and legacy planner-support files still reference `report_goal_done`, `report_goal_failed`, and `report_goal_blocked`; these are not in the active planner `InvocationSurface` but must be deleted or migrated before the catalog is removed.
+- `webfetch.save_as` still uses a plain project-contained path authorization instead of the same scoped URL write path used by `write` (`project://`, `record://`, `tmp://`, and role/slot policy).
+- Terminal unification is not started: the code still uses `emit_planner_result`, `emit_executor_result`, and `emit_reviewer_result`, with per-role envelopes and planner `continue`.
+
 ## 6. Validation Strategy
 
 Focused tests should cover:
