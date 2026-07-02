@@ -449,9 +449,12 @@ Not yet done:
 - Update `src/schemas/event-catalog.ts` and `src/schemas/types.ts` terminal-tool enums.
 - Update planner/reviewer prompts to reference `emit_result` and the allowed status subsets.
 
-### Phase 5: Align scoped URL policy, prompts, and specs — not started
+### Phase 5: Align scoped URL policy, prompts, and specs — partially done
 
-- Make `webfetch.save_as` accept and enforce scoped URLs (`record://`, `tmp://`, `project://`) with the same role/slot-write authorization as `write`, instead of the current plain project-relative path (`src/tools/web-tools.ts:147-151`). Currently `write` routes through scoped URL resolution in `project-file-tools` while `webfetch.save_as` bypasses it — a real asymmetry.
+Done:
+- `webfetch.save_as` accepts and enforces scoped URLs (`record://`, `tmp://`, `project://`) with the same role/slot-write authorization as `write`. It pre-authorizes before network fetch and writes through canonical workspace write behavior, including record-slot rules and analyst explicit-card `brief.md` writes.
+
+Not yet done:
 - Align system prompts and specs with the final tool vocabulary once Phases 1–4 land.
 
 ## 11. Relationship To Other Documents

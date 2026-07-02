@@ -310,7 +310,7 @@ export class AnalystHandler {
       createWorkspaceProvider({ projectRoot: this.projectRoot, agentRole: 'analyst', store: this.runtimeDeps.cardStore }),
       createPatchProvider({ projectRoot: this.projectRoot, agentRole: 'analyst' }),
       createProcessProvider({ projectRoot: this.projectRoot, ownerId: ctx.sessionId ?? 'analyst' }),
-      createWebProvider({ projectRoot: this.projectRoot, agentRole: 'analyst' }),
+      createWebProvider({ projectRoot: this.projectRoot, agentRole: 'analyst', store: this.runtimeDeps.cardStore }),
       createSkillProvider({ projectRoot: this.projectRoot, agentRole: 'analyst' }),
       createMcpProvider({ mcpManagerProvider: () => this.runtimeDeps.mcpManager, agentRole: 'analyst' }),
     ]);

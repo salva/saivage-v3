@@ -1,4 +1,4 @@
-import { describe, expect, it } from '@jest/globals';
+import { describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -31,13 +31,16 @@ describe('WebProvider', () => {
     }
   });
 
-  it('preserves reviewer save_as permission errors', async () => {
+  it('pre-authorizes save_as with canonical workspace write policy', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-web-provider-'));
+    const fetchSpy = jest.spyOn(globalThis, 'fetch');
     try {
       const surface = buildInvocationSurface('reviewer', [createWebProvider({ projectRoot: root, agentRole: 'reviewer' })]);
       const result = await invokeTool(surface, 'webfetch', { url: 'https://example.com', save_as: 'fetched.txt' });
-      expect(result).toEqual({ success: false, error: 'reviewer cannot use webfetch save_as.' });
+      expect(result).toEqual({ success: false, error: 'reviewer cannot write project files.' });
+      expect(fetchSpy).not.toHaveBeenCalled();
     } finally {
+      fetchSpy.mockRestore();
       rmSync(root, { recursive: true, force: true });
     }
   });

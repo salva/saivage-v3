@@ -16,7 +16,7 @@ const DEFAULT_SEARCH_LIMIT = 200;
 const MAX_SEARCH_LIMIT = 1000;
 const SKIPPED_DIRS = new Set(['.git', 'node_modules', '.saivage', '.saivage-work', 'dist', 'build', '__pycache__']);
 
-type WorkspaceContext = { projectRoot: string; cardId?: string; agentRole?: AgentRole; store?: Pick<CardStore, 'read'> };
+export type WorkspaceContext = { projectRoot: string; cardId?: string; agentRole?: AgentRole; store?: Pick<CardStore, 'read'> };
 type ResolvedToolPath = { kind: 'project' | 'tmp'; absolutePath: string; relativePath: string } | ({ kind: 'record' } & OpenRecordSlot);
 
 export class WorkspaceToolInputError extends Error {
@@ -72,7 +72,7 @@ function requireAgentContext(ctx: WorkspaceContext, scheme: string): { cardId: s
   return { cardId: ctx.cardId, agentRole: ctx.agentRole };
 }
 
-function parseRecordUrl(ctx: WorkspaceContext, raw: string, mode: 'read' | 'write'): OpenRecordSlot {
+function parseRecordUrlParts(ctx: WorkspaceContext, raw: string, defaultVersion: string): { agent: { cardId: string; agentRole: AgentRole }; filename: string; cardId: string; version: string } {
   const agent = requireAgentContext(ctx, 'record://');
   const url = new URL(raw);
   const rawFilename = decodeURIComponent(`${url.hostname}${url.pathname}`);
@@ -80,7 +80,12 @@ function parseRecordUrl(ctx: WorkspaceContext, raw: string, mode: 'read' | 'writ
   if (!filename) throw toolInputError(`Invalid record URL '${raw}'.`);
   exposedRecordSlotDefinitionForFilename(filename);
   const cardId = validRecordSegment(url.searchParams.get('card') ?? agent.cardId, 'card id', raw);
-  const version = url.searchParams.get('v') ?? (mode === 'read' ? 'latest' : 'next');
+  const version = url.searchParams.get('v') ?? defaultVersion;
+  return { agent, filename, cardId, version };
+}
+
+function parseRecordUrl(ctx: WorkspaceContext, raw: string, mode: 'read' | 'write'): OpenRecordSlot {
+  const { agent, filename, cardId, version } = parseRecordUrlParts(ctx, raw, mode === 'read' ? 'latest' : 'next');
   if (mode === 'write') {
     assertRecordWrite(agent.agentRole, agent.cardId, cardId, filename, version);
     return openRecordSlot(ctx.projectRoot, { cardId, filename });
@@ -213,18 +218,28 @@ export async function writeProject(ctx: WorkspaceContext, params: { path: string
   return { path: relativePath, ...(resolved.kind === 'record' ? { record_url: resolved.recordUrl } : {}), bytes: Buffer.byteLength(params.content, 'utf8'), written: true };
 }
 
+export function authorizeWriteProject(ctx: WorkspaceContext, params: { path: string; content?: string }): void {
+  if (ctx.agentRole === 'analyst') {
+    assertAnalystBriefRecordWritable(ctx, params);
+    return;
+  }
+  if (params.path.startsWith('record://')) {
+    const { agent, filename, cardId, version } = parseRecordUrlParts(ctx, params.path, 'next');
+    assertRecordWrite(agent.agentRole, agent.cardId, cardId, filename, version);
+    return;
+  }
+  if (params.path.startsWith('tmp://')) {
+    resolveTmpPath(ctx, params.path, 'write');
+    return;
+  }
+  const projectPath = resolveProjectSchemePath(params.path);
+  if (ctx.agentRole && ctx.agentRole !== 'executor') throw toolInputError(`${ctx.agentRole} cannot write project files.`);
+  assertWritable(ctx.projectRoot, projectPath);
+}
+
 function writeAnalystBriefRecord(ctx: WorkspaceContext, params: { path: string; content: string }): unknown {
-  if (!params.path.startsWith('record://')) throw toolInputError('Analyst write only writes record://brief.md document records. It cannot write host or project files.');
-  if (!ctx.store) throw new Error('Analyst record writes require a card store.');
-  const runtimeState = readRuntimeState(ctx.projectRoot);
-  if (runtimeState?.status !== 'stopped' && runtimeState?.status !== 'paused') throw toolInputError(`Analyst write requires runtime status stopped or paused before mutating card records. Current runtime status is ${runtimeState?.status ?? 'unknown'}.`);
-  const target = parseAnalystBriefWriteUrl(params.path);
-  if (params.content.length === 0) throw toolInputError('brief.md content must not be empty.');
-  validateBriefMarkdown(params.content);
-  const card = ctx.store.read(target.cardId);
-  if (!card) throw toolInputError(`Card '${target.cardId}' not found.`);
-  const index = readRecordSlotIndex(ctx.projectRoot, target.cardId, 'brief');
-  if (index.open !== null) throw toolInputError(`Cannot write '${target.path}': latest brief.md version is open.`);
+  const target = assertAnalystBriefRecordWritable(ctx, params);
+  const card = ctx.store!.read(target.cardId)!;
   const open = openRecordSlot(ctx.projectRoot, { cardId: target.cardId, filename: 'brief.md' });
   try {
     writeFileSync(open.absolutePath, params.content, 'utf8');
@@ -234,6 +249,23 @@ function writeAnalystBriefRecord(ctx: WorkspaceContext, params: { path: string; 
     discardOpenRecordSlot(ctx.projectRoot, { cardId: target.cardId, filename: 'brief.md', reason: 'analyst write failed' });
     throw err;
   }
+}
+
+function assertAnalystBriefRecordWritable(ctx: WorkspaceContext, params: { path: string; content?: string }): { cardId: string; path: string } {
+  if (!params.path.startsWith('record://')) throw toolInputError('Analyst write only writes record://brief.md document records. It cannot write host or project files.');
+  if (!ctx.store) throw new Error('Analyst record writes require a card store.');
+  const runtimeState = readRuntimeState(ctx.projectRoot);
+  if (runtimeState?.status !== 'stopped' && runtimeState?.status !== 'paused') throw toolInputError(`Analyst write requires runtime status stopped or paused before mutating card records. Current runtime status is ${runtimeState?.status ?? 'unknown'}.`);
+  const target = parseAnalystBriefWriteUrl(params.path);
+  if (params.content !== undefined) {
+    if (params.content.length === 0) throw toolInputError('brief.md content must not be empty.');
+    validateBriefMarkdown(params.content);
+  }
+  const card = ctx.store.read(target.cardId);
+  if (!card) throw toolInputError(`Card '${target.cardId}' not found.`);
+  const index = readRecordSlotIndex(ctx.projectRoot, target.cardId, 'brief');
+  if (index.open !== null) throw toolInputError(`Cannot write '${target.path}': latest brief.md version is open.`);
+  return target;
 }
 
 function parseAnalystBriefWriteUrl(raw: string): { cardId: string; path: string } {

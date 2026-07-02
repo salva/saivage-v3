@@ -8,9 +8,9 @@ import { z } from 'zod';
 import { describe } from './tool-catalog.js';
 import type { ToolContext, ToolResult as AnalystToolResult } from './analyst-tool-types.js';
 import { toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
-import { isWriteBlocked, looksLikeSecretPath, resolveContainedProjectPath } from '../workspace/index.js';
 import { defineTool, type ToolProvider, type ToolResult as InvocationToolResult } from './invocation.js';
 import type { AgentRole } from './tool-catalog.js';
+import { authorizeWriteProject, writeProject, type WorkspaceContext } from './project-file-tools.js';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_BYTES = 500_000;
@@ -20,17 +20,15 @@ const MAX_REDIRECTS = 5;
 
 type ReadMode = 'auto' | 'text' | 'multimodal';
 
-export interface WebProviderContext {
-  readonly projectRoot: string;
-  readonly cardId?: string;
+export interface WebProviderContext extends WorkspaceContext {
   readonly agentRole: Extract<AgentRole, 'planner' | 'executor' | 'reviewer' | 'analyst'>;
 }
 
 const websearchSchema = z.object({ query: z.string(), max_results: z.number().int().optional() }).strict();
-const webfetchSchema = z.object({ url: z.string(), read_mode: z.enum(['auto', 'text', 'multimodal']).optional(), metadata_only: z.boolean().optional(), max_bytes: z.number().int().optional(), max_inline_bytes: z.number().int().optional(), save_as: describe(z.string().optional(), 'Optional project-relative path to save fetched text content.') }).strict();
+const webfetchSchema = z.object({ url: z.string(), read_mode: z.enum(['auto', 'text', 'multimodal']).optional(), metadata_only: z.boolean().optional(), max_bytes: z.number().int().optional(), max_inline_bytes: z.number().int().optional(), save_as: describe(z.string().optional(), 'Optional scoped path to save fetched text content.') }).strict();
 
 function webContext(ctx: ToolContext): WebProviderContext {
-  if (ctx.actor === 'planner' || ctx.actor === 'executor' || ctx.actor === 'reviewer' || ctx.actor === 'analyst') return { projectRoot: ctx.projectRoot, agentRole: ctx.actor };
+  if (ctx.actor === 'planner' || ctx.actor === 'executor' || ctx.actor === 'reviewer' || ctx.actor === 'analyst') return { projectRoot: ctx.projectRoot, agentRole: ctx.actor, store: ctx.store };
   throw new Error(`Unsupported web tool actor '${ctx.actor}'.`);
 }
 
@@ -144,14 +142,6 @@ function ddgResults(html: string, base: URL, max: number): Array<{ title: string
   return results;
 }
 
-function authorizeSavePath(projectRoot: string, path: string): { absolutePath: string; relativePath: string } {
-  const resolved = resolveContainedProjectPath(projectRoot, path);
-  if (!resolved.safe || !resolved.relativePath) throw new Error(resolved.reason ?? 'save_as must resolve inside the project root.');
-  if (resolved.relativePath === '.saivage' || resolved.relativePath.startsWith('.saivage/') || resolved.relativePath === '.saivage-work' || resolved.relativePath.startsWith('.saivage-work/')) throw new Error('save_as cannot modify Saivage internal state directories.');
-  if (isWriteBlocked(resolved.relativePath) || looksLikeSecretPath(resolved.absolutePath)) throw new Error(`save_as path '${resolved.relativePath}' is blocked for security reasons.`);
-  return { absolutePath: resolved.absolutePath, relativePath: resolved.relativePath };
-}
-
 async function websearchCore(params: { query: string; max_results?: number }): Promise<InvocationToolResult> {
   try {
     const query = params.query.trim();
@@ -172,7 +162,7 @@ async function webfetchCore(ctx: WebProviderContext, params: { url: string; read
     const url = parseHttpUrl(params.url);
     const maxBytes = Math.min(Math.max(params.max_bytes ?? DEFAULT_MAX_BYTES, 1), 1_000_000);
     if (params.metadata_only && params.save_as) return { success: false, error: 'metadata_only cannot be combined with save_as.' };
-    if (params.save_as && ctx.agentRole === 'reviewer') return { success: false, error: 'reviewer cannot use webfetch save_as.' };
+    if (params.save_as) authorizeWriteProject(ctx, { path: params.save_as });
     const fetched = await fetchPublic(url, params.metadata_only ? 1 : maxBytes);
     const headers = headersObject(fetched.response.headers);
     const metadata = { url: fetched.url.toString(), redacted_url: redactUrl(fetched.url.toString()), status: fetched.response.status, headers };
@@ -184,10 +174,9 @@ async function webfetchCore(ctx: WebProviderContext, params: { url: string; read
     if (!isText) return { success: true, data: { ...metadata, bytes: fetched.body.byteLength, content: null, binary: true } };
     const text = Buffer.from(fetched.body).toString('utf8');
     if (params.save_as) {
-      const target = authorizeSavePath(ctx.projectRoot, params.save_as);
-      mkdirSync(dirname(target.absolutePath), { recursive: true });
-      writeFileSync(target.absolutePath, text, 'utf8');
-      return { success: true, data: { ...metadata, saved_as: target.relativePath, bytes: Buffer.byteLength(text, 'utf8') } };
+      const write = await writeProject(ctx, { path: params.save_as, content: text }) as Record<string, unknown>;
+      const savedAs = typeof write.record_url === 'string' ? write.record_url : String(write.path);
+      return { success: true, data: { ...metadata, saved_as: savedAs, write, bytes: Buffer.byteLength(text, 'utf8') } };
     }
     const inlineCap = Math.min(Math.max(params.max_inline_bytes ?? DEFAULT_MAX_INLINE_BYTES, 1), maxBytes);
     if (Buffer.byteLength(text, 'utf8') <= inlineCap) return { success: true, data: { ...metadata, text, bytes: Buffer.byteLength(text, 'utf8'), truncated: false } };
