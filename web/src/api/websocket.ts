@@ -9,7 +9,7 @@
  *   { "type": "message | activity | thinking | status | error", "content": { ... } }
  */
 
-import type { WsConnectionState, WsEnvelope, WsEventType } from './types';
+import type { WsConnectionState, WsEnvelope } from './types';
 import { issueWebSocketTicket } from './client';
 import { getAuthToken } from './auth';
 import { buildInboundAnalystMessageEnvelope, LiveSyncInvalidateFrameSchema, parseKnownWsEnvelope, parseWsEnvelope, type LiveSyncInvalidateFrame } from './contracts';
@@ -32,9 +32,6 @@ export interface WsConnectionManager {
 
   /** The session ID assigned by the server on connect. */
   readonly sessionId: { value: string | null };
-
-  /** Number of reconnection attempts in the current sequence. */
-  readonly reconnectAttempts: { value: number };
 
   /** Connect (or reconnect) the WebSocket. */
   connect(): void;
@@ -59,9 +56,6 @@ export interface WsConnectionManager {
 
   /** Register a handler fired whenever connection state changes. */
   onState(handler: WsStateHandler): () => void;
-
-  /** Register a handler for a specific event type. */
-  onType(type: WsEventType, handler: WsEventHandler): () => void;
 }
 
 // ── Configuration ─────────────────────────────────────────────
@@ -295,22 +289,9 @@ export function createWsConnection(): WsConnectionManager {
     return () => stateHandlers.delete(handler);
   }
 
-  function onType(type: WsEventType, handler: WsEventHandler): () => void {
-    const wrapped: WsEventHandler = (envelope) => {
-      if (envelope.type === type) {
-        handler(envelope);
-      }
-    };
-    handlers.add(wrapped);
-    return () => {
-      handlers.delete(wrapped);
-    };
-  }
-
   return {
     state,
     sessionId,
-    reconnectAttempts,
     connect,
     disconnect,
     sendMessage,
@@ -319,7 +300,6 @@ export function createWsConnection(): WsConnectionManager {
     onSyncFrame,
     onOpen,
     onState,
-    onType,
   };
 }
 

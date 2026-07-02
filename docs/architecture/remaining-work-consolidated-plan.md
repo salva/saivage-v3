@@ -371,6 +371,8 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
    `WsConnectionManager.onType` is dead. `reconnectAttempts` is exposed but unconsumed.
 
+   Status: completed in the websocket cleanup slice.
+
  4. **Remove over-defensive environment guards.**
 
     `web/src/api/auth.ts` guards `typeof localStorage` / `typeof import.meta` in a Vite SPA with no SSR.
@@ -562,7 +564,7 @@ Goal: remove dead UI, shrink actor interfaces, and simplify tool plumbing.
 
 Tasks (backlog groups F, G, H):
 
-1. Partially completed: delete dead UI components and dead API client functions.
+1. Partially completed: delete dead UI components, dead API client functions, and dead websocket surface.
 2. Shrink `evaluateReviewerTerminalOutcome` inputs and remove async mutation wrappers.
 3. Extract shared contract-bounded repair loop.
 4. Collapse Analyst control-tool result envelopes and fix prompt tool-list generation.

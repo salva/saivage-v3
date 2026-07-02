@@ -17,7 +17,6 @@ function createConn(initial: WsConnectionState = 'offline') {
   const conn: WsConnectionManager = {
     state: { value: initial },
     sessionId: { value: null },
-    reconnectAttempts: { value: 0 },
     connect: vi.fn(),
     disconnect: vi.fn(),
     sendMessage: vi.fn(),
@@ -26,7 +25,6 @@ function createConn(initial: WsConnectionState = 'offline') {
     onSyncFrame: vi.fn((handler) => { syncHandlers.add(handler); return () => syncHandlers.delete(handler); }),
     onOpen: vi.fn((handler) => { openHandlers.add(handler); return () => openHandlers.delete(handler); }),
     onState: vi.fn((handler) => { stateHandlers.add(handler); return () => stateHandlers.delete(handler); }),
-    onType: vi.fn(() => () => undefined),
   };
   return {
     conn,
