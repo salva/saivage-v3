@@ -14,3 +14,5 @@ Current architecture documents:
 - [Declarative micro-actor module architecture](./declarative-micro-actor-module.md)
 - [Runtime actor state simplification](./runtime-actor-state-simplification.md)
 - [Shared tool invocation design](./shared-tool-invocation-design.md)
+- [Remaining work consolidated plan](./remaining-work-consolidated-plan.md)
+- [Future capabilities plan](./future-capabilities-plan.md)

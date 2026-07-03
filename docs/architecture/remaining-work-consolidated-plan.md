@@ -83,9 +83,9 @@ Keep these ideas as active remaining work because they still match the architect
 
    Analyst control tools still have preview/error-envelope types that are projected away before reaching the shared invocation contract. Remove or collapse that machinery unless a real preview/confirmation UI consumes it.
 
-6. **Fix current prompt/spec/test drift.**
+6. Completed: fix current prompt/spec/test drift.
 
-   Current docs and prompts still contain pockets of stale vocabulary such as `wait_for_process`, `read_file`, `read_file_metadata`, `ToolDispatcher`, `ActorToolSurface`, and old reviewer `pass` / `needs_corrections` structured-output guidance. These should be updated or marked historical so current agents are not misled.
+   Current live guidance was cleaned up for stale vocabulary such as `wait_for_process`, `read_file`, `read_file_metadata`, `ToolDispatcher`, and `ActorToolSurface`. Remaining references are in explicit pre-refactor descriptions, removal/mapping tables, or superseded historical documents.
 
 ### Revise
 
@@ -487,13 +487,13 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
 ### I. Documentation And Spec Cleanup
 
-1. **Clean stale current docs/spec vocabulary.**
+1. Completed: clean stale current docs/spec vocabulary.
 
-   `wait_for_process` (canonical: `wait_process`), `read_file`/`read_file_metadata`, `ToolDispatcher`, `ActorToolSurface` in current docs.
+   Live guidance now uses `wait_process`, provider-composed `InvocationSurface` dispatch, and `read` over scoped URLs. Remaining old names are retained only in pre-refactor descriptions, historical notes, or explicit old-to-new mapping/removal tables.
 
-2. **Update architecture index.**
+2. Completed: update architecture index.
 
-   Add entries for the consolidated remaining-work plan and future-capabilities plan.
+   Added entries for the consolidated remaining-work plan and future-capabilities plan.
 
 ### J. Miscellaneous Low Priority
 
@@ -647,7 +647,7 @@ Tasks (backlog groups I, J, K):
 2. Completed: add websocket-level Analyst process cleanup test.
 3. Completed: delete dead `_llm-test-helpers.ts` and consolidate duplicated test helpers.
 4. Completed: add focused missing-record repair tests for planner/executor `status.md` and reviewer `review.md` same-session repair.
-5. Clean stale doc/spec vocabulary and update the architecture index.
+5. Completed: clean stale doc/spec vocabulary and update the architecture index.
 6. Process API cleanup, runtime-state layout, lessons module, and other low-priority items.
 
 Validation:

@@ -86,7 +86,7 @@ These are card-handling tools for this discussion because they inspect card stat
 
 `get_card` should return primary card information plus a compact list of durable card records. Each record entry should include a concrete `record://` URL with card id and version, current version, size/mtime metadata, owning role/slot, and a bounded inline snippet for the main records when useful. Agents do not read primary card state through `record://card.json`.
 
-Do not add a separate `get_card_record` if generic file tools can read `record://` URLs. Record history and metadata should be generic file concerns through `read_file_metadata("record://review.md?card=card-1")`. Card mutation history is internal `card.json` version history exposed through card read/history surfaces, not by reading `record://card.json`.
+Do not add a separate `get_card_record` if generic file tools can read `record://` URLs. Record history and metadata should be generic file concerns through `read` over `record://review.md?card=card-1` with metadata/read-mode behavior where needed. Card mutation history is internal `card.json` version history exposed through card read/history surfaces, not by reading `record://card.json`.
 
 Detailed card-inspection and card-coordination availability:
 
@@ -94,8 +94,8 @@ Detailed card-inspection and card-coordination availability:
 |---|---|---|---|
 | Tree/list reads | `list_cards`, `get_tree` | Analyst is online. | Only if card storage is unreadable. |
 | Single-card reads | `get_card` | Target card exists. | Target card is missing. |
-| Record reads | Generic `read_file` over document record URLs returned by `get_card`. | Target card/record exists and the URL resolves inside that card's record namespace. | Target card or record is missing; requested URL is not a valid `record://` URL for the card context, or attempts to read primary card info as `record://card.json`. |
-| Record metadata/history | `read_file_metadata` over document record URLs. | Target card/record exists and record version metadata is available. | Target card/record/version is missing. |
+| Record reads | Generic `read` over document record URLs returned by `get_card`. | Target card/record exists and the URL resolves inside that card's record namespace. | Target card or record is missing; requested URL is not a valid `record://` URL for the card context, or attempts to read primary card info as `record://card.json`. |
+| Record metadata/history | `read` metadata/read-mode behavior over document record URLs. | Target card/record exists and record version metadata is available. | Target card/record/version is missing. |
 | Card-scoped notification | `queue_notification` | Recipient resolves to an existing card, active role, or active session; body is operator guidance, correction, cancellation request, or coordination context. | Unknown recipient; request tries to list/manage/delete notifications; body asks an agent to violate its own authority. |
 
 ### Card Tools That Should Not Be Available

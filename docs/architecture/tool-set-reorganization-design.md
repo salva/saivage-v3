@@ -461,7 +461,7 @@ Not yet done:
 | --- | --- |
 | `docs/architecture/agent-conversation-ui-redesign.md` | This reorg is the Phase 2 prerequisite for the UI redesign. Once tools use standard names, the UI display registry can key directly to them. |
 | `docs/architecture/tool-repair-and-agent-conversation-unification-plan.md` | Fixes the runtime `await` bug and unifies the transcript substrate. Independent of tool naming; both can proceed in parallel. |
-| `docs/architecture/agent-tool-surfaces-and-information-flow.md` | Proposes the `ActorToolSurface` abstraction for role-curated subsets. This reorg assumes that abstraction exists; the surfaces defined in section 6 are what each `ActorToolSurface` should expose. |
+| `docs/architecture/agent-tool-surfaces-and-information-flow.md` | Historical predecessor. Current role surfaces are provider-composed `InvocationSurface`s per [Shared Tool Invocation Design](./shared-tool-invocation-design.md), not the superseded `ActorToolSurface` abstraction. |
 | `docs-old/design/v2-tool-interface-alignment-plan.md` | The original partial migration plan. This reorg supersedes it; the old plan is provenance. |
 | `docs-old/design/priority-tool-port-implementation-plan.md` | The original port implementation plan. This reorg supersedes it; the old plan is provenance. |
 

@@ -172,17 +172,17 @@ Rules:
 Generic file reads support agent-visible record URLs:
 
 ```ts
-read_file({ path: 'record://brief.md?card=card-1' })
-read_file({ path: 'record://review.md?card=card-1&v=3' })
+read({ path: 'record://brief.md?card=card-1' })
+read({ path: 'record://review.md?card=card-1&v=3' })
 ```
 
-Add a distinct metadata API with file-tool naming:
+Use `read` metadata/read-mode behavior for record metadata:
 
 ```ts
-read_file_metadata({ path: 'record://brief.md?card=card-1' })
+read({ path: 'record://brief.md?card=card-1', read_mode: 'metadata' })
 ```
 
-`read_file_metadata` returns:
+Metadata reads return:
 
 ```ts
 interface RecordMetadataView {
@@ -249,7 +249,7 @@ Inline snippets should be bounded. Good initial inline candidates are `brief.md`
 
 `get_card` should include an `effective_updated_at` field computed as the max committed timestamp across the current internal card version, `brief.md`, `status.md`, and `review.md` records.
 
-Do not expose the primary card document through `read_file("record://card.json?..." )`. That storage path is an implementation detail; card state is read through `get_card`.
+Do not expose the primary card document through `read({ path: "record://card.json?..." })`. That storage path is an implementation detail; card state is read through `get_card`.
 
 ## Commit Infrastructure
 
@@ -377,8 +377,7 @@ Target card-facing tools:
 | `list_cards` | Query/filter cards from the in-memory card index. |
 | `get_tree` | Inspect hierarchy from the in-memory card index. |
 | `get_card` | Compact card read model with card state, record URLs, and snippets. |
-| `read_file` | Read `record://` URLs returned by `get_card`. |
-| `read_file_metadata` | Inspect versions and metadata for `brief.md`, `status.md`, and `review.md`. |
+| `read` | Read `record://` URLs returned by `get_card`, including metadata/read-mode inspection for `brief.md`, `status.md`, and `review.md`. |
 | `create_card` | Create `card.json` plus initial `brief.md`. |
 | `write` | Write writable `record://` document slots such as `brief.md`. |
 | `reorder_child` | Reorder children of a non-running parent by committing changed `card.json` records. |
@@ -441,8 +440,7 @@ Rules:
 
 ### Phase 3: Generic Record Reads
 
-- Teach `read_file` to resolve `record://...` URLs with `card` and optional `v` query params.
-- Add `read_file_metadata`.
+- Teach `read` to resolve `record://...` URLs with `card` and optional `v` query params, including metadata/read-mode behavior.
 - Ensure containment checks resolve only inside `.saivage/outputs/cards/<card>/<slot>/`.
 
 ### Phase 4: Record-Backed CardStore Loader
@@ -487,8 +485,8 @@ Add focused tests for:
 - `commitRecord` rejects invalid `card.json` and invalid `brief.md` content without creating a version.
 - `commitRecord` rejects Analyst writes when runtime status is neither `stopped` nor `paused`.
 - `commitRecord` rejects Analyst writes to an open latest version.
-- `read_file` reads latest and versioned `record://` URLs.
-- `read_file_metadata` returns slot policy and version metadata.
+- `read` reads latest and versioned `record://` URLs.
+- `read` metadata/read-mode behavior returns slot policy and version metadata.
 - `CardStore` loads from latest `card.json` records.
 - structural mutations create new `card.json` versions.
 - card history/diff can be reconstructed from `card.json` versions.

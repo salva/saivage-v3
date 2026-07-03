@@ -207,7 +207,7 @@ No filesystem side effects, no `AgentSession` manifest. Consumers (websocket, te
 
 **Loop shape.** `LLMActor.turn()` / `appendToolResult()` return `LLMActorOutcome` with three variants; the analyst loop handles each:
 - `{ type: 'result' }` — plain text; the loop ends (the analyst has no terminal tool contract). The handler returns the assistant text as the `AnalystResponse`.
-- `{ type: 'tool_call' }` — the handler dispatches via the existing `ToolDispatcher`, then calls `llmActor.appendToolResult(toolCallId, result)` and loops.
+- `{ type: 'tool_call' }` — the handler dispatches through the active `InvocationSurface` via `invokeToolCall`, then calls `llmActor.appendToolResult(toolCallId, result)` and loops.
 - `{ type: 'error' }` — provider failure (offline, rate limit, parse error). The handler returns an error `AnalystResponse` to the operator, preserving the current `ANALYST_NO_MODEL_REPLY` / `AnalystOfflineError` behavior. The loop ends; no retry at the `LLMActor` level.
 
 Duplicate tool-call prevention (`previousToolCallFingerprints`), unavailable-tool rejection, and control-action auditing stay in the analyst handler.
