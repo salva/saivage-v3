@@ -10,9 +10,6 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { ProjectLock } from '../persistence/index.js';
-import {
-  cardHistoryEntrySchema,
-} from '../schemas/index.js';
 import type {
   CardHistoryEntry,
   CardRecord,
@@ -28,7 +25,7 @@ import { CardHierarchyCommands, type ReorderChildrenResult } from './hierarchy-c
 import { CardArchiveService } from './archive-service.js';
 import { CardHistoryReader, type CardDiffEntry } from './history-reader.js';
 import { CardLifecycleCommands } from './lifecycle-commands.js';
-import { cardHistoryPath, loadCardStoreState, readHistoryEntriesStrict } from '../persistence/card-loader.js';
+import { cardHistoryPath, loadCardStoreState } from '../persistence/card-loader.js';
 import {
   applyMutationSync,
   type ApplyMutationDeps,
@@ -104,14 +101,6 @@ export class CardStore {
 
   invalidate(): void {
     this.state = loadCardStoreState(this.projectRoot, { maxDepth: this.maxDepth });
-  }
-
-  static async open(
-    projectRoot: string,
-    eventBus?: EventBus,
-    maxGoalDepth?: number,
-  ): Promise<CardStore> {
-    return new CardStore(projectRoot, maxGoalDepth, eventBus);
   }
 
   private deps(): ApplyMutationDeps {
@@ -267,9 +256,3 @@ export class CardStore {
 }
 
 export { CardStoreInvariantError } from './errors.js';
-export const validateHistoryEntry = (entry: unknown) => cardHistoryEntrySchema.parse(entry);
-export function loadCardHistoryEntries(projectRoot: string, id: string): CardHistoryEntry[] {
-  const hp = cardHistoryPath(projectRoot, id);
-  if (!existsSync(hp)) return [];
-  return readHistoryEntriesStrict(hp);
-}
