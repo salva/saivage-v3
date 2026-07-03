@@ -33,7 +33,6 @@ import { createMcpProvider } from '../tools/mcp-provider.js';
 import { processApi } from '../runtime/process-api.js';
 import { createCardInspectionProvider } from '../tools/card-inspection-provider.js';
 import { createCardHistoryProvider } from '../tools/card-history-provider.js';
-import { RoleToolPolicy } from './role-tool-policy.js';
 
 
 export interface WorkspaceContext {
@@ -331,7 +330,6 @@ export class AnalystHandler {
     return {
       providerName: 'analyst',
       tools: ANALYST_CONTROL_TOOLS
-        .filter((tool) => RoleToolPolicy.assertAnalystSurfaceTool(tool.name, this.surface).allowed)
         .map((tool) => defineTool({
           name: tool.name,
           description: tool.description,
