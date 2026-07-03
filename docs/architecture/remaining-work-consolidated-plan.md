@@ -513,7 +513,9 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
    Hoisted the `EventLogger` instance into the read-model service constructor so each request reuses the service-owned logger.
 
-5. **Dead `MAX_ANALYST_OUTPUT_BYTES`.** Unused constant in `command-policy.ts`.
+5. Completed: Dead `MAX_ANALYST_OUTPUT_BYTES`.
+
+   Removed the unused command-policy constant.
 
 6. **Dead derived-type exports.** `config-schema.ts` exports six types nobody imports.
 
