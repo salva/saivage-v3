@@ -1,5 +1,13 @@
 import type { ToolDefinition } from './llm-contracts.js';
-import type { ToolRegistrySchemaEntry } from '../tools/runtime.js';
+
+interface ToolRegistrySchemaEntry<Name extends string = string> {
+  readonly type: 'function';
+  readonly function: {
+    readonly name: Name;
+    readonly description: string;
+    readonly parameters: Record<string, unknown>;
+  };
+}
 
 export type RuntimeToolEntry = ToolDefinition | ToolRegistrySchemaEntry;
 
