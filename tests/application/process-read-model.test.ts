@@ -59,11 +59,6 @@ describe('process operator view projection', () => {
         stderr: join('.saivage-work', 'processes', 'proc-1', 'stderr.log'),
         combined: join('.saivage-work', 'processes', 'proc-1', 'combined.log'),
       },
-      control: {
-        can_view_logs: true,
-        termination_available: false,
-        unavailable_reason: 'Process termination is not available in this redesign cycle.',
-      },
     });
   });
 
@@ -80,7 +75,6 @@ describe('process operator view projection', () => {
     expect(view.command).not.toContain('secret-token');
     expect(view.cwd).toBeNull();
     expect(view.logs).toEqual({ stdout: null, stderr: null, combined: null });
-    expect(view.control.can_view_logs).toBe(false);
   });
 
   it('preserves the legacy timed_out heuristic', () => {

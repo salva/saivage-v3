@@ -291,7 +291,6 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
         exit_code: 0,
         timed_out: false,
         logs: { combined: '.saivage/tmp/processes/proc-smoke.log', stdout: '.saivage/tmp/processes/proc-smoke.stdout.log', stderr: '.saivage/tmp/processes/proc-smoke.stderr.log' },
-        control: { can_view_logs: true, termination_available: false, unavailable_reason: 'Process already ended.' },
       }] });
     }
     if (request.method() === 'GET' && url.pathname === '/api/notifications') return json(route, { notifications: [], total: 0 });

@@ -3,7 +3,6 @@ export {
   operatorRouteInventory,
   parseOperatorResponse,
   safeParseOperatorResponse,
-  ProcessControlAvailabilitySchema,
   ProcessDetailResponseSchema,
   ProcessIdParamsSchema,
   ProcessListResponseSchema,

@@ -59,7 +59,7 @@ describe('contract-backed process routes', () => {
           status: 'exited',
           ended_at: '2026-01-01T00:00:01.000Z',
           exit_code: 0,
-          control: expect.objectContaining({ can_view_logs: true, termination_available: false }),
+          logs: expect.objectContaining({ combined: expect.stringContaining('combined.log') }),
         })],
       });
 

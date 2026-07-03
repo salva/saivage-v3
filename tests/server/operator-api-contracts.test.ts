@@ -242,11 +242,10 @@ describe('operator API contract registry', () => {
       command: 'npm test',
       cwd: '.',
       logs: { stdout: 'stdout.log', stderr: null, combined: 'combined.log' },
-      control: { can_view_logs: true, termination_available: false, unavailable_reason: 'Process termination is not available in this redesign cycle.' },
     };
     expect(parseOperatorResponse('processes.list', { processes: [process] }).processes[0].id).toBe('proc-1');
     expect(parseOperatorResponse('processes.get', { process }).process.card_id).toBe('card-1');
-    expect(() => parseOperatorResponse('processes.list', { processes: [{ ...process, control: { can_view_logs: true, termination_available: true, unavailable_reason: 'no' } }] })).toThrow();
+    expect(() => parseOperatorResponse('processes.list', { processes: [{ ...process, logs: { stdout: 1, stderr: null, combined: null } }] })).toThrow();
   });
 
 

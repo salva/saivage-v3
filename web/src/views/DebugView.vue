@@ -314,14 +314,9 @@
               <div v-if="proc.timed_out" class="pd-row"><span class="pd-key">Timed out:</span><span class="pd-value">Yes</span></div>
             </div>
 
-            <div class="process-availability" :class="availabilityClass(proc)">
-              <div class="process-subtitle">Control: {{ availabilityLabel(proc) }}</div>
-              <div class="process-availability-reason">{{ proc.control.unavailable_reason }}</div>
-            </div>
-
             <div class="process-logs">
               <div class="process-subtitle">Logs</div>
-              <div v-if="!proc.control.can_view_logs" class="process-empty-note">No safe log references are available for this process.</div>
+              <div v-if="!hasProcessLogs(proc)" class="process-empty-note">No safe log references are available for this process.</div>
               <div v-else>
                 <div v-for="logEntry in processLogEntries(proc)" :key="logEntry.key" class="pd-row">
                   <span class="pd-key">{{ logEntry.label }}:</span>
@@ -464,8 +459,7 @@ function setTab(tab: typeof localActiveTab.value): void {
 function browseQuarantineItem(quarantineId: string): void { router.push({ name: 'files', query: { path: '.saivage-work/quarantine/' + quarantineId } }); }
 function browseProcessLog(path: string): void { router.push({ name: 'files', query: { path } }); }
 function processLogEntries(proc: ProcessView): Array<{ key: string; label: string; value: string | null }> { return [{ key: 'combined', label: 'Combined', value: proc.logs.combined }, { key: 'stdout', label: 'Stdout', value: proc.logs.stdout }, { key: 'stderr', label: 'Stderr', value: proc.logs.stderr }]; }
-function availabilityLabel(_proc: ProcessView): string { return 'Termination unavailable'; }
-function availabilityClass(proc: ProcessView): string { return proc.status === 'running' ? 'process-availability-warning' : 'process-availability-ended'; }
+function hasProcessLogs(proc: ProcessView): boolean { return processLogEntries(proc).some((entry) => Boolean(entry.value)); }
 
 async function refreshAgentDebug(): Promise<void> {
   agentDebugLoading.value = true;
@@ -729,10 +723,6 @@ onUnmounted(() => {
 .process-time { margin-left:auto; font-size:11px; color:var(--text-muted); }
 .process-details, .process-logs { display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
 .process-subtitle { font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; }
-.process-availability { margin-bottom:12px; padding:10px 12px; border-radius:6px; border:1px solid var(--border); }
-.process-availability-warning { background:var(--entry-warn-bg); border-color:var(--entry-warn-border); color:var(--warn); }
-.process-availability-ended { background:var(--surface-1); border-color:var(--border); color:var(--text-muted); }
-.process-availability-reason { margin-top:4px; font-size:12px; line-height:1.5; color:inherit; }
 .pd-row { display:flex; gap:8px; align-items:flex-start; }
 .pd-key { min-width:120px; font-size:12px; color:var(--text-muted); }
 .pd-value { font-size:12px; color:var(--text); }

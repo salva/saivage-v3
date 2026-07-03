@@ -497,7 +497,9 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
 ### J. Miscellaneous Low Priority
 
-1. **Process API cleanup.** Remove misleading termination-availability fields or wire operator termination now that agent `kill_process` exists.
+1. Completed: Process API cleanup.
+
+   Removed misleading operator `control` metadata (`can_view_logs`, `termination_available`, and `unavailable_reason`) from the process view contract. The operator process API remains read-only; agents still terminate their own processes through scoped `kill_process`, and runtime shutdown owns runtime process termination.
 
 2. **Legacy runtime-state layout cleanup.** Remove `.saivage/runtime/state.json` diagnostics if no deployment needs them.
 

@@ -14,12 +14,6 @@ export const ProcessLogRefsSchema = z.object({
   combined: z.string().nullable(),
 });
 
-export const ProcessControlAvailabilitySchema = z.object({
-  can_view_logs: z.boolean(),
-  termination_available: z.literal(false),
-  unavailable_reason: z.string(),
-});
-
 export const ProcessViewSchema = z.object({
   id: z.string(),
   status: z.string(),
@@ -34,7 +28,6 @@ export const ProcessViewSchema = z.object({
   command: z.string(),
   cwd: z.string().nullable(),
   logs: ProcessLogRefsSchema,
-  control: ProcessControlAvailabilitySchema,
 });
 
 export const ProcessListResponseSchema = z.object({ processes: z.array(ProcessViewSchema) });

@@ -166,7 +166,6 @@ export type {
 } from './operator-api-runtime-cards.js';
 
 export {
-  ProcessControlAvailabilitySchema,
   ProcessDetailResponseSchema,
   ProcessIdParamsSchema,
   ProcessListResponseSchema,

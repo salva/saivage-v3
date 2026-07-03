@@ -18,11 +18,6 @@ describe('process contract alignment', () => {
       command: 'echo ok',
       cwd: '/work/project',
       logs: { stdout: null, stderr: null, combined: 'logs/proc-1.log' },
-      control: {
-        can_view_logs: true,
-        termination_available: false,
-        unavailable_reason: 'Process termination is not exposed by the operator API.',
-      },
     });
 
     const processView: ProcessView = parsed;
@@ -30,6 +25,6 @@ describe('process contract alignment', () => {
     const detailResponse: ProcessDetailResponse = { process: processView };
 
     expect(listResponse.processes[0]).toEqual(detailResponse.process);
-    expect(detailResponse.process.control.termination_available).toBe(false);
+    expect(detailResponse.process.logs.combined).toBe('logs/proc-1.log');
   });
 });

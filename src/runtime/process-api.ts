@@ -8,12 +8,6 @@ export interface ProcessLogRefs {
   combined: string | null;
 }
 
-export interface ProcessControlAvailability {
-  can_view_logs: boolean;
-  termination_available: false;
-  unavailable_reason: string;
-}
-
 export interface ProcessView {
   id: string;
   status: string;
@@ -28,7 +22,6 @@ export interface ProcessView {
   command: string;
   cwd: string | null;
   logs: ProcessLogRefs;
-  control: ProcessControlAvailability;
 }
 
 export interface ProcessListResponse { processes: ProcessView[] }
@@ -40,14 +33,6 @@ function hasTimedOut(record: ProcessRecord): boolean {
 
 function safeProjectPath(projectRoot: string, path: string | null | undefined): string | null {
   return path ? toContainedRelativePath(projectRoot, path) : null;
-}
-
-function toProcessControlAvailability(canViewLogs: boolean): ProcessControlAvailability {
-  return {
-    can_view_logs: canViewLogs,
-    termination_available: false,
-    unavailable_reason: 'Process termination is not available in this redesign cycle.',
-  };
 }
 
 export class ProcessApi {
@@ -97,7 +82,6 @@ export class ProcessApi {
       stderr: safeProjectPath(this.projectRoot, record.stderr_path),
       combined: safeProjectPath(this.projectRoot, record.combined_log_path),
     };
-    const canViewLogs = Boolean(logs.stdout || logs.stderr || logs.combined);
     return {
       id: record.id,
       status: record.status,
@@ -112,7 +96,6 @@ export class ProcessApi {
       command: redactCommandForOperator(record.command),
       cwd: safeProjectPath(this.projectRoot, record.cwd),
       logs,
-      control: toProcessControlAvailability(canViewLogs),
     };
   }
 }
