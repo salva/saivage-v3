@@ -16,7 +16,8 @@ export async function start_project(ctx: ToolContext, params: Record<string, nev
   return runAuditedAnalystTool(ctx, params, { action: 'runtime.start_project', safety_class: 'low', target_kind: 'runtime', getTargetId: () => PROJECT_CARD_ID, run: async () => {
     if (!ctx.runtime) return toolFailure('conflict', 'Active runtime is not available.');
     const data = await ctx.runtime.startProject('analyst');
-    return { success: data.success, ...(data.success ? { data } : { ...toolFailure('conflict', data.error.message), data }) };
+    if (data.success) return { success: true, data };
+    return { ...toolFailure('conflict', data.error.message), data };
   } });
 }
 

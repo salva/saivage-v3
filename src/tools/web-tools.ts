@@ -34,7 +34,7 @@ function webContext(ctx: ToolContext): WebProviderContext {
 
 function analystResult(result: InvocationToolResult): AnalystToolResult {
   if (result.success) return result;
-  return toolFailure('provider', result.error ?? 'Web tool failed.');
+  return toolFailure('provider', result.error);
 }
 
 function redactUrl(raw: string): string {

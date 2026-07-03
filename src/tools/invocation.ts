@@ -4,7 +4,9 @@ import type { ToolDefinition as LlmToolDefinition } from '../agents/llm-contract
 import { zodToJsonSchemaMini } from '../agents/zod-to-jsonschema-mini.js';
 import type { AgentRole } from './tool-definition.js';
 
-export type ToolResult = { success: boolean; data?: unknown; error?: string };
+export type ToolResult =
+  | { success: true; data?: unknown; error?: never }
+  | { success: false; error: string; data?: unknown };
 
 export interface ToolDefinition<Args = unknown> {
   readonly name: string;

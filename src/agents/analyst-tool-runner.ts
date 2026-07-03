@@ -32,8 +32,8 @@ export async function runAuditedAnalystTool<P extends Record<string, unknown>>(c
   recordControlAction(ctx.projectRoot, {
     ...auditBase,
     outcome: result.success ? 'ok' : 'error',
-    outcome_summary: result.success ? 'mutation applied' : (result.error ?? 'mutation failed'),
-    ...(result.success ? {} : { error: result.error ?? 'mutation failed' }),
+    outcome_summary: result.success ? 'mutation applied' : result.error,
+    ...(result.success ? {} : { error: result.error }),
   }, ctx.eventBus);
   return result;
 }
