@@ -517,12 +517,9 @@ These items were discovered during a full review of the Stage 3–4 work. They m
 
    Remove the `= ANALYST_TOOL_DEFINITIONS` default at `src/agents/analyst-prompt.ts:70`. Update the two tests that call it with no args (`tests/agents/analyst-tool-surface.test.ts` and `tests/agents/analyst-system-prompt.test.ts`) to pass explicit definitions. This prevents accidental reintroduction of the stale static tool list.
 
-3. **Fix pre-existing web Vitest failures.**
+3. Completed: fix pre-existing web Vitest failures.
 
-   Three categories of pre-existing failures block the Stage 4 web gate (confirmed on clean worktree, unrelated to backend cleanup):
-   - Analyst session id canonicalization: tests expect `analyst:global`, store emits `analyst` (`analyst-chat-store`, `analyst-chat-panel`, `conversation-tool-chip`, `analystChat.context`).
-   - Content component tests mount without active Pinia (`MarkdownText`, `InlineParts`, `ToolChip`).
-   - `web/src/__tests__/process-contract-alignment.test.ts` fixture missing required `owner_id`.
+   The Stage 4 web gate is green after restoring the canonical analyst session id (`analyst:global`), adding the missing process `owner_id` fixture, and mounting content/tool-chip tests with Pinia where components use `useCardStore`.
 
 ## Execution Plan
 
@@ -618,15 +615,15 @@ Tasks (backlog groups F, G, H, K):
 3. Completed (`bfd85de3`): extract shared contract-bounded repair loop.
 4. Completed (`04dd30ee`): collapse Analyst control-tool result envelopes and fix prompt tool-list generation.
 5. Completed (`a1c3c411`, `80783f66`, `855aceeb`): remove duplicate `RoleToolPolicy`, rename `tool-catalog.ts` → `tool-definition.ts`, and remove dead `ToolRuntime`.
-6. **Rework (K.1):** tighten `ToolResult` back to a discriminated union with optional `data` on failures; clean up `toolFailure`/`classifyToolError` dead params.
-7. **Rework (K.2):** make `getAnalystSystemPrompt(tools)` require its argument; update tests.
-8. Pending (F.4): remove dead `CardStore.open`, `validateHistoryEntry`, `loadCardHistoryEntries`, and `deriveCurrentAgentSessionId*` in `current-run.ts`.
-9. Pending (F.6): narrow over-broad `catch {}` in record-slot close/recover paths.
-10. **Rework (K.3):** fix pre-existing web Vitest failures so the web gate is green.
+6. Completed: tighten `ToolResult` back to a discriminated union with optional `data` on failures; clean up `toolFailure`/`classifyToolError` dead params.
+7. Completed: make `getAnalystSystemPrompt(tools)` require its argument; update tests.
+8. Completed (`c6269faa`): remove dead `CardStore.open`, `validateHistoryEntry`, `loadCardHistoryEntries`, and `deriveCurrentAgentSessionId*` in `current-run.ts`.
+9. Completed: narrow over-broad `catch {}` in record-slot close/recover paths.
+10. Completed: fix pre-existing web Vitest failures so the web gate is green.
 
 Validation:
 
-- `cd web && npx vitest run` — **currently failing with pre-existing failures unrelated to Stage 4 backend work** (confirmed clean worktree): analyst session id `analyst` vs `analyst:global` canonicalization in `analyst-chat-store`/`analyst-chat-panel`/`conversation-tool-chip` tests, missing Pinia setup in content component tests (`MarkdownText`, `InlineParts`, `ToolChip`), and `process-contract-alignment.test.ts` fixture missing required `owner_id`. These predate the Stage 4 commits and must be fixed before the web gate is green.
+- `cd web && npx vitest run` — passing: 109 files, 372 tests.
 - `npm run test:direct -- tests/runtime/actors tests/tools tests/agents/analyst-tool-surface.test.ts --runInBand` — passing.
 - `npm run validate:routine` — passing.
 
@@ -659,13 +656,4 @@ Validation:
 
 ## Recommended Next Action
 
-Stages 0–3 are complete. Stage 4 code work is complete through F.3 and all of group G (commits `bfd85de3`, `04dd30ee`, `a1c3c411`, `80783f66`, `855aceeb`), but a full review found rework items (group K) that must be done before Stage 5.
-
-Remaining Stage 4 items, in priority order:
-1. **K.1:** Tighten `ToolResult` to `{ success: true; data? } | { success: false; error: string; data? }`; clean up `toolFailure`/`classifyToolError` dead params; remove `?? 'failed'` fallbacks.
-2. **K.2:** Make `getAnalystSystemPrompt(tools)` require its argument; update the two tests using the stale default.
-3. **F.4:** Remove dead `CardStore.open`, `validateHistoryEntry`, `loadCardHistoryEntries`, and `deriveCurrentAgentSessionId*`.
-4. **F.6:** Narrow over-broad `catch {}` in record-slot helpers.
-5. **K.3:** Fix the pre-existing web Vitest failures (analyst session id canonicalization, missing Pinia setup in content component tests, `process-contract-alignment` fixture missing `owner_id`) so the Stage 4 web gate is green.
-
-Then proceed to Stage 5 (test hardening, docs, and misc). Stage 5 item H.1 (actual-surface tests) is critical because the `RoleToolPolicy` deletion temporarily removed explicit negative-surface coverage.
+Stages 0–4 are complete. Proceed to Stage 5 (test hardening, docs, and misc). Stage 5 item H.1 (actual-surface tests) is critical because the `RoleToolPolicy` deletion temporarily removed explicit negative-surface coverage.

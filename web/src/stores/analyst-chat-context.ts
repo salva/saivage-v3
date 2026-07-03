@@ -1,6 +1,6 @@
 import type { CardRecord } from '../api/types';
 
-export const ANALYST_SESSION_ID = 'analyst';
+export const ANALYST_SESSION_ID = 'analyst:global';
 
 export interface SyntheticHintState {
   sessionId: string | null;

@@ -2,7 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { closeOpenRecordSlot, discardOpenRecordSlot, openRecordSlot, readClosedRecordSlotMetadata, readRecordSlotIndex } from '../../src/runtime/records/record-slots.js';
+import { closeOpenRecordSlot, discardOpenRecordSlot, openRecordSlot, readClosedRecordSlotMetadata, readRecordSlotIndex, recordFileIsNonEmpty } from '../../src/runtime/records/record-slots.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => T): T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-record-slots-'));
@@ -52,5 +52,23 @@ describe('record slots', () => {
   it('rejects unsupported and internal document URLs through metadata reads', () => withTempProject((projectRoot) => {
     expect(() => openRecordSlot(projectRoot, { cardId: 'card-1', filename: 'notes.md' })).toThrow("Unsupported record slot 'notes.md'");
     expect(() => readClosedRecordSlotMetadata(projectRoot, { cardId: 'card-1', filename: 'card.json' })).toThrow('internal');
+  }));
+
+  it('classifies missing, empty, and non-empty record files', () => withTempProject((projectRoot) => {
+    const emptyPath = join(projectRoot, 'empty.md');
+    const nonEmptyPath = join(projectRoot, 'non-empty.md');
+    writeFileSync(emptyPath, '', 'utf8');
+    writeFileSync(nonEmptyPath, 'content', 'utf8');
+
+    expect(recordFileIsNonEmpty(join(projectRoot, 'missing.md'))).toBe(false);
+    expect(recordFileIsNonEmpty(emptyPath)).toBe(false);
+    expect(recordFileIsNonEmpty(nonEmptyPath)).toBe(true);
+  }));
+
+  it('rethrows non-missing filesystem errors while checking record files', () => withTempProject((projectRoot) => {
+    const notDirectory = join(projectRoot, 'not-directory');
+    writeFileSync(notDirectory, 'file', 'utf8');
+
+    expect(() => recordFileIsNonEmpty(join(notDirectory, 'child.md'))).toThrow(/ENOTDIR/);
   }));
 });

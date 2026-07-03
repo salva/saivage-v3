@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mount } from '@vue/test-utils';
+import { createPinia } from 'pinia';
 import FormattedContent from '../../components/content/FormattedContent.vue';
 import JsonView from '../../components/content/JsonView.vue';
 import MarkdownText from '../../components/content/MarkdownText.vue';
@@ -13,7 +14,7 @@ describe('FormattedContent', () => {
   });
 
   it('renders markdown through MarkdownText', () => {
-    const wrapper = mount(FormattedContent, { props: { kind: 'markdown', value: 'hello `world`' } });
+    const wrapper = mount(FormattedContent, { props: { kind: 'markdown', value: 'hello `world`' }, global: { plugins: [createPinia()] } });
     expect(wrapper.findComponent(MarkdownText).exists()).toBe(true);
     expect(wrapper.find('code').text()).toBe('world');
   });

@@ -230,9 +230,11 @@ export function readClosedRecordSlotMetadata(projectRoot: string, input: { cardI
 
 export function recordFileIsNonEmpty(path: string): boolean {
   try {
-    return statSync(path).isFile() && statSync(path).size > 0;
-  } catch {
-    return false;
+    const stats = statSync(path);
+    return stats.isFile() && stats.size > 0;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw error;
   }
 }
 
