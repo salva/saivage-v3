@@ -509,7 +509,9 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
    Deleted `src/lessons/*` and its dedicated tests because no production code imported the lesson/TTS artifact scaffolding; it was only test-supported dead code.
 
-4. **`EventsReadModelService` allocation churn.** It constructs a fresh `EventLogger` per request. Hoist to the service constructor.
+4. Completed: `EventsReadModelService` allocation churn.
+
+   Hoisted the `EventLogger` instance into the read-model service constructor so each request reuses the service-owned logger.
 
 5. **Dead `MAX_ANALYST_OUTPUT_BYTES`.** Unused constant in `command-policy.ts`.
 

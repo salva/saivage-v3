@@ -19,19 +19,21 @@ function parseOffset(raw: string | undefined): number {
 }
 
 export class EventsReadModelService {
-  constructor(private readonly projectRoot: string) {}
+  private readonly eventLogger: EventLogger;
+
+  constructor(projectRoot: string) {
+    this.eventLogger = new EventLogger(join(projectRoot, '.saivage'));
+  }
 
   listEvents(query: EventsQuery = {}): EventsListResponse {
     const limit = parseLimit(query.limit);
     const offset = parseOffset(query.offset);
-    const eventLogger = new EventLogger(join(this.projectRoot, '.saivage'));
-
     const contentFilter: EventFilter = {};
     if (query.kind) contentFilter.kind = query.kind as EventKind;
     if (query.goal_id) contentFilter.goal_id = query.goal_id;
     if (query.session_id) contentFilter.session_id = query.session_id;
 
-    const allMatching = eventLogger.getEvents(contentFilter);
+    const allMatching = this.eventLogger.getEvents(contentFilter);
     const total = allMatching.length;
     const events = allMatching.slice(offset, offset + limit);
     return { events: events as LoggedEvent[], total };
