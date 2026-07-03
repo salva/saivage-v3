@@ -409,6 +409,8 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
    Both processor actors duplicate the same repair-loop skeleton (`result`→repair, `error`→fail, terminal→validate, `MAX_TERMINAL_CONTRACT_REPAIRS = 2`). Extract a shared helper.
 
+   Status: completed in `bfd85de3` (`contract-bounded-repair-loop.ts`). The reviewer relaunch/stale path uses a sentinel `'stale'` value threaded through the generic loop result.
+
 4. **Remove dead `CardStore` and `current-run` exports.**
 
    `CardStore.open`, `validateHistoryEntry`, `loadCardHistoryEntries` are dead. `deriveCurrentAgentSessionId*` in `current-run.ts` are dead.
@@ -429,21 +431,31 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
    Analyst control tools return preview/error-envelope shapes that the handler strips to the shared invocation `ToolResult`. Replace with the common result type unless a concrete UI preview path exists.
 
+   Status: completed in `04dd30ee`. Divergence: the shared `ToolResult` (`src/tools/invocation.ts`) was widened from a discriminated union `{ success: true; data? } | { success: false; error }` to `{ success: boolean; data?: unknown; error?: string }` because several Analyst tools attach diagnostic `data` to failures (e.g. `reorder_set_mismatch`, `unknown_recipient`) and tests read `data` on failed results. The `ActionPreview`, `ToolErrorEnvelope`, and the audit-runner `preview` callback were removed as dead (the handler never read previews).
+
 2. **Replace stale Analyst prompt/tool-list generation.**
 
    The Analyst prompt's static `<TOOL_LIST>` is based on control-tool definitions, while the actual surface is composed from providers. Derive from `InvocationSurface` or document the static list as control-tools-only.
+
+   Status: completed in `04dd30ee`. `getAnalystSystemPrompt(tools)` now renders the composed invocation surface definitions; the dead `getAvailableAnalystToolNames` helper was removed.
 
 3. **Reduce duplicate role/tool policy lists.**
 
    Provider composition is now the authority. Remove or shrink `RoleToolPolicy` where it duplicates provider surfaces.
 
+   Status: completed in `a1c3c411`. Divergence: `RoleToolPolicy` was deleted entirely (not just shrunk) along with its two test files, since provider composition is the sole authority and the only production call site (Analyst handler filter) was a redundant re-check of already-Analyst control tools.
+
 4. **Rename or split `tool-catalog.ts`.**
 
    The file is not an execution catalog anymore, but it is more than vocabulary constants: it defines shared tool definition/executor types and schema helpers used across production tool providers. Do not inline everything. Clean cut: rename it to a neutral home such as `tool-definition.ts`, or split shared definition/schema helpers from Analyst-only vocabulary. Also consolidate the duplicated `AgentRole` type (defined in both `schemas/types.ts` and `tool-catalog.ts`) — keep only the `schemas/types.ts` one and update `record-slots.ts`'s import.
 
+   Status: completed in `80783f66`. Renamed to `tool-definition.ts`; `AgentRole` is now re-exported from `schemas` (single source) with `tool-definition.ts` re-exporting it.
+
 5. **Remove tests-only `ToolRuntime` and package-root barrels.**
 
    `src/tools/runtime.ts` is dead production code (only `tool-definition-serializer.ts` imports a type from it). Delete or inline.
+
+   Status: completed in `855aceeb`. The `ToolRegistrySchemaEntry` type was inlined into `tool-definition-serializer.ts`; `src/tools/index.ts`, `src/tools/runtime.ts`, and both test files were deleted.
 
 ### H. Test Hardening
 
@@ -578,15 +590,17 @@ Tasks (backlog groups F, G, H):
 
 1. Partially completed: delete dead UI components, dead API client functions, dead websocket surface, and auth environment guards.
 2. Completed: shrink `evaluateReviewerTerminalOutcome` inputs and remove async mutation wrappers.
-3. Extract shared contract-bounded repair loop.
-4. Collapse Analyst control-tool result envelopes and fix prompt tool-list generation.
-5. Rename/split `tool-catalog.ts` without inlining shared definition helpers, and remove dead `ToolRuntime`.
+3. Completed (`bfd85de3`): extract shared contract-bounded repair loop.
+4. Completed (`04dd30ee`): collapse Analyst control-tool result envelopes and fix prompt tool-list generation.
+5. Completed (`a1c3c411`, `80783f66`, `855aceeb`): remove duplicate `RoleToolPolicy`, rename `tool-catalog.ts` → `tool-definition.ts`, and remove dead `ToolRuntime`.
+6. Pending (F.4): remove dead `CardStore.open`, `validateHistoryEntry`, `loadCardHistoryEntries`, and `deriveCurrentAgentSessionId*` in `current-run.ts`.
+7. Pending (F.6): narrow over-broad `catch {}` in record-slot close/recover paths.
 
 Validation:
 
-- `cd web && npx vitest run`
-- `npm run test:direct -- tests/runtime/actors tests/tools tests/agents/analyst-tool-surface.test.ts --runInBand`
-- `npm run validate:routine`
+- `cd web && npx vitest run` — **currently failing with pre-existing failures unrelated to Stage 4 backend work** (confirmed clean worktree): analyst session id `analyst` vs `analyst:global` canonicalization in `analyst-chat-store`/`analyst-chat-panel`/`conversation-tool-chip` tests, missing Pinia setup in content component tests (`MarkdownText`, `InlineParts`, `ToolChip`), and `process-contract-alignment.test.ts` fixture missing required `owner_id`. These predate the Stage 4 commits and must be fixed before the web gate is green.
+- `npm run test:direct -- tests/runtime/actors tests/tools tests/agents/analyst-tool-surface.test.ts --runInBand` — passing.
+- `npm run validate:routine` — passing.
 
 ### Stage 5: Test Hardening, Docs, And Misc
 
@@ -617,6 +631,11 @@ Validation:
 
 ## Recommended Next Action
 
-Stage 0 (notification fix), Stage 1 (dead subsystem deletion), and Stage 2 (never-implemented scaffolding and dead event/config surface) are complete.
+Stages 0–3 are complete. Stage 4 code work is complete through F.3 and all of group G (commits `bfd85de3`, `04dd30ee`, `a1c3c411`, `80783f66`, `855aceeb`).
 
-Proceed to Stage 3 (config/provider/persistence deduplication), then Stage 4 (web/actor/tool-surface cleanup) in small, separately validated slices.
+Remaining Stage 4 items:
+1. F.4: remove dead `CardStore.open`, `validateHistoryEntry`, `loadCardHistoryEntries`, and `deriveCurrentAgentSessionId*`.
+2. F.6: narrow over-broad `catch {}` in record-slot helpers.
+3. Fix the pre-existing web Vitest failures (analyst session id canonicalization, missing Pinia setup in content component tests, `process-contract-alignment` fixture missing `owner_id`) so the Stage 4 web gate is green.
+
+Then proceed to Stage 5 (test hardening, docs, and misc).
