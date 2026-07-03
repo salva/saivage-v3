@@ -467,9 +467,9 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
    `AnalystHandler.shutdownSessionProcesses` is tested directly, and websocket `close`/`error` paths now verify cleanup for the initialized Analyst session.
 
-3. **Delete dead `_llm-test-helpers.ts` and consolidate duplicated test helpers.**
+3. Completed: delete dead `_llm-test-helpers.ts` and consolidate duplicated test helpers.
 
-   `tests/agents/_llm-test-helpers.ts` is never imported. The same logic (`toolsOpts`, `asMessage`, `*Result` builders) is hand-copied in 4+ test files. Delete the dead file and consolidate the duplicates.
+   Deleted the unused `tests/agents/_llm-test-helpers.ts` and moved actively duplicated LLM client helpers (`toolsOpts`, `asMessage`, Codex JWT fixture) into `tests/helpers/llm-test-helpers.ts`.
 
 4. **Add focused missing-record repair tests.**
 
@@ -635,7 +635,7 @@ Tasks (backlog groups I, J, K):
 
 1. Completed: add actual-surface tests for retired tool names and planner/reviewer `apply_patch` absence.
 2. Completed: add websocket-level Analyst process cleanup test.
-3. Delete dead `_llm-test-helpers.ts` and consolidate duplicated test helpers.
+3. Completed: delete dead `_llm-test-helpers.ts` and consolidate duplicated test helpers.
 4. Add focused missing-record repair tests.
 5. Clean stale doc/spec vocabulary and update the architecture index.
 6. Process API cleanup, runtime-state layout, lessons module, and other low-priority items.
@@ -656,4 +656,4 @@ Validation:
 
 ## Recommended Next Action
 
-Stages 0–4 are complete and Stage 5 H.1-H.2 are complete. Continue with H.3 test-helper cleanup.
+Stages 0–4 are complete and Stage 5 H.1-H.3 are complete. Continue with H.4 missing-record repair tests.

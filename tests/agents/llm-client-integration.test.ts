@@ -17,6 +17,7 @@ import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
+import { asMessage, makeCodexJwt, toolsOpts } from '../helpers/llm-test-helpers.js';
 
 // ── Dynamic imports ────────────────────────────────────────────
 
@@ -208,27 +209,6 @@ function streamLine(content: string, done = false): string {
   return `data: ${JSON.stringify(obj)}\n\n`;
 }
 
-function makeJwtWithCodexAccount(accountId: string): string {
-  const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
-  const payload = Buffer.from(JSON.stringify({
-    'https://api.openai.com/auth': {
-      chatgpt_account_id: accountId,
-    },
-  })).toString('base64url');
-  return `${header}.${payload}.sig`;
-}
-
-import type { LlmCompleteOptions, LlmCompleteResult, ToolCall } from '../../src/agents/llm-contracts.js';
-
-function toolsOpts(extra: Partial<LlmCompleteOptions> = {}): LlmCompleteOptions {
-  return { phase: 'tools', tools: [], tool_choice: { kind: 'auto' }, contract_id: 'test.v1', contractName: 'test', terminalToolOffered: [], ...(extra as object) } as LlmCompleteOptions;
-}
-
-function asMessage(r: LlmCompleteResult): { content: string; tool_calls: ToolCall[]; finishReason: string } {
-  if (r.kind === 'message') return { content: r.content, tool_calls: [], finishReason: 'stop' };
-  return { content: '', tool_calls: r.tool_calls, finishReason: 'tool_calls' };
-}
-
 // ── Test Cases ─────────────────────────────────────────────────
 
 describe('LlmClient Integration with Mock HTTP Server', () => {
@@ -318,7 +298,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeJwtWithCodexAccount('acct-test-123') });
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeCodexJwt('acct-test-123') });
       const result = await client.complete(
         cand('openai-codex', 'gpt-5.4'), sp(), msgs(), 'sess-codex',
         toolsOpts({ temperature: 0.5, max_tokens: 500 }));
@@ -353,7 +333,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeJwtWithCodexAccount('acct-test-123') });
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeCodexJwt('acct-test-123') });
       const result = await client.complete(
         cand('openai-codex', 'gpt-5.4'), sp(), msgs(), 'sess-codex-retry',
         toolsOpts({ temperature: 0.5, max_tokens: 500 }));
@@ -384,7 +364,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeJwtWithCodexAccount('acct-test-123') });
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeCodexJwt('acct-test-123') });
       const result = await client.complete(
         cand('openai-codex', 'gpt-5.4'), sp(), msgs(), 'sess-codex-output-item',
       toolsOpts(),
@@ -418,7 +398,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeJwtWithCodexAccount('acct-test-123') });
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeCodexJwt('acct-test-123') });
       const result = await client.complete(
         cand('openai-codex', 'gpt-5.4'), sp(), msgs(), 'sess-codex-function-call',
         toolsOpts({
@@ -454,7 +434,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeJwtWithCodexAccount('acct-test-123') });
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeCodexJwt('acct-test-123') });
       await client.complete(
         cand('openai-codex', 'gpt-5.4'), sp(), [], 'sess-codex-empty',
       toolsOpts(),

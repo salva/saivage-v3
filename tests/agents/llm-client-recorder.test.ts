@@ -10,6 +10,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { LlmExchangeRecorder, ExchangeHandle } from '../../src/agents/llm-exchange-recorder.js';
+import { asMessage, makeCodexJwt, toolsOpts } from '../helpers/llm-test-helpers.js';
 
 let LlmProviderGateway: typeof import('../../src/agents/llm-provider-gateway.js').LlmProviderGateway;
 let LlmRequestError: typeof import('../../src/contracts/llm-failure.js').LlmRequestError;
@@ -28,19 +29,8 @@ beforeAll(async () => {
 });
 
 
-import type { LlmCompleteOptions, LlmCompleteResult, ToolCall } from '../../src/agents/llm-contracts.js';
-
-function toolsOpts(extra: Partial<LlmCompleteOptions> = {}): LlmCompleteOptions {
-  return { phase: 'tools', tools: [], tool_choice: { kind: 'auto' }, contract_id: 'test.v1', contractName: 'test', terminalToolOffered: [], ...(extra as object) } as LlmCompleteOptions;
-}
-
 function loadTestConfig(projectRoot: string) {
   return loadEnvironment(['node', 'test', '--project-root', projectRoot], process.env).config;
-}
-
-function asMessage(r: LlmCompleteResult): { content: string; tool_calls: ToolCall[]; finishReason: string } {
-  if (r.kind === 'message') return { content: r.content, tool_calls: [], finishReason: 'stop' };
-  return { content: '', tool_calls: r.tool_calls, finishReason: 'tool_calls' };
 }
 
 interface MockServer { server: Server; port: number; }
@@ -108,12 +98,6 @@ afterEach(() => {
   for (const r of tmp) try { rmSync(r, { recursive: true, force: true }); } catch { /* */ }
   tmp = [];
 });
-
-function makeJwt(accountId: string): string {
-  const h = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
-  const p = Buffer.from(JSON.stringify({ 'https://api.openai.com/auth': { chatgpt_account_id: accountId } })).toString('base64url');
-  return `${h}.${p}.sig`;
-}
 
 describe('LlmClient + LlmExchangeRecorder integration', () => {
   it('records a single successful non-streaming response', async () => {
@@ -216,7 +200,7 @@ describe('LlmClient + LlmExchangeRecorder integration', () => {
     });
     try {
       const { recorder, begins, responses, errors } = makeMockRecorder();
-      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeJwt('acct-1') });
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeCodexJwt('acct-1') });
       const r = await client.complete(
         { provider: 'openai-codex', account: null, model: 'gpt-5.4' },
         sys, msgs, 'sess-6', toolsOpts({ recorder }));
@@ -242,7 +226,7 @@ describe('LlmClient + LlmExchangeRecorder integration', () => {
     });
     try {
       const { recorder, begins, responses, errors } = makeMockRecorder();
-      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeJwt('acct-1') });
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeCodexJwt('acct-1') });
       const r = await client.complete(
         { provider: 'openai-codex', account: null, model: 'gpt-5.4' },
         sys, msgs, 'sess-7', toolsOpts({ max_tokens: 500, recorder }));
@@ -258,7 +242,7 @@ describe('LlmClient + LlmExchangeRecorder integration', () => {
 
   it('records a single Codex network error without double-recording', async () => {
     const { recorder, begins, responses, errors } = makeMockRecorder();
-    const client = new LlmProviderGateway({ baseUrl: 'http://127.0.0.1:1/backend-api', apiKey: makeJwt('acct-1') });
+    const client = new LlmProviderGateway({ baseUrl: 'http://127.0.0.1:1/backend-api', apiKey: makeCodexJwt('acct-1') });
     await expect(client.complete(
       { provider: 'openai-codex', account: null, model: 'gpt-5.4' },
       sys, msgs, 'sess-8', toolsOpts({ recorder }))).rejects.toThrow();
