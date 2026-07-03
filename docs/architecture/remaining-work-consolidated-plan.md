@@ -473,7 +473,18 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
 4. **Add focused missing-record repair tests.**
 
-   Planner/executor missing `status.md` repair is currently indirect (helpers auto-insert records). Add explicit tests without helper auto-insertion.
+   Planner/executor missing-record repair is currently covered only indirectly because common test helpers auto-insert `record://status.md?v=next` or `record://review.md?v=next` before replaying terminal results. Add explicit actor tests that do **not** use `withMandatoryRecords` or `withExecutorStatusRecord` for the first terminal attempt.
+
+   Requirements:
+   - In `tests/runtime/actors/planning-card-processor-actor.test.ts`, add a planner test where the model emits `emit_result` before writing `record://status.md?v=next`; assert the same planner session receives a repair prompt/tool turn requiring the status record, then succeeds after an explicit `write` followed by the same terminal result.
+   - In `tests/runtime/actors/terminal-card-processor-actor.test.ts`, add an executor test with the same shape for `record://status.md?v=next`.
+   - If reviewer missing-record coverage is not already explicit, add a reviewer-path test for `record://review.md?v=next` in the planning processor suite, or document why existing reviewer repair coverage is sufficient.
+   - Assert repair stays within the same logical session id, preserves the terminal contract (`emit_result`), and does not advance to completion before the required record exists.
+   - Avoid broad runtime changes. These are regression tests for the existing contract-bounded repair loop, not a redesign.
+
+   Focused validation:
+   - `npm run test:direct -- tests/runtime/actors/planning-card-processor-actor.test.ts tests/runtime/actors/terminal-card-processor-actor.test.ts --runInBand`
+   - `npm run typecheck`
 
 ### I. Documentation And Spec Cleanup
 
@@ -636,7 +647,7 @@ Tasks (backlog groups I, J, K):
 1. Completed: add actual-surface tests for retired tool names and planner/reviewer `apply_patch` absence.
 2. Completed: add websocket-level Analyst process cleanup test.
 3. Completed: delete dead `_llm-test-helpers.ts` and consolidate duplicated test helpers.
-4. Add focused missing-record repair tests.
+4. Add focused missing-record repair tests: planner/executor same-session repair after terminal result without required `status.md`, plus reviewer `review.md` coverage if not already explicit.
 5. Clean stale doc/spec vocabulary and update the architecture index.
 6. Process API cleanup, runtime-state layout, lessons module, and other low-priority items.
 
