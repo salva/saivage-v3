@@ -2,10 +2,11 @@ import { describe, expect, it } from '@jest/globals';
 
 import { buildWorkspaceContextNote } from '../../src/agents/analyst-handler.js';
 import { getAnalystSystemPrompt } from '../../src/agents/analyst-prompt.js';
+import { ANALYST_TOOL_DEFINITIONS } from '../../src/tools/analyst-tool-registry.js';
 
 describe('analyst workspace-context prompt contract', () => {
   it('includes the deictic-resolution paragraph in the rendered system prompt', () => {
-    const prompt = getAnalystSystemPrompt();
+    const prompt = getAnalystSystemPrompt(ANALYST_TOOL_DEFINITIONS);
     expect(prompt).toContain('Resolve deictic phrases');
     expect(prompt).toContain('[workspace-context] header');
     expect(prompt).toContain('none — no entity is currently in focus');

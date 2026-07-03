@@ -107,7 +107,7 @@ describe('Tool inventory mirrors SPEC-r7 capability classes', () => {
     expect(names).not.toContain('write_file');
     expect(names).not.toContain('terminate_process');
     for (const removed of ['edit_card','get_card_output','abort_goal_subtree','restart_card_or_subtree','restart_goal','mark_goal_needs_corrections']) expect(names).not.toContain(removed);
-    const prompt = getAnalystSystemPrompt();
+    const prompt = getAnalystSystemPrompt(ANALYST_TOOL_DEFINITIONS);
     for (const capability of ['Inspect','Navigate the workspace area','Manage cards','Queue notifications','Control the runtime','Reconfigure','Investigate and repair']) expect(prompt).toContain(capability);
     expect(prompt).toContain('record://brief.md');
   });

@@ -67,4 +67,4 @@ export class AnalystOfflineError extends Error {
 }
 
 export function getAnalystToolDefinitions(): ToolDefinition[] { return [...ANALYST_TOOL_DEFINITIONS]; }
-export function getAnalystSystemPrompt(tools: readonly ToolDefinition[] = ANALYST_TOOL_DEFINITIONS): string { return analystSystemPrompt(tools); }
+export function getAnalystSystemPrompt(tools: readonly ToolDefinition[]): string { return analystSystemPrompt(tools); }
