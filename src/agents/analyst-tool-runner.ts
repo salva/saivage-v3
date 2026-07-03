@@ -1,7 +1,7 @@
 import { evaluateAuthz } from './authz.js';
 import type { SafetyClass } from './authz.js';
 import { recordControlAction, stableStringify } from '../persistence/index.js';
-import type { ToolContext, ToolResult, ActionPreview } from '../tools/analyst-tool-types.js';
+import type { ToolContext, ToolResult } from '../tools/analyst-tool-types.js';
 import { toolFailure } from '../tools/analyst-tool-helpers.js';
 import type { Decision } from '../permissions/index.js';
 
@@ -11,7 +11,6 @@ export interface MutatingSpec<P> {
   target_kind: 'card' | 'note' | 'process' | 'runtime' | 'config' | 'session' | null;
   getTargetId: (params: P) => string | null;
   permissionCheck?: (ctx: ToolContext, params: P) => Decision;
-  preview?: (ctx: ToolContext, params: P) => ActionPreview | null;
   run: (ctx: ToolContext, params: P) => Promise<ToolResult>;
 }
 

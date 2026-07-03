@@ -27,7 +27,7 @@ import {
   type UnifiedToolDefinition,
 } from './tool-catalog.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
-import { buildDeletePreview, cardSummary, defaultParentForCreate, getStore, humanizeToolError, normalizeParentValue, preflightEnum, saivageDir, toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
+import { cardSummary, defaultParentForCreate, getStore, humanizeToolError, normalizeParentValue, preflightEnum, saivageDir, toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
 import { readRecordSlotIndex, recordPath, recordSlotDefinitions } from '../runtime/records/record-slots.js';
 
 const createCardInput = z.object({
@@ -72,9 +72,9 @@ const plannerEditCardInput = editCardInput.extend({ related: describe(stringArra
 export async function create_card(ctx: ToolContext, params: { type: CardType; parent: string | null; title: string; brief: string; status?: CardStatus; tags?: string[]; priority?: number; urgency?: 'low' | 'normal' | 'high' | 'critical'; depends_on?: string[]; related?: string[] }): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, params, { action: 'card.create', safety_class: 'low', target_kind: 'card', getTargetId: () => null, run: async () => {
     try {
-      const typeCheck = preflightEnum(params.type, CREATE_CARD_TYPE_VALUES, 'type', 'create_card'); if (!typeCheck.ok) return { success: false, error: typeCheck.error, errorEnvelope: typeCheck.errorEnvelope };
-      const statusCheck = preflightEnum(params.status, CARD_STATUS_VALUES, 'status', 'create_card'); if (!statusCheck.ok) return { success: false, error: statusCheck.error, errorEnvelope: statusCheck.errorEnvelope };
-      const urgencyCheck = preflightEnum(params.urgency, URGENCY_VALUES, 'urgency', 'create_card'); if (!urgencyCheck.ok) return { success: false, error: urgencyCheck.error, errorEnvelope: urgencyCheck.errorEnvelope };
+      const typeCheck = preflightEnum(params.type, CREATE_CARD_TYPE_VALUES, 'type', 'create_card'); if (!typeCheck.ok) return { success: false, error: typeCheck.error };
+      const statusCheck = preflightEnum(params.status, CARD_STATUS_VALUES, 'status', 'create_card'); if (!statusCheck.ok) return { success: false, error: statusCheck.error };
+      const urgencyCheck = preflightEnum(params.urgency, URGENCY_VALUES, 'urgency', 'create_card'); if (!urgencyCheck.ok) return { success: false, error: urgencyCheck.error };
       const store = getStore(ctx);
       const parent = normalizeParentValue(params.parent) ?? defaultParentForCreate(store, params.type);
       if (ctx.actor === 'analyst') {
@@ -111,11 +111,11 @@ function subtreeCards(store: ReturnType<typeof getStore>, rootId: string): CardR
 }
 
 export async function edit_card(ctx: ToolContext, params: { id: string } & Record<string, unknown>): Promise<ToolResult> {
-  return runAuditedAnalystTool(ctx, params, { action: 'card.update', safety_class: 'high', target_kind: 'card', getTargetId: (p) => p.id, preview: () => ({ type: 'edit_card', summary: `Edit card '${params.id}'.`, affectedCards: getStore(ctx).read(params.id) ? [cardSummary(getStore(ctx).read(params.id)!)] : [], affectedProcesses: [], warnings: [] }), run: async () => {
+  return runAuditedAnalystTool(ctx, params, { action: 'card.update', safety_class: 'high', target_kind: 'card', getTargetId: (p) => p.id, run: async () => {
     try {
-      const statusCheck = preflightEnum(params.status, CARD_STATUS_VALUES, 'status', 'edit_card'); if (!statusCheck.ok) return { success: false, error: statusCheck.error, errorEnvelope: statusCheck.errorEnvelope };
-      const urgencyCheck = preflightEnum(params.urgency, URGENCY_VALUES, 'urgency', 'edit_card'); if (!urgencyCheck.ok) return { success: false, error: urgencyCheck.error, errorEnvelope: urgencyCheck.errorEnvelope };
-      const typeCheck = preflightEnum(params.type, CARD_TYPE_VALUES, 'type', 'edit_card'); if (!typeCheck.ok) return { success: false, error: typeCheck.error, errorEnvelope: typeCheck.errorEnvelope };
+      const statusCheck = preflightEnum(params.status, CARD_STATUS_VALUES, 'status', 'edit_card'); if (!statusCheck.ok) return { success: false, error: statusCheck.error };
+      const urgencyCheck = preflightEnum(params.urgency, URGENCY_VALUES, 'urgency', 'edit_card'); if (!urgencyCheck.ok) return { success: false, error: urgencyCheck.error };
+      const typeCheck = preflightEnum(params.type, CARD_TYPE_VALUES, 'type', 'edit_card'); if (!typeCheck.ok) return { success: false, error: typeCheck.error };
       if (ctx.actor === 'analyst') return toolFailure('permission', 'edit_card is not available to the Analyst. Use write on record://brief.md while runtime status is stopped or paused for brief changes, or semantic card-management tools for structure/lifecycle.', { id: params.id });
       const store = getStore(ctx); const card = store.read(params.id); if (!card) return toolFailure('not_found', `Card '${params.id}' not found.`, { id: params.id });
       const allowedFields = PLANNER_ALLOWED_EDIT_FIELDS;
@@ -129,10 +129,7 @@ export async function edit_card(ctx: ToolContext, params: { id: string } & Recor
 }
 
 export async function delete_card(ctx: ToolContext, params: { ids: string[] }): Promise<ToolResult> {
-  return runAuditedAnalystTool(ctx, params, { action: 'card.delete', safety_class: 'destructive', target_kind: 'card', getTargetId: (p) => p.ids.join(','), preview: () => {
-    const store = getStore(ctx); const previews = params.ids.map((id) => buildDeletePreview(ctx.projectRoot, store, id));
-    return { type: 'delete_card', summary: `Delete ${params.ids.length} card target(s) and their descendants.`, affectedCards: previews.flatMap((preview) => preview.affectedCards), affectedProcesses: previews.flatMap((preview) => preview.affectedProcesses), warnings: previews.flatMap((preview) => preview.warnings) };
-  }, permissionCheck: () => {
+  return runAuditedAnalystTool(ctx, params, { action: 'card.delete', safety_class: 'destructive', target_kind: 'card', getTargetId: (p) => p.ids.join(','), permissionCheck: () => {
     if (params.ids.length > 1) return { allowed: true };
     const store = getStore(ctx);
     for (const targetId of params.ids) {

@@ -4,14 +4,9 @@ import type { RuntimeApi } from '../runtime/control-api.js';
 import type { ControlActionSurface } from '../schemas/index.js';
 import type { ActorRole } from '../agents/authz.js';
 import type { EventBus } from '../events/index.js';
+import type { ToolResult } from './invocation.js';
 
-export interface ActionPreview {
-  type: string;
-  summary: string;
-  affectedCards: Array<{ id: string; title: string; type: string; status: string }>;
-  affectedProcesses: Array<{ id: string; command: string; status: string }>;
-  warnings: string[];
-}
+export type { ToolResult };
 
 export type ToolErrorKind =
   | 'validation'
@@ -21,21 +16,6 @@ export type ToolErrorKind =
   | 'io'
   | 'provider'
   | 'internal';
-
-export interface ToolErrorEnvelope {
-  kind: ToolErrorKind;
-  message: string;
-  details?: Record<string, unknown>;
-  retryable?: boolean;
-}
-
-export interface ToolResult {
-  success: boolean;
-  data?: unknown;
-  preview?: ActionPreview;
-  error?: string;
-  errorEnvelope?: ToolErrorEnvelope;
-}
 
 export interface ToolContext {
   projectRoot: string;

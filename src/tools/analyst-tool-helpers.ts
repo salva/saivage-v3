@@ -3,10 +3,9 @@ import { join } from 'node:path';
 
 import { PROJECT_CARD_ID, type CardStore } from '../cards/store-api.js';
 import { computeCardDisplayPath } from '../application/read-models/card-view.js';
-import { processApi } from '../runtime/process-api.js';
 import type { CardRecord, CardType } from '../schemas/index.js';
 import { CARD_STATUS_VALUES, CARD_TYPE_VALUES, URGENCY_VALUES } from './tool-catalog.js';
-import type { ActionPreview, ToolContext, ToolErrorEnvelope, ToolErrorKind, ToolResult } from './analyst-tool-types.js';
+import type { ToolContext, ToolErrorKind, ToolResult } from './analyst-tool-types.js';
 
 export function saivageDir(projectRoot: string): string {
   return join(projectRoot, '.saivage');
@@ -73,19 +72,11 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-export function toolError(kind: ToolErrorKind, message: string, details?: Record<string, unknown>, retryable?: boolean): ToolErrorEnvelope {
-  const envelope: ToolErrorEnvelope = { kind, message };
-  if (details !== undefined) envelope.details = details;
-  if (retryable !== undefined) envelope.retryable = retryable;
-  return envelope;
+export function toolFailure(_kind: ToolErrorKind, message: string, _details?: Record<string, unknown>, _retryable?: boolean): ToolResult {
+  return { success: false, error: message };
 }
 
-export function toolFailure(kind: ToolErrorKind, message: string, details?: Record<string, unknown>, retryable?: boolean): ToolResult {
-  const errorEnvelope = toolError(kind, message, details, retryable);
-  return { success: false, error: errorEnvelope.message, errorEnvelope };
-}
-
-export function classifyToolError(err: unknown, fallbackKind: ToolErrorKind = 'internal', messageOverride?: string): ToolErrorEnvelope {
+export function classifyToolError(err: unknown, fallbackKind: ToolErrorKind = 'internal', messageOverride?: string): { kind: ToolErrorKind; message: string } {
   const raw = messageOverride ?? errorMessage(err);
   const lower = raw.toLowerCase();
   const kind: ToolErrorKind =
@@ -95,12 +86,12 @@ export function classifyToolError(err: unknown, fallbackKind: ToolErrorKind = 'i
           : lower.includes('cannot') || lower.includes('conflict') || lower.includes('mismatch') ? 'conflict'
             : lower.includes('enoent') || lower.includes('eacces') || lower.includes('file') || lower.includes('directory') || lower.includes('readable') ? 'io'
               : fallbackKind;
-  return toolError(kind, raw);
+  return { kind, message: raw };
 }
 
 export function toolFailureFromError(err: unknown, fallbackKind: ToolErrorKind = 'internal', messageOverride?: string): ToolResult {
-  const errorEnvelope = classifyToolError(err, fallbackKind, messageOverride);
-  return { success: false, error: errorEnvelope.message, errorEnvelope };
+  const classified = classifyToolError(err, fallbackKind, messageOverride);
+  return { success: false, error: classified.message };
 }
 
 export function preflightEnum<T extends string>(
@@ -108,34 +99,17 @@ export function preflightEnum<T extends string>(
   allowed: readonly T[],
   field: string,
   toolName: string,
-): { ok: true } | { ok: false; error: string; errorEnvelope: ToolErrorEnvelope } {
+): { ok: true } | { ok: false; error: string } {
   if (value === undefined) return { ok: true };
   if (typeof value !== 'string') {
     const message = `${toolName} failed: field '${field}' must be a string. Allowed values: ${allowed.join(', ')}. See the '${toolName}' tool's parameter schema.`;
-    return { ok: false, error: message, errorEnvelope: toolError('validation', message, { field }) };
+    return { ok: false, error: message };
   }
   if (!(allowed as readonly string[]).includes(value)) {
     const message = `${toolName} failed: field '${field}' received '${value}', which is not a valid value. Allowed values: ${allowed.join(', ')}. See the '${toolName}' tool's parameter schema.`;
-    return { ok: false, error: message, errorEnvelope: toolError('validation', message, { field, allowed: [...allowed] }) };
+    return { ok: false, error: message };
   }
   return { ok: true };
-}
-
-export function buildDeletePreview(projectRoot: string, store: CardStore, id: string): ActionPreview {
-  const card = store.read(id);
-  if (!card) return { type: 'delete_card', summary: `Delete card '${id}' (card not found - no children to delete).`, affectedCards: [], affectedProcesses: [], warnings: [`Card '${id}' does not exist.`] };
-  const descendantIds = store.getDescendantIds(id);
-  const allAffectedIds = [id, ...descendantIds];
-  return {
-    type: 'delete_card',
-    summary: `Delete card '${card.title}' (${card.id}) and all descendants (${allAffectedIds.length} total card(s)).`,
-    affectedCards: allAffectedIds.map((cid) => {
-      const c = store.read(cid);
-      return c ? cardSummary(c) : { id: cid, title: '(not found)', type: 'unknown', status: 'unknown' };
-    }),
-    affectedProcesses: processApi(projectRoot).listForAgent().filter((p) => allAffectedIds.includes(p.card_id)).map((p) => ({ id: p.id, command: p.command, status: p.status })),
-    warnings: descendantIds.length > 0 ? [`This will permanently delete ${descendantIds.length} descendant card(s).`] : [],
-  };
 }
 
 export function isBinarySample(buf: Buffer): boolean {

@@ -4,7 +4,6 @@ import {
   ANALYST_NO_MODEL_REPLY,
   AnalystOfflineError,
   getAnalystSystemPrompt,
-  getAvailableAnalystToolNames,
 } from './analyst-prompt.js';
 import { CardStore } from '../cards/store-api.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
@@ -104,7 +103,7 @@ function summarizeForBroadcast(tool: string, result: ToolResult): { summary: str
   const related_note_id = typeof source['note_id'] === 'string' ? String(source['note_id']) : typeof source['related_note_id'] === 'string' ? String(source['related_note_id']) : auditSource?.target_kind === 'note' && auditSource.target_id ? auditSource.target_id : undefined;
   const related_process_id = typeof source['process_id'] === 'string' ? String(source['process_id']) : typeof source['related_process_id'] === 'string' ? String(source['related_process_id']) : auditSource?.target_kind === 'process' && auditSource.target_id ? auditSource.target_id : undefined;
 
-  let summary = result.success ? (tool === 'edit_card' && related_card_id ? `edited card ${related_card_id}` : 'completed') : result.error;
+  let summary = result.success ? (tool === 'edit_card' && related_card_id ? `edited card ${related_card_id}` : 'completed') : (result.error ?? 'failed');
   if (auditSource?.outcome_summary) {
     summary = auditSource.outcome_summary;
   } else if (tool === 'read' && data) {
@@ -304,7 +303,7 @@ export class AnalystHandler {
       agentId: actor.agentId,
       role: 'analyst',
       sessionId,
-      systemPrompt: `${getAnalystSystemPrompt()}\n\n${this.buildProjectContext()}`,
+      systemPrompt: `${getAnalystSystemPrompt(tools)}\n\n${this.buildProjectContext()}`,
       contextMessages,
       tools,
       terminalToolNames: [],
@@ -339,9 +338,7 @@ export class AnalystHandler {
           inputSchema: tool.input,
           executor: async (args): Promise<ToolResult> => {
             if (!tool.executor) throw new Error(`Analyst tool '${tool.name}' has no executor.`);
-            const result = await tool.executor(ctx, args as Record<string, unknown>);
-            if (result.success) return { success: true, data: result.data };
-            return { success: false, error: result.error ?? result.errorEnvelope?.message ?? 'Tool failed.' };
+            return tool.executor(ctx, args as Record<string, unknown>);
           },
         })),
     };

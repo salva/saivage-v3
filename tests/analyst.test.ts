@@ -377,7 +377,7 @@ describe('Analyst Tools', () => {
     expect(result).toEqual(expect.objectContaining({
       success: false,
       data: { reason: 'unknown_recipient', recipient: 'missing-target' },
-      errorEnvelope: expect.objectContaining({ kind: 'not_found' }),
+      error: "Unknown notification recipient 'missing-target'.",
     }));
     const audits = listControlActions(projectRoot);
     const audit = audits.find(
