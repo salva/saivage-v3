@@ -77,6 +77,17 @@ function recordWrite(callId: string, path: string, content: string) {
   };
 }
 
+function invocationToolNames(input: LlmInvocationInput): string[] {
+  return input.tools.map((tool) => tool.function.name).sort();
+}
+
+function capturedInput(provider: LLMProviderPort, role: 'planner' | 'reviewer'): LlmInvocationInput {
+  const calls = (provider.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls;
+  const input = calls.find(([candidate]) => candidate.role === role)?.[0];
+  if (!input) throw new Error(`Missing ${role} invocation input`);
+  return input;
+}
+
 function withMandatoryRecords(responder: (input: LlmInvocationInput) => Promise<LlmCompleteResult> | LlmCompleteResult): LLMProviderPort {
   const pending = new Map<string, LlmCompleteResult>();
   const recordWrites = new Map<string, number>();
@@ -150,6 +161,85 @@ describe('PlanningCardProcessorActor', () => {
       systemPrompt: expect.stringContaining('record://review.md?v=next'),
       tools: expect.arrayContaining(['read', 'write', 'glob', 'grep', 'edit', 'list_card_history', 'get_card_history_entry', 'diff_card', 'websearch', 'webfetch', 'skill', 'mcp_tool_call', 'emit_result'].map((name) => expect.objectContaining({ function: expect.objectContaining({ name }) }))),
     }), expect.any(AbortSignal));
+
+    const plannerToolNames = invocationToolNames(capturedInput(provider, 'planner'));
+    expect(plannerToolNames).toEqual([
+      'activate_card',
+      'cancel_card',
+      'create_card',
+      'diff_card',
+      'edit',
+      'edit_card',
+      'emit_result',
+      'get_card',
+      'get_card_history_entry',
+      'get_tree',
+      'glob',
+      'grep',
+      'list_card_history',
+      'list_cards',
+      'queue_notification',
+      'read',
+      'reorder_child',
+      'webfetch',
+      'websearch',
+      'write',
+    ].sort());
+    expect(plannerToolNames).not.toEqual(expect.arrayContaining([
+      'apply_patch',
+      'run_command',
+      'wait_process',
+      'kill_process',
+      'skill',
+      'mcp_tool_call',
+      'write_file',
+      'terminate_process',
+      'get_card_output',
+      'restart_card_or_subtree',
+      'restart_goal',
+      'abort_goal_subtree',
+      'mark_goal_needs_corrections',
+      'create_plan',
+      'update_plan',
+    ]));
+
+    const reviewerToolNames = invocationToolNames(capturedInput(provider, 'reviewer'));
+    expect(reviewerToolNames).toEqual([
+      'diff_card',
+      'edit',
+      'emit_result',
+      'get_card_history_entry',
+      'glob',
+      'grep',
+      'list_card_history',
+      'mcp_tool_call',
+      'read',
+      'skill',
+      'webfetch',
+      'websearch',
+      'write',
+    ].sort());
+    expect(reviewerToolNames).not.toEqual(expect.arrayContaining([
+      'apply_patch',
+      'run_command',
+      'wait_process',
+      'kill_process',
+      'create_card',
+      'edit_card',
+      'activate_card',
+      'cancel_card',
+      'reorder_child',
+      'queue_notification',
+      'write_file',
+      'terminate_process',
+      'get_card_output',
+      'restart_card_or_subtree',
+      'restart_goal',
+      'abort_goal_subtree',
+      'mark_goal_needs_corrections',
+      'create_plan',
+      'update_plan',
+    ]));
   }));
 
   it('builds planner and reviewer prompts from the latest brief record', async () => withTempProject(async (projectRoot) => {

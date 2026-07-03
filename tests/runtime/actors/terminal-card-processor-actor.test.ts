@@ -46,6 +46,10 @@ function recordWrite(callId: string, path: string, content: string) {
   };
 }
 
+function invocationToolNames(input: LlmInvocationInput): string[] {
+  return input.tools.map((tool) => tool.function.name).sort();
+}
+
 function withExecutorStatusRecord(responder: (input: LlmInvocationInput, signal: AbortSignal) => Promise<LlmCompleteResult> | LlmCompleteResult): LLMProviderPort {
   const pending = new Map<string, LlmCompleteResult>();
   const statusWrites = new Map<string, number>();
@@ -105,6 +109,39 @@ describe('TerminalCardProcessorActor', () => {
       systemPrompt: expect.stringContaining('record://status.md?v=next'),
       tools: expect.arrayContaining(['read', 'write', 'glob', 'grep', 'edit', 'apply_patch', 'run_command', 'wait_process', 'kill_process', 'list_card_history', 'get_card_history_entry', 'diff_card', 'websearch', 'webfetch', 'skill', 'mcp_tool_call'].map((name) => expect.objectContaining({ function: expect.objectContaining({ name }) }))),
     }), expect.any(AbortSignal));
+    const input = (provider.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls[0]?.[0];
+    if (!input) throw new Error('Missing executor invocation input');
+    const names = invocationToolNames(input);
+    expect(names).toEqual([
+      'apply_patch',
+      'diff_card',
+      'edit',
+      'emit_result',
+      'get_card_history_entry',
+      'glob',
+      'grep',
+      'kill_process',
+      'list_card_history',
+      'mcp_tool_call',
+      'read',
+      'run_command',
+      'skill',
+      'wait_process',
+      'webfetch',
+      'websearch',
+      'write',
+    ].sort());
+    expect(names).not.toEqual(expect.arrayContaining([
+      'write_file',
+      'terminate_process',
+      'get_card_output',
+      'restart_card_or_subtree',
+      'restart_goal',
+      'abort_goal_subtree',
+      'mark_goal_needs_corrections',
+      'create_plan',
+      'update_plan',
+    ]));
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_kind)).toEqual(expect.arrayContaining(['card', 'llm', 'processor']));
   }));
 

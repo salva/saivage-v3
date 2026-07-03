@@ -443,7 +443,7 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
    Provider composition is now the authority. Remove or shrink `RoleToolPolicy` where it duplicates provider surfaces.
 
-   Status: completed in `a1c3c411`. Divergence: `RoleToolPolicy` was deleted entirely (not just shrunk) along with its two test files, since provider composition is the sole authority and the only production call site (Analyst handler filter) was a redundant re-check of already-Analyst control tools. **Note:** this temporarily removed explicit negative-surface coverage for planner/reviewer boundaries. Stage 5 item H.1 (actual-surface tests) is now critical to restore that coverage and must not be skipped.
+   Status: completed in `a1c3c411`. Divergence: `RoleToolPolicy` was deleted entirely (not just shrunk) along with its two test files, since provider composition is the sole authority and the only production call site (Analyst handler filter) was a redundant re-check of already-Analyst control tools. Stage 5 H.1 restored explicit negative-surface coverage for the actual Analyst, planner, reviewer, and executor invocation surfaces.
 
 4. **Rename or split `tool-catalog.ts`.**
 
@@ -459,9 +459,9 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
 ### H. Test Hardening
 
-1. **Add actual-surface tests for retired tool names.**
+1. Completed: add actual-surface tests for retired tool names.
 
-   Assert the Analyst surface excludes the full retired vocabulary and never includes `emit_result`. Assert planner/reviewer surfaces lack `apply_patch` through composition.
+   Tests now assert the Analyst active surface excludes the retired vocabulary and never includes `emit_result`, planner/reviewer actual LLM inputs lack `apply_patch`, and executor retains only its expected composed surface.
 
 2. **Add websocket-level Analyst process cleanup test.**
 
@@ -633,7 +633,7 @@ Goal: lock in the cleanup with proper tests and current documentation.
 
 Tasks (backlog groups I, J, K):
 
-1. Add actual-surface tests for retired tool names and planner/reviewer `apply_patch` absence.
+1. Completed: add actual-surface tests for retired tool names and planner/reviewer `apply_patch` absence.
 2. Add websocket-level Analyst process cleanup test.
 3. Delete dead `_llm-test-helpers.ts` and consolidate duplicated test helpers.
 4. Add focused missing-record repair tests.
@@ -656,4 +656,4 @@ Validation:
 
 ## Recommended Next Action
 
-Stages 0–4 are complete. Proceed to Stage 5 (test hardening, docs, and misc). Stage 5 item H.1 (actual-surface tests) is critical because the `RoleToolPolicy` deletion temporarily removed explicit negative-surface coverage.
+Stages 0–4 are complete and Stage 5 H.1 is complete. Continue with H.2 websocket-level Analyst process cleanup coverage.

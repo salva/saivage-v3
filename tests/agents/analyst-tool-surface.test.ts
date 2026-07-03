@@ -31,6 +31,24 @@ const RETIRED_NOTE_TOOLS = [
   '\x6dark_note_handled',
 ];
 
+const RETIRED_ACTIVE_SURFACE_TOOLS = [
+  'add_note',
+  'list_notes',
+  'get_note',
+  'mark_note_handled',
+  'create_plan',
+  'update_plan',
+  'edit_card',
+  'get_card_output',
+  'abort_goal_subtree',
+  'restart_card_or_subtree',
+  'restart_goal',
+  'mark_goal_needs_corrections',
+  'write_file',
+  'terminate_process',
+  'emit_result',
+];
+
 const TEST_BRIEF = '# Goal\n\nFollow SPEC/PLAN.\n\n# Instructions\n\nUse record-backed cards.\n\n# Acceptance Criteria\n\nDone.\n';
 
 function setupRoot(): string {
@@ -117,7 +135,9 @@ describe('Tool inventory mirrors SPEC-r7 capability classes', () => {
     try {
       const handler = new AnalystHandler(root, loadTestConfig(root), createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) }));
 
-      expect(handler.getAvailableToolNames()).toEqual(expect.arrayContaining(['list_cards', 'get_card', 'get_tree', 'list_card_history', 'get_card_history_entry', 'diff_card', 'skill', 'mcp_tool_call', 'websearch', 'webfetch', 'run_command']));
+      const names = handler.getAvailableToolNames();
+      expect(names).toEqual(expect.arrayContaining(['list_cards', 'get_card', 'get_tree', 'list_card_history', 'get_card_history_entry', 'diff_card', 'skill', 'mcp_tool_call', 'websearch', 'webfetch', 'run_command']));
+      expect(names).not.toEqual(expect.arrayContaining(RETIRED_ACTIVE_SURFACE_TOOLS));
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });
