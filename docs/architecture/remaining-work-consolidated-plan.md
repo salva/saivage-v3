@@ -505,7 +505,9 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
    Removed the current-runtime mixed-layout diagnostic for `.saivage/runtime/state.json`. Runtime state now reads and writes only `.saivage/tmp/state/runtime.json`; legacy path mentions remain only in historical docs and generic path-redaction tests.
 
-3. **Lessons module audit.** Move `src/lessons/*` out of `src/` or delete if only test-supported.
+3. Completed: Lessons module audit.
+
+   Deleted `src/lessons/*` and its dedicated tests because no production code imported the lesson/TTS artifact scaffolding; it was only test-supported dead code.
 
 4. **`EventsReadModelService` allocation churn.** It constructs a fresh `EventLogger` per request. Hoist to the service constructor.
 
