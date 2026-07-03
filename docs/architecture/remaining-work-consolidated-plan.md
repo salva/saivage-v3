@@ -525,7 +525,7 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
 These items were discovered during a full review of the Stage 3–4 work. They must be done before Stage 5 so that the cleanup does not ship with weakened contracts or stale defaults.
 
-1. **Tighten `ToolResult` back to a discriminated union.**
+1. Completed: tighten `ToolResult` back to a discriminated union.
 
    `src/tools/invocation.ts:7` currently uses `{ success: boolean; data?: unknown; error?: string }`. Restore type-safety narrowing and keep `error` required on failures:
    ```ts
@@ -535,7 +535,7 @@ These items were discovered during a full review of the Stage 3–4 work. They m
    ```
    Then clean up `toolFailure` (`src/tools/analyst-tool-helpers.ts` line 75) and `classifyToolError` (`src/tools/analyst-tool-helpers.ts` line 79): either remove the now-dead `_kind`/`_details`/`_retryable` parameters or route `details` into the failure `data` field. Remove the `?? 'failed'` / `?? 'Web tool failed.'` fallbacks that were added to work around optional `error`.
 
-2. **Make `getAnalystSystemPrompt(tools)` require its argument.**
+2. Completed: make `getAnalystSystemPrompt(tools)` require its argument.
 
    Remove the `= ANALYST_TOOL_DEFINITIONS` default at `src/agents/analyst-prompt.ts:70`. Update the two tests that call it with no args (`tests/agents/analyst-tool-surface.test.ts` and `tests/agents/analyst-system-prompt.test.ts`) to pass explicit definitions. This prevents accidental reintroduction of the stale static tool list.
 
@@ -660,7 +660,7 @@ Tasks (backlog groups I, J, K):
 3. Completed: delete dead `_llm-test-helpers.ts` and consolidate duplicated test helpers.
 4. Completed: add focused missing-record repair tests for planner/executor `status.md` and reviewer `review.md` same-session repair.
 5. Completed: clean stale doc/spec vocabulary and update the architecture index.
-6. Process API cleanup, runtime-state layout, lessons module, and other low-priority items.
+6. Completed: Process API cleanup, runtime-state layout, lessons module, and other low-priority items.
 
 Validation:
 
@@ -678,4 +678,4 @@ Validation:
 
 ## Recommended Next Action
 
-Stages 0–4 are complete and Stage 5 H.1-H.3 are complete. Continue with H.4 missing-record repair tests.
+Stages 0–5 are complete. Use [Future Capabilities Plan](./future-capabilities-plan.md) for follow-up feature work outside this cleanup backlog.
