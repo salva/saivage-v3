@@ -431,25 +431,25 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
    Analyst control tools return preview/error-envelope shapes that the handler strips to the shared invocation `ToolResult`. Replace with the common result type unless a concrete UI preview path exists.
 
-   Status: completed in `04dd30ee`. Divergence: the shared `ToolResult` (`src/tools/invocation.ts`) was widened from a discriminated union `{ success: true; data? } | { success: false; error }` to `{ success: boolean; data?: unknown; error?: string }` because several Analyst tools attach diagnostic `data` to failures (e.g. `reorder_set_mismatch`, `unknown_recipient`) and tests read `data` on failed results. The `ActionPreview`, `ToolErrorEnvelope`, and the audit-runner `preview` callback were removed as dead (the handler never read previews).
+   Status: partially completed in `04dd30ee`. The `ActionPreview`, `ToolErrorEnvelope`, and the audit-runner `preview` callback were correctly removed as dead. **Rework needed (K.1):** the shared `ToolResult` (`src/tools/invocation.ts`) was widened from a discriminated union to `{ success: boolean; data?: unknown; error?: string }`, which lost type-safety narrowing and made `error` optional on failures. It must be tightened to `{ success: true; data?: unknown } | { success: false; error: string; data?: unknown }`. This preserves diagnostic `data` on failures (needed by `reorder_set_mismatch`, `unknown_recipient`, etc.) without weakening the contract. As a consequence, `toolFailure` at `src/tools/analyst-tool-helpers.ts:75` currently discards `_kind`/`_details`/`_retryable` and `classifyToolError` at `:79` computes a `kind` that is immediately discarded — both must be cleaned up (either remove the dead params or route `details` into the failure `data`).
 
 2. **Replace stale Analyst prompt/tool-list generation.**
 
    The Analyst prompt's static `<TOOL_LIST>` is based on control-tool definitions, while the actual surface is composed from providers. Derive from `InvocationSurface` or document the static list as control-tools-only.
 
-   Status: completed in `04dd30ee`. `getAnalystSystemPrompt(tools)` now renders the composed invocation surface definitions; the dead `getAvailableAnalystToolNames` helper was removed.
+   Status: partially completed in `04dd30ee`. `getAnalystSystemPrompt(tools)` now renders the composed invocation surface definitions in production (`src/agents/analyst-handler.ts` line 305); the dead `getAvailableAnalystToolNames` helper was removed. **Rework needed (K.2):** `getAnalystSystemPrompt` at `src/agents/analyst-prompt.ts` line 70 still defaults to static `ANALYST_TOOL_DEFINITIONS` when called with no args, and two tests (`tests/agents/analyst-tool-surface.test.ts` and `tests/agents/analyst-system-prompt.test.ts`) use that default. This leaves a reusable footgun that can reintroduce the exact stale-tool-list issue. The `tools` argument must be made required, and the tests updated to pass explicit definitions.
 
 3. **Reduce duplicate role/tool policy lists.**
 
    Provider composition is now the authority. Remove or shrink `RoleToolPolicy` where it duplicates provider surfaces.
 
-   Status: completed in `a1c3c411`. Divergence: `RoleToolPolicy` was deleted entirely (not just shrunk) along with its two test files, since provider composition is the sole authority and the only production call site (Analyst handler filter) was a redundant re-check of already-Analyst control tools.
+   Status: completed in `a1c3c411`. Divergence: `RoleToolPolicy` was deleted entirely (not just shrunk) along with its two test files, since provider composition is the sole authority and the only production call site (Analyst handler filter) was a redundant re-check of already-Analyst control tools. **Note:** this temporarily removed explicit negative-surface coverage for planner/reviewer boundaries. Stage 5 item H.1 (actual-surface tests) is now critical to restore that coverage and must not be skipped.
 
 4. **Rename or split `tool-catalog.ts`.**
 
    The file is not an execution catalog anymore, but it is more than vocabulary constants: it defines shared tool definition/executor types and schema helpers used across production tool providers. Do not inline everything. Clean cut: rename it to a neutral home such as `tool-definition.ts`, or split shared definition/schema helpers from Analyst-only vocabulary. Also consolidate the duplicated `AgentRole` type (defined in both `schemas/types.ts` and `tool-catalog.ts`) — keep only the `schemas/types.ts` one and update `record-slots.ts`'s import.
 
-   Status: completed in `80783f66`. Renamed to `tool-definition.ts`; `AgentRole` is now re-exported from `schemas` (single source) with `tool-definition.ts` re-exporting it.
+   Status: completed in `80783f66`. Renamed to `tool-definition.ts`; `AgentRole` is now re-exported from `schemas` (single source) with `tool-definition.ts` re-exporting it. **Note:** `src/tools/tool-definition.ts` still imports `ToolContext` from `analyst-tool-types.ts`, and `ToolExecutor` is Analyst-context-shaped, so the "neutral home" is still partly Analyst-specific. This is not broken, but if the file grows it should be split: vocabulary/schema helpers separate from Analyst control-tool definition types. Tracked as low-priority; no immediate rework needed.
 
 5. **Remove tests-only `ToolRuntime` and package-root barrels.**
 
@@ -498,6 +498,31 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 5. **Dead `MAX_ANALYST_OUTPUT_BYTES`.** Unused constant in `command-policy.ts`.
 
 6. **Dead derived-type exports.** `config-schema.ts` exports six types nobody imports.
+
+### K. Rework From Review
+
+These items were discovered during a full review of the Stage 3–4 work. They must be done before Stage 5 so that the cleanup does not ship with weakened contracts or stale defaults.
+
+1. **Tighten `ToolResult` back to a discriminated union.**
+
+   `src/tools/invocation.ts:7` currently uses `{ success: boolean; data?: unknown; error?: string }`. Restore type-safety narrowing and keep `error` required on failures:
+   ```ts
+   export type ToolResult =
+     | { success: true; data?: unknown }
+     | { success: false; error: string; data?: unknown };
+   ```
+   Then clean up `toolFailure` (`src/tools/analyst-tool-helpers.ts` line 75) and `classifyToolError` (`src/tools/analyst-tool-helpers.ts` line 79): either remove the now-dead `_kind`/`_details`/`_retryable` parameters or route `details` into the failure `data` field. Remove the `?? 'failed'` / `?? 'Web tool failed.'` fallbacks that were added to work around optional `error`.
+
+2. **Make `getAnalystSystemPrompt(tools)` require its argument.**
+
+   Remove the `= ANALYST_TOOL_DEFINITIONS` default at `src/agents/analyst-prompt.ts:70`. Update the two tests that call it with no args (`tests/agents/analyst-tool-surface.test.ts` and `tests/agents/analyst-system-prompt.test.ts`) to pass explicit definitions. This prevents accidental reintroduction of the stale static tool list.
+
+3. **Fix pre-existing web Vitest failures.**
+
+   Three categories of pre-existing failures block the Stage 4 web gate (confirmed on clean worktree, unrelated to backend cleanup):
+   - Analyst session id canonicalization: tests expect `analyst:global`, store emits `analyst` (`analyst-chat-store`, `analyst-chat-panel`, `conversation-tool-chip`, `analystChat.context`).
+   - Content component tests mount without active Pinia (`MarkdownText`, `InlineParts`, `ToolChip`).
+   - `web/src/__tests__/process-contract-alignment.test.ts` fixture missing required `owner_id`.
 
 ## Execution Plan
 
@@ -586,15 +611,18 @@ Validation:
 
 Goal: remove dead UI, shrink actor interfaces, and simplify tool plumbing.
 
-Tasks (backlog groups F, G, H):
+Tasks (backlog groups F, G, H, K):
 
 1. Partially completed: delete dead UI components, dead API client functions, dead websocket surface, and auth environment guards.
 2. Completed: shrink `evaluateReviewerTerminalOutcome` inputs and remove async mutation wrappers.
 3. Completed (`bfd85de3`): extract shared contract-bounded repair loop.
 4. Completed (`04dd30ee`): collapse Analyst control-tool result envelopes and fix prompt tool-list generation.
 5. Completed (`a1c3c411`, `80783f66`, `855aceeb`): remove duplicate `RoleToolPolicy`, rename `tool-catalog.ts` → `tool-definition.ts`, and remove dead `ToolRuntime`.
-6. Pending (F.4): remove dead `CardStore.open`, `validateHistoryEntry`, `loadCardHistoryEntries`, and `deriveCurrentAgentSessionId*` in `current-run.ts`.
-7. Pending (F.6): narrow over-broad `catch {}` in record-slot close/recover paths.
+6. **Rework (K.1):** tighten `ToolResult` back to a discriminated union with optional `data` on failures; clean up `toolFailure`/`classifyToolError` dead params.
+7. **Rework (K.2):** make `getAnalystSystemPrompt(tools)` require its argument; update tests.
+8. Pending (F.4): remove dead `CardStore.open`, `validateHistoryEntry`, `loadCardHistoryEntries`, and `deriveCurrentAgentSessionId*` in `current-run.ts`.
+9. Pending (F.6): narrow over-broad `catch {}` in record-slot close/recover paths.
+10. **Rework (K.3):** fix pre-existing web Vitest failures so the web gate is green.
 
 Validation:
 
@@ -631,11 +659,13 @@ Validation:
 
 ## Recommended Next Action
 
-Stages 0–3 are complete. Stage 4 code work is complete through F.3 and all of group G (commits `bfd85de3`, `04dd30ee`, `a1c3c411`, `80783f66`, `855aceeb`).
+Stages 0–3 are complete. Stage 4 code work is complete through F.3 and all of group G (commits `bfd85de3`, `04dd30ee`, `a1c3c411`, `80783f66`, `855aceeb`), but a full review found rework items (group K) that must be done before Stage 5.
 
-Remaining Stage 4 items:
-1. F.4: remove dead `CardStore.open`, `validateHistoryEntry`, `loadCardHistoryEntries`, and `deriveCurrentAgentSessionId*`.
-2. F.6: narrow over-broad `catch {}` in record-slot helpers.
-3. Fix the pre-existing web Vitest failures (analyst session id canonicalization, missing Pinia setup in content component tests, `process-contract-alignment` fixture missing `owner_id`) so the Stage 4 web gate is green.
+Remaining Stage 4 items, in priority order:
+1. **K.1:** Tighten `ToolResult` to `{ success: true; data? } | { success: false; error: string; data? }`; clean up `toolFailure`/`classifyToolError` dead params; remove `?? 'failed'` fallbacks.
+2. **K.2:** Make `getAnalystSystemPrompt(tools)` require its argument; update the two tests using the stale default.
+3. **F.4:** Remove dead `CardStore.open`, `validateHistoryEntry`, `loadCardHistoryEntries`, and `deriveCurrentAgentSessionId*`.
+4. **F.6:** Narrow over-broad `catch {}` in record-slot helpers.
+5. **K.3:** Fix the pre-existing web Vitest failures (analyst session id canonicalization, missing Pinia setup in content component tests, `process-contract-alignment` fixture missing `owner_id`) so the Stage 4 web gate is green.
 
-Then proceed to Stage 5 (test hardening, docs, and misc).
+Then proceed to Stage 5 (test hardening, docs, and misc). Stage 5 item H.1 (actual-surface tests) is critical because the `RoleToolPolicy` deletion temporarily removed explicit negative-surface coverage.
