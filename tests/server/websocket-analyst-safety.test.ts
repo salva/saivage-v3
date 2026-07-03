@@ -57,6 +57,7 @@ describe('websocket analyst safety and live-sync control', () => {
     mockResolveAnalystSessionId.mockReturnValue('session-1');
     mockGetAnalystHandler.mockReturnValue({
       handleMessage: jest.fn(async () => ({ message: { role: 'assistant', content: 'ok' }, toolInvocations: [] })),
+      shutdownSessionProcesses: jest.fn(async () => undefined),
     });
     delete process.env.SAIVAGE_API_TOKEN;
     resetAuthPolicyForTests();
@@ -124,5 +125,28 @@ describe('websocket analyst safety and live-sync control', () => {
     expect(mockGetAnalystHandler).toHaveBeenCalled();
     const payloads = (ws.send as jest.Mock).mock.calls.map((call) => JSON.parse(String(call[0])));
     expect(payloads.some((payload) => payload.type === 'message' && payload.content.content === 'ok')).toBe(true);
+  });
+
+  it.each(['close', 'error'] as const)('shuts down Analyst session processes on websocket %s', (event) => {
+    const shutdownSessionProcesses = jest.fn(async () => undefined);
+    mockGetAnalystHandler.mockReturnValue({
+      handleMessage: jest.fn(async () => ({ message: { role: 'assistant', content: 'ok' }, toolInvocations: [] })),
+      shutdownSessionProcesses,
+    });
+    mockResolveAnalystSessionId.mockReturnValueOnce('session-initialized').mockReturnValue('session-later');
+    const { route, fastify } = createRoute();
+    registerWebSocket(fastify, '/tmp/project', {
+      liveSyncSocket: new LiveSyncSocket(),
+      saivageConfig: createTestSaivageConfig(),
+      runtimeApplication: createTestRuntimeApplication(),
+      requestServerRestart: async () => undefined,
+    });
+    const { ws, handlers } = createSocket();
+    route.handler(ws, { headers: {}, query: {} });
+
+    handlers.get(event)?.();
+
+    expect(shutdownSessionProcesses).toHaveBeenCalledTimes(1);
+    expect(shutdownSessionProcesses).toHaveBeenCalledWith('session-initialized');
   });
 });
