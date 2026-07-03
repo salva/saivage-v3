@@ -25,7 +25,7 @@ import {
   stringArraySchema,
   urgencySchema,
   type UnifiedToolDefinition,
-} from './tool-catalog.js';
+} from './tool-definition.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
 import { cardSummary, defaultParentForCreate, getStore, humanizeToolError, normalizeParentValue, preflightEnum, saivageDir, toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
 import { readRecordSlotIndex, recordPath, recordSlotDefinitions } from '../runtime/records/record-slots.js';

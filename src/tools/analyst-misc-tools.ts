@@ -8,7 +8,7 @@ import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import { GLOBAL_ANALYST_SESSION_ID, isSafeAgentSessionId } from '../agents/session-ids.js';
 import { AgentOperatorReadModelService } from '../application/read-models/index.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
-import { describe, emptyInput, type UnifiedToolDefinition } from './tool-catalog.js';
+import { describe, emptyInput, type UnifiedToolDefinition } from './tool-definition.js';
 import { toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
 
 const JSONL_TAIL_DEFAULT = 50;

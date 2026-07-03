@@ -5,11 +5,11 @@ import { dirname, join } from 'node:path';
 import net from 'node:net';
 import { z } from 'zod';
 
-import { describe } from './tool-catalog.js';
+import { describe } from './tool-definition.js';
 import type { ToolContext, ToolResult as AnalystToolResult } from './analyst-tool-types.js';
 import { toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
 import { defineTool, type ToolProvider, type ToolResult as InvocationToolResult } from './invocation.js';
-import type { AgentRole } from './tool-catalog.js';
+import type { AgentRole } from './tool-definition.js';
 import { authorizeWriteProject, writeProject, type WorkspaceContext } from './project-file-tools.js';
 
 const DEFAULT_TIMEOUT_MS = 15_000;

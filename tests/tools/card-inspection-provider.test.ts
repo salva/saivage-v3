@@ -8,7 +8,7 @@ import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { closeOpenRecordSlot, openRecordSlot } from '../../src/runtime/records/record-slots.js';
 import { buildInvocationSurface, invokeTool, surfaceToolDefinitions } from '../../src/tools/invocation.js';
 import { createCardInspectionProvider } from '../../src/tools/card-inspection-provider.js';
-import { CARD_STATUS_VALUES, CARD_TYPE_VALUES } from '../../src/tools/tool-catalog.js';
+import { CARD_STATUS_VALUES, CARD_TYPE_VALUES } from '../../src/tools/tool-definition.js';
 import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 
 function setup(root: string): CardStore {

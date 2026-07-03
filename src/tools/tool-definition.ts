@@ -1,8 +1,10 @@
 import { z } from 'zod';
 
-import type { PermissionRole } from '../permissions/index.js';
 import { analystIssueSeverityValues, cardStatusValues, cardTypeValues, urgencyValues } from '../schemas/index.js';
+import type { AgentRole } from '../schemas/index.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
+
+export type { AgentRole };
 
 export const CARD_STATUS_VALUES = cardStatusValues;
 export const RUNTIME_CARD_STATUS_VALUES = CARD_STATUS_VALUES.filter((status) => status !== 'needs_verification') as [
@@ -21,7 +23,6 @@ export const URGENCY_VALUES = urgencyValues;
 export const NOTE_KIND_VALUES = ['comment', 'progress', 'directive', 'escalation'] as const;
 export const ANALYST_ISSUE_SEVERITY_VALUES = analystIssueSeverityValues;
 
-export type AgentRole = PermissionRole;
 export type ToolExecutor<Input> = (ctx: ToolContext, params: Input) => Promise<ToolResult>;
 
 export interface UnifiedToolDefinition<Name extends string = string, Input = unknown> {

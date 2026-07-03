@@ -46,7 +46,7 @@ import {
   CREATE_CARD_TYPE_VALUES,
   NOTE_KIND_VALUES,
   URGENCY_VALUES,
-} from '../src/tools/tool-catalog.js';
+} from '../src/tools/tool-definition.js';
 import { cardStatusSchema, cardTypeSchema, urgencySchema } from '../src/schemas/validators.js';
 import {
   createTestAnalystRuntime,

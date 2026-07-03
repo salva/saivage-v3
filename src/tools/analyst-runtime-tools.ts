@@ -6,7 +6,7 @@ import { processApi } from '../runtime/process-api.js';
 import { listControlActions } from '../persistence/index.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
-import { emptyInput, type UnifiedToolDefinition } from './tool-catalog.js';
+import { emptyInput, type UnifiedToolDefinition } from './tool-definition.js';
 import { readJsonlTail, toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
 
 const JSONL_TAIL_DEFAULT = 50;

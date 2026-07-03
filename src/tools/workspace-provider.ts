@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import { applyProjectPatch, editProject, globProject, grepProject, readProject, WorkspaceToolInputError, writeProject } from './project-file-tools.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
-import type { AgentRole } from './tool-catalog.js';
+import type { AgentRole } from './tool-definition.js';
 import type { CardStore } from '../cards/store-api.js';
 
 export interface WorkspaceProviderContext {

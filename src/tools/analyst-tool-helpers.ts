@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { PROJECT_CARD_ID, type CardStore } from '../cards/store-api.js';
 import { computeCardDisplayPath } from '../application/read-models/card-view.js';
 import type { CardRecord, CardType } from '../schemas/index.js';
-import { CARD_STATUS_VALUES, CARD_TYPE_VALUES, URGENCY_VALUES } from './tool-catalog.js';
+import { CARD_STATUS_VALUES, CARD_TYPE_VALUES, URGENCY_VALUES } from './tool-definition.js';
 import type { ToolContext, ToolErrorKind, ToolResult } from './analyst-tool-types.js';
 
 export function saivageDir(projectRoot: string): string {

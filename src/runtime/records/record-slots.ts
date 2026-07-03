@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
-import type { AgentRole } from '../../tools/tool-catalog.js';
+import type { AgentRole } from '../../tools/tool-definition.js';
 
 export type RecordSlotVersionStatus = 'open' | 'closed' | 'discarded';
 

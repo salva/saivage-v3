@@ -3,7 +3,7 @@ import {
   CARD_STATUS_VALUES,
   CARD_TYPE_VALUES,
   URGENCY_VALUES,
-} from '../tools/tool-catalog.js';
+} from '../tools/tool-definition.js';
 import { ANALYST_TOOL_DEFINITIONS } from '../tools/analyst-tool-registry.js';
 import type { ToolDefinition } from './llm-contracts.js';
 

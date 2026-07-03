@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { CardStore } from '../cards/card-store.js';
-import type { AgentRole } from './tool-catalog.js';
+import type { AgentRole } from './tool-definition.js';
 import type { ToolContext } from './analyst-tool-types.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
 
