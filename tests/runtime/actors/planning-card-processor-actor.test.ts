@@ -795,6 +795,64 @@ describe('PlanningCardProcessorActor', () => {
     ]));
   }));
 
+  it('repairs missing reviewer review record before projecting the assessment', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    markDone(store, createGoal(store, project.id));
+    const actions: string[] = [];
+    const provider: LLMProviderPort = {
+      completeTurn: jest.fn(async (input: LlmInvocationInput) => {
+        const last = input.episodeContext.lastToolResult as { toolName?: string } | undefined;
+        if (input.role === 'planner') {
+          if (!last) {
+            actions.push('planner_write_status');
+            return recordWrite('planner-status-before-review', 'record://status.md?v=next', 'Planner status before review.');
+          }
+          actions.push('planner_emit_done');
+          return plannerResult('done', 'ready for review');
+        }
+        if (!last) {
+          actions.push('reviewer_emit_without_review');
+          return reviewerResult({ status: 'done', summary: 'missing review first' });
+        }
+        if (last.toolName === 'emit_result') {
+          actions.push('reviewer_write_review_after_repair');
+          return recordWrite('reviewer-review-after-repair', 'record://review.md?v=next', 'Reviewer assessment after repair.');
+        }
+        actions.push('reviewer_emit_after_review');
+        return reviewerResult({ status: 'done', summary: 'review ok after missing-record repair' });
+      }),
+    };
+    const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
+    actor.start();
+
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
+
+    expect(outcome).toMatchObject({ status: 'done', summary: 'review ok after missing-record repair' });
+    expect(actions).toEqual(['planner_write_status', 'planner_emit_done', 'reviewer_emit_without_review', 'reviewer_write_review_after_repair', 'reviewer_emit_after_review']);
+    const calls = (provider.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls;
+    const reviewerCalls = calls.filter(([input]) => input.role === 'reviewer');
+    expect(reviewerCalls).toHaveLength(3);
+    expect(reviewerCalls.map(([input]) => input.sessionId)).toEqual([
+      `reviewer:${project.id}:assessment-${project.id}-1`,
+      `reviewer:${project.id}:assessment-${project.id}-1`,
+      `reviewer:${project.id}:assessment-${project.id}-1`,
+    ]);
+    const repairInput = reviewerCalls[1][0];
+    const missingRecord = `Required record 'record://review.md?card=${project.id}&v=next' was not created.`;
+    expect(repairInput.episodeContext.lastToolResult).toMatchObject({
+      toolCallId: 'reviewer-result-1',
+      toolName: 'emit_result',
+      result: { success: false, error: missingRecord },
+    });
+    expect(repairInput.contextMessages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'assistant', kind: 'tool_call', tool: 'emit_result', tool_call_id: 'reviewer-result-1' }),
+      expect.objectContaining({ role: 'tool', kind: 'tool_result', tool: 'emit_result', tool_call_id: 'reviewer-result-1', content: JSON.stringify({ success: false, error: missingRecord }) }),
+      expect.objectContaining({ role: 'user', content: expect.stringContaining('Create record://review.md?v=next, then call emit_result again.') }),
+    ]));
+  }));
+
   it('does not accept plain planner message JSON as terminal result', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
@@ -846,6 +904,50 @@ describe('PlanningCardProcessorActor', () => {
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
 
     expect(outcome).toMatchObject({ status: 'blocked', summary: 'valid after repair' });
+  }));
+
+  it('repairs missing planner status record before projecting the terminal outcome', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    const actions: string[] = [];
+    const provider: LLMProviderPort = {
+      completeTurn: jest.fn(async (input: LlmInvocationInput) => {
+        const last = input.episodeContext.lastToolResult as { toolName?: string } | undefined;
+        if (!last) {
+          actions.push('emit_without_status');
+          return plannerResult('blocked', 'missing record first');
+        }
+        if (last.toolName === 'emit_result') {
+          actions.push('write_status_after_repair');
+          return recordWrite('planner-status-after-repair', 'record://status.md?v=next', 'Planner status after repair.');
+        }
+        actions.push('emit_after_status');
+        return plannerResult('blocked', 'blocked after missing-record repair');
+      }),
+    };
+    const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
+    actor.start();
+
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
+
+    expect(outcome).toMatchObject({ status: 'blocked', summary: 'blocked after missing-record repair' });
+    expect(actions).toEqual(['emit_without_status', 'write_status_after_repair', 'emit_after_status']);
+    const calls = (provider.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls;
+    expect(calls).toHaveLength(3);
+    expect(calls.map(([input]) => input.sessionId)).toEqual([`planner:${project.id}`, `planner:${project.id}`, `planner:${project.id}`]);
+    const repairInput = calls[1][0];
+    const missingRecord = `Required record 'record://status.md?card=${project.id}&v=next' was not created.`;
+    expect(repairInput.episodeContext.lastToolResult).toMatchObject({
+      toolCallId: 'planner-blocked',
+      toolName: 'emit_result',
+      result: { success: false, error: missingRecord },
+    });
+    expect(repairInput.contextMessages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'assistant', kind: 'tool_call', tool: 'emit_result', tool_call_id: 'planner-blocked' }),
+      expect.objectContaining({ role: 'tool', kind: 'tool_result', tool: 'emit_result', tool_call_id: 'planner-blocked', content: JSON.stringify({ success: false, error: missingRecord }) }),
+      expect.objectContaining({ role: 'user', content: expect.stringContaining('Create record://status.md?v=next, then call emit_result again.') }),
+    ]));
   }));
 
   it('throws a clear impossible-state error when recovering directly into planning', () => withTempProject((projectRoot) => {

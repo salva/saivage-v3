@@ -255,6 +255,50 @@ describe('TerminalCardProcessorActor', () => {
     expect(outcome).toMatchObject({ status: 'done', summary: 'valid after terminal repair' });
   }));
 
+  it('repairs missing executor status record before projecting the terminal result', async () => withTempProject(async (projectRoot) => {
+    const { store, card } = setup(projectRoot);
+    const actions: string[] = [];
+    const provider: LLMProviderPort = {
+      completeTurn: jest.fn(async (input: LlmInvocationInput) => {
+        const last = input.episodeContext.lastToolResult as { toolName?: string } | undefined;
+        if (!last) {
+          actions.push('emit_without_status');
+          return executorResult(card.id, 'missing record first');
+        }
+        if (last.toolName === 'emit_result') {
+          actions.push('write_status_after_repair');
+          expect(store.read(card.id)?.status).toBe('running');
+          return recordWrite('executor-status-after-repair', 'record://status.md?v=next', 'Executor status after repair.');
+        }
+        actions.push('emit_after_status');
+        return executorResult(card.id, 'implemented after missing-record repair');
+      }),
+    };
+    const processor = new TerminalCardProcessorActor({ projectRoot, cardId: card.id, provider });
+    processor.start();
+    const actor = CardActor.fromCard({ projectRoot, card, store, processor });
+
+    const outcome = await actor.activate({ kind: 'parent', cardId: 'project' });
+
+    expect(outcome).toMatchObject({ status: 'done', summary: 'implemented after missing-record repair' });
+    expect(actions).toEqual(['emit_without_status', 'write_status_after_repair', 'emit_after_status']);
+    const calls = (provider.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls;
+    expect(calls).toHaveLength(3);
+    expect(calls.map(([input]) => input.sessionId)).toEqual([`executor:${card.id}`, `executor:${card.id}`, `executor:${card.id}`]);
+    const repairInput = calls[1][0];
+    const missingRecord = `Required record 'record://status.md?card=${card.id}&v=next' was not created.`;
+    expect(repairInput.episodeContext.lastToolResult).toMatchObject({
+      toolCallId: 'executor-done',
+      toolName: 'emit_result',
+      result: { success: false, error: missingRecord },
+    });
+    expect(repairInput.contextMessages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'assistant', kind: 'tool_call', tool: 'emit_result', tool_call_id: 'executor-done' }),
+      expect.objectContaining({ role: 'tool', kind: 'tool_result', tool: 'emit_result', tool_call_id: 'executor-done', content: JSON.stringify({ success: false, error: missingRecord }) }),
+      expect.objectContaining({ role: 'user', content: expect.stringContaining('Create record://status.md?v=next, then call emit_result again.') }),
+    ]));
+  }));
+
   it('returns malformed workspace write arguments as a recoverable tool result', async () => withTempProject(async (projectRoot) => {
     const { store, card } = setup(projectRoot);
     let sawMalformedWriteResult = false;
