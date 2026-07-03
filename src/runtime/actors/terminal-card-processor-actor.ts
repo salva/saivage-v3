@@ -18,10 +18,9 @@ import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import { processApi } from '../process-api.js';
 import { closeOpenRecordSlot, discardOpenRecordSlot } from '../records/record-slots.js';
 import { cardBriefForPrompt } from '../records/card-brief.js';
+import { runContractBoundedRepairLoop } from './contract-bounded-repair-loop.js';
 
 type TerminalProcessorOutcome = Extract<CardActivationOutcome, { status: 'done' | 'failed' }>;
-
-const MAX_TERMINAL_CONTRACT_REPAIRS = 2;
 
 export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor implements CardProcessorActor {
   static _actor: ActorDefinition = {
@@ -65,37 +64,31 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     discardOpenRecordSlot(this.projectRoot, { cardId: this.cardId, filename: 'status.md', reason: 'new_activation' });
     const llmInput = this.buildLlmInput(input, contract);
     this.activeProcessOwnerId = llmInput.inputId;
-    let outcome = await llm.turn(llmInput);
-    let repairAttempts = 0;
-    for (;;) {
-      if (outcome.type === 'result') {
+    const outcome = await llm.turn(llmInput);
+    return runContractBoundedRepairLoop<TerminalProcessorOutcome>({
+      initialOutcome: outcome,
+      isTerminalToolName: (name) => contract.isTerminalToolName(name),
+      fail: (message) => ({ status: 'failed', summary: message, result: executorFailure(message) }),
+      onPlainText: async (_outcome, control) => {
         const message = `${expectedTerminalToolMessage(contract)} Plain executor messages are not accepted as terminal results.`;
-        if (repairAttempts >= MAX_TERMINAL_CONTRACT_REPAIRS) return { status: 'failed', summary: message, result: executorFailure(message) };
-        repairAttempts++;
-        outcome = await llm.continueAfterPlainText(`${message} Do not summarize, simulate file writes, or describe what you would do. Use tools. Write record://status.md?v=next if needed, then call emit_result with valid JSON arguments.`);
-        continue;
-      }
-      if (outcome.type === 'error') return { status: 'failed', summary: outcome.error, result: executorFailure(outcome.error) };
-      if (contract.isTerminalToolName(outcome.toolName)) {
-        const invalidTerminal = this.validateExecutorTerminal(outcome, contract);
+        return control.repair(message, () => llm.continueAfterPlainText(`${message} Do not summarize, simulate file writes, or describe what you would do. Use tools. Write record://status.md?v=next if needed, then call emit_result with valid JSON arguments.`));
+      },
+      onTerminalTool: async (terminalOutcome, control) => {
+        const invalidTerminal = this.validateExecutorTerminal(terminalOutcome, contract);
         if (invalidTerminal) {
-          if (repairAttempts >= MAX_TERMINAL_CONTRACT_REPAIRS) return { status: 'failed', summary: invalidTerminal, result: executorFailure(invalidTerminal) };
-          repairAttempts++;
-          outcome = await llm.appendToolResult(outcome.toolCallId, { success: false, error: invalidTerminal }, () => [{ role: 'user', content: `${invalidTerminal} Call emit_result again with valid JSON arguments.` }]);
-          continue;
+          return control.repair(invalidTerminal, () => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: invalidTerminal }, () => [{ role: 'user', content: `${invalidTerminal} Call emit_result again with valid JSON arguments.` }]));
         }
         const missingRecord = this.closeRequiredStatusRecord(input.card.version_seq);
         if (missingRecord) {
-          if (repairAttempts >= MAX_TERMINAL_CONTRACT_REPAIRS) return { status: 'failed', summary: missingRecord, result: executorFailure(missingRecord) };
-          repairAttempts++;
-          outcome = await llm.appendToolResult(outcome.toolCallId, { success: false, error: missingRecord }, () => [{ role: 'user', content: `${missingRecord} Create record://status.md?v=next, then call emit_result again.` }]);
-          continue;
+          return control.repair(missingRecord, () => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: missingRecord }, () => [{ role: 'user', content: `${missingRecord} Create record://status.md?v=next, then call emit_result again.` }]));
         }
-        return this.projectExecutorTerminal(outcome, contract);
-      }
-      const toolResult = await this.handleToolCall(outcome, llmInput.inputId);
-      outcome = await llm.appendToolResult(outcome.toolCallId, toolResult, (inputId) => this.notificationContextMessages(input, inputId));
-    }
+        return control.done(this.projectExecutorTerminal(terminalOutcome, contract));
+      },
+      onNonTerminalTool: async (toolOutcome) => {
+        const toolResult = await this.handleToolCall(toolOutcome, llmInput.inputId);
+        return llm.appendToolResult(toolOutcome.toolCallId, toolResult, (inputId) => this.notificationContextMessages(input, inputId));
+      },
+    });
   }
 
   private buildLlmInput(input: CardActivationInput, contract = createExecutorContract()): LlmInvocationInput {
