@@ -501,7 +501,9 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
    Removed misleading operator `control` metadata (`can_view_logs`, `termination_available`, and `unavailable_reason`) from the process view contract. The operator process API remains read-only; agents still terminate their own processes through scoped `kill_process`, and runtime shutdown owns runtime process termination.
 
-2. **Legacy runtime-state layout cleanup.** Remove `.saivage/runtime/state.json` diagnostics if no deployment needs them.
+2. Completed: Legacy runtime-state layout cleanup.
+
+   Removed the current-runtime mixed-layout diagnostic for `.saivage/runtime/state.json`. Runtime state now reads and writes only `.saivage/tmp/state/runtime.json`; legacy path mentions remain only in historical docs and generic path-redaction tests.
 
 3. **Lessons module audit.** Move `src/lessons/*` out of `src/` or delete if only test-supported.
 

@@ -7,7 +7,6 @@ import { AtomicJsonFile, ProjectLock, PersistenceReadError, PersistenceValidatio
 import type { RuntimeActivationRecord, RuntimeActivationStatus, RuntimeCommandName, RuntimeCommandRecord, RuntimeRunRecord, RuntimeState } from '../schemas/index.js';
 import { createDefaultRuntimeState } from './default-state.js';
 
-const LEGACY_STATE_FILE = 'state.json';
 const AUTHORITATIVE_STATE_FILE = 'runtime.json';
 const runtimeStatePersistenceSchema = runtimeStateSchema as ZodType<RuntimeState>;
 
@@ -42,21 +41,9 @@ export class RuntimeDispatchInvariantError extends RuntimeStateInvariantError {
   }
 }
 
-export class RuntimeStateLayoutError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'RuntimeStateLayoutError';
-  }
-}
-
 export function runtimeStatePath(projectRoot: string): string {
   return join(projectRoot, '.saivage', 'tmp', 'state', AUTHORITATIVE_STATE_FILE);
 }
-
-export function legacyRuntimeStatePath(projectRoot: string): string {
-  return join(projectRoot, '.saivage', 'runtime', LEGACY_STATE_FILE);
-}
-
 
 function runtimeStateLock(projectRoot: string): ProjectLock {
   return new ProjectLock(join(projectRoot, '.saivage', '.lock'));
@@ -70,16 +57,6 @@ function describeInvariantViolation(state: RuntimeState): string {
   const status = state.active_card_run?.runtime_status ?? 'null';
   const cardId = state.active_card_run?.card_id ?? 'null';
   return `RuntimeState invariant violation: ${state.status} runtime cannot retain active_card_run (card_id=${cardId}, runtime_status=${status}). Reset .saivage runtime state and restart.`;
-}
-
-function describeMixedLayout(projectRoot: string): string {
-  return `RuntimeState layout conflict: both authoritative ${runtimeStatePath(projectRoot)} and legacy ${legacyRuntimeStatePath(projectRoot)} exist. Current runtime state only supports ${runtimeStatePath(projectRoot)}; reset .saivage runtime state and restart.`;
-}
-
-function assertNoMixedRuntimeStateLayout(projectRoot: string): void {
-  if (existsSync(runtimeStatePath(projectRoot)) && existsSync(legacyRuntimeStatePath(projectRoot))) {
-    throw new RuntimeStateLayoutError(describeMixedLayout(projectRoot));
-  }
 }
 
 function assertRuntimeStateInvariants(state: RuntimeState): RuntimeState {
@@ -105,7 +82,6 @@ function readRuntimeStateFile(projectRoot: string): RuntimeState {
 }
 
 export function initRuntimeState(projectRoot: string): RuntimeState {
-  assertNoMixedRuntimeStateLayout(projectRoot);
   const state = defaultRuntimeState();
   const lock = runtimeStateLock(projectRoot);
   const file = new AtomicJsonFile(runtimeStatePath(projectRoot), runtimeStatePersistenceSchema, lock, { version: 1 });
@@ -114,7 +90,6 @@ export function initRuntimeState(projectRoot: string): RuntimeState {
 }
 
 export function saveRuntimeState(projectRoot: string, state: RuntimeState): RuntimeState {
-  assertNoMixedRuntimeStateLayout(projectRoot);
   const parsed = runtimeStatePersistenceSchema.safeParse(state);
   if (!parsed.success) {
     explainLegacyStateRejection(projectRoot, 'RuntimeState', parsed.error.message);
@@ -127,7 +102,6 @@ export function saveRuntimeState(projectRoot: string, state: RuntimeState): Runt
 }
 
 export function readRuntimeState(projectRoot: string): RuntimeState | null {
-  assertNoMixedRuntimeStateLayout(projectRoot);
   if (!existsSync(runtimeStatePath(projectRoot))) {
     return null;
   }
@@ -138,7 +112,6 @@ export function updateRuntimeState(
   projectRoot: string,
   changes: Partial<RuntimeState>,
 ): RuntimeState {
-  assertNoMixedRuntimeStateLayout(projectRoot);
   const lock = runtimeStateLock(projectRoot);
   const file = new AtomicJsonFile(runtimeStatePath(projectRoot), runtimeStatePersistenceSchema, lock, { version: 1 });
   return lock.withLockSync((handle) => {
@@ -159,7 +132,6 @@ export function updateRuntimeStateLockedDeriving<T>(
   projectRoot: string,
   reducer: (current: RuntimeState) => { state: RuntimeState; result: T },
 ): T {
-  assertNoMixedRuntimeStateLayout(projectRoot);
   const lock = runtimeStateLock(projectRoot);
   const file = new AtomicJsonFile(runtimeStatePath(projectRoot), runtimeStatePersistenceSchema, lock, { version: 1 });
   let result: T | typeof UNSET_DERIVED_RESULT = UNSET_DERIVED_RESULT;
