@@ -13,7 +13,7 @@ export interface CreateServerOptions { environment: Environment; scope?: Resourc
 export interface ServerInstance { fastify: FastifyInstance; config: ServerConfig; saivageConfig: SaivageConfig; scope: ResourceScope; mcpManager: McpManager; telegramBot?: TelegramBot; runtimeApplication: RuntimeApplication; stop: () => Promise<void>; requestRestart: () => Promise<void>; }
 export function isLocalhost(host: string): boolean { return host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '0:0:0:0:0:0:0:1'; }
 export function validateDevModeHost(host: string | undefined, apiToken?: string): void { if (apiToken) return; console.warn('⚠  SAIVAGE_API_TOKEN is not set. Server is running in DEVELOPMENT MODE with auth disabled.\n' + '   Set SAIVAGE_API_TOKEN to a secure random string for production use.'); const resolvedHost = host ?? '0.0.0.0'; if (!isLocalhost(resolvedHost)) console.warn(`⚠  Binding to ${resolvedHost} without SAIVAGE_API_TOKEN. All API endpoints are unauthenticated.`); }
-export function getServerConfig(environment: Environment): ServerConfig { return { host: environment.server.host, port: environment.server.port, projectRoot: environment.projectRoot }; }
+function getServerConfig(environment: Environment): ServerConfig { return { host: environment.server.host, port: environment.server.port, projectRoot: environment.projectRoot }; }
 
 export async function createServer(options: CreateServerOptions): Promise<ServerInstance> {
   const environment = options.environment;
@@ -37,4 +37,3 @@ export async function createServer(options: CreateServerOptions): Promise<Server
 }
 
 export async function startServer(options: CreateServerOptions): Promise<ServerInstance> { const server = await createServer(options); validateDevModeHost(server.config.host, options.environment.auth.apiToken); await server.fastify.listen({ host: server.config.host, port: server.config.port }); return server; }
-export async function stopServer(server: ServerInstance): Promise<void> { await server.stop(); }

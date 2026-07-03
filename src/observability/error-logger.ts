@@ -110,9 +110,6 @@ export class ErrorLogger {
    * Reads from the persisted file, so it reflects all written errors.
    */
   getErrors(filter?: ErrorFilter): ErrorRecord[] {
-    // Flush buffer first to ensure all errors are on disk
-    this.flushSync();
-
     if (!existsSync(this.logPath)) {
       return [];
     }
@@ -157,28 +154,5 @@ export class ErrorLogger {
    */
   getErrorsPath(): string {
     return this.logPath;
-  }
-
-  /**
-   * Flush buffered errors to disk (async via setInterval).
-   * Also called before reading to ensure consistency.
-   */
-  flush(): void {
-    // JsonlLedger appends synchronously under the project lock.
-  }
-
-  /**
-   * Synchronous flush (for shutdown or before reads).
-   * Does NOT kill the periodic flush timer — that only happens in close().
-   */
-  flushSync(): void {
-    this.flush();
-  }
-
-  /**
-   * Close the logger: flush and stop the flush timer.
-   */
-  close(): void {
-    this.flush();
   }
 }

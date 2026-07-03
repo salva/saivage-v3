@@ -17,7 +17,6 @@ describe('contract-backed events route', () => {
       const logger = new EventLogger(join(projectRoot, '.saivage'));
       logger.appendEvent({ kind: 'runtime_diagnostic', id: 'evt-started', timestamp, error_message: 'runtime' });
       logger.appendEvent({ kind: 'runtime_diagnostic', id: 'evt-session', timestamp, session_id: 'planner:goal-1', goal_id: 'goal-1', card_id: 'goal-1', error_message: 'planner' });
-      logger.close();
       registerOperatorContractRoutes({ fastify, projectRoot });
 
       const response = await fastify.inject({ method: 'GET', url: '/api/events?kind=runtime_diagnostic&session_id=planner:goal-1&limit=1&offset=0' });

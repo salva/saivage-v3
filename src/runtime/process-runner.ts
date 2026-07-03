@@ -778,13 +778,7 @@ function auditProcessReconciliation(
   const event = kind === 'process_reconciled_dead'
     ? { ...base, probe_status: probeStatus ?? 'identity_mismatch' }
     : { ...base, reattach_error: safeDetail };
-  const logger = new EventLogger(join(projectRoot, '.saivage'));
-  try {
-    logger.appendEvent(event);
-    logger.flushSync();
-  } finally {
-    logger.close();
-  }
+  new EventLogger(join(projectRoot, '.saivage')).appendEvent(event);
   if (record.agent_session_id) {
     const action = kind === 'process_reconciled_dead' ? 'reconciled as dead during restart' : 'reattach was rejected during restart';
     queueNotification(projectRoot, { kind: 'session', sessionId: record.agent_session_id }, 'process_state', `Process ${record.id} for card ${record.card_id} ${action}: ${safeDetail}`, { actor: 'runtime', surface: 'runtime' });

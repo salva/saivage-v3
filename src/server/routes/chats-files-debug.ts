@@ -99,5 +99,3 @@ export function registerInternalDebugRoutes(fastify: FastifyInstance, projectRoo
     }
   });
 }
-
-export const registerChatsFilesDebugRoutes = registerInternalDebugRoutes;

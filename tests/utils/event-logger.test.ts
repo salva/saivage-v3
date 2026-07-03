@@ -25,10 +25,8 @@ describe('EventLogger runtime event validation', () => {
     const logger = new EventLogger(makeSaivageDir());
     try {
       expect(() => logger.appendEvent({ kind: 'runtime_diagnostic', timestamp })).toThrow(/LoggedEvent validation failed for kind 'runtime_diagnostic'/);
-      logger.flushSync();
       expect(logger.getEvents()).toEqual([]);
     } finally {
-      logger.close();
     }
   });
 
@@ -51,7 +49,6 @@ describe('EventLogger runtime event validation', () => {
       expect(events.map((event) => event.kind)).toEqual(['runtime_diagnostic']);
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('Ignoring invalid runtime event log record'));
     } finally {
-      logger.close();
     }
   });
 
@@ -88,7 +85,6 @@ describe('EventLogger runtime event validation', () => {
       expect(serialized).toContain('[REDACTED]');
       expect(serialized).toContain('visible');
     } finally {
-      logger.close();
     }
   });
 
@@ -109,7 +105,6 @@ describe('EventLogger runtime event validation', () => {
       const [event] = logger.getEvents({ kind: 'runtime_actionable_error' });
       expect((event as any).actionable_error.idempotency_key).toBe('[REDACTED]');
     } finally {
-      logger.close();
     }
   });
 

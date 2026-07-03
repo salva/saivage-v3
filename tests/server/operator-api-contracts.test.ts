@@ -220,7 +220,7 @@ describe('operator API contract registry', () => {
 
 
   it('validates events list response and legacy failure contracts', () => {
-    const event = { id: 'evt-started', kind: 'started', timestamp: '2026-01-01T00:00:00.000Z', project_root: '/work/test' };
+    const event = { id: 'evt-started', kind: 'runtime_diagnostic', timestamp: '2026-01-01T00:00:00.000Z', error_message: 'started' };
     expect(parseOperatorResponse('events.list', { events: [event], total: 1 }).events[0].id).toBe('evt-started');
     expect(() => parseOperatorResponse('events.list', { events: [{}], total: 1 })).toThrow();
     expect(operatorApiContracts['events.list'].response?.[500]?.parse({ error: 'Failed to query events', message: 'boom' })).toEqual({ error: 'Failed to query events', message: 'boom' });

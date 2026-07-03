@@ -22,14 +22,10 @@ describe('EventsReadModelService', () => {
 
   function seed(projectRoot: string): void {
     const logger = new EventLogger(join(projectRoot, '.saivage'));
-    try {
-      logger.appendEvent({ kind: 'runtime_diagnostic', id: 'evt-runtime', timestamp, error_message: 'runtime' });
-      logger.appendEvent({ kind: 'runtime_diagnostic', id: 'evt-session-1', timestamp, session_id: 'planner:goal-1', goal_id: 'goal-1', card_id: 'goal-1', error_message: 'planner' });
-      logger.appendEvent({ kind: 'runtime_diagnostic', id: 'evt-session-2', timestamp, session_id: 'executor:card-1', goal_id: 'goal-1', card_id: 'card-1', error_message: 'executor' });
-      logger.appendEvent({ kind: 'runtime_actionable_error', id: 'evt-actionable', timestamp, actionable_error: { code: 'test', message: 'test', nextAction: 'test' } });
-    } finally {
-      logger.close();
-    }
+    logger.appendEvent({ kind: 'runtime_diagnostic', id: 'evt-runtime', timestamp, error_message: 'runtime' });
+    logger.appendEvent({ kind: 'runtime_diagnostic', id: 'evt-session-1', timestamp, session_id: 'planner:goal-1', goal_id: 'goal-1', card_id: 'goal-1', error_message: 'planner' });
+    logger.appendEvent({ kind: 'runtime_diagnostic', id: 'evt-session-2', timestamp, session_id: 'executor:card-1', goal_id: 'goal-1', card_id: 'card-1', error_message: 'executor' });
+    logger.appendEvent({ kind: 'runtime_actionable_error', id: 'evt-actionable', timestamp, actionable_error: { code: 'test', message: 'test', nextAction: 'test' } });
   }
 
   it('preserves total-before-pagination and legacy limit/offset parsing', () => {

@@ -24,7 +24,6 @@ describe('ErrorLogger', () => {
   });
 
   afterEach(() => {
-    errorLogger.close();
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -37,7 +36,6 @@ describe('ErrorLogger', () => {
     };
 
     const record = errorLogger.appendError(input);
-    errorLogger.flushSync();
 
     expect(record.id).toBeTruthy();
     expect(record.id.startsWith('err-')).toBe(true);
@@ -68,7 +66,6 @@ describe('ErrorLogger', () => {
   it('getErrors() reads back written records', () => {
     errorLogger.appendError({ message: 'Error 1', cardId: 'c1' });
     errorLogger.appendError({ message: 'Error 2', cardId: 'c2' });
-    errorLogger.flushSync();
 
     const errors = errorLogger.getErrors();
     expect(errors.length).toBe(2);
@@ -87,7 +84,6 @@ describe('ErrorLogger', () => {
     errorLogger.appendError({ message: 'Error for c1', cardId: 'card-a' });
     errorLogger.appendError({ message: 'Error for c2', cardId: 'card-b' });
     errorLogger.appendError({ message: 'More c1', cardId: 'card-a' });
-    errorLogger.flushSync();
 
     const filtered = errorLogger.getErrors({ cardId: 'card-a' });
     expect(filtered.length).toBe(2);
@@ -102,7 +98,6 @@ describe('ErrorLogger', () => {
     errorLogger.appendError({ message: 'Goal 1 error', goalId: 'goal-1' });
     errorLogger.appendError({ message: 'Goal 2 error', goalId: 'goal-2' });
     errorLogger.appendError({ message: 'Another goal 1', goalId: 'goal-1' });
-    errorLogger.flushSync();
 
     const filtered = errorLogger.getErrors({ goalId: 'goal-1' });
     expect(filtered.length).toBe(2);
@@ -113,7 +108,6 @@ describe('ErrorLogger', () => {
     errorLogger.appendError({ message: 'Planner error', phase: 'planner' });
     errorLogger.appendError({ message: 'Executor error', phase: 'executor' });
     errorLogger.appendError({ message: 'Reviewer error', phase: 'reviewer' });
-    errorLogger.flushSync();
 
     const filtered = errorLogger.getErrors({ phase: 'executor' });
     expect(filtered.length).toBe(1);
@@ -132,7 +126,6 @@ describe('ErrorLogger', () => {
       message: 'New error',
       cardId: 'new',
     });
-    errorLogger.flushSync();
 
     const since = new Date('2025-06-01T00:00:00Z').toISOString();
     const filtered = errorLogger.getErrors({ since });
@@ -144,7 +137,6 @@ describe('ErrorLogger', () => {
     for (let i = 0; i < 10; i++) {
       errorLogger.appendError({ message: `Error ${i}` });
     }
-    errorLogger.flushSync();
 
     const limited = errorLogger.getErrors({ limit: 3 });
     expect(limited.length).toBe(3);
@@ -156,7 +148,6 @@ describe('ErrorLogger', () => {
   it('filter with limit=0 returns all records', () => {
     errorLogger.appendError({ message: 'Error A' });
     errorLogger.appendError({ message: 'Error B' });
-    errorLogger.flushSync();
 
     const all = errorLogger.getErrors({ limit: 0 });
     expect(all.length).toBe(2);
@@ -166,7 +157,6 @@ describe('ErrorLogger', () => {
     for (let i = 0; i < 50; i++) {
       errorLogger.appendError({ message: `Error ${i}`, cardId: `card-${i % 5}` });
     }
-    errorLogger.flushSync();
 
     const errors = errorLogger.getErrors();
     expect(errors.length).toBe(50);
@@ -182,9 +172,8 @@ describe('ErrorLogger', () => {
     expect(errors).toEqual([]);
   });
 
-  it('close() stops the flush timer and flushes buffered records', () => {
+  it('persists appended records synchronously', () => {
     errorLogger.appendError({ message: 'Test' });
-    errorLogger.close();
 
     const errors = errorLogger.getErrors();
     expect(errors.length).toBe(1);
@@ -208,7 +197,6 @@ describe('ErrorLogger', () => {
       customField: 'extra-value',
       nested: { foo: 'bar' },
     });
-    errorLogger.flushSync();
 
     const errors = errorLogger.getErrors();
     expect(errors[0].customField).toBe('extra-value');
@@ -226,7 +214,6 @@ describe('ErrorLogger', () => {
 
   it('skips malformed lines in the file', () => {
     errorLogger.appendError({ message: 'Valid error' });
-    errorLogger.flushSync();
 
     const logPath = errorLogger.getErrorsPath();
     const existing = readFileSync(logPath, 'utf-8');
@@ -242,7 +229,6 @@ describe('ErrorLogger', () => {
     errorLogger.appendError({ message: 'B', cardId: 'c1', goalId: 'g1', phase: 'executor' });
     errorLogger.appendError({ message: 'C', cardId: 'c2', goalId: 'g1', phase: 'planner' });
     errorLogger.appendError({ message: 'D', cardId: 'c1', goalId: 'g2', phase: 'planner' });
-    errorLogger.flushSync();
 
     const filtered = errorLogger.getErrors({
       cardId: 'c1',
@@ -259,16 +245,14 @@ describe('ErrorLogger', () => {
     for (let i = 0; i < 5; i++) {
       errorLogger.appendError({ message: `E${i + 5}`, cardId: 'cY' });
     }
-    errorLogger.flushSync();
 
     const filtered = errorLogger.getErrors({ cardId: 'cX', limit: 3 });
     expect(filtered.length).toBe(3);
     expect(filtered.map((e) => e.message)).toEqual(['E2', 'E3', 'E4']);
   });
 
-  it('flushSync writes buffered records to disk immediately', () => {
+  it('writes appended records to disk immediately', () => {
     errorLogger.appendError({ message: 'Buffered' });
-    errorLogger.flushSync();
 
     const logPath = errorLogger.getErrorsPath();
     const content = readFileSync(logPath, 'utf-8');
@@ -289,7 +273,6 @@ describe('ErrorLogger — JSONL Format Compatibility', () => {
   });
 
   afterEach(() => {
-    errorLogger.close();
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -308,7 +291,6 @@ describe('ErrorLogger — JSONL Format Compatibility', () => {
     errorLogger.appendError({
       message: 'Minimal error',
     });
-    errorLogger.flushSync();
 
     const logPath = errorLogger.getErrorsPath();
     const content = readFileSync(logPath, 'utf-8');
@@ -342,7 +324,6 @@ describe('ErrorLogger — JSONL Format Compatibility', () => {
       goalId: 'api-goal',
       phase: 'reviewer',
     });
-    errorLogger.flushSync();
 
     const errorsPath = join(saivageDir, 'runtime', 'errors.jsonl');
     const raw = readFileSync(errorsPath, 'utf-8');
@@ -369,7 +350,6 @@ describe('ErrorLogger — JSONL Format Compatibility', () => {
   it('no trailing characters after records, each line is self-contained', () => {
     errorLogger.appendError({ message: 'Line 1' });
     errorLogger.appendError({ message: 'Line 2' });
-    errorLogger.flushSync();
 
     const content = readFileSync(errorLogger.getErrorsPath(), 'utf-8');
     const lines = content.split('\n');

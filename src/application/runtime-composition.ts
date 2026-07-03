@@ -145,8 +145,6 @@ function createComposedRuntimeApi(input: {
       shutdown: async () => {
         await input.runtimeApi.shutdown();
         input.candidateAvailability.dispose();
-        input.eventLogger.close();
-        input.errorLogger.close();
       },
       pause: () => input.runtimeApi.pause(),
       resume: () => input.runtimeApi.resume(),

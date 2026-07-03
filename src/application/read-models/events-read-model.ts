@@ -26,19 +26,15 @@ export class EventsReadModelService {
     const offset = parseOffset(query.offset);
     const eventLogger = new EventLogger(join(this.projectRoot, '.saivage'));
 
-    try {
-      const contentFilter: EventFilter = {};
-      if (query.kind) contentFilter.kind = query.kind as EventKind;
-      if (query.goal_id) contentFilter.goal_id = query.goal_id;
-      if (query.session_id) contentFilter.session_id = query.session_id;
+    const contentFilter: EventFilter = {};
+    if (query.kind) contentFilter.kind = query.kind as EventKind;
+    if (query.goal_id) contentFilter.goal_id = query.goal_id;
+    if (query.session_id) contentFilter.session_id = query.session_id;
 
-      const allMatching = eventLogger.getEvents(contentFilter);
-      const total = allMatching.length;
-      const events = allMatching.slice(offset, offset + limit);
-      return { events: events as LoggedEvent[], total };
-    } finally {
-      eventLogger.close();
-    }
+    const allMatching = eventLogger.getEvents(contentFilter);
+    const total = allMatching.length;
+    const events = allMatching.slice(offset, offset + limit);
+    return { events: events as LoggedEvent[], total };
   }
 
   errorMessage(err: unknown): string {

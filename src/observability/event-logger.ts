@@ -125,9 +125,6 @@ export class EventLogger {
    * Events are returned in file order (chronological, oldest first).
    */
   getEvents(filter?: EventFilter): LoggedEvent[] {
-    // Flush buffer first to ensure all events are on disk
-    this.flushSync();
-
     if (!existsSync(this.logPath)) {
       return [];
     }
@@ -190,28 +187,5 @@ export class EventLogger {
    */
   getLogPath(): string {
     return this.logPath;
-  }
-
-  /**
-   * Flush buffered events to disk (async via setInterval).
-   * Also called before reading to ensure consistency.
-   */
-  flush(): void {
-    // JsonlLedger appends synchronously under the project lock.
-  }
-
-  /**
-   * Synchronous flush (for shutdown or before reads).
-   * Does NOT kill the periodic flush timer — that only happens in close().
-   */
-  flushSync(): void {
-    this.flush();
-  }
-
-  /**
-   * Close the logger: flush and stop the flush timer.
-   */
-  close(): void {
-    this.flush();
   }
 }

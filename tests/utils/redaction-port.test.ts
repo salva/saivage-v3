@@ -154,8 +154,6 @@ describe('redacted outbound sinks', () => {
       expect(JSON.stringify(event)).toContain('visible');
       expect(JSON.stringify(error)).toContain('visible');
     } finally {
-      eventLogger.close();
-      errorLogger.close();
       rmSync(root, { recursive: true, force: true });
     }
   });

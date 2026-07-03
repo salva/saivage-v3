@@ -1,6 +1,6 @@
 import { loadEnvironment, type Environment } from '../config/index.js';
 import { createResourceScope, type ResourceScope } from '../lifecycle/index.js';
-import { startServer, type ServerInstance } from '../server/server-api.js';
+import { startServer, type ServerInstance } from '../server/server.js';
 
 export interface App {
   readonly environment: Environment;
