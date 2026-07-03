@@ -517,7 +517,9 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
    Removed the unused command-policy constant.
 
-6. **Dead derived-type exports.** `config-schema.ts` exports six types nobody imports.
+6. Completed: Dead derived-type exports.
+
+   Removed unused `ModelList`, `RoutingProfile`, `RuntimeSection`, `ModelsSection`, and `NotificationChannelConfig` exports from `config-schema.ts`. Kept `ProviderAccount` and `ProviderCapabilities` because provider code imports them.
 
 ### K. Rework From Review
 

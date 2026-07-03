@@ -181,14 +181,9 @@ export const saivageConfigSchema = z.object({
 // ── Derived Types ─────────────────────────────────────────────
 
 export type SaivageConfig = z.infer<typeof saivageConfigSchema>;
-export type ModelList = z.infer<typeof modelListSchema>;
-export type RoutingProfile = z.infer<typeof routingProfileSchema>;
 export type ProviderEntry = z.infer<typeof providerEntrySchema>;
 export type ProviderAccount = z.infer<typeof providerAccountSchema>;
 export type ProviderCapabilities = z.infer<typeof providerCapabilitySchema>;
-export type RuntimeSection = z.infer<typeof runtimeSectionSchema>;
-export type ModelsSection = z.infer<typeof modelsSectionSchema>;
-export type NotificationChannelConfig = z.infer<typeof notificationChannelSchema>;
 
 // ── Model Params ──────────────────────────────────────────────
 
