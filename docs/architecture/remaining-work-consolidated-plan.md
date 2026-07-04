@@ -8,6 +8,8 @@ This plan consolidates the still-relevant follow-up work from the record-slot, t
 
 The active execution backlog in this document is limited to improvements of the current codebase: simplification, dead-code removal, test hardening, and documentation cleanup. Completely new capabilities such as Git tools, RAG, memory, notes, and conversation compaction are parked in [Future Capabilities Plan](./future-capabilities-plan.md).
 
+Architecture-level simplification of the actor, process, shutdown, and analyst subsystems — card/processor tree ownership, the process service forwarding stack, operational shutdown teardown, the shared LLM turn-loop home, analyst turn-loop dedup, and CLI pause/resume routing — is tracked in [Micro-Actor Runtime Implementation Plan — Remediation](./micro-actor-runtime-implementation-plan.md#remediation-code-to-design-conformance). Those items are intentionally not duplicated here; this backlog covers config/provider, persistence, web UI, tool-surface, and test/docs cleanup instead.
+
 Current authorities:
 
 - [System Specification](../spec/system-specification.md)
@@ -184,7 +186,7 @@ These are not dead code. They are features the spec promises and tools expose, b
 
    The fix adds `notifyCard(cardId, notification)` to `RuntimeApi` — the runtime owns the `CardActor` registry and tools already have runtime access. Live actor → `enqueueNotification`. Inactive card → append to actor snapshot (no processor allocation). `CardActor.fromCard()` is fixed to restore notification state from snapshots so persisted notifications survive restart.
 
-   `propagateChange`'s `flipped` field IS read by `analyst-stage6.ts` and must be kept. `notified_planner_session_ids` and `stopped_at_running` become dead after the fix and are removed.
+   `propagateChange`'s `flipped` field remains the changed-card summary returned by the propagation helper. `notified_planner_session_ids` and `stopped_at_running` become dead after the fix and are removed.
 
    References: `src/notifications/*`, `src/runtime/changed-propagation.ts`, `src/runtime/actors/card-actor.ts`, `src/runtime/actors/snapshots.ts`, `src/runtime/actors/supervisor-runtime-api.ts`, `src/tools/planner-control-provider.ts`, `src/tools/analyst-misc-tools.ts`, `src/tools/analyst-card-tools.ts`, `src/agents/analyst-stage6.ts`.
 
@@ -405,23 +407,17 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
    Status: completed in the apply-mutation cleanup slice.
 
-3. **Extract shared contract-bounded repair loop.**
-
-   Both processor actors duplicate the same repair-loop skeleton (`result`→repair, `error`→fail, terminal→validate, `MAX_TERMINAL_CONTRACT_REPAIRS = 2`). Extract a shared helper.
-
-   Status: completed in `bfd85de3` (`contract-bounded-repair-loop.ts`). The reviewer relaunch/stale path uses a sentinel `'stale'` value threaded through the generic loop result.
-
-4. **Remove dead `CardStore` and `current-run` exports.**
+3. **Remove dead `CardStore` and `current-run` exports.**
 
    `CardStore.open`, `validateHistoryEntry`, `loadCardHistoryEntries` are dead. `deriveCurrentAgentSessionId*` in `current-run.ts` are dead.
 
- 5. **Remove dead `changed-propagation` return fields.**
+4. **Remove dead `changed-propagation` return fields.**
 
-    Both `stopped_at_running` and `notified_planner_session_ids` have been removed from code — `propagateChange` now returns only `{ flipped }`. Stage 0's notification fix (`69b5845a`) eliminated the need for `notified_planner_session_ids`, and both fields were deleted in the same change. `flipped` remains live (`src/agents/analyst-stage6.ts:15`).
+    Both `stopped_at_running` and `notified_planner_session_ids` have been removed from code — `propagateChange` now returns only `{ flipped }`. Stage 0's notification fix (`69b5845a`) eliminated the need for `notified_planner_session_ids`, and both fields were deleted in the same change.
 
     Status: completed.
 
-6. **Narrow over-broad `catch {}` in record-slot helpers.**
+5. **Narrow over-broad `catch {}` in record-slot helpers.**
 
    Bare `catch {}` blocks in record-slot close/recover paths hide genuine filesystem failures. Narrow to expected failure shapes and rethrow the rest.
 
@@ -431,7 +427,7 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
    Analyst control tools return preview/error-envelope shapes that the handler strips to the shared invocation `ToolResult`. Replace with the common result type unless a concrete UI preview path exists.
 
-   Status: partially completed in `04dd30ee`. The `ActionPreview`, `ToolErrorEnvelope`, and the audit-runner `preview` callback were correctly removed as dead. **Rework needed (K.1):** the shared `ToolResult` (`src/tools/invocation.ts`) was widened from a discriminated union to `{ success: boolean; data?: unknown; error?: string }`, which lost type-safety narrowing and made `error` optional on failures. It must be tightened to `{ success: true; data?: unknown } | { success: false; error: string; data?: unknown }`. This preserves diagnostic `data` on failures (needed by `reorder_set_mismatch`, `unknown_recipient`, etc.) without weakening the contract. As a consequence, `toolFailure` at `src/tools/analyst-tool-helpers.ts:75` currently discards `_kind`/`_details`/`_retryable` and `classifyToolError` at `:79` computes a `kind` that is immediately discarded — both must be cleaned up (either remove the dead params or route `details` into the failure `data`).
+   Status: completed. The `ActionPreview`, `ToolErrorEnvelope`, and the audit-runner `preview` callback were removed as dead in `04dd30ee`. The shared `ToolResult` (`src/tools/invocation.ts`) is back to a discriminated union, and `toolFailure` now accepts only a message plus explicit safe public diagnostics in `data`. Dead error classification was removed.
 
 2. **Replace stale Analyst prompt/tool-list generation.**
 
@@ -449,7 +445,7 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
    The file is not an execution catalog anymore, but it is more than vocabulary constants: it defines shared tool definition/executor types and schema helpers used across production tool providers. Do not inline everything. Clean cut: rename it to a neutral home such as `tool-definition.ts`, or split shared definition/schema helpers from Analyst-only vocabulary. Also consolidate the duplicated `AgentRole` type (defined in both `schemas/types.ts` and `tool-catalog.ts`) — keep only the `schemas/types.ts` one and update `record-slots.ts`'s import.
 
-   Status: completed in `80783f66`. Renamed to `tool-definition.ts`; `AgentRole` is now re-exported from `schemas` (single source) with `tool-definition.ts` re-exporting it. **Note:** `src/tools/tool-definition.ts` still imports `ToolContext` from `analyst-tool-types.ts`, and `ToolExecutor` is Analyst-context-shaped, so the "neutral home" is still partly Analyst-specific. This is not broken, but if the file grows it should be split: vocabulary/schema helpers separate from Analyst control-tool definition types. Tracked as low-priority; no immediate rework needed.
+   Status: completed in `80783f66`, then tightened in Phase 2 F19. Renamed to `tool-definition.ts`; `AgentRole` is now sourced from `schemas`, and Analyst/control-tool descriptors live in `src/tools/analyst-tool-definition.ts`. `src/tools/tool-definition.ts` now remains a shared vocabulary/schema-helper module without Analyst `ToolContext` imports.
 
 5. **Remove tests-only `ToolRuntime` and package-root barrels.**
 
@@ -533,7 +529,7 @@ These items were discovered during a full review of the Stage 3–4 work. They m
      | { success: true; data?: unknown }
      | { success: false; error: string; data?: unknown };
    ```
-   Then clean up `toolFailure` (`src/tools/analyst-tool-helpers.ts` line 75) and `classifyToolError` (`src/tools/analyst-tool-helpers.ts` line 79): either remove the now-dead `_kind`/`_details`/`_retryable` parameters or route `details` into the failure `data` field. Remove the `?? 'failed'` / `?? 'Web tool failed.'` fallbacks that were added to work around optional `error`.
+   `toolFailure` (`src/tools/analyst-tool-helpers.ts` line 75) now accepts a failure message and optional safe public diagnostics, preserving explicitly safe IDs, statuses, field names, counts, and mismatch arrays in failure `data`. Dead error classification was removed. The `?? 'failed'` / `?? 'Web tool failed.'` fallbacks added for optional `error` were removed.
 
 2. Completed: make `getAnalystSystemPrompt(tools)` require its argument.
 
@@ -559,7 +555,7 @@ Tasks (backlog §0.1):
 4. Add `notifyCard` forwarding to `createComposedRuntimeApi`.
 5. Rewire `queueNotification()` to resolve recipients to card IDs and call `notifyCard`; keep external adapter delivery.
 6. Rewire `propagateChange()` to call `notifyCard` for the edited card and the first running ancestor; drop dead return fields.
-7. Update `markGoalNeedsCorrections` callers for the dropped `notified_planner_session_ids`.
+7. Remove stale `markGoalNeedsCorrections` references after deleting the dead helper.
 8. After tests pass, delete old remnant plumbing (`ActiveGoalNoteSinks`, `synthetic-planner-notes.ts`, `queuePlannerNote` branches).
 
 Validation:
@@ -634,14 +630,13 @@ Tasks (backlog groups F, G, H, K):
 
 1. Partially completed: delete dead UI components, dead API client functions, dead websocket surface, and auth environment guards.
 2. Completed: shrink `evaluateReviewerTerminalOutcome` inputs and remove async mutation wrappers.
-3. Completed (`bfd85de3`): extract shared contract-bounded repair loop.
-4. Completed (`04dd30ee`): collapse Analyst control-tool result envelopes and fix prompt tool-list generation.
-5. Completed (`a1c3c411`, `80783f66`, `855aceeb`): remove duplicate `RoleToolPolicy`, rename `tool-catalog.ts` → `tool-definition.ts`, and remove dead `ToolRuntime`.
-6. Completed: tighten `ToolResult` back to a discriminated union with optional `data` on failures; clean up `toolFailure`/`classifyToolError` dead params.
-7. Completed: make `getAnalystSystemPrompt(tools)` require its argument; update tests.
-8. Completed (`c6269faa`): remove dead `CardStore.open`, `validateHistoryEntry`, `loadCardHistoryEntries`, and `deriveCurrentAgentSessionId*` in `current-run.ts`.
-9. Completed: narrow over-broad `catch {}` in record-slot close/recover paths.
-10. Completed: fix pre-existing web Vitest failures so the web gate is green.
+3. Completed (`04dd30ee`): collapse Analyst control-tool result envelopes and fix prompt tool-list generation.
+4. Completed (`a1c3c411`, `80783f66`, `855aceeb`): remove duplicate `RoleToolsPolicy`, rename `tool-catalog.ts` → `tool-definition.ts`, and remove dead `ToolRuntime`.
+5. Completed: tighten `ToolResult` back to a discriminated union with optional `data` on failures; make `toolFailure` carry only explicit safe public diagnostics; remove dead error classification.
+6. Completed: make `getAnalystSystemPrompt(tools)` require its argument; update tests.
+7. Completed (`c6269faa`): remove dead `CardStore.open`, `validateHistoryEntry`, `loadCardHistoryEntries`, and `deriveCurrentAgentSessionId*` in `current-run.ts`.
+8. Completed: narrow over-broad `catch {}` in record-slot close/recover paths.
+9. Completed: fix pre-existing web Vitest failures so the web gate is green.
 
 Validation:
 

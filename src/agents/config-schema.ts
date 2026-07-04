@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { resolveModelListForRole } from '../config/model-role-resolution.js';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -85,7 +84,6 @@ const providerAccountSchema = z.object({
   priority: z.number().int().optional(),
   apiKey: z.string().optional(),
   baseUrl: z.string().optional(),
-  tokenEndpoint: z.string().optional(),
   authProfile: z.string().optional(),
   models: z.array(z.string()).optional(),
   capabilities: providerCapabilitySchema.optional(),
@@ -97,7 +95,6 @@ const providerEntrySchema = z.object({
   models: z.array(z.string()).optional(),
   apiKey: z.string().optional(),
   baseUrl: z.string().optional(),
-  tokenEndpoint: z.string().optional(),
   authProfile: z.string().optional(),
   capabilities: providerCapabilitySchema.optional(),
   modelCapabilities: z.record(z.string(), providerCapabilitySchema).optional(),
@@ -215,18 +212,4 @@ export function getModelParamsForRole(
     4096;
 
   return { temperature, maxTokens };
-}
-
-/**
- * Normalize a role string to one of the known agent roles.
- * Returns the role's model list, using the 'default' list as fallback.
- */
-export function getModelListForRole(
-  config: SaivageConfig,
-  role: string,
-): string[] {
-  const resolved = resolveModelListForRole(config, role);
-  if (resolved) return resolved;
-
-  throw new Error(`No model list configured for role '${role}' and no default.`);
 }

@@ -13,6 +13,8 @@ import {
   type CardMutationContext,
 } from './lifecycle.js';
 import type { CardStore } from './card-store.js';
+import type { CardNotification } from '../runtime/actors/card-actor.js';
+import type { NotifyCardResult } from '../runtime/runtime-api.js';
 
 export type CardPatchHistoryKind = 'update' | 'status' | 'mutate' | 'depends';
 
@@ -23,6 +25,7 @@ export interface CardPatchServiceConfig {
   childCount: (id: string) => number;
   detectCycles: (id: string, newDependsOn: string[]) => string[];
   notificationStore?: CardStore;
+  notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult;
 }
 
 function deepClone<T>(value: T): T {
@@ -31,6 +34,10 @@ function deepClone<T>(value: T): T {
 
 export class CardPatchService {
   constructor(private readonly config: CardPatchServiceConfig) {}
+
+  setNotifyCard(notifyCard: ((cardId: string, notification: CardNotification) => NotifyCardResult) | undefined): void {
+    this.config.notifyCard = notifyCard;
+  }
 
   applyPatch(
     id: string,
@@ -62,15 +69,18 @@ export class CardPatchService {
       changeSummary: summarizeChangedFields(changedFields),
     });
     const persisted = deepClone(result.card!);
+    if (ctx.reason === 'terminal lifecycle commit') return persisted;
     try {
-      queueNotification(
+      const queued = queueNotification(
         this.config.projectRoot,
         { kind: 'card', cardId: persisted.id },
         'card_changed',
         `${persisted.id} updated (${changedFields.join(', ')}) at v${persisted.version_seq}`,
         { actor: ctx.actor, surface: ctx.surface },
         this.config.notificationStore,
+        this.config.notifyCard,
       );
+      if (!queued.ok) console.warn(`card_patch_notification_delivery_failed ${JSON.stringify(queued.cardDeliveries.filter((delivery) => !delivery.result.ok))}`);
     } catch {
       // Notification enqueue is best-effort; never break the mutation.
     }

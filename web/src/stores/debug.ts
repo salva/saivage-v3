@@ -27,8 +27,6 @@ import type {
   SupervisionResponse,
   ProcessView,
   ProcessListResponse,
-  ControlActionAuditEntry,
-  ControlActionsListResponse,
 } from '../api/types';
 import {
   getDebugState,
@@ -37,13 +35,11 @@ import {
   getDoctor,
   getDebugSupervision,
   listProcesses,
-  listControlActions,
   ApiError,
 } from '../api/client';
 import { createLogger } from '../utils/logger';
 import { redactObservabilityValue } from '../utils/observabilityRedaction';
 import {
-  selectErrorsBySeverity,
   selectErrorsBySource,
   selectOperatorDataFreshnessLabel,
   selectSortedTimeline,
@@ -51,24 +47,6 @@ import {
 } from './debug-read-model';
 
 const log = createLogger('store:debug');
-function operatorErrorMessage(err: unknown): string {
-  if (err instanceof ApiError) {
-    if (err.status === 401) {
-      return 'Unauthorized. Provide a valid Saivage API token and refresh the page.';
-    }
-    if (err.status === 503) {
-      return 'Runtime control is unavailable because runtime state is not initialized. Start the runtime or restore runtime state first.';
-    }
-    if (typeof err.message === 'string' && err.message.trim()) {
-      return err.message;
-    }
-  }
-  return 'Operator control request failed.';
-}
-
-function buildPanelState(err: unknown): 'unauthorized' | 'error' {
-  return err instanceof ApiError && err.status === 401 ? 'unauthorized' : 'error';
-}
 
 export const useDebugStore = defineStore('debug', () => {
   const debugRuntime = ref<RuntimeState | null>(null);
@@ -92,11 +70,6 @@ export const useDebugStore = defineStore('debug', () => {
   const processes = ref<ProcessView[]>([]);
   const processesLoading = ref(false);
   const processesError = ref<string | null>(null);
-  const processTerminateLoading = ref<Record<string, boolean>>({});
-  const processControlError = ref<string | null>(null);
-  const processControlSuccess = ref<string | null>(null);
-  const processUnauthorized = ref(false);
-  const processStale = ref(false);
 
   const doctorStatus = ref<'ok' | 'issues_found' | null>(null);
   const doctorChecks = ref<DoctorCheck[]>([]);
@@ -110,26 +83,10 @@ export const useDebugStore = defineStore('debug', () => {
   const supervisionLoading = ref(false);
   const supervisionError = ref<string | null>(null);
 
-
-  const controlActions = ref<ControlActionAuditEntry[]>([]);
-  const controlActionsTotal = ref(0);
-  const controlActionsLoading = ref(false);
-  const controlActionsError = ref<string | null>(null);
-  const controlActionsState = ref<'idle' | 'success' | 'empty' | 'unauthorized' | 'error'>('idle');
-
-  const runtimeControlLoading = ref<'pause' | 'resume' | null>(null);
-  const runtimeControlError = ref<string | null>(null);
-  const runtimeControlSuccess = ref<string | null>(null);
-  const operatorNoteActionLoading = ref<Record<string, 'acknowledge' | 'delete'>>({});
-  const operatorClearLoading = ref(false);
   const operatorLastFetchedAt = ref<string | null>(null);
-  const operatorStale = ref(false);
-  const operatorUnauthorized = ref(false);
-  const operatorPartialWarning = ref<string | null>(null);
 
   const loading = ref(false);
   const error = ref<string | null>(null);
-  const activeTab = ref<'state' | 'errors' | 'timeline' | 'supervision'>('state');
 
 
   const eventDerivedErrors = computed<DebugError[]>(() => selectTimelineDerivedErrors(timelineEvents.value));
@@ -138,51 +95,9 @@ export const useDebugStore = defineStore('debug', () => {
 
   const errorsBySource = computed<Map<string, DebugError[]>>(() => selectErrorsBySource(combinedErrors.value));
 
-  const errorsBySeverity = computed<Map<string, DebugError[]>>(() => selectErrorsBySeverity(combinedErrors.value));
-
   const sortedTimeline = computed<DebugTimelineEvent[]>(() => selectSortedTimeline(timelineEvents.value));
 
-  const problemCards = computed(() => debugCards.value.filter((c) => c.status === 'failed' || c.status === 'blocked'));
-  const failedChecks = computed(() => doctorChecks.value.filter((c) => !c.passed));
-
-  const doctorIssuesBySeverity = computed(() => {
-    const map = new Map<'error' | 'warning', DoctorIssue[]>();
-    for (const issue of doctorIssues.value) {
-      const list = map.get(issue.severity);
-      if (list) list.push(issue); else map.set(issue.severity, [issue]);
-    }
-    return map;
-  });
-
-  const reviewsByStatus = computed(() => {
-    const map = new Map<string, ContentReview[]>();
-    for (const r of supervisionReviews.value) {
-      const list = map.get(r.status);
-      if (list) list.push(r); else map.set(r.status, [r]);
-    }
-    return map;
-  });
-
   const operatorDataFreshnessLabel = computed(() => selectOperatorDataFreshnessLabel(operatorLastFetchedAt.value));
-
-  function markOperatorSuccess(message: string): void {
-    runtimeControlSuccess.value = message;
-    runtimeControlError.value = null;
-  }
-
-  function markOperatorError(message: string): void {
-    runtimeControlError.value = message;
-    runtimeControlSuccess.value = null;
-  }
-
-  function upsertProcess(process: ProcessView): void {
-    const index = processes.value.findIndex((entry) => entry.id === process.id);
-    if (index >= 0) {
-      processes.value = [...processes.value.slice(0, index), process, ...processes.value.slice(index + 1)];
-      return;
-    }
-    processes.value = [...processes.value, process];
-  }
 
   async function fetchState(): Promise<void> {
     loading.value = true;
@@ -239,16 +154,12 @@ export const useDebugStore = defineStore('debug', () => {
   async function fetchProcesses(): Promise<void> {
     processesLoading.value = true;
     processesError.value = null;
-    processControlError.value = null;
     try {
       const response: ProcessListResponse = await listProcesses();
       processes.value = response.processes;
-      processUnauthorized.value = false;
-      processStale.value = false;
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Failed to fetch processes';
       processesError.value = msg;
-      if (err instanceof ApiError && err.status === 401) processUnauthorized.value = true;
       log.error('fetchProcesses', msg);
     } finally {
       processesLoading.value = false;
@@ -290,42 +201,9 @@ export const useDebugStore = defineStore('debug', () => {
     }
   }
 
-  async function fetchControlActions(): Promise<void> {
-    controlActionsLoading.value = true;
-    controlActionsError.value = null;
-    try {
-      const response: ControlActionsListResponse = await listControlActions();
-      controlActions.value = response.control_actions;
-      controlActionsTotal.value = response.total;
-      controlActionsState.value = response.control_actions.length === 0 ? 'empty' : 'success';
-    } catch (err) {
-      controlActionsError.value = operatorErrorMessage(err);
-      controlActionsState.value = buildPanelState(err);
-      throw err;
-    } finally {
-      controlActionsLoading.value = false;
-    }
-  }
-
   async function fetchOperatorControl(): Promise<void> {
-    operatorPartialWarning.value = null;
-    const hadPriorData = controlActions.value.length > 0 || debugRuntime.value !== null || operatorLastFetchedAt.value !== null;
-
-    const [stateResult, controlActionsResult] = await Promise.allSettled([
-      fetchState(),
-      fetchControlActions(),
-    ]);
-
-    const failures = [stateResult, controlActionsResult].filter((result) => result.status === 'rejected');
-    if (failures.length === 0) {
-      operatorStale.value = false;
-      operatorLastFetchedAt.value = new Date().toISOString();
-      return;
-    }
-
-    if (hadPriorData) operatorStale.value = true;
-    operatorPartialWarning.value = 'This panel may be stale. Refresh to reconcile with server state.';
-    if (failures.length < 2) operatorLastFetchedAt.value = new Date().toISOString();
+    await fetchState();
+    operatorLastFetchedAt.value = new Date().toISOString();
   }
 
 
@@ -355,10 +233,6 @@ export const useDebugStore = defineStore('debug', () => {
     loading.value = false;
   }
 
-  function setActiveTab(tab: 'state' | 'errors' | 'timeline' | 'supervision'): void {
-    activeTab.value = tab;
-  }
-
   const refetch = fetchAll;
   const refetchTimeline = fetchTimeline;
   const refetchProcesses = fetchProcesses;
@@ -374,11 +248,6 @@ export const useDebugStore = defineStore('debug', () => {
     processes: readonly(processes),
     processesLoading: readonly(processesLoading),
     processesError: readonly(processesError),
-    processTerminateLoading: readonly(processTerminateLoading),
-    processControlError: readonly(processControlError),
-    processControlSuccess: readonly(processControlSuccess),
-    processUnauthorized: readonly(processUnauthorized),
-    processStale: readonly(processStale),
     doctorStatus: readonly(doctorStatus),
     doctorChecks: readonly(doctorChecks),
     doctorIssues: readonly(doctorIssues),
@@ -389,31 +258,12 @@ export const useDebugStore = defineStore('debug', () => {
     supervisionStats: readonly(supervisionStats),
     supervisionLoading: readonly(supervisionLoading),
     supervisionError: readonly(supervisionError),
-    controlActions: readonly(controlActions),
-    controlActionsTotal: readonly(controlActionsTotal),
-    controlActionsLoading: readonly(controlActionsLoading),
-    controlActionsError: readonly(controlActionsError),
-    controlActionsState: readonly(controlActionsState),
-    runtimeControlLoading: readonly(runtimeControlLoading),
-    runtimeControlError: readonly(runtimeControlError),
-    runtimeControlSuccess: readonly(runtimeControlSuccess),
-    operatorNoteActionLoading: readonly(operatorNoteActionLoading),
-    operatorClearLoading: readonly(operatorClearLoading),
     operatorLastFetchedAt: readonly(operatorLastFetchedAt),
-    operatorStale: readonly(operatorStale),
-    operatorUnauthorized: readonly(operatorUnauthorized),
-    operatorPartialWarning: readonly(operatorPartialWarning),
     operatorDataFreshnessLabel,
     loading: readonly(loading),
     error: readonly(error),
-    activeTab,
     errorsBySource,
-    errorsBySeverity,
     sortedTimeline,
-    problemCards,
-    failedChecks,
-    doctorIssuesBySeverity,
-    reviewsByStatus,
     fetchState,
     fetchErrors,
     fetchTimeline,
@@ -422,10 +272,8 @@ export const useDebugStore = defineStore('debug', () => {
     refetchProcesses,
     fetchDoctor,
     fetchSupervision,
-    fetchControlActions,
     fetchOperatorControl,
     fetchAll,
     refetch,
-    setActiveTab,
   };
 });

@@ -74,18 +74,26 @@ export function saveActorSnapshot(projectRoot: string, snapshot: ActorSnapshotRe
 
 export function appendNotificationToActorSnapshot(projectRoot: string, actorId: string, notification: CardNotification): ActorSnapshotRecord {
   if (actorKindFromId(actorId) !== 'card') throw new Error(`Cannot append card notification to non-card actor '${actorId}'.`);
-  const existing = readActorSnapshot(projectRoot, actorId);
-  const context = existing?.context ?? { projectRoot, cardId: parseCardActorId(actorId) };
-  const notifications = Array.isArray(context.notifications) ? context.notifications : [];
-  return saveActorSnapshot(projectRoot, {
-    actor_id: actorId,
-    actor_kind: 'card',
-    state_value: existing?.state_value ?? 'backlog',
-    context: {
-      ...context,
-      notifications: [...notifications, notification],
-    },
-    updated_at: new Date().toISOString(),
+  const lock = actorSnapshotsLock(projectRoot);
+  const file = actorSnapshotFile(projectRoot, actorId, lock);
+  return lock.withLockSync((handle) => {
+    lock.assertOwns(handle);
+    const existing = existsSync(file.path) ? file.read() : null;
+    if (existing) assertSnapshotKind(existing);
+    const context = existing?.context ?? { projectRoot, cardId: parseCardActorId(actorId) };
+    const notifications = Array.isArray(context.notifications) ? context.notifications : [];
+    const snapshot: ActorSnapshotRecord = {
+      actor_id: actorId,
+      actor_kind: 'card',
+      state_value: existing?.state_value ?? null,
+      context: {
+        ...context,
+        notifications: [...notifications, notification],
+      },
+      updated_at: new Date().toISOString(),
+    };
+    file.writeSync(handle, snapshot);
+    return snapshot;
   });
 }
 

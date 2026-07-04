@@ -97,8 +97,8 @@ describe('changed propagation', () => {
     setStatus(store, cardCId, 'done');
     setStatus(store, siblingId, 'done');
 
-    const notifyCard = jest.fn();
-    const result = propagateChange(projectRoot, store, cardCId, { kind: 'analyst_edit', summary: 'analyst edit' }, notifyCard);
+    const notifyCard = jest.fn(() => ({ ok: true as const }));
+    const result = propagateChange(store, cardCId, { kind: 'analyst_edit', summary: 'analyst edit' }, notifyCard);
 
     expect(result.flipped).toEqual([
       { card_id: cardCId, previous_status: 'done' },
@@ -117,8 +117,8 @@ describe('changed propagation', () => {
   it('notifies own-goal analyst corrections and records status transition', () => {
     setStatus(store, goalBId, 'done');
 
-    const notifyCard = jest.fn();
-    const result = propagateChange(projectRoot, store, goalBId, { kind: 'analyst_correction', issues: [{ summary: 'needs fix' }], note: 'operator note' }, notifyCard);
+    const notifyCard = jest.fn(() => ({ ok: true as const }));
+    const result = propagateChange(store, goalBId, { kind: 'analyst_correction', issues: [{ summary: 'needs fix' }], note: 'operator note' }, notifyCard);
 
     expect(result.flipped).toEqual([{ card_id: goalBId, previous_status: 'done' }]);
     expect(notifyCard).toHaveBeenCalledTimes(1);
@@ -128,8 +128,8 @@ describe('changed propagation', () => {
   it('deduplicates notifications when the edited card is the first running card', () => {
     setStatus(store, goalBId, 'running');
 
-    const notifyCard = jest.fn();
-    const result = propagateChange(projectRoot, store, goalBId, { kind: 'analyst_edit', summary: 'analyst edited goal' }, notifyCard);
+    const notifyCard = jest.fn(() => ({ ok: true as const }));
+    const result = propagateChange(store, goalBId, { kind: 'analyst_edit', summary: 'analyst edited goal' }, notifyCard);
 
     expect(result.flipped).toEqual([]);
     expect(notifyCard).toHaveBeenCalledTimes(1);

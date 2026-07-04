@@ -9,7 +9,7 @@ import { EventBus } from '../../events/index.js';
 import { McpManager } from '../../mcp/manager-api.js';
 import { EventLogger, ErrorLogger } from '../../observability/index.js';
 import { TelegramBot } from '../../telegram/index.js';
-import { clearProjectNotificationDeliveryAdapters } from '../../notifications/index.js';
+import { clearProjectNotificationDeliveryAdapters, clearProjectNotificationEventBus, setProjectNotificationEventBus } from '../../notifications/index.js';
 import { configureAuthPolicy } from '../auth-policy.js';
 import { LiveSyncSocket } from '../live-sync-socket.js';
 import { SyncHub } from '../sync-hub.js';
@@ -39,6 +39,7 @@ async function stopServerResources(services: Omit<ServerServices, 'stop' | 'requ
   liveSyncSocket.dispose();
   syncHub.dispose(runtimeApplication.runtimeApi);
   clearProjectNotificationDeliveryAdapters(projectRoot);
+  clearProjectNotificationEventBus(projectRoot);
 
   try {
     await fastify.close();
@@ -79,10 +80,11 @@ export async function createServerServices(input: {
 
   const fastify = await createFastifyApp(environment);
   const eventBus = new EventBus();
+  setProjectNotificationEventBus(projectRoot, eventBus);
   const saivageDir = join(projectRoot, '.saivage');
   const eventLogger = new EventLogger(saivageDir);
   const errorLogger = new ErrorLogger(saivageDir);
-  const cardStore = new CardStore(projectRoot, undefined, eventBus);
+  const cardStore = new CardStore(projectRoot, eventBus);
   const liveSyncSocket = new LiveSyncSocket();
   const syncHub = new SyncHub(liveSyncSocket);
 

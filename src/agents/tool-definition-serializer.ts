@@ -1,15 +1,6 @@
 import type { ToolDefinition } from './llm-contracts.js';
 
-interface ToolRegistrySchemaEntry<Name extends string = string> {
-  readonly type: 'function';
-  readonly function: {
-    readonly name: Name;
-    readonly description: string;
-    readonly parameters: Record<string, unknown>;
-  };
-}
-
-export type RuntimeToolEntry = ToolDefinition | ToolRegistrySchemaEntry;
+export type RuntimeToolEntry = ToolDefinition;
 
 export interface WireToolDefinitionChat {
   readonly type: 'function';

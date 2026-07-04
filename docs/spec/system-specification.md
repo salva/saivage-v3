@@ -27,6 +27,8 @@ The runtime is infrastructure. It owns scheduling, activation, persistence, proc
 
 The operator UI and HTTP/WebSocket server are also infrastructure surfaces. They expose projections, chat transport, and authenticated access to canonical services. They do not define runtime behavior.
 
+Most operator HTTP routes are backed by explicit API contracts. The internal diagnostic routes `GET /api/debug/doctor` and `GET /api/debug/supervision` are an intentional exception: they expose local repair and inspection diagnostics for the bundled operator UI, are not stable integration contracts, and may change with storage/recovery internals. They remain authenticated server routes, but they are excluded from the generated operator contract inventory by design.
+
 ### Control Layer
 
 The Analyst is the user-facing control agent. It is an agent in the sense that it reasons over user requests, tool results, and system state, but functionally it is the control surface for the autonomous runtime.

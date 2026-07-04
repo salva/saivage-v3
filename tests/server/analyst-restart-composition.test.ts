@@ -27,7 +27,6 @@ describe('analyst server restart composition', () => {
       await expect(restart_server(ctx)).resolves.toEqual({
         success: false,
         error: 'Server restart primitive is not available.',
-        errorEnvelope: { kind: 'conflict', message: 'Server restart primitive is not available.' },
       });
     } finally {
       rmSync(projectRoot, { recursive: true, force: true });

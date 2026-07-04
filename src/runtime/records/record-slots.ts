@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
-import type { AgentRole } from '../../tools/tool-definition.js';
+import type { AgentRole } from '../../schemas/index.js';
 
 export type RecordSlotVersionStatus = 'open' | 'closed' | 'discarded';
 
@@ -65,6 +65,15 @@ export interface OpenRecordSlot extends RecordUrlParts {
   absolutePath: string;
   relativePath: string;
   recordUrl: string;
+}
+
+export type RecordSlotCloseFailureReason = 'missing_open' | 'empty_open';
+
+export class ExpectedRecordSlotCloseError extends Error {
+  constructor(public readonly reason: RecordSlotCloseFailureReason, message: string) {
+    super(message);
+    this.name = 'ExpectedRecordSlotCloseError';
+  }
 }
 
 export const RECORD_OUTPUTS_RELATIVE_DIR = '.saivage/outputs/cards';
@@ -171,9 +180,9 @@ export function closeOpenRecordSlot(projectRoot: string, input: { cardId: string
   const definition = recordSlotDefinitionForFilename(filename);
   const slot = definition.slot;
   const index = readRecordSlotIndex(projectRoot, input.cardId, slot);
-  if (index.open === null) throw new Error(`Required record 'record://${filename}?card=${input.cardId}&v=next' was not created.`);
+  if (index.open === null) throw new ExpectedRecordSlotCloseError('missing_open', `Required record 'record://${filename}?card=${input.cardId}&v=next' was not created.`);
   const open = concreteRecordSlot(projectRoot, { cardId: input.cardId, filename, version: index.open });
-  if (!recordFileIsNonEmpty(open.absolutePath)) throw new Error(`Required record '${open.recordUrl}' was not created or is empty.`);
+  if (!recordFileIsNonEmpty(open.absolutePath)) throw new ExpectedRecordSlotCloseError('empty_open', `Required record '${open.recordUrl}' was not created or is empty.`);
   const writer = input.writer ?? singleWriter(definition);
   if (!definition.writers.includes(writer)) throw new Error(`${writer} cannot close record slot '${slot}'.`);
   const size = statSync(open.absolutePath).size;

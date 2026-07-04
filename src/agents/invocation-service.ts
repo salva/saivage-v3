@@ -13,6 +13,9 @@ import { defaultInvocationRecoveryPolicy } from './invocation-recovery-policy.js
 import type { LlmCallFn, LlmCompleteResult, ToolDefinition } from './llm-contracts.js';
 import { AgentLlmInvocationGateway } from './agent-llm-gateway.js';
 
+const INVOCATION_RECOVERY_DELAY_MS = 60_000;
+const MAX_INVOCATION_RECOVERY_RETRIES = 3;
+
 export interface InvocationRequest {
   role: OperationalAgentRole;
   sessionId: string;
@@ -33,8 +36,6 @@ export interface InvocationServiceConfig {
   router: ModelRouter;
   eventLogger?: EventLogger;
   candidateAvailability?: CandidateAvailability;
-  recoveryDelayMs?: number;
-  maxRecoveryRetries?: number;
   llmCallFn?: LlmCallFn;
 }
 
@@ -49,8 +50,8 @@ export class InvocationService {
   constructor(config: InvocationServiceConfig) {
     this.router = config.router;
     this.candidateAvailability = config.candidateAvailability ?? new MemoryCandidateAvailability();
-    this.recoveryDelayMs = config.recoveryDelayMs ?? 60000;
-    this.maxRecoveryRetries = config.maxRecoveryRetries ?? 3;
+    this.recoveryDelayMs = INVOCATION_RECOVERY_DELAY_MS;
+    this.maxRecoveryRetries = MAX_INVOCATION_RECOVERY_RETRIES;
     this.llmGateway = new AgentLlmInvocationGateway({
       projectRoot: config.projectRoot,
       saivageDir: config.saivageDir,

@@ -18,7 +18,6 @@ export class Account {
   readonly priority: number;
   readonly apiKey?: string;
   readonly baseUrl?: string;
-  readonly tokenEndpoint?: string;
   readonly authProfile?: string;
   readonly models?: string[]; // subset override
   readonly capabilities?: ProviderCapabilities;
@@ -28,7 +27,6 @@ export class Account {
     this.priority = entry.priority ?? 100;
     this.apiKey = entry.apiKey;
     this.baseUrl = entry.baseUrl;
-    this.tokenEndpoint = entry.tokenEndpoint;
     this.authProfile = entry.authProfile;
     this.models = entry.models;
     this.capabilities = entry.capabilities;
@@ -52,7 +50,6 @@ export class Provider {
   readonly models: Set<string>;
   readonly apiKey?: string;
   readonly baseUrl?: string;
-  readonly tokenEndpoint?: string;
   readonly authProfile?: string;
   readonly capabilities?: ProviderCapabilities;
   readonly modelCapabilities?: Record<string, ProviderCapabilities>;
@@ -66,7 +63,6 @@ export class Provider {
     this.models = new Set(entry.models ?? []);
     this.apiKey = entry.apiKey;
     this.baseUrl = entry.baseUrl;
-    this.tokenEndpoint = entry.tokenEndpoint;
     this.authProfile = entry.authProfile;
     this.capabilities = entry.capabilities;
     this.modelCapabilities = entry.modelCapabilities;
@@ -85,7 +81,6 @@ export class Provider {
       priority: 0,
       apiKey: entry.apiKey,
       baseUrl: entry.baseUrl,
-      tokenEndpoint: entry.tokenEndpoint,
       authProfile: entry.authProfile,
       capabilities: entry.capabilities,
     });
@@ -121,6 +116,7 @@ export class Provider {
     const account = accountName != null
       ? this.getAllAccounts().find((a) => a.name === accountName)
       : this.implicitAccount;
+    if (!account) throw new Error(`Cannot resolve effective capabilities for unknown account "${accountName}" on provider "${this.name}".`);
     const builtIn = builtInCapabilitiesForProvider(this.name);
     const providerLevel = mergeCapabilities(builtIn, this.capabilities);
     const accountLevel = mergeCapabilities(providerLevel, account?.capabilities);

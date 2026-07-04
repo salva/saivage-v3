@@ -1,16 +1,22 @@
 import type { LLMActorOutcome } from './llm-actor.js';
 
-export const MAX_TERMINAL_CONTRACT_REPAIRS = 2;
+const MAX_TERMINAL_CONTRACT_REPAIRS = 2;
 
 type ToolCallOutcome = Extract<LLMActorOutcome, { type: 'tool_call' }>;
 
 export type ContractRepairStep<T> =
   | { kind: 'continue'; outcome: LLMActorOutcome }
-  | { kind: 'done'; value: T };
+  | { kind: 'done'; value: T }
+  | { kind: 'restart' };
+
+export type ContractRepairLoopResult<T> =
+  | { kind: 'done'; value: T }
+  | { kind: 'restart' };
 
 export interface ContractRepairControl<T> {
   done(value: T): ContractRepairStep<T>;
   continue(outcome: LLMActorOutcome): ContractRepairStep<T>;
+  restart(): ContractRepairStep<T>;
   repair(message: string, next: () => Promise<LLMActorOutcome>): Promise<ContractRepairStep<T>>;
 }
 
@@ -21,13 +27,14 @@ export async function runContractBoundedRepairLoop<T>(args: {
   onPlainText: (outcome: Extract<LLMActorOutcome, { type: 'result' }>, control: ContractRepairControl<T>) => Promise<ContractRepairStep<T>> | ContractRepairStep<T>;
   onTerminalTool: (outcome: ToolCallOutcome, control: ContractRepairControl<T>) => Promise<ContractRepairStep<T>> | ContractRepairStep<T>;
   onNonTerminalTool: (outcome: ToolCallOutcome) => Promise<LLMActorOutcome>;
-}): Promise<T> {
+}): Promise<ContractRepairLoopResult<T>> {
   let outcome = args.initialOutcome;
   let repairAttempts = 0;
 
   const control: ContractRepairControl<T> = {
     done: (value) => ({ kind: 'done', value }),
     continue: (nextOutcome) => ({ kind: 'continue', outcome: nextOutcome }),
+    restart: () => ({ kind: 'restart' }),
     repair: async (message, next) => {
       if (repairAttempts >= MAX_TERMINAL_CONTRACT_REPAIRS) return { kind: 'done', value: await args.fail(message) };
       repairAttempts++;
@@ -40,14 +47,14 @@ export async function runContractBoundedRepairLoop<T>(args: {
     if (outcome.type === 'result') {
       step = await args.onPlainText(outcome, control);
     } else if (outcome.type === 'error') {
-      return args.fail(outcome.error);
+      return { kind: 'done', value: await args.fail(outcome.error) };
     } else if (args.isTerminalToolName(outcome.toolName)) {
       step = await args.onTerminalTool(outcome, control);
     } else {
       step = control.continue(await args.onNonTerminalTool(outcome));
     }
 
-    if (step.kind === 'done') return step.value;
+    if (step.kind === 'done' || step.kind === 'restart') return step;
     outcome = step.outcome;
   }
 }

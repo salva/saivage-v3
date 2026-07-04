@@ -36,7 +36,6 @@ describe('Core schemas still validate expected records', () => {
       context: '',
       goals_summary: '',
       constraints: [],
-      max_goal_depth: 5,
       planner_enabled: true,
       created_at: '2025-01-01T00:00:00.000Z',
       updated_at: '2025-01-01T00:00:00.000Z',
@@ -163,7 +162,7 @@ describe('Core schemas still validate expected records', () => {
   });
 
 
-  it('rejects legacy runtime state with discard guidance', () => {
+  it('strips legacy runtime state fields while parsing current runtime state', () => {
     const root = mkdtempSync(join(tmpdir(), 'runtime-legacy-'));
     try {
       initProjectTree(root);
@@ -171,7 +170,8 @@ describe('Core schemas still validate expected records', () => {
         join(root, '.saivage', 'runtime', 'state.json'),
         JSON.stringify({ status: 'idle', queue: [] }, null, 2),
       );
-      expect(() => readRuntimeState(root)).toThrow(/both authoritative/);
+      expect(readRuntimeState(root)).toMatchObject({ status: 'stopped' });
+      expect(readRuntimeState(root)).not.toHaveProperty('queue');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

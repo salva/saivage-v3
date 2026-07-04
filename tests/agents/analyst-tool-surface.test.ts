@@ -7,11 +7,19 @@ import { CardStore } from '../../src/cards/card-store.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 import { AnalystHandler } from '../../src/agents/analyst-handler.js';
-import { ANALYST_TOOL_DEFINITIONS } from '../../src/tools/analyst-tool-registry.js';
+import { ANALYST_CONTROL_TOOLS, ANALYST_SHARED_PROVIDER_TOOL_NAMES, ANALYST_TOOL_DEFINITIONS } from '../../src/tools/analyst-tool-registry.js';
 import { getAnalystSystemPrompt } from '../../src/agents/analyst-prompt.js';
 import { cancel_card, create_card, delete_card, reorder_child } from '../../src/tools/analyst-card-tools.js';
 import { reconfigure } from '../../src/tools/analyst-misc-tools.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
+import { buildInvocationSurface, defineTool, surfaceToolDefinitions, type InvocationSurface } from '../../src/tools/invocation.js';
+import { createCardHistoryProvider } from '../../src/tools/card-history-provider.js';
+import { createCardInspectionProvider } from '../../src/tools/card-inspection-provider.js';
+import { createMcpProvider } from '../../src/tools/mcp-provider.js';
+import { createProcessProvider } from '../../src/tools/process-provider.js';
+import { createSkillProvider } from '../../src/tools/skill-provider.js';
+import { createWebProvider } from '../../src/tools/web-tools.js';
+import { createPatchProvider, createWorkspaceProvider } from '../../src/tools/workspace-provider.js';
 import { initRuntimeState, updateRuntimeState } from '../../src/runtime/state.js';
 import { startProcess, killProcess } from '../../src/runtime/process-runner.js';
 import { loadEnvironment } from '../../src/config/environment.js';
@@ -116,10 +124,36 @@ function toolResponse(tool: string, args: Record<string, unknown>): Response {
   return new Response(JSON.stringify({ id: 'chatcmpl-test', object: 'chat.completion', created: 1, model: TEST_MODEL, choices: [{ index: 0, finish_reason: 'tool_calls', message: { role: 'assistant', content: null, tool_calls: [{ id: `call-${tool}`, type: 'function', function: { name: tool, arguments: JSON.stringify(args) } }] } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
 }
 
+function createProductionShapedAnalystSurface(root: string, store: CardStore): InvocationSurface {
+  const ctx: ToolContext = { projectRoot: root, store, actor: 'analyst', surface: 'web-chat', sessionId: 'analyst:test' };
+  return buildInvocationSurface('analyst', [
+    {
+      providerName: 'analyst',
+      tools: ANALYST_CONTROL_TOOLS.map((tool) => defineTool({
+        name: tool.name,
+        description: tool.description,
+        inputSchema: tool.input,
+        executor: async () => ({ success: true as const }),
+      })),
+    },
+    createCardInspectionProvider({ projectRoot: root, store, agentRole: 'analyst' }),
+    createCardHistoryProvider({ projectRoot: root, store, sessionId: ctx.sessionId, agentRole: 'analyst' }),
+    createWorkspaceProvider({ projectRoot: root, agentRole: 'analyst', store }),
+    createPatchProvider({ projectRoot: root, agentRole: 'analyst', store }),
+    createProcessProvider({ projectRoot: root, ownerId: ctx.sessionId ?? 'analyst', agentRole: 'analyst', ownerKind: 'operator', launchReason: 'analyst workspace run_command' }),
+    createWebProvider({ projectRoot: root, agentRole: 'analyst', store }),
+    createSkillProvider({ projectRoot: root, agentRole: 'analyst' }),
+    createMcpProvider({ mcpManagerProvider: () => undefined, agentRole: 'analyst' }),
+  ]);
+}
+
+function staticCapabilityProse(prompt: string): string {
+  return prompt.slice(prompt.indexOf('Capability classes and registered tools:'), prompt.indexOf('<TOOL_LIST>'));
+}
+
 describe('Tool inventory mirrors SPEC-r7 capability classes', () => {
   it('exposes registry, schema, policy, and prompt names without retired note-inbox tools', () => {
     const names = ANALYST_TOOL_DEFINITIONS.map((tool) => tool.function.name).sort();
-    expect(ANALYST_TOOL_DEFINITIONS.map((tool) => tool.function.name).sort()).toEqual(names);
     for (const retired of RETIRED_NOTE_TOOLS) expect(names).not.toContain(retired);
     for (const required of ['start_project','stop_project','queue_notification','create_card','reorder_child','cancel_card','delete_card','navigate_workspace','navigate_back','show_config','restart_server','reconfigure']) expect(names).toContain(required);
     expect(names).not.toContain('write_file');
@@ -128,6 +162,30 @@ describe('Tool inventory mirrors SPEC-r7 capability classes', () => {
     const prompt = getAnalystSystemPrompt(ANALYST_TOOL_DEFINITIONS);
     for (const capability of ['Inspect','Navigate the workspace area','Manage cards','Queue notifications','Control the runtime','Reconfigure','Investigate and repair']) expect(prompt).toContain(capability);
     expect(prompt).toContain('record://brief.md');
+  });
+
+  it('renders the Analyst prompt from the production-shaped invocation surface including provider tools', () => {
+    const root = setupRoot();
+    try {
+      const surface = createProductionShapedAnalystSurface(root, new CardStore(root));
+      const tools = surfaceToolDefinitions(surface);
+      const toolNames = tools.map((tool) => tool.function.name);
+      expect(toolNames).toEqual(expect.arrayContaining([...ANALYST_SHARED_PROVIDER_TOOL_NAMES]));
+
+      const prompt = getAnalystSystemPrompt(tools);
+      for (const providerTool of ['read', 'write', 'edit', 'apply_patch', 'glob', 'grep', 'run_command', 'webfetch', 'skill', 'mcp_tool_call']) {
+        expect(prompt).toContain(`- ${providerTool}:`);
+      }
+
+      const prose = staticCapabilityProse(prompt);
+      const registeredNames = new Set(toolNames);
+      expect(prose).toContain('Workspace repair: use read, write, edit, glob, and grep');
+      for (const staticProviderReference of ['read', 'write', 'edit', 'apply_patch', 'glob', 'grep', 'run_command', 'webfetch', 'skill', 'mcp_tool_call']) {
+        expect(registeredNames.has(staticProviderReference)).toBe(true);
+        expect(prose).toMatch(new RegExp(`\\b${staticProviderReference}\\b`));
+      }
+      for (const retiredTool of RETIRED_ACTIVE_SURFACE_TOOLS) expect(prose).not.toMatch(new RegExp(`\\b${retiredTool}\\b`));
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
   it('exposes Analyst shared provider tools through the active invocation surface', () => {
@@ -322,13 +380,12 @@ describe('Reconfigure MCP live manager refresh', () => {
       try {
         const config = loadTestConfig(root);
       const eventBus = new EventBus();
-      const runtimeApplication = createRuntimeApplication({ projectRoot: root, config, eventBus, eventLogger: new EventLogger(join(root, '.saivage')), errorLogger: new ErrorLogger(join(root, '.saivage')), cardStore: new CardStore(root, undefined, eventBus) });
+      const runtimeApplication = createRuntimeApplication({ projectRoot: root, config, eventBus, eventLogger: new EventLogger(join(root, '.saivage')), errorLogger: new ErrorLogger(join(root, '.saivage')), cardStore: new CardStore(root, eventBus) });
       const mcpManager = new McpManager(root, { config });
       const depsBeforeMcp = runtimeApplication.analystDeps;
       expect(runtimeApplication.analystDeps).toBe(depsBeforeMcp);
       runtimeApplication.setMcpManager(mcpManager);
       expect(runtimeApplication.analystDeps).not.toBe(depsBeforeMcp);
-      expect(runtimeApplication.analystDeps).toBe(runtimeApplication.analystDeps);
       expect(runtimeApplication.analystDeps.mcpManager).toBe(mcpManager);
       const ctx: ToolContext = { projectRoot: root, store: runtimeApplication.analystDeps.cardStore, actor: 'analyst', surface: 'web-chat', runtime: runtimeApplication.analystDeps.runtime, mcpManager };
 

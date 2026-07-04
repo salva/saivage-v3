@@ -15,9 +15,11 @@ import { writeFileAtomic, explainLegacyStateRejection } from '../persistence/ind
 import { redactOperatorErrorMessage } from '../workspace/index.js';
 import { redactCommandForPolicy, sanitizedCommandEnv } from './command-policy.js';
 import { EventLogger } from '../observability/index.js';
-import { queueNotification } from '../notifications/index.js';
+import { queueNotification, type QueueNotificationResult } from '../notifications/index.js';
 import type { ProcessRecord, ProcessStatus } from '../schemas/index.js';
 import { now } from '../utils/clock.js';
+import type { CardNotification } from './actors/card-actor.js';
+import type { NotifyCardResult } from './runtime-api.js';
 
 export interface ProcessStartOptions {
   cardId: string;
@@ -70,6 +72,7 @@ export interface ProcessReconcileResult {
   matched: string[];
   lost: string[];
   skewed: string[];
+  notificationDeliveries: QueueNotificationResult[];
 }
 
 const PROCESSES_DIR = '.saivage-work/processes';
@@ -86,6 +89,7 @@ export class ProcessRunnerService {
   terminalPaused = false;
   readonly bufferedTerminalNotes = new Map<string, ProcessTerminalNote>();
   readonly deliveredTerminalNotes = new Set<string>();
+  notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult;
   private scope: RuntimeLifecycleScope | null = null;
   readonly processResourceHandles = new Map<string, RuntimeResourceHandle[]>();
 
@@ -124,6 +128,7 @@ export class ProcessRunnerService {
 
   getRuntimeScope(): RuntimeLifecycleScope | null { return this.scope; }
   setRuntimeScope(scope: RuntimeLifecycleScope | null): void { this.scope = scope; }
+  setNotifyCard(notifyCard: ((cardId: string, notification: CardNotification) => NotifyCardResult) | undefined): void { this.notifyCard = notifyCard; }
 }
 
 const processRunnerServicesByRoot = new Map<string, ProcessRunnerService>();
@@ -136,6 +141,10 @@ export function serviceFor(projectRoot: string): ProcessRunnerService {
     processRunnerServicesByRoot.set(key, service);
   }
   return service;
+}
+
+export function setProcessRunnerNotifyCard(projectRoot: string, notifyCard: ((cardId: string, notification: CardNotification) => NotifyCardResult) | undefined): void {
+  serviceFor(projectRoot).setNotifyCard(notifyCard);
 }
 
 function processScope(service: ProcessRunnerService): RuntimeLifecycleScope {
@@ -762,7 +771,8 @@ function auditProcessReconciliation(
   kind: ProcessReconciliationAuditKind,
   detail: string,
   probeStatus?: ProcessReconciliationProbeStatus,
-): void {
+  notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult,
+): QueueNotificationResult | null {
   const safeDetail = redactOperatorErrorMessage(detail, projectRoot);
   const base = {
     kind,
@@ -781,11 +791,14 @@ function auditProcessReconciliation(
   new EventLogger(join(projectRoot, '.saivage')).appendEvent(event);
   if (record.agent_session_id) {
     const action = kind === 'process_reconciled_dead' ? 'reconciled as dead during restart' : 'reattach was rejected during restart';
-    queueNotification(projectRoot, { kind: 'session', sessionId: record.agent_session_id }, 'process_state', `Process ${record.id} for card ${record.card_id} ${action}: ${safeDetail}`, { actor: 'runtime', surface: 'runtime' });
+    const queued = queueNotification(projectRoot, { kind: 'session', sessionId: record.agent_session_id }, 'process_state', `Process ${record.id} for card ${record.card_id} ${action}: ${safeDetail}`, { actor: 'runtime', surface: 'runtime' }, undefined, notifyCard);
+    if (!queued.ok) console.warn(`process_notification_delivery_failed ${JSON.stringify(queued.cardDeliveries.filter((delivery) => !delivery.result.ok))}`);
+    return queued;
   }
+  return null;
 }
 
-function markLost(service: ProcessRunnerService, record: ProcessRecord, reason: string, audit?: { kind: ProcessReconciliationAuditKind; probeStatus?: ProcessReconciliationProbeStatus }): ProcessRecord {
+function markLost(service: ProcessRunnerService, record: ProcessRecord, reason: string, audit?: { kind: ProcessReconciliationAuditKind; probeStatus?: ProcessReconciliationProbeStatus; result?: ProcessReconcileResult }): ProcessRecord {
   const projectRoot = service.projectRoot;
   const updated: ProcessRecord = {
     ...record,
@@ -800,7 +813,10 @@ function markLost(service: ProcessRunnerService, record: ProcessRecord, reason: 
   };
   upsertRegistryRecord(service, updated);
   dispatchTerminal(service, updated);
-  if (audit) auditProcessReconciliation(projectRoot, updated, audit.kind, reason, audit.probeStatus);
+  if (audit) {
+    const delivery = auditProcessReconciliation(projectRoot, updated, audit.kind, reason, audit.probeStatus, service.notifyCard);
+    if (delivery) audit.result?.notificationDeliveries.push(delivery);
+  }
   return updated;
 }
 
@@ -816,7 +832,7 @@ function defaultProbe(record: ProcessRecord): { running: boolean; pid?: number |
 
 function reconcileProcessRecordsForService(service: ProcessRunnerService, options: ProcessReconcileOptions = {}): ProcessReconcileResult {
   const projectRoot = service.projectRoot;
-  const result: ProcessReconcileResult = { matched: [], lost: [], skewed: [] };
+  const result: ProcessReconcileResult = { matched: [], lost: [], skewed: [], notificationDeliveries: [] };
   const records = Array.from(loadRegistryForService(service).values()).filter((record) => record.status === 'running');
   const currentMonotonic = options.nowMonotonicMs ?? nowMonotonic();
   const maxClockSkewMs = options.maxClockSkewMs ?? 60_000;
@@ -826,19 +842,19 @@ function reconcileProcessRecordsForService(service: ProcessRunnerService, option
   for (const record of records) {
     if (record.started_at_monotonic > currentMonotonic + maxClockSkewMs) {
       result.skewed.push(record.id);
-      markLost(service, record, 'started_at_monotonic is in the future beyond clock-skew tolerance', { kind: 'process_reconciled_dead', probeStatus: 'clock_skew' });
+      markLost(service, record, 'started_at_monotonic is in the future beyond clock-skew tolerance', { kind: 'process_reconciled_dead', probeStatus: 'clock_skew', result });
       result.lost.push(record.id);
       continue;
     }
     const identity = probe(record);
     const monotonicMatches = identity.started_at_monotonic === undefined || identity.started_at_monotonic === null || Math.abs(identity.started_at_monotonic - record.started_at_monotonic) <= maxClockSkewMs;
     if (!identity.running || identity.pid !== record.pid || !monotonicMatches) {
-      markLost(service, record, 'restart identity probe mismatch', { kind: 'process_reconciled_dead', probeStatus: identity.running ? 'identity_mismatch' : 'not_running' });
+      markLost(service, record, 'restart identity probe mismatch', { kind: 'process_reconciled_dead', probeStatus: identity.running ? 'identity_mismatch' : 'not_running', result });
       result.lost.push(record.id);
       continue;
     }
     if (!reattach(record)) {
-      markLost(service, record, 'process reattach failed', { kind: 'process_reattach_rejected' });
+      markLost(service, record, 'process reattach failed', { kind: 'process_reattach_rejected', result });
       result.lost.push(record.id);
       continue;
     }

@@ -17,12 +17,16 @@ export interface StopProjectResult {
   run?: RuntimeRunRecord;
 }
 
+export type NotifyCardResult =
+  | { ok: true }
+  | { ok: false; reason: 'missing_card'; cardId: string };
+
 export interface RuntimeApi {
   start(): Promise<void>;
   shutdown(): Promise<void>;
   pause(): void;
   resume(): void;
-  notifyCard(cardId: string, notification: CardNotification): void;
+  notifyCard(cardId: string, notification: CardNotification): NotifyCardResult;
   startProject(source?: RuntimeCommandSource): Promise<StartProjectResult>;
   stopProject(source?: RuntimeCommandSource): Promise<StopProjectResult>;
   subscribe(options: SubscriptionOptions): Subscription;

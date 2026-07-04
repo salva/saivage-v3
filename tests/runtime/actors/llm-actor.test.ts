@@ -177,7 +177,7 @@ describe('LLMActor', () => {
       tool_delivery_counter: 0,
     });
 
-    const second = await actor.appendToolResult('call-1', { inspected: true });
+    const second = await actor.appendToolResult('call-1', { success: true, data: { inspected: true } });
 
     expect(second).toMatchObject({ type: 'result', result: { content: 'continued' } });
     expect(jsonl(actorToolCallStatusesPath(projectRoot, 'planner:project')).map((entry) => entry.status)).toEqual(['pending', 'delivered']);
@@ -223,7 +223,8 @@ describe('LLMActor', () => {
     await eventually(() => expect(actor.state()).toBe('waiting_tool'));
     const hook = jest.fn((deliveryInputId: string) => [{ role: 'user', content: `notification for ${deliveryInputId}` }]);
 
-    await expect(actor.appendToolResult('call-1', { inspected: true }, hook)).resolves.toMatchObject({ type: 'result' });
+    const result = { success: true, data: { inspected: true } } as const;
+    await expect(actor.appendToolResult('call-1', result, hook)).resolves.toMatchObject({ type: 'result' });
 
     expect(hook).toHaveBeenCalledWith('turn-1:tool:1');
     const context = completeTurn.mock.calls[1]?.[0].contextMessages as Array<Record<string, unknown>>;
@@ -234,7 +235,7 @@ describe('LLMActor', () => {
       role: 'assistant',
       tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'inspect', arguments: '{}' } }],
     });
-    expect(context[2]).toMatchObject({ role: 'tool', kind: 'tool_result', tool: 'inspect', tool_call_id: 'call-1', content: JSON.stringify({ inspected: true }) });
+    expect(context[2]).toMatchObject({ role: 'tool', kind: 'tool_result', tool: 'inspect', tool_call_id: 'call-1', content: JSON.stringify(result) });
     expect(context[3]).toEqual({ role: 'user', content: 'notification for turn-1:tool:1' });
   }));
 
@@ -248,8 +249,8 @@ describe('LLMActor', () => {
 
     await actor.turn(input());
     await eventually(() => expect(actor.state()).toBe('waiting_tool'));
-    const pending = actor.appendToolResult('call-1', {});
-    await expect(actor.appendToolResult('call-1', {})).rejects.toThrow(/not waiting|already/);
+    const pending = actor.appendToolResult('call-1', { success: true });
+    await expect(actor.appendToolResult('call-1', { success: true })).rejects.toThrow(/not waiting|already/);
     await expect(pending).resolves.toMatchObject({ type: 'tool_call' });
   }));
 
@@ -264,13 +265,13 @@ describe('LLMActor', () => {
     actor.start();
 
     await actor.turn(input());
-    await actor.appendToolResult('call-1', {});
+    await actor.appendToolResult('call-1', { success: true });
     expect(actor.deliveredToolCallIds.has('call-1')).toBe(true);
 
     await actor.turn(input('turn-2'));
 
     expect(actor.deliveredToolCallIds.has('call-1')).toBe(false);
-    await expect(actor.appendToolResult('call-1', {})).resolves.toMatchObject({ type: 'result' });
+    await expect(actor.appendToolResult('call-1', { success: true })).resolves.toMatchObject({ type: 'result' });
   }));
 
   it('settles late provider results for in-flight calls', async () => withTempProject(async (projectRoot) => {

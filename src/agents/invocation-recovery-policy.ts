@@ -1,7 +1,7 @@
 import type { AgentRole } from '../schemas/index.js';
 import { unwrapFailure } from './llm-errors.js';
 import type { LlmTransportFailure } from '../contracts/llm-failure.js';
-import type { Candidate } from '../contracts/provider-candidate.js';
+import { candidateKey, type Candidate } from '../contracts/provider-candidate.js';
 import type { AvailabilityDecision } from './candidate-availability.js';
 import type { CapabilityRequest, CapabilitySkipDiagnostic } from './provider-capabilities.js';
 import { redactTextForOutbound } from '../redaction/index.js';
@@ -44,7 +44,7 @@ export interface InvocationRecoveryDecision {
 
 function candidateLabel(candidate?: Candidate): string {
   if (!candidate) return 'no-candidate';
-  return `${candidate.provider}/${candidate.account ?? '_'}/${candidate.model}`;
+  return candidateKey(candidate);
 }
 
 export function sanitizeRecoveryMessage(value: unknown, maxLength = 500): string {

@@ -98,6 +98,9 @@ export const RuntimeStatusResponseSchema = z.object({
   goalCount: z.number().int().nonnegative(),
   lastTickAt: z.string().nullable(),
   pid: z.number().int().positive(),
+  lastCommand: runtimeCommandRecordSchema.nullable(),
+  activeRun: runtimeRunRecordSchema.nullable(),
+  latestRun: runtimeRunRecordSchema.nullable(),
   actorRuntime: z.object({
     pauseMode: actorPauseModeSchema,
     activeWork: z.enum(['none', 'model_invocation', 'shutdown', 'unknown']),

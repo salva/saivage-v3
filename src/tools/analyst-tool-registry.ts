@@ -4,7 +4,7 @@ import { analystCardTools } from './analyst-card-tools.js';
 import { analystMiscTools } from './analyst-misc-tools.js';
 import { analystRuntimeTools } from './analyst-runtime-tools.js';
 import { analystWorkspaceTools } from './analyst-workspace-tools.js';
-import type { UnifiedToolDefinition } from './tool-definition.js';
+import type { UnifiedToolDefinition } from './analyst-tool-definition.js';
 
 const analystToolOrder = [
   'create_card',

@@ -8,14 +8,11 @@ import type { ToolResult } from './invocation.js';
 
 export type { ToolResult };
 
-export type ToolErrorKind =
-  | 'validation'
-  | 'permission'
-  | 'not_found'
-  | 'conflict'
-  | 'io'
-  | 'provider'
-  | 'internal';
+export type SafeToolDataValue = string | number | boolean | null | readonly SafeToolDataValue[] | { readonly [key: string]: SafeToolDataValue };
+
+export interface SafeToolData {
+  readonly [key: string]: SafeToolDataValue;
+}
 
 export interface ToolContext {
   projectRoot: string;

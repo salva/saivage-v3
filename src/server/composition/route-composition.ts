@@ -33,7 +33,7 @@ export function registerServerRoutes(options: {
     saivageConfig: options.saivageConfig,
     configWarnings: options.configWarnings,
   });
-  registerInternalDebugRoutes(options.fastify, options.projectRoot, options.cardStore);
+  registerInternalDebugRoutes(options.fastify, options.projectRoot, options.cardStore, options.runtimeApplication);
   registerWebSocket(options.fastify, options.projectRoot, {
     liveSyncSocket: options.liveSyncSocket,
     saivageConfig: options.saivageConfig,

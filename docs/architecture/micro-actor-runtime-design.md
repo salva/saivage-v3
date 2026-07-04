@@ -98,17 +98,16 @@ RuntimeSupervisorActor
     PlanningCardProcessorActor
       LLMActor(planner:project)
       LLMActor(reviewer:project)
-      ProcessActor(... as needed)
     CardActor(goal)
       PlanningCardProcessorActor
         LLMActor(planner:goal)
         LLMActor(reviewer:goal)
-        ProcessActor(... as needed)
       CardActor(terminal)
         TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor
           LLMActor(executor:terminal)
-          ProcessActor(... as needed)
 ```
+
+Process execution is a service, not an actor. A single injected `ProcessRunner` is called directly by process tools and by shutdown; it does not appear in the actor tree.
 
 `CardActor` has the public card states: `backlog`, `running`, `done`, `blocked`, `failed`, `cancelled`, and `changed`. This is the public card lifecycle layer. New card actors start in `backlog`; recovered actors use the persisted card state. Public idle card states such as `backlog`, `done`, `blocked`, `failed`, and `changed` are parked because external commands may later activate, change, or cancel them. `cancelled` is terminal: the actor exits, and any later reactivation creates a fresh actor instance for the new durable card state. Processor actors share mechanical base classes but keep role/card policy in concrete subclasses. `LLMActor` interacts with remote LLM providers.
 
@@ -121,7 +120,7 @@ Ownership conventions are deliberately narrow:
 - `BaseMainLLMCardProcessorActor` owns the shared main-agent LLM loop for processors driven by one main LLM session. It handles per-turn notification injection and common tool continuation mechanics, but no planner/executor/reviewer policy.
 - `PlanningCardProcessorActor` owns project/goal planner/reviewer semantics.
 - `TerminalCardProcessorActor` owns executor semantics.
-- `ProcessActor` instances are created and controlled by the processor actor that launched or attached to the process record.
+- Process execution is owned by a single injected `ProcessRunner` service, not by an actor. Process tools and shutdown call it directly.
 - Other references are dependencies, services, or data references unless a concrete actor class explicitly stores and controls them.
 
 Parent-child waiting follows one pattern:
@@ -139,20 +138,21 @@ This keeps the micro-actor framework out of ownership and out of cross-actor wai
 
 ### RuntimeSupervisorActor
 
-Purpose: root runtime control, pause gate, shutdown, recovery, and parentless project ownership.
+Purpose: root runtime control, pause/admission gate, recovery, and parentless project ownership. The supervisor does not own shutdown process termination; shutdown is operational teardown performed at the runtime/composition root (see Pause, Cancellation, And Shutdown).
 
-Suggested states:
+States (admission only):
 
 - `idle`: parked; no root work is active.
 - `running`: active; root project exists and admission is open.
 - `paused`: parked; root project may exist, but no new model/provider calls are admitted.
-- `shutting_down`: active; pause gate is closed and runtime-owned processes are being terminated, then the supervisor returns to `idle`.
+
+There is no `shutting_down` actor state. Shutdown is operational teardown performed at the runtime root (see Pause, Cancellation, And Shutdown); it closes admission, stops OS processes, and the process exits. If projection ever needs a "teardown in progress" signal, represent it as a runtime-root flag, not as supervisor actor state.
 
 Public methods:
 
 - `run()`: start idle project work or resume from paused.
 - `pause()`: close model/provider admission.
-- `shutdown()`: close admission, terminate runtime-owned running processes, and settle.
+- `shutdown()`: close admission. The supervisor's only shutdown role is to stop admitting new provider calls; terminating processes, freezing state, and halting activity are runtime-root responsibilities.
 - `cancelProject()`: cancel inactive project work immediately, or enqueue a best-effort cancellation notification for running project work.
 
 Event guidance:
@@ -165,7 +165,6 @@ Responsibilities:
 - Hold the parentless project `CardActor` reference as supervisor runtime data.
 - Enforce duplicate-run behavior: return already-running warning, no duplicate root run.
 - Manage admission policy for provider calls.
-- Coordinate shutdown process termination.
 - Project runtime status for API/UI.
 - Rebuild or explicitly fail unsafe runtime state during startup recovery before normal runtime commands are accepted.
 
@@ -279,7 +278,7 @@ Responsibilities:
 - Validate planner tool authority.
 - Start immediate child cards through `CardActor` references held by the processor.
 - Treat child activation as a synchronous logical barrier from the planner perspective.
-- Route process tools to `ProcessActor` or process services.
+- Route process tools to the `ProcessRunner` service.
 - Enforce readiness and evidence gates before review.
 - Invoke reviewer only after gates pass.
 - Store negative reviewer findings for planner context.
@@ -313,7 +312,7 @@ Terminal responsibilities:
 - Build executor invocation context.
 - Own the executor `LLMActor` for the current activation; processors do not reuse actors across activations until `LLMActor` has an explicit terminal-settlement API.
 - Build terminal tool capability registry.
-- Route process tools to `ProcessActor` or process services.
+- Route process tools to the `ProcessRunner` service.
 - Validate executor terminal/reporting results.
 - Commit terminal result data only from accepted executor results.
 - Settle through `BaseCardProcessorActor.settle(...)` so the owning `CardActor` receives exactly one activation outcome.
@@ -368,37 +367,37 @@ Provider output rules:
 - Provider/account diagnostics remain outside model context unless deliberately sanitized into actionable recovery context.
 - `waiting_tool` is parked; tool execution must own its timeout or bounded wait and eventually call `appendToolResult(...)` or `appendToolError(...)`.
 
-### ProcessActor
+### ProcessRunner (service, not an actor)
 
-Purpose: durable external process lifecycle.
+Purpose: durable external process lifecycle. Process management is a service, not a micro-actor. It does real OS work and holds real state (live child handles, output streams, a durable registry), so it earns its existence as exactly one injected class. Do not wrap it in an actor, a facade, or module-level forwarding functions.
 
-Suggested states:
-
-- `running`: active; process exists or is being reconciled.
-- `killing`: active; explicit termination is in progress.
-- `settled`: terminal; process terminal result, failure, or abandonment is recorded.
-
-Event guidance:
-
-- `launch(...)` starts the process and enters `running` when the process record exists.
-- Process monitoring, waits, and termination normally complete with `done` or `failed` after storing process result/diagnostic fields.
-- `kill` is a command event because it is an external operation, not task completion.
+There is one `ProcessRunner` instance per runtime, injected from the composition root into the terminal processor (tool binding) and the shutdown path. The governing boundary test is "forward vs real work": any class or function that only delegates to the runner must not exist. No `ProcessApi` read/redaction wrapper class, no per-root module singleton, no free-function forwarders. Operator-facing redaction is a small set of functions (`toProcessView`, command redaction) applied at the HTTP/UI serialization boundary, not a wrapper around the runner.
 
 Public methods:
 
-- `launch(spec)`: launch a process and create its process record.
-- `wait(timeout)`: bounded wait for completion.
-- `inspect(range)`: safe status/log projection.
-- `kill(reason)`: terminate or mark abandoned.
+- `spawn(spec)`: launch a child process, stream output to durable logs, register it, return the process record.
+- `wait(id, timeout)`: bounded wait; timeout returns a result but does not kill the process.
+- `kill(id, reason)`: terminate one process — SIGTERM, bounded wait, SIGKILL, reap. This is the single implementation of "actually stop a process," used by both the `kill_process` tool and `stopAll`.
+- `stopAll(reason, { graceMs })`: terminate every live process the runtime owns (SIGTERM → bounded wait → SIGKILL stragglers → reap → dispose scope). Used by shutdown.
+- Registry reads (`list`, `get`) over durable process records, plus start-time reconcile of records left behind by a crashed run.
 
 Responsibilities:
 
-- Persist process identity and ownership.
-- Persist terminal result/failure.
-- Return process tool results to the owning processor actor exactly once; the processor forwards the tool result to the waiting `LLMActor`.
-- `inspect(...)` and `wait(...)` on an already settled process read the persisted process record directly and do not require a live actor loop.
-- Reattach to running processes after restart when safe.
-- Treat process results according to the normal process/tool protocol. Best-effort running cancellation does not reinterpret process results; shutdown or explicit `kill_process` handles forced process termination.
+- Persist process identity, ownership, command metadata, status, and terminal result/failure.
+- Return process tool results to the calling tool handler exactly once; the tool handler forwards the result to the waiting `LLMActor` via `appendToolResult(...)`.
+- Reads and bounded waits on an already settled process read the persisted record directly.
+
+Non-responsibilities:
+
+- Notification routing. The runner records terminal results; delivering them as card notifications is a higher-layer concern and must not live in the runner.
+- Operator-facing redaction (see above).
+
+Routing:
+
+- Process tools (`run_command`, `wait_process`, `kill_process`) call `ProcessRunner` methods directly.
+- Shutdown calls `runner.stopAll(...)` directly. It does not walk the actor tree and does not route through any process actor.
+- Runtime start invokes `reconcileProcessRecords` to reconcile records left by a crashed run; a running record whose OS process can be confirmed may be reattached, otherwise it is abandoned with diagnostics.
+- Best-effort running cancellation does not reinterpret process results; shutdown or explicit `kill_process` handles forced termination.
 
 ## External Command Mapping
 
@@ -487,12 +486,17 @@ Cancellation:
 - Best-effort running cancellation does not close provider admission, block child activation, kill processes, abort tool waits, or reinterpret late results. The running agent continues through the normal protocol and may report `done`, `failed`, `blocked`, or `cancelled` according to what it actually did after seeing the notification.
 - Hard shutdown remains the operation for forcibly terminating runtime-owned work regardless of agent cooperation.
 
-Shutdown:
+Shutdown (operational teardown at the runtime root):
 
-- Supervisor first closes admission.
-- Supervisor terminates or abandons runtime-owned running processes.
-- Supervisor persists shutdown diagnostics.
-- Supervisor does not rely on in-memory queues being drained as durable evidence.
+Shutdown is not a domain state cascade. The goal is to freeze state to disk and then halt all actor activity, not to drive every agent to a terminal state. It is performed by the runtime/composition root, not by the supervisor actor state machine.
+
+1. Close admission (the supervisor leaves `running`; this is the only actor-side act).
+2. Freeze barrier: persist a final snapshot of every live actor, so any field mutated without a transition is captured on disk.
+3. Terminate runtime-owned OS processes via `ProcessRunner.stopAll(...)` — SIGTERM, bounded wait, SIGKILL stragglers, reap, dispose scope.
+4. In-flight provider calls are abandoned; recovery classifies them as `abandon_with_diagnostic` on next startup.
+5. Mark the runtime stopped. Activity halts because no new work is admitted and all OS-level waits have settled.
+
+The supervisor does not own process termination or tree-cascade logic. Driving agents through domain states on shutdown is explicitly avoided; in-flight work is left to be classified by recovery on the next startup.
 
 ## Persistence And Recovery
 
@@ -528,7 +532,7 @@ Recovery procedure:
 2. Recreate `RuntimeSupervisorActor`.
 3. Recreate card actors for public `running` cards and unresolved waits.
 4. Recreate LLM actors only when a recoverable active/waiting session exists.
-5. Recreate process actors for running or undelivered process records.
+5. Reconcile running or undelivered process records through the `ProcessRunner` registry.
 6. Reconnect deterministic IDs.
 7. Call `BaseActor.recover(state)` on fresh actor instances where safe. Actor-specific `_on_recover__{state}` hooks rebuild in-memory references from persisted reconstruction records. `recover(...)` does not call `_on_state_changed(...)` and must not re-run transition persistence or transition side effects.
 8. Repair forward or fail explicitly when state is ambiguous.
@@ -542,7 +546,7 @@ Recovery classifications for each actor state must be designed before implementa
 
 Examples:
 
-- A `ProcessActor` in `running` may be `reconcile_then_resume` if the OS process can be found through the process registry.
+- A running process record may be `reconcile_then_resume` if the OS process can be found through the `ProcessRunner` registry; otherwise it is abandoned with diagnostics.
 - A provider call in progress at crash time is `abandon_with_diagnostic` because the external request cannot be safely reattached.
 - A planner `LLMActor` waiting on `activate_card` is `reconcile_then_resume` if the active child actor and durable card state can be rebuilt from the active card chain and activation edge.
 - A committed `cancelled` card or settled process is `complete_no_live_actor`; parked card outcomes such as `done`, `failed`, and `blocked` may still need a live parked actor when future changes or activation are allowed.
@@ -596,7 +600,9 @@ src/runtime/actors/
   planning-card-processor-actor.ts
   terminal-card-processor-actor.ts
   llm-actor.ts
-  process-actor.ts
+
+src/runtime/process/
+  process-runner.ts   # the one injected process service; not an actor
 
 src/runtime/projection/
   runtime-read-model.ts
@@ -621,7 +627,6 @@ The detailed rollout plan lives in [Micro-Actor Runtime Implementation Plan](./m
 ## Open Questions
 
 - Exact completed actor-record retention policy: delete, archive, or keep bounded history.
-- Whether process tools share one `ProcessActor` per process record or use direct process-service tasks for short operations.
 - Whether reviewer structured output is tool-based immediately or strict JSON in the first implementation.
 - Exact public schema fields for active-chain and runtime activity projection.
 

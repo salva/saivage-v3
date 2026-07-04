@@ -35,6 +35,8 @@ import {
   type CardMutationContext,
   type NewCardInput,
 } from './lifecycle.js';
+import type { CardNotification } from '../runtime/actors/card-actor.js';
+import type { NotifyCardResult } from '../runtime/runtime-api.js';
 
 export type { CardMutationContext };
 
@@ -55,10 +57,10 @@ export class CardStore {
   private readonly lifecycleCommands: CardLifecycleCommands;
   private readonly eventBus: EventBus;
 
-  constructor(projectRoot: string, maxGoalDepth?: number, eventBus?: EventBus) {
+  constructor(projectRoot: string, eventBus?: EventBus) {
     this.projectRoot = projectRoot;
     this.eventBus = eventBus ?? new EventBus();
-    this.maxDepth = maxGoalDepth !== undefined && maxGoalDepth > 0 ? maxGoalDepth : 5;
+    this.maxDepth = 5;
     this.projectLock = new ProjectLock(join(projectRoot, '.saivage', 'project.lock'));
     repairSiblingPositions(projectRoot, this.maxDepth, this.projectLock, this.eventBus);
     this.state = loadCardStoreState(projectRoot, { maxDepth: this.maxDepth });
@@ -101,6 +103,10 @@ export class CardStore {
 
   invalidate(): void {
     this.state = loadCardStoreState(this.projectRoot, { maxDepth: this.maxDepth });
+  }
+
+  setNotifyCard(notifyCard: ((cardId: string, notification: CardNotification) => NotifyCardResult) | undefined): void {
+    this.patchService.setNotifyCard(notifyCard);
   }
 
   private deps(): ApplyMutationDeps {

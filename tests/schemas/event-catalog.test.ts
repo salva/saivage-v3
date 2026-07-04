@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { EventRegistry, eventKindValues, payloadSchemaByKind } from '../../src/schemas/event-catalog.js';
+import { buildLoggedEventSchema, EventRegistry, eventKindValues, payloadSchemaByKind } from '../../src/schemas/event-catalog.js';
 
 describe('EventRegistry', () => {
   it('keeps only currently emitted event kinds', () => {
@@ -44,5 +44,25 @@ describe('EventRegistry', () => {
       changed_fields: [],
       changed_at: '2026-01-01T00:00:00.000Z',
     })).not.toThrow();
+    expect(payloadSchemaByKind.notification_added.parse({ session_id: null, notification_kind: 'runtime_state' })).toMatchObject({ notification_kind: 'runtime_state' });
+    expect(() => payloadSchemaByKind.notification_added.parse({ session_id: null, kind: 'runtime_state' })).toThrow();
+  });
+
+  it('keeps logged event kind as the envelope discriminator', () => {
+    const schema = buildLoggedEventSchema('notification_added');
+    expect(() => schema.parse({
+      id: 'event-1',
+      kind: 'notification_added',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      session_id: null,
+      notification_kind: 'runtime_state',
+    })).not.toThrow();
+    expect(() => schema.parse({
+      id: 'event-1',
+      kind: 'wrong_kind',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      session_id: null,
+      notification_kind: 'runtime_state',
+    })).toThrow();
   });
 });

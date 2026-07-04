@@ -18,7 +18,7 @@ import { createExecutorContract } from '../../contracts/executor-contract.js';
 import { createReviewerContract } from '../../contracts/reviewer-contract.js';
 import { evaluateReviewerTerminalOutcome } from './reviewer-terminal-evaluation.js';
 import { verifyTerminalToolOutcome } from './contract-terminal-tools.js';
-import { closeOpenRecordSlot } from '../records/record-slots.js';
+import { closeOpenRecordSlot, ExpectedRecordSlotCloseError } from '../records/record-slots.js';
 
 export interface ActorRecoveryCardReader {
   read(cardId: string): unknown | null;
@@ -399,8 +399,9 @@ function closeRecoveredRecordSlot(projectRoot: string, cardId: string, filename:
   try {
     closeOpenRecordSlot(projectRoot, { cardId, filename, writer, cardVersionSeq });
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    if (error instanceof ExpectedRecordSlotCloseError) return false;
+    throw error;
   }
 }
 

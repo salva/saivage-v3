@@ -1,5 +1,5 @@
 import type { AgentMessage } from '../schemas/index.js';
-import type { Candidate } from '../contracts/provider-candidate.js';
+import { candidateKey, type Candidate } from '../contracts/provider-candidate.js';
 import type { ProviderRegistry } from './provider.js';
 import { capabilityRequestForLlmOptions, supportsCapabilityRequest } from './provider-capabilities.js';
 import type { LlmCompleteOptions, LlmCompleteResult, LlmInvocationClient } from './llm-contracts.js';
@@ -54,7 +54,7 @@ export class LlmProviderGateway implements LlmInvocationClient {
         model: candidate.model,
         requested: match.reasons,
         supported: [],
-        message: `Candidate ${candidate.provider}/${candidate.account ?? '_'}/${candidate.model} does not support requested LLM capabilities: ${match.reasons.join(', ')}`,
+        message: `Candidate ${candidateKey(candidate)} does not support requested LLM capabilities: ${match.reasons.join(', ')}`,
       });
     }
   }

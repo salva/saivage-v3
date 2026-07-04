@@ -54,7 +54,16 @@ describe('initProjectTree', () => {
     const config = JSON.parse(readFileSync(join(tmpDir, '.saivage', 'project.json'), 'utf-8'));
     expect(config.id).toBe('project');
     expect(typeof config.name).toBe('string');
-    expect(config.max_goal_depth).toBe(5);
+    expect(Object.keys(config).sort()).toEqual([
+      'constraints',
+      'context',
+      'created_at',
+      'goals_summary',
+      'id',
+      'name',
+      'planner_enabled',
+      'updated_at',
+    ]);
     expect(config.planner_enabled).toBe(true);
     expect(config.context).toBe('');
     expect(Array.isArray(config.constraints)).toBe(true);

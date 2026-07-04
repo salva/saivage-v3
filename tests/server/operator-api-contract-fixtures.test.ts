@@ -7,6 +7,7 @@ import { initRuntimeState, readRuntimeState } from '../../src/runtime/state.js';
 import { createServer, type ServerInstance } from '../../src/server/server.js';
 import { loadEnvironment } from '../../src/config/environment.js';
 import { runtimeStateSchema } from '../../src/schemas/validators.js';
+import { ensureTestSaivageConfig } from '../helpers/test-runtime-application.js';
 
 const CORE_RUNTIME_STATE_KEYS = [
   'status',
@@ -35,6 +36,7 @@ function expectRuntimeStateContract(body: unknown): void {
 beforeEach(async () => {
   root = mkdtempSync(join(tmpdir(), 'saivage-operator-api-contract-'));
   initProjectTree(root);
+  ensureTestSaivageConfig(root);
   initRuntimeState(root);
   server = await createServer({ environment: loadEnvironment(['node', 'test', '--project-root', root], process.env) });
 });

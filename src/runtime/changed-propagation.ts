@@ -2,6 +2,7 @@ import type { AnalystIssue, CardStatus } from '../schemas/index.js';
 import type { CardStore } from '../cards/store-api.js';
 import { sanitizeAnalystText } from '../sanitization/analyst-sanitization.js';
 import type { CardNotification } from './actors/card-actor.js';
+import type { NotifyCardResult } from './runtime-api.js';
 
 const FLIPPABLE_RESTING: ReadonlySet<CardStatus> = new Set(['done', 'failed', 'cancelled', 'blocked']);
 
@@ -19,7 +20,7 @@ function originSummary(origin: ChangeOrigin): string {
   return sanitizeAnalystText(`${issueSummary}${origin.note ? `\n${origin.note}` : ''}`, 1000);
 }
 
-export function propagateChange(_projectRoot: string, store: CardStore, editedCardId: string, origin: ChangeOrigin, notifyCard?: (cardId: string, notification: CardNotification) => void): ChangedPropagation {
+export function propagateChange(store: CardStore, editedCardId: string, origin: ChangeOrigin, notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult): ChangedPropagation {
   const edited = store.read(editedCardId);
   if (!edited) throw new Error(`Card '${editedCardId}' not found.`);
 
@@ -58,7 +59,7 @@ export function propagateChange(_projectRoot: string, store: CardStore, editedCa
 function changeNotification(cardId: string, kind: ChangeOrigin['kind'], summary: string): CardNotification {
   const createdAt = new Date().toISOString();
   return {
-    id: `change:${cardId}:${createdAt}`,
+    id: `change:${cardId}:${createdAt}:${Math.random().toString(36).slice(2, 8)}`,
     message: `Card changed: ${summary}`,
     created_at: createdAt,
     reason: kind === 'analyst_correction' ? 'analyst_correction' : 'card_changed',

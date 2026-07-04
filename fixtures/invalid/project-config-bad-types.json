@@ -4,7 +4,6 @@
   "context": "Missing required fields",
   "goals_summary": "",
   "constraints": "not-an-array",
-  "max_goal_depth": -5,
   "planner_enabled": "not-a-boolean",
   "created_at": "not-a-date",
   "updated_at": "2025-01-02T00:00:00.000Z"

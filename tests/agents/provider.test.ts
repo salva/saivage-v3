@@ -212,4 +212,12 @@ describe('provider capabilities', () => {
 
     expect(() => registry.getEffectiveCapabilities({ provider: 'missing-provider', account: null, model: 'm1' })).toThrow(/unknown provider "missing-provider"/);
   });
+
+  it('throws when resolving capabilities for an unregistered provider account candidate', () => {
+    const registry = new ProviderRegistry(mockConfig({
+      providers: { opencode: { models: ['m1'], accounts: { primary: {} } } },
+    }));
+
+    expect(() => registry.getEffectiveCapabilities({ provider: 'opencode', account: 'missing-account', model: 'm1' })).toThrow(/unknown account "missing-account" on provider "opencode"/);
+  });
 });

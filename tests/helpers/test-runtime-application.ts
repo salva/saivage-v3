@@ -13,10 +13,12 @@ import { ProviderRegistry } from '../../src/agents/provider.js';
 import { ModelRouter } from '../../src/agents/model-router.js';
 import { MemoryCandidateAvailability } from '../../src/agents/candidate-availability.js';
 import { loadEnvironment } from '../../src/config/environment.js';
+import { appendNotificationToActorSnapshot, cardActorId } from '../../src/runtime/actors/index.js';
+import type { CardNotification } from '../../src/runtime/actors/index.js';
 
 const TEST_MODEL = 'test-analyst-model';
 
-function ensureTestSaivageConfig(projectRoot: string): void {
+export function ensureTestSaivageConfig(projectRoot: string): void {
   const saivageDir = join(projectRoot, '.saivage');
   mkdirSync(saivageDir, { recursive: true });
   writeFileSync(join(saivageDir, 'saivage.json'), JSON.stringify({
@@ -38,7 +40,7 @@ export function createTestSaivageConfig(): SaivageConfig {
 function testRuntimeTimestamp(): string { return new Date(0).toISOString(); }
 
 function testRuntimeCommand(command: 'start_project' | 'stop_project'): Awaited<ReturnType<RuntimeApi['startProject']>>['command'] {
-  return { command_id: `test-${command}`, command, status: 'completed', requested_at: testRuntimeTimestamp(), completed_at: testRuntimeTimestamp(), source: 'runtime' };
+  return { command_id: `test-${command}`, command, status: command === 'start_project' ? 'accepted' : 'completed', requested_at: testRuntimeTimestamp(), completed_at: command === 'start_project' ? null : testRuntimeTimestamp(), source: 'runtime' };
 }
 
 interface TestAnalystRuntime {
@@ -49,7 +51,7 @@ interface TestAnalystRuntime {
   setMcpManager(mcpManager: NonNullable<AnalystRuntimeDeps['mcpManager']>): void;
 }
 
-function createFlatTestAnalystRuntime(opts: { eventBus?: EventBus } = {}): TestAnalystRuntime & Pick<RuntimeApi, 'start' | 'shutdown' | 'pause' | 'resume' | 'notifyCard' | 'startProject' | 'stopProject' | 'subscribe' | 'getStatus' | 'getActorRuntimeReadModel'> {
+function createFlatTestAnalystRuntime(opts: { eventBus?: EventBus; cardStore?: CardStore; projectRoot?: string } = {}): TestAnalystRuntime & Pick<RuntimeApi, 'start' | 'shutdown' | 'pause' | 'resume' | 'notifyCard' | 'startProject' | 'stopProject' | 'subscribe' | 'getStatus' | 'getActorRuntimeReadModel'> {
   const eventBus = opts.eventBus ?? new EventBus();
   const runtime: TestAnalystRuntime & Pick<RuntimeApi, 'start' | 'shutdown' | 'pause' | 'resume' | 'notifyCard' | 'startProject' | 'stopProject' | 'subscribe' | 'getStatus' | 'getActorRuntimeReadModel'> = {
     eventLogger: undefined,
@@ -59,7 +61,19 @@ function createFlatTestAnalystRuntime(opts: { eventBus?: EventBus } = {}): TestA
     async shutdown(): Promise<void> {},
     pause(): void {},
     resume(): void {},
-    notifyCard(): void {},
+    notifyCard(cardId: string, notification: CardNotification): ReturnType<RuntimeApi['notifyCard']> {
+      if (!opts.cardStore || !opts.projectRoot) throw new Error('Test runtime notifyCard requires cardStore and projectRoot.');
+      const card = opts.cardStore.read(cardId);
+      if (!card) return { ok: false, reason: 'missing_card', cardId };
+      appendNotificationToActorSnapshot(opts.projectRoot, cardActorId(cardId), notification);
+      if (card.status === 'done' || card.status === 'failed' || card.status === 'needs_verification') {
+        opts.cardStore.commitTerminalLifecyclePatch(cardId, {
+          status: 'changed',
+          lifecycle: { status: 'changed', result: card.lifecycle.result, error: card.lifecycle.error, completed_at: null },
+        });
+      }
+      return { ok: true };
+    },
     async startProject(): ReturnType<RuntimeApi['startProject']> {
       const timestamp = testRuntimeTimestamp();
       const command = testRuntimeCommand('start_project');
@@ -92,9 +106,10 @@ function createFlatTestAnalystRuntime(opts: { eventBus?: EventBus } = {}): TestA
 
 export function createTestAnalystRuntime(opts: { eventBus?: EventBus; cardStore?: CardStore; projectRoot?: string } = {}): AnalystRuntimeDeps {
   const eventBus = opts.eventBus ?? new EventBus();
-  const analystRuntime = createFlatTestAnalystRuntime({ ...opts, eventBus });
   const projectRoot = opts.projectRoot ?? mkdtempSync(join(tmpdir(), 'saivage-test-analyst-runtime-'));
   if (!opts.projectRoot) ensureTestSaivageConfig(projectRoot);
+  const cardStore = opts.cardStore ?? new CardStore(projectRoot);
+  const analystRuntime = createFlatTestAnalystRuntime({ ...opts, eventBus, cardStore, projectRoot });
   const config = loadTestConfig(projectRoot);
   const availability = new MemoryCandidateAvailability();
   const registry = new ProviderRegistry(config);
@@ -107,7 +122,7 @@ export function createTestAnalystRuntime(opts: { eventBus?: EventBus; cardStore?
   });
   return {
     runtime: analystRuntime,
-    cardStore: opts.cardStore ?? new CardStore(projectRoot),
+    cardStore,
     candidateAvailability: analystRuntime.candidateAvailability,
     eventLogger: analystRuntime.eventLogger,
     eventBus,
@@ -119,10 +134,10 @@ export function createTestAnalystRuntime(opts: { eventBus?: EventBus; cardStore?
 
 export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardStore?: CardStore } = {}): RuntimeApplication {
   const eventBus = opts.eventBus ?? new EventBus();
-  const analystRuntime = createFlatTestAnalystRuntime({ ...opts, eventBus });
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-test-runtime-app-'));
   ensureTestSaivageConfig(projectRoot);
   const cardStore = opts.cardStore ?? new CardStore(projectRoot);
+  const analystRuntime = createFlatTestAnalystRuntime({ ...opts, eventBus, cardStore, projectRoot });
   return {
     cardStore,
     runtimeApi: {

@@ -53,7 +53,7 @@ afterEach(() => {
 });
 
 describe('resolveLlmTransportConfig', () => {
-  it('delegates base URL, credential, token endpoint, and non-secret metadata to the resolver', async () => {
+  it('delegates base URL, credential, and non-secret cache key construction to the resolver', async () => {
     const root = makeRoot();
     writeProfiles(root, {
       explicit: {
@@ -67,13 +67,11 @@ describe('resolveLlmTransportConfig', () => {
       'openai-codex': {
         models: ['m1'],
         baseUrl: 'https://provider.example.test/v1',
-        tokenEndpoint: 'https://provider.example.test/oauth/provider',
         authProfile: 'explicit',
         accounts: {
           primary: {
             baseUrl: 'https://account.example.test/v1',
             apiKey: SYNTHETIC_ACCOUNT_KEY_SECRET,
-            tokenEndpoint: 'https://account.example.test/oauth/account',
           },
         },
       },
@@ -87,15 +85,6 @@ describe('resolveLlmTransportConfig', () => {
 
     expect(transport.baseUrl).toBe('https://account.example.test/v1');
     expect(transport.apiKey).toBe(SYNTHETIC_ACCOUNT_KEY_SECRET);
-    expect(transport.tokenEndpoint).toBe('https://account.example.test/oauth/account');
-    expect(transport.credentialMetadata).toMatchObject({
-      providerName: 'openai-codex',
-      accountName: 'primary',
-      baseUrlSource: 'account-base-url',
-      credentialSource: 'account-api-key',
-      tokenEndpointSource: 'account-token-endpoint',
-    });
-    expectNoTransportSecrets(transport.credentialMetadata);
     expectNoTransportSecrets({ cacheKey: transport.cacheKey });
   });
 
@@ -120,9 +109,7 @@ describe('resolveLlmTransportConfig', () => {
     });
 
     expect(transport.apiKey).toBe(SYNTHETIC_ACCESS_SECRET);
-    expect(transport.credentialMetadata?.credentialSource).toBe('provider-alias-auth-profile');
-    expect(transport.credentialMetadata?.profileName).toBe('alias');
-    expectNoTransportSecrets(transport.credentialMetadata);
+    expect(transport.cacheKey).toContain(':provider-alias-auth-profile:alias:openai');
     expectNoTransportSecrets({ cacheKey: transport.cacheKey });
   });
 

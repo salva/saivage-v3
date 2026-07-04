@@ -2,8 +2,7 @@ import { z } from 'zod';
 
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { CardStore, PROJECT_CARD_ID } from '../cards/store-api.js';
-import { cardStatusValues, cardTypeValues, type CardRecord, type CardStatus, type CardType } from '../schemas/index.js';
-import type { AgentRole } from './tool-definition.js';
+import { cardStatusValues, cardTypeValues, type AgentRole, type CardRecord, type CardStatus, type CardType } from '../schemas/index.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
 import { computeCardDisplayPath, orderedCardsForTree, toCardView } from '../application/read-models/card-view.js';
 import { readRecordSlotIndex, recordPath, recordSlotDefinitions } from '../runtime/records/record-slots.js';

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { CardRecord, DebugTimelineEvent, ProcessView } from '../api/types';
-import { filterTimelineByKinds, selectCardStatusEntries, selectErrorsBySource, selectOperatorDataFreshnessLabel, selectSortedProcesses, selectSortedTimeline, selectTimelineDerivedErrors } from '../stores/debug-read-model';
+import type { CardRecord, ContentReview, DebugTimelineEvent, DoctorCheck, DoctorIssue, ProcessView } from '../api/types';
+import { filterTimelineByKinds, selectCardStatusEntries, selectDoctorIssuesBySeverity, selectErrorsBySource, selectFailedChecks, selectOperatorDataFreshnessLabel, selectReviewsByStatus, selectSortedProcesses, selectSortedTimeline, selectTimelineDerivedErrors } from '../stores/debug-read-model';
 
 function process(overrides: Partial<ProcessView>): ProcessView {
   return {
@@ -48,5 +48,34 @@ describe('debug-read-model', () => {
     ];
     expect(selectSortedTimeline(events).map((e) => e.kind)).toEqual(['runtime_diagnostic']);
     expect(selectTimelineDerivedErrors(events).map((e) => e.type)).toEqual(['runtime_diagnostic']);
+  });
+
+  it('groups doctor and supervision projections without store-only computed state', () => {
+    const checks: DoctorCheck[] = [
+      { name: 'card-index-integrity', passed: false, details: '3 cards missing from index' },
+      { name: 'file-metadata-count', passed: true },
+      { name: 'orphan-detection', passed: false, details: '2 orphan files' },
+    ];
+    const issues: DoctorIssue[] = [
+      { severity: 'error', message: 'Card #abc referenced by card #def but not found' },
+      { severity: 'warning', message: 'Orphan file .saivage-work/quarantine/xyz.log' },
+    ];
+    const reviews: ContentReview[] = [
+      { id: 'r1', source_kind: 'command_output', source_ref: 'proc-1/stdout', status: 'passed', summary: 'No sensitive data detected', risk: 'low', quarantine_id: null, created_at: '2025-06-01T10:00:00Z' },
+      { id: 'r2', source_kind: 'file', source_ref: '.saivage-work/output/report.md', status: 'blocked', summary: 'Contains PII pattern', risk: 'high', quarantine_id: 'q-abc123', created_at: '2025-06-01T10:05:00Z' },
+      { id: 'r3', source_kind: 'download', source_ref: 'https://example.com/data.csv', status: 'sanitized', summary: 'PII redacted', risk: 'medium', quarantine_id: null, created_at: '2025-06-01T10:10:00Z' },
+    ];
+
+    expect(selectFailedChecks(checks).map((check) => check.name)).toEqual(['card-index-integrity', 'orphan-detection']);
+    expect(selectFailedChecks([{ name: 'ok', passed: true }])).toEqual([]);
+
+    const issuesBySeverity = selectDoctorIssuesBySeverity(issues);
+    expect(issuesBySeverity.get('error')).toHaveLength(1);
+    expect(issuesBySeverity.get('warning')).toHaveLength(1);
+
+    const reviewsByStatus = selectReviewsByStatus(reviews);
+    expect(reviewsByStatus.get('passed')).toHaveLength(1);
+    expect(reviewsByStatus.get('blocked')).toHaveLength(1);
+    expect(reviewsByStatus.get('sanitized')).toHaveLength(1);
   });
 });

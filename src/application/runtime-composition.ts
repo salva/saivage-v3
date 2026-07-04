@@ -14,6 +14,8 @@ import type { RuntimeApi } from '../runtime/control-api.js';
 import { CardStore } from '../cards/card-store.js';
 import { InvocationService } from '../agents/invocation-service.js';
 import { createInvocationServiceProvider, createMicroActorRuntimeApi } from './micro-actor-runtime-api-factory.js';
+import { setProcessRunnerNotifyCard } from '../runtime/process-runner.js';
+import { setRuntimeControlNotifyCard } from '../runtime/control.js';
 
 export interface RuntimeApiFactoryDeps {
   projectRoot: string;
@@ -96,6 +98,9 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     eventBus,
   });
   const runtimeApi = runtimeComposition.runtimeApi;
+  cardStore.setNotifyCard((cardId, notification) => runtimeApi.notifyCard(cardId, notification));
+  setRuntimeControlNotifyCard(projectRoot, (cardId, notification) => runtimeApi.notifyCard(cardId, notification));
+  setProcessRunnerNotifyCard(projectRoot, (cardId, notification) => runtimeApi.notifyCard(cardId, notification));
   const emitAnalystToolInvokedFromRuntime = runtimeComposition.emitAnalystToolInvoked;
   let analystDepsCache: AnalystRuntimeDeps | null = null;
   const getAnalystDeps = (): AnalystRuntimeDeps => {

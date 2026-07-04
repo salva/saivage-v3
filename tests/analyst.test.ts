@@ -25,7 +25,6 @@ import {
   list_cards,
   get_card,
   get_tree,
-  edit_card,
   delete_card,
   queue_notification,
   pause_runtime,
@@ -53,8 +52,6 @@ import {
   createTestRuntimeApplication,
   loadTestConfig,
 } from './helpers/test-runtime-application.js';
-import { markGoalNeedsCorrections } from '../src/agents/analyst-stage6.js';
-import { getProjectNotificationCenter } from '../src/notifications/notification-delivery.js';
 
 function uniqueDir(): string {
   return join(
@@ -203,25 +200,6 @@ describe('Analyst Tools', () => {
     });
     expect(r.success).toBe(false);
     expect(r.error).toContain("parent 'card-1' in status 'running'");
-  });
-
-  it('marks a done goal changed through the analyst correction repair path', () => {
-    store.repairTerminalLifecycle('card-1', {
-      status: 'done',
-      lifecycle: {
-        status: 'done',
-        result: { kind: 'done', summary: 'accepted' },
-        error: null,
-        completed_at: new Date().toISOString(),
-      },
-    });
-
-    const result = markGoalNeedsCorrections(projectRoot, store, 'card-1', [
-      { summary: 'needs follow-up' },
-    ]);
-
-    expect(result.status_transition).toEqual({ from: 'done', to: 'changed' });
-    expect(store.read('card-1')?.status).toBe('changed');
   });
 
   it('includes display paths in analyst card projections', async () => {
@@ -389,23 +367,28 @@ describe('Analyst Tools', () => {
     expect(audit?.params_summary).not.toContain('body that must not audit');
   });
 
-  it('rejects broad analyst edit_card calls', async () => {
-    const result = await edit_card(ctx(projectRoot, store), {
-      id: 'card-2',
-      description: 'Updated objective for this implementation card.',
-      acceptance: 'Updated acceptance criteria.',
+  it('returns and audits structured analyst queue_notification failure when delivery target card is missing', async () => {
+    const runtime = createTestAnalystRuntime({ projectRoot, cardStore: store }).runtime!;
+    runtime.notifyCard = () => ({ ok: false as const, reason: 'missing_card' as const, cardId: 'card-2' });
+
+    const result = await queue_notification({ ...ctx(projectRoot, store), runtime }, {
+      recipient: 'card-2',
+      kind: 'heads_up',
+      body: 'body that must not bypass audit',
     });
 
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('edit_card is not available to the Analyst');
-    expect(getProjectNotificationCenter(projectRoot).queueLengthForSession('executor-session')).toBe(0);
-  });
-
-  it('rejects analyst lifecycle/status edits through unavailable edit_card', async () => {
-    const result = await edit_card(ctx(projectRoot, store), { id: 'card-2', status: 'done' });
-
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('edit_card is not available to the Analyst');
+    expect(result).toEqual(expect.objectContaining({
+      success: false,
+      data: expect.objectContaining({ reason: 'missing_card', recipient: 'card-2', cardIds: ['card-2'] }),
+      error: 'Notification delivery failed for missing card(s): card-2.',
+    }));
+    const audit = listControlActions(projectRoot).find(
+      (entry) => entry.action === 'notification.queue' && entry.target_id === 'card-2',
+    );
+    expect(audit).toBeDefined();
+    expect(audit?.outcome).toBe('error');
+    expect(audit?.outcome_summary).toBe('Notification delivery failed for missing card(s): card-2.');
+    expect(audit?.params_summary).not.toContain('body that must not bypass audit');
   });
 
   it('audits analyst reorder_child with the calling surface', async () => {
@@ -460,21 +443,6 @@ describe('Analyst Tools', () => {
     expect(result.error).toContain("create_card failed: field 'type' received 'task'");
     expect(result.error).toContain(`Allowed values: ${CREATE_CARD_TYPE_VALUES.join(', ')}`);
     expect(result.error).toContain("See the 'create_card' tool's parameter schema");
-  });
-
-  it('returns actionable enum preflight errors for invalid edit_card status', async () => {
-    const result = await edit_card(
-      { projectRoot, store, actor: 'runtime', surface: 'runtime' },
-      {
-        id: 'card-2',
-        status: 'todo',
-      },
-    );
-
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("edit_card failed: field 'status' received 'todo'");
-    expect(result.error).toContain(`Allowed values: ${CARD_STATUS_VALUES.join(', ')}`);
-    expect(result.error).toContain("See the 'edit_card' tool's parameter schema");
   });
 
   it('returns actionable error when analyst pause_runtime has no runtime state', async () => {

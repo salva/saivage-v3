@@ -5,8 +5,9 @@ import { PROJECT_CARD_ID } from '../cards/store-api.js';
 import { processApi } from '../runtime/process-api.js';
 import { listControlActions } from '../persistence/index.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
+import type { UnifiedToolDefinition } from './analyst-tool-definition.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
-import { emptyInput, type UnifiedToolDefinition } from './tool-definition.js';
+import { emptyInput } from './tool-definition.js';
 import { readJsonlTail, toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
 
 const JSONL_TAIL_DEFAULT = 50;
@@ -14,23 +15,35 @@ const JSONL_TAIL_MAX = 1000;
 
 export async function start_project(ctx: ToolContext, params: Record<string, never> = {}): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, params, { action: 'runtime.start_project', safety_class: 'low', target_kind: 'runtime', getTargetId: () => PROJECT_CARD_ID, run: async () => {
-    if (!ctx.runtime) return toolFailure('conflict', 'Active runtime is not available.');
+    if (!ctx.runtime) return toolFailure('Active runtime is not available.');
     const data = await ctx.runtime.startProject('analyst');
     if (data.success) return { success: true, data };
-    return { ...toolFailure('conflict', data.error.message), data };
+    return toolFailure(data.error.message, {
+      command_id: data.command.command_id,
+      command: data.command.command,
+      status: data.command.status,
+      error_code: data.error.code,
+      accepted_values: data.error.acceptedValues ?? [],
+      run_id: data.error.runId ?? null,
+      session_id: data.error.sessionId ?? null,
+      card_id: data.error.cardId ?? null,
+      parent_card_id: data.error.parentCardId ?? null,
+      child_card_id: data.error.childCardId ?? null,
+      docs_ref: data.error.docsRef ?? null,
+    });
   } });
 }
 
 export async function stop_project(ctx: ToolContext, params: Record<string, never> = {}): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, params, { action: 'runtime.stop_project', safety_class: 'destructive', target_kind: 'runtime', getTargetId: () => PROJECT_CARD_ID, run: async () => {
-    if (!ctx.runtime) return toolFailure('conflict', 'Active runtime is not available.');
+    if (!ctx.runtime) return toolFailure('Active runtime is not available.');
     const data = await ctx.runtime.stopProject('analyst'); return { success: true, data };
   } });
 }
 
 export async function pause_runtime(ctx: ToolContext, params: Record<string, never> = {}): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, params, { action: 'runtime.pause', safety_class: 'low', target_kind: 'runtime', getTargetId: () => 'project', run: async () => {
-    if (!ctx.runtime) return toolFailure('conflict', 'Active runtime is not available.');
+    if (!ctx.runtime) return toolFailure('Active runtime is not available.');
     ctx.runtime.pause();
     const state = ctx.runtime.getStatus();
     return { success: true, data: { status: state.status } };
@@ -39,9 +52,9 @@ export async function pause_runtime(ctx: ToolContext, params: Record<string, nev
 
 export async function resume_runtime(ctx: ToolContext, params: Record<string, never> = {}): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, params, { action: 'runtime.resume', safety_class: 'low', target_kind: 'runtime', getTargetId: () => 'project', run: async () => {
-    if (!ctx.runtime) return toolFailure('conflict', 'Active runtime is not available.');
+    if (!ctx.runtime) return toolFailure('Active runtime is not available.');
     const state = ctx.runtime.getStatus();
-    if (state.status === 'error') return toolFailure('conflict', 'Runtime is in error state. Inspect Debug errors/timeline and fix the underlying failure before attempting recovery.', { runtime_status: state.status });
+    if (state.status === 'error') return toolFailure('Runtime is in error state. Inspect Debug errors/timeline and fix the underlying failure before attempting recovery.', { runtime_status: state.status });
     ctx.runtime.resume();
     const updated = ctx.runtime.getStatus();
     return { success: true, data: { status: updated.status } };
@@ -50,29 +63,29 @@ export async function resume_runtime(ctx: ToolContext, params: Record<string, ne
 
 export async function restart_server(ctx: ToolContext, params: Record<string, never> = {}): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, params, { action: 'runtime.restart_server', safety_class: 'destructive', target_kind: 'runtime', getTargetId: () => 'server', run: async () => {
-    if (!ctx.requestServerRestart) return toolFailure('conflict', 'Server restart primitive is not available.');
+    if (!ctx.requestServerRestart) return toolFailure('Server restart primitive is not available.');
     await ctx.requestServerRestart(); return { success: true, data: { restart_requested: true } };
   } });
 }
 
 export async function read_runtime_events(ctx: ToolContext, params: { limit?: number; kind?: string }): Promise<ToolResult> {
   try { const limit = Math.min(Math.max(1, params.limit ?? JSONL_TAIL_DEFAULT), JSONL_TAIL_MAX); const { entries, total, parseErrors } = readJsonlTail(join(ctx.projectRoot, '.saivage', 'runtime', 'events.jsonl'), limit); const filtered = params.kind ? entries.filter((e) => typeof e === 'object' && e !== null && (e as Record<string, unknown>)['kind'] === params.kind) : entries; return { success: true, data: { total_lines: total, returned: filtered.length, parse_errors: parseErrors, events: filtered } }; }
-  catch (err) { return toolFailureFromError(err, 'io'); }
+  catch (err) { return toolFailureFromError(err); }
 }
 
 export async function read_runtime_errors(ctx: ToolContext, params: { limit?: number }): Promise<ToolResult> {
   try { const limit = Math.min(Math.max(1, params.limit ?? JSONL_TAIL_DEFAULT), JSONL_TAIL_MAX); const { entries, total, parseErrors } = readJsonlTail(join(ctx.projectRoot, '.saivage', 'runtime', 'errors.jsonl'), limit); return { success: true, data: { total_lines: total, returned: entries.length, parse_errors: parseErrors, errors: entries } }; }
-  catch (err) { return toolFailureFromError(err, 'io'); }
+  catch (err) { return toolFailureFromError(err); }
 }
 
 export async function read_control_actions(ctx: ToolContext, params: { limit?: number; since?: string }): Promise<ToolResult> {
   try { const limit = Math.min(Math.max(1, params.limit ?? JSONL_TAIL_DEFAULT), JSONL_TAIL_MAX); const all = listControlActions(ctx.projectRoot, params.since ? { since: params.since } : undefined); const tail = all.slice(-limit); return { success: true, data: { total_lines: all.length, returned: tail.length, actions: tail } }; }
-  catch (err) { return toolFailureFromError(err, 'io'); }
+  catch (err) { return toolFailureFromError(err); }
 }
 
 export async function list_processes_tool(ctx: ToolContext, params: { status?: string; cardId?: string }): Promise<ToolResult> {
   try { const procs = processApi(ctx.projectRoot).listForAgent(params.cardId ? { cardId: params.cardId } : undefined); const filtered = params.status ? procs.filter((p) => p.status === params.status) : procs; return { success: true, data: filtered }; }
-  catch (err) { return toolFailureFromError(err, 'io'); }
+  catch (err) { return toolFailureFromError(err); }
 }
 
 export const analystRuntimeTools: readonly UnifiedToolDefinition<string, any>[] = [

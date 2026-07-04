@@ -1,7 +1,6 @@
 import type { RuntimeState } from '../schemas/index.js';
 import { buildPauseRuntimeStatePatch, buildResumeRuntimeStatePatch } from './runtime-control-state.js';
-
-export type RuntimeControlEventKind = 'paused' | 'resumed';
+import type { QueueNotificationResult } from '../notifications/index.js';
 
 export interface RuntimeControlResult {
   ok: boolean;
@@ -11,6 +10,7 @@ export interface RuntimeControlResult {
   error?: string;
   message?: string;
   state?: RuntimeState;
+  notificationDelivery?: QueueNotificationResult;
 }
 
 export interface PauseResumeEffects {
@@ -21,9 +21,7 @@ export interface PauseResumeEffects {
   setProcessBuffering?(enabled: boolean): void;
   beforeResumeStatePatch?(state: RuntimeState | null): void;
   requestImmediateTick?(): void | Promise<void>;
-  emitRuntimeEvent?(kind: RuntimeControlEventKind): void;
-  logEvent?(kind: RuntimeControlEventKind): void;
-  sendNotification?(message: string): void;
+  sendNotification?(message: string): QueueNotificationResult;
 }
 
 export function pauseRuntimeCommand(_projectRoot: string, effects: PauseResumeEffects): RuntimeControlResult {
@@ -34,10 +32,8 @@ export function pauseRuntimeCommand(_projectRoot: string, effects: PauseResumeEf
     effects.setLifecyclePaused?.(true);
     effects.setProcessBuffering?.(true);
     effects.applyStatePatch(buildPauseRuntimeStatePatch());
-    effects.emitRuntimeEvent?.('paused');
-    effects.logEvent?.('paused');
-    effects.sendNotification?.('Runtime was paused.');
-    return pausedResult(effects.readState() ?? current);
+    const notificationDelivery = effects.sendNotification?.('Runtime was paused.');
+    return pausedResult(effects.readState() ?? current, notificationDelivery);
   } catch (err) {
     return errorResult('pause', err);
   }
@@ -52,9 +48,7 @@ export function resumeRuntimeCommand(_projectRoot: string, effects: PauseResumeE
     effects.setProcessBuffering?.(false);
     effects.beforeResumeStatePatch?.(current);
     effects.applyStatePatch(buildResumeRuntimeStatePatch(current));
-    effects.emitRuntimeEvent?.('resumed');
-    effects.logEvent?.('resumed');
-    effects.sendNotification?.('Runtime was resumed.');
+    const notificationDelivery = effects.sendNotification?.('Runtime was resumed.');
     void effects.requestImmediateTick?.();
     const state = effects.readState() ?? current;
     return {
@@ -62,6 +56,7 @@ export function resumeRuntimeCommand(_projectRoot: string, effects: PauseResumeE
       code: 'resumed',
       status: state.status,
       state,
+      ...(notificationDelivery ? { notificationDelivery } : {}),
     };
   } catch (err) {
     return errorResult('resume', err);
@@ -80,12 +75,13 @@ function unavailableResult(action: 'pause' | 'resume'): RuntimeControlResult {
   };
 }
 
-function pausedResult(state: RuntimeState): RuntimeControlResult {
+function pausedResult(state: RuntimeState, notificationDelivery?: QueueNotificationResult): RuntimeControlResult {
   return {
     ok: true,
     code: 'paused',
     status: state.status,
     state,
+    ...(notificationDelivery ? { notificationDelivery } : {}),
   };
 }
 

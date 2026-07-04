@@ -313,7 +313,7 @@ describe('integration edge cases', () => {
     const json = JSON.stringify({
       name: 'my-project',
       description: 'a test project',
-      max_goal_depth: 5,
+      card_count: 5,
     });
 
     const result = redactTextForOutbound(json, 'operator.api', { source: 'security-integration-test' });

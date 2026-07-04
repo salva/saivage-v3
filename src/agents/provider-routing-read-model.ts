@@ -1,5 +1,5 @@
 import type { CandidateAvailability } from './candidate-availability.js';
-import type { Candidate } from '../contracts/provider-candidate.js';
+import { candidateKey } from '../contracts/provider-candidate.js';
 import type { ProviderRegistry } from './provider.js';
 
 export interface ProviderRoutingSummary {
@@ -17,10 +17,6 @@ export interface ProviderRoutingReadModel {
   providers: Record<string, ProviderRoutingSummary>;
 }
 
-function candidateId(candidate: Candidate): string {
-  return `${candidate.provider}/${candidate.account ?? '_'}/${candidate.model}`;
-}
-
 export function buildProviderRoutingReadModel(input: {
   registry: ProviderRegistry;
   availability: CandidateAvailability;
@@ -33,7 +29,7 @@ export function buildProviderRoutingReadModel(input: {
     for (const candidate of candidates) {
       if (input.availability.isAvailable(candidate)) availableCandidateCount += 1;
       const entry = input.availability.getEntry(candidate);
-      availability[candidateId(candidate)] = entry
+      availability[candidateKey(candidate)] = entry
         ? { state: entry.state, ...(entry.reason ? { reason: entry.reason } : {}), ...(entry.untilMs ? { untilMs: entry.untilMs } : {}) }
         : { state: 'HEALTHY' };
     }

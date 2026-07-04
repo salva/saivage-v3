@@ -1,9 +1,6 @@
 import type { Candidate } from '../contracts/provider-candidate.js';
 import type { ProviderRegistry } from './provider.js';
-import {
-  CredentialSourceResolver,
-  type CredentialSourceMetadata,
-} from './credential-source-resolver.js';
+import { CredentialSourceResolver } from './credential-source-resolver.js';
 import {
   type AuthProfile,
   isProfileExpired,
@@ -18,8 +15,6 @@ export interface LlmTransportConfig {
   baseUrl: string;
   apiKey?: string;
   cacheKey: string;
-  credentialMetadata?: CredentialSourceMetadata;
-  tokenEndpoint?: string;
 }
 
 export async function resolveLlmTransportConfig(
@@ -50,8 +45,6 @@ export async function resolveLlmTransportConfig(
     baseUrl: resolved.baseUrl,
     apiKey: resolved.apiKey,
     cacheKey: resolved.cacheKey,
-    credentialMetadata: resolved.metadata,
-    tokenEndpoint: resolved.tokenEndpoint,
   };
 }
 

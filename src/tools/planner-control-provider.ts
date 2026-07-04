@@ -6,6 +6,7 @@ import { queueNotification, resolveRecipient } from '../notifications/index.js';
 import { recordControlAction, stableStringify } from '../persistence/control-action-audit.js';
 import { cardTypeValues, urgencyValues, type CardRecord, type CardType, type Urgency } from '../schemas/index.js';
 import type { CardNotification } from '../runtime/actors/card-actor.js';
+import type { NotifyCardResult } from '../runtime/runtime-api.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
 
 interface PlannerChildActor {
@@ -27,7 +28,7 @@ export interface PlannerControlProviderContext {
   readonly sessionId: string;
   readonly store: PlannerControlStore;
   readonly children: { get(cardId: string): PlannerChildActor | null };
-  readonly notifyCard?: (cardId: string, notification: CardNotification) => void;
+  readonly notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult;
 }
 
 const createCardSchema = z.object({
@@ -132,8 +133,9 @@ function reorderChild(ctx: PlannerControlProviderContext, record: z.infer<typeof
 function queueNotificationTool(ctx: PlannerControlProviderContext, record: z.infer<typeof queueNotificationSchema>): ToolResult {
   const recipient = resolveRecipient(ctx.projectRoot, ctx.store as CardStore, record.recipient);
   if (recipient === null) return { success: false, error: `Unknown notification recipient '${record.recipient}'.` };
-  queueNotification(ctx.projectRoot, recipient, record.kind, record.body, { actor: 'planner', surface: 'runtime' }, ctx.store as CardStore, ctx.notifyCard);
+  const queued = queueNotification(ctx.projectRoot, recipient, record.kind, record.body, { actor: 'planner', surface: 'runtime' }, ctx.store as CardStore, ctx.notifyCard);
   const targetId = recipient.kind === 'card' ? recipient.cardId : recipient.kind === 'role' ? recipient.role : recipient.sessionId;
+  const missingCards = queued.cardDeliveries.filter((delivery) => !delivery.result.ok && delivery.result.reason === 'missing_card').map((delivery) => delivery.cardId);
   recordControlAction(ctx.projectRoot, {
     actor: 'planner',
     surface: 'runtime',
@@ -141,9 +143,11 @@ function queueNotificationTool(ctx: PlannerControlProviderContext, record: z.inf
     target_kind: 'session',
     target_id: targetId,
     params_summary: stableStringify({ recipient, kind: record.kind, sessionId: ctx.sessionId }),
-    outcome: 'ok',
-    outcome_summary: record.kind,
+    outcome: queued.ok ? 'ok' : 'error',
+    outcome_summary: queued.ok ? record.kind : `missing_card: ${missingCards.join(', ')}`,
+    ...(queued.ok ? {} : { error: `Notification delivery failed for missing card(s): ${missingCards.join(', ')}` }),
   });
+  if (!queued.ok) return { success: false, error: `Notification delivery failed for missing card(s): ${missingCards.join(', ')}`, data: { queued: false, recipient: targetId, delivery: queued } };
   return { success: true, data: { queued: true, recipient: targetId } };
 }
 

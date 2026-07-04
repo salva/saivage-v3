@@ -5,7 +5,7 @@ import { PROJECT_CARD_ID, type CardStore } from '../cards/store-api.js';
 import { computeCardDisplayPath } from '../application/read-models/card-view.js';
 import type { CardRecord, CardType } from '../schemas/index.js';
 import { CARD_STATUS_VALUES, CARD_TYPE_VALUES, URGENCY_VALUES } from './tool-definition.js';
-import type { ToolContext, ToolErrorKind, ToolResult } from './analyst-tool-types.js';
+import type { SafeToolData, ToolContext, ToolResult } from './analyst-tool-types.js';
 
 export function saivageDir(projectRoot: string): string {
   return join(projectRoot, '.saivage');
@@ -72,26 +72,12 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-export function toolFailure(_kind: ToolErrorKind, message: string, _details?: Record<string, unknown>, _retryable?: boolean): ToolResult {
-  return { success: false, error: message };
+export function toolFailure(message: string, safeData?: SafeToolData): ToolResult {
+  return safeData === undefined ? { success: false, error: message } : { success: false, error: message, data: safeData };
 }
 
-export function classifyToolError(err: unknown, fallbackKind: ToolErrorKind = 'internal', messageOverride?: string): { kind: ToolErrorKind; message: string } {
-  const raw = messageOverride ?? errorMessage(err);
-  const lower = raw.toLowerCase();
-  const kind: ToolErrorKind =
-    lower.includes('denied') || lower.includes('not available on telegram') || lower.includes('off-limits') || lower.includes('authorization') ? 'permission'
-      : lower.includes('not found') || lower.includes('does not exist') ? 'not_found'
-        : lower.includes('invalid') || lower.includes('required') || lower.includes('must be') || lower.includes('schema') || lower.includes('allowed values') || lower.includes('no allowed fields') ? 'validation'
-          : lower.includes('cannot') || lower.includes('conflict') || lower.includes('mismatch') ? 'conflict'
-            : lower.includes('enoent') || lower.includes('eacces') || lower.includes('file') || lower.includes('directory') || lower.includes('readable') ? 'io'
-              : fallbackKind;
-  return { kind, message: raw };
-}
-
-export function toolFailureFromError(err: unknown, fallbackKind: ToolErrorKind = 'internal', messageOverride?: string): ToolResult {
-  const classified = classifyToolError(err, fallbackKind, messageOverride);
-  return { success: false, error: classified.message };
+export function toolFailureFromError(err: unknown, messageOverride?: string): ToolResult {
+  return { success: false, error: messageOverride ?? errorMessage(err) };
 }
 
 export function preflightEnum<T extends string>(

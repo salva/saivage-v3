@@ -6,6 +6,7 @@ import { actorKindFromId, parseLlmActorId } from './ids.js';
 import { saveActorSnapshot } from './snapshots.js';
 import { appendLlmTurnError, appendLlmTurnFinished, appendLlmTurnStarted, appendModelRepairMessage, appendToolDelivery, toolCallAgentMessage, toolResultAgentMessage } from './llm-delivery-log.js';
 import type { LlmActiveReconstructionRecord } from './active-reconstruction.js';
+import type { ToolResult } from '../../tools/invocation.js';
 
 export type LLMActorOutcome =
   | { type: 'result'; agentId: string; result: Extract<LlmCompleteResult, { kind: 'message' }> }
@@ -75,7 +76,7 @@ export class LLMActor extends BaseActor {
     return this.startProviderTurn(input, { resetDeliveredToolCalls: true });
   }
 
-  appendToolResult(toolCallId: string, result: unknown, continuationContextHook?: LLMToolContinuationContextHook): Promise<LLMActorOutcome> {
+  appendToolResult(toolCallId: string, result: ToolResult, continuationContextHook?: LLMToolContinuationContextHook): Promise<LLMActorOutcome> {
     let waiting: WaitingToolCall;
     try {
       waiting = this.requireWaitingTool(toolCallId);

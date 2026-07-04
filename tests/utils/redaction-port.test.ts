@@ -16,13 +16,6 @@ import { EventLogger } from '../../src/observability/event-logger.js';
 import { ErrorLogger } from '../../src/observability/error-logger.js';
 import { sendToClient } from '../../src/server/websocket.js';
 import type { WsEnvelope } from '../../src/contracts/operator-events.js';
-import {
-  logOAuthRefreshException,
-  logOAuthRefreshHttpFailure,
-  logOAuthRefreshMissingAccessToken,
-  logOAuthRefreshStart,
-} from '../../src/auth/oauth-refresh-logger.js';
-
 import { TelegramBot } from '../../src/telegram/bot.js';
 import { createTestRuntimeApplication } from '../helpers/test-runtime-application.js';
 import { CardStore } from '../../src/cards/card-store.js';
@@ -179,16 +172,7 @@ describe('redacted outbound sinks', () => {
     expect(sent[0]).toContain(SECRET_REDACTION_PLACEHOLDER);
   });
 
-  it('OAuth, notification, agent, and Telegram diagnostics call the central port', async () => {
-    const spy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
-    logOAuthRefreshStart({ name: `profile apiKey=${RAW_INLINE}`, tokenEndpoint: `https://auth.test/token?access_token=${RAW_ACCESS}` });
-    logOAuthRefreshHttpFailure({ name: 'profile', status: 401, body: { refresh_token: RAW_REFRESH } });
-    logOAuthRefreshMissingAccessToken({ name: 'profile', response: `{"access_token":"${RAW_ACCESS}"}` });
-    logOAuthRefreshException({ name: 'profile', error: new Error(`Bearer ${RAW_TOKEN}`) });
-    const output = spy.mock.calls.map((call) => String(call[0])).join('\n');
-    spy.mockRestore();
-    expectNoSyntheticSecret(output);
-
+  it('notification and agent diagnostics call the central port', async () => {
     const summary = redactTextForOutbound(`Directive includes Bearer ${RAW_TOKEN} and apiKey=${RAW_INLINE} ${'x'.repeat(220)}`, 'notification.transport');
     // 2026-Q2 baseline measurement is ~279 bytes; keep modest headroom before re-tripping.
     expect(summary.length).toBeLessThanOrEqual(320);

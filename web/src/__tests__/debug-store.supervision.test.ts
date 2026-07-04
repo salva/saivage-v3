@@ -157,7 +157,6 @@ describe('useDebugStore — supervision/doctor', () => {
       expect(store.doctorChecks).toHaveLength(3);
       expect(store.doctorIssues).toHaveLength(2);
       expect(store.doctorIssues[0].severity).toBe('error');
-      expect(store.failedChecks).toHaveLength(2);
     });
 
     it('sets doctorLoading=true while fetching', async () => {
@@ -225,54 +224,6 @@ describe('useDebugStore — supervision/doctor', () => {
       expect(store.supervisionStats).toBeNull();
       expect(store.supervisionError).toBe('Failed to fetch supervision data');
       expect(store.supervisionLoading).toBe(false);
-    });
-  });
-
-  // ── Computed getters ────────────────────────────────────────
-
-  describe('reviewsByStatus', () => {
-    it('groups reviews by status correctly', async () => {
-      const store = setupStore();
-      vi.mocked(getDebugSupervision).mockResolvedValue(mockSupervision);
-      await store.fetchSupervision();
-
-      const byStatus = store.reviewsByStatus;
-      expect(byStatus.get('passed')).toHaveLength(1);
-      expect(byStatus.get('blocked')).toHaveLength(1);
-      expect(byStatus.get('sanitized')).toHaveLength(1);
-    });
-  });
-
-  describe('failedChecks', () => {
-    it('returns only failed doctor checks', async () => {
-      const store = setupStore();
-      vi.mocked(getDoctor).mockResolvedValue(mockDoctorIssues);
-      await store.fetchDoctor();
-
-      const failed = store.failedChecks;
-      expect(failed).toHaveLength(2);
-      expect(failed[0].name).toBe('card-index-integrity');
-      expect(failed[1].name).toBe('orphan-detection');
-    });
-
-    it('returns empty array when all checks pass', async () => {
-      const store = setupStore();
-      vi.mocked(getDoctor).mockResolvedValue(mockDoctorOk);
-      await store.fetchDoctor();
-
-      expect(store.failedChecks).toEqual([]);
-    });
-  });
-
-  describe('doctorIssuesBySeverity', () => {
-    it('groups issues by severity', async () => {
-      const store = setupStore();
-      vi.mocked(getDoctor).mockResolvedValue(mockDoctorIssues);
-      await store.fetchDoctor();
-
-      const bySev = store.doctorIssuesBySeverity;
-      expect(bySev.get('error')).toHaveLength(1);
-      expect(bySev.get('warning')).toHaveLength(1);
     });
   });
 });

@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ChatSendResponseSchema } from '../../src/contracts/operator-api-chats.js';
-import { createTestRuntimeApplication } from '../helpers/test-runtime-application.js';
+import { createTestRuntimeApplication, ensureTestSaivageConfig, loadTestConfig } from '../helpers/test-runtime-application.js';
 
 const handleMessage = jest.fn<(sessionId: string, content: string, workspaceContext?: unknown) => Promise<unknown>>();
 const resolveAnalystSessionId = jest.fn<(id?: string) => string>();
@@ -29,6 +29,7 @@ const { registerOperatorContractRoutes } = await import('../../src/server/routes
 function setupRoot(): string {
   const root = mkdtempSync(join(tmpdir(), 's08-chat-route-'));
   mkdirSync(join(root, '.saivage'), { recursive: true });
+  ensureTestSaivageConfig(root);
   return root;
 }
 
@@ -53,7 +54,7 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
 
   async function app() {
     const fastify = Fastify();
-    registerOperatorContractRoutes({ fastify, projectRoot: root, runtimeApplication: createTestRuntimeApplication() });
+    registerOperatorContractRoutes({ fastify, projectRoot: root, runtimeApplication: createTestRuntimeApplication(), saivageConfig: loadTestConfig(root) });
     await fastify.ready();
     return fastify;
   }

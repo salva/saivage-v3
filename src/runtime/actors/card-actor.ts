@@ -49,11 +49,6 @@ export interface CardNotificationDeliveryPort {
   deliverNotificationsForInput(inputId: string): CardNotification[];
 }
 
-export interface CardChange {
-  reason: string;
-  changed_at?: string;
-}
-
 export interface CardCancelReason {
   reason: string;
   cancelled_at?: string;
@@ -98,7 +93,6 @@ export class CardActor extends BaseActor {
   notifications: CardNotification[] = [];
   notificationDeliveryMarkers: CardNotificationDeliveryMarker[] = [];
   lastOutcome: CardActivationOutcome | null = null;
-  lastChange: CardChange | null = null;
   cancelReason: CardCancelReason | null = null;
   activeReconstruction: CardActiveReconstructionRecord | null = null;
   #pendingActivation: PendingActivation | null = null;
@@ -117,7 +111,6 @@ export class CardActor extends BaseActor {
     if (snapshot) {
       actor.notifications = Array.isArray(snapshot.context.notifications) ? snapshot.context.notifications as CardNotification[] : [];
       actor.notificationDeliveryMarkers = Array.isArray(snapshot.context.notificationDeliveryMarkers) ? snapshot.context.notificationDeliveryMarkers as CardNotificationDeliveryMarker[] : [];
-      actor.lastChange = snapshot.context.lastChange && typeof snapshot.context.lastChange === 'object' ? snapshot.context.lastChange as CardChange : null;
       actor.cancelReason = snapshot.context.cancelReason && typeof snapshot.context.cancelReason === 'object' ? snapshot.context.cancelReason as CardCancelReason : null;
     }
     actor.recover(cardActorState(args.card.status));
@@ -149,10 +142,6 @@ export class CardActor extends BaseActor {
     });
   }
 
-  notify(notification: CardNotification): void {
-    this.enqueueNotification(notification);
-  }
-
   enqueueNotification(notification: CardNotification): void {
     this.notifications.push(notification);
     this.persist();
@@ -178,18 +167,6 @@ export class CardActor extends BaseActor {
     compactNotificationDeliveryMarkers(this.notificationDeliveryMarkers);
     this.persist();
     return notifications;
-  }
-
-  markChanged(change: CardChange): void {
-    this.lastChange = change;
-    const card = this.requireCard();
-    if (card.status === 'running' || this.state() === 'running') {
-      this.enqueueNotification(changeNotification(this.cardId, change));
-      return;
-    }
-    this.writeStatus('changed');
-    if (this.state() !== 'running' && this.state() !== 'changed') this.parkedSendEvent('changed');
-    this.persist();
   }
 
   cancel(reason: CardCancelReason): void {
@@ -249,7 +226,6 @@ export class CardActor extends BaseActor {
         notifications: this.notifications,
         notificationDeliveryMarkers: this.notificationDeliveryMarkers,
         lastOutcome: this.lastOutcome,
-        lastChange: this.lastChange,
         cancelReason: this.cancelReason,
         active_reconstruction: this.activeReconstruction,
       },
@@ -353,16 +329,6 @@ function cancellationNotification(cardId: string, reason: CardCancelReason): Car
     message: `Cancellation requested: ${reason.reason}`,
     created_at: createdAt,
     reason: 'cancel_requested',
-  };
-}
-
-function changeNotification(cardId: string, change: CardChange): CardNotification {
-  const createdAt = change.changed_at ?? new Date().toISOString();
-  return {
-    id: `change:${cardId}:${createdAt}`,
-    message: `Card changed: ${change.reason}`,
-    created_at: createdAt,
-    reason: 'card_changed',
   };
 }
 

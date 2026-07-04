@@ -97,9 +97,7 @@ In `changed-propagation.ts`:
 - **Replace** the dead note-routing (`queuePlannerNote` / `ActiveGoalNoteSinks` / `queueSyntheticPlannerNote`) with `notifyCard(stoppedRunningAncestorId, changeNotification)` for the first running ancestor.
 - **Add** `notifyCard(editedCardId, changeNotification)` for the edited card itself (§9 gap: the modified card must get a notification regardless of status).
 
-Signature change: `propagateChange()` gains a `notifyCard?` parameter. Return type drops `notified_planner_session_ids` and `stopped_at_running` (both dead after this change). `flipped` stays — `src/agents/analyst-stage6.ts:15-16` reads it to derive `status_transition`.
-
-`markGoalNeedsCorrections` in `analyst-stage6.ts` drops `notified_planner_session_ids` from its return type. Audit all callers.
+Signature change: `propagateChange()` gains a `notifyCard?` parameter. Return type drops `notified_planner_session_ids` and `stopped_at_running` (both dead after this change). `flipped` stays as the changed-card summary returned by the propagation helper.
 
 ## Threading
 

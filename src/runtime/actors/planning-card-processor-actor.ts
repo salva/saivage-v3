@@ -11,7 +11,7 @@ import { expectedTerminalToolMessage, verifyTerminalToolOutcome } from './contra
 import { nextReviewerAssessmentId, reviewerSessionId } from '../reviewer-session.js';
 import { evaluateReviewerTerminalOutcome } from './reviewer-terminal-evaluation.js';
 import { buildPlannerStateContextMessage } from '../../agents/planner-state-context.js';
-import { buildInvocationSurface, invokeTool, surfaceToolDefinitions } from '../../tools/invocation.js';
+import { buildInvocationSurface, invokeTool, surfaceToolDefinitions, type ToolResult } from '../../tools/invocation.js';
 import { createCardHistoryProvider } from '../../tools/card-history-provider.js';
 import { createCardInspectionProvider } from '../../tools/card-inspection-provider.js';
 import { createPlannerControlProvider } from '../../tools/planner-control-provider.js';
@@ -20,6 +20,7 @@ import { createSkillProvider } from '../../tools/skill-provider.js';
 import { createMcpProvider } from '../../tools/mcp-provider.js';
 import { createWebProvider } from '../../tools/web-tools.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
+import type { NotifyCardResult } from '../runtime-api.js';
 import { closeOpenRecordSlot, concreteRecordSlot, discardOpenRecordSlot, latestClosedRecordSlot, readRecordSlotIndex, recordFileIsNonEmpty } from '../records/record-slots.js';
 import { cardBriefForPrompt } from '../records/card-brief.js';
 import { runContractBoundedRepairLoop } from './contract-bounded-repair-loop.js';
@@ -48,11 +49,11 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
 
   readonly store: CardActorStorePort;
   readonly children: PlannerChildActorPort;
-  readonly notifyCard?: (cardId: string, notification: CardNotification) => void;
+  readonly notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult;
 
   private readonly mcpManagerProvider: () => McpToolInvocationPort | undefined;
 
-  constructor(args: { projectRoot: string; cardId: string; store: CardActorStorePort; children: PlannerChildActorPort; provider: LLMProviderPort; admission?: LLMAdmissionPort; notifyCard?: (cardId: string, notification: CardNotification) => void; mcpManagerProvider?: () => McpToolInvocationPort | undefined }) {
+  constructor(args: { projectRoot: string; cardId: string; store: CardActorStorePort; children: PlannerChildActorPort; provider: LLMProviderPort; admission?: LLMAdmissionPort; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult; mcpManagerProvider?: () => McpToolInvocationPort | undefined }) {
     super(args);
     this.store = args.store;
     this.children = args.children;
@@ -90,7 +91,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const llm = this.createMainLlm(plannerActorId(this.cardId));
     discardOpenRecordSlot(this.projectRoot, { cardId: input.card.id, filename: 'status.md', reason: 'new_activation' });
     const outcome = await llm.turn(this.buildLlmInput(input, contract));
-    return runContractBoundedRepairLoop<PlannerProcessorOutcome>({
+    const result = await runContractBoundedRepairLoop<PlannerProcessorOutcome>({
       initialOutcome: outcome,
       isTerminalToolName: (name) => contract.isTerminalToolName(name),
       fail: (message) => this.plannerFailure(message),
@@ -107,6 +108,10 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
         if (missingRecord) {
           return control.repair(missingRecord, () => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: missingRecord }, () => [{ role: 'user', content: `${missingRecord} Create record://status.md?v=next, then call emit_result again.` }]));
         }
+        const completionGateFailure = this.validatePlannerCompletionGate(terminalOutcome, contract);
+        if (completionGateFailure) {
+          return control.repair(completionGateFailure, () => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: completionGateFailure }, () => [{ role: 'user', content: completionGateFailure }]));
+        }
         return control.done(await this.projectPlannerTerminal(input, terminalOutcome, contract));
       },
       onNonTerminalTool: async (toolOutcome) => {
@@ -114,6 +119,8 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
         return llm.appendToolResult(toolOutcome.toolCallId, toolResult, (inputId) => this.notificationContextMessages(input, inputId));
       },
     });
+    if (result.kind === 'restart') throw new Error('Planner activation repair loop cannot restart.');
+    return result.value;
   }
 
   private buildLlmInput(input: CardActivationInput, contract = createPlannerContract()): LlmInvocationInput {
@@ -144,7 +151,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     };
   }
 
-  private async handleToolCall(parent: CardRecord, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): Promise<unknown> {
+  private async handleToolCall(parent: CardRecord, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): Promise<ToolResult> {
     const surface = this.plannerInvocationSurface(parent.id);
     if (!surface.tools.has(outcome.toolName)) return { success: false, error: `Unsupported planner tool call '${outcome.toolName}'.` };
     return invokeTool(surface, outcome.toolName, outcome.args);
@@ -171,7 +178,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const parsed = typed.result;
     if (parsed.status === 'done') {
       const blocker = firstIncompleteDescendant(this.cardId, this.store);
-      if (blocker) return { status: 'blocked', summary: `Cannot complete while descendant '${blocker.id}' is ${blocker.status}.`, result: { kind: 'blocked', summary: `Descendant '${blocker.id}' is ${blocker.status}.`, resume_reason: 'complete executable descendants before retrying' } };
+      if (blocker) return this.plannerFailure(this.completionGateFailureMessage(blocker));
       const summary = parsed.summary;
       return this.reviewPlannerDone(input, { kind: 'done', summary });
     }
@@ -193,7 +200,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     while (true) {
       const currentness = this.captureReviewerCurrentness(input);
       const outcome = await llm.turn(this.buildReviewerLlmInput(input, assessmentId, sessionId, currentness));
-      const review = await runContractBoundedRepairLoop<PlannerProcessorOutcome | 'stale'>({
+      const review = await runContractBoundedRepairLoop<PlannerProcessorOutcome>({
         initialOutcome: outcome,
         isTerminalToolName: (name) => reviewerContract.isTerminalToolName(name),
         fail: (message) => this.plannerFailure(message),
@@ -216,7 +223,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
             llm.abandonParkedTurn();
             if (reviewerRelaunchAttempts >= 2) return control.done(this.plannerFailure(`Reviewer currentness relaunch budget exhausted: ${staleReason}`));
             reviewerRelaunchAttempts++;
-            return control.done('stale');
+            return control.restart();
           }
           const closeError = this.closeRequiredRecord(input.card.id, 'review.md', 'reviewer', input.card.version_seq);
           if (closeError) return control.done(this.plannerFailure(closeError));
@@ -227,8 +234,8 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
           return llm.appendToolResult(toolOutcome.toolCallId, toolResult, (inputId) => this.notificationContextMessages(input, inputId));
         },
       });
-      if (review === 'stale') continue;
-      return review;
+      if (review.kind === 'restart') continue;
+      return review.value;
     }
   }
 
@@ -261,6 +268,22 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     } catch (error) {
       return error instanceof Error ? error.message : String(error);
     }
+  }
+
+  private validatePlannerCompletionGate(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, contract = createPlannerContract()): string | null {
+    let typed: PlannerTypedResult;
+    try {
+      typed = verifyTerminalToolOutcome(contract, outcome).result;
+    } catch {
+      return null;
+    }
+    if (typed.result.status !== 'done') return null;
+    const blocker = firstIncompleteDescendant(this.cardId, this.store);
+    return blocker ? this.completionGateFailureMessage(blocker) : null;
+  }
+
+  private completionGateFailureMessage(blocker: { id: string; status: CardStatus }): string {
+    return `Completion gate failed: cannot complete this goal while descendant '${blocker.id}' is '${blocker.status}'. Inspect the subtree, then activate and complete executable descendants, edit or create needed work, or cancel obsolete descendants before calling emit_result with status done again.`;
   }
 
   private validateReviewerTerminal(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, contract = createReviewerContract()): string | null {
@@ -360,7 +383,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     return `Review card ${card.id}: ${card.title}\n\n${cardBriefForPrompt(this.projectRoot, card)}\n\nAssessment id: ${assessmentId}\n\nWrite your review to:\nrecord://review.md?v=next\n\nDo not call emit_result until the review file exists. End by calling emit_result with status done, rework, blocked, or failed and a summary; plain text or JSON messages are not accepted as terminal reports.`;
   }
 
-  private async handleReviewerToolCall(card: CardRecord, sessionId: string, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): Promise<unknown> {
+  private async handleReviewerToolCall(card: CardRecord, sessionId: string, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): Promise<ToolResult> {
     const workspaceSurface = this.reviewerInvocationSurface(card.id, sessionId);
     if (workspaceSurface.tools.has(outcome.toolName)) return invokeTool(workspaceSurface, outcome.toolName, outcome.args);
     return { success: false, error: `Unsupported reviewer tool call '${outcome.toolName}' for session '${sessionId}'.` };

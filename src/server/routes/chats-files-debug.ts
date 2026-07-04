@@ -2,19 +2,24 @@ import { readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { CardStore } from '../../cards/store-api.js';
+import type { RuntimeApplication } from '../../application/runtime-composition.js';
 import { redactOperatorErrorMessage } from '../../workspace/index.js';
 import { listRecentReviews, listQuarantineIndex } from '../../workspace/index.js';
 import type { DoctorCheck, DoctorIssue, DoctorResponse } from '../../schemas/index.js';
 import { cardRecordVersionPath, cardRecordsRoot } from '../../persistence/card-loader.js';
 import { readRecordSlotIndex } from '../../runtime/records/record-slots.js';
 
-export const internalDebugRoutes = [
-  { method: 'GET', path: '/api/debug/doctor' },
-  { method: 'GET', path: '/api/debug/supervision' },
-] as const;
-
-export function registerInternalDebugRoutes(fastify: FastifyInstance, projectRoot: string, store: CardStore): void {
+export function registerInternalDebugRoutes(fastify: FastifyInstance, projectRoot: string, store: CardStore, runtimeApplication?: RuntimeApplication): void {
   const saivageDir = join(projectRoot, '.saivage');
+
+  fastify.post('/api/debug/runtime/start', async (_request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      if (!runtimeApplication) return reply.status(503).send({ error: 'Runtime application unavailable.' });
+      return reply.send(await runtimeApplication.runtimeApi.startProject('operator'));
+    } catch (err) {
+      return reply.status(500).send({ error: 'Failed to start runtime', message: redactOperatorErrorMessage(err instanceof Error ? err.message : String(err), projectRoot) });
+    }
+  });
 
   fastify.get('/api/debug/doctor', async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
@@ -32,7 +37,9 @@ export function registerInternalDebugRoutes(fastify: FastifyInstance, projectRoo
             const index = readRecordSlotIndex(projectRoot, entry.name, 'card');
             return index.latest !== null && existsSync(cardRecordVersionPath(projectRoot, entry.name, index.latest));
           }).map((entry) => entry.name));
-        } catch { void 0; }
+        } catch (err) {
+          if (!(err instanceof Error) || !('code' in err) || err.code !== 'ENOENT') throw err;
+        }
       }
 
       try {

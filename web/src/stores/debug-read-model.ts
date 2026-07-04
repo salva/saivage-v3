@@ -1,4 +1,4 @@
-import type { CardRecord, DebugError, DebugTimelineEvent, ProcessView, RuntimeState } from '../api/types';
+import type { CardRecord, ContentReview, DebugError, DebugTimelineEvent, DoctorCheck, DoctorIssue, ProcessView, RuntimeState } from '../api/types';
 import { redactObservabilityText, redactObservabilityValue } from '../utils/observabilityRedaction';
 import { selectChildrenOf } from './card-presentation';
 import { selectRuntimeStatusLabel as selectSharedRuntimeStatusLabel, selectRuntimeStatusTone as selectSharedRuntimeStatusTone } from './runtime-read-model';
@@ -74,6 +74,28 @@ export function selectErrorsBySeverity(errors: DebugError[]): Map<string, DebugE
   for (const error of errors) {
     const list = map.get(error.severity);
     if (list) list.push(error); else map.set(error.severity, [error]);
+  }
+  return map;
+}
+
+export function selectFailedChecks(checks: DoctorCheck[]): DoctorCheck[] {
+  return checks.filter((check) => !check.passed);
+}
+
+export function selectDoctorIssuesBySeverity(issues: DoctorIssue[]): Map<'error' | 'warning', DoctorIssue[]> {
+  const map = new Map<'error' | 'warning', DoctorIssue[]>();
+  for (const issue of issues) {
+    const list = map.get(issue.severity);
+    if (list) list.push(issue); else map.set(issue.severity, [issue]);
+  }
+  return map;
+}
+
+export function selectReviewsByStatus(reviews: ContentReview[]): Map<string, ContentReview[]> {
+  const map = new Map<string, ContentReview[]>();
+  for (const review of reviews) {
+    const list = map.get(review.status);
+    if (list) list.push(review); else map.set(review.status, [review]);
   }
   return map;
 }

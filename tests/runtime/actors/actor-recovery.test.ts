@@ -24,7 +24,7 @@ import {
 } from '../../../src/runtime/actors/index.js';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
 import { CardStore } from '../../../src/cards/card-store.js';
-import { openRecordSlot } from '../../../src/runtime/records/record-slots.js';
+import { openRecordSlot, recordSlotDir } from '../../../src/runtime/records/record-slots.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-actor-recovery-'));
@@ -392,6 +392,32 @@ describe('actor recovery plan', () => {
     expect(recoverProjectedTerminalToolOutcomes(buildActorRecoveryPlan(projectRoot, store), recoveryProcessorDeps(projectRoot, store))).toEqual([]);
     expect(store.read(cardId)?.status).toBe('running');
     expect(readToolCallStatuses(projectRoot, `planner:${cardId}`).map((record) => record.status)).toEqual(['pending']);
+  }));
+
+  it('does not recover a terminal planner tool call when the required status record is empty', () => withTempProject((projectRoot) => {
+    const { store, cardId } = createRunningGoal(projectRoot);
+    saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, active_reconstruction: cardActive(cardId) });
+    saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId, active_reconstruction: processorActive(cardId) });
+    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'planner', 'emit_result') });
+    appendLoggedToolCall(projectRoot, cardId, 'planner', 'emit_result', { status: 'blocked', summary: 'needs operator' }, 'call-1', false);
+    const record = openRecordSlot(projectRoot, { cardId, filename: 'status.md' });
+    writeFileSync(record.absolutePath, '', 'utf8');
+
+    expect(recoverProjectedTerminalToolOutcomes(buildActorRecoveryPlan(projectRoot, store), recoveryProcessorDeps(projectRoot, store))).toEqual([]);
+    expect(store.read(cardId)?.status).toBe('running');
+    expect(readToolCallStatuses(projectRoot, `planner:${cardId}`).map((pending) => pending.status)).toEqual(['pending']);
+  }));
+
+  it('propagates unexpected record-slot close failures during projected recovery', () => withTempProject((projectRoot) => {
+    const { store, cardId } = createRunningGoal(projectRoot);
+    saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, active_reconstruction: cardActive(cardId) });
+    saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId, active_reconstruction: processorActive(cardId) });
+    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'waiting_tool', { cardId, active_reconstruction: llmWaitingActive(cardId, 'planner', 'emit_result') });
+    appendLoggedToolCall(projectRoot, cardId, 'planner', 'emit_result', { status: 'blocked', summary: 'needs operator' });
+    writeFileSync(join(recordSlotDir(projectRoot, cardId, 'status'), 'index.json'), '{not json', 'utf8');
+
+    expect(() => recoverProjectedTerminalToolOutcomes(buildActorRecoveryPlan(projectRoot, store), recoveryProcessorDeps(projectRoot, store))).toThrow(SyntaxError);
+    expect(store.read(cardId)?.status).toBe('running');
   }));
 
   it('does not recover planner done terminal tool calls before reviewer reconstruction exists', () => withTempProject((projectRoot) => {

@@ -4,4 +4,4 @@ export { interpolateValue } from './env-interpolation.js';
 export type { EnvironmentSource } from './env-interpolation.js';
 export { validateModelRoles, REQUIRED_ROLES } from './validate-model-roles.js';
 export type { ValidateModelRolesResult } from './validate-model-roles.js';
-export { resolveModelListForRole } from './model-role-resolution.js';
+export { getModelListForRole, resolveModelListForRole } from './model-role-resolution.js';

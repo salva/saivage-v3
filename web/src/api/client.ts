@@ -40,7 +40,6 @@ import {
   type OperatorApiSuccess,
 } from './contracts';
 import type { LlmExchange } from './contracts';
-import type { RuntimeState } from './types';
 import { dispatchApiAuthRequired } from '../utils/auth-events';
 
 function authHeaders(): Record<string, string> {

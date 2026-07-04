@@ -3,6 +3,7 @@ import type { CardStore } from '../cards/store-api.js';
 import type { AgentRole, ControlActionSurface, NoteAuthor } from '../schemas/index.js';
 import { readActorSnapshots } from '../runtime/actors/snapshots.js';
 import type { CardNotification } from '../runtime/actors/card-actor.js';
+import type { NotifyCardResult } from '../runtime/runtime-api.js';
 
 interface ActiveSession {
   id: string;
@@ -27,9 +28,16 @@ export type Recipient =
   | { kind: 'role'; role: AgentRole }
   | { kind: 'session'; sessionId: string };
 
+export interface QueueNotificationResult {
+  ok: boolean;
+  notificationId: string;
+  cardDeliveries: Array<{ cardId: string; result: NotifyCardResult }>;
+  sessionDeliveries: string[];
+}
+
 function getActiveSessions(projectRoot: string): ActiveSession[] {
   return readActorSnapshots(projectRoot)
-    .filter((snapshot) => snapshot.actor_kind === 'llm')
+    .filter((snapshot) => snapshot.actor_kind === 'llm' && (snapshot.state_value === 'calling_provider' || snapshot.state_value === 'waiting_tool'))
     .flatMap((snapshot) => parseAgentSessionId(snapshot.actor_id));
 }
 
@@ -116,15 +124,26 @@ export function queueNotification(
   body: string,
   source: NotificationSourceMeta,
   store?: CardStore,
-  notifyCard?: (cardId: string, notification: CardNotification) => void,
-): void {
+  notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult,
+): QueueNotificationResult {
   const notification = buildCardNotification(kind, body);
+  const cardDeliveries: QueueNotificationResult['cardDeliveries'] = [];
   if (notifyCard) {
-    for (const cardId of resolveRecipientCardIds(projectRoot, recipient)) notifyCard(cardId, notification);
+    for (const cardId of resolveRecipientCardIds(projectRoot, recipient)) {
+      cardDeliveries.push({ cardId, result: notifyCard(cardId, notification) });
+    }
   }
   const delivery = createNotificationDeliveryService(projectRoot);
   const queued_at = new Date().toISOString();
+  const sessionDeliveries: string[] = [];
   for (const sessionId of resolveSessionIds(projectRoot, recipient, store)) {
     delivery.enqueue(sessionId, { kind, body, queued_at, source_actor: source.actor, source_surface: source.surface });
+    sessionDeliveries.push(sessionId);
   }
+  return {
+    ok: cardDeliveries.every((deliveryResult) => deliveryResult.result.ok),
+    notificationId: notification.id,
+    cardDeliveries,
+    sessionDeliveries,
+  };
 }

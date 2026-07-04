@@ -2,7 +2,6 @@ export {
   create_card,
   delete_card,
   diff_card,
-  edit_card,
   get_card,
   get_card_history_entry,
   get_tree,

@@ -16,3 +16,10 @@ export function resolveModelListForRole(config: SaivageConfig, role: string): st
   if (Array.isArray(fallback) && fallback.length > 0) return fallback;
   return null;
 }
+
+export function getModelListForRole(config: SaivageConfig, role: string): string[] {
+  const resolved = resolveModelListForRole(config, role);
+  if (resolved) return resolved;
+
+  throw new Error(`No model list configured for role '${role}' and no default.`);
+}

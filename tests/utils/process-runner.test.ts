@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
 import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -19,7 +19,10 @@ import {
   isProcessLiveAttached,
   snapshotProcessRuntimeScope,
   disposeProcessRuntimeScope,
+  setProcessRunnerNotifyCard,
+  reconcileProcessRecords,
 } from '../../src/runtime/process-runner.js';
+import { clearProjectNotificationDeliveryAdapters, setProjectNotificationDeliveryAdapters, type NotificationDeliveryContext, type NotificationQueueEntry } from '../../src/notifications/index.js';
 import type { ProcessRecord } from '../../src/schemas/types.js';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -182,6 +185,85 @@ describe('Process Runner', () => {
     saveRegistry(root, validRecords);
     expect(loadRegistry(root).has('proc-test-valid')).toBe(true);
     expect(readFileSync(join(root, '.saivage', 'runtime', 'processes.json'), 'utf-8')).toContain('proc-test-valid');
+  });
+
+  it('routes process-death reconciliation notifications through notifyCard and preserves session delivery', () => {
+    const record: ProcessRecord = {
+      id: 'proc-dead-notify',
+      card_id: 'card-dead-notify',
+      owner_id: 'executor:card-dead-notify',
+      command: 'sleep 100',
+      command_hash: 'b'.repeat(64),
+      cwd: root,
+      cwd_canonical: root,
+      status: 'running',
+      pid: 987654,
+      started_at: new Date().toISOString(),
+      started_at_monotonic: 10,
+      completed_at: null,
+      exit_code: null,
+      signal: null,
+      required_for_card_completion: true,
+      output_dir: join(root, '.saivage-work/processes/proc-dead-notify'),
+      stdout_path: join(root, '.saivage-work/processes/proc-dead-notify/stdout.log'),
+      stderr_path: join(root, '.saivage-work/processes/proc-dead-notify/stderr.log'),
+      combined_log_path: join(root, '.saivage-work/processes/proc-dead-notify/combined.log'),
+      agent_session_id: 'executor:card-dead-notify',
+      goal_id: 'goal-dead-notify',
+    };
+    saveRegistry(root, [record]);
+    const notifyCard = jest.fn(() => ({ ok: true as const }));
+    setProcessRunnerNotifyCard(root, notifyCard);
+    const deliveries: Array<{ entry: NotificationQueueEntry; context: NotificationDeliveryContext }> = [];
+    setProjectNotificationDeliveryAdapters(root, [{ name: 'test', deliver: (entry, context) => { deliveries.push({ entry, context }); } }]);
+
+    try {
+      const result = reconcileProcessRecords(root, { nowMonotonicMs: 20, probe: () => ({ running: false, pid: record.pid }) });
+
+      expect(result).toMatchObject({ lost: [record.id], notificationDeliveries: [{ ok: true, cardDeliveries: [{ cardId: record.card_id, result: { ok: true } }], sessionDeliveries: [record.agent_session_id] }] });
+      expect(notifyCard).toHaveBeenCalledWith(record.card_id, expect.objectContaining({ reason: 'process_state', message: expect.stringContaining('reconciled as dead') }));
+      expect(deliveries).toEqual([expect.objectContaining({ context: { target: 'session', sessionId: record.agent_session_id }, entry: expect.objectContaining({ kind: 'process_state', body: expect.stringContaining('reconciled as dead') }) })]);
+    } finally {
+      clearProjectNotificationDeliveryAdapters(root);
+    }
+  });
+
+  it('reports missing-card process-death delivery without raw throws', () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const record: ProcessRecord = {
+      id: 'proc-dead-missing',
+      card_id: 'card-dead-missing',
+      owner_id: 'executor:card-dead-missing',
+      command: 'sleep 100',
+      command_hash: 'c'.repeat(64),
+      cwd: root,
+      cwd_canonical: root,
+      status: 'running',
+      pid: 987655,
+      started_at: new Date().toISOString(),
+      started_at_monotonic: 10,
+      completed_at: null,
+      exit_code: null,
+      signal: null,
+      required_for_card_completion: true,
+      output_dir: join(root, '.saivage-work/processes/proc-dead-missing'),
+      stdout_path: join(root, '.saivage-work/processes/proc-dead-missing/stdout.log'),
+      stderr_path: join(root, '.saivage-work/processes/proc-dead-missing/stderr.log'),
+      combined_log_path: join(root, '.saivage-work/processes/proc-dead-missing/combined.log'),
+      agent_session_id: 'executor:card-dead-missing',
+      goal_id: 'goal-dead-missing',
+    };
+    saveRegistry(root, [record]);
+    setProcessRunnerNotifyCard(root, () => ({ ok: false, reason: 'missing_card', cardId: record.card_id }));
+
+    try {
+      const result = reconcileProcessRecords(root, { nowMonotonicMs: 20, probe: () => ({ running: false, pid: record.pid }) });
+
+      expect(result).toMatchObject({ lost: [record.id], notificationDeliveries: [{ ok: false, cardDeliveries: [{ cardId: record.card_id, result: { ok: false, reason: 'missing_card', cardId: record.card_id } }], sessionDeliveries: [record.agent_session_id] }] });
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('process_notification_delivery_failed'));
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('cleans completed process dirs', async () => {

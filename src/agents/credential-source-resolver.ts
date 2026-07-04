@@ -31,28 +31,10 @@ export type CredentialSource =
   | 'provider-alias-auth-profile'
   | 'none';
 
-export type TokenEndpointSource =
-  | 'account-token-endpoint'
-  | 'provider-token-endpoint'
-  | 'inferred-provider-base';
-
-export interface CredentialSourceMetadata {
-  providerName: string;
-  accountName?: string;
-  baseUrlSource: BaseUrlSource;
-  credentialSource: CredentialSource;
-  tokenEndpointSource?: TokenEndpointSource;
-  profileName?: string;
-  aliasProvider?: string;
-  providerAliases?: string[];
-}
-
 export interface ResolvedCredentialSources {
   baseUrl: string;
   apiKey?: string;
-  tokenEndpoint?: string;
   cacheKey: string;
-  metadata: CredentialSourceMetadata;
 }
 
 export interface CredentialSourceResolverOptions {
@@ -77,9 +59,7 @@ interface ProfileCredentialResult {
  * - base URL: account > provider > provider default > OpenAI default
  * - access credential: account apiKey > provider apiKey > explicit account
  *   authProfile > explicit provider authProfile > unambiguous provider/alias profile > none
- * - token endpoint: account > provider > inferred provider-base /oauth/token
- *
- * Only apiKey carries secret material. Metadata, cacheKey, and errors are built from
+ * Only apiKey carries secret material. Cache keys and errors are built from
  * source labels and provider/account/profile identifiers only.
  */
 export class CredentialSourceResolver {
@@ -99,24 +79,11 @@ export class CredentialSourceResolver {
 
   async resolve(provider: Provider, account: Account): Promise<ResolvedCredentialSources> {
     const { baseUrl, source: baseUrlSource } = this.resolveBaseUrl(provider, account);
-    const { tokenEndpoint, source: tokenEndpointSource } = this.resolveTokenEndpoint(provider, account);
     const credential = await this.resolveCredential(provider, account);
-    const metadata: CredentialSourceMetadata = {
-      providerName: provider.name,
-      accountName: account.name === '_implicit' ? undefined : account.name,
-      baseUrlSource,
-      credentialSource: credential.source,
-      tokenEndpointSource,
-      profileName: credential.profileName,
-      aliasProvider: credential.aliasProvider,
-      providerAliases: credential.aliasProvider ? this.aliasesForProvider(provider.name) : undefined,
-    };
     return {
       baseUrl,
       apiKey: credential.apiKey,
-      tokenEndpoint,
-      cacheKey: buildNonSecretCacheKey(provider.name, account.name, baseUrl, metadata),
-      metadata,
+      cacheKey: buildNonSecretCacheKey(provider.name, account.name, baseUrl, credential),
     };
   }
 
@@ -128,27 +95,6 @@ export class CredentialSourceResolver {
     const providerDefault = this.providerDefaultBaseUrls[provider.name];
     if (providerDefault) return { baseUrl: providerDefault, source: 'provider-default' };
     return { baseUrl: this.defaultOpenAiBaseUrl, source: 'openai-default' };
-  }
-
-  private resolveTokenEndpoint(
-    provider: Provider,
-    account: Account,
-  ): { tokenEndpoint?: string; source?: TokenEndpointSource } {
-    if (isExplicitAccount(account) && account.tokenEndpoint) {
-      return { tokenEndpoint: account.tokenEndpoint, source: 'account-token-endpoint' };
-    }
-    if (provider.tokenEndpoint) {
-      return { tokenEndpoint: provider.tokenEndpoint, source: 'provider-token-endpoint' };
-    }
-    if (provider.baseUrl) {
-      try {
-        const url = new URL(provider.baseUrl);
-        return { tokenEndpoint: `${url.origin}/oauth/token`, source: 'inferred-provider-base' };
-      } catch {
-        return {};
-      }
-    }
-    return {};
   }
 
   private async resolveCredential(
@@ -234,15 +180,15 @@ function buildNonSecretCacheKey(
   providerName: string,
   accountName: string,
   baseUrl: string,
-  metadata: CredentialSourceMetadata,
+  credential: { source: CredentialSource; profileName?: string; aliasProvider?: string },
 ): string {
   return [
     baseUrl,
     providerName,
     accountName,
-    metadata.credentialSource,
-    metadata.profileName ?? '_',
-    metadata.aliasProvider ?? '_',
+    credential.source,
+    credential.profileName ?? '_',
+    credential.aliasProvider ?? '_',
   ].join(':');
 }
 

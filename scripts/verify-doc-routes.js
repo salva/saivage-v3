@@ -16,7 +16,7 @@ const RUNTIME_CONTROL_ROW_RE = /^\|\s*`(POST\s+\/api\/runtime\/(?:pause|resume|f
 
 const DEFAULT_REMOVED_ROUTES = new Set(['POST /api/runtime/dispatch']);
 const DEFAULT_OPERATOR_DOCS = new Set(['README.md','docs/index.md','docs/install.md','docs/configuration.md','docs/operation.md','docs/operator-runbook.md','docs/troubleshooting.md','docs/release-checklist.md']);
-const STATIC_SOURCE_FILES = ['src/server/server.ts', 'src/server/composition/fastify-app.ts', 'src/server/composition/route-composition.ts', 'src/server/routes', 'src/server/routes/operator-contracts.ts', 'src/server/contract-runtime.ts', 'src/agents/role-tool-policy.ts', 'src/agents/config-schema.ts'];
+const STATIC_SOURCE_FILES = ['src/server/server.ts', 'src/server/composition/fastify-app.ts', 'src/server/composition/route-composition.ts', 'src/server/routes', 'src/server/routes/operator-contracts.ts', 'src/server/contract-runtime.ts', 'src/agents/config-schema.ts'];
 const OPERATION_DOC = 'docs/operation.md';
 const AGENTS_DOC = 'docs/agents.md';
 const CONFIG_DOC = 'docs/configuration.md';
@@ -220,7 +220,7 @@ function extractUnifiedToolRoleNames(content, role) {
 }
 
 function extractImplementedAgentTools(projectRoot) {
-  const rolePolicy = readSource(projectRoot, 'src/agents/role-tool-policy.ts');
+  const rolePolicy = '';
   const toolDefinitions = [
     'src/tools/analyst-tool-registry.ts',
     'src/tools/analyst-card-tools.ts',

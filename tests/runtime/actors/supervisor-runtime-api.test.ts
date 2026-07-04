@@ -11,6 +11,8 @@ import { actorToolCallStatusesPath, appendToolCallStatus } from '../../../src/ru
 import type { LlmCompleteResult } from '../../../src/agents/llm-contracts.js';
 import type { CardRecord } from '../../../src/schemas/index.js';
 import { openRecordSlot } from '../../../src/runtime/records/record-slots.js';
+import { readRuntimeState } from '../../../src/runtime/state-api.js';
+import { createRuntimeStateMutationPort } from '../../../src/runtime/mutations.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-supervisor-api-'));
@@ -27,6 +29,16 @@ function readJsonl(path: string): Array<Record<string, unknown>> {
     .split('\n')
     .filter(Boolean)
     .map((line) => JSON.parse(line) as Record<string, unknown>);
+}
+
+async function waitForRootRun(projectRoot: string, predicate: (run: Record<string, unknown>) => boolean): Promise<Record<string, unknown>> {
+  const deadline = Date.now() + 3000;
+  while (Date.now() < deadline) {
+    const run = readRuntimeState(projectRoot)?.runtime_runs.find((item) => item.kind === 'root');
+    if (run && predicate(run as unknown as Record<string, unknown>)) return run as unknown as Record<string, unknown>;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Timed out waiting for root run. State: ${JSON.stringify(readRuntimeState(projectRoot))}`);
 }
 
 function createProject(store: CardStore): CardRecord {
@@ -176,7 +188,15 @@ describe('SupervisorRuntimeApi', () => {
     const start = await api.startProject('operator');
     expect(start.success).toBe(true);
     if (!start.success) throw new Error('Expected startProject to succeed.');
-    expect(start.run).toMatchObject({ phase: 'blocked', runtime_status: 'stopped', finished_at: null, outcome: { kind: 'blocked', error: 'waiting for operator' } });
+    expect(start.command).toMatchObject({ command: 'start_project', status: 'accepted' });
+    expect(start.run).toMatchObject({ phase: 'pending', runtime_status: 'running', finished_at: null, outcome: null });
+    expect(readRuntimeState(projectRoot)?.runtime_commands.at(-1)).toMatchObject({ command: 'start_project', status: 'accepted' });
+    expect(readRuntimeState(projectRoot)?.runtime_runs.at(-1)).toMatchObject({ run_id: start.run.run_id, phase: 'pending', runtime_status: 'running' });
+    expect(api.getStatus()).toMatchObject({ status: 'running', currentCardId: 'project' });
+    const duplicateStart = await api.startProject('operator');
+    expect(duplicateStart.success).toBe(false);
+    if (!duplicateStart.success) expect(duplicateStart.error.code).toBe('runtime_already_running');
+    await waitForRootRun(projectRoot, (run) => run.phase === 'blocked');
     expect(api.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null });
     api.pause();
     expect(api.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null });
@@ -202,7 +222,9 @@ describe('SupervisorRuntimeApi', () => {
     expect(result.success).toBe(true);
     if (!result.success) throw new Error('Expected startProject to succeed.');
 
-    expect(result.run).toMatchObject({ phase: 'blocked', runtime_status: 'stopped', finished_at: null, outcome: { kind: 'blocked', error: 'waiting for operator' } });
+    expect(result.run).toMatchObject({ phase: 'pending', runtime_status: 'running', finished_at: null, outcome: null });
+    const terminal = await waitForRootRun(projectRoot, (run) => run.phase === 'blocked');
+    expect(terminal).toMatchObject({ phase: 'blocked', runtime_status: 'stopped', finished_at: null, outcome: { kind: 'blocked', error: 'waiting for operator' } });
     expect(api.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null, goalCount: 0 });
     expect(api.getActorRuntimeReadModel()).toMatchObject({ pauseMode: 'idle', activeWork: 'none' });
   }));
@@ -217,7 +239,9 @@ describe('SupervisorRuntimeApi', () => {
     expect(result.success).toBe(true);
     if (!result.success) throw new Error('Expected startProject to succeed.');
 
-    expect(result.run).toMatchObject({ phase: 'failed', runtime_status: 'stopped', finished_at: '2026-06-12T00:00:00.000Z', outcome: { kind: 'completed', result: 'failed' } });
+    expect(result.run).toMatchObject({ phase: 'pending', runtime_status: 'running', finished_at: null, outcome: null });
+    const terminal = await waitForRootRun(projectRoot, (run) => run.phase === 'failed');
+    expect(terminal).toMatchObject({ phase: 'failed', runtime_status: 'stopped', finished_at: '2026-06-12T00:00:00.000Z', outcome: { kind: 'completed', result: 'failed' } });
     expect(api.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null, goalCount: 0 });
     expect(api.getActorRuntimeReadModel()).toMatchObject({ pauseMode: 'idle', activeWork: 'none' });
   }));
@@ -492,9 +516,10 @@ describe('SupervisorRuntimeApi', () => {
 
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.command).toMatchObject({ command: 'start_project', status: 'completed', command_id: 'runtime-command-1' });
-      expect(result.run).toMatchObject({ run_id: 'runtime-run-1', card_id: 'project', phase: 'blocked', runtime_status: 'stopped', outcome: { kind: 'blocked', error: 'waiting for operator' } });
+      expect(result.command).toMatchObject({ command: 'start_project', status: 'accepted' });
+      expect(result.run).toMatchObject({ card_id: 'project', phase: 'pending', runtime_status: 'running', outcome: null });
     }
+    await waitForRootRun(projectRoot, (run) => run.phase === 'blocked');
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toEqual(expect.arrayContaining(['card:project', 'planner:project', 'processor:project', 'supervisor']));
   }));
 
@@ -515,12 +540,14 @@ describe('SupervisorRuntimeApi', () => {
     const result = await api.startProject('operator');
 
     expect(result.success).toBe(true);
-    if (result.success) expect(result.run).toMatchObject({ phase: 'completed', runtime_status: 'stopped', outcome: { kind: 'completed', result: 'done' } });
+    if (result.success) expect(result.run).toMatchObject({ phase: 'pending', runtime_status: 'running', outcome: null });
+    const terminal = await waitForRootRun(projectRoot, (run) => run.phase === 'completed');
+    expect(terminal).toMatchObject({ phase: 'completed', runtime_status: 'stopped', outcome: { kind: 'completed', result: 'done' } });
     expect(store.read('project')).toMatchObject({ status: 'done', status_text: 'project reviewed', lifecycle: { result: { kind: 'done', summary: 'project reviewed' } } });
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toEqual(expect.arrayContaining(['card:project', 'planner:project', 'reviewer:project', 'processor:project', 'supervisor']));
   }));
 
-  it('rejects startProject when the project card is missing', async () => withTempProject(async (projectRoot) => {
+  it('accepts startProject when the project card is missing and records a background failure', async () => withTempProject(async (projectRoot) => {
     const api = createSupervisorRuntimeApi({
       projectRoot,
       actorStore: inertStore,
@@ -530,8 +557,40 @@ describe('SupervisorRuntimeApi', () => {
 
     const result = await api.startProject('operator');
 
-    expect(result.success).toBe(false);
-    if (!result.success) expect(result.error.code).toBe('runtime_project_card_missing');
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error('Expected startProject to be accepted.');
+    expect(result.command).toMatchObject({ status: 'accepted' });
+    const terminal = await waitForRootRun(projectRoot, (run) => run.phase === 'failed');
+    expect(terminal).toMatchObject({ phase: 'failed', runtime_status: 'stopped', outcome: { kind: 'completed', result: 'failed', error: "Card 'project' not found." } });
+  }));
+
+  it('reconciles stale running root runs on startup', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const mutations = createRuntimeStateMutationPort(projectRoot);
+    const command = mutations.apply({ kind: 'appendRuntimeCommand', commandKind: 'start_project', source: 'operator' });
+    const stale = mutations.apply({
+      kind: 'appendRuntimeRun',
+      run: {
+        kind: 'root',
+        card_id: 'project',
+        ownership: { kind: 'direct', source: 'project_root' },
+        parent_run_id: null,
+        command_id: command.command_id,
+        activation_id: null,
+        phase: 'pending',
+        runtime_status: 'running',
+        session_id: 'planner:project',
+        finished_at: null,
+        outcome: null,
+      },
+    });
+    mutations.apply({ kind: 'patchRuntimeState', patch: { status: 'running' } });
+    const api = createSupervisorRuntimeApi({ projectRoot, actorStore: inertStore, provider: blockedPlannerProvider(), now: () => '2026-06-12T00:00:00.000Z' });
+
+    await api.start();
+
+    expect(readRuntimeState(projectRoot)?.runtime_runs.find((run) => run.run_id === stale.run_id)).toMatchObject({ phase: 'failed', runtime_status: 'stopped', outcome: { kind: 'completed', result: 'failed', error: 'Runtime process restarted before this run completed.' } });
+    expect(readRuntimeState(projectRoot)).toMatchObject({ status: 'stopped', active_card_run: null });
   }));
 
   it('stopProject cancels the active project run', async () => withTempProject(async (projectRoot) => {

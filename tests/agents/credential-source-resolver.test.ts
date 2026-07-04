@@ -62,22 +62,19 @@ describe('CredentialSourceResolver', () => {
       baseUrl: 'https://provider.example.test/v1',
       accounts: { primary: { baseUrl: 'https://account.example.test/v1' } },
     });
-    expect((await resolver().resolve(withAccount, accountFor(withAccount, 'primary'))).metadata.baseUrlSource)
-      .toBe('account-base-url');
     expect((await resolver().resolve(withAccount, accountFor(withAccount, 'primary'))).baseUrl)
       .toBe('https://account.example.test/v1');
 
     const withProvider = provider({ baseUrl: 'https://provider.example.test/v1' });
-    expect((await resolver().resolve(withProvider, accountFor(withProvider))).metadata.baseUrlSource)
-      .toBe('provider-base-url');
+    expect((await resolver().resolve(withProvider, accountFor(withProvider))).baseUrl)
+      .toBe('https://provider.example.test/v1');
 
     const withDefault = provider({}, 'opencode');
-    expect((await resolver().resolve(withDefault, accountFor(withDefault))).metadata.baseUrlSource)
-      .toBe('provider-default');
+    expect((await resolver().resolve(withDefault, accountFor(withDefault))).baseUrl)
+      .toBe('https://opencode.ai/zen/v1');
 
     const withOpenAiDefault = provider({}, 'unknown-provider');
     const resolved = await resolver().resolve(withOpenAiDefault, accountFor(withOpenAiDefault));
-    expect(resolved.metadata.baseUrlSource).toBe('openai-default');
     expect(resolved.baseUrl).toBe('https://api.openai.com');
   });
 
@@ -97,7 +94,7 @@ describe('CredentialSourceResolver', () => {
     });
     const accountKey = await resolver(profiles).resolve(accountKeyProvider, accountFor(accountKeyProvider, 'primary'));
     expect(accountKey.apiKey).toBe(ACCOUNT_KEY_SECRET);
-    expect(accountKey.metadata.credentialSource).toBe('account-api-key');
+    expect(accountKey.cacheKey).toContain(':account-api-key:');
 
     const providerKeyProvider = provider({
       apiKey: PROVIDER_KEY_SECRET,
@@ -106,7 +103,7 @@ describe('CredentialSourceResolver', () => {
     });
     const providerKey = await resolver(profiles).resolve(providerKeyProvider, accountFor(providerKeyProvider, 'primary'));
     expect(providerKey.apiKey).toBe(PROVIDER_KEY_SECRET);
-    expect(providerKey.metadata.credentialSource).toBe('provider-api-key');
+    expect(providerKey.cacheKey).toContain(':provider-api-key:');
 
     const accountProfileProvider = provider({
       accounts: { primary: { authProfile: 'accountProfile' } },
@@ -114,14 +111,12 @@ describe('CredentialSourceResolver', () => {
     });
     const accountProfile = await resolver(profiles).resolve(accountProfileProvider, accountFor(accountProfileProvider, 'primary'));
     expect(accountProfile.apiKey).toBe(ACCOUNT_PROFILE_TOKEN_SECRET);
-    expect(accountProfile.metadata.credentialSource).toBe('explicit-account-auth-profile');
-    expect(accountProfile.metadata.profileName).toBe('accountProfile');
+    expect(accountProfile.cacheKey).toContain(':explicit-account-auth-profile:accountProfile:');
 
     const providerProfileProvider = provider({ authProfile: 'providerProfile' });
     const providerProfile = await resolver(profiles).resolve(providerProfileProvider, accountFor(providerProfileProvider));
     expect(providerProfile.apiKey).toBe(PROVIDER_PROFILE_TOKEN_SECRET);
-    expect(providerProfile.metadata.credentialSource).toBe('explicit-provider-auth-profile');
-    expect(providerProfile.metadata.profileName).toBe('providerProfile');
+    expect(providerProfile.cacheKey).toContain(':explicit-provider-auth-profile:providerProfile:');
   });
 
   it('resolves explicit authProfile before alias fallback and treats missing explicit profiles as no credential', async () => {
@@ -136,14 +131,12 @@ describe('CredentialSourceResolver', () => {
     const explicitProvider = provider({ authProfile: 'explicit' }, 'openai-codex');
     const explicit = await resolver(profiles).resolve(explicitProvider, accountFor(explicitProvider));
     expect(explicit.apiKey).toBe(ACCOUNT_PROFILE_TOKEN_SECRET);
-    expect(explicit.metadata.credentialSource).toBe('explicit-provider-auth-profile');
-    expect(explicit.metadata.profileName).toBe('explicit');
+    expect(explicit.cacheKey).toContain(':explicit-provider-auth-profile:explicit:');
 
     const missingProvider = provider({ authProfile: 'missing-profile' }, 'openai-codex');
     const missing = await resolver(profiles).resolve(missingProvider, accountFor(missingProvider));
     expect(missing.apiKey).toBeUndefined();
-    expect(missing.metadata.credentialSource).toBe('explicit-provider-auth-profile');
-    expect(missing.metadata.profileName).toBe('missing-profile');
+    expect(missing.cacheKey).toContain(':explicit-provider-auth-profile:missing-profile:');
   });
 
   it('uses unambiguous provider/provider-alias auth profile and returns none when absent', async () => {
@@ -154,13 +147,11 @@ describe('CredentialSourceResolver', () => {
     const p = provider({}, 'openai-codex');
     const resolved = await resolver(profiles).resolve(p, accountFor(p));
     expect(resolved.apiKey).toBe(ALIAS_PROFILE_TOKEN_SECRET);
-    expect(resolved.metadata.credentialSource).toBe('provider-alias-auth-profile');
-    expect(resolved.metadata.profileName).toBe('alias');
-    expect(resolved.metadata.aliasProvider).toBe('openai');
+    expect(resolved.cacheKey).toContain(':provider-alias-auth-profile:alias:openai');
 
     const absent = await resolver(null).resolve(p, accountFor(p));
     expect(absent.apiKey).toBeUndefined();
-    expect(absent.metadata.credentialSource).toBe('none');
+    expect(absent.cacheKey).toContain(':none:_:_');
   });
 
   it('fails closed on ambiguous implicit alias profiles without exposing token values', async () => {
@@ -179,43 +170,13 @@ describe('CredentialSourceResolver', () => {
     await expect(resolver(profiles).resolve(p, accountFor(p))).rejects.not.toThrow(PROVIDER_PROFILE_TOKEN_SECRET);
   });
 
-  it('resolves token endpoint precedence and ignores malformed provider base URL inference', async () => {
-    const accountEndpointProvider = provider({
-      baseUrl: 'https://provider.example.test/v1',
-      tokenEndpoint: 'https://provider.example.test/oauth/provider',
-      accounts: { primary: { tokenEndpoint: 'https://account.example.test/oauth/account' } },
-    });
-    const accountEndpoint = await resolver().resolve(accountEndpointProvider, accountFor(accountEndpointProvider, 'primary'));
-    expect(accountEndpoint.tokenEndpoint).toBe('https://account.example.test/oauth/account');
-    expect(accountEndpoint.metadata.tokenEndpointSource).toBe('account-token-endpoint');
-
-    const providerEndpointProvider = provider({
-      baseUrl: 'https://provider.example.test/v1',
-      tokenEndpoint: 'https://provider.example.test/oauth/provider',
-    });
-    const providerEndpoint = await resolver().resolve(providerEndpointProvider, accountFor(providerEndpointProvider));
-    expect(providerEndpoint.tokenEndpoint).toBe('https://provider.example.test/oauth/provider');
-    expect(providerEndpoint.metadata.tokenEndpointSource).toBe('provider-token-endpoint');
-
-    const inferredProvider = provider({ baseUrl: 'https://provider.example.test/v1' });
-    const inferred = await resolver().resolve(inferredProvider, accountFor(inferredProvider));
-    expect(inferred.tokenEndpoint).toBe('https://provider.example.test/oauth/token');
-    expect(inferred.metadata.tokenEndpointSource).toBe('inferred-provider-base');
-
-    const malformedProvider = provider({ baseUrl: 'not a valid url' });
-    const malformed = await resolver().resolve(malformedProvider, accountFor(malformedProvider));
-    expect(malformed.tokenEndpoint).toBeUndefined();
-    expect(malformed.metadata.tokenEndpointSource).toBeUndefined();
-  });
-
-  it('keeps metadata and cache keys free of raw synthetic secrets', async () => {
+  it('keeps cache keys free of raw synthetic secrets', async () => {
     const p = provider({
       apiKey: PROVIDER_KEY_SECRET,
       accounts: { primary: { apiKey: ACCOUNT_KEY_SECRET } },
     });
     const resolved = await resolver().resolve(p, accountFor(p, 'primary'));
     expect(resolved.apiKey).toBe(ACCOUNT_KEY_SECRET);
-    expectNoSecrets(resolved.metadata);
     expectNoSecrets({ cacheKey: resolved.cacheKey });
   });
 });

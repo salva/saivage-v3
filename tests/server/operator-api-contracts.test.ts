@@ -1,7 +1,13 @@
 import { describe, expect, it } from '@jest/globals';
+import Fastify from 'fastify';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { CardStore } from '../../src/cards/card-store.js';
 import { ServerAvailabilitySchema, operatorApiContracts, operatorRouteInventory, parseOperatorResponse, runtimeCardsOperatorApiContracts } from '../../src/contracts/operator-api.js';
-import { internalDebugRoutes } from '../../src/server/routes/chats-files-debug.js';
 import { LiveSyncClientFrameSchema, LiveSyncInvalidateFrameSchema } from '../../src/contracts/operator-events.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
+import { registerInternalDebugRoutes } from '../../src/server/routes/chats-files-debug.js';
 
 const runtimeState = {
   status: 'stopped',
@@ -159,6 +165,9 @@ describe('operator API contract registry', () => {
       goalCount: 1,
       lastTickAt: null,
       pid: 123,
+      lastCommand: runtimeCommand,
+      activeRun: runtimeRun,
+      latestRun: runtimeRun,
       actorRuntime: {
         pauseMode: 'running',
         activeWork: 'model_invocation',
@@ -199,6 +208,9 @@ describe('operator API contract registry', () => {
       goalCount: 1,
       lastTickAt: null,
       pid: 123,
+      lastCommand: runtimeCommand,
+      activeRun: runtimeRun,
+      latestRun: runtimeRun,
       actorRuntime: {
         pauseMode: 'running',
         activeWork: 'none',
@@ -448,10 +460,28 @@ describe('operator API contract registry', () => {
     const contractPaths = operatorRouteInventory().map((route) => route.path);
     expect(contractPaths).not.toContain('/api/debug/doctor');
     expect(contractPaths).not.toContain('/api/debug/supervision');
-    expect(internalDebugRoutes).toEqual([
-      { method: 'GET', path: '/api/debug/doctor' },
-      { method: 'GET', path: '/api/debug/supervision' },
-    ]);
+    expect(contractPaths).not.toContain('/api/debug/runtime/start');
+  });
+
+  it('registers isolated internal diagnostics as server routes', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-internal-debug-routes-'));
+    const fastify = Fastify();
+    try {
+      initProjectTree(root);
+      const runtimeApplication = {
+        runtimeApi: {
+          startProject: async () => ({ success: true, command: runtimeCommand, run: runtimeRun }),
+        },
+      } as any;
+      registerInternalDebugRoutes(fastify, root, new CardStore(root), runtimeApplication);
+      await fastify.ready();
+      await expect(fastify.inject({ method: 'GET', url: '/api/debug/doctor' })).resolves.toMatchObject({ statusCode: 200 });
+      await expect(fastify.inject({ method: 'GET', url: '/api/debug/supervision' })).resolves.toMatchObject({ statusCode: 200 });
+      await expect(fastify.inject({ method: 'POST', url: '/api/debug/runtime/start' })).resolves.toMatchObject({ statusCode: 200 });
+    } finally {
+      await fastify.close();
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('does not register obsolete lets_dance or preview-hash runtime controls', () => {

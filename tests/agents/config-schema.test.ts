@@ -24,13 +24,14 @@ function cleanup() {
 
 // We need to import after setup since it's ESM
 let loadEnvironment: typeof import('../../src/config/environment.js').loadEnvironment;
-let getModelListForRole: typeof import('../../src/agents/config-schema.js').getModelListForRole;
+let getModelListForRole: typeof import('../../src/config/model-role-resolution.js').getModelListForRole;
 let saivageConfigSchema: typeof import('../../src/agents/config-schema.js').saivageConfigSchema;
 
 beforeAll(async () => {
   const mod = await import('../../src/agents/config-schema.js');
+  const modelRoleResolution = await import('../../src/config/model-role-resolution.js');
   loadEnvironment = (await import('../../src/config/environment.js')).loadEnvironment;
-  getModelListForRole = mod.getModelListForRole;
+  getModelListForRole = modelRoleResolution.getModelListForRole;
   saivageConfigSchema = mod.saivageConfigSchema;
 });
 

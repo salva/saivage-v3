@@ -1,5 +1,5 @@
-import { NotificationCenter, type NotificationQueueEntry } from './notification-center.js';
 import { redactTextForOutbound } from '../redaction/index.js';
+import { EventBus } from '../events/index.js';
 
 export type NotificationDeliveryTarget = 'session';
 
@@ -8,21 +8,32 @@ export interface NotificationDeliveryContext {
   sessionId: string;
 }
 
+export interface NotificationQueueEntry {
+  kind: string;
+  body: string;
+  queued_at: string;
+  source_actor: import('../schemas/index.js').NoteAuthor;
+  source_surface: import('../schemas/index.js').ControlActionSurface;
+}
+
 export interface NotificationDeliveryAdapter {
   readonly name: string;
   deliver(entry: NotificationQueueEntry, context: NotificationDeliveryContext): Promise<void> | void;
 }
 
 const projectAdapters = new Map<string, NotificationDeliveryAdapter[]>();
-const projectCenters = new Map<string, NotificationCenter>();
+const projectEventBuses = new Map<string, EventBus>();
 
-export function getProjectNotificationCenter(projectRoot: string): NotificationCenter {
-  let center = projectCenters.get(projectRoot);
-  if (!center) {
-    center = new NotificationCenter(projectRoot);
-    projectCenters.set(projectRoot, center);
-  }
-  return center;
+export function setProjectNotificationEventBus(projectRoot: string, eventBus: EventBus): void {
+  projectEventBuses.set(projectRoot, eventBus);
+}
+
+export function clearProjectNotificationEventBus(projectRoot: string): void {
+  projectEventBuses.delete(projectRoot);
+}
+
+function getProjectNotificationEventBus(projectRoot: string): EventBus | undefined {
+  return projectEventBuses.get(projectRoot);
 }
 
 export function setProjectNotificationDeliveryAdapters(projectRoot: string, adapters: NotificationDeliveryAdapter[]): void {
@@ -39,12 +50,12 @@ export function getProjectNotificationDeliveryAdapters(projectRoot: string): Not
 
 export class NotificationDeliveryService {
   constructor(
-    private readonly center: NotificationCenter,
     private readonly adapters: NotificationDeliveryAdapter[] = [],
+    private readonly eventBus = new EventBus(),
   ) {}
 
   enqueue(sessionId: string, entry: NotificationQueueEntry): void {
-    this.center.enqueue(sessionId, entry);
+    this.eventBus.emit('notification_added', { session_id: sessionId, notification_kind: entry.kind });
     void this.deliver(entry, { target: 'session', sessionId });
   }
 
@@ -66,6 +77,7 @@ export class NotificationDeliveryService {
 export function createNotificationDeliveryService(
   projectRoot: string,
   adapters: NotificationDeliveryAdapter[] = getProjectNotificationDeliveryAdapters(projectRoot),
+  eventBus = getProjectNotificationEventBus(projectRoot) ?? new EventBus(),
 ): NotificationDeliveryService {
-  return new NotificationDeliveryService(getProjectNotificationCenter(projectRoot), adapters);
+  return new NotificationDeliveryService(adapters, eventBus);
 }

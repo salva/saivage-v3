@@ -6,6 +6,7 @@ import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { initRuntimeState } from '../../src/runtime/state.js';
 import { createServer, type ServerInstance } from '../../src/server/server.js';
 import { loadEnvironment } from '../../src/config/environment.js';
+import { ensureTestSaivageConfig } from '../helpers/test-runtime-application.js';
 
 let root: string;
 let server: ServerInstance | undefined;
@@ -13,6 +14,7 @@ let server: ServerInstance | undefined;
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'saivage-notifications-endpoint-removed-'));
   initProjectTree(root);
+  ensureTestSaivageConfig(root);
   initRuntimeState(root);
 });
 

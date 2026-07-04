@@ -74,7 +74,7 @@ export interface CardIndex { cards: Record<string, CardIndexEntry>; }
 export type CardChildrenIndex = string[];
 export type CardDependencyIndex = Record<string, string[]>;
 export type CardBlocksIndex = Record<string, string[]>;
-export interface ProjectConfig { id: 'project'; name: string; context: string; goals_summary: string; constraints: string[]; max_goal_depth: number; planner_enabled: boolean; created_at: string; updated_at: string; }
+export interface ProjectConfig { id: 'project'; name: string; context: string; goals_summary: string; constraints: string[]; planner_enabled: boolean; created_at: string; updated_at: string; }
 export const analystIssueSeverityValues = ['info', 'warning', 'blocker'] as const;
 export interface AnalystIssue { summary: string; severity?: typeof analystIssueSeverityValues[number]; evidence_path?: string; }
 export type ProcessStatus = 'running' | 'exited' | 'failed' | 'killed';

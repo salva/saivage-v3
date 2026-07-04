@@ -7,7 +7,7 @@ import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-ac
 import { createExecutorContract } from '../../contracts/executor-contract.js';
 import type { ExecutorResult } from '../../contracts/agent-execution.js';
 import { expectedTerminalToolMessage, verifyTerminalToolOutcome } from './contract-terminal-tools.js';
-import { buildInvocationSurface, invokeTool, surfaceToolDefinitions, type InvocationSurface } from '../../tools/invocation.js';
+import { buildInvocationSurface, invokeTool, surfaceToolDefinitions, type InvocationSurface, type ToolResult } from '../../tools/invocation.js';
 import { createCardHistoryProvider } from '../../tools/card-history-provider.js';
 import { createProcessProvider } from '../../tools/process-provider.js';
 import { createPatchProvider, createWorkspaceProvider } from '../../tools/workspace-provider.js';
@@ -65,7 +65,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const llmInput = this.buildLlmInput(input, contract);
     this.activeProcessOwnerId = llmInput.inputId;
     const outcome = await llm.turn(llmInput);
-    return runContractBoundedRepairLoop<TerminalProcessorOutcome>({
+    const result = await runContractBoundedRepairLoop<TerminalProcessorOutcome>({
       initialOutcome: outcome,
       isTerminalToolName: (name) => contract.isTerminalToolName(name),
       fail: (message) => ({ status: 'failed', summary: message, result: executorFailure(message) }),
@@ -89,6 +89,8 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
         return llm.appendToolResult(toolOutcome.toolCallId, toolResult, (inputId) => this.notificationContextMessages(input, inputId));
       },
     });
+    if (result.kind === 'restart') throw new Error('Terminal activation repair loop cannot restart.');
+    return result.value;
   }
 
   private buildLlmInput(input: CardActivationInput, contract = createExecutorContract()): LlmInvocationInput {
@@ -109,7 +111,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     };
   }
 
-  private async handleToolCall(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, processOwnerId: string): Promise<unknown> {
+  private async handleToolCall(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, processOwnerId: string): Promise<ToolResult> {
     const workspaceSurface = this.executorInvocationSurface(processOwnerId);
     if (workspaceSurface.tools.has(outcome.toolName)) return await invokeTool(workspaceSurface, outcome.toolName, outcome.args);
     return { success: false, error: `Unsupported executor tool call '${outcome.toolName}'.` };

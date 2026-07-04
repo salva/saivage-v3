@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardStore } from '../../../src/cards/card-store.js';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { CardActor, MAX_NOTIFICATION_DELIVERY_MARKERS, appendNotificationToActorSnapshot, cardActorId, createSupervisorRuntimeApi, isActivatable, readActorSnapshots, type CardActivationInput, type CardActivationOutcome, type CardProcessorActor } from '../../../src/runtime/actors/index.js';
+import { CardActor, MAX_NOTIFICATION_DELIVERY_MARKERS, appendNotificationToActorSnapshot, cardActorId, createSupervisorRuntimeApi, isActivatable, readActorSnapshots, saveActorSnapshot, type CardActivationInput, type CardActivationOutcome, type CardProcessorActor } from '../../../src/runtime/actors/index.js';
 import type { CardRecord } from '../../../src/schemas/index.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
@@ -134,6 +134,35 @@ describe('CardActor', () => {
     ]);
   }));
 
+  it('appends notifications to actor snapshots without inventing missing actor state', () => withTempProject((projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+
+    const snapshot = appendNotificationToActorSnapshot(projectRoot, cardActorId(project.id), { id: 'restored', message: 'from snapshot', created_at: '2026-06-12T00:00:00.000Z', reason: 'test' });
+
+    expect(snapshot.state_value).toBeNull();
+
+    const persisted = readActorSnapshots(projectRoot).find((item) => item.actor_id === cardActorId(project.id));
+    expect(persisted?.state_value).toBeNull();
+    expect(persisted?.context.notifications).toEqual([expect.objectContaining({ id: 'restored', message: 'from snapshot' })]);
+
+    const existing = {
+      ...persisted!,
+      state_value: 'changed',
+      context: { ...persisted!.context, custom: true },
+    };
+    saveActorSnapshot(projectRoot, existing);
+    const updated = appendNotificationToActorSnapshot(projectRoot, cardActorId(project.id), { id: 'second', message: 'second', created_at: '2026-06-12T00:00:01.000Z', reason: 'test' });
+
+    expect(updated.state_value).toBe('changed');
+    expect(updated.context.custom).toBe(true);
+    expect(updated.context.notifications).toEqual([
+      expect.objectContaining({ id: 'restored' }),
+      expect.objectContaining({ id: 'second' }),
+    ]);
+  }));
+
   it('restores pending notifications from the actor snapshot on materialization', () => withTempProject((projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
@@ -161,12 +190,28 @@ describe('CardActor', () => {
       provider: { completeTurn: jest.fn() as never },
     });
 
-    runtime.notifyCard(goal.id, { id: 'inactive', message: 'wake up', created_at: '2026-06-12T00:00:00.000Z', reason: 'test' });
+    const result = runtime.notifyCard(goal.id, { id: 'inactive', message: 'wake up', created_at: '2026-06-12T00:00:00.000Z', reason: 'test' });
 
+    expect(result).toEqual({ ok: true });
     expect(store.read(goal.id)?.status).toBe('changed');
     expect(readActorSnapshots(projectRoot).find((item) => item.actor_id === cardActorId(goal.id))?.context.notifications).toEqual([
       expect.objectContaining({ id: 'inactive', message: 'wake up' }),
     ]);
+  }));
+
+  it('runtime notifyCard returns structured failure for missing cards', () => withTempProject((projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    createProject(store);
+    const runtime = createSupervisorRuntimeApi({
+      projectRoot,
+      actorStore: store,
+      provider: { completeTurn: jest.fn() as never },
+    });
+
+    const result = runtime.notifyCard('missing-card', { id: 'missing', message: 'wake up', created_at: '2026-06-12T00:00:00.000Z', reason: 'test' });
+
+    expect(result).toEqual({ ok: false, reason: 'missing_card', cardId: 'missing-card' });
   }));
 
   it('records card-owned notification delivery markers by input id', () => withTempProject((projectRoot) => {
@@ -175,8 +220,8 @@ describe('CardActor', () => {
     const project = createProject(store);
     const actor = CardActor.fromCard({ projectRoot, card: project, store, processor: processor({ status: 'done', summary: 'done', result: { kind: 'done', summary: 'done' } }) });
 
-    actor.notify({ id: 'n1', message: 'first', created_at: '2026-06-12T00:00:00.000Z' });
-    actor.notify({ id: 'n2', message: 'second', created_at: '2026-06-12T00:00:01.000Z' });
+    actor.enqueueNotification({ id: 'n1', message: 'first', created_at: '2026-06-12T00:00:00.000Z' });
+    actor.enqueueNotification({ id: 'n2', message: 'second', created_at: '2026-06-12T00:00:01.000Z' });
 
     const delivered = actor.deliverNotificationsForInput('input:project:1');
 
@@ -203,7 +248,7 @@ describe('CardActor', () => {
     const actor = CardActor.fromCard({ projectRoot, card: project, store, processor: processor({ status: 'done', summary: 'done', result: { kind: 'done', summary: 'done' } }) });
 
     for (let index = 0; index < MAX_NOTIFICATION_DELIVERY_MARKERS + 3; index++) {
-      actor.notify({ id: `n${index}`, message: `notice ${index}`, created_at: '2026-06-12T00:00:00.000Z' });
+      actor.enqueueNotification({ id: `n${index}`, message: `notice ${index}`, created_at: '2026-06-12T00:00:00.000Z' });
       actor.deliverNotificationsForInput(`input:${index}`);
     }
 
@@ -225,7 +270,7 @@ describe('CardActor', () => {
     const activation = actor.activate({ kind: 'parent', cardId: 'project' });
     await eventually(() => expect(store.read(goal.id)?.status).toBe('running'));
 
-    actor.notify({ id: 'n-running', message: 'running context', created_at: '2026-06-12T00:00:00.000Z' });
+    actor.enqueueNotification({ id: 'n-running', message: 'running context', created_at: '2026-06-12T00:00:00.000Z' });
     const delivered = actor.deliverNotificationsForInput('input:running:1');
 
     expect(delivered).toEqual([expect.objectContaining({ id: 'n-running' })]);
@@ -246,7 +291,7 @@ describe('CardActor', () => {
     let actor!: CardActor;
     const fakeProcessor: CardProcessorActor = {
       activate: jest.fn(async () => {
-        actor.notify({ id: 'n-late', message: 'late running context', created_at: '2026-06-12T00:00:00.000Z' });
+        actor.enqueueNotification({ id: 'n-late', message: 'late running context', created_at: '2026-06-12T00:00:00.000Z' });
         return { status: 'done', summary: 'done', result: { kind: 'done', summary: 'done' } };
       }) as (input: CardActivationInput) => Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>,
     };
@@ -258,6 +303,31 @@ describe('CardActor', () => {
     await eventually(() => expect(actor.state()).toBe('changed'));
     expect(store.read(project.id)).toMatchObject({ status: 'changed', lifecycle: { result: { kind: 'done', summary: 'done' } } });
     expect(actor.listPendingNotifications()).toEqual([expect.objectContaining({ id: 'n-late' })]);
+  }));
+
+  it('does not reopen done cards from their own terminal lifecycle notification', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    const fakeProcessor: CardProcessorActor = {
+      activate: jest.fn(async (input: CardActivationInput) => {
+        input.notificationDelivery.deliverNotificationsForInput('fake-input');
+        return { status: 'done', summary: 'done', result: { kind: 'done', summary: 'done' } };
+      }) as (input: CardActivationInput) => Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>,
+    };
+    const actor = CardActor.fromCard({ projectRoot, card: project, store, processor: fakeProcessor });
+    store.setNotifyCard((cardId, notification) => {
+      if (cardId !== project.id) return { ok: false, reason: 'missing_card', cardId };
+      actor.enqueueNotification(notification);
+      return { ok: true };
+    });
+
+    const outcome = await actor.activate({ kind: 'root' });
+
+    expect(outcome).toMatchObject({ status: 'done', summary: 'done' });
+    await eventually(() => expect(actor.state()).toBe('done'));
+    expect(store.read(project.id)).toMatchObject({ status: 'done', lifecycle: { result: { kind: 'done', summary: 'done' } } });
+    expect(actor.listPendingNotifications()).toEqual([]);
   }));
 
   it('does not reopen a done card during recovery', () => withTempProject((projectRoot) => {
@@ -296,43 +366,6 @@ describe('CardActor', () => {
     store.commitTerminalLifecyclePatch(project.id, { status: 'needs_verification', lifecycle: { status: 'needs_verification', result: { kind: 'executor_needs_verification', reason: 'verify', preserved_result: {}, fallback_reason: null, latest_self_report: { result: 'needs_verification', outcome: 'needs_verification', summary: 'verify', status_text: 'verify', at: '2026-06-12T00:00:00.000Z' } }, error: null, completed_at: null } });
 
     expect(() => CardActor.fromCard({ projectRoot, card: store.read(project.id)!, store, processor: processor({ status: 'done', summary: 'unused', result: { kind: 'done', summary: 'unused' } }) })).toThrow(/needs_verification/);
-  }));
-
-  it('marks inactive cards changed while running cards stay running and receive notifications', async () => withTempProject(async (projectRoot) => {
-    initProjectTree(projectRoot);
-    const store = new CardStore(projectRoot);
-    createProject(store);
-    const goal = createGoal(store);
-    store.commitTerminalLifecyclePatch(goal.id, { status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'blocked', summary: 'blocked', resume_reason: 'blocked' }, error: 'blocked', completed_at: null } });
-    const blockedGoal = store.read(goal.id)!;
-    const actor = CardActor.fromCard({ projectRoot, card: blockedGoal, store, processor: processor({ status: 'blocked', summary: 'blocked', result: { kind: 'blocked', summary: 'blocked', resume_reason: 'blocked' } }) });
-
-    actor.markChanged({ reason: 'operator edit' });
-
-    await eventually(() => expect(actor.state()).toBe('changed'));
-    expect(store.read(goal.id)?.status).toBe('changed');
-    actor.notify({ id: 'n1', message: 'new context', created_at: '2026-06-12T00:00:00.000Z' });
-    expect(actor.notifications).toHaveLength(1);
-
-    const runningGoal = createGoal(store);
-    let finish!: (outcome: Exclude<CardActivationOutcome, { status: 'cancelled' }>) => void;
-    const runningProcessor: CardProcessorActor = {
-      activate: jest.fn(async () => new Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>((resolve) => { finish = resolve; })),
-    };
-    const runningActor = CardActor.fromCard({ projectRoot, card: runningGoal, store, processor: runningProcessor });
-    const activation = runningActor.activate({ kind: 'parent', cardId: 'project' });
-    await eventually(() => expect(store.read(runningGoal.id)?.status).toBe('running'));
-
-    runningActor.markChanged({ reason: 'running edit' });
-    runningActor.notify({ id: 'n2', message: 'running context', created_at: '2026-06-12T00:00:00.000Z' });
-
-    expect(store.read(runningGoal.id)?.status).toBe('running');
-    expect(runningActor.notifications).toEqual([
-      expect.objectContaining({ reason: 'card_changed', message: 'Card changed: running edit' }),
-      expect.objectContaining({ id: 'n2', message: 'running context' }),
-    ]);
-    finish({ status: 'blocked', summary: 'blocked', result: { kind: 'blocked', summary: 'blocked', resume_reason: 'blocked' } });
-    await expect(activation).resolves.toMatchObject({ status: 'blocked' });
   }));
 
   it('cancels inactive subtrees while preserving done descendants', async () => withTempProject(async (projectRoot) => {

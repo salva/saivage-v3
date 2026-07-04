@@ -9,8 +9,18 @@ import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { createSupervisorRuntimeApi, readActorSnapshots } from '../../src/runtime/actors/index.js';
 import type { LLMProviderPort, LlmInvocationInput } from '../../src/runtime/actors/index.js';
 import type { LlmCompleteResult } from '../../src/agents/llm-contracts.js';
+import { readRuntimeState } from '../../src/runtime/state-api.js';
 
 function tempRoot(prefix: string): string { return mkdtempSync(join(tmpdir(), prefix)); }
+
+async function waitForRootRun(projectRoot: string, phase: string): Promise<void> {
+  const deadline = Date.now() + 3000;
+  while (Date.now() < deadline) {
+    if (readRuntimeState(projectRoot)?.runtime_runs.some((run) => run.kind === 'root' && run.phase === phase)) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Timed out waiting for root run phase ${phase}`);
+}
 
 function blockedPlannerProvider(): LLMProviderPort {
   const terminal = { kind: 'tool_calls' as const, tool_calls: [{ id: 'planner-result-1', type: 'function' as const, function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked', summary: 'waiting for operator' }) } }] };
@@ -66,16 +76,17 @@ describe('runtime redesign final golden behavior', () => {
       const result = await api.startProject('operator');
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.command).toMatchObject({ command: 'start_project', status: 'completed', source: 'operator' });
+        expect(result.command).toMatchObject({ command: 'start_project', status: 'accepted', source: 'operator' });
         expect(result.run).toMatchObject({
           kind: 'root',
           card_id: 'project',
           ownership: { kind: 'direct', source: 'project_root' },
-          phase: 'blocked',
-          runtime_status: 'stopped',
+          phase: 'pending',
+          runtime_status: 'running',
           session_id: 'planner:project',
         });
       }
+      await waitForRootRun(projectRoot, 'blocked');
       expect(readActorSnapshots(projectRoot).map((item) => item.actor_id).sort()).toEqual(['card:project', 'planner:project', 'processor:project', 'supervisor']);
       await api.shutdown();
     } finally { rmSync(projectRoot, { recursive: true, force: true }); }

@@ -8,6 +8,7 @@ import { createMicroActorRuntimeApi } from '../../src/application/micro-actor-ru
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import type { InvocationService } from '../../src/agents/invocation-service.js';
 import type { LlmCompleteResult } from '../../src/agents/llm-contracts.js';
+import { readRuntimeState } from '../../src/runtime/state-api.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-micro-actor-runtime-factory-'));
@@ -15,6 +16,15 @@ function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promis
   if (result instanceof Promise) return result.finally(() => rmSync(projectRoot, { recursive: true, force: true }));
   rmSync(projectRoot, { recursive: true, force: true });
   return result;
+}
+
+async function waitForRootRun(projectRoot: string, phase: string): Promise<void> {
+  const deadline = Date.now() + 3000;
+  while (Date.now() < deadline) {
+    if (readRuntimeState(projectRoot)?.runtime_runs.some((run) => run.kind === 'root' && run.phase === phase)) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Timed out waiting for root run phase ${phase}`);
 }
 
 describe('createMicroActorRuntimeApi', () => {
@@ -44,8 +54,9 @@ describe('createMicroActorRuntimeApi', () => {
 
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.run).toMatchObject({ card_id: 'project', phase: 'blocked', runtime_status: 'stopped' });
+      expect(result.run).toMatchObject({ card_id: 'project', phase: 'pending', runtime_status: 'running' });
     }
+    await waitForRootRun(projectRoot, 'blocked');
     expect(api.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null });
   }));
 });

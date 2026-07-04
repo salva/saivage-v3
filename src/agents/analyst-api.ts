@@ -6,6 +6,5 @@ export { GLOBAL_ANALYST_SESSION_ID, isSafeAgentSessionId, resolveAnalystSessionI
 export type { AnalystRuntimeDeps } from './analyst-handler.js';
 export { sanitizeAnalystPayload, sanitizeAnalystText } from './analyst-sanitization.js';
 export {
-  markGoalNeedsCorrections,
   normalizeAnalystIssues,
 } from './analyst-stage6.js';

@@ -1,7 +1,7 @@
-// F13 r5 §"On-disk write sequence" + §"Boot recovery" — the canonical
-// `applyMutation` step machine. Owns the cross-process withLock, writes
-// versioned card.json records, updates `CardStoreState`, releases the lock, and
-// emits a `card_history_appended` event AFTER the lock drops.
+// F13 r5 §"On-disk write sequence" + §"Boot recovery" — the canonical sync
+// card mutation step machine. Owns the cross-process withLock, writes versioned
+// card.json records, updates `CardStoreState`, releases the lock, and emits a
+// `card_history_appended` event AFTER the lock drops.
 
 import {
   mkdirSync,

@@ -152,8 +152,6 @@ export interface RuntimeCommandErrorResponse {
 
 
 
-export type ProviderEntry = OperatorApiSuccess<'providers.list'>['providers'][string];
-
 export interface FileEntry {
   name: string;
   path: string;
@@ -233,8 +231,6 @@ export type RuntimeStatusActorRuntime = RuntimeStatusResponse['actorRuntime'];
 export type RuntimeStatusCardActor = RuntimeStatusActorRuntime['cards'][number];
 export type RuntimeStatusAgentActor = RuntimeStatusActorRuntime['agents'][number];
 export type RuntimeCardRunsResponse = OperatorApiSuccess<'runtime.cardRuns'>;
-export type ConfigResponse = OperatorApiSuccess<'config.get'>;
-export type ProvidersResponse = OperatorApiSuccess<'providers.list'>;
 export type AgentConversationResponse = Omit<OperatorApiSuccess<'agents.conversation'>, 'session' | 'entries' | 'activity_status'> & { session: AgentSession; entries: AgentConversationEntry[]; activity_status: ActivityStatus; };
 export type AgentLlmExchangeResponse = OperatorApiSuccess<'agents.llmExchange'>;
 export type AgentSessionsResponse = Omit<OperatorApiSuccess<'agents.list'>, 'sessions'> & { sessions: AgentSession[]; };

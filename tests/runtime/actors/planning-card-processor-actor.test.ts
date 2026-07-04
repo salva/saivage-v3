@@ -701,20 +701,30 @@ describe('PlanningCardProcessorActor', () => {
     expect(outcome.summary).toContain('outside the reviewed subtree');
   }));
 
-  it('blocks done reports while descendants remain incomplete', async () => withTempProject(async (projectRoot) => {
+  it('repairs done reports while descendants remain incomplete', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     const project = createProject(store);
     const goal = createGoal(store);
-    const provider = withMandatoryRecords(() => plannerResult('done', 'project done'));
+    let sawCompletionGateFailure = false;
+    const provider = withMandatoryRecords((input: LlmInvocationInput) => {
+      if (input.role === 'reviewer') return reviewerResult();
+      const lastToolResult = input.episodeContext.lastToolResult as { result?: { success?: boolean; error?: string } } | undefined;
+      const error = lastToolResult?.result?.error;
+      if (typeof error === 'string' && error.includes(`descendant '${goal.id}'`)) {
+        sawCompletionGateFailure = true;
+        markDone(store, goal);
+      }
+      return plannerResult('done', 'project done');
+    });
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
 
-    expect(outcome).toMatchObject({ status: 'blocked', result: { kind: 'blocked' } });
-    expect(outcome.summary).toContain(goal.id);
-    expect(provider.completeTurn).toHaveBeenCalledTimes(2);
+    expect(outcome).toMatchObject({ status: 'done', result: { kind: 'done' } });
+    expect(sawCompletionGateFailure).toBe(true);
+    expect(provider.completeTurn).toHaveBeenCalledTimes(6);
   }));
 
   it('does not invoke reviewer for blocked or failed planner outcomes', async () => withTempProject(async (projectRoot) => {

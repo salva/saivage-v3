@@ -53,7 +53,6 @@ function defaultProjectConfig(name: string): ProjectConfig {
     context: '',
     goals_summary: '',
     constraints: [],
-    max_goal_depth: 5,
     planner_enabled: true,
     created_at: now,
     updated_at: now,

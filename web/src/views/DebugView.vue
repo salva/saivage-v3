@@ -76,16 +76,6 @@
           </div>
           <div v-else class="operator-freshness" role="status">Not refreshed yet.</div>
 
-          <div v-if="operatorUnauthorized" class="operator-banner operator-banner-error" role="alert">
-            Unauthorized. Provide a valid Saivage API token and refresh the page.
-          </div>
-          <div v-else-if="runtimeControlError" class="operator-banner operator-banner-error" role="alert">
-            {{ runtimeControlError }}
-          </div>
-          <div v-if="runtimeControlSuccess" class="operator-banner operator-banner-success" role="status">
-            {{ runtimeControlSuccess }}
-          </div>
-
           <div v-if="loading && !debugRuntime" class="debug-loading">Loading runtime control state...</div>
           <div v-else class="operator-runtime-card">
             <div class="operator-runtime-summary">
@@ -288,11 +278,6 @@
           </div>
         </div>
 
-        <div v-if="processUnauthorized" class="operator-banner operator-banner-error" role="alert">Unauthorized. Provide a valid Saivage API token and refresh the page.</div>
-        <div v-else-if="processControlError" class="operator-banner" :class="processStale ? 'operator-banner-warning' : 'operator-banner-error'" :role="processStale ? 'status' : 'alert'">{{ processControlError }}</div>
-        <div v-if="processControlSuccess" class="operator-banner operator-banner-success" role="status">{{ processControlSuccess }}</div>
-        <div v-if="processStale && !processControlError" class="operator-banner operator-banner-warning" role="status">Process state may be stale. Refresh to reconcile with server state.</div>
-
         <div v-if="processesLoading" class="debug-loading">Loading processes...</div>
         <div v-else-if="processesError" class="debug-error">{{ processesError }}</div>
         <div v-else-if="processes.length === 0" class="debug-empty">No Saivage-managed processes found.</div>
@@ -388,11 +373,10 @@ const {
   errors, errorsTotal,
   loading, error,
   processes, processesLoading, processesError,
-  processControlError, processControlSuccess, processUnauthorized, processStale,
   doctorStatus, doctorChecks, doctorIssues, doctorLoading, doctorError,
   supervisionReviews, supervisionQuarantine, supervisionStats,
   supervisionLoading, supervisionError,
-  operatorLastFetchedAt, operatorUnauthorized, runtimeControlError, runtimeControlSuccess, operatorDataFreshnessLabel,
+  operatorLastFetchedAt, operatorDataFreshnessLabel,
 } = storeToRefs(debugStore);
 
 const {
