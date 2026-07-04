@@ -325,6 +325,31 @@ describe('TerminalCardProcessorActor', () => {
     expect(provider.completeTurn).toHaveBeenCalledTimes(3);
   }));
 
+  it('returns missing record reads as recoverable tool results', async () => withTempProject(async (projectRoot) => {
+    const { store, card } = setup(projectRoot);
+    let sawMissingRecordResult = false;
+    const provider = withExecutorStatusRecord((input: LlmInvocationInput) => {
+      if (!input.episodeContext.lastToolResult) {
+        return { kind: 'tool_calls' as const, tool_calls: [{ id: 'read-status-before-write', type: 'function' as const, function: { name: 'read', arguments: JSON.stringify({ path: 'record://status.md' }) } }] };
+      }
+      sawMissingRecordResult = true;
+      expect(input.episodeContext.lastToolResult).toMatchObject({
+        toolName: 'read',
+        result: { success: false, error: expect.stringContaining(`No closed record exists for '${card.id}/status'`) },
+      });
+      return executorResult(card.id, 'continued after missing record read');
+    });
+    const processor = new TerminalCardProcessorActor({ projectRoot, cardId: card.id, provider });
+    processor.start();
+    const actor = CardActor.fromCard({ projectRoot, card, store, processor });
+
+    const outcome = await actor.activate({ kind: 'parent', cardId: 'project' });
+
+    expect(outcome).toMatchObject({ status: 'done', summary: 'continued after missing record read' });
+    expect(sawMissingRecordResult).toBe(true);
+    expect(provider.completeTurn).toHaveBeenCalledTimes(3);
+  }));
+
   it('cleans up a timed-out owned process when the terminal card settles', async () => withTempProject(async (projectRoot) => {
     const { card } = setup(projectRoot);
     const provider: LLMProviderPort = {

@@ -11,7 +11,7 @@ import { expectedTerminalToolMessage, verifyTerminalToolOutcome } from './contra
 import { nextReviewerAssessmentId, reviewerSessionId } from '../reviewer-session.js';
 import { evaluateReviewerTerminalOutcome } from './reviewer-terminal-evaluation.js';
 import { buildPlannerStateContextMessage } from '../../agents/planner-state-context.js';
-import { buildInvocationSurface, invokeTool, surfaceToolDefinitions, type ToolResult } from '../../tools/invocation.js';
+import { buildInvocationSurface, invokeToolForLlm, surfaceToolDefinitions, type ToolResult } from '../../tools/invocation.js';
 import { createCardHistoryProvider } from '../../tools/card-history-provider.js';
 import { createCardInspectionProvider } from '../../tools/card-inspection-provider.js';
 import { createPlannerControlProvider } from '../../tools/planner-control-provider.js';
@@ -154,7 +154,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   private async handleToolCall(parent: CardRecord, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): Promise<ToolResult> {
     const surface = this.plannerInvocationSurface(parent.id);
     if (!surface.tools.has(outcome.toolName)) return { success: false, error: `Unsupported planner tool call '${outcome.toolName}'.` };
-    return invokeTool(surface, outcome.toolName, outcome.args);
+    return invokeToolForLlm(surface, outcome.toolName, outcome.args);
   }
 
   private plannerInvocationSurface(parentCardId: string) {
@@ -385,7 +385,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
 
   private async handleReviewerToolCall(card: CardRecord, sessionId: string, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): Promise<ToolResult> {
     const workspaceSurface = this.reviewerInvocationSurface(card.id, sessionId);
-    if (workspaceSurface.tools.has(outcome.toolName)) return invokeTool(workspaceSurface, outcome.toolName, outcome.args);
+    if (workspaceSurface.tools.has(outcome.toolName)) return invokeToolForLlm(workspaceSurface, outcome.toolName, outcome.args);
     return { success: false, error: `Unsupported reviewer tool call '${outcome.toolName}' for session '${sessionId}'.` };
   }
 

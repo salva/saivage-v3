@@ -53,6 +53,14 @@ export async function invokeTool(surface: InvocationSurface, name: string, args:
   return definition.executor(parsed.data);
 }
 
+export async function invokeToolForLlm(surface: InvocationSurface, name: string, args: unknown): Promise<ToolResult> {
+  try {
+    return await invokeTool(surface, name, args);
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 export async function invokeToolCall(surface: InvocationSurface, name: string, rawArgs: string): Promise<ToolResult> {
   let args: unknown;
   try {
