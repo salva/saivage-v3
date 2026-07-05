@@ -20,7 +20,7 @@ import type { SaivageConfig } from './config-schema.js';
 import { capabilityRequestForLlmOptions } from './provider-capabilities.js';
 import { buildAgentProtocolViolation, parseProtocolToolArgs } from './agent-protocol-violation.js';
 import { appendConversationMessage, buildContextTextMessage, conversationMessagesForModel, readConversationMessages } from '../runtime/actors/conversation-store.js';
-import { LLMActor, type LLMActorOutcome, type LLMProviderPort } from '../runtime/actors/llm-actor.js';
+import { ConversationLLMActor, type LLMActorOutcome, type LLMProviderPort } from '../runtime/actors/llm-actor.js';
 import type { LlmInvocationInput } from '../runtime/actors/llm-invocation.js';
 import { resolveAnalystSessionId } from './session-ids.js';
 import { ANALYST_CONTROL_TOOLS } from '../tools/analyst-tool-registry.js';
@@ -33,6 +33,7 @@ import { createMcpProvider } from '../tools/mcp-provider.js';
 import { createCardInspectionProvider } from '../tools/card-inspection-provider.js';
 import { createCardHistoryProvider } from '../tools/card-history-provider.js';
 import type { ProcessRunner } from '../runtime/process-runner.js';
+import { BaseActor, type ActorDefinition } from '../runtime/micro-actor/index.js';
 
 
 export interface WorkspaceContext {
@@ -67,6 +68,7 @@ export interface ActivityCallback {
 
 export interface AnalystResponse {
   sessionId: string;
+  cancelled?: boolean;
   message: {
     id: string;
     role: 'assistant';
@@ -91,6 +93,22 @@ export interface AnalystRuntimeDeps {
   mcpManager?: McpManager;
   provider: LLMProviderPort;
   processRunner: ProcessRunner;
+}
+
+export interface AnalystTurnInput {
+  userContent: string;
+  workspaceContext?: WorkspaceContext;
+  actor?: ActorRole;
+  surface?: ControlActionSurface;
+}
+
+export type AnalystTurnResult = AnalystResponse;
+
+export interface AnalystSessionReadModel {
+  sessionId: string;
+  phase: 'idle' | 'conversing';
+  toolInFlight: string | null;
+  lastOutcome: 'completed' | 'failed' | 'cancelled' | null;
 }
 
 function summarizeForBroadcast(tool: string, result: ToolResult): { summary: string; classified_as?: string; related_card_id?: string; related_note_id?: string; related_process_id?: string } {
@@ -133,11 +151,9 @@ function broadcastToolInvocation(deps: AnalystRuntimeDeps, sessionId: string, to
 }
 
 
-export class AnalystHandler {
+class AnalystLoopRunner {
   private projectRoot: string;
   private onActivity?: ActivityCallback;
-  private sessionQueues: Map<string, Promise<AnalystResponse>> = new Map();
-  private readonly actors: Map<string, LLMActor> = new Map();
   private readonly runtimeDeps: AnalystRuntimeDeps;
   private actor: ActorRole;
   private surface: ControlActionSurface;
@@ -159,18 +175,6 @@ export class AnalystHandler {
     return Array.from(this.analystInvocationSurface(ctx).tools.keys());
   }
 
-  async handleMessage(sessionId: string, userContent: string, workspaceContext?: WorkspaceContext): Promise<AnalystResponse> {
-    const previous = this.sessionQueues.get(sessionId) ?? Promise.resolve(null as never);
-    const next = previous.catch(() => null as never).then(() => this.handleMessageSerial(sessionId, userContent, workspaceContext));
-    this.sessionQueues.set(sessionId, next);
-    try { return await next; } finally { if (this.sessionQueues.get(sessionId) === next) this.sessionQueues.delete(sessionId); }
-  }
-
-  async shutdownSessionProcesses(sessionId: string): Promise<void> {
-    const resolvedSessionId = resolveAnalystSessionId(sessionId);
-    await this.runtimeDeps.processRunner.stopByOwner(resolvedSessionId, 'analyst session closed', { graceMs: 5000 });
-  }
-
   private emitActivity(activity: { type: 'tool_call' | 'tool_result' | 'thinking'; content: Record<string, unknown> }): void {
     if (!this.onActivity) return;
     try { this.onActivity(activity); } catch (err) { this.logBoundaryDiagnostic('analyst_activity_callback_failed', err); }
@@ -187,11 +191,6 @@ export class AnalystHandler {
     }
   }
 
-  private async handleMessageSerial(sessionId: string, userContent: string, workspaceContext?: WorkspaceContext): Promise<AnalystResponse> {
-    sessionId = resolveAnalystSessionId(sessionId);
-    return await this.runAnalystLoop(sessionId, userContent, workspaceContext);
-  }
-
   private responseTextForResult(result: ToolResult): string | null {
     if (result.success && result.data && typeof result.data === 'object' && (result.data as Record<string, unknown>)['partial'] === true) {
       const data = result.data as Record<string, unknown>;
@@ -201,16 +200,14 @@ export class AnalystHandler {
     return null;
   }
 
-  private async runAnalystLoop(sessionId: string, userContent: string, workspaceContext?: WorkspaceContext): Promise<AnalystResponse> {
+  async runAnalystLoop(sessionId: string, actor: ConversationLLMActor, userContent: string, workspaceContext: WorkspaceContext | undefined, signal: AbortSignal): Promise<AnalystResponse> {
+    sessionId = resolveAnalystSessionId(sessionId);
     const toolInvocations: NonNullable<AnalystResponse['toolInvocations']> = [];
     const ctx: ToolContext = { projectRoot: this.projectRoot, processRunner: this.runtimeDeps.processRunner, store: this.runtimeDeps.cardStore, sessionId, runtime: this.runtimeDeps.runtime, mcpManager: this.runtimeDeps.mcpManager, requestServerRestart: this.requestServerRestart, actor: this.actor, surface: this.surface, eventBus: this.runtimeDeps.eventBus };
     const surface = this.analystInvocationSurface(ctx);
     const previousToolCallFingerprints = new Set<string>();
     const workspaceContextMessage = buildContextTextMessage(sessionId, 'system', buildWorkspaceContextNote(workspaceContext));
     const userMessage = buildContextTextMessage(sessionId, 'user', userContent);
-    appendConversationMessage(this.projectRoot, workspaceContextMessage);
-    appendConversationMessage(this.projectRoot, userMessage);
-    const actor = this.getOrCreateActor(sessionId);
     let outcome: LLMActorOutcome;
 
     try {
@@ -220,6 +217,7 @@ export class AnalystHandler {
     }
 
     for (;;) {
+      if (signal.aborted) throw new Error('Analyst turn cancelled.');
       if (outcome.type === 'error') return this.errorResponse(sessionId, outcome.error, toolInvocations);
 
       if (outcome.type === 'result') {
@@ -261,7 +259,9 @@ export class AnalystHandler {
 
       const params = parsed.args;
       this.emitActivity({ type: 'tool_call', content: { tool: toolCall.toolName, params } });
+      if (signal.aborted) throw new Error('Analyst turn cancelled.');
       const result = await invokeToolCall(surface, toolCall.toolName, rawArguments);
+      if (signal.aborted) throw new Error('Analyst turn cancelled.');
 
       this.emitActivity({ type: 'tool_result', content: { tool: toolCall.toolName, success: result.success } });
       toolInvocations.push({ tool: toolCall.toolName, params, result });
@@ -279,23 +279,12 @@ export class AnalystHandler {
     }
   }
 
-  private getOrCreateActor(sessionId: string): LLMActor {
-    let actor = this.actors.get(sessionId);
-    if (!actor) {
-      actor = new LLMActor({ projectRoot: this.projectRoot, agentId: sessionId, provider: this.runtimeDeps.provider });
-      actor.start();
-      this.actors.set(sessionId, actor);
-    }
-    if (actor.state() === 'waiting_tool') actor.abandonParkedTurn();
-    return actor;
-  }
-
-  private buildInvocationInput(sessionId: string, actor: LLMActor, newMessages: AgentMessage[], surface: InvocationSurface): LlmInvocationInput {
+  private buildInvocationInput(sessionId: string, actor: ConversationLLMActor, newMessages: AgentMessage[], surface: InvocationSurface): LlmInvocationInput {
     const tools = surfaceToolDefinitions(surface);
     const modelParams = getModelParamsForRole(this.config, 'analyst');
     const contextMessages = actor.input
       ? [...actor.input.contextMessages, ...newMessages]
-      : [...conversationMessagesForModel(readConversationMessages(this.projectRoot, sessionId))] as AgentMessage[];
+      : [...conversationMessagesForModel(readConversationMessages(this.projectRoot, sessionId)), ...newMessages] as AgentMessage[];
     return {
       inputId: `${actor.agentId}:turn:${Date.now()}`,
       agentId: actor.agentId,
@@ -303,6 +292,7 @@ export class AnalystHandler {
       sessionId,
       systemPrompt: `${getAnalystSystemPrompt(tools)}\n\n${this.buildProjectContext()}`,
       contextMessages,
+      turnMessages: newMessages,
       tools,
       terminalToolNames: [],
       modelParams: { temperature: modelParams.temperature, maxTokens: modelParams.maxTokens },
@@ -381,8 +371,137 @@ export class AnalystHandler {
   }
 }
 
-export function getAnalystHandler(projectRoot: string, opts: { config: SaivageConfig; runtimeDeps: AnalystRuntimeDeps; onActivity?: ActivityCallback; actor?: ActorRole; surface?: ControlActionSurface; requestServerRestart?: () => Promise<void> }): AnalystHandler {
-  const actor = opts.actor ?? 'analyst';
-  const surface = opts.surface ?? 'web-chat';
-  return new AnalystHandler(projectRoot, opts.config, opts.runtimeDeps, opts.onActivity, actor, surface, opts.requestServerRestart);
+type PendingAnalystTurn = {
+  input: AnalystTurnInput;
+  onActivity?: ActivityCallback;
+  resolve: (result: AnalystTurnResult) => void;
+  reject: (error: Error) => void;
+};
+
+export class AnalystSessionActor extends BaseActor {
+  static _actor: ActorDefinition = {
+    initial: 'idle',
+    states: {
+      idle: { parked: true, on: { submit: 'conversing' } },
+      conversing: { on: { done: 'idle', failed: 'idle', cancel: 'idle' } },
+    },
+  };
+
+  private readonly loop: AnalystLoopRunner;
+  private readonly llm: ConversationLLMActor;
+  private pendingTurn: PendingAnalystTurn | null = null;
+  private started = false;
+  private lastOutcome: AnalystSessionReadModel['lastOutcome'] = null;
+
+  constructor(private readonly args: { projectRoot: string; sessionId: string; config: SaivageConfig; runtimeDeps: AnalystRuntimeDeps; actor?: ActorRole; surface?: ControlActionSurface; requestServerRestart?: () => Promise<void> }) {
+    super();
+    this.loop = new AnalystLoopRunner(args.projectRoot, args.config, args.runtimeDeps, (activity) => {
+      this.pendingTurn?.onActivity?.(activity);
+    }, args.actor ?? 'analyst', args.surface ?? 'web-chat', args.requestServerRestart);
+    this.llm = new ConversationLLMActor({ projectRoot: args.projectRoot, agentId: args.sessionId, provider: args.runtimeDeps.provider });
+    if (readConversationMessages(args.projectRoot, args.sessionId).some((message) => message.kind === 'system_prompt')) {
+      this.llm.seedSystemPromptLogged(args.sessionId);
+    }
+  }
+
+  override start(): void {
+    this.llm.start();
+    super.start();
+    this.started = true;
+  }
+
+  get sessionId(): string {
+    return this.args.sessionId;
+  }
+
+  submit(input: AnalystTurnInput, onActivity?: ActivityCallback): Promise<AnalystTurnResult> {
+    if (!this.started) return Promise.reject(new Error(`Analyst session '${this.sessionId}' has not started.`));
+    if (this.state() !== 'idle' || this.pendingTurn) return Promise.reject(new Error(`Analyst session '${this.sessionId}' already has an active turn.`));
+    return new Promise<AnalystTurnResult>((resolve, reject) => {
+      this.pendingTurn = { input, onActivity, resolve, reject };
+      this.parkedSendEvent('submit');
+    });
+  }
+
+  cancel(reason: string): boolean {
+    const turn = this.pendingTurn;
+    if (this.state() !== 'conversing' || !turn) return false;
+    const timestamp = new Date().toISOString();
+    this.pendingTurn = null;
+    this.lastOutcome = 'cancelled';
+    if (this.llm.state() === 'waiting_tool') this.llm.abandonParkedTurn();
+    turn.resolve({ sessionId: this.sessionId, cancelled: true, message: { id: `${this.sessionId}:cancelled:${timestamp}`, role: 'assistant', kind: 'text', content: `Cancelled: ${reason}`, timestamp } });
+    this.sendEvent('cancel');
+    return true;
+  }
+
+  readModel(): AnalystSessionReadModel {
+    return { sessionId: this.sessionId, phase: this.state() === 'conversing' ? 'conversing' : 'idle', toolInFlight: null, lastOutcome: this.lastOutcome };
+  }
+
+  _on_enter__conversing(): void {
+    const turn = this.pendingTurn;
+    if (!turn) throw new Error(`Analyst session '${this.sessionId}' entered conversing without a pending turn.`);
+    this.runTask((signal) => this.loop.runAnalystLoop(this.sessionId, this.llm, turn.input.userContent, turn.input.workspaceContext, signal), {
+      on_done: (result) => {
+        if (this.pendingTurn !== turn) return;
+        this.pendingTurn = null;
+        this.lastOutcome = 'completed';
+        turn.resolve(result);
+        this.sendEvent('done');
+      },
+      on_failed: (error) => {
+        if (this.pendingTurn !== turn) return;
+        this.pendingTurn = null;
+        this.lastOutcome = 'failed';
+        turn.reject(error);
+        this.sendEvent('failed');
+      },
+    });
+  }
+}
+
+export class AnalystRuntime {
+  private readonly sessions = new Map<string, AnalystSessionActor>();
+
+  constructor(private readonly args: { projectRoot: string; config: SaivageConfig; runtimeDeps: AnalystRuntimeDeps; requestServerRestart?: () => Promise<void> }) {}
+
+  setRequestServerRestart(requestServerRestart: (() => Promise<void>) | undefined): void {
+    this.args.requestServerRestart = requestServerRestart;
+  }
+
+  submit(sessionId: string, input: AnalystTurnInput, onActivity?: ActivityCallback): Promise<AnalystTurnResult> {
+    return this.getOrCreateSession(sessionId, input).submit(input, onActivity);
+  }
+
+  cancel(sessionId: string, reason: string): boolean {
+    return this.sessions.get(resolveAnalystSessionId(sessionId))?.cancel(reason) ?? false;
+  }
+
+  listSessions(): AnalystSessionReadModel[] {
+    return [...this.sessions.values()].map((session) => session.readModel());
+  }
+
+  getAvailableToolNames(actor: ActorRole = 'analyst', surface: ControlActionSurface = 'web-chat'): string[] {
+    return new AnalystLoopRunner(this.args.projectRoot, this.args.config, this.args.runtimeDeps, undefined, actor, surface, this.args.requestServerRestart).getAvailableToolNames();
+  }
+
+  async shutdown(): Promise<void> {
+    await Promise.all([...this.sessions.keys()].map((sessionId) => this.shutdownSessionProcesses(sessionId)));
+  }
+
+  async shutdownSessionProcesses(sessionId: string): Promise<void> {
+    await this.args.runtimeDeps.processRunner.stopByOwner(resolveAnalystSessionId(sessionId), 'analyst session closed', { graceMs: 5000 });
+  }
+
+  private getOrCreateSession(sessionId: string, input?: AnalystTurnInput): AnalystSessionActor {
+    const resolvedSessionId = resolveAnalystSessionId(sessionId);
+    let actor = this.sessions.get(resolvedSessionId);
+    if (!actor) {
+      actor = new AnalystSessionActor({ ...this.args, sessionId: resolvedSessionId, actor: input?.actor, surface: input?.surface });
+      actor.start();
+      this.sessions.set(resolvedSessionId, actor);
+    }
+    return actor;
+  }
 }

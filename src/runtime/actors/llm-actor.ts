@@ -32,7 +32,7 @@ type WaitingToolCall = {
 
 export type LLMToolContinuationContextHook = (deliveryInputId: string) => unknown[] | undefined;
 
-export class LLMActor extends BaseActor {
+export class ConversationLLMActor extends BaseActor {
   static _actor: ActorDefinition = {
     initial: 'idle',
     states: {
@@ -62,6 +62,10 @@ export class LLMActor extends BaseActor {
     this.agentId = args.agentId;
     this.provider = args.provider;
     this.gate = args.gate ?? new RuntimeGate();
+  }
+
+  seedSystemPromptLogged(sessionId: string): void {
+    this.#systemPromptLoggedSessionIds.add(sessionId);
   }
 
   turn(input: LlmInvocationInput): Promise<LLMActorOutcome> {
@@ -167,7 +171,7 @@ export class LLMActor extends BaseActor {
   }
 
   protected override _on_state_changed(_oldState: string | undefined, _newState: string): void {
-    this.persist();
+    this.persistState();
   }
 
   snapshot() {
@@ -236,8 +240,7 @@ export class LLMActor extends BaseActor {
     if (options.resetDeliveredToolCalls) this.deliveredToolCallIds.clear();
     this.input = input;
     this.outcome = null;
-    this.activeReconstruction = this.createActiveReconstruction(input);
-    this.prepareProviderCallReconstruction(input);
+    this.prepareTurnReconstruction(input);
     return new Promise<LLMActorOutcome>((resolve, reject) => {
       this.#pendingTurn = { resolve, reject };
       this.parkedSendEvent('turn');
@@ -276,8 +279,35 @@ export class LLMActor extends BaseActor {
     return this.input;
   }
 
-  private persist(): void {
+  protected persistState(): void {
+    return;
+  }
+
+  protected prepareTurnReconstruction(_input: LlmInvocationInput): void {
+    this.activeReconstruction = null;
+  }
+
+  protected updateActiveReconstruction(_changes: Partial<LlmActiveReconstructionRecord>): void {
+    return;
+  }
+
+  protected prepareProviderCallReconstruction(_input: LlmInvocationInput): void {
+    return;
+  }
+
+  protected toolDeliveryCounter(): number {
+    return this.#toolDeliveryCounter;
+  }
+}
+
+export class LLMActor extends ConversationLLMActor {
+  protected override persistState(): void {
     saveActorSnapshot(this.projectRoot, this.snapshot());
+  }
+
+  protected override prepareTurnReconstruction(input: LlmInvocationInput): void {
+    this.activeReconstruction = this.createActiveReconstruction(input);
+    this.prepareProviderCallReconstruction(input);
   }
 
   private createActiveReconstruction(input: LlmInvocationInput): LlmActiveReconstructionRecord {
@@ -296,17 +326,17 @@ export class LLMActor extends BaseActor {
       provider_call_id: null,
       waiting_tool_call: null,
       delivered_tool_call_ids: [...this.deliveredToolCallIds],
-      tool_delivery_counter: this.#toolDeliveryCounter,
+      tool_delivery_counter: this.toolDeliveryCounter(),
       started_at: new Date().toISOString(),
     };
   }
 
-  private updateActiveReconstruction(changes: Partial<LlmActiveReconstructionRecord>): void {
+  protected override updateActiveReconstruction(changes: Partial<LlmActiveReconstructionRecord>): void {
     if (!this.activeReconstruction) throw new Error(`LLMActor '${this.agentId}' has no active reconstruction record.`);
     this.activeReconstruction = { ...this.activeReconstruction, ...changes };
   }
 
-  private prepareProviderCallReconstruction(input: LlmInvocationInput): void {
+  protected override prepareProviderCallReconstruction(input: LlmInvocationInput): void {
     this.updateActiveReconstruction({ provider_call_id: `${this.agentId}:${input.inputId}` });
   }
 }

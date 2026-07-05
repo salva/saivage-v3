@@ -2,7 +2,7 @@ import type { SaivageConfig } from '../agents/config-api.js';
 import { buildProviderRoutingReadModel, type ProviderRoutingReadModel } from '../agents/provider-routing-read-model.js';
 import { FsCandidateAvailability } from '../agents/candidate-availability-store.js';
 import type { CandidateAvailability } from '../agents/candidate-availability.js';
-import type { AnalystRuntimeDeps } from '../agents/analyst-api.js';
+import { AnalystRuntime, type AnalystRuntimeDeps } from '../agents/analyst-api.js';
 import { ProviderRegistry } from '../agents/provider.js';
 import { ModelRouter } from '../agents/model-router.js';
 import type { EventPayload } from '../events/index.js';
@@ -34,6 +34,8 @@ export interface RuntimeApplication {
   readonly cardStore: CardStore;
   readonly processRunner: ProcessRunner;
   readonly analystDeps: AnalystRuntimeDeps;
+  readonly analystRuntime: AnalystRuntime;
+  setAnalystRequestServerRestart(requestServerRestart: (() => Promise<void>) | undefined): void;
   getProviderRoutingReadModel(): ProviderRoutingReadModel;
   setMcpManager(mcpManager: McpManager): void;
 }
@@ -108,6 +110,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   cardStore.setNotifyCard((cardId, notification) => runtimeApi.notifyCard(cardId, notification));
   const emitAnalystToolInvokedFromRuntime = runtimeComposition.emitAnalystToolInvoked;
   let analystDepsCache: AnalystRuntimeDeps | null = null;
+  let analystRuntimeCache: AnalystRuntime | null = null;
   const getAnalystDeps = (): AnalystRuntimeDeps => {
     analystDepsCache ??= buildAnalystDeps({
       runtimeApi,
@@ -127,6 +130,13 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     runtimeApi,
     cardStore,
     processRunner,
+    get analystRuntime() {
+      analystRuntimeCache ??= new AnalystRuntime({ projectRoot, config, runtimeDeps: getAnalystDeps() });
+      return analystRuntimeCache;
+    },
+    setAnalystRequestServerRestart(requestServerRestart) {
+      this.analystRuntime.setRequestServerRestart(requestServerRestart);
+    },
     get analystDeps() {
       return getAnalystDeps();
     },
@@ -139,6 +149,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     setMcpManager(nextMcpManager) {
       mcpManager = nextMcpManager;
       analystDepsCache = null;
+      analystRuntimeCache = null;
       nextMcpManager.setEventLogger(eventLogger);
     },
   };

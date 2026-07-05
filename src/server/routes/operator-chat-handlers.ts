@@ -1,4 +1,3 @@
-import { getAnalystHandler } from '../../agents/analyst-api.js';
 import { GLOBAL_ANALYST_SESSION_ID, isSafeAgentSessionId } from '../../agents/session-ids.js';
 import { AgentOperatorReadModelService } from '../../application/read-models/index.js';
 import { redactOperatorErrorMessage } from '../../workspace/index.js';
@@ -66,8 +65,8 @@ export function buildChatOperatorContractHandlers(options: ChatOperatorHandlerOp
       try {
         if (!options.runtimeApplication) return { statusCode: 503, body: { error: 'Runtime application unavailable.' } };
         if (!options.saivageConfig) return { statusCode: 503, body: { error: 'Runtime configuration unavailable.' } };
-        const handler = getAnalystHandler(projectRoot, { config: options.saivageConfig, runtimeDeps: options.runtimeApplication.analystDeps, surface: 'web-chat', requestServerRestart: options.requestServerRestart });
-        const response = await handler.handleMessage(GLOBAL_ANALYST_SESSION_ID, requestBody.content, workspaceContext);
+        options.runtimeApplication.setAnalystRequestServerRestart(options.requestServerRestart);
+        const response = await options.runtimeApplication.analystRuntime.submit(GLOBAL_ANALYST_SESSION_ID, { userContent: requestBody.content, workspaceContext });
         const message = response.message;
         return {
           body: {

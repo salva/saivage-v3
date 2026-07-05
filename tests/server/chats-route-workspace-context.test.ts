@@ -6,16 +6,10 @@ import { join } from 'node:path';
 import { ChatSendResponseSchema } from '../../src/contracts/operator-api-chats.js';
 import { createTestRuntimeApplication, ensureTestSaivageConfig, loadTestConfig } from '../helpers/test-runtime-application.js';
 
-const handleMessage = jest.fn<(sessionId: string, content: string, workspaceContext?: unknown) => Promise<unknown>>();
+const submit = jest.fn<(sessionId: string, input: { userContent: string; workspaceContext?: unknown }) => Promise<unknown>>();
 const resolveAnalystSessionId = jest.fn<(id?: string) => string>();
 const analystSessionId = 'analyst:global';
 const analystSessionPath = encodeURIComponent(analystSessionId);
-
-jest.unstable_mockModule('../../src/agents/analyst-handler.js', () => ({
-  AnalystHandler: jest.fn().mockImplementation(() => ({ handleMessage })),
-  GLOBAL_ANALYST_SESSION_ID: analystSessionId,
-  getAnalystHandler: jest.fn().mockImplementation(() => ({ handleMessage })),
-}));
 
 jest.unstable_mockModule('../../src/agents/session-ids.js', () => ({
   GLOBAL_ANALYST_SESSION_ID: analystSessionId,
@@ -38,10 +32,10 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
 
   beforeEach(() => {
     root = setupRoot();
-    handleMessage.mockReset();
+    submit.mockReset();
     resolveAnalystSessionId.mockReset();
     resolveAnalystSessionId.mockReturnValue(analystSessionId);
-    handleMessage.mockResolvedValue({
+    submit.mockResolvedValue({
       sessionId: analystSessionId,
       message: { id: 'm1', role: 'assistant', kind: 'text', content: 'ok', timestamp: '2025-01-01T00:00:00Z' },
       toolInvocations: [],
@@ -54,7 +48,9 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
 
   async function app() {
     const fastify = Fastify();
-    registerOperatorContractRoutes({ fastify, projectRoot: root, runtimeApplication: createTestRuntimeApplication(), saivageConfig: loadTestConfig(root) });
+    const runtimeApplication = createTestRuntimeApplication();
+    Object.defineProperty(runtimeApplication, 'analystRuntime', { value: { submit, setRequestServerRestart: jest.fn() } });
+    registerOperatorContractRoutes({ fastify, projectRoot: root, runtimeApplication, saivageConfig: loadTestConfig(root) });
     await fastify.ready();
     return fastify;
   }
@@ -69,7 +65,7 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
         message: { id: 'm1', role: 'assistant', kind: 'text', content: 'ok', timestamp: '2025-01-01T00:00:00Z' },
         toolInvocations: [],
       });
-      expect(handleMessage).toHaveBeenCalledWith(analystSessionId, 'hi', undefined);
+      expect(submit).toHaveBeenCalledWith(analystSessionId, { userContent: 'hi', workspaceContext: undefined });
     } finally { await fastify.close(); }
   });
 
@@ -79,13 +75,13 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
     try {
       const response = await fastify.inject({ method: 'POST', url: `/api/chats/${analystSessionPath}`, payload: { content: 'hi', workspaceContext } });
       expect(response.statusCode).toBe(200);
-      expect(handleMessage).toHaveBeenCalledWith(analystSessionId, 'hi', workspaceContext);
+      expect(submit).toHaveBeenCalledWith(analystSessionId, { userContent: 'hi', workspaceContext });
     } finally { await fastify.close(); }
   });
 
 
   it('canonicalizes the analyst success body before contract response parsing', async () => {
-    handleMessage.mockResolvedValueOnce({
+    submit.mockResolvedValueOnce({
       sessionId: analystSessionId,
       message: { id: 'm-loose', content: 'canonical reply', timestamp: '2025-01-01T00:00:02Z', extra: 'preserved' },
     });
@@ -111,7 +107,7 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
         message: 'chats.send body did not match the operator API contract',
         issues: expect.any(Array),
       });
-      expect(handleMessage).not.toHaveBeenCalled();
+      expect(submit).not.toHaveBeenCalled();
     } finally { await fastify.close(); }
   });
 
@@ -121,7 +117,7 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
       const response = await fastify.inject({ method: 'POST', url: '/api/chats/chat-1', payload: { content: 'hi' } });
       expect(response.statusCode).toBe(404);
       expect(response.json()).toEqual({ error: 'Only the canonical analyst chat is available.', sessionId: 'chat-1' });
-      expect(handleMessage).not.toHaveBeenCalled();
+      expect(submit).not.toHaveBeenCalled();
     } finally { await fastify.close(); }
   });
 });

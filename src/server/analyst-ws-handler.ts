@@ -1,6 +1,6 @@
 import type { WebSocket } from 'ws';
 import type { SaivageConfig } from '../agents/config-api.js';
-import { getAnalystHandler, resolveAnalystSessionId, sanitizeAnalystPayload, sanitizeAnalystText } from '../agents/analyst-api.js';
+import { resolveAnalystSessionId, sanitizeAnalystPayload, sanitizeAnalystText } from '../agents/analyst-api.js';
 import type { RuntimeApplication } from '../application/runtime-composition.js';
 import { InboundAnalystMessageEnvelopeSchema } from '../contracts/index.js';
 import type { WsEnvelope } from '../contracts/index.js';
@@ -39,18 +39,13 @@ export class AnalystWsHandler {
         if (!parsed.success) throw new Error('Invalid analyst websocket message');
 
         const currentSessionId = resolveAnalystSessionId();
-        const handler = getAnalystHandler(this.options.projectRoot, {
-          config: this.options.saivageConfig,
-          runtimeDeps: this.options.runtimeApplication.analystDeps,
-          requestServerRestart: this.options.requestServerRestart,
-          onActivity: (activity) => {
+        this.options.runtimeApplication.setAnalystRequestServerRestart(this.options.requestServerRestart);
+        const response = await this.options.runtimeApplication.analystRuntime.submit(currentSessionId, { userContent: parsed.data.content.text }, (activity) => {
             this.options.broadcast({
               type: 'activity',
               content: sanitizeAnalystPayload(activity) as Record<string, unknown>,
             });
-          },
-        });
-        const response = await handler.handleMessage(currentSessionId, parsed.data.content.text);
+          });
 
         this.options.sendToClient(ws, {
           type: 'message',
@@ -80,12 +75,8 @@ export class AnalystWsHandler {
     this.turnQueues.delete(ws);
     this.sessions.delete(ws);
     if (!sessionId) return;
-    const handler = getAnalystHandler(this.options.projectRoot, {
-      config: this.options.saivageConfig,
-      runtimeDeps: this.options.runtimeApplication.analystDeps,
-      requestServerRestart: this.options.requestServerRestart,
-    });
-    void handler.shutdownSessionProcesses(sessionId);
+    this.options.runtimeApplication.analystRuntime.cancel(sessionId, 'websocket closed');
+    void this.options.runtimeApplication.analystRuntime.shutdownSessionProcesses(sessionId);
   }
 
   private queueTurn(ws: WebSocket, turn: () => Promise<void>): Promise<void> {

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from '@jest/globals';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, jest } from '@jest/globals';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
@@ -36,7 +36,7 @@ import { ProcessRunner } from '../src/runtime/process-runner.js';
 
 const TEST_BRIEF = '# Goal\n\nTest card goal\n\n# Instructions\n\nFollow the test setup.\n\n# Acceptance Criteria\n\nAssertions pass.\n';
 
-import { AnalystHandler } from '../src/agents/analyst-handler.js';
+import { AnalystRuntime } from '../src/agents/analyst-handler.js';
 import { resolveAnalystSessionId } from '../src/agents/session-ids.js';
 import { ANALYST_TOOL_DEFINITIONS } from '../src/tools/analyst-tool-registry.js';
 import {
@@ -187,6 +187,7 @@ describe('Analyst Tools', () => {
     store = setupTestProject(projectRoot);
   });
   afterEach(() => {
+    jest.restoreAllMocks();
     try {
       rmSync(projectRoot, { recursive: true, force: true });
     } catch {}
@@ -461,7 +462,7 @@ describe('Analyst Tools', () => {
   });
 });
 
-describe('Analyst Handler', () => {
+describe('Analyst Runtime', () => {
   let projectRoot: string;
 
   beforeEach(() => {
@@ -474,11 +475,16 @@ describe('Analyst Handler', () => {
     } catch {}
   });
 
-  it('deduplicates the same chat message when two transports submit it together', async () => {
-    const handler = new AnalystHandler(projectRoot, loadTestConfig(projectRoot), createTestAnalystRuntime({ projectRoot, cardStore: new CardStore(projectRoot) }));
-    const first = await handler.handleMessage('s16', 'list all cards');
-    const second = await handler.handleMessage('s16', 'list all cards');
-    expect(second.message.content).toBe(first.message.content);
+  it('rejects a concurrent second turn for the same analyst session', async () => {
+    let resolveProvider!: (result: { kind: 'message'; content: string }) => void;
+    const runtimeDeps = createTestAnalystRuntime({ projectRoot, cardStore: new CardStore(projectRoot) });
+    runtimeDeps.provider = { completeTurn: async () => new Promise((resolve) => { resolveProvider = resolve; }) };
+    const runtime = new AnalystRuntime({ projectRoot, config: loadTestConfig(projectRoot), runtimeDeps });
+    const first = runtime.submit('s16', { userContent: 'list all cards' });
+    await expect(runtime.submit('s16', { userContent: 'list all cards' })).rejects.toThrow('already has an active turn');
+    await new Promise((resolve) => setImmediate(resolve));
+    resolveProvider({ kind: 'message', content: 'Done.' });
+    await expect(first).resolves.toMatchObject({ message: { content: 'Done.' } });
   });
 });
 

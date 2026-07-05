@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTestAnalystRuntime, loadTestConfig } from '../helpers/test-runtime-application.js';
@@ -8,8 +8,9 @@ import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 import { appendConversationMessage, readConversationMessages } from '../../src/runtime/actors/conversation-store.js';
 import { resolveAnalystSessionId } from '../../src/agents/session-ids.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
+import { actorSnapshotPath } from '../../src/runtime/actors/snapshots.js';
 
-const { AnalystHandler } = await import('../../src/agents/analyst-handler.js');
+const { AnalystRuntime } = await import('../../src/agents/analyst-handler.js');
 
 const TEST_MODEL = 'test-analyst-model';
 
@@ -69,8 +70,8 @@ describe('AnalystHandler F05 contract', () => {
     const root = setupRoot();
     try {
       jest.spyOn(globalThis, 'fetch').mockImplementation(async () => messageResponse('Hello user.'));
-      const handler = new AnalystHandler(root, loadTestConfig(root), createTestAnalystRuntime({ projectRoot: root }));
-      const response = await handler.handleMessage('s-msg', 'hi');
+      const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
+      const response = await runtime.submit('s-msg', { userContent: 'hi' });
       expect(response.message.content).toBe('Hello user.');
       expect(response.toolInvocations ?? []).toHaveLength(0);
       const rows = readPersistedRows(root, 's-msg');
@@ -92,9 +93,9 @@ describe('AnalystHandler F05 contract', () => {
         ownerKind: 'operator',
         launchReason: 'analyst workspace run_command',
       });
-      const handler = new AnalystHandler(root, loadTestConfig(root), createTestAnalystRuntime({ projectRoot: root, processRunner }));
+      const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, processRunner }) });
 
-      await handler.shutdownSessionProcesses(sessionId);
+      await runtime.shutdownSessionProcesses(sessionId);
 
       expect(processRunner.get(process.id)).toEqual(expect.objectContaining({ status: 'killed' }));
     } finally { rmSync(root, { recursive: true, force: true }); }
@@ -111,8 +112,8 @@ describe('AnalystHandler F05 contract', () => {
         ]);
         return messageResponse('Done.');
       });
-      const handler = new AnalystHandler(root, loadTestConfig(root), createTestAnalystRuntime({ projectRoot: root }));
-      const response = await handler.handleMessage('s-multi', 'list everything');
+      const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
+      const response = await runtime.submit('s-multi', { userContent: 'list everything' });
       expect(response.message.content).toBe('Done.');
       const rows = readPersistedRows(root, 's-multi');
       const toolCallRows = rows.filter((r) => r.role === 'assistant' && r.kind === 'tool_call');
@@ -143,8 +144,8 @@ describe('AnalystHandler F05 contract', () => {
         return messageResponse('Done.');
       });
 
-      const handler = new AnalystHandler(root, loadTestConfig(root), runtimeDeps);
-      const response = await handler.handleMessage('s-bad-json', 'list cards');
+      const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps });
+      const response = await runtime.submit('s-bad-json', { userContent: 'list cards' });
 
       expect(response.message.content).toContain('agent_protocol_violation');
       expect(diagnostics).toEqual(expect.arrayContaining([
@@ -168,13 +169,32 @@ describe('AnalystHandler F05 contract', () => {
         return messageResponse('Done.');
       });
 
-      const handler = new AnalystHandler(root, loadTestConfig(root), runtimeDeps, () => { throw new Error('activity boom'); });
-      const response = await handler.handleMessage('s-activity', 'list cards');
+      const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps });
+      const response = await runtime.submit('s-activity', { userContent: 'list cards' }, () => { throw new Error('activity boom'); });
 
       expect(response.message.content).toBe('Done.');
       expect(diagnostics).toEqual(expect.arrayContaining([
         expect.objectContaining({ kind: 'runtime_diagnostic', phase: 'analyst_activity_callback_failed', error_message: 'activity boom' }),
       ]));
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('AnalystRuntime reuses one session actor, rejects concurrent turns, and avoids autonomous snapshots', async () => {
+    const root = setupRoot();
+    try {
+      let resolveFetch!: (response: Response) => void;
+      jest.spyOn(globalThis, 'fetch').mockImplementation(async () => new Promise<Response>((resolve) => { resolveFetch = resolve; }));
+      const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
+
+      const first = runtime.submit('analyst:global', { userContent: 'hi' });
+      await expect(runtime.submit('analyst:global', { userContent: 'again' })).rejects.toThrow('already has an active turn');
+      expect(runtime.listSessions()).toEqual([expect.objectContaining({ sessionId: 'analyst:global', phase: 'conversing' })]);
+
+      await new Promise((resolve) => setImmediate(resolve));
+      resolveFetch(messageResponse('Hello once.'));
+      await expect(first).resolves.toMatchObject({ sessionId: 'analyst:global', message: { content: 'Hello once.' } });
+      expect(runtime.listSessions()).toEqual([expect.objectContaining({ sessionId: 'analyst:global', phase: 'idle' })]);
+      expect(existsSync(actorSnapshotPath(root, 'analyst:global'))).toBe(false);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -199,8 +219,8 @@ describe('AnalystHandler F05 contract', () => {
         return messageResponse('Done.');
       });
 
-      const handler = new AnalystHandler(root, loadTestConfig(root), createTestAnalystRuntime({ projectRoot: root }));
-      await handler.handleMessage('s-filter', 'hi');
+      const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
+      await runtime.submit('s-filter', { userContent: 'hi' });
 
       expect(modelInputContents.some((content) => content.includes('provider debug diagnostic'))).toBe(false);
       expect(readPersistedRows(root, 's-filter').some((row) => row.kind === 'model_issue')).toBe(true);

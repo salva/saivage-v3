@@ -25,7 +25,7 @@ export async function startTelegramNotifications(options: {
   if (botToken) {
     try {
       if (!runtimeApplication) throw new Error('Telegram bot requires runtime analyst services.');
-      telegramBot = new TelegramBot(projectRoot, runtimeApplication.analystDeps, saivageConfig);
+      telegramBot = new TelegramBot(projectRoot, runtimeApplication.analystRuntime, saivageConfig);
       await telegramBot.start();
       fastify.log.info('Telegram bot started');
     } catch (err) {

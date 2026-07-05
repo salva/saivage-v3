@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { CardStore } from '../../src/cards/card-store.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { materializeProjectCard } from '../helpers/materialize-project-card.js';
-import { AnalystHandler } from '../../src/agents/analyst-handler.js';
+import { AnalystRuntime } from '../../src/agents/analyst-handler.js';
 import { ANALYST_CONTROL_TOOLS, ANALYST_SHARED_PROVIDER_TOOL_NAMES, ANALYST_TOOL_DEFINITIONS } from '../../src/tools/analyst-tool-registry.js';
 import { getAnalystSystemPrompt } from '../../src/agents/analyst-prompt.js';
 import { cancel_card, create_card, delete_card, reorder_child } from '../../src/tools/analyst-card-tools.js';
@@ -195,9 +195,9 @@ describe('Tool inventory mirrors SPEC-r7 capability classes', () => {
   it('exposes Analyst shared provider tools through the active invocation surface', () => {
     const root = setupRoot();
     try {
-      const handler = new AnalystHandler(root, loadTestConfig(root), createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) }));
+      const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) }) });
 
-      const names = handler.getAvailableToolNames();
+      const names = runtime.getAvailableToolNames();
       expect(names).toEqual(expect.arrayContaining(['list_cards', 'get_card', 'get_tree', 'list_card_history', 'get_card_history_entry', 'diff_card', 'skill', 'mcp_tool_call', 'websearch', 'webfetch', 'run_command']));
       expect(names).not.toEqual(expect.arrayContaining(RETIRED_ACTIVE_SURFACE_TOOLS));
     } finally { rmSync(root, { recursive: true, force: true }); }
@@ -326,7 +326,8 @@ describe('Contract C1 unsupported-action reply', () => {
     const root = setupRoot();
     try {
       jest.spyOn(globalThis, 'fetch').mockImplementation(async () => toolResponse('not_a_tool', {}));
-      const response = await new AnalystHandler(root, loadTestConfig(root), createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) })).handleMessage('s-c1', 'perform unsupported action');
+      const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) }) });
+      const response = await runtime.submit('s-c1', { userContent: 'perform unsupported action' });
       expect(response.message.content).toContain('That action is not supported by the Analyst on this surface.');
       expect(response.toolInvocations ?? []).toHaveLength(0);
     } finally { rmSync(root, { recursive: true, force: true }); }
@@ -365,8 +366,8 @@ describe('Contract C2 partial-success reporting', () => {
       store.setStatus(codeIds[1], 'running');
       store.setStatus(codeIds[1], 'running');
       jest.spyOn(globalThis, 'fetch').mockImplementation(async () => toolResponse('delete_card', { ids: codeIds }));
-      const handler = new AnalystHandler(root, loadTestConfig(root), createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) }));
-      const response = await handler.handleMessage('s-c2', 'delete code cards');
+      const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) }) });
+      const response = await runtime.submit('s-c2', { userContent: 'delete code cards' });
       expect(response.toolInvocations ?? []).toHaveLength(1);
       expect(response.toolInvocations?.[0].tool).toBe('delete_card');
       expect(response.toolInvocations?.[0].result.success).toBe(true);

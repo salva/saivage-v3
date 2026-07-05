@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { RuntimeApplication } from '../../src/application/runtime-composition.js';
-import type { AnalystRuntimeDeps } from '../../src/agents/analyst-api.js';
+import { AnalystRuntime, type AnalystRuntimeDeps } from '../../src/agents/analyst-api.js';
 import type { SaivageConfig } from '../../src/agents/config-api.js';
 import type { RuntimeApi } from '../../src/runtime/runtime-api.js';
 import { CardStore } from '../../src/cards/card-store.js';
@@ -128,7 +128,7 @@ export function createTestAnalystRuntime(opts: { eventBus?: EventBus; cardStore?
     candidateAvailability: analystRuntime.candidateAvailability,
     eventLogger: analystRuntime.eventLogger,
     eventBus,
-    emitAnalystToolInvoked: (payload) => analystRuntime.emitAnalystToolInvoked(payload),
+    emitAnalystToolInvoked: (payload: Parameters<typeof analystRuntime.emitAnalystToolInvoked>[0]) => analystRuntime.emitAnalystToolInvoked(payload),
     provider: createInvocationServiceProvider(invocationService),
     processRunner,
     mcpManager: analystRuntime.mcpManager,
@@ -142,7 +142,8 @@ export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardSt
   const cardStore = opts.cardStore ?? new CardStore(projectRoot);
   const processRunner = new ProcessRunner(projectRoot);
   const analystRuntime = createFlatTestAnalystRuntime({ ...opts, eventBus, cardStore, projectRoot });
-  return {
+  let analystRuntimeService: AnalystRuntime | null = null;
+  const runtimeApplication: RuntimeApplication = {
     cardStore,
     processRunner,
     runtimeApi: {
@@ -180,7 +181,15 @@ export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardSt
         mcpManager: analystRuntime.mcpManager,
       };
     },
+    get analystRuntime() {
+      analystRuntimeService ??= new AnalystRuntime({ projectRoot, config: loadTestConfig(projectRoot), runtimeDeps: this.analystDeps });
+      return analystRuntimeService;
+    },
+    setAnalystRequestServerRestart(requestServerRestart) {
+      this.analystRuntime.setRequestServerRestart(requestServerRestart);
+    },
     getProviderRoutingReadModel: () => ({ providers: {} }),
     setMcpManager: (mcpManager) => analystRuntime.setMcpManager(mcpManager),
   };
+  return runtimeApplication;
 }

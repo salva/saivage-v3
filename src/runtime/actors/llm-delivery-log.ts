@@ -71,6 +71,7 @@ export function appendLlmTurnStarted(projectRoot: string, input: LlmInvocationIn
       timestamp: new Date().toISOString(),
     });
   }
+  for (const message of input.turnMessages ?? []) appendConversationMessage(projectRoot, message);
   appendConversationMessage(projectRoot, {
     id: `${input.inputId}:started`,
     session_id: input.sessionId,

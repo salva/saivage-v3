@@ -39,6 +39,8 @@ function createRuntimeApplication(projectRoot: string, calls: { pause: number; r
     cardStore,
     processRunner: new ProcessRunner(projectRoot),
     analystDeps: undefined as never,
+    analystRuntime: undefined as never,
+    setAnalystRequestServerRestart() {},
     getProviderRoutingReadModel: () => ({ providers: {} }),
     setMcpManager() {},
   };

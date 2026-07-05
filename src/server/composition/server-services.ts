@@ -59,6 +59,7 @@ async function stopServerResources(services: Omit<ServerServices, 'stop' | 'requ
       fastify.log.warn(`MCP manager stop failed: ${err instanceof Error ? err.message : String(err)}`);
     }
     try {
+      await runtimeApplication.analystRuntime.shutdown();
       await runtimeApplication.runtimeApi.shutdown();
       fastify.log.info('Runtime application stopped');
     } catch (err) {
@@ -103,6 +104,7 @@ export async function createServerServices(input: {
       try { await stop(); } finally { process.exit(75); }
     });
   };
+  runtimeApplication.setAnalystRequestServerRestart(requestRestart);
 
   const telegramBot = await startTelegramNotifications({ projectRoot, saivageConfig: config, fastify, runtimeApplication });
 

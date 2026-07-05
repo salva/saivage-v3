@@ -8,7 +8,7 @@ import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 import { readConversationMessages } from '../../src/runtime/actors/conversation-store.js';
 import { resolveAnalystSessionId } from '../../src/agents/session-ids.js';
 
-const { AnalystHandler } = await import('../../src/agents/analyst-handler.js');
+const { AnalystRuntime } = await import('../../src/agents/analyst-handler.js');
 
 type FetchCall = { url: string; init: RequestInit; body: Record<string, unknown> };
 
@@ -69,7 +69,7 @@ function readPersistedAssistant(root: string, sessionId: string): string[] {
     .map((message) => message.content);
 }
 
-describe('AnalystHandler invocation service integration', () => {
+describe('AnalystRuntime invocation service integration', () => {
   afterEach(() => {
     jest.restoreAllMocks();
   });
@@ -78,8 +78,8 @@ describe('AnalystHandler invocation service integration', () => {
     const root = setupRoot();
     try {
       const spy = mockContentResponses('Here are your cards.');
-      const handler = new AnalystHandler(root, loadTestConfig(root), createTestAnalystRuntime({ projectRoot: root }));
-      await handler.handleMessage('s-real-post', 'list my cards');
+      const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
+      await runtime.submit('s-real-post', { userContent: 'list my cards' });
       const calls = fetchCalls(spy);
       expect(calls).toHaveLength(1);
       expect(calls[0].url).toBe(PROVIDER_URL);
@@ -96,8 +96,8 @@ describe('AnalystHandler invocation service integration', () => {
     const root = setupRoot([]);
     try {
       const spy = jest.spyOn(globalThis, 'fetch');
-      const handler = new AnalystHandler(root, loadTestConfig(root), createTestAnalystRuntime({ projectRoot: root }));
-      const response = await handler.handleMessage('s-no-candidate', 'list my cards');
+      const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
+      const response = await runtime.submit('s-no-candidate', { userContent: 'list my cards' });
       expect(response.message.content).toContain("no model candidate is configured for role 'analyst'");
       expect(response.message.content).not.toContain('failed to authenticate');
       expect(response.toolInvocations ?? []).toHaveLength(0);
@@ -110,8 +110,8 @@ describe('AnalystHandler invocation service integration', () => {
     const root = setupRoot();
     try {
       const spy = jest.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 }));
-      const handler = new AnalystHandler(root, loadTestConfig(root), createTestAnalystRuntime({ projectRoot: root }));
-      const response = await handler.handleMessage('s-auth-failed', 'list my cards');
+      const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
+      const response = await runtime.submit('s-auth-failed', { userContent: 'list my cards' });
       expect(response.message.content).toContain('Analyst LLM unavailable: LLM authentication failed (HTTP 401)');
       expect(response.message.content).not.toContain('analyst is offline');
       expect(response.message.content).not.toContain("Configure a provider for role 'analyst'");
@@ -126,9 +126,9 @@ describe('AnalystHandler invocation service integration', () => {
     const root = setupRoot();
     try {
       const spy = mockContentResponses('Goal goal-7 is visible.', 'Which following item did you mean?');
-      const handler = new AnalystHandler(root, loadTestConfig(root), createTestAnalystRuntime({ projectRoot: root }));
-      await handler.handleMessage('s-context', 'show me goal-7');
-      await handler.handleMessage('s-context', 'and the one after it');
+      const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
+      await runtime.submit('s-context', { userContent: 'show me goal-7' });
+      await runtime.submit('s-context', { userContent: 'and the one after it' });
       const secondBody = fetchCalls(spy)[1].body;
       const messages = secondBody.messages as Array<{ role: string; content: string }>;
       const contents = messages.map((message) => message.content);
@@ -146,8 +146,8 @@ describe('AnalystHandler invocation service integration', () => {
     try {
       const clarification = 'Which cancelled cards should I delete?';
       mockContentResponses(clarification);
-      const handler = new AnalystHandler(root, loadTestConfig(root), createTestAnalystRuntime({ projectRoot: root }));
-      const response = await handler.handleMessage('s-content-only', 'delete the cancelled cards');
+      const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
+      const response = await runtime.submit('s-content-only', { userContent: 'delete the cancelled cards' });
       expect(response.toolInvocations ?? []).toHaveLength(0);
       expect(response.message.content).toBe(clarification);
       expect(readPersistedAssistant(root, 's-content-only')).toContain(clarification);
