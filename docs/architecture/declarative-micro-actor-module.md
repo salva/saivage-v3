@@ -17,8 +17,6 @@ The core module does not persist state and does not own domain storage. Callers 
 ## Module Layout
 
 - `micro-actor.ts`: frozen core implementation, definition compiler, `BaseActor`, `TimeoutError`, `InternalActorError`, and actor definition validation.
-- `slave-actor.ts`: job-queue helper base for externally addressable actors.
-- `simple-slave-actor.ts`: optional serial worker specialization built on `SlaveActor`.
 
 ## Actor Definitions
 
@@ -133,33 +131,6 @@ State changes call `_on_leave__{oldState}` before changing state, abort and clea
 
 Recovery hooks are synchronous actor hooks. They may rebuild live in-memory resources and may start tasks or emit one event through the protected subclass API. If `_on_recover__{state}` is absent, `BaseActor` falls back to `_on_enter__{state}`.
 
-## SlaveActor Boundary
-
-`BaseActor` has no external command queue. `SlaveActor` adds the public job-queue boundary for subclasses that need external work delivery:
-
-```ts
-actor.submitJob(load, callbacks?) // returns jobId
-actor.cancelJob(jobId)
-```
-
-The returned job ID is the stable handle external code uses for later cancellation. The protected actor-task side is deliberately small:
-
-```ts
-this.waitForJob(signal)
-this.dequeueJob()
-this.completeJob(job, result)
-this.failJob(job, error)
-this.markJobCancelled(job, error)
-this.cancelCurrentJob(jobId)
-this.cancelQueuedJob(jobId)
-```
-
-`waitForJob(signal)` is the method intended to be run through `runTask(...)` while the actor is in a waiting state. Completion means a job may be available; actor code should synchronously call `dequeueJob()` from the task callback. If the job was cancelled before the callback runs, `dequeueJob()` returns `undefined` and the actor can wait again.
-
-`SlaveActor` is not an actor definition by itself; subclasses own their states and decide how queued jobs map onto state transitions. `SimpleSlaveActor` provides the default serial worker shape.
-
-Jobs are external work items, not state-transition events. Actor code remains responsible for translating job availability and work outcomes into internal events.
-
 ## Tests
 
-Focused coverage lives under `tests/runtime/micro-actor/` and covers definition compilation, lifecycle start/recover, task completion, timeout behavior, and `SimpleSlaveActor` serial job behavior.
+Focused coverage lives under `tests/runtime/micro-actor/` and covers definition compilation, lifecycle start/recover, task completion, and timeout behavior.

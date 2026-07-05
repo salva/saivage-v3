@@ -53,7 +53,6 @@ Ideas intentionally discarded:
 - `BaseActor._on_state_changed(oldState, newState)` is the standard cross-cutting hook for transition snapshot persistence. `BaseActor` calls it after assigning the new state and before the matching `_on_enter__{state}` hook. It runs for `start()` and normal state transitions, but not for `recover(...)` because recovery reconstructs already-persisted state.
 - Concrete actors should use `_on_state_changed(...)` to save actor reconstruction records for state transitions instead of adding empty `_on_enter__{state}` hooks that only call `persist()`. Keep explicit persistence in public methods or task callbacks when actor context changes without a state transition, such as queued notifications, process output, provider admission fields, or terminal outcome fields.
 - Actor state names are small and product-meaningful. Do not create a state for every helper function.
-- Use `SlaveActor.submitJob(...)` only for externally queued work where a caller needs a returned job ID and cancellation handle.
 - Do not expose actor state, task IDs, private fields, compiled definitions, or internal events through API/UI contracts.
 - Persist Saivage domain facts and actor reconstruction data, not in-memory queues.
 - If recovery cannot prove a safe continuation, fail or block explicitly with operator-visible diagnostics.
@@ -590,8 +589,6 @@ Candidate production layout:
 ```text
 src/runtime/micro-actor/
   micro-actor.ts
-  slave-actor.ts
-  simple-slave-actor.ts
 
 src/runtime/actors/
   runtime-supervisor.ts
