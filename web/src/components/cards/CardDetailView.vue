@@ -39,7 +39,7 @@
         <div v-if="currentAncestorRefs.length" class="hierarchy-row">
           <span class="hierarchy-key">Ancestors</span>
           <div class="pill-list">
-            <CardRefLink v-for="ancestorRef in currentAncestorRefs" :key="ancestorRef.id" :ref-view="ancestorRef" @navigate="navigateCard" />
+            <EntityLink v-for="ancestorRef in currentAncestorRefs" :key="ancestorRef.id" kind="card" :id="ancestorRef.id" :label="ancestorRef.display_path ?? ancestorRef.title" :title="ancestorRef.title" :missing="ancestorRef.missing" />
           </div>
         </div>
         <div v-if="currentChildren.length" class="hierarchy-row">
@@ -57,21 +57,16 @@
         <div v-if="currentCard.depends_on.length" class="hierarchy-row">
           <span class="hierarchy-key">Blocking dependencies</span>
           <div class="pill-list">
-            <CardRefLink v-for="depRef in dependencyRefs" :key="depRef.id" :ref-view="depRef" @navigate="navigateCard" />
+            <EntityLink v-for="depRef in dependencyRefs" :key="depRef.id" kind="card" :id="depRef.id" :label="depRef.display_path ?? depRef.title" :title="depRef.title" :missing="depRef.missing" />
           </div>
         </div>
       </Section>
 
       <Section v-if="currentCard.notes && currentCard.notes.length" title="Notes &amp; activity">
         <div class="notes-list">
-          <div v-for="note in currentCard.notes" :key="note.id" class="note-item" :class="{ 'note-handled': note.handled }">
-            <div class="note-header">
-              <span class="note-author">{{ note.author }}</span>
-              <span class="note-kind-badge">{{ note.kind }}</span>
-              <span class="note-time" :title="timestampTitle(note.timestamp)">{{ fmtDate(note.timestamp) }}</span>
-            </div>
-            <div class="note-content" v-html="renderMarkdown(note.content)"></div>
-          </div>
+          <DocumentFrame v-for="note in currentCard.notes" :key="note.id" class="note-item" :class="{ 'note-handled': note.handled }" :title="note.kind" :writer="note.author" :timestamp="fmtDate(note.timestamp)">
+            <MarkdownText :source="note.content" />
+          </DocumentFrame>
         </div>
       </Section>
 
@@ -142,15 +137,17 @@ import { createLogger } from '../../utils/logger';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../../utils/timestamp';
 import { toneForCardStatus, labelForCardType, type UiStatus } from '../../utils/status';
 import CardHistoryPanel from './CardHistoryPanel.vue';
-import CardRefLink from './CardRefLink.vue';
 import CardRecordsSection from './CardRecordsSection.vue';
 import CardConversationsSection from './CardConversationsSection.vue';
+import EntityLink from '../entity/EntityLink.vue';
 import Section from '../ui/Section.vue';
 import EntityHeader from '../ui/EntityHeader.vue';
 import StatusBanner from '../ui/StatusBanner.vue';
 import StatusBadge from '../ui/StatusBadge.vue';
 import ViewState from '../ui/ViewState.vue';
 import CodeBlock from '../content/CodeBlock.vue';
+import DocumentFrame from '../content/DocumentFrame.vue';
+import MarkdownText from '../content/MarkdownText.vue';
 import { formatJson } from '../../utils/format-json';
 
 const log = createLogger('comp:card-detail');
@@ -177,9 +174,6 @@ const historyOpen = ref(false);
 let highlightTimer: ReturnType<typeof setTimeout> | null = null;
 
 function fmtDate(ts: string): string { return ts ? formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute') : ''; }
-function esc(text: string): string { return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-function renderMarkdown(text: string): string { return esc(text).replace(/\n/g, '<br>'); }
-
 function statusExplainer(status: CardStatus): string {
   const map: Record<CardStatus, string> = {
     backlog: 'Planned but not started.',
@@ -226,7 +220,7 @@ const resultSize = computed(() => {
   try { return `${new Blob([JSON.stringify(result)]).size} B`; } catch { return ''; }
 });
 
-const dependencyRefs = computed(() => currentCard.value?.dependencyRefs ?? currentCard.value?.depends_on.map((id) => ({ id, display_path: null, title: null })) ?? []);
+const dependencyRefs = computed(() => currentCard.value?.dependencyRefs ?? currentCard.value?.depends_on.map((id) => ({ id, display_path: null, title: null, missing: false })) ?? []);
 const detailErrorTitle = computed(() => {
   switch (detailError.value?.kind) {
     case 'unauthorized': return 'Unauthorized';
@@ -315,13 +309,7 @@ function actionLabel(action: string): string {
 .output-path { font-family:'SF Mono',monospace; font-size:12px; }
 
 .notes-list { display:flex; flex-direction:column; gap:8px; }
-.note-item { background:var(--surface-1); border:1px solid var(--surface-3); border-radius:6px; padding:10px 12px; }
 .note-item.note-handled { opacity:0.65; }
-.note-header { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:6px; }
-.note-author { font-size:12px; font-weight:600; }
-.note-kind-badge { font-size:10px; padding:1px 6px; border-radius:8px; background:var(--surface-3); color:var(--text-muted); text-transform:uppercase; }
-.note-time { font-size:11px; color:var(--text-muted); margin-left:auto; font-family:'SF Mono',monospace; }
-.note-content { color:var(--text-muted); font-size:12px; }
 
 .list-block { margin-bottom:10px; }
 .list-block:last-child { margin-bottom:0; }

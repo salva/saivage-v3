@@ -73,7 +73,9 @@
       <div v-else-if="viewedFile" class="viewer-content">
         <StatusBanner v-if="viewedFile.redacted" class="viewer-redaction-notice" tone="neutral" message="Sensitive values were redacted by the server." />
         <CodeBlock v-if="isJsonContent" :code="prettyJsonContent" language="json" copyable />
-        <MarkdownText v-else-if="isMarkdownContent" :source="viewedFile.content" />
+        <DocumentFrame v-else-if="isMarkdownContent" :title="viewedFilePath" :name="viewedFilePath">
+          <MarkdownText :source="viewedFile.content" />
+        </DocumentFrame>
         <CodeBlock v-else :code="viewedFile.content" language="text" copyable wrap />
       </div>
     </div>
@@ -91,6 +93,7 @@ import { selectChildrenOf } from '../stores/card-presentation';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../utils/timestamp';
 import { formatJson } from '../utils/format-json';
 import CodeBlock from '../components/content/CodeBlock.vue';
+import DocumentFrame from '../components/content/DocumentFrame.vue';
 import MarkdownText from '../components/content/MarkdownText.vue';
 import Panel from '../components/ui/Panel.vue';
 import PanelHeader from '../components/ui/PanelHeader.vue';
