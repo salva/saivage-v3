@@ -8,10 +8,6 @@ export const llmActorRoles = ['planner', 'reviewer', 'executor', 'analyst'] as c
 export type LlmActorRole = typeof llmActorRoles[number];
 export const llmActorRoleSchema = z.enum(llmActorRoles);
 
-export const cardActorStates = ['backlog', 'changed', 'blocked', 'failed', 'done', 'running', 'cancelled', 'needs_verification'] as const;
-export type CardActorState = typeof cardActorStates[number];
-export const cardActorStateSchema = z.enum(cardActorStates);
-
 export const llmActorPhases = ['idle', 'calling_provider', 'waiting_tool'] as const;
 export type LlmActorPhase = typeof llmActorPhases[number];
 export const llmActorPhaseSchema = z.enum(llmActorPhases);
@@ -35,11 +31,6 @@ export const supervisorModeSchema = z.enum(supervisorModes);
 export const supervisorWorkStates = ['ready'] as const;
 export type SupervisorWorkState = typeof supervisorWorkStates[number];
 export const supervisorWorkStateSchema = z.enum(supervisorWorkStates);
-
-export function parseCardActorState(value: unknown): CardActorState | null {
-  const result = cardActorStateSchema.safeParse(value);
-  return result.success ? result.data : null;
-}
 
 export function parseLlmActorPhase(value: unknown): LlmActorPhase | null {
   const result = llmActorPhaseSchema.safeParse(value);

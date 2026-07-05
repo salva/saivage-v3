@@ -1,6 +1,6 @@
 # Card Actor State Collapse Design
 
-Status: proposed.
+Status: implemented.
 
 Date: 2026-07-05
 

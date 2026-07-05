@@ -243,15 +243,15 @@ describe('actor recovery plan', () => {
     expect(projectActorRecovery(plan).diagnostics).toEqual(expect.arrayContaining([
       expect.objectContaining({ actorId: 'card:G-old', severity: 'warning' }),
     ]));
-    expect(projectActorRecovery(plan).diagnostics.map((diagnostic) => diagnostic.message).join('\n')).toContain("ambiguous state 'planning'");
+    expect(projectActorRecovery(plan).diagnostics.map((diagnostic) => diagnostic.message).join('\n')).toContain("unknown lifecycle state 'planning'");
   }));
 
-  it('uses the shared card actor vocabulary for needs_verification recovery diagnostics', () => withTempProject((projectRoot) => {
-    saveSnapshot(projectRoot, 'card:G-needs-check', 'card', 'needs_verification', { cardId: 'G-needs-check', active_reconstruction: cardActive('G-needs-check') });
+  it('diagnoses active card snapshots that are not in the running lifecycle state', () => withTempProject((projectRoot) => {
+    saveSnapshot(projectRoot, 'card:G-parked-active', 'card', 'parked', { cardId: 'G-parked-active', active_reconstruction: cardActive('G-parked-active') });
 
     const diagnostics = projectActorRecovery(buildActorRecoveryPlan(projectRoot)).diagnostics.map((diagnostic) => diagnostic.message);
 
-    expect(diagnostics).not.toEqual(expect.arrayContaining([expect.stringContaining('ambiguous state')]));
+    expect(diagnostics).toEqual(expect.arrayContaining([expect.stringContaining("lifecycle state 'parked'")]));
     expect(diagnostics).toEqual(expect.arrayContaining([expect.stringContaining('no active processor')]));
   }));
 

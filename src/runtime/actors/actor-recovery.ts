@@ -8,7 +8,7 @@ import type { CardRecord, CardStatus } from '../../schemas/index.js';
 import type { CardActiveReconstructionRecord, LlmActiveReconstructionRecord, ProcessorActiveReconstructionRecord } from './active-reconstruction.js';
 import { readCardActiveReconstruction, readLlmActiveReconstruction, readProcessorActiveReconstruction } from './active-reconstruction.js';
 import { parseCardActorId, parseLlmActorId, parseProcessorActorId } from './ids.js';
-import { parseCardActorState, readSupervisorModeValue } from './actor-vocabulary.js';
+import { readSupervisorModeValue } from './actor-vocabulary.js';
 import type { LlmActorRole } from './actor-vocabulary.js';
 import { cardActivationOutcomePatch, type CardActivationOutcome } from './card-actor.js';
 import type { LLMActorOutcome } from './llm-actor.js';
@@ -444,7 +444,8 @@ function recoveryDiagnostics(
   const { supervisor, cards, llms, processors } = plan;
   return [
     ...(isNonIdleSupervisorSnapshot(supervisor) ? [{ actorId: 'supervisor', severity: 'warning' as const, message: 'Non-idle supervisor snapshot is not resumed; startup creates a fresh supervisor and records this discard.' }] : []),
-    ...cards.filter(isAmbiguousActiveCard).map((card) => ({ actorId: card.snapshot.actor_id, severity: 'warning' as const, message: `Active card snapshot has ambiguous state '${String(card.snapshot.state_value)}' and requires explicit recovery reconciliation.` })),
+    ...cards.filter(hasUnknownCardActorLifecycleState).map((card) => ({ actorId: card.snapshot.actor_id, severity: 'warning' as const, message: `Card actor snapshot has unknown lifecycle state '${String(card.snapshot.state_value)}'.` })),
+    ...cards.filter(isAmbiguousActiveCard).map((card) => ({ actorId: card.snapshot.actor_id, severity: 'warning' as const, message: `Active card snapshot has lifecycle state '${String(card.snapshot.state_value)}' and requires explicit recovery reconciliation.` })),
     ...cards.filter((card) => isStrandedActiveCard(card, cards, llms, processors, cardReader)).map((card) => ({ actorId: card.snapshot.actor_id, severity: 'warning' as const, message: 'Active card snapshot has no active processor, LLM, or active child evidence and cannot be safely reconstructed yet.' })),
     ...llms.filter((llm) => llmActions.get(llm.actorId) === 'reissue_provider_call').map((llm) => ({ actorId: llm.actorId, severity: 'warning' as const, message: 'In-flight provider call will be re-issued from the reconstructed LLM input when the runtime resumes.' })),
     ...llms.filter((llm) => llmActions.get(llm.actorId) === 'replay_tool_wait').map((llm) => ({ actorId: llm.actorId, severity: 'warning' as const, message: 'LLM actor is waiting for a persisted tool call; startup recovery will replay or redispatch it without changing card status.' })),
@@ -466,11 +467,15 @@ function cardIdFromAgentId(agentId: string): string | undefined {
 }
 
 function isAmbiguousActiveCard(card: CardActorRecoveryRecord): boolean {
-  return card.active && !isKnownCardActorState(card.snapshot.state_value);
+  return card.active && card.snapshot.state_value !== 'running';
 }
 
-function isKnownCardActorState(state: unknown): boolean {
-  return parseCardActorState(state) !== null;
+function hasUnknownCardActorLifecycleState(card: CardActorRecoveryRecord): boolean {
+  return !isKnownCardActorLifecycleState(card.snapshot.state_value);
+}
+
+function isKnownCardActorLifecycleState(state: unknown): boolean {
+  return state === 'parked' || state === 'running' || state === 'cancelled';
 }
 
 function isStrandedActiveCard(

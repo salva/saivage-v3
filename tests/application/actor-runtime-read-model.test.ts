@@ -3,10 +3,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from '@jest/globals';
 import { buildActorRuntimeReadModel } from '../../src/application/read-models/actor-runtime-read-model.js';
-import { RuntimeSupervisorActor, buildActorRecoveryPlan, cardActorStates, saveActorSnapshot, writeRecoveryDiagnostics } from '../../src/runtime/actors/index.js';
+import { RuntimeSupervisorActor, buildActorRecoveryPlan, saveActorSnapshot, writeRecoveryDiagnostics } from '../../src/runtime/actors/index.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
+import { CardStore } from '../../src/cards/card-store.js';
+import type { CardStatus } from '../../src/schemas/index.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-actor-read-model-'));
+  initProjectTree(projectRoot);
   const result = fn(projectRoot);
   if (result instanceof Promise) {
     return result.finally(() => rmSync(projectRoot, { recursive: true, force: true }));
@@ -29,8 +33,21 @@ async function eventually(assertion: () => void, timeoutMs = 1000): Promise<void
   throw lastError;
 }
 
+function createCardWithStatus(store: CardStore, status: CardStatus) {
+  const card = store.create({ type: 'code', parent: 'project', depth: 1, title: `card-${status}`, brief: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
+  if (status === 'backlog') return card;
+  if (status === 'changed') return store.commitTerminalLifecyclePatch(card.id, { status, lifecycle: { status, result: null, error: null, completed_at: null } });
+  if (status === 'done') return store.repairTerminalLifecycle(card.id, { status, lifecycle: { status, result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' } });
+  if (status === 'failed') return store.repairTerminalLifecycle(card.id, { status, lifecycle: { status, result: { kind: 'failed', summary: 'failed' }, error: 'failed', completed_at: '2026-06-12T00:00:00.000Z' } });
+  if (status === 'blocked') return store.repairTerminalLifecycle(card.id, { status, lifecycle: { status, result: { kind: 'blocked', summary: 'blocked', resume_reason: 'blocked' }, error: 'blocked', completed_at: null } });
+  if (status === 'needs_verification') return store.repairTerminalLifecycle(card.id, { status, lifecycle: { status, result: { kind: 'executor_needs_verification', reason: 'verify', preserved_result: {}, fallback_reason: null, latest_self_report: { result: 'needs_verification', outcome: 'needs_verification', summary: 'verify', status_text: 'verify', at: '2026-06-12T00:00:00.000Z' } }, error: null, completed_at: null } });
+  return store.setStatus(card.id, status);
+}
+
 describe('actor runtime read model', () => {
   it('projects supervisor, card actor, and LLM actor snapshots without raw state details', () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const card = new CardStore(projectRoot).create({ type: 'code', parent: 'project', depth: 1, title: 'Task', brief: '', status: 'running', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
     const supervisor = new RuntimeSupervisorActor();
     supervisor.start();
     supervisor.initialize(projectRoot);
@@ -39,14 +56,14 @@ describe('actor runtime read model', () => {
     supervisor.pause();
     await eventually(() => { expect(supervisor.mode).toBe('paused'); });
     saveActorSnapshot(projectRoot, {
-      actor_id: 'card:T-1',
+      actor_id: `card:${card.id}`,
       actor_kind: 'card',
       state_value: 'running',
       context: { privateField: 'not projected' },
       updated_at: new Date().toISOString(),
     });
     saveActorSnapshot(projectRoot, {
-      actor_id: 'executor:T-1',
+      actor_id: `executor:${card.id}`,
       actor_kind: 'llm',
       state_value: 'calling_provider',
       context: { privateField: 'not projected' },
@@ -56,17 +73,22 @@ describe('actor runtime read model', () => {
     expect(buildActorRuntimeReadModel(projectRoot)).toEqual({
       pauseMode: 'paused',
       activeWork: 'none',
-      cards: [{ cardId: 'T-1', actorState: 'running' }],
-      agents: [{ agentId: 'executor:T-1', role: 'executor', cardId: 'T-1', phase: 'calling_provider' }],
+      cards: [{ cardId: card.id, actorState: 'running' }],
+      agents: [{ agentId: `executor:${card.id}`, role: 'executor', cardId: card.id, phase: 'calling_provider' }],
       diagnostics: [],
       recovery: null,
     });
   }));
 
-  it('accepts current actor states without diagnostics', () => withTempProject((projectRoot) => {
-    const cardStates = cardActorStates;
+  it('projects public card state from card store status, not actor lifecycle state', () => withTempProject((projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const cardStates: CardStatus[] = ['backlog', 'changed', 'blocked', 'failed', 'done', 'running', 'cancelled', 'needs_verification'];
     const llmStates = ['idle', 'calling_provider', 'waiting_tool'];
-    cardStates.forEach((state) => saveActorSnapshot(projectRoot, { actor_id: `card:${state}`, actor_kind: 'card', state_value: state, context: {}, updated_at: new Date().toISOString() }));
+    cardStates.forEach((state) => {
+      const card = createCardWithStatus(store, state);
+      saveActorSnapshot(projectRoot, { actor_id: `card:${card.id}`, actor_kind: 'card', state_value: state === 'running' ? 'running' : state === 'cancelled' ? 'cancelled' : 'parked', context: {}, updated_at: new Date().toISOString() });
+    });
     llmStates.forEach((state) => saveActorSnapshot(projectRoot, { actor_id: `planner:${state}`, actor_kind: 'llm', state_value: state, context: {}, updated_at: new Date().toISOString() }));
 
     const model = buildActorRuntimeReadModel(projectRoot);
@@ -76,11 +98,13 @@ describe('actor runtime read model', () => {
     expect(model.agents.map((agent) => agent.phase).sort()).toEqual(['calling_provider', 'idle', 'waiting_for_tool']);
   }));
 
-  it('uses the shared card actor vocabulary for needs_verification snapshots', () => withTempProject((projectRoot) => {
-    saveActorSnapshot(projectRoot, { actor_id: 'card:needs-check', actor_kind: 'card', state_value: 'needs_verification', context: {}, updated_at: new Date().toISOString() });
+  it('projects needs_verification from the card store, not the actor snapshot lifecycle state', () => withTempProject((projectRoot) => {
+    initProjectTree(projectRoot);
+    const card = createCardWithStatus(new CardStore(projectRoot), 'needs_verification');
+    saveActorSnapshot(projectRoot, { actor_id: `card:${card.id}`, actor_kind: 'card', state_value: 'parked', context: {}, updated_at: new Date().toISOString() });
 
     expect(buildActorRuntimeReadModel(projectRoot)).toMatchObject({
-      cards: [{ cardId: 'needs-check', actorState: 'needs_verification' }],
+      cards: [{ cardId: card.id, actorState: 'needs_verification' }],
       diagnostics: [],
     });
   }));

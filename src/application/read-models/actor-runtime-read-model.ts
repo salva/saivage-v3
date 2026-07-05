@@ -2,6 +2,7 @@ import { readActorSnapshots, readRecoveryDiagnostics, type ActorRecoveryDiagnost
 import { parseCardActorId, parseLlmActorId, readSupervisorModeValue, readSupervisorWorkValue, toPublicAgentPhase, toPublicCardActorState } from '../../runtime/actors/index.js';
 import type { LlmActorRole, PublicAgentPhase, PublicCardActorState } from '../../runtime/actors/index.js';
 import type { ActorPauseMode } from '../../runtime/actors/actor-vocabulary.js';
+import { CardStore } from '../../cards/card-store.js';
 
 export type { ActorPauseMode };
 export type ActorActiveWork = 'none' | 'model_invocation' | 'shutdown' | 'unknown';
@@ -40,6 +41,7 @@ export function buildActorRuntimeReadModel(projectRoot: string): ActorRuntimeRea
   let activeWork: ActorActiveWork = 'unknown';
   const cards: CardActorProjection[] = [];
   const agents: AgentRunnerProjection[] = [];
+  const cardStore = new CardStore(projectRoot);
 
   for (const snapshot of snapshots) {
     if (snapshot.actor_kind === 'supervisor') {
@@ -48,7 +50,10 @@ export function buildActorRuntimeReadModel(projectRoot: string): ActorRuntimeRea
       continue;
     }
     if (snapshot.actor_kind === 'card') {
-      cards.push({ cardId: readCardActorId(snapshot.actor_id, diagnostics), actorState: toPublicCardActorState(snapshot.state_value) });
+      const cardId = readCardActorId(snapshot.actor_id, diagnostics);
+      const card = cardStore.read(cardId);
+      if (!card) diagnostics.push(`card actor snapshot '${snapshot.actor_id}' has no matching card record`);
+      else cards.push({ cardId, actorState: toPublicCardActorState(card.status) });
       continue;
     }
     if (snapshot.actor_kind === 'llm') {

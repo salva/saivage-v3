@@ -82,7 +82,7 @@ describe('CardActor', () => {
     expect(outcome).toMatchObject({ status: 'done', summary: 'project done' });
     expect(fakeProcessor.activate).toHaveBeenCalledWith(expect.objectContaining({ card: expect.objectContaining({ id: 'project' }) }), expect.any(AbortSignal));
     expect(store.read('project')).toMatchObject({ status: 'done', status_text: 'project done' });
-    await eventually(() => expect(actor.state()).toBe('done'));
+    await eventually(() => expect(actor.state()).toBe('parked'));
     expect(readActorSnapshots(projectRoot).map((item) => item.actor_id)).toContain('card:project');
   }));
 
@@ -111,6 +111,28 @@ describe('CardActor', () => {
     finish();
     await expect(pending).resolves.toMatchObject({ status: 'done' });
     await eventually(() => expect(readActorSnapshots(projectRoot).find((item) => item.actor_id === 'card:project')?.context.active_reconstruction).toBeNull());
+  }));
+
+  it('clears stale active reconstruction when recovering non-running cards', () => withTempProject((projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    store.commitTerminalLifecyclePatch(project.id, { status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' } });
+    saveActorSnapshot(projectRoot, {
+      actor_id: cardActorId(project.id),
+      actor_kind: 'card',
+      state_value: 'running',
+      context: {
+        active_reconstruction: { schema_version: 1, kind: 'card_activation', card_id: project.id, processor_actor_id: 'processor:project', caller: { kind: 'root' }, started_at: '2026-06-12T00:00:00.000Z' },
+        activationId: 'stale-activation',
+      },
+      updated_at: '2026-06-12T00:00:00.000Z',
+    });
+
+    const actor = actorFromCard(projectRoot, store, store.read(project.id)!, processor({ status: 'done', summary: 'unused', result: { kind: 'done', summary: 'unused' } }));
+
+    expect(actor.state()).toBe('parked');
+    expect(readActorSnapshots(projectRoot).find((item) => item.actor_id === cardActorId(project.id))?.context).toMatchObject({ active_reconstruction: null, activationId: null });
   }));
 
   it('passes a card-owned notification delivery port to activation input', async () => withTempProject(async (projectRoot) => {
@@ -160,13 +182,13 @@ describe('CardActor', () => {
 
     const existing = {
       ...persisted!,
-      state_value: 'changed',
+      state_value: 'parked',
       context: { ...persisted!.context, custom: true },
     };
     saveActorSnapshot(projectRoot, existing);
     const updated = appendNotificationToActorSnapshot(projectRoot, cardActorId(project.id), { id: 'second', message: 'second', created_at: '2026-06-12T00:00:01.000Z', reason: 'test' });
 
-    expect(updated.state_value).toBe('changed');
+    expect(updated.state_value).toBe('parked');
     expect(updated.context.custom).toBe(true);
     expect(updated.context.notifications).toEqual([
       expect.objectContaining({ id: 'restored' }),
@@ -313,7 +335,7 @@ describe('CardActor', () => {
     const outcome = await actor.activate({ kind: 'root' });
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'done' });
-    await eventually(() => expect(actor.state()).toBe('done'));
+    await eventually(() => expect(actor.state()).toBe('parked'));
     expect(store.read(project.id)).toMatchObject({ status: 'done', lifecycle: { result: { kind: 'done', summary: 'done' } } });
     expect(actor.listPendingNotifications()).toEqual([expect.objectContaining({ id: 'n-late' })]);
   }));
@@ -338,12 +360,12 @@ describe('CardActor', () => {
     const outcome = await actor.activate({ kind: 'root' });
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'done' });
-    await eventually(() => expect(actor.state()).toBe('done'));
+    await eventually(() => expect(actor.state()).toBe('parked'));
     expect(store.read(project.id)).toMatchObject({ status: 'done', lifecycle: { result: { kind: 'done', summary: 'done' } } });
     expect(actor.listPendingNotifications()).toEqual([]);
   }));
 
-  it('does not reopen a done card during recovery', () => withTempProject((projectRoot) => {
+  it('recovers done cards as parked without reopening them', () => withTempProject((projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     const project = createProject(store);
@@ -351,9 +373,9 @@ describe('CardActor', () => {
     const actor = new CardActor({ card: project, deps: deps(projectRoot, store) });
     actor.notifications = [{ id: 'n-recover', message: 'pending context', created_at: '2026-06-12T00:00:00.000Z' }];
 
-    actor.recover('done');
+    actor.recover('parked');
 
-    expect(actor.state()).toBe('done');
+    expect(actor.state()).toBe('parked');
     expect(store.read(project.id)?.status).toBe('done');
     expect(actor.listPendingNotifications()).toEqual([expect.objectContaining({ id: 'n-recover' })]);
   }));
@@ -367,18 +389,22 @@ describe('CardActor', () => {
 
     actor.cancel({ reason: 'too late' });
 
-    expect(actor.state()).toBe('done');
+    expect(actor.state()).toBe('parked');
     expect(actor.cancelReason).toBeNull();
     expect(store.read(project.id)?.status).toBe('done');
   }));
 
-  it('fails fast instead of mapping needs_verification into blocked actor state', () => withTempProject((projectRoot) => {
+  it('recovers needs_verification cards as parked and leaves them inactive', () => withTempProject((projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     const project = createProject(store);
     store.commitTerminalLifecyclePatch(project.id, { status: 'needs_verification', lifecycle: { status: 'needs_verification', result: { kind: 'executor_needs_verification', reason: 'verify', preserved_result: {}, fallback_reason: null, latest_self_report: { result: 'needs_verification', outcome: 'needs_verification', summary: 'verify', status_text: 'verify', at: '2026-06-12T00:00:00.000Z' } }, error: null, completed_at: null } });
 
-    expect(() => actorFromCard(projectRoot, store, store.read(project.id)!, processor({ status: 'done', summary: 'unused', result: { kind: 'done', summary: 'unused' } }))).toThrow(/needs_verification/);
+    const actor = actorFromCard(projectRoot, store, store.read(project.id)!, processor({ status: 'done', summary: 'unused', result: { kind: 'done', summary: 'unused' } }));
+
+    expect(actor.state()).toBe('parked');
+    expect(store.read(project.id)?.status).toBe('needs_verification');
+    expect(isActivatable('needs_verification')).toBe(false);
   }));
 
   it('cancels inactive subtrees while preserving done descendants', async () => withTempProject(async (projectRoot) => {

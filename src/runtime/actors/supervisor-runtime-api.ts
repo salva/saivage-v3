@@ -201,10 +201,10 @@ export class SupervisorRuntimeApi implements RuntimeApi {
   }
 
   getActorRuntimeReadModel(): ActorRuntimeReadModel {
-    const cards = [...this.cardActors.values()].map((actor) => ({
-      cardId: actor.cardId,
-      actorState: toPublicCardActorState(actor.state()),
-    })).sort((a, b) => a.cardId.localeCompare(b.cardId));
+    const cards = [...this.cardActors.values()].flatMap((actor) => {
+      const card = this.options.actorStore.read(actor.cardId);
+      return card ? [{ cardId: actor.cardId, actorState: toPublicCardActorState(card.status) }] : [];
+    }).sort((a, b) => a.cardId.localeCompare(b.cardId));
     const agents = [...this.cardActors.values()].flatMap((cardActor) => {
       const processor = cardActor.processor;
       if (!(processor instanceof BaseMainLLMCardProcessorActor)) return [];
