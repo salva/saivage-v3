@@ -36,8 +36,8 @@
         <button type="button" class="raw-toggle" :aria-expanded="showRawCall" @click="showRawCall = !showRawCall">{{ showRawCall ? 'Hide raw request' : 'Show raw request' }}</button>
         <button v-if="resultContent !== null" type="button" class="raw-toggle" :aria-expanded="showRawResult" @click="showRawResult = !showRawResult">{{ showRawResult ? 'Hide raw response' : 'Show raw response' }}</button>
       </div>
-      <FormattedContent v-if="showRawCall" class="tool-chip-raw" :value="callContent" kind="text" copyable wrap aria-label="Raw tool request" />
-      <FormattedContent v-if="showRawResult && resultContent !== null" class="tool-chip-raw" :value="resultContent" kind="text" copyable wrap aria-label="Raw tool response" />
+      <CodeBlock v-if="showRawCall" class="tool-chip-raw" :code="callContent" language="text" copyable wrap aria-label="Raw tool request" />
+      <CodeBlock v-if="showRawResult && resultContent !== null" class="tool-chip-raw" :code="resultContent" language="text" copyable wrap aria-label="Raw tool response" />
     </div>
   </div>
 </template>
@@ -45,7 +45,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import InlineParts from '../content/InlineParts.vue';
-import FormattedContent from '../content/FormattedContent.vue';
+import CodeBlock from '../content/CodeBlock.vue';
 import type { ToolDisplayModel } from '../../utils/tool-friendly';
 import { formatTimestamp, isRecentTimestamp, timestampTitle as absoluteTimestampTitle } from '../../utils/timestamp';
 
