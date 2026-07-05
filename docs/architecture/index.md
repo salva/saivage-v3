@@ -20,6 +20,7 @@ Current architecture documents:
 - [Terminal completion gate design](./completion-gate-design.md)
 - [Resume-or-start LLM design](./resume-or-start-llm-design.md)
 - [Role invocation surface design](./role-invocation-surface-design.md)
+- [Card actor status invariant design](./card-actor-status-invariant-design.md)
 - [Remaining work consolidated plan](./remaining-work-consolidated-plan.md)
 - [Future capabilities plan](./future-capabilities-plan.md)
 - [Operator UI/UX audit](./operator-ui-audit.md)
