@@ -1,6 +1,6 @@
 # Role Invocation Surface Design
 
-Status: design proposal (second review, data-driven).
+Status: design proposal (third review, data-driven).
 
 Date: 2026-07-05
 
@@ -61,6 +61,15 @@ A table-driven builder is simpler:
 
 This is preferred over four narrow argument interfaces because the table — not the type system — is the source of truth for which providers belong to which role. TypeScript cannot express "this field is required only when this provider is in the role's list" without per-role types, and per-role types defeat the purpose of the table.
 
+### Third-review corrections
+
+The data-driven approach is still the right direction, but the constructor map must preserve exact current provider arguments. Two details are load-bearing:
+
+- **Process metadata:** executor currently omits `agentRole` and `launchReason`, so `ProcessProvider` defaults to `agent process provider run_command`. Analyst currently passes `agentRole: 'analyst'` and `launchReason: 'analyst workspace run_command'`. The generic `process` constructor must branch by role to preserve this.
+- **Store forwarding:** Analyst currently passes its concrete `CardStore` to card-history, workspace, patch, web, and card-inspection providers. Processor surfaces generally do not pass their processor store to card-history/web/workspace; planner passes its store only to planner-control and card-inspection. The generic constructors must not forward `ctx.store` blindly to every provider for every role.
+
+The table says **which providers exist** for a role. The constructor map still owns the exact per-provider argument derivation needed to preserve current behavior.
+
 ## New module layout
 
 ### `src/tools/analyst-control-provider.ts`
@@ -109,7 +118,7 @@ interface RoleSurfaceContext {
   projectRoot: string;
   cardId?: string;
   sessionId?: string;
-  store?: CardStore;
+  store?: unknown;
   processRunner?: ProcessRunner;
   ownerId?: string;
   runtimeGate?: RuntimeGate;
@@ -120,7 +129,7 @@ interface RoleSurfaceContext {
 }
 ```
 
-All fields except `projectRoot` are optional. Each caller passes only what its role needs.
+All fields except `projectRoot` are optional. Each caller passes only what its role needs. `store` is intentionally typed broadly in this design because the current processor store and Analyst `CardStore` are different structural ports. Implementation should narrow or cast only inside the provider constructor that needs a specific store shape.
 
 ## Provider constructor map
 
@@ -136,21 +145,19 @@ const PROVIDER_CONSTRUCTORS: Record<ProviderName, (ctx: RoleSurfaceContext, role
   analystControl: (ctx, _) =>
     createAnalystControlProvider(ctx.toolContext!),
   cardInspection: (ctx, role) =>
-    createCardInspectionProvider({ projectRoot: ctx.projectRoot, store: ctx.store, agentRole: role }),
+    createCardInspectionProvider({ projectRoot: ctx.projectRoot, store: ctx.store as CardInspectionProviderContext['store'], agentRole: role }),
   workspace: (ctx, role) =>
-    createWorkspaceProvider({ projectRoot: ctx.projectRoot, cardId: ctx.cardId, agentRole: role, store: ctx.store }),
+    createWorkspaceProvider({ projectRoot: ctx.projectRoot, cardId: ctx.cardId, agentRole: role, store: role === 'analyst' ? ctx.store as WorkspaceProviderContext['store'] : undefined }),
   patch: (ctx, role) =>
-    createPatchProvider({ projectRoot: ctx.projectRoot, cardId: ctx.cardId, agentRole: role, store: ctx.store }),
+    createPatchProvider({ projectRoot: ctx.projectRoot, cardId: ctx.cardId, agentRole: role, store: role === 'analyst' ? ctx.store as WorkspaceProviderContext['store'] : undefined }),
   process: (ctx, role) =>
-    createProcessProvider({
-      projectRoot: ctx.projectRoot, processRunner: ctx.processRunner!,
-      ownerId: ctx.ownerId ?? ctx.sessionId ?? role, ownerKind: role === 'analyst' ? 'operator' : 'agent',
-      cardId: ctx.cardId, runtimeGate: ctx.runtimeGate, agentRole: role,
-    }),
+    role === 'analyst'
+      ? createProcessProvider({ projectRoot: ctx.projectRoot, processRunner: ctx.processRunner!, ownerId: ctx.ownerId ?? ctx.sessionId ?? 'analyst', agentRole: 'analyst', ownerKind: 'operator', launchReason: 'analyst workspace run_command' })
+      : createProcessProvider({ projectRoot: ctx.projectRoot, processRunner: ctx.processRunner!, ownerId: ctx.ownerId ?? ctx.sessionId!, ownerKind: 'agent', cardId: ctx.cardId, runtimeGate: ctx.runtimeGate }),
   cardHistory: (ctx, role) =>
-    createCardHistoryProvider({ projectRoot: ctx.projectRoot, store: ctx.store, sessionId: ctx.sessionId, agentRole: role }),
+    createCardHistoryProvider({ projectRoot: ctx.projectRoot, store: role === 'analyst' ? ctx.store as CardHistoryProviderContext['store'] : undefined, sessionId: ctx.sessionId, agentRole: role }),
   web: (ctx, role) =>
-    createWebProvider({ projectRoot: ctx.projectRoot, cardId: ctx.cardId, agentRole: role, store: ctx.store }),
+    createWebProvider({ projectRoot: ctx.projectRoot, cardId: ctx.cardId, agentRole: role, store: role === 'analyst' ? ctx.store as WebProviderContext['store'] : undefined }),
   skill: (ctx, role) =>
     createSkillProvider({ projectRoot: ctx.projectRoot, agentRole: role as 'executor' | 'reviewer' | 'analyst' }),
   mcp: (ctx, role) =>
@@ -159,6 +166,8 @@ const PROVIDER_CONSTRUCTORS: Record<ProviderName, (ctx: RoleSurfaceContext, role
 ```
 
 The non-null assertions are safe: the table guarantees `plannerControl` is only constructed for planner (whose caller always passes `cardId`, `sessionId`, `store`, `children`), `process` only for executor and analyst (whose callers always pass `processRunner`), and `mcp` only for reviewer, executor, and analyst (whose callers always pass `mcpManagerProvider`).
+
+The role checks inside the `process`, `workspace`, `patch`, `cardHistory`, and `web` constructors are not a second policy layer. They preserve current constructor arguments where the same provider name has role-specific wiring. The role/provider **membership** remains solely in `ROLE_PROVIDER_ORDER`.
 
 The `as` casts on `skill` and `mcp` are safe because the table excludes planner from those providers, and the provider type signatures accept the remaining three roles.
 
