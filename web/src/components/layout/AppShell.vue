@@ -1,5 +1,5 @@
 <template>
-  <div class="app-shell" @keydown="handleKeydown">
+  <div class="app-shell" :class="`pane-${mobileActivePane}`" @keydown="handleKeydown">
     <div class="workspace-shell">
       <NavRail
         :nav-items="navItems"
@@ -38,7 +38,27 @@
       </div>
     </div>
 
-    <AnalystChatPanel />
+    <div class="analyst-pane">
+      <AnalystChatPanel />
+    </div>
+
+    <nav class="mobile-pane-switch" aria-label="Switch pane">
+      <button
+        type="button"
+        class="pane-tab"
+        :class="{ active: mobileActivePane === 'workspace' }"
+        :aria-pressed="mobileActivePane === 'workspace'"
+        @click="mobileActivePane = 'workspace'"
+      >Workspace</button>
+      <button
+        type="button"
+        class="pane-tab"
+        :class="{ active: mobileActivePane === 'analyst' }"
+        :aria-pressed="mobileActivePane === 'analyst'"
+        @click="mobileActivePane = 'analyst'"
+      >Analyst<span v-if="analystActivityDot" class="activity-dot" aria-hidden="true"></span></button>
+    </nav>
+
     <GlobalToaster />
 
     <ApiTokenEntry
@@ -63,11 +83,13 @@ import GlobalToaster from '../feedback/GlobalToaster.vue';
 import Button from '../ui/Button.vue';
 import { useRuntimeStore } from '../../stores/runtime';
 import { useAuthStore } from '../../stores/auth';
+import { useAnalystChat } from '../../stores/analystChat';
 import type { WsConnectionState } from '../../types/view-models';
 import { API_AUTH_REQUIRED_EVENT, dismissAuthBannerForSession, isAuthBannerDismissedForSession } from '../../utils/auth-events';
 
 const runtimeStore = useRuntimeStore();
 const authStore = useAuthStore();
+const analystChat = useAnalystChat();
 const {
   statusLabel,
   status,
@@ -96,6 +118,8 @@ const docsHref = computed<string>(() => '/docs/');
 const showTokenDialog = ref(false);
 const projectName = computed(() => runtimeStore.projectId ?? 'saivage-v3');
 const showAuthBanner = ref(false);
+const mobileActivePane = ref<'workspace' | 'analyst'>('workspace');
+const analystActivityDot = computed(() => analystChat.pendingToolInvocations.length > 0 || analystChat.sending);
 
 const sectionLabels: Record<string, string> = {
   dashboard: 'Dashboard',
@@ -131,6 +155,7 @@ function handleKeydown(event: KeyboardEvent): void {
   }
   if (key === '/' && !event.ctrlKey && !event.metaKey) {
     event.preventDefault();
+    mobileActivePane.value = 'analyst';
     window.dispatchEvent(new CustomEvent('saivage:focus-chat'));
   }
 }
@@ -205,6 +230,69 @@ onUnmounted(() => {
   flex: 1;
   overflow: auto;
   background: var(--bg);
+}
+
+.mobile-pane-switch { display: none; }
+
+@media (max-width: 880px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr auto;
+  }
+
+  .app-shell.pane-workspace .workspace-shell { display: grid; }
+  .app-shell.pane-workspace .analyst-pane { display: none; }
+  .app-shell.pane-analyst .workspace-shell { display: none; }
+  .app-shell.pane-analyst .analyst-pane { display: flex; min-height: 0; overflow: hidden; }
+
+  .analyst-pane {
+    width: 100%;
+    height: 100%;
+  }
+
+  .mobile-pane-switch {
+    display: flex;
+    gap: 0;
+    background: var(--surface-1);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+    z-index: 10;
+  }
+
+  .pane-tab {
+    flex: 1;
+    padding: 8px 12px;
+    border: none;
+    background: none;
+    color: var(--text-muted);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+  }
+
+  .pane-tab.active {
+    color: var(--accent-2);
+    box-shadow: inset 0 -2px 0 var(--accent-2);
+  }
+
+  .activity-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--accent-2);
+    animation: activity-pulse 1.4s ease-in-out infinite;
+  }
+
+  @keyframes activity-pulse {
+    0%, 100% { opacity: .4; }
+    50% { opacity: 1; }
+  }
 }
 
 .auth-banner {
