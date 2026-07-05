@@ -36,8 +36,8 @@
                   <StatusBadge :status="statusForAgentSession(session.status)" show-dot />
                 </div>
                 <div class="session-meta">
-                  <span v-if="session.goal_card_id" class="session-goal">Goal: {{ session.goal_card_id }}</span>
-                  <span v-if="session.card_id" class="session-card-ref">Card: {{ session.card_id }}</span>
+                  <button v-if="session.goal_card_id" type="button" class="session-card-link" @click.stop="goToCard(session.goal_card_id!)">{{ cardTitle(session.goal_card_id) }}</button>
+                  <button v-if="session.card_id && session.card_id !== session.goal_card_id" type="button" class="session-card-link" @click.stop="goToCard(session.card_id!)">{{ cardTitle(session.card_id) }}</button>
                 </div>
                 <div class="session-time">
                   Started: <span :title="timestampTitle(session.started_at)">{{ fmtDate(session.started_at) }}</span>
@@ -62,6 +62,7 @@ import { computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useAgentStore } from '../stores/agents';
+import { useCardStore } from '../stores/cards';
 import type { AgentRole, AgentSession } from '../types/view-models';
 import { createLogger } from '../utils/logger';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../utils/timestamp';
@@ -77,6 +78,7 @@ const log = createLogger('view:agents');
 const route = useRoute();
 const router = useRouter();
 const agentStore = useAgentStore();
+const cardStore = useCardStore();
 const { sessionsByRole, loading, error, unauthorized, isStale, conversationWarning } = storeToRefs(agentStore);
 const errorMsg = computed(() => error.value);
 
@@ -100,6 +102,12 @@ function fmtDate(ts: string): string { return formatTimestamp(ts, isRecentTimest
 
 function selectSession(id: string): void { void router.push({ name: 'agent-detail', params: { id } }); }
 function backToAgents(): void { void router.push({ name: 'agents' }); }
+function goToCard(id: string): void { void router.push({ name: 'card-detail', params: { id } }); }
+function cardTitle(id: string | null | undefined): string {
+  if (!id) return '';
+  const card = cardStore.cards.find((c) => c.id === id);
+  return card?.title ?? id;
+}
 
 onMounted(() => {
   agentStore.fetchSessions().catch((err) => {
@@ -126,7 +134,8 @@ onMounted(() => {
 .session-card.status-failed { border-left-color:var(--danger); }
 .session-top { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
 .session-model { font-size:11px; color:var(--text-muted); font-family:'SF Mono',monospace; }
-.session-meta { display:flex; gap:12px; font-size:11px; color:var(--text-muted); margin-bottom:4px; }
-.session-goal,.session-card-ref { font-family:'SF Mono',monospace; }
+.session-meta { display:flex; gap:var(--space-4); font-size:var(--font-size-sm); margin-bottom:var(--space-2); flex-wrap:wrap; }
+.session-card-link { background:none; border:none; cursor:pointer; font:inherit; font-size:var(--font-size-sm); color:var(--accent-2); text-decoration:underline; padding:0; }
+.session-card-link:hover { color:var(--accent); }
 .session-time { font-size:11px; color:var(--border-strong); }
 </style>
