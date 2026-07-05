@@ -6,7 +6,6 @@
     </StatusBanner>
     <template v-else-if="currentCard">
       <EntityHeader
-        :class="{ 'live-highlight': liveHighlighted }"
         data-testid="card-detail-highlight"
         :title="currentCard.title"
         :subtitle="currentCard.display_path"
@@ -141,7 +140,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import { useAnalystChat } from '../../stores/analystChat';
 import { useCardStore } from '../../stores/cards';
 import { storeToRefs } from 'pinia';
@@ -184,10 +183,8 @@ const {
 
 const detailError = computed<DetailErrorState | null>(() => currentDetailError.value);
 
-const liveHighlighted = ref(false);
 const historyOpen = ref(false);
 const confirmSeedVisible = ref(false);
-let highlightTimer: ReturnType<typeof setTimeout> | null = null;
 
 function fmtDate(ts: string): string { return ts ? formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute') : ''; }
 function statusExplainer(status: CardStatus): string {
@@ -256,13 +253,6 @@ const detailErrorTitle = computed(() => {
 function navigateCard(id: string): void { emit('navigate', id); }
 async function reloadDetail(): Promise<void> { try { await cardStore.fetchCardDetail(props.cardId); } catch (err) { log.error('fetch', err); } }
 
-function clearHighlightTimer(): void {
-  if (highlightTimer) {
-    clearTimeout(highlightTimer);
-    highlightTimer = null;
-  }
-}
-
 async function seedAnalystForCard(): Promise<void> {
   if (!currentCard.value) return;
   if (analystChat.hasDraft) {
@@ -293,14 +283,8 @@ onMounted(async () => {
   await reloadDetail();
 });
 
-onBeforeUnmount(() => {
-  clearHighlightTimer();
-});
-
 watch(() => props.cardId, async (nid, oldId) => {
   void oldId;
-  liveHighlighted.value = false;
-  clearHighlightTimer();
   if (nid) await reloadDetail();
 });
 
@@ -312,19 +296,6 @@ function actionLabel(action: string): string {
 <style scoped>
 .card-detail-container { flex:1; overflow-y:auto; padding:20px; }
 .detail-loading { padding:16px; color:var(--text-muted); font-size:13px; }
-
-.card-entity { padding-bottom:8px; }
-.card-entity.live-highlight { box-shadow:0 0 0 1px rgba(31,111,235,.45), 0 0 16px rgba(31,111,235,.18); border-radius:6px; transition:box-shadow .2s ease; }
-.card-entity__title-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-.card-entity__title { font-size:20px; font-weight:600; color:var(--text); margin:0; flex:1; min-width:0; display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
-.card-entity__path { color:var(--accent-2); font-family:'SF Mono',monospace; font-size:18px; }
-.card-entity__name { color:var(--text); }
-.card-entity__type { font-size:12px; font-weight:600; color:var(--text); padding:2px 8px; border-radius:4px; background:var(--surface-3); border:1px solid var(--border); }
-.card-entity__orientation { display:flex; flex-wrap:wrap; gap:14px; margin-top:8px; font-size:12px; color:var(--text-muted); }
-.ori-key { color:var(--text-muted); margin-right:3px; }
-.card-entity__reason { font-size:12px; margin-top:8px; }
-.tone-text-danger { color:var(--danger); }
-.tone-text-warning { color:var(--warn); }
 
 .status-banner { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:8px 12px; border-radius:6px; margin-top:10px; font-size:12px; }
 .status-banner.tone-danger { background:var(--entry-danger-bg); color:var(--danger); }

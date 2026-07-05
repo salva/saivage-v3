@@ -12,7 +12,6 @@ function mountHeader(connectionState: 'connected' | 'connecting' | 'offline' | '
       runtimeStatusLabel: 'running',
       runtimeModeLabel: 'Running',
       runtimeModeDetail: 'Root run active.',
-      hasToken: true,
       liveUpdateLabel: undefined,
     },
   });
@@ -47,7 +46,6 @@ describe('WorkspaceHeader', () => {
         runtimeStatusLabel: 'running',
         runtimeModeLabel: 'Running',
         runtimeModeDetail: 'Root run active.',
-        hasToken: false,
         liveUpdateLabel: 'Live updates offline',
       },
     });
@@ -63,7 +61,6 @@ describe('WorkspaceHeader', () => {
         runtimeModeLabel: 'Running',
         runtimeModeDetail: 'Root run active.',
         isUnauthorized: true,
-        hasToken: true,
         liveUpdateLabel: 'Live updates unauthorized',
       },
     });
@@ -75,7 +72,7 @@ describe('WorkspaceHeader', () => {
     const runtimeChip = wrapper.findAll('.header-chip')[1];
 
     expect(runtimeChip.text()).toContain('Running');
-    expect(runtimeChip.attributes('title')).toContain('Dashboard → Runtime Console');
+    expect(runtimeChip.attributes('title')).toContain('Ask the Analyst');
     expect(wrapper.findAll('.header-chip')).toHaveLength(2);
     expect(wrapper.findAll('button').map((button) => button.text())).not.toContain('Pause');
     expect(wrapper.findAll('button').map((button) => button.text())).not.toContain('Resume');

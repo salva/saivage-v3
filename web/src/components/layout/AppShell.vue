@@ -20,7 +20,6 @@
           :runtime-mode-detail="runtimeDetail"
           :is-stale="isRuntimeStale"
           :is-unauthorized="runtimeUnauthorized"
-          :has-token="hasToken"
         />
 
         <main class="workspace-content">
@@ -80,7 +79,6 @@ const {
   isStale,
   unauthorized,
 } = storeToRefs(runtimeStore);
-const { hasToken } = storeToRefs(authStore);
 
 const route = useRoute();
 const router = useRouter();

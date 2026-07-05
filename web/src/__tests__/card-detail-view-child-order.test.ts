@@ -32,7 +32,6 @@ describe('CardDetailView child order', () => {
     ];
     store.currentAncestorIds = [];
     store.currentLifecycle = { status: 'backlog', terminal: false, phase: 'ready', explanation: 'ready', completionState: 'not-started', error: null, startedAt: null, completedAt: null, durationMs: null, retries: 0, childCounts: { backlog: 3, running: 0, blocked: 0, changed: 0, done: 0, failed: 0, cancelled: 0, needs_verification: 0 }, hasActiveChildren: false, hasBlockingChildren: false, dependencyIds: [], blockedByDependencyIds: [] };
-    store.currentPlanning = null;
     store.currentDispatches = { outgoing: [], incoming: [] };
     store.fetchCardDetail = vi.fn(async () => undefined) as any;
 

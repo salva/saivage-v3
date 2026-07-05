@@ -33,7 +33,6 @@ import {
 } from './card-presentation';
 import type {
   CardLifecycleSummary,
-  CardPlanningSummary,
   DispatchSummary,
 } from './card-detail-view-model';
 import { toCardDetailViewModel } from './card-detail-view-model';
@@ -53,7 +52,6 @@ export const useCardStore = defineStore('cards', () => {
   const currentAncestorIds = ref<string[]>([]);
   const currentAncestorRefs = ref<CardRefView[]>([]);
   const currentLifecycle = ref<CardLifecycleSummary | null>(null);
-  const currentPlanning = ref<CardPlanningSummary | null>(null);
   const currentDispatches = ref<DispatchSummary | null>(null);
   const currentDetailError = ref<DetailErrorState | null>(null);
   const currentDetailFreshness = ref<DetailFreshnessState>(createEmptyDetailState());
@@ -62,15 +60,11 @@ export const useCardStore = defineStore('cards', () => {
 
   const filterStatus = ref<CardStatus | ''>('');
   const filterType = ref<CardType | ''>('');
-  const filterParent = ref<string>('');
-  const filterTag = ref<string>('');
   const searchQuery = ref<string>('');
 
   const activeFilters = computed(() => ({
     status: filterStatus.value,
     type: filterType.value,
-    parent: filterParent.value,
-    tag: filterTag.value,
     query: searchQuery.value,
   }));
 
@@ -103,7 +97,6 @@ export const useCardStore = defineStore('cards', () => {
     currentAncestorIds.value = [];
     currentAncestorRefs.value = [];
     currentLifecycle.value = null;
-    currentPlanning.value = null;
     currentDispatches.value = null;
     currentDetailError.value = null;
     currentDetailFreshness.value = createEmptyDetailState();
@@ -166,7 +159,6 @@ export const useCardStore = defineStore('cards', () => {
       currentAncestorIds.value = viewModel.ancestorIds;
       currentAncestorRefs.value = viewModel.ancestorRefs;
       currentLifecycle.value = viewModel.lifecycle ?? null;
-      currentPlanning.value = viewModel.planning ?? null;
       currentDispatches.value = viewModel.dispatches ?? null;
       resetDetailFreshness();
       clearCurrentCardStaleNotification(response.card.id);
@@ -200,8 +192,6 @@ export const useCardStore = defineStore('cards', () => {
   function clearFilters(): void {
     filterStatus.value = '';
     filterType.value = '';
-    filterParent.value = '';
-    filterTag.value = '';
     searchQuery.value = '';
   }
 
@@ -224,7 +214,6 @@ export const useCardStore = defineStore('cards', () => {
     currentAncestorIds,
     currentAncestorRefs,
     currentLifecycle,
-    currentPlanning,
     currentDispatches,
     currentDetailError,
     currentDetailFreshness,
@@ -242,8 +231,6 @@ export const useCardStore = defineStore('cards', () => {
     currentCardHasStaleWarning,
     filterStatus,
     filterType,
-    filterParent,
-    filterTag,
     searchQuery,
     filteredCards,
     orderedFilteredCards,

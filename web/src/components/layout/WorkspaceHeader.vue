@@ -48,7 +48,6 @@ const props = defineProps<{
   runtimeModeDetail?: string;
   isStale?: boolean;
   isUnauthorized?: boolean;
-  hasToken?: boolean;
 }>();
 
 const wsLabel = computed(() => {

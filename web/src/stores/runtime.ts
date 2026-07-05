@@ -62,7 +62,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
   const activations = ref<RuntimeActivationRecord[]>([]);
   const lastCommand = ref<RuntimeCommandRecord | null>(null);
   const lastActionableError = ref<ActionableErrorEnvelope | null>(null);
-  const commandInFlight = ref<RuntimeCommandRecord['command'] | null>(null);
 
   const status = computed<RuntimeStatus>(() => runtime.value?.status ?? 'stopped');
   const isRunning = computed(() => status.value === 'running');
@@ -71,7 +70,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
   const rootRun = computed(() => currentRun.value);
   const commandDisabledReason = computed(() => {
     if (loading.value) return 'Runtime state is still loading.';
-    if (commandInFlight.value) return `Runtime command ${commandInFlight.value} is already in flight.`;
     if (unauthorized.value) return 'Runtime commands require a valid API token.';
     return null;
   });
@@ -177,7 +175,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
     activations: readonly(activations),
     lastCommand: readonly(lastCommand),
     lastActionableError: readonly(lastActionableError),
-    commandInFlight: readonly(commandInFlight),
     loading: readonly(loading),
     error: readonly(error),
     lastFetchedAt: readonly(lastFetchedAt),

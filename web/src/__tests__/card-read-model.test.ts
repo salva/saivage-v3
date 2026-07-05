@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CardRecord } from '../api/types';
-import { buildTree, selectAvailableTags, selectBoardColumns, selectChildrenOf, selectFilteredCards } from '../stores/card-presentation';
+import { buildTree, selectBoardColumns, selectChildrenOf, selectFilteredCards } from '../stores/card-presentation';
 
 function card(overrides: Partial<CardRecord>): CardRecord {
   return {
@@ -34,7 +34,7 @@ describe('card-presentation', () => {
       card({ id: 'other', title: 'Gamma', priority: 10, tags: ['api'] }),
     ];
 
-    expect(selectFilteredCards(cards, { status: '', type: '', parent: '', tag: 'ui', query: '' }).map((entry) => entry.id)).toEqual(['high', 'low']);
+    expect(selectFilteredCards(cards, { status: '', type: '', query: '' }).map((entry) => entry.id)).toEqual(['other', 'high', 'low']);
   });
 
   it('builds trees and ordered child projections from authoritative card records', () => {
@@ -48,13 +48,12 @@ describe('card-presentation', () => {
     expect(selectChildrenOf(cards, 'root').map((entry) => entry.id)).toEqual(['child-a', 'child-b']);
   });
 
-  it('selects board columns and available tags as pure projections', () => {
+  it('selects board columns as pure projections', () => {
     const cards = [
       card({ id: 'done', status: 'done', tags: ['z', 'a'] }),
       card({ id: 'blocked', status: 'blocked', tags: ['a'] }),
     ];
 
     expect(selectBoardColumns(cards).get('done')?.map((entry) => entry.id)).toEqual(['done']);
-    expect(selectAvailableTags(cards)).toEqual(['a', 'z']);
   });
 });

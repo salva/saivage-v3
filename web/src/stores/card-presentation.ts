@@ -5,8 +5,6 @@ import { ApiError } from '../api/client';
 export interface CardFilterState {
   status: CardStatus | '';
   type: CardType | '';
-  parent: string;
-  tag: string;
   query: string;
 }
 
@@ -75,14 +73,12 @@ export function applyCardFilters(source: CardRecord[], filters: CardFilterState)
 
   if (filters.status) result = result.filter((card) => card.status === filters.status);
   if (filters.type) result = result.filter((card) => card.type === filters.type);
-  if (filters.tag) result = result.filter((card) => card.tags.includes(filters.tag));
   if (filters.query) {
     const q = filters.query.toLowerCase();
     result = result.filter((card) =>
       card.title.toLowerCase().includes(q)
       || card.id.toLowerCase().includes(q));
   }
-  if (filters.parent) result = result.filter((card) => card.parent === filters.parent);
 
   return result;
 }
@@ -117,16 +113,6 @@ export function selectBoardColumns(cards: CardRecord[]): Map<CardStatus, CardRec
   }
   for (const column of columns.values()) column.sort(sortCards);
   return columns;
-}
-
-export function selectAvailableTags(cards: CardRecord[]): string[] {
-  const tags = new Set<string>();
-  for (const card of cards) {
-    for (const tag of card.tags) {
-      if (tag) tags.add(tag);
-    }
-  }
-  return [...tags].sort();
 }
 
 export function selectChildrenOf(cards: CardRecord[], parentId: string): CardRecord[] {
