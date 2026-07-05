@@ -310,9 +310,9 @@ describe('DebugView — MCP tab', () => {
     await flushPromises();
 
     // Should show loading text
-    const loadingEl = wrapper.find('.debug-loading');
+    const loadingEl = wrapper.find('.view-state');
     expect(loadingEl.exists()).toBe(true);
-    expect(loadingEl.text()).toBe('Loading MCP tools...');
+    expect(loadingEl.text()).toContain('Loading MCP tools...');
 
     // Cleanup
     neverResolve!();
@@ -329,15 +329,12 @@ describe('DebugView — MCP tab', () => {
 
     // Should show the error element with the generic fallback error message
     // (the store uses 'Failed to fetch MCP tools' for non-ApiError exceptions)
-    const errorEl = wrapper.find('.debug-error');
+    const errorEl = wrapper.find('.view-state.tone-danger');
     expect(errorEl.exists()).toBe(true);
-    expect(errorEl.text()).toBe('Failed to fetch MCP tools');
+    expect(errorEl.text()).toContain('Failed to fetch MCP tools');
 
-    // The error element should NOT show loading text
-    expect(wrapper.find('.debug-loading').exists()).toBe(false);
-
-    // The error element should NOT show empty-server text
-    expect(wrapper.find('.debug-empty').exists()).toBe(false);
+    expect(wrapper.findAll('.view-state.tone-pending').length).toBe(0);
+    expect(wrapper.findAll('.view-state.tone-neutral').length).toBe(0);
   });
 
   it('renders ApiError message when MCP store catches an ApiError', async () => {
@@ -363,9 +360,9 @@ describe('DebugView — MCP tab', () => {
     await flushPromises();
 
     // The store should preserve the ApiError message (not the generic fallback)
-    const errorEl = wrapper.find('.debug-error');
+    const errorEl = wrapper.find('.view-state.tone-danger');
     expect(errorEl.exists()).toBe(true);
-    expect(errorEl.text()).toBe('Bad Gateway: upstream MCP broker unavailable');
+    expect(errorEl.text()).toContain('Bad Gateway: upstream MCP broker unavailable');
   });
 
   it('shows error state only after loading completes (not during loading)', async () => {
@@ -399,8 +396,8 @@ describe('DebugView — MCP tab', () => {
     await flushPromises();
 
     // While loading, we should see the loading element, NOT the error element
-    expect(wrapper.find('.debug-loading').exists()).toBe(true);
-    expect(wrapper.find('.debug-error').exists()).toBe(false);
+    expect(wrapper.find('.view-state.tone-pending').exists()).toBe(true);
+    expect(wrapper.find('.view-state.tone-danger').exists()).toBe(false);
 
     // Now reject the promise — loading becomes false, error becomes set
     rejectFn!(new Error('Connection refused'));
@@ -409,9 +406,9 @@ describe('DebugView — MCP tab', () => {
     await flushPromises();
 
     // Now we should see the error element with the generic fallback
-    expect(wrapper.find('.debug-loading').exists()).toBe(false);
-    expect(wrapper.find('.debug-error').exists()).toBe(true);
-    expect(wrapper.find('.debug-error').text()).toBe('Failed to fetch MCP tools');
+    expect(wrapper.find('.view-state.tone-pending').exists()).toBe(false);
+    expect(wrapper.find('.view-state.tone-danger').exists()).toBe(true);
+    expect(wrapper.find('.view-state.tone-danger').text()).toContain('Failed to fetch MCP tools');
   });
 
   // ── Empty / zero-server state ───────────────────────────────
@@ -438,9 +435,9 @@ describe('DebugView — MCP tab', () => {
     clickMcpTab(wrapper);
     await flushPromises();
 
-    const emptyEl = wrapper.find('.debug-empty');
+    const emptyEl = wrapper.find('.view-state.tone-neutral');
     expect(emptyEl.exists()).toBe(true);
-    expect(emptyEl.text()).toBe('No MCP servers configured or running.');
+    expect(emptyEl.text()).toContain('No MCP servers configured or running.');
   });
 
   // ── Summary section ─────────────────────────────────────────
@@ -535,7 +532,7 @@ describe('DebugView — MCP tab', () => {
     await flushPromises();
 
     // There should be a "No tools discovered." message inside the server section
-    const emptyEls = wrapper.findAll('.debug-empty');
+    const emptyEls = wrapper.findAll('.view-state');
     const emptyTexts = emptyEls.map((e) => e.text());
     expect(emptyTexts.some((t) => t.includes('No tools discovered'))).toBe(true);
   });
