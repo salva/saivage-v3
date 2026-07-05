@@ -1,5 +1,5 @@
 /**
- * Pinia store for card data.
+ * Card domain store — single authoritative source for card data, selectors, and detail view models.
  */
 
 import { defineStore } from 'pinia';
@@ -13,33 +13,282 @@ import type {
   CardDetailResponse,
   DetailErrorState,
   DetailFreshnessState,
+  CardDiffRow,
+  CardHistoryEntry,
+  CardHistoryHeader,
 } from '../api/types';
 import {
   listCards,
   getCard,
+  getCardDiff,
+  getCardHistoryEntry,
+  listCardHistory,
   ApiError,
 } from '../api/client';
 import { createLogger } from '../utils/logger';
-import {
-  buildDetailError,
-  buildTree,
-  createEmptyDetailState,
-  createFreshDetailState,
-  errorMessage,
-  markDetailStaleState,
-  selectBoardColumns,
-  selectFilteredCards,
-  selectOrderedFilteredCards,
-} from './card-presentation';
-import type {
-  CardLifecycleSummary,
-  DispatchSummary,
-} from './card-detail-view-model';
-import { toCardDetailViewModel } from './card-detail-view-model';
-import { createCardHistoryState } from './card-history-state';
 
 const log = createLogger('store:cards');
 let cardDetailRequestSeq = 0;
+
+/* ─── Selectors ───────────────────────────────────────────────────────────── */
+
+const CARD_STATUSES: CardStatus[] = ['backlog', 'running', 'blocked', 'changed', 'done', 'failed', 'cancelled', 'needs_verification'];
+
+export interface CardFilterState {
+  status: CardStatus | '';
+  type: CardType | '';
+  query: string;
+}
+
+export function buildDetailError(err: unknown, fallback: string): DetailErrorState {
+  if (err instanceof ApiError) {
+    if (err.isUnauthorized) {
+      return { kind: 'unauthorized', status: err.status, message: err.message || 'Unauthorized.' };
+    }
+    if (err.isNotFound) {
+      return { kind: 'not-found', status: err.status, message: err.message || 'Card not found.' };
+    }
+    if (err.status >= 500) {
+      return { kind: 'server', status: err.status, message: err.message || fallback };
+    }
+    return { kind: 'unknown', status: err.status, message: err.message || fallback };
+  }
+  if (err instanceof Error) {
+    return { kind: 'network', status: null, message: err.message || fallback };
+  }
+  return { kind: 'unknown', status: null, message: fallback };
+}
+
+export function errorMessage(err: unknown, fallback: string): string {
+  if (err instanceof ApiError) return err.message;
+  if (err instanceof Error) return err.message;
+  return fallback;
+}
+
+export function buildTree(cards: CardRecord[]): CardRecord[] {
+  const byId = new Map<string, CardRecord & { children?: CardRecord[] }>();
+  const roots: CardRecord[] = [];
+
+  for (const card of cards) {
+    byId.set(card.id, { ...card, children: [] });
+  }
+
+  for (const card of byId.values()) {
+    if (card.parent && byId.has(card.parent)) {
+      const parent = byId.get(card.parent)!;
+      if (!parent.children) parent.children = [];
+      parent.children.push(card);
+    } else {
+      roots.push(card);
+    }
+  }
+
+  return roots;
+}
+
+export function sortCards(a: CardRecord, b: CardRecord): number {
+  if (a.priority !== b.priority) return b.priority - a.priority;
+  return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+}
+
+export function sortCardsByParentPosition(a: CardRecord, b: CardRecord): number {
+  const pa = a.position ?? Number.POSITIVE_INFINITY;
+  const pb = b.position ?? Number.POSITIVE_INFINITY;
+  if (pa !== pb) return pa - pb;
+  return a.id.localeCompare(b.id);
+}
+
+export function applyCardFilters(source: CardRecord[], filters: CardFilterState): CardRecord[] {
+  let result = source;
+
+  if (filters.status) result = result.filter((card) => card.status === filters.status);
+  if (filters.type) result = result.filter((card) => card.type === filters.type);
+  if (filters.query) {
+    const q = filters.query.toLowerCase();
+    result = result.filter((card) =>
+      card.title.toLowerCase().includes(q)
+      || card.id.toLowerCase().includes(q));
+  }
+
+  return result;
+}
+
+export function selectFilteredCards(source: CardRecord[], filters: CardFilterState): CardRecord[] {
+  return [...applyCardFilters(source, filters)].sort(sortCards);
+}
+
+export function selectOrderedFilteredCards(source: CardRecord[], filters: CardFilterState): CardRecord[] {
+  const matched = applyCardFilters(source, filters);
+  if (matched.length === source.length) return matched;
+  const byId = new Map(source.map((card) => [card.id, card]));
+  const included = new Set(matched.map((card) => card.id));
+  for (const card of matched) {
+    let parentId = card.parent;
+    while (parentId) {
+      const parent = byId.get(parentId);
+      if (!parent) break;
+      included.add(parent.id);
+      parentId = parent.parent;
+    }
+  }
+  return source.filter((card) => included.has(card.id));
+}
+
+export function selectBoardColumns(cards: CardRecord[]): Map<CardStatus, CardRecord[]> {
+  const columns = new Map<CardStatus, CardRecord[]>();
+  for (const status of CARD_STATUSES) columns.set(status, []);
+  for (const card of cards) {
+    const column = columns.get(card.status);
+    if (column) column.push(card);
+  }
+  for (const column of columns.values()) column.sort(sortCards);
+  return columns;
+}
+
+export function selectChildrenOf(cards: CardRecord[], parentId: string): CardRecord[] {
+  return cards.filter((card) => card.parent === parentId).slice().sort(sortCardsByParentPosition);
+}
+
+export function createFreshDetailState(nowIso: string): DetailFreshnessState {
+  return {
+    isStale: false,
+    lastLoadedAt: nowIso,
+    staleReason: null,
+  };
+}
+
+export function createEmptyDetailState(): DetailFreshnessState {
+  return {
+    isStale: false,
+    lastLoadedAt: null,
+    staleReason: null,
+  };
+}
+
+export function markDetailStaleState(state: DetailFreshnessState, reason: DetailFreshnessState['staleReason']): DetailFreshnessState {
+  return {
+    ...state,
+    isStale: true,
+    staleReason: reason,
+  };
+}
+
+/* ─── Detail View Model ───────────────────────────────────────────────────── */
+
+export interface CardLifecycleSummary {
+  status: CardStatus;
+  terminal: boolean;
+  phase: 'planned' | 'ready' | 'running' | 'blocked' | 'completed' | 'failed' | 'cancelled';
+  explanation: string;
+  completionState: 'not-started' | 'in-progress' | 'blocked' | 'failed' | 'cancelled' | 'marked-done';
+  error: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  durationMs: number | null;
+  retries: number;
+  childCounts: Record<CardStatus, number>;
+  hasActiveChildren: boolean;
+  hasBlockingChildren: boolean;
+  dependencyIds: string[];
+  blockedByDependencyIds: string[];
+}
+
+export interface DispatchSummaryItem {
+  dispatchId: string;
+  direction: 'outgoing' | 'incoming';
+  parentCardId: string;
+  targetCardId: string;
+  targetKind: 'goal' | 'terminal_card';
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'blocked' | 'cancelled' | 'timed_out';
+  outcome: 'done' | 'failed' | 'blocked' | 'cancelled' | 'timed_out' | null;
+  summary: string | null;
+  error: string | null;
+  evidenceCardIds: string[];
+  completedAt: string | null;
+}
+
+export interface DispatchSummary {
+  outgoing: DispatchSummaryItem[];
+  incoming: DispatchSummaryItem[];
+}
+
+export interface CardDetailViewModel {
+  card: CardRecord;
+  children: CardRecord[];
+  ancestorIds: string[];
+  ancestorRefs: CardRefView[];
+  lifecycle?: CardLifecycleSummary | null;
+  dispatches?: DispatchSummary | null;
+}
+
+const terminalStatuses = new Set<CardStatus>(['done', 'failed', 'cancelled']);
+
+function lifecyclePhase(status: CardStatus): CardLifecycleSummary['phase'] {
+  switch (status) {
+    case 'backlog': return 'planned';
+    case 'running': return 'running';
+    case 'blocked': return 'blocked';
+    case 'done': return 'completed';
+    case 'failed': return 'failed';
+    case 'cancelled': return 'cancelled';
+    default: return 'ready';
+  }
+}
+
+function completionState(status: CardStatus): CardLifecycleSummary['completionState'] {
+  switch (status) {
+    case 'backlog': return 'not-started';
+    case 'blocked': return 'blocked';
+    case 'failed': return 'failed';
+    case 'cancelled': return 'cancelled';
+    case 'done': return 'marked-done';
+    default: return 'in-progress';
+  }
+}
+
+export function deriveCardLifecycleSummary(card: CardRecord, children: CardRecord[] = []): CardLifecycleSummary {
+  const childCounts = {
+    backlog: 0,
+    running: 0,
+    blocked: 0,
+    changed: 0,
+    done: 0,
+    failed: 0,
+    cancelled: 0,
+    needs_verification: 0,
+  } satisfies Record<CardStatus, number>;
+  for (const child of children) childCounts[child.status] += 1;
+  return {
+    status: card.status,
+    terminal: terminalStatuses.has(card.status),
+    phase: lifecyclePhase(card.status),
+    explanation: '',
+    completionState: completionState(card.status),
+    error: card.lifecycle?.error ?? null,
+    startedAt: card.started_at ?? null,
+    completedAt: card.lifecycle?.completed_at ?? null,
+    durationMs: null,
+    retries: card.retries,
+    childCounts,
+    hasActiveChildren: children.some((child) => child.status === 'running'),
+    hasBlockingChildren: children.some((child) => child.status === 'blocked' || child.status === 'failed'),
+    dependencyIds: card.depends_on,
+    blockedByDependencyIds: [],
+  };
+}
+
+export function toCardDetailViewModel(response: { card: CardRecord; children: CardRecord[]; ancestorIds: string[]; ancestorRefs?: CardRefView[] }): CardDetailViewModel {
+  return {
+    card: response.card,
+    children: response.children,
+    ancestorIds: response.ancestorIds,
+    ancestorRefs: response.ancestorRefs ?? response.ancestorIds.map((id) => ({ id, display_path: null, title: null })),
+    lifecycle: deriveCardLifecycleSummary(response.card, response.children),
+    dispatches: null,
+  };
+}
+
+/* ─── Pinia Store ─────────────────────────────────────────────────────────── */
 
 export const useCardStore = defineStore('cards', () => {
   const cards = ref<CardRecord[]>([]);
@@ -113,26 +362,93 @@ export const useCardStore = defineStore('cards', () => {
     setCardStaleNotification(cardId, false);
   }
 
-  const historyState = createCardHistoryState({
-    currentVersionSeq: () => currentCard.value?.version_seq,
-    clearCurrentCardStaleNotification,
-  });
-  const { clearCardHistoryState, fetchCardHistoryForCard, selectCardHistoryVersion } = historyState;
-
-
   function isStale(cardId: string): boolean {
     return staleNotificationByCard.value[cardId] === true;
   }
 
-  async function fetchCardsInternal(): Promise<CardListResponse> {
-    return listCards();
+  /* ── Card History (inlined) ── */
+
+  const cardHistory = ref<CardHistoryHeader[]>([]);
+  const cardHistoryLoading = ref(false);
+  const cardHistoryError = ref<DetailErrorState | null>(null);
+  const cardHistorySelectedSeq = ref<number | null>(null);
+  const cardHistoryEntry = ref<CardHistoryEntry | null>(null);
+  const cardHistoryEntryLoading = ref(false);
+  const cardHistoryEntryError = ref<DetailErrorState | null>(null);
+  const cardHistoryDiff = ref<CardDiffRow[]>([]);
+  const cardHistoryDiffLoading = ref(false);
+  const cardHistoryDiffError = ref<DetailErrorState | null>(null);
+
+  function clearCardHistoryState(): void {
+    cardHistory.value = [];
+    cardHistoryLoading.value = false;
+    cardHistoryError.value = null;
+    cardHistorySelectedSeq.value = null;
+    cardHistoryEntry.value = null;
+    cardHistoryEntryLoading.value = false;
+    cardHistoryEntryError.value = null;
+    cardHistoryDiff.value = [];
+    cardHistoryDiffLoading.value = false;
+    cardHistoryDiffError.value = null;
   }
+
+  async function fetchCardHistoryForCard(cardId: string): Promise<void> {
+    cardHistoryLoading.value = true;
+    cardHistoryError.value = null;
+    try {
+      const response = await listCardHistory(cardId);
+      cardHistory.value = response.history;
+      clearCurrentCardStaleNotification(cardId);
+      if (response.history.length === 0) {
+        cardHistorySelectedSeq.value = null;
+        cardHistoryEntry.value = null;
+        cardHistoryDiff.value = [];
+      }
+    } catch (err) {
+      cardHistoryError.value = buildDetailError(err, 'Failed to load card history');
+    } finally {
+      cardHistoryLoading.value = false;
+    }
+  }
+
+  async function selectCardHistoryVersion(cardId: string, seq: number): Promise<void> {
+    cardHistorySelectedSeq.value = seq;
+    cardHistoryEntryLoading.value = true;
+    cardHistoryEntryError.value = null;
+    cardHistoryDiffLoading.value = true;
+    cardHistoryDiffError.value = null;
+    try {
+      const [entryResponse, diffResponse] = await Promise.all([
+        getCardHistoryEntry(cardId, seq),
+        getCardDiff(cardId, seq, currentCard.value?.version_seq ?? seq + 1),
+      ]);
+      cardHistoryEntry.value = entryResponse.entry;
+      cardHistoryDiff.value = diffResponse.diff;
+    } catch (err) {
+      const panelError = buildDetailError(err, 'Failed to load card history details');
+      cardHistoryEntryError.value = panelError;
+      cardHistoryDiffError.value = panelError;
+    } finally {
+      cardHistoryEntryLoading.value = false;
+      cardHistoryDiffLoading.value = false;
+    }
+  }
+
+  async function refreshCardHistory(cardId?: string | null): Promise<void> {
+    if (!cardId) return;
+    await fetchCardHistoryForCard(cardId);
+    if (cardHistorySelectedSeq.value != null) {
+      await selectCardHistoryVersion(cardId, cardHistorySelectedSeq.value);
+    }
+  }
+
+  /* ── Fetch actions ── */
 
   async function fetchCards(): Promise<void> {
     loading.value = true;
     error.value = null;
     try {
-      const response = await fetchCardsInternal();
+      const response: CardListResponse = await listCards();
       cards.value = response.cards;
       total.value = response.total;
     } catch (err) {
@@ -180,11 +496,6 @@ export const useCardStore = defineStore('cards', () => {
     }
   }
 
-  async function refreshCardHistory(cardId?: string): Promise<void> {
-    await historyState.refreshCardHistory(cardId ?? currentCard.value?.id);
-  }
-
-
   async function applyFilters(): Promise<void> {
     await fetchCards();
   }
@@ -217,16 +528,16 @@ export const useCardStore = defineStore('cards', () => {
     currentDispatches,
     currentDetailError,
     currentDetailFreshness,
-    cardHistory: historyState.cardHistory,
-    cardHistoryLoading: historyState.cardHistoryLoading,
-    cardHistoryError: historyState.cardHistoryError,
-    cardHistorySelectedSeq: historyState.cardHistorySelectedSeq,
-    cardHistoryEntry: historyState.cardHistoryEntry,
-    cardHistoryEntryLoading: historyState.cardHistoryEntryLoading,
-    cardHistoryEntryError: historyState.cardHistoryEntryError,
-    cardHistoryDiff: historyState.cardHistoryDiff,
-    cardHistoryDiffLoading: historyState.cardHistoryDiffLoading,
-    cardHistoryDiffError: historyState.cardHistoryDiffError,
+    cardHistory,
+    cardHistoryLoading,
+    cardHistoryError,
+    cardHistorySelectedSeq,
+    cardHistoryEntry,
+    cardHistoryEntryLoading,
+    cardHistoryEntryError,
+    cardHistoryDiff,
+    cardHistoryDiffLoading,
+    cardHistoryDiffError,
     staleNotificationByCard,
     currentCardHasStaleWarning,
     filterStatus,

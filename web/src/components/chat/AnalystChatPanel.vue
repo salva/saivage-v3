@@ -71,7 +71,7 @@ import { storeToRefs } from 'pinia';
 import type { ActivityStatus, AgentConversationEntry } from '../../types/view-models';
 import { useAnalystChat } from '../../stores/analystChat';
 import { useCardStore } from '../../stores/cards';
-import { selectChildrenOf } from '../../stores/card-presentation';
+import { selectChildrenOf } from '../../stores/cards';
 import { useWorkspaceRouteStore } from '../../stores/workspaceRoute';
 import { useAgentTimeline } from '../../composables/useAgentTimeline';
 import ConversationTimeline from '../conversation/ConversationTimeline.vue';

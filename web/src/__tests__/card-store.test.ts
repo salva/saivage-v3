@@ -9,7 +9,7 @@ vi.mock('../api/client', () => ({
 
 import { getCard, ApiError } from '../api/client';
 import { useCardStore } from '../stores/cards';
-import { selectChildrenOf } from '../stores/card-presentation';
+import { selectChildrenOf } from '../stores/cards';
 
 function setupStore() { setActivePinia(createPinia()); vi.clearAllMocks(); return useCardStore(); }
 function makeCard(overrides: Partial<CardRecord> = {}): CardRecord { const id = overrides.id || 'c1'; const lifecycle = overrides.lifecycle ?? { status: overrides.status ?? 'running', result: null, error: null, completed_at: null } as CardRecord['lifecycle']; return { id, type: 'code', parent: null, depth: 0, position: 0, title: `Card ${id}`, status: 'running', tags: [], priority: 5, urgency: 'normal', created_by: 'user', created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z', version_seq: 1, depends_on: [], related: [], retries: 0, ...overrides, display_path: overrides.display_path ?? null, lifecycle, operator_summary: overrides.operator_summary ?? { lifecycleStatus: lifecycle.status, terminal: false, needsVerification: lifecycle.status === 'needs_verification', blocked: lifecycle.status === 'blocked', hasError: Boolean(lifecycle.error), error: lifecycle.error ?? null, completedAt: lifecycle.completed_at ?? null, stale: lifecycle.status === 'changed', actionCount: 0 } }; }

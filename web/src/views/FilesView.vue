@@ -89,7 +89,7 @@ import { storeToRefs } from 'pinia';
 import { useFileStore } from '../stores/files';
 import { useLiveSyncStore } from '../stores/liveSync';
 import { useCardStore } from '../stores/cards';
-import { selectChildrenOf } from '../stores/card-presentation';
+import { selectChildrenOf } from '../stores/cards';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../utils/timestamp';
 import { formatJson } from '../utils/format-json';
 import CodeBlock from '../components/content/CodeBlock.vue';
