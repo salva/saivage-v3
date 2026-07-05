@@ -67,6 +67,21 @@
       @saved="handleTokenSaved"
       @cleared="handleTokenCleared"
     />
+
+    <Dialog :visible="showShortcutHelp" title-id="shortcut-help-title" @dismiss="showShortcutHelp = false">
+      <div class="shortcut-help">
+        <div class="shortcut-help-header">
+          <h2 id="shortcut-help-title" class="shortcut-help-title">Keyboard shortcuts</h2>
+          <button type="button" class="shortcut-help-close" aria-label="Close" @click="showShortcutHelp = false">&times;</button>
+        </div>
+        <dl class="shortcut-list">
+          <div class="shortcut-row"><dt><kbd>1</kbd>–<kbd>6</kbd></dt><dd>Switch workspace section</dd></div>
+          <div class="shortcut-row"><dt><kbd>/</kbd></dt><dd>Focus Analyst chat</dd></div>
+          <div class="shortcut-row"><dt><kbd>?</kbd></dt><dd>Show this help</dd></div>
+          <div class="shortcut-row"><dt><kbd>Esc</kbd></dt><dd>Close dialog</dd></div>
+        </dl>
+      </div>
+    </Dialog>
   </div>
 </template>
 
@@ -81,6 +96,7 @@ import ApiTokenEntry from '../auth/ApiTokenEntry.vue';
 import AnalystChatPanel from '../chat/AnalystChatPanel.vue';
 import GlobalToaster from '../feedback/GlobalToaster.vue';
 import Button from '../ui/Button.vue';
+import Dialog from '../ui/Dialog.vue';
 import { useRuntimeStore } from '../../stores/runtime';
 import { useAuthStore } from '../../stores/auth';
 import { useAnalystChat } from '../../stores/analystChat';
@@ -119,6 +135,7 @@ const showTokenDialog = ref(false);
 const projectName = computed(() => runtimeStore.projectId ?? 'saivage-v3');
 const showAuthBanner = ref(false);
 const mobileActivePane = ref<'workspace' | 'analyst'>('workspace');
+const showShortcutHelp = ref(false);
 const analystActivityDot = computed(() => analystChat.pendingToolInvocations.length > 0 || analystChat.sending);
 
 const sectionLabels: Record<string, string> = {
@@ -157,6 +174,10 @@ function handleKeydown(event: KeyboardEvent): void {
     event.preventDefault();
     mobileActivePane.value = 'analyst';
     window.dispatchEvent(new CustomEvent('saivage:focus-chat'));
+  }
+  if (key === '?' && !event.ctrlKey && !event.metaKey) {
+    event.preventDefault();
+    showShortcutHelp.value = true;
   }
 }
 
@@ -312,6 +333,16 @@ onUnmounted(() => {
 }
 .auth-banner strong { color:var(--danger); }
 .auth-banner-dismiss { margin-left:auto; }
+
+.shortcut-help { min-width:280px; max-width:400px; }
+.shortcut-help-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
+.shortcut-help-title { margin:0; font-size:15px; font-weight:700; color:var(--text); }
+.shortcut-help-close { background:none; border:none; font-size:20px; color:var(--text-muted); cursor:pointer; padding:0; line-height:1; }
+.shortcut-list { margin:0; display:flex; flex-direction:column; gap:10px; }
+.shortcut-row { display:flex; align-items:baseline; gap:12px; }
+.shortcut-row dt { flex-shrink:0; min-width:80px; }
+.shortcut-row dd { margin:0; color:var(--text); font-size:13px; }
+kbd { display:inline-block; padding:1px 6px; border:1px solid var(--border-strong); border-radius:4px; background:var(--surface-2); color:var(--text); font-family:var(--font-mono); font-size:11px; }
 
 .fade-enter-active,
 .fade-leave-active {
