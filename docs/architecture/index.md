@@ -16,7 +16,7 @@ Current architecture documents:
 - [Shared tool invocation design](./shared-tool-invocation-design.md)
 - [Interrupted activation recovery design](./interrupted-activation-recovery-design.md)
 - [Tool cancellation design](./tool-cancellation-design.md)
-- [Work slot design](./work-slot-design.md)
+- [Actor result channel design](./actor-result-channel-design.md)
 - [Remaining work consolidated plan](./remaining-work-consolidated-plan.md)
 - [Future capabilities plan](./future-capabilities-plan.md)
 - [Operator UI/UX audit](./operator-ui-audit.md)
