@@ -1,14 +1,13 @@
 <template>
   <div class="timeline-container">
-    <div v-if="sortedEvents.length === 0" class="tl-empty">
-      No card events to display. Activity will appear here as cards are created, transition status, and complete.
-    </div>
+    <ViewState v-if="sortedEvents.length === 0" state="empty" title="No card events" message="Activity will appear here as cards are created, transition status, and complete." />
     <div v-else class="timeline-track">
-      <div
+      <SelectableRow
         v-for="event in sortedEvents"
         :key="event.card.id + '-' + event.card.status"
+        as="div"
         class="timeline-event"
-        @click="emit('select', event.card.id)"
+        @select="emit('select', event.card.id)"
       >
         <div class="tl-marker" :class="'status-' + event.card.status">
           <span class="tl-icon">{{ statusIcon(event.card.status) }}</span>
@@ -20,7 +19,7 @@
             {{ event.card.title }}
           </div>
           <div class="tl-meta">
-            <span class="tl-status" :class="'status-' + event.card.status">{{ event.card.status }}</span>
+            <StatusBadge :status="statusForCard(event.card.status)" />
             <span class="tl-time" :title="timestampTitle(event.mostRecent)">{{ formatTime(event.mostRecent) }}</span>
             <span v-if="event.card.duration_ms" class="tl-duration">
               {{ formatDuration(event.card.duration_ms) }}
@@ -28,7 +27,7 @@
           </div>
           <div v-if="event.card.lifecycle.error" class="tl-error">{{ event.card.lifecycle.error }}</div>
         </div>
-      </div>
+      </SelectableRow>
     </div>
   </div>
 </template>
@@ -37,6 +36,10 @@
 import { computed } from 'vue';
 import type { CardRecord, CardStatus, CardType } from '../../types/view-models';
 import { formatTimestamp, timestampTitle } from '../../utils/timestamp';
+import { statusForCard } from '../../utils/status';
+import SelectableRow from '../ui/SelectableRow.vue';
+import StatusBadge from '../ui/StatusBadge.vue';
+import ViewState from '../ui/ViewState.vue';
 
 const props = defineProps<{
   cards: CardRecord[];
@@ -102,12 +105,7 @@ function formatDuration(ms: number | null | undefined): string {
   overflow-y: auto;
 }
 
-.tl-empty {
-  padding: 32px;
-  text-align: center;
-  color: var(--border-strong);
-  font-size: 13px;
-}
+.timeline-container > :deep(.view-state) { padding: 32px; justify-content: center; text-align: center; }
 
 .timeline-track {
   position: relative;
@@ -125,10 +123,8 @@ function formatDuration(ms: number | null | undefined): string {
 }
 
 .timeline-event {
-  display: flex;
   gap: 14px;
   padding: 10px 0;
-  cursor: pointer;
   position: relative;
 }
 
@@ -196,21 +192,6 @@ function formatDuration(ms: number | null | undefined): string {
   gap: 8px;
   margin-top: 3px;
 }
-
-.tl-status {
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  padding: 1px 6px;
-  border-radius: 8px;
-}
-
-.tl-status.status-done { background: var(--entry-accent-bg); color: var(--accent); }
-.tl-status.status-failed { background: var(--entry-danger-bg); color: var(--danger); }
-.tl-status.status-running { background: var(--entry-user-bg); color: var(--accent-2); }
-.tl-status.status-blocked { background: var(--entry-warn-bg); color: var(--warn); }
-.tl-status.status-backlog { background: var(--surface-3); color: var(--text); }
-.tl-status.status-cancelled { background: var(--surface-3); color: var(--border-strong); }
 
 .tl-time {
   font-size: 11px;

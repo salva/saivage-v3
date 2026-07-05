@@ -1,4 +1,4 @@
-import type { CardStatus, CardType } from '../api/types';
+import type { CardStatus, CardType, SessionStatus } from '../api/types';
 
 export type Tone =
   | 'neutral'
@@ -52,8 +52,29 @@ export const cardTypeShort: Record<CardType, string> = {
   ops: 'Ops',
 };
 
+export const agentSessionStatusTone: Record<SessionStatus, Tone> = {
+  active: 'active',
+  waiting: 'pending',
+  inactive: 'neutral',
+  done: 'success',
+  blocked: 'warning',
+  failed: 'danger',
+};
+
 export function toneForCardStatus(status: CardStatus): Tone {
   return cardStatusTone[status] ?? 'neutral';
+}
+
+export function statusForCard(status: CardStatus, description?: string): UiStatus {
+  return { label: status, tone: toneForCardStatus(status), description };
+}
+
+export function toneForAgentSessionStatus(status: SessionStatus): Tone {
+  return agentSessionStatusTone[status] ?? 'neutral';
+}
+
+export function statusForAgentSession(status: SessionStatus, description?: string): UiStatus {
+  return { label: status, tone: toneForAgentSessionStatus(status), description };
 }
 
 export function labelForCardType(type: CardType): string {

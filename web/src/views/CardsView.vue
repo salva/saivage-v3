@@ -14,8 +14,8 @@
         <button v-if="hasFilters" type="button" class="filter-clear" @click="clearFilters">Clear</button>
       </div>
       <div class="cards-md__tree">
-        <div v-if="loading" class="cards-loading">Loading cards…</div>
-        <div v-else-if="errorMsg" class="cards-error">{{ errorMsg }}</div>
+        <ViewState v-if="loading" state="loading" title="Loading cards" />
+        <ViewState v-else-if="errorMsg" state="error" title="Could not load cards" :message="errorMsg" />
         <CardsTreeView
           v-else
           :cards="orderedCards"
@@ -29,7 +29,7 @@
 
     <section class="cards-md__detail">
       <CardDetailView v-if="currentCardId" :card-id="currentCardId" @navigate="handleNavigate" />
-      <div v-else class="cards-md__empty">Select a card to inspect.</div>
+      <ViewState v-else class="cards-md__empty" state="empty" title="Select a card to inspect" />
     </section>
   </div>
 </template>
@@ -42,6 +42,7 @@ import type { CardStatus, CardType } from '../types/view-models';
 import { shortLabelForCardType } from '../utils/status';
 import CardsTreeView from '../components/cards/CardsTreeView.vue';
 import CardDetailView from '../components/cards/CardDetailView.vue';
+import ViewState from '../components/ui/ViewState.vue';
 import { useCardBrowserReadModel } from '../composables/useCardBrowserReadModel';
 
 const STATUSES: CardStatus[] = ['backlog', 'running', 'blocked', 'changed', 'done', 'failed', 'cancelled', 'needs_verification'];
@@ -105,11 +106,10 @@ onMounted(async () => {
 .filter-clear:hover { color: var(--text); border-color: var(--border-strong); }
 
 .cards-md__tree { flex: 1; overflow: auto; min-height: 0; }
-.cards-loading, .cards-error { padding: 24px; text-align: center; color: var(--text-muted); font-size: 13px; }
-.cards-error { color: var(--danger); }
+.cards-md__tree > :deep(.view-state) { padding: 24px; justify-content: center; text-align: center; }
 
 .cards-md__detail { min-height: 0; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
-.cards-md__empty { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-muted); font-size: 13px; }
+.cards-md__empty { display: flex; align-items: center; justify-content: center; height: 100%; }
 
 @media (max-width: 880px) {
   .cards-md { grid-template-columns: 1fr; }

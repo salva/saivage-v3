@@ -1,8 +1,8 @@
 <template>
   <div class="timeline-layout">
     <div class="timeline-content">
-      <div v-if="loading" class="timeline-loading">Loading timeline...</div>
-      <div v-else-if="error" class="timeline-error">{{ error }}</div>
+      <ViewState v-if="loading" state="loading" title="Loading timeline" />
+      <ViewState v-else-if="error" state="error" title="Could not load timeline" :message="error" />
       <CardsTimelineView v-else :cards="cards" @select="selectCard" />
     </div>
   </div>
@@ -13,6 +13,7 @@ import { onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useRouter } from 'vue-router';
 import CardsTimelineView from '../components/cards/CardsTimelineView.vue';
+import ViewState from '../components/ui/ViewState.vue';
 import { useCardStore } from '../stores/cards';
 
 const router = useRouter();
@@ -40,13 +41,5 @@ onMounted(() => {
   overflow: hidden;
 }
 
-.timeline-loading,
-.timeline-error {
-  padding: 32px;
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 13px;
-}
-
-.timeline-error { color: var(--danger); }
+.timeline-content > :deep(.view-state) { padding: 32px; justify-content: center; text-align: center; }
 </style>
