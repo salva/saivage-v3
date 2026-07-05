@@ -20,13 +20,7 @@
       <div v-else-if="messagesError" class="chat-status-card chat-status-error" role="alert">{{ messagesErrorLabel }}</div>
       <div v-else-if="!messagesLoading && messages.length === 0 && timelineControls.timeline.value.rounds.length === 0 && pendingToolInvocationsForActiveSession.length === 0" class="chat-status-card" role="status">No messages yet. Ask the analyst something.</div>
       <div v-else class="chat-rounds">
-        <RoundCard
-          v-for="round in timelineControls.timeline.value.rounds"
-          :key="round.id"
-          :round="round"
-          :expanded-ids="timelineControls.expandedIds.value"
-          @toggle="timelineControls.toggleExpanded"
-        />
+        <ConversationTimeline :timeline="timelineControls.timeline.value" :expanded-ids="timelineControls.expandedIds.value" @toggle="timelineControls.toggleExpanded" />
         <div v-if="sending && pendingToolInvocationsForActiveSession.length === 0" class="chat-thinking" role="status" aria-live="polite">
           <span class="thinking-dot" aria-hidden="true"></span>
           Analyst is thinking...
@@ -74,7 +68,7 @@ import { useCardStore } from '../../stores/cards';
 import { selectChildrenOf } from '../../stores/card-presentation';
 import { useWorkspaceRouteStore } from '../../stores/workspaceRoute';
 import { useAgentTimeline } from '../../composables/useAgentTimeline';
-import RoundCard from '../conversation/RoundCard.vue';
+import ConversationTimeline from '../conversation/ConversationTimeline.vue';
 import PendingToolRow from '../conversation/PendingToolRow.vue';
 
 const chat = useAnalystChat();

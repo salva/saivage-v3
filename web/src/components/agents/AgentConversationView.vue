@@ -12,7 +12,7 @@
       </div>
       <RawLlmExchangePanel v-if="rawPanelOpen" :session-id="props.sessionId" />
       <StatusBanner v-if="conversationWarning" tone="warning" :message="conversationWarning" />
-      <div class="conv-rounds"><RoundCard v-for="round in timelineControls.timeline.value.rounds" :key="round.id" :round="round" :expanded-ids="timelineControls.expandedIds.value" @toggle="timelineControls.toggleExpanded" /></div>
+      <div class="conv-rounds"><ConversationTimeline :timeline="timelineControls.timeline.value" :expanded-ids="timelineControls.expandedIds.value" @toggle="timelineControls.toggleExpanded" /></div>
     </template>
   </div>
 </template>
@@ -24,7 +24,7 @@ import { useLiveSyncStore } from '../../stores/liveSync';
 import { createLogger } from '../../utils/logger';
 import { statusForAgentSession } from '../../utils/status';
 import { useAgentTimeline } from '../../composables/useAgentTimeline';
-import RoundCard from '../conversation/RoundCard.vue';
+import ConversationTimeline from '../conversation/ConversationTimeline.vue';
 import PanelHeader from '../ui/PanelHeader.vue';
 import StatusBadge from '../ui/StatusBadge.vue';
 import StatusBanner from '../ui/StatusBanner.vue';
