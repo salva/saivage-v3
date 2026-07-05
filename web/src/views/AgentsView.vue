@@ -9,18 +9,12 @@
     </div>
 
     <template v-else>
-      <div v-if="loading" class="agents-loading">Loading agents...</div>
-      <div v-else-if="unauthorized" class="agents-state agents-unauthorized">
-        Agent sessions are unavailable until a valid API token is provided.
-      </div>
-      <div v-else-if="errorMsg" class="agents-state agents-error">{{ errorMsg }}</div>
+      <ViewState v-if="loading" class="agents-loading" state="loading" title="Loading agents" />
+      <ViewState v-else-if="unauthorized" class="agents-unauthorized" state="unauthorized" title="Agent sessions unavailable" message="Provide a valid API token to load agent sessions." />
+      <ViewState v-else-if="errorMsg" class="agents-error" state="error" title="Could not load agents" :message="errorMsg" />
       <div v-else class="agents-content">
-        <div v-if="isStale" class="agents-state agents-stale">
-          Agent session data is stale. Refresh or wait for reconnect to resync with the authoritative REST state.
-        </div>
-        <div v-if="conversationWarning" class="agents-state agents-warning">
-          {{ conversationWarning }}
-        </div>
+        <StatusBanner v-if="isStale" class="agents-stale" tone="stale" message="Agent session data is stale. Refresh or wait for reconnect to resync with the authoritative REST state." />
+        <StatusBanner v-if="conversationWarning" tone="warning" :message="conversationWarning" />
         <template v-for="entry in roleEntries" :key="entry.role">
           <div class="role-section">
             <h3 class="role-heading">
@@ -29,17 +23,16 @@
               <span class="role-count">{{ entry.sessions.length }}</span>
             </h3>
             <div class="session-list">
-              <div
+              <SelectableRow
                 v-for="session in entry.sessions"
                 :key="session.id"
                 class="session-card"
                 :class="'status-' + session.status"
-                @click="selectSession(session.id)"
+                @select="selectSession(session.id)"
               >
                 <div class="session-top">
-                  <span class="session-status-dot" :class="'s-' + session.status"></span>
                   <span class="session-model">{{ session.model || 'default' }}</span>
-                  <span class="session-status-badge" :class="'s-' + session.status">{{ session.status }}</span>
+                  <StatusBadge :status="statusForAgentSession(session.status)" show-dot />
                 </div>
                 <div class="session-meta">
                   <span v-if="session.goal_card_id" class="session-goal">Goal: {{ session.goal_card_id }}</span>
@@ -49,11 +42,11 @@
                   Started: <span :title="timestampTitle(session.started_at)">{{ fmtDate(session.started_at) }}</span>
                   <span v-if="session.completed_at"> | Completed: <span :title="timestampTitle(session.completed_at)">{{ fmtDate(session.completed_at) }}</span></span>
                 </div>
-              </div>
+              </SelectableRow>
             </div>
           </div>
         </template>
-        <div v-if="roleEntries.length === 0" class="agents-empty">No agent sessions recorded yet.</div>
+        <ViewState v-if="roleEntries.length === 0" class="agents-empty" state="empty" title="No agent sessions recorded yet" />
       </div>
     </template>
   </div>
@@ -67,7 +60,12 @@ import { useAgentStore } from '../stores/agents';
 import type { AgentRole, AgentSession } from '../types/view-models';
 import { createLogger } from '../utils/logger';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../utils/timestamp';
+import { statusForAgentSession } from '../utils/status';
 import AgentConversationView from '../components/agents/AgentConversationView.vue';
+import SelectableRow from '../components/ui/SelectableRow.vue';
+import StatusBadge from '../components/ui/StatusBadge.vue';
+import StatusBanner from '../components/ui/StatusBanner.vue';
+import ViewState from '../components/ui/ViewState.vue';
 
 const log = createLogger('view:agents');
 const route = useRoute();
@@ -106,18 +104,15 @@ onMounted(() => {
 
 <style scoped>
 .agents-layout { height:100%; display:flex; flex-direction:column; }
-.agents-loading,.agents-empty,.agents-state { padding:32px; text-align:center; color:var(--text-muted); font-size:13px; }
-.agents-error { color:var(--danger); }
-.agents-unauthorized { color:var(--orange); }
-.agents-stale { margin:0 16px 12px; padding:12px 16px; border:1px solid var(--border); border-radius:8px; background:var(--surface-1); text-align:left; }
-.agents-warning { margin:0 16px 12px; padding:12px 16px; border:1px solid var(--entry-warn-border); border-radius:8px; background:var(--entry-warn-bg); color:var(--orange); text-align:left; }
+.agents-layout > :deep(.view-state) { padding:32px; justify-content:center; text-align:center; }
 .agents-content { flex:1; overflow-y:auto; padding:16px; }
+.agents-content > :deep(.status-banner) { margin:0 0 12px; }
 .role-section { margin-bottom:20px; }
 .role-heading { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; color:var(--text); margin:0 0 10px 0; text-transform:capitalize; }
 .role-icon { font-size:11px; color:var(--text-muted); font-family:'SF Mono',monospace; }
 .role-count { font-size:11px; padding:1px 8px; border-radius:10px; background:var(--surface-3); color:var(--text-muted); }
 .session-list { display:flex; flex-direction:column; gap:8px; }
-.session-card { padding:12px; background:var(--surface-1); border:1px solid var(--surface-3); border-radius:6px; cursor:pointer; transition:border-color .15s; border-left:3px solid transparent; }
+.session-card { display:block; padding:12px; background:var(--surface-1); border:1px solid var(--surface-3); border-radius:6px; transition:border-color .15s; border-left:3px solid transparent; }
 .session-card:hover { border-color:var(--border); }
 .session-card.status-active { border-left-color:var(--accent-2); }
 .session-card.status-waiting { border-left-color:var(--warn); }
@@ -125,19 +120,7 @@ onMounted(() => {
 .session-card.status-blocked { border-left-color:var(--warn); }
 .session-card.status-failed { border-left-color:var(--danger); }
 .session-top { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
-.session-status-dot { width:8px; height:8px; border-radius:50%; }
-.s-active { background:var(--accent-2); }
-.s-waiting { background:var(--warn); }
-.s-done { background:var(--accent); }
-.s-blocked { background:var(--warn); }
-.s-failed { background:var(--danger); }
 .session-model { font-size:11px; color:var(--text-muted); font-family:'SF Mono',monospace; }
-.session-status-badge { font-size:10px; font-weight:600; padding:1px 6px; border-radius:8px; text-transform:uppercase; }
-.session-status-badge.s-active { background:var(--entry-user-bg); color:var(--accent-2); }
-.session-status-badge.s-waiting { background:var(--entry-warn-bg); color:var(--warn); }
-.session-status-badge.s-done { background:var(--entry-accent-bg); color:var(--accent); }
-.session-status-badge.s-blocked { background:var(--entry-warn-bg); color:var(--warn); }
-.session-status-badge.s-failed { background:var(--entry-danger-bg); color:var(--danger); }
 .session-meta { display:flex; gap:12px; font-size:11px; color:var(--text-muted); margin-bottom:4px; }
 .session-goal,.session-card-ref { font-family:'SF Mono',monospace; }
 .session-time { font-size:11px; color:var(--border-strong); }

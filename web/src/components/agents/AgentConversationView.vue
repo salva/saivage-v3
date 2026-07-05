@@ -1,15 +1,17 @@
 <template>
   <div class="conversation-container">
-    <div v-if="loading" class="conv-loading">Loading conversation...</div>
-    <div v-else-if="errorMsg" class="conv-error">{{ errorMsg }}</div>
-    <div v-else-if="!currentSession" class="conv-empty">Select a session to view its conversation.</div>
+    <ViewState v-if="loading" state="loading" title="Loading conversation" />
+    <ViewState v-else-if="errorMsg" state="error" title="Could not load conversation" :message="errorMsg" />
+    <ViewState v-else-if="!currentSession" state="empty" title="Select a session to view its conversation" />
     <template v-else>
       <div class="conv-header">
-        <div class="conv-info"><span class="conv-role">{{ currentSession.role }}</span><span class="conv-model">{{ currentSession.model || 'default' }}</span><span class="conv-status-badge" :class="'s-' + currentSession.status">{{ currentSession.status }}</span></div>
-        <div class="conv-toolbar"><div class="conv-toolbar-group"><button class="conv-tb-btn" @click="timelineControls.expandAll()">Expand all</button><button class="conv-tb-btn" @click="timelineControls.collapseAll()">Collapse all</button></div><div class="conv-toolbar-group"><button class="conv-tb-btn" :aria-pressed="rawPanelOpen" @click="rawPanelOpen = !rawPanelOpen">{{ rawPanelOpen ? 'Hide raw exchange' : 'Raw exchange' }}</button></div></div>
+        <PanelHeader :title="currentSession.role">
+          <template #meta><span class="conv-model">{{ currentSession.model || 'default' }}</span><StatusBadge :status="statusForAgentSession(currentSession.status)" /></template>
+          <template #actions><div class="conv-toolbar"><div class="conv-toolbar-group"><button class="conv-tb-btn" @click="timelineControls.expandAll()">Expand all</button><button class="conv-tb-btn" @click="timelineControls.collapseAll()">Collapse all</button></div><div class="conv-toolbar-group"><button class="conv-tb-btn" :aria-pressed="rawPanelOpen" @click="rawPanelOpen = !rawPanelOpen">{{ rawPanelOpen ? 'Hide raw exchange' : 'Raw exchange' }}</button></div></div></template>
+        </PanelHeader>
       </div>
       <RawLlmExchangePanel v-if="rawPanelOpen" :session-id="props.sessionId" />
-      <div v-if="conversationWarning" class="conv-warning">{{ conversationWarning }}</div>
+      <StatusBanner v-if="conversationWarning" tone="warning" :message="conversationWarning" />
       <div class="conv-rounds"><RoundCard v-for="round in timelineControls.timeline.value.rounds" :key="round.id" :round="round" :expanded-ids="timelineControls.expandedIds.value" @toggle="timelineControls.toggleExpanded" /></div>
     </template>
   </div>
@@ -20,8 +22,13 @@ import { storeToRefs } from 'pinia';
 import { useAgentStore } from '../../stores/agents';
 import { useLiveSyncStore } from '../../stores/liveSync';
 import { createLogger } from '../../utils/logger';
+import { statusForAgentSession } from '../../utils/status';
 import { useAgentTimeline } from '../../composables/useAgentTimeline';
 import RoundCard from '../conversation/RoundCard.vue';
+import PanelHeader from '../ui/PanelHeader.vue';
+import StatusBadge from '../ui/StatusBadge.vue';
+import StatusBanner from '../ui/StatusBanner.vue';
+import ViewState from '../ui/ViewState.vue';
 import RawLlmExchangePanel from './RawLlmExchangePanel.vue';
 const log = createLogger('comp:agent-conv');
 const props = defineProps<{ sessionId: string }>();
@@ -37,4 +44,4 @@ onMounted(async () => { subscribeConversation(props.sessionId); try { await agen
 onUnmounted(() => { unsubscribeConversation?.(); });
 watch(() => props.sessionId, async (nid) => { rawPanelOpen.value = false; if (nid) { subscribeConversation(nid); try { await agentStore.fetchConversation(nid); } catch (err) { log.error('fetch', err); } } });
 </script>
-<style scoped>.conversation-container{flex:1;display:flex;flex-direction:column;overflow:hidden}.conv-loading,.conv-error,.conv-empty{padding:32px;text-align:center;color:var(--text-muted);font-size:13px}.conv-error{color:var(--danger)}.conv-warning{margin:12px 16px 0;padding:10px 12px;border:1px solid var(--entry-warn-border);background:var(--entry-warn-bg);color:var(--warn);border-radius:6px;font-size:12px}.conv-header{display:flex;align-items:center;justify-content:space-between;padding:8px 16px;background:var(--surface-1);border-bottom:1px solid var(--border);flex-shrink:0}.conv-info{display:flex;align-items:center;gap:8px}.conv-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px}.conv-toolbar-group{display:flex;align-items:center;gap:6px}.conv-role{font-size:12px;font-weight:600;color:var(--text);text-transform:capitalize}.conv-model{font-size:11px;color:var(--text-muted);font-family:'SF Mono',monospace}.conv-status-badge{font-size:10px;font-weight:600;padding:1px 6px;border-radius:8px}.conv-tb-btn{padding:3px 8px;background:var(--surface-3);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:11px;cursor:pointer;font-family:inherit}.conv-rounds{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px}</style>
+<style scoped>.conversation-container{flex:1;display:flex;flex-direction:column;overflow:hidden}.conversation-container > :deep(.view-state){padding:32px;justify-content:center;text-align:center}.conversation-container > :deep(.status-banner){margin:12px 16px 0}.conv-header{padding:8px 16px;background:var(--surface-1);border-bottom:1px solid var(--border);flex-shrink:0}.conv-header :deep(.ui-panel-header){margin-bottom:0}.conv-header :deep(.ui-panel-header__title){text-transform:capitalize}.conv-header :deep(.ui-panel-header__meta){display:flex;align-items:center;gap:8px}.conv-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px}.conv-toolbar-group{display:flex;align-items:center;gap:6px}.conv-model{font-size:11px;color:var(--text-muted);font-family:'SF Mono',monospace}.conv-tb-btn{padding:3px 8px;background:var(--surface-3);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:11px;cursor:pointer;font-family:inherit}.conv-rounds{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px}</style>
