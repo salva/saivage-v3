@@ -282,7 +282,7 @@
         <div v-else-if="processesError" class="debug-error">{{ processesError }}</div>
         <div v-else-if="processes.length === 0" class="debug-empty">No Saivage-managed processes found.</div>
         <div v-else class="processes-list">
-          <div v-for="proc in sortedProcesses" :key="proc.id" class="process-card">
+          <div v-for="proc in sortedProcesses" :key="proc.id" class="process-card" :class="{ selected: selectedProcessId === proc.id }">
             <div class="process-header">
               <span class="process-id mono">{{ proc.id }}</span>
               <span class="process-status-badge" :class="'ps-' + proc.status">{{ proc.status }}</span>
@@ -348,8 +348,8 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, onMounted, onUnmounted, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useDebugStore } from '../stores/debug';
 import { useLiveSyncStore } from '../stores/liveSync';
@@ -366,6 +366,7 @@ const debugStore = useDebugStore();
 const liveSyncStore = useLiveSyncStore();
 const cardsStore = useCardStore();
 const mcpStore = useMcpStore();
+const route = useRoute();
 const router = useRouter();
 const {
   debugRuntime, debugCards, debugTotalCards,
@@ -401,7 +402,17 @@ const {
 
 async function refreshOperatorControl(): Promise<void> { await debugStore.fetchOperatorControl().catch(() => {}); }
 
-function setTab(tab: typeof localActiveTab.value): void {
+const selectedProcessId = computed(() => {
+  if (route.name === 'process-detail' && typeof route.params.id === 'string') return route.params.id;
+  return typeof route.query.process === 'string' ? route.query.process : null;
+});
+
+watch(() => [route.name, route.query.tab, route.params.id] as const, () => {
+  const tabFromRoute = route.name === 'process-detail' ? 'processes' : typeof route.query.tab === 'string' ? route.query.tab : 'state';
+  if (tabs.some((tab) => tab.id === tabFromRoute)) setTabLocal(tabFromRoute as typeof localActiveTab.value);
+}, { immediate: true });
+
+function setTabLocal(tab: typeof localActiveTab.value): void {
   localActiveTab.value = tab;
   if (tab === 'state') debugStore.fetchState().catch(() => {});
   else if (tab === 'operator') debugStore.fetchOperatorControl().catch(() => {});
@@ -411,6 +422,11 @@ function setTab(tab: typeof localActiveTab.value): void {
   else if (tab === 'processes') debugStore.fetchProcesses().catch(() => {});
   else if (tab === 'supervision') { debugStore.fetchDoctor().catch(() => {}); debugStore.fetchSupervision().catch(() => {}); }
   else if (tab === 'mcp') mcpStore.fetchMcpData().catch(() => {});
+}
+
+function setTab(tab: typeof localActiveTab.value): void {
+  setTabLocal(tab);
+  void router.push({ name: 'debug', query: tab === 'state' ? {} : { tab } });
 }
 function browseQuarantineItem(quarantineId: string): void { router.push({ name: 'files', query: { path: '.saivage-work/quarantine/' + quarantineId } }); }
 function browseProcessLog(path: string): void { router.push({ name: 'files', query: { path } }); }
@@ -476,6 +492,7 @@ onUnmounted(() => {
 .operator-status-badge.status-error { background:var(--entry-danger-bg); color:var(--danger); }
 .operator-status-badge.status-unavailable { background:var(--surface-3); color:var(--text-muted); }
 .operator-note-card, .process-card { background:var(--surface-1); border:1px solid var(--surface-3); border-radius:8px; padding:12px; }
+.process-card.selected { border-color:var(--accent-2); box-shadow:0 0 0 1px color-mix(in srgb, var(--accent-2) 45%, transparent); }
 .operator-note-header { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
 .operator-note-kind { font-size:10px; font-weight:600; text-transform:uppercase; border-radius:999px; padding:2px 8px; background:var(--entry-user-bg); color:var(--accent-2); }
 .operator-note-author { font-size:12px; color:var(--text); }

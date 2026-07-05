@@ -2,7 +2,7 @@
   <div class="agents-layout">
     <div v-if="selectedSessionId" class="agent-detail-view">
       <div class="detail-header-bar">
-        <button class="back-btn" @click="selectedSessionId = null">Back to Agents</button>
+        <button class="back-btn" @click="backToAgents">Back to Agents</button>
         <span class="agent-session-id">{{ selectedSessionId }}</span>
       </div>
       <AgentConversationView :session-id="selectedSessionId" />
@@ -60,8 +60,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { computed, onMounted } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useAgentStore } from '../stores/agents';
 import type { AgentRole, AgentSession } from '../types/view-models';
@@ -71,11 +71,12 @@ import AgentConversationView from '../components/agents/AgentConversationView.vu
 
 const log = createLogger('view:agents');
 const route = useRoute();
+const router = useRouter();
 const agentStore = useAgentStore();
 const { sessionsByRole, loading, error, unauthorized, isStale, conversationWarning } = storeToRefs(agentStore);
 const errorMsg = computed(() => error.value);
 
-const selectedSessionId = ref<string | null>(null);
+const selectedSessionId = computed(() => typeof route.params.id === 'string' ? route.params.id : null);
 
 interface RoleEntry { role: AgentRole; sessions: AgentSession[] }
 const roleEntries = computed<RoleEntry[]>(() => {
@@ -93,15 +94,8 @@ const ROLE_ICONS: Record<string, string> = {
 function roleIcon(role: AgentRole): string { return ROLE_ICONS[role] || '(?)'; }
 function fmtDate(ts: string): string { return formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute'); }
 
-function selectSession(id: string): void { selectedSessionId.value = id; }
-
-watch(() => route.params.id, (nid) => {
-  if (nid && typeof nid === 'string') {
-    selectedSessionId.value = nid;
-  } else {
-    selectedSessionId.value = null;
-  }
-}, { immediate: true });
+function selectSession(id: string): void { void router.push({ name: 'agent-detail', params: { id } }); }
+function backToAgents(): void { void router.push({ name: 'agents' }); }
 
 onMounted(() => {
   agentStore.fetchSessions().catch((err) => {
