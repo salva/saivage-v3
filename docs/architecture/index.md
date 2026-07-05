@@ -18,6 +18,7 @@ Current architecture documents:
 - [Tool cancellation design](./tool-cancellation-design.md)
 - [Actor result channel design](./actor-result-channel-design.md)
 - [Terminal completion gate design](./completion-gate-design.md)
+- [Resume-or-start LLM design](./resume-or-start-llm-design.md)
 - [Remaining work consolidated plan](./remaining-work-consolidated-plan.md)
 - [Future capabilities plan](./future-capabilities-plan.md)
 - [Operator UI/UX audit](./operator-ui-audit.md)
