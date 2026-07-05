@@ -32,6 +32,7 @@ const router = createRouter({
     { path: '/cards/:id', name: 'card-detail', component: { template: '<div>card</div>' } },
     { path: '/timeline', name: 'timeline', component: { template: '<div>timeline</div>' } },
     { path: '/agents', name: 'agents', component: { template: '<div>agents</div>' } },
+    { path: '/agents/:id', name: 'agent-detail', component: { template: '<div>agent detail</div>' } },
     { path: '/files', name: 'files', component: { template: '<div>files</div>' } },
     { path: '/debug', name: 'debug', component: { template: '<div>debug</div>' } },
   ],
@@ -91,6 +92,23 @@ describe('AppShell persistent analyst panel', () => {
     expect(router.currentRoute.value.path).toBe('/cards/card-1');
     expect(wrapper.text()).toContain('Card Detail');
     expect(wrapper.find('#analyst-chat-panel').exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it('suppresses the persistent panel on canonical analyst detail to avoid duplicate transcript display', async () => {
+    const wrapper = mount(AppShell, { attachTo: document.body, global: { plugins: [createPinia(), router] } });
+    await flushPromises();
+
+    await router.push('/agents/planner%3Aproject');
+    await flushPromises();
+    expect(wrapper.text()).toContain('Agent Detail');
+    expect(wrapper.find('#analyst-chat-panel').exists()).toBe(true);
+
+    await router.push('/agents/analyst%3Aglobal');
+    await flushPromises();
+    expect(wrapper.text()).toContain('Agent Detail');
+    expect(wrapper.find('#analyst-chat-panel').exists()).toBe(false);
+
     wrapper.unmount();
   });
 });

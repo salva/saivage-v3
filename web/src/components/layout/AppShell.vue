@@ -1,5 +1,5 @@
 <template>
-  <div class="app-shell" :class="`pane-${mobileActivePane}`" @keydown="handleKeydown">
+  <div class="app-shell" :class="[`pane-${effectiveMobileActivePane}`, { 'analyst-pane-suppressed': suppressAnalystPane }]" @keydown="handleKeydown">
     <div class="workspace-shell">
       <NavRail
         :nav-items="navItems"
@@ -38,7 +38,7 @@
       </div>
     </div>
 
-    <div class="analyst-pane">
+    <div v-if="!suppressAnalystPane" class="analyst-pane">
       <AnalystChatPanel />
     </div>
 
@@ -46,15 +46,16 @@
       <button
         type="button"
         class="pane-tab"
-        :class="{ active: mobileActivePane === 'workspace' }"
-        :aria-pressed="mobileActivePane === 'workspace'"
+        :class="{ active: effectiveMobileActivePane === 'workspace' }"
+        :aria-pressed="effectiveMobileActivePane === 'workspace'"
         @click="mobileActivePane = 'workspace'"
       >Workspace</button>
       <button
+        v-if="!suppressAnalystPane"
         type="button"
         class="pane-tab"
-        :class="{ active: mobileActivePane === 'analyst' }"
-        :aria-pressed="mobileActivePane === 'analyst'"
+        :class="{ active: effectiveMobileActivePane === 'analyst' }"
+        :aria-pressed="effectiveMobileActivePane === 'analyst'"
         @click="mobileActivePane = 'analyst'"
       >Analyst<span v-if="analystActivityDot" class="activity-dot" aria-hidden="true"></span></button>
     </nav>
@@ -100,6 +101,7 @@ import Dialog from '../ui/Dialog.vue';
 import { useRuntimeStore } from '../../stores/runtime';
 import { useAuthStore } from '../../stores/auth';
 import { useAnalystChat } from '../../stores/analystChat';
+import { ANALYST_SESSION_ID } from '../../stores/analyst-chat-context';
 import type { WsConnectionState } from '../../types/view-models';
 import { API_AUTH_REQUIRED_EVENT, dismissAuthBannerForSession, isAuthBannerDismissedForSession } from '../../utils/auth-events';
 
@@ -137,6 +139,12 @@ const showAuthBanner = ref(false);
 const mobileActivePane = ref<'workspace' | 'analyst'>('workspace');
 const showShortcutHelp = ref(false);
 const analystActivityDot = computed(() => analystChat.pendingToolInvocations.length > 0 || analystChat.sending);
+const routeAgentId = computed(() => {
+  const id = route.params.id;
+  return Array.isArray(id) ? id[0] : id;
+});
+const suppressAnalystPane = computed(() => route.name === 'agent-detail' && routeAgentId.value === ANALYST_SESSION_ID);
+const effectiveMobileActivePane = computed(() => suppressAnalystPane.value ? 'workspace' : mobileActivePane.value);
 
 const sectionLabels: Record<string, string> = {
   dashboard: 'Dashboard',
@@ -172,6 +180,7 @@ function handleKeydown(event: KeyboardEvent): void {
   }
   if (key === '/' && !event.ctrlKey && !event.metaKey) {
     event.preventDefault();
+    if (suppressAnalystPane.value) return;
     mobileActivePane.value = 'analyst';
     window.dispatchEvent(new CustomEvent('saivage:focus-chat'));
   }
@@ -228,6 +237,10 @@ onUnmounted(() => {
   height: 100%;
   width: 100%;
   outline: none;
+}
+
+.app-shell.analyst-pane-suppressed {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .workspace-shell {
