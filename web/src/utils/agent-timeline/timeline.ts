@@ -18,11 +18,30 @@ function callIdOf(entry: AgentConversationEntry): string | undefined {
 function buildToolPairs(entries: TimelineEntry[]): ToolPair[] {
   const calls = entries.filter((entry) => entry.kind === 'tool_call');
   const results = entries.filter((entry) => entry.kind === 'tool_result' || entry.kind === 'tool_error');
-  return calls.map((call) => {
+  const matchedResultIds = new Set<string>();
+  const pairs = calls.map((call): ToolPair => {
     const id = callIdOf(call);
     const result = id ? results.find((entry) => callIdOf(entry) === id) ?? null : null;
+    if (result) {
+      const rid = callIdOf(result);
+      if (rid) matchedResultIds.add(rid);
+    }
     return { call, result, status: result?.kind === 'tool_error' ? 'error' : result ? 'ok' : 'pending' };
   });
+  for (const result of results) {
+    const rid = callIdOf(result);
+    if (rid && matchedResultIds.has(rid)) continue;
+    const callId = rid ?? result.tool_call_id ?? result.id;
+    const syntheticCall: TimelineEntry = {
+      ...result,
+      id: `synthetic-call:${callId}`,
+      kind: 'tool_call',
+      role: 'assistant',
+      content: JSON.stringify({ id: callId, name: result.tool ?? 'unknown', args: {} }),
+    };
+    pairs.push({ call: syntheticCall, result, status: result.kind === 'tool_error' ? 'error' : 'ok' });
+  }
+  return pairs;
 }
 
 function fallbackRoundKind(entry: AgentConversationEntry): TimelineRoundKind {

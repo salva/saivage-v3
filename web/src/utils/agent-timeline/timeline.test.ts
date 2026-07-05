@@ -163,4 +163,23 @@ describe('entriesToTimeline display filtering', () => {
     expect(timeline.rounds[0].activityStatus?.status).toBe('thinking');
     expect(timeline.activeRoundId).toBe(timeline.rounds[0].id);
   });
+
+  it('renders orphan tool results without a matching tool_call', () => {
+    const orphanResult = entry({
+      id: 'msg-orphan-result',
+      kind: 'tool_result',
+      role: 'tool',
+      tool: 'read',
+      tool_call_id: 'call-orphan-1',
+      message_index: 2,
+      content: JSON.stringify({ content: 'file contents' }),
+    });
+
+    const timeline = entriesToTimeline([orphanResult], null);
+    const pairs = timeline.rounds.flatMap((round) => round.toolPairs);
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0].result).not.toBeNull();
+    expect(pairs[0].result?.id).toBe('msg-orphan-result');
+    expect(pairs[0].status).toBe('ok');
+  });
 });
