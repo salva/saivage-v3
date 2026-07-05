@@ -168,7 +168,6 @@ function isActive(id: string): boolean {
 }
 
 .nav-shortcut {
-  display: none;
   font-size: 9px;
   color: var(--border-strong);
   position: absolute;
