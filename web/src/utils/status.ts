@@ -84,3 +84,16 @@ export function labelForCardType(type: CardType): string {
 export function shortLabelForCardType(type: CardType): string {
   return cardTypeShort[type] ?? type;
 }
+
+export const runtimeStatusTone: Record<string, Tone> = {
+  running: 'success',
+  stopped: 'offline',
+  paused: 'warning',
+  error: 'danger',
+  unknown: 'neutral',
+  unavailable: 'neutral',
+};
+
+export function statusForRuntimeStatus(label: string, description?: string): UiStatus {
+  return { label, tone: runtimeStatusTone[label] ?? 'neutral', description };
+}

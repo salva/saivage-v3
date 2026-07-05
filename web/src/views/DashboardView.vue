@@ -1,180 +1,174 @@
 <template>
   <div class="dashboard-layout">
-    <section class="status-panel runtime-console" aria-label="Runtime Console">
-      <div class="panel-header">
-        <h2 class="panel-title">Runtime Console</h2>
-        <button
-          class="ui-refresh-button"
-          :disabled="runtimeLoading"
-          @click="refreshRuntime"
-          :title="runtimeLoading ? 'Refreshing — please wait' : 'Refresh runtime state'"
-          :aria-label="runtimeLoading ? 'Refreshing — please wait' : 'Refresh runtime state'"
-        >
-          ↻
-        </button>
+    <Panel as="section" :padded="false" scroll class="runtime-console" aria-label="Runtime Console">
+      <div class="console-header">
+        <PanelHeader title="Runtime Console">
+          <template #actions>
+            <button
+              class="ui-refresh-button"
+              :disabled="runtimeLoading"
+              @click="refreshRuntime"
+              :title="runtimeLoading ? 'Refreshing — please wait' : 'Refresh runtime state'"
+              :aria-label="runtimeLoading ? 'Refreshing — please wait' : 'Refresh runtime state'"
+            >↻</button>
+          </template>
+        </PanelHeader>
       </div>
 
-      <div v-if="runtimeBannerMessage" class="entry-warn runtime-status-banner" :class="runtimeBannerClass">{{ runtimeBannerMessage }}</div>
-      <div v-if="runtimeLoading && !runtime" class="status-loading">Loading...</div>
+      <div class="console-body">
+        <StatusBanner v-if="runtimeBannerMessage" :tone="runtimeBannerTone" :message="runtimeBannerMessage" />
+        <ViewState v-if="runtimeLoading && !runtime" state="loading" title="Loading runtime state" />
+        <ViewState v-else-if="errorMsg" state="error" title="Failed to load runtime" :message="errorMsg" />
 
-      <template v-else-if="errorMsg" class="status-error">
-        <div class="error-banner">{{ errorMsg }}</div>
-      </template>
+        <template v-else>
+          <StatusBanner v-if="lastActionableError" tone="danger" :title="lastActionableError.message" :message="`Next: ${lastActionableError.nextAction}`" role="alert" />
 
-      <template v-else>
-        <div v-if="lastActionableError" class="status-section entry-danger actionable-runtime-issue" role="alert">
-          <h3 class="section-label">Actionable Runtime Issue</h3>
-          <p class="actionable-message">{{ lastActionableError.message }}</p>
-          <p class="actionable-next">Next: {{ lastActionableError.nextAction }}</p>
-          <div class="actionable-meta">
-            <span v-if="lastActionableError.code">{{ lastActionableError.code }}</span>
-            <span v-if="lastActionableError.cardId">card {{ lastActionableError.cardId }}</span>
-            <span v-if="lastActionableError.runId">run {{ lastActionableError.runId }}</span>
-          </div>
-        </div>
-
-        <div class="status-section">
-          <h3 class="section-label">Runtime Status</h3>
-          <div class="status-grid">
-            <div class="status-item">
-              <span class="status-key">Status</span>
-              <span class="status-value">{{ statusLabel }}</span>
-            </div>
-            <div class="status-item">
-              <span class="status-key">Live State</span>
-              <span class="status-value">{{ liveUpdateLabel }}</span>
-            </div>
-            <div class="status-item">
-              <span class="status-key">Last Command</span>
-              <span class="status-value">{{ lastCommand ? `${lastCommand.command} · ${lastCommand.status}` : 'none' }}</span>
-            </div>
-          </div>
-          <p class="operator-help">{{ liveUpdateDetail }}</p>
-        </div>
-
-        <div class="status-section">
-          <h3 class="section-label">Root Run</h3>
-          <div class="status-grid">
-            <div class="status-item">
-              <span class="status-key">Runtime</span>
-              <span class="status-chip" :class="`rt-${statusLabel}`">
-                <span class="status-dot"></span>
-                {{ statusLabel }}
-              </span>
-            </div>
-            <div class="status-item">
-              <span class="status-key">Current Run</span>
-              <span v-if="currentRun" class="status-value clickable" @click="goToCard(currentRun.card_id)">
-                {{ currentRun.card_id }} · {{ currentRun.phase }}
-              </span>
-              <span v-else class="status-value dim">none</span>
-            </div>
-            <div class="status-item">
-              <span class="status-key">Session</span>
-              <span v-if="currentRun?.session_id" class="status-value clickable" @click="goToAgent(currentRun.session_id)">{{ currentRun.session_id.slice(0, 12) }}...</span>
-              <span v-else-if="currentAgentSessionId" class="status-value clickable" @click="goToAgent(currentAgentSessionId)">{{ currentAgentSessionId.slice(0, 12) }}...</span>
-              <span v-else class="status-value dim">none</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="status-section runtime-record-list">
-          <h3 class="section-label">
-            Active Child Runs
-            <span v-if="activeChildRuns.length" class="section-badge">{{ activeChildRuns.length }}</span>
-          </h3>
-          <div v-if="activeChildRuns.length === 0" class="status-value dim list-empty">none</div>
-          <button v-for="run in activeChildRuns" :key="run.run_id" class="record-row" @click="goToCard(run.card_id)">
-            <span>{{ run.card_id }}</span>
-            <span>{{ run.phase }} · {{ run.runtime_status }}</span>
-          </button>
-        </div>
-
-        <div class="status-section runtime-record-list">
-          <h3 class="section-label">
-            Activation Edges
-            <span v-if="activations.length" class="section-badge">{{ activations.length }}</span>
-          </h3>
-          <div v-if="activations.length === 0" class="status-value dim list-empty">none</div>
-          <button v-for="activation in activations.slice(-5).reverse()" :key="activation.activation_id" class="record-row" @click="goToCard(activation.child_card_id)">
-            <span>{{ activation.parent_card_id }} → {{ activation.child_card_id }}</span>
-            <span>{{ activation.status }} · {{ activation.precondition }}</span>
-          </button>
-        </div>
-
-        <div class="status-section">
-          <h3 class="section-label">Restart / Recovery Evidence</h3>
-          <div class="status-grid">
-            <div class="status-item">
-              <span class="status-key">Last REST Sync</span>
-              <span class="status-value" :title="shortTimeTitle(lastFetchedAt)">{{ shortTime(lastFetchedAt) }}</span>
-            </div>
-            <div class="status-item">
-              <span class="status-key">Last WS Event</span>
-              <span class="status-value" :title="shortTimeTitle(lastWsEventAt)">{{ shortTime(lastWsEventAt) }}</span>
-            </div>
-            <div class="status-item">
-              <span class="status-key">Updated By</span>
-              <span class="status-value">{{ lastUpdatedBy }}</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="status-section">
-          <h3 class="section-label">Recent History</h3>
-          <div class="status-grid history-grid">
-            <div class="status-item">
-              <span class="status-key">Done Goals</span>
-              <span class="status-value success">{{ doneGoals }}</span>
-            </div>
-            <div class="status-item">
-              <span class="status-key">Failed/Blocked</span>
-              <span class="status-value" :class="failedBlocked ? 'danger' : ''">{{ failedBlocked }}</span>
-            </div>
-            <div class="status-item">
-              <span class="status-key">Total Cards</span>
-              <span class="status-value">{{ cardIndex.total }}</span>
-            </div>
-          </div>
-        </div>
-
-
-        <div class="status-section child-of-goal-panel" data-testid="dashboard-child-of-goal-panel">
-          <h3 class="section-label">Displayed Card Children</h3>
-          <ul data-testid="child-of-goal-list" class="child-of-goal-list">
-            <li v-for="child in goalChildren" :key="child.id" data-testid="child-of-goal-item" class="child-of-goal-item">
-              <span class="title">{{ child.title }}</span>
-              <span class="status">{{ child.status }}</span>
-            </li>
-          </ul>
-          <div v-if="goalChildren.length === 0" class="status-value dim list-empty">none</div>
-        </div>
-
-        <div class="status-section">
-          <h3 class="section-label">Card Index</h3>
-          <div class="index-bars">
-            <div v-for="(count, name) in cardIndex.byType" :key="name" class="index-bar-row">
-              <span class="index-label">{{ name }}</span>
-              <div class="index-bar-track">
-                <div class="index-bar-fill" :style="{ width: barWidth(count) }"></div>
+          <section class="status-section">
+            <h3 class="section-label">Runtime Status</h3>
+            <div class="status-grid">
+              <div class="status-item">
+                <span class="status-key">Status</span>
+                <span class="status-value">{{ statusLabel }}</span>
               </div>
-              <span class="index-count">{{ count }}</span>
+              <div class="status-item">
+                <span class="status-key">Live State</span>
+                <span class="status-value">{{ liveUpdateLabel }}</span>
+              </div>
+              <div class="status-item">
+                <span class="status-key">Last Command</span>
+                <span class="status-value">{{ lastCommand ? `${lastCommand.command} · ${lastCommand.status}` : 'none' }}</span>
+              </div>
             </div>
-          </div>
-        </div>
-      </template>
-    </section>
+            <p class="operator-help">{{ liveUpdateDetail }}</p>
+          </section>
+
+          <section class="status-section">
+            <h3 class="section-label">Root Run</h3>
+            <div class="status-grid">
+              <div class="status-item">
+                <span class="status-key">Runtime</span>
+                <StatusBadge :status="statusForRuntimeStatus(statusLabel)" show-dot />
+              </div>
+              <div class="status-item">
+                <span class="status-key">Current Run</span>
+                <span v-if="currentRun" class="status-value clickable" @click="goToCard(currentRun.card_id)">
+                  {{ currentRun.card_id }} · {{ currentRun.phase }}
+                </span>
+                <span v-else class="status-value dim">none</span>
+              </div>
+              <div class="status-item">
+                <span class="status-key">Session</span>
+                <span v-if="currentRun?.session_id" class="status-value clickable" @click="goToAgent(currentRun.session_id)">{{ currentRun.session_id.slice(0, 12) }}...</span>
+                <span v-else-if="currentAgentSessionId" class="status-value clickable" @click="goToAgent(currentAgentSessionId)">{{ currentAgentSessionId.slice(0, 12) }}...</span>
+                <span v-else class="status-value dim">none</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="status-section runtime-record-list">
+            <h3 class="section-label">
+              Active Child Runs
+              <span v-if="activeChildRuns.length" class="section-badge">{{ activeChildRuns.length }}</span>
+            </h3>
+            <div v-if="activeChildRuns.length === 0" class="status-value dim list-empty">none</div>
+            <button v-for="run in activeChildRuns" :key="run.run_id" class="record-row" @click="goToCard(run.card_id)">
+              <span>{{ run.card_id }}</span>
+              <span>{{ run.phase }} · {{ run.runtime_status }}</span>
+            </button>
+          </section>
+
+          <section class="status-section runtime-record-list">
+            <h3 class="section-label">
+              Activation Edges
+              <span v-if="activations.length" class="section-badge">{{ activations.length }}</span>
+            </h3>
+            <div v-if="activations.length === 0" class="status-value dim list-empty">none</div>
+            <button v-for="activation in activations.slice(-5).reverse()" :key="activation.activation_id" class="record-row" @click="goToCard(activation.child_card_id)">
+              <span>{{ activation.parent_card_id }} → {{ activation.child_card_id }}</span>
+              <span>{{ activation.status }} · {{ activation.precondition }}</span>
+            </button>
+          </section>
+
+          <section class="status-section">
+            <h3 class="section-label">Restart / Recovery Evidence</h3>
+            <div class="status-grid">
+              <div class="status-item">
+                <span class="status-key">Last REST Sync</span>
+                <span class="status-value" :title="shortTimeTitle(lastFetchedAt)">{{ shortTime(lastFetchedAt) }}</span>
+              </div>
+              <div class="status-item">
+                <span class="status-key">Last WS Event</span>
+                <span class="status-value" :title="shortTimeTitle(lastWsEventAt)">{{ shortTime(lastWsEventAt) }}</span>
+              </div>
+              <div class="status-item">
+                <span class="status-key">Updated By</span>
+                <span class="status-value">{{ lastUpdatedBy }}</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="status-section">
+            <h3 class="section-label">Recent History</h3>
+            <div class="status-grid history-grid">
+              <div class="status-item">
+                <span class="status-key">Done Goals</span>
+                <span class="status-value success">{{ doneGoals }}</span>
+              </div>
+              <div class="status-item">
+                <span class="status-key">Failed/Blocked</span>
+                <span class="status-value" :class="failedBlocked ? 'danger' : ''">{{ failedBlocked }}</span>
+              </div>
+              <div class="status-item">
+                <span class="status-key">Total Cards</span>
+                <span class="status-value">{{ cardIndex.total }}</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="status-section child-of-goal-panel" data-testid="dashboard-child-of-goal-panel">
+            <h3 class="section-label">Displayed Card Children</h3>
+            <ul data-testid="child-of-goal-list" class="child-of-goal-list">
+              <li v-for="child in goalChildren" :key="child.id" data-testid="child-of-goal-item" class="child-of-goal-item">
+                <span class="title">{{ child.title }}</span>
+                <span class="status">{{ child.status }}</span>
+              </li>
+            </ul>
+            <div v-if="goalChildren.length === 0" class="status-value dim list-empty">none</div>
+          </section>
+
+          <section class="status-section">
+            <h3 class="section-label">Card Index</h3>
+            <div class="index-bars">
+              <div v-for="(count, name) in cardIndex.byType" :key="name" class="index-bar-row">
+                <span class="index-label">{{ name }}</span>
+                <div class="index-bar-track">
+                  <div class="index-bar-fill" :style="{ width: barWidth(count) }"></div>
+                </div>
+                <span class="index-count">{{ count }}</span>
+              </div>
+            </div>
+          </section>
+        </template>
+      </div>
+    </Panel>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useRouter } from 'vue-router';
 import { useRuntimeStore } from '../stores/runtime';
 import { useCardStore } from '../stores/cards';
 import { useDashboardReadModel } from '../composables/useDashboardReadModel';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../utils/timestamp';
+import { statusForRuntimeStatus, type Tone } from '../utils/status';
+import Panel from '../components/ui/Panel.vue';
+import PanelHeader from '../components/ui/PanelHeader.vue';
+import StatusBanner from '../components/ui/StatusBanner.vue';
+import ViewState from '../components/ui/ViewState.vue';
+import StatusBadge from '../components/ui/StatusBadge.vue';
+
 const runtimeStore = useRuntimeStore();
 const cardsStore = useCardStore();
 const router = useRouter();
@@ -214,6 +208,8 @@ const { goalChildren, runtimeBannerMessage, runtimeBannerClass, barWidth } = use
   cardsStore,
 });
 
+const runtimeBannerTone = computed<Tone>(() => runtimeBannerClass.value === 'runtime-status-banner-error' ? 'danger' : 'warning');
+
 function shortTime(ts?: string | null): string {
   if (!ts) return 'unknown';
   return formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute');
@@ -229,8 +225,6 @@ function goToCard(id: string): void {
 function goToAgent(id: string): void {
   router.push({ name: 'agent-detail', params: { id } });
 }
-
-
 
 async function refreshRuntime(): Promise<void> {
   errorMsg.value = null;
@@ -249,17 +243,15 @@ onMounted(async () => {
 
 <style scoped>
 .dashboard-layout { display: flex; height: 100%; gap: 0; }
-.status-panel { width: 100%; min-width: 0; flex: 1; overflow-y: auto; background: var(--bg); display: flex; flex-direction: column; }
-.panel-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
-.panel-title { font-size: 13px; font-weight: 600; color: var(--text); margin: 0; }
-.runtime-status-banner { margin: 12px 16px 0; padding: 10px 12px; border-radius: 6px; font-size: 12px; }
-.runtime-status-banner-warning { color: var(--warn); }
-.runtime-status-banner-error { border-color: var(--entry-danger-border); background: var(--entry-danger-bg); color: var(--danger); }
+.runtime-console { width: 100%; min-width: 0; flex: 1; background: var(--bg); }
+.console-header { padding: 12px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.console-header :deep(.ui-panel-header) { margin-bottom: 0; }
+.console-body { padding: 4px 0; }
+.console-body :deep(.status-banner) { margin: 8px 16px; }
+.console-body :deep(.view-state) { padding: 16px; }
 .ui-refresh-button { background: none; border: 1px solid var(--border); border-radius: 4px; color: var(--text-muted); cursor: pointer; width: 28px; height: 28px; font-size: 14px; display: flex; align-items: center; justify-content: center; transition: color 0.15s, border-color 0.15s; }
 .ui-refresh-button:hover:not(:disabled) { color: var(--accent-2); border-color: var(--accent-2); }
 .ui-refresh-button:disabled { opacity: 0.5; cursor: not-allowed; }
-.status-loading,.status-error { padding: 16px; color: var(--text-muted); font-size: 12px; }
-.error-banner { padding: 10px 12px; background: var(--entry-danger-bg); border: 1px solid var(--danger); border-radius: 4px; color: var(--danger); font-size: 12px; margin: 12px; }
 .status-section { padding: 12px 16px; border-bottom: 1px solid var(--surface-3); }
 .section-label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 8px 0; display: flex; align-items: center; gap: 6px; }
 .section-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--surface-3); color: var(--text); font-size: 10px; font-weight: 600; }
@@ -273,26 +265,10 @@ onMounted(async () => {
 .status-value.clickable { color: var(--accent-2); cursor: pointer; text-decoration: underline; text-decoration-color: transparent; transition: text-decoration-color 0.15s; }
 .status-value.clickable:hover { text-decoration-color: var(--accent-2); }
 .operator-help { margin: 8px 0 0; color: var(--text-muted); font-size: 11px; line-height: 1.4; }
-.actionable-runtime-issue { border-left:0; border-right:0; border-top:0; border-radius:0; border-bottom-color: var(--danger); }
-.actionable-message { margin: 0 0 6px; color: var(--text); font-size: 12px; line-height: 1.4; }
-.actionable-next { margin: 0 0 6px; color: var(--orange); font-size: 12px; line-height: 1.4; }
-.actionable-meta { display: flex; flex-wrap: wrap; gap: 6px; color: var(--text-muted); font: 10px 'SF Mono', monospace; }
 .runtime-record-list { display: flex; flex-direction: column; gap: 6px; }
 .record-row { display: flex; flex-direction: column; gap: 2px; text-align: left; background: var(--surface-1); border: 1px solid var(--surface-3); border-radius: 6px; padding: 7px 8px; color: var(--text); cursor: pointer; font-size: 11px; }
 .record-row span:last-child { color: var(--text-muted); font-family: 'SF Mono', monospace; }
 .list-empty { text-align: left; font-family: inherit; }
-.status-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; font-family: inherit; border: 1px solid transparent; }
-.status-chip .status-dot { width: 5px; height: 5px; border-radius: 50%; }
-.rt-running { color: var(--accent); border-color: var(--accent); background: var(--entry-accent-bg); }
-.rt-stopped { color: var(--text-muted); border-color: var(--border-strong); background: var(--surface-3); }
-.rt-paused { color: var(--warn); border-color: var(--entry-warn-border); background: var(--entry-warn-bg); }
-.rt-error { color: var(--danger); border-color: var(--danger); background: var(--entry-danger-bg); }
-.rt-unknown { color: var(--text-muted); border-color: var(--border-strong); background: var(--surface-3); }
-.rt-running .status-dot { background: var(--accent); }
-.rt-stopped .status-dot { background: var(--text-muted); }
-.rt-paused .status-dot { background: var(--warn); }
-.rt-error .status-dot { background: var(--danger); }
-.rt-unknown .status-dot { background: var(--text-muted); }
 .index-bars { display: flex; flex-direction: column; gap: 6px; }
 .index-bar-row { display: grid; grid-template-columns: 60px 1fr 30px; align-items: center; gap: 8px; }
 .index-label { font-size: 11px; color: var(--text-muted); text-align: right; }
