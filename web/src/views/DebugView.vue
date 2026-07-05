@@ -201,6 +201,12 @@
               <div v-if="agentDebugContentLoading" class="debug-loading">Loading agent file...</div>
               <div v-else-if="agentDebugContentError" class="debug-error">{{ agentDebugContentError }}</div>
               <div v-else-if="!selectedAgentDebugPath" class="debug-empty">Select a session and an available file type.</div>
+              <ConversationTimeline
+                v-else-if="selectedAgentDebugKind === 'conversation' && selectedAgentDebugConversation"
+                :timeline="agentDebugTimeline.timeline.value"
+                :expanded-ids="agentDebugTimeline.expandedIds.value"
+                @toggle="agentDebugTimeline.toggleExpanded"
+              />
               <CodeBlock v-else :code="formattedAgentDebugContent" language="json" copyable wrap max-height="70vh" />
             </div>
           </div>
@@ -360,7 +366,9 @@ import { redactObservabilityValue } from '../utils/observabilityRedaction';
 import { useMcpStore } from '../stores/mcp';
 import { formatJson } from '../utils/format-json';
 import CodeBlock from '../components/content/CodeBlock.vue';
-import type { DebugTimelineEvent, ProcessView } from '../types/view-models';
+import ConversationTimeline from '../components/conversation/ConversationTimeline.vue';
+import { useAgentTimeline } from '../composables/useAgentTimeline';
+import type { ActivityStatus, AgentConversationEntry, DebugTimelineEvent, PendingCall, ProcessView } from '../types/view-models';
 
 const debugStore = useDebugStore();
 const liveSyncStore = useLiveSyncStore();
@@ -378,7 +386,7 @@ const {
   supervisionLoading, supervisionError,
   operatorLastFetchedAt, operatorDataFreshnessLabel,
   agentDebugSessions, selectedAgentDebugSessionId, selectedAgentDebugKind,
-  selectedAgentDebugSession, selectedAgentDebugPath, formattedAgentDebugContent,
+  selectedAgentDebugSession, selectedAgentDebugPath, selectedAgentDebugConversation, formattedAgentDebugContent,
   agentDebugLoading, agentDebugError, agentDebugContentLoading, agentDebugContentError,
 } = storeToRefs(debugStore);
 
@@ -406,6 +414,20 @@ const selectedProcessId = computed(() => {
   if (route.name === 'process-detail' && typeof route.params.id === 'string') return route.params.id;
   return typeof route.query.process === 'string' ? route.query.process : null;
 });
+
+const agentDebugEntries = computed<AgentConversationEntry[]>(() => (selectedAgentDebugConversation.value?.entries ?? []).map((entry) => ({
+  ...entry,
+  links: entry.links ? [...entry.links] : undefined,
+})));
+const agentDebugActivityStatus = computed<ActivityStatus | null>(() => {
+  const status = selectedAgentDebugConversation.value?.activity_status;
+  if (!status) return null;
+  return {
+    ...status,
+    pending_calls: status.pending_calls.map((call): PendingCall => ({ ...call })),
+  };
+});
+const agentDebugTimeline = useAgentTimeline(agentDebugEntries, agentDebugActivityStatus);
 
 watch(() => [route.name, route.query.tab, route.params.id] as const, () => {
   const tabFromRoute = route.name === 'process-detail' ? 'processes' : typeof route.query.tab === 'string' ? route.query.tab : 'state';

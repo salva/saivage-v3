@@ -28,6 +28,7 @@ import type {
   ProcessView,
   ProcessListResponse,
   AgentSession,
+  AgentConversationResponse,
   FileEntry,
 } from '../api/types';
 import {
@@ -125,6 +126,7 @@ export const useDebugStore = defineStore('debug', () => {
   const agentDebugLoading = ref(false);
   const agentDebugError = ref<string | null>(null);
   const agentDebugContent = ref('');
+  const selectedAgentDebugConversation = ref<AgentConversationResponse | null>(null);
   const agentDebugContentLoading = ref(false);
   const agentDebugContentError = ref<string | null>(null);
 
@@ -292,6 +294,7 @@ export const useDebugStore = defineStore('debug', () => {
 
   async function loadSelectedAgentDebugContent(): Promise<void> {
     agentDebugContent.value = '';
+    selectedAgentDebugConversation.value = null;
     agentDebugContentError.value = null;
     const session = selectedAgentDebugSession.value;
     const path = selectedAgentDebugPath.value;
@@ -299,7 +302,7 @@ export const useDebugStore = defineStore('debug', () => {
     agentDebugContentLoading.value = true;
     try {
       if (selectedAgentDebugKind.value === 'conversation') {
-        agentDebugContent.value = JSON.stringify(await getAgentConversation(session.id), null, 2);
+        selectedAgentDebugConversation.value = await getAgentConversation(session.id);
       } else if (selectedAgentDebugKind.value === 'llmExchange') {
         agentDebugContent.value = JSON.stringify(await getAgentLlmExchange(session.id), null, 2);
       } else {
@@ -408,6 +411,7 @@ export const useDebugStore = defineStore('debug', () => {
     selectedAgentDebugKind,
     selectedAgentDebugSession,
     selectedAgentDebugPath,
+    selectedAgentDebugConversation: readonly(selectedAgentDebugConversation),
     formattedAgentDebugContent,
     agentDebugLoading: readonly(agentDebugLoading),
     agentDebugError: readonly(agentDebugError),
