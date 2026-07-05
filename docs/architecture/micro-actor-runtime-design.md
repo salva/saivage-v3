@@ -1,6 +1,6 @@
 # Micro-Actor Runtime Design
 
-Status: current runtime architecture. The micro-actor runtime has landed and is the active execution path (see [Implementation Plan — Current Status](./micro-actor-runtime-implementation-plan.md#current-status)). Some mechanisms described here are pending implementation and are marked "(P{n}, not yet implemented)" inline — they are the target architecture, not the current code. Sections explicitly marked as deferred or future work are aspirational.
+Status: current runtime architecture. The micro-actor runtime has landed and is the active execution path (see [Implementation Plan — Current Status](./micro-actor-runtime-implementation-plan.md#current-status)). The R1-R4 and P1-P5 remediation is complete: truthful process state/scoped termination, process-first startup recovery, authoritative CardActor cancellation, the single RuntimeGate pause barrier, and reviewer/main-agent notification isolation are all implemented. Sections explicitly marked as deferred or future work are aspirational.
 
 Date: 2026-06-19.
 
@@ -78,9 +78,9 @@ The target implementation must preserve these invariants:
 - `result` is attached only from accepted main-agent results.
 - Reviewer-negative results are stored with the card and injected into planner context; positive reviewer text is only attached to the card.
 - Notifications are card-addressed, immutable, ephemeral delivery items, not user-managed note objects.
-- Cancellation is authoritative for both inactive and running cards. Inactive cards are marked `cancelled` immediately; running cards cancel the current `CardActor` activation, write `cancelled` to the store immediately, resolve the pending activation as cancelled, stop activation-owned runtime process scope, and drop stale/late outcomes through the CardActor cancellation flag (P3, not yet implemented; see [Implementation Plan P3](./micro-actor-runtime-implementation-plan.md#p3-cardactor-owns-authoritative-cancellation-and-activation-id-settlement)).
+- Cancellation is authoritative for both inactive and running cards. Inactive cards are marked `cancelled` immediately; running cards cancel the current `CardActor` activation, write `cancelled` to the store immediately, resolve the pending activation as cancelled, stop activation-owned runtime process scope, and drop stale/late outcomes through the CardActor cancellation flag (see [Implementation Plan P3](./micro-actor-runtime-implementation-plan.md#p3-cardactor-owns-authoritative-cancellation-and-activation-id-settlement)).
 - Run starts idle work or resumes paused work; duplicate Run returns an already-running warning. Resume opens the pause barrier so existing waiters proceed, without requiring a second manual Run.
-- Pause is a global admission barrier for new autonomous provider calls, runtime-owned process spawns, and card dispatch. Pause itself does not mutate card/session/process state, though already-admitted work may still persist facts and settle to durable boundaries while paused. (P4, not yet implemented as a single gate; today only LLM admission is pause-aware and it fails the turn rather than waiting — see [Implementation Plan P4](./micro-actor-runtime-implementation-plan.md#p4-runtimegate-replaces-llm-admission-and-owns-the-pause-barrier).)
+- Pause is a global admission barrier for new autonomous provider calls, runtime-owned process spawns, and card dispatch. Pause itself does not mutate card/session/process state, though already-admitted work may still persist facts and settle to durable boundaries while paused. (See [Implementation Plan P4](./micro-actor-runtime-implementation-plan.md#p4-runtimegate-replaces-llm-admission-and-owns-the-pause-barrier).)
 - Shutdown pauses first, then terminates runtime-owned running processes.
 - Process handling uses launch, inspect, bounded wait, and explicit termination; wait timeout does not kill the process.
 - Every external operation admitted by the runtime has a timeout or inactivity timeout.
@@ -109,7 +109,7 @@ RuntimeSupervisorActor
 
 Process execution is a service, not an actor. A single injected `ProcessRunner` is called directly by process tools and by shutdown; it does not appear in the actor tree.
 
-Pause admission is also a service, not an actor state. A single composition-root `RuntimeGate` owns live pause truth and waiters; persisted runtime mode is the restart truth, and the supervisor actor only tracks scheduling **mode** (`idle`/`running`/`paused`) for projection and duplicate-run guards. The gate is NOT part of the micro-actor framework. Because an already-returned provider response can request OS processes or child dispatch, the real gate chokepoints are: (1) `LLMActor` before provider invocation, (2) the runtime process tool provider before `ProcessRunner.spawn(...)` for runtime-owned work, and (3) `CardActor.activateChild`/root dispatch before child or root card work starts. `ProcessRunner` itself never asks the gate — it is a pure OS-process service. Completion facts from already-admitted work may still settle to durable boundaries; follow-up autonomous work reaches one of those same gate seams before starting. (P4, not yet implemented; today admission is a synchronous boolean on the supervisor that fails the turn — see [Implementation Plan P4](./micro-actor-runtime-implementation-plan.md#p4-runtimegate-replaces-llm-admission-and-owns-the-pause-barrier).)
+Pause admission is also a service, not an actor state. A single composition-root `RuntimeGate` owns live pause truth and waiters; persisted runtime mode is the restart truth, and the supervisor actor only tracks scheduling **mode** (`idle`/`running`/`paused`) for projection and duplicate-run guards. The gate is NOT part of the micro-actor framework. Because an already-returned provider response can request OS processes or child dispatch, the real gate chokepoints are: (1) `LLMActor` before provider invocation, (2) the runtime process tool provider before `ProcessRunner.spawn(...)` for runtime-owned work, and (3) `CardActor.activateChild`/root dispatch before child or root card work starts. `ProcessRunner` itself never asks the gate — it is a pure OS-process service. Completion facts from already-admitted work may still settle to durable boundaries; follow-up autonomous work reaches one of those same gate seams before starting. (See [Implementation Plan P4](./micro-actor-runtime-implementation-plan.md#p4-runtimegate-replaces-llm-admission-and-owns-the-pause-barrier).)
 
 `CardActor` has the public card states: `backlog`, `running`, `done`, `blocked`, `failed`, `cancelled`, and `changed`. This is the public card lifecycle layer. New card actors start in `backlog`; recovered actors use the persisted card state. Public idle card states such as `backlog`, `done`, `blocked`, `failed`, and `changed` are parked because external commands may later activate, change, or cancel them. `cancelled` is terminal: the actor exits, the card cannot be edited or reactivated, and replacement work requires creating a new card. Processor actors share mechanical base classes but keep role/card policy in concrete subclasses. `LLMActor` interacts with remote LLM providers.
 
@@ -121,7 +121,7 @@ Ownership conventions are deliberately narrow:
 
 - `CardActor` owns its direct child `CardActor` instances and its associated processor actor.
 - `BaseCardProcessorActor` owns common processor mechanics: activation, pending activation resolution, settlement, snapshots, and parent outcome reporting.
-- `BaseMainLLMCardProcessorActor` owns the shared main-agent LLM loop for processors driven by one main LLM session. It exposes two distinct notification methods: `plannerNotificationContext(input, inputId)` (drains main-agent notifications and records markers — planner/executor flows only) and `reviewerContext(input)` (currentness/change-invalidation state only, no access to the main-agent queue). Reviewer continuations must use `reviewerContext` so draining planner notifications is unrepresentable (P5, not yet implemented; today a single generic helper drains from any continuation).
+- `BaseMainLLMCardProcessorActor` owns the shared main-agent LLM loop for processors driven by one main LLM session. It exposes two distinct notification methods: `plannerNotificationContext(input, inputId)` (drains main-agent notifications and records markers — planner/executor flows only) and `reviewerContext(input)` (currentness/change-invalidation state only, no access to the main-agent queue). Reviewer continuations must use `reviewerContext` so draining planner notifications is unrepresentable (see [Implementation Plan P5](./micro-actor-runtime-implementation-plan.md#p5-reviewer-cannot-reach-main-agent-notification-delivery)).
 - `PlanningCardProcessorActor` owns project/goal planner/reviewer semantics.
 - `TerminalCardProcessorActor` owns executor semantics.
 - Process execution is owned by a single injected `ProcessRunner` service, not by an actor. Process tools and shutdown call it directly.
@@ -336,7 +336,7 @@ Purpose: generic LLM/provider turn and tool-loop mechanics for planner, reviewer
 Suggested states:
 
 - `idle`: parked; no provider call is active and another turn may be requested by owner.
-- `requesting_admission`: active; waiting for the `RuntimeGate` to open before calling the provider (P4, not yet implemented; today admission is a synchronous boolean that fails the turn).
+- `requesting_admission`: active; waiting for the `RuntimeGate` to open before calling the provider.
 - `calling_provider`: active; provider request is in flight.
 - `waiting_for_tool`: parked; a runtime tool result is required before another provider turn.
 
@@ -354,7 +354,7 @@ Public methods:
 Responsibilities:
 
 - Append durable invocation context before provider calls.
-- Await the injected `RuntimeGate` directly before provider invocation; pause **waits** rather than failing the turn. The processor is not in the admission path (P4, not yet implemented).
+- Await the injected `RuntimeGate` directly before provider invocation; pause **waits** rather than failing the turn. The processor is not in the admission path.
 - Receive already-built `LlmInvocationInput` from the owning processor. `LLMActor` does not own card notification queues and does not decide which notifications are deliverable.
 - Persist provider responses before owner interpretation.
 - Persist every assistant tool call before routing it.
@@ -378,10 +378,10 @@ Public methods:
 
 - `spawn(spec)`: launch a child process, stream output to durable logs, register it, return the process record.
 - `wait(id, timeout)`: bounded wait; timeout returns a result but does not kill the process.
-- `kill(id, reason)`: terminate one process — SIGTERM, bounded wait, SIGKILL, reap. This is the single implementation of "actually stop a process," used by the `kill_process` tool and the scoped-set termination helpers (P1, not yet implemented for unattached records; today `stopProcess` can mark unattached running records `killed` without an OS signal).
+- `kill(id, reason)`: terminate one process — SIGTERM, bounded wait, SIGKILL, reap. This is the single implementation of "actually stop a process," used by the `kill_process` tool and the scoped-set termination helpers. Unattached running records are signalled by process group (not silently flipped to `killed`).
 - `stopByOwner(ownerId, reason, { graceMs })`: terminate all running processes owned by a specific owner (e.g., a terminal activation or analyst session).
 - `stopRuntimeOwned(reason, { graceMs })`: terminate all running processes whose `owner_kind !== 'operator'`. Used by shutdown and stopProject. There is deliberately no blanket `stopAll`.
-- Registry reads (`list`, `get`) over durable process records, plus start-time reconcile of records left behind by a crashed run. Reconcile is owner-scoped: runtime/agent-owned records are killed by PID or marked lost; operator-owned records are observed best-effort or marked lost. There must be no `reattach_state` fiction (P1, not yet implemented; today `reconcile()` still writes `reattach_state: 'reattached'` without a real handle — see [Implementation Plan P1](./micro-actor-runtime-implementation-plan.md#p1-processrunner-owns-truthful-process-state-and-scoped-termination)).
+- Registry reads (`list`, `get`) over durable process records, plus start-time reconcile of records left behind by a crashed run. Reconcile is owner-scoped: runtime/agent-owned records are killed by PID or marked lost; operator-owned records are observed best-effort or marked lost. There is no `reattach_state` fiction (see [Implementation Plan P1](./micro-actor-runtime-implementation-plan.md#p1-processrunner-owns-truthful-process-state-and-scoped-termination)).
 
 Responsibilities:
 
@@ -398,7 +398,7 @@ Routing:
 
 - Process tools (`run_command`, `wait_process`, `kill_process`) call `ProcessRunner` methods directly.
 - Shutdown calls `runner.stopRuntimeOwned(...)` directly. It does not walk the actor tree and does not route through any process actor.
-- Runtime start must invoke `reconcile()` before actor recovery to reconcile records left by a crashed run (P2, not yet implemented; today `reconcile()` runs after `buildActorRecoveryPlan`/`runActorStartupRecovery`). Runtime/agent-owned running records are killed by PID or marked lost; operator-owned records are observed best-effort or marked lost (see [Implementation Plan P1](./micro-actor-runtime-implementation-plan.md#p1-processrunner-owns-truthful-process-state-and-scoped-termination), [P2](./micro-actor-runtime-implementation-plan.md#p2-startup-reconciles-processes-before-actor-recovery)).
+- Runtime start invokes `reconcile()` before actor recovery to reconcile records left by a crashed run (see [Implementation Plan P2](./micro-actor-runtime-implementation-plan.md#p2-startup-reconciles-processes-before-actor-recovery)). Runtime/agent-owned running records are killed by PID or marked lost; operator-owned records are observed best-effort or marked lost (see [Implementation Plan P1](./micro-actor-runtime-implementation-plan.md#p1-processrunner-owns-truthful-process-state-and-scoped-termination)).
 - Running cancellation is authoritative via `CardActor`'s activation-id settlement (see [Implementation Plan P3](./micro-actor-runtime-implementation-plan.md#p3-cardactor-owns-authoritative-cancellation-and-activation-id-settlement)); shutdown or explicit `kill_process` handles broader forced process termination beyond the activation-owned scope.
 
 ## External Command Mapping
@@ -457,7 +457,7 @@ Rules:
 
 - Analyst and runtime services enqueue notifications to cards.
 - The card runtime decides when to append pending notifications to the main agent session.
-- `CardActor` owns the pending card-addressed queue. The processor's `plannerNotificationContext(input, inputId)` drains deliverable main-agent notifications (planner/executor flows only); reviewer flows use `reviewerContext(input)` which has no queue access (P5, not yet implemented).
+- `CardActor` owns the pending card-addressed queue. The processor's `plannerNotificationContext(input, inputId)` drains deliverable main-agent notifications (planner/executor flows only); reviewer flows use `reviewerContext(input)` which has no queue access (see [Implementation Plan P5](./micro-actor-runtime-implementation-plan.md#p5-reviewer-cannot-reach-main-agent-notification-delivery)).
 - `LLMActor` is deliberately queue-free. It receives notification content only as part of the `LlmInvocationInput` built by the owning processor, preserving generic provider/tool-loop mechanics and keeping card semantics in card/processor actors.
 - `CardActor` exposes enough domain methods for its processor to check whether undelivered notifications exist, drain the notifications deliverable to the main agent, and record delivery markers after the processor appends them to the next model-visible turn.
 - Project/goal main agent is the planner.
@@ -477,7 +477,7 @@ Notifications can affect flow:
 
 ## Pause, Cancellation, And Shutdown
 
-Pause (P4, not yet implemented as a single gate; today only LLM admission is pause-aware and it fails the turn — see [Implementation Plan P4](./micro-actor-runtime-implementation-plan.md#p4-runtimegate-replaces-llm-admission-and-owns-the-pause-barrier)):
+Pause (see [Implementation Plan P4](./micro-actor-runtime-implementation-plan.md#p4-runtimegate-replaces-llm-admission-and-owns-the-pause-barrier)):
 
 - `RuntimeGate` closes; the supervisor records paused mode.
 - Active provider calls and already-running OS processes may continue until the next durable boundary.
@@ -533,7 +533,7 @@ Do not persist:
 
 Recovery procedure (current policy: conservative block-on-restart):
 
-1. Reconcile persisted running process records through the `ProcessRunner` registry BEFORE actor recovery (P1/P2, not yet implemented; see [Implementation Plan P1](./micro-actor-runtime-implementation-plan.md#p1-processrunner-owns-truthful-process-state-and-scoped-termination), [P2](./micro-actor-runtime-implementation-plan.md#p2-startup-reconciles-processes-before-actor-recovery)). Runtime/agent-owned records are killed by PID/process-group or marked lost; operator-owned records are observed best-effort or marked lost.
+1. Reconcile persisted running process records through the `ProcessRunner` registry BEFORE actor recovery (see [Implementation Plan P1](./micro-actor-runtime-implementation-plan.md#p1-processrunner-owns-truthful-process-state-and-scoped-termination), [P2](./micro-actor-runtime-implementation-plan.md#p2-startup-reconciles-processes-before-actor-recovery)). Runtime/agent-owned records are killed by PID/process-group or marked lost; operator-owned records are observed best-effort or marked lost.
 2. Read CardStore, runtime records, session logs, tool records, and notification records; build one initial recovery plan from actor snapshots and `activeReconstruction` records (not from public-status or state-name heuristics).
 3. Project safe persisted terminal tool-call outcomes (executor terminal, planner `blocked`/`failed`, planner `done` paired with a matching persisted reviewer terminal result) only when active card, processor, LLM, and reviewer reconstruction records all agree; mark them `terminal_projected`.
 4. Convert all remaining active card work — including `block_tool_wait` LLM actors and interrupted child-activation waits — to explicit `blocked` card outcomes. `failed` outcomes come only from terminal projection, never from generic conversion.

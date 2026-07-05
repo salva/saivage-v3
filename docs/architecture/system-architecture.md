@@ -57,7 +57,7 @@ Executor sessions are one-shot per terminal card activation.
 
 Reviewer sessions are one-shot per assessment.
 
-Reviewer assessment happens after runtime readiness and evidence gates pass. The reviewer receives the project card data, the assessed goal subtree, and the planner return value. Reviewer approval is valid only for the card tree snapshot it assessed. If the goal or any descendant changes before approval commits, the runtime invalidates the reviewer pass and returns the goal to planner ownership with correction/change context. Reviewer sessions must never drain the card's main-agent notification queue; notifications queued during review remain pending for planner/main-agent delivery and may invalidate reviewer success through currentness checks (P5, not yet implemented; today the reviewer non-terminal-tool continuation drains the main-agent queue — see Implementation Plan P5). Negative reviewer results are stored with the card and injected back into the planner context through the completion-return response; positive reviewer text is only attached to the card.
+Reviewer assessment happens after runtime readiness and evidence gates pass. The reviewer receives the project card data, the assessed goal subtree, and the planner return value. Reviewer approval is valid only for the card tree snapshot it assessed. If the goal or any descendant changes before approval commits, the runtime invalidates the reviewer pass and returns the goal to planner ownership with correction/change context. Reviewer sessions must never drain the card's main-agent notification queue; notifications queued during review remain pending for planner/main-agent delivery and may invalidate reviewer success through currentness checks (see Implementation Plan P5). Negative reviewer results are stored with the card and injected back into the planner context through the completion-return response; positive reviewer text is only attached to the card.
 
 Analyst sessions are user-facing conversational sessions. Analyst mutations go through canonical runtime, card, config, process, and notification services.
 
@@ -66,7 +66,7 @@ Analyst sessions are user-facing conversational sessions. Analyst mutations go t
 Run:
 
 1. Analyst receives a user request to run, start, continue, or resume.
-2. If the runtime is paused, the runtime opens the global admission gate so waiters blocked at provider/spawn/dispatch seams proceed before new autonomous work is admitted (P4, not yet implemented; today resume only flips supervisor mode).
+2. If the runtime is paused, the runtime opens the global admission gate so waiters blocked at provider/spawn/dispatch seams proceed before new autonomous work is admitted (see Implementation Plan P4).
 3. If no root run exists, the supervisor records durable running intent and creates the root runtime run.
 4. If the project is already running, the supervisor returns an already-running warning and creates no duplicate root run.
 5. When needed, the supervisor activates the parentless project card.
@@ -116,7 +116,7 @@ The acceptance gate prevents a planner from closing a goal while any executable 
 
 Cancellation is immediate only for inactive cards. Recursive cancellation preserves descendants that are already `done` and converts inactive non-completion-compatible descendants, including `failed`, `blocked`, `backlog`, and `changed`, to `cancelled`.
 
-Cancelling a running card is authoritative: `CardActor.cancel()` cancels the current activation, writes `cancelled` to the card store immediately, resolves the pending activation as cancelled, stops activation-owned runtime process scope, and drops late provider/tool/process outcomes through the CardActor cancellation flag (P3, not yet implemented; today running cancel only enqueues a notification and late outcomes can still overwrite `cancelled`). Running children are cancelled through their own `CardActor.cancel()` so they are cancelled too. Shutdown remains the hard operation for forcibly stopping all runtime-owned process scopes.
+Cancelling a running card is authoritative: `CardActor.cancel()` cancels the current activation, writes `cancelled` to the card store immediately, resolves the pending activation as cancelled, stops activation-owned runtime process scope, and drops late provider/tool/process outcomes through the CardActor cancellation flag (see Implementation Plan P3). Running children are cancelled through their own `CardActor.cancel()` so they are cancelled too. Shutdown remains the hard operation for forcibly stopping all runtime-owned process scopes.
 
 Project-card cancellation is the root case of the same operation. Inactive project work is cancelled immediately; running project work is cancelled via the same activation path, which marks the card store `cancelled` immediately and rejects late outcomes.
 
@@ -124,7 +124,7 @@ Project-card cancellation is the root case of the same operation. Inactive proje
 
 Durable state remains project-local. Saivage state must live under the project `.saivage/` and `.saivage-work/` directories, not under user-global state.
 
-Startup recovery is conservative and process-first (target; P1/P2 not yet implemented — today reconcile runs after actor recovery and `reattach_state` is still written). The runtime reconciles persisted running process records before actor recovery: runtime/agent-owned process records are killed by PID/process-group or marked lost, operator-owned records are observed best-effort or marked lost, and no `reattach_state` or live process reattachment fiction is used. After process reconciliation, actor recovery projects only safe persisted terminal decisions; remaining interrupted active card work becomes explicit `blocked` outcomes with sanitized diagnostics. Recovery does not recreate in-flight provider calls, process waits, tool waits, or running card actors.
+Startup recovery is conservative and process-first (see Implementation Plan P1/P2). The runtime reconciles persisted running process records before actor recovery: runtime/agent-owned process records are killed by PID/process-group or marked lost, operator-owned records are observed best-effort or marked lost, and no `reattach_state` or live process reattachment fiction is used. After process reconciliation, actor recovery projects only safe persisted terminal decisions; remaining interrupted active card work becomes explicit `blocked` outcomes with sanitized diagnostics. Recovery does not recreate in-flight provider calls, process waits, tool waits, or running card actors.
 
 Expected persisted concerns include:
 

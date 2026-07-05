@@ -1,6 +1,6 @@
 # Micro-Actor Runtime Implementation Plan
 
-Status: R1-R4 remediation complete; P1-P5 active remediation pending implementation (right-layer fixes, no new wrapper classes).
+Status: R1-R4 and P1-P5 remediation complete. The micro-actor runtime, truthful process state/scoped termination, process-first startup recovery, authoritative CardActor cancellation, the single RuntimeGate pause barrier, and reviewer/main-agent notification isolation have all landed. Remaining work is consolidated in [Remaining Work Consolidated Plan](./remaining-work-consolidated-plan.md).
 
 Date: 2026-06-24.
 
@@ -22,7 +22,7 @@ The actor runtime plan is complete. The following are future product/architectur
 
 1. If mid-flight resume becomes a concrete requirement, design it as new actor-owned reconstruction entrypoints. Do not add adapters around in-memory promises, provider calls, or process handles.
 2. If auto-reactivation after restart becomes desirable, replace the conservative block-on-restart policy deliberately rather than layering a bridge over current recovery.
-3. Broader release validation should run when release criteria or affected surfaces change; the current focused, routine, UI, and release profiles passed before P1-P5 and must be re-run after P1-P5 land.
+3. Broader release validation should run when release criteria or affected surfaces change; the focused, routine, UI, and release profiles have been re-run after P1-P5.
 
 The detailed recovery work and simplification direction is tracked in [Slice 8: Recovery](#slice-8-recovery).
 
@@ -33,13 +33,13 @@ The post-implementation review found a few real issues that should be fixed befo
 Completed post-review fixes:
 
 - Candidate-review self-citation is rejected unless backed by durable evidence outside the reviewed card candidate result.
-- Processor cancellation states and processor `cancel(...)` APIs remain absent from the normal path by design; running cancellation is owned by `CardActor` through the current activation. The activation settlement primitive itself is NOT yet implemented — see [P3](#p3-cardactor-owns-authoritative-cancellation-and-activation-id-settlement).
+- Processor cancellation states and processor `cancel(...)` APIs remain absent from the normal path by design; running cancellation is owned by `CardActor` through the current activation, including authoritative activation-id settlement (see [P3](#p3-cardactor-owns-authoritative-cancellation-and-activation-id-settlement)).
 - Notification delivery uses the card-owned `deliverNotificationsForInput(inputId)` contract. Done cards with leftover notifications are handled by the processor's terminal-deferral path (see [P3](#p3-cardactor-owns-authoritative-cancellation-and-activation-id-settlement)), not by flipping `done` to `changed`.
 - Non-terminal planner `activate_card` argument failures are returned as recoverable tool results instead of crashing activation.
 - Dead actor APIs/options such as untracked notification drain/record methods, production-dead `LLMActor.appendToolError`, and unused runtime construction inputs were removed.
 - Notification delivery markers and terminal processor process actor records are bounded/compacted.
 - Actor runtime read-model state names are aligned with current actor states.
-- Reviewer approval is invalidated when main-agent notifications remain pending after the reviewer turn (reviewer-currentness check). Note: reviewer turns still drain main-agent notifications today — see [P5](#p5-reviewer-cannot-reach-main-agent-notification-delivery).
+- Reviewer approval is invalidated when main-agent notifications remain pending after the reviewer turn (reviewer-currentness check). Reviewer turns cannot drain main-agent notifications: reviewer continuations use `reviewerContext(input)`, while only planner/executor flows use `plannerNotificationContext(input, inputId)` (see [P5](#p5-reviewer-cannot-reach-main-agent-notification-delivery)).
 - Startup converts known interrupted running card work into explicit blocked card outcomes when the owner card and transition are valid.
 - Safe parked-state recovery hooks avoid normal-entry side effects where needed.
 - Terminal tool-call recovery projects safe executor terminal outcomes, planner `blocked`/`failed` outcomes, and planner `done` outcomes paired with matching persisted reviewer terminal results.
@@ -295,7 +295,7 @@ Acceptance:
 
 Goal: add reviewer assessment after planner reports candidate done.
 
-Current status: implemented for the current actor path, with one reviewer-notification isolation bug still tracked in [P5](#p5-reviewer-cannot-reach-main-agent-notification-delivery). Reviewer execution is planner-owned and contract-terminal-only, self-citation without durable evidence is rejected, and corrections return a blocked planner outcome. Pending main-agent notifications are intended to invalidate reviewer approval instead of being drained into reviewer context; the reviewer non-terminal tool continuation still needs the P5 fix.
+Current status: implemented for the current actor path. Reviewer execution is planner-owned and contract-terminal-only, self-citation without durable evidence is rejected, and corrections return a blocked planner outcome. Pending main-agent notifications invalidate reviewer approval through currentness checks instead of being drained into reviewer context: reviewer continuations use `reviewerContext(input)` which has no access to the main-agent queue (see [P5](#p5-reviewer-cannot-reach-main-agent-notification-delivery)).
 
 Implementation:
 
@@ -342,7 +342,7 @@ Completed:
 - In-flight provider calls are classified for abandonment.
 - Waiting-tool, active processor, active card, and running process states are surfaced as recovery actions/diagnostics.
 - Ambiguous active card states, active LLM states without concrete recovery actions, and stranded active cards are surfaced as human-readable diagnostics.
-- Persisted running process records are reconciled at startup (reconcile is wired into `SupervisorRuntimeApi.start()`). The reconciliation ordering (before actor recovery) and truthfulness (no `reattach_state` fiction, real PID/process-group signalling for unattached records) are NOT yet correct — see [P1](#p1-processrunner-owns-truthful-process-state-and-scoped-termination), [P2](#p2-startup-reconciles-processes-before-actor-recovery).
+- Persisted running process records are reconciled at startup before actor recovery (`reconcile()` is wired into `SupervisorRuntimeApi.start()` ahead of `buildActorRecoveryPlan`). Reconciliation is truthful: real PID/process-group signalling for unattached records, no `reattach_state` fiction (see [P1](#p1-processrunner-owns-truthful-process-state-and-scoped-termination), [P2](#p2-startup-reconciles-processes-before-actor-recovery)).
 - Startup persists sanitized outstanding recovery diagnostics without including actor snapshot context payloads.
 - Persisted recovery diagnostics are versioned with `schema_version: 1`.
 - Discarded non-idle supervisor snapshots are surfaced as human-readable diagnostics and actions.
@@ -453,16 +453,16 @@ The R1-R4 code-to-design conformance work has landed. This section records what 
 - **R1 — one injected `ProcessRunner`.** The four-layer forwarding stack (`ProcessApi` → module free functions → `ProcessRunnerService` → `*ForService` functions) and the per-root `serviceFor` singleton are gone. `ProcessRunner` is exactly one injected class with `spawn/wait/kill/stopByOwner/stopRuntimeOwned/list/get/reconcile`. Ownership (`ownerId`, `ownerKind`) is required at spawn. All four process-termination callers go through scoped runner methods. Terminal activation cleanup is awaited in a `try/finally` before the activation resolves.
 - **R2 — `CardActor` owns construction.** `CardActor` constructs its own processor via `createProcessor(card, this)`. `SupervisorRuntimeApi` constructs only the root and reads the shared `lookup` Map for `notifyCard` and read-model. The old `makePlanningProcessor`/`makeTerminalProcessor`/`processorFor`/`childrenPort` machinery is gone. Recovery calls pure projection functions (`projectPlannerTerminalOutcome`, `projectTerminalExecutorOutcome`) and does not instantiate processor actors.
 - **R3 — no `shutting_down` state.** `RuntimeSupervisorActor` has only `idle`/`running`/`paused`. The `shutting_down` reads (`startProjectRejection`'s `runtime_stopping` branch, `actorPauseMode`'s `stopping` case) are gone.
-- **R4 — pause/resume routes exist.** `/api/runtime/pause` and `/api/runtime/resume` are wired through the operator contract route system. **Caveat:** the routes currently only persist supervisor mode; they are functionally inert until P4 lands the runtime gate. No pause-aware enforcement of provider calls, runtime-owned process spawns, or card dispatch exists yet.
+- **R4 — pause/resume routes exist.** `/api/runtime/pause` and `/api/runtime/resume` are wired through the operator contract route system. They close/open the single `RuntimeGate` (landed by P4) so provider calls, runtime-owned process spawns, and card/root dispatch actually wait while paused.
 
 Stale R1 notes worth correcting here: the `kill_process` tool no longer exposes a `signal` argument and already escalates SIGTERM → bounded wait → SIGKILL; do not re-do that work.
 
 Dropped earlier-draft items (provenance): turn-loop home (`runContractBoundedRepairLoop` is already the correct shared free function for planner/reviewer-inner/executor); analyst loop dedup (opposite semantics, no terminal tools, different anti-loop mechanism — forcing unification would relocate logic without removing it).
 
 
-## Active Remediation Plan
+## Completed Remediation (P1-P5)
 
-The R1-R4 remediation landed the core micro-actor path. A holistic review found remaining correctness issues. Each is fixed at its owning architectural layer — not by scattering per-call guards or adding forwarding wrappers, and not by introducing new classes that duplicate state already owned by existing actors. Keep activation state on `CardActor`; keep OS process truth on `ProcessRunner`; keep recovery as the existing pipeline in `actor-recovery.ts`; replace (do not duplicate) the existing admission port.
+The R1-R4 remediation landed the core micro-actor path. A holistic review then found five remaining correctness issues (P1-P5), each fixed at its owning architectural layer — not by scattering per-call guards or adding forwarding wrappers, and not by introducing new classes that duplicate state already owned by existing actors. P1-P5 have all landed. The detailed Problem/Fix/Acceptance records below are kept as the design rationale; do not re-implement them. Keep activation state on `CardActor`; keep OS process truth on `ProcessRunner`; keep recovery as the existing pipeline in `actor-recovery.ts`; the `RuntimeGate` is the single pause authority.
 
 ### P1 — ProcessRunner owns truthful process state and scoped termination
 
@@ -542,34 +542,37 @@ Acceptance: reviewer code has no method capable of draining planner/main-agent n
 
 ### Sequencing
 
+The order in which P1-P5 were implemented:
+
 1. **P1 — ProcessRunner truth/scoped termination.** Unblocks authoritative cancel (which stops activation-owned processes) and recovery ordering. Independent.
 2. **P3 — CardActor authoritative cancel + activation-id settlement.** Depends on P1 only for the process-stop path; uses `stopByOwner(activationId)` (via `CardActivationInput.activationId`) for activation-owned process cleanup.
 3. **P2 — Reorder recovery.** Two-line swap; benefits from P1's reconcile changes.
 4. **P4 — RuntimeGate.** Replaces LLM admission; independent of P1-P3.
 5. **P5 — Notification method split.** Independent; can land anytime.
-6. **Boundary cleanup** is folded into the slice that touches each boundary (see P3 for notification settlement/`cancelDescendantIds`, P5 for the helper split); the remaining items are tracked below.
+6. **Boundary cleanup** is folded into the slice that touches each boundary (see P3 for notification settlement/`cancelDescendantIds`, P5 for the helper split); remaining items are tracked below.
 
 ### Boundary cleanup (folded into the slices above, or standalone)
+
+These boundary items are not part of P1-P5 and remain as standalone cleanup opportunities:
 
 - `CardActor` owns child actor references, direct-child authority, and child completion callbacks; `PlanningCardProcessorActor` obtains child activation through an `activateChild(childId, caller)` capability, not by holding child `CardActor` refs.
 - Root activation projection: `SupervisorRuntimeApi.runRootProject` is architecturally acceptable — it calls `CardActor.activate()`, awaits the promise, and projects the run record, which the design allows. Fix the root-settlement projection bug (settled `blocked` root still projects `running` with stale `currentCardId`) and simplify the `finally`-block cancel/settle branch so the API layer only projects outcomes, never decides control flow.
 - Delete the stale `recoverTerminalToolOutcome` instance methods on the processor classes (recovery already imports the pure projection functions).
 - Remove the `failed -> activate` (and `done`/`cancelled` -> activate) state-table transitions the domain invariant forbids; the table should encode impossible transitions, not rely only on `isActivatable()` guards.
 - Delete the thin `createComposedRuntimeApi` forwarding wrapper; inline it and move `candidateAvailability.dispose()` into the shutdown path.
-- Split the validation text below into already-passed profiles vs tests required when P1-P5 land.
 
 
 
 ## Remaining Validation And Documentation Follow-Up
 
-These items are not blockers for the core actor replacement. Current validation passed before P1-P5; re-run the broader profiles after P1-P5 land:
+These items are not blockers for the core actor replacement. P1-P5 have landed and validation has been re-run:
 
 - Full Jest has been run and stale docs-parity tests were rewritten around the current docs/source authority. Continue removing or rewriting stale tests around the new actor architecture rather than adding adapter, bridge, shim, migration, or compatibility code.
-- `npm run validate:ui-smoke`, `npm run validate:ui`, and `npm run validate:release` passed after the single-pass recovery simplification.
+- `npm run validate:ui-smoke`, `npm run validate:ui`, and `npm run validate:release` passed after the single-pass recovery simplification; routine/docs validation was re-run after P1-P5.
 - Operator-facing docs now describe planner-owned reviewer phase, terminal-tool-only report behavior, card-owned notification delivery markers, and conservative recovery diagnostics. Keep them updated as nonterminal active recovery expands.
 - `.saivage/runtime/recovery-diagnostics.json` is now projected through `actorRuntime.recovery`; decide later whether a dedicated recovery endpoint or UI treatment is needed.
 - Review generated/runtime artifact ownership separately from this runtime redesign if repository hygiene remains an open release concern.
-- Focused tests already cover landed gaps such as reviewer self-citation rejection, malformed `activate_card` args, real `CardActor` to processor notification-marker wiring, and bounded marker/process-map retention. P1-P5 still require new focused tests for CardActor authoritative cancellation, process truth/scoped termination, recovery ordering, runtime gate wait/unblock behavior, and reviewer notification method split.
+- Focused tests cover reviewer self-citation rejection, malformed `activate_card` args, real `CardActor` to processor notification-marker wiring, bounded marker/process-map retention, CardActor authoritative cancellation, process truth/scoped termination, recovery ordering, runtime gate wait/unblock behavior, and reviewer notification method split.
 
 ## Cross-Slice Test Matrix
 
