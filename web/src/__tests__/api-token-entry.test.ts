@@ -12,8 +12,8 @@ describe('bounded API token bootstrap UI', () => {
   });
 
   it('allows saving and clearing the local API token without exposing operator mutations', () => {
-    expect(tokenEntrySource).toContain('setAuthToken(trimmed)');
-    expect(tokenEntrySource).toContain('clearAuthToken()');
+    expect(tokenEntrySource).toContain('authStore.saveToken(trimmed)');
+    expect(tokenEntrySource).toContain('authStore.clearToken()');
     expect(tokenEntrySource).toContain('placeholder="64-char hex token"');
     expect(tokenEntrySource).toContain('@submit.prevent="saveToken"');
 

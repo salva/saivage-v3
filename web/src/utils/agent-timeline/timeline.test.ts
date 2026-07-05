@@ -115,3 +115,52 @@ describe('entriesToTimeline tool pairing', () => {
     expect(byCall.get('msg-c')?.status).toBe('pending');
   });
 });
+
+describe('entriesToTimeline display filtering', () => {
+  it('does not render raw activity-only rounds as visible transcript content', () => {
+    const timeline = entriesToTimeline([
+      entry({
+        id: 'turn-started',
+        role: 'system',
+        kind: 'activity',
+        content: JSON.stringify({ event: 'llm_turn_started' }),
+        round_id: 'r-pre-0000000000000000000000000000000a',
+      }),
+    ], null);
+
+    expect(timeline.rounds).toHaveLength(0);
+    expect(timeline.activeRoundId).toBeNull();
+  });
+
+  it('does not render empty text-only rounds', () => {
+    const timeline = entriesToTimeline([
+      entry({
+        id: 'empty-user',
+        role: 'user',
+        kind: 'text',
+        content: '   ',
+        round_id: 'r-user-0000000000000000000000000000000b',
+      }),
+    ], null);
+
+    expect(timeline.rounds).toHaveLength(0);
+    expect(timeline.activeRoundId).toBeNull();
+  });
+
+  it('keeps an otherwise empty active round visible when activity status is non-idle', () => {
+    const timeline = entriesToTimeline([
+      entry({
+        id: 'turn-started',
+        role: 'system',
+        kind: 'activity',
+        content: JSON.stringify({ event: 'llm_turn_started' }),
+        round_id: 'r-assistant-0000000000000000000000000000000c',
+      }),
+    ], { status: 'thinking', pending_calls: [], updated_at: '2026-05-30T00:00:01Z' });
+
+    expect(timeline.rounds).toHaveLength(1);
+    expect(timeline.rounds[0].texts).toHaveLength(0);
+    expect(timeline.rounds[0].activityStatus?.status).toBe('thinking');
+    expect(timeline.activeRoundId).toBe(timeline.rounds[0].id);
+  });
+});

@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia } from 'pinia';
 import { createRouter, createMemoryHistory } from 'vue-router';
-import { ref, computed } from 'vue';
 
 function waitForTransition(): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, 250));
@@ -18,15 +17,7 @@ vi.mock('../api/client', () => ({
   ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.status = status; this.body = body; } get isUnauthorized() { return this.status === 401; } },
 }));
 vi.mock('../stores/sync', () => ({
-  useSyncStore: () => ({ connect: vi.fn(), disconnect: vi.fn(), registerResource: vi.fn(() => vi.fn()), connectionState: ref('connected') }),
-}));
-vi.mock('../stores/runtime', () => ({
-  useRuntimeStore: () => ({
-    refetch: vi.fn(async () => undefined), fetchState: vi.fn(async () => undefined), resume: vi.fn(), pause: vi.fn(),
-    statusLabel: computed(() => 'running'), status: computed(() => 'running'),
-    liveUpdateLabel: computed(() => 'Live'), liveUpdateDetail: computed(() => 'Live'), runtimeModeLabel: computed(() => 'Running'), runtimeDetail: computed(() => 'Running'),
-    isStale: computed(() => false), unauthorized: computed(() => false), pauseActionDisabledReason: computed(() => null),
-  }),
+  useSyncStore: () => ({ connect: vi.fn(), disconnect: vi.fn(), registerResource: vi.fn(() => vi.fn()), connectionState: 'connected' }),
 }));
 vi.mock('../stores/cards', () => ({ useCardStore: () => ({ refetch: vi.fn(async () => undefined) }) }));
 vi.mock('../stores/agents', () => ({ useAgentStore: () => ({ refetch: vi.fn(async () => undefined) }) }));

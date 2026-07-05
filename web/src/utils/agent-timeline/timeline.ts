@@ -2,6 +2,7 @@ import type { ActivityStatus, AgentConversationEntry } from '../../api/types';
 import { parseToolCallMessage } from '../persistedToolCall';
 import { isRoundId, parseRoundId } from './round-id';
 import type { AgentTimeline, TimelineRound, TimelineRoundKind, ToolPair } from './types';
+import { groupToolPairs } from '../tool-friendly';
 
 type TimelineEntry = AgentConversationEntry & { round_id: string; message_index: number; block_index: number };
 
@@ -42,6 +43,19 @@ function normalizeEntry(entry: AgentConversationEntry, index: number): TimelineE
   return { ...entry, round_id, message_index, block_index };
 }
 
+function isDisplayTextEntry(entry: TimelineEntry): boolean {
+  if (entry.kind === 'text') return entry.content.trim().length > 0;
+  if (entry.kind === 'system_prompt') return entry.content.trim().length > 0;
+  return false;
+}
+
+function hasVisibleRoundContent(round: TimelineRound): boolean {
+  return round.texts.length > 0
+    || round.diagnostics.length > 0
+    || round.items.length > 0
+    || (round.activityStatus !== null && round.activityStatus.status !== 'idle');
+}
+
 function roundOrderKey(entries: TimelineEntry[]): [number, string, string] {
   let minMsg = Number.POSITIVE_INFINITY;
   let minTs = '';
@@ -69,12 +83,15 @@ export function entriesToTimeline(entries: readonly AgentConversationEntry[], ac
   const sortedGroups = [...grouped.entries()]
     .map(([id, roundEntries]) => ({ id, entries: roundEntries, key: roundOrderKey(roundEntries) }))
     .sort((a, b) => a.key[0] - b.key[0] || a.key[1].localeCompare(b.key[1]) || a.key[2].localeCompare(b.key[2]));
-  const rounds: TimelineRound[] = sortedGroups.map(({ id, entries: roundEntries }, idx) => {
+  const builtRounds: TimelineRound[] = sortedGroups.map(({ id, entries: roundEntries }, idx) => {
     const parsed = parseRoundId(id);
     const sorted = [...roundEntries].sort(compareEntry);
-    return { id, kind: parsed.kind, position: idx + 1, entries: sorted, texts: sorted.filter((entry) => entry.kind === 'text' || entry.kind === 'activity' || entry.kind === 'system_prompt'), diagnostics: sorted.filter((entry) => entry.kind === 'model_issue' || entry.kind === 'model_repair' || entry.kind === 'context_compaction' || entry.kind === 'model_recovered'), toolPairs: buildToolPairs(sorted), activityStatus: null };
+    const toolPairs = buildToolPairs(sorted);
+    return { id, kind: parsed.kind, position: idx + 1, entries: sorted, texts: sorted.filter(isDisplayTextEntry), diagnostics: sorted.filter((entry) => entry.kind === 'model_issue' || entry.kind === 'model_repair' || entry.kind === 'context_compaction' || entry.kind === 'model_recovered'), toolPairs, items: groupToolPairs(id, toolPairs), activityStatus: null };
   });
-  const activeRound = [...rounds].reverse().find((round: TimelineRound) => round.kind === 'assistant') ?? rounds[rounds.length - 1] ?? null;
+  const activeRound = [...builtRounds].reverse().find((round: TimelineRound) => round.kind === 'assistant') ?? builtRounds[builtRounds.length - 1] ?? null;
   if (activeRound && activityStatus && activityStatus.status !== 'idle') activeRound.activityStatus = activityStatus;
-  return { rounds, activeRoundId: activeRound?.id ?? null };
+  const rounds = builtRounds.filter(hasVisibleRoundContent).map((round, idx) => ({ ...round, position: idx + 1 }));
+  const visibleActiveRound = activeRound ? rounds.find((round) => round.id === activeRound.id) ?? null : null;
+  return { rounds, activeRoundId: visibleActiveRound?.id ?? null };
 }

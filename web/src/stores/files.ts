@@ -14,6 +14,7 @@ import { createLogger } from '../utils/logger';
 
 const log = createLogger('store:files');
 const STALE_AFTER_MS = 30_000;
+let fileContentRequestSeq = 0;
 
 // ── Constants ──────────────────────────────────────────────────
 
@@ -119,6 +120,11 @@ export const useFileStore = defineStore('files', () => {
     lastUpdatedBy.value = 'rest';
   }
 
+  function markWsSync(timestamp = nowIso()): void {
+    lastWsEventAt.value = timestamp;
+    lastUpdatedBy.value = 'ws';
+  }
+
   function handleApiError(err: unknown, fallback: string): string {
     unauthorized.value = err instanceof ApiError && err.isUnauthorized;
     if (err instanceof ApiError) return err.message;
@@ -200,6 +206,7 @@ export const useFileStore = defineStore('files', () => {
   // ── Actions: File Content ──────────────────────────────────
 
   async function fetchFileContent(path: string): Promise<void> {
+    const requestSeq = ++fileContentRequestSeq;
     contentLoading.value = true;
     error.value = null;
     viewerError.value = null;
@@ -208,10 +215,12 @@ export const useFileStore = defineStore('files', () => {
     viewedFilePath.value = path;
     try {
       const response: FileContent = await getFileContent(path);
+      if (requestSeq !== fileContentRequestSeq || viewedFilePath.value !== path) return;
       viewedFile.value = response;
       viewerState.value = 'ready';
       markRestSync('viewer');
     } catch (err) {
+      if (requestSeq !== fileContentRequestSeq || viewedFilePath.value !== path) return;
       const msg = handleApiError(err, 'Failed to fetch file content');
       error.value = msg;
       viewerError.value = msg;
@@ -227,7 +236,7 @@ export const useFileStore = defineStore('files', () => {
       }
       log.error('fetchFileContent', msg);
     } finally {
-      contentLoading.value = false;
+      if (requestSeq === fileContentRequestSeq) contentLoading.value = false;
     }
   }
 
@@ -282,6 +291,7 @@ export const useFileStore = defineStore('files', () => {
     navigateOutputUp,
     fetchFileContent,
     clearViewedFile,
+    markWsSync,
     refetch,
   };
 });

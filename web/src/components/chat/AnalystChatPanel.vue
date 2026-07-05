@@ -27,17 +27,19 @@
           :expanded-ids="timelineControls.expandedIds.value"
           @toggle="timelineControls.toggleExpanded"
         />
-        <div
+        <div v-if="sending && pendingToolInvocationsForActiveSession.length === 0" class="chat-thinking" role="status" aria-live="polite">
+          <span class="thinking-dot" aria-hidden="true"></span>
+          Analyst is thinking...
+        </div>
+        <PendingToolRow
           v-for="pending in pendingToolInvocationsForActiveSession"
           :key="pending.id"
-          class="chat-pending-call"
-        >
-          <ToolChip
-            v-bind="adaptPendingInvocationToToolChip({ id: pending.id, tool: pending.tool, started_at: new Date().toISOString(), summary: pending.summary }, timelineControls.expandedIds.value.has(pending.id))"
-            @toggle="timelineControls.toggleExpanded(pending.id)"
-          />
-          <span class="chat-pending-summary">{{ pending.summary }}</span>
-        </div>
+          :tool="pending.tool"
+          :summary="pending.summary"
+          :expanded="timelineControls.expandedIds.value.has(pending.id)"
+          :details-id="`pending-${pending.id}`"
+          @toggle="timelineControls.toggleExpanded(pending.id)"
+        />
       </div>
     </div>
 
@@ -73,8 +75,7 @@ import { selectChildrenOf } from '../../stores/card-presentation';
 import { useWorkspaceRouteStore } from '../../stores/workspaceRoute';
 import { useAgentTimeline } from '../../composables/useAgentTimeline';
 import RoundCard from '../conversation/RoundCard.vue';
-import ToolChip from '../conversation/ToolChip.vue';
-import { adaptPendingInvocationToToolChip } from './tool-chip-adapter';
+import PendingToolRow from '../conversation/PendingToolRow.vue';
 
 const chat = useAnalystChat();
 const cards = useCardStore();
@@ -254,6 +255,32 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.chat-thinking {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 10px;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.thinking-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  animation: thinking-pulse 1s ease-in-out infinite;
+}
+
+@keyframes thinking-pulse {
+  0%, 100% { opacity: .35; transform: scale(.85); }
+  50% { opacity: 1; transform: scale(1); }
 }
 
 .chat-pending-summary {

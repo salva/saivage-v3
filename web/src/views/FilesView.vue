@@ -100,7 +100,7 @@ import { computed, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useFileStore } from '../stores/files';
-import { useSyncStore } from '../stores/sync';
+import { useLiveSyncStore } from '../stores/liveSync';
 import { useCardStore } from '../stores/cards';
 import { selectChildrenOf } from '../stores/card-presentation';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../utils/timestamp';
@@ -114,7 +114,7 @@ type FileRoot = 'meta' | 'output';
 const route = useRoute();
 const router = useRouter();
 const fileStore = useFileStore();
-const syncStore = useSyncStore();
+const liveSyncStore = useLiveSyncStore();
 const cardsStore = useCardStore();
 const {
   metaFiles, metaLoading, metaBreadcrumbs,
@@ -276,7 +276,7 @@ function applyQueryPath(): void {
 
 let unregisterFiles: (() => void) | null = null;
 onMounted(() => {
-  unregisterFiles = syncStore.registerResource({ resource: 'files', scope: 'active', refetch: fileStore.refetch });
+  unregisterFiles = liveSyncStore.registerResource({ resource: 'files', scope: 'active', refetch: fileStore.refetch, onRefetch: fileStore.markWsSync });
 });
 
 onUnmounted(() => {

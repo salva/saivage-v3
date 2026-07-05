@@ -105,7 +105,7 @@ export function selectRuntimeDetail(options: {
 }): string {
   if (options.unauthorized) return 'Runtime snapshot unavailable until a valid API token is provided.';
   if (options.status === 'error') return 'Runtime reported an error state. Inspect Debug for recovery evidence.';
-  if (options.status === 'paused') return 'Runtime is paused. Use Runtime Console to resume active runs and activation edges when appropriate.';
+  if (options.status === 'paused') return 'Runtime is paused. Ask the Analyst to Run when work should continue.';
   if (options.stale) return 'Runtime snapshot is stale. Refresh to resync with the authoritative REST state.';
   if (!options.runtime) return options.availabilityDetail ?? 'Runtime state has not been loaded yet.';
   return options.availabilityDetail ?? 'REST snapshot is authoritative; live updates may accelerate status changes.';

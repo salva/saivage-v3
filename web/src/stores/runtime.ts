@@ -82,6 +82,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
   });
 
   const statusLabel = computed<string>(() => selectRuntimeStatusLabel(runtime.value));
+  const syncConnectionState = computed(() => useSyncStore().connectionState ?? 'offline');
 
   const doneGoals = computed<number>(() => cardIndex.value.byStatus['done'] ?? 0);
   const failedBlocked = computed<number>(
@@ -128,6 +129,11 @@ export const useRuntimeStore = defineStore('runtime', () => {
   function markRestSync(): void {
     lastFetchedAt.value = nowIso();
     lastUpdatedBy.value = 'rest';
+  }
+
+  function markWsSync(timestamp = nowIso()): void {
+    lastWsEventAt.value = timestamp;
+    lastUpdatedBy.value = 'ws';
   }
 
   async function fetchState(): Promise<void> {
@@ -183,6 +189,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
     currentCardId,
     currentAgentSessionId,
     statusLabel,
+    syncConnectionState,
     doneGoals,
     failedBlocked,
     isStale,
@@ -195,6 +202,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
     pauseActionDisabledReason,
     commandDisabledReason,
     fetchState,
+    markWsSync,
     refetch,
   };
 });

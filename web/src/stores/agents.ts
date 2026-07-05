@@ -7,6 +7,7 @@ import { createLogger } from '../utils/logger';
 
 const log = createLogger('store:agents');
 const STALE_AFTER_MS = 30_000;
+let conversationRequestSeq = 0;
 const idleActivity = (): ActivityStatus => ({ status: 'idle', pending_calls: [], updated_at: new Date(0).toISOString() });
 function nowIso(): string { return new Date().toISOString(); }
 function isLiveStatus(status: SessionStatus): boolean { return status === 'active' || status === 'waiting'; }
@@ -54,6 +55,7 @@ export const useAgentStore = defineStore('agents', () => {
   const attentionSessions = computed(() => sessions.value.filter((s) => s.status === 'failed' || s.status === 'blocked'));
 
   function markRestSync(): void { lastFetchedAt.value = nowIso(); lastUpdatedBy.value = 'rest'; }
+  function markWsSync(timestamp = nowIso()): void { lastWsEventAt.value = timestamp; lastUpdatedBy.value = 'ws'; }
 
   async function fetchSessions(): Promise<void> {
     loading.value = true; error.value = null; unauthorized.value = false;
@@ -63,9 +65,11 @@ export const useAgentStore = defineStore('agents', () => {
   }
 
   async function fetchConversation(sessionId: string): Promise<void> {
+    const requestSeq = ++conversationRequestSeq;
     clearLlmExchange(); loading.value = true; error.value = null; conversationWarning.value = null; unauthorized.value = false;
     try {
       const response = await getAgentConversation(sessionId);
+      if (requestSeq !== conversationRequestSeq) return;
       const conversationEntries = normalizeConversationEntries(response.entries);
       currentSession.value = response.session;
       entries.value = conversationEntries;
@@ -73,8 +77,8 @@ export const useAgentStore = defineStore('agents', () => {
       if (conversationEntries.length === 0) conversationWarning.value = 'No recorded conversation entries were returned for this session.';
       else if (conversationEntries.some((entry) => entry.kind === 'model_issue')) conversationWarning.value = 'Conversation includes model/tool recovery events; inspect for incomplete or repaired output.';
       markRestSync();
-    } catch (err) { const msg = err instanceof ApiError ? err.message : 'Failed to fetch agent conversation'; error.value = msg; unauthorized.value = err instanceof ApiError && err.isUnauthorized; log.error('fetchConversation', msg); throw err; }
-    finally { loading.value = false; }
+    } catch (err) { if (requestSeq !== conversationRequestSeq) return; const msg = err instanceof ApiError ? err.message : 'Failed to fetch agent conversation'; error.value = msg; unauthorized.value = err instanceof ApiError && err.isUnauthorized; log.error('fetchConversation', msg); throw err; }
+    finally { if (requestSeq === conversationRequestSeq) loading.value = false; }
   }
   const refreshConversation = fetchConversation;
 
@@ -84,5 +88,5 @@ export const useAgentStore = defineStore('agents', () => {
   async function refetchConversation(sessionId = currentSession.value?.id): Promise<void> { if (sessionId) await fetchConversation(sessionId); }
   async function refetch(): Promise<void> { await fetchSessions(); if (currentSession.value?.id) await refetchConversation(currentSession.value.id); }
 
-  return { sessions, entries, activityStatus, currentSession, loading, error, lastFetchedAt, lastWsEventAt, lastUpdatedBy, unauthorized, conversationWarning, currentLlmExchange, llmExchangeLoading, llmExchangeError, llmExchangeSessionId, sessionsByRole, activeSessions, completedSessions, attentionSessions, isStale, fetchSessions, fetchConversation, refreshConversation, refetchConversation, refetch, fetchLlmExchange, clearLlmExchange };
+  return { sessions, entries, activityStatus, currentSession, loading, error, lastFetchedAt, lastWsEventAt, lastUpdatedBy, unauthorized, conversationWarning, currentLlmExchange, llmExchangeLoading, llmExchangeError, llmExchangeSessionId, sessionsByRole, activeSessions, completedSessions, attentionSessions, isStale, fetchSessions, fetchConversation, refreshConversation, refetchConversation, refetch, fetchLlmExchange, clearLlmExchange, markWsSync };
 });

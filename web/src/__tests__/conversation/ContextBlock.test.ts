@@ -30,7 +30,7 @@ describe('ContextBlock', () => {
     const details = wrapper.find('details.context-block');
     expect(details.exists()).toBe(true);
     expect((details.element as HTMLDetailsElement).open).toBe(false);
-    expect(wrapper.find('summary').text()).toBe('system · system_prompt');
+    expect(wrapper.find('summary').text()).toBe('System prompt');
   });
 
   it('renders non-system prompt entries expanded as normal blocks', async () => {

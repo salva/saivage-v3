@@ -1,21 +1,37 @@
 import { describe, expect, it } from 'vitest';
-import source from '../components/cards/CardDetailView.vue?raw';
+import detailSource from '../components/cards/CardDetailView.vue?raw';
+import recordsSource from '../components/cards/CardRecordsSection.vue?raw';
 
 describe('CardDetailView S06 read-only detail contract', () => {
   it('retains navigation, refresh, record-output, and analyst-seed affordances', () => {
-    expect(source).toContain('Discuss with analyst');
-    expect(source).toContain('seedAnalystForCard');
-    expect(source).toContain('Refresh card');
-    expect(source).toContain('reloadDetail');
-    expect(source).toContain('navigateCard(child.id)');
-    expect(source).toContain('Record outputs');
-    expect(source).toContain('.saivage/outputs/cards/{{ currentCard.id }}/');
+    expect(detailSource).toContain('Discuss with analyst');
+    expect(detailSource).toContain('seedAnalystForCard');
+    expect(detailSource).toContain('Refresh card');
+    expect(detailSource).toContain('reloadDetail');
+    expect(detailSource).toContain('navigateCard(child.id)');
+  });
+
+  it('surfaces record outputs through the dedicated records section', () => {
+    expect(detailSource).toContain('CardRecordsSection');
+    expect(recordsSource).toContain('RecordDocument');
+    expect(recordsSource).toContain("key: 'brief'");
+    expect(recordsSource).toContain("key: 'status'");
+    expect(recordsSource).toContain("key: 'review'");
+  });
+
+  it('demotes version history into a secondary, lazily mounted disclosure', () => {
+    expect(detailSource).toContain('Version history');
+    expect(detailSource).toContain('CardHistoryPanel v-if="historyOpen"');
+  });
+
+  it('surfaces agent conversations tied to the card', () => {
+    expect(detailSource).toContain('CardConversationsSection');
   });
 
   it('does not expose direct card mutation controls or store actions', () => {
-    expect(source).not.toMatch(/createCard|updateCard|deleteCard|restartCard|abortSubtree|mark.*correction/i);
-    expect(source).not.toMatch(/@click="[^\"]*(?:save|delete|restart|abort|correction)/i);
-    expect(source).not.toMatch(/class="[^"]*(?:save|delete|restart|abort|correction)[^"]*"/i);
-    expect(source).not.toMatch(/@submit/);
+    expect(detailSource).not.toMatch(/createCard|updateCard|deleteCard|restartCard|abortSubtree|mark.*correction/i);
+    expect(detailSource).not.toMatch(/@click="[^\"]*(?:save|delete|restart|abort|correction)/i);
+    expect(detailSource).not.toMatch(/class="[^"]*(?:save|delete|restart|abort|correction)[^"]*"/i);
+    expect(detailSource).not.toMatch(/@submit/);
   });
 });

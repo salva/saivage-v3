@@ -1,21 +1,10 @@
-import { computed, ref } from 'vue';
+import { ref, computed } from 'vue';
 import { storeToRefs } from 'pinia';
 import type { useCardStore } from '../stores/cards';
-import { buildTree } from '../stores/card-presentation';
 
 export function useCardBrowserReadModel(cardStore: ReturnType<typeof useCardStore>) {
   const refs = storeToRefs(cardStore);
   const expandedTreeIds = ref<Set<string>>(new Set());
-  const orderedCards = computed(() => [...refs.cards.value].sort((a, b) => {
-    const parent = (a.parent ?? '').localeCompare(b.parent ?? '');
-    if (parent !== 0) return parent;
-    const aPosition = a.position ?? Number.POSITIVE_INFINITY;
-    const bPosition = b.position ?? Number.POSITIVE_INFINITY;
-    if (aPosition !== bPosition) return aPosition - bPosition;
-    return a.id.localeCompare(b.id);
-  }));
-  const orderedCardTree = computed(() => buildTree(orderedCards.value));
-  const errorMsg = computed(() => refs.error.value);
 
   function toggleTreeNode(id: string): void {
     const set = new Set(expandedTreeIds.value);
@@ -34,10 +23,14 @@ export function useCardBrowserReadModel(cardStore: ReturnType<typeof useCardStor
   }
 
   return {
-    ...refs,
-    orderedCards,
-    orderedCardTree,
-    errorMsg,
+    cards: refs.cards,
+    orderedCards: refs.orderedFilteredCards,
+    orderedCardTree: refs.orderedCardTree,
+    loading: refs.loading,
+    errorMsg: computed(() => refs.error.value),
+    filterStatus: refs.filterStatus,
+    filterType: refs.filterType,
+    searchQuery: refs.searchQuery,
     expandedTreeIds,
     toggleTreeNode,
     expandProjectByDefault,

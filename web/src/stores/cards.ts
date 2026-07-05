@@ -40,6 +40,7 @@ import { toCardDetailViewModel } from './card-detail-view-model';
 import { createCardHistoryState } from './card-history-state';
 
 const log = createLogger('store:cards');
+let cardDetailRequestSeq = 0;
 
 export const useCardStore = defineStore('cards', () => {
   const cards = ref<CardRecord[]>([]);
@@ -152,11 +153,13 @@ export const useCardStore = defineStore('cards', () => {
   }
 
   async function fetchCardDetail(id: string): Promise<void> {
+    const requestSeq = ++cardDetailRequestSeq;
     loading.value = true;
     error.value = null;
     currentDetailError.value = null;
     try {
       const response: CardDetailResponse = await getCard(id);
+      if (requestSeq !== cardDetailRequestSeq) return;
       const viewModel = toCardDetailViewModel(response);
       currentCard.value = viewModel.card;
       currentChildren.value = viewModel.children;
@@ -168,6 +171,7 @@ export const useCardStore = defineStore('cards', () => {
       resetDetailFreshness();
       clearCurrentCardStaleNotification(response.card.id);
     } catch (err) {
+      if (requestSeq !== cardDetailRequestSeq) return;
       const detailErr = buildDetailError(err, 'Failed to fetch card detail');
       error.value = detailErr.message;
       if (currentCard.value?.id === id) {
@@ -180,7 +184,7 @@ export const useCardStore = defineStore('cards', () => {
       log.error('fetchCardDetail', detailErr.message);
       throw err;
     } finally {
-      loading.value = false;
+      if (requestSeq === cardDetailRequestSeq) loading.value = false;
     }
   }
 

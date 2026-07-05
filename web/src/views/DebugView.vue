@@ -63,7 +63,7 @@
           <div class="debug-section-header operator-header">
             <div>
               <h4 class="debug-section-title">Runtime Diagnostics</h4>
-              <p class="operator-subtitle">Inspect runtime state here. Use Dashboard → Runtime Console for project start/stop commands, run and activation observability, command errors, and recovery state.</p>
+              <p class="operator-subtitle">Inspect runtime state here. Ask the Analyst to Run, Pause, or Shutdown the runtime; use Dashboard for run and activation observability, command errors, and recovery state.</p>
             </div>
             <div class="operator-actions-inline">
               <button class="sv-fetch-btn" :disabled="operatorPanelBusy" @click="refreshOperatorControl">Refresh</button>
@@ -85,14 +85,14 @@
             </div>
 
             <div v-if="!debugRuntime" class="debug-empty operator-empty-runtime">
-              Runtime state is unavailable. Open Dashboard → Runtime Console to start project execution or inspect recovery state.
+              Runtime state is unavailable. Ask the Analyst to Run the project or open Dashboard to inspect recovery state.
             </div>
 
             <div class="operator-runtime-guidance" role="note">
-              DebugView is diagnostic-only. Runtime Console owns execution controls, command errors, root runs, child activation edges, and recovery state.
+              DebugView is diagnostic-only. Lifecycle changes are Analyst-owned; Dashboard owns command errors, root runs, child activation edges, and recovery state.
             </div>
 
-            <div v-if="!debugRuntime" class="operator-help-text">Runtime diagnostics are unavailable because runtime state is not initialized. Open Dashboard → Runtime Console to start project execution or inspect recovery state.</div>
+            <div v-if="!debugRuntime" class="operator-help-text">Runtime diagnostics are unavailable because runtime state is not initialized. Ask the Analyst to Run the project or open Dashboard to inspect recovery state.</div>
           </div>
         </section>
 
@@ -101,10 +101,10 @@
           <div class="debug-section-header operator-header">
             <div>
               <h4 class="debug-section-title">Actionable runtime issues</h4>
-              <p class="operator-subtitle">Tool and runtime precondition failures are reported in Runtime Console with next-action guidance.</p>
+              <p class="operator-subtitle">Tool and runtime precondition failures are reported in Dashboard with next-action guidance.</p>
             </div>
           </div>
-          <div class="debug-empty">Open Dashboard → Runtime Console for command errors, activation failures, and recovery state.</div>
+          <div class="debug-empty">Open Dashboard for command errors, activation failures, and recovery state.</div>
         </section>
 
       </div>
@@ -353,7 +353,7 @@ import { useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { getAgentConversation, getAgentLlmExchange, getFileContent, listAgentSessions, listFiles } from '../api/client';
 import { useDebugStore } from '../stores/debug';
-import { useSyncStore } from '../stores/sync';
+import { useLiveSyncStore } from '../stores/liveSync';
 import { useCardStore } from '../stores/cards';
 import { useDebugReadModel } from '../composables/useDebugReadModel';
 import { formatTimestamp, isRecentTimestamp } from '../utils/timestamp';
@@ -364,7 +364,7 @@ import CodeBlock from '../components/content/CodeBlock.vue';
 import type { AgentSession, DebugTimelineEvent, FileEntry, ProcessView } from '../api/types';
 
 const debugStore = useDebugStore();
-const syncStore = useSyncStore();
+const liveSyncStore = useLiveSyncStore();
 const cardsStore = useCardStore();
 const mcpStore = useMcpStore();
 const router = useRouter();
@@ -558,8 +558,8 @@ function timelineDetails(event: DebugTimelineEvent): Record<string, unknown> { c
 let unregisterTimeline: (() => void) | null = null;
 let unregisterProcesses: (() => void) | null = null;
 onMounted(async () => {
-  unregisterTimeline = syncStore.registerResource({ resource: 'timeline', scope: 'active', refetch: debugStore.refetchTimeline });
-  unregisterProcesses = syncStore.registerResource({ resource: 'processes', scope: 'active', refetch: debugStore.refetchProcesses });
+  unregisterTimeline = liveSyncStore.registerResource({ resource: 'timeline', scope: 'active', refetch: debugStore.refetchTimeline });
+  unregisterProcesses = liveSyncStore.registerResource({ resource: 'processes', scope: 'active', refetch: debugStore.refetchProcesses });
   await debugStore.fetchAll();
   mcpStore.fetchMcpData().catch(() => {});
   mcpStore.startPolling(15000);

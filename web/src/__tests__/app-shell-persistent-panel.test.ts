@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia } from 'pinia';
 import { createRouter, createMemoryHistory } from 'vue-router';
-import { ref, computed } from 'vue';
 import AppShell from '../components/layout/AppShell.vue';
 
 vi.mock('../api/auth', () => ({ getAuthToken: vi.fn(() => 'token') }));
@@ -19,24 +18,7 @@ vi.mock('../stores/sync', () => ({
     connect: vi.fn(),
     disconnect: vi.fn(),
     registerResource: vi.fn(() => vi.fn()),
-    connectionState: ref('connected'),
-  }),
-}));
-vi.mock('../stores/runtime', () => ({
-  useRuntimeStore: () => ({
-    refetch: vi.fn(async () => undefined),
-    fetchState: vi.fn(async () => undefined),
-    resume: vi.fn(async () => undefined),
-    pause: vi.fn(async () => undefined),
-    statusLabel: computed(() => 'running'),
-    status: computed(() => 'running'),
-    liveUpdateLabel: computed(() => 'Live'),
-    liveUpdateDetail: computed(() => 'Live'),
-    runtimeModeLabel: computed(() => 'Running'),
-    runtimeDetail: computed(() => 'Running'),
-    isStale: computed(() => false),
-    unauthorized: computed(() => false),
-    pauseActionDisabledReason: computed(() => null),
+    connectionState: 'connected',
   }),
 }));
 vi.mock('../stores/cards', () => ({ useCardStore: () => ({ refetch: vi.fn(async () => undefined) }) }));

@@ -1,29 +1,21 @@
 <template>
-  <div class="cards-layout">
-    <!-- When viewing card detail, show back button -->
-    <div v-if="currentCardId" class="detail-view">
-      <div class="detail-header-bar">
-        <button class="back-btn" @click="goBack">
-          ← Back to Cards
-        </button>
-        <span class="card-id-path">{{ currentCardId }}</span>
+  <div class="cards-md" :class="{ 'has-selection': !!currentCardId }">
+    <aside class="cards-md__list">
+      <div class="cards-filters">
+        <input class="filter-search" :value="searchQuery" placeholder="Search…" aria-label="Search cards" @input="searchQuery = ($event.target as HTMLInputElement).value" />
+        <select :value="filterStatus" aria-label="Filter by status" @change="filterStatus = ($event.target as HTMLSelectElement).value as CardStatus | ''">
+          <option value="">Any status</option>
+          <option v-for="s in STATUSES" :key="s" :value="s">{{ s }}</option>
+        </select>
+        <select :value="filterType" aria-label="Filter by type" @change="filterType = ($event.target as HTMLSelectElement).value as CardType | ''">
+          <option value="">Any type</option>
+          <option v-for="t in TYPES" :key="t" :value="t">{{ shortLabelForCardType(t) }}</option>
+        </select>
+        <button v-if="hasFilters" type="button" class="filter-clear" @click="clearFilters">Clear</button>
       </div>
-      <CardDetailView
-        :card-id="currentCardId"
-        @navigate="handleNavigate"
-      />
-    </div>
-
-    <!-- Otherwise show tree view -->
-    <template v-else>
-      <!-- Content area -->
-      <div class="cards-content">
-        <!-- Loading -->
-        <div v-if="loading" class="cards-loading">Loading cards...</div>
-
-        <!-- Error -->
+      <div class="cards-md__tree">
+        <div v-if="loading" class="cards-loading">Loading cards…</div>
         <div v-else-if="errorMsg" class="cards-error">{{ errorMsg }}</div>
-
         <CardsTreeView
           v-else
           :cards="orderedCards"
@@ -33,31 +25,30 @@
           @select="selectCard"
         />
       </div>
+    </aside>
 
-    </template>
+    <section class="cards-md__detail">
+      <CardDetailView v-if="currentCardId" :card-id="currentCardId" @navigate="handleNavigate" />
+      <div v-else class="cards-md__empty">Select a card to inspect.</div>
+    </section>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, watch } from 'vue';
+import { computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useCardStore } from '../stores/cards';
+import type { CardStatus, CardType } from '../api/types';
+import { shortLabelForCardType } from '../utils/status';
 import CardsTreeView from '../components/cards/CardsTreeView.vue';
 import CardDetailView from '../components/cards/CardDetailView.vue';
 import { useCardBrowserReadModel } from '../composables/useCardBrowserReadModel';
 
-
-// ── Router ────────────────────────────────────────────────
+const STATUSES: CardStatus[] = ['backlog', 'running', 'blocked', 'changed', 'done', 'failed', 'cancelled', 'needs_verification'];
+const TYPES: CardType[] = ['project', 'goal', 'architecture', 'code', 'test', 'doc', 'data', 'research', 'ops'];
 
 const route = useRoute();
 const router = useRouter();
-
-const currentCardId = computed<string | null>(() => {
-  const id = route.params.id as string;
-  return id || null;
-});
-
-// ── Store ─────────────────────────────────────────────────
 
 const cardStore = useCardStore();
 const {
@@ -65,109 +56,63 @@ const {
   orderedCardTree,
   loading,
   errorMsg,
+  filterStatus,
+  filterType,
+  searchQuery,
   expandedTreeIds,
   toggleTreeNode,
   expandProjectByDefault,
 } = useCardBrowserReadModel(cardStore);
 
+const currentCardId = computed<string | null>(() => {
+  const id = route.params.id as string;
+  return id || null;
+});
+
+const hasFilters = computed(() => !!filterStatus.value || !!filterType.value || !!searchQuery.value);
+
 function selectCard(id: string): void {
   router.push({ name: 'card-detail', params: { id } });
-}
-
-
-// ── Navigation ────────────────────────────────────────────
-
-function goBack(): void {
-  router.push({ name: 'cards' });
 }
 
 function handleNavigate(id: string): void {
   router.push({ name: 'card-detail', params: { id } });
 }
 
-// ── Lifecycle ─────────────────────────────────────────────
+function clearFilters(): void {
+  cardStore.clearFilters();
+}
 
 onMounted(async () => {
   try {
     await cardStore.fetchCards();
   } catch {
-    // Error in store
+    // Error surfaced via store state.
   }
   expandProjectByDefault();
-});
-
-// Watch for route changes back to /cards
-watch(() => route.params.id, (newId) => {
-  if (!newId) {
-    // Returned to list view
-  }
 });
 </script>
 
 <style scoped>
-.cards-layout {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
+.cards-md { display: grid; grid-template-columns: minmax(280px, 36%) 1fr; height: 100%; min-height: 0; }
+
+.cards-md__list { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border); background: var(--bg); }
+.cards-filters { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--border); background: var(--surface-1); flex-wrap: wrap; }
+.filter-search { flex: 1; min-width: 120px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); font: inherit; font-size: 12px; }
+.filter-search:focus { outline: none; border-color: var(--accent-2); }
+.cards-filters select { padding: 4px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-1); color: var(--text); font: inherit; font-size: 12px; }
+.filter-clear { padding: 4px 8px; border: 1px solid var(--border); border-radius: 4px; background: transparent; color: var(--text-muted); font: inherit; font-size: 11px; cursor: pointer; }
+.filter-clear:hover { color: var(--text); border-color: var(--border-strong); }
+
+.cards-md__tree { flex: 1; overflow: auto; min-height: 0; }
+.cards-loading, .cards-error { padding: 24px; text-align: center; color: var(--text-muted); font-size: 13px; }
+.cards-error { color: var(--danger); }
+
+.cards-md__detail { min-height: 0; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.cards-md__empty { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-muted); font-size: 13px; }
+
+@media (max-width: 880px) {
+  .cards-md { grid-template-columns: 1fr; }
+  .cards-md.has-selection .cards-md__list { display: none; }
 }
-
-/* ── Detail View ────────────────────────────────────────── */
-
-.detail-view {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.detail-header-bar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 16px;
-  background: var(--surface-1);
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.back-btn {
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 10px;
-  color: var(--accent-2);
-  font-size: 12px;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.back-btn:hover {
-  background: var(--surface-3);
-}
-
-.card-id-path {
-  font-size: 11px;
-  color: var(--border-strong);
-  font-family: 'SF Mono', monospace;
-}
-
-/* ── Content ────────────────────────────────────────────── */
-
-.cards-content {
-  flex: 1;
-  overflow: auto;
-}
-
-.cards-loading,
-.cards-error {
-  padding: 32px;
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 13px;
-}
-
-.cards-error {
-  color: var(--danger);
-}
-
 </style>

@@ -5,6 +5,7 @@ import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
 import App from './App.vue';
+import { startAppBootstrap } from './composables/useAppBootstrap';
 import { useWorkspaceRouteStore } from './stores/workspaceRoute';
 
 // Lazy-loaded route components (filled in by later tasks)
@@ -45,4 +46,5 @@ const pinia = createPinia();
 app.use(pinia);
 app.use(router);
 useWorkspaceRouteStore().registerRouterListener(router);
+startAppBootstrap();
 app.mount('#app');

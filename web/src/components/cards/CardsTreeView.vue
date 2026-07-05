@@ -20,8 +20,8 @@
           </span>
           <span v-else class="node-toggle placeholder"></span>
 
-          <!-- Type icon -->
-          <span class="node-type-icon">{{ typeIcon(node.card.type) }}</span>
+          <!-- Type label -->
+          <span class="node-type" :class="`type-${node.card.type}`">{{ shortLabelForCardType(node.card.type) }}</span>
 
           <!-- Planner-state dot -->
           <span class="node-status-dot" :class="`status-${node.card.status}`"></span>
@@ -50,7 +50,8 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { CardRecord, CardType } from '../../api/types';
+import type { CardRecord } from '../../api/types';
+import { shortLabelForCardType } from '../../utils/status';
 
 const props = defineProps<{
   cards: CardRecord[];
@@ -62,24 +63,6 @@ const emit = defineEmits<{
   toggle: [id: string];
   select: [id: string];
 }>();
-
-// ── Type Icons ────────────────────────────────────────────
-
-const TYPE_ICONS: Record<CardType, string> = {
-  project: '(P)',
-  goal: '(G)',
-  architecture: '(A)',
-  code: '(C)',
-  test: '(T)',
-  doc: '(D)',
-  data: '(DA)',
-  research: '(R)',
-  ops: '(O)',
-};
-
-function typeIcon(type: CardType): string {
-  return TYPE_ICONS[type] || '(?)';
-}
 
 // ── Tree Rendering ────────────────────────────────────────
 
@@ -179,9 +162,17 @@ const renderedTree = computed<TreeNode[]>(() => {
   visibility: hidden;
 }
 
-.node-type-icon {
-  font-size: 14px;
+.node-type {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--surface-3);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
   flex-shrink: 0;
+  text-transform: uppercase;
+  letter-spacing: .03em;
 }
 
 .node-status-dot {

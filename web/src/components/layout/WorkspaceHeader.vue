@@ -53,13 +53,13 @@ const props = defineProps<{
 
 const wsLabel = computed(() => {
   const labels: Record<string, string> = {
-    connected: 'WS LIVE',
-    connecting: 'WS CONNECTING',
-    offline: 'WS OFFLINE',
-    'no-token': 'NO TOKEN',
-    unauthorized: 'WS UNAUTH',
+    connected: 'Live',
+    connecting: 'Connecting',
+    offline: 'Offline',
+    'no-token': 'No token',
+    unauthorized: 'Unauthorized',
   };
-  return labels[props.connectionState] ?? 'WS ?';
+  return labels[props.connectionState] ?? 'Offline';
 });
 
 const wsDisplayLabel = computed(() => {
@@ -69,9 +69,9 @@ const wsDisplayLabel = computed(() => {
 
 const runtimeChipClass = computed(() => `rt-${props.runtimeStatus || 'unknown'}`);
 const runtimeChipTitle = computed(() => {
-  const detail = String(unref(props.runtimeModeDetail) || 'Runtime status is observable here; use Dashboard → Runtime Console for execution controls.');
-  if (detail.includes('Runtime Console')) return detail;
-  return `${detail} Use Dashboard → Runtime Console for execution controls.`;
+  const detail = String(unref(props.runtimeModeDetail) || 'Runtime status is observable here. Ask the Analyst to Run, Pause, or Shutdown the runtime.');
+  if (detail.includes('Analyst')) return detail;
+  return `${detail} Ask the Analyst to Run, Pause, or Shutdown the runtime.`;
 });
 const stateCueLabel = computed(() => {
   if (props.isUnauthorized) return 'Unauthorized';

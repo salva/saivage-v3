@@ -62,7 +62,7 @@
 
 <script setup lang="ts">
 import { ref, watch, nextTick, onUnmounted } from 'vue';
-import { getAuthToken, setAuthToken, clearAuthToken } from '../../api/auth';
+import { useAuthStore } from '../../stores/auth';
 import Button from '../ui/Button.vue';
 import Card from '../ui/Card.vue';
 import Overlay from '../ui/Overlay.vue';
@@ -81,6 +81,7 @@ const token = ref('');
 const showToken = ref(false);
 const savedToken = ref<string | null>(null);
 const inputRef = ref<HTMLInputElement | null>(null);
+const authStore = useAuthStore();
 let escapeListenerRegistered = false;
 
 watch(
@@ -90,7 +91,8 @@ watch(
       addEscapeListener();
       await nextTick();
       inputRef.value?.focus();
-      savedToken.value = getAuthToken();
+      authStore.refresh();
+      savedToken.value = authStore.token;
     } else {
       removeEscapeListener();
     }
@@ -126,14 +128,14 @@ function closeDialog(): void {
 function saveToken(): void {
   const trimmed = token.value.trim();
   if (!trimmed) return;
-  setAuthToken(trimmed);
+  authStore.saveToken(trimmed);
   savedToken.value = trimmed;
   token.value = '';
   emit('saved');
 }
 
 function clearToken(): void {
-  clearAuthToken();
+  authStore.clearToken();
   savedToken.value = null;
   token.value = '';
   showToken.value = false;

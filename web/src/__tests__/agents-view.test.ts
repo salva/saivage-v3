@@ -19,8 +19,8 @@ function resetTestState() {
   apiMockState.listError = null;
 }
 
-vi.mock('../stores/sync', () => ({
-  useSyncStore: () => ({
+vi.mock('../stores/liveSync', () => ({
+  useLiveSyncStore: () => ({
     openConversation: vi.fn(() => vi.fn()),
   }),
 }));
@@ -260,7 +260,7 @@ describe('AgentsView', () => {
     });
     await flushPromises();
 
-    expect(wrapper.text()).toContain('activate_card');
+    expect(wrapper.text()).toContain('Activate');
     expect(wrapper.text()).toContain('card G3');
     expect(wrapper.text()).toContain('activated G3');
     expect(wrapper.find('.tool-call .tool-chip-body').exists()).toBe(false);
@@ -289,7 +289,7 @@ describe('AgentsView', () => {
     });
     await flushPromises();
 
-    const toggleBtn = wrapper.findAll('.conv-tb-btn').find((b) => b.text().includes('Last raw LLM exchange'));
+    const toggleBtn = wrapper.findAll('.conv-tb-btn').find((b) => b.text().includes('Raw exchange'));
     expect(toggleBtn).toBeDefined();
     const RawLlmExchangePanel = (await import('../components/agents/RawLlmExchangePanel.vue')).default;
     expect(wrapper.findComponent(RawLlmExchangePanel).exists()).toBe(false);
@@ -300,7 +300,7 @@ describe('AgentsView', () => {
     await toggleBtn!.trigger('click');
     await flushPromises();
     expect(wrapper.findComponent(RawLlmExchangePanel).exists()).toBe(true);
-    const reToggle = wrapper.findAll('.conv-tb-btn').find((b) => b.text().includes('Hide raw LLM exchange'));
+    const reToggle = wrapper.findAll('.conv-tb-btn').find((b) => b.text().includes('Hide raw exchange'));
     expect(reToggle).toBeDefined();
 
     await reToggle!.trigger('click');
@@ -324,7 +324,7 @@ describe('AgentsView', () => {
     const store = useAgentStore();
     vi.spyOn(store, 'fetchLlmExchange').mockResolvedValue(undefined);
 
-    const toggleBtn = wrapper.findAll('.conv-tb-btn').find((b) => b.text().includes('Last raw LLM exchange'));
+    const toggleBtn = wrapper.findAll('.conv-tb-btn').find((b) => b.text().includes('Raw exchange'));
     await toggleBtn!.trigger('click');
     await flushPromises();
     const RawLlmExchangePanel = (await import('../components/agents/RawLlmExchangePanel.vue')).default;

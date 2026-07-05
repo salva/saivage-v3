@@ -12,6 +12,7 @@ export interface SyncResourceRegistration {
   resource: SyncResourceKey;
   scope: SyncResourceScope;
   refetch: () => Promise<void>;
+  onRefetch?: (timestamp: string) => void;
 }
 
 interface FlightState {
@@ -97,12 +98,13 @@ export class SyncClient {
   }
 
   private handleSyncFrame(frame: LiveSyncInvalidateFrame): void {
-    this.lastEventAtRef.value = new Date().toISOString();
+    const timestamp = new Date().toISOString();
+    this.lastEventAtRef.value = timestamp;
     if (frame.resource === 'conversation') {
       this.refetchConversation(frame.id);
       return;
     }
-    this.refetchResource(frame.resource);
+    this.refetchResource(frame.resource, timestamp);
   }
 
   private refetchRegistered(): void {
@@ -114,10 +116,10 @@ export class SyncClient {
     for (const id of this.conversations.keys()) this.conn.sendRaw({ t: 'subscribe', resource: 'conversation', id });
   }
 
-  private refetchResource(resource: SyncResourceKey): void {
+  private refetchResource(resource: SyncResourceKey, invalidatedAt?: string): void {
     const registration = this.resources.get(resource);
     if (!registration) return;
-    this.runSingleFlight(resource, registration.refetch);
+    this.runSingleFlight(resource, registration.refetch, invalidatedAt, registration.onRefetch);
   }
 
   private refetchConversation(sessionId: string): void {
@@ -126,7 +128,7 @@ export class SyncClient {
     this.runSingleFlight(`conversation:${sessionId}`, refetch);
   }
 
-  private runSingleFlight(key: string, refetch: () => Promise<void>): void {
+  private runSingleFlight(key: string, refetch: () => Promise<void>, refetchedAt?: string, onRefetch?: (timestamp: string) => void): void {
     const state = this.flights.get(key) ?? { inFlight: false, trailing: false };
     this.flights.set(key, state);
     if (state.inFlight) {
@@ -135,6 +137,9 @@ export class SyncClient {
     }
     state.inFlight = true;
     void refetch()
+      .then(() => {
+        if (refetchedAt) onRefetch?.(refetchedAt);
+      })
       .catch((err) => log.warn(`Sync refetch failed for ${key}`, err))
       .finally(() => {
         state.inFlight = false;

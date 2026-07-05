@@ -69,7 +69,7 @@ describe('AnalystChatPanel', () => {
 
     expect(wrapper.text()).toContain('hello');
     const chips = wrapper.findAll('.tool-chip');
-    expect(chips[0].text()).toContain('read');
+    expect(chips[0].text()).toContain('Read');
     expect(chips[0].text()).toContain('README.md');
     const toggle = chips[0].find('button.tool-chip-toggle');
     expect(toggle.attributes('aria-expanded')).toBe('false');
@@ -82,7 +82,7 @@ describe('AnalystChatPanel', () => {
     wrapper.unmount();
   });
 
-  it('renders tool result messages as human-readable status labels with raw details', async () => {
+  it('renders tool result messages as human-readable status labels and gates raw JSON behind a toggle', async () => {
     const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [createPinia()] } });
     await flushPromises();
 
@@ -90,9 +90,18 @@ describe('AnalystChatPanel', () => {
     const resultChip = chips.find((chip) => chip.classes().includes('tool-chip-ok'));
     expect(resultChip).toBeDefined();
     expect(chips).toHaveLength(1);
-    expect(resultChip!.text()).toContain('read');
+    expect(resultChip!.text()).toContain('Read');
     await resultChip!.find('button.tool-chip-toggle').trigger('click');
-    expect(wrapper.findAll('.tool-chip-body').map((node) => node.text()).join('\n')).toContain('"ok":true');
+
+    // Raw JSON is NOT shown by default after expanding.
+    const expandedBodyText = wrapper.findAll('.tool-chip-body').map((node) => node.text()).join('\n');
+    expect(expandedBodyText).not.toContain('"ok":true');
+
+    // Raw response is reachable only through the explicit raw toggle.
+    const rawResponseToggle = resultChip!.findAll('button.raw-toggle').find((b) => b.text().includes('Show raw response'));
+    expect(rawResponseToggle).toBeDefined();
+    await rawResponseToggle!.trigger('click');
+    expect(wrapper.findAll('.tool-chip-raw').map((node) => node.text()).join('\n')).toContain('"ok":true');
     wrapper.unmount();
   });
 
@@ -134,7 +143,7 @@ describe('AnalystChatPanel', () => {
     store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'stale-chat-id', tool: 'read', summary: 'opened docs', success: true });
     await flushPromises();
 
-    expect(wrapper.text()).toContain('read');
+    expect(wrapper.text()).toContain('Read');
     expect(wrapper.text()).toContain('opened docs');
     expect(wrapper.find('.tool-chip').exists()).toBe(true);
     expect(store.pendingToolInvocations[0].sessionId).toBe('analyst:global');
@@ -157,7 +166,7 @@ describe('AnalystChatPanel', () => {
     });
     await flushPromises();
 
-    expect(wrapper.text()).toContain('run_command');
+    expect(wrapper.text()).toContain('Shell');
     expect(wrapper.text()).toContain('[SECRET_PATH] redacted preview');
     expect(wrapper.find('.tool-chip').exists()).toBe(true);
     expect(store.pendingToolInvocations[0].classifiedAs).toBe('destructive');

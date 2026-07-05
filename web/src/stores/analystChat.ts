@@ -8,6 +8,7 @@ import {
   sendChatMessage,
 } from '../api/client';
 import { useWorkspaceRouteStore } from './workspaceRoute';
+import { useFeedbackStore } from './feedback';
 import { ANALYST_SESSION_ID, buildCardContextSeed, type SyntheticHintState } from './analyst-chat-context';
 import {
   dedupePendingToolInvocations,
@@ -24,8 +25,6 @@ interface TimelineBadge {
   label: string;
   timestamp: string;
 }
-
-export interface AnalystToastItem { id: string; label: string; }
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -57,6 +56,20 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
 
+function optimisticUserMessage(sessionId: string, content: string, timestamp: string, index: number): AgentConversationEntry {
+  return {
+    id: `${sessionId}-user-optimistic-${Date.now()}`,
+    session_id: sessionId,
+    role: 'user',
+    kind: 'text',
+    content,
+    round_id: `r-user-${Date.now().toString(16).padStart(32, '0').slice(-32)}`,
+    message_index: index,
+    block_index: 0,
+    timestamp,
+  };
+}
+
 export const useAnalystChat = defineStore('analyst-chat', () => {
   const sessions = ref<ChatSession[]>([]);
   const activeSessionId = ref<string | null>(ANALYST_SESSION_ID);
@@ -72,7 +85,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
   const pendingToolInvocations = ref<PendingToolInvocation[]>([]);
   const messageBadges = ref<Record<string, TimelineBadge[]>>({});
   const pendingCardSeed = ref<{ sessionId: string; cardId: string } | null>(null);
-  const toasts = ref<AnalystToastItem[]>([]);
 
   const hasDraft = computed(() => draft.value.trim().length > 0);
   const activeSession = computed(() => sessions.value.find((session) => session.id === activeSessionId.value) ?? null);
@@ -178,12 +190,16 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
 
     sending.value = true;
     sendError.value = null;
+    const previousDraft = draft.value;
+    const previousMessages = messages.value;
+    const previousSyntheticHint = { ...syntheticHint.value };
     try {
       const workspaceRoute = useWorkspaceRouteStore();
       const workspaceContext = workspaceRoute.current ?? { view: null, entityId: null, refinement: null };
       const hint = consumeSyntheticHint(sessionId);
       const payload = hint ? `${hint}\n\n${content}` : content;
       draft.value = '';
+      messages.value = [...messages.value, optimisticUserMessage(sessionId, content, nowIso(), messages.value.length)];
       const response = await sendChatMessage(sessionId, payload, workspaceContext);
       const baseTimestamp = nowIso();
       const responseMessage = response.message as { id?: unknown; content?: unknown; round_id?: unknown; message_index?: unknown; block_index?: unknown; tool?: unknown; timestamp?: unknown; links?: unknown };
@@ -225,6 +241,10 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
       await fetchMessages(response.sessionId);
     } catch (err) {
       sendError.value = buildErrorState(err, 'Failed to send analyst chat message.');
+      draft.value = previousDraft;
+      messages.value = previousMessages;
+      syntheticHint.value = previousSyntheticHint;
+      useFeedbackStore().notifyError('Failed to send Analyst message', sendError.value.message);
       throw err;
     } finally {
       sending.value = false;
@@ -238,14 +258,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     const existing = next[message.id] ?? [];
     next[message.id] = [...existing, { kind, label, timestamp: nowIso() }];
     messageBadges.value = next;
-  }
-
-  function addToast(item: AnalystToastItem): void {
-    toasts.value = [...toasts.value.filter((toast) => toast.id !== item.id), item].slice(-3);
-  }
-
-  function removeToast(id: string): void {
-    toasts.value = toasts.value.filter((toast) => toast.id !== id);
   }
 
   function ingestWsEvent(payload: Record<string, unknown>): void {
@@ -296,7 +308,7 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
         const action = typeof payload.action === 'string' ? payload.action : 'action';
         const targetId = typeof payload.target_id === 'string' ? payload.target_id : 'unknown';
         const id = typeof payload.id === 'string' ? payload.id : `${Date.now()}`;
-        addToast({ id, label: `Analyst ${action} on ${targetId}` });
+        useFeedbackStore().notify({ id, tone: 'neutral', title: `Analyst ${action}`, message: targetId });
       }
       if (payloadSessionId === activeSessionId.value || activeSessionId.value) {
         void fetchMessages().catch(() => {});
@@ -321,7 +333,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     pendingToolInvocations,
     messageBadges,
     pendingCardSeed,
-    toasts,
     activeSessionWritable: computed(() => isWritableSession(activeSession.value)),
     setDraft,
     fetchSessions,
@@ -332,6 +343,5 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     consumeSyntheticHint,
     sendMessage,
     ingestWsEvent,
-    removeToast,
   };
 });

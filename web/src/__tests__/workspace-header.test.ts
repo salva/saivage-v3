@@ -23,7 +23,7 @@ describe('WorkspaceHeader', () => {
     const wrapper = mountHeader('no-token');
     const chip = wrapper.findAll('.header-chip')[0];
 
-    expect(chip.text()).toContain('NO TOKEN');
+    expect(chip.text()).toContain('No token');
     expect(chip.classes()).toContain('ws-no-token');
     expect(chip.classes()).not.toContain('ws-unauthorized');
   });
@@ -32,7 +32,7 @@ describe('WorkspaceHeader', () => {
     const wrapper = mountHeader('unauthorized');
     const chip = wrapper.findAll('.header-chip')[0];
 
-    expect(chip.text()).toContain('WS UNAUTH');
+    expect(chip.text()).toContain('Unauthorized');
     expect(chip.classes()).toContain('ws-unauthorized');
   });
 
@@ -51,7 +51,7 @@ describe('WorkspaceHeader', () => {
         liveUpdateLabel: 'Live updates offline',
       },
     });
-    expect(noToken.findAll('.header-chip')[0].text()).toContain('NO TOKEN');
+    expect(noToken.findAll('.header-chip')[0].text()).toContain('No token');
 
     const unauthorized = mount(WorkspaceHeader, {
       props: {
@@ -67,7 +67,7 @@ describe('WorkspaceHeader', () => {
         liveUpdateLabel: 'Live updates unauthorized',
       },
     });
-    expect(unauthorized.findAll('.header-chip')[0].text()).toContain('WS UNAUTH');
+    expect(unauthorized.findAll('.header-chip')[0].text()).toContain('Unauthorized');
   });
 
   it('keeps runtime status observable without exposing header execution controls', async () => {
