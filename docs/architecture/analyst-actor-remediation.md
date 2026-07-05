@@ -25,16 +25,18 @@ The `AnalystSessionActor` state machine (`idle` parked, `conversing` active), th
 
 ### Target
 
-Add a plain `cancellationReason: string | null` field on `AnalystSessionActor`. `cancel()` sets it. The loop checks it before each provider turn and each tool dispatch. When set, the loop returns immediately with a cancelled result; it does not throw — the task settles as `on_done`, the settlement gate sees the flag, and the queued `cancel` dispatches.
+Add a plain `cancellationReason: string | null` field on `AnalystSessionActor`. `cancel()` sets it. The loop checks it before each provider turn and each tool dispatch. When set, the loop returns immediately with a cancelled result; it does not throw — the task settles as `on_done`, the settlement gate performs cancellation cleanup, and the queued `cancel` dispatches.
 
 The `AbortSignal` from `runTask` is no longer used for cancellation probing. It remains available for provider-call propagation if that is ever added, but the loop does not check `signal.aborted`.
+
+The owned LLM actor may be in `calling_provider` when `cancel()` is called. The provider call completes, the LLM transitions to `waiting_tool` (tool call) or `idle` (message/error), and then the loop observes the flag and stops. At that point the LLM may be parked in `waiting_tool`. Abandonment must therefore happen in the settlement gate, not in `cancel()` — `cancel()` cannot know the LLM's final state at the time the loop stops.
 
 Cancellation timeline:
 1. Provider call or tool execution in progress.
 2. `cancel()` sets `cancellationReason`, resolves caller promise, queues `sendEvent('cancel')`.
-3. Current step completes.
+3. Current step completes. LLM may now be parked in `waiting_tool`.
 4. Loop checks `cancellationReason` before the next step. It is set. Loop returns cancelled result.
-5. Task settles. `on_done` checks `pendingTurn` — already nulled by `cancel()`. Returns without sending event.
+5. Task settles. Settlement gate sees `cancellationReason`, abandons any parked LLM turn, resets per-turn state, sends no event.
 6. Main loop picks up queued `cancel`. Dispatches. Transitions to `idle`.
 
 This gives cancellation latency of at most one provider call or one tool execution — exactly what the original design specified.
@@ -47,14 +49,13 @@ Replace the current `pendingTurn !== turn` identity check with an explicit `canc
 1. Set `cancellationReason = reason`.
 2. Resolve `pendingTurn` promise with a cancelled result.
 3. Set `pendingTurn = null`.
-4. If owned LLM is parked in `waiting_tool`, call `abandonParkedTurn()`.
-5. `sendEvent('cancel')`.
+4. `sendEvent('cancel')`. Do not touch the owned LLM here — it may be mid-provider-call and its final state is not yet known.
 
 `on_done(result)` / `on_failed(error)` (the settlement gate):
-1. If `cancellationReason !== null`, return without sending an event or settling the promise (already settled by `cancel()`). The queued `cancel` dispatches.
-2. Otherwise resolve/reject `pendingTurn`, set `pendingTurn = null`, send `done`/`failed`.
+1. If `cancellationReason !== null`: abandon any parked LLM turn via `abandonParkedTurn()` (the LLM may have transitioned to `waiting_tool` after `cancel()` ran), reset `cancellationReason = null`, `toolInFlight = null`, and return without sending an event. The promise was already settled by `cancel()`. The queued `cancel` dispatches.
+2. Otherwise: resolve/reject `pendingTurn`, set `pendingTurn = null`, reset `toolInFlight = null`, send `done`/`failed`.
 
-Reset at settlement: `cancellationReason = null`, `toolInFlight = null`. This guarantees `idle` never carries stale cancellation state into the next turn.
+Both paths reset all per-turn state. `idle` never carries stale cancellation state into the next turn.
 
 ## Issue 2: Out-Of-Band Transcript Writes
 
@@ -72,7 +73,7 @@ Remove all direct transcript writes from session-side code. Each path is handled
 
 **Unsupported action**: Feed a repair directive back to the LLM actor via `appendToolResult`, not a synthesized assistant row. The LLM actor continues the turn. This mirrors the autonomous repair pattern (`continueAfterPlainText` / `appendToolResult` with a directive).
 
-**Partial-success contract text**: Do not persist. The tool result is already in the transcript via the LLM actor's tool-delivery path. The formatted partial-success text is a caller-facing presentation concern, returned in `AnalystResponse` but not written to the conversation store.
+**Partial-success contract text**: Do not persist as a separate transcript row. The tool result is already in the transcript via the LLM actor's tool-delivery path. The formatted partial-success text is returned to the caller as tool-invocation presentation metadata, not as a synthesized assistant `message`. The caller sees it as part of the tool result projection, not as a chat message that would need transcript continuity.
 
 `appendAssistantTextMessage` and `errorResponse` (in their current form) are removed from session-side code. The LLM actor's existing transcript paths cover all durable writes.
 
@@ -88,12 +89,10 @@ Move all reconstruction concern to `LLMActor`:
 
 - Remove `activeReconstruction` field from `ConversationLLMActor`. Move it to `LLMActor`.
 - Remove `snapshot()` from `ConversationLLMActor`. Move it to `LLMActor` (only autonomous LLM actors are snapshotted).
-- Remove the four no-op overrides (`persistState`, `prepareTurnReconstruction`, `updateActiveReconstruction`, `prepareProviderCallReconstruction`) from the base.
-- Replace direct `this.activeReconstruction = null` writes in base methods (`completeWithProviderResult`, `completeWithError`, `abandonParkedTurn`) with a single protected hook `clearTurnReconstruction()` that the base implements as empty and `LLMActor` overrides to clear its own field.
+- Remove `persistState` and the three reconstruction methods (`prepareTurnReconstruction`, `updateActiveReconstruction`, `prepareProviderCallReconstruction`) from the base entirely.
+- Replace direct `this.activeReconstruction = null` writes in base methods (`completeWithProviderResult`, `completeWithError`, `abandonParkedTurn`) with a single protected lifecycle hook `clearTurnReconstruction()`. The base implementation is empty; `LLMActor` overrides it to clear its own `activeReconstruction` field and persist a snapshot. This is a generic lifecycle hook (like `_on_state_changed`), not a reconstruction-specific no-op: the base class has no knowledge of recovery.
 
-`ConversationLLMActor` becomes a truly minimal conversation/provider engine: provider calls, tool waits, transcript writes, state machine. No recovery fields, no snapshot method, no no-op overrides.
-
-`LLMActor` adds snapshot persistence and active reconstruction as a cohesive recovery specialization. It overrides `clearTurnReconstruction` and the state-change hook to add persistence.
+`ConversationLLMActor` becomes a truly minimal conversation/provider engine: provider calls, tool waits, transcript writes, state machine, and one generic lifecycle hook. No recovery fields, no snapshot method, no reconstruction API.
 
 ## Issue 4: toolInFlight Projection Is A Stub
 
@@ -105,7 +104,7 @@ Move all reconstruction concern to `LLMActor`:
 
 `AnalystSessionActor` tracks `toolInFlight: string | null`. The loop sets it to the tool name before dispatching each tool call and clears it after the tool returns. The settlement gate resets it to `null`. `readModel()` reads the field directly.
 
-## Structural Recommendation: Dissolve AnalystLoopRunner
+## Required Structural Change: Dissolve AnalystLoopRunner
 
 ### Current State
 
@@ -121,7 +120,7 @@ Dissolve `AnalystLoopRunner` into `AnalystSessionActor`. The loop, tool-surface 
 
 This is consistent with the autonomous side, where `CardActor` owns the processor invocation and outcome settlement directly.
 
-`AnalystRuntime.getAvailableToolNames()` currently constructs a throwaway `AnalystLoopRunner` to list tools. After dissolution it calls a static or free function that builds the analyst tool surface without requiring a full actor instance.
+`AnalystRuntime.getAvailableToolNames()` currently constructs a throwaway `AnalystLoopRunner` to list tools. After dissolution it calls a free function that builds the analyst tool surface without requiring a full actor instance.
 
 ## Summary Of Changes
 
