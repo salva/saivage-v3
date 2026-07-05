@@ -21,7 +21,21 @@
         <ViewState v-else-if="errorMsg" state="error" title="Failed to load runtime" :message="errorMsg" />
 
         <template v-else>
-          <StatusBanner v-if="lastActionableError" tone="danger" :title="lastActionableError.message" :message="`Next: ${lastActionableError.nextAction}`" role="alert" />
+          <section v-if="lastActionableError || currentRun || doneGoals || failedBlocked" class="status-section mission-summary">
+            <StatusBanner v-if="lastActionableError" tone="danger" :title="lastActionableError.message" :message="`Next: ${lastActionableError.nextAction}`" role="alert" />
+            <div v-if="currentRun" class="mission-active">
+              <span class="status-key">Active card</span>
+              <button class="mission-active-link" @click="goToCard(currentRun.card_id)">
+                <span class="mission-active-title">{{ activeCardTitle }}</span>
+                <span class="mission-active-phase">{{ currentRun.phase }}</span>
+              </button>
+            </div>
+            <div class="mission-stats">
+              <span class="mission-stat success"><strong>{{ doneGoals }}</strong> done</span>
+              <span class="mission-stat" :class="{ danger: failedBlocked }"><strong>{{ failedBlocked }}</strong> failed/blocked</span>
+              <span class="mission-stat"><strong>{{ cardIndex.total }}</strong> total</span>
+            </div>
+          </section>
 
           <section class="status-section">
             <h3 class="section-label">Runtime Status</h3>
@@ -209,6 +223,12 @@ const { goalChildren, runtimeBannerMessage, runtimeBannerClass, barWidth } = use
 });
 
 const runtimeBannerTone = computed<Tone>(() => runtimeBannerClass.value === 'runtime-status-banner-error' ? 'danger' : 'warning');
+const activeCardTitle = computed(() => {
+  const id = currentRun.value?.card_id ?? currentCardId.value;
+  if (!id) return id ?? 'none';
+  const card = cardsStore.cards.find((c) => c.id === id);
+  return card?.title ?? id;
+});
 
 function shortTime(ts?: string | null): string {
   if (!ts) return 'unknown';
@@ -253,6 +273,18 @@ onMounted(async () => {
 .ui-refresh-button:hover:not(:disabled) { color: var(--accent-2); border-color: var(--accent-2); }
 .ui-refresh-button:disabled { opacity: 0.5; cursor: not-allowed; }
 .status-section { padding: 12px 16px; border-bottom: 1px solid var(--surface-3); }
+.mission-summary { display: flex; flex-direction: column; gap: var(--space-5); }
+.mission-summary :deep(.status-banner) { margin: 0; }
+.mission-active { display: flex; align-items: baseline; gap: var(--space-6); }
+.mission-active-link { background: none; border: none; cursor: pointer; display: inline-flex; align-items: baseline; gap: var(--space-4); font: inherit; padding: 0; color: var(--accent-2); text-decoration: underline; text-decoration-color: transparent; transition: text-decoration-color 0.15s; }
+.mission-active-link:hover { text-decoration-color: var(--accent-2); }
+.mission-active-title { font-size: var(--font-size-lg); font-weight: 600; color: var(--accent-2); }
+.mission-active-phase { font-size: var(--font-size-sm); color: var(--text-muted); text-transform: capitalize; }
+.mission-stats { display: flex; gap: var(--space-8); flex-wrap: wrap; }
+.mission-stat { font-size: var(--font-size-md); color: var(--text-muted); display: inline-flex; align-items: baseline; gap: var(--space-2); }
+.mission-stat strong { font-size: var(--font-size-xl); font-weight: 700; color: var(--text); }
+.mission-stat.success strong { color: var(--accent); }
+.mission-stat.danger strong { color: var(--danger); }
 .section-label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 8px 0; display: flex; align-items: center; gap: 6px; }
 .section-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--surface-3); color: var(--text); font-size: 10px; font-weight: 600; }
 .status-grid { display: grid; grid-template-columns: 1fr auto; gap: 6px; }
