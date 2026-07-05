@@ -19,6 +19,40 @@ function entry(overrides: Partial<AgentConversationEntry>): AgentConversationEnt
 }
 
 describe('entriesToTimeline tool pairing', () => {
+  it('projects protocol tool results into the matching assistant call round for display', () => {
+    const call = entry({
+      id: 'turn-1:tool-call:call-a',
+      kind: 'tool_call',
+      role: 'assistant',
+      tool: 'start_project',
+      tool_call_id: 'call-a',
+      round_id: 'r-assistant-000000000000000000000000000000aa',
+      timestamp: '2026-05-30T00:00:02Z',
+      content: JSON.stringify({
+        role: 'assistant',
+        tool_calls: [{ id: 'call-a', type: 'function', function: { name: 'start_project', arguments: '{}' } }],
+      }),
+    });
+    const result = entry({
+      id: 'turn-2:tool-result:call-a',
+      kind: 'tool_result',
+      role: 'tool',
+      tool: 'start_project',
+      tool_call_id: 'call-a',
+      round_id: 'r-user-000000000000000000000000000000bb',
+      message_index: 2,
+      timestamp: '2026-05-30T00:00:03Z',
+      content: JSON.stringify({ success: true }),
+    });
+
+    const timeline = entriesToTimeline([call, result], null);
+
+    expect(timeline.rounds).toHaveLength(1);
+    expect(timeline.rounds[0].id).toBe(call.round_id);
+    expect(timeline.rounds[0].toolPairs).toHaveLength(1);
+    expect(timeline.rounds[0].toolPairs[0].result?.id).toBe(result.id);
+  });
+
   it('pairs assistant tool_call (no top-level tool_call_id) with tool_result via content tool_calls[0].id', () => {
     const call = entry({
       id: 'msg-analyst-2',
@@ -118,6 +152,40 @@ describe('entriesToTimeline tool pairing', () => {
 });
 
 describe('entriesToTimeline display filtering', () => {
+  it('keeps pre-context rounds before user rounds even when persistence timestamps are close', () => {
+    const context = entry({
+      id: 'context',
+      role: 'system',
+      kind: 'text',
+      content: '[workspace-context]',
+      round_id: 'r-pre-00000000000000000000000000000011',
+      message_index: 0,
+      timestamp: '2026-05-30T00:00:01Z',
+    });
+    const user = entry({
+      id: 'user',
+      role: 'user',
+      kind: 'text',
+      content: 'launch the project',
+      round_id: 'r-user-00000000000000000000000000000022',
+      message_index: 1,
+      timestamp: '2026-05-30T00:00:02Z',
+    });
+    const systemPrompt = entry({
+      id: 'system-prompt',
+      role: 'system',
+      kind: 'system_prompt',
+      content: 'system prompt',
+      round_id: 'r-pre-00000000000000000000000000000033',
+      message_index: 0,
+      timestamp: '2026-05-30T00:00:03Z',
+    });
+
+    const timeline = entriesToTimeline([systemPrompt, context, user], null);
+
+    expect(timeline.rounds.map((round) => round.id)).toEqual([context.round_id, systemPrompt.round_id, user.round_id]);
+  });
+
   it('does not render raw activity-only rounds as visible transcript content', () => {
     const timeline = entriesToTimeline([
       entry({

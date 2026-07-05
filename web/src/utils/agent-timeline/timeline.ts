@@ -98,10 +98,26 @@ function roundOrderKey(entries: TimelineEntry[]): [number, string, string] {
   return [Number.isFinite(minMsg) ? minMsg : 0, minTs, minId];
 }
 
+function projectToolResultsIntoCallRounds(entries: TimelineEntry[]): TimelineEntry[] {
+  const callRoundById = new Map<string, string>();
+  for (const entry of entries) {
+    if (entry.kind !== 'tool_call') continue;
+    const id = callIdOf(entry);
+    if (id) callRoundById.set(id, entry.round_id);
+  }
+
+  return entries.map((entry) => {
+    if (entry.kind !== 'tool_result' && entry.kind !== 'tool_error') return entry;
+    const id = callIdOf(entry);
+    const round_id = id ? callRoundById.get(id) : undefined;
+    return round_id && round_id !== entry.round_id ? { ...entry, round_id } : entry;
+  });
+}
+
 export function entriesToTimeline(entries: readonly AgentConversationEntry[], activityStatus: ActivityStatus | null): AgentTimeline {
   const grouped = new Map<string, TimelineEntry[]>();
-  for (const [index, entry] of entries.entries()) {
-    const normalized = normalizeEntry(entry, index);
+  const projectedEntries = projectToolResultsIntoCallRounds(entries.map((entry, index) => normalizeEntry(entry, index)));
+  for (const normalized of projectedEntries) {
     const bucket = grouped.get(normalized.round_id) ?? [];
     bucket.push(normalized);
     grouped.set(normalized.round_id, bucket);
