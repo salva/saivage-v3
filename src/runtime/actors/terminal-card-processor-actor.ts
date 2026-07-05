@@ -19,6 +19,7 @@ import type { ProcessRunner } from '../process-runner.js';
 import { closeOpenRecordSlot, discardOpenRecordSlot } from '../records/record-slots.js';
 import { cardBriefForPrompt } from '../records/card-brief.js';
 import { runContractBoundedRepairLoop } from './contract-bounded-repair-loop.js';
+import { appendTerminalToolProjectedStatus } from './llm-delivery-log.js';
 import type { RuntimeGate } from '../runtime-gate.js';
 
 type TerminalProcessorOutcome = Extract<CardActivationOutcome, { status: 'done' | 'failed' | 'blocked' }>;
@@ -93,6 +94,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
             const message = 'Pending main-agent notifications arrived before terminal completion. Read the delivered notifications, update record://status.md?v=next if needed, then call emit_result again.';
             return control.repair(message, () => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: message }, (inputId) => this.plannerNotificationContext(input, inputId)));
           }
+          this.markTerminalProjected(terminalOutcome);
           return control.done(projected);
         },
         onNonTerminalTool: async (toolOutcome) => {
@@ -152,6 +154,15 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     } catch (error) {
       return error instanceof Error ? error.message : String(error);
     }
+  }
+
+  private markTerminalProjected(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): void {
+    appendTerminalToolProjectedStatus(this.projectRoot, {
+      agent_id: outcome.agentId,
+      source_input_id: outcome.inputId,
+      tool_call_id: outcome.toolCallId,
+      tool_name: outcome.toolName,
+    });
   }
 
   protected get processorLabel(): string {

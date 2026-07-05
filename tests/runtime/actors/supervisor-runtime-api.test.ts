@@ -256,6 +256,7 @@ describe('SupervisorRuntimeApi', () => {
     expect(terminal).toMatchObject({ phase: 'blocked', runtime_status: 'stopped', finished_at: null, outcome: { kind: 'blocked', error: 'waiting for operator' } });
     expect(api.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null, goalCount: 0 });
     expect(api.getActorRuntimeReadModel()).toMatchObject({ pauseMode: 'idle', activeWork: 'none' });
+    expect(readToolCallStatuses(projectRoot, 'planner:project').filter((record) => record.tool_name === 'emit_result').map((record) => record.status)).toEqual(['pending', 'terminal_projected']);
   }));
 
   it('settles failed root project activations without projecting active runtime work', async () => withTempProject(async (projectRoot) => {
@@ -598,6 +599,7 @@ describe('SupervisorRuntimeApi', () => {
     const terminal = await waitForRootRun(projectRoot, (run) => run.phase === 'completed');
     expect(terminal).toMatchObject({ phase: 'completed', runtime_status: 'stopped', outcome: { kind: 'completed', result: 'done' } });
     expect(store.read('project')).toMatchObject({ status: 'done', status_text: 'project reviewed', lifecycle: { result: { kind: 'done', summary: 'project reviewed' } } });
+    expect(readToolCallStatuses(projectRoot).filter((record) => record.tool_name === 'emit_result' && record.status === 'terminal_projected').map((record) => record.agent_id).sort()).toEqual(['planner:project', 'reviewer:project']);
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toEqual(expect.arrayContaining(['card:project', 'planner:project', 'reviewer:project', 'processor:project', 'supervisor']));
   }));
 

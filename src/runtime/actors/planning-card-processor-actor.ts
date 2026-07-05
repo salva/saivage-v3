@@ -24,9 +24,12 @@ import type { NotifyCardResult } from '../runtime-api.js';
 import { closeOpenRecordSlot, concreteRecordSlot, discardOpenRecordSlot, latestClosedRecordSlot, readRecordSlotIndex, recordFileIsNonEmpty } from '../records/record-slots.js';
 import { cardBriefForPrompt } from '../records/card-brief.js';
 import { runContractBoundedRepairLoop } from './contract-bounded-repair-loop.js';
+import { appendTerminalToolProjectedStatus } from './llm-delivery-log.js';
 import type { RuntimeGate } from '../runtime-gate.js';
 
 type PlannerProcessorOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
+
+const MAX_REVIEWER_REWORK_ATTEMPTS = 3;
 
 type ReviewerCurrentnessSnapshot = {
   cards: Array<{ id: string; status: CardStatus; versionSeq: number }>;
@@ -79,6 +82,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const llm = this.createMainLlm(plannerActorId(this.cardId));
     discardOpenRecordSlot(this.projectRoot, { cardId: input.card.id, filename: 'status.md', reason: 'new_activation' });
     const outcome = await llm.turn(this.buildLlmInput(input, contract));
+    let reviewerReworkAttempts = 0;
     const result = await runContractBoundedRepairLoop<PlannerProcessorOutcome>({
       initialOutcome: outcome,
       isTerminalToolName: (name) => contract.isTerminalToolName(name),
@@ -104,7 +108,18 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
         if (completionGateFailure) {
           return control.repair(completionGateFailure, () => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: completionGateFailure }, () => [{ role: 'user', content: completionGateFailure }]));
         }
-        return control.done(await this.projectPlannerTerminal(input, terminalOutcome, contract));
+        const projected = await this.projectPlannerTerminal(input, terminalOutcome, contract);
+        if (projected.result.kind === 'rework') {
+          if (reviewerReworkAttempts >= MAX_REVIEWER_REWORK_ATTEMPTS) {
+            this.markTerminalProjected(terminalOutcome);
+            return control.done(projected);
+          }
+          reviewerReworkAttempts++;
+          const message = this.reviewerReworkPlannerMessage(input.card.id, projected.summary);
+          return control.continue(await llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: message }, () => [{ role: 'user', content: message }]));
+        }
+        this.markTerminalProjected(terminalOutcome);
+        return control.done(projected);
       },
       onNonTerminalTool: async (toolOutcome) => {
         const toolResult = await this.handleToolCall(input.card, toolOutcome);
@@ -181,6 +196,20 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     return { status: 'failed', summary: parsed.summary, result: { kind: 'failed', summary: parsed.summary } };
   }
 
+  private markTerminalProjected(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): void {
+    appendTerminalToolProjectedStatus(this.projectRoot, {
+      agent_id: outcome.agentId,
+      source_input_id: outcome.inputId,
+      tool_call_id: outcome.toolCallId,
+      tool_name: outcome.toolName,
+    });
+  }
+
+  private reviewerReworkPlannerMessage(cardId: string, summary: string): string {
+    const reviewUrl = latestClosedRecordSlot(this.projectRoot, { cardId, filename: 'review.md' }).recordUrl;
+    return `Reviewer requested rework at ${reviewUrl}. Read it for required changes, update or create the necessary child cards, activate the rework, write record://status.md?v=next, then call emit_result again when ready for review. Reviewer summary: ${summary}`;
+  }
+
   private async reviewPlannerDone(input: CardActivationInput, planning: DoneResult): Promise<PlannerProcessorOutcome> {
     if (this.directChildren(input.card.id).length === 0) return { status: 'done', summary: planning.summary, result: planning };
     const assessmentId = nextReviewerAssessmentId(input.card.id, input.card.lifecycle.result);
@@ -219,6 +248,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
           }
           const closeError = this.closeRequiredRecord(input.card.id, 'review.md', 'reviewer', input.card.version_seq);
           if (closeError) return control.done(this.plannerFailure(closeError));
+          this.markTerminalProjected(terminalOutcome);
           return control.done(evaluateReviewerTerminalOutcome({ outcome: terminalOutcome }));
         },
         onNonTerminalTool: async (toolOutcome) => {

@@ -66,9 +66,13 @@ function noopNotificationDelivery() {
 }
 
 function plannerResult(status: 'done' | 'blocked' | 'failed', summary: string) {
+  return plannerResultWithCallId(status, summary, `planner-${status}`);
+}
+
+function plannerResultWithCallId(status: 'done' | 'blocked' | 'failed', summary: string, callId: string) {
   return {
     kind: 'tool_calls' as const,
-    tool_calls: [{ id: `planner-${status}`, type: 'function' as const, function: { name: 'emit_result', arguments: JSON.stringify({ status, summary }) } }],
+    tool_calls: [{ id: callId, type: 'function' as const, function: { name: 'emit_result', arguments: JSON.stringify({ status, summary }) } }],
   };
 }
 
@@ -699,13 +703,50 @@ describe('PlanningCardProcessorActor', () => {
     const store = new CardStore(projectRoot);
     const project = createProject(store);
     const child = markDone(store, createGoal(store, project.id));
-    const provider = withMandatoryRecords((input: LlmInvocationInput) => input.role === 'reviewer' ? reviewerResult({ status: 'rework', summary: 'fix it' }) : plannerResult('done', 'done'));
+    let plannerAttempts = 0;
+    const provider = withMandatoryRecords((input: LlmInvocationInput) => {
+      if (input.role === 'reviewer') return reviewerResult({ status: 'rework', summary: 'fix it' });
+      plannerAttempts++;
+      return plannerResultWithCallId('done', 'done', `planner-done-${plannerAttempts}`);
+    });
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
 
     expect(outcome).toMatchObject({ status: 'blocked', summary: 'fix it', result: { kind: 'rework', summary: 'fix it' } });
+  }));
+
+  it('feeds reviewer rework back to the planner with the concrete review record URL', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    markDone(store, createGoal(store, project.id));
+    let reviewerAttempts = 0;
+    const provider = withMandatoryRecords((input: LlmInvocationInput) => {
+      if (input.role === 'reviewer') {
+        reviewerAttempts++;
+        return reviewerAttempts === 1
+          ? reviewerResult({ status: 'rework', summary: 'missing proof' })
+          : reviewerResult({ status: 'done', summary: 'review ok after rework' });
+      }
+      const lastToolResult = input.episodeContext.lastToolResult as { result?: { error?: string } } | undefined;
+      if (typeof lastToolResult?.result?.error === 'string' && lastToolResult.result.error.includes('Reviewer requested rework')) {
+        return plannerResult('done', 'fixed review issues');
+      }
+      return plannerResult('done', 'initial done');
+    });
+    const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
+    actor.start();
+
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
+
+    expect(outcome).toMatchObject({ status: 'done', summary: 'review ok after rework', result: { kind: 'done', summary: 'review ok after rework' } });
+    expect(reviewerAttempts).toBe(2);
+    const plannerInputs = (provider.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls.map(([input]) => input).filter((input) => input.role === 'planner');
+    const reworkInput = plannerInputs.find((input) => JSON.stringify(input.episodeContext.lastToolResult ?? {}).includes('Reviewer requested rework'));
+    expect(JSON.stringify(reworkInput?.episodeContext.lastToolResult)).toContain('record://review.md?card=project&v=1');
+    expect(JSON.stringify(reworkInput?.episodeContext.lastToolResult)).toContain('missing proof');
   }));
 
   it('invokes reviewer for goal done outcomes', async () => withTempProject(async (projectRoot) => {
@@ -729,7 +770,12 @@ describe('PlanningCardProcessorActor', () => {
     const store = new CardStore(projectRoot);
     const project = createProject(store);
     markDone(store, createGoal(store, project.id));
-    const provider = withMandatoryRecords((input: LlmInvocationInput) => input.role === 'reviewer' ? reviewerResult({ status: 'rework', summary: 'missing proof' }) : plannerResult('done', 'done'));
+    let plannerAttempts = 0;
+    const provider = withMandatoryRecords((input: LlmInvocationInput) => {
+      if (input.role === 'reviewer') return reviewerResult({ status: 'rework', summary: 'missing proof' });
+      plannerAttempts++;
+      return plannerResultWithCallId('done', 'done', `planner-done-${plannerAttempts}`);
+    });
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
@@ -744,7 +790,12 @@ describe('PlanningCardProcessorActor', () => {
     const store = new CardStore(projectRoot);
     const project = createProject(store);
     markDone(store, createGoal(store, project.id));
-    const provider = withMandatoryRecords((input: LlmInvocationInput) => input.role === 'reviewer' ? reviewerResult({ status: 'rework', summary: 'outside the reviewed subtree' }) : plannerResult('done', 'done'));
+    let plannerAttempts = 0;
+    const provider = withMandatoryRecords((input: LlmInvocationInput) => {
+      if (input.role === 'reviewer') return reviewerResult({ status: 'rework', summary: 'outside the reviewed subtree' });
+      plannerAttempts++;
+      return plannerResultWithCallId('done', 'done', `planner-done-${plannerAttempts}`);
+    });
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
