@@ -65,17 +65,19 @@ One authority per check. No `card.status === 'done' || this.state() === 'done'`.
 ### `markChanged()`
 
 1. If store status is `cancelled`, return.
-2. Write `changed` to store (with terminal lifecycle patch if transitioning from a terminal status).
-3. Persist.
+2. If actor state is `running`, persist context only and return. Do not overwrite store status `running` with `changed` while a processor task is active.
+3. Write `changed` to store (with terminal lifecycle patch if transitioning from a terminal status).
+4. Persist.
 
-No actor event. The actor is already `parked` (or `running`, in which case it persists and the store status will be observed at settlement).
+No actor event. For inactive cards the actor is already `parked`; reopening is represented entirely by store status `changed`.
 
 ### `commitOutcome(outcome)`
 
-1. Write terminal store patch (done/failed/blocked).
-2. Clear active reconstruction.
-3. Resolve deferred.
-4. Send `settled` (replaces `done`/`failed`/`blocked` events).
+1. If store status is already `cancelled`, drop the late outcome. Cancellation owns settlement in that race.
+2. Write terminal store patch (done/failed/blocked).
+3. Clear active reconstruction.
+4. Resolve deferred.
+5. Send `settled` (replaces `done`/`failed`/`blocked` events).
 
 ### `_on_enter__running()`
 
@@ -85,11 +87,37 @@ Unchanged: writes `running` to store, starts processor task via `runTask`.
 
 ```
 if (card.status === 'running' && activeReconstruction) → recover('running')
+else if (card.status === 'running') → fail fast; running work without active reconstruction cannot be resumed safely
 else if (card.status === 'cancelled') → recover('cancelled')
 else → recover('parked')
 ```
 
+When the durable card status is not `running`, stale `activeReconstruction`, activation id, caller, and abort state must be cleared before recovering. The store status is authoritative: stale active snapshot context must not make a done/failed/blocked/changed/needs-verification card look resumable.
+
 No `cardActorState(status)` mapping. No `needs_verification` throw.
+
+## Recovery Diagnostics
+
+`actor-recovery.ts` currently treats card snapshot `state_value` as a status-shaped value by calling `parseCardActorState(snapshot.state_value)`. After the collapse, card snapshot `state_value` is a lifecycle value (`parked`, `running`, or `cancelled`), so recovery diagnostics must stop parsing it as a card status.
+
+Recovery should use two separate signals:
+
+- Card store status answers what the card is: `backlog`, `changed`, `blocked`, `failed`, `done`, `running`, `cancelled`, or `needs_verification`.
+- Card actor snapshot `state_value` answers what the actor was doing when persisted: `parked`, `running`, or `cancelled`.
+
+For active card reconstruction, valid state is stricter: a card snapshot with `active_reconstruction` should have lifecycle state `running`. Active reconstruction on `parked` or `cancelled` is inconsistent and should remain a recovery diagnostic. This replaces the old `isKnownCardActorState(...)`/`parseCardActorState(...)` check with a local lifecycle-state check:
+
+```ts
+function isKnownCardActorLifecycleState(state: unknown): boolean {
+  return state === 'parked' || state === 'running' || state === 'cancelled';
+}
+
+function isAmbiguousActiveCard(card: CardActorRecoveryRecord): boolean {
+  return card.active && card.snapshot.state_value !== 'running';
+}
+```
+
+Unknown lifecycle states should still be reported, but they are actor lifecycle corruption, not unknown card statuses.
 
 ## Public Read Model
 
@@ -101,9 +129,11 @@ Two consumers currently derive the operator-visible card state from `actor.state
 With collapse, `actor.state()` is `parked/running/cancelled` — useless to the operator. Both consumers must derive from the **store status** instead:
 
 - **Live path** (`supervisor-runtime-api.ts`): read `store.read(actor.cardId).status` and convert to `PublicCardActorState`.
-- **Snapshot path** (`actor-runtime-read-model.ts`): add `cardStatus` to the actor snapshot `context`. The actor already persists after every store status change. The read model reads `snapshot.context.cardStatus`.
+- **Snapshot path** (`actor-runtime-read-model.ts`): instantiate/read the card store by `projectRoot`, read each card by id, and convert that card's status to `PublicCardActorState`. If the card is missing, keep the actor id in diagnostics and omit that card projection rather than guessing from actor lifecycle state.
 
-`PublicCardActorState` and `publicCardActorStates` stay unchanged — they are store statuses, which is what the operator should see. `CardActorState` / `cardActorStates` / `parseCardActorState` in `actor-vocabulary.ts` become dead code and are deleted.
+Do not copy `cardStatus` into actor snapshot context. That would recreate the mirror in another field. The store is the status authority; actor snapshots are lifecycle/recovery artifacts.
+
+`PublicCardActorState` and `publicCardActorStates` stay unchanged — they are store statuses, which is what the operator should see. `CardActorState` / `cardActorStates` / `parseCardActorState` in `actor-vocabulary.ts` become dead code and are deleted or replaced by a private lifecycle-state helper local to `CardActor`/recovery code.
 
 ## Tests
 
@@ -119,6 +149,7 @@ Update `tests/runtime/actors/card-actor.test.ts`:
 1. Collapse `_actor` definition to `parked/running/cancelled` with `settled` event.
 2. Rewrite `activate`, `cancel`, `markChanged`, `commitOutcome`, and recovery to use store as single authority.
 3. Delete `cardActorState()`, `CardActorStatus`, `writeStatus()` mirroring, and dead vocabulary.
-4. Add `cardStatus` to snapshot context; update both read model consumers.
-5. Update tests.
-6. Run focused `CardActor` tests, typecheck, full test suite, and routine validation.
+4. Update both read model consumers to derive public card state from store status.
+5. Update recovery diagnostics to validate collapsed lifecycle states instead of status-shaped actor states.
+6. Update tests.
+7. Run focused `CardActor` tests, recovery/read-model tests, typecheck, full test suite, and routine validation.
