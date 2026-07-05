@@ -77,4 +77,42 @@
 
   /* Shorthand */
   --mono: var(--font-mono);
+
+  /* Spacing scale */
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 6px;
+  --space-4: 8px;
+  --space-5: 12px;
+  --space-6: 16px;
+  --space-7: 20px;
+  --space-8: 24px;
+  --space-9: 32px;
+
+  /* Font-size scale */
+  --font-size-xs: 10px;
+  --font-size-sm: 11px;
+  --font-size-md: 12px;
+  --font-size-base: 13px;
+  --font-size-lg: 14px;
+  --font-size-xl: 16px;
+  --font-size-2xl: 20px;
+
+  /* Line-height scale */
+  --line-height-tight: 1.2;
+  --line-height-normal: 1.4;
+  --line-height-relaxed: 1.55;
+
+  /* Semantic surfaces */
+  --surface-panel: var(--surface-1);
+  --surface-document: var(--bg);
+  --surface-raised: var(--surface-2);
+
+  /* Focus ring */
+  --focus-ring: 0 0 0 2px var(--c-blue);
+
+  /* Text aliases */
+  --text-primary: var(--text);
+  --text-secondary: var(--text-muted);
+  --text-code: var(--c-blue);
 }
