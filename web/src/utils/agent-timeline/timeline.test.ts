@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentConversationEntry } from '../../api/types';
+import { buildToolDisplay } from '../tool-friendly';
 import { entriesToTimeline } from './timeline';
 
 function entry(overrides: Partial<AgentConversationEntry>): AgentConversationEntry {
@@ -181,5 +182,7 @@ describe('entriesToTimeline display filtering', () => {
     expect(pairs[0].result).not.toBeNull();
     expect(pairs[0].result?.id).toBe('msg-orphan-result');
     expect(pairs[0].status).toBe('ok');
+    expect(() => buildToolDisplay(pairs[0])).not.toThrow();
+    expect(buildToolDisplay(pairs[0]).action).toBe('Read');
   });
 });

@@ -37,11 +37,18 @@ function buildToolPairs(entries: TimelineEntry[]): ToolPair[] {
       id: `synthetic-call:${callId}`,
       kind: 'tool_call',
       role: 'assistant',
-      content: JSON.stringify({ id: callId, name: result.tool ?? 'unknown', args: {} }),
+      content: syntheticToolCallContent(callId, result.tool ?? 'unknown'),
     };
     pairs.push({ call: syntheticCall, result, status: result.kind === 'tool_error' ? 'error' : 'ok' });
   }
   return pairs;
+}
+
+function syntheticToolCallContent(callId: string, toolName: string): string {
+  return JSON.stringify({
+    role: 'assistant',
+    tool_calls: [{ id: callId, type: 'function', function: { name: toolName, arguments: '{}' } }],
+  });
 }
 
 function fallbackRoundKind(entry: AgentConversationEntry): TimelineRoundKind {
