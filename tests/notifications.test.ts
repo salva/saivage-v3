@@ -176,7 +176,7 @@ describe('queueNotification recipient resolution', () => {
     });
     const tool = provider.tools.find((item) => item.name === 'queue_notification');
 
-    const result = await tool?.executor({ recipient: goal.id, kind: 'heads_up', body: 'planner body' });
+    const result = await tool?.executor({ recipient: goal.id, kind: 'heads_up', body: 'planner body' }, new AbortController().signal);
 
     expect(result).toEqual(expect.objectContaining({
       success: false,

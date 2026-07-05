@@ -45,10 +45,6 @@ export function ANALYST_UNSUPPORTED_ACTION_TEMPLATE(capabilityClass?: string, to
   return `That action is not supported by the Analyst on this surface.${suffix}`;
 }
 
-export function ANALYST_PARTIAL_SUCCESS_TEMPLATE(succeeded: number, total: number, failedIds: string[], reasons: string[]): string {
-  return `Partial success: ${succeeded} of ${total} succeeded. Failed: ${failedIds.join(', ')}. Reasons: ${reasons.join('; ')}.`;
-}
-
 export function ANALYST_UNKNOWN_CAPABILITY_TEMPLATE(proposedToolName: string): string {
   return `The Analyst cannot perform ${proposedToolName}; it is not a registered capability. Available capability classes: ${ANALYST_CAPABILITY_CLASSES.join(', ')}.`;
 }

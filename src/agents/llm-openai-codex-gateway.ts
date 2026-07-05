@@ -2,7 +2,7 @@ import { Buffer } from 'node:buffer';
 import type { AgentMessage } from '../schemas/index.js';
 import type { Candidate } from '../contracts/provider-candidate.js';
 import type { LlmCompleteOptions, LlmCompleteResult, ToolDefinition } from './llm-contracts.js';
-import { parseToolCallMessage } from '../contracts/persisted-tool-call.js';
+import { parseToolCallMessageForModel } from '../contracts/persisted-tool-call.js';
 import { LlmRequestError } from './llm-errors.js';
 import { classifierFor, classifyTransportFailure, defaultHttpClassifier } from './llm-failure-classifiers.js';
 import { readOpenAICodexStream } from './llm-codex-parser.js';
@@ -159,7 +159,7 @@ export function codexMessages(messages: AgentMessage[]): CodexMessage[] {
   const callIdsSeen = new Set<string>();
   for (const message of messages) {
     if (message.role === 'assistant' && message.kind === 'tool_call') {
-      const call = parseToolCallMessage(JSON.parse(message.content));
+      const call = parseToolCallMessageForModel(JSON.parse(message.content));
       callIdsSeen.add(call.id);
     } else if (message.role === 'tool') {
       const toolMessage = message as AgentMessage & { tool_call_id?: string };
@@ -173,9 +173,9 @@ export function codexMessages(messages: AgentMessage[]): CodexMessage[] {
     if (message.role === 'user') {
       result.push({ role: 'user', content: [{ type: 'input_text', text: message.content }] });
     } else if (message.role === 'assistant' && message.kind === 'tool_call') {
-      const call = parseToolCallMessage(JSON.parse(message.content));
+      const call = parseToolCallMessageForModel(JSON.parse(message.content));
       if (!callIdsWithOutput.has(call.id)) continue;
-      result.push({ type: 'function_call', call_id: call.id, name: call.name, arguments: JSON.stringify(call.args) });
+      result.push({ type: 'function_call', call_id: call.id, name: call.name, arguments: call.arguments });
     } else if (message.role === 'assistant') {
       result.push({ role: 'assistant', content: [{ type: 'output_text', text: message.content }] });
     } else if (message.role === 'tool') {

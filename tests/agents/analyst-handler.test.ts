@@ -147,7 +147,7 @@ describe('AnalystHandler F05 contract', () => {
       const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps });
       const response = await runtime.submit('s-bad-json', { userContent: 'list cards' });
 
-      expect(response.message.content).toContain('agent_protocol_violation');
+      expect(response.message.content).toBe('Done.');
       expect(diagnostics).toEqual(expect.arrayContaining([
         expect.objectContaining({ kind: 'runtime_diagnostic', phase: 'analyst_tool_arguments_protocol_violation' }),
       ]));

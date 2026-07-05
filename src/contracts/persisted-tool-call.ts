@@ -15,6 +15,12 @@ export interface PersistedToolCall {
   args: Record<string, unknown>;
 }
 
+export interface PersistedToolCallForModel {
+  id: string;
+  name: string;
+  arguments: string;
+}
+
 export type PersistedRowCorruptCode =
   | 'not_object'
   | 'legacy_tool_calls_wrapper'
@@ -35,6 +41,27 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 export function parseToolCallMessage(row: unknown): PersistedToolCall {
+  const call = parseToolCallMessageForModel(row);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(call.arguments);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new PersistedRowCorruptError(
+      'invalid_json',
+      `tool-call arguments are not valid JSON: ${detail}`,
+    );
+  }
+  if (!isObject(parsed)) {
+    throw new PersistedRowCorruptError(
+      'invalid_json',
+      `tool-call arguments must parse to an object (got ${Array.isArray(parsed) ? 'array' : typeof parsed})`,
+    );
+  }
+  return { id: call.id, name: call.name, args: parsed };
+}
+
+export function parseToolCallMessageForModel(row: unknown): PersistedToolCallForModel {
   if (!isObject(row)) {
     throw new PersistedRowCorruptError(
       'not_object',
@@ -73,23 +100,7 @@ export function parseToolCallMessage(row: unknown): PersistedToolCall {
       'persisted tool-call function must have string name and string arguments',
     );
   }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(fn.arguments);
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
-    throw new PersistedRowCorruptError(
-      'invalid_json',
-      `tool-call arguments are not valid JSON: ${detail}`,
-    );
-  }
-  if (!isObject(parsed)) {
-    throw new PersistedRowCorruptError(
-      'invalid_json',
-      `tool-call arguments must parse to an object (got ${Array.isArray(parsed) ? 'array' : typeof parsed})`,
-    );
-  }
-  return { id: call.id, name: fn.name, args: parsed };
+  return { id: call.id, name: fn.name, arguments: fn.arguments };
 }
 
 export function serializeToolCallMessage(call: {

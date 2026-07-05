@@ -128,6 +128,10 @@ function toolResponse(tool: string, args: Record<string, unknown>): Response {
   return new Response(JSON.stringify({ id: 'chatcmpl-test', object: 'chat.completion', created: 1, model: TEST_MODEL, choices: [{ index: 0, finish_reason: 'tool_calls', message: { role: 'assistant', content: null, tool_calls: [{ id: `call-${tool}`, type: 'function', function: { name: tool, arguments: JSON.stringify(args) } }] } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
 }
 
+function messageResponse(content: string): Response {
+  return new Response(JSON.stringify({ id: 'chatcmpl-test', object: 'chat.completion', created: 1, model: TEST_MODEL, choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+}
+
 function createProductionShapedAnalystSurface(root: string, store: CardStore): InvocationSurface {
   const ctx: ToolContext = toolCtx(root, store, { sessionId: 'analyst:test' });
   return buildInvocationSurface('analyst', [
@@ -325,11 +329,16 @@ describe('Contract C1 unsupported-action reply', () => {
   it('returns the unsupported-action template when policy denies a proposed tool', async () => {
     const root = setupRoot();
     try {
-      jest.spyOn(globalThis, 'fetch').mockImplementation(async () => toolResponse('not_a_tool', {}));
+      let call = 0;
+      jest.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+        call += 1;
+        if (call === 1) return toolResponse('not_a_tool', {});
+        return messageResponse('That action is not supported by the Analyst on this surface.');
+      });
       const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) }) });
       const response = await runtime.submit('s-c1', { userContent: 'perform unsupported action' });
       expect(response.message.content).toContain('That action is not supported by the Analyst on this surface.');
-      expect(response.toolInvocations ?? []).toHaveLength(0);
+      expect(response.toolInvocations ?? []).toHaveLength(1);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });
@@ -365,7 +374,12 @@ describe('Contract C2 partial-success reporting', () => {
       const proc = processRunner.spawn({ command: 'sleep 30', cardId: codeIds[1], ownerId: 'runtime:test', ownerKind: 'runtime', requiredForCardCompletion: true });
       store.setStatus(codeIds[1], 'running');
       store.setStatus(codeIds[1], 'running');
-      jest.spyOn(globalThis, 'fetch').mockImplementation(async () => toolResponse('delete_card', { ids: codeIds }));
+      let call = 0;
+      jest.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+        call += 1;
+        if (call === 1) return toolResponse('delete_card', { ids: codeIds });
+        return messageResponse('Partial delete completed; one card could not be deleted.');
+      });
       const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, cardStore: new CardStore(root) }) });
       const response = await runtime.submit('s-c2', { userContent: 'delete code cards' });
       expect(response.toolInvocations ?? []).toHaveLength(1);

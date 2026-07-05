@@ -12,7 +12,7 @@ export interface ToolDefinition<Args = unknown> {
   readonly name: string;
   readonly description: string;
   readonly inputSchema: z.ZodType<Args>;
-  readonly executor: (args: Args) => Promise<ToolResult>;
+  readonly executor: (args: Args, signal: AbortSignal) => Promise<ToolResult>;
 }
 
 export interface ToolProvider {
@@ -29,7 +29,7 @@ export function defineTool<Schema extends z.ZodTypeAny>(definition: {
   readonly name: string;
   readonly description: string;
   readonly inputSchema: Schema;
-  readonly executor: (args: z.infer<Schema>) => Promise<ToolResult>;
+  readonly executor: (args: z.infer<Schema>, signal: AbortSignal) => Promise<ToolResult>;
 }): ToolDefinition<z.infer<Schema>> {
   return definition;
 }
@@ -45,30 +45,38 @@ export function buildInvocationSurface(role: AgentRole, providers: readonly Tool
   return { role, tools };
 }
 
-export async function invokeTool(surface: InvocationSurface, name: string, args: unknown): Promise<ToolResult> {
+export async function invokeTool(surface: InvocationSurface, name: string, args: unknown, signal: AbortSignal = new AbortController().signal): Promise<ToolResult> {
   const definition = surface.tools.get(name);
   if (!definition) return { success: false, error: `Unsupported tool '${name}' for role '${surface.role}'.` };
   const parsed = definition.inputSchema.safeParse(args);
   if (!parsed.success) return { success: false, error: parsed.error.message };
-  return definition.executor(parsed.data);
+  if (signal.aborted) return { success: false, error: abortErrorMessage(signal) };
+  return definition.executor(parsed.data, signal);
 }
 
-export async function invokeToolForLlm(surface: InvocationSurface, name: string, args: unknown): Promise<ToolResult> {
+export async function invokeToolForLlm(surface: InvocationSurface, name: string, args: unknown, signal?: AbortSignal): Promise<ToolResult> {
   try {
-    return await invokeTool(surface, name, args);
+    return await invokeTool(surface, name, args, signal);
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
-export async function invokeToolCall(surface: InvocationSurface, name: string, rawArgs: string): Promise<ToolResult> {
+export async function invokeToolCall(surface: InvocationSurface, name: string, rawArgs: string, signal?: AbortSignal): Promise<ToolResult> {
   let args: unknown;
   try {
     args = JSON.parse(rawArgs) as unknown;
   } catch {
     return { success: false, error: 'Tool arguments must be valid JSON.' };
   }
-  return invokeTool(surface, name, args);
+  return invokeTool(surface, name, args, signal);
+}
+
+function abortErrorMessage(signal: AbortSignal): string {
+  const reason = signal.reason;
+  if (reason instanceof Error) return reason.message;
+  if (typeof reason === 'string') return reason;
+  return 'Tool invocation was interrupted.';
 }
 
 export function llmToolDefinition(tool: ToolDefinition<any>): LlmToolDefinition {

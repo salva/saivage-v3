@@ -102,7 +102,7 @@ describe('AnalystRuntime invocation service integration', () => {
       expect(response.message.content).not.toContain('failed to authenticate');
       expect(response.toolInvocations ?? []).toHaveLength(0);
       expect(spy).not.toHaveBeenCalled();
-      expect(readPersistedAssistant(root, 's-no-candidate')).toContain(response.message.content);
+      expect(readPersistedAssistant(root, 's-no-candidate')).not.toContain(response.message.content);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 

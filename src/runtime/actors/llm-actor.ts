@@ -30,6 +30,12 @@ type WaitingToolCall = {
   toolCallArguments: string;
 };
 
+type TurnStateUpdate = {
+  input: LlmInvocationInput;
+  deliveryInputId?: string;
+  waitingToolCall: WaitingToolCall | null;
+};
+
 export type LLMToolContinuationContextHook = (deliveryInputId: string) => unknown[] | undefined;
 
 export class ConversationLLMActor extends BaseActor {
@@ -49,7 +55,6 @@ export class ConversationLLMActor extends BaseActor {
   input: LlmInvocationInput | null = null;
   outcome: LLMActorOutcome | null = null;
   waitingToolCall: WaitingToolCall | null = null;
-  activeReconstruction: LlmActiveReconstructionRecord | null = null;
   deliveredToolCallIds = new Set<string>();
   #pendingTurn: PendingTurn | null = null;
   #toolDeliveryCounter = 0;
@@ -102,8 +107,7 @@ export class ConversationLLMActor extends BaseActor {
       episodeContext: { ...input.episodeContext, lastToolResult: { toolCallId, toolName: waiting.toolName, result } },
     };
     this.waitingToolCall = null;
-    this.updateActiveReconstruction({ input: this.input, input_id: deliveryInputId, waiting_tool_call: null, delivered_tool_call_ids: [...this.deliveredToolCallIds], tool_delivery_counter: this.#toolDeliveryCounter });
-    this.prepareProviderCallReconstruction(this.input);
+    this.onTurnStateUpdated({ input: this.input, deliveryInputId, waitingToolCall: null });
     return this.continueAfterTool();
   }
 
@@ -130,7 +134,7 @@ export class ConversationLLMActor extends BaseActor {
     this.input = null;
     this.outcome = null;
     this.waitingToolCall = null;
-    this.activeReconstruction = null;
+    this.onTurnSettled();
     this.deliveredToolCallIds.clear();
     this.#toolDeliveryCounter = 0;
     this.parkedSendEvent('abandon');
@@ -170,29 +174,11 @@ export class ConversationLLMActor extends BaseActor {
     }
   }
 
-  protected override _on_state_changed(_oldState: string | undefined, _newState: string): void {
-    this.persistState();
-  }
-
-  snapshot() {
-    return {
-      actor_id: this.agentId,
-      actor_kind: 'llm' as const,
-      state_value: this.state(),
-      context: {
-        projectRoot: this.projectRoot,
-        agentId: this.agentId,
-        active_reconstruction: this.activeReconstruction,
-      },
-      updated_at: new Date().toISOString(),
-    };
-  }
-
   private completeWithProviderResult(input: LlmInvocationInput, result: LlmCompleteResult): void {
     if (result.kind === 'message') {
       this.input = { ...input, contextMessages: [...input.contextMessages, { role: 'assistant', content: result.content }] };
       this.outcome = { type: 'result', agentId: this.agentId, result };
-      this.activeReconstruction = null;
+      this.onTurnSettled();
       this.#pendingTurn?.resolve(this.outcome);
       this.#pendingTurn = null;
       this.sendEvent('done');
@@ -204,7 +190,7 @@ export class ConversationLLMActor extends BaseActor {
     }
     const [call] = result.tool_calls;
     this.waitingToolCall = { sourceInputId: input.inputId, toolCallId: call.id, toolName: call.function.name, toolCallArguments: call.function.arguments };
-    this.updateActiveReconstruction({ waiting_tool_call: activeWaitingToolCall(this.waitingToolCall), provider_call_id: null });
+    this.onTurnStateUpdated({ input, waitingToolCall: this.waitingToolCall });
     this.outcome = { type: 'tool_call', agentId: this.agentId, inputId: input.inputId, toolCallId: call.id, toolName: call.function.name, args: parseToolArguments(call.function.arguments) };
     this.#pendingTurn?.resolve(this.outcome);
     this.#pendingTurn = null;
@@ -214,7 +200,7 @@ export class ConversationLLMActor extends BaseActor {
   private completeWithError(input: LlmInvocationInput, error: string): void {
     appendLlmTurnError(this.projectRoot, input, error);
     this.outcome = { type: 'error', agentId: this.agentId, error };
-    this.activeReconstruction = null;
+    this.onTurnSettled();
     this.#pendingTurn?.resolve(this.outcome);
     this.#pendingTurn = null;
     this.sendEvent('failed');
@@ -240,7 +226,7 @@ export class ConversationLLMActor extends BaseActor {
     if (options.resetDeliveredToolCalls) this.deliveredToolCallIds.clear();
     this.input = input;
     this.outcome = null;
-    this.prepareTurnReconstruction(input);
+    this.onTurnStarting(input);
     return new Promise<LLMActorOutcome>((resolve, reject) => {
       this.#pendingTurn = { resolve, reject };
       this.parkedSendEvent('turn');
@@ -279,21 +265,11 @@ export class ConversationLLMActor extends BaseActor {
     return this.input;
   }
 
-  protected persistState(): void {
-    return;
-  }
+  protected onTurnStarting(_input: LlmInvocationInput): void {}
 
-  protected prepareTurnReconstruction(_input: LlmInvocationInput): void {
-    this.activeReconstruction = null;
-  }
+  protected onTurnStateUpdated(_params: TurnStateUpdate): void {}
 
-  protected updateActiveReconstruction(_changes: Partial<LlmActiveReconstructionRecord>): void {
-    return;
-  }
-
-  protected prepareProviderCallReconstruction(_input: LlmInvocationInput): void {
-    return;
-  }
+  protected onTurnSettled(): void {}
 
   protected toolDeliveryCounter(): number {
     return this.#toolDeliveryCounter;
@@ -301,13 +277,28 @@ export class ConversationLLMActor extends BaseActor {
 }
 
 export class LLMActor extends ConversationLLMActor {
-  protected override persistState(): void {
+  activeReconstruction: LlmActiveReconstructionRecord | null = null;
+
+  protected override _on_state_changed(_oldState: string | undefined, _newState: string): void {
     saveActorSnapshot(this.projectRoot, this.snapshot());
   }
 
-  protected override prepareTurnReconstruction(input: LlmInvocationInput): void {
+  snapshot() {
+    return {
+      actor_id: this.agentId,
+      actor_kind: 'llm' as const,
+      state_value: this.state(),
+      context: {
+        projectRoot: this.projectRoot,
+        agentId: this.agentId,
+        active_reconstruction: this.activeReconstruction,
+      },
+      updated_at: new Date().toISOString(),
+    };
+  }
+
+  protected override onTurnStarting(input: LlmInvocationInput): void {
     this.activeReconstruction = this.createActiveReconstruction(input);
-    this.prepareProviderCallReconstruction(input);
   }
 
   private createActiveReconstruction(input: LlmInvocationInput): LlmActiveReconstructionRecord {
@@ -323,7 +314,7 @@ export class LLMActor extends ConversationLLMActor {
       card_id: reconstructionCardId,
       input_id: input.inputId,
       input,
-      provider_call_id: null,
+      provider_call_id: `${this.agentId}:${input.inputId}`,
       waiting_tool_call: null,
       delivered_tool_call_ids: [...this.deliveredToolCallIds],
       tool_delivery_counter: this.toolDeliveryCounter(),
@@ -331,13 +322,28 @@ export class LLMActor extends ConversationLLMActor {
     };
   }
 
-  protected override updateActiveReconstruction(changes: Partial<LlmActiveReconstructionRecord>): void {
+  protected override onTurnStateUpdated(params: TurnStateUpdate): void {
     if (!this.activeReconstruction) throw new Error(`LLMActor '${this.agentId}' has no active reconstruction record.`);
+    const changes: Partial<LlmActiveReconstructionRecord> = {
+      input: params.input,
+      delivered_tool_call_ids: [...this.deliveredToolCallIds],
+      tool_delivery_counter: this.toolDeliveryCounter(),
+    };
+    if (params.deliveryInputId) {
+      changes.input_id = params.deliveryInputId;
+      changes.provider_call_id = `${this.agentId}:${params.deliveryInputId}`;
+    }
+    if (params.waitingToolCall) {
+      changes.waiting_tool_call = activeWaitingToolCall(params.waitingToolCall);
+      changes.provider_call_id = null;
+    } else {
+      changes.waiting_tool_call = null;
+    }
     this.activeReconstruction = { ...this.activeReconstruction, ...changes };
   }
 
-  protected override prepareProviderCallReconstruction(input: LlmInvocationInput): void {
-    this.updateActiveReconstruction({ provider_call_id: `${this.agentId}:${input.inputId}` });
+  protected override onTurnSettled(): void {
+    this.activeReconstruction = null;
   }
 }
 

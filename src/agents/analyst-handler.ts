@@ -14,12 +14,12 @@ import type { EventLogger } from '../observability/index.js';
 import type { McpManager } from '../mcp/manager-api.js';
 import type { ActorRole } from './authz.js';
 import { sanitizeAnalystText } from '../agents/analyst-sanitization.js';
-import { ANALYST_PARTIAL_SUCCESS_TEMPLATE, ANALYST_UNSUPPORTED_ACTION_TEMPLATE } from './analyst-tool-runner.js';
+import { ANALYST_UNSUPPORTED_ACTION_TEMPLATE } from './analyst-tool-runner.js';
 import { getModelParamsForRole } from './config-schema.js';
 import type { SaivageConfig } from './config-schema.js';
 import { capabilityRequestForLlmOptions } from './provider-capabilities.js';
 import { buildAgentProtocolViolation, parseProtocolToolArgs } from './agent-protocol-violation.js';
-import { appendConversationMessage, buildContextTextMessage, conversationMessagesForModel, readConversationMessages } from '../runtime/actors/conversation-store.js';
+import { buildContextTextMessage, conversationMessagesForModel, readConversationMessages } from '../runtime/actors/conversation-store.js';
 import { ConversationLLMActor, type LLMActorOutcome, type LLMProviderPort } from '../runtime/actors/llm-actor.js';
 import type { LlmInvocationInput } from '../runtime/actors/llm-invocation.js';
 import { resolveAnalystSessionId } from './session-ids.js';
@@ -150,225 +150,43 @@ function broadcastToolInvocation(deps: AnalystRuntimeDeps, sessionId: string, to
   deps.emitAnalystToolInvoked({ sessionId, tool, success: result.success, ...payload });
 }
 
+function analystToolContext(args: { projectRoot: string; runtimeDeps: AnalystRuntimeDeps; sessionId?: string; actor: ActorRole; surface: ControlActionSurface; requestServerRestart?: () => Promise<void> }): ToolContext {
+  return { projectRoot: args.projectRoot, processRunner: args.runtimeDeps.processRunner, store: args.runtimeDeps.cardStore, sessionId: args.sessionId, runtime: args.runtimeDeps.runtime, mcpManager: args.runtimeDeps.mcpManager, requestServerRestart: args.requestServerRestart, actor: args.actor, surface: args.surface, eventBus: args.runtimeDeps.eventBus };
+}
 
-class AnalystLoopRunner {
-  private projectRoot: string;
-  private onActivity?: ActivityCallback;
-  private readonly runtimeDeps: AnalystRuntimeDeps;
-  private actor: ActorRole;
-  private surface: ControlActionSurface;
-  private requestServerRestart?: () => Promise<void>;
-  private readonly config: SaivageConfig;
+function analystControlProvider(ctx: ToolContext): ToolProvider {
+  return {
+    providerName: 'analyst',
+    tools: ANALYST_CONTROL_TOOLS
+      .map((tool) => defineTool({
+        name: tool.name,
+        description: tool.description,
+        inputSchema: tool.input,
+        executor: async (args): Promise<ToolResult> => {
+          if (!tool.executor) throw new Error(`Analyst tool '${tool.name}' has no executor.`);
+          return tool.executor(ctx, args as Record<string, unknown>);
+        },
+      })),
+  };
+}
 
-  constructor(projectRoot: string, config: SaivageConfig, runtimeDeps: AnalystRuntimeDeps, onActivity?: ActivityCallback, actor: ActorRole = 'analyst', surface: ControlActionSurface = 'web-chat', requestServerRestart?: () => Promise<void>) {
-    this.projectRoot = projectRoot;
-    this.onActivity = onActivity;
-    this.runtimeDeps = runtimeDeps;
-    this.config = config;
-    this.actor = actor;
-    this.surface = surface;
-    this.requestServerRestart = requestServerRestart;
-  }
+function analystInvocationSurface(args: { projectRoot: string; runtimeDeps: AnalystRuntimeDeps; ctx: ToolContext }): InvocationSurface {
+  return buildInvocationSurface('analyst', [
+    analystControlProvider(args.ctx),
+    createCardInspectionProvider({ projectRoot: args.projectRoot, store: args.runtimeDeps.cardStore, agentRole: 'analyst' }),
+    createCardHistoryProvider({ projectRoot: args.projectRoot, store: args.runtimeDeps.cardStore, sessionId: args.ctx.sessionId, agentRole: 'analyst' }),
+    createWorkspaceProvider({ projectRoot: args.projectRoot, agentRole: 'analyst', store: args.runtimeDeps.cardStore }),
+    createPatchProvider({ projectRoot: args.projectRoot, agentRole: 'analyst' }),
+    createProcessProvider({ projectRoot: args.projectRoot, processRunner: args.runtimeDeps.processRunner, ownerId: args.ctx.sessionId ?? 'analyst', agentRole: 'analyst', ownerKind: 'operator', launchReason: 'analyst workspace run_command' }),
+    createWebProvider({ projectRoot: args.projectRoot, agentRole: 'analyst', store: args.runtimeDeps.cardStore }),
+    createSkillProvider({ projectRoot: args.projectRoot, agentRole: 'analyst' }),
+    createMcpProvider({ mcpManagerProvider: () => args.runtimeDeps.mcpManager, agentRole: 'analyst' }),
+  ]);
+}
 
-  getAvailableToolNames(): string[] {
-    const ctx: ToolContext = { projectRoot: this.projectRoot, processRunner: this.runtimeDeps.processRunner, store: this.runtimeDeps.cardStore, runtime: this.runtimeDeps.runtime, mcpManager: this.runtimeDeps.mcpManager, requestServerRestart: this.requestServerRestart, actor: this.actor, surface: this.surface, eventBus: this.runtimeDeps.eventBus };
-    return Array.from(this.analystInvocationSurface(ctx).tools.keys());
-  }
-
-  private emitActivity(activity: { type: 'tool_call' | 'tool_result' | 'thinking'; content: Record<string, unknown> }): void {
-    if (!this.onActivity) return;
-    try { this.onActivity(activity); } catch (err) { this.logBoundaryDiagnostic('analyst_activity_callback_failed', err); }
-  }
-
-  private logBoundaryDiagnostic(phase: string, err: unknown): void {
-    try {
-      this.runtimeDeps.eventLogger?.appendEvent(buildRuntimeDiagnosticEvent({
-        phase,
-        error: err,
-      }));
-    } catch {
-      /* best-effort diagnostics; never fail the analyst response path */
-    }
-  }
-
-  private responseTextForResult(result: ToolResult): string | null {
-    if (result.success && result.data && typeof result.data === 'object' && (result.data as Record<string, unknown>)['partial'] === true) {
-      const data = result.data as Record<string, unknown>;
-      const failures = Array.isArray(data['failures']) ? data['failures'] as Array<Record<string, unknown>> : [];
-      return ANALYST_PARTIAL_SUCCESS_TEMPLATE(Number(data['succeeded'] ?? 0), Number(data['total'] ?? 0), failures.map((failure) => String(failure['id'] ?? 'unknown')), failures.map((failure) => String(failure['reason'] ?? 'unknown reason')));
-    }
-    return null;
-  }
-
-  async runAnalystLoop(sessionId: string, actor: ConversationLLMActor, userContent: string, workspaceContext: WorkspaceContext | undefined, signal: AbortSignal): Promise<AnalystResponse> {
-    sessionId = resolveAnalystSessionId(sessionId);
-    const toolInvocations: NonNullable<AnalystResponse['toolInvocations']> = [];
-    const ctx: ToolContext = { projectRoot: this.projectRoot, processRunner: this.runtimeDeps.processRunner, store: this.runtimeDeps.cardStore, sessionId, runtime: this.runtimeDeps.runtime, mcpManager: this.runtimeDeps.mcpManager, requestServerRestart: this.requestServerRestart, actor: this.actor, surface: this.surface, eventBus: this.runtimeDeps.eventBus };
-    const surface = this.analystInvocationSurface(ctx);
-    const previousToolCallFingerprints = new Set<string>();
-    const workspaceContextMessage = buildContextTextMessage(sessionId, 'system', buildWorkspaceContextNote(workspaceContext));
-    const userMessage = buildContextTextMessage(sessionId, 'user', userContent);
-    let outcome: LLMActorOutcome;
-
-    try {
-      outcome = await actor.turn(this.buildInvocationInput(sessionId, actor, [workspaceContextMessage, userMessage], surface));
-    } catch (err) {
-      return this.errorResponse(sessionId, err, toolInvocations);
-    }
-
-    for (;;) {
-      if (signal.aborted) throw new Error('Analyst turn cancelled.');
-      if (outcome.type === 'error') return this.errorResponse(sessionId, outcome.error, toolInvocations);
-
-      if (outcome.type === 'result') {
-        const finalText = (outcome.result.content ?? '').trim() || 'Done.';
-        const timestamp = new Date().toISOString();
-        return { sessionId, message: { id: `${sessionId}:assistant:${timestamp}:${Math.random().toString(36).slice(2)}`, role: 'assistant', kind: 'text', content: finalText, timestamp }, toolInvocations: toolInvocations.length > 0 ? toolInvocations : undefined };
-      }
-
-      const toolCall = outcome;
-      if (!surface.tools.has(toolCall.toolName)) {
-        const content = ANALYST_UNSUPPORTED_ACTION_TEMPLATE('Analyst', Array.from(surface.tools.keys()));
-        const persisted = this.appendAssistantTextMessage(sessionId, content);
-        return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content, timestamp: persisted.timestamp }, toolInvocations: toolInvocations.length > 0 ? toolInvocations : undefined };
-      }
-      const rawArguments = typeof actor.waitingToolCall?.toolCallArguments === 'string' ? actor.waitingToolCall.toolCallArguments : JSON.stringify(toolCall.args);
-      const fingerprint = `${toolCall.toolName}:${rawArguments}`;
-      if (previousToolCallFingerprints.has(fingerprint)) {
-        const noProgressText = 'I repeated the same tool calls without making progress. Please refine the request or inspect the latest tool results.';
-        const persisted = this.appendAssistantTextMessage(sessionId, noProgressText);
-        return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: noProgressText, timestamp: persisted.timestamp }, toolInvocations: toolInvocations.length > 0 ? toolInvocations : undefined };
-      }
-      previousToolCallFingerprints.add(fingerprint);
-
-      const parsed = parseProtocolToolArgs(rawArguments);
-      if (parsed.kind === 'violation') {
-        const violation = buildAgentProtocolViolation({ session_id: sessionId, role: 'analyst', tool_call_id: toolCall.toolCallId, tool_name: toolCall.toolName, violation: parsed.violation, raw: rawArguments });
-        this.logBoundaryDiagnostic('analyst_tool_arguments_protocol_violation', new Error(`${parsed.violation}: ${parsed.detail}`));
-        const content = JSON.stringify(violation);
-        const result: ToolResult = { success: false, error: content };
-        this.emitActivity({ type: 'tool_result', content: { tool: toolCall.toolName, success: false, errorKind: 'agent_protocol_violation' } });
-        toolInvocations.push({ tool: toolCall.toolName, params: {}, result });
-        outcome = await actor.appendToolResult(toolCall.toolCallId, result);
-        if (outcome.type === 'error') {
-          const persisted = this.appendAssistantTextMessage(sessionId, content);
-          return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content, timestamp: persisted.timestamp }, toolInvocations };
-        }
-        continue;
-      }
-
-      const params = parsed.args;
-      this.emitActivity({ type: 'tool_call', content: { tool: toolCall.toolName, params } });
-      if (signal.aborted) throw new Error('Analyst turn cancelled.');
-      const result = await invokeToolCall(surface, toolCall.toolName, rawArguments);
-      if (signal.aborted) throw new Error('Analyst turn cancelled.');
-
-      this.emitActivity({ type: 'tool_result', content: { tool: toolCall.toolName, success: result.success } });
-      toolInvocations.push({ tool: toolCall.toolName, params, result });
-      broadcastToolInvocation(this.runtimeDeps, sessionId, toolCall.toolName, result);
-      const contractText = this.responseTextForResult(result);
-      try {
-        outcome = await actor.appendToolResult(toolCall.toolCallId, result);
-      } catch (err) {
-        return this.errorResponse(sessionId, err, toolInvocations);
-      }
-      if (contractText) {
-        const persisted = this.appendAssistantTextMessage(sessionId, contractText);
-        return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: contractText, timestamp: persisted.timestamp }, toolInvocations };
-      }
-    }
-  }
-
-  private buildInvocationInput(sessionId: string, actor: ConversationLLMActor, newMessages: AgentMessage[], surface: InvocationSurface): LlmInvocationInput {
-    const tools = surfaceToolDefinitions(surface);
-    const modelParams = getModelParamsForRole(this.config, 'analyst');
-    const contextMessages = actor.input
-      ? [...actor.input.contextMessages, ...newMessages]
-      : [...conversationMessagesForModel(readConversationMessages(this.projectRoot, sessionId)), ...newMessages] as AgentMessage[];
-    return {
-      inputId: `${actor.agentId}:turn:${Date.now()}`,
-      agentId: actor.agentId,
-      role: 'analyst',
-      sessionId,
-      systemPrompt: `${getAnalystSystemPrompt(tools)}\n\n${this.buildProjectContext()}`,
-      contextMessages,
-      turnMessages: newMessages,
-      tools,
-      terminalToolNames: [],
-      modelParams: { temperature: modelParams.temperature, maxTokens: modelParams.maxTokens },
-      capabilityRequest: capabilityRequestForLlmOptions({ tools, stream: false }),
-      episodeContext: { surface: this.surface },
-    };
-  }
-
-  private analystInvocationSurface(ctx: ToolContext): InvocationSurface {
-    return buildInvocationSurface('analyst', [
-      this.analystControlProvider(ctx),
-      createCardInspectionProvider({ projectRoot: this.projectRoot, store: this.runtimeDeps.cardStore, agentRole: 'analyst' }),
-      createCardHistoryProvider({ projectRoot: this.projectRoot, store: this.runtimeDeps.cardStore, sessionId: ctx.sessionId, agentRole: 'analyst' }),
-      createWorkspaceProvider({ projectRoot: this.projectRoot, agentRole: 'analyst', store: this.runtimeDeps.cardStore }),
-      createPatchProvider({ projectRoot: this.projectRoot, agentRole: 'analyst' }),
-      createProcessProvider({ projectRoot: this.projectRoot, processRunner: this.runtimeDeps.processRunner, ownerId: ctx.sessionId ?? 'analyst', agentRole: 'analyst', ownerKind: 'operator', launchReason: 'analyst workspace run_command' }),
-      createWebProvider({ projectRoot: this.projectRoot, agentRole: 'analyst', store: this.runtimeDeps.cardStore }),
-      createSkillProvider({ projectRoot: this.projectRoot, agentRole: 'analyst' }),
-      createMcpProvider({ mcpManagerProvider: () => this.runtimeDeps.mcpManager, agentRole: 'analyst' }),
-    ]);
-  }
-
-  private analystControlProvider(ctx: ToolContext): ToolProvider {
-    return {
-      providerName: 'analyst',
-      tools: ANALYST_CONTROL_TOOLS
-        .map((tool) => defineTool({
-          name: tool.name,
-          description: tool.description,
-          inputSchema: tool.input,
-          executor: async (args): Promise<ToolResult> => {
-            if (!tool.executor) throw new Error(`Analyst tool '${tool.name}' has no executor.`);
-            return tool.executor(ctx, args as Record<string, unknown>);
-          },
-        })),
-    };
-  }
-
-  private appendAssistantTextMessage(sessionId: string, content: string): AgentMessage {
-    const timestamp = new Date().toISOString();
-    const message: AgentMessage = {
-      id: `${sessionId}:assistant:${timestamp}:${Math.random().toString(36).slice(2)}`,
-      session_id: sessionId,
-      role: 'assistant',
-      kind: 'text',
-      content,
-      round_id: `r-assistant-${Buffer.from(`${sessionId}:${timestamp}`).toString('hex').slice(0, 32).padEnd(32, '0')}`,
-      message_index: 1,
-      block_index: 0,
-      timestamp,
-    };
-    appendConversationMessage(this.projectRoot, message);
-    return message;
-  }
-
-  private errorResponse(sessionId: string, err: unknown, toolInvocations: NonNullable<AnalystResponse['toolInvocations']>): AnalystResponse {
-    const noHealthyMessage = `No healthy candidates available for role 'analyst'.`;
-    const error = typeof err === 'string' ? err : err instanceof Error ? err.message : String(err);
-    const errMsg = err instanceof AnalystOfflineError
-      ? err.message
-      : error === noHealthyMessage
-        ? ANALYST_NO_MODEL_REPLY
-        : `Analyst LLM unavailable: ${error}`;
-    const persisted = this.appendAssistantTextMessage(sessionId, errMsg);
-    return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: errMsg, timestamp: persisted.timestamp }, toolInvocations: toolInvocations.length > 0 ? toolInvocations : undefined };
-  }
-
-  private buildProjectContext(): string {
-    try {
-      const store = this.runtimeDeps.cardStore;
-      return JSON.stringify({ projectRoot: this.projectRoot, cards: store.list().map((card) => ({ id: card.id, type: card.type, parent: card.parent, status: card.status, title: card.title, priority: card.priority, tags: card.tags })) }, null, 2);
-    } catch (err) {
-      this.logBoundaryDiagnostic('analyst_project_context_build_failed', err);
-      return `Project root: ${this.projectRoot}`;
-    }
-  }
+function transientAssistantResponse(sessionId: string, content: string, toolInvocations?: NonNullable<AnalystResponse['toolInvocations']>): AnalystResponse {
+  const timestamp = new Date().toISOString();
+  return { sessionId, message: { id: `${sessionId}:assistant:${timestamp}:${Math.random().toString(36).slice(2)}`, role: 'assistant', kind: 'text', content, timestamp }, toolInvocations: toolInvocations && toolInvocations.length > 0 ? toolInvocations : undefined };
 }
 
 type PendingAnalystTurn = {
@@ -387,17 +205,16 @@ export class AnalystSessionActor extends BaseActor {
     },
   };
 
-  private readonly loop: AnalystLoopRunner;
   private readonly llm: ConversationLLMActor;
   private pendingTurn: PendingAnalystTurn | null = null;
+  private turnAbort: AbortController | null = null;
+  private cancellationReason: string | null = null;
+  private toolInFlight: string | null = null;
   private started = false;
   private lastOutcome: AnalystSessionReadModel['lastOutcome'] = null;
 
   constructor(private readonly args: { projectRoot: string; sessionId: string; config: SaivageConfig; runtimeDeps: AnalystRuntimeDeps; actor?: ActorRole; surface?: ControlActionSurface; requestServerRestart?: () => Promise<void> }) {
     super();
-    this.loop = new AnalystLoopRunner(args.projectRoot, args.config, args.runtimeDeps, (activity) => {
-      this.pendingTurn?.onActivity?.(activity);
-    }, args.actor ?? 'analyst', args.surface ?? 'web-chat', args.requestServerRestart);
     this.llm = new ConversationLLMActor({ projectRoot: args.projectRoot, agentId: args.sessionId, provider: args.runtimeDeps.provider });
     if (readConversationMessages(args.projectRoot, args.sessionId).some((message) => message.kind === 'system_prompt')) {
       this.llm.seedSystemPromptLogged(args.sessionId);
@@ -427,23 +244,33 @@ export class AnalystSessionActor extends BaseActor {
     const turn = this.pendingTurn;
     if (this.state() !== 'conversing' || !turn) return false;
     const timestamp = new Date().toISOString();
+    this.cancellationReason = reason;
+    this.turnAbort?.abort(new Error(reason));
     this.pendingTurn = null;
     this.lastOutcome = 'cancelled';
-    if (this.llm.state() === 'waiting_tool') this.llm.abandonParkedTurn();
     turn.resolve({ sessionId: this.sessionId, cancelled: true, message: { id: `${this.sessionId}:cancelled:${timestamp}`, role: 'assistant', kind: 'text', content: `Cancelled: ${reason}`, timestamp } });
     this.sendEvent('cancel');
     return true;
   }
 
   readModel(): AnalystSessionReadModel {
-    return { sessionId: this.sessionId, phase: this.state() === 'conversing' ? 'conversing' : 'idle', toolInFlight: null, lastOutcome: this.lastOutcome };
+    return { sessionId: this.sessionId, phase: this.state() === 'conversing' ? 'conversing' : 'idle', toolInFlight: this.toolInFlight, lastOutcome: this.lastOutcome };
   }
 
   _on_enter__conversing(): void {
     const turn = this.pendingTurn;
     if (!turn) throw new Error(`Analyst session '${this.sessionId}' entered conversing without a pending turn.`);
-    this.runTask((signal) => this.loop.runAnalystLoop(this.sessionId, this.llm, turn.input.userContent, turn.input.workspaceContext, signal), {
+    const turnAbort = new AbortController();
+    this.turnAbort = turnAbort;
+    this.cancellationReason = null;
+    this.toolInFlight = null;
+    this.runTask(() => this.runAnalystLoop(turn.input, turnAbort.signal), {
       on_done: (result) => {
+        this.cleanupTurnState();
+        if (this.cancellationReason !== null) {
+          this.resetCancellationState();
+          return;
+        }
         if (this.pendingTurn !== turn) return;
         this.pendingTurn = null;
         this.lastOutcome = 'completed';
@@ -451,6 +278,11 @@ export class AnalystSessionActor extends BaseActor {
         this.sendEvent('done');
       },
       on_failed: (error) => {
+        this.cleanupTurnState();
+        if (this.cancellationReason !== null) {
+          this.resetCancellationState();
+          return;
+        }
         if (this.pendingTurn !== turn) return;
         this.pendingTurn = null;
         this.lastOutcome = 'failed';
@@ -458,6 +290,179 @@ export class AnalystSessionActor extends BaseActor {
         this.sendEvent('failed');
       },
     });
+  }
+
+  private async runAnalystLoop(input: AnalystTurnInput, signal: AbortSignal): Promise<AnalystResponse> {
+    const sessionId = this.sessionId;
+    const toolInvocations: NonNullable<AnalystResponse['toolInvocations']> = [];
+    const ctx = analystToolContext({ projectRoot: this.args.projectRoot, runtimeDeps: this.args.runtimeDeps, sessionId, actor: this.args.actor ?? 'analyst', surface: this.args.surface ?? 'web-chat', requestServerRestart: this.args.requestServerRestart });
+    const surface = analystInvocationSurface({ projectRoot: this.args.projectRoot, runtimeDeps: this.args.runtimeDeps, ctx });
+    const previousToolCallFingerprints = new Set<string>();
+    let noProgressDirectiveSent = false;
+    const workspaceContextMessage = buildContextTextMessage(sessionId, 'system', buildWorkspaceContextNote(input.workspaceContext));
+    const userMessage = buildContextTextMessage(sessionId, 'user', input.userContent);
+    let outcome: LLMActorOutcome;
+
+    try {
+      this.throwIfCancelled();
+      outcome = await this.llm.turn(this.buildInvocationInput([workspaceContextMessage, userMessage], surface));
+    } catch (err) {
+      if (this.isCancelled()) return this.cancelledLoopResponse();
+      return this.errorResponse(err, toolInvocations);
+    }
+
+    for (;;) {
+      this.throwIfCancelled();
+      if (outcome.type === 'error') return this.errorResponse(outcome.error, toolInvocations);
+
+      if (outcome.type === 'result') {
+        return transientAssistantResponse(sessionId, (outcome.result.content ?? '').trim() || 'Done.', toolInvocations);
+      }
+
+      const toolCall = outcome;
+      const rawArguments = typeof this.llm.waitingToolCall?.toolCallArguments === 'string' ? this.llm.waitingToolCall.toolCallArguments : JSON.stringify(toolCall.args);
+      const fingerprint = `${toolCall.toolName}:${rawArguments}`;
+      if (previousToolCallFingerprints.has(fingerprint)) {
+        if (this.llm.deliveredToolCallIds.has(toolCall.toolCallId)) {
+          return transientAssistantResponse(sessionId, 'I repeated the same tool calls without making progress. Please refine the request or inspect the latest tool results.', toolInvocations);
+        }
+        if (noProgressDirectiveSent) {
+          return transientAssistantResponse(sessionId, 'I repeated the same tool calls without making progress. Please refine the request or inspect the latest tool results.', toolInvocations);
+        }
+        noProgressDirectiveSent = true;
+        const result: ToolResult = { success: false, error: 'The same tool call was repeated without progress. Stop calling tools and answer the operator from the latest tool results.' };
+        this.emitActivity({ type: 'tool_result', content: { tool: toolCall.toolName, success: false, errorKind: 'no_progress' } });
+        toolInvocations.push({ tool: toolCall.toolName, params: toolCall.args && typeof toolCall.args === 'object' ? toolCall.args as Record<string, unknown> : {}, result });
+        outcome = await this.appendToolResult(toolCall.toolCallId, result, toolInvocations);
+        continue;
+      }
+      previousToolCallFingerprints.add(fingerprint);
+
+      if (!surface.tools.has(toolCall.toolName)) {
+        const result: ToolResult = { success: false, error: ANALYST_UNSUPPORTED_ACTION_TEMPLATE('Analyst', Array.from(surface.tools.keys())) };
+        this.emitActivity({ type: 'tool_result', content: { tool: toolCall.toolName, success: false, errorKind: 'unsupported_action' } });
+        toolInvocations.push({ tool: toolCall.toolName, params: {}, result });
+        outcome = await this.appendToolResult(toolCall.toolCallId, result, toolInvocations);
+        continue;
+      }
+
+      const parsed = parseProtocolToolArgs(rawArguments);
+      if (parsed.kind === 'violation') {
+        const violation = buildAgentProtocolViolation({ session_id: sessionId, role: 'analyst', tool_call_id: toolCall.toolCallId, tool_name: toolCall.toolName, violation: parsed.violation, raw: rawArguments });
+        this.logBoundaryDiagnostic('analyst_tool_arguments_protocol_violation', new Error(`${parsed.violation}: ${parsed.detail}`));
+        const result: ToolResult = { success: false, error: JSON.stringify(violation) };
+        this.emitActivity({ type: 'tool_result', content: { tool: toolCall.toolName, success: false, errorKind: 'agent_protocol_violation' } });
+        toolInvocations.push({ tool: toolCall.toolName, params: {}, result });
+        outcome = await this.appendToolResult(toolCall.toolCallId, result, toolInvocations);
+        continue;
+      }
+
+      const params = parsed.args;
+      this.emitActivity({ type: 'tool_call', content: { tool: toolCall.toolName, params } });
+      this.throwIfCancelled();
+      this.toolInFlight = toolCall.toolName;
+      const result = await invokeToolCall(surface, toolCall.toolName, rawArguments, signal);
+      this.toolInFlight = null;
+      this.throwIfCancelled();
+
+      this.emitActivity({ type: 'tool_result', content: { tool: toolCall.toolName, success: result.success } });
+      toolInvocations.push({ tool: toolCall.toolName, params, result });
+      broadcastToolInvocation(this.args.runtimeDeps, sessionId, toolCall.toolName, result);
+      outcome = await this.appendToolResult(toolCall.toolCallId, result, toolInvocations);
+    }
+  }
+
+  private async appendToolResult(toolCallId: string, result: ToolResult, toolInvocations: NonNullable<AnalystResponse['toolInvocations']>): Promise<LLMActorOutcome> {
+    try {
+      this.throwIfCancelled();
+      return await this.llm.appendToolResult(toolCallId, result);
+    } catch (err) {
+      if (this.isCancelled()) return this.cancelledLoopOutcome();
+      return { type: 'result', agentId: this.llm.agentId, result: { kind: 'message', content: this.errorResponse(err, toolInvocations).message.content } };
+    }
+  }
+
+  private buildInvocationInput(newMessages: AgentMessage[], surface: InvocationSurface): LlmInvocationInput {
+    const tools = surfaceToolDefinitions(surface);
+    const modelParams = getModelParamsForRole(this.args.config, 'analyst');
+    const contextMessages = this.llm.input
+      ? [...this.llm.input.contextMessages, ...newMessages]
+      : [...conversationMessagesForModel(readConversationMessages(this.args.projectRoot, this.sessionId)), ...newMessages] as AgentMessage[];
+    return {
+      inputId: `${this.llm.agentId}:turn:${Date.now()}`,
+      agentId: this.llm.agentId,
+      role: 'analyst',
+      sessionId: this.sessionId,
+      systemPrompt: `${getAnalystSystemPrompt(tools)}\n\n${this.buildProjectContext()}`,
+      contextMessages,
+      turnMessages: newMessages,
+      tools,
+      terminalToolNames: [],
+      modelParams: { temperature: modelParams.temperature, maxTokens: modelParams.maxTokens },
+      capabilityRequest: capabilityRequestForLlmOptions({ tools, stream: false }),
+      episodeContext: { surface: this.args.surface ?? 'web-chat' },
+    };
+  }
+
+  private emitActivity(activity: { type: 'tool_call' | 'tool_result' | 'thinking'; content: Record<string, unknown> }): void {
+    const onActivity = this.pendingTurn?.onActivity;
+    if (!onActivity) return;
+    try { onActivity(activity); } catch (err) { this.logBoundaryDiagnostic('analyst_activity_callback_failed', err); }
+  }
+
+  private logBoundaryDiagnostic(phase: string, err: unknown): void {
+    try {
+      this.args.runtimeDeps.eventLogger?.appendEvent(buildRuntimeDiagnosticEvent({ phase, error: err }));
+    } catch {
+      /* best-effort diagnostics; never fail the analyst response path */
+    }
+  }
+
+  private errorResponse(err: unknown, toolInvocations: NonNullable<AnalystResponse['toolInvocations']>): AnalystResponse {
+    const noHealthyMessage = `No healthy candidates available for role 'analyst'.`;
+    const error = typeof err === 'string' ? err : err instanceof Error ? err.message : String(err);
+    const errMsg = err instanceof AnalystOfflineError
+      ? err.message
+      : error === noHealthyMessage
+        ? ANALYST_NO_MODEL_REPLY
+        : `Analyst LLM unavailable: ${error}`;
+    return transientAssistantResponse(this.sessionId, errMsg, toolInvocations);
+  }
+
+  private buildProjectContext(): string {
+    try {
+      const store = this.args.runtimeDeps.cardStore;
+      return JSON.stringify({ projectRoot: this.args.projectRoot, cards: store.list().map((card) => ({ id: card.id, type: card.type, parent: card.parent, status: card.status, title: card.title, priority: card.priority, tags: card.tags })) }, null, 2);
+    } catch (err) {
+      this.logBoundaryDiagnostic('analyst_project_context_build_failed', err);
+      return `Project root: ${this.args.projectRoot}`;
+    }
+  }
+
+  private cleanupTurnState(): void {
+    this.toolInFlight = null;
+    this.turnAbort = null;
+    if (this.llm.state() === 'waiting_tool') this.llm.abandonParkedTurn();
+  }
+
+  private resetCancellationState(): void {
+    this.cancellationReason = null;
+  }
+
+  private isCancelled(): boolean {
+    return this.cancellationReason !== null || this.turnAbort?.signal.aborted === true;
+  }
+
+  private throwIfCancelled(): void {
+    if (this.isCancelled()) throw new Error('Analyst turn cancelled.');
+  }
+
+  private cancelledLoopResponse(): AnalystResponse {
+    return transientAssistantResponse(this.sessionId, `Cancelled: ${this.cancellationReason ?? 'cancelled'}`);
+  }
+
+  private cancelledLoopOutcome(): LLMActorOutcome {
+    return { type: 'result', agentId: this.llm.agentId, result: { kind: 'message', content: `Cancelled: ${this.cancellationReason ?? 'cancelled'}` } };
   }
 }
 
@@ -483,7 +488,8 @@ export class AnalystRuntime {
   }
 
   getAvailableToolNames(actor: ActorRole = 'analyst', surface: ControlActionSurface = 'web-chat'): string[] {
-    return new AnalystLoopRunner(this.args.projectRoot, this.args.config, this.args.runtimeDeps, undefined, actor, surface, this.args.requestServerRestart).getAvailableToolNames();
+    const ctx = analystToolContext({ projectRoot: this.args.projectRoot, runtimeDeps: this.args.runtimeDeps, actor, surface, requestServerRestart: this.args.requestServerRestart });
+    return Array.from(analystInvocationSurface({ projectRoot: this.args.projectRoot, runtimeDeps: this.args.runtimeDeps, ctx }).tools.keys());
   }
 
   async shutdown(): Promise<void> {

@@ -24,6 +24,41 @@ function failureFromError(err: unknown): ToolResult {
   return { success: false, error: err instanceof Error ? err.message : String(err) };
 }
 
+function throwIfAborted(signal: AbortSignal): void {
+  if (!signal.aborted) return;
+  const reason = signal.reason;
+  throw reason instanceof Error ? reason : new Error(typeof reason === 'string' ? reason : 'Tool invocation was interrupted.');
+}
+
+function waitForProcess(ctx: ProcessProviderContext, processId: string, timeoutMs: number, signal: AbortSignal): Promise<{ timedOut: boolean }> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason instanceof Error ? signal.reason : new Error('Tool invocation was interrupted.'));
+      return;
+    }
+    let settled = false;
+    const cleanup = () => signal.removeEventListener('abort', onAbort);
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(signal.reason instanceof Error ? signal.reason : new Error('Tool invocation was interrupted.'));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    ctx.processRunner.wait(processId, timeoutMs).then((result) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve({ timedOut: result.timedOut });
+    }, (error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    });
+  });
+}
+
 function timeoutMs(value: number | undefined): number {
   if (value === undefined) return DEFAULT_COMMAND_TIMEOUT_MS;
   if (!Number.isInteger(value) || value < 0) throw new Error('timeout_ms must be a non-negative integer.');
@@ -97,9 +132,11 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
         name: 'run_command',
         description: 'Run a shell command. Set wait=false to start a background process for later wait_process or kill_process.',
         inputSchema: runCommandSchema,
-        executor: async (args) => {
+        executor: async (args, signal) => {
           try {
+            throwIfAborted(signal);
             if (ctx.ownerKind !== 'operator') await ctx.runtimeGate?.waitUntilOpen();
+            throwIfAborted(signal);
             const record = ctx.processRunner.spawn({
               command: args.command,
               cardId: ctx.cardId ?? ctx.ownerId,
@@ -112,7 +149,12 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
               backgroundPolicy: args.wait === false ? undefined : 'foreground',
             });
             if (args.wait === false) return { success: true, data: { process_id: record.id, running: true } };
-            await ctx.processRunner.wait(record.id, timeoutMs(args.timeout_ms));
+            try {
+              await waitForProcess(ctx, record.id, timeoutMs(args.timeout_ms), signal);
+            } catch (err) {
+              await ctx.processRunner.kill(record.id, 'tool invocation interrupted', { graceMs: 5000 });
+              throw err;
+            }
             return { success: true, data: processResult(ctx, record.id) };
           } catch (err) {
             return failureFromError(err);
@@ -123,11 +165,12 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
         name: 'wait_process',
         description: 'Wait for a process owned by this activation or session. Use timeout_ms=0 for non-blocking inspection.',
         inputSchema: waitProcessSchema,
-        executor: async (args) => {
+        executor: async (args, signal) => {
           try {
+            throwIfAborted(signal);
             const current = assertOwned(ctx, args.process_id);
             if (args.timeout_ms === 0 && current.status === 'running') return { success: true, data: { process_id: args.process_id, still_running: true } };
-            const result = await ctx.processRunner.wait(args.process_id, timeoutMs(args.timeout_ms));
+            const result = await waitForProcess(ctx, args.process_id, timeoutMs(args.timeout_ms), signal);
             if (result.timedOut) return { success: true, data: { process_id: args.process_id, still_running: true } };
             return { success: true, data: processResult(ctx, args.process_id) };
           } catch (err) {

@@ -7,7 +7,7 @@ import type {
   ToolDefinition,
   LlmUsage,
 } from './llm-contracts.js';
-import { parseToolCallMessage } from '../contracts/persisted-tool-call.js';
+import { parseToolCallMessageForModel } from '../contracts/persisted-tool-call.js';
 import { LlmRequestError } from './llm-errors.js';
 import {
   classifierFor,
@@ -246,7 +246,7 @@ export function buildOpenAIChatRequest(
     { role: 'system', content: systemPrompt },
     ...messages.map((m): ChatMessage => {
       if (m.role === 'assistant' && m.kind === 'tool_call') {
-        const call = parseToolCallMessage(JSON.parse(m.content));
+        const call = parseToolCallMessageForModel(JSON.parse(m.content));
         return {
           role: 'assistant',
           content: '',
@@ -254,7 +254,7 @@ export function buildOpenAIChatRequest(
             {
               id: call.id,
               type: 'function',
-              function: { name: call.name, arguments: JSON.stringify(call.args) },
+              function: { name: call.name, arguments: call.arguments },
             },
           ],
         };
