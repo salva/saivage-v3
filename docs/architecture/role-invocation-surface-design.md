@@ -1,6 +1,6 @@
 # Role Invocation Surface Design
 
-Status: design proposal (third review, data-driven).
+Status: implemented.
 
 Date: 2026-07-05
 
@@ -66,7 +66,7 @@ This is preferred over four narrow argument interfaces because the table — not
 The data-driven approach is still the right direction, but the constructor map must preserve exact current provider arguments. Two details are load-bearing:
 
 - **Process metadata:** executor currently omits `agentRole` and `launchReason`, so `ProcessProvider` defaults to `agent process provider run_command`. Analyst currently passes `agentRole: 'analyst'` and `launchReason: 'analyst workspace run_command'`. The generic `process` constructor must branch by role to preserve this.
-- **Store forwarding:** Analyst currently passes its concrete `CardStore` to card-history, workspace, patch, web, and card-inspection providers. Processor surfaces generally do not pass their processor store to card-history/web/workspace; planner passes its store only to planner-control and card-inspection. The generic constructors must not forward `ctx.store` blindly to every provider for every role.
+- **Store forwarding:** Analyst currently passes its concrete `CardStore` to card-history, workspace, web, and card-inspection providers. Patch currently receives no store. Processor surfaces generally do not pass their processor store to card-history/web/workspace; planner passes its store only to planner-control and card-inspection. The generic constructors must not forward `ctx.store` blindly to every provider for every role.
 
 The table says **which providers exist** for a role. The constructor map still owns the exact per-provider argument derivation needed to preserve current behavior.
 
@@ -149,7 +149,7 @@ const PROVIDER_CONSTRUCTORS: Record<ProviderName, (ctx: RoleSurfaceContext, role
   workspace: (ctx, role) =>
     createWorkspaceProvider({ projectRoot: ctx.projectRoot, cardId: ctx.cardId, agentRole: role, store: role === 'analyst' ? ctx.store as WorkspaceProviderContext['store'] : undefined }),
   patch: (ctx, role) =>
-    createPatchProvider({ projectRoot: ctx.projectRoot, cardId: ctx.cardId, agentRole: role, store: role === 'analyst' ? ctx.store as WorkspaceProviderContext['store'] : undefined }),
+    createPatchProvider({ projectRoot: ctx.projectRoot, cardId: ctx.cardId, agentRole: role }),
   process: (ctx, role) =>
     role === 'analyst'
       ? createProcessProvider({ projectRoot: ctx.projectRoot, processRunner: ctx.processRunner!, ownerId: ctx.ownerId ?? ctx.sessionId ?? 'analyst', agentRole: 'analyst', ownerKind: 'operator', launchReason: 'analyst workspace run_command' })

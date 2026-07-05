@@ -7,13 +7,8 @@ import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-ac
 import { createExecutorContract } from '../../contracts/executor-contract.js';
 import type { ExecutorResult } from '../../contracts/agent-execution.js';
 import { expectedTerminalToolMessage, verifyTerminalToolOutcome } from './contract-terminal-tools.js';
-import { buildInvocationSurface, cleanupInvocationSurface, invokeToolForLlm, replayToolForRecovery, surfaceToolDefinitions, type InvocationSurface, type ToolReplayOutcome, type ToolResult } from '../../tools/invocation.js';
-import { createCardHistoryProvider } from '../../tools/card-history-provider.js';
-import { createProcessProvider } from '../../tools/process-provider.js';
-import { createPatchProvider, createWorkspaceProvider } from '../../tools/workspace-provider.js';
-import { createSkillProvider } from '../../tools/skill-provider.js';
-import { createMcpProvider } from '../../tools/mcp-provider.js';
-import { createWebProvider } from '../../tools/web-tools.js';
+import { cleanupInvocationSurface, invokeToolForLlm, replayToolForRecovery, surfaceToolDefinitions, type InvocationSurface, type ToolReplayOutcome, type ToolResult } from '../../tools/invocation.js';
+import { buildRoleSurface } from '../../tools/role-invocation-surfaces.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import type { ProcessRunner } from '../process-runner.js';
 import { closeOpenRecordSlot, discardOpenRecordSlot } from '../records/record-slots.js';
@@ -144,15 +139,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private executorInvocationSurface(processOwnerId: string): InvocationSurface {
-    return buildInvocationSurface('executor', [
-      createWorkspaceProvider({ projectRoot: this.projectRoot, cardId: this.cardId, agentRole: 'executor' }),
-      createPatchProvider({ projectRoot: this.projectRoot, cardId: this.cardId, agentRole: 'executor' }),
-      createProcessProvider({ projectRoot: this.projectRoot, processRunner: this.processRunner, ownerId: processOwnerId, ownerKind: 'agent', cardId: this.cardId, runtimeGate: this.gate }),
-      createCardHistoryProvider({ projectRoot: this.projectRoot, sessionId: processOwnerId, agentRole: 'executor' }),
-      createWebProvider({ projectRoot: this.projectRoot, cardId: this.cardId, agentRole: 'executor' }),
-      createSkillProvider({ projectRoot: this.projectRoot, agentRole: 'executor' }),
-      createMcpProvider({ mcpManagerProvider: this.mcpManagerProvider, agentRole: 'executor' }),
-    ]);
+    return buildRoleSurface('executor', { projectRoot: this.projectRoot, cardId: this.cardId, sessionId: processOwnerId, ownerId: processOwnerId, processRunner: this.processRunner, runtimeGate: this.gate, mcpManagerProvider: this.mcpManagerProvider });
   }
 
   private validateExecutorTerminal(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, contract = createExecutorContract()): string | null {

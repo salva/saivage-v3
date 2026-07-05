@@ -23,15 +23,9 @@ import { buildContextTextMessage, conversationMessagesForModel, readConversation
 import { ConversationLLMActor, type LLMActorOutcome, type LLMProviderPort } from '../runtime/actors/llm-actor.js';
 import type { LlmInvocationInput } from '../runtime/actors/llm-invocation.js';
 import { resolveAnalystSessionId } from './session-ids.js';
-import { ANALYST_CONTROL_TOOLS } from '../tools/analyst-tool-registry.js';
-import { buildInvocationSurface, defineTool, invokeToolCall, surfaceToolDefinitions, type InvocationSurface, type ToolProvider, type ToolResult } from '../tools/invocation.js';
+import { invokeToolCall, surfaceToolDefinitions, type InvocationSurface, type ToolResult } from '../tools/invocation.js';
 import { createProcessProvider } from '../tools/process-provider.js';
-import { createWebProvider } from '../tools/web-tools.js';
-import { createPatchProvider, createWorkspaceProvider } from '../tools/workspace-provider.js';
-import { createSkillProvider } from '../tools/skill-provider.js';
-import { createMcpProvider } from '../tools/mcp-provider.js';
-import { createCardInspectionProvider } from '../tools/card-inspection-provider.js';
-import { createCardHistoryProvider } from '../tools/card-history-provider.js';
+import { buildRoleSurface } from '../tools/role-invocation-surfaces.js';
 import type { ProcessRunner } from '../runtime/process-runner.js';
 import { BaseActor, type ActorDefinition } from '../runtime/micro-actor/index.js';
 import { deferred, type Deferred } from '../runtime/actors/deferred.js';
@@ -155,36 +149,6 @@ function analystToolContext(args: { projectRoot: string; runtimeDeps: AnalystRun
   return { projectRoot: args.projectRoot, processRunner: args.runtimeDeps.processRunner, store: args.runtimeDeps.cardStore, sessionId: args.sessionId, runtime: args.runtimeDeps.runtime, mcpManager: args.runtimeDeps.mcpManager, requestServerRestart: args.requestServerRestart, actor: args.actor, surface: args.surface, eventBus: args.runtimeDeps.eventBus };
 }
 
-function analystControlProvider(ctx: ToolContext): ToolProvider {
-  return {
-    providerName: 'analyst',
-    tools: ANALYST_CONTROL_TOOLS
-      .map((tool) => defineTool({
-        name: tool.name,
-        description: tool.description,
-        inputSchema: tool.input,
-        executor: async (args, signal): Promise<ToolResult> => {
-          if (!tool.executor) throw new Error(`Analyst tool '${tool.name}' has no executor.`);
-          return tool.executor(ctx, args as Record<string, unknown>, signal);
-        },
-      })),
-  };
-}
-
-function analystInvocationSurface(args: { projectRoot: string; runtimeDeps: AnalystRuntimeDeps; ctx: ToolContext }): InvocationSurface {
-  return buildInvocationSurface('analyst', [
-    analystControlProvider(args.ctx),
-    createCardInspectionProvider({ projectRoot: args.projectRoot, store: args.runtimeDeps.cardStore, agentRole: 'analyst' }),
-    createCardHistoryProvider({ projectRoot: args.projectRoot, store: args.runtimeDeps.cardStore, sessionId: args.ctx.sessionId, agentRole: 'analyst' }),
-    createWorkspaceProvider({ projectRoot: args.projectRoot, agentRole: 'analyst', store: args.runtimeDeps.cardStore }),
-    createPatchProvider({ projectRoot: args.projectRoot, agentRole: 'analyst' }),
-    createProcessProvider({ projectRoot: args.projectRoot, processRunner: args.runtimeDeps.processRunner, ownerId: args.ctx.sessionId ?? 'analyst', agentRole: 'analyst', ownerKind: 'operator', launchReason: 'analyst workspace run_command' }),
-    createWebProvider({ projectRoot: args.projectRoot, agentRole: 'analyst', store: args.runtimeDeps.cardStore }),
-    createSkillProvider({ projectRoot: args.projectRoot, agentRole: 'analyst' }),
-    createMcpProvider({ mcpManagerProvider: () => args.runtimeDeps.mcpManager, agentRole: 'analyst' }),
-  ]);
-}
-
 function transientAssistantResponse(sessionId: string, content: string, toolInvocations?: NonNullable<AnalystResponse['toolInvocations']>): AnalystResponse {
   const timestamp = new Date().toISOString();
   return { sessionId, message: { id: `${sessionId}:assistant:${timestamp}:${Math.random().toString(36).slice(2)}`, role: 'assistant', kind: 'text', content, timestamp }, toolInvocations: toolInvocations && toolInvocations.length > 0 ? toolInvocations : undefined };
@@ -300,7 +264,7 @@ export class AnalystSessionActor extends BaseActor {
     const sessionId = this.sessionId;
     const toolInvocations: NonNullable<AnalystResponse['toolInvocations']> = [];
     const ctx = analystToolContext({ projectRoot: this.args.projectRoot, runtimeDeps: this.args.runtimeDeps, sessionId, actor: this.args.actor ?? 'analyst', surface: this.args.surface ?? 'web-chat', requestServerRestart: this.args.requestServerRestart });
-    const surface = analystInvocationSurface({ projectRoot: this.args.projectRoot, runtimeDeps: this.args.runtimeDeps, ctx });
+    const surface = buildRoleSurface('analyst', { projectRoot: this.args.projectRoot, toolContext: ctx, store: ctx.store, processRunner: ctx.processRunner, sessionId: ctx.sessionId, ownerId: ctx.sessionId ?? 'analyst', mcpManagerProvider: () => ctx.mcpManager });
     const previousToolCallFingerprints = new Set<string>();
     let noProgressDirectiveSent = false;
     const workspaceContextMessage = buildContextTextMessage(sessionId, 'system', buildWorkspaceContextNote(input.workspaceContext));
@@ -499,7 +463,7 @@ export class AnalystRuntime {
 
   getAvailableToolNames(actor: ActorRole = 'analyst', surface: ControlActionSurface = 'web-chat'): string[] {
     const ctx = analystToolContext({ projectRoot: this.args.projectRoot, runtimeDeps: this.args.runtimeDeps, actor, surface, requestServerRestart: this.args.requestServerRestart });
-    return Array.from(analystInvocationSurface({ projectRoot: this.args.projectRoot, runtimeDeps: this.args.runtimeDeps, ctx }).tools.keys());
+    return Array.from(buildRoleSurface('analyst', { projectRoot: this.args.projectRoot, toolContext: ctx, store: ctx.store, processRunner: ctx.processRunner, sessionId: ctx.sessionId, ownerId: ctx.sessionId ?? 'analyst', mcpManagerProvider: () => ctx.mcpManager }).tools.keys());
   }
 
   async shutdown(): Promise<void> {

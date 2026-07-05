@@ -12,14 +12,8 @@ import { getAnalystSystemPrompt } from '../../src/agents/analyst-prompt.js';
 import { cancel_card, create_card, delete_card, reorder_child } from '../../src/tools/analyst-card-tools.js';
 import { reconfigure } from '../../src/tools/analyst-misc-tools.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
-import { buildInvocationSurface, defineTool, surfaceToolDefinitions, type InvocationSurface } from '../../src/tools/invocation.js';
-import { createCardHistoryProvider } from '../../src/tools/card-history-provider.js';
-import { createCardInspectionProvider } from '../../src/tools/card-inspection-provider.js';
-import { createMcpProvider } from '../../src/tools/mcp-provider.js';
-import { createProcessProvider } from '../../src/tools/process-provider.js';
-import { createSkillProvider } from '../../src/tools/skill-provider.js';
-import { createWebProvider } from '../../src/tools/web-tools.js';
-import { createPatchProvider, createWorkspaceProvider } from '../../src/tools/workspace-provider.js';
+import { surfaceToolDefinitions } from '../../src/tools/invocation.js';
+import { buildRoleSurface } from '../../src/tools/role-invocation-surfaces.js';
 import { initRuntimeState, updateRuntimeState } from '../../src/runtime/state.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { loadEnvironment } from '../../src/config/environment.js';
@@ -132,27 +126,9 @@ function messageResponse(content: string): Response {
   return new Response(JSON.stringify({ id: 'chatcmpl-test', object: 'chat.completion', created: 1, model: TEST_MODEL, choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
 }
 
-function createProductionShapedAnalystSurface(root: string, store: CardStore): InvocationSurface {
+function createProductionShapedAnalystSurface(root: string, store: CardStore): ReturnType<typeof buildRoleSurface> {
   const ctx: ToolContext = toolCtx(root, store, { sessionId: 'analyst:test' });
-  return buildInvocationSurface('analyst', [
-    {
-      providerName: 'analyst',
-      tools: ANALYST_CONTROL_TOOLS.map((tool) => defineTool({
-        name: tool.name,
-        description: tool.description,
-        inputSchema: tool.input,
-        executor: async () => ({ success: true as const }),
-      })),
-    },
-    createCardInspectionProvider({ projectRoot: root, store, agentRole: 'analyst' }),
-    createCardHistoryProvider({ projectRoot: root, store, sessionId: ctx.sessionId, agentRole: 'analyst' }),
-    createWorkspaceProvider({ projectRoot: root, agentRole: 'analyst', store }),
-    createPatchProvider({ projectRoot: root, agentRole: 'analyst', store }),
-    createProcessProvider({ projectRoot: root, processRunner: ctx.processRunner, ownerId: ctx.sessionId ?? 'analyst', agentRole: 'analyst', ownerKind: 'operator', launchReason: 'analyst workspace run_command' }),
-    createWebProvider({ projectRoot: root, agentRole: 'analyst', store }),
-    createSkillProvider({ projectRoot: root, agentRole: 'analyst' }),
-    createMcpProvider({ mcpManagerProvider: () => undefined, agentRole: 'analyst' }),
-  ]);
+  return buildRoleSurface('analyst', { projectRoot: root, toolContext: ctx, store, processRunner: ctx.processRunner, sessionId: ctx.sessionId, ownerId: ctx.sessionId ?? 'analyst', mcpManagerProvider: () => undefined });
 }
 
 function staticCapabilityProse(prompt: string): string {

@@ -11,14 +11,8 @@ import { expectedTerminalToolMessage, verifyTerminalToolOutcome } from './contra
 import { nextReviewerAssessmentId, reviewerSessionId } from '../reviewer-session.js';
 import { evaluateReviewerTerminalOutcome } from './reviewer-terminal-evaluation.js';
 import { buildPlannerStateContextMessage } from '../../agents/planner-state-context.js';
-import { buildInvocationSurface, invokeToolForLlm, replayToolForRecovery, surfaceToolDefinitions, type ToolReplayOutcome, type ToolResult } from '../../tools/invocation.js';
-import { createCardHistoryProvider } from '../../tools/card-history-provider.js';
-import { createCardInspectionProvider } from '../../tools/card-inspection-provider.js';
-import { createPlannerControlProvider } from '../../tools/planner-control-provider.js';
-import { createWorkspaceProvider } from '../../tools/workspace-provider.js';
-import { createSkillProvider } from '../../tools/skill-provider.js';
-import { createMcpProvider } from '../../tools/mcp-provider.js';
-import { createWebProvider } from '../../tools/web-tools.js';
+import { invokeToolForLlm, replayToolForRecovery, surfaceToolDefinitions, type ToolReplayOutcome, type ToolResult } from '../../tools/invocation.js';
+import { buildRoleSurface } from '../../tools/role-invocation-surfaces.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import type { NotifyCardResult } from '../runtime-api.js';
 import { closeOpenRecordSlot, concreteRecordSlot, discardOpenRecordSlot, latestClosedRecordSlot, readRecordSlotIndex, recordFileIsNonEmpty } from '../records/record-slots.js';
@@ -173,13 +167,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private plannerInvocationSurface(parentCardId: string) {
-    return buildInvocationSurface('planner', [
-      createPlannerControlProvider({ projectRoot: this.projectRoot, parentCardId, sessionId: plannerActorId(parentCardId), store: this.store, children: this.children, notifyCard: this.notifyCard }),
-      createCardInspectionProvider({ projectRoot: this.projectRoot, store: this.store, agentRole: 'planner' }),
-      createWorkspaceProvider({ projectRoot: this.projectRoot, cardId: parentCardId, agentRole: 'planner' }),
-      createCardHistoryProvider({ projectRoot: this.projectRoot, sessionId: plannerActorId(parentCardId), agentRole: 'planner' }),
-      createWebProvider({ projectRoot: this.projectRoot, cardId: parentCardId, agentRole: 'planner' }),
-    ]);
+    return buildRoleSurface('planner', { projectRoot: this.projectRoot, cardId: parentCardId, sessionId: plannerActorId(parentCardId), store: this.store, children: this.children, notifyCard: this.notifyCard });
   }
 
   private async projectPlannerTerminal(input: CardActivationInput, outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, signal: AbortSignal, contract = createPlannerContract()): Promise<PlannerProcessorOutcome> {
@@ -429,13 +417,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private reviewerInvocationSurface(cardId: string, sessionId: string) {
-    return buildInvocationSurface('reviewer', [
-      createWorkspaceProvider({ projectRoot: this.projectRoot, cardId, agentRole: 'reviewer' }),
-      createCardHistoryProvider({ projectRoot: this.projectRoot, sessionId, agentRole: 'reviewer' }),
-      createWebProvider({ projectRoot: this.projectRoot, cardId, agentRole: 'reviewer' }),
-      createSkillProvider({ projectRoot: this.projectRoot, agentRole: 'reviewer' }),
-      createMcpProvider({ mcpManagerProvider: this.mcpManagerProvider, agentRole: 'reviewer' }),
-    ]);
+    return buildRoleSurface('reviewer', { projectRoot: this.projectRoot, cardId, sessionId, mcpManagerProvider: this.mcpManagerProvider });
   }
 
   protected get processorLabel(): string {
