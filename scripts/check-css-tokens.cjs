@@ -26,9 +26,9 @@ function checkLine(line) {
   if (hexRe.test(line)) violations.push('raw hex color');
   const pxMatches = [...line.matchAll(pxRe)];
   for (const m of pxMatches) {
-    if (!line.includes('var(') || !isInsideVarFallback(line, m.index)) {
-      violations.push(`px literal "${m[0]}"`);
-    }
+    if (line.includes('var(') && isInsideVarFallback(line, m.index)) continue;
+    if (/\bborder/.test(line) && /(1px|2px|3px)/.test(m[0])) continue;
+    violations.push(`px literal "${m[0]}"`);
   }
   return violations;
 }

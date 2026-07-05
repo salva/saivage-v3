@@ -27,7 +27,7 @@
           <span v-if="node.card.display_path" class="node-path">{{ node.card.display_path }}</span>
           <span class="node-title">{{ node.card.title }}</span>
 
-          <span v-if="node.card.priority > 5" class="node-priority high">P{{ node.card.priority }}</span>
+          <span v-if="node.card.priority >= 80" class="node-priority high">P{{ node.card.priority }}</span>
 
           <span v-if="node.card.tags.length" class="node-tags">
             <span v-for="tag in node.card.tags" :key="tag" class="node-tag">{{ tag }}</span>

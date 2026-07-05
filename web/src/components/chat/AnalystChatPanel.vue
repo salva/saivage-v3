@@ -147,7 +147,6 @@ onMounted(() => {
     .then(() => nextTick())
     .then(() => timelineControls.scrollToLatest())
     .catch(() => {});
-  handleFocusChat();
 });
 
 watch(
