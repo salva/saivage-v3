@@ -31,6 +31,8 @@
         </StatusBanner>
       </EntityHeader>
 
+      <RelatedLinks label="Related" :links="cardRelatedLinks" />
+
       <CardRecordsSection :card-id="currentCard.id" />
 
       <CardConversationsSection :card-id="currentCard.id" />
@@ -140,6 +142,7 @@ import CardHistoryPanel from './CardHistoryPanel.vue';
 import CardRecordsSection from './CardRecordsSection.vue';
 import CardConversationsSection from './CardConversationsSection.vue';
 import EntityLink from '../entity/EntityLink.vue';
+import RelatedLinks from '../entity/RelatedLinks.vue';
 import Section from '../ui/Section.vue';
 import EntityHeader from '../ui/EntityHeader.vue';
 import StatusBanner from '../ui/StatusBanner.vue';
@@ -221,6 +224,13 @@ const resultSize = computed(() => {
 });
 
 const dependencyRefs = computed(() => currentCard.value?.dependencyRefs ?? currentCard.value?.depends_on.map((id) => ({ id, display_path: null, title: null, missing: false })) ?? []);
+const cardRelatedLinks = computed(() => {
+  const links: Array<{ kind: 'card'; id: string; label?: string | null; title?: string | null; missing?: boolean }> = [];
+  for (const ref of currentAncestorRefs.value) links.push({ kind: 'card', id: ref.id, label: ref.display_path ?? ref.title, title: ref.title, missing: ref.missing });
+  for (const child of currentChildren.value) links.push({ kind: 'card', id: child.id, label: child.display_path || child.id, title: child.title });
+  for (const ref of dependencyRefs.value) links.push({ kind: 'card', id: ref.id, label: ref.display_path ?? ref.title, title: ref.title, missing: ref.missing });
+  return links;
+});
 const detailErrorTitle = computed(() => {
   switch (detailError.value?.kind) {
     case 'unauthorized': return 'Unauthorized';
