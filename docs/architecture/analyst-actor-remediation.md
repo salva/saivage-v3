@@ -61,10 +61,11 @@ Replace the current `pendingTurn !== turn` identity check with an explicit `canc
 5. `sendEvent('cancel')`. Do not touch the owned LLM here — it may be mid-provider-call and its final state is not yet known.
 
 `on_done(result)` / `on_failed(error)` (the settlement gate):
-1. If `cancellationReason !== null`: abandon any parked LLM turn via `abandonParkedTurn()` (the LLM may have transitioned to `waiting_tool` after `cancel()` ran), reset `cancellationReason = null`, `toolInFlight = null`, `turnAbort = null`, and return without sending an event. The promise was already settled by `cancel()`. The queued `cancel` dispatches.
-2. Otherwise: resolve/reject `pendingTurn`, set `pendingTurn = null`, reset `toolInFlight = null`, `turnAbort = null`, send `done`/`failed`.
+1. Unconditionally abandon any parked LLM turn via `abandonParkedTurn()`. The LLM may be in `waiting_tool` after cancellation, after anti-loop early-exit (model ignored stop directive), or after any loop path that ended while the model was waiting for a tool result. If the LLM is already `idle`, `abandonParkedTurn()` is a no-op.
+2. If `cancellationReason !== null`: reset `cancellationReason = null`, `toolInFlight = null`, `turnAbort = null`, and return without sending an event. The promise was already settled by `cancel()`. The queued `cancel` dispatches.
+3. Otherwise: resolve/reject `pendingTurn`, set `pendingTurn = null`, reset `toolInFlight = null`, `turnAbort = null`, send `done`/`failed`.
 
-Both paths reset all per-turn state. `idle` never carries stale cancellation state into the next turn.
+Both paths reset all per-turn state. `idle` never carries stale state into the next turn, and the owned LLM is always clean for the next `submit(...)`.
 
 ## Issue 2: Out-Of-Band Transcript Writes
 
@@ -78,11 +79,11 @@ Remove all direct transcript writes from session-side code. Each path is handled
 
 **Error response**: The `ConversationLLMActor` already writes an error row via `appendLlmTurnError` when the provider call fails. The loop maps the error outcome to an `AnalystResponse` for the caller but does not write a second row. If `actor.turn(...)` rejects (precondition failure, not a provider error), there is no transcript row to write — the loop returns the error text to the caller only.
 
-**No-progress (fingerprint repeat)**: The design specifies driving one final provider turn with a stop directive through the existing tool-result/repair path, so the terminal message is a real provider output. The loop appends a stop-directive tool result via `actor.appendToolResult(toolCallId, stopDirectiveResult)`, lets the LLM actor produce the final message, and returns that. If the model still returns a tool call after the stop directive, the loop ends immediately and returns an error result to the caller — the transcript keeps the honest record.
+**No-progress (fingerprint repeat)**: The design specifies driving one final provider turn with a stop directive through the existing tool-result/repair path, so the terminal message is a real provider output. The loop appends a stop-directive tool result via `actor.appendToolResult(toolCallId, stopDirectiveResult)`, lets the LLM actor produce the final message, and returns that. If the model still returns a tool call after the stop directive, the loop ends immediately and returns an error result to the caller. The LLM is left parked in `waiting_tool`; the settlement gate abandons it unconditionally (see Issue 1 settlement gate). The transcript keeps the honest record.
 
-**Unsupported action**: Feed a repair directive back to the LLM actor via `appendToolResult`, not a synthesized assistant row. The LLM actor continues the turn. This mirrors the autonomous repair pattern (`continueAfterPlainText` / `appendToolResult` with a directive).
+**Unsupported action**: Feed a repair directive back to the LLM actor via `appendToolResult` with an error result naming the unsupported tool, not a synthesized assistant row. The LLM actor continues the turn — the model sees the error and produces its own response. This mirrors the autonomous repair pattern.
 
-**Partial-success contract text**: Do not persist as a separate transcript row. The tool result is already in the transcript via the LLM actor's tool-delivery path. The formatted partial-success text is returned to the caller as tool-invocation presentation metadata, not as a synthesized assistant `message`. The caller sees it as part of the tool result projection, not as a chat message that would need transcript continuity.
+**Partial-success contract text**: Remove the short-circuit entirely. The `responseTextForResult` function and the early-return path are deleted. The tool result (including `partial: true` data) is already in the transcript via the LLM actor's tool-delivery path. The loop continues normally; the model sees the partial-success tool result and produces its own response. There is no session-side formatting or persistence of partial-success text.
 
 `appendAssistantTextMessage` and `errorResponse` (in their current form) are removed from session-side code. The LLM actor's existing transcript paths cover all durable writes.
 
@@ -94,14 +95,34 @@ Remove all direct transcript writes from session-side code. Each path is handled
 
 ### Target
 
-Move all reconstruction concern to `LLMActor`:
+Move all reconstruction concern to `LLMActor`. The base class retains generic lifecycle hooks (using base-class types only) so `LLMActor` can participate in turn/tool/provider state changes without the base knowing about `LlmActiveReconstructionRecord`.
 
-- Remove `activeReconstruction` field from `ConversationLLMActor`. Move it to `LLMActor`.
-- Remove `snapshot()` from `ConversationLLMActor`. Move it to `LLMActor` (only autonomous LLM actors are snapshotted).
-- Remove `persistState` and the three reconstruction methods (`prepareTurnReconstruction`, `updateActiveReconstruction`, `prepareProviderCallReconstruction`) from the base entirely.
-- Replace direct `this.activeReconstruction = null` writes in base methods (`completeWithProviderResult`, `completeWithError`, `abandonParkedTurn`) with a single protected lifecycle hook `clearTurnReconstruction()`. The base implementation is empty; `LLMActor` overrides it to clear its own `activeReconstruction` field and persist a snapshot. This is a generic lifecycle hook (like `_on_state_changed`), not a reconstruction-specific no-op: the base class has no knowledge of recovery.
+Fields and methods to move:
+- `activeReconstruction` field: remove from base, move to `LLMActor`.
+- `snapshot()`: remove from base, move to `LLMActor` (only autonomous LLM actors are snapshotted).
 
-`ConversationLLMActor` becomes a truly minimal conversation/provider engine: provider calls, tool waits, transcript writes, state machine, and one generic lifecycle hook. No recovery fields, no snapshot method, no reconstruction API.
+Hooks to replace — the base currently has four reconstruction-specific no-op overrides plus direct `this.activeReconstruction = null` writes in private methods. Replace all of them with three generic lifecycle hooks:
+
+| Current (reconstruction-specific) | Replacement (generic) | Called from | Base impl | `LLMActor` override |
+| --- | --- | --- | --- | --- |
+| `prepareTurnReconstruction(input)` | `onTurnStarting(input)` | `startProviderTurn` | empty | create reconstruction record |
+| `updateActiveReconstruction(changes)` + `prepareProviderCallReconstruction(input)` | `onTurnStateUpdated(params)` | `appendToolResult`, `completeWithProviderResult` (tool-call path) | empty | update reconstruction from `params` |
+| `this.activeReconstruction = null` (three sites) + `persistState()` | `onTurnSettled()` | `completeWithProviderResult` (message), `completeWithError`, `abandonParkedTurn` | empty | clear reconstruction field |
+| `persistState()` from `_on_state_changed` | keep `_on_state_changed` override | framework | empty | persist snapshot |
+
+`onTurnStateUpdated` receives a params object built from base-class state only:
+
+```ts
+interface TurnStateUpdateParams {
+  input: LlmInvocationInput;
+  deliveryInputId?: string;
+  waitingToolCall: WaitingToolCall | null;
+}
+```
+
+`WaitingToolCall` and `LlmInvocationInput` are already base-class types. The base constructs this object from its own state; `LLMActor` interprets it into `LlmActiveReconstructionRecord` updates. The base has no `import` of `LlmActiveReconstructionRecord`, no `activeReconstruction` field, and no `snapshot()` method.
+
+`ConversationLLMActor` becomes a truly minimal conversation/provider engine: provider calls, tool waits, transcript writes, state machine, and three generic lifecycle hooks. No recovery fields, no snapshot method, no reconstruction types.
 
 ## Issue 4: toolInFlight Projection Is A Stub
 
