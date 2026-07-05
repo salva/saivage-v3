@@ -27,7 +27,14 @@ export function conversationSegmentPath(projectRoot: string, sessionId: string, 
 }
 
 export function readConversationMessages(projectRoot: string, sessionId: string): AgentMessage[] {
-  return conversationSegmentPaths(projectRoot, sessionId).flatMap((path) => readConversationSegment(path));
+  const seen = new Set<string>();
+  const messages: AgentMessage[] = [];
+  for (const message of conversationSegmentPaths(projectRoot, sessionId).flatMap((path) => readConversationSegment(path))) {
+    if (seen.has(message.id)) continue;
+    seen.add(message.id);
+    messages.push(message);
+  }
+  return messages;
 }
 
 export function listConversationSessionIds(projectRoot: string): string[] {
