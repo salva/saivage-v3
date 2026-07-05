@@ -1,11 +1,14 @@
 <template>
   <Dialog :visible="visible" title-id="api-token-title" @dismiss="closeDialog">
-    <Card class="token-dialog">
-      <h2 id="api-token-title" class="token-title">API Token</h2>
-      <p class="token-description">
-        Enter an API token to access a secured Saivage deployment.
-        The token is stored in <code class="inline-token">localStorage</code> and sent with every API request.
-      </p>
+    <Panel class="token-dialog">
+      <PanelHeader title="API Token" title-id="api-token-title">
+        <template #meta>
+          <p class="token-description">
+            Enter an API token to access a secured Saivage deployment.
+            The token is stored in <code class="inline-token">localStorage</code> and sent with every API request.
+          </p>
+        </template>
+      </PanelHeader>
 
       <form @submit.prevent="saveToken" class="token-form">
         <label class="token-label" for="api-token-input">Token</label>
@@ -55,7 +58,7 @@
       <p v-else class="token-status token-status-none">
         No token configured.
       </p>
-    </Card>
+    </Panel>
   </Dialog>
 </template>
 
@@ -63,8 +66,9 @@
 import { ref, watch } from 'vue';
 import { useAuthStore } from '../../stores/auth';
 import Button from '../ui/Button.vue';
-import Card from '../ui/Card.vue';
 import Dialog from '../ui/Dialog.vue';
+import Panel from '../ui/Panel.vue';
+import PanelHeader from '../ui/PanelHeader.vue';
 
 const props = defineProps<{
   visible: boolean;
@@ -121,18 +125,11 @@ function clearToken(): void {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }
 
-.token-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text);
-  margin-bottom: 8px;
-}
-
 .token-description {
   font-size: 13px;
   color: var(--text-muted);
   line-height: 1.5;
-  margin-bottom: 16px;
+  margin: 0;
 }
 
 .token-description code {

@@ -8,7 +8,14 @@ export type Tone =
   | 'danger'
   | 'pending'
   | 'stale'
-  | 'unauthorized';
+  | 'unauthorized'
+  | 'offline';
+
+export interface UiStatus {
+  label: string;
+  tone: Tone;
+  description?: string;
+}
 
 export const cardStatusTone: Record<CardStatus, Tone> = {
   backlog: 'neutral',

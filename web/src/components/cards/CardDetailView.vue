@@ -1,42 +1,35 @@
 <template>
   <div class="card-detail-container">
-    <div v-if="loading" class="detail-loading">Loading card...</div>
-    <div v-else-if="detailError" class="status-banner tone-danger" role="alert">
-      <strong>{{ detailErrorTitle }}</strong>
-      <div>{{ detailError.message }}</div>
-      <button type="button" class="banner-action" @click="reloadDetail">Retry</button>
-    </div>
+    <ViewState v-if="loading" state="loading" title="Loading card" message="Fetching the latest card detail." />
+    <StatusBanner v-else-if="detailError" tone="danger" :title="detailErrorTitle" :message="detailError.message">
+      <template #action><button type="button" class="banner-action" @click="reloadDetail">Retry</button></template>
+    </StatusBanner>
     <template v-else-if="currentCard">
-      <header class="card-entity" :class="{ 'live-highlight': liveHighlighted }" data-testid="card-detail-highlight">
-        <div class="card-entity__title-row">
-          <h1 class="card-entity__title">
-            <span v-if="currentCard.display_path" class="card-entity__path">{{ currentCard.display_path }}</span>
-            <span class="card-entity__name">{{ currentCard.title }}</span>
-          </h1>
-          <span class="card-entity__type">{{ labelForCardType(currentCard.type) }}</span>
-          <StatusBadge
-            :tone="toneForCardStatus(currentCard.status)"
-            :label="currentCard.status"
-            :title="reason"
-          />
+      <EntityHeader
+        :class="{ 'live-highlight': liveHighlighted }"
+        data-testid="card-detail-highlight"
+        :title="currentCard.title"
+        :subtitle="currentCard.display_path"
+        :type="labelForCardType(currentCard.type)"
+        :status="cardUiStatus(currentCard.status, reason)"
+      >
+        <template #actions>
           <button type="button" class="discuss-btn" aria-label="Seed analyst chat with this card" @click="seedAnalystForCard">Discuss with analyst</button>
-        </div>
-
-        <div class="card-entity__orientation">
+        </template>
+        <template #meta>
           <span class="ori-item"><span class="ori-key">v{{ currentCard.version_seq ?? '?' }}</span></span>
           <span class="ori-item"><span class="ori-key">priority</span> {{ currentCard.priority }}</span>
           <span v-if="currentCard.assigned_to" class="ori-item"><span class="ori-key">assigned</span> {{ currentCard.assigned_to }}</span>
           <span class="ori-item"><span class="ori-key">updated</span> {{ fmtDate(currentCard.updated_at) }}</span>
           <span v-if="lifecycle?.durationMs != null" class="ori-item"><span class="ori-key">duration</span> {{ lifecycle.durationMs }} ms</span>
-        </div>
+        </template>
 
         <div v-if="reasonLine" class="card-entity__reason" :class="`tone-text-${toneForCardStatus(currentCard.status)}`">{{ reasonLine }}</div>
 
-        <div v-if="bannerSeverity" class="status-banner" :class="`tone-${bannerSeverity}`" :role="bannerSeverity === 'danger' ? 'alert' : 'status'">
-          <span>{{ bannerMessage }}</span>
-          <button v-if="bannerSeverity === 'warning'" type="button" class="banner-action" @click="reloadDetail">Refresh card</button>
-        </div>
-      </header>
+        <StatusBanner v-if="bannerSeverity" :tone="bannerSeverity" :message="bannerMessage">
+          <template v-if="bannerSeverity === 'warning'" #action><button type="button" class="banner-action" @click="reloadDetail">Refresh card</button></template>
+        </StatusBanner>
+      </EntityHeader>
 
       <CardRecordsSection :card-id="currentCard.id" />
 
@@ -55,7 +48,7 @@
             <button v-for="child in currentChildren" :key="child.id" type="button" class="child-row" @click="navigateCard(child.id)">
               <span class="child-card-main">
                 <span class="output-path">{{ child.display_path || child.id }}</span>
-                <StatusBadge :tone="toneForCardStatus(child.status)" :label="child.status" />
+                <StatusBadge :status="cardUiStatus(child.status)" />
               </span>
               <span class="child-card-title">{{ child.title }}</span>
             </button>
@@ -87,7 +80,7 @@
           <div class="hierarchy-key">Outgoing</div>
           <div v-for="dispatch in dispatches.outgoing" :key="dispatch.dispatchId" class="verification-row">
             <button type="button" class="pill card-ref-button" @click="navigateCard(dispatch.targetCardId)">{{ dispatch.targetCardId }}</button>
-            <StatusBadge :tone="dispatch.status === 'completed' ? 'success' : 'neutral'" :label="dispatch.status" />
+            <StatusBadge :status="dispatchUiStatus(dispatch.status)" />
             <span v-if="dispatch.outcome" class="badge subtle">{{ dispatch.outcome }}</span>
             <span class="dispatch-summary">{{ dispatch.summary || 'No completion summary recorded.' }}</span>
           </div>
@@ -96,7 +89,7 @@
           <div class="hierarchy-key">Incoming</div>
           <div v-for="dispatch in dispatches.incoming" :key="dispatch.dispatchId" class="verification-row">
             <button type="button" class="pill card-ref-button" @click="navigateCard(dispatch.parentCardId)">{{ dispatch.parentCardId }}</button>
-            <StatusBadge :tone="dispatch.status === 'completed' ? 'success' : 'neutral'" :label="dispatch.status" />
+            <StatusBadge :status="dispatchUiStatus(dispatch.status)" />
             <span v-if="dispatch.outcome" class="badge subtle">{{ dispatch.outcome }}</span>
             <span class="dispatch-summary">{{ dispatch.summary || 'No completion summary recorded.' }}</span>
           </div>
@@ -147,13 +140,16 @@ import { storeToRefs } from 'pinia';
 import type { DetailErrorState, CardStatus } from '../../types/view-models';
 import { createLogger } from '../../utils/logger';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../../utils/timestamp';
-import { toneForCardStatus, labelForCardType } from '../../utils/status';
+import { toneForCardStatus, labelForCardType, type UiStatus } from '../../utils/status';
 import CardHistoryPanel from './CardHistoryPanel.vue';
 import CardRefLink from './CardRefLink.vue';
 import CardRecordsSection from './CardRecordsSection.vue';
 import CardConversationsSection from './CardConversationsSection.vue';
 import Section from '../ui/Section.vue';
+import EntityHeader from '../ui/EntityHeader.vue';
+import StatusBanner from '../ui/StatusBanner.vue';
 import StatusBadge from '../ui/StatusBadge.vue';
+import ViewState from '../ui/ViewState.vue';
 import CodeBlock from '../content/CodeBlock.vue';
 import { formatJson } from '../../utils/format-json';
 
@@ -196,6 +192,14 @@ function statusExplainer(status: CardStatus): string {
     needs_verification: 'Needs verification. Inspect status and review records before accepting or restarting.',
   };
   return map[status];
+}
+
+function cardUiStatus(status: CardStatus, description?: string): UiStatus {
+  return { label: status, tone: toneForCardStatus(status), description };
+}
+
+function dispatchUiStatus(status: string): UiStatus {
+  return { label: status, tone: status === 'completed' ? 'success' : 'neutral' };
 }
 
 const reason = computed(() => lifecycle.value?.explanation || statusExplainer(currentCard.value?.status ?? 'backlog'));

@@ -1,6 +1,6 @@
 <template>
   <Section title="Records">
-    <div v-if="loading" class="records-hint">Loading records…</div>
+    <ViewState v-if="loading" state="loading" title="Loading records" />
     <div v-else class="records-list">
       <RecordDocument
         v-for="slot in SLOTS"
@@ -9,10 +9,10 @@
         :human-label="slot.label"
         :version="stateValue(slot.key).version"
       >
-        <div v-if="stateValue(slot.key).loading" class="records-hint">Loading {{ slot.key }}…</div>
-        <div v-else-if="stateValue(slot.key).error" class="records-error">Could not load {{ slot.key }}: {{ stateValue(slot.key).error }}</div>
+        <ViewState v-if="stateValue(slot.key).loading" state="loading" :title="`Loading ${slot.key}`" />
+        <ViewState v-else-if="stateValue(slot.key).error" state="error" :title="`Could not load ${slot.key}`" :message="stateValue(slot.key).error || ''" />
         <MarkdownText v-else-if="stateValue(slot.key).content" :source="stateValue(slot.key).content || ''" />
-        <EmptyState v-else :message="slot.empty" />
+        <ViewState v-else state="empty" :title="slot.empty" />
       </RecordDocument>
     </div>
   </Section>
@@ -22,7 +22,7 @@
 import { computed } from 'vue';
 import { useCardRecords, type RecordSlot } from '../../composables/useCardRecords';
 import Section from '../ui/Section.vue';
-import EmptyState from '../ui/EmptyState.vue';
+import ViewState from '../ui/ViewState.vue';
 import RecordDocument from './RecordDocument.vue';
 import MarkdownText from '../content/MarkdownText.vue';
 
@@ -44,6 +44,4 @@ function stateValue(key: RecordSlot) {
 
 <style scoped>
 .records-list { display: flex; flex-direction: column; gap: 12px; }
-.records-hint { font-size: 12px; color: var(--text-muted); }
-.records-error { font-size: 12px; color: var(--danger); }
 </style>
