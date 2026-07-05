@@ -8,15 +8,15 @@ Date: 2026-07-05.
 
 The analyst is Saivage's user-facing conversational control surface. Today it is implemented as a plain imperative class (`AnalystHandler`) that constructs `LLMActor` instances and drives them through an inline `for(;;)` tool loop with its own anti-loop guard. That makes the analyst the largest parallel approach to the micro-actor runtime: it reuses the LLM actor but none of the orchestration, projection, cancellation, or recovery patterns that the autonomous side uses.
 
-This design puts the analyst fully on top of the micro-actor framework. The analyst becomes a real actor hierarchy with a state machine, the same sanctioned cross-actor wait pattern used by `CardActor`/processors, the same conversation-loop skeleton as the autonomous processors, and the same conversation store. The result removes the parallel tool-loop and gives the analyst capabilities it cannot have today: authoritative cleanup of cancelled turns, operator-visible projection, and clean recovery semantics.
+This design puts the analyst fully on top of the micro-actor framework. The analyst becomes a real actor hierarchy with a state machine, the same sanctioned cross-actor wait pattern used by `CardActor`/processors, the same conversation store, and the same LLM-actor conversation engine. The result removes the parallel tool-loop and gives the analyst capabilities it cannot have today: authoritative cleanup of cancelled turns, operator-visible projection, and clean recovery semantics.
 
 Scope: the conversational analyst that serves the web chat, the operator REST chat, and the Telegram bot. The autonomous runtime (planner/executor/reviewer), the `ProcessRunner`, the `RuntimeGate`, and the conversation store are unchanged by this design.
 
 ## Design Goals
 
 - The analyst's conversational behavior is driven by micro-actor state machines and `runTask(...)`, not by an imperative loop in a plain class.
-- The analyst reuses the existing `LLMActor` for provider turns and the existing conversation store for transcript persistence.
-- The tool-loop skeleton is shared with the autonomous processors; only role policy differs.
+- The analyst reuses the LLM-actor conversation/provider engine for provider turns and the existing conversation store for transcript persistence.
+- The building blocks beneath the loop (`LLMActor`, invocation surface, conversation store, micro-actor patterns) are shared with the autonomous processors; the loop policy stays analyst-specific.
 - The analyst remains **operator-owned**: it must run while the autonomous runtime is `stopped` or `paused`, so it never waits on the autonomous `RuntimeGate`, and its processes stay `owner_kind: 'operator'`.
 - The analyst remains transport-agnostic. WebSocket, REST, and Telegram are thin adapters over one actor boundary.
 - In-flight analyst turns can be cancelled for disconnect/shutdown cleanup, projected live, and recovered to a well-defined idle state after restart.
@@ -39,15 +39,15 @@ Scope: the conversational analyst that serves the web chat, the operator REST ch
 
 ```text
 AnalystRuntime (composition root; non-actor registry and lifecycle owner)
-  AnalystSessionActor(sessionId)        one per conversation session
-    LLMActor(analyst:<sessionId>)       the main agent; reused as-is
+  AnalystSessionActor                   one per conversation session; keyed by session id in the registry
+    LLMActor                            conversation/provider engine; id = canonical analyst:<key>
 ```
 
-`AnalystRuntime` is the analyst analogue of `SupervisorRuntimeApi`: it owns the session-actor registry, routes inbound turns, and manages shutdown. It is not itself an actor, mirroring the autonomous composition root. `AnalystSessionActor` is a micro-actor that owns one `LLMActor` and drives the conversation loop.
+`AnalystRuntime` is the analyst analogue of `SupervisorRuntimeApi`: it owns the session-actor registry, routes inbound turns, and manages shutdown. It is not itself an actor, mirroring the autonomous composition root. `AnalystSessionActor` is a micro-actor that owns one LLM actor and drives the conversation loop.
 
 ## AnalystSessionActor
 
-One `AnalystSessionActor` exists per conversation session, identified by a stable session id (e.g. `analyst:<sessionId>`). It is created lazily by `AnalystRuntime` the first time a message arrives for a session that has no live actor. The runtime loads prior transcript context from the conversation store and `start()`s a fresh actor into `idle`.
+One `AnalystSessionActor` exists per conversation session, identified by its canonical session id (e.g. `analyst:global`, `analyst:telegram-<chatId>`). It is created lazily by `AnalystRuntime` the first time a message arrives for a session that has no live actor. The runtime loads prior transcript context from the conversation store and `start()`s a fresh actor into `idle`.
 
 ### State Machine
 
@@ -56,25 +56,21 @@ idle        parked    on: { submit -> conversing }
 conversing  active    on: { done -> idle, failed -> idle, cancel -> idle }
 ```
 
-- `idle` is parked: the session is waiting for the next user message. External code advances it through `submit(...)` via `parkedSendEvent('submit')`. This is exactly the frozen-core mechanism for an externally initiated transition: the main loop returns while parked, and `parkedSendEvent` re-enters it. No promise and no task are needed to advance the actor.
+- `idle` is parked: the session is waiting for the next user message. External code advances it through `submit(...)` via `parkedSendEvent('submit')`. This is exactly the frozen-core mechanism for an externally initiated transition: the main loop returns while parked, and `parkedSendEvent` re-enters it. No task is needed to advance the actor; the promise `submit(...)` returns is settled later by the settlement gate, not awaited here.
 - `conversing` is active: the session is running one full user turn — driving the owned `LLMActor` through zero or more tool cycles until it produces an assistant message, errors out, or is cancelled.
 
 The state names are deliberately coarse. The fine-grained sub-states (`calling_provider`, `waiting_tool`) live on the owned `LLMActor`, exactly as they do for autonomous processors. The session actor does not duplicate them.
 
 ### External Interface
 
-The session actor has **no parent actor**. Its caller is a transport (WebSocket / REST / Telegram), so the external boundary is event-driven rather than request/response-shaped:
+The session actor exposes the same promise-backed turn API the rest of the actor system uses. `submit(...)` returns a `Promise<AnalystTurnResult>` that the settlement gate resolves or rejects — exactly the side-channel pattern `LLMActor.turn(...)` and `appendToolResult(...)` use: store the resolver on the instance, advance the state machine via `parkedSendEvent(...)`, and settle from the task callback. The caller is a transport or the composition root, never another actor, but that does not change the API shape; `LLMActor` likewise returns promises despite being a leaf actor.
 
-- **Inbound.** Transitions are initiated by public methods that call `parkedSendEvent(...)` from parked states (or `sendEvent(...)` from active states for cancellation). `submit(...)` does not return a promise.
-- **Outbound.** Transports subscribe to per-session events: streaming `tool_call` / `tool_result` / `thinking` events during the turn, and one terminal event (`turn_complete` or `cancelled`) when the turn settles.
-
-Promises remain internal actor-to-actor composition only: the active `conversing` state still awaits its owned `LLMActor` through `runTask(...)`.
+Streaming activity during the turn (tool calls, tool results, thinking) flows through an optional `onActivity` callback supplied by the caller. Request/response transports ignore it; the WebSocket transport uses it to stream segments as they happen.
 
 ### Public Methods
 
-- `submit(input: AnalystTurnInput): void`. Stores the turn input on a private field and `parkedSendEvent('submit')` from `idle`. Returns immediately; the terminal response arrives later through the session events. This is the same parked-advance pattern `LLMActor.turn(...)` and `appendToolResult(...)` use, minus the promise — there is no parent actor to resolve one.
-- `cancel(reason: string): boolean`. Marks the in-flight turn cancelled and queues `sendEvent('cancel')`. The conversation-loop settle callback is the settlement gate: when it runs it checks the cancellation flag, emits the terminal `cancelled` event through the session events, and sends **no** normal event, so the queued `cancel` dispatches cleanly back to `idle`. Late provider/tool results after cancellation are dropped by the flag. Valid from `conversing`; a no-op from `idle`.
-- `abandon(): void`. Shutdown hook. Cancels any in-flight turn, abandons the `LLMActor`, and leaves the actor inert. Used by `AnalystRuntime.shutdown()`.
+- `submit(input: AnalystTurnInput, onActivity?: (event: AnalystActivityEvent) => void): Promise<AnalystTurnResult>`. Stores the turn input and the activity callback on the instance, `parkedSendEvent('submit')` from `idle`, and returns a promise. The settlement gate resolves it with the assistant message (or a synthesized error message) or rejects it with a cancelled outcome. This is the same parked-advance-plus-side-channel pattern `LLMActor.turn(...)` uses; the only difference is the caller is a transport/composition root rather than a parent actor.
+- `cancel(reason: string): boolean`. Marks the in-flight turn cancelled and queues `sendEvent('cancel')`. The settlement gate then rejects the `submit` promise with a cancelled outcome and sends **no** normal event, so the queued `cancel` dispatches cleanly back to `idle`. Late provider/tool results after cancellation are dropped by the flag. Valid from `conversing`; a no-op from `idle`.
 
 A `submit(...)` while `conversing` is rejected (the actor is not parked, so `parkedSendEvent` throws). Per-session serialization is therefore expressed directly by the actor's state; the composition root adds no external queue.
 
@@ -85,27 +81,31 @@ A `submit(...)` while `conversing` is rejected (the actor is not parked, so `par
 1. Build the `LlmInvocationInput` from the turn input plus the session's accumulated conversation context (read from the conversation store).
 2. Drive the conversation loop (see below) with analyst-specific policy until it yields a final assistant message, an error, or the cancellation flag is observed.
 3. Persist the assistant message to the conversation store.
-4. The task's `on_done`/`on_failed` callbacks are the single settlement gate. They check the cancellation flag first: if it is set, they emit the terminal `cancelled` event and send **no** event — the `cancel` queued by `cancel(...)` then dispatches. If it is not set, they emit the terminal `turn_complete` event and `sendEvent('done')` (or `sendEvent('failed')` after synthesizing and persisting an error assistant message, with the error carried on that terminal event).
+4. The task's `on_done`/`on_failed` callbacks are the single settlement gate. They check the cancellation flag first: if it is set, they reject the `submit` promise with a cancelled outcome and send **no** event — the `cancel` queued by `cancel(...)` then dispatches. If it is not set, they resolve the `submit` promise with the assistant message and `sendEvent('done')` (or, on failure, synthesize and persist an error assistant message, resolve the promise with it, and `sendEvent('failed')`).
 
-This settlement gate is the crux of cancellation. It mirrors `CardActor.commitOutcome()`, which returns without sending an event when its cancellation flag is set. Without it, the loop's settle callback would queue a second event while `cancel` is pending and crash the actor main loop. Because there is no submit-time promise, the gate is the one and only place a terminal response is produced — there is no earlier promise resolution to race with it.
+This settlement gate is the crux of cancellation. It mirrors `CardActor.commitOutcome()`, which returns without sending an event when its cancellation flag is set. Without it, the loop's settle callback would queue a second event while `cancel` is pending and crash the actor main loop. The gate is the single place the `submit` promise settles, so a queued `cancel` can never collide with a normal completion.
 
 The loop body observes the cancellation flag before each provider turn and each tool dispatch; if it is set, the loop stops and hands control to the settlement gate. Cancellation therefore takes effect within one provider-call or tool-execution latency. It cannot preempt an in-flight provider call (see Cancellation And Shutdown).
 
 ### LLMActor Usage
 
-The session actor owns exactly one `LLMActor` with id `analyst:<sessionId>`, created lazily on the first turn and reused across turns for that session. It calls `llm.turn(input)` and `llm.appendToolResult(toolCallId, result, continuationHook)` exactly as the autonomous processors do. The session actor never calls `LLMActor` internals; it uses only its public methods and observes its public state.
+The session actor owns one LLM actor for the session, created lazily on the first turn and reused across turns. Its id is the canonical analyst session id (e.g. `analyst:global`, `analyst:telegram-<chatId>`), which already satisfies the `analyst:` LLM-actor id convention. It calls only `llm.turn(...)` and `llm.appendToolResult(...)`, exactly as the autonomous processors do, and never touches LLM-actor internals.
+
+The analyst does not use the autonomous LLM-actor specialization unchanged. Today `LLMActor` writes an actor snapshot on every state change and builds active-reconstruction records so interrupted provider calls can be recovered; the analyst wants neither, because it has no mid-flight resume. The LLM actor is therefore split into a minimal conversation/provider engine (no snapshots, no active reconstruction) used by the analyst, and a recoverable specialization that adds snapshot persistence and active reconstruction for the autonomous card processors. This keeps the analyst out of the autonomous snapshot store and recovery substrate by construction, not by conditionally skipping them — which is also why cancel and shutdown have no analyst snapshot to clean up.
+
+When an LLM actor is created with prior transcript context (after restart, or the first message to an existing session), its system-prompt-logged state is seeded from the transcript so the system-prompt row is not duplicated. This is a contract on the LLM-actor/context-loading path, not analyst-specific logic.
 
 ### State, Projection, And Persistence
 
-The session actor keeps its current state, the tool in flight, and the last outcome in memory only. It does **not** write to the autonomous actor snapshot store and it is **not** part of the autonomous `actorRuntime` projection. Analyst projection is live and separate: `AnalystRuntime.listSessions()` reads the in-memory session actors directly, and per-session subscribers receive tool call/result/thinking events as they happen. The control room composes this analyst read model alongside `actorRuntime`; the two are not merged.
+The session actor and its LLM actor keep state in memory only and write nothing to the autonomous snapshot store, so the analyst is absent from the autonomous `actorRuntime` projection and recovery by construction. Analyst projection is live and separate: `AnalystRuntime.listSessions()` reads the in-memory session actors directly (phase, tool in flight, last outcome). The control room composes this analyst read model alongside `actorRuntime`; the two are not merged.
 
 This keeps the analyst out of the autonomous `actor_kind` vocabulary, out of autonomous recovery, and out of the snapshot schema. The conversation transcript (persisted by the loop through the conversation store) remains the single durable record of an analyst session.
 
 ### State Boundaries
 
-The analyst uses parked states for what they are designed for: externally initiated transitions. `idle` is parked, and `submit(...)` advances it through `parkedSendEvent('submit')` with no promise and no task — the frozen-core main loop returns while parked and is re-entered by the parked event. This is the same pattern `LLMActor` uses for `turn(...)` from `idle` and `appendToolResult(...)` from `waiting_tool`.
+The analyst uses parked states for what they are designed for: externally initiated transitions. `idle` is parked, and `submit(...)` advances it through `parkedSendEvent('submit')` with no task — the frozen-core main loop returns while parked and is re-entered by the parked event. The `Promise` `submit(...)` returns is not awaited here; its resolver is stored on the instance and settled later by the settlement gate. This is the same pattern `LLMActor` uses for `turn(...)` from `idle` and `appendToolResult(...)` from `waiting_tool`.
 
-What parked states do **not** do is await async results. The only sanctioned way to scope an async await to a state is `runTask(...)`, which requires an active state and whose task is aborted on transition. The provider call is therefore awaited in the active `conversing` state through the promise returned by `llm.turn(...)` — that promise is actor-to-actor composition between the session actor and its owned `LLMActor`, which is exactly where the promise side-channel belongs.
+What parked states do **not** do is await async results. The only sanctioned way to scope an async await to a state is `runTask(...)`, which requires an active state and whose task is aborted on transition. The provider call is therefore awaited in the active `conversing` state through the promise returned by `llm.turn(...)` — the same promise side-channel pattern, used here for actor-to-actor composition with the owned LLM actor.
 
 The session actor has no intra-turn external-command boundary (tools are dispatched by the session actor itself, not delivered by external events), so `idle` is the only parked state. This mirrors the autonomous processors, which run a whole activation in one active `executing` state and delegate the fine-grained `calling_provider`/`waiting_tool` sub-states to their owned `LLMActor`.
 
@@ -126,22 +126,22 @@ The analyst loop itself stays analyst-specific. It drives `llm.turn(...)` / `llm
 
 `AnalystRuntime` replaces the actor-management role of `AnalystHandler`. It is constructed once at server startup with the project root, provider port, card store, process runner, MCP manager, config, and a reference to the autonomous `RuntimeApi` (so control tools can drive the runtime).
 
-- `submit(sessionId, input, subscriber): void`. Get-or-create the `AnalystSessionActor` for `sessionId`, loading prior transcript context on first use, attach the caller's `subscriber` to that session's events, and call `submit(...)`. Returns immediately; the caller receives results through the subscriber. Per-session serialization is the actor's responsibility; `AnalystRuntime` adds no queue.
+- `submit(sessionId, input, onActivity?): Promise<AnalystTurnResult>`. Get-or-create the session actor for `sessionId` (loading prior transcript context on first use) and delegate to its `submit(...)`, forwarding the optional `onActivity` callback. Returns the same promise as the session actor. Per-session serialization is the actor's responsibility; `AnalystRuntime` adds no queue.
 - `cancel(sessionId, reason): boolean`. Look up the live session actor and call `cancel(...)`.
 - `listSessions(): AnalystSessionReadModel[]`. Project live sessions and their phase for the operator read model.
-- `shutdown(): Promise<void>`. Cancel every live turn, abandon every owned `LLMActor`, and terminate operator-owned processes per session through `ProcessRunner.stopByOwner(...)`.
+- `shutdown(): Promise<void>`. Terminate operator-owned analyst processes per session through `ProcessRunner.stopByOwner(...)`. Analyst actors are in-memory only and die with the process; there are no snapshots to flush and no turns to drain.
 
 `getAnalystHandler(...)` and the per-request handler construction disappear. A single `AnalystRuntime` instance is wired into the server composition root alongside the autonomous `RuntimeApplication`.
 
 ## Transport Adapters
 
-The three transports become thin adapters that resolve a session id, subscribe to that session's events, and call `AnalystRuntime.submit(...)`:
+The three transports become thin callers of `AnalystRuntime.submit(...)`:
 
-- **WebSocket** (`analyst-ws-handler`): one session per connection, resolved on connect. Forwards inbound chat envelopes; streams every session event (`tool_call`/`tool_result`/`thinking`/`turn_complete`/`cancelled`) back over the socket. Calls `cancel(...)` on socket close.
-- **REST operator chat** (`operator-chat-handlers`): uses the global analyst session id. Subscribes to the session events, calls `submit(...)`, awaits the one terminal event (`turn_complete`/`cancelled`), and returns its payload as the HTTP response. Streaming activity is ignored (request/response only).
-- **Telegram bot**: uses `telegram-<chatId>` sessions. Same bridge as REST: subscribe, submit, await the terminal event, map its payload to an outbound Telegram message.
+- **WebSocket** (`analyst-ws-handler`): one session per connection, resolved on connect. Calls `submit(...)` with an `onActivity` callback that forwards each streaming event (`tool_call`/`tool_result`/`thinking`) over the socket, and awaits the returned promise to send the final message. Calls `cancel(...)` on socket close.
+- **REST operator chat** (`operator-chat-handlers`): uses the global analyst session id. Calls `submit(...)` with no activity callback, awaits the promise, and returns the assistant message as the HTTP response.
+- **Telegram bot**: uses `telegram-<chatId>` sessions. Same as REST: `await submit(...)`, map the result to an outbound Telegram message.
 
-The request/response bridging for REST and Telegram lives in the adapters — which is correct, because those transports genuinely are request/response. The actor and the runtime are event-driven and carry no request/response assumption. Adapters do no orchestration beyond this one-shot terminal-event await.
+Because `submit(...)` returns the terminal result as a promise, REST and Telegram need no streaming/terminal-event machinery — they just `await` it. The actor keeps a single outbound shape (a promise plus an optional activity callback); there is no separate event channel to bridge.
 
 ## Provider Gate Policy
 
@@ -163,17 +163,15 @@ Control tools remain the only mutation surface. The actor itself owns no card mu
 
 ## Activity Streaming And Projection
 
-The synchronous `onActivity` callback is replaced by per-session subscribers. The conversation loop emits `tool_call`, `tool_result`, and `thinking` events during the turn, and the settlement gate emits exactly one terminal event (`turn_complete` or `cancelled`) when the turn ends.
+Streaming activity (tool calls, tool results, thinking) reaches the initiating transport through the `onActivity` callback passed to `submit(...)`. The terminal result reaches it through the returned promise. The actor therefore has one outbound shape — a promise plus an optional callback — and does not know which transport initiated the turn.
 
-This decouples the loop from the transport: the actor and loop do not know whether a turn was initiated over WebSocket, REST, or Telegram. They only emit events; adapters subscribe. Because the terminal response is one of these events, there is no separate "response" path.
-
-The operator control room gains an analyst read model from `AnalystRuntime.listSessions()`: active sessions, their phase (`idle`/`conversing`), the tool currently in flight, and the last outcome — all read live from the in-memory session actors, not from the autonomous snapshot store. Analyst sessions appear as first-class agents in the control room via a composed read model, not by being merged into `actorRuntime`.
+The operator control room observes analyst sessions through a separate live read model: `AnalystRuntime.listSessions()` returns each session's phase (`idle`/`conversing`), the tool currently in flight, and the last outcome, read directly from the in-memory session actors (not the autonomous snapshot store). The control room composes this analyst read model alongside `actorRuntime`; the two are not merged. (Observing a foreign session's live streaming from the control room is not in scope here; see Open Questions.)
 
 ## Persistence And Recovery
 
 - **Conversation transcript.** Persisted to the existing conversation store by the loop, unchanged. This is the durable record of an analyst session.
-- **No actor snapshots.** The session actor keeps state in memory only and is not persisted to the autonomous snapshot store. There is therefore no stale-snapshot recovery problem and no analyst entry in autonomous recovery.
-- **Turn recovery.** There is none. An interrupted analyst turn (server crash mid-turn) is abandoned on restart. The next message to that session id creates a fresh `idle` `AnalystSessionActor` using context loaded from the conversation transcript; the user re-asks. This is the conservative posture already used by the autonomous runtime for in-flight LLM work, and it is correct for a user-driven conversation: the transcript is the truth, not an in-flight provider call.
+- **No actor snapshots.** Neither the session actor nor its LLM actor writes to the autonomous snapshot store (see LLMActor Usage). There is no stale-snapshot recovery problem and no analyst entry in autonomous recovery, by construction.
+- **Turn recovery.** There is none. An interrupted analyst turn (server crash mid-turn) is abandoned on restart. The next message to that session id creates a fresh `idle` session actor with a fresh LLM actor, context loaded from the conversation transcript; the user re-asks. This is the conservative posture already used by the autonomous runtime for in-flight LLM work, and it is correct for a user-driven conversation: the transcript is the truth, not an in-flight provider call.
 - **Process cleanup.** On restart, operator-owned analyst processes are handled by the existing `ProcessRunner` reconciliation (`owner_kind: 'operator'` → observed best-effort or marked lost). No new recovery path is introduced.
 
 This deliberately mirrors the autonomous runtime's "no mid-flight resume for in-flight work" policy, and avoids inventing snapshot/recovery machinery for a control surface that is naturally reconstructed from its transcript.
@@ -186,10 +184,10 @@ This deliberately mirrors the autonomous runtime's "no mid-flight resume for in-
 
 ## Cancellation And Shutdown
 
-- `cancel(reason)` is primarily cleanup for disconnects, explicit user aborts, and shutdown. It marks the in-flight turn cancelled and queues `sendEvent('cancel')`. The conversation-loop settle callback checks the flag, emits the terminal `cancelled` event, and sends no normal event, so the queued `cancel` dispatches cleanly back to `idle`. A provider/tool result that lands after cancellation is dropped by the flag. This is the same settlement discipline as `CardActor.commitOutcome()`.
-- `cancel` does **not** abort the in-flight provider HTTP call. The frozen core cannot preempt a running `runTask`, and the `LLMActor` owns the provider call in its own active state. The provider result completes and is discarded. This is the same limitation as autonomous card cancellation; true provider-call preemption would require extending the `LLMActor`/provider contract and is out of scope.
+- `cancel(reason)` is primarily cleanup for disconnects and explicit user aborts. It marks the in-flight turn cancelled and queues `sendEvent('cancel')`. The conversation-loop settle callback checks the flag, rejects the `submit` promise with a cancelled outcome, and sends no normal event, so the queued `cancel` dispatches cleanly back to `idle`. A provider/tool result that lands after cancellation is dropped by the flag. This is the same settlement discipline as `CardActor.commitOutcome()`.
+- `cancel` does **not** abort the in-flight provider HTTP call. The frozen core cannot preempt a running `runTask`, and the LLM actor owns the provider call in its own active state. The provider result completes and is discarded. This is the same limitation as autonomous card cancellation; true provider-call preemption would require extending the provider contract and is out of scope.
 - WebSocket disconnect calls `cancel(...)` for that connection's session, so a closed tab resolves the in-flight turn cleanly rather than leaving it dangling. The underlying provider call, if any, still completes and is discarded.
-- `AnalystRuntime.shutdown()` cancels every live turn, abandons every owned `LLMActor`, and terminates operator-owned processes per session. This is the analyst analogue of `SupervisorRuntimeApi.shutdown()` calling `ProcessRunner.stopRuntimeOwned(...)`.
+- `AnalystRuntime.shutdown()` terminates operator-owned analyst processes per session. Analyst actors carry no persistent state, so there is nothing to flush, drain, or abandon — the actors die with the process. This is the analyst analogue of `SupervisorRuntimeApi.shutdown()` calling `ProcessRunner.stopRuntimeOwned(...)`, scoped to operator-owned analyst processes.
 
 Cancellation that ends the turn and drops late outcomes is the capability the actor model adds over the current imperative loop, which cannot express it at all.
 
@@ -197,10 +195,10 @@ Cancellation that ends the turn and drops late outcomes is the capability the ac
 
 **Shared with autonomous card processors:**
 
-- The `LLMActor` for provider turns and tool waits.
+- The LLM-actor conversation/provider engine (the minimal base; card processors add the recoverable specialization).
 - The `InvocationSurface` and tool executor used to dispatch tools.
 - The conversation store for transcript persistence.
-- The micro-actor patterns: state machine, `runTask(...)`, and the promise side-channel for cross-actor waiting.
+- The micro-actor patterns: state machine, `runTask(...)`, and the promise side-channel.
 - The conservative "no mid-flight resume" recovery posture.
 - The cancellation-gate settlement discipline (`commitOutcome`-style flag check in the task settle callback).
 
@@ -210,31 +208,32 @@ Cancellation that ends the turn and drops late outcomes is the capability the ac
 - The analyst owns its own conversation loop; it does not share a generic loop-control function with the contract-terminal bounded repair loop. The loops serve different domains.
 - The analyst has no contract terminal tools; a turn ends on a plain assistant message. Its anti-loop guard is the fingerprint check, not a bounded repair budget.
 - The analyst is operator-owned: it bypasses the autonomous `RuntimeGate` and spawns `owner_kind: 'operator'` processes.
-- The analyst is projected live via `AnalystRuntime.listSessions()` and per-session events; it is not part of the autonomous snapshot store, `actor_kind` schema, or `actorRuntime` recovery.
+- The analyst is projected live via `AnalystRuntime.listSessions()` and the `onActivity` callback; it is not part of the autonomous snapshot store, `actor_kind` schema, or `actorRuntime` recovery.
 - The analyst has no main-agent notification queue; continuation context is just the tool exchange.
 - The analyst is user-driven (`submit` from external transports, advanced through parked states), not runtime-dispatched (`activate` from a parent card).
-- The analyst exposes events at its external boundary (parked-state advance in, per-session events out) because it has no parent actor. Both the analyst and the processors use the promise side-channel only for actor-to-actor composition with their owned `LLMActor`.
+- The analyst uses the minimal LLM actor (no snapshots, no active reconstruction); card processors use the recoverable LLM-actor specialization.
+- Both analyst and processors expose a promise-backed turn API built on the same side-channel pattern; the analyst's caller is a transport/composition root rather than a parent `CardActor`, but the API shape is identical.
 
-The architecture — actors, `LLMActor`, the invocation surface, the store, the micro-actor patterns — is unified. The domain policy and the projection boundary stay separate, which is simpler than forcing them together.
+The architecture — actors, the LLM-actor engine, the invocation surface, the store, the micro-actor patterns — is unified. The domain policy and the projection boundary stay separate, which is simpler than forcing them together.
 
 ## Invariants
 
 - At most one analyst turn is active per session; a `submit(...)` while `conversing` is rejected because the actor is not parked.
-- The transport↔session boundary is event-driven: `submit(...)` advances the parked `idle` actor via `parkedSendEvent`, and results flow out only through per-session events. No promise crosses this boundary.
-- The session↔`LLMActor` boundary is actor-to-actor composition: the active `conversing` state awaits `llm.turn(...)` through a `runTask` promise.
+- The transport↔session boundary uses the same promise side-channel as the rest of the actor system: `submit(...)` advances the parked `idle` actor via `parkedSendEvent` and returns a `Promise<AnalystTurnResult>` that the settlement gate resolves or rejects. Streaming activity flows only through the optional `onActivity` callback.
+- The session↔LLM-actor boundary is actor-to-actor composition: the active `conversing` state awaits `llm.turn(...)` through a `runTask` promise.
 - The analyst never waits on the autonomous `RuntimeGate`.
 - Analyst-launched processes are always `owner_kind: 'operator'`.
 - Control tools remain the only mutation surface; the `AnalystSessionActor` never mutates cards directly.
-- Activity and session state are emitted through per-session events and `AnalystRuntime.listSessions()`; the actor and loop are transport-agnostic and are not coupled to the autonomous snapshot store.
-- The conversation-loop settle callback is the single settlement gate: it checks the cancellation flag before sending any actor event and before emitting the terminal session event, so a queued `cancel` never collides with a normal `done`/`failed`.
-- A cancelled turn emits exactly one terminal event; late provider/tool results after cancellation are dropped. The provider HTTP call itself is not aborted.
-- `AnalystSessionActor` keeps state in memory only; it writes no autonomous snapshots and participates in no autonomous recovery.
-- On restart, the next message for an analyst session creates a fresh `idle` actor using context loaded from its conversation transcript; in-flight turns are not resumed.
+- Streaming activity flows to the initiating transport through the `onActivity` callback; session phase/state is projected live through `AnalystRuntime.listSessions()`. The actor and loop are transport-agnostic and are not coupled to the autonomous snapshot store.
+- The conversation-loop settle callback is the single settlement gate: it checks the cancellation flag before sending any actor event and before settling the `submit` promise, so a queued `cancel` never collides with a normal `done`/`failed`.
+- A cancelled turn rejects the `submit` promise exactly once; late provider/tool results after cancellation are dropped. The provider HTTP call itself is not aborted.
+- The session actor and its LLM actor keep state in memory only; neither writes autonomous snapshots or participates in autonomous recovery.
+- On restart, the next message for an analyst session creates fresh `idle` session and LLM actors using context loaded from the conversation transcript; in-flight turns are not resumed.
 - The conversation transcript is the single durable record of an analyst session.
 
 ## Open Questions
 
 - Whether idle analyst sessions should be evicted after a bounded inactivity window to bound memory, and if so, whether eviction persists a "last seen" marker so the session id still resolves after eviction.
-- Whether analyst activity should also be surfaced on the runtime event bus for diagnostic correlation, or kept on per-session subscriptions only.
+- Whether live streaming of a session the caller did not initiate (e.g. the control room watching an active turn) should be surfaced on the runtime event bus, or whether the `listSessions()` phase projection is enough.
 - Whether the global REST analyst session and per-connection WebSocket sessions should converge on a single session model, or remain distinct to preserve the request/response semantics of the REST chat.
-- Whether provider-call preemption is ever worth extending the `LLMActor`/provider contract for; until then, analyst cancellation shares the autonomous limitation that the underlying HTTP call is not aborted.
+- Whether provider-call preemption is ever worth extending the provider contract for; until then, analyst cancellation shares the autonomous limitation that the underlying HTTP call is not aborted.
