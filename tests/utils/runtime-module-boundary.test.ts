@@ -4,9 +4,6 @@ import {
   readRuntimeState,
 } from '../../src/runtime/state-api.js';
 import {
-  processApi,
-} from '../../src/runtime/process-api.js';
-import {
   pauseRuntimeControl,
   resumeRuntimeControl,
 } from '../../src/runtime/control-api.js';
@@ -229,14 +226,6 @@ describe('runtime module ownership boundary', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
-  });
-
-  it('exports semantic process inspection through process-api', () => {
-    const api = processApi(process.cwd());
-    expect(typeof api.listForRuntime).toBe('function');
-    expect(typeof api.listForAgent).toBe('function');
-    expect(typeof api.listForOperator).toBe('function');
-    expect(typeof api.getForOperator).toBe('function');
   });
 
   it('exports runtime-owned pause/resume authority through control-api', () => {

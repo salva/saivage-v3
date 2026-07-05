@@ -14,14 +14,16 @@ import type { RuntimeApi } from '../runtime/control-api.js';
 import { CardStore } from '../cards/card-store.js';
 import { InvocationService } from '../agents/invocation-service.js';
 import { createInvocationServiceProvider, createMicroActorRuntimeApi } from './micro-actor-runtime-api-factory.js';
-import { setProcessRunnerNotifyCard } from '../runtime/process-runner.js';
-import { setRuntimeControlNotifyCard } from '../runtime/control.js';
+import { ProcessRunner } from '../runtime/process-runner.js';
+import { RuntimeGate } from '../runtime/runtime-gate.js';
 
 export interface RuntimeApiFactoryDeps {
   projectRoot: string;
   eventBus: EventBus;
   cardStore: CardStore;
   invocationService: InvocationService;
+  processRunner: ProcessRunner;
+  runtimeGate: RuntimeGate;
   mcpManagerProvider?: () => McpManager | undefined;
 }
 
@@ -30,6 +32,7 @@ type DisposableCandidateAvailability = CandidateAvailability & { dispose(): void
 export interface RuntimeApplication {
   readonly runtimeApi: RuntimeApi;
   readonly cardStore: CardStore;
+  readonly processRunner: ProcessRunner;
   readonly analystDeps: AnalystRuntimeDeps;
   getProviderRoutingReadModel(): ProviderRoutingReadModel;
   setMcpManager(mcpManager: McpManager): void;
@@ -53,6 +56,7 @@ function buildAnalystDeps(input: {
   eventBus: EventBus;
   emitAnalystToolInvoked(payload: EventPayload<'analyst_tool_invoked'>): void;
   invocationService: InvocationService;
+  processRunner: ProcessRunner;
   mcpManager?: McpManager;
 }): AnalystRuntimeDeps {
   return {
@@ -63,6 +67,7 @@ function buildAnalystDeps(input: {
     eventBus: input.eventBus,
     emitAnalystToolInvoked: input.emitAnalystToolInvoked,
     provider: createInvocationServiceProvider(input.invocationService),
+    processRunner: input.processRunner,
     mcpManager: input.mcpManager,
   };
 }
@@ -88,10 +93,12 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     eventLogger,
     candidateAvailability,
   });
+  const processRunner = new ProcessRunner(projectRoot);
+  const runtimeGate = new RuntimeGate();
 
   const runtimeFactory = services.runtimeApiFactory ?? createMicroActorRuntimeApi;
   const runtimeComposition = createComposedRuntimeApi({
-    runtimeApi: runtimeFactory({ projectRoot, eventBus, cardStore, invocationService, mcpManagerProvider: () => mcpManager }),
+    runtimeApi: runtimeFactory({ projectRoot, eventBus, cardStore, invocationService, processRunner, runtimeGate, mcpManagerProvider: () => mcpManager }),
     candidateAvailability,
     eventLogger,
     errorLogger,
@@ -99,8 +106,6 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   });
   const runtimeApi = runtimeComposition.runtimeApi;
   cardStore.setNotifyCard((cardId, notification) => runtimeApi.notifyCard(cardId, notification));
-  setRuntimeControlNotifyCard(projectRoot, (cardId, notification) => runtimeApi.notifyCard(cardId, notification));
-  setProcessRunnerNotifyCard(projectRoot, (cardId, notification) => runtimeApi.notifyCard(cardId, notification));
   const emitAnalystToolInvokedFromRuntime = runtimeComposition.emitAnalystToolInvoked;
   let analystDepsCache: AnalystRuntimeDeps | null = null;
   const getAnalystDeps = (): AnalystRuntimeDeps => {
@@ -112,6 +117,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
       eventBus,
       emitAnalystToolInvoked: emitAnalystToolInvokedFromRuntime,
       invocationService,
+      processRunner,
       mcpManager,
     });
     return analystDepsCache;
@@ -120,6 +126,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   return {
     runtimeApi,
     cardStore,
+    processRunner,
     get analystDeps() {
       return getAnalystDeps();
     },

@@ -1,6 +1,6 @@
 import type { ActorDefinition } from '../micro-actor/index.js';
 import type { CardRecord, CardStatus, DoneResult } from '../../schemas/index.js';
-import type { LLMActorOutcome, LLMAdmissionPort, LLMProviderPort } from './llm-actor.js';
+import type { LLMActorOutcome, LLMProviderPort } from './llm-actor.js';
 import { plannerActorId, reviewerActorId } from './ids.js';
 import type { CardActivationInput, CardActivationOutcome, CardActor, CardActorStorePort, CardNotification, CardProcessorActor } from './card-actor.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
@@ -24,6 +24,7 @@ import type { NotifyCardResult } from '../runtime-api.js';
 import { closeOpenRecordSlot, concreteRecordSlot, discardOpenRecordSlot, latestClosedRecordSlot, readRecordSlotIndex, recordFileIsNonEmpty } from '../records/record-slots.js';
 import { cardBriefForPrompt } from '../records/card-brief.js';
 import { runContractBoundedRepairLoop } from './contract-bounded-repair-loop.js';
+import type { RuntimeGate } from '../runtime-gate.js';
 
 type PlannerProcessorOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
 
@@ -53,7 +54,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
 
   private readonly mcpManagerProvider: () => McpToolInvocationPort | undefined;
 
-  constructor(args: { projectRoot: string; cardId: string; store: CardActorStorePort; children: PlannerChildActorPort; provider: LLMProviderPort; admission?: LLMAdmissionPort; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult; mcpManagerProvider?: () => McpToolInvocationPort | undefined }) {
+  constructor(args: { projectRoot: string; cardId: string; store: CardActorStorePort; children: PlannerChildActorPort; provider: LLMProviderPort; gate?: RuntimeGate; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult; mcpManagerProvider?: () => McpToolInvocationPort | undefined }) {
     super(args);
     this.store = args.store;
     this.children = args.children;
@@ -70,20 +71,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   recoverTerminalToolOutcome(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): PlannerProcessorOutcome | null {
-    let typed: PlannerTypedResult;
-    try {
-      typed = verifyTerminalToolOutcome(createPlannerContract(), outcome).result;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return this.plannerFailure(message);
-    }
-    const parsed = typed.result;
-    if (parsed.status === 'done') return null;
-    if (parsed.status === 'blocked') {
-      const summary = parsed.summary;
-      return { status: 'blocked', summary, result: { kind: 'blocked', summary, resume_reason: summary } };
-    }
-    return { status: 'failed', summary: parsed.summary, result: { kind: 'failed', summary: parsed.summary } };
+    return projectPlannerTerminalOutcome(outcome);
   }
 
   private async runActivation(input: CardActivationInput): Promise<PlannerProcessorOutcome> {
@@ -104,6 +92,10 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
         if (invalidTerminal) {
           return control.repair(invalidTerminal, () => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: invalidTerminal }, () => [{ role: 'user', content: `${invalidTerminal} Call emit_result again with valid JSON arguments.` }]));
         }
+        if (this.isPlannerDoneTerminal(terminalOutcome, contract) && (input.notificationDelivery.hasPendingNotifications?.() ?? false)) {
+          const message = 'Pending main-agent notifications arrived before terminal completion. Read the delivered notifications, update record://status.md?v=next if needed, then call emit_result again.';
+          return control.repair(message, () => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: message }, (inputId) => this.plannerNotificationContext(input, inputId)));
+        }
         const missingRecord = this.closeRequiredRecord(input.card.id, 'status.md', 'planner', input.card.version_seq);
         if (missingRecord) {
           return control.repair(missingRecord, () => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: missingRecord }, () => [{ role: 'user', content: `${missingRecord} Create record://status.md?v=next, then call emit_result again.` }]));
@@ -116,7 +108,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
       },
       onNonTerminalTool: async (toolOutcome) => {
         const toolResult = await this.handleToolCall(input.card, toolOutcome);
-        return llm.appendToolResult(toolOutcome.toolCallId, toolResult, (inputId) => this.notificationContextMessages(input, inputId));
+        return llm.appendToolResult(toolOutcome.toolCallId, toolResult, (inputId) => this.plannerNotificationContext(input, inputId));
       },
     });
     if (result.kind === 'restart') throw new Error('Planner activation repair loop cannot restart.');
@@ -141,7 +133,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
             listChildren: (cardId) => this.store.listChildren?.(cardId) ?? [],
           },
         }),
-        ...this.notificationContextMessages(input, inputId),
+        ...this.plannerNotificationContext(input, inputId),
       ],
       tools: [...surfaceToolDefinitions(this.plannerInvocationSurface(input.card.id)), ...contract.terminals.map((terminal) => terminal.toolDefinition)],
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),
@@ -231,7 +223,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
         },
         onNonTerminalTool: async (toolOutcome) => {
           const toolResult = await this.handleReviewerToolCall(input.card, sessionId, toolOutcome);
-          return llm.appendToolResult(toolOutcome.toolCallId, toolResult, (inputId) => this.notificationContextMessages(input, inputId));
+          return llm.appendToolResult(toolOutcome.toolCallId, toolResult, () => this.reviewerContext(input));
         },
       });
       if (review.kind === 'restart') continue;
@@ -248,7 +240,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
       role: 'reviewer',
       sessionId,
       systemPrompt: this.reviewerPrompt(input.card, assessmentId),
-      contextMessages: [this.reviewerDescendantContext(input.card.id, currentness)],
+      contextMessages: [this.reviewerDescendantContext(input.card.id, currentness), ...this.reviewerContext(input)],
       tools: [...surfaceToolDefinitions(this.reviewerInvocationSurface(input.card.id, sessionId)), ...contract.terminals.map((terminal) => terminal.toolDefinition)],
       terminalToolNames: contract.terminals.map((terminal) => terminal.name),
       modelParams: {},
@@ -267,6 +259,14 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
       return null;
     } catch (error) {
       return error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  private isPlannerDoneTerminal(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, contract = createPlannerContract()): boolean {
+    try {
+      return verifyTerminalToolOutcome(contract, outcome).result.result.status === 'done';
+    } catch {
+      return false;
     }
   }
 
@@ -410,6 +410,23 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
   protected activationFailureOutcome(error: string): PlannerProcessorOutcome {
     return { status: 'failed', summary: error, result: { kind: 'failed', summary: error } };
   }
+}
+
+export function projectPlannerTerminalOutcome(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): PlannerProcessorOutcome | null {
+  let typed: PlannerTypedResult;
+  try {
+    typed = verifyTerminalToolOutcome(createPlannerContract(), outcome).result;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { status: 'failed', summary: message, result: { kind: 'failed', summary: message } };
+  }
+  const parsed = typed.result;
+  if (parsed.status === 'done') return null;
+  if (parsed.status === 'blocked') {
+    const summary = parsed.summary;
+    return { status: 'blocked', summary, result: { kind: 'blocked', summary, resume_reason: summary } };
+  }
+  return { status: 'failed', summary: parsed.summary, result: { kind: 'failed', summary: parsed.summary } };
 }
 
 function firstIncompleteDescendant(cardId: string, store: CardActorStorePort): { id: string; status: CardStatus } | null {

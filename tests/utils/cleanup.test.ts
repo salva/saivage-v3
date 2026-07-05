@@ -146,7 +146,7 @@ describe('Cleanup Utility Smoke Tests', () => {
     writeFileSync(registryPath, JSON.stringify([{ id: procId, status: 'running' }], null, 2));
     await sleep(150);
 
-    expect(() => cleanStaleProcessOutput({ saivageWorkDir: swd, store, maxAgeMs: 1 })).toThrow(/ProcessRecord registry validation failed/);
+    expect(cleanStaleProcessOutput({ saivageWorkDir: swd, store, maxAgeMs: 1 })).toBe(0);
     expect(existsSync(procDir)).toBe(true);
     expect(existsSync(registryPath)).toBe(true);
   });

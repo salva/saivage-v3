@@ -85,7 +85,6 @@ function readSupervisorMode(value: unknown, diagnostics: string[]): ActorPauseMo
   const mode = readSupervisorModeValue(value);
   if (mode === 'idle') return 'idle';
   if (mode === 'running' || mode === 'paused') return mode;
-  if (mode === 'shutting_down') return 'stopping';
   diagnostics.push(`supervisor snapshot has unknown mode '${String((value as { mode: unknown }).mode)}'`);
   return 'unknown';
 }
@@ -97,8 +96,6 @@ function readSupervisorActiveWork(value: unknown, diagnostics: string[]): ActorA
   }
   const work = readSupervisorWorkValue(value);
   if (work === 'ready') return 'none';
-  if (work === 'model_invocation_active') return 'model_invocation';
-  if (work === 'shutdown_active') return 'shutdown';
   diagnostics.push(`supervisor snapshot has unknown active work '${String((value as { work: unknown }).work)}'`);
   return 'unknown';
 }

@@ -4,11 +4,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardStore } from '../../../src/cards/card-store.js';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { CardActor, PlanningCardProcessorActor, readActorSnapshots, type CardActivationInput, type CardActivationOutcome, type CardProcessorActor, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
+import { CardActor, PlanningCardProcessorActor, readActorSnapshots, type CardActivationInput, type CardActivationOutcome, type CardActorDeps, type CardProcessorActor, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
 import type { LlmCompleteResult } from '../../../src/agents/llm-contracts.js';
 import type { CardRecord } from '../../../src/schemas/index.js';
 import { closeOpenRecordSlot, openRecordSlot } from '../../../src/runtime/records/record-slots.js';
+import { ProcessRunner } from '../../../src/runtime/process-runner.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-planning-processor-'));
@@ -48,6 +49,16 @@ function markBlocked(store: CardStore, card: CardRecord): CardRecord {
 
 function terminalProcessor(outcome: Exclude<CardActivationOutcome, { status: 'cancelled' }>): CardProcessorActor {
   return { activate: jest.fn(async () => outcome) as (input: CardActivationInput) => Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>> };
+}
+
+function cardActorDeps(projectRoot: string, store: CardStore): CardActorDeps {
+  return { projectRoot, store, provider: { completeTurn: jest.fn() as never }, processRunner: new ProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
+}
+
+function makeChildActor(projectRoot: string, store: CardStore, card: CardRecord, processor: CardProcessorActor): CardActor {
+  const actor = CardActor.fromCard({ card, deps: cardActorDeps(projectRoot, store) });
+  Object.defineProperty(actor, 'processor', { value: processor });
+  return actor;
 }
 
 function noopNotificationDelivery() {
@@ -141,7 +152,7 @@ describe('PlanningCardProcessorActor', () => {
     actor.start();
 
     const delivery = { deliverNotificationsForInput: jest.fn(() => [{ id: 'n1', message: 'Cancellation requested: stop', created_at: '2026-06-12T00:00:00.000Z' }]) };
-    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: delivery });
+    const outcome = await actor.activate({ activationId: `card:${project.id}:activation:test`, card: project, caller: { kind: 'root' }, notificationDelivery: delivery });
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'review ok', result: { kind: 'done', summary: 'review ok' } });
     expect(provider.completeTurn).toHaveBeenCalledWith(expect.objectContaining({
@@ -301,7 +312,7 @@ describe('PlanningCardProcessorActor', () => {
     const store = new CardStore(projectRoot);
     const project = createProject(store);
     const goal = createGoal(store);
-    const childActor = CardActor.fromCard({ projectRoot, card: goal, store, processor: terminalProcessor({ status: 'done', summary: 'child done', result: { kind: 'done', summary: 'child done' } }) });
+    const childActor = makeChildActor(projectRoot, store, goal, terminalProcessor({ status: 'done', summary: 'child done', result: { kind: 'done', summary: 'child done' } }));
     const provider = withMandatoryRecords((input: LlmInvocationInput) => input.role === 'reviewer'
         ? reviewerResult()
         : input.episodeContext.lastToolResult
@@ -341,7 +352,7 @@ describe('PlanningCardProcessorActor', () => {
     const children = {
       get: jest.fn((id: string) => {
         const card = store.read(id);
-        return card ? CardActor.fromCard({ projectRoot, card, store, processor: terminalProcessor({ status: 'done', summary: 'child done', result: { kind: 'done', summary: 'child done' } }) }) : null;
+        return card ? makeChildActor(projectRoot, store, card, terminalProcessor({ status: 'done', summary: 'child done', result: { kind: 'done', summary: 'child done' } })) : null;
       }),
     };
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children, provider });
@@ -389,7 +400,7 @@ describe('PlanningCardProcessorActor', () => {
     const store = new CardStore(projectRoot);
     const project = createProject(store);
     const failedGoal = markFailed(store, createGoal(store));
-    const childActor = CardActor.fromCard({ projectRoot, card: failedGoal, store, processor: terminalProcessor({ status: 'done', summary: 'child recovered', result: { kind: 'done', summary: 'child recovered' } }) });
+    const childActor = makeChildActor(projectRoot, store, failedGoal, terminalProcessor({ status: 'done', summary: 'child recovered', result: { kind: 'done', summary: 'child recovered' } }));
     let edited = false;
     const provider = withMandatoryRecords((input: LlmInvocationInput) => {
         if (input.role === 'reviewer') return reviewerResult();
@@ -450,7 +461,7 @@ describe('PlanningCardProcessorActor', () => {
     const store = new CardStore(projectRoot);
     const project = createProject(store);
     const child = markBlocked(store, createGoal(store));
-    const childActor = CardActor.fromCard({ projectRoot, card: child, store, processor: terminalProcessor({ status: 'done', summary: 'unused', result: { kind: 'done', summary: 'unused' } }) });
+    const childActor = makeChildActor(projectRoot, store, child, terminalProcessor({ status: 'done', summary: 'unused', result: { kind: 'done', summary: 'unused' } }));
     const provider = withMandatoryRecords((input: LlmInvocationInput) => input.episodeContext.lastToolResult
         ? plannerResult('blocked', 'cancelled obsolete child')
         : { kind: 'tool_calls' as const, tool_calls: [{ id: 'cancel-1', type: 'function' as const, function: { name: 'cancel_card', arguments: JSON.stringify({ card_id: child.id, reason: 'obsolete' }) } }] });
@@ -464,13 +475,13 @@ describe('PlanningCardProcessorActor', () => {
     expect(provider.completeTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({ episodeContext: expect.objectContaining({ lastToolResult: expect.objectContaining({ result: expect.objectContaining({ success: true, data: expect.objectContaining({ card_id: child.id, status: 'cancelled' }) }) }) }) }), expect.any(AbortSignal));
   }));
 
-  it('requests cancellation for a running immediate child without synchronously stopping it', async () => withTempProject(async (projectRoot) => {
+  it('authoritatively cancels a running immediate child', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     const project = createProject(store);
     const child = createGoal(store);
     let finish!: () => void;
-    const childActor = CardActor.fromCard({ projectRoot, card: child, store, processor: { activate: jest.fn(async () => new Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>((resolve) => { finish = () => resolve({ status: 'blocked', summary: 'still blocked', result: { kind: 'blocked', summary: 'still blocked', resume_reason: 'test' } }); })) } });
+    const childActor = makeChildActor(projectRoot, store, child, { activate: jest.fn(async () => new Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>((resolve) => { finish = () => resolve({ status: 'blocked', summary: 'still blocked', result: { kind: 'blocked', summary: 'still blocked', resume_reason: 'test' } }); })) });
     const childActivation = childActor.activate({ kind: 'parent', cardId: project.id });
     await eventually(() => expect(store.read(child.id)?.status).toBe('running'));
     const provider = withMandatoryRecords((input: LlmInvocationInput) => input.episodeContext.lastToolResult
@@ -481,12 +492,14 @@ describe('PlanningCardProcessorActor', () => {
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() });
 
-    expect(store.read(child.id)?.status).toBe('running');
-    expect(childActor.listPendingNotifications()).toEqual([expect.objectContaining({ reason: 'cancel_requested' })]);
-    expect(provider.completeTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({ episodeContext: expect.objectContaining({ lastToolResult: expect.objectContaining({ result: expect.objectContaining({ success: true, data: expect.objectContaining({ card_id: child.id, status: 'running', summary: 'Cancellation requested.' }) }) }) }) }), expect.any(AbortSignal));
+    expect(store.read(child.id)?.status).toBe('cancelled');
+    expect(childActor.listPendingNotifications()).toEqual([]);
+    expect(provider.completeTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({ episodeContext: expect.objectContaining({ lastToolResult: expect.objectContaining({ result: expect.objectContaining({ success: true, data: expect.objectContaining({ card_id: child.id, status: 'cancelled' }) }) }) }) }), expect.any(AbortSignal));
     expect(outcome).toMatchObject({ status: 'blocked', summary: 'running cancel requested' });
+    await expect(childActivation).resolves.toMatchObject({ status: 'cancelled' });
     finish();
-    await expect(childActivation).resolves.toMatchObject({ status: 'blocked' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(store.read(child.id)?.status).toBe('cancelled');
   }));
 
   it('returns unsupported planner tools as recoverable tool errors', async () => withTempProject(async (projectRoot) => {
@@ -531,7 +544,7 @@ describe('PlanningCardProcessorActor', () => {
     const store = new CardStore(projectRoot);
     const project = createProject(store);
     const failedGoal = markFailed(store, createGoal(store));
-    const childActor = CardActor.fromCard({ projectRoot, card: failedGoal, store, processor: terminalProcessor({ status: 'done', summary: 'not invoked', result: { kind: 'done', summary: 'not invoked' } }) });
+    const childActor = makeChildActor(projectRoot, store, failedGoal, terminalProcessor({ status: 'done', summary: 'not invoked', result: { kind: 'done', summary: 'not invoked' } }));
     const provider = withMandatoryRecords((input: LlmInvocationInput) => input.episodeContext.lastToolResult
         ? plannerResult('blocked', 'child activation failed')
         : { kind: 'tool_calls' as const, tool_calls: [{ id: 'call-1', type: 'function' as const, function: { name: 'activate_card', arguments: JSON.stringify({ card_id: failedGoal.id }) } }] });
@@ -575,7 +588,7 @@ describe('PlanningCardProcessorActor', () => {
     const store = new CardStore(projectRoot);
     const project = createProject(store);
     const goal = createGoal(store);
-    const childActor = CardActor.fromCard({ projectRoot, card: goal, store, processor: terminalProcessor({ status: 'done', summary: 'child done', result: { kind: 'done', summary: 'child done' } }) });
+    const childActor = makeChildActor(projectRoot, store, goal, terminalProcessor({ status: 'done', summary: 'child done', result: { kind: 'done', summary: 'child done' } }));
     const provider = withMandatoryRecords((input: LlmInvocationInput) => input.role === 'reviewer'
         ? reviewerResult()
         : input.episodeContext.lastToolResult
@@ -614,6 +627,46 @@ describe('PlanningCardProcessorActor', () => {
     const reviewerInput = (provider.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls.find(([input]) => input.role === 'reviewer')?.[0];
     expect(reviewerInput).toMatchObject({ role: 'reviewer', systemPrompt: expect.stringContaining('project') });
     expect(reviewerInput?.contextMessages).toEqual(expect.arrayContaining([expect.objectContaining({ role: 'user', content: expect.stringContaining('Descendant work:') })]));
+  }));
+
+  it('does not drain main-agent notifications into reviewer tool continuations', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    const child = markDone(store, createGoal(store, project.id));
+    let pendingNotifications = true;
+    const delivery = {
+      hasPendingNotifications: jest.fn(() => pendingNotifications),
+      deliverNotificationsForInput: jest.fn((inputId: string) => {
+        if (!inputId.startsWith('planner:') || !pendingNotifications) return [];
+        pendingNotifications = false;
+        return [{ id: 'n-reviewer-mid', message: 'must stay queued for planner', created_at: '2026-06-12T00:00:00.000Z' }];
+      }),
+    };
+    const provider = withMandatoryRecords((input: LlmInvocationInput) => {
+      if (input.role === 'reviewer') {
+        if (input.episodeContext.lastToolResult) return reviewerResult();
+        return { kind: 'tool_calls' as const, tool_calls: [{ id: 'reviewer-read-1', type: 'function' as const, function: { name: 'read', arguments: JSON.stringify({ path: 'missing-review-input.md' }) } }] };
+      }
+      return plannerResult('done', 'done');
+    });
+    const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
+    actor.start();
+
+    const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: delivery });
+
+    expect(outcome).toMatchObject({ status: 'done' });
+    expect(delivery.deliverNotificationsForInput).toHaveBeenCalledWith('planner:project:1');
+    expect(delivery.deliverNotificationsForInput).toHaveBeenCalledWith('planner:project:1');
+    expect(delivery.deliverNotificationsForInput).not.toHaveBeenCalledWith(expect.stringMatching(/^reviewer:/));
+    const reviewerContinuation = (provider.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls.find(([input]) => input.role === 'reviewer' && input.inputId.endsWith(':tool:1'))?.[0];
+    expect(reviewerContinuation?.contextMessages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'user', content: expect.stringContaining('Main-agent notification currentness: pending=no') }),
+    ]));
+    expect(reviewerContinuation?.contextMessages).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'user', content: 'must stay queued for planner' }),
+    ]));
+    expect(child.status).toBe('done');
   }));
 
   it('relaunches reviewer when main-agent notifications arrive during review', async () => withTempProject(async (projectRoot) => {

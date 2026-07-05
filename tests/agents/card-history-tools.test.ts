@@ -8,6 +8,7 @@ import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 import { list_card_history, get_card_history_entry, diff_card, get_card } from '../../src/tools/analyst-card-tools.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { closeOpenRecordSlot, openRecordSlot } from '../../src/runtime/records/record-slots.js';
+import { ProcessRunner } from '../../src/runtime/process-runner.js';
 
 function setup(root: string): CardStore {
   initProjectTree(root);
@@ -15,7 +16,7 @@ function setup(root: string): CardStore {
   return new CardStore(root);
 }
 
-function ctx(root: string, store: CardStore): ToolContext { return { projectRoot: root, store, actor: 'executor', surface: 'runtime', sessionId: 'sess-1' }; }
+function ctx(root: string, store: CardStore): ToolContext { return { projectRoot: root, processRunner: new ProcessRunner(root), store, actor: 'executor', surface: 'runtime', sessionId: 'sess-1' }; }
 
 describe('card history and notes tools', () => {
   it('lists history, gets an entry, diffs versions, without audit writes', async () => {

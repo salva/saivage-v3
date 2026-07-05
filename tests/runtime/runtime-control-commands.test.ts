@@ -5,7 +5,7 @@ import {
   resumeRuntimeCommand,
   type PauseResumeEffects,
 } from '../../src/runtime/runtime-control-commands.js';
-import { pauseRuntimeControl, resumeRuntimeControl, setRuntimeControlNotifyCard } from '../../src/runtime/control.js';
+import { pauseRuntimeControl, resumeRuntimeControl } from '../../src/runtime/control.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { saveRuntimeState } from '../../src/runtime/state.js';
 import { saveActorSnapshot } from '../../src/runtime/actors/snapshots.js';
@@ -76,38 +76,36 @@ describe('runtime-control-commands', () => {
     expect(setLifecyclePaused).toHaveBeenCalledWith(false);
   });
 
-  it('routes persisted pause/resume notifications through notifyCard and reports delivery aggregates', () => {
+  it('offline pause/resume controls persist state without live card notification delivery', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-runtime-control-'));
     try {
       initProjectTree(projectRoot);
       saveRuntimeState(projectRoot, runtimeState({ status: 'running' }));
       saveActorSnapshot(projectRoot, { actor_id: 'planner:project', actor_kind: 'llm', state_value: 'calling_provider', context: {}, updated_at: '2026-01-01T00:00:00.000Z' });
-      const notifyCard = jest.fn(() => ({ ok: true as const }));
-      setRuntimeControlNotifyCard(projectRoot, notifyCard);
 
       const paused = pauseRuntimeControl({ projectRoot });
       const resumed = resumeRuntimeControl({ projectRoot });
 
-      expect(paused).toMatchObject({ ok: true, notificationDelivery: { ok: true, cardDeliveries: [{ cardId: 'project', result: { ok: true } }], sessionDeliveries: ['planner:project'] } });
-      expect(resumed).toMatchObject({ ok: true, notificationDelivery: { ok: true, cardDeliveries: [{ cardId: 'project', result: { ok: true } }], sessionDeliveries: ['planner:project'] } });
-      expect(notifyCard).toHaveBeenCalledWith('project', expect.objectContaining({ message: 'Runtime was paused.', reason: 'runtime_state' }));
-      expect(notifyCard).toHaveBeenCalledWith('project', expect.objectContaining({ message: 'Runtime was resumed.', reason: 'runtime_state' }));
+      expect(paused).toMatchObject({ ok: true, code: 'paused', status: 'paused' });
+      expect(resumed).toMatchObject({ ok: true, code: 'resumed', status: 'stopped' });
+      expect(paused).not.toHaveProperty('notificationDelivery');
+      expect(resumed).not.toHaveProperty('notificationDelivery');
     } finally {
-      setRuntimeControlNotifyCard(projectRoot, undefined);
       rmSync(projectRoot, { recursive: true, force: true });
     }
   });
 
-  it('reports missing-card pause delivery as a structured aggregate without throwing', () => {
+  it('offline pause control ignores live card delivery hooks', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-runtime-control-missing-'));
     try {
       initProjectTree(projectRoot);
       saveRuntimeState(projectRoot, runtimeState({ status: 'running' }));
       saveActorSnapshot(projectRoot, { actor_id: 'planner:missing-project', actor_kind: 'llm', state_value: 'calling_provider', context: {}, updated_at: '2026-01-01T00:00:00.000Z' });
 
-      const result = pauseRuntimeControl({ projectRoot, notifyCard: () => ({ ok: false, reason: 'missing_card', cardId: 'missing-project' }) });
+      const result = pauseRuntimeControl({ projectRoot });
 
-      expect(result).toMatchObject({ ok: true, notificationDelivery: { ok: false, cardDeliveries: [{ cardId: 'missing-project', result: { ok: false, reason: 'missing_card', cardId: 'missing-project' } }], sessionDeliveries: ['planner:missing-project'] } });
+      expect(result).toMatchObject({ ok: true, code: 'paused', status: 'paused' });
+      expect(result).not.toHaveProperty('notificationDelivery');
     } finally {
       rmSync(projectRoot, { recursive: true, force: true });
     }

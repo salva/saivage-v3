@@ -45,6 +45,16 @@ export function buildRuntimeCardOperatorContractHandlers(options: RuntimeCardOpe
       if (!options.runtimeApplication) throw new Error('Runtime application is required for runtime status.');
       return { body: buildRuntimeStatusReadModel({ projectRoot, runtimeApi: options.runtimeApplication.runtimeApi, serverAvailability: options.serverAvailabilityProvider?.() }) };
     },
+    'runtime.pause': () => {
+      if (!options.runtimeApplication) throw new Error('Runtime application is required for runtime pause.');
+      options.runtimeApplication.runtimeApi.pause();
+      return { body: buildRuntimeStatusReadModel({ projectRoot, runtimeApi: options.runtimeApplication.runtimeApi, serverAvailability: options.serverAvailabilityProvider?.() }) };
+    },
+    'runtime.resume': () => {
+      if (!options.runtimeApplication) throw new Error('Runtime application is required for runtime resume.');
+      options.runtimeApplication.runtimeApi.resume();
+      return { body: buildRuntimeStatusReadModel({ projectRoot, runtimeApi: options.runtimeApplication.runtimeApi, serverAvailability: options.serverAvailabilityProvider?.() }) };
+    },
     'runtime.cardRuns': () => ({ body: buildCardRunsResponse(projectRoot, requireCardStore(options.cardStore)) }),
   };
 }

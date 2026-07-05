@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import type { RuntimeDisposeReportEntry, RuntimeLifecycleSnapshot, RuntimeResourceHandle } from './lifecycle.js';
+import type { RuntimeResourceHandle } from './lifecycle.js';
 import { createRuntimeLifecycleScope, type RuntimeLifecycleScope } from './lifecycle.js';
 import {
   existsSync,
@@ -7,30 +7,25 @@ import {
   mkdirSync,
   createWriteStream,
   type WriteStream,
-  rmSync,
 } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
 import { writeFileAtomic, explainLegacyStateRejection } from '../persistence/index.js';
-import { redactOperatorErrorMessage } from '../workspace/index.js';
 import { redactCommandForPolicy, sanitizedCommandEnv } from './command-policy.js';
-import { EventLogger } from '../observability/index.js';
-import { queueNotification, type QueueNotificationResult } from '../notifications/index.js';
 import type { ProcessRecord, ProcessStatus } from '../schemas/index.js';
 import { now } from '../utils/clock.js';
-import type { CardNotification } from './actors/card-actor.js';
-import type { NotifyCardResult } from './runtime-api.js';
 
-export interface ProcessStartOptions {
+export interface ProcessSpawnSpec {
+  command: string;
   cardId: string;
-  ownerId?: string;
+  ownerId: string;
+  ownerKind: 'agent' | 'operator' | 'runtime';
   cwd?: string;
   env?: Record<string, string>;
   requiredForCardCompletion?: boolean;
   agentSessionId?: string;
   goalId?: string;
   launchReason?: string;
-  ownerKind?: 'agent' | 'operator' | 'runtime';
   backgroundPolicy?: 'foreground';
 }
 
@@ -47,72 +42,46 @@ export interface ProcessListFilter {
   status?: ProcessStatus | ProcessStatus[];
 }
 
-export interface ProcessTerminalNote {
-  route: 'planner';
-  kind: 'process_terminal';
-  process_id: string;
-  card_id: string;
-  goal_id: string | null;
-  status: ProcessStatus;
-  exit_code: number | null;
-  signal: string | null;
-  classification?: string | null;
-}
-
-export type ProcessTerminalSink = (note: ProcessTerminalNote) => void;
-
 export interface ProcessReconcileOptions {
   nowMonotonicMs?: number;
   maxClockSkewMs?: number;
-  probe?: (record: ProcessRecord) => { running: boolean; pid?: number | null; started_at_monotonic?: number | null };
-  reattach?: (record: ProcessRecord) => boolean;
 }
 
 export interface ProcessReconcileResult {
   matched: string[];
   lost: string[];
   skewed: string[];
-  notificationDeliveries: QueueNotificationResult[];
+}
+
+export interface ProcessStopReport {
+  attempted: string[];
+  stopped: string[];
+  failed: Array<{ id: string; error: string }>;
 }
 
 const PROCESSES_DIR = '.saivage-work/processes';
 const RUNTIME_PROCESSES_FILE = '.saivage/runtime/processes.json';
 
-export class ProcessRunnerService {
+export class ProcessRunner {
   private processRecords: Map<string, ProcessRecord> | null = null;
   private commandHashSalt: Buffer | null = null;
   readonly activeProcesses = new Map<string, ChildProcess>();
   readonly outputStreams = new Map<string, { stdout: WriteStream; stderr: WriteStream; combined: WriteStream }>();
   readonly pendingStreamCloses = new Map<string, number>();
   readonly streamCloseWaiters = new Map<string, Promise<void>>();
-  readonly terminalSinks = new Set<ProcessTerminalSink>();
-  terminalPaused = false;
-  readonly bufferedTerminalNotes = new Map<string, ProcessTerminalNote>();
-  readonly deliveredTerminalNotes = new Set<string>();
-  notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult;
   private scope: RuntimeLifecycleScope | null = null;
   readonly processResourceHandles = new Map<string, RuntimeResourceHandle[]>();
 
   constructor(readonly projectRoot: string) {}
 
-  processScope(): RuntimeLifecycleScope { return processScope(this); }
-  commandHash(command: string): string { return commandHash(this, command); }
-  loadRegistry(): Map<string, ProcessRecord> { return loadRegistryForService(this); }
-  saveRegistry(records: ProcessRecord[]): void { saveRegistryForService(this, records); }
-  setProcessTerminalBuffering(paused: boolean): void { setProcessTerminalBufferingForService(this, paused); }
-  startProcess(command: string, options: ProcessStartOptions): ProcessRecord { return startProcessForService(this, command, options); }
-  waitProcess(procId: string, timeoutMs: number = 0): Promise<ProcessWaitResult> { return waitProcessForService(this, procId, timeoutMs); }
-  killProcess(procId: string, signal: NodeJS.Signals = 'SIGTERM'): Promise<ProcessRecord | null> { return killProcessForService(this, procId, signal); }
-  async startAndWait(command: string, options: ProcessStartOptions, timeoutMs: number = 0): Promise<ProcessWaitResult> { return startAndWaitForService(this, command, options, timeoutMs); }
-  tailOutput(procId: string, lines: number = 50): string { return tailOutputForService(this, procId, lines); }
-  reconcileProcessRecords(options: ProcessReconcileOptions = {}): ProcessReconcileResult { return reconcileProcessRecordsForService(this, options); }
-  listProcesses(filter?: ProcessListFilter): ProcessRecord[] { return listProcessesForService(this, filter); }
-  getProcess(procId: string): ProcessRecord | null { return getProcessForService(this, procId); }
-  cleanupProcessOutput(procId: string): boolean { return cleanupProcessOutputForService(this, procId); }
-  cleanupAllCompleted(): number { return cleanupAllCompletedForService(this); }
-  snapshotProcessRuntimeScope(): RuntimeLifecycleSnapshot { return this.processScope().snapshot(); }
-  disposeProcessRuntimeScope(): Promise<RuntimeDisposeReportEntry[]> { return disposeProcessRuntimeScopeForService(this); }
-  isProcessLiveAttached(procId: string): boolean { const child = this.activeProcesses.get(procId); return Boolean(child && resolveStatus(child) === 'running'); }
+  spawn(spec: ProcessSpawnSpec): ProcessRecord { return startProcessForRunner(this, spec); }
+  wait(procId: string, timeoutMs: number = 0): Promise<ProcessWaitResult> { return waitProcessForRunner(this, procId, timeoutMs); }
+  kill(procId: string, reason = 'process killed', options: { graceMs?: number } = {}): Promise<ProcessRecord | null> { return stopProcess(this, procId, reason, options.graceMs ?? 5000); }
+  stopByOwner(ownerId: string, reason: string, options: { graceMs?: number } = {}): Promise<ProcessStopReport> { return stopMatching(this, (record) => record.owner_id === ownerId, reason, options.graceMs ?? 5000); }
+  stopRuntimeOwned(reason: string, options: { graceMs?: number } = {}): Promise<ProcessStopReport> { return stopMatching(this, (record) => record.owner_kind !== 'operator', reason, options.graceMs ?? 5000); }
+  list(filter?: ProcessListFilter): ProcessRecord[] { return listProcessesForRunner(this, filter); }
+  get(procId: string): ProcessRecord | null { return getProcessForRunner(this, procId); }
+  reconcile(options: ProcessReconcileOptions = {}): Promise<ProcessReconcileResult> { return reconcileProcessRecordsForRunner(this, options); }
 
   getTransientRegistry(): Map<string, ProcessRecord> {
     if (!this.processRecords) this.processRecords = durableRegistry(this.projectRoot);
@@ -128,26 +97,9 @@ export class ProcessRunnerService {
 
   getRuntimeScope(): RuntimeLifecycleScope | null { return this.scope; }
   setRuntimeScope(scope: RuntimeLifecycleScope | null): void { this.scope = scope; }
-  setNotifyCard(notifyCard: ((cardId: string, notification: CardNotification) => NotifyCardResult) | undefined): void { this.notifyCard = notifyCard; }
 }
 
-const processRunnerServicesByRoot = new Map<string, ProcessRunnerService>();
-
-export function serviceFor(projectRoot: string): ProcessRunnerService {
-  const key = resolve(projectRoot);
-  let service = processRunnerServicesByRoot.get(key);
-  if (!service) {
-    service = new ProcessRunnerService(key);
-    processRunnerServicesByRoot.set(key, service);
-  }
-  return service;
-}
-
-export function setProcessRunnerNotifyCard(projectRoot: string, notifyCard: ((cardId: string, notification: CardNotification) => NotifyCardResult) | undefined): void {
-  serviceFor(projectRoot).setNotifyCard(notifyCard);
-}
-
-function processScope(service: ProcessRunnerService): RuntimeLifecycleScope {
+function processScope(service: ProcessRunner): RuntimeLifecycleScope {
   let scope = service.getRuntimeScope();
   if (!scope || scope.isDisposed) {
     scope = createRuntimeLifecycleScope(`process-runtime:${service.projectRoot}`);
@@ -156,7 +108,7 @@ function processScope(service: ProcessRunnerService): RuntimeLifecycleScope {
   return scope;
 }
 
-function rememberProcessResource(service: ProcessRunnerService, procId: string, handle: RuntimeResourceHandle): RuntimeResourceHandle {
+function rememberProcessResource(service: ProcessRunner, procId: string, handle: RuntimeResourceHandle): RuntimeResourceHandle {
   let handles = service.processResourceHandles.get(procId);
   if (!handles) {
     handles = [];
@@ -166,7 +118,7 @@ function rememberProcessResource(service: ProcessRunnerService, procId: string, 
   return handle;
 }
 
-function unregisterProcessResource(service: ProcessRunnerService, procId: string, handle: RuntimeResourceHandle): void {
+function unregisterProcessResource(service: ProcessRunner, procId: string, handle: RuntimeResourceHandle): void {
   handle.unregister();
   const handles = service.processResourceHandles.get(procId);
   if (!handles) return;
@@ -175,7 +127,7 @@ function unregisterProcessResource(service: ProcessRunnerService, procId: string
   if (handles.length === 0) service.processResourceHandles.delete(procId);
 }
 
-function unregisterAllProcessResources(service: ProcessRunnerService, procId: string): void {
+function unregisterAllProcessResources(service: ProcessRunner, procId: string): void {
   const handles = service.processResourceHandles.get(procId) ?? [];
   for (const handle of handles.splice(0)) handle.unregister();
   service.processResourceHandles.delete(procId);
@@ -201,7 +153,7 @@ function processDir(projectRoot: string, procId: string): string {
   return join(processesDir(projectRoot), procId);
 }
 
-function commandHash(service: ProcessRunnerService, command: string): string {
+function commandHash(service: ProcessRunner, command: string): string {
   return createHash('sha256').update(service.getCommandHashSalt()).update('\0').update(command).digest('hex');
 }
 
@@ -232,7 +184,7 @@ function persistRegistry(projectRoot: string, registry: Map<string, ProcessRecor
   writeFileAtomic(runtimeProcessesPath(projectRoot), JSON.stringify({ schema_version: 1, records: Array.from(registry.values()) }, null, 2) + '\n');
 }
 
-function transientRegistry(service: ProcessRunnerService): Map<string, ProcessRecord> {
+function transientRegistry(service: ProcessRunner): Map<string, ProcessRecord> {
   return service.getTransientRegistry();
 }
 
@@ -246,13 +198,6 @@ function resolveStatus(proc: ChildProcess): ProcessStatus {
     return proc.exitCode === 0 ? 'exited' : 'failed';
   }
   return 'running';
-}
-
-export function isProcessLiveAttached(procId: string): boolean {
-  for (const service of processRunnerServicesByRoot.values()) {
-    if (service.isProcessLiveAttached(procId)) return true;
-  }
-  return false;
 }
 
 function resolveExitCode(proc: ChildProcess): number | null {
@@ -275,7 +220,44 @@ function signalProcessTree(child: ChildProcess, signal: NodeJS.Signals): boolean
   }
 }
 
-async function waitForDurableOutput(service: ProcessRunnerService, procId: string): Promise<void> {
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function processGroupId(record: ProcessRecord): number | null {
+  const pgid = record.process_group_id ?? record.pid ?? null;
+  return pgid && pgid > 0 ? pgid : null;
+}
+
+function signalProcessGroup(pgid: number, signal: NodeJS.Signals): boolean {
+  try {
+    process.kill(-pgid, signal);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isProcessGroupAlive(pgid: number): boolean {
+  try {
+    process.kill(-pgid, 0);
+    return true;
+  } catch (error) {
+    const code = typeof error === 'object' && error !== null && 'code' in error ? (error as { code?: unknown }).code : null;
+    return code !== 'ESRCH';
+  }
+}
+
+async function waitForProcessGroupExit(pgid: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (isProcessGroupAlive(pgid)) {
+    if (Date.now() >= deadline) return false;
+    await sleep(Math.min(50, Math.max(1, deadline - Date.now())));
+  }
+  return true;
+}
+
+async function waitForDurableOutput(service: ProcessRunner, procId: string): Promise<void> {
   const waiter = service.streamCloseWaiters.get(procId);
   if (!waiter) return;
   try {
@@ -284,23 +266,11 @@ async function waitForDurableOutput(service: ProcessRunnerService, procId: strin
   }
 }
 
-function loadRegistryForService(service: ProcessRunnerService): Map<string, ProcessRecord> {
-  const registry = transientRegistry(service);
-  const durable = durableRegistry(service.projectRoot);
-  for (const [id, record] of durable) registry.set(id, record);
-  return new Map(registry);
+function loadRegistryForRunner(service: ProcessRunner): Map<string, ProcessRecord> {
+  return transientRegistry(service);
 }
 
-function saveRegistryForService(service: ProcessRunnerService, records: ProcessRecord[]): void {
-  const registry = transientRegistry(service);
-  registry.clear();
-  for (const rec of records) {
-    registry.set(rec.id, rec);
-  }
-  persistRegistry(service.projectRoot, registry);
-}
-
-function upsertRegistryRecord(service: ProcessRunnerService, record: ProcessRecord): void {
+function upsertRegistryRecord(service: ProcessRunner, record: ProcessRecord): void {
   const registry = transientRegistry(service);
   registry.set(record.id, record);
   persistRegistry(service.projectRoot, registry);
@@ -328,7 +298,7 @@ function openOutputStreams(dir: string): {
   return { stdout, stderr, combined };
 }
 
-function closeAllStreams(service: ProcessRunnerService, procId: string): Promise<void> {
+function closeAllStreams(service: ProcessRunner, procId: string): Promise<void> {
   const streams = service.outputStreams.get(procId);
   if (!streams) return Promise.resolve();
 
@@ -355,7 +325,7 @@ function closeAllStreams(service: ProcessRunnerService, procId: string): Promise
   return Promise.all(closings).then(() => undefined);
 }
 
-function finalizeProcess(service: ProcessRunnerService, procId: string): void {
+function finalizeProcess(service: ProcessRunner, procId: string): void {
   const child = service.activeProcesses.get(procId);
   if (child) {
     child.stdout?.destroy();
@@ -371,64 +341,14 @@ function finalizeProcess(service: ProcessRunnerService, procId: string): void {
   service.pendingStreamCloses.delete(procId);
 }
 
-function terminalNote(record: ProcessRecord): ProcessTerminalNote {
-  return {
-    route: 'planner',
-    kind: 'process_terminal',
-    process_id: record.id,
-    card_id: record.card_id,
-    goal_id: record.goal_id ?? null,
-    status: record.status,
-    exit_code: record.exit_code ?? null,
-    signal: record.signal ?? null,
-    classification: record.failure_classification ?? null,
-  };
-}
-
-function deliveredSet(service: ProcessRunnerService): Set<string> {
-  return service.deliveredTerminalNotes;
-}
-
-function bufferMap(service: ProcessRunnerService): Map<string, ProcessTerminalNote> {
-  return service.bufferedTerminalNotes;
-}
-
-function dispatchTerminal(service: ProcessRunnerService, record: ProcessRecord): void {
-  if (record.status === 'running') return;
-  const delivered = deliveredSet(service);
-  if (delivered.has(record.id)) return;
-  const note = terminalNote(record);
-  if (service.terminalPaused) {
-    bufferMap(service).set(record.id, note);
-    return;
-  }
-  delivered.add(record.id);
-  for (const sink of service.terminalSinks) sink(note);
-}
-
-function setProcessTerminalBufferingForService(service: ProcessRunnerService, paused: boolean): void {
-  if (paused) {
-    service.terminalPaused = true;
-    return;
-  }
-  service.terminalPaused = false;
-  const buffered = bufferMap(service);
-  const delivered = deliveredSet(service);
-  for (const [procId, note] of buffered) {
-    if (delivered.has(procId)) continue;
-    delivered.add(procId);
-    for (const sink of service.terminalSinks) sink(note);
-  }
-  buffered.clear();
-}
-
-function startProcessForService(
-  service: ProcessRunnerService,
-  command: string,
-  options: ProcessStartOptions,
-): ProcessRecord {
+function startProcessForRunner(service: ProcessRunner, spec: ProcessSpawnSpec): ProcessRecord {
+  const command = spec.command;
+  const options = spec;
   if (!command || command.length === 0) {
     throw new Error('command must not be empty');
+  }
+  if (!options.ownerId || !options.ownerKind || !options.cardId) {
+    throw new Error('process spawn requires explicit ownerId, ownerKind, and cardId.');
   }
 
   const id = generateId();
@@ -484,7 +404,7 @@ function startProcessForService(
   const record: ProcessRecord = {
     id,
     card_id: options.cardId,
-    owner_id: options.ownerId ?? options.agentSessionId ?? null,
+    owner_id: options.ownerId,
     command: redactCommandForPolicy(command),
     command_hash: commandHash(service, command),
     cwd,
@@ -505,10 +425,9 @@ function startProcessForService(
     agent_session_id: options.agentSessionId ?? null,
     goal_id: options.goalId ?? null,
     launch_reason: options.launchReason ?? null,
-    owner_kind: options.ownerKind ?? null,
+    owner_kind: options.ownerKind,
     background_policy: options.backgroundPolicy ?? null,
     process_group_id: child.pid ?? null,
-    reattach_state: 'attached',
     failure_classification: null,
   };
 
@@ -522,7 +441,7 @@ function startProcessForService(
           ? 'exited'
           : 'failed';
 
-    const latest = getProcessForService(service, id) ?? record;
+    const latest = getProcessForRunner(service, id) ?? record;
     const updatedRecord: ProcessRecord = {
       ...latest,
       status: finalStatus,
@@ -530,12 +449,10 @@ function startProcessForService(
       signal: signalCode ?? null,
       terminal_reason: signalCode ? 'signal' : 'exit',
       completed_at: now(),
-      reattach_state: 'attached',
     };
 
     try {
       upsertRegistryRecord(service, updatedRecord);
-      dispatchTerminal(service, updatedRecord);
     } catch { void 0; }
 
     const pending = service.pendingStreamCloses.get(id);
@@ -574,14 +491,13 @@ function startProcessForService(
 
     try {
       upsertRegistryRecord(service, updatedRecord);
-      dispatchTerminal(service, updatedRecord);
     } catch { void 0; }
   });
 
   return record;
 }
 
-function onStreamEnd(service: ProcessRunnerService, procId: string): void {
+function onStreamEnd(service: ProcessRunner, procId: string): void {
   const current = service.pendingStreamCloses.get(procId);
   if (current === undefined) return;
 
@@ -593,8 +509,8 @@ function onStreamEnd(service: ProcessRunnerService, procId: string): void {
   }
 }
 
-function waitProcessForService(
-  service: ProcessRunnerService,
+function waitProcessForRunner(
+  service: ProcessRunner,
   procId: string,
   timeoutMs: number = 0,
 ): Promise<ProcessWaitResult> {
@@ -603,7 +519,7 @@ function waitProcessForService(
     const child = service.activeProcesses.get(procId);
 
     if (!child) {
-      const registry = loadRegistryForService(service);
+      const registry = loadRegistryForRunner(service);
       const record = registry.get(procId);
       if (!record) {
         resolve({
@@ -614,6 +530,10 @@ function waitProcessForService(
           waitDurationMs: Date.now() - waitStart,
         });
         return;
+      }
+
+      if (record.status === 'running') {
+        throw new Error(`Cannot wait for unattached running process ${procId}. Reconcile or stop the process scope first.`);
       }
 
       void waitForDurableOutput(service, procId).finally(() => {
@@ -676,7 +596,7 @@ function waitProcessForService(
         });
       } else {
         void waitForDurableOutput(service, procId).finally(() => {
-          const latest = getProcessForService(service, procId);
+          const latest = getProcessForRunner(service, procId);
           resolve({
             id: procId,
             status: latest?.status ?? resolveStatus(child),
@@ -707,99 +627,27 @@ function waitProcessForService(
   });
 }
 
-async function killProcessForService(service: ProcessRunnerService, procId: string, signal: NodeJS.Signals = 'SIGTERM'): Promise<ProcessRecord | null> {
-  const record = getProcessForService(service, procId);
+async function stopProcess(service: ProcessRunner, procId: string, reason: string, graceMs: number): Promise<ProcessRecord | null> {
+  const record = getProcessForRunner(service, procId);
   if (!record) return null;
   if (record.status !== 'running') return record;
   const child = service.activeProcesses.get(procId);
   if (child && resolveStatus(child) === 'running') {
-    signalProcessTree(child, signal);
-    await waitProcessForService(service, procId, 5000);
-    return getProcessForService(service, procId);
-  }
-  const updated: ProcessRecord = {
-    ...record,
-    status: 'killed',
-    completed_at: now(),
-    signal,
-    terminal_reason: 'kill_unattached',
-    reattach_state: 'lost',
-    failure_classification: 'lost',
-  };
-  upsertRegistryRecord(service, updated);
-  dispatchTerminal(service, updated);
-  return updated;
-}
-
-async function startAndWaitForService(
-  service: ProcessRunnerService,
-  command: string,
-  options: ProcessStartOptions,
-  timeoutMs: number = 0,
-): Promise<ProcessWaitResult> {
-  const record = startProcessForService(service, command, options);
-  return waitProcessForService(service, record.id, timeoutMs);
-}
-
-function tailOutputForService(
-  service: ProcessRunnerService,
-  procId: string,
-  lines: number = 50,
-): string {
-  const dir = processDir(service.projectRoot, procId);
-  const combinedPath = join(dir, 'combined.log');
-
-  if (!existsSync(combinedPath)) return '';
-
-  const content = readFileSync(combinedPath, 'utf-8');
-  if (!content) return '';
-
-  const allLines = content.split('\n');
-  if (allLines.length > 0 && allLines[allLines.length - 1] === '') {
-    allLines.pop();
+    signalProcessTree(child, 'SIGTERM');
+    const waitResult = await waitProcessForRunner(service, procId, graceMs);
+    if (waitResult.timedOut || waitResult.status === 'running') {
+      signalProcessTree(child, 'SIGKILL');
+      await waitProcessForRunner(service, procId, 2000);
+    }
+    const latest = getProcessForRunner(service, procId);
+    if (latest && latest.status !== 'running') return latest;
+    return latest;
   }
 
-  return allLines.slice(-lines).join('\n');
+  return terminateUnattachedRunning(service, record, reason, graceMs);
 }
 
-type ProcessReconciliationAuditKind = 'process_reconciled_dead' | 'process_reattach_rejected';
-type ProcessReconciliationProbeStatus = 'not_running' | 'identity_mismatch' | 'clock_skew';
-
-function auditProcessReconciliation(
-  projectRoot: string,
-  record: ProcessRecord,
-  kind: ProcessReconciliationAuditKind,
-  detail: string,
-  probeStatus?: ProcessReconciliationProbeStatus,
-  notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult,
-): QueueNotificationResult | null {
-  const safeDetail = redactOperatorErrorMessage(detail, projectRoot);
-  const base = {
-    kind,
-    process_id: record.id,
-    card_id: record.card_id,
-    goal_id: record.goal_id ?? undefined,
-    session_id: record.agent_session_id ?? undefined,
-    pid: record.pid ?? null,
-    terminal_reason: 'lost' as const,
-    failure_classification: 'lost' as const,
-    detail: safeDetail,
-  };
-  const event = kind === 'process_reconciled_dead'
-    ? { ...base, probe_status: probeStatus ?? 'identity_mismatch' }
-    : { ...base, reattach_error: safeDetail };
-  new EventLogger(join(projectRoot, '.saivage')).appendEvent(event);
-  if (record.agent_session_id) {
-    const action = kind === 'process_reconciled_dead' ? 'reconciled as dead during restart' : 'reattach was rejected during restart';
-    const queued = queueNotification(projectRoot, { kind: 'session', sessionId: record.agent_session_id }, 'process_state', `Process ${record.id} for card ${record.card_id} ${action}: ${safeDetail}`, { actor: 'runtime', surface: 'runtime' }, undefined, notifyCard);
-    if (!queued.ok) console.warn(`process_notification_delivery_failed ${JSON.stringify(queued.cardDeliveries.filter((delivery) => !delivery.result.ok))}`);
-    return queued;
-  }
-  return null;
-}
-
-function markLost(service: ProcessRunnerService, record: ProcessRecord, reason: string, audit?: { kind: ProcessReconciliationAuditKind; probeStatus?: ProcessReconciliationProbeStatus; result?: ProcessReconcileResult }): ProcessRecord {
-  const projectRoot = service.projectRoot;
+function markLost(service: ProcessRunner, record: ProcessRecord, reason: string): ProcessRecord {
   const updated: ProcessRecord = {
     ...record,
     status: 'failed',
@@ -807,88 +655,87 @@ function markLost(service: ProcessRunnerService, record: ProcessRecord, reason: 
     exit_code: record.exit_code ?? null,
     signal: record.signal ?? null,
     terminal_reason: 'lost',
-    reattach_state: 'lost',
     failure_classification: 'lost',
     reattach_error: reason,
   };
   upsertRegistryRecord(service, updated);
-  dispatchTerminal(service, updated);
-  if (audit) {
-    const delivery = auditProcessReconciliation(projectRoot, updated, audit.kind, reason, audit.probeStatus, service.notifyCard);
-    if (delivery) audit.result?.notificationDeliveries.push(delivery);
-  }
   return updated;
 }
 
-function defaultProbe(record: ProcessRecord): { running: boolean; pid?: number | null; started_at_monotonic?: number | null } {
-  if (!record.pid) return { running: false };
-  try {
-    process.kill(record.pid, 0);
-    return { running: true, pid: record.pid, started_at_monotonic: record.started_at_monotonic };
-  } catch {
-    return { running: false, pid: record.pid };
-  }
+function markKilled(service: ProcessRunner, record: ProcessRecord, signal: NodeJS.Signals, reason: string): ProcessRecord {
+  const updated: ProcessRecord = {
+    ...record,
+    status: 'killed',
+    completed_at: now(),
+    exit_code: record.exit_code ?? null,
+    signal,
+    terminal_reason: 'kill_unattached',
+    failure_classification: record.failure_classification ?? null,
+    reattach_error: reason,
+  };
+  upsertRegistryRecord(service, updated);
+  return updated;
 }
 
-function reconcileProcessRecordsForService(service: ProcessRunnerService, options: ProcessReconcileOptions = {}): ProcessReconcileResult {
-  const projectRoot = service.projectRoot;
-  const result: ProcessReconcileResult = { matched: [], lost: [], skewed: [], notificationDeliveries: [] };
-  const records = Array.from(loadRegistryForService(service).values()).filter((record) => record.status === 'running');
+async function terminateUnattachedRunning(service: ProcessRunner, record: ProcessRecord, reason: string, graceMs: number): Promise<ProcessRecord> {
+  const pgid = processGroupId(record);
+  if (!pgid) return markLost(service, record, `${reason}: missing process group id`);
+
+  signalProcessGroup(pgid, 'SIGTERM');
+  if (await waitForProcessGroupExit(pgid, graceMs)) {
+    return markKilled(service, record, 'SIGTERM', reason);
+  }
+
+  signalProcessGroup(pgid, 'SIGKILL');
+  if (await waitForProcessGroupExit(pgid, 2000)) {
+    return markKilled(service, record, 'SIGKILL', reason);
+  }
+
+  return markLost(service, record, `${reason}: process group still alive after SIGKILL`);
+}
+
+async function reconcileOwnedRecord(service: ProcessRunner, record: ProcessRecord): Promise<'killed' | 'lost'> {
+  const updated = await terminateUnattachedRunning(service, record, 'startup process reconciliation', 5000);
+  return updated.status === 'killed' ? 'killed' : 'lost';
+}
+
+async function reconcileProcessRecordsForRunner(service: ProcessRunner, options: ProcessReconcileOptions = {}): Promise<ProcessReconcileResult> {
+  const result: ProcessReconcileResult = { matched: [], lost: [], skewed: [] };
+  const records = Array.from(loadRegistryForRunner(service).values()).filter((record) => record.status === 'running');
   const currentMonotonic = options.nowMonotonicMs ?? nowMonotonic();
   const maxClockSkewMs = options.maxClockSkewMs ?? 60_000;
-  const probe = options.probe ?? defaultProbe;
-  const reattach = options.reattach ?? (() => true);
 
   for (const record of records) {
     if (record.started_at_monotonic > currentMonotonic + maxClockSkewMs) {
       result.skewed.push(record.id);
-      markLost(service, record, 'started_at_monotonic is in the future beyond clock-skew tolerance', { kind: 'process_reconciled_dead', probeStatus: 'clock_skew', result });
+      markLost(service, record, 'started_at_monotonic is in the future beyond clock-skew tolerance');
       result.lost.push(record.id);
       continue;
     }
-    const identity = probe(record);
-    const monotonicMatches = identity.started_at_monotonic === undefined || identity.started_at_monotonic === null || Math.abs(identity.started_at_monotonic - record.started_at_monotonic) <= maxClockSkewMs;
-    if (!identity.running || identity.pid !== record.pid || !monotonicMatches) {
-      markLost(service, record, 'restart identity probe mismatch', { kind: 'process_reconciled_dead', probeStatus: identity.running ? 'identity_mismatch' : 'not_running', result });
+
+    const pgid = processGroupId(record);
+    if (!pgid || !isProcessGroupAlive(pgid)) {
+      markLost(service, record, 'startup process group is not running');
       result.lost.push(record.id);
       continue;
     }
-    if (!reattach(record)) {
-      markLost(service, record, 'process reattach failed', { kind: 'process_reattach_rejected', result });
-      result.lost.push(record.id);
+
+    if (record.owner_kind === 'operator') {
+      result.matched.push(record.id);
       continue;
     }
-    const updated = { ...record, reattach_state: 'reattached' as const };
-    upsertRegistryRecord(service, updated);
-    result.matched.push(record.id);
+
+    const status = await reconcileOwnedRecord(service, record);
+    if (status === 'lost') result.lost.push(record.id);
   }
   return result;
 }
 
-async function stopProcessForRuntimeShutdown(
-  service: ProcessRunnerService,
-  procId: string,
-  graceMs: number = 5000,
-): Promise<ProcessRecord | null> {
-  const child = service.activeProcesses.get(procId);
-  if (!child || resolveStatus(child) !== 'running') {
-    return getProcessForService(service, procId);
-  }
-
-  signalProcessTree(child, 'SIGTERM');
-  const waitResult = await waitProcessForService(service, procId, graceMs);
-  if (waitResult.timedOut || waitResult.status === 'running') {
-    signalProcessTree(child, 'SIGKILL');
-    await waitProcessForService(service, procId, 2000);
-  }
-  return getProcessForService(service, procId);
-}
-
-function listProcessesForService(
-  service: ProcessRunnerService,
+function listProcessesForRunner(
+  service: ProcessRunner,
   filter?: ProcessListFilter,
 ): ProcessRecord[] {
-  const registry = loadRegistryForService(service);
+  const registry = loadRegistryForRunner(service);
   const records = Array.from(registry.values());
 
   for (const [procId, child] of service.activeProcesses) {
@@ -916,152 +763,81 @@ function listProcessesForService(
   return filtered;
 }
 
-function getProcessForService(
-  service: ProcessRunnerService,
+function getProcessForRunner(
+  service: ProcessRunner,
   procId: string,
 ): ProcessRecord | null {
-  const registry = loadRegistryForService(service);
+  const registry = loadRegistryForRunner(service);
   return registry.get(procId) ?? null;
 }
 
-function cleanupProcessOutputForService(service: ProcessRunnerService, procId: string): boolean {
-  const projectRoot = service.projectRoot;
-  const registry = loadRegistryForService(service);
-  const record = registry.get(procId);
+async function stopMatching(service: ProcessRunner, predicate: (record: ProcessRecord) => boolean, reason: string, graceMs: number): Promise<ProcessStopReport> {
+  const records = listProcessesForRunner(service, { status: 'running' }).filter(predicate);
+  const attempted = records.map((record) => record.id);
+  const report: ProcessStopReport = { attempted, stopped: [], failed: [] };
 
-  if (!record) return false;
-  if (record.status === 'running') return false;
-
-  const dir = processDir(projectRoot, procId);
-  if (!existsSync(dir)) return true;
-
-  try {
-    rmSync(dir, { recursive: true, force: true });
-  } catch {
-    return false;
-  }
-
-  return true;
-}
-
-function cleanupAllCompletedForService(service: ProcessRunnerService): number {
-  const registry = loadRegistryForService(service);
-  let count = 0;
-
-  for (const [procId, record] of registry) {
-    if (record.status !== 'running') {
-      if (cleanupProcessOutputForService(service, procId)) {
-        count++;
-      }
+  for (const record of records) {
+    const child = service.activeProcesses.get(record.id);
+    if (child && resolveStatus(child) === 'running') {
+      signalProcessTree(child, 'SIGTERM');
+      continue;
     }
+    const pgid = processGroupId(record);
+    if (pgid) signalProcessGroup(pgid, 'SIGTERM');
   }
 
-  return count;
-}
-
-async function stopAllRunningForRuntimeShutdownForService(service: ProcessRunnerService): Promise<string[]> {
-  const stoppedIds: string[] = [];
-
-  for (const [procId, child] of service.activeProcesses) {
+  await Promise.all(records.map(async (record) => {
     try {
-      await stopProcessForRuntimeShutdown(service, procId);
-      stoppedIds.push(procId);
-    } catch {
-      try {
-        child.kill('SIGKILL');
-        stoppedIds.push(procId);
-      } catch { void 0; }
+      const child = service.activeProcesses.get(record.id);
+      if (child && resolveStatus(child) === 'running') {
+        await waitProcessForRunner(service, record.id, graceMs);
+        return;
+      }
+      const pgid = processGroupId(record);
+      if (pgid) await waitForProcessGroupExit(pgid, graceMs);
+    } catch (error) {
+      report.failed.push({ id: record.id, error: error instanceof Error ? error.message : String(error) });
     }
-  }
+  }));
 
-  return stoppedIds;
-}
-
-async function disposeProcessRuntimeScopeForService(service: ProcessRunnerService): Promise<RuntimeDisposeReportEntry[]> {
-  const preStopResources = processScope(service).snapshot().resources;
-  const stoppedIds = await stopAllRunningForRuntimeShutdownForService(service);
-  const scope = processScope(service);
-  const report = await scope.dispose();
-  for (const procId of stoppedIds) {
-    if (!report.some((entry) => entry.id === `child:${procId}`)) {
-      report.push({ id: `child:${procId}`, kind: 'child_process', label: `child:${procId}`, status: 'killed' });
+  for (const record of records) {
+    const latest = getProcessForRunner(service, record.id) ?? record;
+    if (latest.status !== 'running') continue;
+    const child = service.activeProcesses.get(record.id);
+    if (child && resolveStatus(child) === 'running') {
+      signalProcessTree(child, 'SIGKILL');
+      continue;
     }
+    const pgid = processGroupId(latest);
+    if (pgid && isProcessGroupAlive(pgid)) signalProcessGroup(pgid, 'SIGKILL');
   }
-  for (const resource of preStopResources) {
-    if (resource.kind === 'stream' && !report.some((entry) => entry.id === resource.id)) {
-      report.push({ id: resource.id, kind: 'stream', label: resource.label, status: 'closed' });
+
+  await Promise.all(records.map(async (record) => {
+    if (report.failed.some((item) => item.id === record.id)) return;
+    try {
+      const child = service.activeProcesses.get(record.id);
+      if (child && resolveStatus(child) === 'running') {
+        await waitProcessForRunner(service, record.id, 2000);
+      } else {
+        const latest = getProcessForRunner(service, record.id) ?? record;
+        const pgid = processGroupId(latest);
+        if (pgid && !isProcessGroupAlive(pgid)) {
+          markKilled(service, latest, 'SIGTERM', reason);
+        } else if (pgid && await waitForProcessGroupExit(pgid, 2000)) {
+          markKilled(service, latest, 'SIGKILL', reason);
+        } else if (latest.status === 'running') {
+          markLost(service, latest, `${reason}: process group still running after SIGKILL`);
+        }
+      }
+
+      await waitForDurableOutput(service, record.id);
+      const finalRecord = getProcessForRunner(service, record.id);
+      if (finalRecord && finalRecord.status !== 'running') report.stopped.push(record.id);
+      else report.failed.push({ id: record.id, error: 'process still running after termination attempt' });
+    } catch (error) {
+      report.failed.push({ id: record.id, error: error instanceof Error ? error.message : String(error) });
     }
-  }
-  service.setRuntimeScope(null);
-  service.terminalSinks.clear();
-  service.terminalPaused = false;
-  service.bufferedTerminalNotes.clear();
-  service.deliveredTerminalNotes.clear();
-  for (const procId of stoppedIds) {
-    service.processResourceHandles.delete(procId);
-  }
-  return report;
-}
+  }));
 
-export function loadRegistry(projectRoot: string): Map<string, ProcessRecord> {
-  return serviceFor(projectRoot).loadRegistry();
-}
-
-export function saveRegistry(projectRoot: string, records: ProcessRecord[]): void {
-  serviceFor(projectRoot).saveRegistry(records);
-}
-
-export function setProcessTerminalBuffering(projectRoot: string, paused: boolean): void {
-  serviceFor(projectRoot).setProcessTerminalBuffering(paused);
-}
-
-export function startProcess(projectRoot: string, command: string, options: ProcessStartOptions): ProcessRecord {
-  return serviceFor(projectRoot).startProcess(command, options);
-}
-
-export function waitProcess(projectRoot: string, procId: string, timeoutMs: number = 0): Promise<ProcessWaitResult> {
-  return serviceFor(projectRoot).waitProcess(procId, timeoutMs);
-}
-
-export function killProcess(projectRoot: string, procId: string, signal: NodeJS.Signals = 'SIGTERM'): Promise<ProcessRecord | null> {
-  return serviceFor(projectRoot).killProcess(procId, signal);
-}
-
-export function startAndWait(projectRoot: string, command: string, options: ProcessStartOptions, timeoutMs: number = 0): Promise<ProcessWaitResult> {
-  return serviceFor(projectRoot).startAndWait(command, options, timeoutMs);
-}
-
-export function tailOutput(projectRoot: string, procId: string, lines: number = 50): string {
-  return serviceFor(projectRoot).tailOutput(procId, lines);
-}
-
-export function reconcileProcessRecords(projectRoot: string, options: ProcessReconcileOptions = {}): ProcessReconcileResult {
-  return serviceFor(projectRoot).reconcileProcessRecords(options);
-}
-
-export function listProcesses(projectRoot: string, filter?: ProcessListFilter): ProcessRecord[] {
-  return serviceFor(projectRoot).listProcesses(filter);
-}
-
-export function getProcess(projectRoot: string, procId: string): ProcessRecord | null {
-  return serviceFor(projectRoot).getProcess(procId);
-}
-
-export function cleanupProcessOutput(projectRoot: string, procId: string): boolean {
-  return serviceFor(projectRoot).cleanupProcessOutput(procId);
-}
-
-export function cleanupAllCompleted(projectRoot: string): number {
-  return serviceFor(projectRoot).cleanupAllCompleted();
-}
-
-export function snapshotProcessRuntimeScope(projectRoot: string): RuntimeLifecycleSnapshot {
-  return serviceFor(projectRoot).snapshotProcessRuntimeScope();
-}
-
-export async function disposeProcessRuntimeScope(projectRoot: string): Promise<RuntimeDisposeReportEntry[]> {
-  const service = serviceFor(projectRoot);
-  const report = await service.disposeProcessRuntimeScope();
-  processRunnerServicesByRoot.delete(service.projectRoot);
   return report;
 }

@@ -11,6 +11,7 @@ import { get_card, get_tree } from '../../src/tools/analyst-card-tools.js';
 import { registerCardRoutes } from '../../src/server/routes/cards.js';
 import type { CardRecord } from '../../src/schemas/types.js';
 import type { NewCardInput } from '../../src/cards/lifecycle.js';
+import { ProcessRunner } from '../../src/runtime/process-runner.js';
 
 function makeCard(overrides: Partial<NewCardInput> & { id?: string; type?: NewCardInput['type']; title?: string; parent?: string | null } = {}): NewCardInput & { id?: string } {
   return {
@@ -113,11 +114,12 @@ describe('shuffled persisted subtree ordering', () => {
     expect(body.card.dependencyRefs).toEqual([]);
     expect(body.card.relatedRefs).toEqual([]);
 
-    const cardResult = await get_card({ projectRoot: tmpDir, store: reloaded, actor: 'analyst', surface: 'web-chat' }, { id: parentId });
+    const processRunner = new ProcessRunner(tmpDir);
+    const cardResult = await get_card({ projectRoot: tmpDir, processRunner, store: reloaded, actor: 'analyst', surface: 'web-chat' }, { id: parentId });
     expect(cardResult.success).toBe(true);
     expect(((cardResult.data as { children: Array<{ id: string }> }).children).map((child) => child.id)).toEqual(expectedChildOrder);
 
-    const treeResult = await get_tree({ projectRoot: tmpDir, store: reloaded, actor: 'analyst', surface: 'web-chat' }, { rootId: parentId });
+    const treeResult = await get_tree({ projectRoot: tmpDir, processRunner, store: reloaded, actor: 'analyst', surface: 'web-chat' }, { rootId: parentId });
     expect(treeResult.success).toBe(true);
     expect(((treeResult.data as { children: Array<{ id: string }> }).children).map((child) => child.id)).toEqual(expectedChildOrder);
   });

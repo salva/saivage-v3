@@ -3,9 +3,10 @@ import Fastify from 'fastify';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { saveRegistry } from '../../src/runtime/process-runner.js';
+import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { registerOperatorContractRoutes } from '../../src/server/routes/operator-contracts.js';
 import type { ProcessRecord } from '../../src/schemas/index.js';
+import type { RuntimeApplication } from '../../src/application/runtime-composition.js';
 
 function processRecord(projectRoot: string, overrides: Partial<ProcessRecord> = {}): ProcessRecord {
   return {
@@ -35,7 +36,6 @@ function processRecord(projectRoot: string, overrides: Partial<ProcessRecord> = 
     owner_kind: 'runtime',
     background_policy: null,
     process_group_id: null,
-    reattach_state: 'attached',
     failure_classification: null,
     ...overrides,
   };
@@ -46,8 +46,9 @@ describe('contract-backed process routes', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-process-route-'));
     const fastify = Fastify({ logger: false });
     try {
-      saveRegistry(projectRoot, [processRecord(projectRoot)]);
-      registerOperatorContractRoutes({ fastify, projectRoot });
+      const processRunner = new ProcessRunner(projectRoot);
+      processRunner.setTransientRegistry(new Map([['proc-1', processRecord(projectRoot)]]));
+      registerOperatorContractRoutes({ fastify, projectRoot, runtimeApplication: { processRunner } as RuntimeApplication });
 
       const list = await fastify.inject({ method: 'GET', url: '/api/processes' });
       expect(list.statusCode).toBe(200);
@@ -76,8 +77,9 @@ describe('contract-backed process routes', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-process-route-'));
     const fastify = Fastify({ logger: false });
     try {
-      saveRegistry(projectRoot, []);
-      registerOperatorContractRoutes({ fastify, projectRoot });
+      const processRunner = new ProcessRunner(projectRoot);
+      processRunner.setTransientRegistry(new Map());
+      registerOperatorContractRoutes({ fastify, projectRoot, runtimeApplication: { processRunner } as RuntimeApplication });
 
       const response = await fastify.inject({ method: 'GET', url: '/api/processes/missing' });
       expect(response.statusCode).toBe(404);

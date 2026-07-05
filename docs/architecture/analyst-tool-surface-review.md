@@ -26,8 +26,8 @@ The implementation already has useful pieces but does not expose the desired mod
 | `edit_card` | Analyst can edit objective/metadata fields only: `title`, `description`, `tags`, `priority`, `urgency`, `acceptance`, `depends_on`. Status, parent, type, lifecycle, and structure are denied. |
 | `delete_card` | Implementation exists and uses the permission matrix, but the tool is not exposed to the Analyst surface. It deletes records directly instead of using the archive path used by planner deletion. |
 | `reorder_child` | Implementation exists but is planner-only. |
-| Restart | Permission matrix allows Analyst restart for `done`, `failed`, and `cancelled`, but no Analyst restart tool is exposed. |
-| Propagation | `propagateChange` walks the edited card plus ancestors, flips resting `done`/`failed`/`cancelled`/`blocked` cards to `changed`, stops at first `running` card, and queues planner notes for active containing planners. |
+| Restart | Permission matrix allows Analyst restart for `done` and `failed`, but no Analyst restart tool is exposed. `cancelled` is terminal and cannot be restarted. |
+| Propagation | `propagateChange` walks the edited card plus ancestors, flips resting `done`/`failed`/`blocked` cards to `changed`, stops at first `running` card, and queues planner notes for active containing planners. `cancelled` is terminal and excluded from flipping. |
 | Notifications | `queueNotification` resolves card recipients to affected active sessions; there is no durable notification inbox. |
 
 The existing `propagateChange` behavior is the right foundation for Analyst edits. Expanded structural tools should use the same propagation concept instead of inventing a parallel notification path.

@@ -1,21 +1,22 @@
-import { LLMActor, type LLMAdmissionPort, type LLMProviderPort } from './llm-actor.js';
+import { LLMActor, type LLMProviderPort } from './llm-actor.js';
 import { BaseCardProcessorActor, type CardProcessorOutcome } from './base-card-processor-actor.js';
 import type { CardActivationInput } from './card-actor.js';
+import { RuntimeGate } from '../runtime-gate.js';
 
 export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorActor {
   readonly provider: LLMProviderPort;
-  readonly admission?: LLMAdmissionPort;
+  readonly gate: RuntimeGate;
   readonly activeLlmActors = new Map<string, LLMActor>();
   #invocationInputCounter = 0;
 
-  protected constructor(args: { projectRoot: string; cardId: string; provider: LLMProviderPort; admission?: LLMAdmissionPort }) {
+  protected constructor(args: { projectRoot: string; cardId: string; provider: LLMProviderPort; gate?: RuntimeGate }) {
     super(args);
     this.provider = args.provider;
-    this.admission = args.admission;
+    this.gate = args.gate ?? new RuntimeGate();
   }
 
   protected createMainLlm(agentId: string): LLMActor {
-    const llm = new LLMActor({ projectRoot: this.projectRoot, agentId, provider: this.provider, admission: this.admission });
+    const llm = new LLMActor({ projectRoot: this.projectRoot, agentId, provider: this.provider, gate: this.gate });
     llm.start();
     this.activeLlmActors.set(agentId, llm);
     return llm;
@@ -35,8 +36,13 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
     return `${prefix}:${this.cardId}:${this.#invocationInputCounter}`;
   }
 
-  protected notificationContextMessages(input: CardActivationInput, inputId: string): unknown[] {
+  protected plannerNotificationContext(input: CardActivationInput, inputId: string): unknown[] {
     const notifications = input.notificationDelivery.deliverNotificationsForInput(inputId);
     return notifications.map((notification) => ({ role: 'user', content: notification.message }));
+  }
+
+  protected reviewerContext(input: CardActivationInput): unknown[] {
+    const pending = input.notificationDelivery.hasPendingNotifications?.() ?? false;
+    return [{ role: 'user', content: `Main-agent notification currentness: pending=${pending ? 'yes' : 'no'}. This is an invalidation signal only; reviewer turns must not consume main-agent notifications.` }];
   }
 }

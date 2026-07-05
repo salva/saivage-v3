@@ -12,6 +12,7 @@ import { defineTool, type ToolProvider, type ToolResult } from './invocation.js'
 interface PlannerChildActor {
   activate(input: { kind: 'parent'; cardId: string; sessionId: string }): Promise<{ status: string; summary: string; result?: unknown }>;
   cancel(input: { reason: string; cancelled_at: string }): void;
+  markChanged?(): void;
 }
 
 interface PlannerControlStore {
@@ -107,8 +108,10 @@ function editCard(ctx: PlannerControlProviderContext, record: z.infer<typeof edi
   const patch = plannerEditablePatch(record);
   if (Object.keys(patch).length === 0) return failure('edit_card requires at least one editable field.');
   if (!ctx.store.mutateCard) throw new Error('Planner edit_card requires a mutable card store.');
-  if (child.card.status === 'failed' || child.card.status === 'blocked') ctx.store.setStatus(record.card_id, 'changed');
+  const shouldMarkChanged = child.card.status === 'failed' || child.card.status === 'blocked';
+  if (shouldMarkChanged) ctx.store.setStatus(record.card_id, 'changed');
   const updated = ctx.store.mutateCard(record.card_id, patch, { actor: 'planner', surface: 'runtime', reason: 'planner edit_card' });
+  if (shouldMarkChanged) ctx.children.get(record.card_id)?.markChanged?.();
   return { success: true, data: { card: compactPlannerToolCard(updated) } };
 }
 

@@ -1,56 +1,41 @@
-import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
-import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { initProjectTree } from '../../src/persistence/file-tree.js';
-import { createRuntimeLifecycleHarness, type RuntimeLifecycleHarness } from './runtime-lifecycle-harness.js';
-import {
-  startProcess,
-  waitProcess,
-  startAndWait,
-  tailOutput,
-  listProcesses,
-  loadRegistry,
-  getProcess,
-  saveRegistry,
-  cleanupProcessOutput,
-  cleanupAllCompleted,
-  isProcessLiveAttached,
-  snapshotProcessRuntimeScope,
-  disposeProcessRuntimeScope,
-  setProcessRunnerNotifyCard,
-  reconcileProcessRecords,
-} from '../../src/runtime/process-runner.js';
-import { clearProjectNotificationDeliveryAdapters, setProjectNotificationDeliveryAdapters, type NotificationDeliveryContext, type NotificationQueueEntry } from '../../src/notifications/index.js';
-import type { ProcessRecord } from '../../src/schemas/types.js';
+import { ProcessRunner } from '../../src/runtime/process-runner.js';
+import type { ProcessRecord } from '../../src/schemas/index.js';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-describe('Process Runner', () => {
+describe('ProcessRunner', () => {
   let root: string;
+  let runner: ProcessRunner;
 
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), 'proc-runner-'));
     initProjectTree(root);
+    runner = new ProcessRunner(root);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await runner.stopRuntimeOwned('test cleanup', { graceMs: 100 });
     rmSync(root, { recursive: true, force: true });
   });
 
-  it('reports live attachment true only for a started running process', async () => {
-    const rec = startProcess(root, 'sleep 0.2', { cardId: 'card-live-attached' });
-    expect(isProcessLiveAttached(rec.id)).toBe(true);
-    await waitProcess(root, rec.id, 1000);
-    expect(isProcessLiveAttached(rec.id)).toBe(false);
-  });
+  function spawn(command: string, cardId = 'card-1') {
+    return runner.spawn({ command, cardId, ownerId: `owner:${cardId}`, ownerKind: 'agent' });
+  }
 
-  it('spawns a process and returns a valid transient ProcessRecord with output files', async () => {
-    const rec = startProcess(root, 'echo "hello stdout"; echo "hello stderr" >&2', { cardId: 'card-out' });
+  it('spawns a process and records durable output paths', async () => {
+    const rec = spawn('echo "hello stdout"; echo "hello stderr" >&2', 'card-out');
     expect(rec.status).toBe('running');
-    await waitProcess(root, rec.id);
-    await sleep(300);
+
+    const result = await runner.wait(rec.id, 1000);
+    await sleep(100);
+
+    expect(result.status).toBe('exited');
     expect(existsSync(rec.stdout_path)).toBe(true);
     expect(existsSync(rec.stderr_path)).toBe(true);
     expect(existsSync(rec.combined_log_path)).toBe(true);
@@ -58,33 +43,34 @@ describe('Process Runner', () => {
   });
 
   it('generates unique process IDs', async () => {
-    const rec1 = startProcess(root, 'echo one', { cardId: 'card-1' });
-    const rec2 = startProcess(root, 'echo two', { cardId: 'card-1' });
+    const rec1 = spawn('echo one');
+    const rec2 = spawn('echo two');
     expect(rec1.id).not.toBe(rec2.id);
-    await waitProcess(root, rec1.id);
-    await waitProcess(root, rec2.id);
+    await runner.wait(rec1.id, 1000);
+    await runner.wait(rec2.id, 1000);
   });
 
   it('marks process as failed when command exits with non-zero', async () => {
-    const rec = startProcess(root, 'exit 42', { cardId: 'card-fail' });
-    await waitProcess(root, rec.id);
-    await sleep(300);
-    const reloaded = getProcess(root, rec.id);
-    expect(reloaded).not.toBeNull();
-    expect(reloaded!.status).toBe('failed');
-    expect(reloaded!.exit_code).toBe(42);
+    const rec = spawn('exit 42', 'card-fail');
+    await runner.wait(rec.id, 1000);
+
+    const reloaded = runner.get(rec.id);
+    expect(reloaded).toMatchObject({ status: 'failed', exit_code: 42 });
   });
 
-  it('persists ProcessRecord registry under .saivage/runtime/processes.json', async () => {
-    const rec = startProcess(root, 'echo registry', { cardId: 'card-reg' });
-    expect(loadRegistry(root).has(rec.id)).toBe(true);
-    await waitProcess(root, rec.id);
+  it('persists and reloads ProcessRecord registry under .saivage/runtime/processes.json', async () => {
+    const rec = spawn('echo registry', 'card-reg');
+    await runner.wait(rec.id, 1000);
+
     expect(existsSync(join(root, '.saivage', 'runtime', 'processes.json'))).toBe(true);
+    expect(new ProcessRunner(root).get(rec.id)).toMatchObject({ id: rec.id, status: 'exited' });
   });
 
-  it('respects ProcessStartOptions fields for synchronous command logs', async () => {
-    const rec = startProcess(root, 'echo options', {
+  it('honors spawn spec ownership and lifecycle metadata', async () => {
+    const rec = runner.spawn({
+      command: 'echo options',
       cardId: 'card-own',
+      ownerId: 'session-test-123',
       requiredForCardCompletion: false,
       agentSessionId: 'session-test-123',
       goalId: 'goal-test-456',
@@ -92,190 +78,84 @@ describe('Process Runner', () => {
       ownerKind: 'agent',
       backgroundPolicy: 'foreground',
     });
+
     expect(rec.required_for_card_completion).toBe(false);
     expect(rec.owner_id).toBe('session-test-123');
     expect(rec.agent_session_id).toBe('session-test-123');
-    await waitProcess(root, rec.id);
-  });
-
-  it('waits for a process to complete and returns exited status', async () => {
-    const rec = startProcess(root, 'echo done', { cardId: 'card-wait' });
-    const result = await waitProcess(root, rec.id);
-    expect(result.status).toBe('exited');
+    expect(rec.owner_kind).toBe('agent');
+    await runner.wait(rec.id, 1000);
   });
 
   it('times out without killing the process and can later observe normal completion', async () => {
-    const rec = startProcess(root, 'sleep 0.2 && echo done', { cardId: 'card-timeout' });
-    const result = await waitProcess(root, rec.id, 10);
-    expect(result.timedOut).toBe(true);
-    expect(result.status).toBe('running');
-    const finished = await waitProcess(root, rec.id, 1000);
+    const rec = spawn('sleep 0.2 && echo done', 'card-timeout');
+    const timed = await runner.wait(rec.id, 10);
+    expect(timed).toMatchObject({ timedOut: true, status: 'running' });
+
+    const finished = await runner.wait(rec.id, 1000);
     expect(finished.status).toBe('exited');
+    expect(readFileSync(runner.get(rec.id)!.combined_log_path, 'utf-8')).toContain('done');
   });
 
-  it('clears wait timeout listeners and timers after timeout resolution', async () => {
-    const rec = startProcess(root, 'sleep 0.2', { cardId: 'card-wait-cleanup' });
-    const result = await waitProcess(root, rec.id, 5);
-    expect(result.timedOut).toBe(true);
-    expect(snapshotProcessRuntimeScope(root).resources.some((resource) => resource.label === `wait-timeout:${rec.id}`)).toBe(false);
-    await waitProcess(root, rec.id, 1000);
+  it('lists process records and filters by status/card id', async () => {
+    const rec1 = spawn('echo a', 'card-a');
+    const rec2 = spawn('echo b', 'card-b');
+    await runner.wait(rec1.id, 1000);
+    await runner.wait(rec2.id, 1000);
+
+    expect(runner.list()).toHaveLength(2);
+    expect(runner.list({ cardId: 'card-a' })).toHaveLength(1);
+    expect(runner.list({ status: 'exited' }).length).toBeGreaterThanOrEqual(2);
   });
 
-  it('reports deterministic detached/closed cleanup for a running process scope', async () => {
-    const harness: RuntimeLifecycleHarness = createRuntimeLifecycleHarness('proc-runner-scope-');
-    try {
-      const rec = startProcess(harness.root, 'sleep 5', { cardId: 'card-scope-cleanup' });
-      expect(isProcessLiveAttached(rec.id)).toBe(true);
-      expect(harness.snapshot().resources.map((resource: { kind: string }) => resource.kind)).toEqual(expect.arrayContaining(['child_process', 'stream']));
-      const report = await harness.dispose();
-      expect(report).toEqual(expect.arrayContaining([
-        expect.objectContaining({ kind: 'child_process', status: expect.stringMatching(/detached|killed/) }),
-        expect.objectContaining({ kind: 'stream', status: expect.stringMatching(/closed|noop/) }),
-      ]));
-      expect(isProcessLiveAttached(rec.id)).toBe(false);
-    } finally {
-      await harness.cleanup();
-    }
+  it('kills running processes', async () => {
+    const rec = spawn('sleep 5', 'card-kill');
+    const killed = await runner.kill(rec.id, 'test kill', { graceMs: 100 });
+    expect(killed?.status).toBe('killed');
+    expect(runner.get(rec.id)).toMatchObject({ status: 'killed' });
   });
 
-  it('starts and waits for a quick command', async () => {
-    const result = await startAndWait(root, 'echo "hello world"', { cardId: 'card-saw' });
-    expect(result.status).toBe('exited');
-  });
-
-  it('returns last N lines of process output', async () => {
-    const cmd = Array.from({ length: 20 }, (_, i) => `echo "line_${i}"`).join(' && ');
-    const result = await startAndWait(root, cmd, { cardId: 'card-tail' });
-    await sleep(300);
-    expect(tailOutput(root, result.id, 5)).toContain('line_19');
-  });
-
-  it('returns all processes and filters by status/cardId from transient state', async () => {
-    const rec1 = startProcess(root, 'echo a', { cardId: 'card-a' });
-    const rec2 = startProcess(root, 'echo b', { cardId: 'card-b' });
-    await waitProcess(root, rec1.id);
-    await waitProcess(root, rec2.id);
-    await sleep(200);
-    expect(listProcesses(root)).toHaveLength(2);
-    expect(listProcesses(root, { cardId: 'card-a' })).toHaveLength(1);
-    expect(listProcesses(root, { status: 'exited' }).length).toBeGreaterThanOrEqual(2);
-  });
-
-  it('saveRegistry persists durable registry files', () => {
-    const validRecords: ProcessRecord[] = [{
-      id: 'proc-test-valid',
-      card_id: 'card-1',
-      owner_id: 'test-owner',
-      command: 'echo test',
+  it('reconciles stale running records as lost', async () => {
+    const rec: ProcessRecord = {
+      id: 'proc-reconcile',
+      card_id: 'card-reconcile',
+      owner_id: 'owner:card-reconcile',
+      owner_kind: 'agent',
+      command: 'sleep 5',
       command_hash: 'a'.repeat(64),
       cwd: root,
       cwd_canonical: root,
-      status: 'exited',
-      pid: 12345,
-      started_at: new Date().toISOString(),
-      started_at_monotonic: 1,
-      completed_at: new Date().toISOString(),
-      exit_code: 0,
-      required_for_card_completion: true,
-      output_dir: join(root, '.saivage-work/processes/proc-test-valid'),
-      stdout_path: join(root, '.saivage-work/processes/proc-test-valid/stdout.log'),
-      stderr_path: join(root, '.saivage-work/processes/proc-test-valid/stderr.log'),
-      combined_log_path: join(root, '.saivage-work/processes/proc-test-valid/combined.log'),
-    }];
-    saveRegistry(root, validRecords);
-    expect(loadRegistry(root).has('proc-test-valid')).toBe(true);
-    expect(readFileSync(join(root, '.saivage', 'runtime', 'processes.json'), 'utf-8')).toContain('proc-test-valid');
-  });
-
-  it('routes process-death reconciliation notifications through notifyCard and preserves session delivery', () => {
-    const record: ProcessRecord = {
-      id: 'proc-dead-notify',
-      card_id: 'card-dead-notify',
-      owner_id: 'executor:card-dead-notify',
-      command: 'sleep 100',
-      command_hash: 'b'.repeat(64),
-      cwd: root,
-      cwd_canonical: root,
       status: 'running',
-      pid: 987654,
+      pid: 999999,
       started_at: new Date().toISOString(),
       started_at_monotonic: 10,
       completed_at: null,
       exit_code: null,
       signal: null,
+      terminal_reason: null,
       required_for_card_completion: true,
-      output_dir: join(root, '.saivage-work/processes/proc-dead-notify'),
-      stdout_path: join(root, '.saivage-work/processes/proc-dead-notify/stdout.log'),
-      stderr_path: join(root, '.saivage-work/processes/proc-dead-notify/stderr.log'),
-      combined_log_path: join(root, '.saivage-work/processes/proc-dead-notify/combined.log'),
-      agent_session_id: 'executor:card-dead-notify',
-      goal_id: 'goal-dead-notify',
+      output_dir: join(root, '.saivage-work/processes/proc-reconcile'),
+      stdout_path: join(root, '.saivage-work/processes/proc-reconcile/stdout.log'),
+      stderr_path: join(root, '.saivage-work/processes/proc-reconcile/stderr.log'),
+      combined_log_path: join(root, '.saivage-work/processes/proc-reconcile/combined.log'),
+      agent_session_id: null,
+      goal_id: null,
+      launch_reason: null,
+      background_policy: null,
+      process_group_id: null,
+      failure_classification: null,
     };
-    saveRegistry(root, [record]);
-    const notifyCard = jest.fn(() => ({ ok: true as const }));
-    setProcessRunnerNotifyCard(root, notifyCard);
-    const deliveries: Array<{ entry: NotificationQueueEntry; context: NotificationDeliveryContext }> = [];
-    setProjectNotificationDeliveryAdapters(root, [{ name: 'test', deliver: (entry, context) => { deliveries.push({ entry, context }); } }]);
+    runner.setTransientRegistry(new Map([[rec.id, rec]]));
 
-    try {
-      const result = reconcileProcessRecords(root, { nowMonotonicMs: 20, probe: () => ({ running: false, pid: record.pid }) });
+    const result = await runner.reconcile({ nowMonotonicMs: rec.started_at_monotonic + 1 });
 
-      expect(result).toMatchObject({ lost: [record.id], notificationDeliveries: [{ ok: true, cardDeliveries: [{ cardId: record.card_id, result: { ok: true } }], sessionDeliveries: [record.agent_session_id] }] });
-      expect(notifyCard).toHaveBeenCalledWith(record.card_id, expect.objectContaining({ reason: 'process_state', message: expect.stringContaining('reconciled as dead') }));
-      expect(deliveries).toEqual([expect.objectContaining({ context: { target: 'session', sessionId: record.agent_session_id }, entry: expect.objectContaining({ kind: 'process_state', body: expect.stringContaining('reconciled as dead') }) })]);
-    } finally {
-      clearProjectNotificationDeliveryAdapters(root);
-    }
+    expect(result.lost).toEqual([rec.id]);
+    expect(runner.get(rec.id)).toMatchObject({ status: 'failed', failure_classification: 'lost' });
   });
 
-  it('reports missing-card process-death delivery without raw throws', () => {
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const record: ProcessRecord = {
-      id: 'proc-dead-missing',
-      card_id: 'card-dead-missing',
-      owner_id: 'executor:card-dead-missing',
-      command: 'sleep 100',
-      command_hash: 'c'.repeat(64),
-      cwd: root,
-      cwd_canonical: root,
-      status: 'running',
-      pid: 987655,
-      started_at: new Date().toISOString(),
-      started_at_monotonic: 10,
-      completed_at: null,
-      exit_code: null,
-      signal: null,
-      required_for_card_completion: true,
-      output_dir: join(root, '.saivage-work/processes/proc-dead-missing'),
-      stdout_path: join(root, '.saivage-work/processes/proc-dead-missing/stdout.log'),
-      stderr_path: join(root, '.saivage-work/processes/proc-dead-missing/stderr.log'),
-      combined_log_path: join(root, '.saivage-work/processes/proc-dead-missing/combined.log'),
-      agent_session_id: 'executor:card-dead-missing',
-      goal_id: 'goal-dead-missing',
-    };
-    saveRegistry(root, [record]);
-    setProcessRunnerNotifyCard(root, () => ({ ok: false, reason: 'missing_card', cardId: record.card_id }));
+  it('fails fast when waiting on an unattached running record', async () => {
+    const rec = spawn('sleep 5', 'card-unattached');
+    const detached = new ProcessRunner(root);
 
-    try {
-      const result = reconcileProcessRecords(root, { nowMonotonicMs: 20, probe: () => ({ running: false, pid: record.pid }) });
-
-      expect(result).toMatchObject({ lost: [record.id], notificationDeliveries: [{ ok: false, cardDeliveries: [{ cardId: record.card_id, result: { ok: false, reason: 'missing_card', cardId: record.card_id } }], sessionDeliveries: [record.agent_session_id] }] });
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining('process_notification_delivery_failed'));
-    } finally {
-      warn.mockRestore();
-    }
-  });
-
-  it('cleans completed process dirs', async () => {
-    const result = await startAndWait(root, 'echo cleanup-test', { cardId: 'card-clean' });
-    await sleep(200);
-    const proc = getProcess(root, result.id);
-    expect(proc).not.toBeNull();
-    expect(cleanupProcessOutput(root, result.id)).toBe(true);
-
-    await startAndWait(root, 'echo a', { cardId: 'card-1' });
-    await startAndWait(root, 'echo b', { cardId: 'card-2' });
-    await sleep(300);
-    expect(cleanupAllCompleted(root)).toBe(3);
+    await expect(detached.wait(rec.id, 10)).rejects.toThrow(`Cannot wait for unattached running process ${rec.id}`);
   });
 });

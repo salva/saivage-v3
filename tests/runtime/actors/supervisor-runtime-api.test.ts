@@ -13,6 +13,8 @@ import type { CardRecord } from '../../../src/schemas/index.js';
 import { openRecordSlot } from '../../../src/runtime/records/record-slots.js';
 import { readRuntimeState } from '../../../src/runtime/state-api.js';
 import { createRuntimeStateMutationPort } from '../../../src/runtime/mutations.js';
+import { ProcessRunner } from '../../../src/runtime/process-runner.js';
+import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-supervisor-api-'));
@@ -31,6 +33,10 @@ function readJsonl(path: string): Array<Record<string, unknown>> {
     .map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 
+function testProcessRunner(projectRoot: string): ProcessRunner {
+  return new ProcessRunner(projectRoot);
+}
+
 async function waitForRootRun(projectRoot: string, predicate: (run: Record<string, unknown>) => boolean): Promise<Record<string, unknown>> {
   const deadline = Date.now() + 3000;
   while (Date.now() < deadline) {
@@ -39,6 +45,14 @@ async function waitForRootRun(projectRoot: string, predicate: (run: Record<strin
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error(`Timed out waiting for root run. State: ${JSON.stringify(readRuntimeState(projectRoot))}`);
+}
+
+async function eventually(assertion: () => void, attempts = 40): Promise<void> {
+  let lastError: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try { assertion(); return; } catch (error) { lastError = error; await new Promise((resolve) => setTimeout(resolve, 10)); }
+  }
+  throw lastError;
 }
 
 function createProject(store: CardStore): CardRecord {
@@ -143,23 +157,14 @@ function writeRequiredRecord(projectRoot: string, cardId: string, filename: 'sta
 }
 
 describe('SupervisorRuntimeApi', () => {
-  it('accepts provider admission and release by call ID string only', () => withTempProject((projectRoot) => {
+  it('supervisor no longer tracks provider-call state', () => withTempProject((projectRoot) => {
     const supervisor = new RuntimeSupervisorActor();
     supervisor.start();
     supervisor.initialize(projectRoot);
     supervisor.run();
 
-    expect(supervisor.requestProviderCall('provider-call-1')).toBe(true);
-    expect(supervisor.work).toBe('model_invocation_active');
-    supervisor.releaseProviderCall('provider-call-1');
     expect(supervisor.work).toBe('ready');
-
-    if (false) {
-      // @ts-expect-error Provider admission no longer accepts legacy argument objects.
-      supervisor.requestProviderCall({ callId: 'provider-call-2' });
-      // @ts-expect-error Provider release no longer accepts legacy argument objects.
-      supervisor.releaseProviderCall({ callId: 'provider-call-2' });
-    }
+    expect(supervisor.snapshot().context).toEqual({ projectRoot });
   }));
 
   it('transitions shutdown directly to idle without fake asynchronous work', () => withTempProject((projectRoot) => {
@@ -178,12 +183,11 @@ describe('SupervisorRuntimeApi', () => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     createProject(store);
-    const api = createSupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), now: () => '2026-06-12T00:00:00.000Z' });
+    const api = createSupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
 
     await api.start();
     expect(api.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null });
-    api.pause();
-    expect(api.getStatus()).toMatchObject({ status: 'stopped' });
+    expect(() => api.pause()).toThrow("Cannot pause runtime from 'idle'.");
 
     const start = await api.startProject('operator');
     expect(start.success).toBe(true);
@@ -198,10 +202,8 @@ describe('SupervisorRuntimeApi', () => {
     if (!duplicateStart.success) expect(duplicateStart.error.code).toBe('runtime_already_running');
     await waitForRootRun(projectRoot, (run) => run.phase === 'blocked');
     expect(api.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null });
-    api.pause();
-    expect(api.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null });
-    api.resume();
-    expect(api.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null });
+    expect(() => api.pause()).toThrow("Cannot pause runtime from 'idle'.");
+    expect(() => api.resume()).toThrow("Cannot resume runtime from 'idle'.");
     expect(api.getActorRuntimeReadModel()).toMatchObject({
       pauseMode: 'idle',
       cards: [{ cardId: 'project', actorState: 'blocked' }],
@@ -212,11 +214,38 @@ describe('SupervisorRuntimeApi', () => {
     expect(readActorSnapshots(projectRoot).some((item) => item.actor_id === 'supervisor')).toBe(true);
   }));
 
+  it('resume opens the runtime gate without requiring a second run command', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    createProject(store);
+    let finish!: () => void;
+    const provider = withMandatoryRecords(async () => new Promise<LlmCompleteResult>((resolve) => {
+        finish = () => resolve({ kind: 'tool_calls', tool_calls: [{ id: 'planner-result-1', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked', summary: 'resumed work' }) } }] });
+      }));
+    const gate = new RuntimeGate();
+    const api = createSupervisorRuntimeApi({ projectRoot, actorStore: store, provider, processRunner: testProcessRunner(projectRoot), runtimeGate: gate, now: () => '2026-06-12T00:00:00.000Z' });
+
+    const start = await api.startProject('operator');
+    expect(start.success).toBe(true);
+    await eventually(() => expect(provider.completeTurn).toHaveBeenCalledTimes(1));
+    api.pause();
+    expect(api.getStatus()).toMatchObject({ status: 'paused', currentCardId: 'project' });
+    finish();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(readRuntimeState(projectRoot)?.runtime_runs.at(-1)).toMatchObject({ phase: 'pending', runtime_status: 'running' });
+
+    api.resume();
+
+    const terminal = await waitForRootRun(projectRoot, (run) => run.phase === 'blocked');
+    expect(terminal).toMatchObject({ phase: 'blocked', outcome: { kind: 'blocked', error: 'resumed work' } });
+    expect(provider.completeTurn).toHaveBeenCalledTimes(2);
+  }));
+
   it('settles blocked root project activations without projecting active runtime work', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     createProject(store);
-    const api = createSupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), now: () => '2026-06-12T00:00:00.000Z' });
+    const api = createSupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
 
     const result = await api.startProject('operator');
     expect(result.success).toBe(true);
@@ -233,7 +262,7 @@ describe('SupervisorRuntimeApi', () => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     createProject(store);
-    const api = createSupervisorRuntimeApi({ projectRoot, actorStore: store, provider: failedPlannerProvider(), now: () => '2026-06-12T00:00:00.000Z' });
+    const api = createSupervisorRuntimeApi({ projectRoot, actorStore: store, provider: failedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
 
     const result = await api.startProject('operator');
     expect(result.success).toBe(true);
@@ -261,7 +290,7 @@ describe('SupervisorRuntimeApi', () => {
       context: { cardId: 'G-recover', active_reconstruction: llmActive('G-recover') },
       updated_at: '2026-06-12T00:00:00.000Z',
     });
-    const api = new SupervisorRuntimeApi({ projectRoot, actorStore: inertStore, provider: blockedPlannerProvider(), now: () => '2026-06-12T00:00:00.000Z' });
+    const api = new SupervisorRuntimeApi({ projectRoot, actorStore: inertStore, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
 
     await api.start();
 
@@ -269,6 +298,29 @@ describe('SupervisorRuntimeApi', () => {
       expect.objectContaining({ actorId: 'card:G-recover', kind: 'active_card', cardId: 'G-recover' }),
       expect.objectContaining({ actorId: 'planner:G-recover', kind: 'active_llm', cardId: 'G-recover' }),
     ]));
+  }));
+
+  it('reconciles persisted processes before actor startup recovery', async () => withTempProject(async (projectRoot) => {
+    const order: string[] = [];
+    const processRunner = testProcessRunner(projectRoot);
+    jest.spyOn(processRunner, 'reconcile').mockImplementation(async () => {
+      order.push('process-reconcile');
+      return { matched: [], lost: [], skewed: [] };
+    });
+    const api = new SupervisorRuntimeApi({
+      projectRoot,
+      actorStore: inertStore,
+      provider: blockedPlannerProvider(),
+      processRunner,
+      now: () => {
+        order.push('actor-recovery');
+        return '2026-06-12T00:00:00.000Z';
+      },
+    });
+
+    await api.start();
+
+    expect(order.slice(0, 2)).toEqual(['process-reconcile', 'actor-recovery']);
   }));
 
   it('persists only outstanding recovery diagnostics after handled cleanup', async () => withTempProject(async (projectRoot) => {
@@ -293,7 +345,7 @@ describe('SupervisorRuntimeApi', () => {
       context: { cardId: 'G-recover', active_reconstruction: processorActive('G-recover') },
       updated_at: '2026-06-12T00:00:00.000Z',
     });
-    const api = new SupervisorRuntimeApi({ projectRoot, actorStore: inertStore, provider: blockedPlannerProvider(), now: () => '2026-06-12T00:00:00.000Z' });
+    const api = new SupervisorRuntimeApi({ projectRoot, actorStore: inertStore, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
 
     await api.start();
 
@@ -337,7 +389,7 @@ describe('SupervisorRuntimeApi', () => {
       status: 'delivered',
       delivery_input_id: 'input:G-delivered:child:1',
     });
-    const api = new SupervisorRuntimeApi({ projectRoot, actorStore: inertStore, provider: blockedPlannerProvider(), now: () => '2026-06-12T00:00:00.000Z' });
+    const api = new SupervisorRuntimeApi({ projectRoot, actorStore: inertStore, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
 
     await api.start();
 
@@ -371,7 +423,7 @@ describe('SupervisorRuntimeApi', () => {
       context: { cardId: 'project', active_reconstruction: processorActive('project') },
       updated_at: '2026-06-12T00:00:00.000Z',
     });
-    const api = new SupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), now: () => '2026-06-12T00:00:00.000Z' });
+    const api = new SupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
 
     await api.start();
 
@@ -407,7 +459,7 @@ describe('SupervisorRuntimeApi', () => {
       updated_at: '2026-06-12T00:00:00.000Z',
     });
     appendPlannerToolCall(projectRoot, 'project', 'emit_result', { status: 'blocked', summary: 'needs operator' });
-    const api = new SupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), now: () => '2026-06-12T00:00:00.000Z' });
+    const api = new SupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
 
     await api.start();
 
@@ -453,7 +505,7 @@ describe('SupervisorRuntimeApi', () => {
     });
     appendPlannerToolCall(projectRoot, 'project', 'emit_result', { status: 'done', summary: 'project done' });
     appendReviewerToolCall(projectRoot, 'project', { status: 'done', summary: 'review ok' });
-    const api = new SupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), now: () => '2026-06-12T00:00:00.000Z' });
+    const api = new SupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
 
     await api.start();
 
@@ -490,7 +542,7 @@ describe('SupervisorRuntimeApi', () => {
       updated_at: '2026-06-12T00:00:00.000Z',
     });
     appendPlannerToolCall(projectRoot, 'project', 'activate_card', { card_id: child.id });
-    const api = new SupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), now: () => '2026-06-12T00:00:00.000Z' });
+    const api = new SupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
 
     await api.start();
 
@@ -509,6 +561,7 @@ describe('SupervisorRuntimeApi', () => {
       rootCards: store,
       actorStore: store,
       provider: blockedPlannerProvider(),
+      processRunner: testProcessRunner(projectRoot),
       now: () => '2026-06-12T00:00:00.000Z',
     });
 
@@ -534,6 +587,7 @@ describe('SupervisorRuntimeApi', () => {
       rootCards: store,
       actorStore: store,
       provider,
+      processRunner: testProcessRunner(projectRoot),
       now: () => '2026-06-12T00:00:00.000Z',
     });
 
@@ -552,6 +606,7 @@ describe('SupervisorRuntimeApi', () => {
       projectRoot,
       actorStore: inertStore,
       provider: blockedPlannerProvider(),
+      processRunner: testProcessRunner(projectRoot),
       now: () => '2026-06-12T00:00:00.000Z',
     });
 
@@ -585,7 +640,7 @@ describe('SupervisorRuntimeApi', () => {
       },
     });
     mutations.apply({ kind: 'patchRuntimeState', patch: { status: 'running' } });
-    const api = createSupervisorRuntimeApi({ projectRoot, actorStore: inertStore, provider: blockedPlannerProvider(), now: () => '2026-06-12T00:00:00.000Z' });
+    const api = createSupervisorRuntimeApi({ projectRoot, actorStore: inertStore, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
 
     await api.start();
 
@@ -597,14 +652,17 @@ describe('SupervisorRuntimeApi', () => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     createProject(store);
+    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => new Promise<LlmCompleteResult>(() => undefined)) };
     const api = createSupervisorRuntimeApi({
       projectRoot,
       rootCards: store,
       actorStore: store,
-      provider: blockedPlannerProvider(),
+      provider,
+      processRunner: testProcessRunner(projectRoot),
       now: () => '2026-06-12T00:00:00.000Z',
     });
     await api.startProject('operator');
+    await eventually(() => expect(provider.completeTurn).toHaveBeenCalledTimes(1));
 
     const result = await api.stopProject('operator');
 

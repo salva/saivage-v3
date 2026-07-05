@@ -30,9 +30,9 @@ import { createWebProvider } from '../tools/web-tools.js';
 import { createPatchProvider, createWorkspaceProvider } from '../tools/workspace-provider.js';
 import { createSkillProvider } from '../tools/skill-provider.js';
 import { createMcpProvider } from '../tools/mcp-provider.js';
-import { processApi } from '../runtime/process-api.js';
 import { createCardInspectionProvider } from '../tools/card-inspection-provider.js';
 import { createCardHistoryProvider } from '../tools/card-history-provider.js';
+import type { ProcessRunner } from '../runtime/process-runner.js';
 
 
 export interface WorkspaceContext {
@@ -90,6 +90,7 @@ export interface AnalystRuntimeDeps {
   eventBus: EventBus;
   mcpManager?: McpManager;
   provider: LLMProviderPort;
+  processRunner: ProcessRunner;
 }
 
 function summarizeForBroadcast(tool: string, result: ToolResult): { summary: string; classified_as?: string; related_card_id?: string; related_note_id?: string; related_process_id?: string } {
@@ -154,7 +155,7 @@ export class AnalystHandler {
   }
 
   getAvailableToolNames(): string[] {
-    const ctx: ToolContext = { projectRoot: this.projectRoot, store: this.runtimeDeps.cardStore, runtime: this.runtimeDeps.runtime, mcpManager: this.runtimeDeps.mcpManager, requestServerRestart: this.requestServerRestart, actor: this.actor, surface: this.surface, eventBus: this.runtimeDeps.eventBus };
+    const ctx: ToolContext = { projectRoot: this.projectRoot, processRunner: this.runtimeDeps.processRunner, store: this.runtimeDeps.cardStore, runtime: this.runtimeDeps.runtime, mcpManager: this.runtimeDeps.mcpManager, requestServerRestart: this.requestServerRestart, actor: this.actor, surface: this.surface, eventBus: this.runtimeDeps.eventBus };
     return Array.from(this.analystInvocationSurface(ctx).tools.keys());
   }
 
@@ -167,9 +168,7 @@ export class AnalystHandler {
 
   async shutdownSessionProcesses(sessionId: string): Promise<void> {
     const resolvedSessionId = resolveAnalystSessionId(sessionId);
-    await Promise.all(processApi(this.projectRoot).listForRuntime()
-      .filter((process) => process.owner_id === resolvedSessionId && process.status === 'running')
-      .map((record) => processApi(this.projectRoot).terminate(record.id, 'SIGTERM')));
+    await this.runtimeDeps.processRunner.stopByOwner(resolvedSessionId, 'analyst session closed', { graceMs: 5000 });
   }
 
   private emitActivity(activity: { type: 'tool_call' | 'tool_result' | 'thinking'; content: Record<string, unknown> }): void {
@@ -204,7 +203,7 @@ export class AnalystHandler {
 
   private async runAnalystLoop(sessionId: string, userContent: string, workspaceContext?: WorkspaceContext): Promise<AnalystResponse> {
     const toolInvocations: NonNullable<AnalystResponse['toolInvocations']> = [];
-    const ctx: ToolContext = { projectRoot: this.projectRoot, store: this.runtimeDeps.cardStore, sessionId, runtime: this.runtimeDeps.runtime, mcpManager: this.runtimeDeps.mcpManager, requestServerRestart: this.requestServerRestart, actor: this.actor, surface: this.surface, eventBus: this.runtimeDeps.eventBus };
+    const ctx: ToolContext = { projectRoot: this.projectRoot, processRunner: this.runtimeDeps.processRunner, store: this.runtimeDeps.cardStore, sessionId, runtime: this.runtimeDeps.runtime, mcpManager: this.runtimeDeps.mcpManager, requestServerRestart: this.requestServerRestart, actor: this.actor, surface: this.surface, eventBus: this.runtimeDeps.eventBus };
     const surface = this.analystInvocationSurface(ctx);
     const previousToolCallFingerprints = new Set<string>();
     const workspaceContextMessage = buildContextTextMessage(sessionId, 'system', buildWorkspaceContextNote(workspaceContext));
@@ -319,7 +318,7 @@ export class AnalystHandler {
       createCardHistoryProvider({ projectRoot: this.projectRoot, store: this.runtimeDeps.cardStore, sessionId: ctx.sessionId, agentRole: 'analyst' }),
       createWorkspaceProvider({ projectRoot: this.projectRoot, agentRole: 'analyst', store: this.runtimeDeps.cardStore }),
       createPatchProvider({ projectRoot: this.projectRoot, agentRole: 'analyst' }),
-      createProcessProvider({ projectRoot: this.projectRoot, ownerId: ctx.sessionId ?? 'analyst', agentRole: 'analyst', ownerKind: 'operator', launchReason: 'analyst workspace run_command' }),
+      createProcessProvider({ projectRoot: this.projectRoot, processRunner: this.runtimeDeps.processRunner, ownerId: ctx.sessionId ?? 'analyst', agentRole: 'analyst', ownerKind: 'operator', launchReason: 'analyst workspace run_command' }),
       createWebProvider({ projectRoot: this.projectRoot, agentRole: 'analyst', store: this.runtimeDeps.cardStore }),
       createSkillProvider({ projectRoot: this.projectRoot, agentRole: 'analyst' }),
       createMcpProvider({ mcpManagerProvider: () => this.runtimeDeps.mcpManager, agentRole: 'analyst' }),

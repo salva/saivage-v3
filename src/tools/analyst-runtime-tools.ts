@@ -2,8 +2,9 @@ import { z } from 'zod';
 import { join } from 'node:path';
 
 import { PROJECT_CARD_ID } from '../cards/store-api.js';
-import { processApi } from '../runtime/process-api.js';
 import { listControlActions } from '../persistence/index.js';
+import type { ProcessRecord } from '../schemas/index.js';
+import { redactCommandForOperator, toContainedRelativePath } from '../workspace/index.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import type { UnifiedToolDefinition } from './analyst-tool-definition.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
@@ -12,6 +13,25 @@ import { readJsonlTail, toolFailure, toolFailureFromError } from './analyst-tool
 
 const JSONL_TAIL_DEFAULT = 50;
 const JSONL_TAIL_MAX = 1000;
+
+function processView(projectRoot: string, record: ProcessRecord): Record<string, unknown> {
+  const safePath = (path: string | null | undefined) => path ? toContainedRelativePath(projectRoot, path) : null;
+  return {
+    id: record.id,
+    status: record.status,
+    started_at: record.started_at,
+    ended_at: record.completed_at ?? null,
+    exit_code: record.exit_code ?? null,
+    timed_out: record.exit_code === null && record.status === 'failed',
+    owner_id: record.owner_id ?? null,
+    owner: record.owner_kind ?? null,
+    session_id: record.agent_session_id ?? null,
+    card_id: record.card_id,
+    command: redactCommandForOperator(record.command),
+    cwd: safePath(record.cwd),
+    logs: { stdout: safePath(record.stdout_path), stderr: safePath(record.stderr_path), combined: safePath(record.combined_log_path) },
+  };
+}
 
 export async function start_project(ctx: ToolContext, params: Record<string, never> = {}): Promise<ToolResult> {
   return runAuditedAnalystTool(ctx, params, { action: 'runtime.start_project', safety_class: 'low', target_kind: 'runtime', getTargetId: () => PROJECT_CARD_ID, run: async () => {
@@ -84,7 +104,7 @@ export async function read_control_actions(ctx: ToolContext, params: { limit?: n
 }
 
 export async function list_processes_tool(ctx: ToolContext, params: { status?: string; cardId?: string }): Promise<ToolResult> {
-  try { const procs = processApi(ctx.projectRoot).listForAgent(params.cardId ? { cardId: params.cardId } : undefined); const filtered = params.status ? procs.filter((p) => p.status === params.status) : procs; return { success: true, data: filtered }; }
+  try { const procs = ctx.processRunner.list(params.cardId ? { cardId: params.cardId } : undefined).map((record) => processView(ctx.projectRoot, record)); const filtered = params.status ? procs.filter((p) => p.status === params.status) : procs; return { success: true, data: filtered }; }
   catch (err) { return toolFailureFromError(err); }
 }
 

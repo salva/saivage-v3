@@ -135,4 +135,13 @@ describe('changed propagation', () => {
     expect(notifyCard).toHaveBeenCalledTimes(1);
     expect(notifyCard).toHaveBeenCalledWith(goalBId, expect.objectContaining({ message: 'Card changed: analyst edited goal' }));
   });
+
+  it('does not flip cancelled cards back to changed', () => {
+    setStatus(store, goalBId, 'cancelled');
+
+    const result = propagateChange(store, goalBId, { kind: 'analyst_edit', summary: 'analyst edit' });
+
+    expect(result.flipped).toEqual([]);
+    expect(store.read(goalBId)?.status).toBe('cancelled');
+  });
 });

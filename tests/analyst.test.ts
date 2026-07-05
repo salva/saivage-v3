@@ -32,6 +32,7 @@ import {
   reorder_child,
 } from '../src/agents/tool-api.js';
 import type { ToolContext } from '../src/tools/analyst-tool-types.js';
+import { ProcessRunner } from '../src/runtime/process-runner.js';
 
 const TEST_BRIEF = '# Goal\n\nTest card goal\n\n# Instructions\n\nFollow the test setup.\n\n# Acceptance Criteria\n\nAssertions pass.\n';
 
@@ -112,7 +113,7 @@ function setupTestProject(projectRoot: string): CardStore {
 }
 
 function ctx(projectRoot: string, store: CardStore): ToolContext {
-  return { projectRoot, store, actor: 'analyst', surface: 'web-chat' };
+  return { projectRoot, processRunner: new ProcessRunner(projectRoot), store, actor: 'analyst', surface: 'web-chat' };
 }
 
 describe('Analyst Tool Definitions', () => {
@@ -278,7 +279,7 @@ describe('Analyst Tools', () => {
     store.setStatus('card-1', 'running');
 
     const result = await delete_card(
-      { projectRoot, store, actor: 'runtime', surface: 'runtime' },
+      { projectRoot, processRunner: new ProcessRunner(projectRoot), store, actor: 'runtime', surface: 'runtime' },
       { ids: ['card-1'] },
     );
 
@@ -293,7 +294,7 @@ describe('Analyst Tools', () => {
     store.setStatus('card-2', 'running');
 
     const result = await delete_card(
-      { projectRoot, store, actor: 'runtime', surface: 'runtime' },
+      { projectRoot, processRunner: new ProcessRunner(projectRoot), store, actor: 'runtime', surface: 'runtime' },
       { ids: ['card-1'] },
     );
 
@@ -307,7 +308,7 @@ describe('Analyst Tools', () => {
     store.update('card-2', { status: 'backlog' });
 
     const result = await delete_card(
-      { projectRoot, store, actor: 'runtime', surface: 'runtime' },
+      { projectRoot, processRunner: new ProcessRunner(projectRoot), store, actor: 'runtime', surface: 'runtime' },
       { ids: ['card-2'] },
     );
 

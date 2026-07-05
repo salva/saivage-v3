@@ -3,18 +3,21 @@ import { resolve } from 'node:path';
 import { z } from 'zod';
 
 import { DEFAULT_COMMAND_TIMEOUT_MS, DEFAULT_MAX_OUTPUT_BYTES, MAX_COMMAND_TIMEOUT_MS, truncateCommandOutput } from '../runtime/command-policy.js';
-import { getProcess, killProcess, startProcess, waitProcess } from '../runtime/process-runner.js';
+import type { ProcessRunner } from '../runtime/process-runner.js';
+import type { RuntimeGate } from '../runtime/runtime-gate.js';
 import type { AgentRole, ProcessRecord } from '../schemas/index.js';
 import { resolveContainedProjectPath } from '../workspace/index.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
 
 export interface ProcessProviderContext {
   readonly projectRoot: string;
+  readonly processRunner: ProcessRunner;
   readonly ownerId: string;
   readonly cardId?: string;
   readonly agentRole?: AgentRole;
-  readonly ownerKind?: 'agent' | 'operator' | 'runtime';
+  readonly ownerKind: 'agent' | 'operator' | 'runtime';
   readonly launchReason?: string;
+  readonly runtimeGate?: RuntimeGate;
 }
 
 function failureFromError(err: unknown): ToolResult {
@@ -49,7 +52,7 @@ function logText(path: string | null | undefined): string {
 }
 
 function assertOwned(ctx: ProcessProviderContext, processId: string): ProcessRecord {
-  const record = getProcess(ctx.projectRoot, processId);
+  const record = ctx.processRunner.get(processId);
   if (!record) throw new Error(`Unknown process '${processId}'.`);
   if (record.owner_id !== ctx.ownerId) throw new Error(`Process '${processId}' is not owned by this activation or session.`);
   return record;
@@ -83,11 +86,9 @@ const waitProcessSchema = z.object({
 
 const killProcessSchema = z.object({
   process_id: z.string().min(1),
-  signal: z.string().optional(),
 }).strict();
 
 export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider {
-  const ownerKind = ctx.ownerKind ?? (ctx.agentRole === 'analyst' ? 'operator' : 'agent');
   const launchReason = ctx.launchReason ?? `${ctx.agentRole ?? 'agent'} process provider run_command`;
   return {
     providerName: 'process',
@@ -98,18 +99,20 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
         inputSchema: runCommandSchema,
         executor: async (args) => {
           try {
-            const record = startProcess(ctx.projectRoot, args.command, {
+            if (ctx.ownerKind !== 'operator') await ctx.runtimeGate?.waitUntilOpen();
+            const record = ctx.processRunner.spawn({
+              command: args.command,
               cardId: ctx.cardId ?? ctx.ownerId,
               ownerId: ctx.ownerId,
               agentSessionId: ctx.ownerId,
               cwd: scopedCwd(ctx.projectRoot, args.cwd),
               requiredForCardCompletion: true,
-              ownerKind,
+              ownerKind: ctx.ownerKind,
               launchReason,
               backgroundPolicy: args.wait === false ? undefined : 'foreground',
             });
             if (args.wait === false) return { success: true, data: { process_id: record.id, running: true } };
-            await waitProcess(ctx.projectRoot, record.id, timeoutMs(args.timeout_ms));
+            await ctx.processRunner.wait(record.id, timeoutMs(args.timeout_ms));
             return { success: true, data: processResult(ctx, record.id) };
           } catch (err) {
             return failureFromError(err);
@@ -124,7 +127,7 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
           try {
             const current = assertOwned(ctx, args.process_id);
             if (args.timeout_ms === 0 && current.status === 'running') return { success: true, data: { process_id: args.process_id, still_running: true } };
-            const result = await waitProcess(ctx.projectRoot, args.process_id, timeoutMs(args.timeout_ms));
+            const result = await ctx.processRunner.wait(args.process_id, timeoutMs(args.timeout_ms));
             if (result.timedOut) return { success: true, data: { process_id: args.process_id, still_running: true } };
             return { success: true, data: processResult(ctx, args.process_id) };
           } catch (err) {
@@ -139,10 +142,9 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
         executor: async (args) => {
           try {
             assertOwned(ctx, args.process_id);
-            const signal = args.signal?.trim() ? args.signal.trim() as NodeJS.Signals : 'SIGTERM';
-            const record = await killProcess(ctx.projectRoot, args.process_id, signal);
+            const record = await ctx.processRunner.kill(args.process_id, 'tool kill_process');
             if (!record) throw new Error(`Unknown process '${args.process_id}'.`);
-            return { success: true, data: { process_id: args.process_id, terminated: true, signal } };
+            return { success: true, data: { process_id: args.process_id, terminated: true } };
           } catch (err) {
             return failureFromError(err);
           }

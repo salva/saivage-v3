@@ -7,6 +7,7 @@ import type { RuntimeApi } from '../../runtime/control-api.js';
 import type { CardStore } from '../../cards/store-api.js';
 import type { buildServerAvailability } from '../availability.js';
 import type { ContractHandler } from '../contract-runtime.js';
+import type { ProcessRunner } from '../../runtime/process-runner.js';
 
 export type OperatorContractHandlerMap = Partial<Record<keyof typeof operatorApiContracts, ContractHandler>>;
 export type OperatorServerAvailabilityProvider = () => ReturnType<typeof buildServerAvailability>;
@@ -14,6 +15,7 @@ export type OperatorRestartRequester = () => Promise<void>;
 
 export interface OperatorProjectContext {
   projectRoot: string;
+  processRunner?: ProcessRunner;
 }
 
 export interface OperatorCardStoreContext {

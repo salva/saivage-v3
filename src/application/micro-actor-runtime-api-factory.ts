@@ -6,12 +6,16 @@ import type { CardStore } from '../cards/card-store.js';
 import type { InvocationService } from '../agents/invocation-service.js';
 import type { AgentMessage } from '../schemas/index.js';
 import type { McpToolInvocationPort } from '../mcp/mcp-manager.js';
+import type { ProcessRunner } from '../runtime/process-runner.js';
+import type { RuntimeGate } from '../runtime/runtime-gate.js';
 
 export interface MicroActorRuntimeApiFactoryDeps {
   projectRoot: string;
   eventBus: EventBus;
   cardStore: CardStore & ProjectRootCardReader;
   invocationService: InvocationService;
+  processRunner: ProcessRunner;
+  runtimeGate?: RuntimeGate;
   mcpManagerProvider?: () => McpToolInvocationPort | undefined;
   now?: () => string;
 }
@@ -23,6 +27,8 @@ export function createMicroActorRuntimeApi(deps: MicroActorRuntimeApiFactoryDeps
     rootCards: deps.cardStore,
     actorStore: deps.cardStore,
     provider: createInvocationServiceProvider(deps.invocationService),
+    processRunner: deps.processRunner,
+    runtimeGate: deps.runtimeGate,
     mcpManagerProvider: deps.mcpManagerProvider,
     now: deps.now,
   });

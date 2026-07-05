@@ -36,7 +36,6 @@ describe('actor runtime read model', () => {
     supervisor.initialize(projectRoot);
     supervisor.run();
     await eventually(() => { expect(supervisor.mode).toBe('running'); });
-    expect(supervisor.requestProviderCall('provider-call-1')).toBe(true);
     supervisor.pause();
     await eventually(() => { expect(supervisor.mode).toBe('paused'); });
     saveActorSnapshot(projectRoot, {
@@ -56,7 +55,7 @@ describe('actor runtime read model', () => {
 
     expect(buildActorRuntimeReadModel(projectRoot)).toEqual({
       pauseMode: 'paused',
-      activeWork: 'model_invocation',
+      activeWork: 'none',
       cards: [{ cardId: 'T-1', actorState: 'running' }],
       agents: [{ agentId: 'executor:T-1', role: 'executor', cardId: 'T-1', phase: 'calling_provider' }],
       diagnostics: [],
@@ -87,9 +86,9 @@ describe('actor runtime read model', () => {
   }));
 
   it('accepts current supervisor modes without unknown-mode diagnostics', () => withTempProject((projectRoot) => {
-    for (const [mode, expected] of [['idle', 'idle'], ['running', 'running'], ['paused', 'paused'], ['shutting_down', 'stopping']] as const) {
-      saveActorSnapshot(projectRoot, { actor_id: 'supervisor', actor_kind: 'supervisor', state_value: { mode, work: mode === 'shutting_down' ? 'shutdown_active' : 'ready' }, context: {}, updated_at: new Date().toISOString() });
-      expect(buildActorRuntimeReadModel(projectRoot)).toMatchObject({ pauseMode: expected, activeWork: mode === 'shutting_down' ? 'shutdown' : 'none', diagnostics: [] });
+    for (const [mode, expected] of [['idle', 'idle'], ['running', 'running'], ['paused', 'paused']] as const) {
+      saveActorSnapshot(projectRoot, { actor_id: 'supervisor', actor_kind: 'supervisor', state_value: { mode, work: 'ready' }, context: {}, updated_at: new Date().toISOString() });
+      expect(buildActorRuntimeReadModel(projectRoot)).toMatchObject({ pauseMode: expected, activeWork: 'none', diagnostics: [] });
     }
   }));
 
@@ -125,7 +124,7 @@ describe('actor runtime read model', () => {
     saveActorSnapshot(projectRoot, {
       actor_id: 'supervisor',
       actor_kind: 'supervisor',
-      state_value: { mode: 'running', work: 'model_invocation_active' },
+      state_value: { mode: 'running', work: 'ready' },
       context: { providerPayload: 'not projected' },
       updated_at: '2026-06-12T00:00:00.000Z',
     });

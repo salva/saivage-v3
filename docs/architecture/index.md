@@ -16,3 +16,4 @@ Current architecture documents:
 - [Shared tool invocation design](./shared-tool-invocation-design.md)
 - [Remaining work consolidated plan](./remaining-work-consolidated-plan.md)
 - [Future capabilities plan](./future-capabilities-plan.md)
+- [Operator UI/UX audit](./operator-ui-audit.md)

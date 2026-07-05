@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const ExecutorResultEnvelopeSchema = z.object({
-  status: z.enum(['done', 'failed']),
+  status: z.enum(['done', 'failed', 'blocked']),
   summary: z.string().min(1),
 }).strict();
 

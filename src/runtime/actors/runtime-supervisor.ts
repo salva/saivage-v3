@@ -2,27 +2,24 @@ import { BaseActor } from '../micro-actor/index.js';
 import { saveActorSnapshot } from './snapshots.js';
 import { supervisorActorId } from './ids.js';
 
-export type RuntimeSupervisorMode = 'idle' | 'running' | 'paused' | 'shutting_down';
-export type RuntimeSupervisorWork = 'ready' | 'model_invocation_active' | 'shutdown_active';
+export type RuntimeSupervisorMode = 'idle' | 'running' | 'paused';
+export type RuntimeSupervisorWork = 'ready';
 
 export interface RuntimeSupervisorContext extends Record<string, unknown> {
   projectRoot: string | null;
-  activeProviderCallId: string | null;
 }
 
 export class RuntimeSupervisorActor extends BaseActor {
   static _actor = {
     initial: 'idle',
     states: {
-      idle: { parked: true, on: { run: 'running', shutdown: 'shutting_down' } },
-      running: { parked: true, on: { pause: 'paused', cancel: 'idle', settle: 'idle', shutdown: 'shutting_down' } },
-      paused: { parked: true, on: { run: 'running', shutdown: 'shutting_down', cancel: 'idle', settle: 'idle' } },
-      shutting_down: { on: { done: 'idle', failed: 'idle' } },
+      idle: { parked: true, on: { run: 'running' } },
+      running: { parked: true, on: { pause: 'paused', cancel: 'idle', settle: 'idle' } },
+      paused: { parked: true, on: { run: 'running', cancel: 'idle', settle: 'idle' } },
     },
   };
 
   projectRoot: string | null = null;
-  activeProviderCallId: string | null = null;
 
   initialize(projectRoot: string): void {
     if (this.projectRoot !== null && this.projectRoot !== projectRoot) {
@@ -37,8 +34,7 @@ export class RuntimeSupervisorActor extends BaseActor {
   }
 
   get work(): RuntimeSupervisorWork {
-    if (this.mode === 'shutting_down') return 'shutdown_active';
-    return this.activeProviderCallId === null ? 'ready' : 'model_invocation_active';
+    return 'ready';
   }
 
   run(): boolean {
@@ -55,46 +51,24 @@ export class RuntimeSupervisorActor extends BaseActor {
   }
 
   shutdown(): boolean {
-    if (this.mode === 'shutting_down') return false;
-    if (this.mode === 'idle' || this.mode === 'running' || this.mode === 'paused') {
-      this.parkedSendEvent('shutdown');
-      return true;
-    }
-    return false;
+    if (this.mode === 'idle') return false;
+    this.parkedSendEvent('cancel');
+    return true;
   }
 
   cancelProject(): boolean {
-    if (this.mode === 'idle' || this.mode === 'shutting_down') return false;
+    if (this.mode === 'idle') return false;
     this.parkedSendEvent('cancel');
     return true;
   }
 
   settleProject(): boolean {
-    if (this.mode === 'idle' || this.mode === 'shutting_down') return false;
+    if (this.mode === 'idle') return false;
     this.parkedSendEvent('settle');
     return true;
   }
 
-  requestProviderCall(callId: string): boolean {
-    if (this.mode !== 'running' || this.activeProviderCallId !== null) return false;
-    this.activeProviderCallId = callId;
-    this.persist();
-    return true;
-  }
-
-  releaseProviderCall(callId: string): void {
-    if (this.activeProviderCallId === callId) {
-      this.activeProviderCallId = null;
-      this.persist();
-    }
-  }
-
-  _on_enter__shutting_down(): void {
-    this.sendEvent('done');
-  }
-
-  protected override _on_state_changed(_oldState: string | undefined, newState: string): void {
-    if (newState === 'idle') this.activeProviderCallId = null;
+  protected override _on_state_changed(_oldState: string | undefined, _newState: string): void {
     this.persist();
   }
 
@@ -103,7 +77,7 @@ export class RuntimeSupervisorActor extends BaseActor {
       actor_id: supervisorActorId(),
       actor_kind: 'supervisor' as const,
       state_value: { mode: this.mode, work: this.work },
-      context: { projectRoot: this.projectRoot, activeProviderCallId: this.activeProviderCallId },
+      context: { projectRoot: this.projectRoot },
       updated_at: new Date().toISOString(),
     };
   }

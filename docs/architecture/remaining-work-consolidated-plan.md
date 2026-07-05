@@ -8,7 +8,7 @@ This plan consolidates the still-relevant follow-up work from the record-slot, t
 
 The active execution backlog in this document is limited to improvements of the current codebase: simplification, dead-code removal, test hardening, and documentation cleanup. Completely new capabilities such as Git tools, RAG, memory, notes, and conversation compaction are parked in [Future Capabilities Plan](./future-capabilities-plan.md).
 
-Architecture-level simplification of the actor, process, shutdown, and analyst subsystems — card/processor tree ownership, the process service forwarding stack, operational shutdown teardown, the shared LLM turn-loop home, analyst turn-loop dedup, and CLI pause/resume routing — is tracked in [Micro-Actor Runtime Implementation Plan — Remediation](./micro-actor-runtime-implementation-plan.md#remediation-code-to-design-conformance). Those items are intentionally not duplicated here; this backlog covers config/provider, persistence, web UI, tool-surface, and test/docs cleanup instead.
+Architecture-level simplification of the actor, process, shutdown, and analyst subsystems — card/processor tree ownership, the process service forwarding stack, operational shutdown teardown, the shared LLM turn-loop home, analyst turn-loop dedup, and CLI pause/resume routing — is tracked in [Micro-Actor Runtime Implementation Plan — Remediation](./micro-actor-runtime-implementation-plan.md#completed-remediation-r1-r4). Those items are intentionally not duplicated here; this backlog covers config/provider, persistence, web UI, tool-surface, and test/docs cleanup instead.
 
 Current authorities:
 
@@ -182,7 +182,7 @@ These are not dead code. They are features the spec promises and tools expose, b
 
    **Full design:** [Notification Delivery Fix Design](./notification-delivery-fix-design.md).
 
-   The working delivery mechanism (`CardActor.enqueueNotification` → `deliverNotificationsForInput` → LLM context) already exists for cancellation-while-running. Nothing connects the queuing tools to it. `queue_notification` writes to a session-keyed `NotificationCenter` that no agent drains. `propagateChange` routes through dead `ActiveGoalNoteSinks` / synthetic-planner-notes.
+   The working delivery mechanism for ordinary card-addressed context (`CardActor.enqueueNotification` → `deliverNotificationsForInput` → LLM context) already exists. Nothing connects the queuing tools to it. `queue_notification` writes to a session-keyed `NotificationCenter` that no agent drains. `propagateChange` routes through dead `ActiveGoalNoteSinks` / synthetic-planner-notes. Cancellation is not a notification-delivery example anymore; running cancellation is authoritative through the `CardActor` activation attempt.
 
    The fix adds `notifyCard(cardId, notification)` to `RuntimeApi` — the runtime owns the `CardActor` registry and tools already have runtime access. Live actor → `enqueueNotification`. Inactive card → append to actor snapshot (no processor allocation). `CardActor.fromCard()` is fixed to restore notification state from snapshots so persisted notifications survive restart.
 
@@ -351,7 +351,7 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
 
 3. **Remove no-op logger lifecycle methods.**
 
-   `EventLogger` and `ErrorLogger` `flush`/`flushSync`/`close` are empty bodies with live callers. Delete the methods and all call sites, including `src/application/runtime-composition.ts:151-152`, `src/runtime/process-runner.ts:784-786`, and `src/application/read-models/events-read-model.ts:40`.
+   `EventLogger` and `ErrorLogger` `flush`/`flushSync`/`close` are empty bodies with live callers. Delete the methods and all call sites, including `src/application/runtime-composition.ts:151-152` and `src/application/read-models/events-read-model.ts:40`.
 
 4. **Remove dead server barrels and exports.**
 
@@ -549,7 +549,7 @@ Goal: make `queue_notification` and analyst card edits actually reach agents.
 
 Tasks (backlog §0.1):
 
-1. Add `notifyCard(cardId, notification)` to `RuntimeApi` interface; implement in `SupervisorRuntimeApi` (live actor → enqueueNotification; inactive → snapshot write + done→changed flip).
+1. Add `notifyCard(cardId, notification)` to `RuntimeApi` interface; implement in `SupervisorRuntimeApi` (live actor → enqueueNotification; inactive → snapshot write only, no lifecycle mutation).
 2. Add `readActorSnapshot` and `appendNotificationToActorSnapshot` helpers to `snapshots.ts`.
 3. Fix `CardActor.fromCard()` to restore notification state from snapshot.
 4. Add `notifyCard` forwarding to `createComposedRuntimeApi`.
@@ -562,7 +562,7 @@ Validation:
 
 - End-to-end test: analyst queues a notification → running planner receives it in next LLM input.
 - End-to-end test: analyst edits a brief → running ancestor planner receives a change notification.
-- Existing cancellation-while-running test still passes.
+- Running cancellation activation-attempt tests still pass; cancellation remains independent of notification delivery.
 - `npm run validate:routine`
 
 ### Stage 1: Dead Subsystem And Whole-File Deletions

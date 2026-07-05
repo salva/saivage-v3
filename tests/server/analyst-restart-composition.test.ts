@@ -5,13 +5,14 @@ import { join } from 'node:path';
 import { restart_server } from '../../src/tools/analyst-runtime-tools.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { CardStore } from '../../src/cards/card-store.js';
+import { ProcessRunner } from '../../src/runtime/process-runner.js';
 
 describe('analyst server restart composition', () => {
   it('uses the server-supplied restart callback instead of a runtime server backlink', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-restart-tool-'));
     const requestServerRestart = jest.fn(async () => undefined);
     try {
-      const ctx: ToolContext = { projectRoot, store: new CardStore(projectRoot), actor: 'runtime', surface: 'runtime', requestServerRestart };
+      const ctx: ToolContext = { projectRoot, processRunner: new ProcessRunner(projectRoot), store: new CardStore(projectRoot), actor: 'runtime', surface: 'runtime', requestServerRestart };
       const result = await restart_server(ctx);
       expect(result).toEqual({ success: true, data: { restart_requested: true } });
       expect(requestServerRestart).toHaveBeenCalledTimes(1);
@@ -23,7 +24,7 @@ describe('analyst server restart composition', () => {
   it('reports restart unavailable when composition root did not provide a callback', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-restart-tool-'));
     try {
-      const ctx: ToolContext = { projectRoot, store: new CardStore(projectRoot), actor: 'runtime', surface: 'runtime' };
+      const ctx: ToolContext = { projectRoot, processRunner: new ProcessRunner(projectRoot), store: new CardStore(projectRoot), actor: 'runtime', surface: 'runtime' };
       await expect(restart_server(ctx)).resolves.toEqual({
         success: false,
         error: 'Server restart primitive is not available.',

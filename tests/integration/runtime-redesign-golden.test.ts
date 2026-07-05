@@ -10,6 +10,7 @@ import { createSupervisorRuntimeApi, readActorSnapshots } from '../../src/runtim
 import type { LLMProviderPort, LlmInvocationInput } from '../../src/runtime/actors/index.js';
 import type { LlmCompleteResult } from '../../src/agents/llm-contracts.js';
 import { readRuntimeState } from '../../src/runtime/state-api.js';
+import { ProcessRunner } from '../../src/runtime/process-runner.js';
 
 function tempRoot(prefix: string): string { return mkdtempSync(join(tmpdir(), prefix)); }
 
@@ -70,6 +71,7 @@ describe('runtime redesign final golden behavior', () => {
         rootCards: cardStore,
         actorStore: cardStore,
         provider: blockedPlannerProvider(),
+        processRunner: new ProcessRunner(projectRoot),
         now: () => '2026-06-12T00:00:00.000Z',
       });
       expect('requestProjectDirectiveWakeup' in api).toBe(false);

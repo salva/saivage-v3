@@ -4,7 +4,7 @@ import { sanitizeAnalystText } from '../sanitization/analyst-sanitization.js';
 import type { CardNotification } from './actors/card-actor.js';
 import type { NotifyCardResult } from './runtime-api.js';
 
-const FLIPPABLE_RESTING: ReadonlySet<CardStatus> = new Set(['done', 'failed', 'cancelled', 'blocked']);
+const FLIPPABLE_RESTING: ReadonlySet<CardStatus> = new Set(['done', 'failed', 'blocked']);
 
 export type ChangeOrigin =
   | { kind: 'analyst_edit'; summary: string }

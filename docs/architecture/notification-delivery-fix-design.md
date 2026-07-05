@@ -1,8 +1,6 @@
 # Notification Delivery Fix Design
 
-Status: current design for fixing broken agent-facing notification delivery.
-
-Last reviewed: 2026-07-02.
+Status: provenance. The notification-delivery mechanics (`CardActor.enqueueNotification` → `deliverNotificationsForInput` → LLM context) have landed. The done-to-changed flip described here is superseded: `changed` is now exclusively an edit/subtree-mutation signal, not a notification-delivery side effect. See [Micro-Actor Runtime Design — Notifications](./micro-actor-runtime-design.md#notifications) and [Implementation Plan P3](./micro-actor-runtime-implementation-plan.md#p3-cardactor-owns-authoritative-cancellation-and-activation-id-settlement) for the current target.
 
 ## Problem
 
@@ -12,7 +10,7 @@ Spec §12 and §9 promise two behaviors that don't work:
 
 2. **Analyst card edits** must notify affected running planners. `propagateChange` flips resting cards to `changed` (works), but notification delivery to running ancestors routes through `ActiveGoalNoteSinks` (never registered) and `synthetic-planner-notes` (written to disk, never drained). Dead on both branches.
 
-The working delivery mechanism already exists: `CardActor.enqueueNotification()` → `deliverNotificationsForInput()` → LLM context. It works for cancellation-while-running. The problem is that nothing connects the queuing tools to it.
+The working delivery mechanism already exists for ordinary card-addressed context: `CardActor.enqueueNotification()` → `deliverNotificationsForInput()` → LLM context. The problem is that nothing connects the queuing tools to it. Cancellation is no longer a notification-delivery use case; running cancellation is authoritative through the `CardActor` activation attempt.
 
 ## Solution
 
@@ -129,15 +127,15 @@ Add forwarding to `createComposedRuntimeApi` (`src/application/runtime-compositi
 2. `queue_notification` to an inactive card → notification persists → delivered on next activation.
 3. Analyst edits a brief → running ancestor planner receives change notification.
 4. Analyst edits a brief → resting ancestor flipped to `changed`.
-5. Cancellation-while-running still works (regression).
+5. Running cancellation remains independent of notification delivery and still works through the `CardActor` activation attempt (regression).
 6. Done card with pending notifications reopens as `changed` (regression).
 7. Telegram delivery still works (regression).
 8. Notifications survive runtime restart (new — `fromCard()` restore).
 9. Old note-sink code is absent from source after deletion.
 
-## Known Limitation
+## Required Reviewer Isolation
 
-Shared planner/reviewer notification queue: within one activation, planner and reviewer share the CardActor's `notifications` array. A change notification enqueued during review may be drained by the reviewer's `notificationContextMessages` before the currentness check detects it. Pre-existing race, amplified by this fix. A separate change would route review-relevant signals through currentness state rather than the shared queue.
+Reviewer turns must not drain the planner/main-agent notification queue. Within one activation, planner and reviewer share the owning `CardActor`, but notifications are addressed to the card's main agent (planner for project/goal cards, executor for terminal cards), not to reviewer sessions. Change notifications enqueued during review stay pending for planner delivery and are represented to the reviewer flow through currentness invalidation instead of by appending notification context to reviewer tool continuations. See [Micro-Actor Runtime Implementation Plan P5](./micro-actor-runtime-implementation-plan.md#p5-reviewer-cannot-reach-main-agent-notification-delivery).
 
 ## Spec Cross-Reference
 

@@ -8,6 +8,13 @@ import { readActorSnapshot, saveActorSnapshot } from './snapshots.js';
 import type { CardActiveReconstructionRecord } from './active-reconstruction.js';
 import { parseCardActorState } from './actor-vocabulary.js';
 import type { CardActorState } from './actor-vocabulary.js';
+import type { LLMProviderPort } from './llm-actor.js';
+import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
+import type { NotifyCardResult } from '../runtime-api.js';
+import type { ProcessRunner } from '../process-runner.js';
+import { PlanningCardProcessorActor } from './planning-card-processor-actor.js';
+import { TerminalCardProcessorActor } from './terminal-card-processor-actor.js';
+import type { RuntimeGate } from '../runtime-gate.js';
 
 export const MAX_NOTIFICATION_DELIVERY_MARKERS = 200;
 
@@ -20,6 +27,7 @@ export type CardActivationOutcome =
   | { status: 'cancelled'; summary: string };
 
 export interface CardActivationInput {
+  activationId?: string;
   card: CardRecord;
   caller: CardActivationCaller;
   notificationDelivery: CardNotificationDeliveryPort;
@@ -55,6 +63,7 @@ export interface CardCancelReason {
 }
 
 export interface CardProcessorActor {
+  start?(): void;
   activate(input: CardActivationInput): Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>;
 }
 
@@ -65,6 +74,17 @@ export interface CardActorStorePort {
   setStatus(cardId: string, status: CardStatus): CardRecord;
   commitTerminalLifecyclePatch(cardId: string, changes: Partial<CardRecord>): CardRecord;
   listChildren?(cardId: string): string[];
+}
+
+export interface CardActorDeps {
+  projectRoot: string;
+  store: CardActorStorePort;
+  provider: LLMProviderPort;
+  gate?: RuntimeGate;
+  mcpManagerProvider?: () => McpToolInvocationPort | undefined;
+  processRunner: ProcessRunner;
+  notifyCard: (cardId: string, notification: CardNotification) => NotifyCardResult;
+  lookup: Map<string, CardActor>;
 }
 
 type PendingActivation = {
@@ -79,7 +99,7 @@ export class CardActor extends BaseActor {
       backlog: { parked: true, on: { activate: 'running', changed: 'changed', cancel: 'cancelled' } },
       changed: { parked: true, on: { activate: 'running', cancel: 'cancelled' } },
       blocked: { parked: true, on: { activate: 'running', changed: 'changed', cancel: 'cancelled' } },
-      failed: { parked: true, on: { activate: 'running', changed: 'changed', cancel: 'cancelled' } },
+      failed: { parked: true, on: { changed: 'changed', cancel: 'cancelled' } },
       done: { parked: true, on: { changed: 'changed' } },
       running: { on: { done: 'done', failed: 'failed', blocked: 'blocked', cancel: 'cancelled' } },
       cancelled: { terminal: true },
@@ -87,8 +107,7 @@ export class CardActor extends BaseActor {
   };
 
   readonly cardId: string;
-  readonly projectRoot: string;
-  readonly store: CardActorStorePort;
+  readonly deps: CardActorDeps;
   readonly processor: CardProcessorActor;
   notifications: CardNotification[] = [];
   notificationDeliveryMarkers: CardNotificationDeliveryMarker[] = [];
@@ -96,18 +115,30 @@ export class CardActor extends BaseActor {
   cancelReason: CardCancelReason | null = null;
   activeReconstruction: CardActiveReconstructionRecord | null = null;
   #pendingActivation: PendingActivation | null = null;
+  #activationId: string | null = null;
+  #activationCounter = 0;
+  #cancellation: CardCancelReason | null = null;
 
-  constructor(args: { projectRoot: string; cardId: string; store: CardActorStorePort; processor: CardProcessorActor }) {
+  constructor(args: { card: CardRecord; deps: CardActorDeps }) {
     super();
-    this.projectRoot = args.projectRoot;
-    this.cardId = args.cardId;
-    this.store = args.store;
-    this.processor = args.processor;
+    this.cardId = args.card.id;
+    this.deps = args.deps;
+    this.processor = createProcessor(args.card, this);
+    this.processor.start?.();
+    this.deps.lookup.set(this.cardId, this);
   }
 
-  static fromCard(args: { projectRoot: string; card: CardRecord; store: CardActorStorePort; processor: CardProcessorActor }): CardActor {
-    const actor = new CardActor({ projectRoot: args.projectRoot, cardId: args.card.id, store: args.store, processor: args.processor });
-    const snapshot = readActorSnapshot(args.projectRoot, cardActorId(args.card.id));
+  get projectRoot(): string {
+    return this.deps.projectRoot;
+  }
+
+  get store(): CardActorStorePort {
+    return this.deps.store;
+  }
+
+  static fromCard(args: { card: CardRecord; deps: CardActorDeps }): CardActor {
+    const actor = new CardActor({ card: args.card, deps: args.deps });
+    const snapshot = readActorSnapshot(args.deps.projectRoot, cardActorId(args.card.id));
     if (snapshot) {
       actor.notifications = Array.isArray(snapshot.context.notifications) ? snapshot.context.notifications as CardNotification[] : [];
       actor.notificationDeliveryMarkers = Array.isArray(snapshot.context.notificationDeliveryMarkers) ? snapshot.context.notificationDeliveryMarkers as CardNotificationDeliveryMarker[] : [];
@@ -115,6 +146,15 @@ export class CardActor extends BaseActor {
     }
     actor.recover(cardActorState(args.card.status));
     return actor;
+  }
+
+  childCardActor(cardId: string): CardActor | null {
+    const card = this.store.read(cardId);
+    if (!card) return null;
+    if (card.parent !== this.cardId) return null;
+    const existing = this.deps.lookup.get(cardId);
+    if (existing) return existing;
+    return CardActor.fromCard({ card, deps: this.deps });
   }
 
   activate(caller: CardActivationCaller): Promise<CardActivationOutcome> {
@@ -129,6 +169,9 @@ export class CardActor extends BaseActor {
       return Promise.reject(new Error(`Card '${this.cardId}' already has a pending activation.`));
     }
     return new Promise<CardActivationOutcome>((resolve) => {
+      this.#activationCounter++;
+      this.#activationId = `card:${this.cardId}:activation:${this.#activationCounter}`;
+      this.#cancellation = null;
       this.#pendingActivation = { caller, resolve };
       this.activeReconstruction = {
         schema_version: 1,
@@ -144,6 +187,18 @@ export class CardActor extends BaseActor {
 
   enqueueNotification(notification: CardNotification): void {
     this.notifications.push(notification);
+    this.persist();
+  }
+
+  markChanged(): void {
+    const card = this.requireCard();
+    if (card.status === 'cancelled') return;
+    if (this.state() === 'running') {
+      this.persist();
+      return;
+    }
+    this.writeStatus('changed');
+    if (this.state() !== 'changed') this.parkedSendEvent('changed');
     this.persist();
   }
 
@@ -173,10 +228,21 @@ export class CardActor extends BaseActor {
     const card = this.requireCard();
     if (card.status === 'done' || this.state() === 'done') return;
     if (card.status === 'running' || this.state() === 'running') {
-      this.enqueueNotification(cancellationNotification(this.cardId, reason));
+      this.cancelReason = reason;
+      this.#cancellation = reason;
+      this.cancelDescendants();
+      this.activeReconstruction = null;
+      this.writeStatus('cancelled');
+      this.#pendingActivation?.resolve({ status: 'cancelled', summary: reason.reason });
+      this.#pendingActivation = null;
+      this.sendEvent('cancel');
+      const activationId = this.#activationId;
+      if (activationId) void this.deps.processRunner.stopByOwner(activationId, `card cancelled: ${reason.reason}`, { graceMs: 5000 }).catch(() => undefined);
+      this.persist();
       return;
     }
     this.cancelReason = reason;
+    this.#cancellation = reason;
     this.cancelDescendants();
     this.writeStatus('cancelled');
     if (this.#pendingActivation) {
@@ -192,8 +258,12 @@ export class CardActor extends BaseActor {
     this.writeStatus('running');
     const pending = this.#pendingActivation;
     if (!pending) throw new Error(`Card '${this.cardId}' entered running without pending activation.`);
-    const input: CardActivationInput = { card: this.requireCard(), caller: pending.caller, notificationDelivery: this };
-    this.runTask(() => this.processor.activate(input), {
+    if (!this.#activationId) throw new Error(`Card '${this.cardId}' entered running without an activation id.`);
+    const input: CardActivationInput = { activationId: this.#activationId, card: this.requireCard(), caller: pending.caller, notificationDelivery: this };
+    this.runTask(async () => {
+      await this.deps.gate?.waitUntilOpen();
+      return this.processor.activate(input);
+    }, {
       on_done: (outcome) => this.commitOutcome(outcome),
       on_failed: (error) => this.commitOutcome({
         status: 'failed',
@@ -201,14 +271,6 @@ export class CardActor extends BaseActor {
         result: { kind: 'failed', summary: error.message },
       }),
     });
-  }
-
-  _on_enter__done(): void {
-    this.reopenDoneWithPendingNotifications();
-  }
-
-  _on_recover__done(): void {
-    // Recovery restores the durable done state without replaying done-entry invalidation side effects.
   }
 
   protected override _on_state_changed(_oldState: string | undefined, _newState: string): void {
@@ -228,30 +290,23 @@ export class CardActor extends BaseActor {
         lastOutcome: this.lastOutcome,
         cancelReason: this.cancelReason,
         active_reconstruction: this.activeReconstruction,
+        activationId: this.#activationId,
+        cancellation: this.#cancellation,
       },
       updated_at: new Date().toISOString(),
     };
   }
 
   private commitOutcome(outcome: Exclude<CardActivationOutcome, { status: 'cancelled' }>): void {
+    if (this.#cancellation) return;
     const stamp = new Date().toISOString();
     this.store.commitTerminalLifecyclePatch(this.cardId, cardActivationOutcomePatch(outcome, stamp));
     this.lastOutcome = outcome;
     this.activeReconstruction = null;
+    this.#activationId = null;
     this.#pendingActivation?.resolve(outcome);
     this.#pendingActivation = null;
     this.sendEvent(outcome.status);
-  }
-
-  private reopenDoneWithPendingNotifications(): void {
-    if (this.notifications.length === 0) return;
-    const card = this.requireCard();
-    this.store.commitTerminalLifecyclePatch(this.cardId, {
-      status: 'changed',
-      lifecycle: { status: 'changed', result: card.lifecycle.result, error: card.lifecycle.error, completed_at: null },
-    });
-    if (this.state() === 'done') this.parkedSendEvent('changed');
-    this.persist();
   }
 
   private writeStatus(status: CardStatus): void {
@@ -275,7 +330,9 @@ export class CardActor extends BaseActor {
     for (const childId of this.store.listChildren?.(parentId) ?? []) {
       const child = this.store.read(childId);
       if (!child || child.status === 'done' || child.status === 'cancelled') continue;
-      this.store.setStatus(childId, 'cancelled');
+      const live = this.deps.lookup.get(childId);
+      if (live) live.cancel(this.cancelReason ?? { reason: 'ancestor cancelled' });
+      else this.store.setStatus(childId, 'cancelled');
       this.cancelDescendantIds(childId);
     }
   }
@@ -294,6 +351,30 @@ export class CardActor extends BaseActor {
   private persist(): void {
     saveActorSnapshot(this.projectRoot, this.snapshot());
   }
+}
+
+export function createProcessor(card: CardRecord, owner: CardActor): CardProcessorActor {
+  if (card.type === 'project' || card.type === 'goal') {
+    return new PlanningCardProcessorActor({
+      projectRoot: owner.deps.projectRoot,
+      cardId: card.id,
+      store: owner.deps.store,
+      children: { get: (childId) => owner.childCardActor(childId) },
+      provider: owner.deps.provider,
+      gate: owner.deps.gate,
+      notifyCard: owner.deps.notifyCard,
+      mcpManagerProvider: owner.deps.mcpManagerProvider,
+    });
+  }
+  return new TerminalCardProcessorActor({
+    projectRoot: owner.deps.projectRoot,
+    cardId: card.id,
+    provider: owner.deps.provider,
+    processRunner: owner.deps.processRunner,
+    gate: owner.deps.gate,
+    store: owner.deps.store,
+    mcpManagerProvider: owner.deps.mcpManagerProvider,
+  });
 }
 
 export function cardActivationOutcomePatch(outcome: Exclude<CardActivationOutcome, { status: 'cancelled' }>, completedAt: string): Partial<CardRecord> {
@@ -320,16 +401,6 @@ function cardActorState(status: CardStatus): CardActorStatus {
   if (!actorState) throw new Error(`CardActor cannot recover unknown card status '${status}'.`);
   if (actorState === 'needs_verification') throw new Error("CardActor cannot recover 'needs_verification' cards until an explicit actor state is implemented.");
   return actorState;
-}
-
-function cancellationNotification(cardId: string, reason: CardCancelReason): CardNotification {
-  const createdAt = reason.cancelled_at ?? new Date().toISOString();
-  return {
-    id: `cancel:${cardId}:${createdAt}`,
-    message: `Cancellation requested: ${reason.reason}`,
-    created_at: createdAt,
-    reason: 'cancel_requested',
-  };
 }
 
 function compactNotificationDeliveryMarkers(markers: CardNotificationDeliveryMarker[]): void {

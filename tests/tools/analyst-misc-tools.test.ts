@@ -7,6 +7,7 @@ import { CardStore } from '../../src/cards/store-api.js';
 import { appendConversationMessage, buildContextTextMessage } from '../../src/runtime/actors/index.js';
 import { list_agent_sessions, read_agent_session } from '../../src/tools/analyst-misc-tools.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
+import { ProcessRunner } from '../../src/runtime/process-runner.js';
 
 let root: string;
 let ctx: ToolContext;
@@ -14,7 +15,7 @@ let ctx: ToolContext;
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'saivage-analyst-tools-'));
   initProjectTree(root);
-  ctx = { projectRoot: root, store: new CardStore(root), actor: 'analyst', surface: 'web-chat' };
+  ctx = { projectRoot: root, processRunner: new ProcessRunner(root), store: new CardStore(root), actor: 'analyst', surface: 'web-chat' };
 });
 
 afterEach(() => {

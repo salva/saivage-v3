@@ -43,7 +43,7 @@ export function registerOperatorContractRoutes(options: OperatorContractRouteReg
     ...buildAgentOperatorContractHandlers({ projectRoot }),
     ...buildChatOperatorContractHandlers({ projectRoot, runtimeApplication: options.runtimeApplication, requestServerRestart: options.requestServerRestart, saivageConfig: options.saivageConfig }),
     ...buildFilesDebugOperatorContractHandlers({ projectRoot, cardStoreProvider: () => options.cardStore }),
-    ...buildProcessOperatorContractHandlers({ projectRoot }),
+    ...buildProcessOperatorContractHandlers({ projectRoot, processRunner: options.runtimeApplication?.processRunner }),
     ...buildEventsOperatorContractHandlers({ projectRoot }),
     ...buildConfigOperatorContractHandlers({
       projectRoot,

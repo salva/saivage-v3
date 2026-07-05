@@ -24,15 +24,15 @@ export const publicAgentPhases = ['idle', 'calling_provider', 'waiting_for_tool'
 export type PublicAgentPhase = typeof publicAgentPhases[number];
 export const publicAgentPhaseSchema = z.enum(publicAgentPhases);
 
-export const actorPauseModes = ['idle', 'running', 'paused', 'stopping', 'unknown'] as const;
+export const actorPauseModes = ['idle', 'running', 'paused', 'unknown'] as const;
 export type ActorPauseMode = typeof actorPauseModes[number];
 export const actorPauseModeSchema = z.enum(actorPauseModes);
 
-export const supervisorModes = ['idle', 'running', 'paused', 'shutting_down'] as const;
+export const supervisorModes = ['idle', 'running', 'paused'] as const;
 export type SupervisorMode = typeof supervisorModes[number];
 export const supervisorModeSchema = z.enum(supervisorModes);
 
-export const supervisorWorkStates = ['ready', 'model_invocation_active', 'shutdown_active'] as const;
+export const supervisorWorkStates = ['ready'] as const;
 export type SupervisorWorkState = typeof supervisorWorkStates[number];
 export const supervisorWorkStateSchema = z.enum(supervisorWorkStates);
 

@@ -19,6 +19,8 @@ import { createReviewerContract } from '../../contracts/reviewer-contract.js';
 import { evaluateReviewerTerminalOutcome } from './reviewer-terminal-evaluation.js';
 import { verifyTerminalToolOutcome } from './contract-terminal-tools.js';
 import { closeOpenRecordSlot, ExpectedRecordSlotCloseError } from '../records/record-slots.js';
+import { projectPlannerTerminalOutcome } from './planning-card-processor-actor.js';
+import { projectTerminalExecutorOutcome } from './terminal-card-processor-actor.js';
 
 export interface ActorRecoveryCardReader {
   read(cardId: string): unknown | null;
@@ -41,8 +43,6 @@ export interface ActorRecoveryOutcomeConversion {
 export interface ActorRecoveryTerminalProjectionDeps {
   projectRoot: string;
   store: ActorRecoveryOutcomeStore;
-  makePlanningProcessor(cardId: string): { recoverTerminalToolOutcome(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): Exclude<CardActivationOutcome, { status: 'cancelled' }> | null };
-  makeTerminalProcessor(cardId: string): { recoverTerminalToolOutcome(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): Exclude<CardActivationOutcome, { status: 'cancelled' }> | null };
   generatedAt?: string;
 }
 
@@ -222,8 +222,10 @@ export function clearRecoveryDiagnostics(projectRoot: string): void {
 
 export function runActorStartupRecovery(plan: ActorRecoveryPlan, deps: ActorRecoveryTerminalProjectionDeps): ActorStartupRecoveryReport {
   const generatedAt = deps.generatedAt ?? new Date().toISOString();
-  const preCleanupProjection = projectActorRecovery(plan);
-  const recoveries = recoverActorStartupOutcomes(plan, { ...deps, generatedAt });
+  const cancelledCleanup = cleanupCancelledCardSnapshots(deps.projectRoot, plan, deps.store);
+  const effectivePlan = cancelledCleanup.length > 0 ? buildActorRecoveryPlan(deps.projectRoot, deps.store) : plan;
+  const preCleanupProjection = projectActorRecovery(effectivePlan);
+  const recoveries = recoverActorStartupOutcomes(effectivePlan, { ...deps, generatedAt });
   cleanupConvertedRecoverySnapshots(deps.projectRoot, recoveries);
   const abandonedToolCalls = abandonStalePendingToolCalls(deps.projectRoot);
   const postCleanupPlan = buildActorRecoveryPlan(deps.projectRoot, deps.store);
@@ -232,6 +234,7 @@ export function runActorStartupRecovery(plan: ActorRecoveryPlan, deps: ActorReco
     generated_at: generatedAt,
     incidents: [
       ...startupIncidentsFromProjection(preCleanupProjection),
+      ...cancelledCleanup,
       ...recoveries.map((recovery) => ({ actorId: recovery.actorIds[0] ?? recovery.cardId, kind: 'converted_actor_snapshots' as const, action: 'project_or_convert_startup_outcome', cardId: recovery.cardId, message: recovery.reason })),
       ...abandonedToolCalls.map((record) => ({ actorId: record.agent_id, kind: 'stale_tool_call' as const, action: 'abandon_stale_pending_tool_call', message: record.error ?? 'Startup recovery abandoned a stale pending tool call.', cardId: cardIdFromAgentId(record.agent_id) })),
     ].sort((a, b) => a.actorId.localeCompare(b.actorId) || a.action.localeCompare(b.action)),
@@ -261,6 +264,27 @@ export function cleanupConvertedRecoverySnapshots(projectRoot: string, conversio
   for (const conversion of conversions) {
     for (const actorId of conversion.actorIds) removeActorSnapshot(projectRoot, actorId);
   }
+}
+
+export function cleanupCancelledCardSnapshots(projectRoot: string, plan: ActorRecoveryPlan, store: ActorRecoveryOutcomeStore): ActorStartupRecoveryIncident[] {
+  const actorIds = new Map<string, Set<string>>();
+  for (const card of plan.cards) addCardSnapshotActor(actorIds, card.cardId, card.snapshot.actor_id);
+  for (const processor of plan.processors) addCardSnapshotActor(actorIds, processor.cardId, processor.actorId);
+  for (const llm of plan.llms) if (llm.cardId !== null) addCardSnapshotActor(actorIds, llm.cardId, llm.actorId);
+
+  const incidents: ActorStartupRecoveryIncident[] = [];
+  for (const [cardId, ids] of actorIds) {
+    if (store.read(cardId)?.status !== 'cancelled') continue;
+    for (const actorId of ids) removeActorSnapshot(projectRoot, actorId);
+    incidents.push({
+      actorId: [...ids].sort()[0] ?? cardId,
+      kind: 'converted_actor_snapshots',
+      action: 'cleanup_cancelled_card_snapshots',
+      cardId,
+      message: `Startup recovery removed stale actor snapshots for cancelled card '${cardId}'.`,
+    });
+  }
+  return incidents.sort((a, b) => a.actorId.localeCompare(b.actorId));
 }
 
 export function recoverActorStartupOutcomes(plan: ActorRecoveryPlan, deps: ActorRecoveryTerminalProjectionDeps): ActorRecoveryOutcomeConversion[] {
@@ -383,13 +407,13 @@ function projectTerminalRecoveryOutcome(
 ): Exclude<CardActivationOutcome, { status: 'cancelled' }> | null {
   if (processor.processor_kind === 'planning') {
     if (!createPlannerContract().isTerminalToolName(outcome.toolName)) return null;
-    const projected = deps.makePlanningProcessor(card.id).recoverTerminalToolOutcome(outcome);
+    const projected = projectPlannerTerminalOutcome(outcome);
     if (!projected) return null;
     if (!closeRecoveredRecordSlot(deps.projectRoot, card.id, 'status.md', 'planner', card.version_seq)) return null;
     return projected;
   }
   if (!createExecutorContract().isTerminalToolName(outcome.toolName)) return null;
-  const projected = deps.makeTerminalProcessor(card.id).recoverTerminalToolOutcome(outcome);
+  const projected = projectTerminalExecutorOutcome(outcome);
   if (!projected) return null;
   if (!closeRecoveredRecordSlot(deps.projectRoot, card.id, 'status.md', 'executor', card.version_seq)) return null;
   return projected;
@@ -419,6 +443,12 @@ function addRecoveryOutcomeCandidate(candidates: Map<string, Set<string>>, cardI
   const actorIds = candidates.get(cardId) ?? new Set<string>();
   actorIds.add(actorId);
   candidates.set(cardId, actorIds);
+}
+
+function addCardSnapshotActor(actorsByCard: Map<string, Set<string>>, cardId: string, actorId: string): void {
+  const actorIds = actorsByCard.get(cardId) ?? new Set<string>();
+  actorIds.add(actorId);
+  actorsByCard.set(cardId, actorIds);
 }
 
 function recoveryDiagnosticsLock(projectRoot: string): ProjectLock {

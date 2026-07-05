@@ -61,10 +61,10 @@ describe('card lifecycle domain rules', () => {
     expect(() => validateTransition('backlog', 'done')).toThrow(/Invalid transition: backlog/);
   });
 
-  it('allows terminal cards to become changed', () => {
+  it('allows mutable terminal cards to become changed but keeps cancelled terminal', () => {
     expect(canTransition('done', 'changed')).toBe(true);
     expect(canTransition('failed', 'changed')).toBe(true);
-    expect(canTransition('cancelled', 'changed')).toBe(true);
+    expect(canTransition('cancelled', 'changed')).toBe(false);
   });
 
   it('owns terminal type and state predicates', () => {

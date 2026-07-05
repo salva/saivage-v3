@@ -1,6 +1,6 @@
 # Root Settlement And Planner Recovery Plan
 
-Status: proposed.
+Status: provenance. The root-settlement projection fix and CardActor cleanup are tracked in [Micro-Actor Runtime Implementation Plan — Boundary cleanup](./micro-actor-runtime-implementation-plan.md#boundary-cleanup-folded-into-the-slices-above-or-standalone). The supervisor state machine below predates R3 (which removed `shutting_down`) and is not current authority.
 
 Card-editing note: the root-settlement findings in this plan remain useful, but the planner recovery tool details predate the record-backed card storage design. Any implementation of planner recovery edits should follow [Record-Backed Card Storage Plan](./record-backed-card-storage-plan.md): planner intent text is written through `write(record://brief.md?card=...)`, broad card field patching is not a target surface, and structural/lifecycle changes use semantic operations.
 
@@ -239,7 +239,7 @@ Purpose: remove obsolete, duplicate, or mis-scoped immediate children from furth
 State rules:
 
 - `backlog`, `changed`, `blocked`, `failed`: call the child `CardActor.cancel(...)`; expect immediate durable cancellation for parked states.
-- `running`: call the child `CardActor.cancel(...)`; return that cancellation was requested, because running cancellation is best-effort notification-only.
+- `running`: call the child `CardActor.cancel(...)`; expect authoritative activation cancellation. The card store is marked `cancelled` immediately, the pending activation resolves as cancelled, activation-owned process scope is stopped, and late outcomes are rejected by activation id.
 - `done`: reject. Completed work invalidation is out of scope.
 - `cancelled`: reject as already cancelled.
 - `needs_verification`: reject in this slice. `CardActor` does not currently recover `needs_verification` cards into an actor state.
@@ -257,7 +257,7 @@ Return shape:
 }
 ```
 
-For a running child, return the current durable status and a summary that cancellation was requested.
+For a running child, return the new durable `cancelled` status and a summary that cancellation was applied through the child actor's activation.
 
 ### Tool definitions and prompt
 
@@ -373,11 +373,11 @@ Steps:
 2. Validate immediate-child scope.
 3. Reject done and already-cancelled targets.
 4. Use child `CardActor.cancel(...)`; do not add a store fallback.
-5. Return immediate cancelled status for parked children and cancellation-requested status for running children.
+5. Return immediate `cancelled` status for parked and running children; running children are cancelled through their `CardActor` activation.
 6. Tighten planner `create_card` schema to backlog-only status or no status.
 7. Remove misleading `depth: 0` from planner-created card input if the store input type allows it; otherwise document why the value remains required and consider changing the type.
 8. Update planner prompt to include exactly the implemented planner tools.
-9. Add tests for immediate child cancellation, running child cancellation request, done/cancelled rejection, and non-immediate rejection.
+9. Add tests for immediate child cancellation, running child activation cancellation, done/cancelled rejection, and non-immediate rejection.
 
 Validation:
 

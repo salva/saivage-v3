@@ -21,7 +21,7 @@ import { createSkillProvider } from '../../src/tools/skill-provider.js';
 import { createWebProvider } from '../../src/tools/web-tools.js';
 import { createPatchProvider, createWorkspaceProvider } from '../../src/tools/workspace-provider.js';
 import { initRuntimeState, updateRuntimeState } from '../../src/runtime/state.js';
-import { startProcess, killProcess } from '../../src/runtime/process-runner.js';
+import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { loadEnvironment } from '../../src/config/environment.js';
 import { McpManager } from '../../src/mcp/mcp-manager.js';
 import { createTestAnalystRuntime } from '../helpers/test-runtime-application.js';
@@ -120,12 +120,16 @@ function setCardStatusForTest(store: CardStore, cardId: string, status: CardStat
   store.repairTerminalLifecycle(cardId, { status, lifecycle: lifecycleForStatus(status) });
 }
 
+function toolCtx(root: string, store: CardStore, overrides: Partial<ToolContext> = {}): ToolContext {
+  return { projectRoot: root, processRunner: new ProcessRunner(root), store, actor: 'analyst', surface: 'web-chat', ...overrides };
+}
+
 function toolResponse(tool: string, args: Record<string, unknown>): Response {
   return new Response(JSON.stringify({ id: 'chatcmpl-test', object: 'chat.completion', created: 1, model: TEST_MODEL, choices: [{ index: 0, finish_reason: 'tool_calls', message: { role: 'assistant', content: null, tool_calls: [{ id: `call-${tool}`, type: 'function', function: { name: tool, arguments: JSON.stringify(args) } }] } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
 }
 
 function createProductionShapedAnalystSurface(root: string, store: CardStore): InvocationSurface {
-  const ctx: ToolContext = { projectRoot: root, store, actor: 'analyst', surface: 'web-chat', sessionId: 'analyst:test' };
+  const ctx: ToolContext = toolCtx(root, store, { sessionId: 'analyst:test' });
   return buildInvocationSurface('analyst', [
     {
       providerName: 'analyst',
@@ -140,7 +144,7 @@ function createProductionShapedAnalystSurface(root: string, store: CardStore): I
     createCardHistoryProvider({ projectRoot: root, store, sessionId: ctx.sessionId, agentRole: 'analyst' }),
     createWorkspaceProvider({ projectRoot: root, agentRole: 'analyst', store }),
     createPatchProvider({ projectRoot: root, agentRole: 'analyst', store }),
-    createProcessProvider({ projectRoot: root, ownerId: ctx.sessionId ?? 'analyst', agentRole: 'analyst', ownerKind: 'operator', launchReason: 'analyst workspace run_command' }),
+    createProcessProvider({ projectRoot: root, processRunner: ctx.processRunner, ownerId: ctx.sessionId ?? 'analyst', agentRole: 'analyst', ownerKind: 'operator', launchReason: 'analyst workspace run_command' }),
     createWebProvider({ projectRoot: root, agentRole: 'analyst', store }),
     createSkillProvider({ projectRoot: root, agentRole: 'analyst' }),
     createMcpProvider({ mcpManagerProvider: () => undefined, agentRole: 'analyst' }),
@@ -205,7 +209,7 @@ describe('Analyst project bootstrap', () => {
     const root = setupEmptyRoot();
     try {
       const store = new CardStore(root);
-      const result = await create_card({ projectRoot: root, store, actor: 'analyst', surface: 'web-chat' }, { type: 'project', parent: null, title: 'Project', brief: TEST_BRIEF });
+      const result = await create_card(toolCtx(root, store), { type: 'project', parent: null, title: 'Project', brief: TEST_BRIEF });
       expect(result.success).toBe(false);
       expect(result.error).toContain('Root project card already exists');
       expect(store.read('project')).toMatchObject({ id: 'project', type: 'project', parent: null });
@@ -216,9 +220,9 @@ describe('Analyst project bootstrap', () => {
     const root = setupRoot();
     try {
       const store = new CardStore(root);
-      const child = await create_card({ projectRoot: root, store, actor: 'analyst', surface: 'web-chat' }, { type: 'goal', parent: 'project', title: 'Goal', brief: TEST_BRIEF });
+      const child = await create_card(toolCtx(root, store), { type: 'goal', parent: 'project', title: 'Goal', brief: TEST_BRIEF });
       expect(child.success).toBe(true);
-      const duplicate = await create_card({ projectRoot: root, store, actor: 'analyst', surface: 'web-chat' }, { type: 'project', parent: null, title: 'Project', brief: TEST_BRIEF });
+      const duplicate = await create_card(toolCtx(root, store), { type: 'project', parent: null, title: 'Project', brief: TEST_BRIEF });
       expect(duplicate.success).toBe(false);
       expect(duplicate.error).toContain('already exists');
     } finally { rmSync(root, { recursive: true, force: true }); }
@@ -229,7 +233,7 @@ describe('Analyst project bootstrap', () => {
     try {
       pauseRuntime(root);
       const store = new CardStore(root);
-      const child = await create_card({ projectRoot: root, store, actor: 'analyst', surface: 'web-chat' }, { type: 'goal', parent: 'project', title: 'Goal', brief: TEST_BRIEF });
+      const child = await create_card(toolCtx(root, store), { type: 'goal', parent: 'project', title: 'Goal', brief: TEST_BRIEF });
       expect(child.success).toBe(true);
       expect(store.read('card-1')).toMatchObject({ type: 'goal', parent: 'project', status: 'backlog', title: 'Goal' });
     } finally { rmSync(root, { recursive: true, force: true }); }
@@ -247,7 +251,7 @@ describe('Analyst paused card-management gates', () => {
         const store = new CardStore(root);
         const card = store.create({ type: 'code', parent: 'project', title: `Allow ${status}`, brief: status, status: 'backlog', depth: 0, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 });
         if (status !== 'backlog') setCardStatusForTest(store, card.id, status);
-        const result = await cancel_card({ projectRoot: root, store, actor: 'analyst', surface: 'web-chat' }, { cardId: card.id });
+        const result = await cancel_card(toolCtx(root, store), { cardId: card.id });
         expect(result.success).toBe(true);
         expect(store.read(card.id)?.status).toBe('cancelled');
       }
@@ -255,10 +259,10 @@ describe('Analyst paused card-management gates', () => {
         const store = new CardStore(root);
         const card = store.create({ type: 'code', parent: 'project', title: `Deny ${status}`, brief: status, status: 'backlog', depth: 0, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [], retries: 0 });
         setCardStatusForTest(store, card.id, status);
-        const result = await cancel_card({ projectRoot: root, store, actor: 'analyst', surface: 'web-chat' }, { cardId: card.id });
+        const result = await cancel_card(toolCtx(root, store), { cardId: card.id });
         expect(result.success).toBe(false);
       }
-      const rootCancel = await cancel_card({ projectRoot: root, store: new CardStore(root), actor: 'analyst', surface: 'web-chat' }, { cardId: 'project' });
+      const rootCancel = await cancel_card(toolCtx(root, new CardStore(root)), { cardId: 'project' });
       expect(rootCancel.success).toBe(false);
       expect(rootCancel.error).toContain('root project card');
     } finally { rmSync(root, { recursive: true, force: true }); }
@@ -272,9 +276,9 @@ describe('Analyst paused card-management gates', () => {
       const goalId = store.listChildren('project')[0];
       const childIds = store.listChildren(goalId);
       for (const result of [
-        await cancel_card({ projectRoot: root, store, actor: 'analyst', surface: 'web-chat' }, { cardId: childIds[0] }),
-        await delete_card({ projectRoot: root, store, actor: 'analyst', surface: 'web-chat' }, { ids: [childIds[0]] }),
-        await reorder_child({ projectRoot: root, store, actor: 'analyst', surface: 'web-chat' }, { parentId: goalId, orderedChildIds: [...childIds].reverse() }),
+        await cancel_card(toolCtx(root, store), { cardId: childIds[0] }),
+        await delete_card(toolCtx(root, store), { ids: [childIds[0]] }),
+        await reorder_child(toolCtx(root, store), { parentId: goalId, orderedChildIds: [...childIds].reverse() }),
       ]) {
         expect(result.success).toBe(false);
         expect(result.error).toContain('requires runtime status stopped or paused');
@@ -290,12 +294,12 @@ describe('Analyst paused card-management gates', () => {
       const goalId = store.listChildren('project')[0];
       const childIds = store.listChildren(goalId);
       store.setStatus(childIds[0], 'running');
-      const runningChild = await reorder_child({ projectRoot: root, store, actor: 'analyst', surface: 'web-chat' }, { parentId: goalId, orderedChildIds: [...childIds].reverse() });
+      const runningChild = await reorder_child(toolCtx(root, store), { parentId: goalId, orderedChildIds: [...childIds].reverse() });
       expect(runningChild.success).toBe(false);
       expect(runningChild.error).toContain('running');
       store.setStatus(childIds[0], 'backlog');
       store.setStatus(goalId, 'running');
-      const runningParent = await reorder_child({ projectRoot: root, store, actor: 'analyst', surface: 'web-chat' }, { parentId: goalId, orderedChildIds: [...childIds].reverse() });
+      const runningParent = await reorder_child(toolCtx(root, store), { parentId: goalId, orderedChildIds: [...childIds].reverse() });
       expect(runningParent.success).toBe(false);
       expect(runningParent.error).toContain('running');
     } finally { rmSync(root, { recursive: true, force: true }); }
@@ -308,7 +312,7 @@ describe('Analyst paused card-management gates', () => {
       const store = seedDeleteCards(root);
       const goalId = store.listChildren('project')[0];
       const childIds = store.listChildren(goalId);
-      const result = await delete_card({ projectRoot: root, store, actor: 'analyst', surface: 'web-chat' }, { ids: [childIds[0]] });
+      const result = await delete_card(toolCtx(root, store), { ids: [childIds[0]] });
       expect(result.success).toBe(true);
       expect(store.read(childIds[0])).toBeNull();
       expect(readFileSync(join(root, '.saivage', 'archive', 'cards', `${childIds[0]}.json`), 'utf-8')).toContain(childIds[0]);
@@ -332,34 +336,32 @@ describe('Contract C1 unsupported-action reply', () => {
 describe('Contract C2 partial-success reporting', () => {
   it('returns flat partial-success data for delete_card fan-out and no nested totals', async () => {
     const root = setupRoot();
-    let procId: string | undefined;
+    const processRunner = new ProcessRunner(root);
     try {
       const store = seedDeleteCards(root);
       pauseRuntime(root);
       const codeIds = store.listChildren('card-1');
-      const proc = startProcess(root, 'sleep 30', { cardId: codeIds[1], requiredForCardCompletion: true, ownerKind: 'runtime' });
-      procId = proc.id;
+      const proc = processRunner.spawn({ command: 'sleep 30', cardId: codeIds[1], ownerId: 'runtime:test', ownerKind: 'runtime', requiredForCardCompletion: true });
       store.setStatus(codeIds[1], 'running');
       store.setStatus(codeIds[1], 'running');
-      const result = await delete_card({ projectRoot: root, store, actor: 'analyst', surface: 'web-chat' }, { ids: codeIds });
+      const result = await delete_card(toolCtx(root, store), { ids: codeIds });
       expect(result.success).toBe(true);
       expect(result.data).toMatchObject({ partial: true, total: 3, succeeded: 2 });
       const data = result.data as { failures: Array<{ id: string; reason: string }>; totals?: unknown };
       expect(data.totals).toBeUndefined();
       expect(data.failures).toHaveLength(1);
       expect(data.failures[0]).toEqual({ id: codeIds[1], reason: expect.stringContaining("delete_card denied by permission matrix") });
-    } finally { if (procId) await killProcess(root, procId, 'SIGTERM'); rmSync(root, { recursive: true, force: true }); }
+    } finally { await processRunner.stopRuntimeOwned('test cleanup', { graceMs: 100 }); rmSync(root, { recursive: true, force: true }); }
   });
 
   afterEach(() => { jest.restoreAllMocks(); });
   it('invokes exposed delete_card and reports partial success while stopped', async () => {
     const root = setupRoot();
-    let procId: string | undefined;
+    const processRunner = new ProcessRunner(root);
     try {
       const store = seedDeleteCards(root);
       const codeIds = store.listChildren('card-1');
-      const proc = startProcess(root, 'sleep 30', { cardId: codeIds[1], requiredForCardCompletion: true, ownerKind: 'runtime' });
-      procId = proc.id;
+      const proc = processRunner.spawn({ command: 'sleep 30', cardId: codeIds[1], ownerId: 'runtime:test', ownerKind: 'runtime', requiredForCardCompletion: true });
       store.setStatus(codeIds[1], 'running');
       store.setStatus(codeIds[1], 'running');
       jest.spyOn(globalThis, 'fetch').mockImplementation(async () => toolResponse('delete_card', { ids: codeIds }));
@@ -370,7 +372,7 @@ describe('Contract C2 partial-success reporting', () => {
       expect(response.toolInvocations?.[0].result.success).toBe(true);
       if (!response.toolInvocations?.[0].result.success) throw new Error('Expected successful delete_card result.');
       expect(response.toolInvocations[0].result.data).toMatchObject({ partial: true, succeeded: 2 });
-    } finally { if (procId) await killProcess(root, procId, 'SIGTERM'); rmSync(root, { recursive: true, force: true }); }
+    } finally { await processRunner.stopRuntimeOwned('test cleanup', { graceMs: 100 }); rmSync(root, { recursive: true, force: true }); }
   });
 });
 
@@ -387,7 +389,7 @@ describe('Reconfigure MCP live manager refresh', () => {
       runtimeApplication.setMcpManager(mcpManager);
       expect(runtimeApplication.analystDeps).not.toBe(depsBeforeMcp);
       expect(runtimeApplication.analystDeps.mcpManager).toBe(mcpManager);
-      const ctx: ToolContext = { projectRoot: root, store: runtimeApplication.analystDeps.cardStore, actor: 'analyst', surface: 'web-chat', runtime: runtimeApplication.analystDeps.runtime, mcpManager };
+      const ctx: ToolContext = toolCtx(root, runtimeApplication.analystDeps.cardStore, { runtime: runtimeApplication.analystDeps.runtime, mcpManager });
 
       const added = await reconfigure(ctx, { action: 'mcp_add', name: 'test-server', command: '/bin/true', args: [] });
       expect(added.success).toBe(true);

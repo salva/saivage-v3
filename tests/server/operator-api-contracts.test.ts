@@ -100,6 +100,8 @@ describe('operator API contract registry', () => {
       'cards.history.get',
       'cards.diff',
       'runtime.status',
+      'runtime.pause',
+      'runtime.resume',
       'runtime.cardRuns',
       'mcp.status',
       'mcp.tools',
@@ -132,6 +134,8 @@ describe('operator API contract registry', () => {
       'cards.history.get',
       'cards.diff',
       'runtime.status',
+      'runtime.pause',
+      'runtime.resume',
       'runtime.cardRuns',
     ]);
     expect(operatorRouteInventory()).toEqual(expect.arrayContaining([
@@ -139,6 +143,8 @@ describe('operator API contract registry', () => {
       expect.objectContaining({ operationId: 'health.liveness', method: 'GET', path: '/health', successSchemaName: 'HealthLivenessResponse' }),
       expect.objectContaining({ operationId: 'health.readiness', method: 'GET', path: '/health/ready', successSchemaName: 'HealthReadinessResponse' }),
       expect.objectContaining({ operationId: 'runtime.status', method: 'GET', path: '/api/runtime/status', successSchemaName: 'RuntimeStatusResponse' }),
+      expect.objectContaining({ operationId: 'runtime.pause', method: 'POST', path: '/api/runtime/pause', successSchemaName: 'RuntimeStatusResponse' }),
+      expect.objectContaining({ operationId: 'runtime.resume', method: 'POST', path: '/api/runtime/resume', successSchemaName: 'RuntimeStatusResponse' }),
       expect.objectContaining({ operationId: 'mcp.status', method: 'GET', path: '/api/mcp/status', successSchemaName: 'McpStatusResponse' }),
       expect.objectContaining({ operationId: 'agents.list', method: 'GET', path: '/api/agents', successSchemaName: 'AgentListResponse' }),
       expect.objectContaining({ operationId: 'agents.detail', method: 'GET', path: '/api/agents/:id', successSchemaName: 'AgentDetailResponse' }),
@@ -177,6 +183,28 @@ describe('operator API contract registry', () => {
         recovery: null,
       },
     }).actorRuntime.agents[0]).toEqual({ agentId: 'planner:card-1', role: 'planner', cardId: 'card-1', phase: 'waiting_for_tool' });
+    expect(parseOperatorResponse('runtime.pause', {
+      runtime: 'paused',
+      currentCardId: null,
+      goalCount: 0,
+      lastTickAt: null,
+      pid: 123,
+      lastCommand: null,
+      activeRun: null,
+      latestRun: null,
+      actorRuntime: { pauseMode: 'paused', activeWork: 'none', cards: [], agents: [], diagnostics: [], recovery: null },
+    }).runtime).toBe('paused');
+    expect(parseOperatorResponse('runtime.resume', {
+      runtime: 'running',
+      currentCardId: null,
+      goalCount: 0,
+      lastTickAt: null,
+      pid: 123,
+      lastCommand: null,
+      activeRun: null,
+      latestRun: null,
+      actorRuntime: { pauseMode: 'running', activeWork: 'none', cards: [], agents: [], diagnostics: [], recovery: null },
+    }).runtime).toBe('running');
     expect(parseOperatorResponse('cards.list', { cards: [card], total: 1 }).total).toBe(1);
     expect(parseOperatorResponse('cards.get', { card: { ...card, dependencyRefs: [], relatedRefs: [] }, children: [], ancestorIds: [], ancestorRefs: [] }).card.id).toBe('card-1');
     const chatSend = parseOperatorResponse('chats.send', {

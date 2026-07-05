@@ -7,7 +7,7 @@ import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 import { appendConversationMessage, readConversationMessages } from '../../src/runtime/actors/conversation-store.js';
 import { resolveAnalystSessionId } from '../../src/agents/session-ids.js';
-import { getProcess, startProcess } from '../../src/runtime/process-runner.js';
+import { ProcessRunner } from '../../src/runtime/process-runner.js';
 
 const { AnalystHandler } = await import('../../src/agents/analyst-handler.js');
 
@@ -83,18 +83,20 @@ describe('AnalystHandler F05 contract', () => {
     const root = setupRoot();
     try {
       const sessionId = resolveAnalystSessionId('s-cleanup');
-      const process = startProcess(root, 'sleep 5', {
+      const processRunner = new ProcessRunner(root);
+      const process = processRunner.spawn({
+        command: 'sleep 5',
         cardId: sessionId,
         ownerId: sessionId,
         agentSessionId: sessionId,
         ownerKind: 'operator',
         launchReason: 'analyst workspace run_command',
       });
-      const handler = new AnalystHandler(root, loadTestConfig(root), createTestAnalystRuntime({ projectRoot: root }));
+      const handler = new AnalystHandler(root, loadTestConfig(root), createTestAnalystRuntime({ projectRoot: root, processRunner }));
 
       await handler.shutdownSessionProcesses(sessionId);
 
-      expect(getProcess(root, process.id)).toEqual(expect.objectContaining({ status: 'killed' }));
+      expect(processRunner.get(process.id)).toEqual(expect.objectContaining({ status: 'killed' }));
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 

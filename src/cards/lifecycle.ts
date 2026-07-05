@@ -90,6 +90,7 @@ const TERMINAL_TYPES: ReadonlySet<CardType> = new Set<CardType>([
 const TERMINAL_STATES: ReadonlySet<CardStatus> = new Set<CardStatus>([
   'done',
   'failed',
+  'blocked',
   'cancelled',
 ]);
 
@@ -98,9 +99,9 @@ const VALID_TRANSITIONS: Record<CardStatus, CardStatus[]> = {
   running: ['done', 'failed', 'blocked', 'changed', 'cancelled', 'backlog', 'needs_verification'],
   blocked: ['backlog', 'running', 'changed', 'cancelled'],
   changed: ['backlog', 'running', 'cancelled'],
-  done: ['backlog', 'cancelled', 'changed'],
-  failed: ['backlog', 'cancelled', 'changed'],
-  cancelled: ['backlog', 'changed'],
+  done: ['changed'],
+  failed: ['cancelled', 'changed'],
+  cancelled: [],
   needs_verification: ['cancelled'],
 };
 

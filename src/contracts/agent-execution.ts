@@ -12,7 +12,7 @@ export interface PlannerResult {
 }
 
 export interface ExecutorResult {
-  status: 'done' | 'failed';
+  status: 'done' | 'failed' | 'blocked';
   summary: string;
 }
 

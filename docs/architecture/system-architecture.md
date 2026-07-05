@@ -12,7 +12,7 @@ The major subsystems are:
 
 - Operator web UI: read-only workspace plus always-visible Analyst panel.
 - Analyst agent: user-facing inspection and mutation orchestrator.
-- Runtime supervisor: root intent, run/resume, pause, shutdown, active-work ownership, recovery coordination.
+- Runtime supervisor: root intent, run/resume, pause mode tracking, active-work ownership, recovery coordination. Shutdown process termination is performed at the runtime/composition root (`SupervisorRuntimeApi.shutdown()` → `ProcessRunner.stopRuntimeOwned`); the supervisor actor only records stopped mode.
 - Canonical card service: Analyst-owned card mutation validation, durable tree updates, audit/projection events, and active-runtime change notification.
 - Card store: durable project hierarchy and card history.
 - Agent sessions: planner, executor, reviewer, and analyst transcripts.
@@ -47,7 +47,7 @@ Ancestors hold activation context for their active child. That context is actor 
 
 The runtime persists enough active-card-run and activation-ledger information to unwind one child activation outcome back to its parent planner.
 
-Activation validation happens before dispatch. A parent planner can activate only an immediate child in `backlog`, `changed`, `blocked`, or `failed`. Activation transitions the child to `running`; child `done`, `failed`, or `blocked` outcomes update the child card before the parent planner receives the activation tool result. `done` cards are not activatable unless later modification changes them to `changed`.
+Activation validation happens before dispatch. A parent planner can activate only an immediate child in `backlog`, `changed`, or `blocked`. Activation transitions the child to `running`; child main-agent `done`, `failed`, or `blocked` outcomes update the child card before the parent planner receives the activation tool result. Runtime cancellation can instead resolve the parent-visible activation as `cancelled`; processors do not emit `cancelled`. `done` cards are not activatable unless later modification changes them to `changed`; `failed` cards are not activatable and require explicit planner/operator handling such as cancellation, replacement, edit-to-`changed`, or escalation.
 
 ## 5. Agent Lifecycle
 
@@ -57,7 +57,7 @@ Executor sessions are one-shot per terminal card activation.
 
 Reviewer sessions are one-shot per assessment.
 
-Reviewer assessment happens after runtime readiness and evidence gates pass. The reviewer receives the project card data, the assessed goal subtree, and the planner return value. Reviewer approval is valid only for the card tree snapshot it assessed. If the goal or any descendant changes before approval commits, the runtime invalidates the reviewer pass and returns the goal to planner ownership with correction/change context. Negative reviewer results are stored with the card and injected back into the planner context through the completion-return response; positive reviewer text is only attached to the card.
+Reviewer assessment happens after runtime readiness and evidence gates pass. The reviewer receives the project card data, the assessed goal subtree, and the planner return value. Reviewer approval is valid only for the card tree snapshot it assessed. If the goal or any descendant changes before approval commits, the runtime invalidates the reviewer pass and returns the goal to planner ownership with correction/change context. Reviewer sessions must never drain the card's main-agent notification queue; notifications queued during review remain pending for planner/main-agent delivery and may invalidate reviewer success through currentness checks (P5, not yet implemented; today the reviewer non-terminal-tool continuation drains the main-agent queue — see Implementation Plan P5). Negative reviewer results are stored with the card and injected back into the planner context through the completion-return response; positive reviewer text is only attached to the card.
 
 Analyst sessions are user-facing conversational sessions. Analyst mutations go through canonical runtime, card, config, process, and notification services.
 
@@ -66,7 +66,7 @@ Analyst sessions are user-facing conversational sessions. Analyst mutations go t
 Run:
 
 1. Analyst receives a user request to run, start, continue, or resume.
-2. If the runtime is paused, the supervisor lifts the scheduling gate.
+2. If the runtime is paused, the runtime opens the global admission gate so waiters blocked at provider/spawn/dispatch seams proceed before new autonomous work is admitted (P4, not yet implemented; today resume only flips supervisor mode).
 3. If no root run exists, the supervisor records durable running intent and creates the root runtime run.
 4. If the project is already running, the supervisor returns an already-running warning and creates no duplicate root run.
 5. When needed, the supervisor activates the parentless project card.
@@ -81,10 +81,13 @@ Child execution:
 
 Pause:
 
-1. Pause sets a global scheduling gate.
-2. Existing synchronous tool dispatch reaches a safe point.
-3. No new LLM/provider calls are admitted while paused.
-4. Running processes are not killed by pause.
+1. Pause closes the global admission gate.
+2. Existing provider calls and already-running OS processes reach the next durable safe point.
+3. No new LLM/provider call, runtime-owned process spawn, or card/processor dispatch is admitted while paused.
+4. Completion facts from already-admitted work may persist and settle to durable boundaries while paused; any follow-up autonomous work waits at the same provider/spawn/dispatch gate before starting.
+5. Running processes are not killed by pause.
+
+Resume reopens the same gate. Existing waiters blocked at provider calls, runtime-owned process spawns, or card dispatch proceed exactly once in normal actor order without requiring a second Run, while preserving the one-active-leaf invariant. Already-admitted completions may have settled to durable boundaries while paused; the gate prevents their follow-up autonomous work from starting until resume.
 
 Shutdown:
 
@@ -101,7 +104,7 @@ Notification content is not a durable user-managed object. Persistence exists on
 
 ## 8. Changed-State Propagation
 
-Analyst mutation or parent-planner mutation sets a non-active card to `changed`. If the modified card is already `running`, it remains `running`. In both cases the runtime queues a notification to the modified card so the card's main agent becomes aware of the change.
+Analyst mutation or parent-planner mutation sets a non-active, non-terminal card to `changed`. Terminal `cancelled` cards cannot be edited or reactivated. If the modified card is already `running`, it remains `running`. In both cases the runtime queues a notification to the modified card so the card's main agent becomes aware of the change.
 
 When a modification affects an inactive descendant, inactive ancestors on the direct path to the project root receive changed-subtree context and become `changed` until the first running ancestor. Running ancestors stay `running` and receive notification/context instead of status overwrite. In practice, deep propagation is most often needed for Analyst edits because parent-planner edits target direct children of the active goal. Ancestors are not automatically dispatched by the status change.
 
@@ -113,13 +116,15 @@ The acceptance gate prevents a planner from closing a goal while any executable 
 
 Cancellation is immediate only for inactive cards. Recursive cancellation preserves descendants that are already `done` and converts inactive non-completion-compatible descendants, including `failed`, `blocked`, `backlog`, and `changed`, to `cancelled`.
 
-Cancelling a running card is best-effort: the runtime queues a downstream cancellation notification for the card's main agent and otherwise leaves the card `running`. It does not close LLM admission, kill processes, abort tools, reinterpret late results, or add a separate workflow phase. Shutdown remains the hard operation for stopping runtime-owned work regardless of agent cooperation.
+Cancelling a running card is authoritative: `CardActor.cancel()` cancels the current activation, writes `cancelled` to the card store immediately, resolves the pending activation as cancelled, stops activation-owned runtime process scope, and drops late provider/tool/process outcomes through the CardActor cancellation flag (P3, not yet implemented; today running cancel only enqueues a notification and late outcomes can still overwrite `cancelled`). Running children are cancelled through their own `CardActor.cancel()` so they are cancelled too. Shutdown remains the hard operation for forcibly stopping all runtime-owned process scopes.
 
-Project-card cancellation is the root case of the same operation. Inactive project work is cancelled immediately; running project work receives the same best-effort downstream cancellation notification and remains under normal runtime flow until the active agent reports an outcome or the operator uses shutdown.
+Project-card cancellation is the root case of the same operation. Inactive project work is cancelled immediately; running project work is cancelled via the same activation path, which marks the card store `cancelled` immediately and rejects late outcomes.
 
 ## 10. Persistence
 
 Durable state remains project-local. Saivage state must live under the project `.saivage/` and `.saivage-work/` directories, not under user-global state.
+
+Startup recovery is conservative and process-first (target; P1/P2 not yet implemented — today reconcile runs after actor recovery and `reattach_state` is still written). The runtime reconciles persisted running process records before actor recovery: runtime/agent-owned process records are killed by PID/process-group or marked lost, operator-owned records are observed best-effort or marked lost, and no `reattach_state` or live process reattachment fiction is used. After process reconciliation, actor recovery projects only safe persisted terminal decisions; remaining interrupted active card work becomes explicit `blocked` outcomes with sanitized diagnostics. Recovery does not recreate in-flight provider calls, process waits, tool waits, or running card actors.
 
 Expected persisted concerns include:
 
@@ -161,7 +166,7 @@ The runtime implementation direction is micro-actor-centered: actor states, subm
 Target actor ownership:
 
 - `CardActor`s own direct child `CardActor` instances and the associated processor actor for that card type;
-- `BaseCardProcessorActor` owns shared activation, cancellation, settlement, parent outcome reporting, and processor snapshot mechanics;
+- `BaseCardProcessorActor` owns shared processor mechanics: activation, settlement, outcome reporting to the owning `CardActor`, and processor snapshot mechanics. It has no cancellation API; running cancellation is owned by `CardActor` (see P3);
 - `BaseMainLLMCardProcessorActor` owns shared main-agent LLM loop mechanics and per-turn notification delivery without role-specific policy;
 - `PlanningCardProcessorActor` owns project/goal planner and reviewer semantics;
 - `TerminalCardProcessorActor` owns executor semantics for terminal cards; it constructs card-scoped capabilities and does not own child cards.

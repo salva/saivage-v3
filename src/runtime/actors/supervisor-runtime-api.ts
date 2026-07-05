@@ -4,21 +4,22 @@ import { PROJECT_CARD_ID } from '../../cards/project-card.js';
 import { buildActorRecoveryPlan, runActorStartupRecovery, type ActorStartupRecoveryReport } from './actor-recovery.js';
 import { cardActorId, plannerActorId, parseLlmActorId } from './ids.js';
 import { RuntimeSupervisorActor } from './runtime-supervisor.js';
-import { CardActor, type CardActivationOutcome, type CardActorStorePort } from './card-actor.js';
-import { PlanningCardProcessorActor, type PlannerChildActorPort } from './planning-card-processor-actor.js';
-import { TerminalCardProcessorActor } from './terminal-card-processor-actor.js';
+import { CardActor, type CardActivationOutcome, type CardActorDeps, type CardActorStorePort } from './card-actor.js';
 import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
 import { toPublicAgentPhase, toPublicCardActorState } from './actor-vocabulary.js';
 import { appendNotificationToActorSnapshot } from './snapshots.js';
 import type { LLMProviderPort } from './llm-actor.js';
 import type { NotifyCardResult, RuntimeApi, RuntimeCommandSource, StartProjectResult, StopProjectResult } from '../runtime-api.js';
-import type { CardRecord, RuntimeCommandRecord, RuntimeRunRecord, RuntimeState, RuntimeStatus } from '../../schemas/index.js';
+import type { RuntimeCommandRecord, RuntimeRunRecord, RuntimeState, RuntimeStatus } from '../../schemas/index.js';
 import type { Subscription, SubscriptionOptions } from '../../events/index.js';
 import type { ActorActiveWork, ActorPauseMode, ActorRuntimeReadModel } from '../../application/read-models/actor-runtime-read-model.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import type { CardNotification } from './card-actor.js';
 import { createRuntimeStateMutationPort, type RuntimeStateMutationPort } from '../mutations.js';
 import { readRuntimeState } from '../state-api.js';
+import type { ProcessRunner } from '../process-runner.js';
+import { RuntimeGate } from '../runtime-gate.js';
+import { buildPauseRuntimeStatePatch, buildResumeRuntimeStatePatch } from '../runtime-control-state.js';
 
 type RuntimeRunAppendInput = Omit<RuntimeRunRecord, 'run_id' | 'started_at' | 'updated_at'> & { run_id?: string; started_at?: string; updated_at?: string };
 
@@ -33,6 +34,8 @@ export interface SupervisorRuntimeApiOptions {
   rootCards?: ProjectRootCardReader;
   actorStore: CardActorStorePort;
   provider: LLMProviderPort;
+  processRunner: ProcessRunner;
+  runtimeGate?: RuntimeGate;
   mcpManagerProvider?: () => McpToolInvocationPort | undefined;
 }
 
@@ -41,6 +44,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
   private readonly eventBus: EventBus;
   private readonly now: () => string;
   private readonly runtimeState: RuntimeStateMutationPort;
+  private readonly runtimeGate: RuntimeGate;
   private started = false;
   private commandCounter = 0;
   private currentCardId: string | null = null;
@@ -52,21 +56,22 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     this.eventBus = options.eventBus ?? new EventBus();
     this.now = options.now ?? (() => new Date().toISOString());
     this.runtimeState = createRuntimeStateMutationPort(options.projectRoot);
+    this.runtimeGate = options.runtimeGate ?? new RuntimeGate();
   }
 
   async start(): Promise<void> {
     if (this.started) return;
+    await this.options.processRunner.reconcile();
     const recoveryPlan = buildActorRecoveryPlan(this.options.projectRoot, this.options.actorStore);
     this.startupRecoveryReport = runActorStartupRecovery(recoveryPlan, {
       projectRoot: this.options.projectRoot,
       store: this.options.actorStore,
       generatedAt: this.now(),
-      makePlanningProcessor: (cardId) => new PlanningCardProcessorActor({ projectRoot: this.options.projectRoot, cardId, store: this.options.actorStore, children: this.childrenPort(), provider: this.options.provider, admission: this, notifyCard: (targetCardId, notification) => this.notifyCard(targetCardId, notification), mcpManagerProvider: this.options.mcpManagerProvider }),
-      makeTerminalProcessor: (cardId) => new TerminalCardProcessorActor({ projectRoot: this.options.projectRoot, cardId, provider: this.options.provider, admission: this, store: this.options.actorStore, mcpManagerProvider: this.options.mcpManagerProvider }),
     });
     this.reconcileStaleRootRuns();
     this.supervisor.start();
     this.supervisor.initialize(this.options.projectRoot);
+    this.runtimeGate.setOpen(readRuntimeState(this.options.projectRoot)?.status !== 'paused');
     this.started = true;
   }
 
@@ -76,22 +81,28 @@ export class SupervisorRuntimeApi implements RuntimeApi {
 
   async shutdown(): Promise<void> {
     if (!this.started) return;
-    this.shutdownOwnedProcesses('runtime shutdown');
     this.supervisor.shutdown();
+    await this.options.processRunner.stopRuntimeOwned('runtime shutdown', { graceMs: 5000 });
     this.started = false;
     this.currentCardId = null;
     this.activeRun = null;
   }
 
   pause(): void {
-    if (!this.started) return;
+    if (!this.started) throw new Error('Cannot pause runtime before it is started.');
+    if (this.supervisor.mode !== 'running') throw new Error(`Cannot pause runtime from '${this.supervisor.mode}'.`);
+    this.runtimeGate.close();
     this.supervisor.pause();
+    this.runtimeState.apply({ kind: 'patchRuntimeState', patch: { ...buildPauseRuntimeStatePatch(), active_card_run: null, updated_at: this.now() } });
   }
 
   resume(): void {
-    if (!this.started) return;
-    if (!this.currentCardId) return;
+    if (!this.started) throw new Error('Cannot resume runtime before it is started.');
+    if (this.supervisor.mode !== 'paused') throw new Error(`Cannot resume runtime from '${this.supervisor.mode}'.`);
     this.supervisor.run();
+    const activeRunStartedAt = this.activeRun?.started_at ?? this.now();
+    this.runtimeState.apply({ kind: 'patchRuntimeState', patch: { ...buildResumeRuntimeStatePatch(readRuntimeState(this.options.projectRoot)), status: 'running', active_card_run: this.activeCardRun(activeRunStartedAt), updated_at: this.now() } });
+    this.runtimeGate.open();
   }
 
   notifyCard(cardId: string, notification: CardNotification): NotifyCardResult {
@@ -136,13 +147,14 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     await this.start();
     const command = this.command('stop_project', 'completed', source);
     const stoppedAt = this.now();
+    const runToCancel = this.activeRun;
     this.cardActors.get(PROJECT_CARD_ID)?.cancel({ reason: 'runtime_project_cancelled', cancelled_at: stoppedAt });
-    this.shutdownOwnedProcesses('runtime_project_cancelled');
+    await this.options.processRunner.stopRuntimeOwned('runtime_project_cancelled', { graceMs: 5000 });
     this.supervisor.cancelProject();
-    const run = this.activeRun
+    const run = runToCancel
       ? this.runtimeState.apply({
           kind: 'updateRuntimeRun',
-          runId: this.activeRun.run_id,
+          runId: runToCancel.run_id,
           updates: {
             phase: 'cancelled',
             runtime_status: 'cancelled',
@@ -203,14 +215,6 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     };
   }
 
-  requestProviderCall(callId: string): boolean {
-    return this.supervisor.requestProviderCall(callId);
-  }
-
-  releaseProviderCall(callId: string): void {
-    this.supervisor.releaseProviderCall(callId);
-  }
-
   private command(command: RuntimeCommandRecord['command'], status: RuntimeCommandRecord['status'], source: RuntimeCommandSource): RuntimeCommandRecord {
     this.commandCounter++;
     const at = this.now();
@@ -227,7 +231,6 @@ export class SupervisorRuntimeApi implements RuntimeApi {
 
   private startProjectRejection(source: RuntimeCommandSource): StartProjectResult | null {
     if (this.supervisor.mode === 'running') return this.rejectStart(source, 'runtime_already_running', 'Cannot start runtime: project execution is already running.', 'Wait for the active run to finish or stop it before starting again.');
-    if (this.supervisor.mode === 'shutting_down') return this.rejectStart(source, 'runtime_stopping', 'Cannot start runtime: shutdown is in progress.', 'Wait for shutdown to complete before starting again.');
     if (this.activeRun?.runtime_status === 'running') return this.rejectStart(source, 'runtime_run_already_active', `Cannot start runtime: run '${this.activeRun.run_id}' is already active.`, 'Wait for the active run to finish or stop it before starting again.');
     return null;
   }
@@ -285,6 +288,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
 
   private async runRootProject(_command: RuntimeCommandRecord, run: RuntimeRunRecord): Promise<void> {
     try {
+      await this.runtimeGate.waitUntilOpen();
       const actor = this.cardActor(PROJECT_CARD_ID);
       const outcome = await actor.activate({ kind: 'root' });
       this.finalizePersistedRootRun(run, outcome, this.now());
@@ -365,49 +369,30 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     if (existing) return existing;
     const card = this.options.actorStore.read(cardId);
     if (!card) throw new Error(`Card '${cardId}' not found.`);
-    const actor = CardActor.fromCard({ projectRoot: this.options.projectRoot, card, store: this.options.actorStore, processor: this.processorFor(card) });
-    this.cardActors.set(cardId, actor);
-    return actor;
+    return CardActor.fromCard({ card, deps: this.cardActorDeps() });
   }
 
-  private processorFor(card: CardRecord) {
-    if (card.type === 'project') {
-      const processor = new PlanningCardProcessorActor({ projectRoot: this.options.projectRoot, cardId: card.id, store: this.options.actorStore, children: this.childrenPort(), provider: this.options.provider, admission: this, notifyCard: (targetCardId, notification) => this.notifyCard(targetCardId, notification), mcpManagerProvider: this.options.mcpManagerProvider });
-      processor.start();
-      return processor;
-    }
-    if (card.type === 'goal') {
-      const processor = new PlanningCardProcessorActor({ projectRoot: this.options.projectRoot, cardId: card.id, store: this.options.actorStore, children: this.childrenPort(), provider: this.options.provider, admission: this, notifyCard: (targetCardId, notification) => this.notifyCard(targetCardId, notification), mcpManagerProvider: this.options.mcpManagerProvider });
-      processor.start();
-      return processor;
-    }
-    const processor = new TerminalCardProcessorActor({ projectRoot: this.options.projectRoot, cardId: card.id, provider: this.options.provider, admission: this, store: this.options.actorStore, mcpManagerProvider: this.options.mcpManagerProvider });
-    processor.start();
-    return processor;
-  }
-
-  private childrenPort(): PlannerChildActorPort {
-    return { get: (cardId) => this.cardActor(cardId) };
+  private cardActorDeps(): CardActorDeps {
+    return {
+      projectRoot: this.options.projectRoot,
+      store: this.options.actorStore,
+      provider: this.options.provider,
+      gate: this.runtimeGate,
+      processRunner: this.options.processRunner,
+      mcpManagerProvider: this.options.mcpManagerProvider,
+      notifyCard: (targetCardId, notification) => this.notifyCard(targetCardId, notification),
+      lookup: this.cardActors,
+    };
   }
 
   private actorPauseMode(): ActorPauseMode {
     const mode = this.supervisor.mode;
     if (mode === 'paused') return 'paused';
-    if (mode === 'shutting_down') return 'stopping';
     return mode === 'running' ? 'running' : 'idle';
   }
 
   private actorActiveWork(): ActorActiveWork {
-    const work = this.supervisor.work;
-    if (work === 'model_invocation_active') return 'model_invocation';
-    if (work === 'shutdown_active') return 'shutdown';
     return 'none';
-  }
-
-  private shutdownOwnedProcesses(reason: string): void {
-    for (const actor of this.cardActors.values()) {
-      if (actor.processor instanceof TerminalCardProcessorActor) actor.processor.shutdownOwnedProcesses(reason);
-    }
   }
 }
 

@@ -1,6 +1,8 @@
 import { describe, expect, it } from '@jest/globals';
 import { join } from 'node:path';
-import { processApi } from '../../src/runtime/process-api.js';
+
+import { ProcessRunner } from '../../src/runtime/process-runner.js';
+import { buildProcessOperatorContractHandlers } from '../../src/server/routes/operator-process-handlers.js';
 import type { ProcessRecord } from '../../src/schemas/index.js';
 
 function record(overrides: Partial<ProcessRecord> = {}): ProcessRecord {
@@ -31,17 +33,22 @@ function record(overrides: Partial<ProcessRecord> = {}): ProcessRecord {
     owner_kind: 'agent',
     background_policy: null,
     process_group_id: 123,
-    reattach_state: 'attached',
     failure_classification: null,
     ...overrides,
   };
 }
 
-describe('process operator view projection', () => {
-  it('projects process records into the existing operator-safe process view shape', () => {
-    const service = processApi('/workspace/project');
+async function processView(input: ProcessRecord): Promise<Record<string, unknown>> {
+  const runner = new ProcessRunner('/workspace/project');
+  runner.setTransientRegistry(new Map([[input.id, input]]));
+  const handlers = buildProcessOperatorContractHandlers({ projectRoot: '/workspace/project', processRunner: runner });
+  const response = await handlers['processes.get']!({ contract: {} as never, params: { id: input.id }, query: {}, body: undefined, request: {} as never, reply: {} as never });
+  return (response.body as { process: Record<string, unknown> }).process;
+}
 
-    expect(service.toProcessView(record())).toEqual({
+describe('process operator view projection', () => {
+  it('projects process records into the operator-safe process view shape', async () => {
+    await expect(processView(record())).resolves.toEqual({
       id: 'proc-1',
       status: 'running',
       started_at: '2026-01-01T00:00:00.000Z',
@@ -62,9 +69,8 @@ describe('process operator view projection', () => {
     });
   });
 
-  it('redacts sensitive commands and hides paths outside the project root', () => {
-    const service = processApi('/workspace/project');
-    const view = service.toProcessView(record({
+  it('redacts sensitive commands and hides paths outside the project root', async () => {
+    const view = await processView(record({
       command: 'curl https://example.test --header "Authorization: Bearer secret-token"',
       cwd: '/etc',
       stdout_path: '/tmp/out.log',
@@ -77,9 +83,8 @@ describe('process operator view projection', () => {
     expect(view.logs).toEqual({ stdout: null, stderr: null, combined: null });
   });
 
-  it('preserves the legacy timed_out heuristic', () => {
-    const service = processApi('/workspace/project');
-    expect(service.toProcessView(record({ status: 'failed', exit_code: null }))).toHaveProperty('timed_out', true);
-    expect(service.toProcessView(record({ status: 'failed', exit_code: 1 }))).toHaveProperty('timed_out', false);
+  it('preserves the timed_out heuristic used by operator routes', async () => {
+    await expect(processView(record({ status: 'failed', exit_code: null }))).resolves.toHaveProperty('timed_out', true);
+    await expect(processView(record({ status: 'failed', exit_code: 1 }))).resolves.toHaveProperty('timed_out', false);
   });
 });

@@ -9,7 +9,8 @@ import { clearProjectNotificationDeliveryAdapters, clearProjectNotificationEvent
 import { queueNotification, resolveRecipient } from '../src/notifications/notification-triggers.js';
 import { EventBus } from '../src/events/index.js';
 import { saveActorSnapshot } from '../src/runtime/actors/snapshots.js';
-import { CardActor, PlanningCardProcessorActor } from '../src/runtime/actors/index.js';
+import { CardActor, PlanningCardProcessorActor, type CardActorDeps } from '../src/runtime/actors/index.js';
+import { ProcessRunner } from '../src/runtime/process-runner.js';
 import { queue_notification } from '../src/tools/analyst-misc-tools.js';
 import { createPlannerControlProvider } from '../src/tools/planner-control-provider.js';
 import { listControlActions } from '../src/persistence/control-action-audit.js';
@@ -18,6 +19,10 @@ import type { CardRecord } from '../src/schemas/types.js';
 import type { NewCardInput } from '../src/cards/lifecycle.js';
 import type { LlmInvocationInput, LLMProviderPort } from '../src/runtime/actors/index.js';
 import type { ToolContext } from '../src/tools/analyst-tool-types.js';
+
+function cardActorDeps(projectRoot: string, store: CardStore, provider: LLMProviderPort): CardActorDeps {
+  return { projectRoot, store, provider, processRunner: new ProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
+}
 
 function makeCard(overrides: Partial<NewCardInput> & { id?: string; type: NewCardInput['type']; title: string }): NewCardInput & { id?: string } {
   return { parent: 'project', depth: 1, brief: overrides.title, status: 'backlog', subtype: null, tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', assigned_to: null, depends_on: [], related: [], lifecycle: ({ status: overrides.status ?? 'backlog', result: null, error: null, completed_at: null } as CardRecord['lifecycle']), metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, retries: 0, ...overrides };
@@ -189,7 +194,7 @@ describe('queueNotification recipient resolution', () => {
       lifecycle: { status: 'needs_verification', result: { kind: 'executor_needs_verification', reason: 'verify', preserved_result: {}, fallback_reason: null, latest_self_report: { result: 'needs_verification', outcome: 'needs_verification', summary: 'verify', status_text: 'verify', at: '2026-06-12T00:00:00.000Z' } }, error: null, completed_at: null },
     });
     const deps = createTestAnalystRuntime({ projectRoot, cardStore: store });
-    const ctx: ToolContext = { projectRoot, store, actor: 'analyst', surface: 'web-chat', runtime: deps.runtime };
+    const ctx: ToolContext = { projectRoot, processRunner: deps.processRunner, store, actor: 'analyst', surface: 'web-chat', runtime: deps.runtime };
 
     const result = await queue_notification(ctx, { recipient: goal.id, kind: 'review_update', body: 'reviewer left actionable feedback' });
 
@@ -211,7 +216,8 @@ describe('queueNotification recipient resolution', () => {
       provider,
     });
     processor.start();
-    const actor = CardActor.fromCard({ projectRoot, card: store.read(goal.id)!, store, processor });
+    const actor = CardActor.fromCard({ card: store.read(goal.id)!, deps: cardActorDeps(projectRoot, store, provider) });
+    Object.defineProperty(actor, 'processor', { value: processor });
 
     await expect(actor.activate({ kind: 'parent', cardId: 'project' })).resolves.toMatchObject({ status: 'failed' });
 

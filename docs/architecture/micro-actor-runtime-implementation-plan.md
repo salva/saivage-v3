@@ -1,6 +1,6 @@
 # Micro-Actor Runtime Implementation Plan
 
-Status: complete for the current micro-actor runtime replacement.
+Status: R1-R4 remediation complete; P1-P5 active remediation pending implementation (right-layer fixes, no new wrapper classes).
 
 Date: 2026-06-24.
 
@@ -10,7 +10,7 @@ The core micro-actor runtime replacement has landed:
 
 - `RuntimeApi` now uses the actor execution path and no longer has a projection-only startup branch.
 - Legacy actor runner/XState runtime paths and the `xstate` package dependency have been removed.
-- `CardActor`, `LLMActor`, `ProcessActor`, processor base classes, `TerminalCardProcessorActor`, and `PlanningCardProcessorActor` are the active runtime path.
+- `CardActor`, `LLMActor`, processor base classes, `TerminalCardProcessorActor`, and `PlanningCardProcessorActor` are the active runtime path. Process execution is a non-actor injected `ProcessRunner` service.
 - Planner, executor, and reviewer reports are accepted only through role contract terminal tools.
 - Card-owned notifications are delivered per LLM turn with durable delivery markers; `LLMActor` remains queue-free.
 - Reviewer execution is a phase of `PlanningCardProcessorActor`; the standalone reviewer card processor was removed.
@@ -22,7 +22,7 @@ The actor runtime plan is complete. The following are future product/architectur
 
 1. If mid-flight resume becomes a concrete requirement, design it as new actor-owned reconstruction entrypoints. Do not add adapters around in-memory promises, provider calls, or process handles.
 2. If auto-reactivation after restart becomes desirable, replace the conservative block-on-restart policy deliberately rather than layering a bridge over current recovery.
-3. Broader release validation should run when release criteria or affected surfaces change; the current focused, routine, UI, and release profiles have passed after the recovery and cleanup slices.
+3. Broader release validation should run when release criteria or affected surfaces change; the current focused, routine, UI, and release profiles passed before P1-P5 and must be re-run after P1-P5 land.
 
 The detailed recovery work and simplification direction is tracked in [Slice 8: Recovery](#slice-8-recovery).
 
@@ -33,13 +33,13 @@ The post-implementation review found a few real issues that should be fixed befo
 Completed post-review fixes:
 
 - Candidate-review self-citation is rejected unless backed by durable evidence outside the reviewed card candidate result.
-- Running cancellation is notification-only; processor cancellation states and processor `cancel(...)` APIs were removed from the normal path.
-- Notification delivery uses the card-owned `deliverNotificationsForInput(inputId)` contract, and done cards with leftover notifications reopen as `changed` so pending context is not stranded.
+- Processor cancellation states and processor `cancel(...)` APIs remain absent from the normal path by design; running cancellation is owned by `CardActor` through the current activation. The activation settlement primitive itself is NOT yet implemented — see [P3](#p3-cardactor-owns-authoritative-cancellation-and-activation-id-settlement).
+- Notification delivery uses the card-owned `deliverNotificationsForInput(inputId)` contract. Done cards with leftover notifications are handled by the processor's terminal-deferral path (see [P3](#p3-cardactor-owns-authoritative-cancellation-and-activation-id-settlement)), not by flipping `done` to `changed`.
 - Non-terminal planner `activate_card` argument failures are returned as recoverable tool results instead of crashing activation.
 - Dead actor APIs/options such as untracked notification drain/record methods, production-dead `LLMActor.appendToolError`, and unused runtime construction inputs were removed.
 - Notification delivery markers and terminal processor process actor records are bounded/compacted.
 - Actor runtime read-model state names are aligned with current actor states.
-- Reviewer approval is invalidated when main-agent notifications remain pending after the reviewer turn; reviewer turns do not drain main-agent notification queues.
+- Reviewer approval is invalidated when main-agent notifications remain pending after the reviewer turn (reviewer-currentness check). Note: reviewer turns still drain main-agent notifications today — see [P5](#p5-reviewer-cannot-reach-main-agent-notification-delivery).
 - Startup converts known interrupted running card work into explicit blocked card outcomes when the owner card and transition are valid.
 - Safe parked-state recovery hooks avoid normal-entry side effects where needed.
 - Terminal tool-call recovery projects safe executor terminal outcomes, planner `blocked`/`failed` outcomes, and planner `done` outcomes paired with matching persisted reviewer terminal results.
@@ -51,12 +51,12 @@ Completed post-review fixes:
 
 Remaining priority fixes:
 
-- Keep terminal contract handling simple and fail-fast unless a concrete repair requirement exists. Do not add a general terminal-output repair loop just because it is possible.
+- Terminal contract handling uses the existing bounded repair loop (`runContractBoundedRepairLoop`) shared by the planner, reviewer-inner, and executor processors — this is accepted current architecture, not pending work. Do not expand it into a general/unbounded terminal-output repair loop, and do not remove the bounded loop without replacing the three callers. Keep its budget bounded and fail fast when the budget is exhausted.
 - Remove any newly discovered dead options, duplicated types/helpers, or production-dead LLM/processor APIs as they appear.
 
 Deferred or optional improvements:
 
-- A one-turn terminal contract repair loop may be added later if model behavior proves it is needed. Until then, explicit failure on invalid terminal tools is simpler and easier to reason about.
+- Expanding the bounded repair budget or adding repair for new terminal kinds may be considered later if model behavior proves it is needed; until then the current bounded loop is simpler and easier to reason about.
 - Parallel provider tool calls remain unsupported by design. Keep the one-tool-call invariant until a full protocol is designed.
 
 ## Purpose
@@ -88,10 +88,10 @@ Goal: make the runtime entry point actor-centered before changing card execution
 Implementation:
 
 - Replace the existing supervisor/controller shell with a new `RuntimeSupervisorActor`; do not adapt `RuntimeSupervisorController` as a bridge.
-- Add states `idle`, `running`, `paused`, and `shutting_down`.
+- Add states `idle`, `running`, and `paused` (no `shutting_down`; see [R3](#completed-remediation-r1-r4)).
 - Implement public methods `run()`, `pause()`, `shutdown()`, and `cancelProject()`.
 - Persist supervisor state transitions from `_on_state_changed(...)`; keep explicit persistence for non-transition context changes such as provider admission/release fields or initialization data.
-- Implement `cancelProject()` with the same two-path cancellation semantics as `CardActor`: inactive project work is cancelled immediately, while running project work receives a best-effort cancellation notification and remains under normal runtime flow.
+- Implement `cancelProject()` with authoritative cancellation semantics matching `CardActor` (see [P3](#p3-cardactor-owns-authoritative-cancellation-and-activation-id-settlement)): inactive project work is cancelled immediately, while running project work cancels the current activation so late outcomes cannot commit.
 - Keep duplicate `run()` simple: if already running, return an already-running warning and do not create new work.
 - Keep the existing public `RuntimeApi` surface where operators/tools already call it, but replace the implementation so it constructs or attaches to the supervisor and calls only supervisor/card public methods.
 - `RuntimeApi` must always run through the actor stack. It may start the root `CardActor` and wait on projections or the root activation promise, but it must not have an alternate path that only fabricates runtime records without actor execution.
@@ -104,13 +104,13 @@ Tests:
 - `run()` from `running` returns already-running and creates no duplicate root work.
 - `pause()` closes admission and does not mutate card status.
 - `run()` from `paused` resumes admission.
-- `shutdown()` transitions through shutdown and returns to `idle` with diagnostics.
+- `shutdown()` cancels the supervisor and returns to `idle` (no `shutting_down` state; see [R3](#completed-remediation-r1-r4)).
 - RuntimeApi boundary test proves it starts only the supervisor/root card actor path and does not branch over child workflow phases.
 - No `RuntimeSupervisorController` compatibility wrapper remains.
 
 Acceptance:
 
-- Public runtime mode projections show idle/running/paused/shutting-down truthfully.
+- Public runtime mode projections show idle/running/paused truthfully.
 - No optional projection-only runtime execution path remains.
 - No lower-level planner/executor/reviewer workflow branch is run by `RuntimeApi`.
 - Focused supervisor/API tests pass.
@@ -127,8 +127,8 @@ Implementation:
 - Persist card actor state transitions from `_on_state_changed(...)` and remove empty `_on_enter__{state}` hooks that only save snapshots.
 - Keep explicit persistence for card context changes that do not transition state, including queued notifications, change metadata, inactive-cancellation writes, and accepted activation outcomes.
 - Persist public card status changes through the canonical card store before reporting outcomes upward.
-- Implement cancellation as two paths: inactive cards/subtrees are marked `cancelled` immediately, while running cards only receive a best-effort cancellation notification downstream and remain `running`.
-- Do not use running cancellation to close provider admission, abort active tools, kill processes, or reinterpret later agent reports. Those are shutdown or process-control responsibilities, not best-effort cancellation behavior.
+- Implement cancellation as two paths: inactive cards/subtrees are marked `cancelled` immediately, while running cards cancel the current activation, write `cancelled` to the card store immediately, resolve the pending activation as cancelled, stop the activation-owned runtime process scope, and drop stale/late outcomes through the CardActor cancellation flag (see [P3](#p3-cardactor-owns-authoritative-cancellation-and-activation-id-settlement)).
+- Cancellation of a running card is authoritative, not advisory. The current activation prevents late provider/tool/process outcomes from overwriting the cancelled card lifecycle.
 - Keep notification queue ownership in `CardActor`. Provide one processor-facing delivery method that atomically drains notifications for a specific model input id and records delivery markers. Do not keep separate untracked drain/record methods unless a production caller needs them.
 - Instantiate or reconnect direct child `CardActor` instances from card data.
 - Instantiate or reconnect the associated processor actor for the card type.
@@ -136,18 +136,17 @@ Implementation:
 - In `running`, call the processor's `activate(input)` method and wait on a parent-owned promise.
 - Call hard-coded parent completion methods when activation outcomes are committed.
 - Keep running-card change handling simple: running cards stay `running` and receive notification/context.
-- On activation settlement, handle leftover queued notifications explicitly. The simplest acceptable behavior is a diagnostic or durable marker showing notifications were not delivered before the terminal outcome; do not silently discard or indefinitely hide them.
+- On `done` activation settlement, the processor's bounded repair loop defers the terminal `done` report if undelivered main-agent notifications are pending (see [P3](#p3-cardactor-owns-authoritative-cancellation-and-activation-id-settlement)). The card stays `running`; notifications are delivered to the LLM; the agent re-reports after seeing them. `CardActor` never flips `done` to `changed` because of pending notifications. `changed` is exclusively an edit/subtree-mutation signal.
 
 Tests:
 
-- Activatable statuses are `backlog`, `changed`, `blocked`, and `failed`.
+- Activatable statuses are `backlog`, `changed`, and `blocked`. `failed` is not reactivatable (matches `isActivatable()`); the parent must cancel it or handle the failure context.
 - `activate(...)` rejects non-child or not-ready activation.
 - Activation transitions to `running` and starts the processor.
 - Processor `done`, `failed`, and `blocked` outcomes update card state before parent notification.
 - `markChanged(...)` moves inactive cards to `changed` and leaves running cards `running`.
-- `cancel(...)` marks inactive cards/subtrees `cancelled`, preserves descendants already `done`, and enqueues best-effort cancellation notifications for running cards without changing their status.
-- Running-card cancellation tests prove the card stays `running`, downstream notification is queued, and no provider/process/tool hard-cancel side effect is triggered.
-- Running-card cancellation tests prove the cancellation notification reaches a later model-visible turn when one exists, or is recorded as leftover/undelivered when the activation settles before another turn.
+- `cancel(...)` marks inactive cards/subtrees `cancelled`, preserves descendants already `done`, and for running cards cancels the current activation, writes `cancelled` to the store immediately, and drops late outcomes through the CardActor cancellation flag.
+- Running-card cancellation tests prove the card store is marked `cancelled` immediately, the pending activation resolves as cancelled, and a late provider outcome does not overwrite the cancelled lifecycle.
 - `_on_state_changed(...)` records card actor state transitions, while `recover(...)` does not emit a new transition snapshot.
 
 Acceptance:
@@ -192,36 +191,27 @@ Acceptance:
 - Provider and tool diagnostics are stored, not injected raw into model-visible context.
 - Focused LLMActor tests pass with fake provider/admission services.
 
-## Slice 4: ProcessActor And Process Capabilities
+## Slice 4: Process Service And Process Capabilities
 
 Goal: make process execution durable and separately observable before terminal cards need process tools.
 
-Implementation:
+Current status: process execution is handled by one injected `ProcessRunner` service (collapsed from the old four-layer forwarding stack by R1). There is no `ProcessActor` and none is planned: process management does real OS work and holds real state, so it earns its existence as exactly one service class.
 
-- Add `ProcessActor` with `running`, `killing`, and terminal `settled` states.
-- Implement `launch(spec)`, `wait(timeout)`, `inspect(range)`, and `kill(reason)`.
-- Persist process actor state transitions from `_on_state_changed(...)`; keep explicit persistence for launch metadata, stdout/stderr chunks, kill metadata, and terminal exit details.
-- Start a monitoring task while `running` so process exit is recorded even when no one is waiting.
-- Keep wait timeout non-destructive: timeout returns a tool result but does not kill the process.
-- Persist command metadata, working directory, timestamps, rendered command, status, exit/termination details, and safe logs.
-- Recovery abandons persisted `running`/`killing` process records with sanitized diagnostics by default. Do not add live process/PID reconciliation unless preserving in-flight process results becomes a concrete requirement.
-- Delete or replace old process runner/controller code when this actor owns process lifecycle.
+Implementation (current):
 
-Tests:
+- `ProcessRunner` spawns processes (`spawn(spec)` with explicit `ownerId`/`ownerKind`/`cardId`), streams output to durable logs, persists a durable process registry, and exposes scoped termination: `kill(id, reason, { graceMs })`, `stopByOwner(ownerId, reason, { graceMs })`, `stopRuntimeOwned(reason, { graceMs })`. There is deliberately no blanket `stopAll`.
+- Process tools (`run_command`, `wait_process`, `kill_process`) call the runner directly.
+- Reconciliation at startup is owner-scoped: runtime/agent-owned running records are killed by PID or marked lost; operator-owned records are observed best-effort or marked lost. See [P1](#p1-processrunner-owns-truthful-process-state-and-scoped-termination) for the corrected truthfulness model and [P2](#p2-startup-reconciles-processes-before-actor-recovery) for startup ordering.
 
-- Launch records process metadata and exposes safe projection.
-- Process exit records terminal result and transitions to `settled`.
-- `wait(timeout)` times out without killing the process.
-- `inspect(range)` returns bounded safe output.
-- `kill(reason)` terminates or marks abandoned with diagnostics.
-- Recovery of a running/killing process marks it abandoned with diagnostics; live process reattachment is deferred unless explicitly required.
+Known drift to be removed in [Remediation R1](#completed-remediation-r1-r4):
+
+- The service was wrapped in a four-layer forwarding stack (`ProcessApi` → module free functions → `ProcessRunnerService` one-line methods → `*ForService` free functions) backed by a per-root module singleton. Only one of those layers did real work. R1 collapsed this to one injected class with scoped termination methods. See [R1](#completed-remediation-r1-r4) and [P1](#p1-processrunner-owns-truthful-process-state-and-scoped-termination) for the current state.
 
 Acceptance:
 
-- Process tools route through ProcessActor or a deliberately small process service used by ProcessActor.
-- Process read models are available to API/UI without exposing unsafe raw output.
-- Focused process actor tests pass.
-- No process-runner controller bridge remains in production code.
+- Process tools route through the one `ProcessRunner` service.
+- Process read models are available to API/UI without exposing unsafe raw output; redaction is applied at the serialization boundary, not via a wrapper class.
+- No process-runner controller bridge or forwarding wrapper remains in production code.
 
 ## Slice 5: TerminalCardProcessorActor Vertical Slice
 
@@ -229,19 +219,19 @@ Goal: prove the full actor path with the simplest useful card execution.
 
 Implementation:
 
-- Add `BaseCardProcessorActor` before adding or refactoring concrete processors. It owns the shared processor states, public `activate(input)`, pending activation promise handling, settlement, `_on_state_changed(...)` persistence, and common snapshot fields. It must not know planner, reviewer, executor, process-tool, or card-type policy. Processor-level `cancel(...)` and `cancelled` states are intentionally absent from the normal running-cancel path; running cancellation is delivered as card-owned notification context.
+- Add `BaseCardProcessorActor` before adding or refactoring concrete processors. It owns the shared processor states, public `activate(input)`, pending activation promise handling, settlement, `_on_state_changed(...)` persistence, and common snapshot fields. It must not know planner, reviewer, executor, process-tool, or card-type policy. Processor-level `cancel(...)` and `cancelled` states are intentionally absent; running cancellation is owned by the `CardActor` current activation (see [P3](#p3-cardactor-owns-authoritative-cancellation-and-activation-id-settlement)).
 - Add `BaseMainLLMCardProcessorActor` for processors whose main card agent is one LLM session. It creates the main `LLMActor` for the current invocation flow, runs the main turn loop, injects owning-card notifications before each main-agent provider turn, records delivery markers, and provides hook methods for concrete tool routing and terminal-report handling. It must not decide role-specific semantics.
 - Implement terminal processor behavior in `TerminalCardProcessorActor`.
 - Make `TerminalCardProcessorActor` extend `BaseMainLLMCardProcessorActor`.
 - Represent terminal-specific phases such as `executing` and `waiting_process` on processor fields unless a distinct state is needed for task ownership; keep the shared top-level processor states in `BaseCardProcessorActor`.
 - Implement public `activate(input)`. Do not add processor `cancel(reason)` unless a separate shutdown/force-cancel feature is deliberately designed.
-- Persist terminal processor state transitions from `_on_state_changed(...)`; keep explicit persistence for activation inputs, process ids, and terminal outcomes when those fields change outside transition entry. Queued cancellation notifications remain owned by `CardActor`, not by processors.
+- Persist terminal processor state transitions from `_on_state_changed(...)`; keep explicit persistence for activation inputs, process ids, and terminal outcomes when those fields change outside transition entry. Cancellation is owned by `CardActor`, not by processors.
 - Build executor invocation context from card data, notifications, and relevant project context.
 - Own one executor `LLMActor` for the terminal activation path; do not reuse it across activations until `LLMActor` has an explicit terminal-settlement API.
-- Provide terminal capabilities: reporting result/failure, process launch/wait/inspect/kill through `ProcessActor`, and safe file inspection if already supported.
-- Offer the executor contract terminal tool and validate accepted executor terminal reports through that contract before committing card result data. Do not accept free-form executor prose or ad-hoc JSON as a terminal card result.
-- Return exactly one `done` or `failed` outcome to the associated `CardActor`.
-- Clean up or archive terminal processor child `ProcessActor` references after the activation no longer needs them. Long-lived processor instances must not accumulate completed process actors indefinitely.
+- Provide terminal capabilities: reporting result/failure, process launch/wait/kill through the `ProcessRunner` service, and safe file inspection if already supported.
+- Offer the executor contract terminal tool and validate accepted executor terminal reports through that contract before committing card result data. Do not accept free-form executor prose or ad-hoc JSON as a terminal card result. Executor terminal outcomes are `done`, `failed`, or `blocked`.
+- Return exactly one `done`, `failed`, or `blocked` outcome to the associated `CardActor`.
+- Clean up or archive terminal processor process references after the activation no longer needs them. Long-lived processor instances must not accumulate completed process records indefinitely.
 
 Tests:
 
@@ -252,7 +242,7 @@ Tests:
 - Process wait timeout returns a timeout tool result and does not kill the process.
 - Explicit process kill records termination details.
 - Completed/killed process actors do not leak indefinitely through the terminal processor's process map.
-- Terminal cancellation while inactive marks the card/subtree `cancelled`; terminal cancellation while running is a best-effort card notification to the executor and does not stop future LLM admission, kill processes, or rewrite later executor reports.
+- Terminal cancellation while inactive marks the card/subtree `cancelled`; terminal cancellation while running cancels the current activation (see [P3](#p3-cardactor-owns-authoritative-cancellation-and-activation-id-settlement)).
 - Base processor tests prove activation, settlement, parent promise resolution, and transition snapshot persistence are shared and not duplicated in concrete processors.
 
 Acceptance:
@@ -273,7 +263,7 @@ Implementation:
 - Build planner invocation context from card tree, pending notifications, prior reviewer findings, and direct child status.
 - Own the planner `LLMActor` for the current activation; own the reviewer invocation as a phase of the same project/goal processor rather than as a separate card processor. Do not reuse LLM actors across activations until `LLMActor` has an explicit terminal-settlement API.
 - Give the project/goal processor access to its owning `CardActor` so it can inspect/drain deliverable main-agent notifications before activation and before every subsequent planner provider turn; record delivery markers after successful append.
-- Best-effort cancellation of a running project/goal is delivered through the same notification path and does not alter planner admission, child activation, process tools, or later planner reports by itself.
+- Cancellation of a running project/goal cancels the current activation (see [P3](#p3-cardactor-owns-authoritative-cancellation-and-activation-id-settlement)); late planner outcomes are dropped by the CardActor cancellation flag.
 - Build planner capabilities for direct-child activation, direct-child mutation, process tools, working status, and the planner contract terminal report tool. Do not accept free-form planner prose or ad-hoc JSON as a terminal planner report.
 - Implement `activate_card` as a synchronous logical barrier from the planner perspective.
 - For child activation, call the child `CardActor.activate(...)`, wait on a parent-owned promise, then append exactly one tool result/error to the planner LLMActor.
@@ -289,9 +279,9 @@ Tests:
 - Child `done`, `failed`, and `blocked` outcomes return exactly one planner tool result.
 - Changed, blocked, backlog, running, or failed descendants block parent `done`.
 - `cancelled` descendants are completion-compatible.
-- Planner process tools route through ProcessActor and return bounded results.
+- Planner process tools route through the `ProcessRunner` service and return bounded results.
 - Pending notifications are delivered before the next planner turn.
-- Best-effort cancellation notification is delivered before the next planner turn and does not otherwise change planner control flow.
+- Running-card cancellation cancels the current activation and prevents late planner outcomes from committing (see [P3](#p3-cardactor-owns-authoritative-cancellation-and-activation-id-settlement)).
 - Planner terminal reports are accepted only through the planner contract terminal tool.
 - Project/goal subclass tests, if any, cover only real overridden behavior and do not duplicate base or shared planning behavior.
 
@@ -305,7 +295,7 @@ Acceptance:
 
 Goal: add reviewer assessment after planner reports candidate done.
 
-Current status: implemented for the current actor path. Reviewer execution is planner-owned and contract-terminal-only, self-citation without durable evidence is rejected, corrections return a blocked planner outcome, and pending main-agent notifications invalidate reviewer approval instead of being drained into reviewer context.
+Current status: implemented for the current actor path, with one reviewer-notification isolation bug still tracked in [P5](#p5-reviewer-cannot-reach-main-agent-notification-delivery). Reviewer execution is planner-owned and contract-terminal-only, self-citation without durable evidence is rejected, and corrections return a blocked planner outcome. Pending main-agent notifications are intended to invalidate reviewer approval instead of being drained into reviewer context; the reviewer non-terminal tool continuation still needs the P5 fix.
 
 Implementation:
 
@@ -317,7 +307,7 @@ Implementation:
 - Store negative reviewer findings with the card and inject them into the next planner context.
 - Attach positive reviewer text to the card only after the reviewed snapshot is still current.
 - If relevant changes/notifications arrive while reviewing, invalidate reviewer success or divert back to planning.
-- Cancellation notifications are main-agent notifications. If one arrives while reviewer work is active, hold it with other pending main-agent notifications until planner ownership resumes or record it as undelivered if the activation settles first; do not deliver cancellation to the reviewer unless a separate reviewer-cancellation feature is explicitly designed.
+- Cancellation is authoritative (see [P3](#p3-cardactor-owns-authoritative-cancellation-and-activation-id-settlement)). If a running card is cancelled while reviewer work is active, the cancelled current activation prevents late reviewer outcomes from committing.
 
 No remaining implementation work for this slice. Add focused tests only if new reviewer currentness cases appear during active recovery reconstruction.
 
@@ -329,7 +319,7 @@ Tests:
 - Reviewer correction returns to planning with stored findings.
 - Reviewer terminal reports are accepted only through the reviewer contract terminal tool.
 - Relevant change during review invalidates success.
-- Cancellation notification during review is held for planner delivery and does not by itself invalidate reviewer success unless paired with a real card/tree change.
+- Cancellation during review cancels the current activation; late reviewer outcomes are dropped by the CardActor cancellation flag.
 - Ambiguous reviewer output fails visibly.
 
 Acceptance:
@@ -344,22 +334,24 @@ Goal: rebuild safe actor state from durable records after restart.
 
 Current status: implemented for the current conservative recovery policy. Startup builds one initial `ActorRecoveryPlan`, projects safe persisted terminal tool-call outcomes, converts all remaining active card work into blocked outcomes, cleans handled snapshots once, removes abandoned process snapshots, abandons stale pending tool calls, then rebuilds the recovery plan and writes sanitized diagnostics/actions to `.saivage/runtime/recovery-diagnostics.json` for any still-outstanding recovery work. Mid-flight active-chain resume is not part of this policy; it requires a later explicit actor-owned reconstruction design.
 
+Recovery-side terminal projection is accepted current architecture, not compatibility debt: normal runtime lifecycle commits are owned by `CardActor`, while startup recovery is a distinct operational mode that reconstructs safe outcomes from complete durable records after the normal path was interrupted.
+
 Completed:
 
 - Recovery plan construction classifies supervisor, card, LLM, processor, and process snapshots.
 - In-flight provider calls are classified for abandonment.
 - Waiting-tool, active processor, active card, and running process states are surfaced as recovery actions/diagnostics.
 - Ambiguous active card states, active LLM states without concrete recovery actions, and stranded active cards are surfaced as human-readable diagnostics.
-- Persisted running/killing process snapshots use the default `abandon_running_process` recovery action instead of implying live process reconciliation.
+- Persisted running process records are reconciled at startup (reconcile is wired into `SupervisorRuntimeApi.start()`). The reconciliation ordering (before actor recovery) and truthfulness (no `reattach_state` fiction, real PID/process-group signalling for unattached records) are NOT yet correct — see [P1](#p1-processrunner-owns-truthful-process-state-and-scoped-termination), [P2](#p2-startup-reconciles-processes-before-actor-recovery).
 - Startup persists sanitized outstanding recovery diagnostics without including actor snapshot context payloads.
 - Persisted recovery diagnostics are versioned with `schema_version: 1`.
 - Discarded non-idle supervisor snapshots are surfaced as human-readable diagnostics and actions.
 - Clean startup recovery clears stale `.saivage/runtime/recovery-diagnostics.json` files.
 - `actorRuntime.recovery` projects sanitized outstanding recovery diagnostics through the runtime status read model/API contract.
-- Startup removes handled abandoned running/killing process snapshots before rewriting recovery diagnostics, so the same process abandonment is not reported on every restart.
+- Startup removes handled reconciled process records before rewriting recovery diagnostics, so the same process reconciliation is not reported on every restart.
 - Startup converts known interrupted running card work to explicit blocked card outcomes when the owning card is still `running`.
 - Startup removes converted card, LLM, and processor snapshots after committing card outcomes and before rewriting diagnostics, so handled interrupted work is not reported on every restart.
-- `CardActor` recovery to `done` does not run normal `done` entry side effects that reopen cards with pending notifications.
+- `CardActor` recovery to `done` does not run normal entry side effects; there is no notification-sensitive done-to-changed handling in recovery.
 - Card, processor, and LLM snapshots persist explicit `active_reconstruction` records for active card activation, processor activation, provider calls, and LLM tool waits.
 - Recovery planning exposes active reconstruction records and derives card/LLM/processor active status from those records rather than public-status or state-name heuristics.
 - Startup projects persisted terminal tool calls for safe executor terminal outcomes, planner `blocked`/`failed` outcomes, and planner `done` outcomes paired with a matching persisted reviewer terminal result before broad interrupted-work conversion.
@@ -392,7 +384,7 @@ Implementation:
 - Keep recovery diagnostics as the outstanding-recovery report, not a startup findings report. Do not silently mix both semantics in the same projection.
 - Keep recovery-side terminal projection until a deliberate `CardActor`-owned eager commit refactor exists.
 - Keep block-on-restart until a deliberate discard-and-reactivate runtime policy exists. Keep diagnostics for truly orphaned state either way.
-- Abandon persisted running/killing process records and in-flight provider calls with diagnostics by default. Reconcile live processes or re-attach provider calls only if a later slice explicitly chooses that more complex path.
+- Reconcile persisted running process records at startup before actor recovery: runtime/agent-owned records are killed by PID or marked lost; operator-owned records are observed best-effort or marked lost (see [P1](#p1-processrunner-owns-truthful-process-state-and-scoped-termination)). In-flight provider calls are abandoned with diagnostics by default. Re-attach provider calls only if a later slice explicitly chooses that more complex path.
 - Implement genuine mid-flight resume only after it is explicitly required and only where durable records are complete enough. Do not double-deliver tool results or duplicate provider turns.
 - Fail or block explicitly when state is ambiguous, and clean up/reconcile stale actor snapshots after the ambiguity is handled.
 
@@ -407,9 +399,9 @@ Tests:
 - Startup abandons in-flight provider requests with operator/runtime-visible diagnostics projected through `actorRuntime.recovery`.
 - Startup handles terminal interrupted reviewer/planner completion with correction/pass context. Nonterminal reviewer interruptions fall under generic blocked conversion with diagnostics.
 - Startup persists sanitized recovery diagnostics for any active snapshot that remains outstanding after handled cleanup.
-- Startup diagnostics cover unknown active LLM states, active cards without active owner records, and discarded non-idle supervisor snapshots that remain outstanding after cleanup. Handled running process abandonment clears from diagnostics in the same startup.
+- Startup diagnostics cover unknown active LLM states, active cards without active owner records, and discarded non-idle supervisor snapshots that remain outstanding after cleanup. Handled reconciled process records clear from diagnostics in the same startup.
 - Recovery diagnostics read-model tests prove the runtime status projection remains sanitized and stale diagnostics are cleared after clean recovery.
-- Recovery cleanup tests prove handled abandoned process snapshots are removed before outstanding-only diagnostics are rewritten.
+- Recovery cleanup tests prove handled reconciled process records are removed before outstanding-only diagnostics are rewritten.
 - Recovery tests prove `recover(...)` hooks do not trigger transition snapshot writes through `_on_state_changed(...)`.
 - Recovery tests prove handled snapshots are removed or reconciled so the same recovery work is not reported again after restart.
 
@@ -454,29 +446,144 @@ Acceptance:
 - Obsolete runtime dependencies are removed from package manifests.
 - Focused actor, API boundary, projection, and routine validation pass.
 
+## Completed Remediation (R1-R4)
+
+The R1-R4 code-to-design conformance work has landed. This section records what was done so the active plan (P1-P5) is not confused with completed work. Do not re-implement these.
+
+- **R1 — one injected `ProcessRunner`.** The four-layer forwarding stack (`ProcessApi` → module free functions → `ProcessRunnerService` → `*ForService` functions) and the per-root `serviceFor` singleton are gone. `ProcessRunner` is exactly one injected class with `spawn/wait/kill/stopByOwner/stopRuntimeOwned/list/get/reconcile`. Ownership (`ownerId`, `ownerKind`) is required at spawn. All four process-termination callers go through scoped runner methods. Terminal activation cleanup is awaited in a `try/finally` before the activation resolves.
+- **R2 — `CardActor` owns construction.** `CardActor` constructs its own processor via `createProcessor(card, this)`. `SupervisorRuntimeApi` constructs only the root and reads the shared `lookup` Map for `notifyCard` and read-model. The old `makePlanningProcessor`/`makeTerminalProcessor`/`processorFor`/`childrenPort` machinery is gone. Recovery calls pure projection functions (`projectPlannerTerminalOutcome`, `projectTerminalExecutorOutcome`) and does not instantiate processor actors.
+- **R3 — no `shutting_down` state.** `RuntimeSupervisorActor` has only `idle`/`running`/`paused`. The `shutting_down` reads (`startProjectRejection`'s `runtime_stopping` branch, `actorPauseMode`'s `stopping` case) are gone.
+- **R4 — pause/resume routes exist.** `/api/runtime/pause` and `/api/runtime/resume` are wired through the operator contract route system. **Caveat:** the routes currently only persist supervisor mode; they are functionally inert until P4 lands the runtime gate. No pause-aware enforcement of provider calls, runtime-owned process spawns, or card dispatch exists yet.
+
+Stale R1 notes worth correcting here: the `kill_process` tool no longer exposes a `signal` argument and already escalates SIGTERM → bounded wait → SIGKILL; do not re-do that work.
+
+Dropped earlier-draft items (provenance): turn-loop home (`runContractBoundedRepairLoop` is already the correct shared free function for planner/reviewer-inner/executor); analyst loop dedup (opposite semantics, no terminal tools, different anti-loop mechanism — forcing unification would relocate logic without removing it).
+
+
+## Active Remediation Plan
+
+The R1-R4 remediation landed the core micro-actor path. A holistic review found remaining correctness issues. Each is fixed at its owning architectural layer — not by scattering per-call guards or adding forwarding wrappers, and not by introducing new classes that duplicate state already owned by existing actors. Keep activation state on `CardActor`; keep OS process truth on `ProcessRunner`; keep recovery as the existing pipeline in `actor-recovery.ts`; replace (do not duplicate) the existing admission port.
+
+### P1 — ProcessRunner owns truthful process state and scoped termination
+
+**Problem.** `ProcessRunner` still has three real defects: (a) unattached running records can be marked `killed` without signalling a real PID/process group (`stopProcess` at `src/runtime/process-runner.ts:596-623` flips status without an OS signal); (b) `reconcile()` writes `reattach_state: 'reattached'` with no recreated `ChildProcess` handle, claiming control that does not exist (`:654-683`); (c) `loadRegistryForRunner` re-reads durable JSON on every `get`/`list`/`stop` call (`:234-239`). Scoped termination itself already has the right shape (`stopByOwner` for activation/session cleanup and `stopRuntimeOwned` for shutdown/stopProject); do not add a second process-scope taxonomy unless a future multi-project runtime deliberately changes the one-active-project invariant.
+
+**Fix.** Keep all process truth in `ProcessRunner`. Do not introduce a new owner.
+
+- Delete `reattach_state`, `ProcessReconcileOptions.reattach`, `ProcessReconciliationProbeStatus`, and the dead `_audit` parameter on `markLost`. A process is either attached (live `ChildProcess`) or unattached (durable record only).
+- For unattached running records in `stopProcess`/`reconcile`: signal by process group (`process.kill(-pid,'SIGTERM')`), poll the group liveness `process.kill(-pid,0)` for the grace window (not just the leader PID — child processes can outlive the `sh -c` leader in the same process group), escalate to `process.kill(-pid,'SIGKILL')`, and only mark `killed` after the group is verified gone; otherwise mark `lost`. Split reconcile by `owner_kind`: runtime/agent-owned are signalled/killed/lost; operator-owned are probed best-effort (alive → observed `running`; dead → `lost`).
+- `wait()` on unattached running records throws (no legitimate caller needs it after restart; executor cards are blocked by recovery and analyst sessions are new).
+- `loadRegistryForRunner` returns the transient registry directly; `upsertRegistryRecord` is already the durable write-through path, so transient is authoritative in-memory.
+- Make `stopMatching` signal the whole scoped set first, wait the grace window once, then kill stragglers — not `N * graceMs` serial awaits.
+- Keep the existing ownership fields as the only process ownership vocabulary: `ownerKind` distinguishes runtime/agent work from operator work, `ownerId` identifies the activation/session owner, and `cardId` supports read-model filtering. `stopRuntimeOwned(...)` remains the correct stopProject/shutdown scope while the runtime has one active project; `stopByOwner(...)` remains the activation/session cleanup scope.
+
+Acceptance: unattached kills actually signal the OS; no `reattach_state` fiction; `wait()` on unattached records fails fast; registry reads do not reload durable JSON per call; no redundant process-scope field or ownership taxonomy is introduced.
+
+### P2 — Startup reconciles processes before actor recovery
+
+**Problem.** `SupervisorRuntimeApi.start()` runs `buildActorRecoveryPlan` + `runActorStartupRecovery` (lines 60-64) before `processRunner.reconcile()` (line 65). A card can be projected to terminal `done`/`failed` from a persisted tool call while its runtime-owned process record is still marked `running`.
+
+**Fix.** This is a two-line reorder, not a new `RuntimeRecoveryCoordinator` class. The recovery pipeline already exists as free functions in `src/runtime/actors/actor-recovery.ts` (`buildActorRecoveryPlan`, `runActorStartupRecovery`, `recoverProjectedTerminalToolOutcomes`, `convertActorRecoveryOutcomes`, etc.) and its terminal projection is driven by LLM/tool-call logs, not process records. So:
+
+- Move `this.options.processRunner.reconcile()` above `buildActorRecoveryPlan(...)` in `start()`.
+- If and only if a future terminal-projection path actually needs process facts (it does not today), pass a `ProcessReconcileResult` argument into `buildActorRecoveryPlan`. That is one parameter, not a new class.
+
+Acceptance: `reconcile()` runs before actor recovery; recovery diagnostics are unchanged; no new recovery coordinator class exists.
+
+### P3 — CardActor owns authoritative cancellation and activation-id settlement
+
+**Problem.** `CardActor.cancel()` for a running card (`src/runtime/actors/card-actor.ts:207-212`) only enqueues a cancellation notification and returns. The in-flight provider call can still return and `commitOutcome()` (`:271-279`) writes `done`/`failed`/`blocked` over the intended `cancelled` state. The frozen micro-actor core processes queued events only after the current task settles, so a queued `cancel` event cannot preempt `on_done`/`on_failed`.
+
+**Fix.** Keep activation state on `CardActor` where it already lives (`#pendingActivation`, `activeReconstruction`, `lastOutcome`). Do **not** introduce an `ActivationAttempt`/`ActivationLease` class — there is exactly one card-activation per `CardActor` at a time, so a third parallel record would triple the state and add two resolvers to keep in sync.
+
+- Add `#activationId` and `#cancellation` fields to `CardActor`. There is no activation-generation counter: a cancelled `CardActor` is terminal and is never reactivated, so one boolean cancellation flag is the complete settlement guard. The activation id exists only to give the activation a stable process-owner identity (see below) — it is not a settlement-matching key and is never threaded through processor outcomes, tool callbacks, or child-activation callbacks.
+- `activate(caller)` generates one stable activation id (e.g. `${cardId}:act:${++counter}`), stores it in `#activationId`, and passes it through `CardActivationInput.activationId` so the processor and process provider use it as the process `ownerId` — not the LLM input id, which changes per turn and would split one activation's processes across owners.
+- In `cancel()` for a running card: set `#cancellation = reason`, write `cancelled` to the store via `writeStatus('cancelled')`, clear `activeReconstruction`, resolve `#pendingActivation` as `{ status: 'cancelled', summary: reason.reason }`, set `#pendingActivation = null`, queue `sendEvent('cancel')`, fire-and-forget `ProcessRunner.stopByOwner(#activationId)`, and persist. The `sendEvent('cancel')` must be queued synchronously — the frozen actor main loop crashes if the processor task settles while `cancel()` is still awaiting something and no event is queued (the main loop finds no event, no tasks, a non-terminal state, and throws). Process cleanup is fire-and-forget: it signals SIGTERM immediately and proceeds concurrently with the cancellation transition. The processor's own `finally` block already awaits `stopByOwner(input.activationId)` on settlement as a safety net, so the two calls are complementary, not redundant.
+- In `commitOutcome()`: if `#cancellation` is set, return immediately. Do not mutate lifecycle, do not `sendEvent`. The processor does not know about cancellation or activation identity; it settles normally and `CardActor.commitOutcome()` is the single settlement gate that drops late outcomes.
+- Propagate cancellation to running descendants **through the live `CardActor.cancel()`** via `deps.lookup.get(childId)`; fall back to a direct store write only when no live actor exists. Replace the current `cancelDescendantIds` which direct-writes all descendants and bypasses their pending-activation resolvers.
+- Terminal-report validation in the bounded repair loop (`onTerminalTool` handler shared by planner and executor processors) must defer a `done` report when undelivered main-agent notifications are pending. This is not a validation error — it is a currentness continuation: new context arrived before terminal acceptance. The card stays `running`, the pending notifications are appended to the next LLM turn, and the agent decides whether to re-report `done`, adjust its result, block, or fail. `CardActor.commitOutcome()` therefore never needs to flip `done` to `changed` — it only commits clean outcomes. Remove `reopenDoneWithPendingNotifications()` and the `_on_enter__done`/`_on_recover__done` pair that exists only to compensate for it. Notifications arriving on an already-inactive `done` card after settlement are queued for future delivery; they do not mutate lifecycle state. `changed` is produced only by card edits/subtree mutations, never by notification delivery.
+- `BaseCardProcessorActor` continues to return only `done`/`failed`/`blocked` to its owning `CardActor`; it never synthesizes `cancelled`. The CardActor-to-parent activation outcome vocabulary is `done`/`failed`/`blocked`/`cancelled`, where `cancelled` is produced only by `CardActor.cancel()`.
+- Terminal processor process wiring must switch from `llmInput.inputId` to `input.activationId` as the process `ownerId` (`src/runtime/actors/terminal-card-processor-actor.ts:68,98,131`). There is one activation-owned identity — the `CardActor`-generated activation id — not the per-turn LLM input id. Normal settlement's `finally` cleanup and cancellation's `stopByOwner` then reference the same id.
+- Make `cancelled` truly terminal in the lifecycle state machine: remove `cancelled → backlog` and `cancelled → changed` from `VALID_TRANSITIONS` in `src/cards/lifecycle.ts`; remove `'cancelled'` from `FLIPPABLE_RESTING` in `src/runtime/changed-propagation.ts`. The spec and design already say cancelled is terminal; the code must match so propagation and direct transitions cannot revive a cancelled card.
+- Recovery must treat cards whose durable card status is `cancelled` as fully handled and remove all actor snapshots (card, processor, LLM) for them at startup. P3's running cancellation writes `cancelled` to the card store and queues `sendEvent('cancel')`, but the frozen main loop processes that event only after the current processor task settles. A crash in that window leaves the card store `cancelled` while stale processor/LLM snapshots with active reconstruction records remain on disk. Without this cleanup those snapshots would generate outstanding recovery diagnostics on every restart. Existing recovery already converts `running` cards to `blocked` and cleans their snapshots; this extends the same cleanup to cards already in a terminal store status.
+
+Acceptance: late provider/tool/process/child outcomes cannot mutate a cancelled card's lifecycle; running descendants are cancelled through their live `CardActor.cancel()`; `cancelled` is a first-class parent-visible activation outcome; pending main-agent notifications at terminal-report time are handled by the processor's bounded repair loop (not by a CardActor settlement flip); `reopenDone` and its compensating recover hook are gone; `cancelled` is terminal in the lifecycle state machine (no cancelled→backlog/changed transition, no propagation flip); recovery removes all actor snapshots for cards whose durable status is `cancelled`, so a crash during running cancellation does not leave stale active snapshots or outstanding diagnostics.
+
+### P4 — RuntimeGate replaces LLM admission and owns the pause barrier
+
+**Problem.** Pause/resume is a global runtime concern but is currently (a) split across supervisor mode, persisted runtime state, and a module-global `setRuntimeControlNotifyCard` registry, and (b) only enforced by `LLMAdmissionPort.requestProviderCall` returning `false`, which **fails the turn** `src/runtime/actors/llm-actor.ts:148` rather than waiting behind a gate. Runtime-owned process spawns and child dispatch can still be started from an already-returned provider response after pause, so LLM admission alone is not enough. The R4 routes are wired but functionally inert until this lands.
+
+**Fix.** Introduce one small composition-root `RuntimeGate` that **replaces** the existing admission port — do not run two admission systems in parallel. The gate is an awaitable barrier for new autonomous side effects and dispatch, not a workflow engine and not a completion-replay queue.
+
+- `RuntimeGate` owns live pause truth and waiters. Persisted runtime mode is the restart authority; supervisor mode is the projection/duplicate-run guard. On startup the gate is initialized from persisted mode, and any mismatch is normalized through that single reconstruction path rather than tolerated as two live truths.
+- `LLMActor` asks the gate (awaitable) before provider invocation; pause **waits** rather than failing the turn.
+- The runtime process tool provider asks the gate before calling `ProcessRunner.spawn(...)` for runtime-owned work, so an in-flight provider response cannot launch a new OS process while paused. `ProcessRunner` itself must not know about pause policy — it is a pure OS-process service. Operator-owned Analyst process spawns are outside autonomous runtime pause unless a separate operator policy deliberately gates them.
+- `CardActor.activateChild(...)` (and the root dispatch path) asks the gate before dispatching new card/processor work, so an in-flight planner response cannot start a child while paused.
+- Completion facts from already-admitted work may still persist and settle to durable boundaries while paused. Follow-up autonomous work reaches the same provider/spawn/child-dispatch gate before it can start. Resume opens the gate and existing waiters continue exactly once in normal actor order; do not add a separate held-deliverables queue or replay/drain scheduler.
+- **Delete** `LLMAdmissionPort`, `RuntimeSupervisorActor.requestProviderCall`/`releaseProviderCall`, and `activeProviderCallId`. The gate is the single source of pause truth.
+- `SupervisorRuntimeApi.pause()`/`resume()`: close/open the gate, update supervisor mode, and update persisted runtime state. Throw on non-applicable states; never silently no-op. Resume does not run workflow logic; it only opens the barrier so already-blocked actor work can proceed.
+- **Delete** `setRuntimeControlNotifyCard` and `runtimeControlNotifyCardByRoot` (`src/runtime/control.ts:24-37`) and the wiring in `src/application/runtime-composition.ts:107`. Offline CLI pause/resume writes persisted state only and never attempts drain.
+- A small explicit helper (`awaitGateOpen`/`runGatedTask`) is acceptable to remove duplicated boilerplate. Do **not** add an implicit `BaseActor.paused` flag that suppresses `_on_enter__{state}` globally — that creates half-entered states and ambiguous recovery.
+
+Acceptance: `LLMAdmissionPort` and the supervisor's provider-call admission are gone; the gate is the single live pause authority; provider calls, runtime-owned process spawns, and child/root dispatch wait while paused; resume does not require a second manual Run and does not replay a custom deliverables queue; no role-specific planner/reviewer/executor code owns pause policy; the module-global notify registry is gone.
+
+### P5 — Reviewer cannot reach main-agent notification delivery
+
+**Problem.** The reviewer's `onNonTerminalTool` continuation (`src/runtime/actors/planning-card-processor-actor.ts:221`) calls the generic `notificationContextMessages(input, inputId)` (`src/runtime/actors/base-main-llm-card-processor-actor.ts:38-41`), which drains the card's main-agent notification queue and marks it delivered to the reviewer session. The design says reviewer turns must hold those notifications.
+
+**Fix.** This is a method split, not a delivery-policy class. Make the wrong action unrepresentable by removing the generic `notificationContextMessages` helper and exposing two explicit methods on the base processor:
+
+- `plannerNotificationContext(input, inputId)` — drains main-agent notifications (planner/executor flows only). Atomic drain + marker recording already lives inside `CardActor.deliverNotificationsForInput`; no new atomicity machinery.
+- `reviewerContext(input)` — returns currentness/change invalidation state only; **no** access to the main-agent queue.
+
+Update the planner continuation (line 106) and activation input (line 131) to use the planner method; the reviewer continuation (line 221) uses the reviewer method. The reviewer-currentness check that invalidates reviewer approval when main-agent notifications are pending stays as-is.
+
+Acceptance: reviewer code has no method capable of draining planner/main-agent notifications; planner/executor delivery still drains exactly once and records markers; no new delivery-policy abstraction is introduced.
+
+### Sequencing
+
+1. **P1 — ProcessRunner truth/scoped termination.** Unblocks authoritative cancel (which stops activation-owned processes) and recovery ordering. Independent.
+2. **P3 — CardActor authoritative cancel + activation-id settlement.** Depends on P1 only for the process-stop path; uses `stopByOwner(activationId)` (via `CardActivationInput.activationId`) for activation-owned process cleanup.
+3. **P2 — Reorder recovery.** Two-line swap; benefits from P1's reconcile changes.
+4. **P4 — RuntimeGate.** Replaces LLM admission; independent of P1-P3.
+5. **P5 — Notification method split.** Independent; can land anytime.
+6. **Boundary cleanup** is folded into the slice that touches each boundary (see P3 for notification settlement/`cancelDescendantIds`, P5 for the helper split); the remaining items are tracked below.
+
+### Boundary cleanup (folded into the slices above, or standalone)
+
+- `CardActor` owns child actor references, direct-child authority, and child completion callbacks; `PlanningCardProcessorActor` obtains child activation through an `activateChild(childId, caller)` capability, not by holding child `CardActor` refs.
+- Root activation projection: `SupervisorRuntimeApi.runRootProject` is architecturally acceptable — it calls `CardActor.activate()`, awaits the promise, and projects the run record, which the design allows. Fix the root-settlement projection bug (settled `blocked` root still projects `running` with stale `currentCardId`) and simplify the `finally`-block cancel/settle branch so the API layer only projects outcomes, never decides control flow.
+- Delete the stale `recoverTerminalToolOutcome` instance methods on the processor classes (recovery already imports the pure projection functions).
+- Remove the `failed -> activate` (and `done`/`cancelled` -> activate) state-table transitions the domain invariant forbids; the table should encode impossible transitions, not rely only on `isActivatable()` guards.
+- Delete the thin `createComposedRuntimeApi` forwarding wrapper; inline it and move `candidateAvailability.dispose()` into the shutdown path.
+- Split the validation text below into already-passed profiles vs tests required when P1-P5 land.
+
+
+
 ## Remaining Validation And Documentation Follow-Up
 
-These items are not blockers for the core actor replacement. Current validation is complete for this recovery simplification; rerun the broader profiles when release criteria or affected surfaces change:
+These items are not blockers for the core actor replacement. Current validation passed before P1-P5; re-run the broader profiles after P1-P5 land:
 
 - Full Jest has been run and stale docs-parity tests were rewritten around the current docs/source authority. Continue removing or rewriting stale tests around the new actor architecture rather than adding adapter, bridge, shim, migration, or compatibility code.
 - `npm run validate:ui-smoke`, `npm run validate:ui`, and `npm run validate:release` passed after the single-pass recovery simplification.
 - Operator-facing docs now describe planner-owned reviewer phase, terminal-tool-only report behavior, card-owned notification delivery markers, and conservative recovery diagnostics. Keep them updated as nonterminal active recovery expands.
 - `.saivage/runtime/recovery-diagnostics.json` is now projected through `actorRuntime.recovery`; decide later whether a dedicated recovery endpoint or UI treatment is needed.
 - Review generated/runtime artifact ownership separately from this runtime redesign if repository hygiene remains an open release concern.
-- Focused tests now cover the confirmed post-review gaps: reviewer self-citation rejection, malformed `activate_card` args, running cancellation notification delivery/leftover handling, real `CardActor` to processor notification-marker wiring, and bounded marker/process-map retention. Keep adding focused recovery tests for newly implemented reconstruction/reconciliation behavior.
+- Focused tests already cover landed gaps such as reviewer self-citation rejection, malformed `activate_card` args, real `CardActor` to processor notification-marker wiring, and bounded marker/process-map retention. P1-P5 still require new focused tests for CardActor authoritative cancellation, process truth/scoped termination, recovery ordering, runtime gate wait/unblock behavior, and reviewer notification method split.
 
 ## Cross-Slice Test Matrix
 
 - Micro-actor definition, parked state, task, timeout, cancellation, and recovery tests.
 - Supervisor run/pause/resume/shutdown/cancel tests.
+- Runtime gate tests: close blocks provider calls, runtime-owned process spawns, and child/root dispatch; resume opens the barrier so existing waiters proceed exactly once in normal actor order; no custom deliverables replay queue exists; any micro-actor helper for gated tasks is explicit and does not suppress `_on_enter__{state}` globally.
 - CardActor activation, status commit ordering, changed state, cancellation, and notification tests.
 - BaseCardProcessorActor and BaseMainLLMCardProcessorActor mechanical tests.
 - LLMActor provider admission, provider failure, tool protocol, duplicate tool delivery, and diagnostics tests.
-- ProcessActor launch, wait timeout, inspect, kill, exit, and recovery tests.
+- Process launch, wait timeout, kill, exit, recovery, and scoped-set termination (`stopByOwner`/`stopRuntimeOwned`, including the `owner_kind !== 'operator'` survivor invariant) tests.
 - Terminal processor executor/report/process tests.
 - Goal/project processor child activation, planner report, completion gate, process, notification, and reviewer tests.
 - Contract-terminal tests for planner, executor, and reviewer reports.
-- RuntimeApi boundary tests proving it calls public methods and projects read models only.
+- RuntimeApi boundary tests proving it calls public methods and projects read models only, including root activation projection (await CardActor.activate(), project run outcome, no workflow branching).
 - Projection tests for runtime mode, active chain, active leaf, provider/process waits, and diagnostics.
 - UI smoke tests when projection contracts change.
 - Regression tests for removing dead actor APIs so they do not reappear without a production caller.
@@ -490,7 +597,7 @@ These items are not blockers for the core actor replacement. Current validation 
 
 Resolved decisions (kept for provenance):
 
-- Process tools share one `ProcessActor` per process record; the implementation already does this.
+- Process tools share one injected `ProcessRunner` service; there is no `ProcessActor` and none is planned. The current four-layer forwarding wrapper around the service is slated for removal in [Remediation R1](#completed-remediation-r1-r4).
 - `actorRuntime.recovery` is the current outstanding-only recovery visibility surface after startup cleanup. A dedicated recovery endpoint/UI treatment is optional polish, not a separate decision.
 - Eager terminal commit is deferred. The current clean boundary keeps `CardActor` as the single lifecycle commit owner and uses recovery-side terminal projection for crash windows.
 - Discard-snapshots-on-reactivate is deferred. The current startup behavior conservatively blocks non-terminal interrupted work until an explicit auto-reactivation policy exists.

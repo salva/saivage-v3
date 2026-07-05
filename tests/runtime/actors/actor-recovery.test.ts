@@ -7,12 +7,10 @@ import {
   cleanupConvertedRecoverySnapshots,
   convertActorRecoveryOutcomes,
   appendLlmTurnFinished,
-  PlanningCardProcessorActor,
   projectActorRecovery,
   recoverActorStartupOutcomes,
   recoverProjectedTerminalToolOutcomes,
   runActorStartupRecovery,
-  TerminalCardProcessorActor,
   readRecoveryDiagnostics,
   readActorSnapshots,
   readToolCallStatuses,
@@ -20,7 +18,6 @@ import {
   removeActorSnapshot,
   saveActorSnapshot,
   writeRecoveryDiagnostics,
-  type LLMProviderPort,
 } from '../../../src/runtime/actors/index.js';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
 import { CardStore } from '../../../src/cards/card-store.js';
@@ -86,13 +83,10 @@ function reviewerCorrections(_evidenceId: string, summary = 'needs correction'):
 }
 
 function recoveryProcessorDeps(projectRoot: string, store: CardStore) {
-  const provider: LLMProviderPort = { completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'unused' })) };
   return {
     projectRoot,
     store,
     generatedAt: '2026-06-12T00:00:00.000Z',
-    makePlanningProcessor: (cardId: string) => new PlanningCardProcessorActor({ projectRoot, cardId, store, children: { get: () => null }, provider }),
-    makeTerminalProcessor: (cardId: string) => new TerminalCardProcessorActor({ projectRoot, cardId, provider, store }),
   };
 }
 
@@ -303,7 +297,7 @@ describe('actor recovery plan', () => {
   }));
 
   it('clears stale recovery diagnostics when recovery work is clean', () => withTempProject((projectRoot) => {
-    saveSnapshot(projectRoot, 'supervisor', 'supervisor', { mode: 'running', work: 'model_invocation_active' }, { projectRoot });
+    saveSnapshot(projectRoot, 'supervisor', 'supervisor', { mode: 'running', work: 'ready' }, { projectRoot });
     expect(writeRecoveryDiagnostics(projectRoot, buildActorRecoveryPlan(projectRoot), '2026-06-12T00:00:00.000Z')).not.toBeNull();
     expect(existsSync(recoveryDiagnosticsPath(projectRoot))).toBe(true);
 
@@ -313,7 +307,7 @@ describe('actor recovery plan', () => {
   }));
 
   it('diagnoses non-idle supervisor snapshots as discarded on startup', () => withTempProject((projectRoot) => {
-    saveSnapshot(projectRoot, 'supervisor', 'supervisor', { mode: 'running', work: 'model_invocation_active' }, { projectRoot, activeProviderCallId: 'call-1' });
+    saveSnapshot(projectRoot, 'supervisor', 'supervisor', { mode: 'running', work: 'ready' }, { projectRoot });
 
     const written = writeRecoveryDiagnostics(projectRoot, buildActorRecoveryPlan(projectRoot), '2026-06-12T00:00:00.000Z');
 
@@ -338,7 +332,7 @@ describe('actor recovery plan', () => {
   it('reports handled startup incidents while outstanding diagnostics stay unresolved-only', () => withTempProject((projectRoot) => {
     const { store, cardId } = createRunningGoal(projectRoot);
     store.commitTerminalLifecyclePatch(cardId, { status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-06-12T00:00:00.000Z' } });
-    saveSnapshot(projectRoot, 'supervisor', 'supervisor', { mode: 'running', work: 'model_invocation_active' }, { projectRoot });
+    saveSnapshot(projectRoot, 'supervisor', 'supervisor', { mode: 'running', work: 'ready' }, { projectRoot });
     saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'calling_provider', { cardId, active_reconstruction: llmActive(cardId) });
     const report = runActorStartupRecovery(buildActorRecoveryPlan(projectRoot, store), recoveryProcessorDeps(projectRoot, store));
 
@@ -588,5 +582,21 @@ describe('actor recovery plan', () => {
     cleanupConvertedRecoverySnapshots(projectRoot, conversions);
 
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toEqual([]);
+  }));
+
+  it('cleans up stale active snapshots for durable cancelled cards at startup', () => withTempProject((projectRoot) => {
+    const { store, cardId } = createRunningGoal(projectRoot);
+    store.setStatus(cardId, 'cancelled');
+    saveSnapshot(projectRoot, `card:${cardId}`, 'card', 'running', { cardId, active_reconstruction: cardActive(cardId) });
+    saveSnapshot(projectRoot, `planner:${cardId}`, 'llm', 'calling_provider', { cardId, active_reconstruction: llmActive(cardId) });
+    saveSnapshot(projectRoot, `processor:${cardId}`, 'processor', 'planning', { cardId, active_reconstruction: processorActive(cardId) });
+
+    const report = runActorStartupRecovery(buildActorRecoveryPlan(projectRoot, store), recoveryProcessorDeps(projectRoot, store));
+
+    expect(report.incidents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ action: 'cleanup_cancelled_card_snapshots', cardId }),
+    ]));
+    expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toEqual([]);
+    expect(readRecoveryDiagnostics(projectRoot)).toBeNull();
   }));
 });

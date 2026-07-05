@@ -7,6 +7,7 @@ import { saveActorSnapshot } from './snapshots.js';
 import { appendLlmTurnError, appendLlmTurnFinished, appendLlmTurnStarted, appendModelRepairMessage, appendToolDelivery, toolCallAgentMessage, toolResultAgentMessage } from './llm-delivery-log.js';
 import type { LlmActiveReconstructionRecord } from './active-reconstruction.js';
 import type { ToolResult } from '../../tools/invocation.js';
+import { RuntimeGate } from '../runtime-gate.js';
 
 export type LLMActorOutcome =
   | { type: 'result'; agentId: string; result: Extract<LlmCompleteResult, { kind: 'message' }> }
@@ -15,11 +16,6 @@ export type LLMActorOutcome =
 
 export interface LLMProviderPort {
   completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<LlmCompleteResult>;
-}
-
-export interface LLMAdmissionPort {
-  requestProviderCall(callId: string): boolean;
-  releaseProviderCall(callId: string): void;
 }
 
 type PendingTurn = {
@@ -49,24 +45,23 @@ export class LLMActor extends BaseActor {
   readonly projectRoot: string;
   readonly agentId: string;
   readonly provider: LLMProviderPort;
-  readonly admission?: LLMAdmissionPort;
+  readonly gate: RuntimeGate;
   input: LlmInvocationInput | null = null;
   outcome: LLMActorOutcome | null = null;
   waitingToolCall: WaitingToolCall | null = null;
   activeReconstruction: LlmActiveReconstructionRecord | null = null;
   deliveredToolCallIds = new Set<string>();
   #pendingTurn: PendingTurn | null = null;
-  #activeProviderCallId: string | null = null;
   #toolDeliveryCounter = 0;
   #systemPromptLoggedSessionIds = new Set<string>();
 
-  constructor(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; admission?: LLMAdmissionPort }) {
+  constructor(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; gate?: RuntimeGate }) {
     super();
     if (actorKindFromId(args.agentId) !== 'llm') throw new Error(`LLMActor requires an LLM actor id: ${args.agentId}`);
     this.projectRoot = args.projectRoot;
     this.agentId = args.agentId;
     this.provider = args.provider;
-    this.admission = args.admission;
+    this.gate = args.gate ?? new RuntimeGate();
   }
 
   turn(input: LlmInvocationInput): Promise<LLMActorOutcome> {
@@ -143,13 +138,10 @@ export class LLMActor extends BaseActor {
       const includeSystemPrompt = !this.#systemPromptLoggedSessionIds.has(input.sessionId);
       appendLlmTurnStarted(this.projectRoot, input, { includeSystemPrompt });
       if (includeSystemPrompt) this.#systemPromptLoggedSessionIds.add(input.sessionId);
-      const callId = `${this.agentId}:${input.inputId}`;
-      if (this.admission && !this.admission.requestProviderCall(callId)) {
-        this.completeWithError(input, `Provider admission denied for ${callId}.`);
-        return;
-      }
-      if (this.admission) this.#activeProviderCallId = callId;
-      this.runTask((signal) => this.provider.completeTurn(input, signal), {
+      this.runTask(async (signal) => {
+        await this.gate.waitUntilOpen();
+        return this.provider.completeTurn(input, signal);
+      }, {
         on_done: (result) => {
           try {
             appendLlmTurnFinished(this.projectRoot, input, result);
@@ -157,8 +149,6 @@ export class LLMActor extends BaseActor {
           } catch (error) {
             this.failPendingTurnFatally(error);
             throw error;
-          } finally {
-            this.releaseProviderAdmission(callId);
           }
         },
         on_failed: (error) => {
@@ -167,8 +157,6 @@ export class LLMActor extends BaseActor {
           } catch (fatal) {
             this.failPendingTurnFatally(fatal);
             throw fatal;
-          } finally {
-            this.releaseProviderAdmission(callId);
           }
         },
       });
@@ -232,26 +220,8 @@ export class LLMActor extends BaseActor {
     const fatal = error instanceof Error ? error : new Error(String(error));
     const pending = this.#pendingTurn;
     this.#pendingTurn = null;
-    this.releaseProviderAdmissionBestEffort();
     if (pending) pending.reject(fatal);
     console.error(`LLMActor '${this.agentId}' fatal handler failure`, fatal);
-  }
-
-  private releaseProviderAdmission(callId: string): void {
-    if (this.#activeProviderCallId !== callId) return;
-    this.#activeProviderCallId = null;
-    this.admission?.releaseProviderCall(callId);
-  }
-
-  private releaseProviderAdmissionBestEffort(): void {
-    const callId = this.#activeProviderCallId;
-    if (!callId) return;
-    this.#activeProviderCallId = null;
-    try {
-      this.admission?.releaseProviderCall(callId);
-    } catch (releaseError) {
-      console.error(`LLMActor '${this.agentId}' failed to release provider admission for ${callId}`, releaseError);
-    }
   }
 
   private continueAfterTool(nextInput = this.requireInput()): Promise<LLMActorOutcome> {

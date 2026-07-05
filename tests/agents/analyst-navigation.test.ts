@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { navigate_back, navigate_workspace } from '../../src/tools/analyst-workspace-tools.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { CardStore } from '../../src/cards/card-store.js';
+import { ProcessRunner } from '../../src/runtime/process-runner.js';
 
 function setupRoot(): string {
   const root = mkdtempSync(join(tmpdir(), 's08-nav-'));
@@ -19,12 +20,15 @@ function readAudit(root: string): Array<Record<string, unknown>> {
 }
 
 describe('analyst navigation tools', () => {
+  function ctx(root: string, actor: ToolContext['actor'] = 'analyst'): ToolContext {
+    return { projectRoot: root, processRunner: new ProcessRunner(root), store: new CardStore(root), actor, surface: 'web-chat' };
+  }
+
   it('returns a structured navigate_workspace intent for analyst callers', async () => {
     const root = setupRoot();
     try {
       const target = { kind: 'card' as const, id: 'card-1' };
-      const ctx: ToolContext = { projectRoot: root, store: new CardStore(root), actor: 'analyst', surface: 'web-chat' };
-      const result = await navigate_workspace(ctx, { target });
+      const result = await navigate_workspace(ctx(root), { target });
       expect(result).toEqual({ success: true, data: { intent: 'navigate_workspace', target } });
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
@@ -32,8 +36,7 @@ describe('analyst navigation tools', () => {
   it('denies navigate_workspace for non-analyst actors', async () => {
     const root = setupRoot();
     try {
-      const ctx: ToolContext = { projectRoot: root, store: new CardStore(root), actor: 'planner', surface: 'web-chat' };
-      const result = await navigate_workspace(ctx, { target: { kind: 'card', id: 'card-1' } });
+      const result = await navigate_workspace(ctx(root, 'planner'), { target: { kind: 'card', id: 'card-1' } });
       expect(result.success).toBe(false);
       expect(result.error).toContain('Denied by authorization policy');
     } finally { rmSync(root, { recursive: true, force: true }); }
@@ -42,8 +45,7 @@ describe('analyst navigation tools', () => {
   it('returns a structured navigate_back intent for analyst callers', async () => {
     const root = setupRoot();
     try {
-      const ctx: ToolContext = { projectRoot: root, store: new CardStore(root), actor: 'analyst', surface: 'web-chat' };
-      const result = await navigate_back(ctx);
+      const result = await navigate_back(ctx(root));
       expect(result).toEqual({ success: true, data: { intent: 'navigate_back' } });
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
@@ -51,9 +53,9 @@ describe('analyst navigation tools', () => {
   it('records low-safety audit entries for both navigation actions', async () => {
     const root = setupRoot();
     try {
-      const ctx: ToolContext = { projectRoot: root, store: new CardStore(root), actor: 'analyst', surface: 'web-chat' };
-      await navigate_workspace(ctx, { target: { kind: 'process', id: 'pid-1' } });
-      await navigate_back(ctx);
+      const toolCtx = ctx(root);
+      await navigate_workspace(toolCtx, { target: { kind: 'process', id: 'pid-1' } });
+      await navigate_back(toolCtx);
       const entries = readAudit(root);
       expect(entries).toEqual(expect.arrayContaining([
         expect.objectContaining({ action: 'workspace.navigate', target_kind: 'session', target_id: 'process:pid-1', outcome: 'ok', safety_class: 'low' }),

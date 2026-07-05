@@ -1,7 +1,7 @@
-import { existsSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join, resolve, normalize } from 'node:path';
 import type { CardStore } from '../cards/store-api.js';
-import { loadRegistry } from './process-runner.js';
+import type { ProcessRecord } from '../schemas/index.js';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -258,6 +258,7 @@ export function cleanStaleProcessOutput(options: CleanStaleProcessOptions): numb
   if (processesDir !== expectedProcesses) return 0;
 
   const runningProcessIds = loadRunningProcessIds(saivageWorkDir);
+  if (!runningProcessIds) return 0;
 
   let cleaned = 0;
   const cutoff = Date.now() - maxAgeMs;
@@ -374,11 +375,19 @@ export function cleanAll(
 
 // ── Internal Helpers ──────────────────────────────────────────
 
-function loadRunningProcessIds(saivageWorkDir: string): Set<string> {
+function loadRunningProcessIds(saivageWorkDir: string): Set<string> | null {
   const projectRoot = resolve(saivageWorkDir, '..');
-  const registry = loadRegistry(projectRoot);
   const running = new Set<string>();
-  for (const record of registry.values()) {
+  const registryPath = join(projectRoot, '.saivage', 'runtime', 'processes.json');
+  if (!existsSync(registryPath)) return running;
+  let parsed: { records?: ProcessRecord[] };
+  try {
+    parsed = JSON.parse(readFileSync(registryPath, 'utf8')) as { records?: ProcessRecord[] };
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.records)) return null;
+  for (const record of parsed.records) {
     if (record.status === 'running') {
       running.add(record.id);
     }

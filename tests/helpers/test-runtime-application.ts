@@ -15,6 +15,7 @@ import { MemoryCandidateAvailability } from '../../src/agents/candidate-availabi
 import { loadEnvironment } from '../../src/config/environment.js';
 import { appendNotificationToActorSnapshot, cardActorId } from '../../src/runtime/actors/index.js';
 import type { CardNotification } from '../../src/runtime/actors/index.js';
+import { ProcessRunner } from '../../src/runtime/process-runner.js';
 
 const TEST_MODEL = 'test-analyst-model';
 
@@ -104,11 +105,12 @@ function createFlatTestAnalystRuntime(opts: { eventBus?: EventBus; cardStore?: C
   return runtime;
 }
 
-export function createTestAnalystRuntime(opts: { eventBus?: EventBus; cardStore?: CardStore; projectRoot?: string } = {}): AnalystRuntimeDeps {
+export function createTestAnalystRuntime(opts: { eventBus?: EventBus; cardStore?: CardStore; projectRoot?: string; processRunner?: ProcessRunner } = {}): AnalystRuntimeDeps {
   const eventBus = opts.eventBus ?? new EventBus();
   const projectRoot = opts.projectRoot ?? mkdtempSync(join(tmpdir(), 'saivage-test-analyst-runtime-'));
   if (!opts.projectRoot) ensureTestSaivageConfig(projectRoot);
   const cardStore = opts.cardStore ?? new CardStore(projectRoot);
+  const processRunner = opts.processRunner ?? new ProcessRunner(projectRoot);
   const analystRuntime = createFlatTestAnalystRuntime({ ...opts, eventBus, cardStore, projectRoot });
   const config = loadTestConfig(projectRoot);
   const availability = new MemoryCandidateAvailability();
@@ -128,6 +130,7 @@ export function createTestAnalystRuntime(opts: { eventBus?: EventBus; cardStore?
     eventBus,
     emitAnalystToolInvoked: (payload) => analystRuntime.emitAnalystToolInvoked(payload),
     provider: createInvocationServiceProvider(invocationService),
+    processRunner,
     mcpManager: analystRuntime.mcpManager,
   };
 }
@@ -137,9 +140,11 @@ export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardSt
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-test-runtime-app-'));
   ensureTestSaivageConfig(projectRoot);
   const cardStore = opts.cardStore ?? new CardStore(projectRoot);
+  const processRunner = new ProcessRunner(projectRoot);
   const analystRuntime = createFlatTestAnalystRuntime({ ...opts, eventBus, cardStore, projectRoot });
   return {
     cardStore,
+    processRunner,
     runtimeApi: {
       start: () => analystRuntime.start(),
       shutdown: () => analystRuntime.shutdown(),
@@ -171,6 +176,7 @@ export function createTestRuntimeApplication(opts: { eventBus?: EventBus; cardSt
         eventBus,
         emitAnalystToolInvoked: (payload: Parameters<typeof analystRuntime.emitAnalystToolInvoked>[0]) => analystRuntime.emitAnalystToolInvoked(payload),
         provider: createInvocationServiceProvider(invocationService),
+        processRunner,
         mcpManager: analystRuntime.mcpManager,
       };
     },
