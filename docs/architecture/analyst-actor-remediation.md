@@ -10,10 +10,12 @@ The initial implementation (`8ed2c6d9`) landed the `AnalystSessionActor`, `Analy
 
 ## What Already Works (No Change Needed)
 
-The settlement-gate pattern already matches `CardActor`:
+The settlement-gate structure is correct:
 - `cancel()` resolves the caller promise and queues `sendEvent('cancel')`.
 - `on_done`/`on_failed` return without sending when the turn was already cancelled.
 - The queued `cancel` then dispatches cleanly back to `idle`.
+
+Issue 1 refines the implementation (dedicated flag, unconditional LLM abandonment, per-turn `AbortController`), but the structure stays.
 
 The `AnalystSessionActor` state machine (`idle` parked, `conversing` active), the promise side-channel, the `ConversationLLMActor`/`LLMActor` split preventing analyst snapshots, system-prompt-logged seeding from transcript, and transport session convergence are all correct.
 
@@ -85,7 +87,7 @@ Remove all direct transcript writes from session-side code. Each path is handled
 
 **Partial-success contract text**: Remove the short-circuit entirely. The `responseTextForResult` function and the early-return path are deleted. The tool result (including `partial: true` data) is already in the transcript via the LLM actor's tool-delivery path. The loop continues normally; the model sees the partial-success tool result and produces its own response. There is no session-side formatting or persistence of partial-success text.
 
-`appendAssistantTextMessage` and `errorResponse` (in their current form) are removed from session-side code. The LLM actor's existing transcript paths cover all durable writes.
+`appendAssistantTextMessage` is removed entirely. The loop constructs transient `AnalystResponse` objects inline for error and no-progress outcomes — these are returned to the caller but not persisted. The LLM actor's existing transcript paths cover all durable writes.
 
 ## Issue 3: ConversationLLMActor Carries Dead Reconstruction Weight
 
@@ -101,14 +103,14 @@ Fields and methods to move:
 - `activeReconstruction` field: remove from base, move to `LLMActor`.
 - `snapshot()`: remove from base, move to `LLMActor` (only autonomous LLM actors are snapshotted).
 
-Hooks to replace — the base currently has four reconstruction-specific no-op overrides plus direct `this.activeReconstruction = null` writes in private methods. Replace all of them with three generic lifecycle hooks:
+Hooks to replace — the base currently has four reconstruction-specific no-op overrides plus direct `this.activeReconstruction = null` writes in private methods. Replace all of them with three generic lifecycle hooks plus the existing `_on_state_changed` framework hook:
 
 | Current (reconstruction-specific) | Replacement (generic) | Called from | Base impl | `LLMActor` override |
 | --- | --- | --- | --- | --- |
-| `prepareTurnReconstruction(input)` | `onTurnStarting(input)` | `startProviderTurn` | empty | create reconstruction record |
-| `updateActiveReconstruction(changes)` + `prepareProviderCallReconstruction(input)` | `onTurnStateUpdated(params)` | `appendToolResult`, `completeWithProviderResult` (tool-call path) | empty | update reconstruction from `params` |
-| `this.activeReconstruction = null` (three sites) + `persistState()` | `onTurnSettled()` | `completeWithProviderResult` (message), `completeWithError`, `abandonParkedTurn` | empty | clear reconstruction field |
-| `persistState()` from `_on_state_changed` | keep `_on_state_changed` override | framework | empty | persist snapshot |
+| `prepareTurnReconstruction(input)` (which internally calls `createActiveReconstruction` + `prepareProviderCallReconstruction`) | `onTurnStarting(input)` | `startProviderTurn` | empty | create reconstruction record, set provider call id |
+| `updateActiveReconstruction(changes)` + `prepareProviderCallReconstruction(input)` (in `appendToolResult`) | `onTurnStateUpdated(params)` | `appendToolResult`, `completeWithProviderResult` (tool-call path) | empty | update reconstruction from `params`, set provider call id |
+| `this.activeReconstruction = null` (three sites: message result, error, abandon) | `onTurnSettled()` | `completeWithProviderResult` (message), `completeWithError`, `abandonParkedTurn` | empty | clear reconstruction field |
+| `_on_state_changed` override calling `persistState()` | `_on_state_changed` override (no base override) | framework state transition | (no override in base) | `LLMActor` overrides `_on_state_changed` to persist snapshot |
 
 `onTurnStateUpdated` receives a params object built from base-class state only:
 
@@ -168,7 +170,7 @@ This is consistent with the autonomous side, where `CardActor` owns the processo
 
 - `AnalystSessionActor` state machine: `idle` (parked) / `conversing` (active).
 - Promise side-channel for `submit(...)`.
-- `ConversationLLMActor`/`LLMActor` inheritance split (just cleaned up).
+- `ConversationLLMActor`/`LLMActor` inheritance split stays; the base is substantially simplified (no recovery fields, generic hooks only).
 - Analyst bypasses autonomous `RuntimeGate`; processes are `owner_kind: 'operator'`.
 - REST/WS share `analyst:global`; Telegram is per-chat.
 - Live in-memory LLM context is master; disk transcript is durable reconstruction record.
