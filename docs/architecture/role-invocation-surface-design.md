@@ -1,6 +1,6 @@
 # Role Invocation Surface Design
 
-Status: design proposal.
+Status: design proposal (second review, data-driven).
 
 Date: 2026-07-05
 
@@ -33,18 +33,33 @@ The matrix is current behavior and should not change as part of F09.
 
 ## Decision
 
-Create a small role-surface factory module with one explicit builder per role:
+Create `src/tools/role-invocation-surfaces.ts` with a single data-driven builder. The capability matrix is declarative data — a table mapping each role to its ordered provider list. The builder looks up the list and constructs each provider from a shared context.
 
 ```ts
-buildPlannerInvocationSurface(args: PlannerInvocationSurfaceArgs): InvocationSurface
-buildReviewerInvocationSurface(args: ReviewerInvocationSurfaceArgs): InvocationSurface
-buildExecutorInvocationSurface(args: ExecutorInvocationSurfaceArgs): InvocationSurface
-buildAnalystInvocationSurface(args: AnalystInvocationSurfaceArgs): InvocationSurface
+function buildRoleSurface(role: AgentRole, ctx: RoleSurfaceContext): InvocationSurface {
+  const providers = ROLE_PROVIDER_ORDER[role].map((name) => PROVIDER_CONSTRUCTORS[name](ctx, role));
+  return buildInvocationSurface(role, providers);
+}
 ```
 
-The public API is intentionally not `buildRoleSurface(role, ctx)`. A single generic function would force a wide optional context where most fields are invalid for most roles. Four narrow functions make the required dependencies obvious and let TypeScript reject missing role-specific inputs without runtime assertions.
+The function body is one line of meaningful logic. Everything else is data.
 
-The factory module becomes the one production place where role capabilities are assembled. Processor and analyst code keep small wrapper methods only when they need a convenient local name or parameter adaptation; those wrappers must delegate directly to the factory and must not construct providers.
+### Why data-driven, not four builders
+
+Four explicit builders (`buildPlannerInvocationSurface`, etc.) would work but add unnecessary ceremony: four function signatures, four argument interfaces, four near-identical function bodies. The only real information is **which providers each role gets** — and that is data, best expressed as a table.
+
+A table-driven builder is simpler:
+
+- The matrix is reviewable at a glance as declarative data.
+- Adding or removing a provider for a role is a one-line table edit.
+- One public function, one call pattern.
+- Adding a new provider is one entry in the constructor map plus one string in the relevant role arrays.
+
+### The non-null assertion tradeoff
+
+`RoleSurfaceContext` has optional fields. The constructor map uses non-null assertions (`ctx.children!`, `ctx.processRunner!`, etc.) where a provider requires a field. These assertions are safe because the table guarantees each provider is only constructed for roles whose callers pass the required deps. A focused test asserting exact tool-name sets per role pins the contract.
+
+This is preferred over four narrow argument interfaces because the table — not the type system — is the source of truth for which providers belong to which role. TypeScript cannot express "this field is required only when this provider is in the role's list" without per-role types, and per-role types defeat the purpose of the table.
 
 ## New module layout
 
@@ -60,138 +75,138 @@ This mirrors `planner-control-provider.ts`. It uses the existing `ANALYST_CONTRO
 
 ### `src/tools/role-invocation-surfaces.ts`
 
-This module imports provider constructors and exports the four role builders. It does not replace `buildInvocationSurface`; it uses it.
+This module exports the capability table, the context type, and the builder. It imports provider constructors and uses `buildInvocationSurface`.
 
-Suggested argument shapes:
+## The capability table
 
 ```ts
-export interface PlannerInvocationSurfaceArgs {
+type ProviderName =
+  | 'plannerControl'
+  | 'analystControl'
+  | 'cardInspection'
+  | 'workspace'
+  | 'patch'
+  | 'process'
+  | 'cardHistory'
+  | 'web'
+  | 'skill'
+  | 'mcp';
+
+const ROLE_PROVIDER_ORDER: Record<AgentRole, readonly ProviderName[]> = {
+  planner:  ['plannerControl', 'cardInspection', 'workspace', 'cardHistory', 'web'],
+  reviewer: ['workspace', 'cardHistory', 'web', 'skill', 'mcp'],
+  executor: ['workspace', 'patch', 'process', 'cardHistory', 'web', 'skill', 'mcp'],
+  analyst:  ['analystControl', 'cardInspection', 'cardHistory', 'workspace', 'patch', 'process', 'web', 'skill', 'mcp'],
+};
+```
+
+This table IS the capability policy. It must not change as part of F09.
+
+## Context
+
+```ts
+interface RoleSurfaceContext {
   projectRoot: string;
-  parentCardId: string;
-  sessionId: string;
-  store: PlannerControlProviderContext['store'] & CardInspectionProviderContext['store'];
-  children: PlannerControlProviderContext['children'];
-  notifyCard?: PlannerControlProviderContext['notifyCard'];
-}
-
-export interface ReviewerInvocationSurfaceArgs {
-  projectRoot: string;
-  cardId: string;
-  sessionId: string;
-  mcpManagerProvider: () => McpToolInvocationPort | undefined;
-}
-
-export interface ExecutorInvocationSurfaceArgs {
-  projectRoot: string;
-  cardId: string;
-  processRunner: ProcessRunner;
-  processOwnerId: string;
-  runtimeGate: RuntimeGate;
-  mcpManagerProvider: () => McpToolInvocationPort | undefined;
-}
-
-export interface AnalystInvocationSurfaceArgs {
-  projectRoot: string;
-  ctx: ToolContext;
-  mcpManagerProvider: () => McpToolInvocationPort | undefined;
+  cardId?: string;
+  sessionId?: string;
+  store?: CardStore;
+  processRunner?: ProcessRunner;
+  ownerId?: string;
+  runtimeGate?: RuntimeGate;
+  mcpManagerProvider?: () => McpToolInvocationPort | undefined;
+  children?: PlannerChildActorPort;
+  notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult;
+  toolContext?: ToolContext;
 }
 ```
 
-The exact type imports can be adjusted to avoid cycles, but the public shape should stay narrow. Do not introduce a catch-all context object with many optional fields.
+All fields except `projectRoot` are optional. Each caller passes only what its role needs.
 
-## Role builders
+## Provider constructor map
 
-### Planner
-
-`buildPlannerInvocationSurface(...)` returns:
+A `Record<ProviderName, (ctx: RoleSurfaceContext, role: AgentRole) => ToolProvider>` map adapts the common context to each provider's narrow constructor args. Each provider constructor appears exactly once:
 
 ```ts
-buildInvocationSurface('planner', [
-  createPlannerControlProvider({ projectRoot, parentCardId, sessionId, store, children, notifyCard }),
-  createCardInspectionProvider({ projectRoot, store, agentRole: 'planner' }),
-  createWorkspaceProvider({ projectRoot, cardId: parentCardId, agentRole: 'planner' }),
-  createCardHistoryProvider({ projectRoot, sessionId, agentRole: 'planner' }),
-  createWebProvider({ projectRoot, cardId: parentCardId, agentRole: 'planner' }),
-])
+const PROVIDER_CONSTRUCTORS: Record<ProviderName, (ctx: RoleSurfaceContext, role: AgentRole) => ToolProvider> = {
+  plannerControl: (ctx, _) =>
+    createPlannerControlProvider({
+      projectRoot: ctx.projectRoot, parentCardId: ctx.cardId!, sessionId: ctx.sessionId!,
+      store: ctx.store!, children: ctx.children!, notifyCard: ctx.notifyCard,
+    }),
+  analystControl: (ctx, _) =>
+    createAnalystControlProvider(ctx.toolContext!),
+  cardInspection: (ctx, role) =>
+    createCardInspectionProvider({ projectRoot: ctx.projectRoot, store: ctx.store, agentRole: role }),
+  workspace: (ctx, role) =>
+    createWorkspaceProvider({ projectRoot: ctx.projectRoot, cardId: ctx.cardId, agentRole: role, store: ctx.store }),
+  patch: (ctx, role) =>
+    createPatchProvider({ projectRoot: ctx.projectRoot, cardId: ctx.cardId, agentRole: role, store: ctx.store }),
+  process: (ctx, role) =>
+    createProcessProvider({
+      projectRoot: ctx.projectRoot, processRunner: ctx.processRunner!,
+      ownerId: ctx.ownerId ?? ctx.sessionId ?? role, ownerKind: role === 'analyst' ? 'operator' : 'agent',
+      cardId: ctx.cardId, runtimeGate: ctx.runtimeGate, agentRole: role,
+    }),
+  cardHistory: (ctx, role) =>
+    createCardHistoryProvider({ projectRoot: ctx.projectRoot, store: ctx.store, sessionId: ctx.sessionId, agentRole: role }),
+  web: (ctx, role) =>
+    createWebProvider({ projectRoot: ctx.projectRoot, cardId: ctx.cardId, agentRole: role, store: ctx.store }),
+  skill: (ctx, role) =>
+    createSkillProvider({ projectRoot: ctx.projectRoot, agentRole: role as 'executor' | 'reviewer' | 'analyst' }),
+  mcp: (ctx, role) =>
+    createMcpProvider({ mcpManagerProvider: ctx.mcpManagerProvider!, agentRole: role as 'executor' | 'reviewer' | 'analyst' }),
+};
 ```
 
-Planner still lacks patch, process, skill, and MCP. That is deliberate.
+The non-null assertions are safe: the table guarantees `plannerControl` is only constructed for planner (whose caller always passes `cardId`, `sessionId`, `store`, `children`), `process` only for executor and analyst (whose callers always pass `processRunner`), and `mcp` only for reviewer, executor, and analyst (whose callers always pass `mcpManagerProvider`).
 
-### Reviewer
-
-`buildReviewerInvocationSurface(...)` returns:
-
-```ts
-buildInvocationSurface('reviewer', [
-  createWorkspaceProvider({ projectRoot, cardId, agentRole: 'reviewer' }),
-  createCardHistoryProvider({ projectRoot, sessionId, agentRole: 'reviewer' }),
-  createWebProvider({ projectRoot, cardId, agentRole: 'reviewer' }),
-  createSkillProvider({ projectRoot, agentRole: 'reviewer' }),
-  createMcpProvider({ mcpManagerProvider, agentRole: 'reviewer' }),
-])
-```
-
-Reviewer still lacks card-inspection, patch, process, and planner-control. Reviewer MCP restrictions remain inside `createMcpProvider`, where they are today.
-
-### Executor
-
-`buildExecutorInvocationSurface(...)` returns:
-
-```ts
-buildInvocationSurface('executor', [
-  createWorkspaceProvider({ projectRoot, cardId, agentRole: 'executor' }),
-  createPatchProvider({ projectRoot, cardId, agentRole: 'executor' }),
-  createProcessProvider({ projectRoot, processRunner, ownerId: processOwnerId, ownerKind: 'agent', cardId, runtimeGate }),
-  createCardHistoryProvider({ projectRoot, sessionId: processOwnerId, agentRole: 'executor' }),
-  createWebProvider({ projectRoot, cardId, agentRole: 'executor' }),
-  createSkillProvider({ projectRoot, agentRole: 'executor' }),
-  createMcpProvider({ mcpManagerProvider, agentRole: 'executor' }),
-])
-```
-
-Executor process ownership remains agent-owned and runtime-gated.
-
-### Analyst
-
-`buildAnalystInvocationSurface(...)` returns:
-
-```ts
-buildInvocationSurface('analyst', [
-  createAnalystControlProvider(ctx),
-  createCardInspectionProvider({ projectRoot, store: ctx.store, agentRole: 'analyst' }),
-  createCardHistoryProvider({ projectRoot, store: ctx.store, sessionId: ctx.sessionId, agentRole: 'analyst' }),
-  createWorkspaceProvider({ projectRoot, agentRole: 'analyst', store: ctx.store }),
-  createPatchProvider({ projectRoot, agentRole: 'analyst', store: ctx.store }),
-  createProcessProvider({ projectRoot, processRunner: ctx.processRunner, ownerId: ctx.sessionId ?? 'analyst', agentRole: 'analyst', ownerKind: 'operator', launchReason: 'analyst workspace run_command' }),
-  createWebProvider({ projectRoot, agentRole: 'analyst', store: ctx.store }),
-  createSkillProvider({ projectRoot, agentRole: 'analyst' }),
-  createMcpProvider({ mcpManagerProvider, agentRole: 'analyst' }),
-])
-```
-
-Analyst process ownership remains operator-owned and intentionally not runtime-gated by `ProcessProvider`.
+The `as` casts on `skill` and `mcp` are safe because the table excludes planner from those providers, and the provider type signatures accept the remaining three roles.
 
 ## Call-site changes
 
-- `PlanningCardProcessorActor.plannerInvocationSurface(...)` delegates to `buildPlannerInvocationSurface(...)`.
-- `PlanningCardProcessorActor.reviewerInvocationSurface(...)` delegates to `buildReviewerInvocationSurface(...)`.
-- `TerminalCardProcessorActor.executorInvocationSurface(...)` delegates to `buildExecutorInvocationSurface(...)`.
-- `analyst-handler.ts` deletes local `analystControlProvider` and `analystInvocationSurface`, then calls `buildAnalystInvocationSurface(...)`.
-- `AnalystSessionActor.shutdownSessionProcesses(...)` may continue to call `createProcessProvider(...).cleanup(...)` directly. That is process cleanup, not invocation-surface assembly.
+Each caller constructs a `RoleSurfaceContext` from its own fields and calls `buildRoleSurface`:
+
+```ts
+// PlanningCardProcessorActor — planner
+buildRoleSurface('planner', {
+  projectRoot: this.projectRoot, cardId: parentCardId, sessionId: plannerActorId(parentCardId),
+  store: this.store, children: this.children, notifyCard: this.notifyCard,
+})
+
+// PlanningCardProcessorActor — reviewer
+buildRoleSurface('reviewer', {
+  projectRoot: this.projectRoot, cardId, sessionId,
+  mcpManagerProvider: this.mcpManagerProvider,
+})
+
+// TerminalCardProcessorActor — executor
+buildRoleSurface('executor', {
+  projectRoot: this.projectRoot, cardId: this.cardId, sessionId: processOwnerId, ownerId: processOwnerId,
+  processRunner: this.processRunner, runtimeGate: this.gate, mcpManagerProvider: this.mcpManagerProvider,
+})
+
+// analyst-handler — analyst
+buildRoleSurface('analyst', {
+  projectRoot: this.args.projectRoot, toolContext: ctx,
+  store: ctx.store, processRunner: ctx.processRunner,
+  sessionId: ctx.sessionId, ownerId: ctx.sessionId ?? 'analyst',
+  mcpManagerProvider: () => ctx.mcpManager,
+})
+```
+
+The processor classes may keep thin private wrapper methods (`plannerInvocationSurface(parentCardId)`, `executorInvocationSurface(processOwnerId)`) that adapt local fields to the context and delegate. Those wrappers must not construct providers.
+
+`analyst-handler.ts` deletes local `analystControlProvider` and `analystInvocationSurface`. `AnalystSessionActor.shutdownSessionProcesses` may continue to call `createProcessProvider(...).cleanup(...)` directly — that is process cleanup, not surface assembly.
 
 ## What this design deliberately does not do
 
-### No generic provider plugin system
+### No providers-as-plugins
 
 Providers should not declare `roles: AgentRole[]`, and `buildInvocationSurface` should not filter a global provider registry by role. That would push role policy into every provider and make role-specific providers carry redundant self-descriptions. The role surface module is the policy boundary.
 
-### No loose `buildRoleSurface(role, ctx)` API
-
-A single generic builder with optional `cardId`, `store`, `children`, `processRunner`, `runtimeGate`, `mcpManagerProvider`, and control-tool fields would be easier to call incorrectly. It would also force runtime assertions for role-specific requirements. Four explicit builders are less clever and cleaner.
-
 ### No old policy list revival
 
-Do not reintroduce `RoleToolPolicy` or a separate permission matrix that duplicates provider composition. The provider list for each role is the executable capability policy.
+Do not reintroduce `RoleToolPolicy` or a separate permission matrix that duplicates provider composition. The `ROLE_PROVIDER_ORDER` table is the executable capability policy.
 
 ### No behavior changes
 
@@ -204,9 +219,9 @@ F09 is a refactor. It must not add tools to planner/reviewer/executor/analyst or
 
 ## Tests
 
-Add a focused test file for the factory, e.g. `tests/tools/role-invocation-surfaces.test.ts`.
+Add `tests/tools/role-invocation-surfaces.test.ts`.
 
-The tests should assert exact tool-name sets for all four roles. Use real providers with minimal fake dependencies; do not mock the factory internals.
+Assert exact tool-name sets for all four roles. Use real providers with minimal fake dependencies; do not mock the factory internals.
 
 Expected provider-derived tools:
 
@@ -215,7 +230,7 @@ Expected provider-derived tools:
 - Executor: reviewer tools plus `apply_patch`, `run_command`, `wait_process`, `kill_process`.
 - Analyst: Analyst control tools plus `list_cards`, `get_card`, `get_tree`, `read`, `write`, `edit`, `apply_patch`, `glob`, `grep`, `run_command`, `wait_process`, `kill_process`, `list_card_history`, `get_card_history_entry`, `diff_card`, `websearch`, `webfetch`, `skill`, `mcp_tool_call`.
 
-Also update `tests/agents/analyst-tool-surface.test.ts` so its production-shaped Analyst surface uses `buildAnalystInvocationSurface(...)` rather than hand-building the same provider list. That test should not preserve a second copy of the assembly logic.
+Also update `tests/agents/analyst-tool-surface.test.ts` so its production-shaped Analyst surface uses `buildRoleSurface('analyst', ...)` rather than hand-building the same provider list.
 
 ## Validation
 
