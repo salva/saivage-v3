@@ -176,7 +176,7 @@ describe('TerminalCardProcessorActor', () => {
     const processor = terminalProcessor(projectRoot, card.id, provider);
     processor.start();
 
-    const outcome = await processor.activate({ activationId: `card:${card.id}:activation:test`, card, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: noopNotificationDelivery() });
+    const outcome = await processor.activate({ activationId: `card:${card.id}:activation:test`, card, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
 
     expect(outcome).toMatchObject({ status: 'done' });
   }));
@@ -214,7 +214,7 @@ describe('TerminalCardProcessorActor', () => {
     const processor = terminalProcessor(projectRoot, card.id, provider);
     processor.start();
 
-    const pending = processor.activate({ activationId: `card:${card.id}:activation:test`, card, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: noopNotificationDelivery() });
+    const pending = processor.activate({ activationId: `card:${card.id}:activation:test`, card, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
     await eventually(() => expect(processor.state()).toBe('executing'));
     expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === `processor:${card.id}`)?.context.active_reconstruction).toMatchObject({
       schema_version: 1,
@@ -394,7 +394,7 @@ describe('TerminalCardProcessorActor', () => {
     const processor = terminalProcessor(projectRoot, card.id, providerWithRecords, undefined, runner);
     processor.start();
 
-    const outcome = await processor.activate({ activationId: `card:${card.id}:activation:test`, card, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: delivery });
+    const outcome = await processor.activate({ activationId: `card:${card.id}:activation:test`, card, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: delivery }, new AbortController().signal);
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'saw running process' });
     expect(delivery.deliverNotificationsForInput).toHaveBeenCalledWith(`terminal:${card.id}:1`);
@@ -421,7 +421,7 @@ describe('TerminalCardProcessorActor', () => {
     const processor = terminalProcessor(projectRoot, card.id, provider, undefined, runner);
     processor.start();
 
-    const outcome = await processor.activate({ activationId: `card:${card.id}:activation:test`, card, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: noopNotificationDelivery() });
+    const outcome = await processor.activate({ activationId: `card:${card.id}:activation:test`, card, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'killed process' });
     await eventually(() => expect(runner.list().filter((process) => process.card_id === card.id)).toEqual([
@@ -440,7 +440,7 @@ describe('TerminalCardProcessorActor', () => {
     const processor = terminalProcessor(projectRoot, card.id, provider);
     processor.start();
 
-    const outcome = await processor.activate({ activationId: `card:${card.id}:activation:test`, card, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: noopNotificationDelivery() });
+    const outcome = await processor.activate({ activationId: `card:${card.id}:activation:test`, card, caller: { kind: 'parent', cardId: 'project' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'done after many tools' });
     expect(executorTurns).toBe(26);
@@ -448,10 +448,10 @@ describe('TerminalCardProcessorActor', () => {
     expect(llmSnapshot).toMatchObject({ state_value: 'idle', context: { active_reconstruction: null } });
   }));
 
-  it('throws a clear impossible-state error when recovering directly into executing', () => withTempProject((projectRoot) => {
+  it('throws a clear impossible-state error when active recovery lacks activation input', () => withTempProject((projectRoot) => {
     const { card } = setup(projectRoot);
     const processor = terminalProcessor(projectRoot, card.id, { completeTurn: jest.fn(async () => executorResult(card.id, 'unused')) });
 
-    expect(() => processor.recover('executing')).toThrow(/cannot recover directly into active state 'executing'/);
+    expect(() => processor.recover('executing')).toThrow(/entered executing without activation input/);
   }));
 });

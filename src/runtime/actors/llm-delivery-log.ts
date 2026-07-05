@@ -181,7 +181,7 @@ export function appendTerminalToolProjectedStatus(projectRoot: string, record: O
   return appendToolCallStatus(projectRoot, { ...record, status: 'terminal_projected' });
 }
 
-export function abandonStalePendingToolCalls(projectRoot: string, reason = 'Runtime restarted before the pending tool call reached a terminal delivery state.'): ToolCallStatusRecord[] {
+export function abandonStalePendingToolCalls(projectRoot: string, reason = 'Runtime restarted before the pending tool call reached a terminal delivery state.', preserveKeys: ReadonlySet<string> = new Set()): ToolCallStatusRecord[] {
   const records = readToolCallStatuses(projectRoot);
   const terminalKeys = new Set(records
     .filter((record) => record.status === 'delivered' || record.status === 'errored' || record.status === 'abandoned' || record.status === 'terminal_projected')
@@ -190,6 +190,7 @@ export function abandonStalePendingToolCalls(projectRoot: string, reason = 'Runt
   for (const record of records) {
     if (record.status !== 'pending') continue;
     if (terminalKeys.has(toolCallKey(record))) continue;
+    if (preserveKeys.has(toolCallKey(record))) continue;
     abandoned.push(appendToolCallStatus(projectRoot, {
       agent_id: record.agent_id,
       source_input_id: record.source_input_id,
@@ -201,6 +202,10 @@ export function abandonStalePendingToolCalls(projectRoot: string, reason = 'Runt
     terminalKeys.add(toolCallKey(record));
   }
   return abandoned;
+}
+
+export function loggedToolCallKey(record: Pick<ToolCallStatusRecord, 'agent_id' | 'source_input_id' | 'tool_call_id'>): string {
+  return toolCallKey(record);
 }
 
 export function toolCallAgentMessage(input: LlmInvocationInput, toolCall: ToolCall, index = 0, timestamp = new Date().toISOString()): AgentMessage {

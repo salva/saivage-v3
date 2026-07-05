@@ -80,7 +80,7 @@ describe('CardActor', () => {
     const outcome = await actor.activate({ kind: 'root' });
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'project done' });
-    expect(fakeProcessor.activate).toHaveBeenCalledWith(expect.objectContaining({ card: expect.objectContaining({ id: 'project' }) }));
+    expect(fakeProcessor.activate).toHaveBeenCalledWith(expect.objectContaining({ card: expect.objectContaining({ id: 'project' }) }), expect.any(AbortSignal));
     expect(store.read('project')).toMatchObject({ status: 'done', status_text: 'project done' });
     await eventually(() => expect(actor.state()).toBe('done'));
     expect(readActorSnapshots(projectRoot).map((item) => item.actor_id)).toContain('card:project');
@@ -136,7 +136,7 @@ describe('CardActor', () => {
 
     expect(fakeProcessor.activate).toHaveBeenCalledWith(expect.objectContaining({
       notificationDelivery: actor,
-    }));
+    }), expect.any(AbortSignal));
     expect(deliveredIds).toEqual(['n1', 'n2']);
     expect(actor.hasPendingNotifications()).toBe(false);
     expect(actor.notificationDeliveryMarkers).toEqual([
@@ -400,7 +400,7 @@ describe('CardActor', () => {
     expect(store.read(backlogChild.id)?.status).toBe('cancelled');
   }));
 
-  it('authoritatively cancels running cards and drops late outcomes', async () => withTempProject(async (projectRoot) => {
+  it('authoritatively cancels running cards and drops late outcomes without process-runner coupling', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     createProject(store);
@@ -421,7 +421,7 @@ describe('CardActor', () => {
     expect(actor.state()).toBe('running');
     expect(store.read(runningGoal.id)?.status).toBe('cancelled');
     await expect(activation).resolves.toMatchObject({ status: 'cancelled', summary: 'operator requested stop' });
-    expect(stopByOwner).toHaveBeenCalledWith(expect.stringContaining(`card:${runningGoal.id}:activation:`), 'card cancelled: operator requested stop', { graceMs: 5000 });
+    expect(stopByOwner).not.toHaveBeenCalled();
 
     finish({ status: 'blocked', summary: 'stopped later', result: { kind: 'blocked', summary: 'stopped later', resume_reason: 'manual resume' } });
     await eventually(() => expect(actor.state()).toBe('cancelled'));

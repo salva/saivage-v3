@@ -1,14 +1,14 @@
 import { EventBus } from '../../events/index.js';
 import { createActionableErrorEnvelope } from '../../schemas/index.js';
 import { PROJECT_CARD_ID } from '../../cards/project-card.js';
-import { buildActorRecoveryPlan, runActorStartupRecovery, type ActorStartupRecoveryReport } from './actor-recovery.js';
+import { buildActorRecoveryPlan, runActorStartupRecovery, type ActorRecoveryPlan, type ActorStartupRecoveryReport } from './actor-recovery.js';
 import { cardActorId, plannerActorId, parseLlmActorId } from './ids.js';
 import { RuntimeSupervisorActor } from './runtime-supervisor.js';
 import { CardActor, type CardActivationOutcome, type CardActorDeps, type CardActorStorePort } from './card-actor.js';
 import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
 import { toPublicAgentPhase, toPublicCardActorState } from './actor-vocabulary.js';
 import { appendNotificationToActorSnapshot } from './snapshots.js';
-import type { LLMProviderPort } from './llm-actor.js';
+import { LLMActor, type LLMProviderPort } from './llm-actor.js';
 import type { NotifyCardResult, RuntimeApi, RuntimeCommandSource, StartProjectResult, StopProjectResult } from '../runtime-api.js';
 import type { RuntimeCommandRecord, RuntimeRunRecord, RuntimeState, RuntimeStatus } from '../../schemas/index.js';
 import type { Subscription, SubscriptionOptions } from '../../events/index.js';
@@ -62,16 +62,25 @@ export class SupervisorRuntimeApi implements RuntimeApi {
   async start(): Promise<void> {
     if (this.started) return;
     await this.options.processRunner.reconcile();
+    this.runtimeGate.close();
     const recoveryPlan = buildActorRecoveryPlan(this.options.projectRoot, this.options.actorStore);
     this.startupRecoveryReport = runActorStartupRecovery(recoveryPlan, {
       projectRoot: this.options.projectRoot,
       store: this.options.actorStore,
       generatedAt: this.now(),
     });
-    this.reconcileStaleRootRuns();
     this.supervisor.start();
     this.supervisor.initialize(this.options.projectRoot);
-    this.runtimeGate.setOpen(readRuntimeState(this.options.projectRoot)?.status !== 'paused');
+    if (this.hasRunningRecoveryWork(recoveryPlan)) {
+      this.supervisor.run();
+      this.supervisor.pause();
+      this.reconstructActiveActors(recoveryPlan);
+      await this.replayWaitingToolCalls();
+      this.runtimeState.apply({ kind: 'patchRuntimeState', patch: { ...buildPauseRuntimeStatePatch(), active_card_run: null, updated_at: this.now() } });
+    } else {
+      this.reconcileStaleRootRuns();
+      this.runtimeGate.setOpen(readRuntimeState(this.options.projectRoot)?.status !== 'paused');
+    }
     this.started = true;
   }
 
@@ -131,6 +140,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     const command = this.runtimeState.apply({ kind: 'appendRuntimeCommand', commandKind: 'start_project', source });
     const startedAt = this.now();
     this.supervisor.run();
+    this.runtimeGate.open();
     this.currentCardId = PROJECT_CARD_ID;
     const run = this.runtimeState.apply({ kind: 'appendRuntimeRun', run: this.runRecordInput(command.command_id, startedAt, null, 'pending', 'running') });
     this.activeRun = run;
@@ -372,6 +382,55 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     return CardActor.fromCard({ card, deps: this.cardActorDeps() });
   }
 
+  private reconstructActiveActors(plan: ActorRecoveryPlan): void {
+    const deferred: CardActor[] = [];
+    for (const card of plan.cards) {
+      const record = this.options.actorStore.read(card.cardId);
+      if (record?.status !== 'running') continue;
+      const existing = this.cardActors.get(card.cardId);
+      if (existing) {
+        deferred.push(existing);
+        continue;
+      }
+      const actor = CardActor.fromCard({ card: record, deps: this.cardActorDeps(), deferRunningRecovery: true });
+      deferred.push(actor);
+    }
+    for (const llm of plan.llms) {
+      if (!llm.active || !llm.activeReconstruction || llm.cardId === null) continue;
+      if (this.options.actorStore.read(llm.cardId)?.status !== 'running') continue;
+      const cardActor = this.cardActor(llm.cardId);
+      if (!(cardActor.processor instanceof BaseMainLLMCardProcessorActor)) continue;
+      const actor = LLMActor.fromActiveReconstruction({
+        projectRoot: this.options.projectRoot,
+        agentId: llm.actorId,
+        provider: this.options.provider,
+        gate: this.runtimeGate,
+        state: String(llm.snapshot.state_value),
+        activeReconstruction: llm.activeReconstruction,
+      });
+      cardActor.processor.adoptRecoveredLlmActor(actor);
+    }
+    for (const actor of deferred.sort((a, b) => cardDepth(this.options.actorStore, b.cardId) - cardDepth(this.options.actorStore, a.cardId))) {
+      actor.recoverCurrentCardState();
+    }
+  }
+
+  private hasRunningRecoveryWork(plan: ActorRecoveryPlan): boolean {
+    return plan.cards.some((card) => this.options.actorStore.read(card.cardId)?.status === 'running' && card.activeReconstruction !== null);
+  }
+
+  private async replayWaitingToolCalls(): Promise<void> {
+    for (const cardActor of this.cardActors.values()) {
+      if (!(cardActor.processor instanceof BaseMainLLMCardProcessorActor)) continue;
+      for (const llm of cardActor.processor.listLlmActors()) {
+        if (llm.state() !== 'waiting_tool') continue;
+        const outcome = llm.waitingToolOutcome();
+        const replay = await cardActor.processor.replayWaitingToolCall(llm);
+        if (replay.kind === 'settled') void llm.appendToolResult(outcome.toolCallId, replay.result);
+      }
+    }
+  }
+
   private cardActorDeps(): CardActorDeps {
     return {
       projectRoot: this.options.projectRoot,
@@ -398,4 +457,14 @@ export class SupervisorRuntimeApi implements RuntimeApi {
 
 export function createSupervisorRuntimeApi(options: SupervisorRuntimeApiOptions): RuntimeApi {
   return new SupervisorRuntimeApi(options);
+}
+
+function cardDepth(store: CardActorStorePort, cardId: string): number {
+  let depth = 0;
+  let current = store.read(cardId);
+  while (current?.parent) {
+    depth++;
+    current = store.read(current.parent);
+  }
+  return depth;
 }

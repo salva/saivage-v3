@@ -85,6 +85,10 @@ function combinedSignal(signal: AbortSignal): AbortSignal {
   return AbortSignal.any([signal, AbortSignal.timeout(DEFAULT_TIMEOUT_MS)]);
 }
 
+function isAbortError(err: unknown, signal: AbortSignal): boolean {
+  return signal.aborted || err === signal.reason || (err instanceof DOMException && err.name === 'AbortError');
+}
+
 async function fetchPublic(url: URL, maxBytes: number, signal: AbortSignal, redirects = 0): Promise<{ url: URL; response: Response; body: Uint8Array }> {
   if (redirects > MAX_REDIRECTS) throw new Error('Too many redirects.');
   await assertPublicHttpTarget(url);
@@ -158,6 +162,7 @@ async function websearchCore(params: { query: string; max_results?: number }, si
     const html = Buffer.from(fetched.body).toString('utf8');
     return { success: true, data: { query, results: ddgResults(html, fetched.url, max) } };
   } catch (err) {
+    if (isAbortError(err, signal)) throw err;
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
@@ -192,6 +197,7 @@ async function webfetchCore(ctx: WebProviderContext, params: { url: string; read
     writeFileSync(absolute, text, 'utf8');
     return { success: true, data: { ...metadata, stash_path: stash, bytes: Buffer.byteLength(text, 'utf8'), truncated: true } };
   } catch (err) {
+    if (isAbortError(err, signal)) throw err;
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }

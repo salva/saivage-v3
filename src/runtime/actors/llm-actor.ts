@@ -4,7 +4,7 @@ import type { LlmCompleteResult } from '../../agents/llm-contracts.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
 import { actorKindFromId, parseLlmActorId } from './ids.js';
 import { saveActorSnapshot } from './snapshots.js';
-import { appendLlmTurnError, appendLlmTurnFinished, appendLlmTurnStarted, appendModelRepairMessage, appendToolDelivery, toolCallAgentMessage, toolResultAgentMessage } from './llm-delivery-log.js';
+import { appendLlmTurnError, appendLlmTurnFinished, appendLlmTurnStarted, appendModelRepairMessage, appendToolDelivery, readLoggedToolCall, toolCallAgentMessage, toolResultAgentMessage } from './llm-delivery-log.js';
 import type { LlmActiveReconstructionRecord } from './active-reconstruction.js';
 import type { ToolResult } from '../../tools/invocation.js';
 import { RuntimeGate } from '../runtime-gate.js';
@@ -19,6 +19,7 @@ export interface LLMProviderPort {
 }
 
 type PendingTurn = {
+  promise: Promise<LLMActorOutcome>;
   resolve: (outcome: LLMActorOutcome) => void;
   reject: (error: Error) => void;
 };
@@ -57,6 +58,7 @@ export class ConversationLLMActor extends BaseActor {
   waitingToolCall: WaitingToolCall | null = null;
   deliveredToolCallIds = new Set<string>();
   #pendingTurn: PendingTurn | null = null;
+  #turnSignal: AbortSignal | null = null;
   #toolDeliveryCounter = 0;
   #systemPromptLoggedSessionIds = new Set<string>();
 
@@ -73,14 +75,26 @@ export class ConversationLLMActor extends BaseActor {
     this.#systemPromptLoggedSessionIds.add(sessionId);
   }
 
-  turn(input: LlmInvocationInput): Promise<LLMActorOutcome> {
+  turn(input: LlmInvocationInput, signal?: AbortSignal): Promise<LLMActorOutcome> {
     if (input.agentId !== this.agentId) return Promise.reject(new Error(`Input ${input.inputId} targets ${input.agentId}, not ${this.agentId}.`));
     if (this.#pendingTurn) return Promise.reject(new Error(`LLMActor '${this.agentId}' already has a pending turn.`));
     if (this.state() !== 'idle') return Promise.reject(new Error(`LLMActor '${this.agentId}' cannot start a new turn from '${this.state()}'.`));
-    return this.startProviderTurn(input, { resetDeliveredToolCalls: true });
+    return this.startProviderTurn(input, { resetDeliveredToolCalls: true, signal });
   }
 
-  appendToolResult(toolCallId: string, result: ToolResult, continuationContextHook?: LLMToolContinuationContextHook): Promise<LLMActorOutcome> {
+  awaitPendingTurn(): Promise<LLMActorOutcome> {
+    if (!this.#pendingTurn) return Promise.reject(new Error(`LLMActor '${this.agentId}' has no pending provider turn.`));
+    return this.#pendingTurn.promise;
+  }
+
+  waitingToolOutcome(): Extract<LLMActorOutcome, { type: 'tool_call' }> {
+    if (this.state() !== 'waiting_tool' || !this.waitingToolCall || !this.input) throw new Error(`LLMActor '${this.agentId}' is not waiting for a tool call.`);
+    const logged = readLoggedToolCall(this.projectRoot, this.input.sessionId, this.agentId, this.waitingToolCall.sourceInputId, this.waitingToolCall.toolCallId);
+    if (logged.tool_name !== this.waitingToolCall.toolName) throw new Error(`Logged tool call '${this.waitingToolCall.toolCallId}' tool name changed from '${this.waitingToolCall.toolName}' to '${logged.tool_name}'.`);
+    return { type: 'tool_call', agentId: this.agentId, inputId: this.waitingToolCall.sourceInputId, toolCallId: this.waitingToolCall.toolCallId, toolName: this.waitingToolCall.toolName, args: logged.args };
+  }
+
+  appendToolResult(toolCallId: string, result: ToolResult, signal?: AbortSignal, continuationContextHook?: LLMToolContinuationContextHook): Promise<LLMActorOutcome> {
     let waiting: WaitingToolCall;
     try {
       waiting = this.requireWaitingTool(toolCallId);
@@ -108,10 +122,10 @@ export class ConversationLLMActor extends BaseActor {
     };
     this.waitingToolCall = null;
     this.onTurnStateUpdated({ input: this.input, deliveryInputId, waitingToolCall: null });
-    return this.continueAfterTool();
+    return this.continueAfterTool(undefined, signal);
   }
 
-  continueAfterPlainText(repairDirective: string): Promise<LLMActorOutcome> {
+  continueAfterPlainText(repairDirective: string, signal?: AbortSignal): Promise<LLMActorOutcome> {
     if (this.state() !== 'idle') return Promise.reject(new Error(`LLMActor '${this.agentId}' cannot continue a plain-text result from '${this.state()}'.`));
     if (this.#pendingTurn) return Promise.reject(new Error(`LLMActor '${this.agentId}' already has a pending turn.`));
     if (this.outcome?.type !== 'result') return Promise.reject(new Error(`LLMActor '${this.agentId}' has no plain-text result to continue.`));
@@ -124,7 +138,7 @@ export class ConversationLLMActor extends BaseActor {
       inputId: repairInputId,
       contextMessages: [...input.contextMessages, repairContextMessage],
       episodeContext: { ...input.episodeContext, lastModelRepair: repairMessage.id },
-    }, { resetDeliveredToolCalls: false });
+    }, { resetDeliveredToolCalls: false, signal });
   }
 
   abandonParkedTurn(): void {
@@ -134,6 +148,7 @@ export class ConversationLLMActor extends BaseActor {
     this.input = null;
     this.outcome = null;
     this.waitingToolCall = null;
+    this.#turnSignal = null;
     this.onTurnSettled();
     this.deliveredToolCallIds.clear();
     this.#toolDeliveryCounter = 0;
@@ -148,7 +163,7 @@ export class ConversationLLMActor extends BaseActor {
       if (includeSystemPrompt) this.#systemPromptLoggedSessionIds.add(input.sessionId);
       this.runTask(async (signal) => {
         await this.gate.waitUntilOpen();
-        return this.provider.completeTurn(input, signal);
+        return this.provider.completeTurn(input, this.providerSignal(signal));
       }, {
         on_done: (result) => {
           try {
@@ -161,7 +176,11 @@ export class ConversationLLMActor extends BaseActor {
         },
         on_failed: (error) => {
           try {
-            this.completeWithError(input, error.message);
+            if (this.isCurrentTurnAborted(error)) {
+              this.completeWithCancellation(error);
+              return;
+            }
+            this.completeWithError(input, error instanceof Error ? error.message : String(error));
           } catch (fatal) {
             this.failPendingTurnFatally(fatal);
             throw fatal;
@@ -179,6 +198,7 @@ export class ConversationLLMActor extends BaseActor {
       this.input = { ...input, contextMessages: [...input.contextMessages, { role: 'assistant', content: result.content }] };
       this.outcome = { type: 'result', agentId: this.agentId, result };
       this.onTurnSettled();
+      this.#turnSignal = null;
       this.#pendingTurn?.resolve(this.outcome);
       this.#pendingTurn = null;
       this.sendEvent('done');
@@ -201,7 +221,17 @@ export class ConversationLLMActor extends BaseActor {
     appendLlmTurnError(this.projectRoot, input, error);
     this.outcome = { type: 'error', agentId: this.agentId, error };
     this.onTurnSettled();
+    this.#turnSignal = null;
     this.#pendingTurn?.resolve(this.outcome);
+    this.#pendingTurn = null;
+    this.sendEvent('failed');
+  }
+
+  private completeWithCancellation(error: Error): void {
+    this.outcome = null;
+    this.onTurnSettled();
+    this.#turnSignal = null;
+    this.#pendingTurn?.reject(error);
     this.#pendingTurn = null;
     this.sendEvent('failed');
   }
@@ -214,23 +244,38 @@ export class ConversationLLMActor extends BaseActor {
     console.error(`LLMActor '${this.agentId}' fatal handler failure`, fatal);
   }
 
-  private continueAfterTool(nextInput = this.requireInput()): Promise<LLMActorOutcome> {
-    return new Promise<LLMActorOutcome>((resolve, reject) => {
-      this.input = nextInput;
-      this.#pendingTurn = { resolve, reject };
-      this.parkedSendEvent('turn');
-    });
+  private continueAfterTool(nextInput = this.requireInput(), signal?: AbortSignal): Promise<LLMActorOutcome> {
+    this.input = nextInput;
+    if (signal) this.#turnSignal = signal;
+    const promise = this.createPendingTurn();
+    this.parkedSendEvent('turn');
+    return promise;
   }
 
-  private startProviderTurn(input: LlmInvocationInput, options: { resetDeliveredToolCalls: boolean }): Promise<LLMActorOutcome> {
+  private startProviderTurn(input: LlmInvocationInput, options: { resetDeliveredToolCalls: boolean; signal?: AbortSignal }): Promise<LLMActorOutcome> {
     if (options.resetDeliveredToolCalls) this.deliveredToolCallIds.clear();
     this.input = input;
     this.outcome = null;
+    this.#turnSignal = options.signal ?? null;
     this.onTurnStarting(input);
-    return new Promise<LLMActorOutcome>((resolve, reject) => {
-      this.#pendingTurn = { resolve, reject };
-      this.parkedSendEvent('turn');
+    const promise = this.createPendingTurn();
+    this.parkedSendEvent('turn');
+    return promise;
+  }
+
+  protected createPendingTurn(): Promise<LLMActorOutcome> {
+    let resolveTurn!: (outcome: LLMActorOutcome) => void;
+    let rejectTurn!: (error: Error) => void;
+    const promise = new Promise<LLMActorOutcome>((resolve, reject) => {
+      resolveTurn = resolve;
+      rejectTurn = reject;
     });
+    this.#pendingTurn = { promise, resolve: resolveTurn, reject: rejectTurn };
+    return promise;
+  }
+
+  protected restoreToolDeliveryCounter(value: number): void {
+    this.#toolDeliveryCounter = value;
   }
 
   private requireWaitingTool(toolCallId: string): WaitingToolCall {
@@ -265,6 +310,14 @@ export class ConversationLLMActor extends BaseActor {
     return this.input;
   }
 
+  private providerSignal(runTaskSignal: AbortSignal): AbortSignal {
+    return this.#turnSignal ? AbortSignal.any([runTaskSignal, this.#turnSignal]) : runTaskSignal;
+  }
+
+  private isCurrentTurnAborted(error: unknown): boolean {
+    return this.#turnSignal?.aborted === true || error === this.#turnSignal?.reason;
+  }
+
   protected onTurnStarting(_input: LlmInvocationInput): void {}
 
   protected onTurnStateUpdated(_params: TurnStateUpdate): void {}
@@ -278,6 +331,28 @@ export class ConversationLLMActor extends BaseActor {
 
 export class LLMActor extends ConversationLLMActor {
   activeReconstruction: LlmActiveReconstructionRecord | null = null;
+
+  static fromActiveReconstruction(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; gate?: RuntimeGate; state: string; activeReconstruction: LlmActiveReconstructionRecord }): LLMActor {
+    const actor = new LLMActor({ projectRoot: args.projectRoot, agentId: args.agentId, provider: args.provider, gate: args.gate });
+    actor.activeReconstruction = args.activeReconstruction;
+    actor.input = args.activeReconstruction.input;
+    actor.deliveredToolCallIds = new Set(args.activeReconstruction.delivered_tool_call_ids);
+    actor.restoreToolDeliveryCounter(args.activeReconstruction.tool_delivery_counter);
+    const waiting = args.activeReconstruction.waiting_tool_call;
+    if (waiting) {
+      const logged = readLoggedToolCall(args.projectRoot, args.activeReconstruction.input.sessionId, args.agentId, waiting.sourceInputId, waiting.toolCallId);
+      actor.waitingToolCall = {
+        sourceInputId: waiting.sourceInputId,
+        toolCallId: waiting.toolCallId,
+        toolName: waiting.toolName,
+        toolCallArguments: JSON.stringify(logged.args),
+      };
+      actor.outcome = { type: 'tool_call', agentId: args.agentId, inputId: waiting.sourceInputId, toolCallId: waiting.toolCallId, toolName: waiting.toolName, args: logged.args };
+    }
+    if (args.state === 'calling_provider') actor.createPendingTurn();
+    actor.recover(args.state);
+    return actor;
+  }
 
   protected override _on_state_changed(_oldState: string | undefined, _newState: string): void {
     saveActorSnapshot(this.projectRoot, this.snapshot());

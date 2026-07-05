@@ -1,13 +1,13 @@
 import type { ActorDefinition } from '../micro-actor/index.js';
 import type { CardActivationInput, CardActivationOutcome, CardActorStorePort, CardProcessorActor } from './card-actor.js';
 import { executorActorId } from './ids.js';
-import type { LLMActorOutcome, LLMProviderPort } from './llm-actor.js';
+import type { LLMActor, LLMActorOutcome, LLMProviderPort } from './llm-actor.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
 import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
 import { createExecutorContract } from '../../contracts/executor-contract.js';
 import type { ExecutorResult } from '../../contracts/agent-execution.js';
 import { expectedTerminalToolMessage, verifyTerminalToolOutcome } from './contract-terminal-tools.js';
-import { buildInvocationSurface, invokeToolForLlm, surfaceToolDefinitions, type InvocationSurface, type ToolResult } from '../../tools/invocation.js';
+import { buildInvocationSurface, cleanupInvocationSurface, invokeToolForLlm, replayToolForRecovery, surfaceToolDefinitions, type InvocationSurface, type ToolReplayOutcome, type ToolResult } from '../../tools/invocation.js';
 import { createCardHistoryProvider } from '../../tools/card-history-provider.js';
 import { createProcessProvider } from '../../tools/process-provider.js';
 import { createPatchProvider, createWorkspaceProvider } from '../../tools/workspace-provider.js';
@@ -47,73 +47,82 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   _on_enter__executing(): void {
-    this.runPendingActivation('executing', (input) => this.runActivation(input));
+    this.runPendingActivation('executing', (input, signal) => this.runActivation(input, signal));
   }
 
   _on_recover__executing(): void {
-    throw new Error(`Terminal processor '${this.cardId}' cannot recover directly into active state 'executing'; startup recovery must project or restart the activation.`);
+    this._on_enter__executing();
   }
 
   recoverTerminalToolOutcome(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): TerminalProcessorOutcome | null {
     return projectTerminalExecutorOutcome(outcome);
   }
 
+  override async replayWaitingToolCall(llm: LLMActor): Promise<ToolReplayOutcome> {
+    const outcome = llm.waitingToolOutcome();
+    const processOwnerId = llm.activeReconstruction?.input.episodeContext.activationId;
+    const ownerId = typeof processOwnerId === 'string' ? processOwnerId : `card:${this.cardId}:activation:recovered`;
+    return replayToolForRecovery(this.executorInvocationSurface(ownerId), outcome.toolName, outcome.args);
+  }
+
   protected override processorSnapshotContext(): Record<string, unknown> {
     return { ...super.processorSnapshotContext(), processOwnerId: this.activeProcessOwnerId };
   }
 
-  private async runActivation(input: CardActivationInput): Promise<TerminalProcessorOutcome> {
+  private async runActivation(input: CardActivationInput, signal: AbortSignal): Promise<TerminalProcessorOutcome> {
     if (!input.activationId) throw new Error(`Terminal processor '${this.cardId}' requires activationId for process ownership.`);
     const contract = createExecutorContract();
     const llm = this.createMainLlm(executorActorId(this.cardId));
-    discardOpenRecordSlot(this.projectRoot, { cardId: this.cardId, filename: 'status.md', reason: 'new_activation' });
-    const llmInput = this.buildLlmInput(input, contract);
+    if (llm.state() === 'idle') discardOpenRecordSlot(this.projectRoot, { cardId: this.cardId, filename: 'status.md', reason: 'new_activation' });
     const processOwnerId = input.activationId;
+    const surface = this.executorInvocationSurface(processOwnerId);
+    const llmInput = this.buildLlmInput(input, surface, contract);
     this.activeProcessOwnerId = processOwnerId;
+    let cleanupStatus: 'done' | 'blocked' | 'failed' | 'cancelled' = 'failed';
     try {
-      const outcome = await llm.turn(llmInput);
+      const outcome = await this.resumeOrStartLlm(llm, llmInput, signal);
       const result = await runContractBoundedRepairLoop<TerminalProcessorOutcome>({
         initialOutcome: outcome,
         isTerminalToolName: (name) => contract.isTerminalToolName(name),
         fail: (message) => ({ status: 'failed', summary: message, result: executorFailure(message) }),
         onPlainText: async (_outcome, control) => {
           const message = `${expectedTerminalToolMessage(contract)} Plain executor messages are not accepted as terminal results.`;
-          return control.repair(message, () => llm.continueAfterPlainText(`${message} Do not summarize, simulate file writes, or describe what you would do. Use tools. Write record://status.md?v=next if needed, then call emit_result with valid JSON arguments.`));
+          return control.repair(message, () => llm.continueAfterPlainText(`${message} Do not summarize, simulate file writes, or describe what you would do. Use tools. Write record://status.md?v=next if needed, then call emit_result with valid JSON arguments.`, signal));
         },
         onTerminalTool: async (terminalOutcome, control) => {
           const invalidTerminal = this.validateExecutorTerminal(terminalOutcome, contract);
           if (invalidTerminal) {
-            return control.repair(invalidTerminal, () => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: invalidTerminal }, () => [{ role: 'user', content: `${invalidTerminal} Call emit_result again with valid JSON arguments.` }]));
+            return control.repair(invalidTerminal, () => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: invalidTerminal }, signal, () => [{ role: 'user', content: `${invalidTerminal} Call emit_result again with valid JSON arguments.` }]));
           }
           const missingRecord = this.closeRequiredStatusRecord(input.card.version_seq);
           if (missingRecord) {
-            return control.repair(missingRecord, () => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: missingRecord }, () => [{ role: 'user', content: `${missingRecord} Create record://status.md?v=next, then call emit_result again.` }]));
+            return control.repair(missingRecord, () => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: missingRecord }, signal, () => [{ role: 'user', content: `${missingRecord} Create record://status.md?v=next, then call emit_result again.` }]));
           }
           const projected = projectTerminalExecutorOutcome(terminalOutcome, contract);
           if (projected.status === 'done' && (input.notificationDelivery.hasPendingNotifications?.() ?? false)) {
             const message = 'Pending main-agent notifications arrived before terminal completion. Read the delivered notifications, update record://status.md?v=next if needed, then call emit_result again.';
-            return control.repair(message, () => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: message }, (inputId) => this.plannerNotificationContext(input, inputId)));
+            return control.repair(message, () => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: message }, signal, (inputId) => this.plannerNotificationContext(input, inputId)));
           }
           this.markTerminalProjected(terminalOutcome);
           return control.done(projected);
         },
         onNonTerminalTool: async (toolOutcome) => {
-          const toolResult = await this.handleToolCall(toolOutcome, processOwnerId);
-          return llm.appendToolResult(toolOutcome.toolCallId, toolResult, (inputId) => this.plannerNotificationContext(input, inputId));
+          const toolResult = await this.handleToolCall(toolOutcome, surface, signal);
+          return llm.appendToolResult(toolOutcome.toolCallId, toolResult, signal, (inputId) => this.plannerNotificationContext(input, inputId));
         },
       });
       if (result.kind === 'restart') throw new Error('Terminal activation repair loop cannot restart.');
+      cleanupStatus = result.value.status;
       return result.value;
     } finally {
-      await this.processRunner.stopByOwner(processOwnerId, 'terminal card settled', { graceMs: 5000 });
+      await cleanupInvocationSurface(surface, { kind: 'activation_settled', status: signal.aborted ? 'cancelled' : cleanupStatus });
       this.activeProcessOwnerId = null;
     }
   }
 
-  private buildLlmInput(input: CardActivationInput, contract = createExecutorContract()): LlmInvocationInput {
+  private buildLlmInput(input: CardActivationInput, surface: InvocationSurface, contract = createExecutorContract()): LlmInvocationInput {
     const inputId = this.nextInvocationInputId('terminal');
     if (!input.activationId) throw new Error(`Terminal processor '${this.cardId}' requires activationId for process ownership.`);
-    const surface = this.executorInvocationSurface(input.activationId);
     return {
       inputId,
       agentId: executorActorId(this.cardId),
@@ -129,9 +138,14 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     };
   }
 
-  private async handleToolCall(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, processOwnerId: string): Promise<ToolResult> {
-    const workspaceSurface = this.executorInvocationSurface(processOwnerId);
-    if (workspaceSurface.tools.has(outcome.toolName)) return await invokeToolForLlm(workspaceSurface, outcome.toolName, outcome.args);
+  private resumeOrStartLlm(llm: { state(): string; turn(input: LlmInvocationInput, signal?: AbortSignal): Promise<LLMActorOutcome>; awaitPendingTurn(): Promise<LLMActorOutcome>; waitingToolOutcome(): Extract<LLMActorOutcome, { type: 'tool_call' }> }, input: LlmInvocationInput, signal: AbortSignal): Promise<LLMActorOutcome> {
+    if (llm.state() === 'calling_provider') return llm.awaitPendingTurn();
+    if (llm.state() === 'waiting_tool') return Promise.resolve(llm.waitingToolOutcome());
+    return llm.turn(input, signal);
+  }
+
+  private async handleToolCall(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, surface: InvocationSurface, signal: AbortSignal): Promise<ToolResult> {
+    if (surface.tools.has(outcome.toolName)) return await invokeToolForLlm(surface, outcome.toolName, outcome.args, signal);
     return { success: false, error: `Unsupported executor tool call '${outcome.toolName}'.` };
   }
 

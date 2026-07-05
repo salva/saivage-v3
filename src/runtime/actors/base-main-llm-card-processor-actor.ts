@@ -1,4 +1,5 @@
 import { LLMActor, type LLMProviderPort } from './llm-actor.js';
+import type { ToolReplayOutcome } from '../../tools/invocation.js';
 import { BaseCardProcessorActor, type CardProcessorOutcome } from './base-card-processor-actor.js';
 import type { CardActivationInput } from './card-actor.js';
 import { RuntimeGate } from '../runtime-gate.js';
@@ -16,10 +17,20 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
   }
 
   protected createMainLlm(agentId: string): LLMActor {
+    const existing = this.activeLlmActors.get(agentId);
+    if (existing) return existing;
     const llm = new LLMActor({ projectRoot: this.projectRoot, agentId, provider: this.provider, gate: this.gate });
     llm.start();
     this.activeLlmActors.set(agentId, llm);
     return llm;
+  }
+
+  adoptRecoveredLlmActor(llm: LLMActor): void {
+    this.activeLlmActors.set(llm.agentId, llm);
+  }
+
+  async replayWaitingToolCall(_llm: LLMActor): Promise<ToolReplayOutcome> {
+    return { kind: 'settled', result: { success: false, error: 'Runtime restarted before tool completion. Re-issue the call after inspecting current state.' } };
   }
 
   listLlmActors(): readonly LLMActor[] {

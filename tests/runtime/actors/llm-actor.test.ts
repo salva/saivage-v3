@@ -227,7 +227,7 @@ describe('LLMActor', () => {
     const hook = jest.fn((deliveryInputId: string) => [{ role: 'user', content: `notification for ${deliveryInputId}` }]);
 
     const result = { success: true, data: { inspected: true } } as const;
-    await expect(actor.appendToolResult('call-1', result, hook)).resolves.toMatchObject({ type: 'result' });
+    await expect(actor.appendToolResult('call-1', result, undefined, hook)).resolves.toMatchObject({ type: 'result' });
 
     expect(hook).toHaveBeenCalledWith('turn-1:tool:1');
     const context = completeTurn.mock.calls[1]?.[0].contextMessages as Array<Record<string, unknown>>;

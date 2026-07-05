@@ -162,9 +162,9 @@ function analystControlProvider(ctx: ToolContext): ToolProvider {
         name: tool.name,
         description: tool.description,
         inputSchema: tool.input,
-        executor: async (args): Promise<ToolResult> => {
+        executor: async (args, signal): Promise<ToolResult> => {
           if (!tool.executor) throw new Error(`Analyst tool '${tool.name}' has no executor.`);
-          return tool.executor(ctx, args as Record<string, unknown>);
+          return tool.executor(ctx, args as Record<string, unknown>, signal);
         },
       })),
   };
@@ -305,7 +305,7 @@ export class AnalystSessionActor extends BaseActor {
 
     try {
       this.throwIfCancelled();
-      outcome = await this.llm.turn(this.buildInvocationInput([workspaceContextMessage, userMessage], surface));
+      outcome = await this.llm.turn(this.buildInvocationInput([workspaceContextMessage, userMessage], surface), signal);
     } catch (err) {
       if (this.isCancelled()) return this.cancelledLoopResponse();
       return this.errorResponse(err, toolInvocations);
@@ -333,7 +333,7 @@ export class AnalystSessionActor extends BaseActor {
         const result: ToolResult = { success: false, error: 'The same tool call was repeated without progress. Stop calling tools and answer the operator from the latest tool results.' };
         this.emitActivity({ type: 'tool_result', content: { tool: toolCall.toolName, success: false, errorKind: 'no_progress' } });
         toolInvocations.push({ tool: toolCall.toolName, params: toolCall.args && typeof toolCall.args === 'object' ? toolCall.args as Record<string, unknown> : {}, result });
-        outcome = await this.appendToolResult(toolCall.toolCallId, result, toolInvocations);
+        outcome = await this.appendToolResult(toolCall.toolCallId, result, toolInvocations, signal);
         continue;
       }
       previousToolCallFingerprints.add(fingerprint);
@@ -342,7 +342,7 @@ export class AnalystSessionActor extends BaseActor {
         const result: ToolResult = { success: false, error: ANALYST_UNSUPPORTED_ACTION_TEMPLATE('Analyst', Array.from(surface.tools.keys())) };
         this.emitActivity({ type: 'tool_result', content: { tool: toolCall.toolName, success: false, errorKind: 'unsupported_action' } });
         toolInvocations.push({ tool: toolCall.toolName, params: {}, result });
-        outcome = await this.appendToolResult(toolCall.toolCallId, result, toolInvocations);
+        outcome = await this.appendToolResult(toolCall.toolCallId, result, toolInvocations, signal);
         continue;
       }
 
@@ -353,7 +353,7 @@ export class AnalystSessionActor extends BaseActor {
         const result: ToolResult = { success: false, error: JSON.stringify(violation) };
         this.emitActivity({ type: 'tool_result', content: { tool: toolCall.toolName, success: false, errorKind: 'agent_protocol_violation' } });
         toolInvocations.push({ tool: toolCall.toolName, params: {}, result });
-        outcome = await this.appendToolResult(toolCall.toolCallId, result, toolInvocations);
+        outcome = await this.appendToolResult(toolCall.toolCallId, result, toolInvocations, signal);
         continue;
       }
 
@@ -361,21 +361,27 @@ export class AnalystSessionActor extends BaseActor {
       this.emitActivity({ type: 'tool_call', content: { tool: toolCall.toolName, params } });
       this.throwIfCancelled();
       this.toolInFlight = toolCall.toolName;
-      const result = await invokeToolCall(surface, toolCall.toolName, rawArguments, signal);
+      let result: ToolResult;
+      try {
+        result = await invokeToolCall(surface, toolCall.toolName, rawArguments, signal);
+      } catch (err) {
+        if (this.isCancelled()) return this.cancelledLoopResponse();
+        throw err;
+      }
       this.toolInFlight = null;
       this.throwIfCancelled();
 
       this.emitActivity({ type: 'tool_result', content: { tool: toolCall.toolName, success: result.success } });
       toolInvocations.push({ tool: toolCall.toolName, params, result });
       broadcastToolInvocation(this.args.runtimeDeps, sessionId, toolCall.toolName, result);
-      outcome = await this.appendToolResult(toolCall.toolCallId, result, toolInvocations);
+      outcome = await this.appendToolResult(toolCall.toolCallId, result, toolInvocations, signal);
     }
   }
 
-  private async appendToolResult(toolCallId: string, result: ToolResult, toolInvocations: NonNullable<AnalystResponse['toolInvocations']>): Promise<LLMActorOutcome> {
+  private async appendToolResult(toolCallId: string, result: ToolResult, toolInvocations: NonNullable<AnalystResponse['toolInvocations']>, signal: AbortSignal): Promise<LLMActorOutcome> {
     try {
       this.throwIfCancelled();
-      return await this.llm.appendToolResult(toolCallId, result);
+      return await this.llm.appendToolResult(toolCallId, result, signal);
     } catch (err) {
       if (this.isCancelled()) return this.cancelledLoopOutcome();
       return { type: 'result', agentId: this.llm.agentId, result: { kind: 'message', content: this.errorResponse(err, toolInvocations).message.content } };
@@ -497,7 +503,8 @@ export class AnalystRuntime {
   }
 
   async shutdownSessionProcesses(sessionId: string): Promise<void> {
-    await this.args.runtimeDeps.processRunner.stopByOwner(resolveAnalystSessionId(sessionId), 'analyst session closed', { graceMs: 5000 });
+    const ownerId = resolveAnalystSessionId(sessionId);
+    await createProcessProvider({ projectRoot: this.args.projectRoot, processRunner: this.args.runtimeDeps.processRunner, ownerId, agentRole: 'analyst', ownerKind: 'operator', launchReason: 'analyst workspace run_command' }).cleanup?.({ kind: 'session_closed' });
   }
 
   private getOrCreateSession(sessionId: string, input?: AnalystTurnInput): AnalystSessionActor {

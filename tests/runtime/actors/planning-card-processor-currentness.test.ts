@@ -74,7 +74,7 @@ describe('PlanningCardProcessorActor reviewer currentness', () => {
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
-    const outcome = await actor.activate(activateInput(project, () => false));
+    const outcome = await actor.activate(activateInput(project, () => false), new AbortController().signal);
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'review ok' });
     expect(reviewerAttempt).toBe(2);
@@ -111,7 +111,7 @@ describe('PlanningCardProcessorActor reviewer currentness', () => {
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
-    const outcome = await actor.activate(activateInput(project, () => pending));
+    const outcome = await actor.activate(activateInput(project, () => pending), new AbortController().signal);
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'review ok' });
     expect(reviewerAttempt).toBe(2);
@@ -138,7 +138,7 @@ describe('PlanningCardProcessorActor reviewer currentness', () => {
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
-    const outcome = await actor.activate(activateInput(project, () => false));
+    const outcome = await actor.activate(activateInput(project, () => false), new AbortController().signal);
 
     expect(outcome).toMatchObject({ status: 'done', summary: 'review ok' });
     const index = readRecordSlotIndex(projectRoot, project.id, 'review');
@@ -169,7 +169,7 @@ describe('PlanningCardProcessorActor reviewer currentness', () => {
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
-    const outcome = await actor.activate(activateInput(project, () => pending));
+    const outcome = await actor.activate(activateInput(project, () => pending), new AbortController().signal);
 
     expect(outcome).toMatchObject({ status: 'failed', result: { kind: 'failed' } });
     expect(outcome.summary).toContain('Reviewer currentness relaunch budget exhausted');

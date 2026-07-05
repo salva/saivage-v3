@@ -64,7 +64,8 @@ export interface CardCancelReason {
 
 export interface CardProcessorActor {
   start?(): void;
-  activate(input: CardActivationInput): Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>;
+  recoverActive?(state: string, input: CardActivationInput, signal: AbortSignal): Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>;
+  activate(input: CardActivationInput, signal: AbortSignal): Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>;
 }
 
 export interface CardActorStorePort {
@@ -116,6 +117,7 @@ export class CardActor extends BaseActor {
   activeReconstruction: CardActiveReconstructionRecord | null = null;
   #pendingActivation: PendingActivation | null = null;
   #activationId: string | null = null;
+  #activationAbort: AbortController | null = null;
   #activationCounter = 0;
   #cancellation: CardCancelReason | null = null;
 
@@ -136,16 +138,26 @@ export class CardActor extends BaseActor {
     return this.deps.store;
   }
 
-  static fromCard(args: { card: CardRecord; deps: CardActorDeps }): CardActor {
+  static fromCard(args: { card: CardRecord; deps: CardActorDeps; deferRunningRecovery?: boolean }): CardActor {
     const actor = new CardActor({ card: args.card, deps: args.deps });
     const snapshot = readActorSnapshot(args.deps.projectRoot, cardActorId(args.card.id));
     if (snapshot) {
       actor.notifications = Array.isArray(snapshot.context.notifications) ? snapshot.context.notifications as CardNotification[] : [];
       actor.notificationDeliveryMarkers = Array.isArray(snapshot.context.notificationDeliveryMarkers) ? snapshot.context.notificationDeliveryMarkers as CardNotificationDeliveryMarker[] : [];
       actor.cancelReason = snapshot.context.cancelReason && typeof snapshot.context.cancelReason === 'object' ? snapshot.context.cancelReason as CardCancelReason : null;
+      actor.activeReconstruction = snapshot.context.active_reconstruction && typeof snapshot.context.active_reconstruction === 'object' ? snapshot.context.active_reconstruction as CardActiveReconstructionRecord : null;
+      actor.#activationId = typeof snapshot.context.activationId === 'string' ? snapshot.context.activationId : null;
     }
-    actor.recover(cardActorState(args.card.status));
+    if (args.card.status === 'running' && actor.activeReconstruction) {
+      actor.#pendingActivation = { caller: actor.activeReconstruction.caller, resolve: (outcome) => { actor.lastOutcome = outcome; } };
+      actor.#activationId ??= `card:${actor.cardId}:activation:recovered`;
+    }
+    if (!(args.deferRunningRecovery && args.card.status === 'running')) actor.recover(cardActorState(args.card.status));
     return actor;
+  }
+
+  recoverCurrentCardState(): void {
+    this.recover(cardActorState(this.requireCard().status));
   }
 
   childCardActor(cardId: string): CardActor | null {
@@ -183,6 +195,27 @@ export class CardActor extends BaseActor {
       };
       this.parkedSendEvent('activate');
     });
+  }
+
+  awaitSettlement(): Promise<CardActivationOutcome> {
+    if (this.#pendingActivation) {
+      return new Promise<CardActivationOutcome>((resolve) => {
+        const current = this.#pendingActivation!;
+        this.#pendingActivation = {
+          caller: current.caller,
+          resolve: (outcome) => {
+            current.resolve(outcome);
+            resolve(outcome);
+          },
+        };
+      });
+    }
+    const card = this.requireCard();
+    if (card.status === 'done' || card.status === 'failed' || card.status === 'blocked') {
+      return Promise.resolve({ status: card.status, summary: cardLifecycleSummary(card), result: card.lifecycle.result as never });
+    }
+    if (card.status === 'cancelled') return Promise.resolve({ status: 'cancelled', summary: cardLifecycleSummary(card) });
+    return Promise.reject(new Error(`Card '${this.cardId}' has no in-flight activation to await.`));
   }
 
   enqueueNotification(notification: CardNotification): void {
@@ -230,14 +263,14 @@ export class CardActor extends BaseActor {
     if (card.status === 'running' || this.state() === 'running') {
       this.cancelReason = reason;
       this.#cancellation = reason;
+      this.#activationAbort?.abort(new Error(reason.reason));
       this.cancelDescendants();
       this.activeReconstruction = null;
       this.writeStatus('cancelled');
       this.#pendingActivation?.resolve({ status: 'cancelled', summary: reason.reason });
       this.#pendingActivation = null;
+      this.#activationAbort = null;
       this.sendEvent('cancel');
-      const activationId = this.#activationId;
-      if (activationId) void this.deps.processRunner.stopByOwner(activationId, `card cancelled: ${reason.reason}`, { graceMs: 5000 }).catch(() => undefined);
       this.persist();
       return;
     }
@@ -260,9 +293,11 @@ export class CardActor extends BaseActor {
     if (!pending) throw new Error(`Card '${this.cardId}' entered running without pending activation.`);
     if (!this.#activationId) throw new Error(`Card '${this.cardId}' entered running without an activation id.`);
     const input: CardActivationInput = { activationId: this.#activationId, card: this.requireCard(), caller: pending.caller, notificationDelivery: this };
+    this.#activationAbort = new AbortController();
     this.runTask(async () => {
       await this.deps.gate?.waitUntilOpen();
-      return this.processor.activate(input);
+      if (this.activeReconstruction && this.processor.recoverActive) return this.processor.recoverActive(this.processorActiveState(), input, this.#activationAbort!.signal);
+      return this.processor.activate(input, this.#activationAbort!.signal);
     }, {
       on_done: (outcome) => this.commitOutcome(outcome),
       on_failed: (error) => this.commitOutcome({
@@ -304,6 +339,7 @@ export class CardActor extends BaseActor {
     this.lastOutcome = outcome;
     this.activeReconstruction = null;
     this.#activationId = null;
+    this.#activationAbort = null;
     this.#pendingActivation?.resolve(outcome);
     this.#pendingActivation = null;
     this.sendEvent(outcome.status);
@@ -348,9 +384,20 @@ export class CardActor extends BaseActor {
     return card;
   }
 
+  private processorActiveState(): string {
+    return this.requireCard().type === 'project' || this.requireCard().type === 'goal' ? 'planning' : 'executing';
+  }
+
   private persist(): void {
     saveActorSnapshot(this.projectRoot, this.snapshot());
   }
+}
+
+function cardLifecycleSummary(card: CardRecord): string {
+  const summary = card.lifecycle?.result?.summary;
+  if (typeof summary === 'string' && summary.length > 0) return summary;
+  if (typeof card.status_text === 'string' && card.status_text.length > 0) return card.status_text;
+  return `Card '${card.id}' finished with status '${card.status}'.`;
 }
 
 export function createProcessor(card: CardRecord, owner: CardActor): CardProcessorActor {

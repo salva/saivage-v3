@@ -24,6 +24,10 @@ function failureFromError(err: unknown): ToolResult {
   return { success: false, error: err instanceof Error ? err.message : String(err) };
 }
 
+function isAbortError(err: unknown, signal: AbortSignal): boolean {
+  return signal.aborted || err === signal.reason;
+}
+
 function throwIfAborted(signal: AbortSignal): void {
   if (!signal.aborted) return;
   const reason = signal.reason;
@@ -127,6 +131,14 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
   const launchReason = ctx.launchReason ?? `${ctx.agentRole ?? 'agent'} process provider run_command`;
   return {
     providerName: 'process',
+    async cleanup(reason) {
+      const label = reason.kind === 'activation_settled'
+        ? `activation settled: ${reason.status}`
+        : reason.kind === 'session_closed'
+          ? 'session closed'
+          : 'runtime shutdown';
+      await ctx.processRunner.stopByOwner(ctx.ownerId, label, { graceMs: 5000 });
+    },
     tools: [
       defineTool({
         name: 'run_command',
@@ -157,6 +169,7 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
             }
             return { success: true, data: processResult(ctx, record.id) };
           } catch (err) {
+            if (isAbortError(err, signal)) throw err;
             return failureFromError(err);
           }
         },
@@ -174,6 +187,7 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
             if (result.timedOut) return { success: true, data: { process_id: args.process_id, still_running: true } };
             return { success: true, data: processResult(ctx, args.process_id) };
           } catch (err) {
+            if (isAbortError(err, signal)) throw err;
             return failureFromError(err);
           }
         },

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { AgentRole } from '../schemas/index.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
 
-export type ToolExecutor<Input> = (ctx: ToolContext, params: Input) => Promise<ToolResult>;
+export type ToolExecutor<Input> = (ctx: ToolContext, params: Input, signal?: AbortSignal) => Promise<ToolResult>;
 
 export interface UnifiedToolDefinition<Name extends string = string, Input = unknown> {
   readonly name: Name;
