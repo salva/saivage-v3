@@ -3,6 +3,7 @@ import { mount } from '@vue/test-utils';
 import Button from '../../components/ui/Button.vue';
 import Dialog from '../../components/ui/Dialog.vue';
 import Panel from '../../components/ui/Panel.vue';
+import SelectableRow from '../../components/ui/SelectableRow.vue';
 import StatusBadge from '../../components/ui/StatusBadge.vue';
 import StatusBanner from '../../components/ui/StatusBanner.vue';
 import ViewState from '../../components/ui/ViewState.vue';
@@ -40,6 +41,14 @@ describe('ui primitives', () => {
     expect(wrapper.attributes('role')).toBe('status');
     expect(wrapper.text()).toContain('No records');
     expect(wrapper.find('button').text()).toBe('Retry');
+  });
+
+  it('emits SelectableRow select from click and keyboard activation', async () => {
+    const wrapper = mount(SelectableRow, { props: { as: 'div' }, slots: { default: 'Row' } });
+    await wrapper.trigger('click');
+    await wrapper.trigger('keydown', { key: 'Enter' });
+    await wrapper.trigger('keydown', { key: ' ' });
+    expect(wrapper.emitted('select')).toHaveLength(3);
   });
 
   it('renders Dialog visibility and slot content', async () => {

@@ -5,44 +5,38 @@
     </div>
     <ul v-else class="tree-list">
       <li v-for="node in renderedTree" :key="node.card.id">
-        <div
+        <SelectableRow
+          as="div"
           class="tree-node"
           :style="{ paddingLeft: `${node.depth * 20 + 8}px` }"
-          @click="emit('select', node.card.id)"
+          @select="emit('select', node.card.id)"
         >
-          <!-- Expand/collapse toggle -->
-          <span
+          <button
             v-if="node.hasChildren"
+            type="button"
             class="node-toggle"
+            :aria-label="expandedIds.has(node.card.id) ? `Collapse ${node.card.title}` : `Expand ${node.card.title}`"
             @click.stop="emit('toggle', node.card.id)"
           >
             {{ expandedIds.has(node.card.id) ? '▾' : '▸' }}
-          </span>
+          </button>
           <span v-else class="node-toggle placeholder"></span>
 
-          <!-- Type label -->
           <span class="node-type" :class="`type-${node.card.type}`">{{ shortLabelForCardType(node.card.type) }}</span>
-
-          <!-- Planner-state dot -->
-          <span class="node-status-dot" :class="`status-${node.card.status}`"></span>
-
-          <!-- Display path and title -->
+          <StatusBadge :status="cardUiStatus(node.card.status)" show-dot />
           <span v-if="node.card.display_path" class="node-path">{{ node.card.display_path }}</span>
           <span class="node-title">{{ node.card.title }}</span>
 
-          <!-- Priority -->
           <span v-if="node.card.priority > 5" class="node-priority high">P{{ node.card.priority }}</span>
 
-          <!-- Tags -->
           <span v-if="node.card.tags.length" class="node-tags">
             <span v-for="tag in node.card.tags" :key="tag" class="node-tag">{{ tag }}</span>
           </span>
 
-          <!-- Depends on -->
           <span v-if="node.card.depends_on.length" class="node-deps" :title="node.card.depends_on.join(', ')">
             ↳ {{ node.card.depends_on.length }}
           </span>
-        </div>
+        </SelectableRow>
       </li>
     </ul>
   </div>
@@ -50,8 +44,10 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { CardRecord } from '../../types/view-models';
-import { shortLabelForCardType } from '../../utils/status';
+import type { CardStatus, CardRecord } from '../../types/view-models';
+import { shortLabelForCardType, toneForCardStatus, type UiStatus } from '../../utils/status';
+import SelectableRow from '../ui/SelectableRow.vue';
+import StatusBadge from '../ui/StatusBadge.vue';
 
 const props = defineProps<{
   cards: CardRecord[];
@@ -102,6 +98,10 @@ const renderedTree = computed<TreeNode[]>(() => {
 
   return flat;
 });
+
+function cardUiStatus(status: CardStatus): UiStatus {
+  return { label: status, tone: toneForCardStatus(status) };
+}
 </script>
 
 <style scoped>
@@ -123,11 +123,7 @@ const renderedTree = computed<TreeNode[]>(() => {
 }
 
 .tree-node {
-  display: flex;
-  align-items: center;
-  gap: 6px;
   padding: 5px 12px 5px 8px;
-  cursor: pointer;
   transition: background 0.1s;
   font-size: 13px;
   line-height: 1.4;
@@ -135,12 +131,9 @@ const renderedTree = computed<TreeNode[]>(() => {
   min-height: 32px;
 }
 
-.tree-node:hover {
-  background: var(--surface-1);
-}
-
-
 .node-toggle {
+  border: 0;
+  background: transparent;
   width: 16px;
   height: 16px;
   display: flex;
@@ -174,23 +167,6 @@ const renderedTree = computed<TreeNode[]>(() => {
   text-transform: uppercase;
   letter-spacing: .03em;
 }
-
-.node-status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--text-muted);
-  flex-shrink: 0;
-}
-
-.status-backlog { background: var(--c-white); border: 1px solid var(--border-strong); }
-.status-running { background: var(--card-status-running); }
-.status-blocked { background: var(--card-status-blocked); }
-.status-changed { background: var(--card-status-changed); }
-.status-done { background: var(--card-status-done); }
-.status-failed { background: var(--card-status-failed); }
-.status-cancelled { background: var(--card-status-cancelled); }
-.status-needs_verification { background: var(--card-status-needs-verification); }
 
 .node-title {
   flex: 1;
