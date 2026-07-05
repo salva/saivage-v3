@@ -19,7 +19,7 @@ import { createReviewerContract } from '../../contracts/reviewer-contract.js';
 import { evaluateReviewerTerminalOutcome } from './reviewer-terminal-evaluation.js';
 import { verifyTerminalToolOutcome } from './contract-terminal-tools.js';
 import { closeOpenRecordSlot, ExpectedRecordSlotCloseError } from '../records/record-slots.js';
-import { projectPlannerTerminalOutcome } from './planning-card-processor-actor.js';
+import { firstIncompleteDescendant, projectPlannerTerminalOutcome } from './planning-card-processor-actor.js';
 import { projectTerminalExecutorOutcome } from './terminal-card-processor-actor.js';
 
 export interface ActorRecoveryCardReader {
@@ -342,7 +342,7 @@ function projectReviewerRecoveryOutcome(
     return null;
   }
   if (plannerResult.kind !== 'result' || plannerResult.result.status !== 'done') return null;
-  if (!descendantsAreComplete(card.id, deps.store)) return null;
+  if (firstIncompleteDescendant(card.id, deps.store)) return null;
   const reviewer = plan.llms.find((candidate) => candidate.active && candidate.role === 'reviewer' && candidate.cardId === card.id && candidate.snapshot.state_value === 'waiting_tool' && candidate.activeReconstruction?.waiting_tool_call);
   if (!reviewer?.activeReconstruction?.waiting_tool_call) return null;
   const assessmentId = reviewer.activeReconstruction.input.episodeContext.assessmentId;
@@ -395,16 +395,6 @@ function closeRecoveredRecordSlot(projectRoot: string, cardId: string, filename:
     if (error instanceof ExpectedRecordSlotCloseError) return false;
     throw error;
   }
-}
-
-function descendantsAreComplete(cardId: string, store: ActorRecoveryOutcomeStore): boolean {
-  if (!store.listChildren) throw new Error(`Cannot project reviewer recovery for card '${cardId}': recovery outcome store must provide listChildren for descendant traversal.`);
-  for (const childId of store.listChildren(cardId)) {
-    const child = store.read(childId);
-    if (!child || (child.status !== 'done' && child.status !== 'cancelled')) return false;
-    if (!descendantsAreComplete(childId, store)) return false;
-  }
-  return true;
 }
 
 function addCardSnapshotActor(actorsByCard: Map<string, Set<string>>, cardId: string, actorId: string): void {

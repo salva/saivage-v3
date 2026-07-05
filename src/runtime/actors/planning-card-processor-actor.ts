@@ -474,10 +474,11 @@ export function projectPlannerTerminalOutcome(outcome: Extract<LLMActorOutcome, 
   return { status: 'failed', summary: parsed.summary, result: { kind: 'failed', summary: parsed.summary } };
 }
 
-function firstIncompleteDescendant(cardId: string, store: CardActorStorePort): { id: string; status: CardStatus } | null {
-  for (const childId of store.listChildren?.(cardId) ?? []) {
+export function firstIncompleteDescendant(cardId: string, store: CardActorStorePort): { id: string; status: CardStatus } | null {
+  if (!store.listChildren) throw new Error(`Cannot evaluate completion gate for card '${cardId}': store must provide listChildren for descendant traversal.`);
+  for (const childId of store.listChildren(cardId)) {
     const child = store.read(childId);
-    if (!child) continue;
+    if (!child) throw new Error(`Cannot evaluate completion gate for card '${cardId}': child '${childId}' was listed but not found.`);
     if (child.status !== 'done' && child.status !== 'cancelled') return { id: child.id, status: child.status };
     const descendant = firstIncompleteDescendant(childId, store);
     if (descendant) return descendant;
