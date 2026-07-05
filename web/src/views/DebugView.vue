@@ -12,8 +12,8 @@
 
     <div class="debug-content">
       <div v-if="localActiveTab === 'state'" class="debug-tab-content">
-        <div v-if="loading" class="debug-loading">Loading state...</div>
-        <div v-else-if="error" class="debug-error">{{ error }}</div>
+        <ViewState v-if="loading" state="loading" title="Loading state..." />
+        <ViewState v-else-if="error" state="error" title="Failed to load" :message="error" />
         <template v-else>
           <section class="debug-section">
             <h4 class="debug-section-title">Runtime State</h4>
@@ -24,7 +24,7 @@
               <div class="debug-grid-item"><span class="dg-key">Current Card:</span><span class="dg-value mono">{{ currentCardId || 'none' }}</span></div>
               <div class="debug-grid-item"><span class="dg-key">Agent Session:</span><span class="dg-value mono">{{ currentAgentSessionId || 'none' }}</span></div>
             </div>
-            <div v-else class="debug-empty">No runtime state.</div>
+            <ViewState v-else state="empty" title="No runtime state." />
           </section>
 
           <section class="debug-section">
@@ -53,7 +53,7 @@
                 </section>
               </div>
             </div>
-            <div v-if="debugCards.length === 0" class="debug-empty">No cards.</div>
+            <ViewState v-if="debugCards.length === 0" state="empty" title="No cards." />
           </section>
         </template>
       </div>
@@ -76,17 +76,15 @@
           </div>
           <div v-else class="operator-freshness" role="status">Not refreshed yet.</div>
 
-          <div v-if="loading && !debugRuntime" class="debug-loading">Loading runtime control state...</div>
+          <ViewState v-if="loading && !debugRuntime" state="loading" title="Loading runtime control state..." />
           <div v-else class="operator-runtime-card">
             <div class="operator-runtime-summary">
-              <div class="debug-grid-item"><span class="dg-key">Status:</span><span class="operator-status-badge" :class="'status-' + runtimeStatusTone">{{ runtimeStatusLabel }}</span></div>
+              <div class="debug-grid-item"><span class="dg-key">Status:</span><StatusBadge :status="statusForRuntimeStatus(runtimeStatusLabel)" /></div>
               <div class="debug-grid-item"><span class="dg-key">Current Card:</span><span class="dg-value mono">{{ currentCardId || 'none' }}</span></div>
               <div class="debug-grid-item"><span class="dg-key">Agent Session:</span><span class="dg-value mono">{{ currentAgentSessionId || 'none' }}</span></div>
             </div>
 
-            <div v-if="!debugRuntime" class="debug-empty operator-empty-runtime">
-              Runtime state is unavailable. Ask the Analyst to Run the project or open Dashboard to inspect recovery state.
-            </div>
+            <ViewState v-if="!debugRuntime" state="empty" title="Runtime state is unavailable." message="Ask the Analyst to Run the project or open Dashboard to inspect recovery state." />
 
             <div class="operator-runtime-guidance" role="note">
               DebugView is diagnostic-only. Lifecycle changes are Analyst-owned; Dashboard owns command errors, root runs, child activation edges, and recovery state.
@@ -104,15 +102,15 @@
               <p class="operator-subtitle">Tool and runtime precondition failures are reported in Dashboard with next-action guidance.</p>
             </div>
           </div>
-          <div class="debug-empty">Open Dashboard for command errors, activation failures, and recovery state.</div>
+          <ViewState state="empty" title="Open Dashboard for command errors, activation failures, and recovery state." />
         </section>
 
       </div>
 
       <div v-if="localActiveTab === 'errors'" class="debug-tab-content">
-        <div v-if="loading" class="debug-loading">Loading errors...</div>
-        <div v-else-if="error" class="debug-error">{{ error }}</div>
-        <div v-else-if="errorsTotal === 0 && errors.length === 0" class="debug-empty">No errors recorded.</div>
+        <ViewState v-if="loading" state="loading" title="Loading errors..." />
+        <ViewState v-else-if="error" state="error" title="Failed to load" :message="error" />
+        <ViewState v-else-if="errorsTotal === 0 && errors.length === 0" state="empty" title="No errors recorded." />
         <div v-else class="errors-list">
           <div v-for="entry in errorSourceEntries" :key="entry.source" class="error-source-group">
             <h4 class="error-source-title">{{ entry.source }} ({{ entry.errors.length }})</h4>
@@ -130,8 +128,8 @@
       </div>
 
       <div v-if="localActiveTab === 'timeline'" class="debug-tab-content">
-        <div v-if="loading" class="debug-loading">Loading timeline...</div>
-        <div v-else-if="error" class="debug-error">{{ error }}</div>
+        <ViewState v-if="loading" state="loading" title="Loading timeline..." />
+        <ViewState v-else-if="error" state="error" title="Failed to load" :message="error" />
         <template v-else>
           <div class="timeline-filter">
             <label class="timeline-filter-label" for="timeline-kind-filter">Event kinds</label>
@@ -141,7 +139,7 @@
             <span class="timeline-filter-help">No selection shows all event kinds.</span>
             <button v-if="selectedTimelineKinds.length > 0" class="filter-chip" @click="selectedTimelineKinds = []">Show all</button>
           </div>
-          <div v-if="filteredTimeline.length === 0" class="debug-empty">No timeline events.</div>
+          <ViewState v-if="filteredTimeline.length === 0" state="empty" title="No timeline events." />
           <div v-else class="timeline-list">
             <div v-for="event in filteredTimeline" :key="timelineKey(event)" class="tl-event">
               <span class="tl-event-type">{{ formatEventKind(event.kind) }}</span>
@@ -167,9 +165,9 @@
             </div>
           </div>
 
-          <div v-if="agentDebugError" class="operator-banner operator-banner-error" role="alert">{{ agentDebugError }}</div>
-          <div v-if="agentDebugLoading" class="debug-loading">Loading agent conversations...</div>
-          <div v-else-if="agentDebugSessions.length === 0" class="debug-empty">No agent conversations recorded yet.</div>
+          <StatusBanner v-if="agentDebugError" tone="danger" :message="agentDebugError" />
+          <ViewState v-if="agentDebugLoading" state="loading" title="Loading agent conversations..." />
+          <ViewState v-else-if="agentDebugSessions.length === 0" state="empty" title="No agent conversations recorded yet." />
           <div v-else class="agent-debug-layout">
             <aside class="agent-debug-sidebar" aria-label="Persisted agent sessions">
               <button
@@ -198,9 +196,9 @@
                 <button v-if="selectedAgentDebugPath" class="sv-fetch-btn" :disabled="agentDebugContentLoading" @click="debugStore.loadSelectedAgentDebugContent">Reload</button>
               </div>
               <div v-if="selectedAgentDebugSession" class="agent-debug-path mono">{{ selectedAgentDebugPath || 'No file recorded for this view.' }}</div>
-              <div v-if="agentDebugContentLoading" class="debug-loading">Loading agent file...</div>
-              <div v-else-if="agentDebugContentError" class="debug-error">{{ agentDebugContentError }}</div>
-              <div v-else-if="!selectedAgentDebugPath" class="debug-empty">Select a session and an available file type.</div>
+              <ViewState v-if="agentDebugContentLoading" state="loading" title="Loading agent file..." />
+              <ViewState v-else-if="agentDebugContentError" state="error" title="Failed to load" :message="agentDebugContentError" />
+              <ViewState v-else-if="!selectedAgentDebugPath" state="empty" title="Select a session and an available file type." />
               <div
                 v-else-if="selectedAgentDebugKind === 'conversation' && selectedAgentDebugConversation"
                 ref="agentDebugTimeline.scrollAreaRef"
@@ -226,9 +224,9 @@
       </div>
 
       <div v-if="localActiveTab === 'mcp'" class="debug-tab-content">
-        <div v-if="mcpStore.loading" class="debug-loading">Loading MCP tools...</div>
-        <div v-else-if="mcpStore.error" class="debug-error">{{ mcpStore.error }}</div>
-        <div v-else-if="mcpStore.serverCount === 0" class="debug-empty">No MCP servers configured or running.</div>
+        <ViewState v-if="mcpStore.loading" state="loading" title="Loading MCP tools..." />
+        <ViewState v-else-if="mcpStore.error" state="error" title="Failed to load" :message="mcpStore.error" />
+        <ViewState v-else-if="mcpStore.serverCount === 0" state="empty" title="No MCP servers configured or running." />
         <div v-else class="mcp-content">
           <section class="debug-section">
             <h4 class="debug-section-title">Summary</h4>
@@ -248,7 +246,7 @@
               <span class="mcp-sep" aria-hidden="true">·</span>
               <span class="mcp-tool-count">{{ server.toolCount }} tools</span>
             </h4>
-            <div v-if="server.tools.length === 0" class="debug-empty" style="padding:8px;font-size:12px;">No tools discovered.</div>
+            <ViewState v-if="server.tools.length === 0" state="empty" title="No tools discovered." />
             <div v-for="tool in server.tools" :key="tool.name" class="mcp-tool-card">
               <div class="mcp-tool-name-row">
                 <span class="mcp-tool-name">{{ tool.name }}</span>
@@ -296,9 +294,9 @@
           </div>
         </div>
 
-        <div v-if="processesLoading" class="debug-loading">Loading processes...</div>
-        <div v-else-if="processesError" class="debug-error">{{ processesError }}</div>
-        <div v-else-if="processes.length === 0" class="debug-empty">No Saivage-managed processes found.</div>
+        <ViewState v-if="processesLoading" state="loading" title="Loading processes..." />
+        <ViewState v-else-if="processesError" state="error" title="Failed to load" :message="processesError" />
+        <ViewState v-else-if="processes.length === 0" state="empty" title="No Saivage-managed processes found." />
         <div v-else class="processes-list">
           <div v-for="proc in sortedProcesses" :key="proc.id" class="process-card" :class="{ selected: selectedProcessId === proc.id }">
             <div class="process-header">
@@ -337,9 +335,9 @@
       <div v-if="localActiveTab === 'supervision'" class="debug-tab-content">
         <section class="debug-section">
           <div class="debug-section-header"><h4 class="debug-section-title">Doctor Diagnostics</h4><button class="sv-fetch-btn" :disabled="doctorLoading" @click="debugStore.fetchDoctor()">Fetch</button></div>
-          <div v-if="doctorLoading" class="debug-loading" style="padding:16px;">Running diagnostics...</div>
-          <div v-else-if="doctorError" class="debug-error" style="padding:16px;">{{ doctorError }}</div>
-          <div v-else-if="doctorStatus === null && doctorChecks.length === 0" class="debug-empty" style="padding:16px;">No diagnostics run yet. Click Fetch to check card/index consistency.</div>
+          <ViewState v-if="doctorLoading" state="loading" title="Running diagnostics..." />
+          <ViewState v-else-if="doctorError" state="error" title="Failed to load" :message="doctorError" />
+          <ViewState v-else-if="doctorStatus === null && doctorChecks.length === 0" state="empty" title="No diagnostics run yet." message="Click Fetch to check card/index consistency." />
           <template v-else>
             <div class="doctor-status-banner" :class="doctorStatus === 'ok' ? 'doctor-ok' : 'doctor-issues'"><span class="doctor-status-icon">{{ doctorStatus === 'ok' ? '✓' : '⚠' }}</span><span class="doctor-status-text">{{ doctorStatus === 'ok' ? 'All checks passed' : 'Issues found' }} ({{ doctorChecks.length }} checks)</span></div>
             <div class="doctor-checks-list"><div v-for="check in doctorChecks" :key="check.name" class="doctor-check-item" :class="check.passed ? 'check-passed' : 'check-failed'"><span class="check-icon">{{ check.passed ? '✓' : '✗' }}</span><div class="check-body"><span class="check-name">{{ check.name }}</span><span v-if="check.details" class="mcp-sep" aria-hidden="true">·</span><span v-if="check.details" class="check-details">{{ check.details }}</span></div></div></div>
@@ -349,9 +347,9 @@
 
         <section class="debug-section">
           <div class="debug-section-header"><h4 class="debug-section-title">Content Supervision</h4><button class="sv-fetch-btn" :disabled="supervisionLoading" @click="debugStore.fetchSupervision()">Fetch</button></div>
-          <div v-if="supervisionLoading" class="debug-loading" style="padding:16px;">Loading supervision data...</div>
-          <div v-else-if="supervisionError" class="debug-error" style="padding:16px;">{{ supervisionError }}</div>
-          <div v-else-if="supervisionStats === null" class="debug-empty" style="padding:16px;">No supervision data loaded yet. Click Fetch to load.</div>
+          <ViewState v-if="supervisionLoading" state="loading" title="Loading supervision data..." />
+          <ViewState v-else-if="supervisionError" state="error" title="Failed to load" :message="supervisionError" />
+          <ViewState v-else-if="supervisionStats === null" state="empty" title="No supervision data loaded yet." message="Click Fetch to load." />
           <template v-else>
             <div class="sv-stats-grid"><div class="sv-stat-card sv-stat-total"><span class="sv-stat-num">{{ supervisionStats.total }}</span><span class="sv-stat-label">Total Reviews</span></div><div class="sv-stat-card sv-stat-blocked"><span class="sv-stat-num">{{ supervisionStats.blocked }}</span><span class="sv-stat-label">Blocked</span></div><div class="sv-stat-card sv-stat-passed"><span class="sv-stat-num">{{ supervisionStats.passed }}</span><span class="sv-stat-label">Passed</span></div><div class="sv-stat-card sv-stat-sanitized"><span class="sv-stat-num">{{ supervisionStats.sanitized }}</span><span class="sv-stat-label">Sanitized</span></div></div>
             <div v-if="Object.keys(supervisionStats.byRisk).length" class="sv-sub-section"><h5 class="sv-sub-title">By Risk</h5><div class="sv-pills"><span v-for="(count, risk) in supervisionStats.byRisk" :key="risk" class="sv-pill" :class="'risk-' + risk">{{ risk }}: {{ count }}</span></div></div>
@@ -379,6 +377,10 @@ import { useMcpStore } from '../stores/mcp';
 import { formatJson } from '../utils/format-json';
 import CodeBlock from '../components/content/CodeBlock.vue';
 import ConversationTimeline from '../components/conversation/ConversationTimeline.vue';
+import ViewState from '../components/ui/ViewState.vue';
+import StatusBanner from '../components/ui/StatusBanner.vue';
+import StatusBadge from '../components/ui/StatusBadge.vue';
+import { statusForRuntimeStatus } from '../utils/status';
 import { useAgentTimeline } from '../composables/useAgentTimeline';
 import type { ActivityStatus, AgentConversationEntry, DebugTimelineEvent, PendingCall, ProcessView } from '../types/view-models';
 
@@ -407,7 +409,6 @@ const {
   localActiveTab,
   selectedTimelineKinds,
   runtimeStatusLabel,
-  runtimeStatusTone,
   currentCardId,
   currentAgentSessionId,
   operatorPanelBusy,
@@ -501,8 +502,7 @@ onUnmounted(() => {
 
 .debug-content { flex:1; overflow-y:auto; }
 .debug-tab-content { padding:16px; }
-.debug-loading,.debug-empty,.debug-error { padding:32px; text-align:center; color:var(--text-muted); font-size:13px; }
-.debug-error { color:var(--danger); }
+.debug-loading,.debug-empty { padding:32px; text-align:center; color:var(--text-muted); font-size:13px; }
 .debug-section { margin-bottom:24px; }
 .debug-section-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
 .debug-section-title { font-size:12px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em; margin:0; }
@@ -515,21 +515,10 @@ onUnmounted(() => {
 .operator-subtitle { margin:6px 0 0; font-size:12px; color:var(--text-muted); }
 .operator-actions-inline { display:flex; gap:8px; flex-wrap:wrap; }
 .operator-freshness { margin-bottom:10px; font-size:12px; color:var(--text-muted); }
-.operator-banner { margin-bottom:10px; padding:10px 12px; border-radius:6px; font-size:12px; line-height:1.5; }
-.operator-banner-success { background:var(--entry-accent-bg); border:1px solid var(--entry-accent-border); color:var(--accent); }
-.operator-banner-warning { background:var(--entry-warn-bg); border:1px solid var(--entry-warn-border); color:var(--warn); }
-.operator-banner-error { background:var(--entry-danger-bg); border:1px solid var(--entry-danger-border); color:var(--danger); }
 .operator-runtime-card { background:var(--surface-1); border:1px solid var(--surface-3); border-radius:8px; padding:16px; }
 .operator-runtime-summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:8px; margin-bottom:12px; }
-.operator-empty-runtime { padding:20px 0; }
 .sv-fetch-btn:disabled { opacity:.5; cursor:not-allowed; }
 .operator-help-text { margin-top:10px; font-size:12px; color:var(--text-muted); }
-.operator-status-badge { display:inline-flex; align-items:center; border-radius:999px; padding:2px 8px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.03em; }
-.operator-status-badge.status-running { background:var(--entry-accent-bg); color:var(--accent); }
-.operator-status-badge.status-paused { background:var(--entry-user-bg); color:var(--accent-2); }
-.operator-status-badge.status-stopped { background:var(--surface-3); color:var(--text); }
-.operator-status-badge.status-error { background:var(--entry-danger-bg); color:var(--danger); }
-.operator-status-badge.status-unavailable { background:var(--surface-3); color:var(--text-muted); }
 .operator-note-card, .process-card { background:var(--surface-1); border:1px solid var(--surface-3); border-radius:8px; padding:12px; }
 .process-card.selected { border-color:var(--accent-2); box-shadow:0 0 0 1px color-mix(in srgb, var(--accent-2) 45%, transparent); }
 .operator-note-header { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
