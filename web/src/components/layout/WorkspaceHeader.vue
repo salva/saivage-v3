@@ -34,7 +34,7 @@
 
 <script setup lang="ts">
 import { computed, unref } from 'vue';
-import type { WsConnectionState } from '../../api/types';
+import type { WsConnectionState } from '../../types/view-models';
 
 const props = defineProps<{
   sectionTitle: string;

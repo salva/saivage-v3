@@ -35,7 +35,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { CardRecord, CardStatus, CardType } from '../../api/types';
+import type { CardRecord, CardStatus, CardType } from '../../types/view-models';
 import { formatTimestamp, timestampTitle } from '../../utils/timestamp';
 
 const props = defineProps<{

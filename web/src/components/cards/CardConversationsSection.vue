@@ -31,16 +31,15 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import { listAgentSessions, ApiError } from '../../api/client';
-import type { AgentSession } from '../../api/types';
+import { storeToRefs } from 'pinia';
+import { useAgentStore } from '../../stores/agents';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../../utils/timestamp';
 import AgentConversationView from '../agents/AgentConversationView.vue';
 
 const props = defineProps<{ cardId: string }>();
 
-const sessions = ref<AgentSession[]>([]);
-const loading = ref(false);
-const loadError = ref<string | null>(null);
+const agentStore = useAgentStore();
+const { sessions, loading, error: loadError } = storeToRefs(agentStore);
 const selectedSessionId = ref<string | null>(null);
 
 const cardSessions = computed(() =>
@@ -52,16 +51,7 @@ function fmtDate(ts: string): string {
 }
 
 async function loadSessions(): Promise<void> {
-  loading.value = true;
-  loadError.value = null;
-  try {
-    const res = await listAgentSessions();
-    sessions.value = res.sessions;
-  } catch (err) {
-    loadError.value = err instanceof Error ? err.message : String(err);
-  } finally {
-    loading.value = false;
-  }
+  await agentStore.fetchSessions().catch(() => {});
 }
 
 onMounted(() => { void loadSessions(); });

@@ -50,7 +50,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { CardRecord } from '../../api/types';
+import type { CardRecord } from '../../types/view-models';
 import { shortLabelForCardType } from '../../utils/status';
 
 const props = defineProps<{

@@ -64,7 +64,7 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useAgentStore } from '../stores/agents';
-import type { AgentRole, AgentSession } from '../api/types';
+import type { AgentRole, AgentSession } from '../types/view-models';
 import { createLogger } from '../utils/logger';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../utils/timestamp';
 import AgentConversationView from '../components/agents/AgentConversationView.vue';

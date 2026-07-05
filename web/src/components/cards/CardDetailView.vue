@@ -144,7 +144,7 @@ import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
 import { useAnalystChat } from '../../stores/analystChat';
 import { useCardStore } from '../../stores/cards';
 import { storeToRefs } from 'pinia';
-import type { DetailErrorState, CardStatus } from '../../api/types';
+import type { DetailErrorState, CardStatus } from '../../types/view-models';
 import { createLogger } from '../../utils/logger';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../../utils/timestamp';
 import { toneForCardStatus, labelForCardType } from '../../utils/status';

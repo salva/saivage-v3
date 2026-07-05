@@ -7,7 +7,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { CardRefView } from '../../api/types';
+import type { CardRefView } from '../../types/view-models';
 
 export type CardRefMode = 'current' | 'historicalSnapshot' | 'debugRaw';
 

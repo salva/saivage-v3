@@ -27,23 +27,15 @@
 
 <script setup lang="ts">
 import type { InlinePart } from '../../utils/tool-presenters';
-import { useCardStore } from '../../stores/cards';
 
 defineProps<{ parts: InlinePart[] }>();
-const cardStore = useCardStore();
-
-function cardFor(id: string) {
-  return cardStore.cards.find((card) => card.id === id) ?? null;
-}
 
 function cardLabel(id: string, fallbackLabel?: string): string {
-  const card = cardFor(id);
-  return card?.display_path ?? fallbackLabel ?? id;
+  return fallbackLabel ?? id;
 }
 
 function cardTitle(id: string): string {
-  const card = cardFor(id);
-  return [id, card?.display_path, card?.title].filter(Boolean).join(' · ');
+  return id;
 }
 </script>
 

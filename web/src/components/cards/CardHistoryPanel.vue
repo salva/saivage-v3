@@ -88,7 +88,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useCardStore } from '../../stores/cards';
-import type { CardHistoryHeader } from '../../api/types';
+import type { CardHistoryHeader } from '../../types/view-models';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../../utils/timestamp';
 import { formatJson } from '../../utils/format-json';
 import { sanitizeCardHistoryValue } from '../../utils/sanitize-card-history';

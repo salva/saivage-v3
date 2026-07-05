@@ -27,6 +27,8 @@ import type {
   SupervisionResponse,
   ProcessView,
   ProcessListResponse,
+  AgentSession,
+  FileEntry,
 } from '../api/types';
 import {
   getDebugState,
@@ -35,6 +37,11 @@ import {
   getDoctor,
   getDebugSupervision,
   listProcesses,
+  listAgentSessions,
+  listFiles,
+  getAgentConversation,
+  getAgentLlmExchange,
+  getFileContent,
   ApiError,
 } from '../api/client';
 import { createLogger } from '../utils/logger';
@@ -47,6 +54,33 @@ import {
 } from './debug-read-model';
 
 const log = createLogger('store:debug');
+
+export type AgentDebugKind = 'conversation' | 'toolDeliveries' | 'llmExchange';
+type RawAgentDebugKind = Exclude<AgentDebugKind, 'conversation'>;
+interface AgentDebugSession extends Pick<AgentSession, 'id' | 'role' | 'status'> {
+  files: Partial<Record<AgentDebugKind, string>>;
+}
+
+export const agentDebugKinds: Array<{ id: AgentDebugKind; label: string }> = [
+  { id: 'conversation', label: 'Conversation' },
+  { id: 'toolDeliveries', label: 'Tool Deliveries' },
+  { id: 'llmExchange', label: 'Raw LLM Exchange' },
+];
+
+function sessionIdFromAgentDebugFile(name: string): string {
+  const withoutExtension = name.replace(/\.jsonl?$/i, '');
+  try { return decodeURIComponent(withoutExtension); } catch { return withoutExtension; }
+}
+
+function formatAgentDebugContent(content: string, path: string | null): string {
+  if (!content) return '';
+  if (path?.endsWith('.jsonl')) {
+    return content.split('\n').filter((line) => line.trim().length > 0).map((line) => {
+      try { return JSON.stringify(JSON.parse(line), null, 2); } catch { return line; }
+    }).join('\n\n');
+  }
+  try { return JSON.stringify(JSON.parse(content), null, 2); } catch { return content; }
+}
 
 export const useDebugStore = defineStore('debug', () => {
   const debugRuntime = ref<RuntimeState | null>(null);
@@ -85,6 +119,15 @@ export const useDebugStore = defineStore('debug', () => {
 
   const operatorLastFetchedAt = ref<string | null>(null);
 
+  const agentDebugSessions = ref<AgentDebugSession[]>([]);
+  const selectedAgentDebugSessionId = ref<string | null>(null);
+  const selectedAgentDebugKind = ref<AgentDebugKind>('conversation');
+  const agentDebugLoading = ref(false);
+  const agentDebugError = ref<string | null>(null);
+  const agentDebugContent = ref('');
+  const agentDebugContentLoading = ref(false);
+  const agentDebugContentError = ref<string | null>(null);
+
   const loading = ref(false);
   const error = ref<string | null>(null);
 
@@ -98,6 +141,15 @@ export const useDebugStore = defineStore('debug', () => {
   const sortedTimeline = computed<DebugTimelineEvent[]>(() => selectSortedTimeline(timelineEvents.value));
 
   const operatorDataFreshnessLabel = computed(() => selectOperatorDataFreshnessLabel(operatorLastFetchedAt.value));
+  const selectedAgentDebugSession = computed(() => agentDebugSessions.value.find((session) => session.id === selectedAgentDebugSessionId.value) ?? null);
+  const selectedAgentDebugPath = computed(() => {
+    const session = selectedAgentDebugSession.value;
+    if (!session) return null;
+    if (selectedAgentDebugKind.value === 'conversation') return `/api/agents/${encodeURIComponent(session.id)}/conversation`;
+    if (selectedAgentDebugKind.value === 'llmExchange') return session.files.llmExchange ? `/api/agents/${encodeURIComponent(session.id)}/llm-exchange` : null;
+    return session.files[selectedAgentDebugKind.value] ?? null;
+  });
+  const formattedAgentDebugContent = computed(() => formatAgentDebugContent(agentDebugContent.value, selectedAgentDebugPath.value));
 
   async function fetchState(): Promise<void> {
     loading.value = true;
@@ -206,6 +258,96 @@ export const useDebugStore = defineStore('debug', () => {
     operatorLastFetchedAt.value = new Date().toISOString();
   }
 
+  async function listAgentDebugFiles(path: string): Promise<FileEntry[]> {
+    try {
+      const response = await listFiles(path);
+      return response.files.filter((file) => file.type === 'file');
+    } catch {
+      return [];
+    }
+  }
+
+  function addAgentDebugFiles(bySession: Map<string, AgentDebugSession>, files: FileEntry[], kind: RawAgentDebugKind): void {
+    for (const file of files) {
+      const id = sessionIdFromAgentDebugFile(file.name);
+      const session = bySession.get(id);
+      if (!session) continue;
+      session.files[kind] = file.path;
+    }
+  }
+
+  function normalizeSelectedAgentDebugKind(): void {
+    const session = selectedAgentDebugSession.value;
+    if (!session) return;
+    if (agentDebugKindAvailable(selectedAgentDebugKind.value)) return;
+    selectedAgentDebugKind.value = 'conversation';
+  }
+
+  function agentDebugKindAvailable(kind: AgentDebugKind): boolean {
+    const session = selectedAgentDebugSession.value;
+    if (!session) return false;
+    if (kind === 'conversation') return true;
+    return Boolean(session.files[kind]);
+  }
+
+  async function loadSelectedAgentDebugContent(): Promise<void> {
+    agentDebugContent.value = '';
+    agentDebugContentError.value = null;
+    const session = selectedAgentDebugSession.value;
+    const path = selectedAgentDebugPath.value;
+    if (!session || !path) return;
+    agentDebugContentLoading.value = true;
+    try {
+      if (selectedAgentDebugKind.value === 'conversation') {
+        agentDebugContent.value = JSON.stringify(await getAgentConversation(session.id), null, 2);
+      } else if (selectedAgentDebugKind.value === 'llmExchange') {
+        agentDebugContent.value = JSON.stringify(await getAgentLlmExchange(session.id), null, 2);
+      } else {
+        const file = await getFileContent(path);
+        agentDebugContent.value = file.content;
+      }
+    } catch (err) {
+      agentDebugContentError.value = err instanceof Error ? err.message : String(err);
+    } finally {
+      agentDebugContentLoading.value = false;
+    }
+  }
+
+  async function refreshAgentDebug(): Promise<void> {
+    agentDebugLoading.value = true;
+    agentDebugError.value = null;
+    try {
+      const [sessionResponse, toolDeliveries, llmExchanges] = await Promise.all([
+        listAgentSessions(),
+        listAgentDebugFiles('.saivage/agents/tool-deliveries'),
+        listAgentDebugFiles('.saivage/agents/llm-exchanges'),
+      ]);
+      const bySession = new Map<string, AgentDebugSession>();
+      for (const session of sessionResponse.sessions) bySession.set(session.id, { id: session.id, role: session.role, status: session.status, files: {} });
+      addAgentDebugFiles(bySession, toolDeliveries, 'toolDeliveries');
+      addAgentDebugFiles(bySession, llmExchanges, 'llmExchange');
+      agentDebugSessions.value = [...bySession.values()].sort((a, b) => a.id.localeCompare(b.id));
+      if (!selectedAgentDebugSessionId.value || !bySession.has(selectedAgentDebugSessionId.value)) selectedAgentDebugSessionId.value = agentDebugSessions.value[0]?.id ?? null;
+      normalizeSelectedAgentDebugKind();
+      await loadSelectedAgentDebugContent();
+    } catch (err) {
+      agentDebugError.value = err instanceof Error ? err.message : String(err);
+    } finally {
+      agentDebugLoading.value = false;
+    }
+  }
+
+  function selectAgentDebugSession(sessionId: string): void {
+    selectedAgentDebugSessionId.value = sessionId;
+    normalizeSelectedAgentDebugKind();
+    loadSelectedAgentDebugContent().catch(() => {});
+  }
+
+  function selectAgentDebugKind(kind: AgentDebugKind): void {
+    selectedAgentDebugKind.value = kind;
+    loadSelectedAgentDebugContent().catch(() => {});
+  }
+
 
 
 
@@ -260,6 +402,17 @@ export const useDebugStore = defineStore('debug', () => {
     supervisionError: readonly(supervisionError),
     operatorLastFetchedAt: readonly(operatorLastFetchedAt),
     operatorDataFreshnessLabel,
+    agentDebugKinds,
+    agentDebugSessions: readonly(agentDebugSessions),
+    selectedAgentDebugSessionId,
+    selectedAgentDebugKind,
+    selectedAgentDebugSession,
+    selectedAgentDebugPath,
+    formattedAgentDebugContent,
+    agentDebugLoading: readonly(agentDebugLoading),
+    agentDebugError: readonly(agentDebugError),
+    agentDebugContentLoading: readonly(agentDebugContentLoading),
+    agentDebugContentError: readonly(agentDebugContentError),
     loading: readonly(loading),
     error: readonly(error),
     errorsBySource,
@@ -273,6 +426,11 @@ export const useDebugStore = defineStore('debug', () => {
     fetchDoctor,
     fetchSupervision,
     fetchOperatorControl,
+    refreshAgentDebug,
+    selectAgentDebugSession,
+    selectAgentDebugKind,
+    agentDebugKindAvailable,
+    loadSelectedAgentDebugContent,
     fetchAll,
     refetch,
   };

@@ -38,7 +38,7 @@
 import { computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useCardStore } from '../stores/cards';
-import type { CardStatus, CardType } from '../api/types';
+import type { CardStatus, CardType } from '../types/view-models';
 import { shortLabelForCardType } from '../utils/status';
 import CardsTreeView from '../components/cards/CardsTreeView.vue';
 import CardDetailView from '../components/cards/CardDetailView.vue';

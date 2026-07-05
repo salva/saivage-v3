@@ -68,7 +68,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
-import type { ActivityStatus, AgentConversationEntry } from '../../api/types';
+import type { ActivityStatus, AgentConversationEntry } from '../../types/view-models';
 import { useAnalystChat } from '../../stores/analystChat';
 import { useCardStore } from '../../stores/cards';
 import { selectChildrenOf } from '../../stores/card-presentation';

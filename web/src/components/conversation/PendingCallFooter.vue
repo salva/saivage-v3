@@ -8,7 +8,7 @@
 </template>
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { ActivityStatus, PendingCall } from '../../api/types';
+import type { ActivityStatus, PendingCall } from '../../types/view-models';
 
 const props = defineProps<{ calls: PendingCall[]; status?: ActivityStatus['status'] }>();
 const statusLabel = computed(() => {

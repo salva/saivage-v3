@@ -11,7 +11,7 @@
   </details>
 </template>
 <script setup lang="ts">
-import type { AgentConversationEntry } from '../../api/types';
+import type { AgentConversationEntry } from '../../types/view-models';
 
 defineProps<{ entries: AgentConversationEntry[] }>();
 

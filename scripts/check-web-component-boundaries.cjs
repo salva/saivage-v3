@@ -5,6 +5,7 @@ const path = require('node:path');
 const root = process.cwd();
 const webSrc = path.join(root, 'web', 'src');
 const components = path.join(webSrc, 'components');
+const views = path.join(webSrc, 'views');
 const errors = [];
 
 function walk(dir) {
@@ -62,6 +63,24 @@ for (const file of walk(components)) {
       }
       if (targetRel.includes('/stores/') || targetRel.includes('/api/')) {
         errors.push(`${fileRel}:${line}: content components must not import stores/api (${spec})`);
+      }
+    }
+  }
+}
+
+for (const dir of [components, views]) {
+  for (const file of walk(dir)) {
+    const text = fs.readFileSync(file, 'utf8');
+    const fileRel = rel(file);
+    let match;
+    importRe.lastIndex = 0;
+    while ((match = importRe.exec(text))) {
+      const spec = match[1] || match[2];
+      const target = resolveImport(file, spec);
+      if (!target) continue;
+      const targetRel = rel(target);
+      if (targetRel.includes('/web/src/api/') || targetRel.includes('/web/src/sync/')) {
+        errors.push(`${fileRel}:${lineOf(text, match.index)}: views/components must not import api/sync directly (${spec}); use stores or view-model types`);
       }
     }
   }

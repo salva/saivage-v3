@@ -64,7 +64,7 @@ import GlobalToaster from '../feedback/GlobalToaster.vue';
 import Button from '../ui/Button.vue';
 import { useRuntimeStore } from '../../stores/runtime';
 import { useAuthStore } from '../../stores/auth';
-import type { WsConnectionState } from '../../api/types';
+import type { WsConnectionState } from '../../types/view-models';
 import { API_AUTH_REQUIRED_EVENT, dismissAuthBannerForSession, isAuthBannerDismissedForSession } from '../../utils/auth-events';
 
 const runtimeStore = useRuntimeStore();

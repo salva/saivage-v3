@@ -6,20 +6,13 @@
 import { computed } from 'vue';
 import { Marked } from 'marked';
 import DOMPurify from 'dompurify';
-import { useCardStore } from '../../stores/cards';
 
 const props = defineProps<{ source: string }>();
 
 const marked = new Marked({ gfm: true, breaks: false });
-const cardStore = useCardStore();
 
 function escapeMarkdownLinkText(text: string): string {
   return text.replace(/\\/g, '\\\\').replace(/]/g, '\\]');
-}
-
-function labelForCard(id: string, fallback?: string): string {
-  const card = cardStore.cards.find((candidate) => candidate.id === id);
-  return card?.display_path ?? fallback ?? id;
 }
 
 function replaceCardRefsOutsideInlineCode(segment: string): string {
@@ -35,7 +28,7 @@ function replaceCardRefsOutsideInlineCode(segment: string): string {
       let id: string;
       try { id = decodeURIComponent(encodedId); } catch { return _match; }
       if (!id) return _match;
-      const label = escapeMarkdownLinkText(labelForCard(id, fallback));
+      const label = escapeMarkdownLinkText(fallback ?? id);
       const href = `/cards/${encodeURIComponent(id)}`;
       return `[${label}](${href})`;
     });

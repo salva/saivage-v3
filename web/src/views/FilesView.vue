@@ -107,7 +107,7 @@ import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../utils/tim
 import { formatJson } from '../utils/format-json';
 import CodeBlock from '../components/content/CodeBlock.vue';
 import MarkdownText from '../components/content/MarkdownText.vue';
-import type { CardRecord, FileEntry } from '../api/types';
+import type { CardRecord, FileEntry } from '../types/view-models';
 
 type FileRoot = 'meta' | 'output';
 
