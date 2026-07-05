@@ -1,8 +1,21 @@
 # Resume-or-Start LLM Design
 
-Status: design proposal.
+Status: second-review design proposal.
 
 Date: 2026-07-05
+
+## Second-review verdict
+
+Keep the fix narrow. The duplicated code is an LLM lifecycle seam, not evidence that planner, reviewer, and executor should share a larger turn-driving harness.
+
+The clean architecture is:
+
+- `BaseMainLLMCardProcessorActor` owns LLM actor lifecycle mechanics.
+- Concrete processor actors own role-specific record slots, invocation surfaces, terminal contracts, and repair-loop policy.
+
+Hoisting `resumeOrStartLlm` follows that boundary. Expanding the change into a generic `driveMainLlm` helper would cross it.
+
+This is intentionally not the easy-first choice. The larger consolidation was reconsidered and rejected because it would make the base class know too much about role behavior. The brave/simple choice is to keep the role loops explicit until their real duplication is removed by targeted designs such as the role invocation-surface factory and analyst repair-loop unification.
 
 ## Problem
 
@@ -72,6 +85,16 @@ Both processors also duplicate a `if (llm.state() === 'idle') discardOpenRecordS
 - Executor: `filename: 'status.md'`, `reason: 'new_activation'`.
 
 The filename and reason are role/record-specific. Forcing them into a base-level parameter would add plumbing without removing meaningful duplication. They stay at the call site.
+
+### No freshness wrapper return value
+
+Another possible abstraction is to make the base return `{ llm, outcome, startedFresh }`, so callers can avoid checking `llm.state() === 'idle'` before discarding stale record slots.
+
+That is also rejected. Callers need the `LLMActor` directly for subsequent `appendToolResult`, `continueAfterPlainText`, and abandonment calls, and record-slot cleanup remains role-specific. Returning a small object would add ceremony around the same two facts instead of simplifying them.
+
+### No compatibility or adapter surface
+
+The implementation should delete both private methods outright. Do not keep a deprecated private wrapper in either processor, and do not introduce a structural interface solely for tests. Subclasses use the current protected base method directly.
 
 ### No new test
 
