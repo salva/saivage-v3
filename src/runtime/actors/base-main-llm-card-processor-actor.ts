@@ -1,8 +1,9 @@
-import { LLMActor, type LLMProviderPort } from './llm-actor.js';
+import { LLMActor, type LLMActorOutcome, type LLMProviderPort } from './llm-actor.js';
 import type { ToolReplayOutcome } from '../../tools/invocation.js';
 import { BaseCardProcessorActor, type CardProcessorOutcome } from './base-card-processor-actor.js';
 import type { CardActivationInput } from './card-actor.js';
 import { RuntimeGate } from '../runtime-gate.js';
+import type { LlmInvocationInput } from './llm-invocation.js';
 
 export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorActor {
   readonly provider: LLMProviderPort;
@@ -35,6 +36,12 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
 
   listLlmActors(): readonly LLMActor[] {
     return [...this.activeLlmActors.values()];
+  }
+
+  protected resumeOrStartLlm(llm: LLMActor, input: LlmInvocationInput, signal: AbortSignal): Promise<LLMActorOutcome> {
+    if (llm.state() === 'calling_provider') return llm.awaitPendingTurn();
+    if (llm.state() === 'waiting_tool') return Promise.resolve(llm.waitingToolOutcome());
+    return llm.turn(input, signal);
   }
 
   protected override onActivationSettled(_outcome: CardProcessorOutcome): void {

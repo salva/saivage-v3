@@ -288,12 +288,6 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     };
   }
 
-  private resumeOrStartLlm(llm: { state(): string; turn(input: LlmInvocationInput, signal?: AbortSignal): Promise<LLMActorOutcome>; awaitPendingTurn(): Promise<LLMActorOutcome>; waitingToolOutcome(): Extract<LLMActorOutcome, { type: 'tool_call' }> }, input: LlmInvocationInput, signal: AbortSignal): Promise<LLMActorOutcome> {
-    if (llm.state() === 'calling_provider') return llm.awaitPendingTurn();
-    if (llm.state() === 'waiting_tool') return Promise.resolve(llm.waitingToolOutcome());
-    return llm.turn(input, signal);
-  }
-
   private plannerFailure(error: string): PlannerProcessorOutcome {
     return { status: 'failed', summary: error, result: { kind: 'failed', summary: error } };
   }

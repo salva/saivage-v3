@@ -138,12 +138,6 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     };
   }
 
-  private resumeOrStartLlm(llm: { state(): string; turn(input: LlmInvocationInput, signal?: AbortSignal): Promise<LLMActorOutcome>; awaitPendingTurn(): Promise<LLMActorOutcome>; waitingToolOutcome(): Extract<LLMActorOutcome, { type: 'tool_call' }> }, input: LlmInvocationInput, signal: AbortSignal): Promise<LLMActorOutcome> {
-    if (llm.state() === 'calling_provider') return llm.awaitPendingTurn();
-    if (llm.state() === 'waiting_tool') return Promise.resolve(llm.waitingToolOutcome());
-    return llm.turn(input, signal);
-  }
-
   private async handleToolCall(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, surface: InvocationSurface, signal: AbortSignal): Promise<ToolResult> {
     if (surface.tools.has(outcome.toolName)) return await invokeToolForLlm(surface, outcome.toolName, outcome.args, signal);
     return { success: false, error: `Unsupported executor tool call '${outcome.toolName}'.` };
