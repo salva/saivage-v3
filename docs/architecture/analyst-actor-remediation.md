@@ -25,21 +25,44 @@ The `AnalystSessionActor` state machine (`idle` parked, `conversing` active), th
 
 ### Target
 
-Add a plain `cancellationReason: string | null` field on `AnalystSessionActor`. `cancel()` sets it. The loop checks it before each provider turn and each tool dispatch. When set, the loop returns immediately with a cancelled result; it does not throw — the task settles as `on_done`, the settlement gate performs cancellation cleanup, and the queued `cancel` dispatches.
+Two mechanisms work together: a `cancellationReason` flag for between-step checks, and a per-turn `AbortSignal` for mid-tool cancellation. The signal flows into tool executors, so long-running tools (process spawns, HTTP requests) can stop immediately instead of running to completion.
 
-The `AbortSignal` from `runTask` is no longer used for cancellation probing. It remains available for provider-call propagation if that is ever added, but the loop does not check `signal.aborted`.
+**Tool-surface change (shared with the recovery design):**
 
-The owned LLM actor may be in `calling_provider` when `cancel()` is called. The provider call completes, the LLM transitions to `waiting_tool` (tool call) or `idle` (message/error), and then the loop observes the flag and stops. At that point the LLM may be parked in `waiting_tool`. Abandonment must therefore happen in the settlement gate, not in `cancel()` — `cancel()` cannot know the LLM's final state at the time the loop stops.
+The `executor` signature on `ToolDefinition` gains an `AbortSignal`:
+
+```ts
+readonly executor: (args: Args, signal: AbortSignal) => Promise<ToolResult>;
+```
+
+This complements the `replay` method from the interrupted-activation-recovery design. Together they give the tool surface authority over all three phases of a tool call: invocation (`executor`), interruption (`signal`), and recovery (`replay`). The tool owns the knowledge of how to handle its own interruption — no external layer kills processes or synthesizes results on its behalf.
+
+Existing executors that ignore the signal simply don't name the parameter; TypeScript allows fewer parameters, so the change is non-breaking in practice. Tools opt into cancellation individually:
+
+- `run_command`: pass the signal to `child_process.spawn({ signal })`. Node kills the process.
+- `websearch` / `webfetch`: pass to `fetch({ signal })`. The request aborts.
+- `wait_process`: check `signal.aborted` in the polling loop.
+- Fast tools (`read`, `write`, `glob`, etc.): ignore. Between-step flag checks are sufficient.
+
+`invokeTool` and `invokeToolCall` gain an optional `signal` parameter they forward to the executor.
+
+**Analyst session actor:**
+
+`AnalystSessionActor` creates a per-turn `AbortController`. The loop passes `controller.signal` to `invokeToolCall`. The loop also checks `cancellationReason` before each provider turn and each tool dispatch as a fallback for tools that don't check the signal.
+
+The `AbortSignal` from the frozen core's `runTask` is NOT used for cancellation probing. It is tied to the frozen core's `AbortController`, which is only aborted on state transition — too late. The session actor's own controller is the propagation path.
+
+The owned LLM actor may be in `calling_provider` when `cancel()` is called. The provider call completes, the LLM transitions to `waiting_tool` (tool call) or `idle` (message/error), and then the loop observes the flag and stops. At that point the LLM may be parked in `waiting_tool`. Abandonment must therefore happen in the settlement gate, not in `cancel()`.
 
 Cancellation timeline:
 1. Provider call or tool execution in progress.
-2. `cancel()` sets `cancellationReason`, resolves caller promise, queues `sendEvent('cancel')`.
-3. Current step completes. LLM may now be parked in `waiting_tool`.
+2. `cancel()` sets `cancellationReason`, aborts `turnAbort`, resolves caller promise, queues `sendEvent('cancel')`.
+3. If a signal-aware tool is in flight, it receives the abort and returns early with an aborted error. Otherwise the current step completes naturally.
 4. Loop checks `cancellationReason` before the next step. It is set. Loop returns cancelled result.
 5. Task settles. Settlement gate sees `cancellationReason`, abandons any parked LLM turn, resets per-turn state, sends no event.
 6. Main loop picks up queued `cancel`. Dispatches. Transitions to `idle`.
 
-This gives cancellation latency of at most one provider call or one tool execution — exactly what the original design specified.
+This gives cancellation latency of at most one provider call (which is not abortable) or near-zero for signal-aware tools — better than the "one step" bound from the original design.
 
 ### Settlement Gate: Use A Dedicated Flag
 
@@ -47,13 +70,14 @@ Replace the current `pendingTurn !== turn` identity check with an explicit `canc
 
 `cancel()`:
 1. Set `cancellationReason = reason`.
-2. Resolve `pendingTurn` promise with a cancelled result.
-3. Set `pendingTurn = null`.
-4. `sendEvent('cancel')`. Do not touch the owned LLM here — it may be mid-provider-call and its final state is not yet known.
+2. Abort `turnAbort` with the reason (triggers signal-aware tools to return early).
+3. Resolve `pendingTurn` promise with a cancelled result.
+4. Set `pendingTurn = null`.
+5. `sendEvent('cancel')`. Do not touch the owned LLM here — it may be mid-provider-call and its final state is not yet known.
 
 `on_done(result)` / `on_failed(error)` (the settlement gate):
-1. If `cancellationReason !== null`: abandon any parked LLM turn via `abandonParkedTurn()` (the LLM may have transitioned to `waiting_tool` after `cancel()` ran), reset `cancellationReason = null`, `toolInFlight = null`, and return without sending an event. The promise was already settled by `cancel()`. The queued `cancel` dispatches.
-2. Otherwise: resolve/reject `pendingTurn`, set `pendingTurn = null`, reset `toolInFlight = null`, send `done`/`failed`.
+1. If `cancellationReason !== null`: abandon any parked LLM turn via `abandonParkedTurn()` (the LLM may have transitioned to `waiting_tool` after `cancel()` ran), reset `cancellationReason = null`, `toolInFlight = null`, `turnAbort = null`, and return without sending an event. The promise was already settled by `cancel()`. The queued `cancel` dispatches.
+2. Otherwise: resolve/reject `pendingTurn`, set `pendingTurn = null`, reset `toolInFlight = null`, `turnAbort = null`, send `done`/`failed`.
 
 Both paths reset all per-turn state. `idle` never carries stale cancellation state into the next turn.
 
@@ -126,8 +150,9 @@ This is consistent with the autonomous side, where `CardActor` owns the processo
 
 | Issue | What Changes |
 | --- | --- |
-| Loop cancellation | Add `cancellationReason` flag; loop checks it before each provider turn and tool dispatch |
-| Settlement gate | Replace identity check with explicit flag, matching `CardActor.#cancellation` |
+| Loop cancellation | Per-turn `AbortController` aborted by `cancel()`; signal flows to tool executors; `cancellationReason` flag checked between steps as fallback |
+| Tool surface | `executor` gains `AbortSignal` parameter, complementing `replay`; tool owns invocation, interruption, and recovery |
+| Settlement gate | Explicit `cancellationReason` flag matching `CardActor.#cancellation`; both paths reset all per-turn state |
 | Transcript writes | Remove `appendAssistantTextMessage`; feed repair directives through LLM actor; don't persist partial-success or duplicate error rows |
 | ConversationLLMActor | Move `activeReconstruction`, `snapshot()`, and reconstruction methods to `LLMActor`; base is truly minimal |
 | toolInFlight | Track and project the tool currently being dispatched |
