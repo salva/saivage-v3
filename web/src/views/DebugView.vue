@@ -201,12 +201,24 @@
               <div v-if="agentDebugContentLoading" class="debug-loading">Loading agent file...</div>
               <div v-else-if="agentDebugContentError" class="debug-error">{{ agentDebugContentError }}</div>
               <div v-else-if="!selectedAgentDebugPath" class="debug-empty">Select a session and an available file type.</div>
-              <ConversationTimeline
+              <div
                 v-else-if="selectedAgentDebugKind === 'conversation' && selectedAgentDebugConversation"
-                :timeline="agentDebugTimeline.timeline.value"
-                :expanded-ids="agentDebugTimeline.expandedIds.value"
-                @toggle="agentDebugTimeline.toggleExpanded"
-              />
+                ref="agentDebugTimeline.scrollAreaRef"
+                class="agent-debug-conversation"
+                @scroll="agentDebugTimeline.handleTimelineScroll"
+              >
+                <ConversationTimeline
+                  :timeline="agentDebugTimeline.timeline.value"
+                  :expanded-ids="agentDebugTimeline.expandedIds.value"
+                  @toggle="agentDebugTimeline.toggleExpanded"
+                />
+                <button
+                  v-if="!agentDebugTimeline.pinnedToLatest.value"
+                  type="button"
+                  class="agent-debug-jump-latest"
+                  @click="agentDebugTimeline.jumpToLatest"
+                >Jump to latest<span v-if="agentDebugTimeline.unseenRoundCount.value > 0"> · {{ agentDebugTimeline.unseenRoundCount.value }} new</span></button>
+              </div>
               <CodeBlock v-else :code="formattedAgentDebugContent" language="json" copyable wrap max-height="70vh" />
             </div>
           </div>
@@ -429,6 +441,10 @@ const agentDebugActivityStatus = computed<ActivityStatus | null>(() => {
 });
 const agentDebugTimeline = useAgentTimeline(agentDebugEntries, agentDebugActivityStatus);
 
+watch(() => [selectedAgentDebugSessionId.value, selectedAgentDebugKind.value] as const, () => {
+  agentDebugTimeline.resetScrollState();
+});
+
 watch(() => [route.name, route.query.tab, route.params.id] as const, () => {
   const tabFromRoute = route.name === 'process-detail' ? 'processes' : typeof route.query.tab === 'string' ? route.query.tab : 'state';
   if (tabs.some((tab) => tab.id === tabFromRoute)) setTabLocal(tabFromRoute as typeof localActiveTab.value);
@@ -580,6 +596,8 @@ onUnmounted(() => {
 .agent-debug-toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
 .agent-debug-toolbar .debug-tab-button:disabled { opacity:.45; cursor:not-allowed; }
 .agent-debug-path { margin-bottom:10px; color:var(--text-muted); word-break:break-all; }
+.agent-debug-conversation { max-height:70vh; overflow:auto; padding-right:4px; }
+.agent-debug-jump-latest { position:sticky; bottom:10px; left:50%; transform:translateX(-50%); border:1px solid var(--border); border-radius:999px; background:var(--surface-3); color:var(--accent-2); cursor:pointer; font:inherit; font-size:12px; padding:6px 12px; }
 .mcp-server-badge { font-size:10px; font-weight:600; padding:1px 5px; border-radius:4px; text-transform:uppercase; margin-left:8px; }
 .mcp-server-badge.mcp-status-running { background:var(--entry-accent-bg); color:var(--accent); }
 .mcp-server-badge.mcp-status-stopped { background:var(--surface-3); color:var(--text-muted); }

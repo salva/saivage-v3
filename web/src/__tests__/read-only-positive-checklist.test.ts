@@ -10,6 +10,7 @@ import cardDetailSource from '../components/cards/CardDetailView.vue?raw';
 import cardsTreeSource from '../components/cards/CardsTreeView.vue?raw';
 import agentConversationSource from '../components/agents/AgentConversationView.vue?raw';
 import analystChatPanelSource from '../components/chat/AnalystChatPanel.vue?raw';
+import agentTimelineSource from '../composables/useAgentTimeline.ts?raw';
 import CodeBlock from '../components/content/CodeBlock.vue';
 
 const removedMutationTokens = new RegExp([
@@ -78,6 +79,11 @@ describe('read-only positive checklist', () => {
     expect(agentConversationSource).toContain('ConversationTimeline');
     expect(analystChatPanelSource).toContain('ConversationTimeline');
     expect(analystChatPanelSource).toContain('useAgentTimeline');
+    expect(agentTimelineSource).toContain('jumpToLatest');
+    expect(agentTimelineSource).toContain('unseenRoundCount');
+    expect(agentConversationSource).toContain('Jump to latest');
+    expect(analystChatPanelSource).toContain('Jump to latest');
+    expect(debugViewSource).toContain('agentDebugTimeline.jumpToLatest');
     expect(analystChatPanelSource).not.toMatch(/state-panel|message-bubble|message-badges|pending-tool|chat-composer|composer-input|primary-btn/);
 
     // DebugView: passive tab switching, refresh/fetch, filtering, and file-browse navigation remain.

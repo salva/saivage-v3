@@ -5,7 +5,7 @@
     role="region"
     aria-label="Analyst chat"
   >
-    <div ref="scrollAreaRef" class="chat-scroll-area" data-testid="chat-scroll-container" @scroll="handleScroll">
+    <div ref="timelineControls.scrollAreaRef" class="chat-scroll-area" data-testid="chat-scroll-container" @scroll="timelineControls.handleTimelineScroll">
       <div v-if="sessionsLoading" class="chat-status-card" role="status">Loading analyst sessions…</div>
       <div v-else-if="sessionsError" class="chat-status-card chat-status-error" role="alert">{{ sessionsError.message }}</div>
 
@@ -36,6 +36,12 @@
         />
       </div>
     </div>
+    <button
+      v-if="!timelineControls.pinnedToLatest.value"
+      type="button"
+      class="jump-to-latest"
+      @click="timelineControls.jumpToLatest"
+    >Jump to latest<span v-if="timelineControls.unseenRoundCount.value > 0"> · {{ timelineControls.unseenRoundCount.value }} new</span></button>
 
     <form class="chat-input-panel" @submit.prevent="submitMessage">
       <textarea
@@ -89,26 +95,6 @@ const {
 } = storeToRefs(chat);
 
 const composerRef = ref<HTMLTextAreaElement | null>(null);
-const scrollAreaRef = ref<HTMLElement | null>(null);
-const STICK_TO_BOTTOM_THRESHOLD_PX = 64;
-let pinToBottom = true;
-
-function isNearBottom(el: HTMLElement): boolean {
-  return el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_TO_BOTTOM_THRESHOLD_PX;
-}
-
-function scrollToBottom(): void {
-  const el = scrollAreaRef.value;
-  if (!el) return;
-  el.scrollTop = el.scrollHeight;
-}
-
-function handleScroll(): void {
-  const el = scrollAreaRef.value;
-  if (!el) return;
-  pinToBottom = isNearBottom(el);
-}
-
 const timelineEntries = computed<AgentConversationEntry[]>(() => messages.value);
 const idleActivityStatus = computed<ActivityStatus | null>(() => null);
 const timelineControls = useAgentTimeline(timelineEntries, idleActivityStatus);
@@ -159,22 +145,21 @@ onMounted(() => {
   chat.fetchSessions()
     .then(() => chat.fetchMessages())
     .then(() => nextTick())
-    .then(() => scrollToBottom())
+    .then(() => timelineControls.scrollToLatest())
     .catch(() => {});
   handleFocusChat();
 });
 
 watch(
-  () => [messages.value.length, pendingToolInvocationsForActiveSession.value.length, timelineControls.timeline.value.rounds.length] as const,
+  () => [pendingToolInvocationsForActiveSession.value.length] as const,
   () => {
-    if (!pinToBottom) return;
-    void nextTick(() => scrollToBottom());
+    if (!timelineControls.pinnedToLatest.value) return;
+    void nextTick(() => timelineControls.scrollToLatest());
   },
 );
 
 watch(activeSessionId, () => {
-  pinToBottom = true;
-  void nextTick(() => scrollToBottom());
+  timelineControls.resetScrollState();
 });
 
 onBeforeUnmount(() => {
@@ -289,6 +274,20 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.jump-to-latest {
+  align-self: center;
+  margin: 0 0 -1px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--accent-2);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 12px;
+  z-index: 1;
 }
 
 .chat-input-field {
