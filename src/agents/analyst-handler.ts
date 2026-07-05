@@ -34,6 +34,7 @@ import { createCardInspectionProvider } from '../tools/card-inspection-provider.
 import { createCardHistoryProvider } from '../tools/card-history-provider.js';
 import type { ProcessRunner } from '../runtime/process-runner.js';
 import { BaseActor, type ActorDefinition } from '../runtime/micro-actor/index.js';
+import { deferred, type Deferred } from '../runtime/actors/deferred.js';
 
 
 export interface WorkspaceContext {
@@ -192,8 +193,6 @@ function transientAssistantResponse(sessionId: string, content: string, toolInvo
 type PendingAnalystTurn = {
   input: AnalystTurnInput;
   onActivity?: ActivityCallback;
-  resolve: (result: AnalystTurnResult) => void;
-  reject: (error: Error) => void;
 };
 
 export class AnalystSessionActor extends BaseActor {
@@ -207,6 +206,7 @@ export class AnalystSessionActor extends BaseActor {
 
   private readonly llm: ConversationLLMActor;
   private pendingTurn: PendingAnalystTurn | null = null;
+  private result: Deferred<AnalystTurnResult> | null = null;
   private turnAbort: AbortController | null = null;
   private cancellationReason: string | null = null;
   private toolInFlight: string | null = null;
@@ -233,22 +233,23 @@ export class AnalystSessionActor extends BaseActor {
 
   submit(input: AnalystTurnInput, onActivity?: ActivityCallback): Promise<AnalystTurnResult> {
     if (!this.started) return Promise.reject(new Error(`Analyst session '${this.sessionId}' has not started.`));
-    if (this.state() !== 'idle' || this.pendingTurn) return Promise.reject(new Error(`Analyst session '${this.sessionId}' already has an active turn.`));
-    return new Promise<AnalystTurnResult>((resolve, reject) => {
-      this.pendingTurn = { input, onActivity, resolve, reject };
-      this.parkedSendEvent('submit');
-    });
+    if (this.state() !== 'idle' || this.result) return Promise.reject(new Error(`Analyst session '${this.sessionId}' already has an active turn.`));
+    this.pendingTurn = { input, onActivity };
+    this.result = deferred<AnalystTurnResult>();
+    this.parkedSendEvent('submit');
+    return this.result.promise;
   }
 
   cancel(reason: string): boolean {
-    const turn = this.pendingTurn;
-    if (this.state() !== 'conversing' || !turn) return false;
+    const result = this.result;
+    if (this.state() !== 'conversing' || !result) return false;
     const timestamp = new Date().toISOString();
     this.cancellationReason = reason;
     this.turnAbort?.abort(new Error(reason));
     this.pendingTurn = null;
+    this.result = null;
     this.lastOutcome = 'cancelled';
-    turn.resolve({ sessionId: this.sessionId, cancelled: true, message: { id: `${this.sessionId}:cancelled:${timestamp}`, role: 'assistant', kind: 'text', content: `Cancelled: ${reason}`, timestamp } });
+    result.resolve({ sessionId: this.sessionId, cancelled: true, message: { id: `${this.sessionId}:cancelled:${timestamp}`, role: 'assistant', kind: 'text', content: `Cancelled: ${reason}`, timestamp } });
     this.sendEvent('cancel');
     return true;
   }
@@ -259,22 +260,24 @@ export class AnalystSessionActor extends BaseActor {
 
   _on_enter__conversing(): void {
     const turn = this.pendingTurn;
-    if (!turn) throw new Error(`Analyst session '${this.sessionId}' entered conversing without a pending turn.`);
+    const result = this.result;
+    if (!turn || !result) throw new Error(`Analyst session '${this.sessionId}' entered conversing without a pending turn.`);
     const turnAbort = new AbortController();
     this.turnAbort = turnAbort;
     this.cancellationReason = null;
     this.toolInFlight = null;
     this.runTask(() => this.runAnalystLoop(turn.input, turnAbort.signal), {
-      on_done: (result) => {
+      on_done: (response) => {
         this.cleanupTurnState();
         if (this.cancellationReason !== null) {
           this.resetCancellationState();
           return;
         }
-        if (this.pendingTurn !== turn) return;
+        if (this.result !== result) return;
         this.pendingTurn = null;
+        this.result = null;
         this.lastOutcome = 'completed';
-        turn.resolve(result);
+        result.resolve(response);
         this.sendEvent('done');
       },
       on_failed: (error) => {
@@ -283,10 +286,11 @@ export class AnalystSessionActor extends BaseActor {
           this.resetCancellationState();
           return;
         }
-        if (this.pendingTurn !== turn) return;
+        if (this.result !== result) return;
         this.pendingTurn = null;
+        this.result = null;
         this.lastOutcome = 'failed';
-        turn.reject(error);
+        result.reject(error);
         this.sendEvent('failed');
       },
     });

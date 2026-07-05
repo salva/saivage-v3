@@ -3,23 +3,18 @@ import type { CardActivationInput, CardActivationOutcome, CardProcessorActor } f
 import { processorActorId } from './ids.js';
 import { saveActorSnapshot } from './snapshots.js';
 import type { ProcessorActiveReconstructionRecord } from './active-reconstruction.js';
+import { deferred, type Deferred } from './deferred.js';
 
 export type CardProcessorOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
-
-type PendingActivation = {
-  input: CardActivationInput;
-  signal: AbortSignal;
-  promise: Promise<CardProcessorOutcome>;
-  resolve: (outcome: CardProcessorOutcome) => void;
-  reject: (error: Error) => void;
-};
 
 export abstract class BaseCardProcessorActor extends BaseActor implements CardProcessorActor {
   readonly projectRoot: string;
   readonly cardId: string;
   outcome: CardProcessorOutcome | null = null;
   activeReconstruction: ProcessorActiveReconstructionRecord | null = null;
-  #pending: PendingActivation | null = null;
+  #result: Deferred<CardProcessorOutcome> | null = null;
+  #activationInput: CardActivationInput | null = null;
+  #activationSignal: AbortSignal | null = null;
   #activationCounter = 0;
 
   protected constructor(args: { projectRoot: string; cardId: string }) {
@@ -29,58 +24,29 @@ export abstract class BaseCardProcessorActor extends BaseActor implements CardPr
   }
 
   activate(input: CardActivationInput, signal: AbortSignal): Promise<CardProcessorOutcome> {
-    if (this.#pending && this.isActiveState(this.state())) return this.#pending.promise;
-    if (this.#pending) return Promise.reject(new Error(`${this.processorLabel} '${this.cardId}' already has a pending activation.`));
+    if (this.#result && this.isActiveState(this.state())) return this.#result.promise;
+    if (this.#result) return Promise.reject(new Error(`${this.processorLabel} '${this.cardId}' already has a pending activation.`));
     if (!this.canActivateFrom(this.state())) return Promise.reject(new Error(`${this.processorLabel} '${this.cardId}' cannot activate from '${this.state()}'.`));
-    return new Promise<CardProcessorOutcome>((resolve, reject) => {
-      this.#activationCounter++;
-      this.#pending = { input, signal, resolve, reject, promise: null as unknown as Promise<CardProcessorOutcome> };
-      this.#pending.promise = new Promise<CardProcessorOutcome>((resolvePromise, rejectPromise) => {
-        this.#pending!.resolve = (outcome) => { resolve(outcome); resolvePromise(outcome); };
-        this.#pending!.reject = (error) => { reject(error); rejectPromise(error); };
-      });
-      this.activeReconstruction = {
-        schema_version: 1,
-        kind: 'processor_activation',
-        processor_kind: this.processorKind,
-        card_id: this.cardId,
-        caller: input.caller,
-        activation_counter: this.#activationCounter,
-        started_at: new Date().toISOString(),
-      };
-      this.parkedSendEvent('activate');
-    });
+    this.beginActivation(input, signal);
+    this.parkedSendEvent('activate');
+    return this.#result!.promise;
   }
 
   recoverActive(state: string, input: CardActivationInput, signal: AbortSignal): Promise<CardProcessorOutcome> {
-    if (this.#pending) return this.#pending.promise;
+    if (this.#result) return this.#result.promise;
     if (!this.isActiveState(state)) throw new Error(`${this.processorLabel} '${this.cardId}' cannot recover active state '${state}'.`);
-    let resolvePending!: (outcome: CardProcessorOutcome) => void;
-    let rejectPending!: (error: Error) => void;
-    const promise = new Promise<CardProcessorOutcome>((resolve, reject) => {
-      resolvePending = resolve;
-      rejectPending = reject;
-    });
-    this.#pending = { input, signal, resolve: resolvePending, reject: rejectPending, promise };
-    this.activeReconstruction = {
-      schema_version: 1,
-      kind: 'processor_activation',
-      processor_kind: this.processorKind,
-      card_id: this.cardId,
-      caller: input.caller,
-      activation_counter: this.#activationCounter,
-      started_at: new Date().toISOString(),
-    };
+    this.beginActivation(input, signal);
     this.parkedSendEvent('activate');
-    return promise;
+    return this.#result!.promise;
   }
 
   protected runPendingActivation(stateLabel: string, run: (input: CardActivationInput, signal: AbortSignal) => Promise<CardProcessorOutcome>): void {
-    const pending = this.#pending;
-    if (!pending) throw new Error(`${this.processorLabel} '${this.cardId}' entered ${stateLabel} without activation input.`);
-    this.runTask(() => run(pending.input, pending.signal), {
-      on_done: (outcome) => this.settlePending(pending, outcome, outcome.status),
-      on_failed: (error) => this.settlePending(pending, this.activationFailureOutcome(error.message), 'failed'),
+    if (!this.#result || !this.#activationInput || !this.#activationSignal) throw new Error(`${this.processorLabel} '${this.cardId}' entered ${stateLabel} without activation input.`);
+    const input = this.#activationInput;
+    const signal = this.#activationSignal;
+    this.runTask(() => run(input, signal), {
+      on_done: (outcome) => this.finishActivation(outcome),
+      on_failed: (error) => this.finishActivation(this.activationFailureOutcome(error.message)),
     });
   }
 
@@ -119,20 +85,38 @@ export abstract class BaseCardProcessorActor extends BaseActor implements CardPr
   protected onActivationSettled(_outcome: CardProcessorOutcome): void {
   }
 
+  private beginActivation(input: CardActivationInput, signal: AbortSignal): void {
+    this.#activationCounter++;
+    this.#activationInput = input;
+    this.#activationSignal = signal;
+    this.#result = deferred<CardProcessorOutcome>();
+    this.activeReconstruction = {
+      schema_version: 1,
+      kind: 'processor_activation',
+      processor_kind: this.processorKind,
+      card_id: this.cardId,
+      caller: input.caller,
+      activation_counter: this.#activationCounter,
+      started_at: new Date().toISOString(),
+    };
+  }
+
+  private finishActivation(outcome: CardProcessorOutcome): void {
+    this.outcome = outcome;
+    this.activeReconstruction = null;
+    this.onActivationSettled(outcome);
+    this.#result?.resolve(outcome);
+    this.#result = null;
+    this.#activationInput = null;
+    this.#activationSignal = null;
+    this.sendEvent(outcome.status);
+  }
+
   private canActivateFrom(state: string): boolean {
     return state === 'idle' || state === 'settled';
   }
 
   private isActiveState(state: string): boolean {
     return state !== 'idle' && state !== 'settled';
-  }
-
-  private settlePending(pending: PendingActivation, outcome: CardProcessorOutcome, event: string): void {
-    this.outcome = outcome;
-    this.activeReconstruction = null;
-    this.onActivationSettled(outcome);
-    pending.resolve(outcome);
-    this.#pending = null;
-    this.sendEvent(event);
   }
 }
