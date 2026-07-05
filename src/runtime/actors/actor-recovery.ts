@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { AtomicJsonFile, ProjectLock } from '../../persistence/index.js';
 import { readActorSnapshots, removeActorSnapshot } from './snapshots.js';
 import type { ActorSnapshotRecord } from './snapshots.js';
-import type { CardRecord } from '../../schemas/index.js';
+import type { CardRecord, CardStatus } from '../../schemas/index.js';
 import type { CardActiveReconstructionRecord, LlmActiveReconstructionRecord, ProcessorActiveReconstructionRecord } from './active-reconstruction.js';
 import { readCardActiveReconstruction, readLlmActiveReconstruction, readProcessorActiveReconstruction } from './active-reconstruction.js';
 import { parseCardActorId, parseLlmActorId, parseProcessorActorId } from './ids.js';
@@ -12,7 +12,7 @@ import { parseCardActorState, readSupervisorModeValue } from './actor-vocabulary
 import type { LlmActorRole } from './actor-vocabulary.js';
 import { cardActivationOutcomePatch, type CardActivationOutcome } from './card-actor.js';
 import type { LLMActorOutcome } from './llm-actor.js';
-import { abandonStalePendingToolCalls, appendTerminalToolProjectedStatus, readLoggedToolCall } from './llm-delivery-log.js';
+import { abandonStalePendingToolCalls, appendTerminalToolProjectedStatus, appendToolDelivery, readLoggedToolCall } from './llm-delivery-log.js';
 import { createPlannerContract, type PlannerTypedResult } from '../../contracts/planner-contract.js';
 import { createExecutorContract } from '../../contracts/executor-contract.js';
 import { createReviewerContract } from '../../contracts/reviewer-contract.js';
@@ -30,13 +30,14 @@ export interface ActorRecoveryCardReader {
 export interface ActorRecoveryOutcomeStore {
   read(cardId: string): CardRecord | null;
   listChildren?(cardId: string): string[];
+  setStatus(cardId: string, status: CardStatus): CardRecord;
   commitTerminalLifecyclePatch(cardId: string, changes: Partial<CardRecord>): CardRecord;
 }
 
 export interface ActorRecoveryOutcomeConversion {
   cardId: string;
   actorIds: string[];
-  status: Exclude<CardActivationOutcome, { status: 'cancelled' }>['status'];
+  status: CardStatus;
   reason: string;
 }
 
@@ -289,9 +290,80 @@ export function cleanupCancelledCardSnapshots(projectRoot: string, plan: ActorRe
 
 export function recoverActorStartupOutcomes(plan: ActorRecoveryPlan, deps: ActorRecoveryTerminalProjectionDeps): ActorRecoveryOutcomeConversion[] {
   const projected = recoverProjectedTerminalToolOutcomes(plan, deps);
-  const projectedCardIds = new Set(projected.map((recovery) => recovery.cardId));
-  const converted = convertActorRecoveryOutcomes(omitRecoveredCards(plan, projectedCardIds), deps.store, deps.generatedAt ?? new Date().toISOString());
-  return [...projected, ...converted];
+  const actorBacked = recoverActorBackedToolCalls(omitRecoveredCards(plan, new Set(projected.map((recovery) => recovery.cardId))), deps);
+  const recoveredCardIds = new Set([...projected, ...actorBacked].map((recovery) => recovery.cardId));
+  const converted = convertActorRecoveryOutcomes(omitRecoveredCards(plan, recoveredCardIds), deps.store, deps.generatedAt ?? new Date().toISOString());
+  return [...projected, ...actorBacked, ...converted];
+}
+
+export function recoverActorBackedToolCalls(plan: ActorRecoveryPlan, deps: ActorRecoveryTerminalProjectionDeps): ActorRecoveryOutcomeConversion[] {
+  const recovered: ActorRecoveryOutcomeConversion[] = [];
+  for (const llm of plan.llms) {
+    if (llm.cardId === null) continue;
+    if (!llm.active || llm.snapshot.state_value !== 'waiting_tool' || !llm.activeReconstruction?.waiting_tool_call) continue;
+    const processor = plan.processors.find((candidate) => candidate.active && candidate.cardId === llm.cardId);
+    const cardSnapshot = plan.cards.find((candidate) => candidate.active && candidate.cardId === llm.cardId);
+    if (!processor?.activeReconstruction || !cardSnapshot?.activeReconstruction) continue;
+    const parent = deps.store.read(llm.cardId);
+    if (!parent || parent.status !== 'running') continue;
+    const waiting = llm.activeReconstruction.waiting_tool_call;
+    const logged = readLoggedToolCall(deps.projectRoot, llm.activeReconstruction.input.sessionId, llm.actorId, waiting.sourceInputId, waiting.toolCallId);
+    if (logged.tool_name !== waiting.toolName) throw new Error(`Logged tool call '${waiting.toolCallId}' tool name changed from '${waiting.toolName}' to '${logged.tool_name}'.`);
+    if (logged.tool_name !== 'activate_card') continue;
+    const childId = logged.args && typeof logged.args === 'object' && typeof (logged.args as { card_id?: unknown }).card_id === 'string'
+      ? (logged.args as { card_id: string }).card_id
+      : null;
+    if (!childId) continue;
+    const child = deps.store.read(childId);
+    if (!child || child.parent !== parent.id) continue;
+    const result = activateCardRecoveryResult(child);
+    if (!result) continue;
+    appendToolDelivery(deps.projectRoot, {
+      agent_id: llm.actorId,
+      session_id: llm.activeReconstruction.input.sessionId,
+      source_input_id: waiting.sourceInputId,
+      delivery_input_id: `${waiting.sourceInputId}:tool:recovered`,
+      tool_call_id: waiting.toolCallId,
+      tool_name: waiting.toolName,
+      result,
+    });
+    const updatedParent = deps.store.setStatus(parent.id, 'changed');
+    recovered.push({
+      cardId: updatedParent.id,
+      actorIds: [cardSnapshot.snapshot.actor_id, processor.actorId, llm.actorId, ...activeActorIdsForCard(plan, childId)].sort(),
+      status: 'changed',
+      reason: `Startup recovery reconstructed activate_card('${childId}') from the child actor lifecycle and reopened the parent planner card.`,
+    });
+  }
+  return recovered;
+}
+
+function activateCardRecoveryResult(child: CardRecord): { success: true; data: { card_id: string; outcome: CardStatus; summary: string; result: Record<string, unknown> | null } } | null {
+  if (child.status !== 'done' && child.status !== 'failed' && child.status !== 'blocked') return null;
+  return {
+    success: true,
+    data: {
+      card_id: child.id,
+      outcome: child.status,
+      summary: cardLifecycleSummary(child),
+      result: child.lifecycle?.result ?? null,
+    },
+  };
+}
+
+function cardLifecycleSummary(card: CardRecord): string {
+  const summary = card.lifecycle?.result?.summary;
+  if (typeof summary === 'string' && summary.length > 0) return summary;
+  if (typeof card.status_text === 'string' && card.status_text.length > 0) return card.status_text;
+  return `Child card '${card.id}' finished with status '${card.status}'.`;
+}
+
+function activeActorIdsForCard(plan: ActorRecoveryPlan, cardId: string): string[] {
+  return [
+    ...plan.cards.filter((card) => card.cardId === cardId && card.active).map((card) => card.snapshot.actor_id),
+    ...plan.processors.filter((processor) => processor.cardId === cardId && processor.active).map((processor) => processor.actorId),
+    ...plan.llms.filter((llm) => llm.cardId === cardId && llm.active).map((llm) => llm.actorId),
+  ];
 }
 
 export function recoverProjectedTerminalToolOutcomes(plan: ActorRecoveryPlan, deps: ActorRecoveryTerminalProjectionDeps): ActorRecoveryOutcomeConversion[] {
