@@ -56,11 +56,13 @@ No store-status-to-actor-state mapping. No redundant declarative check.
 
 1. If `this.state() === 'cancelled'`, return (no-op).
 2. If store status is `done`, return (no-op — done cards are not cancelled).
-3. Write `cancelled` to store.
-4. If running: abort activation, resolve deferred, send `cancel`.
-5. If parked: send `cancel`.
+3. Set `cancelReason`, call `cancelDescendants()`.
+4. Write `cancelled` to store.
+5. If running: abort activation, resolve deferred, clear active reconstruction and activation state.
+6. Send `cancel`.
+7. Persist.
 
-One authority per check. No `card.status === 'done' || this.state() === 'done'`.
+Both running and parked paths cancel descendants. One authority per check. No `card.status === 'done' || this.state() === 'done'`.
 
 ### `markChanged()`
 
@@ -82,6 +84,10 @@ No actor event. For inactive cards the actor is already `parked`; reopening is r
 ### `_on_enter__running()`
 
 Unchanged: writes `running` to store, starts processor task via `runTask`.
+
+### `awaitSettlement()`
+
+Unchanged. It already reads terminal status from the store (`done`/`failed`/`blocked`/`cancelled`) and resolves or rejects accordingly. The collapse does not affect it.
 
 ### Recovery (`fromCard`)
 
