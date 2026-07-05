@@ -27,24 +27,9 @@ The `AnalystSessionActor` state machine (`idle` parked, `conversing` active), th
 
 Two mechanisms work together: a `cancellationReason` flag for between-step checks, and a per-turn `AbortSignal` for mid-tool cancellation. The signal flows into tool executors, so long-running tools (process spawns, HTTP requests) can stop immediately instead of running to completion.
 
-**Tool-surface change (shared with the recovery design):**
+**Tool-surface change (defined in `interrupted-activation-recovery-design.md` §3.10):**
 
-The `executor` signature on `ToolDefinition` gains an `AbortSignal`:
-
-```ts
-readonly executor: (args: Args, signal: AbortSignal) => Promise<ToolResult>;
-```
-
-This complements the `replay` method from the interrupted-activation-recovery design. Together they give the tool surface authority over all three phases of a tool call: invocation (`executor`), interruption (`signal`), and recovery (`replay`). The tool owns the knowledge of how to handle its own interruption — no external layer kills processes or synthesizes results on its behalf.
-
-Existing executors that ignore the signal simply don't name the parameter; TypeScript allows fewer parameters, so the change is non-breaking in practice. Tools opt into cancellation individually:
-
-- `run_command`: pass the signal to `child_process.spawn({ signal })`. Node kills the process.
-- `websearch` / `webfetch`: pass to `fetch({ signal })`. The request aborts.
-- `wait_process`: check `signal.aborted` in the polling loop.
-- Fast tools (`read`, `write`, `glob`, etc.): ignore. Between-step flag checks are sufficient.
-
-`invokeTool` and `invokeToolCall` gain an optional `signal` parameter they forward to the executor.
+The `executor` signature gains an `AbortSignal` parameter, complementing `replay`. Together they give the tool surface authority over all three phases of a tool call: invocation (`executor`), interruption (`signal`), and recovery (`replay`). Signal-aware tools (`run_command`, `webfetch`, etc.) stop immediately when cancelled; fast tools ignore the signal and rely on between-step flag checks.
 
 **Analyst session actor:**
 
@@ -151,7 +136,7 @@ This is consistent with the autonomous side, where `CardActor` owns the processo
 | Issue | What Changes |
 | --- | --- |
 | Loop cancellation | Per-turn `AbortController` aborted by `cancel()`; signal flows to tool executors; `cancellationReason` flag checked between steps as fallback |
-| Tool surface | `executor` gains `AbortSignal` parameter, complementing `replay`; tool owns invocation, interruption, and recovery |
+| Tool surface | `executor` gains `AbortSignal` parameter — defined in `interrupted-activation-recovery-design.md` §3.10 |
 | Settlement gate | Explicit `cancellationReason` flag matching `CardActor.#cancellation`; both paths reset all per-turn state |
 | Transcript writes | Remove `appendAssistantTextMessage`; feed repair directives through LLM actor; don't persist partial-success or duplicate error rows |
 | ConversationLLMActor | Move `activeReconstruction`, `snapshot()`, and reconstruction methods to `LLMActor`; base is truly minimal |
