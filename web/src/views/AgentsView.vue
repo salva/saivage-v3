@@ -1,14 +1,14 @@
 <template>
-  <div class="agents-layout">
-    <div v-if="selectedSessionId" class="agent-detail-view">
-      <div class="detail-header-bar">
-        <button class="back-btn" @click="backToAgents">Back to Agents</button>
-        <span class="agent-session-id">{{ selectedSessionId }}</span>
-      </div>
-      <AgentConversationView :session-id="selectedSessionId" />
-    </div>
-
-    <template v-else>
+  <EntityInspectorShell
+    :selected="!!selectedSessionId"
+    list-label="Agent sessions"
+    detail-label="Agent conversation"
+    empty-title="Select an agent session to inspect"
+    back-label="Back to Agents"
+    :detail-title="selectedSessionId"
+    @back="backToAgents"
+  >
+    <template #list>
       <ViewState v-if="loading" class="agents-loading" state="loading" title="Loading agents" />
       <ViewState v-else-if="unauthorized" class="agents-unauthorized" state="unauthorized" title="Agent sessions unavailable" message="Provide a valid API token to load agent sessions." />
       <ViewState v-else-if="errorMsg" class="agents-error" state="error" title="Could not load agents" :message="errorMsg" />
@@ -28,6 +28,7 @@
                 :key="session.id"
                 class="session-card"
                 :class="'status-' + session.status"
+                :selected="selectedSessionId === session.id"
                 @select="selectSession(session.id)"
               >
                 <div class="session-top">
@@ -49,7 +50,11 @@
         <ViewState v-if="roleEntries.length === 0" class="agents-empty" state="empty" title="No agent sessions recorded yet" />
       </div>
     </template>
-  </div>
+
+    <template #detail>
+      <AgentConversationView v-if="selectedSessionId" :session-id="selectedSessionId" />
+    </template>
+  </EntityInspectorShell>
 </template>
 
 <script setup lang="ts">
@@ -62,6 +67,7 @@ import { createLogger } from '../utils/logger';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../utils/timestamp';
 import { statusForAgentSession } from '../utils/status';
 import AgentConversationView from '../components/agents/AgentConversationView.vue';
+import EntityInspectorShell from '../components/layout/EntityInspectorShell.vue';
 import SelectableRow from '../components/ui/SelectableRow.vue';
 import StatusBadge from '../components/ui/StatusBadge.vue';
 import StatusBanner from '../components/ui/StatusBanner.vue';
@@ -103,10 +109,9 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.agents-layout { height:100%; display:flex; flex-direction:column; }
-.agents-layout > :deep(.view-state) { padding:32px; justify-content:center; text-align:center; }
 .agents-content { flex:1; overflow-y:auto; padding:16px; }
 .agents-content > :deep(.status-banner) { margin:0 0 12px; }
+.agents-loading, .agents-unauthorized, .agents-error { padding:32px; justify-content:center; text-align:center; }
 .role-section { margin-bottom:20px; }
 .role-heading { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; color:var(--text); margin:0 0 10px 0; text-transform:capitalize; }
 .role-icon { font-size:11px; color:var(--text-muted); font-family:'SF Mono',monospace; }
@@ -124,9 +129,4 @@ onMounted(() => {
 .session-meta { display:flex; gap:12px; font-size:11px; color:var(--text-muted); margin-bottom:4px; }
 .session-goal,.session-card-ref { font-family:'SF Mono',monospace; }
 .session-time { font-size:11px; color:var(--border-strong); }
-.detail-header-bar { display:flex; align-items:center; gap:12px; padding:8px 16px; background:var(--surface-1); border-bottom:1px solid var(--border); flex-shrink:0; }
-.back-btn { background:none; border:1px solid var(--border); border-radius:4px; padding:4px 10px; color:var(--accent-2); font-size:12px; cursor:pointer; font-family:inherit; }
-.back-btn:hover { background:var(--surface-3); }
-.agent-session-id { font-size:11px; color:var(--border-strong); font-family:'SF Mono',monospace; }
-.agent-detail-view { height:100%; display:flex; flex-direction:column; overflow:hidden; }
 </style>
