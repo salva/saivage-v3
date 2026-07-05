@@ -426,6 +426,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
         if (llm.state() !== 'waiting_tool') continue;
         const outcome = llm.waitingToolOutcome();
         const replay = await cardActor.processor.replayWaitingToolCall(llm);
+        if (replay.kind === 'settled' && isInterruptedToolReplay(replay.result)) continue;
         if (replay.kind === 'settled') void llm.appendToolResult(outcome.toolCallId, replay.result);
       }
     }
@@ -453,6 +454,10 @@ export class SupervisorRuntimeApi implements RuntimeApi {
   private actorActiveWork(): ActorActiveWork {
     return 'none';
   }
+}
+
+function isInterruptedToolReplay(result: { success: boolean; error?: string }): boolean {
+  return result.success === false && typeof result.error === 'string' && result.error.startsWith('Runtime restarted before ');
 }
 
 export function createSupervisorRuntimeApi(options: SupervisorRuntimeApiOptions): RuntimeApi {
