@@ -1,37 +1,26 @@
 <template>
   <div class="files-layout">
-    <div
+    <StatusBanner
       v-if="isStale || unauthorized"
       class="files-status-banner"
-      :class="unauthorized ? 'entry-danger' : 'entry-warn'"
-      :role="unauthorized ? 'alert' : 'status'"
+      :tone="unauthorized ? 'unauthorized' : 'stale'"
+      :message="unauthorized ? 'API access is unauthorized. Re-enter a valid token to browse files; public docs at /docs/ remain available.' : 'File listing may be stale. Refresh to resync with the authoritative REST snapshot.'"
       data-testid="files-status-banner"
-    >
-      <template v-if="unauthorized">
-        API access is unauthorized. Re-enter a valid token to browse files; public docs at /docs/ remain available.
-      </template>
-      <template v-else>
-        File listing may be stale. Refresh to resync with the authoritative REST snapshot.
-      </template>
-    </div>
+    />
 
-    <div v-if="listError" class="entry-danger files-status-banner" role="alert" data-testid="files-list-error">
-      {{ listError }}
-    </div>
+    <StatusBanner v-if="listError" class="files-status-banner" tone="danger" :message="listError" data-testid="files-list-error" />
 
-    <section class="file-browser" :aria-label="activeRootLabel" data-testid="files-canonical-panel">
-      <div class="panel-header">
-        <div>
-          <h3 class="panel-title">{{ activeRootLabel }}</h3>
-          <span class="code-inline root-label">{{ activeRootPath }}/</span>
-        </div>
-        <div class="root-switcher" role="group" aria-label="File root">
-          <button class="pill" :aria-pressed="activeRoot === 'meta'" @click="goToRoot('meta')">Metadata</button>
-          <button class="pill" :aria-pressed="activeRoot === 'output'" @click="goToRoot('output')">Output</button>
-        </div>
-        <button class="btn refresh-button" :disabled="activeLoading" title="Refresh" data-testid="files-refresh" @click="refreshActiveRoot">↻</button>
-      </div>
-
+    <Panel as="section" class="file-browser" :padded="false" :aria-label="activeRootLabel" data-testid="files-canonical-panel">
+      <PanelHeader :title="activeRootLabel">
+        <template #meta><span class="code-inline root-label">{{ activeRootPath }}/</span></template>
+        <template #actions>
+          <div class="root-switcher" role="group" aria-label="File root">
+            <button class="pill" :aria-pressed="activeRoot === 'meta'" @click="goToRoot('meta')">Metadata</button>
+            <button class="pill" :aria-pressed="activeRoot === 'output'" @click="goToRoot('output')">Output</button>
+          </div>
+          <button class="btn refresh-button" :disabled="activeLoading" title="Refresh" data-testid="files-refresh" @click="refreshActiveRoot">↻</button>
+        </template>
+      </PanelHeader>
       <div class="file-breadcrumbs" data-testid="files-breadcrumbs">
         <button
           v-for="(crumb, idx) in activeBreadcrumbs"
@@ -42,28 +31,28 @@
         >{{ crumb.label }}</button>
       </div>
 
-      <div v-if="activeLoading" class="loading-state" data-testid="files-loading">Loading...</div>
+      <ViewState v-if="activeLoading" class="loading-state" state="loading" title="Loading files" data-testid="files-loading" />
       <div v-else class="file-list" data-testid="files-list">
-        <button
+        <SelectableRow
           v-for="entry in activeFiles"
           :key="entry.path"
           class="file-entry"
           :class="{ 'is-dir': entry.type === 'directory' }"
-          @click="openEntry(entry)"
+          @select="openEntry(entry)"
         >
           <span class="entry-icon">{{ entry.type === 'directory' ? '📁' : fileIcon(entry.name) }}</span>
           <span class="entry-name">{{ entry.name }}</span>
           <span v-if="entry.type === 'file' && entry.size != null" class="entry-size">{{ fmtSize(entry.size) }}</span>
           <span class="entry-modified" :title="timestampTitle(entry.modifiedAt)">{{ fmtDate(entry.modifiedAt) }}</span>
-        </button>
-        <div v-if="activeFiles.length === 0 && !activeLoading" class="empty-state" data-testid="files-empty">No files</div>
+        </SelectableRow>
+        <ViewState v-if="activeFiles.length === 0 && !activeLoading" class="empty-state" state="empty" title="No files" data-testid="files-empty" />
       </div>
 
       <div v-if="activeRoot === 'output'" class="quarantine-footer">
         <div class="quarantine-footer-label">Quarantine</div>
         <button class="btn quarantine-footer-btn" @click="goToPath('output', '.saivage-work/quarantine')">Browse .saivage-work/quarantine/</button>
       </div>
-    </section>
+    </Panel>
 
     <section v-if="cardChildren.length > 0" class="card-children-listing" data-testid="files-view-card-children">
       <h3 class="panel-title">Current Card Children</h3>
@@ -76,17 +65,13 @@
     </section>
 
     <div v-if="viewedFilePath" class="file-viewer" data-testid="files-viewer">
-      <div class="viewer-header">
-        <span class="viewer-path">{{ viewedFilePath }}</span>
-        <button class="btn viewer-close-btn" @click="fileStore.clearViewedFile()">X</button>
-      </div>
-      <div v-if="contentLoading" class="viewer-loading">Loading...</div>
-      <div v-else-if="viewerState !== 'ready'" class="viewer-state" :class="viewerStateClass">
-        <strong>{{ viewerStateTitle }}</strong>
-        <span>{{ viewerStateMessage }}</span>
-      </div>
+      <PanelHeader class="viewer-header" :title="viewedFilePath">
+        <template #actions><button class="btn viewer-close-btn" @click="fileStore.clearViewedFile()">X</button></template>
+      </PanelHeader>
+      <ViewState v-if="contentLoading" class="viewer-loading" state="loading" title="Loading preview" />
+      <ViewState v-else-if="viewerState !== 'ready'" class="viewer-state" :class="viewerStateClass" :state="viewerStateTone === 'danger' ? 'error' : 'stale'" :tone="viewerStateTone" :title="viewerStateTitle" :message="viewerStateMessage" />
       <div v-else-if="viewedFile" class="viewer-content">
-        <div v-if="viewedFile.redacted" class="viewer-redaction-notice">Sensitive values were redacted by the server.</div>
+        <StatusBanner v-if="viewedFile.redacted" class="viewer-redaction-notice" tone="neutral" message="Sensitive values were redacted by the server." />
         <CodeBlock v-if="isJsonContent" :code="prettyJsonContent" language="json" copyable />
         <MarkdownText v-else-if="isMarkdownContent" :source="viewedFile.content" />
         <CodeBlock v-else :code="viewedFile.content" language="text" copyable wrap />
@@ -107,7 +92,13 @@ import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../utils/tim
 import { formatJson } from '../utils/format-json';
 import CodeBlock from '../components/content/CodeBlock.vue';
 import MarkdownText from '../components/content/MarkdownText.vue';
+import Panel from '../components/ui/Panel.vue';
+import PanelHeader from '../components/ui/PanelHeader.vue';
+import SelectableRow from '../components/ui/SelectableRow.vue';
+import StatusBanner from '../components/ui/StatusBanner.vue';
+import ViewState from '../components/ui/ViewState.vue';
 import type { CardRecord, FileEntry } from '../types/view-models';
+import type { Tone } from '../utils/status';
 
 type FileRoot = 'meta' | 'output';
 
@@ -166,6 +157,12 @@ const viewerStateClass = computed(() => {
   return viewerState.value === 'blocked' || viewerState.value === 'error' || viewerState.value === 'missing'
     ? 'viewer-state-error'
     : 'viewer-state-warning';
+});
+
+const viewerStateTone = computed<Tone>(() => {
+  return viewerState.value === 'blocked' || viewerState.value === 'error' || viewerState.value === 'missing'
+    ? 'danger'
+    : 'warning';
 });
 
 const prettyJsonContent = computed(() => {
@@ -290,8 +287,10 @@ watch(() => [route.query.root, route.query.path], () => {
 
 <style scoped>
 .files-layout { height:100%; display:flex; flex-direction:column; overflow:hidden; }
-.files-status-banner { margin: 12px 12px 0; padding: 10px 12px; border-radius: 6px; font-size: 12px; }
-.file-browser { flex:1; display:flex; flex-direction:column; overflow:hidden; border-bottom:1px solid var(--border); }
+.files-status-banner { margin: 12px 12px 0; }
+.file-browser { flex:1; display:flex; flex-direction:column; overflow:hidden; border:0; border-bottom:1px solid var(--border); border-radius:0; }
+.file-browser :deep(.ui-panel-header) { padding:8px 12px; background:var(--surface-1); border-bottom:1px solid var(--border); margin-bottom:0; }
+.file-browser :deep(.ui-panel-header__meta) { margin-top:2px; }
 .panel-header { display:flex; align-items:center; gap:12px; padding:8px 12px; background:var(--surface-1); border-bottom:1px solid var(--border); flex-shrink:0; }
 .panel-title { font-size:12px; font-weight:600; color:var(--text); margin:0; }
 .root-label { font-size:10px; padding:2px 4px; }
@@ -299,9 +298,9 @@ watch(() => [route.query.root, route.query.path], () => {
 .root-switcher .pill, .crumb-button { cursor:pointer; padding:3px 8px; font-family:inherit; }
 .refresh-button { width:28px; height:28px; display:flex; align-items:center; justify-content:center; }
 .file-breadcrumbs { display:flex; align-items:center; gap:6px; padding:6px 12px; background:var(--bg); border-bottom:1px solid var(--surface-3); flex-shrink:0; overflow-x:auto; }
-.loading-state,.empty-state { padding:16px; text-align:center; color:var(--border-strong); font-size:12px; }
+.loading-state,.empty-state { padding:16px; justify-content:center; text-align:center; }
 .file-list { flex:1; overflow-y:auto; }
-.file-entry { width:100%; display:flex; align-items:center; gap:8px; padding:6px 12px; cursor:pointer; transition:background .1s; border:0; border-bottom:1px solid var(--surface-3); background:transparent; font-family:inherit; text-align:left; }
+.file-entry { gap:8px; padding:6px 12px; transition:background .1s; border-bottom:1px solid var(--surface-3); }
 .file-entry:hover { background:var(--surface-1); }
 .file-entry.is-dir .entry-name { color:var(--accent-2); font-weight:500; }
 .entry-icon { width:22px; text-align:center; flex-shrink:0; font-family:'SF Mono',monospace; color:var(--text-muted); font-size:10px; }
@@ -313,15 +312,13 @@ watch(() => [route.query.root, route.query.path], () => {
 .card-children-listing li { color:var(--text); font-size:12px; margin:4px 0; }
 .card-children-listing .status { color:var(--text-muted); margin-left:8px; }
 .file-viewer { border-top:1px solid var(--border); max-height:40%; overflow:hidden; display:flex; flex-direction:column; }
-.viewer-header { display:flex; align-items:center; justify-content:space-between; padding:6px 12px; background:var(--surface-1); border-bottom:1px solid var(--border); flex-shrink:0; }
-.viewer-path { font-size:11px; color:var(--accent-2); font-family:'SF Mono',monospace; }
+.viewer-header { padding:6px 12px; background:var(--surface-1); border-bottom:1px solid var(--border); flex-shrink:0; margin-bottom:0; }
+.viewer-header :deep(.ui-panel-header__title) { font-size:11px; color:var(--accent-2); font-family:'SF Mono',monospace; }
 .viewer-close-btn { width:24px; height:24px; display:flex; align-items:center; justify-content:center; }
-.viewer-loading { padding:16px; text-align:center; color:var(--border-strong); font-size:12px; }
-.viewer-state { padding: 16px; display:flex; flex-direction:column; gap:6px; font-size:12px; }
-.viewer-state-error { color:var(--danger); background:var(--entry-danger-bg); }
-.viewer-state-warning { color:var(--warn); background:var(--entry-warn-bg); }
+.viewer-loading { padding:16px; justify-content:center; text-align:center; }
+.viewer-state { padding: 16px; }
 .viewer-content { flex:1; overflow:auto; padding:12px; }
-.viewer-redaction-notice { margin-bottom:8px; padding:10px 12px; border-radius:6px; background:var(--entry-user-bg); color:var(--text); font-size:12px; }
+.viewer-redaction-notice { margin-bottom:8px; }
 .quarantine-footer { display:flex; align-items:center; gap:8px; padding:8px 12px; background:var(--surface-2); border-top:1px solid var(--border); flex-shrink:0; }
 .quarantine-footer-label { font-size:10px; font-weight:600; color:var(--warn); text-transform:uppercase; letter-spacing:.05em; }
 .quarantine-footer-btn { font-size:11px; font-family:'SF Mono',monospace; padding:3px 8px; }
