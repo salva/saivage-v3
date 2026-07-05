@@ -13,7 +13,7 @@ describe('CardDetailView S06 read-only detail contract', () => {
 
   it('surfaces record outputs through the dedicated records section', () => {
     expect(detailSource).toContain('CardRecordsSection');
-    expect(recordsSource).toContain('RecordDocument');
+    expect(recordsSource).toContain('DocumentFrame');
     expect(recordsSource).toContain("key: 'brief'");
     expect(recordsSource).toContain("key: 'status'");
     expect(recordsSource).toContain("key: 'review'");
@@ -26,6 +26,12 @@ describe('CardDetailView S06 read-only detail contract', () => {
 
   it('surfaces agent conversations tied to the card', () => {
     expect(detailSource).toContain('CardConversationsSection');
+  });
+
+  it('uses an in-app confirmation before replacing an existing analyst draft', () => {
+    expect(detailSource).toContain('confirmSeedVisible');
+    expect(detailSource).toContain('Replace Analyst draft?');
+    expect(detailSource).not.toContain('window.confirm');
   });
 
   it('does not expose direct card mutation controls or store actions', () => {

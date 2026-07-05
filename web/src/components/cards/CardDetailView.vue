@@ -126,6 +126,17 @@
         <CardHistoryPanel v-if="historyOpen" :card-id="currentCard.id" />
       </details>
     </template>
+
+    <Dialog :visible="confirmSeedVisible" title-id="card-seed-confirm-title" @dismiss="confirmSeedVisible = false">
+      <div class="seed-confirm-dialog">
+        <h2 id="card-seed-confirm-title">Replace Analyst draft?</h2>
+        <p>The Analyst composer already has an editable draft. Replace it with this card context?</p>
+        <div class="seed-confirm-actions">
+          <button type="button" class="banner-action" @click="cancelSeedAnalystForCard">Keep draft</button>
+          <button type="button" class="discuss-btn" @click="confirmSeedAnalystForCard">Replace draft</button>
+        </div>
+      </div>
+    </Dialog>
   </div>
 </template>
 
@@ -148,6 +159,7 @@ import EntityHeader from '../ui/EntityHeader.vue';
 import StatusBanner from '../ui/StatusBanner.vue';
 import StatusBadge from '../ui/StatusBadge.vue';
 import ViewState from '../ui/ViewState.vue';
+import Dialog from '../ui/Dialog.vue';
 import CodeBlock from '../content/CodeBlock.vue';
 import DocumentFrame from '../content/DocumentFrame.vue';
 import MarkdownText from '../content/MarkdownText.vue';
@@ -174,6 +186,7 @@ const detailError = computed<DetailErrorState | null>(() => currentDetailError.v
 
 const liveHighlighted = ref(false);
 const historyOpen = ref(false);
+const confirmSeedVisible = ref(false);
 let highlightTimer: ReturnType<typeof setTimeout> | null = null;
 
 function fmtDate(ts: string): string { return ts ? formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute') : ''; }
@@ -252,16 +265,28 @@ function clearHighlightTimer(): void {
 
 async function seedAnalystForCard(): Promise<void> {
   if (!currentCard.value) return;
-  if (analystChat.hasDraft && typeof window !== 'undefined') {
-    const shouldReseed = window.confirm('You have an in-progress analyst draft. Reseed the chat with this card context?');
-    if (!shouldReseed) {
-      window.dispatchEvent(new CustomEvent('saivage:focus-chat'));
-      return;
-    }
+  if (analystChat.hasDraft) {
+    confirmSeedVisible.value = true;
+    return;
   }
+  await applyAnalystCardSeed();
+}
+
+async function applyAnalystCardSeed(): Promise<void> {
+  if (!currentCard.value) return;
+  confirmSeedVisible.value = false;
   analystChat.seedCardContext(currentCard.value);
   await analystChat.fetchMessages(analystChat.activeSessionId).catch(() => {});
   window.dispatchEvent(new CustomEvent('saivage:focus-chat'));
+}
+
+function cancelSeedAnalystForCard(): void {
+  confirmSeedVisible.value = false;
+  window.dispatchEvent(new CustomEvent('saivage:focus-chat'));
+}
+
+function confirmSeedAnalystForCard(): void {
+  void applyAnalystCardSeed();
 }
 
 onMounted(async () => {
@@ -307,6 +332,10 @@ function actionLabel(action: string): string {
 .banner-action { padding:3px 10px; background:var(--surface-3); border:1px solid var(--border); color:var(--text); border-radius:4px; cursor:pointer; font:inherit; font-size:11px; }
 
 .discuss-btn { margin-left:auto; border:1px solid var(--accent-2); background:var(--bg); color:var(--accent-2); border-radius:999px; padding:6px 10px; cursor:pointer; }
+.seed-confirm-dialog { width:min(420px, calc(100vw - 32px)); border:1px solid var(--border); border-radius:12px; background:var(--surface-1); color:var(--text); padding:18px; box-shadow:0 18px 60px rgba(0,0,0,.35); }
+.seed-confirm-dialog h2 { margin:0 0 8px; font-size:18px; }
+.seed-confirm-dialog p { margin:0; color:var(--text-muted); font-size:13px; line-height:1.45; }
+.seed-confirm-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
 
 .hierarchy-row { display:flex; flex-direction:column; gap:6px; margin-bottom:10px; }
 .hierarchy-row:last-child { margin-bottom:0; }

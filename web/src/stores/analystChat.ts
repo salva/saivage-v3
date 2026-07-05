@@ -9,7 +9,7 @@ import {
 } from '../api/client';
 import { useWorkspaceRouteStore } from './workspaceRoute';
 import { useFeedbackStore } from './feedback';
-import { ANALYST_SESSION_ID, buildCardContextSeed, type SyntheticHintState } from './analyst-chat-context';
+import { ANALYST_SESSION_ID, buildCardContextSeed } from './analyst-chat-context';
 import {
   dedupePendingToolInvocations,
   normalizePendingSummary,
@@ -19,12 +19,6 @@ import {
 } from './analyst-chat-pending-tools';
 
 export { ANALYST_SESSION_ID } from './analyst-chat-context';
-
-interface TimelineBadge {
-  kind: 'card-history' | 'notification' | 'control-action' | 'tool-invoked';
-  label: string;
-  timestamp: string;
-}
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -81,10 +75,7 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
   const messagesError = ref<DetailErrorState | null>(null);
   const sending = ref(false);
   const sendError = ref<DetailErrorState | null>(null);
-  const syntheticHint = ref<SyntheticHintState>({ sessionId: null, content: null });
   const pendingToolInvocations = ref<PendingToolInvocation[]>([]);
-  const messageBadges = ref<Record<string, TimelineBadge[]>>({});
-  const pendingCardSeed = ref<{ sessionId: string; cardId: string } | null>(null);
 
   const hasDraft = computed(() => draft.value.trim().length > 0);
   const activeSession = computed(() => sessions.value.find((session) => session.id === activeSessionId.value) ?? null);
@@ -162,18 +153,8 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
   function seedCardContext(card: CardRecord): string {
     activeSessionId.value = ANALYST_SESSION_ID;
     ensureSessionInList();
-    syntheticHint.value = { sessionId: ANALYST_SESSION_ID, content: buildCardContextSeed(card) };
-    pendingCardSeed.value = { sessionId: ANALYST_SESSION_ID, cardId: card.id };
+    draft.value = buildCardContextSeed(card);
     return ANALYST_SESSION_ID;
-  }
-
-  function consumeSyntheticHint(sessionId: string): string | null {
-    if (syntheticHint.value.sessionId !== sessionId || !syntheticHint.value.content) {
-      return null;
-    }
-    const hint = syntheticHint.value.content;
-    syntheticHint.value = { sessionId: null, content: null };
-    return hint;
   }
 
   async function sendMessage(): Promise<void> {
@@ -192,15 +173,12 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     sendError.value = null;
     const previousDraft = draft.value;
     const previousMessages = messages.value;
-    const previousSyntheticHint = { ...syntheticHint.value };
     try {
       const workspaceRoute = useWorkspaceRouteStore();
       const workspaceContext = workspaceRoute.current ?? { view: null, entityId: null, refinement: null };
-      const hint = consumeSyntheticHint(sessionId);
-      const payload = hint ? `${hint}\n\n${content}` : content;
       draft.value = '';
       messages.value = [...messages.value, optimisticUserMessage(sessionId, content, nowIso(), messages.value.length)];
-      const response = await sendChatMessage(sessionId, payload, workspaceContext);
+      const response = await sendChatMessage(sessionId, content, workspaceContext);
       const baseTimestamp = nowIso();
       const responseMessage = response.message as { id?: unknown; content?: unknown; round_id?: unknown; message_index?: unknown; block_index?: unknown; tool?: unknown; timestamp?: unknown; links?: unknown };
       const optimistic = {
@@ -243,21 +221,11 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
       sendError.value = buildErrorState(err, 'Failed to send analyst chat message.');
       draft.value = previousDraft;
       messages.value = previousMessages;
-      syntheticHint.value = previousSyntheticHint;
       useFeedbackStore().notifyError('Failed to send Analyst message', sendError.value.message);
       throw err;
     } finally {
       sending.value = false;
     }
-  }
-
-  function addBadgeForActiveSession(label: string, kind: TimelineBadge['kind']): void {
-    const message = messages.value[messages.value.length - 1];
-    if (!message) return;
-    const next = { ...messageBadges.value };
-    const existing = next[message.id] ?? [];
-    next[message.id] = [...existing, { kind, label, timestamp: nowIso() }];
-    messageBadges.value = next;
   }
 
   function ingestWsEvent(payload: Record<string, unknown>): void {
@@ -283,9 +251,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
         summary,
         relatedCardId,
       });
-      if (eventSessionId === activeSessionId.value) {
-        addBadgeForActiveSession(`${tool}: ${summary}`, 'tool-invoked');
-      }
       return;
     }
 
@@ -294,16 +259,13 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     }
 
     if (event === 'card_history_appended') {
-      addBadgeForActiveSession('card history updated', 'card-history');
       void fetchMessages().catch(() => {});
       return;
     }
     if (event === 'notification_added') {
-      addBadgeForActiveSession('notification added', 'notification');
       return;
     }
     if (event === 'control_action_recorded') {
-      addBadgeForActiveSession('control action recorded', 'control-action');
       if (payload.actor === 'analyst' && payload.surface === 'web-chat') {
         const action = typeof payload.action === 'string' ? payload.action : 'action';
         const targetId = typeof payload.target_id === 'string' ? payload.target_id : 'unknown';
@@ -329,10 +291,7 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     messagesError,
     sending,
     sendError,
-    syntheticHint,
     pendingToolInvocations,
-    messageBadges,
-    pendingCardSeed,
     activeSessionWritable: computed(() => isWritableSession(activeSession.value)),
     setDraft,
     fetchSessions,
@@ -340,7 +299,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     fetchMessages,
     createNewChat,
     seedCardContext,
-    consumeSyntheticHint,
     sendMessage,
     ingestWsEvent,
   };

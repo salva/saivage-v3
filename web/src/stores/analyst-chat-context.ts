@@ -2,11 +2,6 @@ import type { CardRecord } from '../api/types';
 
 export const ANALYST_SESSION_ID = 'analyst:global';
 
-export interface SyntheticHintState {
-  sessionId: string | null;
-  content: string | null;
-}
-
 export function buildCardContextSeed(card: CardRecord): string {
   const blockers = [
     ...(Array.isArray(card.depends_on) ? card.depends_on.map((id) => `depends_on:${id}`) : []),

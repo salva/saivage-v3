@@ -70,13 +70,13 @@ describe('read-only positive checklist', () => {
     expect(filesViewSource).toContain('fileStore.clearViewedFile()');
 
     // AgentsView/AgentConversationView: passive session navigation, expand/collapse, raw toggle, and linked navigation remain.
-    expect(agentsViewSource).toContain('@click="selectSession(session.id)"');
+    expect(agentsViewSource).toContain('@select="selectSession(session.id)"');
     expect(agentsViewSource).toContain('Back to Agents');
     expect(agentConversationSource).toContain('timelineControls.expandAll()');
     expect(agentConversationSource).toContain('timelineControls.collapseAll()');
     expect(agentConversationSource).toContain('rawPanelOpen = !rawPanelOpen');
-    expect(agentConversationSource).toContain('RoundCard');
-    expect(analystChatPanelSource).toContain('RoundCard');
+    expect(agentConversationSource).toContain('ConversationTimeline');
+    expect(analystChatPanelSource).toContain('ConversationTimeline');
     expect(analystChatPanelSource).toContain('useAgentTimeline');
     expect(analystChatPanelSource).not.toMatch(/state-panel|message-bubble|message-badges|pending-tool|chat-composer|composer-input|primary-btn/);
 
@@ -90,7 +90,7 @@ describe('read-only positive checklist', () => {
     expect(debugViewSource).toContain('browseQuarantineItem(entry.quarantine_id)');
 
     // Card detail and tree navigation remain read-only positive paths.
-    expect(cardDetailSource).toContain('@navigate="navigateCard"');
+    expect(cardDetailSource).toContain('EntityLink');
     expect(cardDetailSource).toContain('@click="navigateCard(child.id)"');
     expect(cardsTreeSource).toContain("emit('toggle', node.card.id)");
     expect(cardsTreeSource).toContain("emit('select', node.card.id)");
