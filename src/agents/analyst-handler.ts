@@ -99,6 +99,8 @@ export interface AnalystTurnInput {
 
 export type AnalystTurnResult = AnalystResponse;
 
+type AnalystToolInvocations = NonNullable<AnalystResponse['toolInvocations']>;
+
 export interface AnalystSessionReadModel {
   sessionId: string;
   phase: 'idle' | 'conversing';
@@ -149,7 +151,7 @@ function analystToolContext(args: { projectRoot: string; runtimeDeps: AnalystRun
   return { projectRoot: args.projectRoot, processRunner: args.runtimeDeps.processRunner, store: args.runtimeDeps.cardStore, sessionId: args.sessionId, runtime: args.runtimeDeps.runtime, mcpManager: args.runtimeDeps.mcpManager, requestServerRestart: args.requestServerRestart, actor: args.actor, surface: args.surface, eventBus: args.runtimeDeps.eventBus };
 }
 
-function transientAssistantResponse(sessionId: string, content: string, toolInvocations?: NonNullable<AnalystResponse['toolInvocations']>): AnalystResponse {
+function transientAssistantResponse(sessionId: string, content: string, toolInvocations?: AnalystToolInvocations): AnalystResponse {
   const timestamp = new Date().toISOString();
   return { sessionId, message: { id: `${sessionId}:assistant:${timestamp}:${Math.random().toString(36).slice(2)}`, role: 'assistant', kind: 'text', content, timestamp }, toolInvocations: toolInvocations && toolInvocations.length > 0 ? toolInvocations : undefined };
 }
@@ -262,7 +264,7 @@ export class AnalystSessionActor extends BaseActor {
 
   private async runAnalystLoop(input: AnalystTurnInput, signal: AbortSignal): Promise<AnalystResponse> {
     const sessionId = this.sessionId;
-    const toolInvocations: NonNullable<AnalystResponse['toolInvocations']> = [];
+    const toolInvocations: AnalystToolInvocations = [];
     const ctx = analystToolContext({ projectRoot: this.args.projectRoot, runtimeDeps: this.args.runtimeDeps, sessionId, actor: this.args.actor ?? 'analyst', surface: this.args.surface ?? 'web-chat', requestServerRestart: this.args.requestServerRestart });
     const surface = buildRoleSurface('analyst', { projectRoot: this.args.projectRoot, toolContext: ctx, store: ctx.store, processRunner: ctx.processRunner, sessionId: ctx.sessionId, ownerId: ctx.sessionId ?? 'analyst', mcpManagerProvider: () => ctx.mcpManager });
     const previousToolCallFingerprints = new Set<string>();
@@ -298,19 +300,27 @@ export class AnalystSessionActor extends BaseActor {
           return transientAssistantResponse(sessionId, 'I repeated the same tool calls without making progress. Please refine the request or inspect the latest tool results.', toolInvocations);
         }
         noProgressDirectiveSent = true;
-        const result: ToolResult = { success: false, error: 'The same tool call was repeated without progress. Stop calling tools and answer the operator from the latest tool results.' };
-        this.emitActivity({ type: 'tool_result', content: { tool: toolCall.toolName, success: false, errorKind: 'no_progress' } });
-        toolInvocations.push({ tool: toolCall.toolName, params: toolCall.args && typeof toolCall.args === 'object' ? toolCall.args as Record<string, unknown> : {}, result });
-        outcome = await this.appendToolResult(toolCall.toolCallId, result, toolInvocations, signal);
+        outcome = await this.rejectToolCall(
+          toolCall,
+          'The same tool call was repeated without progress. Stop calling tools and answer the operator from the latest tool results.',
+          'no_progress',
+          toolCall.args && typeof toolCall.args === 'object' ? toolCall.args as Record<string, unknown> : {},
+          toolInvocations,
+          signal,
+        );
         continue;
       }
       previousToolCallFingerprints.add(fingerprint);
 
       if (!surface.tools.has(toolCall.toolName)) {
-        const result: ToolResult = { success: false, error: ANALYST_UNSUPPORTED_ACTION_TEMPLATE('Analyst', Array.from(surface.tools.keys())) };
-        this.emitActivity({ type: 'tool_result', content: { tool: toolCall.toolName, success: false, errorKind: 'unsupported_action' } });
-        toolInvocations.push({ tool: toolCall.toolName, params: {}, result });
-        outcome = await this.appendToolResult(toolCall.toolCallId, result, toolInvocations, signal);
+        outcome = await this.rejectToolCall(
+          toolCall,
+          ANALYST_UNSUPPORTED_ACTION_TEMPLATE('Analyst', Array.from(surface.tools.keys())),
+          'unsupported_action',
+          {},
+          toolInvocations,
+          signal,
+        );
         continue;
       }
 
@@ -318,10 +328,14 @@ export class AnalystSessionActor extends BaseActor {
       if (parsed.kind === 'violation') {
         const violation = buildAgentProtocolViolation({ session_id: sessionId, role: 'analyst', tool_call_id: toolCall.toolCallId, tool_name: toolCall.toolName, violation: parsed.violation, raw: rawArguments });
         this.logBoundaryDiagnostic('analyst_tool_arguments_protocol_violation', new Error(`${parsed.violation}: ${parsed.detail}`));
-        const result: ToolResult = { success: false, error: JSON.stringify(violation) };
-        this.emitActivity({ type: 'tool_result', content: { tool: toolCall.toolName, success: false, errorKind: 'agent_protocol_violation' } });
-        toolInvocations.push({ tool: toolCall.toolName, params: {}, result });
-        outcome = await this.appendToolResult(toolCall.toolCallId, result, toolInvocations, signal);
+        outcome = await this.rejectToolCall(
+          toolCall,
+          JSON.stringify(violation),
+          'agent_protocol_violation',
+          {},
+          toolInvocations,
+          signal,
+        );
         continue;
       }
 
@@ -346,7 +360,14 @@ export class AnalystSessionActor extends BaseActor {
     }
   }
 
-  private async appendToolResult(toolCallId: string, result: ToolResult, toolInvocations: NonNullable<AnalystResponse['toolInvocations']>, signal: AbortSignal): Promise<LLMActorOutcome> {
+  private async rejectToolCall(toolCall: Extract<LLMActorOutcome, { type: 'tool_call' }>, error: string, errorKind: string, params: Record<string, unknown>, toolInvocations: AnalystToolInvocations, signal: AbortSignal): Promise<LLMActorOutcome> {
+    const result: ToolResult = { success: false, error };
+    this.emitActivity({ type: 'tool_result', content: { tool: toolCall.toolName, success: false, errorKind } });
+    toolInvocations.push({ tool: toolCall.toolName, params, result });
+    return this.appendToolResult(toolCall.toolCallId, result, toolInvocations, signal);
+  }
+
+  private async appendToolResult(toolCallId: string, result: ToolResult, toolInvocations: AnalystToolInvocations, signal: AbortSignal): Promise<LLMActorOutcome> {
     try {
       this.throwIfCancelled();
       return await this.llm.appendToolResult(toolCallId, result, signal);
@@ -392,7 +413,7 @@ export class AnalystSessionActor extends BaseActor {
     }
   }
 
-  private errorResponse(err: unknown, toolInvocations: NonNullable<AnalystResponse['toolInvocations']>): AnalystResponse {
+  private errorResponse(err: unknown, toolInvocations: AnalystToolInvocations): AnalystResponse {
     const noHealthyMessage = `No healthy candidates available for role 'analyst'.`;
     const error = typeof err === 'string' ? err : err instanceof Error ? err.message : String(err);
     const errMsg = err instanceof AnalystOfflineError
