@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mount } from '@vue/test-utils';
 import Button from '../../components/ui/Button.vue';
 import Card from '../../components/ui/Card.vue';
-import Overlay from '../../components/ui/Overlay.vue';
+import Dialog from '../../components/ui/Dialog.vue';
 
 
 describe('ui primitives', () => {
@@ -18,12 +18,13 @@ describe('ui primitives', () => {
     expect(mount(Card, { slots: { default: 'Body' } }).classes()).toContain('ui-card');
   });
 
-  it('renders Overlay visibility and slot content', async () => {
-    const wrapper = mount(Overlay, { props: { visible: true }, slots: { default: '<div class="dialog">Dialog</div>' } });
-    expect(wrapper.find('.ui-overlay').exists()).toBe(true);
-    expect(wrapper.find('.dialog').text()).toBe('Dialog');
+  it('renders Dialog visibility and slot content', async () => {
+    const wrapper = mount(Dialog, { props: { visible: true, titleId: 'dialog-title' }, slots: { default: '<h2 id="dialog-title" class="dialog">Dialog</h2>' }, attachTo: document.body });
+    expect(document.body.querySelector('.ui-dialog-overlay')).not.toBeNull();
+    expect(document.body.querySelector('.dialog')?.textContent).toBe('Dialog');
 
     await wrapper.setProps({ visible: false });
-    expect(wrapper.find('.ui-overlay').exists()).toBe(false);
+    expect(document.body.querySelector('.ui-dialog-overlay')).toBeNull();
+    wrapper.unmount();
   });
 });

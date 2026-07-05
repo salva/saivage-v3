@@ -1,7 +1,7 @@
 <template>
-  <Overlay :visible="visible" @dismiss="closeDialog">
+  <Dialog :visible="visible" title-id="api-token-title" @dismiss="closeDialog">
     <Card class="token-dialog">
-      <h2 class="token-title">API Token</h2>
+      <h2 id="api-token-title" class="token-title">API Token</h2>
       <p class="token-description">
         Enter an API token to access a secured Saivage deployment.
         The token is stored in <code class="inline-token">localStorage</code> and sent with every API request.
@@ -12,7 +12,6 @@
         <div class="token-input-row">
           <input
             id="api-token-input"
-            ref="inputRef"
             v-model="token"
             :type="showToken ? 'text' : 'password'"
             class="token-input"
@@ -57,15 +56,15 @@
         No token configured.
       </p>
     </Card>
-  </Overlay>
+  </Dialog>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick, onUnmounted } from 'vue';
+import { ref, watch } from 'vue';
 import { useAuthStore } from '../../stores/auth';
 import Button from '../ui/Button.vue';
 import Card from '../ui/Card.vue';
-import Overlay from '../ui/Overlay.vue';
+import Dialog from '../ui/Dialog.vue';
 
 const props = defineProps<{
   visible: boolean;
@@ -80,46 +79,18 @@ const emit = defineEmits<{
 const token = ref('');
 const showToken = ref(false);
 const savedToken = ref<string | null>(null);
-const inputRef = ref<HTMLInputElement | null>(null);
 const authStore = useAuthStore();
-let escapeListenerRegistered = false;
 
 watch(
   () => props.visible,
-  async (v) => {
+  (v) => {
     if (v) {
-      addEscapeListener();
-      await nextTick();
-      inputRef.value?.focus();
       authStore.refresh();
       savedToken.value = authStore.token;
-    } else {
-      removeEscapeListener();
     }
   },
   { immediate: true },
 );
-
-onUnmounted(() => {
-  removeEscapeListener();
-});
-
-function addEscapeListener(): void {
-  if (escapeListenerRegistered) return;
-  window.addEventListener('keydown', handleEscapeKeydown);
-  escapeListenerRegistered = true;
-}
-
-function removeEscapeListener(): void {
-  if (!escapeListenerRegistered) return;
-  window.removeEventListener('keydown', handleEscapeKeydown);
-  escapeListenerRegistered = false;
-}
-
-function handleEscapeKeydown(event: KeyboardEvent): void {
-  if (event.key !== 'Escape' || !props.visible) return;
-  closeDialog();
-}
 
 function closeDialog(): void {
   emit('close');

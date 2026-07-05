@@ -55,17 +55,17 @@ describe('AppShell API auth banner', () => {
 
     expect(wrapper.find('[data-testid="api-auth-banner"]').text()).toContain('API token required');
     await wrapper.get('.auth-banner-action').trigger('click');
-    expect(wrapper.find('.ui-overlay').exists()).toBe(true);
+    expect(document.body.querySelector('.ui-dialog-overlay')).not.toBeNull();
     expect(wrapper.find('[data-testid="api-auth-banner"]').exists()).toBe(true);
 
-    await wrapper.get('.token-btn-cancel').trigger('click');
+    document.body.querySelector<HTMLButtonElement>('.token-btn-cancel')?.click();
     await flushPromises();
     await waitForTransition();
-    expect(wrapper.find('.ui-overlay').exists()).toBe(false);
+    expect(document.body.querySelector('.ui-dialog-overlay')).toBeNull();
     expect(wrapper.find('[data-testid="api-auth-banner"]').exists()).toBe(true);
 
     await wrapper.get('.auth-banner-action').trigger('click');
-    expect(wrapper.find('.ui-overlay').exists()).toBe(true);
+    expect(document.body.querySelector('.ui-dialog-overlay')).not.toBeNull();
 
     await wrapper.get('.auth-banner-dismiss').trigger('click');
     expect(wrapper.find('[data-testid="api-auth-banner"]').exists()).toBe(false);
