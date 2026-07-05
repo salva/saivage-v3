@@ -439,7 +439,8 @@ const agentDebugActivityStatus = computed<ActivityStatus | null>(() => {
     pending_calls: status.pending_calls.map((call): PendingCall => ({ ...call })),
   };
 });
-const agentDebugTimeline = useAgentTimeline(agentDebugEntries, agentDebugActivityStatus);
+const agentDebugModel = computed(() => selectedAgentDebugConversation.value?.session.model ?? null);
+const agentDebugTimeline = useAgentTimeline(agentDebugEntries, agentDebugActivityStatus, agentDebugModel);
 
 watch(() => [selectedAgentDebugSessionId.value, selectedAgentDebugKind.value] as const, () => {
   agentDebugTimeline.resetScrollState();

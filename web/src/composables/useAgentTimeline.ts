@@ -3,12 +3,20 @@ import type { ActivityStatus, AgentConversationEntry } from '../api/types';
 import { entriesToTimeline } from '../utils/agent-timeline';
 import { isToolGroup } from '../utils/tool-friendly';
 
-export function useAgentTimeline(entries: Ref<readonly AgentConversationEntry[]>, activityStatus: Ref<ActivityStatus | null>) {
+export function useAgentTimeline(
+  entries: Ref<readonly AgentConversationEntry[]>,
+  activityStatus: Ref<ActivityStatus | null>,
+  modelLabel?: Ref<string | null | undefined>,
+) {
   const expandedIds = ref(new Set<string>());
   const scrollAreaRef = ref<HTMLElement | null>(null);
   const pinnedToLatest = ref(true);
   const unseenRoundCount = ref(0);
-  const timeline = computed(() => entriesToTimeline(entries.value, activityStatus.value));
+  const timeline = computed(() => {
+    const projected = entriesToTimeline(entries.value, activityStatus.value);
+    const label = modelLabel?.value ?? null;
+    return label === projected.modelLabel ? projected : { ...projected, modelLabel: label };
+  });
   const STICK_TO_LATEST_THRESHOLD_PX = 64;
 
   function isNearLatest(el: HTMLElement): boolean {

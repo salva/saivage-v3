@@ -84,6 +84,9 @@ describe('read-only positive checklist', () => {
     expect(agentConversationSource).toContain('Jump to latest');
     expect(analystChatPanelSource).toContain('Jump to latest');
     expect(debugViewSource).toContain('agentDebugTimeline.jumpToLatest');
+    expect(agentTimelineSource).toContain('modelLabel');
+    expect(agentConversationSource).toContain('useAgentTimeline(entries, activityStatus, sessionModel)');
+    expect(debugViewSource).toContain('agentDebugModel');
     expect(analystChatPanelSource).not.toMatch(/state-panel|message-bubble|message-badges|pending-tool|chat-composer|composer-input|primary-btn/);
 
     // DebugView: passive tab switching, refresh/fetch, filtering, and file-browse navigation remain.

@@ -6,4 +6,4 @@ export interface ToolPair { call: AgentConversationEntry; result: AgentConversat
 export interface ToolGroup { kind: 'tool_group'; id: string; label: string; summary: string; pairs: ToolPair[]; }
 export type ToolListItem = ToolPair | ToolGroup;
 export interface TimelineRound { id: string; kind: TimelineRoundKind; position: number; entries: AgentConversationEntry[]; texts: AgentConversationEntry[]; diagnostics: AgentConversationEntry[]; toolPairs: ToolPair[]; items: ToolListItem[]; activityStatus: ActivityStatus | null; }
-export interface AgentTimeline { rounds: TimelineRound[]; activeRoundId: string | null; }
+export interface AgentTimeline { rounds: TimelineRound[]; activeRoundId: string | null; modelLabel: string | null; }

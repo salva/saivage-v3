@@ -1,5 +1,6 @@
 <template>
   <div class="conversation-timeline">
+    <div v-if="timeline.modelLabel" class="timeline-model" data-testid="timeline-model">via {{ timeline.modelLabel }}</div>
     <section
       v-for="round in timeline.rounds"
       :key="round.id"
@@ -49,6 +50,7 @@ function itemKey(item: ToolListItem): string { return isToolGroup(item) ? item.i
 
 <style scoped>
 .conversation-timeline { display:flex; flex-direction:column; gap:12px; }
+.timeline-model { align-self:flex-start; font-size:11px; color:var(--text-muted); font-family:'SF Mono',monospace; background:var(--surface-2); border:1px solid var(--surface-3); border-radius:999px; padding:2px 8px; }
 .round-card { display:flex; flex-direction:column; gap:6px; padding:4px 0; }
 .round-card.round-user { padding-top:10px; border-top:1px solid var(--surface-3); }
 .round-card.round-assistant { padding-top:8px; border-top:1px solid var(--surface-3); }

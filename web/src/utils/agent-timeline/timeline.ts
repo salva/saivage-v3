@@ -93,5 +93,5 @@ export function entriesToTimeline(entries: readonly AgentConversationEntry[], ac
   if (activeRound && activityStatus && activityStatus.status !== 'idle') activeRound.activityStatus = activityStatus;
   const rounds = builtRounds.filter(hasVisibleRoundContent).map((round, idx) => ({ ...round, position: idx + 1 }));
   const visibleActiveRound = activeRound ? rounds.find((round) => round.id === activeRound.id) ?? null : null;
-  return { rounds, activeRoundId: visibleActiveRound?.id ?? null };
+  return { rounds, activeRoundId: visibleActiveRound?.id ?? null, modelLabel: null };
 }

@@ -47,7 +47,8 @@ const liveSyncStore = useLiveSyncStore();
 const { currentSession, entries, activityStatus, loading, error, conversationWarning } = storeToRefs(agentStore);
 const errorMsg = computed(() => error.value);
 const rawPanelOpen = ref(false);
-const timelineControls = useAgentTimeline(entries, activityStatus);
+const sessionModel = computed(() => currentSession.value?.model ?? null);
+const timelineControls = useAgentTimeline(entries, activityStatus, sessionModel);
 const relatedLinks = computed(() => {
   const session = currentSession.value;
   if (!session) return [];
