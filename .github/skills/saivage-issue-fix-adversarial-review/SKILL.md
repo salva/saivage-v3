@@ -47,7 +47,9 @@ The first design/plan must include:
 - Scope and non-scope.
 - Proposed design, including affected modules, data contracts, APIs, and UI/runtime surfaces as applicable.
 - Alternatives considered, including at least one broader/root-cause alternative when reasonable.
-- Implementation plan with ordered steps.
+- Implementation plan with ordered steps split into three explicit sections: main work tasks, cleanup tasks, and documentation-update tasks.
+- Cleanup tasks must identify obsolete/dead code, obsolete tests, stale fixtures, and superseded docs or scripts that should be removed or updated as part of the fix.
+- Documentation-update tasks must name the main docs to update and describe the behavior, architecture, runbook, or validation changes each doc needs.
 - Validation plan with focused checks and broader gates appropriate to the risk.
 - Main documentation updates required by the work, naming the expected files under `docs/spec/`, `docs/architecture/`, `docs/runbook/`, or `README.md`.
 - Risks, rollback considerations, and unresolved questions.
