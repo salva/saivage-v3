@@ -588,6 +588,52 @@ describe('SupervisorRuntimeApi', () => {
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).not.toEqual(expect.arrayContaining(['card:project', 'planner:project', 'processor:project', 'reviewer:project']));
   }));
 
+  it('recomputes reviewer assessment id during startup recovery instead of reading it from processor state', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    createDoneEvidence(store, project.id);
+    store.setStatus(project.id, 'running');
+    const processorReconstruction = processorActive(project.id);
+    expect(processorReconstruction).not.toHaveProperty('assessment_id');
+    saveActorSnapshot(projectRoot, {
+      actor_id: 'card:project',
+      actor_kind: 'card',
+      state_value: 'running',
+      context: { cardId: 'project', active_reconstruction: cardActive('project') },
+      updated_at: '2026-06-12T00:00:00.000Z',
+    });
+    saveActorSnapshot(projectRoot, {
+      actor_id: 'planner:project',
+      actor_kind: 'llm',
+      state_value: 'waiting_tool',
+      context: { cardId: 'project', active_reconstruction: plannerWaitingActive('project', 'emit_result') },
+      updated_at: '2026-06-12T00:00:00.000Z',
+    });
+    saveActorSnapshot(projectRoot, {
+      actor_id: 'reviewer:project',
+      actor_kind: 'llm',
+      state_value: 'waiting_tool',
+      context: { cardId: 'project', active_reconstruction: reviewerWaitingActive('project', 'emit_result', 'call-1', 'assessment-from-stale-snapshot') },
+      updated_at: '2026-06-12T00:00:00.000Z',
+    });
+    saveActorSnapshot(projectRoot, {
+      actor_id: 'processor:project',
+      actor_kind: 'processor',
+      state_value: 'planning',
+      context: { cardId: 'project', active_reconstruction: processorReconstruction },
+      updated_at: '2026-06-12T00:00:00.000Z',
+    });
+    appendPlannerToolCall(projectRoot, 'project', 'emit_result', { status: 'done', summary: 'project done' });
+    appendReviewerToolCall(projectRoot, 'project', { status: 'done', summary: 'review ok' });
+    const api = new SupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
+
+    await api.start();
+
+    expect(store.read(project.id)).toMatchObject({ status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'review ok' } } });
+    expect(readToolCallStatuses(projectRoot).filter((record) => record.status === 'terminal_projected').map((record) => record.agent_id).sort()).toEqual(['planner:project', 'reviewer:project']);
+  }));
+
   it('recovers activate_card waiting tool calls when child evidence is terminal', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);

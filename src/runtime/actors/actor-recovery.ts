@@ -21,6 +21,7 @@ import { verifyTerminalToolOutcome } from './contract-terminal-tools.js';
 import { closeOpenRecordSlot, ExpectedRecordSlotCloseError } from '../records/record-slots.js';
 import { firstIncompleteDescendant, projectPlannerTerminalOutcome } from './planning-card-processor-actor.js';
 import { projectTerminalExecutorOutcome } from './terminal-card-processor-actor.js';
+import { nextReviewerAssessmentId, reviewerSessionId } from '../reviewer-session.js';
 
 export interface ActorRecoveryCardReader {
   read(cardId: string): unknown | null;
@@ -345,10 +346,10 @@ function projectReviewerRecoveryOutcome(
   if (firstIncompleteDescendant(card.id, deps.store)) return null;
   const reviewer = plan.llms.find((candidate) => candidate.active && candidate.role === 'reviewer' && candidate.cardId === card.id && candidate.snapshot.state_value === 'waiting_tool' && candidate.activeReconstruction?.waiting_tool_call);
   if (!reviewer?.activeReconstruction?.waiting_tool_call) return null;
-  const assessmentId = reviewer.activeReconstruction.input.episodeContext.assessmentId;
-  if (typeof assessmentId !== 'string' || assessmentId.length === 0) return null;
+  const assessmentId = nextReviewerAssessmentId(card.id, card.lifecycle.result);
+  const sessionId = reviewerSessionId(card.id, assessmentId);
   const reviewerWaiting = reviewer.activeReconstruction.waiting_tool_call;
-  const reviewerLogged = readLoggedToolCall(deps.projectRoot, reviewer.activeReconstruction.input.sessionId, reviewer.actorId, reviewerWaiting.sourceInputId, reviewerWaiting.toolCallId);
+  const reviewerLogged = readLoggedToolCall(deps.projectRoot, sessionId, reviewer.actorId, reviewerWaiting.sourceInputId, reviewerWaiting.toolCallId);
   if (reviewerLogged.tool_name !== reviewerWaiting.toolName || !createReviewerContract().isTerminalToolName(reviewerWaiting.toolName)) return null;
   const reviewerOutcome: Extract<LLMActorOutcome, { type: 'tool_call' }> = { type: 'tool_call', agentId: reviewer.actorId, inputId: reviewerWaiting.sourceInputId, toolCallId: reviewerWaiting.toolCallId, toolName: reviewerWaiting.toolName, args: reviewerLogged.args };
   const projected = evaluateReviewerTerminalOutcome({ outcome: reviewerOutcome });
