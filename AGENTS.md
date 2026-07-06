@@ -23,6 +23,7 @@ See historical: docs under `docs-old/` and stale design docs are provenance, not
 
 - Keep working documents such as reviews, redesigns, plans, scratch analyses, and draft proposals under `docs/working/`; these files are local working artifacts and must not be committed to Git.
 - Any implementation plan must include a section that identifies the main documentation updates required by the planned work.
+- When fixing any issue, first create a design and implementation plan under `docs/working/`, then use a subagent to perform an adversarial review of the design and plan. Critically evaluate each finding to confirm it is sound and real, fix confirmed issues, and repeat the adversarial review/fix cycle until no confirmed issues remain.
 - After implementation work changes system behavior, update the main documentation in `docs/spec/`, `docs/architecture/`, `docs/runbook/`, or `README.md` as appropriate so it stays in sync with the code.
 
 ## Validation
