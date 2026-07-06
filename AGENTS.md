@@ -19,6 +19,11 @@ rather than duplicating project policy.
 
 See historical: docs under `docs-old/` and stale design docs are provenance, not implementation authority.
 
+## Documentation Hygiene
+
+- Keep working documents such as reviews, redesigns, plans, scratch analyses, and draft proposals under `docs/working/`; these files are local working artifacts and must not be committed to Git.
+- After implementation work changes system behavior, update the main documentation in `docs/spec/`, `docs/architecture/`, `docs/runbook/`, or `README.md` as appropriate so it stays in sync with the code.
+
 ## Validation
 
 ```bash
