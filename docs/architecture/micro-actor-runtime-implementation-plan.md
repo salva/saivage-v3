@@ -14,14 +14,14 @@ The core micro-actor runtime replacement has landed:
 - Planner, executor, and reviewer reports are accepted only through role contract terminal tools.
 - Card-owned notifications are delivered per LLM turn with durable delivery markers; `LLMActor` remains queue-free.
 - Reviewer execution is a phase of `PlanningCardProcessorActor`; the standalone reviewer card processor was removed.
-- Recovery startup records explicit active reconstruction facts in actor snapshots, projects safe persisted terminal tool-call outcomes, converts known interrupted running card work into blocked card outcomes, cleans handled snapshots, then rewrites sanitized diagnostics so `actorRuntime.recovery` shows only outstanding recovery work.
+- Recovery startup records explicit active reconstruction facts in actor snapshots. The pre-reconstruction `runActorStartupRecovery` pass projects safe persisted terminal tool-call outcomes, cleans cancelled/terminal-projected handled snapshots, abandons stale tool calls, rebuilds the recovery plan, and writes sanitized diagnostics for work that cannot be safely reconstructed so `actorRuntime.recovery` shows only outstanding recovery work; all of that runs before live recovery reconstructs running card actors deepest-first, reissues in-flight provider calls from persisted `calling_provider`, and replays waiting tool calls.
 
 ## Future Choices
 
 The actor runtime plan is complete. The following are future product/architecture choices, not unfinished compatibility work:
 
-1. If mid-flight resume becomes a concrete requirement, design it as new actor-owned reconstruction entrypoints. Do not add adapters around in-memory promises, provider calls, or process handles.
-2. If auto-reactivation after restart becomes desirable, replace the conservative block-on-restart policy deliberately rather than layering a bridge over current recovery.
+1. Mid-flight resume is implemented for running card actors, in-flight provider calls, and waiting tool calls through actor-owned reconstruction entrypoints. OS-process reattachment remains a deliberate non-goal; do not add adapters around in-memory promises, provider calls, or process handles.
+2. Auto-reactivation after restart (discard-snapshots-on-reactivate, from card-store state) remains a deferred policy choice. Current recovery already reconstructs running card actors, replays waiting tool calls, and reissues in-flight provider calls, so the choice is auto-reactivation-from-card-store versus the current reconstruction path rather than a bridge over current recovery.
 3. Broader release validation should run when release criteria or affected surfaces change; the focused, routine, UI, and release profiles have been re-run after P1-P5.
 
 The detailed recovery work and simplification direction is tracked in [Slice 8: Recovery](#slice-8-recovery).
@@ -40,11 +40,11 @@ Completed post-review fixes:
 - Notification delivery markers and terminal processor process actor records are bounded/compacted.
 - Actor runtime read-model state names are aligned with current actor states.
 - Reviewer approval is invalidated when main-agent notifications remain pending after the reviewer turn (reviewer-currentness check). Reviewer turns cannot drain main-agent notifications: reviewer continuations use `reviewerContext(input)`, while only planner/executor flows use `plannerNotificationContext(input, inputId)` (see [P5](#p5-reviewer-cannot-reach-main-agent-notification-delivery)).
-- Startup converts known interrupted running card work into explicit blocked card outcomes when the owner card and transition are valid.
+- Startup's pre-reconstruction `runActorStartupRecovery` pass projects safe terminal outcomes from durable records; after that pass, startup reconstructs running card actors with valid `active_reconstruction` deepest-first, reissues their in-flight provider calls, and replays their waiting tool calls. A `blocked` card status may still arise from terminal projection when the persisted planner terminal is itself `blocked`, never from unreconstructable active work.
 - Safe parked-state recovery hooks avoid normal-entry side effects where needed.
 - Terminal tool-call recovery projects safe executor terminal outcomes, planner `blocked`/`failed` outcomes, and planner `done` outcomes paired with matching persisted reviewer terminal results.
 - Completed child activation waits are handled by the generic interrupted-work conversion path rather than a dedicated special case; stale pending tool calls are abandoned after converted snapshots are cleaned.
-- Startup recovery now uses a single initial recovery plan, projects safe terminal outcomes first, blocks remaining active card work including `block_tool_wait` actors, cleans handled snapshots once, and then abandons stale pending tool calls.
+- Startup recovery now uses a single initial recovery plan. Its pre-reconstruction `runActorStartupRecovery` pass projects safe terminal outcomes first, cleans cancelled/terminal-projected handled snapshots once, abandons stale pending tool calls once, rebuilds, and persists the outstanding recovery plan; after that pass, startup reconstructs remaining running card actors, reissues in-flight provider calls, and replays waiting tool calls, including `waiting_tool` actors, while recording sanitized diagnostics for any active work that cannot be safely reconstructed.
 - Recovery diagnostics are rebuilt after handled snapshot cleanup, so `.saivage/runtime/recovery-diagnostics.json` and `actorRuntime.recovery` report only currently outstanding recovery work.
 - The concrete `SupervisorRuntimeApi.getRecoveryPlan()` test seam and dead old-runtime assembly/stuck-supervisor files were removed.
 - Full Jest, focused actor suites, routine validation, and current operator-facing spec updates have been run after the recovery slices landed.
@@ -332,14 +332,14 @@ Acceptance:
 
 Goal: rebuild safe actor state from durable records after restart.
 
-Current status: implemented for the current conservative recovery policy. Startup builds one initial `ActorRecoveryPlan`, projects safe persisted terminal tool-call outcomes, converts all remaining active card work into blocked outcomes, cleans handled snapshots once, removes abandoned process snapshots, abandons stale pending tool calls, then rebuilds the recovery plan and writes sanitized diagnostics/actions to `.saivage/runtime/recovery-diagnostics.json` for any still-outstanding recovery work. Mid-flight active-chain resume is not part of this policy; it requires a later explicit actor-owned reconstruction design.
+Current status: implemented for the current recovery policy. Startup builds one initial `ActorRecoveryPlan`; the pre-reconstruction `runActorStartupRecovery` pass projects safe persisted terminal tool-call outcomes, cleans cancelled/terminal-projected handled snapshots once, retains reconciled process records per the three-case outcome (runtime/agent-owned records are killed or marked lost as terminal `killed`/`failed`, operator-owned missing/skewed records are marked lost as terminal `failed`, and operator-owned records still alive are matched and remain `running`), abandons stale pending tool calls once, then rebuilds the recovery plan and writes sanitized diagnostics/actions to `.saivage/runtime/recovery-diagnostics.json` for any still-outstanding recovery work. All of that runs before live actor reconstruction. Startup then reconstructs running card actors deepest-first, reissues in-flight provider calls from the persisted `calling_provider` state, and replays waiting tool calls. Mid-flight resume is implemented for running card actors, in-flight provider calls, and waiting tool calls; OS-process reattachment remains a deliberate non-goal.
 
 Recovery-side terminal projection is accepted current architecture, not compatibility debt: normal runtime lifecycle commits are owned by `CardActor`, while startup recovery is a distinct operational mode that reconstructs safe outcomes from complete durable records after the normal path was interrupted.
 
 Completed:
 
 - Recovery plan construction classifies supervisor, card, LLM, processor, and process snapshots.
-- In-flight provider calls are classified for abandonment.
+- In-flight provider calls are reissued from the persisted `calling_provider` state on recovery: a recovered `calling_provider` LLM re-enters `_on_enter__calling_provider` and re-runs the provider call, parked at the closed gate until the operator resumes.
 - Waiting-tool, active processor, active card, and running process states are surfaced as recovery actions/diagnostics.
 - Ambiguous active card states, active LLM states without concrete recovery actions, and stranded active cards are surfaced as human-readable diagnostics.
 - Persisted running process records are reconciled at startup before actor recovery (`reconcile()` is wired into `SupervisorRuntimeApi.start()` ahead of `buildActorRecoveryPlan`). Reconciliation is truthful: real PID/process-group signalling for unattached records, no `reattach_state` fiction (see [P1](#p1-processrunner-owns-truthful-process-state-and-scoped-termination), [P2](#p2-startup-reconciles-processes-before-actor-recovery)).
@@ -348,9 +348,9 @@ Completed:
 - Discarded non-idle supervisor snapshots are surfaced as human-readable diagnostics and actions.
 - Clean startup recovery clears stale `.saivage/runtime/recovery-diagnostics.json` files.
 - `actorRuntime.recovery` projects sanitized outstanding recovery diagnostics through the runtime status read model/API contract.
-- Startup removes handled reconciled process records before rewriting recovery diagnostics, so the same process reconciliation is not reported on every restart.
-- Startup converts known interrupted running card work to explicit blocked card outcomes when the owning card is still `running`.
-- Startup removes converted card, LLM, and processor snapshots after committing card outcomes and before rewriting diagnostics, so handled interrupted work is not reported on every restart.
+- Startup retains reconciled process records per the three-case outcome — runtime/agent-owned as `status:'killed'`, `terminal_reason:'kill_unattached'` or `status:'failed'`, `terminal_reason:'lost'`; operator-owned still alive matched and remaining `running`; operator-owned missing/skewed as `status:'failed'`, `terminal_reason:'lost'` — and clears terminal ones from outstanding diagnostics, so the same process reconciliation is not reported on every restart.
+- Startup's pre-reconstruction `runActorStartupRecovery` pass projects safe terminal outcomes from durable records; after that pass, startup reconstructs running card actors with valid `active_reconstruction` deepest-first, reissues their in-flight provider calls, and replays their waiting tool calls. A `blocked` card status may still arise from terminal projection when the persisted planner terminal is itself `blocked`, never from unreconstructable active work.
+- Startup cleans cancelled and terminal-projected handled card, LLM, and processor snapshots inside `runActorStartupRecovery` after committing terminal-projected card outcomes and before rewriting diagnostics, all before live actor reconstruction, so handled interrupted work is not reported on every restart.
 - `CardActor` recovery to `done` does not run normal entry side effects; there is no notification-sensitive done-to-changed handling in recovery.
 - Card, processor, and LLM snapshots persist explicit `active_reconstruction` records for active card activation, processor activation, provider calls, and LLM tool waits.
 - Recovery planning exposes active reconstruction records and derives card/LLM/processor active status from those records rather than public-status or state-name heuristics.
@@ -358,8 +358,8 @@ Completed:
 - Projected terminal tool calls are marked `terminal_projected`, so stale pending tool-call cleanup does not abandon already-recovered terminal decisions.
 - Startup refuses planner `done` projection unless reviewer reconstruction identity, reviewer terminal output, and descendant readiness are all available from durable records.
 - Startup handles completed child `activate_card` waits through generic interrupted-work conversion instead of a dedicated child-activation recovery function.
-- Startup recovery is a single-pass plan consumption path: project terminal outcomes, block remaining active card work, clean handled snapshots once, remove handled process snapshots, abandon stale pending tool calls, then rebuild and persist the outstanding recovery plan.
-- Nonterminal `block_tool_wait` LLM actors participate in generic blocked conversion. `LlmRecoveryDiagnosticAction` and `llmRecoveryDiagnosticAction` are diagnostic-label producers only; they do not drive recovery control flow.
+- Startup recovery's pre-reconstruction `runActorStartupRecovery` pass is a single-pass plan consumption path: project terminal outcomes, clean cancelled/terminal-projected handled snapshots once, retain reconciled process records per the three-case outcome (runtime/agent-owned and operator-owned missing/skewed become terminal `failed`/`killed` records cleared from outstanding diagnostics, while operator-owned still alive remain `running`), abandon stale pending tool calls, then rebuild and persist the outstanding recovery plan. Live reconstruction of running card actors and replay of waiting tool calls happen after this pass.
+- Recovered `waiting_tool` LLM actors park for replay through `replayToolForRecovery`; they are not converted to a `blocked` card status. `LlmRecoveryDiagnosticAction` and `llmRecoveryDiagnosticAction` are diagnostic-label producers only; they do not drive recovery control flow.
 - Recovery diagnostics are outstanding-only after cleanup. Handled interrupted work clears from `.saivage/runtime/recovery-diagnostics.json` and `actorRuntime.recovery` during the same startup.
 
 ### Deferred simplification direction
@@ -369,39 +369,39 @@ The recovery pipeline no longer rebuilds recovery plans between special-case pas
 Deferred options:
 
 - **Eager terminal commit.** `recoverProjectedTerminalToolOutcomes` still recomputes card outcomes from logged terminal tool-call args on restart. Eager commit would move this into the normal path, but the current clean boundary is that `CardActor` owns the single durable lifecycle commit. Do not add eager commit unless that boundary is deliberately refactored without duplicate commit paths.
-- **Discard-snapshots-on-reactivate.** Restart is normal for an autonomous agent, and re-activation from card-store state may eventually be better than block-on-restart. Keep the current conservative blocked conversion until an explicit auto-reactivation policy is designed.
+- **Discard-snapshots-on-reactivate.** Restart is normal for an autonomous agent, and auto-reactivation from card-store state remains deferred. Current recovery already reconstructs running card actors, replays waiting tool calls, and reissues in-flight provider calls, so the deferred choice is auto-reactivation-from-card-store versus the current reconstruction path.
 
 Do not add adapters or bridge commit paths to get eager commit quickly. If eager commit is pursued, refactor the normal actor path so `CardActor` still owns exactly one lifecycle commit operation.
 
 Future policy choices:
 
-- Implement genuine mid-flight resume only if it becomes a concrete requirement. Re-attachable provider calls, process waits, child activation waits, and reviewer/planner correction context must be designed as actor-owned reconstruction, not compatibility shims.
+- Extend mid-flight resume only where durable records are complete enough. Running card actors, in-flight provider calls, and waiting tool calls already recover through actor-owned reconstruction; OS-process reattachment remains out of scope, and any future expansion must not use compatibility shims.
 - Keep diagnostics for truly orphaned state, including ambiguous card states, stranded active cards, and discarded non-idle supervisor snapshots, regardless of future policy choices.
 
 Implementation:
 
-- Keep startup recovery as one pass over the initial recovery plan: project safe terminal outcomes from waiting-tool LLM records first, then generically block all remaining active card work (including `block_tool_wait` actors), clean handled snapshots once, then abandon stale tool calls once. Projection and conversion share the same plan; projected cards are excluded from conversion candidates. Rebuild the plan only after cleanup to publish outstanding-only diagnostics.
+- Keep startup recovery's pre-reconstruction `runActorStartupRecovery` pass as one pass over the initial recovery plan: project safe terminal outcomes from waiting-tool LLM records first, clean cancelled/terminal-projected handled snapshots once, then abandon stale tool calls once. Projection and reconstruction share the same plan; projected cards are excluded from reconstruction candidates. Rebuild the plan only after cleanup to publish outstanding-only diagnostics. Live reconstruction of running card actors and replay of waiting tool calls, including `waiting_tool` actors, happen after this pass.
 - Keep recovery diagnostics as the outstanding-recovery report, not a startup findings report. Do not silently mix both semantics in the same projection.
 - Keep recovery-side terminal projection until a deliberate `CardActor`-owned eager commit refactor exists.
-- Keep block-on-restart until a deliberate discard-and-reactivate runtime policy exists. Keep diagnostics for truly orphaned state either way.
-- Reconcile persisted running process records at startup before actor recovery: runtime/agent-owned records are killed by PID or marked lost; operator-owned records are observed best-effort or marked lost (see [P1](#p1-processrunner-owns-truthful-process-state-and-scoped-termination)). In-flight provider calls are abandoned with diagnostics by default. Re-attach provider calls only if a later slice explicitly chooses that more complex path.
-- Implement genuine mid-flight resume only after it is explicitly required and only where durable records are complete enough. Do not double-deliver tool results or duplicate provider turns.
+- Keep the current reconstruction path until a deliberate discard-and-reactivate runtime policy exists. Keep diagnostics for truly orphaned state either way.
+- Reconcile persisted running process records at startup before actor recovery: runtime/agent-owned records are killed by PID or marked lost; operator-owned records still alive are matched and remain `running`, while operator-owned missing/skewed records are marked lost (see [P1](#p1-processrunner-owns-truthful-process-state-and-scoped-termination)). Reconciled records are retained per the three-case outcome; no record is removed. In-flight provider calls are reissued on recovery and park at the closed gate until the operator resumes. OS-process reattachment remains a deliberate non-goal: runtime/agent-owned and operator-owned missing/skewed records become terminal retained records, live operator-owned records remain `running`, and none are reattached.
+- Mid-flight resume is implemented for running card actors, in-flight provider calls, and waiting tool calls where durable records are complete enough; OS-process reattachment remains out of scope. Do not double-deliver tool results or duplicate provider turns.
 - Fail or block explicitly when state is ambiguous, and clean up/reconcile stale actor snapshots after the ambiguity is handled.
 
 Tests:
 
 - Actor runtime read-model tests recognize current supervisor, card, LLM, processor, and process actor states without exposing raw state values.
-- Startup converts known unrecoverable active work to explicit blocked card outcomes when the owning card is still `running`. Conversion always emits `blocked`; `failed` outcomes come only from terminal projection, not from generic conversion.
+- Startup reconstructs running card actors and replays their waiting tool calls, and records sanitized diagnostics for unreconstructable active work without patching card status. A `blocked` card status arises only from terminal projection of a persisted planner `blocked` terminal, and `failed` outcomes come only from terminal projection.
 - Startup projects persisted terminal tool calls only when active card, processor, LLM reconstruction records, reviewer reconstruction records where required, and matching logged tool-call messages all agree.
 - Safe parked-state recovery hooks hydrate actor fields without triggering `_on_state_changed(...)` transition snapshot writes.
-- Generic blocked conversion covers planner `activate_card` waits and all other nonterminal `waiting_tool` states; there is no distinct child-activation or process-tool-wait recovery path.
-- Generic blocked conversion covers LLM waiting for a process tool result and terminal process result awaiting delivery; these have no distinct recovery handling and are blocked like any other interrupted wait.
-- Startup abandons in-flight provider requests with operator/runtime-visible diagnostics projected through `actorRuntime.recovery`.
-- Startup handles terminal interrupted reviewer/planner completion with correction/pass context. Nonterminal reviewer interruptions fall under generic blocked conversion with diagnostics.
+- Recovered `waiting_tool` LLM actors, including planner `activate_card` waits and all other nonterminal `waiting_tool` states such as process-tool waits, park for replay through `replayToolForRecovery`; there is no distinct child-activation or process-tool-wait recovery path.
+- LLMs waiting for a process tool result and terminal process results awaiting delivery park for replay through `replayToolForRecovery` like any other interrupted `waiting_tool` state.
+- Startup reissues in-flight provider calls from the persisted `calling_provider` state; diagnostics surface any that cannot be safely reissued, projected through `actorRuntime.recovery`.
+- Startup handles terminal interrupted reviewer/planner completion with correction/pass context. Nonterminal reviewer interruptions are reconstructed/replayed where durable records allow, else recorded as sanitized diagnostics rather than converted to a `blocked` card status.
 - Startup persists sanitized recovery diagnostics for any active snapshot that remains outstanding after handled cleanup.
 - Startup diagnostics cover unknown active LLM states, active cards without active owner records, and discarded non-idle supervisor snapshots that remain outstanding after cleanup. Handled reconciled process records clear from diagnostics in the same startup.
 - Recovery diagnostics read-model tests prove the runtime status projection remains sanitized and stale diagnostics are cleared after clean recovery.
-- Recovery cleanup tests prove handled reconciled process records are removed before outstanding-only diagnostics are rewritten.
+- Recovery cleanup tests prove handled reconciled process records are retained per the three-case outcome — runtime/agent-owned and operator-owned missing/skewed as terminal records cleared from outstanding diagnostics, operator-owned still alive remaining `running` — before outstanding-only diagnostics are rewritten.
 - Recovery tests prove `recover(...)` hooks do not trigger transition snapshot writes through `_on_state_changed(...)`.
 - Recovery tests prove handled snapshots are removed or reconciled so the same recovery work is not reported again after restart.
 
@@ -409,7 +409,7 @@ Acceptance:
 
 - Recovery never relies on in-memory queues or raw actor internals.
 - Unsafe states become explicit diagnostics, not silent restarts.
-- Startup either reconstructs recoverable active actor chains or records explicit blocked diagnostics for abandoned work.
+- Startup either reconstructs recoverable active actor chains or records sanitized diagnostics for work that cannot be safely reconstructed.
 - Recovery diagnostics do not include provider payloads, auth data, prompts, raw snapshot context, or other secret-bearing fields.
 
 ## Slice 9: Cleanup
@@ -603,6 +603,6 @@ Resolved decisions (kept for provenance):
 - Process tools share one injected `ProcessRunner` service; there is no `ProcessActor` and none is planned. The current four-layer forwarding wrapper around the service is slated for removal in [Remediation R1](#completed-remediation-r1-r4).
 - `actorRuntime.recovery` is the current outstanding-only recovery visibility surface after startup cleanup. A dedicated recovery endpoint/UI treatment is optional polish, not a separate decision.
 - Eager terminal commit is deferred. The current clean boundary keeps `CardActor` as the single lifecycle commit owner and uses recovery-side terminal projection for crash windows.
-- Discard-snapshots-on-reactivate is deferred. The current startup behavior conservatively blocks non-terminal interrupted work until an explicit auto-reactivation policy exists.
+- Discard-snapshots-on-reactivate is deferred. Current startup behavior runs a pre-reconstruction `runActorStartupRecovery` pass (safe terminal projection, cancelled/terminal-projected snapshot cleanup, stale-tool-call abandonment, sanitized diagnostics), then reconstructs running card actors, replays waiting tool calls, and reissues in-flight provider calls; auto-reactivation from card-store state remains deferred.
 
 These decisions should be made when their implementation slice starts, not before.
