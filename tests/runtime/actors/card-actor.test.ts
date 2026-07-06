@@ -4,8 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardStore } from '../../../src/cards/card-store.js';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { CardActor, MAX_NOTIFICATION_DELIVERY_MARKERS, appendNotificationToActorSnapshot, cardActorId, createSupervisorRuntimeApi, isActivatable, readActorSnapshots, saveActorSnapshot, type CardActivationInput, type CardActivationOutcome, type CardActorDeps, type CardProcessorActor } from '../../../src/runtime/actors/index.js';
+import { CardActor, LLMActor, MAX_NOTIFICATION_DELIVERY_MARKERS, appendNotificationToActorSnapshot, cardActorId, createSupervisorRuntimeApi, isActivatable, processorActorId, readActorSnapshot, readActorSnapshots, saveActorSnapshot, type CardActivationInput, type CardActivationOutcome, type CardActorDeps, type CardProcessorActor } from '../../../src/runtime/actors/index.js';
 import { ProcessRunner } from '../../../src/runtime/process-runner.js';
+import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
 import type { CardRecord } from '../../../src/schemas/index.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
@@ -32,6 +33,19 @@ function processor(outcome: Exclude<CardActivationOutcome, { status: 'cancelled'
 
 function deps(projectRoot: string, store: CardStore): CardActorDeps {
   return { projectRoot, store, provider: { completeTurn: jest.fn() as never }, processRunner: new ProcessRunner(projectRoot), notifyCard: () => ({ ok: true }), lookup: new Map() };
+}
+
+function cardActive(cardId: string): Record<string, unknown> {
+  return { schema_version: 1, kind: 'card_activation', card_id: cardId, processor_actor_id: processorActorId(cardId), caller: { kind: 'root' }, started_at: '2026-06-12T00:00:00.000Z' };
+}
+
+function processorActive(cardId: string): Record<string, unknown> {
+  return { schema_version: 1, kind: 'processor_activation', processor_kind: 'planning', card_id: cardId, caller: { kind: 'root' }, activation_counter: 1, started_at: '2026-06-12T00:00:00.000Z' };
+}
+
+function plannerLlmActive(cardId: string): Record<string, unknown> {
+  const inputId = `planner:${cardId}:1`;
+  return { schema_version: 1, kind: 'llm_turn', agent_id: `planner:${cardId}`, role: 'planner', card_id: cardId, input_id: inputId, input: { inputId, agentId: `planner:${cardId}`, role: 'planner', sessionId: `planner:${cardId}`, systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: { cardId } }, provider_call_id: null, waiting_tool_call: null, delivered_tool_call_ids: [], tool_delivery_counter: 0, started_at: '2026-06-12T00:00:00.000Z' };
 }
 
 function actorFromCard(projectRoot: string, store: CardStore, card: CardRecord, fakeProcessor: CardProcessorActor): CardActor {
@@ -133,6 +147,107 @@ describe('CardActor', () => {
 
     expect(actor.state()).toBe('parked');
     expect(readActorSnapshots(projectRoot).find((item) => item.actor_id === cardActorId(project.id))?.context).toMatchObject({ active_reconstruction: null, activationId: null });
+  }));
+
+  it('fresh activation does not recover stale persisted LLM snapshots', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    saveActorSnapshot(projectRoot, {
+      actor_id: 'planner:project',
+      actor_kind: 'llm',
+      state_value: 'calling_provider',
+      context: { cardId: project.id, active_reconstruction: plannerLlmActive(project.id) },
+      updated_at: '2026-06-12T00:00:00.000Z',
+    });
+    const provider = { completeTurn: jest.fn(async () => new Promise<never>(() => undefined)) };
+    const fromActive = jest.spyOn(LLMActor, 'fromActiveReconstruction');
+    const actor = CardActor.fromCard({ card: project, deps: { ...deps(projectRoot, store), provider } });
+
+    void actor.activate({ kind: 'root' });
+
+    await eventually(() => expect(provider.completeTurn).toHaveBeenCalledTimes(1));
+    expect(fromActive).not.toHaveBeenCalled();
+    expect(actor.state()).toBe('running');
+    fromActive.mockRestore();
+  }));
+
+  it('recovery activation lazily adopts calling-provider LLM snapshots through recoverActive', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    store.setStatus(project.id, 'running');
+    saveActorSnapshot(projectRoot, {
+      actor_id: cardActorId(project.id),
+      actor_kind: 'card',
+      state_value: 'running',
+      context: { cardId: project.id, active_reconstruction: cardActive(project.id) },
+      updated_at: '2026-06-12T00:00:00.000Z',
+    });
+    saveActorSnapshot(projectRoot, {
+      actor_id: 'planner:project',
+      actor_kind: 'llm',
+      state_value: 'calling_provider',
+      context: { cardId: project.id, active_reconstruction: plannerLlmActive(project.id) },
+      updated_at: '2026-06-12T00:00:00.000Z',
+    });
+    saveActorSnapshot(projectRoot, {
+      actor_id: processorActorId(project.id),
+      actor_kind: 'processor',
+      state_value: 'planning',
+      context: { cardId: project.id, active_reconstruction: processorActive(project.id) },
+      updated_at: '2026-06-12T00:00:00.000Z',
+    });
+    const gate = new RuntimeGate(false);
+    const provider = { completeTurn: jest.fn(async () => new Promise<never>(() => undefined)) };
+    const fromActive = jest.spyOn(LLMActor, 'fromActiveReconstruction');
+    const actor = CardActor.fromCard({ card: store.read(project.id)!, deps: { ...deps(projectRoot, store), provider, gate }, deferRunningRecovery: true });
+
+    actor.recoverCurrentCardState();
+
+    expect(fromActive).toHaveBeenCalledTimes(1);
+    expect(readActorSnapshot(projectRoot, 'planner:project')?.state_value).toBe('calling_provider');
+    expect(provider.completeTurn).not.toHaveBeenCalled();
+    gate.open();
+    await eventually(() => expect(provider.completeTurn).toHaveBeenCalledTimes(1));
+    fromActive.mockRestore();
+  }));
+
+  it('defers processor start during Stage 1 recovery construction', () => withTempProject((projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    const project = createProject(store);
+    store.setStatus(project.id, 'running');
+    saveActorSnapshot(projectRoot, {
+      actor_id: cardActorId(project.id),
+      actor_kind: 'card',
+      state_value: 'running',
+      context: { cardId: project.id, active_reconstruction: cardActive(project.id) },
+      updated_at: '2026-06-12T00:00:00.000Z',
+    });
+    const processorSnapshot = {
+      actor_id: processorActorId(project.id),
+      actor_kind: 'processor' as const,
+      state_value: 'planning',
+      context: { cardId: project.id, active_reconstruction: processorActive(project.id) },
+      updated_at: '2026-06-12T00:00:00.000Z',
+    };
+    saveActorSnapshot(projectRoot, processorSnapshot);
+    const gate = new RuntimeGate(false);
+    const provider = { completeTurn: jest.fn() as never };
+
+    const actor = CardActor.fromCard({ card: store.read(project.id)!, deps: { ...deps(projectRoot, store), provider, gate }, deferRunningRecovery: true });
+
+    expect(readActorSnapshot(projectRoot, processorActorId(project.id))).toEqual(processorSnapshot);
+    expect((actor.processor as unknown as { state(): string | undefined }).state()).toBeUndefined();
+
+    actor.recoverCurrentCardState();
+
+    expect((actor.processor as unknown as { state(): string | undefined }).state()).toBe('planning');
+    expect(readActorSnapshot(projectRoot, processorActorId(project.id))).toMatchObject({
+      state_value: 'planning',
+      context: { active_reconstruction: expect.objectContaining({ kind: 'processor_activation', card_id: project.id }) },
+    });
   }));
 
   it('passes a card-owned notification delivery port to activation input', async () => withTempProject(async (projectRoot) => {

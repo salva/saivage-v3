@@ -19,12 +19,9 @@ This doc is the design authority for the implemented core recovery mechanism. It
 
 During normal execution, a planner activates a child through the `activate_card` tool. The child runs, settles, and the result returns to the planner's tool call. Recovery uses the same mechanism.
 
-> **Change vs. current code.** Today the supervisor drives all-cards reconstruction itself:
-> `reconstructActiveActors` builds every running `CardActor` (`deferRunningRecovery: true`),
-> adopts recovered LLM actors, calls `recoverCurrentCardState()` on each in **deepest-first**
-> order, then runs a separate waiting-tool replay pass. This redesign replaces that with
-> root-only recovery that cascades through `activate_card`. It is only possible because the
-> redesign also removes the card-dispatch gate (see §3); the two changes are a coupled package.
+The implemented runtime uses root-only recovery that cascades through `activate_card`. The
+cascade is possible because the runtime has a single gate at the LLM provider call (see §3);
+there is no separate deepest-first supervisor replay pass.
 
 **The supervisor reactivates the root card only.** Everything else cascades through `activate_card`:
 
@@ -273,7 +270,7 @@ The processor's `runActivation` is the single entry point. It calls `createMainL
 
 `resolveInitialOutcome` is the single method used to resolve the initial outcome for ALL LLM actors — planner, reviewer, and executor alike.
 
-> **Change vs. previous code.** This role used to be filled by a base LLM resume/start helper, which for
+> **Superseded helper.** This role used to be filled by a base LLM resume/start helper, which for
 > `waiting_tool` returned `waitingToolOutcome()` directly (no inline replay). It was called from
 > `planning-card-processor-actor.ts` (planner and reviewer) and `terminal-card-processor-actor.ts`
 > (executor), and is documented in [resume-or-start-llm-design.md](./resume-or-start-llm-design.md).

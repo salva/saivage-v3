@@ -6,7 +6,6 @@ import { join } from 'node:path';
 import { buildInvocationSurface, invokeTool } from '../../src/tools/invocation.js';
 import { createProcessProvider } from '../../src/tools/process-provider.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
-import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 
 function withRoot<T>(fn: (root: string) => Promise<T>): Promise<T> {
   const root = mkdtempSync(join(tmpdir(), 'saivage-process-provider-'));
@@ -91,9 +90,8 @@ describe('process provider', () => {
   }));
 
   it('proceeds with runtime-owned command spawn even when the gate is closed', async () => withRoot(async (root) => {
-    const gate = new RuntimeGate(false);
     const processRunner = new ProcessRunner(root);
-    const surface = buildInvocationSurface('executor', [createProcessProvider({ projectRoot: root, processRunner, ownerId: 'activation-1', cardId: 'card-1', agentRole: 'executor', ownerKind: 'agent', runtimeGate: gate })]);
+    const surface = buildInvocationSurface('executor', [createProcessProvider({ projectRoot: root, processRunner, ownerId: 'activation-1', cardId: 'card-1', agentRole: 'executor', ownerKind: 'agent' })]);
 
     const result = await invokeTool(surface, 'run_command', { command: 'printf gated', timeout_ms: 1000 });
 
@@ -102,9 +100,8 @@ describe('process provider', () => {
   }));
 
   it('does not gate operator-owned Analyst command spawn', async () => withRoot(async (root) => {
-    const gate = new RuntimeGate(false);
     const processRunner = new ProcessRunner(root);
-    const surface = buildInvocationSurface('analyst', [createProcessProvider({ projectRoot: root, processRunner, ownerId: 'analyst:global', agentRole: 'analyst', ownerKind: 'operator', runtimeGate: gate })]);
+    const surface = buildInvocationSurface('analyst', [createProcessProvider({ projectRoot: root, processRunner, ownerId: 'analyst:global', agentRole: 'analyst', ownerKind: 'operator' })]);
 
     const result = await invokeTool(surface, 'run_command', { command: 'printf operator', timeout_ms: 1000 });
 

@@ -1,6 +1,6 @@
 # Interrupted Activation Recovery Design
 
-Status: current reference for implemented recovery behavior. [Tool Recovery Design](./tool-recovery-design.md) is a redesign-in-progress that is not yet implemented; it will supersede this document only when it lands and is proven in code. Until then this document remains the most accurate description of the implemented deepest-first reconstruction + replay pass.
+Status: superseded by [Tool Recovery Design](./tool-recovery-design.md), which documents the implemented top-down cascade recovery model. This document is retained as historical design context for the older interrupted-activation recovery proposal.
 
 Date: 2026-07-05
 

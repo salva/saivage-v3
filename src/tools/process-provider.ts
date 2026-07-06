@@ -4,7 +4,6 @@ import { z } from 'zod';
 
 import { DEFAULT_COMMAND_TIMEOUT_MS, DEFAULT_MAX_OUTPUT_BYTES, MAX_COMMAND_TIMEOUT_MS, truncateCommandOutput } from '../runtime/command-policy.js';
 import type { ProcessRunner } from '../runtime/process-runner.js';
-import type { RuntimeGate } from '../runtime/runtime-gate.js';
 import type { AgentRole, ProcessRecord } from '../schemas/index.js';
 import { resolveContainedProjectPath } from '../workspace/index.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
@@ -17,7 +16,6 @@ export interface ProcessProviderContext {
   readonly agentRole?: AgentRole;
   readonly ownerKind: 'agent' | 'operator' | 'runtime';
   readonly launchReason?: string;
-  readonly runtimeGate?: RuntimeGate;
 }
 
 function failureFromError(err: unknown): ToolResult {
@@ -146,7 +144,6 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
         inputSchema: runCommandSchema,
         executor: async (args, signal) => {
           try {
-            throwIfAborted(signal);
             throwIfAborted(signal);
             const record = ctx.processRunner.spawn({
               command: args.command,

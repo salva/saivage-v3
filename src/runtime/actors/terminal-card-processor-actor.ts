@@ -136,7 +136,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
   }
 
   private executorInvocationSurface(processOwnerId: string): InvocationSurface {
-    return buildRoleSurface('executor', { projectRoot: this.projectRoot, cardId: this.cardId, sessionId: processOwnerId, ownerId: processOwnerId, processRunner: this.processRunner, runtimeGate: this.gate, mcpManagerProvider: this.mcpManagerProvider });
+    return buildRoleSurface('executor', { projectRoot: this.projectRoot, cardId: this.cardId, sessionId: processOwnerId, ownerId: processOwnerId, processRunner: this.processRunner, mcpManagerProvider: this.mcpManagerProvider });
   }
 
   private validateExecutorTerminal(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, contract = createExecutorContract()): string | null {

@@ -461,7 +461,7 @@ describe('actor recovery plan', () => {
     expect(store.read(cardId)).toMatchObject({ status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'rework', summary: 'fix issue' } } });
   }));
 
-  it('refuses planner done recovery when reviewer reconstruction identity is missing', () => withTempProject((projectRoot) => {
+  it('recomputes reviewer reconstruction identity for planner done recovery', () => withTempProject((projectRoot) => {
     const { store, cardId } = createRunningGoal(projectRoot);
     const evidenceId = createDoneEvidence(store, cardId);
     const reviewer = llmWaitingActive(cardId, 'reviewer', 'emit_result');
@@ -473,7 +473,10 @@ describe('actor recovery plan', () => {
     appendLoggedToolCall(projectRoot, cardId, 'planner', 'emit_result', { status: 'done', summary: 'done' });
     appendLoggedToolCall(projectRoot, cardId, 'reviewer', 'emit_result', reviewerPass(evidenceId));
 
-    expect(recoverProjectedTerminalToolOutcomes(buildActorRecoveryPlan(projectRoot, store), recoveryProcessorDeps(projectRoot, store))).toEqual([]);
+    const recoveries = recoverProjectedTerminalToolOutcomes(buildActorRecoveryPlan(projectRoot, store), recoveryProcessorDeps(projectRoot, store));
+
+    expect(recoveries).toEqual([{ cardId, status: 'done', reason: expect.stringContaining('planner and reviewer'), actorIds: [`card:${cardId}`, `planner:${cardId}`, `processor:${cardId}`, `reviewer:${cardId}`].sort() }]);
+    expect(store.read(cardId)).toMatchObject({ status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'review ok' } } });
   }));
 
   it('refuses planner done recovery when descendants are incomplete', () => withTempProject((projectRoot) => {

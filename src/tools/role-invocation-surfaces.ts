@@ -1,7 +1,6 @@
 import type { AgentRole } from '../schemas/index.js';
 import type { McpToolInvocationPort } from '../mcp/mcp-manager.js';
 import type { ProcessRunner } from '../runtime/process-runner.js';
-import type { RuntimeGate } from '../runtime/runtime-gate.js';
 import type { CardNotification } from '../runtime/actors/card-actor.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
 import type { ToolContext } from './analyst-tool-types.js';
@@ -27,7 +26,6 @@ export interface RoleSurfaceContext {
   store?: unknown;
   processRunner?: ProcessRunner;
   ownerId?: string;
-  runtimeGate?: RuntimeGate;
   mcpManagerProvider?: () => McpToolInvocationPort | undefined;
   children?: PlannerControlProviderContext['children'];
   notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult;
@@ -69,7 +67,7 @@ const PROVIDER_CONSTRUCTORS: Readonly<Record<ProviderName, (ctx: RoleSurfaceCont
   }),
   process: (ctx, role) => role === 'analyst'
     ? createProcessProvider({ projectRoot: ctx.projectRoot, processRunner: ctx.processRunner!, ownerId: ctx.ownerId ?? ctx.sessionId ?? 'analyst', agentRole: 'analyst', ownerKind: 'operator', launchReason: 'analyst workspace run_command' })
-    : createProcessProvider({ projectRoot: ctx.projectRoot, processRunner: ctx.processRunner!, ownerId: ctx.ownerId ?? ctx.sessionId!, ownerKind: 'agent', cardId: ctx.cardId, runtimeGate: ctx.runtimeGate }),
+    : createProcessProvider({ projectRoot: ctx.projectRoot, processRunner: ctx.processRunner!, ownerId: ctx.ownerId ?? ctx.sessionId!, ownerKind: 'agent', cardId: ctx.cardId }),
   cardHistory: (ctx, role) => createCardHistoryProvider({
     projectRoot: ctx.projectRoot,
     store: role === 'analyst' ? ctx.store as CardHistoryProviderContext['store'] : undefined,

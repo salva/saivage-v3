@@ -29,6 +29,7 @@ curl http://localhost:8080/health
 | [Functional specification](docs/spec/system-specification.md) | current functional authority | What Saivage must do from the user and runtime point of view. |
 | [Operator UI specification](docs/spec/operator-ui.md) | current UI functional authority | Analyst panel, read-only workspace, UI mutation boundaries, and contextual navigation. |
 | [Architecture](docs/architecture/system-architecture.md) | current architecture summary | How the functional model is organized into runtime, agents, storage, API, and UI subsystems. |
+| [Tool recovery design](docs/architecture/tool-recovery-design.md) | current recovery design authority | Implemented top-down cascade recovery, with corrupt-snapshot/orphan robustness explicitly deferred. |
 
 ## Key concepts
 

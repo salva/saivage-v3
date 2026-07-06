@@ -9,7 +9,6 @@ import { ANALYST_CONTROL_TOOLS } from '../../src/tools/analyst-tool-registry.js'
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { buildRoleSurface } from '../../src/tools/role-invocation-surfaces.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
-import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 
 const roots: string[] = [];
 
@@ -67,7 +66,6 @@ describe('role invocation surfaces', () => {
       sessionId: 'activation-1',
       ownerId: 'activation-1',
       processRunner: new ProcessRunner(projectRoot),
-      runtimeGate: new RuntimeGate(),
       mcpManagerProvider: () => undefined,
     });
 
