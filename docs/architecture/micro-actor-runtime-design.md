@@ -530,28 +530,30 @@ Do not persist:
 - Job queues.
 - Function closures, actor object references, or provider client objects.
 
-Recovery procedure (current policy: conservative block-on-restart):
+Recovery procedure (implemented startup sequence):
 
-1. Reconcile persisted running process records through the `ProcessRunner` registry BEFORE actor recovery (see [Implementation Plan P1](./micro-actor-runtime-implementation-plan.md#p1-processrunner-owns-truthful-process-state-and-scoped-termination), [P2](./micro-actor-runtime-implementation-plan.md#p2-startup-reconciles-processes-before-actor-recovery)). Runtime/agent-owned records are killed by PID/process-group or marked lost; operator-owned records are observed best-effort or marked lost.
-2. Read CardStore, runtime records, session logs, tool records, and notification records; build one initial recovery plan from actor snapshots and `activeReconstruction` records (not from public-status or state-name heuristics).
-3. Project safe persisted terminal tool-call outcomes (executor terminal, planner `blocked`/`failed`, planner `done` paired with a matching persisted reviewer terminal result) only when active card, processor, LLM, and reviewer reconstruction records all agree; mark them `terminal_projected`.
-4. Convert all remaining active card work — including `block_tool_wait` LLM actors and interrupted child-activation waits — to explicit `blocked` card outcomes. `failed` outcomes come only from terminal projection, never from generic conversion.
-5. Clean handled snapshots once, remove handled/reconciled process records, then abandon stale pending tool calls once.
-6. Recreate `RuntimeSupervisorActor` and recover only safe parked/settled card actors with no outstanding active work. Running card actors, in-flight LLM sessions, and pending tool waits are NOT recreated; they were converted to `blocked` outcomes in step 4.
-7. Call `BaseActor.recover(state)` on fresh actor instances only for safe parked/settled states. Actor-specific `_on_recover__{state}` hooks rebuild in-memory references from persisted reconstruction records. `recover(...)` does not call `_on_state_changed(...)` and must not re-run transition persistence or transition side effects.
-8. Rebuild and persist outstanding-only recovery diagnostics; fail or block explicitly with operator-visible diagnostics when state is ambiguous.
+**Phase 0 — process reconciliation before actor recovery.** Reconcile persisted running process records through the `ProcessRunner` registry BEFORE actor recovery (see [Implementation Plan P1](./micro-actor-runtime-implementation-plan.md#p1-processrunner-owns-truthful-process-state-and-scoped-termination), [P2](./micro-actor-runtime-implementation-plan.md#p2-startup-reconciles-processes-before-actor-recovery)). There are three cases: runtime/agent-owned records are killed by PID/process-group or marked lost and retained as terminal records; operator-owned records that are still alive are matched and remain `running`, not terminal; operator-owned records that are missing or clock-skewed are marked lost and retained as terminal records. No process record is removed. Startup does not reattach OS processes and does not use a `reattach_state`.
 
-A restart is a clean boundary. Recovery does not recreate in-flight provider calls, running card actors, active LLM sessions, or pending tool waits; interrupted work becomes explicit `blocked` outcomes with diagnostics rather than being silently resumed.
+**Phase 1 — build the recovery plan and run the pre-reconstruction pass.** Close the runtime gate, then read CardStore, runtime records, session logs, tool records, notification records, actor snapshots, and `activeReconstruction` records to build the recovery plan; the plan is not derived from public-status or state-name heuristics. `runActorStartupRecovery` then runs the complete pre-reconstruction pass in this order, all before live actor reconstruction or tool replay:
+
+1. Clean cancelled-card snapshots.
+2. Project safe persisted terminal tool-call outcomes (executor terminal, planner `blocked`/`failed`, planner `done` paired with a matching persisted reviewer terminal result) only when active card, processor, LLM, and reviewer reconstruction records all agree; mark them `terminal_projected`.
+3. Clean cancelled and terminal-projected handled snapshots. These are snapshots whose card outcomes were just committed by terminal projection, not reconstructed snapshots.
+4. Abandon stale pending tool calls once.
+5. Rebuild the recovery plan.
+6. Write sanitized recovery diagnostics for ambiguous or stranded active work. Diagnostics do not patch card status to `blocked` or any other status.
+
+**Phase 2 — reconstruct live recovery work and replay waits.** When running recovery work existed, reconstruct running card actors deepest-first and adopt recovered LLM actors from `activeReconstruction` records. A recovered `calling_provider` LLM reissues the provider call and parks at the closed gate until the operator resumes. A recovered `waiting_tool` LLM parks for replay. Waiting tool calls are replayed through `replayToolForRecovery`; process-tool replays resolve as interrupted because process records were already reconciled in Phase 0.
+
+**Phase 3 — leave the runtime in the correct mode.** If running recovery work existed, leave the runtime paused with the gate closed for operator verification. Otherwise, follow the persisted runtime mode.
 
 Recovery classifications used by the current policy:
 
 - `terminal_projected`: a persisted terminal tool call safely projects a card outcome from durable records.
-- `abandon_with_diagnostic`: interrupted work with no safe continuation; recorded as a `blocked` card outcome with diagnostics.
-- `complete_no_live_actor`: no live actor is needed (settled/parked state only).
+- `complete_no_live_actor`: no live actor is needed for a settled/parked state.
+- `abandon_with_diagnostic`: interrupted work with no safe reconstruction; recorded as sanitized operator-visible diagnostics in Phase 1 before reconstruction, not as a `blocked` card outcome.
 
-Deferred future work (NOT current policy):
-
-Genuine mid-flight resume — recreating running card actors, re-attaching provider calls, process waits, and child-activation waits, with `resume_safe` / `reconcile_then_resume` classifications — is explicitly deferred. It must be designed as actor-owned reconstruction entrypoints if it ever becomes a concrete requirement. Do not add adapters or bridges over in-memory promises, provider calls, or process handles to approximate resume (see [Implementation Plan — Slice 8 deferred direction](./micro-actor-runtime-implementation-plan.md#slice-8-recovery)).
+Non-goal: OS process reattachment is deliberately excluded. Runtime/agent-owned process records and missing/skewed operator-owned process records are reconciled to retained terminal records; live operator-owned process records remain `running`; none are reattached to actors. Do not add adapters or bridges over in-memory promises, provider calls, or process handles to approximate reattachment.
 
 ## API And Projection
 
