@@ -36,7 +36,7 @@ Apply these top-level Saivage v3 rules from `AGENTS.md` throughout design, revie
 - Keep data models and API contracts singular; when a contract changes, update producers, consumers, tests, docs, and deployment assumptions in the same change set.
 - Do not complicate production code or architecture for tests; prefer fewer high-value tests, with E2E tests as the highest-trust behavior checks.
 - Keep working documents under `docs/working/`; they are local ignored artifacts and must not be committed.
-- Any implementation plan must include main documentation updates, and behavior changes must update the appropriate main docs.
+- Any implementation plan must include main documentation updates, and behavior changes must update the appropriate main docs. Main docs may already be out of sync with implementation; when they are stale in the area being changed, the plan must include the doc corrections needed to bring that affected area back into sync.
 - Do not print tokens, provider configs, `.saivage/auth-profiles.json`, `.saivage/saivage.json`, env files, or backups; never put API bearer tokens in URLs.
 
 ## Required Working Files
@@ -70,6 +70,7 @@ The first design/plan must include:
 - Implementation plan with ordered steps split into three explicit sections: main work tasks, cleanup tasks, and documentation-update tasks.
 - Cleanup tasks must identify obsolete/dead code, obsolete tests, stale fixtures, and superseded docs or scripts that should be removed or updated as part of the fix.
 - Documentation-update tasks must name the main docs to update and describe the behavior, architecture, runbook, or validation changes each doc needs.
+- If current main docs are already stale or inconsistent with the implementation for the area being changed, document that finding and include tasks to correct those docs as part of the same change. Keep the correction scoped to the parts related to the issue/fix; do not expand into an unrelated documentation rewrite.
 - Validation plan with focused checks and broader gates appropriate to the risk.
 - Main documentation updates required by the work, naming the expected files under `docs/spec/`, `docs/architecture/`, `docs/runbook/`, or `README.md`.
 - Risks, rollback considerations, and unresolved questions.
