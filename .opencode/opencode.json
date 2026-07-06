@@ -13,14 +13,23 @@
   },
   "watcher": {
     "ignore": [
+      "**/.git",
       "**/.git/**",
+      "**/node_modules",
       "**/node_modules/**",
+      "**/.opencode/node_modules",
       "**/.opencode/node_modules/**",
+      "**/dist",
       "**/dist/**",
+      "**/web/dist",
       "**/web/dist/**",
+      "**/docs/.vitepress/dist",
       "**/docs/.vitepress/dist/**",
+      "**/.saivage",
       "**/.saivage/**",
+      "**/.saivage-work",
       "**/.saivage-work/**",
+      "**/tmp",
       "**/tmp/**"
     ]
   },
