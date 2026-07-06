@@ -19,6 +19,26 @@ When the change creates or revises a skill, also follow `opencode-skill-authorin
 - Repeat review and revision until there are no confirmed design/plan issues left.
 - Keep working artifacts out of Git while keeping main docs synchronized with implemented behavior.
 
+## Project Rules To Apply
+
+Apply these top-level Saivage v3 rules from `AGENTS.md` throughout design, review, implementation, validation, and reporting:
+
+- Current authority is `docs/spec/system-specification.md`, `docs/spec/operator-ui.md`, `docs/architecture/system-architecture.md`, and `README.md`; `docs-old/` and stale design docs are historical provenance only.
+- Clean, simple architecture and code are the top priority; prefer the design that makes the system easier to understand and change, even when it requires a large or cross-cutting refactor.
+- No backward compatibility: breaking internal or external APIs is acceptable when it produces the correct current design.
+- No bridge, adapter, shim, migration, dual-path, or legacy-normalization code; update all components and call sites to the current API instead.
+- No over-engineered designs; keep abstractions minimal, direct, and justified by current behavior.
+- Fix root causes across the relevant subsystem rather than adding local band-aids.
+- Be brave with refactors; do not choose small/easy changes merely because they are easier if a broader change is the right fix.
+- Remove dead code aggressively; do not preserve unused paths, deprecated overloads, or legacy fallbacks.
+- Fail fast for impossible states; throw rather than silently recovering, normalizing, or returning fallback values.
+- Avoid over-defensive code; do not guard against states that cannot happen or that the system does not know how to handle.
+- Keep data models and API contracts singular; when a contract changes, update producers, consumers, tests, docs, and deployment assumptions in the same change set.
+- Do not complicate production code or architecture for tests; prefer fewer high-value tests, with E2E tests as the highest-trust behavior checks.
+- Keep working documents under `docs/working/`; they are local ignored artifacts and must not be committed.
+- Any implementation plan must include main documentation updates, and behavior changes must update the appropriate main docs.
+- Do not print tokens, provider configs, `.saivage/auth-profiles.json`, `.saivage/saivage.json`, env files, or backups; never put API bearer tokens in URLs.
+
 ## Required Working Files
 
 Create a working directory under `docs/working/`, for example:
