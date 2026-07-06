@@ -54,6 +54,7 @@ Current high-value skills include:
 - `saivage-development-validation`: validation after Saivage v3 code, docs, UI, API, or deployment changes.
 - `saivage-lxc-operations`: LXC operations for Saivage v3-relevant deployments such as the v2-on-v3 harness, GetRich v2, and Pueblicos.
 - `saivage-project-reset`: reset target projects managed by Saivage v3 deployments, such as GetRich v2 or Pueblicos.
+- `opencode-skill-authoring`: create or revise project OpenCode skills under `.github/skills/`.
 - `saivage-issue-fix-adversarial-review`: mandatory issue-fixing workflow that iterates design/plan adversarial review before implementation.
 - `saivage-v3-mailbox-submit`: submit proposals to the v2-on-v3 harness mailbox.
 - `iterative-dual-llm-review`: heavyweight systematic review workflow when explicitly requested.

@@ -5,9 +5,11 @@ description: 'Mandatory Saivage v3 issue-fixing workflow. Use when fixing bugs, 
 
 # Saivage Issue Fix Adversarial Review
 
-Use this workflow before fixing any concrete issue in Saivage v3, including bugs, regressions, review findings, architectural flaws, behavior gaps, failed validation findings, and operator-reported problems.
+Use this workflow before fixing any concrete issue in Saivage v3, including bugs, regressions, review findings, architectural flaws, behavior gaps, failed validation findings, and operator-reported problems. Also use it when creating or changing operational workflow rules or skills that govern how issues are fixed.
 
-This skill is mandatory for issue fixes. It is not required for trivial non-issue edits such as typo fixes, formatting-only changes, or direct user-requested instruction wording changes unless the user frames the work as fixing an issue.
+This skill is mandatory for issue fixes and issue-fixing workflow changes. It is not required for trivial non-issue edits such as typo fixes or formatting-only changes unless the user frames the work as fixing an issue or changing the required issue-fix workflow.
+
+When the change creates or revises a skill, also follow `opencode-skill-authoring` for OpenCode skill layout, frontmatter, descriptions, and validation.
 
 ## Objectives
 
@@ -98,7 +100,7 @@ Stop conditions:
 
 - Stop and implement when the latest adversarial review has no confirmed issues.
 - Stop and ask the user if the loop reaches repeated disagreement, unclear scope, or a tradeoff that needs operator choice.
-- If the subagent tooling is unavailable, report that blocker explicitly and do not claim that adversarial review passed.
+- If the subagent tooling is unavailable, report that blocker explicitly, do not claim that adversarial review passed, and proceed only when the user has directed you to continue despite the blocker or the change is needed to repair the review workflow itself.
 
 ## Implementation
 
