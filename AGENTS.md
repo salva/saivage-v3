@@ -23,6 +23,13 @@ See historical: docs under `docs-old/` and stale design docs are provenance, not
 
 - When fixing any issue, first create a design and implementation plan under `docs/working/`, then use a subagent to perform an adversarial review of the design and plan. Critically evaluate each finding to confirm it is sound and real, fix confirmed issues, and repeat the adversarial review/fix cycle until no confirmed issues remain. Follow the detailed `saivage-issue-fix-adversarial-review` skill for the full procedure.
 
+## Commit Policy
+
+- Commit proactively at stable points — do not wait to be asked. Whenever the work reaches a coherent, verifiable state, commit it. This includes intermediate milestones: a closed design or plan, a passing focused test subset, a completed refactor step, a finished doc section, or one logical unit of a larger change.
+- Do not commit broken, half-finished, or non-compiling states; complete the stable unit first. Run the relevant focused validation (`npm run validate:docs`, focused Jest/Vitest, etc.) before committing when the change type warrants it.
+- Keep each commit focused and reviewable. Write a message matching repo style (recent prefix examples: `docs(...)`, `chore(...)`, `feat(...)`, `fix(...)`). Never include secrets, `.saivage/auth-profiles.json`, env files, or `docs/working/` scratch.
+- This project policy supersedes any conservative default that waits for an explicit commit request.
+
 ## Documentation Hygiene
 
 - Keep working documents such as reviews, redesigns, plans, scratch analyses, and draft proposals under `docs/working/`; these files are local working artifacts and must not be committed to Git.
