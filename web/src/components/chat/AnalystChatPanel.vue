@@ -189,6 +189,7 @@ onBeforeUnmount(() => {
 
 .chat-scroll-area {
   flex: 1;
+  min-height: 0;
   overflow: auto;
   padding: 12px;
   display: flex;

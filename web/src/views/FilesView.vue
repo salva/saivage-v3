@@ -320,7 +320,7 @@ watch(() => [route.query.root, route.query.path], () => {
 .viewer-close-btn { width:24px; height:24px; display:flex; align-items:center; justify-content:center; }
 .viewer-loading { padding:16px; justify-content:center; text-align:center; }
 .viewer-state { padding: 16px; }
-.viewer-content { flex:1; overflow:auto; padding:12px; }
+.viewer-content { flex:1; min-height:0; overflow:auto; padding:12px; }
 .viewer-redaction-notice { margin-bottom:8px; }
 .quarantine-footer { display:flex; align-items:center; gap:8px; padding:8px 12px; background:var(--surface-2); border-top:1px solid var(--border); flex-shrink:0; }
 .quarantine-footer-label { font-size:10px; font-weight:600; color:var(--warn); text-transform:uppercase; letter-spacing:.05em; }
