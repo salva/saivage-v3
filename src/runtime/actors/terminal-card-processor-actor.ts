@@ -1,13 +1,13 @@
 import type { ActorDefinition } from '../micro-actor/index.js';
 import type { CardActivationInput, CardActivationOutcome, CardActorStorePort, CardProcessorActor } from './card-actor.js';
 import { executorActorId } from './ids.js';
-import type { LLMActor, LLMActorOutcome, LLMProviderPort } from './llm-actor.js';
+import type { LLMActorOutcome, LLMProviderPort } from './llm-actor.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
 import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
 import { createExecutorContract } from '../../contracts/executor-contract.js';
 import type { ExecutorResult } from '../../contracts/agent-execution.js';
 import { expectedTerminalToolMessage, verifyTerminalToolOutcome } from './contract-terminal-tools.js';
-import { cleanupInvocationSurface, invokeToolForLlm, replayToolForRecovery, surfaceToolDefinitions, type InvocationSurface, type ToolReplayOutcome, type ToolResult } from '../../tools/invocation.js';
+import { cleanupInvocationSurface, invokeToolForLlm, surfaceToolDefinitions, type InvocationSurface, type ToolResult } from '../../tools/invocation.js';
 import { buildRoleSurface } from '../../tools/role-invocation-surfaces.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import type { ProcessRunner } from '../process-runner.js';
@@ -53,11 +53,8 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     return projectTerminalExecutorOutcome(outcome);
   }
 
-  override async replayWaitingToolCall(llm: LLMActor): Promise<ToolReplayOutcome> {
-    const outcome = llm.waitingToolOutcome();
-    const processOwnerId = llm.activeReconstruction?.input.episodeContext.activationId;
-    const ownerId = typeof processOwnerId === 'string' ? processOwnerId : `card:${this.cardId}:activation:recovered`;
-    return replayToolForRecovery(this.executorInvocationSurface(ownerId), outcome.toolName, outcome.args);
+  protected override recoverableLlmAgentIds(): readonly string[] {
+    return [executorActorId(this.cardId)];
   }
 
   protected override processorSnapshotContext(): Record<string, unknown> {
@@ -75,7 +72,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     this.activeProcessOwnerId = processOwnerId;
     let cleanupStatus: 'done' | 'blocked' | 'failed' | 'cancelled' = 'failed';
     try {
-      const outcome = await this.resumeOrStartLlm(llm, llmInput, signal);
+      const outcome = await this.resolveInitialOutcome(llm, llmInput, surface, (name) => contract.isTerminalToolName(name), signal, (inputId) => this.plannerNotificationContext(input, inputId));
       const result = await runContractBoundedRepairLoop<TerminalProcessorOutcome>({
         initialOutcome: outcome,
         isTerminalToolName: (name) => contract.isTerminalToolName(name),

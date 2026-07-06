@@ -293,6 +293,9 @@ describe('SupervisorRuntimeApi', () => {
   }));
 
   it('captures the actor recovery plan before starting the supervisor', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    createProject(store);
     saveActorSnapshot(projectRoot, {
       actor_id: 'card:G-recover',
       actor_kind: 'card',
@@ -307,7 +310,7 @@ describe('SupervisorRuntimeApi', () => {
       context: { cardId: 'G-recover', active_reconstruction: llmActive('G-recover') },
       updated_at: '2026-06-12T00:00:00.000Z',
     });
-    const api = new SupervisorRuntimeApi({ projectRoot, actorStore: inertStore, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
+    const api = new SupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
 
     await api.start();
 
@@ -318,6 +321,9 @@ describe('SupervisorRuntimeApi', () => {
   }));
 
   it('reconciles persisted processes before actor startup recovery', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    createProject(store);
     const order: string[] = [];
     const processRunner = testProcessRunner(projectRoot);
     jest.spyOn(processRunner, 'reconcile').mockImplementation(async () => {
@@ -326,7 +332,7 @@ describe('SupervisorRuntimeApi', () => {
     });
     const api = new SupervisorRuntimeApi({
       projectRoot,
-      actorStore: inertStore,
+      actorStore: store,
       provider: blockedPlannerProvider(),
       processRunner,
       now: () => {
@@ -341,6 +347,9 @@ describe('SupervisorRuntimeApi', () => {
   }));
 
   it('persists only outstanding recovery diagnostics after handled cleanup', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    createProject(store);
     saveActorSnapshot(projectRoot, {
       actor_id: 'card:G-recover',
       actor_kind: 'card',
@@ -362,7 +371,7 @@ describe('SupervisorRuntimeApi', () => {
       context: { cardId: 'G-recover', active_reconstruction: processorActive('G-recover') },
       updated_at: '2026-06-12T00:00:00.000Z',
     });
-    const api = new SupervisorRuntimeApi({ projectRoot, actorStore: inertStore, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
+    const api = new SupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
 
     await api.start();
 
@@ -384,6 +393,9 @@ describe('SupervisorRuntimeApi', () => {
   }));
 
   it('abandons stale pending tool calls during startup recovery', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    createProject(store);
     appendToolCallStatus(projectRoot, {
       agent_id: 'planner:G-stale',
       source_input_id: 'input:G-stale',
@@ -406,7 +418,7 @@ describe('SupervisorRuntimeApi', () => {
       status: 'delivered',
       delivery_input_id: 'input:G-delivered:child:1',
     });
-    const api = new SupervisorRuntimeApi({ projectRoot, actorStore: inertStore, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
+    const api = new SupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
 
     await api.start();
 
@@ -610,7 +622,7 @@ describe('SupervisorRuntimeApi', () => {
 
     expect(api.getStatus()).toMatchObject({ status: 'paused' });
     expect(store.read(project.id)).toMatchObject({ status: 'running', status_text: null });
-    expect(readToolCallStatuses(projectRoot, 'planner:project').map((record) => record.status)).toEqual(['pending', 'delivered']);
+    await eventually(() => expect(readToolCallStatuses(projectRoot, 'planner:project').map((record) => record.status)).toEqual(['pending', 'delivered']));
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toEqual(expect.arrayContaining(['card:project', 'planner:project', 'processor:project']));
   }));
 
@@ -664,7 +676,7 @@ describe('SupervisorRuntimeApi', () => {
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toEqual(expect.arrayContaining(['card:project', 'planner:project', 'reviewer:project', 'processor:project', 'supervisor']));
   }));
 
-  it('accepts startProject when the project card is missing and records a background failure', async () => withTempProject(async (projectRoot) => {
+  it('throws on startProject when the project card record is missing', async () => withTempProject(async (projectRoot) => {
     const api = createSupervisorRuntimeApi({
       projectRoot,
       actorStore: inertStore,
@@ -673,17 +685,13 @@ describe('SupervisorRuntimeApi', () => {
       now: () => '2026-06-12T00:00:00.000Z',
     });
 
-    const result = await api.startProject('operator');
-
-    expect(result.success).toBe(true);
-    if (!result.success) throw new Error('Expected startProject to be accepted.');
-    expect(result.command).toMatchObject({ status: 'accepted' });
-    const terminal = await waitForRootRun(projectRoot, (run) => run.phase === 'failed');
-    expect(terminal).toMatchObject({ phase: 'failed', runtime_status: 'stopped', outcome: { kind: 'completed', result: 'failed', error: "Card 'project' not found." } });
+    await expect(api.startProject('operator')).rejects.toThrow("Root card record 'project' is corrupt or missing");
   }));
 
   it('reconciles stale running root runs on startup', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
+    const store = new CardStore(projectRoot);
+    createProject(store);
     const mutations = createRuntimeStateMutationPort(projectRoot);
     const command = mutations.apply({ kind: 'appendRuntimeCommand', commandKind: 'start_project', source: 'operator' });
     const stale = mutations.apply({
@@ -703,7 +711,7 @@ describe('SupervisorRuntimeApi', () => {
       },
     });
     mutations.apply({ kind: 'patchRuntimeState', patch: { status: 'running' } });
-    const api = createSupervisorRuntimeApi({ projectRoot, actorStore: inertStore, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
+    const api = createSupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
 
     await api.start();
 

@@ -11,6 +11,7 @@ import { defineTool, type ToolProvider, type ToolResult } from './invocation.js'
 
 interface PlannerChildActor {
   activate(input: { kind: 'parent'; cardId: string; sessionId: string }): Promise<{ status: string; summary: string; result?: unknown }>;
+  recoverCurrentCardState(): void;
   awaitSettlement(): Promise<{ status: string; summary: string; result?: unknown }>;
   cancel(input: { reason: string; cancelled_at: string }): void;
   markChanged?(): void;
@@ -176,9 +177,13 @@ async function activateCard(ctx: PlannerControlProviderContext, record: z.infer<
   const actor = ctx.children.get(record.card_id);
   if (!actor) return failure(`No CardActor is registered for child '${record.card_id}'.`);
   try {
-    const activation = child.status === 'running'
-      ? await actor.awaitSettlement()
-      : await actor.activate({ kind: 'parent', cardId: ctx.parentCardId, sessionId: ctx.sessionId });
+    let activation;
+    if (child.status === 'running') {
+      actor.recoverCurrentCardState();
+      activation = await actor.awaitSettlement();
+    } else {
+      activation = await actor.activate({ kind: 'parent', cardId: ctx.parentCardId, sessionId: ctx.sessionId });
+    }
     if (activation.status === 'cancelled') return failure(`Child card '${record.card_id}' activation was cancelled.`);
     return { success: true, data: { card_id: record.card_id, outcome: activation.status, summary: activation.summary, result: activation.result ?? null } };
   } catch (error) {

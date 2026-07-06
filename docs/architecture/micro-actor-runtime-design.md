@@ -203,6 +203,7 @@ Parked public methods use `parkedSendEvent(...)` after validating authority and 
 Event guidance:
 
 - Public methods may queue command events such as `activate`, `changed`, and inactive `cancel` from parked states.
+- Fresh running activation enters through `_on_enter__running` and routes to `processor.activate`; recovered running activation enters through `_on_recover__running` and routes to `processor.recoverActive`. Both paths share `beginProcessorActivation`, which lazily starts a deferred processor before dispatch.
 - Running activation work normally completes with `done` or `failed` after storing the outcome on actor fields.
 - `blocked` is a domain outcome. It may be a distinct event only if the static transition table needs to route it separately from `done`.
 - Running cards receive notification/context without leaving `running`. Cancellation for running cards is authoritative through the current activation: the card store is marked `cancelled` immediately, the pending activation resolves as cancelled, activation-owned process scope is stopped, and late outcomes are dropped by the CardActor cancellation flag (see [Implementation Plan P3](./micro-actor-runtime-implementation-plan.md#p3-cardactor-owns-authoritative-cancellation-and-activation-id-settlement)).
@@ -211,7 +212,7 @@ Responsibilities:
 
 - Write public status through CardStore.
 - Own direct child `CardActor` instances.
-- Own the associated processor actor for this card type.
+- Own the associated processor actor for this card type. During startup recovery, a running card may construct its processor but defer `processor.start()` until the top-down cascade reaches that card.
 - Enforce direct-child activation authority.
 - Commit exactly one activation outcome before returning it to the parent.
 - Call the parent card's hard-coded child-completion method when this card reaches an activation outcome.
@@ -231,7 +232,7 @@ Purpose: card-type-dependent behavior for project, goal, and terminal cards.
 Processor actors use a small inheritance hierarchy for shared mechanics, not a generic policy framework:
 
 - `BaseCardProcessorActor`: common to all processor actors. It defines the shared processor state machine, `activate(input)`, pending activation promise, `settle(outcome)`, generic snapshot persistence, and outcome reporting to the owning `CardActor`. It must not know planner, reviewer, executor, process-tool, or card-type policy. It has no cancellation API and no `cancelled` state; running cancellation is owned by the `CardActor` activation (see [Implementation Plan P3](./micro-actor-runtime-implementation-plan.md#p3-cardactor-owns-authoritative-cancellation-and-activation-id-settlement)).
-- `BaseMainLLMCardProcessorActor`: common to processors driven by a card's main agent LLM. It creates one `LLMActor` per logical invocation flow, runs the turn loop, exposes `plannerNotificationContext(input, inputId)` to drain main-agent notifications before each planner/executor turn (records delivery markers atomically), and exposes `reviewerContext(input)` for reviewer turns with no main-agent queue access. It must not decide role-specific tool semantics.
+- `BaseMainLLMCardProcessorActor`: common to processors driven by a card's main agent LLM. It creates one `LLMActor` per logical invocation flow, lazily adopts recovered LLM snapshots inside `recoverActive`, resolves recovered initial LLM outcomes through inline tool replay, exposes `plannerNotificationContext(input, inputId)` to drain main-agent notifications before each planner/executor turn (records delivery markers atomically), and exposes `reviewerContext(input)` for reviewer turns with no main-agent queue access. It must not decide role-specific tool semantics.
 - `PlanningCardProcessorActor`: project/goal semantics around planner, child activation, completion gate, reviewer phase, and planner/reviewer terminal contracts.
 - `TerminalCardProcessorActor`: terminal-card executor semantics around executor terminal contract and process tools. Executor terminal outcomes are `done`, `failed`, or `blocked`, matching the uniform main-agent outcome vocabulary.
 
@@ -257,6 +258,7 @@ Project and goal processor phases:
 Public methods:
 
 - `activate(input)`: start or resume one card activation.
+- `recoverActive(state, input, signal)`: recover an already-active processor state for a running card reached by the startup cascade.
 
 Processors have no cancellation API. Running cancellation is owned by the `CardActor` activation (see [Implementation Plan P3](./micro-actor-runtime-implementation-plan.md#p3-cardactor-owns-authoritative-cancellation-and-activation-id-settlement)). Late processor outcomes are dropped by the CardActor cancellation flag.
 
@@ -347,6 +349,7 @@ Public methods:
 
 - `turn(inputRef)`: run a model turn from persisted input context.
 - `appendToolResult(toolCallId, result, continuationContext)`: continue after tool success or tool error (tool errors are delivered through the same method; there is no separate `appendToolError`).
+- `fromActiveReconstruction(...)`: rebuild a persisted active LLM without calling `start()`. This is invoked lazily by the owning processor's `recoverActive` path; a recovered `calling_provider` turn reissues the provider call and parks at the provider gate.
 
 `LLMActor` has no public card-cancellation API. Authoritative cancellation is handled by `CardActor`'s cancellation flag (P3); any in-flight provider call's late outcome is dropped by `CardActor.commitOutcome()`. `LLMActor` never decides cancellation.
 
@@ -534,7 +537,7 @@ Recovery procedure (implemented startup sequence):
 
 **Phase 0 — process reconciliation before actor recovery.** Reconcile persisted running process records through the `ProcessRunner` registry BEFORE actor recovery (see [Implementation Plan P1](./micro-actor-runtime-implementation-plan.md#p1-processrunner-owns-truthful-process-state-and-scoped-termination), [P2](./micro-actor-runtime-implementation-plan.md#p2-startup-reconciles-processes-before-actor-recovery)). There are three cases: runtime/agent-owned records are killed by PID/process-group or marked lost and retained as terminal records; operator-owned records that are still alive are matched and remain `running`, not terminal; operator-owned records that are missing or clock-skewed are marked lost and retained as terminal records. No process record is removed. Startup does not reattach OS processes and does not use a `reattach_state`.
 
-**Phase 1 — build the recovery plan and run the pre-reconstruction pass.** Close the runtime gate, then read CardStore, runtime records, session logs, tool records, notification records, actor snapshots, and `activeReconstruction` records to build the recovery plan; the plan is not derived from public-status or state-name heuristics. `runActorStartupRecovery` then runs the complete pre-reconstruction pass in this order, all before live actor reconstruction or tool replay:
+**Phase 1 — validate root record, build the recovery plan, and run the pre-reconstruction pass.** Close the runtime gate, then validate the project root card record. If the root card record is missing, unreadable, or fails the card schema, startup throws before recovery planning. Next, read CardStore, runtime records, session logs, tool records, notification records, actor snapshots, and `activeReconstruction` records to build the recovery plan; the plan is not derived from public-status or state-name heuristics. `runActorStartupRecovery` then runs the complete pre-reconstruction pass in this order, all before live actor reconstruction or inline tool replay:
 
 1. Clean cancelled-card snapshots.
 2. Project safe persisted terminal tool-call outcomes (executor terminal, planner `blocked`/`failed`, planner `done` paired with a matching persisted reviewer terminal result) only when active card, processor, LLM, and reviewer reconstruction records all agree; mark them `terminal_projected`.
@@ -543,7 +546,7 @@ Recovery procedure (implemented startup sequence):
 5. Rebuild the recovery plan.
 6. Write sanitized recovery diagnostics for ambiguous or stranded active work. Diagnostics do not patch card status to `blocked` or any other status.
 
-**Phase 2 — reconstruct live recovery work and replay waits.** When running recovery work existed, reconstruct running card actors deepest-first and adopt recovered LLM actors from `activeReconstruction` records. A recovered `calling_provider` LLM reissues the provider call and parks at the closed gate until the operator resumes. A recovered `waiting_tool` LLM parks for replay. Waiting tool calls are replayed through `replayToolForRecovery`; process-tool replays resolve as interrupted because process records were already reconciled in Phase 0.
+**Phase 2 — construct running cards and recover by top-down cascade.** When running recovery work exists, construct running `CardActor` instances with deferred recovery and deferred processor start. This construction is data/tree work only: no processor starts, no LLM adoption, and no recovery side effects. Then call `recoverCurrentCardState()` on the root card only. The root's `_on_recover__running` starts its processor lazily and calls `processor.recoverActive`, which adopts recovered LLM snapshots and resolves the initial LLM outcome. A recovered `calling_provider` LLM reissues the provider call and parks at the closed gate until the operator resumes. A recovered `waiting_tool` LLM is resolved inline through `resolveInitialOutcome`; non-terminal tool calls use `replayToolForRecovery`, and a replayed running `activate_card` call recovers the child card and awaits settlement. Process-tool replays resolve as interrupted because process records were already reconciled in Phase 0.
 
 **Phase 3 — leave the runtime in the correct mode.** If running recovery work existed, leave the runtime paused with the gate closed for operator verification. Otherwise, follow the persisted runtime mode.
 

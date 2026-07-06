@@ -1,9 +1,11 @@
-import { LLMActor, type LLMActorOutcome, type LLMProviderPort } from './llm-actor.js';
-import type { ToolReplayOutcome } from '../../tools/invocation.js';
+import { LLMActor, type LLMActorOutcome, type LLMProviderPort, type LLMToolContinuationContextHook } from './llm-actor.js';
 import { BaseCardProcessorActor, type CardProcessorOutcome } from './base-card-processor-actor.js';
 import type { CardActivationInput } from './card-actor.js';
 import { RuntimeGate } from '../runtime-gate.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
+import { replayToolForRecovery, type InvocationSurface } from '../../tools/invocation.js';
+import { readLlmActiveReconstruction } from './active-reconstruction.js';
+import { readActorSnapshot } from './snapshots.js';
 
 export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorActor {
   readonly provider: LLMProviderPort;
@@ -30,19 +32,69 @@ export abstract class BaseMainLLMCardProcessorActor extends BaseCardProcessorAct
     this.activeLlmActors.set(llm.agentId, llm);
   }
 
-  async replayWaitingToolCall(_llm: LLMActor): Promise<ToolReplayOutcome> {
-    return { kind: 'settled', result: { success: false, error: 'Runtime restarted before tool completion. Re-issue the call after inspecting current state.' } };
-  }
-
   listLlmActors(): readonly LLMActor[] {
     return [...this.activeLlmActors.values()];
   }
 
-  protected resumeOrStartLlm(llm: LLMActor, input: LlmInvocationInput, signal: AbortSignal): Promise<LLMActorOutcome> {
-    if (llm.state() === 'calling_provider') return llm.awaitPendingTurn();
-    if (llm.state() === 'waiting_tool') return Promise.resolve(llm.waitingToolOutcome());
-    return llm.turn(input, signal);
+  override recoverActive(state: string, input: CardActivationInput, signal: AbortSignal): Promise<CardProcessorOutcome> {
+    this.adoptRecoveredLlmSnapshots();
+    return super.recoverActive(state, input, signal);
   }
+
+  protected async resolveInitialOutcome(
+    llm: LLMActor,
+    input: LlmInvocationInput,
+    surface: InvocationSurface,
+    isTerminalToolName: (name: string) => boolean,
+    signal: AbortSignal,
+    continuationContextHook?: LLMToolContinuationContextHook,
+  ): Promise<LLMActorOutcome> {
+    switch (llm.state()) {
+      case 'idle':
+        return llm.turn(input, signal);
+      case 'calling_provider':
+        return llm.awaitPendingTurn();
+      case 'waiting_tool':
+        return this.resolveWaitingToolOutcome(llm, surface, isTerminalToolName, signal, continuationContextHook);
+      default:
+        throw new Error(`LLMActor '${llm.agentId}' is in unexpected state '${llm.state()}' for initial outcome resolution.`);
+    }
+  }
+
+  private async resolveWaitingToolOutcome(
+    llm: LLMActor,
+    surface: InvocationSurface,
+    isTerminalToolName: (name: string) => boolean,
+    signal: AbortSignal,
+    continuationContextHook?: LLMToolContinuationContextHook,
+  ): Promise<LLMActorOutcome> {
+    const outcome = llm.waitingToolOutcome();
+    if (isTerminalToolName(outcome.toolName)) return outcome;
+    const replay = await replayToolForRecovery(surface, outcome.toolName, outcome.args);
+    if (replay.kind === 'settled') return llm.appendToolResult(outcome.toolCallId, replay.result, signal, continuationContextHook);
+    return outcome;
+  }
+
+  private adoptRecoveredLlmSnapshots(): void {
+    for (const agentId of this.recoverableLlmAgentIds()) {
+      if (this.activeLlmActors.has(agentId)) continue;
+      const snapshot = readActorSnapshot(this.projectRoot, agentId);
+      if (!snapshot) continue;
+      const activeReconstruction = readLlmActiveReconstruction(snapshot);
+      if (!activeReconstruction) continue;
+      const llm = LLMActor.fromActiveReconstruction({
+        projectRoot: this.projectRoot,
+        agentId,
+        provider: this.provider,
+        gate: this.gate,
+        state: String(snapshot.state_value),
+        activeReconstruction,
+      });
+      this.adoptRecoveredLlmActor(llm);
+    }
+  }
+
+  protected abstract recoverableLlmAgentIds(): readonly string[];
 
   protected override onActivationSettled(_outcome: CardProcessorOutcome): void {
     for (const llm of this.activeLlmActors.values()) llm.abandonParkedTurn();

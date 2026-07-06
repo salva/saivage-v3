@@ -1,6 +1,6 @@
 import type { ActorDefinition } from '../micro-actor/index.js';
 import type { CardRecord, CardStatus, DoneResult } from '../../schemas/index.js';
-import type { LLMActor, LLMActorOutcome, LLMProviderPort } from './llm-actor.js';
+import type { LLMActorOutcome, LLMProviderPort } from './llm-actor.js';
 import { plannerActorId, reviewerActorId } from './ids.js';
 import type { CardActivationInput, CardActivationOutcome, CardActor, CardActorStorePort, CardNotification, CardProcessorActor } from './card-actor.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
@@ -11,7 +11,7 @@ import { expectedTerminalToolMessage, verifyTerminalToolOutcome } from './contra
 import { nextReviewerAssessmentId, reviewerSessionId } from '../reviewer-session.js';
 import { evaluateReviewerTerminalOutcome } from './reviewer-terminal-evaluation.js';
 import { buildPlannerStateContextMessage } from '../../agents/planner-state-context.js';
-import { invokeToolForLlm, replayToolForRecovery, surfaceToolDefinitions, type ToolReplayOutcome, type ToolResult } from '../../tools/invocation.js';
+import { invokeToolForLlm, surfaceToolDefinitions, type ToolResult } from '../../tools/invocation.js';
 import { buildRoleSurface } from '../../tools/role-invocation-surfaces.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import type { NotifyCardResult } from '../runtime-api.js';
@@ -71,19 +71,16 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     return projectPlannerTerminalOutcome(outcome);
   }
 
-  override async replayWaitingToolCall(llm: LLMActor): Promise<ToolReplayOutcome> {
-    const outcome = llm.waitingToolOutcome();
-    const surface = outcome.agentId === reviewerActorId(this.cardId)
-      ? this.reviewerInvocationSurface(this.cardId, llm.activeReconstruction?.input.sessionId ?? outcome.agentId)
-      : this.plannerInvocationSurface(this.cardId);
-    return replayToolForRecovery(surface, outcome.toolName, outcome.args);
+  protected override recoverableLlmAgentIds(): readonly string[] {
+    return [plannerActorId(this.cardId), reviewerActorId(this.cardId)];
   }
 
   private async runActivation(input: CardActivationInput, signal: AbortSignal): Promise<PlannerProcessorOutcome> {
     const contract = createPlannerContract();
     const llm = this.createMainLlm(plannerActorId(this.cardId));
     if (llm.state() === 'idle') discardOpenRecordSlot(this.projectRoot, { cardId: input.card.id, filename: 'status.md', reason: 'new_activation' });
-    const outcome = await this.resumeOrStartLlm(llm, this.buildLlmInput(input, contract), signal);
+    const surface = this.plannerInvocationSurface(input.card.id);
+    const outcome = await this.resolveInitialOutcome(llm, this.buildLlmInput(input, contract), surface, (name) => contract.isTerminalToolName(name), signal, (inputId) => this.plannerNotificationContext(input, inputId));
     let reviewerReworkAttempts = 0;
     const result = await runContractBoundedRepairLoop<PlannerProcessorOutcome>({
       initialOutcome: outcome,
@@ -216,7 +213,8 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     let reviewerRelaunchAttempts = 0;
     while (true) {
       const currentness = this.captureReviewerCurrentness(input);
-      const outcome = await this.resumeOrStartLlm(llm, this.buildReviewerLlmInput(input, assessmentId, sessionId, currentness), signal);
+      const surface = this.reviewerInvocationSurface(input.card.id, sessionId);
+      const outcome = await this.resolveInitialOutcome(llm, this.buildReviewerLlmInput(input, assessmentId, sessionId, currentness), surface, (name) => reviewerContract.isTerminalToolName(name), signal, () => this.reviewerContext(input));
       const review = await runContractBoundedRepairLoop<PlannerProcessorOutcome>({
         initialOutcome: outcome,
         isTerminalToolName: (name) => reviewerContract.isTerminalToolName(name),

@@ -1,13 +1,7 @@
 # Tool Recovery Design
 
-Status: design in progress; not yet implemented. The current authority for runtime behavior
-is [Micro-Actor Runtime Design](./micro-actor-runtime-design.md) and
-[System Specification](../spec/system-specification.md); the current authority for
-*implemented* recovery behavior is
-[Interrupted Activation Recovery Design](./interrupted-activation-recovery-design.md). Those
-docs currently describe a conservative block-on-restart recovery that is already drifted from
-the implemented runtime (see §A). This document proposes a redesign of recovery and is not yet
-authoritative.
+Status: implemented for the core top-down cascade (§2–§11). Robustness handling in §12,
+including corrupt-snapshot recovery and orphan detection, is deferred to a follow-up changeset.
 
 Date: 2026-07-06
 
@@ -15,9 +9,9 @@ Date: 2026-07-06
 
 When the runtime process stops while cards are `running`, their activations are interrupted mid-flight: LLM actors are parked in `waiting_tool` (tool call sent, no result yet) or `calling_provider` (provider request sent, no response yet). On the next startup, these interrupted activations must be recovered.
 
-This document proposes the recovery mechanism under the **Top-Down Cascade model**. It is built on a single principle: **recovery mirrors execution**. The `activate_card` tool is the only mechanism for parent-child card relationships, in both normal execution and recovery. There is no separate supervisor-driven tree traversal or bottom-up reactivation sequence.
+This document describes the recovery mechanism under the **Top-Down Cascade model**. It is built on a single principle: **recovery mirrors execution**. The `activate_card` tool is the only mechanism for parent-child card relationships, in both normal execution and recovery. There is no separate supervisor-driven tree traversal or bottom-up reactivation sequence.
 
-This doc is a design proposal for the recovery mechanism. It sits beside [Shared Tool Invocation Design](./shared-tool-invocation-design.md) and [Micro-Actor Runtime Design](./micro-actor-runtime-design.md). See [§A](#a-implementation-documentation-plan) for how this design differs from current code and which docs the implementation must update.
+This doc is the design authority for the implemented core recovery mechanism. It sits beside [Shared Tool Invocation Design](./shared-tool-invocation-design.md) and [Micro-Actor Runtime Design](./micro-actor-runtime-design.md).
 
 ---
 
@@ -28,7 +22,7 @@ During normal execution, a planner activates a child through the `activate_card`
 > **Change vs. current code.** Today the supervisor drives all-cards reconstruction itself:
 > `reconstructActiveActors` builds every running `CardActor` (`deferRunningRecovery: true`),
 > adopts recovered LLM actors, calls `recoverCurrentCardState()` on each in **deepest-first**
-> order, then runs a separate `replayWaitingToolCalls` pass. This redesign replaces that with
+> order, then runs a separate waiting-tool replay pass. This redesign replaces that with
 > root-only recovery that cascades through `activate_card`. It is only possible because the
 > redesign also removes the card-dispatch gate (see §3); the two changes are a coupled package.
 
@@ -69,9 +63,9 @@ Gating at the source automatically gates everything downstream.
 This has two effects:
 
 1. **Normal pause:** no new provider calls start; already-received responses drain through to durable boundaries.
-2. **Recovery cascade:** the top-down cascade flows without any gate bypass. Processors start, replay tools, cascade children through `activate_card` executors, and everything parks naturally at the LLM provider gate. No special cases, no `_on_recover__running` override, no conditional gate logic.
+2. **Recovery cascade:** the top-down cascade flows without any gate bypass. Processors start lazily when the cascade reaches each card, replay tools, cascade children through `activate_card` executors, and everything parks naturally at the LLM provider gate. The recovery-vs-fresh routing uses the micro-actor framework's native `recover` vs `enter` dispatch: `CardActor._on_recover__running` routes recovery to `processor.recoverActive`, while `CardActor._on_enter__running` routes fresh activation to `processor.activate`. No conditional gate logic.
 
-Implementation (proposed): the gate would exist only in `LLMActor._on_enter__calling_provider()`. The gate checks in `CardActor._on_enter__running()`, in root dispatch, and in runtime-owned process spawn paths would be removed.
+Implementation: the gate exists only in `LLMActor._on_enter__calling_provider()`. The gate checks in `CardActor._on_enter__running()`, root dispatch, and runtime-owned process spawn paths have been removed.
 
 ---
 
@@ -84,15 +78,14 @@ Pure data loading. No processor loops start, no side effects.
 1. **Reconcile processes.** Terminate and clean up unattached running process records. Process re-attachment is completely removed from the app (see §10).
 2. **Load snapshots.** Read all persisted card records, processor snapshots, and LLM actor snapshots.
 3. **Project persisted terminal outcomes.** If a card's terminal tool call (`emit_result`) was persisted before shutdown but the card was not yet marked terminal, complete the card now (see §11).
-4. **Construct all running card actors.** Build `CardActor` instances from snapshots for every `running` card. They exist in memory but are not activated — their processors have not started.
-5. **Adopt recovered LLM actors.** Associate each recovered `LLMActor` with its owning processor via `processor.adoptRecoveredLlmActor(actor)`. This ensures processors have their LLMs when they start.
+4. **Construct all running card actors.** Build `CardActor` instances from snapshots for every `running` card with deferred recovery; their processors are constructed but not started, so no processor snapshot is written during Stage 1.
 
-Stage 1 constructs all running card actors bottom-up because LLM actor adoption requires the processor to exist. This is bottom-up **construction** (data loading), not bottom-up **activation** (behavior). Activation is top-down (Stage 2).
+Stage 1 constructs all running card actors bottom-up as data/tree loading. Processors are constructed but not started. Activation is top-down (Stage 2), and LLMs are recovered lazily inside `processor.recoverActive` when the cascade reaches each card.
 
 ### Stage 2: Top-Down root reactivation
 
 1. **Recover the root card actor.** The supervisor calls `recoverCurrentCardState()` on the root card (the project card) only. One call.
-2. **The activation loop runs.** The root's processor starts `runActivation`. It recovers the planner LLM actor, resolves its state (§6), and cascades through `activate_card` to children.
+2. **The activation loop runs.** The root card's processor starts lazily if deferred, then `processor.recoverActive` adopts recovered LLM snapshots and `runActivation` resolves the adopted planner LLM state (§6). Each child reached by the cascade follows the same path: `_on_recover__running` → lazy processor start → `processor.recoverActive` → LLM adoption.
 3. **Everything parks at provider calls.** The cascade flows through card reactivation and tool replay (no provider calls needed) until it reaches a point where a provider call is needed — then it blocks at the gate.
 4. **Operator inspects, then resumes.** Opening the gate lets blocked provider calls proceed. Activations continue from where they stopped.
 
@@ -187,8 +180,7 @@ Key: `replayToolForRecovery` **never executes `executor`**. It only calls `repla
 
 > **Change vs. current code.** Today there are two replay hooks: the surface-level
 > `replayToolForRecovery` (per-tool `replay`, `invocation.ts`) and a processor-level
-> `BaseMainLLMCardProcessorActor.replayWaitingToolCall(llm)` driven by the supervisor's
-> separate `replayWaitingToolCalls` pass. This redesign removes the processor-level hook and
+> hook driven by the supervisor's separate waiting-tool replay pass. This redesign removes the processor-level hook and
 > the supervisor's separate replay pass; `replayToolForRecovery` invoked from
 > `resolveInitialOutcome` (§6/§9) is the single replay path.
 
@@ -276,23 +268,22 @@ A planning card processor has two distinct LLM actors: planner and reviewer. The
 The processor's `runActivation` is the single entry point. It calls `createMainLlm(plannerActorId)` which returns the recovered planner LLM. The planner LLM's state determines the entry:
 
 - **Planner in `waiting_tool` on a non-terminal tool** (e.g., `activate_card`): inline replay handles it (§6). The planner continues its repair loop.
-- **Planner in `waiting_tool` on a terminal tool** (`emit_result`): `resolveInitialOutcome` returns the outcome directly (terminal check). The repair loop routes it to `onTerminalTool`. The terminal handler calls `reviewPlannerDone()`, which calls `createMainLlm(reviewerActorId)`. If the reviewer was adopted during Stage 1, it is returned. The reviewer's initial outcome is resolved by the same `resolveInitialOutcome` method — not by a separate helper. This ensures the reviewer's `waiting_tool` state gets the same inline replay as the planner's.
+- **Planner in `waiting_tool` on a terminal tool** (`emit_result`): `resolveInitialOutcome` returns the outcome directly (terminal check). The repair loop routes it to `onTerminalTool`. The terminal handler calls `reviewPlannerDone()`, which calls `createMainLlm(reviewerActorId)`. If the reviewer was adopted during `processor.recoverActive` because its snapshot existed with non-null `active_reconstruction`, it is returned; otherwise `createMainLlm` creates a fresh reviewer. The reviewer's initial outcome is resolved by the same `resolveInitialOutcome` method — not by a separate helper. This ensures the reviewer's `waiting_tool` state gets the same inline replay as the planner's.
 - **Planner in `calling_provider`**: the provider call is re-issued. On response, the repair loop continues.
 
 `resolveInitialOutcome` is the single method used to resolve the initial outcome for ALL LLM actors — planner, reviewer, and executor alike.
 
-> **Change vs. current code.** Today this role is filled by
-> `BaseMainLLMCardProcessorActor.resumeOrStartLlm(llm, input, signal)`, which for
-> `waiting_tool` returns `waitingToolOutcome()` directly (no inline replay). It is called from
+> **Change vs. previous code.** This role used to be filled by a base LLM resume/start helper, which for
+> `waiting_tool` returned `waitingToolOutcome()` directly (no inline replay). It was called from
 > `planning-card-processor-actor.ts` (planner and reviewer) and `terminal-card-processor-actor.ts`
 > (executor), and is documented in [resume-or-start-llm-design.md](./resume-or-start-llm-design.md).
-> This redesign replaces `resumeOrStartLlm` with `resolveInitialOutcome`, which adds inline
-> replay for `waiting_tool` (§6). `resumeOrStartLlm` is removed and its three call sites move
+> This redesign uses `resolveInitialOutcome`, which adds inline
+> replay for `waiting_tool` (§6). The old helper is removed and its three call sites move
 > to `resolveInitialOutcome`.
 
 ### Reviewer session continuity
 
-The reviewer's assessment id and session id must be deterministic across recovery. If `nextReviewerAssessmentId` generates a new id on recovery, the recovered reviewer LLM's session won't match. The processor's active-phase reconstruction record must carry the active assessment id so `reviewPlannerDone` reuses it rather than generating a new one.
+The reviewer's assessment id and session id must be deterministic across recovery. The assessment id is recomputed with `nextReviewerAssessmentId(goalId)`, which is a pure function of `goalId`; it is not persisted on the processor active reconstruction record.
 
 ---
 
@@ -311,7 +302,7 @@ Process reconciliation happens in Stage 1:
 Terminal tools (`emit_result`) are not replayed. If the model emitted a terminal outcome before shutdown but the card was not yet marked terminal, recovery completes the card from the persisted outcome in Stage 1.
 
 - **Executor terminal**: if the executor's `emit_result` was persisted and the card is still `running`, complete the card with the executor's outcome.
-- **Paired planner + reviewer terminals**: if both the planner's and reviewer's `emit_result` were persisted and the card is still `running`, complete the card with the reviewer's assessment. To locate the reviewer's delivery log, Stage 1 reads the active assessment id from the processor's active reconstruction record and derives the reviewer session id from it. This is why the assessment id must be persisted (§9).
+- **Paired planner + reviewer terminals**: if both the planner's and reviewer's `emit_result` were persisted and the card is still `running`, complete the card with the reviewer's assessment. To locate the reviewer's delivery log, Stage 1 recomputes the assessment id with `nextReviewerAssessmentId(goalId)` and derives the reviewer session id from it.
 
 Cards completed by terminal projection are removed from the reactivation set. They do not participate in Stage 2.
 
@@ -380,8 +371,8 @@ JSONL appends and temp-file-then-rename writes are assumed atomic. In the worst 
 
 ## 13. The Supervisor's Role
 
-1. **Stage 1**: reconcile processes → load snapshots → project terminals → validate running cards (fail cards with missing `activeReconstruction`, corrupt snapshots, or orphaned/stranded parentage per §12) → construct valid running card actors → adopt recovered LLM actors.
-2. **Stage 2**: call `recoverCurrentCardState()` on the root card. One call. The cascade proceeds. Provider calls park at the gate.
+1. **Stage 1**: reconcile processes → load snapshots → project terminals → validate running cards (fail cards with missing `activeReconstruction`, corrupt snapshots, or orphaned/stranded parentage per §12 — deferred robustness) → construct valid running card actors with deferred processor start. There is no LLM adoption in Stage 1.
+2. **Stage 2**: call `recoverCurrentCardState()` on the root card. The cascade reaches children via `activate_card`; each reached card's processor starts lazily and `processor.recoverActive` adopts its recovered LLMs. Provider calls park at the gate.
 3. **Resume**: the operator inspects the fully reconstructed tree, then opens the gate. Provider calls proceed. Activations continue.
 
 The supervisor has no knowledge of tool semantics, replay logic, or activation traversal. It performs root activation plus Stage 1 structural validation (parent/child status consistency and orphan/stranded propagation per §12). It does not traverse the card tree to recover individual non-root cards; the cascade does that.
@@ -421,10 +412,8 @@ The supervisor has no knowledge of tool semantics, replay logic, or activation t
 
 ## A. Implementation documentation plan
 
-This design is not yet implemented. When implementation begins, the following documentation
-work is required. Each item is tagged **[drift]** (pre-existing drift versus the implemented
-runtime that must be corrected regardless of this redesign) and/or **[redesign]** (update
-required because of this redesign's changes).
+This section records the implementation documentation plan used to land the top-down cascade.
+Each item is tagged **[drift]** (pre-existing drift versus the implemented runtime that had to be corrected regardless of this redesign) and/or **[redesign]** (updates required because of this redesign's changes).
 
 ### Where this design lives
 
@@ -438,11 +427,11 @@ required because of this redesign's changes).
   - §17 lines 320/324 **[drift + redesign]** — same no-resumption drift, plus the cascade model.
   - §19 line 336 **[drift + redesign]** — same no-resumption drift, plus session resumption under recovery.
 - `docs/architecture/micro-actor-runtime-design.md`
-  - System Shape gate chokepoints (~line 111), `RuntimeGate`, `CardActor._on_enter__running`, supervisor recovery responsibilities, `LLMActor` states, `resumeOrStartLlm` removal **[redesign]**.
+  - System Shape gate chokepoints (~line 111), `RuntimeGate`, `CardActor._on_enter__running`, supervisor recovery responsibilities, `LLMActor` states, and old helper removal **[redesign]**.
   - Recovery procedure (lines 533-554): block-on-restart described as "current policy" and mid-flight resume as "deferred future work (NOT current policy)" **[drift]** — must be corrected regardless of this redesign.
 - `docs/architecture/system-architecture.md:127` **[drift + redesign]** — "Recovery does not recreate in-flight provider calls, process waits, tool waits, or running card actors."
 - `docs/architecture/shared-tool-invocation-design.md` §3.1 / §3.4 **[drift]** — `ToolDefinition` shown without `signal`/`replay`; code (`invocation.ts`) already has both. Independent drift, flagged here.
-- `docs/architecture/resume-or-start-llm-design.md` **[redesign]** — becomes stale/removed when `resumeOrStartLlm` is removed (§9).
+- `docs/architecture/resume-or-start-llm-design.md` **[redesign]** — becomes stale/superseded when the old helper is removed (§9).
 - `docs/architecture/interrupted-activation-recovery-design.md` **[status fix]** — currently the most accurate reference for *implemented* recovery; its "superseded by tool-recovery-design.md" label has been reverted (it will be superseded for real only when this redesign lands and is proven in code).
 - `README.md` **[redesign]** — authority map / validation profiles if authority changes.
 - `docs/runbook/` **[redesign]** — operator procedure for pause/resume/recovery, since pause semantics change.
@@ -453,4 +442,4 @@ Review during implementation: `docs/architecture/micro-actor-runtime-implementat
 
 ### Note on pre-existing drift
 
-The no-resumption drift in `system-specification.md`, `micro-actor-runtime-design.md`, and `system-architecture.md` exists **independently** of this redesign: the implemented runtime already reconstructs running cards and replays tool waits (`supervisor-runtime-api.ts reconstructActiveActors` + `replayWaitingToolCalls`). Correcting that drift is required whenever those docs are next updated, whether or not this redesign is adopted.
+The no-resumption drift in `system-specification.md`, `micro-actor-runtime-design.md`, and `system-architecture.md` existed **independently** of this redesign: the previous runtime already reconstructed running cards and replayed tool waits through a supervisor-driven reconstruction plus separate replay pass. Correcting that drift was required whenever those docs were next updated, whether or not this redesign was adopted.

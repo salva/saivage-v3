@@ -108,13 +108,17 @@ export class CardActor extends BaseActor {
   #activationId: string | null = null;
   #activationAbort: AbortController | null = null;
   #activationCounter = 0;
+  #processorStarted = false;
 
-  constructor(args: { card: CardRecord; deps: CardActorDeps }) {
+  constructor(args: { card: CardRecord; deps: CardActorDeps; deferProcessorStart?: boolean }) {
     super();
     this.cardId = args.card.id;
     this.deps = args.deps;
     this.processor = createProcessor(args.card, this);
-    this.processor.start?.();
+    if (!args.deferProcessorStart) {
+      this.processor.start?.();
+      this.#processorStarted = true;
+    }
     this.deps.lookup.set(this.cardId, this);
   }
 
@@ -127,7 +131,8 @@ export class CardActor extends BaseActor {
   }
 
   static fromCard(args: { card: CardRecord; deps: CardActorDeps; deferRunningRecovery?: boolean }): CardActor {
-    const actor = new CardActor({ card: args.card, deps: args.deps });
+    const deferProcessorStart = args.deferRunningRecovery === true && args.card.status === 'running';
+    const actor = new CardActor({ card: args.card, deps: args.deps, deferProcessorStart });
     const snapshot = readActorSnapshot(args.deps.projectRoot, cardActorId(args.card.id));
     if (snapshot) {
       actor.notifications = Array.isArray(snapshot.context.notifications) ? snapshot.context.notifications as CardNotification[] : [];
@@ -271,6 +276,18 @@ export class CardActor extends BaseActor {
   }
 
   _on_enter__running(): void {
+    this.beginProcessorActivation('fresh');
+  }
+
+  _on_recover__running(): void {
+    this.beginProcessorActivation('recovery');
+  }
+
+  private beginProcessorActivation(mode: 'fresh' | 'recovery'): void {
+    if (!this.#processorStarted) {
+      this.processor.start?.();
+      this.#processorStarted = true;
+    }
     const card = this.requireCard();
     this.writeStoreStatus('running');
     if (!this.#result) throw new Error(`Card '${this.cardId}' entered running without pending activation.`);
@@ -280,7 +297,7 @@ export class CardActor extends BaseActor {
     const input: CardActivationInput = { activationId: this.#activationId, card: this.requireCard(), caller, notificationDelivery: this };
     this.#activationAbort = new AbortController();
     this.runTask(async () => {
-      if (this.activeReconstruction && this.processor.recoverActive) return this.processor.recoverActive(this.processorActiveState(), input, this.#activationAbort!.signal);
+      if (mode === 'recovery' && this.processor.recoverActive) return this.processor.recoverActive(this.processorActiveState(), input, this.#activationAbort!.signal);
       return this.processor.activate(input, this.#activationAbort!.signal);
     }, {
       on_done: (outcome) => this.commitOutcome(outcome),
