@@ -19,11 +19,14 @@ rather than duplicating project policy.
 
 See historical: docs under `docs-old/` and stale design docs are provenance, not implementation authority.
 
+## Operational Workflow
+
+- When fixing any issue, first create a design and implementation plan under `docs/working/`, then use a subagent to perform an adversarial review of the design and plan. Critically evaluate each finding to confirm it is sound and real, fix confirmed issues, and repeat the adversarial review/fix cycle until no confirmed issues remain. Follow the detailed `saivage-issue-fix-adversarial-review` skill for the full procedure.
+
 ## Documentation Hygiene
 
 - Keep working documents such as reviews, redesigns, plans, scratch analyses, and draft proposals under `docs/working/`; these files are local working artifacts and must not be committed to Git.
 - Any implementation plan must include a section that identifies the main documentation updates required by the planned work.
-- When fixing any issue, first create a design and implementation plan under `docs/working/`, then use a subagent to perform an adversarial review of the design and plan. Critically evaluate each finding to confirm it is sound and real, fix confirmed issues, and repeat the adversarial review/fix cycle until no confirmed issues remain.
 - After implementation work changes system behavior, update the main documentation in `docs/spec/`, `docs/architecture/`, `docs/runbook/`, or `README.md` as appropriate so it stays in sync with the code.
 
 ## Validation
@@ -51,6 +54,7 @@ Current high-value skills include:
 - `saivage-development-validation`: validation after Saivage v3 code, docs, UI, API, or deployment changes.
 - `saivage-lxc-operations`: LXC operations for Saivage v3-relevant deployments such as the v2-on-v3 harness, GetRich v2, and Pueblicos.
 - `saivage-project-reset`: reset target projects managed by Saivage v3 deployments, such as GetRich v2 or Pueblicos.
+- `saivage-issue-fix-adversarial-review`: mandatory issue-fixing workflow that iterates design/plan adversarial review before implementation.
 - `saivage-v3-mailbox-submit`: submit proposals to the v2-on-v3 harness mailbox.
 - `iterative-dual-llm-review`: heavyweight systematic review workflow when explicitly requested.
 
