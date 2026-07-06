@@ -78,6 +78,9 @@ large or cross-cutting refactor.
 - Think holistically. Fix root causes across the relevant subsystem rather than adding local band-aids.
 - Be brave with refactors. Do not choose small/easy changes merely because they are easier if a broader change is the right fix.
 - Remove dead code aggressively. Do not preserve unused paths, deprecated overloads, or legacy fallbacks.
+- Changeset scope discipline — keep each changeset to the smallest coherent unit that delivers the intended behavior change and leaves the system in a working state.
+- Defer non-essential robustness and rare edge-case handling — for example corrupted-file recovery — to separate changesets rather than bundling them in. Call them out as deferred follow-ups in the plan.
+- Expand scope only when a deferred item would block the core change or leave the system unsafe. This complements, and does not weaken, the root-cause and brave-refactor guidance above: fix the needed change fully, but do not pad it with extras.
 
 ## Runtime Coding Rules
 

@@ -23,10 +23,11 @@ Look specifically for:
 - Missing or stale documentation updates for the affected area.
 - Missing validation appropriate to the risk.
 - Unnecessary compatibility code, dead-code preservation, and excessive complexity.
+- Over-scoped changesets that bundle non-essential robustness or rare edge-case handling instead of deferring it to a follow-up (see Changeset Scope Discipline in `AGENTS.md`).
 
 For each finding report: severity, concrete evidence (file/line or quote), why it is real, and the required design/plan change. Do not raise speculative or preference-only nits.
 
 Your output is findings and a verdict, not an implementation; do not rewrite the design/plan yourself. End with exactly one verdict on the last line:
 
-- `NO_CONFIRMED_ISSUES` — every finding you considered was false or minor.
-- `ISSUES_FOUND` — at least one material finding remains.
+- `NO_MATERIAL_FINDINGS` — every finding you considered was false or minor.
+- `MATERIAL_FINDING_FOUND` — at least one material finding remains.

@@ -46,7 +46,7 @@ The first design/plan must include:
 
 - Problem statement with evidence and affected user/runtime behavior.
 - Root-cause analysis, or the best current hypothesis if the root cause is still being investigated.
-- Scope and non-scope.
+- Scope and non-scope. Non-essential robustness and rare edge-case handling (e.g. corrupted-file recovery) must be listed as deferred follow-ups, not bundled into the fix; expand scope only when a deferred item would block the core change or leave the system unsafe (see Changeset Scope Discipline in `AGENTS.md`).
 - Proposed design, including affected modules, data contracts, APIs, and UI/runtime surfaces as applicable.
 - Alternatives considered, including at least one broader/root-cause alternative when reasonable.
 - Implementation plan with ordered steps split into three explicit sections:
@@ -104,7 +104,7 @@ Do not blindly accept adversarial findings. Classify each reported finding:
 - **False**: speculative, preference-only, contradicted by current project rules, or outside the agreed scope. Reject it.
 - **Minor**: factually correct but too small to affect the design or plan (e.g. wording, a clarifying note, a low-impact cleanup). Note it and proceed; it does not force another review round and need not block implementation.
 - **Material**: real and significant enough to change the design or plan. Revise the design/plan to address it directly.
-- **Deferred**: real but should not be fixed in this issue. Record why it is deferred and whether it needs a follow-up.
+- **Deferred**: real but should not be fixed in this issue. Record why it is deferred and whether it needs a follow-up. Non-core robustness and rare edge-case handling that would expand the fix beyond its minimal coherent unit belong here, with a recorded follow-up.
 
 ### Escalation And Blockers
 
