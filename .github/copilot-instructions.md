@@ -15,7 +15,7 @@ Historical material under `docs-old/` is provenance unless current docs cite it.
 
 ## Skills
 
-Project-local skills live under `.github/skills/`. Workspace skills remain available from `/home/salva/g/ml/.github/skills` for broader operations.
+Project-local skills live under `.github/skills/`. The OpenCode project config loads only this repository-local skill directory so agents can start directly from the `saivage-v3` project root.
 
 ## Validation
 
