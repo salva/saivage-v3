@@ -47,13 +47,24 @@ Current high-value skills include:
 - `saivage-v3-mailbox-submit`: submit proposals to the v2-on-v3 harness mailbox.
 - `iterative-dual-llm-review`: heavyweight systematic review workflow when explicitly requested.
 
-## Architecture Principles
+## Engineering Priorities
 
-- Simple and clean architecture. No backward compatibility, no compatibility shims, no migration code.
+Clean, simple architecture and code are the top priority. Prefer the design that
+makes the system easier to understand and change, even when that requires a
+large or cross-cutting refactor.
+
+- No backward compatibility. Breaking internal or external APIs is acceptable when it produces the correct current design.
+- No bridge, adapter, shim, migration, dual-path, or legacy-normalization code. Update all components and call sites to the current API instead.
+- No over-engineered designs. Keep abstractions minimal, direct, and justified by current behavior.
+- Think holistically. Fix root causes across the relevant subsystem rather than adding local band-aids.
+- Be brave with refactors. Do not choose small/easy changes merely because they are easier if a broader change is the right fix.
+- Remove dead code aggressively. Do not preserve unused paths, deprecated overloads, or legacy fallbacks.
+
+## Runtime Coding Rules
+
 - Fail fast for impossible states. If a code path should be unreachable under correct operation, throw rather than silently recovering, normalizing, or returning fallback values.
 - No over-defensive code. Do not guard against states that cannot happen or that we do not know how to handle. If we cannot handle it, let it crash loudly.
-- Brave refactoring. When needed, tackle complex, large, or deep changes rather than patching around symptoms.
-- Remove dead code aggressively. Do not preserve unused paths, deprecated overloads, or legacy fallbacks.
+- Keep data models and API contracts singular. When a contract changes, update producers, consumers, tests, docs, and deployment assumptions in the same change set.
 
 ## Safety
 
