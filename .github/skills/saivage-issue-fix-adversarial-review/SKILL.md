@@ -55,6 +55,7 @@ docs/working/<date>-<issue-slug>/
 Rules:
 
 - `docs/working/` is ignored and must not be committed.
+- The design/plan files under `docs/working/` are temporary working documents only. They are not main documentation, not product documentation, and not a substitute for updating `docs/spec/`, `docs/architecture/`, `docs/runbook/`, or `README.md`.
 - Keep each revised design/plan self-contained. Do not require readers to diff prior rounds to understand the current plan.
 - Keep review files factual and actionable. Do not preserve weak or speculative critiques as required work.
 
@@ -69,7 +70,7 @@ The first design/plan must include:
 - Alternatives considered, including at least one broader/root-cause alternative when reasonable.
 - Implementation plan with ordered steps split into three explicit sections: main work tasks, cleanup tasks, and documentation-update tasks.
 - Cleanup tasks must identify obsolete/dead code, obsolete tests, stale fixtures, and superseded docs or scripts that should be removed or updated as part of the fix.
-- Documentation-update tasks must name the main docs to update and describe the behavior, architecture, runbook, or validation changes each doc needs.
+- Documentation-update tasks must name the main docs to update during the implementation stage and describe the behavior, architecture, runbook, or validation changes each doc needs. Do not count the working design/plan itself as a documentation update.
 - If current main docs are already stale or inconsistent with the implementation for the area being changed, document that finding and include tasks to correct those docs as part of the same change. Keep the correction scoped to the parts related to the issue/fix; do not expand into an unrelated documentation rewrite.
 - Validation plan with focused checks and broader gates appropriate to the risk.
 - Main documentation updates required by the work, naming the expected files under `docs/spec/`, `docs/architecture/`, `docs/runbook/`, or `README.md`.
