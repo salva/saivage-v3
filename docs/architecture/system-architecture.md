@@ -66,7 +66,7 @@ Analyst sessions are user-facing conversational sessions. Analyst mutations go t
 Run:
 
 1. Analyst receives a user request to run, start, continue, or resume.
-2. If the runtime is paused, the runtime opens the global admission gate so waiters blocked at provider/spawn/dispatch seams proceed before new autonomous work is admitted (see Implementation Plan P4).
+2. If the runtime is paused, the runtime opens the global provider-admission gate so provider waiters proceed before new autonomous work is admitted.
 3. If no root run exists, the supervisor records durable running intent and creates the root runtime run.
 4. If the project is already running, the supervisor returns an already-running warning and creates no duplicate root run.
 5. When needed, the supervisor activates the parentless project card.
@@ -81,13 +81,14 @@ Child execution:
 
 Pause:
 
-1. Pause closes the global admission gate.
+1. Pause closes the global provider-admission gate.
 2. Existing provider calls and already-running OS processes reach the next durable safe point.
-3. No new LLM/provider call, runtime-owned process spawn, or card/processor dispatch is admitted while paused.
-4. Completion facts from already-admitted work may persist and settle to durable boundaries while paused; any follow-up autonomous work waits at the same provider/spawn/dispatch gate before starting.
-5. Running processes are not killed by pause.
+3. No new LLM/provider call is admitted while paused.
+4. Already-received provider responses may continue to execute tool calls, spawn runtime-owned processes, and dispatch cards while paused until in-flight responses drain and the next provider call parks.
+5. Completion facts from already-admitted work may persist and settle to durable boundaries while paused.
+6. Running processes are not killed by pause.
 
-Resume reopens the same gate. Existing waiters blocked at provider calls, runtime-owned process spawns, or card dispatch proceed exactly once in normal actor order without requiring a second Run, while preserving the one-active-leaf invariant. Already-admitted completions may have settled to durable boundaries while paused; the gate prevents their follow-up autonomous work from starting until resume.
+Resume reopens the same gate. Existing waiters blocked at provider calls proceed exactly once in normal actor order without requiring a second Run, while preserving the one-active-leaf invariant. Already-admitted completions may have settled to durable boundaries while paused; the gate prevents follow-up provider calls from starting until resume.
 
 Shutdown:
 

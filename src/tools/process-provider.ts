@@ -147,7 +147,6 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
         executor: async (args, signal) => {
           try {
             throwIfAborted(signal);
-            if (ctx.ownerKind !== 'operator') await ctx.runtimeGate?.waitUntilOpen();
             throwIfAborted(signal);
             const record = ctx.processRunner.spawn({
               command: args.command,

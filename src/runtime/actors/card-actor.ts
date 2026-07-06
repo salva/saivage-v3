@@ -280,7 +280,6 @@ export class CardActor extends BaseActor {
     const input: CardActivationInput = { activationId: this.#activationId, card: this.requireCard(), caller, notificationDelivery: this };
     this.#activationAbort = new AbortController();
     this.runTask(async () => {
-      await this.deps.gate?.waitUntilOpen();
       if (this.activeReconstruction && this.processor.recoverActive) return this.processor.recoverActive(this.processorActiveState(), input, this.#activationAbort!.signal);
       return this.processor.activate(input, this.#activationAbort!.signal);
     }, {

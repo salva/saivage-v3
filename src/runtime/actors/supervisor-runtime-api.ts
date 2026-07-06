@@ -298,7 +298,6 @@ export class SupervisorRuntimeApi implements RuntimeApi {
 
   private async runRootProject(_command: RuntimeCommandRecord, run: RuntimeRunRecord): Promise<void> {
     try {
-      await this.runtimeGate.waitUntilOpen();
       const actor = this.cardActor(PROJECT_CARD_ID);
       const outcome = await actor.activate({ kind: 'root' });
       this.finalizePersistedRootRun(run, outcome, this.now());

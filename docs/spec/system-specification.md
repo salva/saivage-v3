@@ -144,13 +144,13 @@ Implementation may keep separate internal commands such as `start_project` and `
 
 ### Pause
 
-Pause is a global admission gate. It stops the runtime from admitting any new externally meaningful autonomous work: no new LLM/provider calls, no new runtime-owned process spawns, and no new card/processor dispatch. Pause itself does not mutate card statuses, active-card-run state, session lifecycle state, or process state.
+Pause is a global provider-admission gate. It stops the runtime from starting new LLM/provider calls. Pause itself does not mutate card statuses, active-card-run state, session lifecycle state, or process state.
 
-Already-running provider calls and shell processes may continue while the system is paused. Work that is already in flight reaches the next durable safe point; completion facts produced by already-admitted work may be persisted and settled while paused. Follow-up autonomous work must reach the same provider/spawn/card-dispatch gate before it can start.
+Already-running provider calls and shell processes may continue while the system is paused. Already-received provider responses continue to drain: their tool calls may execute, cards may transition to `running`, and runtime-owned processes may spawn until in-flight responses drain and the next provider call parks at the gate. Completion facts produced by already-admitted work may be persisted and settled while paused.
 
-Resume reopens the gate. Work already blocked at provider calls, runtime-owned process spawns, or card dispatch proceeds exactly once in normal runtime ordering. Resume must not require a manual second Run for work that was already waiting behind the pause gate.
+Resume reopens the gate. Work already blocked at provider calls proceeds exactly once in normal runtime ordering. Resume must not require a manual second Run for work that was already waiting behind the pause gate.
 
-The single global `RuntimeGate` implements this behavior (see Implementation Plan P4): provider calls, runtime-owned process spawns, and card/root dispatch all await the gate before starting, so pause waits rather than failing the turn.
+The single global `RuntimeGate` implements this behavior at `LLMActor` provider-call admission: provider calls await the gate before starting, so pause waits rather than failing the turn.
 
 `Stopped` and `paused` are the normal intervention states. While stopped or paused, the Analyst can manage cards within its supported authority, update `record://brief.md` through `write`, queue notifications, change configuration, and inspect state.
 
