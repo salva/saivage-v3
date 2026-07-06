@@ -1,6 +1,6 @@
 # Interrupted Activation Recovery Design
 
-Status: design proposal.
+Status: superseded by [Tool Recovery Design](./tool-recovery-design.md).
 
 Date: 2026-07-05
 
