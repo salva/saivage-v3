@@ -73,6 +73,7 @@ large or cross-cutting refactor.
 - Testing is not the main priority; clean architecture and simple code are.
 - E2E tests are the highest-trust tests. Unit and integration tests are useful, but do not treat them as proof that behavior is correct.
 - Do not chase 100% coverage. Around 60-70% coverage is acceptable when the important user/runtime paths are covered.
+- Do not write tests for trivial behavior unless they protect an important user/runtime path or a known regression.
 - Prefer fewer high-value tests over broad low-value coverage that forces abstractions, mocks, adapters, or brittle seams into production code.
 
 ## Safety
