@@ -66,6 +66,15 @@ large or cross-cutting refactor.
 - No over-defensive code. Do not guard against states that cannot happen or that we do not know how to handle. If we cannot handle it, let it crash loudly.
 - Keep data models and API contracts singular. When a contract changes, update producers, consumers, tests, docs, and deployment assumptions in the same change set.
 
+## Testing Priorities
+
+- Do not complicate production code or architecture for the sake of tests.
+- Small helpers that make tests simpler are acceptable when they also keep production code clear.
+- Testing is not the main priority; clean architecture and simple code are.
+- E2E tests are the highest-trust tests. Unit and integration tests are useful, but do not treat them as proof that behavior is correct.
+- Do not chase 100% coverage. Around 60-70% coverage is acceptable when the important user/runtime paths are covered.
+- Prefer fewer high-value tests over broad low-value coverage that forces abstractions, mocks, adapters, or brittle seams into production code.
+
 ## Safety
 
 - Do not print tokens, provider configs, `.saivage/auth-profiles.json`, `.saivage/saivage.json`, env files, or backups.
