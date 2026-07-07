@@ -294,7 +294,7 @@ function actionLabel(action: string): string {
 </script>
 
 <style scoped>
-.card-detail-container { flex:1; overflow-y:auto; padding:20px; }
+.card-detail-container { flex:1; min-height:0; overflow-y:auto; padding:20px; }
 .detail-loading { padding:16px; color:var(--text-muted); font-size:13px; }
 
 .status-banner { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:8px 12px; border-radius:6px; margin-top:10px; font-size:12px; }
