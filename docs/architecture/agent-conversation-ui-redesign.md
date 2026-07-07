@@ -6,7 +6,7 @@ Date: 2026-06-30
 
 ## 1. Purpose
 
-Agent conversations are the main observability surface for Saivage. The Analyst panel and the Debug agents view are the two surfaces that render agent conversations. They must present the same conversation substrate with different density and diagnostic emphasis.
+Agent conversations are the main observability surface for Saivage. The Analyst panel, Agents conversation detail, and Debug agents conversation detail are the three surfaces that render agent conversations. They must present the same conversation substrate with different density and diagnostic emphasis.
 
 This specification adapts the Saivage v2 conversation UI direction to v3. It copies the feel and information hierarchy, not the old implementation details. V3 keeps its card-centered runtime, segment-backed conversations, right-rail Analyst panel, and Analyst-owned mutation boundary.
 
@@ -36,7 +36,7 @@ Phase 1 substrate work is landed for the non-compaction conversation path: agent
 
 ## 3. Shared Conversation Model
 
-Both surfaces render the same normalized conversation model. The API is the source of truth for raw entries; grouping and display-model construction are deterministic view-side passes.
+All three conversation surfaces render the same normalized conversation model. The API is the source of truth for raw entries; grouping and display-model construction are deterministic view-side passes.
 
 ```ts
 type ConversationTimeline = {
@@ -201,7 +201,7 @@ System prompts are rendered as collapsed `System prompt` blocks by default. Oper
 
 ## 5. Tool Row Design
 
-Tool calls use one shared row grammar on both surfaces:
+Tool calls use one shared row grammar on all three conversation surfaces:
 
 ```text
 [chevron] [icon] [Action] [target........................] [status]
@@ -425,26 +425,28 @@ Debug can default to more raw detail than the Analyst panel, but it must preserv
 
 ## 15. Empty, Loading, Error, And Unauthorized States
 
-Both surfaces render explicit states so the conversation area never looks frozen or blank:
+All three conversation surfaces render explicit states so the conversation area never looks frozen or blank:
 
-| State | Analyst panel | Debug detail pane |
-| --- | --- | --- |
-| Loading history | `Loading history…` status card | `Loading conversation…` |
-| Loading sessions | `Loading analyst sessions…` status card | `Loading…` over the session list |
-| Empty | `No messages yet. Ask the analyst something.` | `Select a session to view its conversation.` |
-| Conversation error | error card with the message | `conv-error` with the message |
-| Unauthorized | inline `Unauthorized. Provide a valid Saivage API token and retry.` + token hint | `Unauthorized. Reload after providing a valid token.` |
-| Offline / sync dropped | debounced connection-status indicator; `Attempting to reconnect…` after a short delay | `Reconnecting…` |
-| Stale | `State may be stale.` muted banner after a failed refresh | `State may be stale. Refresh to reconcile.` |
+| State | Analyst panel | Agents conversation detail | Debug detail pane |
+| --- | --- | --- | --- |
+| Loading history | `Loading history…` status card | `Loading conversation…` | `Loading conversation…` |
+| Loading sessions | `Loading analyst sessions…` status card | `Loading…` over the session list | `Loading…` over the session list |
+| Empty | `No messages yet. Ask the analyst something.` | `Select a session to view its conversation.` | `Select a session to view its conversation.` |
+| Conversation error | error card with the message | `conv-error` with the message | `conv-error` with the message |
+| Unauthorized | inline `Unauthorized. Provide a valid Saivage API token and retry.` + token hint | `Unauthorized. Reload after providing a valid token.` | `Unauthorized. Reload after providing a valid token.` |
+| Offline / sync dropped | debounced connection-status indicator; `Attempting to reconnect…` after a short delay | `Reconnecting…` | `Reconnecting…` |
+| Stale | `State may be stale.` muted banner after a failed refresh | `State may be stale. Refresh to reconcile.` | `State may be stale. Refresh to reconcile.` |
 
 Connection status must debounce visible changes (v2 debounced by 400 ms) so a brief WebSocket dip does not flash a full offline banner.
 
 ## 16. Live-Update Behavior
 
-The conversation timeline is live: polling and WebSocket `invalidate` frames trigger refetches, not full reloads. The following invariants make that experience predictable:
+The conversation timeline is live: polling and WebSocket `invalidate` frames, including the conversation invalidation channel for the Analyst panel, Agents conversation detail, and Debug agents conversation detail, trigger refetches instead of full reloads. The following invariants make that experience predictable:
 
 - expansion state (which rows and groups are open) must survive refetch; IDs are derived from stable conversation identifiers as specified in section 3;
-- the Analyst scroll position pins to the bottom only while the user is already near the bottom; new content while scrolled up increments the `Jump to latest` unseen counter instead of forcing scroll;
+- each conversation surface scroll position pins to the bottom only while the user is already near the bottom and has not paused auto-scroll; new visible content while scrolled up or paused increments the `Jump to latest` unseen counter instead of forcing scroll;
+- visible-content growth means persisted entries, including within-round entry growth, plus pending-visible rows such as activity footers and Analyst pending chips;
+- each conversation surface exposes a per-surface `Pause auto-scroll` control that suspends auto-scroll without disabling live updates;
 - a round in progress (`activityStatus.status !== 'idle'`) must update its pending pill in place by stable pending-call id, not remount;
 - a tool pair that transitions from `pending` to `ok`/`error` updates the same row in place;
 - expanded row detail must not collapse on refetch; the expanded view may swap from pending to resolved content without losing the user's scroll position inside the detail;
@@ -481,7 +483,7 @@ Avoid:
 - oversized cards for every tool call;
 - hiding dispatch or mutation rows inside groups;
 - using row click for lateral navigation;
-- separate Analyst and Debug implementations that drift in labels, status tones, or raw disclosure behavior.
+- separate Analyst, Agents, and Debug implementations that drift in labels, status tones, or raw disclosure behavior.
 
 ## 19. Backend Responsibilities
 
@@ -489,7 +491,7 @@ The backend remains the source of truth for conversation entries and must expose
 
 | Area | Required invariant | Why |
 | --- | --- | --- |
-| Transcript substrate | One segment-backed conversation format for every role; `/api/agents` and `/api/agents/:id/conversation` return it; `system_prompt` entries are included | A single renderer converges Analyst and Debug |
+| Transcript substrate | One segment-backed conversation format for every role; `/api/agents` and `/api/agents/:id/conversation` return it; `system_prompt` entries are included | A single renderer converges all three conversation surfaces |
 | Raw payload preservation | Original tool request/result/error `content` is stored unchanged | The raw escape hatch guarantees no data loss |
 | Entry schema stability | `kind`, `role`, `round_id`, `message_index`, `block_index`, `timestamp`, `tool_name`, `tool_call_id`, `model` stay stable or evolve through typed API changes | Pairing, grouping, and expansion-state stability depend on them |
 | Structured tool results | Tool results keep structured envelopes, not free text, where the tool already produces structured data | Human detail renderers need parseable facts, not best-effort text |
@@ -539,7 +541,7 @@ Phase 4: Analyst polish and live updates.
 
 This redesign is complete when:
 
-- Analyst and Debug render agent conversations from the same timeline primitives;
+- the Analyst panel, Agents conversation detail, and Debug agents conversation detail render agent conversations from the same timeline primitives;
 - every tool row has compact action-target-status presentation;
 - every tool row expands to a human-readable detail (`DetailSection[]`) before raw payloads;
 - raw request/result/error payloads remain reachable for every tool pair through the shared toggle;
@@ -550,7 +552,7 @@ This redesign is complete when:
 - compaction clusters summarize and bound members instead of dumping raw content;
 - Debug is the full transcript entry point, uses API-backed conversations, and treats files/ledgers as secondary diagnostics;
 - empty, loading, error, unauthorized, offline, and stale states render explicitly and do not flash offline on brief disconnects;
-- expansion state, scroll pinning, and unseen counts survive polling and socket invalidations;
+- expansion state, scroll pinning, and unseen counts survive polling and socket invalidations across all three conversation surfaces; visible-content growth includes entries and pending rows, the per-surface pause control routes new content to the unseen counter, and the Debug agents conversation live-updates via the conversation invalidation channel;
 - accessibility: rows announce expand/collapse, raw tool names survive in `aria-label`, lateral links are keyboard-reachable, and tone is never color-only;
 - backend invariants in section 19 hold or are explicitly tracked as open backend work;
 - `docs/spec/operator-ui.md` acceptance criteria reference this redesign for the conversation-rendering requirement;

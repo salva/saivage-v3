@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia } from 'pinia';
 import AnalystChatPanel from '../components/chat/AnalystChatPanel.vue';
+import analystChatPanelSource from '../components/chat/AnalystChatPanel.vue?raw';
 import { useAnalystChat } from '../stores/analystChat';
 
 const listChatSessions = vi.fn();
@@ -33,6 +34,11 @@ describe('AnalystChatPanel', () => {
       ],
     });
     sendChatMessage.mockResolvedValue({ sessionId: 'analyst:global', message: { id: '4', role: 'assistant', kind: 'text', content: 'reply', timestamp: '2025-01-01T00:00:03Z' }, toolInvocations: [] });
+  });
+
+  it('wires pending chip growth through the shared timeline trigger', () => {
+    expect(analystChatPanelSource).not.toContain('pendingToolInvocationsForActiveSession.value.length] as const');
+    expect(analystChatPanelSource).toContain('extraPendingCount');
   });
 
   it('shows Loading history… during initial fetch and gates empty state until loading completes', async () => {
@@ -147,6 +153,33 @@ describe('AnalystChatPanel', () => {
     expect(wrapper.text()).toContain('opened docs');
     expect(wrapper.find('.tool-chip').exists()).toBe(true);
     expect(store.pendingToolInvocations[0].sessionId).toBe('analyst:global');
+    wrapper.unmount();
+  });
+
+  it('auto-scrolls pending chips while pinned and routes them to unseen count while paused', async () => {
+    const pinia = createPinia();
+    const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [pinia] } });
+    await flushPromises();
+    const store = useAnalystChat();
+    const scrollArea = wrapper.find('.chat-scroll-area').element as HTMLElement;
+    Object.defineProperty(scrollArea, 'scrollHeight', { configurable: true, value: 1000 });
+    Object.defineProperty(scrollArea, 'clientHeight', { configurable: true, value: 200 });
+
+    store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'analyst:global', tool: 'read', summary: 'opened docs', success: true });
+    await flushPromises();
+
+    expect(scrollArea.scrollTop).toBe(1000);
+
+    const pauseToggle = wrapper.find('label.auto-scroll-pause-toggle input[type="checkbox"]');
+    expect(pauseToggle.exists()).toBe(true);
+    await pauseToggle.setValue(true);
+    scrollArea.scrollTop = 0;
+
+    store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'analyst:global', tool: 'run_command', summary: 'ran checks', success: true });
+    await flushPromises();
+
+    expect(scrollArea.scrollTop).toBe(0);
+    expect(wrapper.text()).toContain('Jump to latest · 1 new');
     wrapper.unmount();
   });
 

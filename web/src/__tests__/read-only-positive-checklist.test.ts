@@ -80,10 +80,15 @@ describe('read-only positive checklist', () => {
     expect(analystChatPanelSource).toContain('ConversationTimeline');
     expect(analystChatPanelSource).toContain('useAgentTimeline');
     expect(agentTimelineSource).toContain('jumpToLatest');
-    expect(agentTimelineSource).toContain('unseenRoundCount');
+    expect(agentTimelineSource).toContain('unseenCount');
+    expect(agentTimelineSource).toContain('autoScrollPaused');
+    expect(agentTimelineSource).toContain('toggleAutoScrollPause');
     expect(agentConversationSource).toContain('Jump to latest');
     expect(analystChatPanelSource).toContain('Jump to latest');
     expect(debugViewSource).toContain('agentDebugTimeline.jumpToLatest');
+    expect(agentConversationSource).toContain('Pause auto-scroll');
+    expect(analystChatPanelSource).toContain('Pause auto-scroll');
+    expect(debugViewSource).toContain('Pause auto-scroll');
     expect(agentTimelineSource).toContain('modelLabel');
     expect(agentConversationSource).toContain('useAgentTimeline(entries, activityStatus, sessionModel)');
     expect(debugViewSource).toContain('agentDebugModel');

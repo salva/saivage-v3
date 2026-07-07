@@ -39,6 +39,7 @@ vi.mock('../api/client', () => {
 vi.mock('../stores/liveSync', () => ({
   useLiveSyncStore: () => ({
     registerResource: vi.fn(() => vi.fn()),
+    openConversation: vi.fn(() => vi.fn()),
   }),
 }));
 

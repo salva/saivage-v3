@@ -37,7 +37,7 @@ The workspace area renders read-only projections of runtime state, including:
 - runtime events, errors, debug views, and control-action audit records;
 - configuration projections where appropriate.
 
-Agent conversations in the Analyst panel and Debug agents view follow the shared design in [Agent Conversation UI Redesign](../architecture/agent-conversation-ui-redesign.md). That document defines the round, tool-row, grouping, detail, raw-payload, and Debug-as-transcript-entry behavior for conversation displays.
+Agent conversations in the Analyst panel, Agents conversation detail, and Debug agents conversation detail follow the shared design in [Agent Conversation UI Redesign](../architecture/agent-conversation-ui-redesign.md). That document defines the round, tool-row, grouping, detail, raw-payload, and Debug-as-transcript-entry behavior for conversation displays. All three conversation surfaces auto-scroll to the tail while the user is near the bottom and has not paused auto-scroll, including within-round entry growth and pending-visible growth such as Analyst pending chips and agent activity footers; the Debug agents conversation live-updates from the conversation invalidation channel without requiring manual Refresh for new entries; and each surface has a `Pause auto-scroll` checkbox that suspends auto-scroll and routes new content to the `Jump to latest · N new` unseen counter.
 
 Agent activity status may be `compacting` while the backend is summarizing an oversized card-lifetime conversation before a provider call. The status is transient and read-only; it means the runtime is preserving the active conversation by writing a new compacted version, not that the card has changed state.
 
@@ -160,4 +160,5 @@ The UI satisfies this specification when:
 - no direct UI control performs an Analyst-only mutation;
 - the Analyst receives active workspace context for deictic requests;
 - the Analyst can navigate the workspace on the user's behalf;
-- agent conversations in the Analyst panel and Debug agents view follow the shared design in [Agent Conversation UI Redesign](../architecture/agent-conversation-ui-redesign.md) (rounds, tool rows, grouping, human-readable details, raw-payload access, pending-call states, compaction bounding, live-update stability, and Debug as the transcript entry point).
+- agent conversations in the Analyst panel, Agents conversation detail, and Debug agents conversation detail follow the shared design in [Agent Conversation UI Redesign](../architecture/agent-conversation-ui-redesign.md) (rounds, tool rows, grouping, human-readable details, raw-payload access, pending-call states, compaction bounding, live-update stability, and Debug as the transcript entry point);
+- all three conversation surfaces auto-tail while near the bottom and not paused for new visible content, including entries, within-round entry growth, and pending-visible rows; the Debug agents conversation live-updates without manual Refresh; and each surface's `Pause auto-scroll` checkbox routes new content to the `Jump to latest · N new` unseen counter.

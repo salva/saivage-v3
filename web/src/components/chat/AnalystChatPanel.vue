@@ -5,7 +5,7 @@
     role="region"
     aria-label="Analyst chat"
   >
-    <div ref="timelineControls.scrollAreaRef" class="chat-scroll-area" data-testid="chat-scroll-container" @scroll="timelineControls.handleTimelineScroll">
+    <div :ref="setTimelineScrollArea" class="chat-scroll-area" data-testid="chat-scroll-container" @scroll="timelineControls.handleTimelineScroll">
       <div v-if="sessionsLoading" class="chat-status-card" role="status">Loading analyst sessions…</div>
       <div v-else-if="sessionsError" class="chat-status-card chat-status-error" role="alert">{{ sessionsError.message }}</div>
 
@@ -37,11 +37,11 @@
       </div>
     </div>
     <button
-      v-if="!timelineControls.pinnedToLatest.value"
+      v-if="!timelineControls.pinnedToLatest.value || timelineControls.unseenCount.value > 0"
       type="button"
       class="jump-to-latest"
       @click="timelineControls.jumpToLatest"
-    >Jump to latest<span v-if="timelineControls.unseenRoundCount.value > 0"> · {{ timelineControls.unseenRoundCount.value }} new</span></button>
+    >Jump to latest<span v-if="timelineControls.unseenCount.value > 0"> · {{ timelineControls.unseenCount.value }} new</span></button>
 
     <form class="chat-input-panel" @submit.prevent="submitMessage">
       <textarea
@@ -57,7 +57,17 @@
         @keydown="handleComposerKeydown"
       />
       <div class="chat-input-footer">
-        <span class="subtle">Enter to send · Shift+Enter for newline</span>
+        <div class="chat-input-hints">
+          <span class="subtle">Enter to send · Shift+Enter for newline</span>
+          <label class="auto-scroll-pause-toggle">
+            <input
+              type="checkbox"
+              :checked="timelineControls.autoScrollPaused.value"
+              @change="timelineControls.toggleAutoScrollPause()"
+            />
+            Pause auto-scroll
+          </label>
+        </div>
         <button type="submit" class="chat-send-button" :disabled="!activeSessionWritable || sending || !draft.trim()" :title="composerTitle">{{ sending ? 'Sending…' : 'Send' }}</button>
       </div>
       <div v-if="sendError" class="chat-status-card chat-status-error" role="alert">{{ sendError.message }}</div>
@@ -67,6 +77,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import type { ComponentPublicInstance } from 'vue';
 import { storeToRefs } from 'pinia';
 import type { ActivityStatus, AgentConversationEntry } from '../../types/view-models';
 import { useAnalystChat } from '../../stores/analystChat';
@@ -97,13 +108,14 @@ const {
 const composerRef = ref<HTMLTextAreaElement | null>(null);
 const timelineEntries = computed<AgentConversationEntry[]>(() => messages.value);
 const idleActivityStatus = computed<ActivityStatus | null>(() => null);
-const timelineControls = useAgentTimeline(timelineEntries, idleActivityStatus);
+const pendingToolInvocationsForActiveSession = computed(() => pendingToolInvocations.value.filter((item) => item.sessionId === activeSessionId.value));
+const extraPendingCount = computed(() => pendingToolInvocationsForActiveSession.value.length);
+const timelineControls = useAgentTimeline(timelineEntries, idleActivityStatus, undefined, extraPendingCount);
 const childrenOnScreen = computed(() =>
   workspaceRoute.view === 'cards' && workspaceRoute.entityId
     ? selectChildrenOf([...cards.cards], workspaceRoute.entityId)
     : [],
 );
-const pendingToolInvocationsForActiveSession = computed(() => pendingToolInvocations.value.filter((item) => item.sessionId === activeSessionId.value));
 const READ_ONLY_TOOLTIP = 'Read-only — switch to analyst to send messages';
 const composerTitle = computed(() => activeSessionWritable.value ? 'Ask the analyst…' : READ_ONLY_TOOLTIP);
 const messagesErrorLabel = computed(() => {
@@ -113,6 +125,10 @@ const messagesErrorLabel = computed(() => {
   }
   return messagesError.value.message;
 });
+
+function setTimelineScrollArea(el: Element | ComponentPublicInstance | null): void {
+  timelineControls.scrollAreaRef.value = el instanceof HTMLElement ? el : null;
+}
 
 function focusComposer(): void {
   composerRef.value?.focus();
@@ -148,14 +164,6 @@ onMounted(() => {
     .then(() => timelineControls.scrollToLatest())
     .catch(() => {});
 });
-
-watch(
-  () => [pendingToolInvocationsForActiveSession.value.length] as const,
-  () => {
-    if (!timelineControls.pinnedToLatest.value) return;
-    void nextTick(() => timelineControls.scrollToLatest());
-  },
-);
 
 watch(activeSessionId, () => {
   timelineControls.resetScrollState();
@@ -304,6 +312,27 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
+}
+
+.chat-input-hints {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.auto-scroll-pause-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.auto-scroll-pause-toggle input {
+  margin: 0;
 }
 
 .chat-send-button {

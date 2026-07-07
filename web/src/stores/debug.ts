@@ -316,6 +316,23 @@ export const useDebugStore = defineStore('debug', () => {
     }
   }
 
+  async function refetchSelectedAgentDebugConversation(): Promise<void> {
+    const session = selectedAgentDebugSession.value;
+    if (!session || selectedAgentDebugKind.value !== 'conversation') return;
+    const sessionId = session.id;
+    try {
+      const conversation = await getAgentConversation(sessionId);
+      if (
+        selectedAgentDebugSession.value?.id === sessionId &&
+        selectedAgentDebugKind.value === 'conversation'
+      ) {
+        selectedAgentDebugConversation.value = conversation;
+      }
+    } catch (err) {
+      log.warn('refetchSelectedAgentDebugConversation', err);
+    }
+  }
+
   async function refreshAgentDebug(): Promise<void> {
     agentDebugLoading.value = true;
     agentDebugError.value = null;
@@ -435,6 +452,7 @@ export const useDebugStore = defineStore('debug', () => {
     selectAgentDebugKind,
     agentDebugKindAvailable,
     loadSelectedAgentDebugContent,
+    refetchSelectedAgentDebugConversation,
     fetchAll,
     refetch,
   };

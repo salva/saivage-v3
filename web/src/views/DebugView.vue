@@ -192,6 +192,14 @@
                   :disabled="!debugStore.agentDebugKindAvailable(kind.id)"
                   @click="debugStore.selectAgentDebugKind(kind.id)"
                 >{{ kind.label }}</button>
+                <label v-if="selectedAgentDebugKind === 'conversation'" class="auto-scroll-pause-toggle">
+                  <input
+                    type="checkbox"
+                    :checked="agentDebugTimeline.autoScrollPaused.value"
+                    @change="agentDebugTimeline.toggleAutoScrollPause()"
+                  />
+                  Pause auto-scroll
+                </label>
                 <button v-if="selectedAgentDebugPath" class="sv-fetch-btn" :disabled="agentDebugContentLoading" @click="debugStore.loadSelectedAgentDebugContent">Reload</button>
               </div>
               <div v-if="selectedAgentDebugSession" class="agent-debug-path mono">{{ selectedAgentDebugPath || 'No file recorded for this view.' }}</div>
@@ -210,11 +218,11 @@
                   @toggle="agentDebugTimeline.toggleExpanded"
                 />
                 <button
-                  v-if="!agentDebugTimeline.pinnedToLatest.value"
+                  v-if="!agentDebugTimeline.pinnedToLatest.value || agentDebugTimeline.unseenCount.value > 0"
                   type="button"
                   class="agent-debug-jump-latest"
                   @click="agentDebugTimeline.jumpToLatest"
-                >Jump to latest<span v-if="agentDebugTimeline.unseenRoundCount.value > 0"> · {{ agentDebugTimeline.unseenRoundCount.value }} new</span></button>
+                >Jump to latest<span v-if="agentDebugTimeline.unseenCount.value > 0"> · {{ agentDebugTimeline.unseenCount.value }} new</span></button>
               </div>
               <CodeBlock v-else :code="formattedAgentDebugContent" language="json" copyable wrap max-height="70vh" />
             </div>
@@ -446,6 +454,22 @@ watch(() => [selectedAgentDebugSessionId.value, selectedAgentDebugKind.value] as
   agentDebugTimeline.resetScrollState();
 });
 
+let unregisterAgentDebugConversation: (() => void) | null = null;
+
+watch(
+  () => [localActiveTab.value, selectedAgentDebugSessionId.value, selectedAgentDebugKind.value] as const,
+  ([tab, sessionId, kind]) => {
+    unregisterAgentDebugConversation?.();
+    unregisterAgentDebugConversation = null;
+    if (tab !== 'agents' || kind !== 'conversation' || !sessionId) return;
+    unregisterAgentDebugConversation = liveSyncStore.openConversation(
+      sessionId,
+      () => debugStore.refetchSelectedAgentDebugConversation(),
+    );
+  },
+  { immediate: true },
+);
+
 watch(() => [route.name, route.query.tab, route.params.id] as const, () => {
   const tabFromRoute = route.name === 'process-detail' ? 'processes' : typeof route.query.tab === 'string' ? route.query.tab : 'state';
   if (tabs.some((tab) => tab.id === tabFromRoute)) setTabLocal(tabFromRoute as typeof localActiveTab.value);
@@ -487,6 +511,7 @@ onMounted(async () => {
   mcpStore.startPolling(15000);
 });
 onUnmounted(() => {
+  unregisterAgentDebugConversation?.();
   unregisterTimeline?.();
   unregisterProcesses?.();
   mcpStore.stopPolling();
@@ -583,6 +608,8 @@ onUnmounted(() => {
 .agent-debug-detail { min-width:0; }
 .agent-debug-toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
 .agent-debug-toolbar .debug-tab-button:disabled { opacity:.45; cursor:not-allowed; }
+.auto-scroll-pause-toggle { display:inline-flex; align-items:center; gap:4px; font-size:12px; color:var(--text-muted); cursor:pointer; }
+.auto-scroll-pause-toggle input { margin:0; }
 .agent-debug-path { margin-bottom:10px; color:var(--text-muted); word-break:break-all; }
 .agent-debug-conversation { max-height:70vh; overflow:auto; padding-right:4px; }
 .agent-debug-jump-latest { position:sticky; bottom:10px; left:50%; transform:translateX(-50%); border:1px solid var(--border); border-radius:999px; background:var(--surface-3); color:var(--accent-2); cursor:pointer; font:inherit; font-size:12px; padding:6px 12px; }

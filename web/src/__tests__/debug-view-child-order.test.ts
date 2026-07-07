@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
+import { createRouter, createWebHistory } from 'vue-router';
 import DebugView from '../views/DebugView.vue';
 import { useCardStore } from '../stores/cards';
 import { useDebugStore } from '../stores/debug';
@@ -14,9 +15,12 @@ describe('scenario-debug-view-child-order', () => {
     setActivePinia(createPinia());
     const debugStore = useDebugStore();
     const cardsStore = useCardStore();
+    const router = createRouter({ history: createWebHistory(), routes: [{ path: '/debug', name: 'debug', component: DebugView }] });
+    await router.push('/debug');
+    await router.isReady();
     await debugStore.fetchState();
     cardsStore.cards = [card({ id: 'c-e', parent: 'debug-parent', position: 3, title: 'E' }), card({ id: 'c-b', parent: 'debug-parent', position: 1, title: 'B' }), card({ id: 'c-d', parent: 'debug-parent', position: undefined, title: 'D' }), card({ id: 'c-a', parent: 'debug-parent', position: 1, title: 'A' }), card({ id: 'c-c', parent: 'debug-parent', position: 2, title: 'C' })];
-    const wrapper = mount(DebugView, { global: { stubs: { CodeBlock: true } } });
+    const wrapper = mount(DebugView, { global: { plugins: [router], stubs: { CodeBlock: true } } });
     await new Promise((resolve) => setTimeout(resolve, 0));
     await wrapper.vm.$nextTick();
     expect(wrapper.findAll('[data-testid="debug-card-children-list"] [data-testid="debug-card-children-item"] .title').map((n) => n.text())).toEqual(['A', 'B', 'C', 'E', 'D']);

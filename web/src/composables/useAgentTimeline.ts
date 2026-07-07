@@ -7,11 +7,18 @@ export function useAgentTimeline(
   entries: Ref<readonly AgentConversationEntry[]>,
   activityStatus: Ref<ActivityStatus | null>,
   modelLabel?: Ref<string | null | undefined>,
+  extraPendingCount?: Ref<number>,
 ) {
   const expandedIds = ref(new Set<string>());
   const scrollAreaRef = ref<HTMLElement | null>(null);
   const pinnedToLatest = ref(true);
-  const unseenRoundCount = ref(0);
+  const unseenCount = ref(0);
+  const autoScrollPaused = ref(false);
+  const pendingVisibleCount = computed(() => {
+    const fromActivityStatus = activityStatus.value?.pending_calls.length ?? 0;
+    const fromExtra = extraPendingCount?.value ?? 0;
+    return fromActivityStatus + fromExtra;
+  });
   const timeline = computed(() => {
     const projected = entriesToTimeline(entries.value, activityStatus.value);
     const label = modelLabel?.value ?? null;
@@ -33,20 +40,28 @@ export function useAgentTimeline(
     const el = scrollAreaRef.value;
     if (!el) return;
     pinnedToLatest.value = isNearLatest(el);
-    if (pinnedToLatest.value) unseenRoundCount.value = 0;
+    if (pinnedToLatest.value) unseenCount.value = 0;
   }
 
   async function jumpToLatest(): Promise<void> {
     pinnedToLatest.value = true;
-    unseenRoundCount.value = 0;
+    unseenCount.value = 0;
     await nextTick();
     scrollToLatest();
   }
 
   function resetScrollState(): void {
     pinnedToLatest.value = true;
-    unseenRoundCount.value = 0;
+    unseenCount.value = 0;
     void nextTick(() => scrollToLatest());
+  }
+
+  function toggleAutoScrollPause(): void {
+    autoScrollPaused.value = !autoScrollPaused.value;
+    if (!autoScrollPaused.value && pinnedToLatest.value) {
+      unseenCount.value = 0;
+      void nextTick(() => scrollToLatest());
+    }
   }
 
   function toggleExpanded(id: string): void { const next = new Set(expandedIds.value); next.has(id) ? next.delete(id) : next.add(id); expandedIds.value = next; }
@@ -62,10 +77,11 @@ export function useAgentTimeline(
   }
   function collapseAll(): void { expandedIds.value = new Set(); }
 
-  watch(() => timeline.value.rounds.length, (roundCount, previousRoundCount) => {
-    if (roundCount <= previousRoundCount) return;
-    if (pinnedToLatest.value) void nextTick(() => scrollToLatest());
-    else unseenRoundCount.value += roundCount - previousRoundCount;
+  watch(() => entries.value.length + pendingVisibleCount.value, (volume, previousVolume) => {
+    if (volume <= previousVolume) return;
+    const delta = volume - previousVolume;
+    if (pinnedToLatest.value && !autoScrollPaused.value) void nextTick(() => scrollToLatest());
+    else unseenCount.value += delta;
   });
 
   return {
@@ -73,7 +89,8 @@ export function useAgentTimeline(
     expandedIds,
     scrollAreaRef,
     pinnedToLatest,
-    unseenRoundCount,
+    unseenCount,
+    autoScrollPaused,
     toggleExpanded,
     expandAll,
     collapseAll,
@@ -81,5 +98,6 @@ export function useAgentTimeline(
     jumpToLatest,
     resetScrollState,
     scrollToLatest,
+    toggleAutoScrollPause,
   };
 }
