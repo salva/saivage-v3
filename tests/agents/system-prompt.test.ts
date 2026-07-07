@@ -97,11 +97,6 @@ describe('System Prompt Builder', () => {
       expect(prompt).not.toContain('never a project source');
     });
 
-    it('does not promise grep over record URLs', () => {
-      const prompt = buildExecutorPrompt(executorContract);
-      expect(prompt).not.toMatch(/grep[^.]*record:\/\//);
-    });
-
     it('describes the executor contract terminal tool', () => {
       const prompt = buildExecutorPrompt(executorContract);
       expect(prompt).toContain('Terminal Tools (Contract)');

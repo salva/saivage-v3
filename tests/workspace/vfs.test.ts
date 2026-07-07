@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { closeOpenRecordSlot } from '../../src/runtime/records/record-slots.js';
 import { writeProject } from '../../src/tools/project-file-tools.js';
-import { globScopedPath, listScopedPath, resolveScopedPath } from '../../src/workspace/vfs.js';
+import { collectScopedFiles, globScopedPath, listScopedPath, resolveScopedPath, walkFiles, type ScopedFileEntry } from '../../src/workspace/vfs.js';
 
 class TestInputError extends Error {
   constructor(message: string) {
@@ -24,6 +24,18 @@ function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promis
   if (result instanceof Promise) return result.finally(() => rmSync(projectRoot, { recursive: true, force: true }));
   rmSync(projectRoot, { recursive: true, force: true });
   return result;
+}
+
+function collect(projectRoot: string, raw: string): ScopedFileEntry[] {
+  const entries: ScopedFileEntry[] = [];
+  collectScopedFiles({ projectRoot, fail }, raw, (entry) => {
+    entries.push(entry);
+  });
+  return entries;
+}
+
+function systemUrl(absolutePath: string): string {
+  return `system:///${absolutePath.replace(/\\/g, '/').replace(/^\/+/, '')}`;
 }
 
 describe('workspace VFS', () => {
@@ -51,6 +63,48 @@ describe('workspace VFS', () => {
     expect(glob.matches).toEqual(['docs/SPEC.md']);
   }));
 
+  it('collects scoped files for project directories with display and match paths', () => withTempProject((projectRoot) => {
+    mkdirSync(join(projectRoot, '.saivage'), { recursive: true });
+    mkdirSync(join(projectRoot, 'node_modules', 'pkg'), { recursive: true });
+    mkdirSync(join(projectRoot, 'docs'), { recursive: true });
+    writeFileSync(join(projectRoot, '.saivage', 'hidden.md'), 'hidden', 'utf8');
+    writeFileSync(join(projectRoot, 'node_modules', 'pkg', 'hidden.md'), 'hidden', 'utf8');
+    writeFileSync(join(projectRoot, 'docs', 'SPEC.md'), 'spec', 'utf8');
+
+    expect(collect(projectRoot, 'project:///')).toEqual([{ absolutePath: join(projectRoot, 'docs', 'SPEC.md'), displayPath: 'docs/SPEC.md', matchPath: 'docs/SPEC.md' }]);
+    expect(collect(projectRoot, 'project:///docs')).toEqual([{ absolutePath: join(projectRoot, 'docs', 'SPEC.md'), displayPath: 'docs/SPEC.md', matchPath: 'SPEC.md' }]);
+  }));
+
+  it('collects work and system paths using URL display paths', () => withTempProject((projectRoot) => {
+    mkdirSync(join(projectRoot, '.saivage-work', 'processes'), { recursive: true });
+    writeFileSync(join(projectRoot, '.saivage-work', 'processes', 'run.log'), 'log', 'utf8');
+
+    const systemRoot = mkdtempSync(join(tmpdir(), 'saivage-vfs-system-'));
+    try {
+      writeFileSync(join(systemRoot, 'host.txt'), 'host', 'utf8');
+
+      expect(collect(projectRoot, 'work:///processes')).toEqual([{ absolutePath: join(projectRoot, '.saivage-work', 'processes', 'run.log'), displayPath: 'work:///processes/run.log', matchPath: 'run.log' }]);
+      expect(collect(projectRoot, systemUrl(systemRoot))).toEqual([{ absolutePath: join(systemRoot, 'host.txt'), displayPath: `${systemUrl(systemRoot)}/host.txt`, matchPath: 'host.txt' }]);
+    } finally {
+      rmSync(systemRoot, { recursive: true, force: true });
+    }
+  }));
+
+  it('collects scoped single files while filtering hidden and secret single-file paths', () => withTempProject((projectRoot) => {
+    mkdirSync(join(projectRoot, '.saivage'), { recursive: true });
+    mkdirSync(join(projectRoot, '.saivage-work', 'tmp', 'runtime'), { recursive: true });
+    mkdirSync(join(projectRoot, 'docs'), { recursive: true });
+    writeFileSync(join(projectRoot, 'docs', 'SPEC.md'), 'spec', 'utf8');
+    writeFileSync(join(projectRoot, '.saivage', 'saivage.json'), 'hidden', 'utf8');
+    writeFileSync(join(projectRoot, '.saivage-work', 'tmp', 'runtime', 'runtime.lock'), 'hidden', 'utf8');
+    writeFileSync(join(projectRoot, '.env'), 'secret', 'utf8');
+
+    expect(collect(projectRoot, 'project:///docs/SPEC.md')).toEqual([{ absolutePath: join(projectRoot, 'docs', 'SPEC.md'), displayPath: 'docs/SPEC.md', matchPath: 'docs/SPEC.md' }]);
+    expect(collect(projectRoot, 'project:///.saivage/saivage.json')).toEqual([]);
+    expect(collect(projectRoot, 'project:///.saivage-work/tmp/runtime/runtime.lock')).toEqual([]);
+    expect(collect(projectRoot, 'project:///.env')).toEqual([]);
+  }));
+
   it('keeps record document and card-id namespaces distinct', async () => withTempProject(async (projectRoot) => {
     await writeProject({ projectRoot, cardId: 'card-1', agentRole: 'planner' }, { path: 'record:///brief.md?v=next', content: 'brief one' });
     closeOpenRecordSlot(projectRoot, { cardId: 'card-1', filename: 'brief.md', writer: 'planner', cardVersionSeq: 1 });
@@ -67,5 +121,57 @@ describe('workspace VFS', () => {
     expect(JSON.stringify(listing)).not.toContain('index.json');
     expect(glob).toEqual({ matches: ['record:///brief.md?card=card-1&v=1'], truncated: false });
     await expect(listScopedPath({ projectRoot, agent: { cardId: 'card-1', agentRole: 'planner' }, fail }, 'record:///card-1/brief.md')).rejects.toThrow(TestInputError);
+  }));
+
+  it('collects only latest closed exposed record slots', async () => withTempProject(async (projectRoot) => {
+    await writeProject({ projectRoot, cardId: 'card-1', agentRole: 'planner' }, { path: 'record:///brief.md?v=next', content: 'brief one' });
+    closeOpenRecordSlot(projectRoot, { cardId: 'card-1', filename: 'brief.md', writer: 'planner', cardVersionSeq: 1 });
+    await writeProject({ projectRoot, cardId: 'card-1', agentRole: 'planner' }, { path: 'record:///brief.md?v=next', content: 'brief two open' });
+
+    const entries = collect(projectRoot, 'record:///card-1');
+
+    expect(entries).toEqual([{ absolutePath: join(projectRoot, '.saivage', 'outputs', 'cards', 'card-1', 'brief', '1.md'), displayPath: 'record:///brief.md?card=card-1&v=1', matchPath: 'brief.md' }]);
+    expect(JSON.stringify(entries)).not.toContain('card.json');
+    expect(JSON.stringify(entries)).not.toContain('2.md');
+  }));
+
+  it('does not apply project hidden-path filtering to logical record entries', async () => withTempProject(async (projectRoot) => {
+    await writeProject({ projectRoot, cardId: 'card-1', agentRole: 'planner' }, { path: 'record:///brief.md?v=next', content: 'brief one' });
+    closeOpenRecordSlot(projectRoot, { cardId: 'card-1', filename: 'brief.md', writer: 'planner', cardVersionSeq: 1 });
+
+    expect(collect(projectRoot, 'record:///card-1')).toHaveLength(1);
+  }));
+
+  it('short-circuits collectScopedFiles when the visitor returns false', () => withTempProject((projectRoot) => {
+    mkdirSync(join(projectRoot, 'docs'), { recursive: true });
+    writeFileSync(join(projectRoot, 'docs', 'one.md'), 'one', 'utf8');
+    writeFileSync(join(projectRoot, 'docs', 'two.md'), 'two', 'utf8');
+    let calls = 0;
+
+    collectScopedFiles({ projectRoot, fail }, 'project:///', () => {
+      calls += 1;
+      return false;
+    });
+
+    expect(calls).toBe(1);
+  }));
+
+  it('rejects non-scoped collectScopedFiles input', () => withTempProject((projectRoot) => {
+    expect(() => collectScopedFiles({ projectRoot, fail }, '.', () => undefined)).toThrow(TestInputError);
+  }));
+
+  it('propagates recursive walkFiles short-circuiting across sibling directories', () => withTempProject((projectRoot) => {
+    mkdirSync(join(projectRoot, 'a-parent', 'nested'), { recursive: true });
+    mkdirSync(join(projectRoot, 'z-sibling'), { recursive: true });
+    writeFileSync(join(projectRoot, 'a-parent', 'nested', 'stop.txt'), 'stop', 'utf8');
+    writeFileSync(join(projectRoot, 'z-sibling', 'after.txt'), 'after', 'utf8');
+    const visited: string[] = [];
+
+    walkFiles(projectRoot, projectRoot, (_absolutePath, relativePath) => {
+      visited.push(relativePath);
+      return false;
+    }, { includeHidden: false });
+
+    expect(visited).toEqual(['a-parent/nested/stop.txt']);
   }));
 });

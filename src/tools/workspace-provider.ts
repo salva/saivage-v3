@@ -71,7 +71,7 @@ export function createWorkspaceProvider(ctx: WorkspaceProviderContext): ToolProv
       defineTool({ name: 'write', description: 'Create or replace a project, record, tmp, or system file according to role policy.', inputSchema: writeSchema, executor: (args) => runWorkspaceTool(() => writeProject(ctx, args)) }),
       defineTool({ name: 'edit', description: 'Replace exact text in a project, record, tmp, or system file according to role policy.', inputSchema: editSchema, executor: (args) => runWorkspaceTool(() => editProject(ctx, args)) }),
       defineTool({ name: 'glob', description: 'Search files by glob pattern under a scoped directory, including read-only work:/// process-output and stash directories.', inputSchema: globSchema, executor: (args) => runWorkspaceTool(() => globProject(ctx, args)) }),
-      defineTool({ name: 'grep', description: 'Search text files with a JavaScript regular expression under project:///, tmp:///, read-only work:///, or system:/// paths, including work:/// process-output and stash files. grep does not support record:/// paths; inspect records with glob record:///<cardId> and read record:///<filename>?card=<id>&v=<n>.', inputSchema: grepSchema, executor: (args) => runWorkspaceTool(() => grepProject(ctx, args)) }),
+      defineTool({ name: 'grep', description: 'Search text files with a JavaScript regular expression under project:///, record:///, tmp:///, read-only work:///, or system:/// paths, including work:/// process-output and stash files. grep record:///<cardId> searches the latest closed versions of exposed record slots and returns record URLs as path. work:/// content is redacted before return.', inputSchema: grepSchema, executor: (args) => runWorkspaceTool(() => grepProject(ctx, args)) }),
     ],
   };
 }

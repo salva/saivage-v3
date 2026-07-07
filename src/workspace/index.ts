@@ -45,6 +45,7 @@ export {
   type ScopedPathScheme,
 } from './scoped-path-schemes.js';
 export {
+  collectScopedFiles,
   displayPathForResolved,
   globScopedPath,
   globSegmentToRegExp,
@@ -57,6 +58,7 @@ export {
   walkFiles,
   workRootOf,
   type RecordSummary,
+  type ScopedFileEntry,
   type VfsContext,
   type VfsEntry,
   type VfsListing,

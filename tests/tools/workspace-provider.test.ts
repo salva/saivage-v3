@@ -210,7 +210,7 @@ describe('workspace and patch providers', () => {
       const read = await invokeTool(surface, 'read', { path: `record:///brief.md?card=${card.id}` });
       const recordDirectoryRead = await invokeTool(surface, 'read', { path: `record:///${card.id}` });
       const glob = await invokeTool(surface, 'glob', { directory: `record:///${card.id}`, pattern: '**/*.md' });
-      const grep = await invokeTool(surface, 'grep', { path: `record:///${card.id}/brief.md`, pattern: 'Acceptance Criteria' });
+      const grep = await invokeTool(surface, 'grep', { path: `record:///${card.id}`, pattern: 'Acceptance Criteria' });
 
       expect(write.success).toBe(true);
       expect(read.success).toBe(true);
@@ -219,8 +219,12 @@ describe('workspace and patch providers', () => {
       if (recordDirectoryRead.success) expect(recordDirectoryRead.data).toMatchObject({ records: expect.arrayContaining([expect.objectContaining({ filename: 'brief.md', url: `record:///brief.md?card=${card.id}&v=2` })]) });
       expect(glob.success).toBe(true);
       if (glob.success) expect((glob.data as { matches: string[] }).matches).toContain(`record:///brief.md?card=${card.id}&v=2`);
-      expect(grep.success).toBe(false);
-      if (!grep.success) expect(grep.error).toContain('grep does not support record:/// paths; use glob + read to inspect records.');
+      expect(grep.success).toBe(true);
+      if (grep.success) {
+        expect((grep.data as { matches: Array<{ path: string; preview: string }> }).matches).toEqual([
+          expect.objectContaining({ path: `record:///brief.md?card=${card.id}&v=2`, preview: '# Acceptance Criteria' }),
+        ]);
+      }
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -234,12 +238,15 @@ describe('workspace and patch providers', () => {
 
       const read = await invokeTool(surface, 'read', { path: 'project:///' });
       const glob = await invokeTool(surface, 'glob', { directory: 'project:///', pattern: '**/*.md' });
+      const nonScopedGrep = await invokeTool(surface, 'grep', { path: '.', pattern: 'spec' });
       const grep = await invokeTool(surface, 'grep', { pattern: '(unclosed' });
 
       expect(read.success).toBe(true);
       if (read.success) expect(read.data).toMatchObject({ entries: expect.arrayContaining([expect.objectContaining({ name: 'SPEC.md' })]) });
       expect(glob.success).toBe(true);
       if (glob.success) expect((glob.data as { matches: string[] }).matches).toContain('SPEC.md');
+      expect(nonScopedGrep.success).toBe(true);
+      if (nonScopedGrep.success) expect((nonScopedGrep.data as { matches: Array<{ path: string }> }).matches).toEqual([expect.objectContaining({ path: 'SPEC.md' })]);
       expect(grep.success).toBe(false);
       if (!grep.success) expect(grep.error).toContain('Invalid regular expression');
     } finally {

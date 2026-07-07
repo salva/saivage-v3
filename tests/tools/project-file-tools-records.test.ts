@@ -65,7 +65,38 @@ describe('project file tools record enforcement', () => {
     writeFileSync(join(projectRoot, '.saivage', 'runtime', 'state.json'), '{"secret":true}');
 
     await expect(globProject({ projectRoot, cardId: 'card-1', agentRole: 'planner' }, { directory: 'record:///..%2Fruntime', pattern: '**/*' })).rejects.toMatchObject({ name: 'WorkspaceToolInputError' });
-    await expect(grepProject({ projectRoot, cardId: 'card-1', agentRole: 'planner' }, { path: 'record:///a..b', pattern: 'secret' })).rejects.toThrow('grep does not support record:/// paths; use glob + read to inspect records.');
+    await expect(grepProject({ projectRoot, cardId: 'card-1', agentRole: 'planner' }, { path: 'record:///a..b', pattern: 'secret' })).rejects.toMatchObject({ name: 'WorkspaceToolInputError' });
     await expect(globProject({ projectRoot, cardId: 'card-1', agentRole: 'planner' }, { directory: 'record:///card-1/..%2Fruntime', pattern: '**/*' })).rejects.toMatchObject({ name: 'WorkspaceToolInputError' });
+  }));
+
+  it('greps the latest closed record versions by card id without redaction', async () => withTempProject(async (projectRoot) => {
+    await writeProject({ projectRoot, cardId: 'card-1', agentRole: 'planner' }, { path: 'record:///brief.md?v=next', content: '# Goal\n\nFind the needle.\n' });
+    closeOpenRecordSlot(projectRoot, { cardId: 'card-1', filename: 'brief.md', writer: 'planner' });
+
+    const result = await grepProject({ projectRoot, cardId: 'card-1', agentRole: 'planner' }, { path: 'record:///card-1', pattern: 'needle' }) as { matches: Array<{ path: string; line: number; preview: string }>; truncated: boolean };
+
+    expect(result).toEqual({ pattern: 'needle', matches: [{ path: 'record:///brief.md?card=card-1&v=1', line: 3, preview: 'Find the needle.' }], truncated: false });
+    expect(result.matches[0]!.preview).not.toContain('[REDACTED]');
+  }));
+
+  it('returns no grep matches for record cards without closed versions', async () => withTempProject(async (projectRoot) => {
+    const result = await grepProject({ projectRoot, cardId: 'card-1', agentRole: 'planner' }, { path: 'record:///card-1', pattern: 'needle' });
+
+    expect(result).toEqual({ pattern: 'needle', matches: [], truncated: false });
+  }));
+
+  it('does not leak directly-addressed hidden scoped files through grep or glob', async () => withTempProject(async (projectRoot) => {
+    mkdirSync(join(projectRoot, '.saivage'), { recursive: true });
+    mkdirSync(join(projectRoot, '.saivage-work', 'tmp', 'runtime'), { recursive: true });
+    writeFileSync(join(projectRoot, '.saivage', 'saivage.json'), 'HIDDEN_SAIVAGE_TOKEN', 'utf8');
+    writeFileSync(join(projectRoot, '.saivage-work', 'tmp', 'runtime', 'runtime.lock'), 'HIDDEN_LOCK_TOKEN', 'utf8');
+
+    const saivageGrep = await grepProject({ projectRoot, cardId: 'card-1', agentRole: 'planner' }, { path: 'project:///.saivage/saivage.json', pattern: 'HIDDEN_SAIVAGE_TOKEN' });
+    const lockGrep = await grepProject({ projectRoot, cardId: 'card-1', agentRole: 'planner' }, { path: 'project:///.saivage-work/tmp/runtime/runtime.lock', pattern: 'HIDDEN_LOCK_TOKEN' });
+    const saivageGlob = await globProject({ projectRoot, cardId: 'card-1', agentRole: 'planner' }, { directory: 'project:///.saivage/saivage.json', pattern: '*' });
+
+    expect(saivageGrep).toEqual({ pattern: 'HIDDEN_SAIVAGE_TOKEN', matches: [], truncated: false });
+    expect(lockGrep).toEqual({ pattern: 'HIDDEN_LOCK_TOKEN', matches: [], truncated: false });
+    expect(saivageGlob).toEqual({ directory: '.saivage/saivage.json', pattern: '*', matches: [], truncated: false });
   }));
 });

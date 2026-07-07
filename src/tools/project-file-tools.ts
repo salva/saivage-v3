@@ -5,7 +5,7 @@ import { dirname, isAbsolute, join } from 'node:path';
 import type { AgentRole } from '../schemas/index.js';
 import { isBinarySample } from './analyst-tool-helpers.js';
 import { redactTextForOutbound } from '../redaction/index.js';
-import { assertRecordWrite, displayPathForResolved, globScopedPath, globToRegExp, isHiddenPath, isWriteBlocked, listScopedPath, listVisibleDirectoryEntries, looksLikeSecretPath, resolveContainedProjectPath, resolveRecordWriteTarget, resolveScopedPath, scopedReadFilterRel, walkFiles, workRootOf, type VfsResolved } from '../workspace/index.js';
+import { assertRecordWrite, collectScopedFiles, displayPathForResolved, globScopedPath, globToRegExp, isHiddenPath, isWriteBlocked, listScopedPath, listVisibleDirectoryEntries, looksLikeSecretPath, resolveContainedProjectPath, resolveRecordWriteTarget, resolveScopedPath, scopedReadFilterRel, walkFiles, type VfsResolved } from '../workspace/index.js';
 import { closeOpenRecordSlot, discardOpenRecordSlot, openRecordSlot, readRecordSlotIndex } from '../runtime/records/record-slots.js';
 import type { CardStore } from '../cards/store-api.js';
 import { readRuntimeState } from '../runtime/state-api.js';
@@ -339,9 +339,7 @@ export async function globProject(ctx: WorkspaceContext, params: { directory: st
 
 export async function grepProject(ctx: WorkspaceContext, params: { pattern: string; path?: string; include?: string; max_results?: number }): Promise<unknown> {
   const raw = params.path ?? '.';
-  if (raw.startsWith('record:///')) throw toolInputError('grep does not support record:/// paths; use glob + read to inspect records.');
   const scoped = resolveScopedPath(vfsCtx(ctx), raw, 'search');
-  const target = scoped === null ? { kind: 'project' as const, ...assertReadable(ctx.projectRoot, raw), isRoot: false } : assertScopedReadable(ctx, scoped);
   let regex: RegExp;
   try {
     regex = new RegExp(params.pattern);
@@ -351,24 +349,32 @@ export async function grepProject(ctx: WorkspaceContext, params: { pattern: stri
   const include = params.include ? globToRegExp(params.include) : null;
   const limit = parseNonNegativeInt(params.max_results, DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT);
   const matches: Array<{ path: string; line: number; preview: string }> = [];
-  const isWorkSearch = target.kind === 'work';
-  const scan = (abs: string, rel: string): boolean | void => {
-    if (include && !include.test(rel)) return;
-    const sample = readFileSync(abs);
-    if (isBinarySample(sample.subarray(0, Math.min(sample.length, 1024)))) return;
-    const lines = sample.toString('utf8').split(/\r?\n/);
-    for (let i = 0; i < lines.length; i += 1) {
-      if (regex.test(lines[i])) {
-        const preview = lines[i].slice(0, 500);
-        matches.push({ path: rel, line: i + 1, preview: isWorkSearch ? redactTextForOutbound(preview, 'operator.api', { source: 'project-file-tools.read.work' }) : preview });
-      }
-      if (matches.length >= limit) return false;
-    }
-  };
+
+  if (scoped !== null) {
+    const redact = scoped.kind === 'work';
+    collectScopedFiles(vfsCtx(ctx), raw, (entry) => scanFile(entry.absolutePath, entry.displayPath, regex, include, redact, limit, matches));
+    return { pattern: params.pattern, matches, truncated: matches.length >= limit };
+  }
+
+  const target = { kind: 'project' as const, ...assertReadable(ctx.projectRoot, raw), isRoot: false };
   const st = statSync(target.absolutePath);
-  if (st.isFile()) scan(target.absolutePath, displayPathForResolved(ctx.projectRoot, target));
-  else walkFiles(ctx.projectRoot, target.absolutePath, scan, { includeHidden: false, root: target.kind === 'system' ? target.absolutePath : workRootOf(target), displayPath: target.kind === 'system' ? (abs) => `system:///${abs.replace(/\\/g, '/').replace(/^\/+/, '')}` : target.kind === 'work' ? (abs) => displayPathForResolved(ctx.projectRoot, target, abs) : undefined });
+  if (st.isFile()) scanFile(target.absolutePath, displayPathForResolved(ctx.projectRoot, target), regex, include, false, limit, matches);
+  else walkFiles(ctx.projectRoot, target.absolutePath, (abs, rel) => scanFile(abs, rel, regex, include, false, limit, matches), { includeHidden: false });
   return { pattern: params.pattern, matches, truncated: matches.length >= limit };
+}
+
+function scanFile(absolutePath: string, displayPath: string, regex: RegExp, include: RegExp | null, redact: boolean, limit: number, matches: Array<{ path: string; line: number; preview: string }>): boolean | void {
+  if (include && !include.test(displayPath)) return;
+  const sample = readFileSync(absolutePath);
+  if (isBinarySample(sample.subarray(0, Math.min(sample.length, 1024)))) return;
+  const lines = sample.toString('utf8').split(/\r?\n/);
+  for (let i = 0; i < lines.length; i += 1) {
+    if (regex.test(lines[i]!)) {
+      const preview = lines[i]!.slice(0, 500);
+      matches.push({ path: displayPath, line: i + 1, preview: redact ? redactTextForOutbound(preview, 'operator.api', { source: 'project-file-tools.grep.work' }) : preview });
+    }
+    if (matches.length >= limit) return false;
+  }
 }
 
 export async function editProject(ctx: WorkspaceContext, params: { path: string; old_string: string; new_string: string; replace_all?: boolean }): Promise<unknown> {

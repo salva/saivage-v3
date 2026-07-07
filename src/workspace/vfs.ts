@@ -2,7 +2,7 @@ import { readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 import type { AgentRole } from '../schemas/index.js';
-import { exposedRecordSlotDefinitionForFilename, readRecordSlotIndex, recordSlotDefinitions, normalizeRecordUrl, type RecordSlotFormat } from '../runtime/records/record-slots.js';
+import { exposedRecordSlotDefinitionForFilename, readRecordSlotIndex, recordPath, recordSlotDefinitions, normalizeRecordUrl, type RecordSlotDefinition, type RecordSlotFormat, type RecordSlotVersionEntry } from '../runtime/records/record-slots.js';
 import { isReadBlocked, looksLikeSecretPath } from './file-access-security.js';
 import { parseScopedPathUrl } from './scoped-path-url.js';
 import { parseScopedPathScheme, resolveRecordReadTarget, resolveRecordWriteTarget, scopedPathResolvers, validRecordSegment, workUrlFromAbsolutePath, type ScopedPathScheme } from './scoped-path-schemes.js';
@@ -35,6 +35,12 @@ export interface RecordSummary {
   size: number | null;
   modifiedAt: string | null;
   writer: AgentRole | null;
+}
+
+export interface ScopedFileEntry {
+  absolutePath: string;
+  displayPath: string;
+  matchPath: string;
 }
 
 export type VfsListing =
@@ -92,18 +98,18 @@ export function globToRegExp(pattern: string): RegExp {
   return new RegExp(parts.join(''));
 }
 
-export function walkFiles(projectRoot: string, start: string, visitor: (absolutePath: string, relativePath: string) => boolean | void, options: { includeHidden: boolean; root?: string; displayPath?: (absolutePath: string, relativePath: string) => string } = { includeHidden: false }): void {
+export function walkFiles(projectRoot: string, start: string, visitor: (absolutePath: string, relativePath: string) => boolean | void, options: { includeHidden: boolean; root?: string; displayPath?: (absolutePath: string, relativePath: string) => string } = { includeHidden: false }): boolean | void {
   const root = options.root ?? projectRoot;
   for (const entry of readdirSync(start, { withFileTypes: true })) {
     const absolutePath = join(start, entry.name);
     const relativePath = normalizeRel(relative(root, absolutePath));
     if (entry.isDirectory()) {
       if (!options.includeHidden && (SKIPPED_DIRS.has(entry.name) || isHiddenPath(projectRoot, absolutePath, relativePath))) continue;
-      walkFiles(projectRoot, absolutePath, visitor, options);
+      if (walkFiles(projectRoot, absolutePath, visitor, options) === false) return false;
       continue;
     }
     if (!entry.isFile() || (!options.includeHidden && isHiddenPath(projectRoot, absolutePath, relativePath))) continue;
-    if (visitor(absolutePath, options.displayPath ? options.displayPath(absolutePath, relativePath) : relativePath) === false) return;
+    if (visitor(absolutePath, options.displayPath ? options.displayPath(absolutePath, relativePath) : relativePath) === false) return false;
   }
 }
 
@@ -197,12 +203,38 @@ function recordSummaries(projectRoot: string, cardId: string): RecordSummary[] {
   return recordSlotDefinitions()
     .filter((definition) => definition.exposed)
     .map((definition) => {
-      const index = readRecordSlotIndex(projectRoot, cardId, definition.slot);
-      if (index.latest === null) return { filename: definition.filename, path: `record:///${definition.filename}`, url: `record:///${definition.filename}?card=${encodeURIComponent(cardId)}`, latest: null, format: definition.format, schema: definition.schema, writers: definition.writers, size: null, modifiedAt: null, writer: null };
-      const entry = index.versions[String(index.latest)];
-      if (entry?.status !== 'closed') return { filename: definition.filename, path: `record:///${definition.filename}`, url: `record:///${definition.filename}?card=${encodeURIComponent(cardId)}`, latest: null, format: definition.format, schema: definition.schema, writers: definition.writers, size: null, modifiedAt: null, writer: null };
-      return { filename: definition.filename, path: `record:///${definition.filename}`, url: normalizeRecordUrl({ filename: definition.filename, cardId, version: index.latest }), latest: index.latest, format: definition.format, schema: definition.schema, writers: definition.writers, size: entry.size ?? null, modifiedAt: entry.committed_at ?? null, writer: entry.writer ?? null };
+      const latest = latestClosedRecordEntry(projectRoot, cardId, definition);
+      if (latest === null) return { filename: definition.filename, path: `record:///${definition.filename}`, url: `record:///${definition.filename}?card=${encodeURIComponent(cardId)}`, latest: null, format: definition.format, schema: definition.schema, writers: definition.writers, size: null, modifiedAt: null, writer: null };
+      return { filename: definition.filename, path: `record:///${definition.filename}`, url: latest.recordUrl, latest: latest.version, format: definition.format, schema: definition.schema, writers: definition.writers, size: latest.entry.size ?? null, modifiedAt: latest.entry.committed_at ?? null, writer: latest.entry.writer ?? null };
     });
+}
+
+interface LatestClosedRecordEntry {
+  filename: string;
+  slot: string;
+  cardId: string;
+  version: number;
+  absolutePath: string;
+  relativePath: string;
+  recordUrl: string;
+  entry: RecordSlotVersionEntry;
+}
+
+function latestClosedRecordEntry(projectRoot: string, cardId: string, definition: RecordSlotDefinition): LatestClosedRecordEntry | null {
+  const index = readRecordSlotIndex(projectRoot, cardId, definition.slot);
+  if (index.latest === null) return null;
+  const entry = index.versions[String(index.latest)];
+  if (!entry || entry.status !== 'closed') return null;
+  const path = recordPath(projectRoot, cardId, definition.slot, index.latest, definition.filename);
+  return {
+    filename: definition.filename,
+    slot: definition.slot,
+    cardId,
+    version: index.latest,
+    ...path,
+    recordUrl: normalizeRecordUrl({ filename: definition.filename, cardId, version: index.latest }),
+    entry,
+  };
 }
 
 export async function listScopedPath(ctx: VfsContext, raw: string): Promise<VfsListing> {
@@ -220,27 +252,41 @@ function displayPathCallback(projectRoot: string, resolved: FsResolved): ((absol
   return undefined;
 }
 
-export async function globScopedPath(ctx: VfsContext, raw: string, globPattern: string, limit: number): Promise<{ matches: string[]; truncated: boolean }> {
-  const pattern = globToRegExp(globPattern);
+export function collectScopedFiles(ctx: VfsContext, raw: string, visitor: (entry: ScopedFileEntry) => boolean | void): void {
   const resolved = resolveScopedPath(ctx, raw, 'search');
   if (resolved === null) throw ctx.fail(`Expected a scoped path, got '${raw}'.`);
+
   if (resolved.kind === 'record') {
-    const matches: string[] = [];
-    for (const record of recordSummaries(ctx.projectRoot, resolved.cardId)) {
-      if (pattern.test(record.filename) || pattern.test(record.path) || pattern.test(record.url)) matches.push(record.url);
-      if (matches.length >= limit) break;
+    for (const definition of recordSlotDefinitions().filter((candidate) => candidate.exposed)) {
+      const latest = latestClosedRecordEntry(ctx.projectRoot, resolved.cardId, definition);
+      if (latest === null) continue;
+      if (visitor({ absolutePath: latest.absolutePath, displayPath: latest.recordUrl, matchPath: latest.filename }) === false) return;
     }
-    return { matches, truncated: matches.length >= limit };
+    return;
   }
+
   const st = statSync(resolved.absolutePath);
+  if (st.isFile()) {
+    const filterRel = scopedReadFilterRel(resolved, resolved.absolutePath, resolved.relativePath);
+    if (isHiddenPath(ctx.projectRoot, resolved.absolutePath, filterRel)) return;
+    visitor({ absolutePath: resolved.absolutePath, displayPath: displayPathForResolved(ctx.projectRoot, resolved), matchPath: resolved.relativePath });
+    return;
+  }
+
+  const base = resolved.absolutePath;
+  walkFiles(ctx.projectRoot, resolved.absolutePath, (absolutePath, displayPath) => visitor({
+    absolutePath,
+    displayPath,
+    matchPath: normalizeRel(relative(base, absolutePath)),
+  }), { includeHidden: false, root: resolved.kind === 'system' ? resolved.absolutePath : workRootOf(resolved), displayPath: displayPathCallback(ctx.projectRoot, resolved) });
+}
+
+export async function globScopedPath(ctx: VfsContext, raw: string, globPattern: string, limit: number): Promise<{ matches: string[]; truncated: boolean }> {
+  const pattern = globToRegExp(globPattern);
   const matches: string[] = [];
-  const base = resolved.relativePath === '.' || resolved.kind === 'system' || resolved.kind === 'work' ? resolved.absolutePath : resolved.absolutePath;
-  const consider = (abs: string, rel: string): boolean | void => {
-    const within = normalizeRel(relative(base, abs));
-    if (pattern.test(within) || pattern.test(rel)) matches.push(rel);
+  collectScopedFiles(ctx, raw, (entry) => {
+    if (pattern.test(entry.matchPath) || pattern.test(entry.displayPath)) matches.push(entry.displayPath);
     if (matches.length >= limit) return false;
-  };
-  if (st.isFile()) consider(resolved.absolutePath, displayPathForResolved(ctx.projectRoot, resolved));
-  else walkFiles(ctx.projectRoot, resolved.absolutePath, consider, { includeHidden: false, root: resolved.kind === 'system' ? resolved.absolutePath : workRootOf(resolved), displayPath: displayPathCallback(ctx.projectRoot, resolved) });
+  });
   return { matches, truncated: matches.length >= limit };
 }
