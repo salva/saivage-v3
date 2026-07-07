@@ -17,7 +17,7 @@ Apply the project rules in `AGENTS.md` throughout design, review, implementation
 
 The primary agent owns this workflow and does not design, review, or implement directly. It drives the specialist subagents:
 
-- **`designer`** (`zai-coding-plan/glm-5.2`) — writes and revises the design/plan, including revisions driven by implementation feedback.
+- **`designer`** (`openai/gpt-5.5`) — writes and revises the design/plan, including revisions driven by implementation feedback.
 - **`reviewer`** (`openai/gpt-5.5`) — adversarial review of the design/plan.
 - **`implementation-manager`** (`openai/gpt-5.5`) — decomposes the approved plan into tasks, drives them to completion, and reports divergences and learnings; the only agent that spawns the `developer`.
 - **`developer`** (`openai/gpt-5.5`) — leaf implementer of individual plan tasks.
@@ -117,7 +117,7 @@ findings.
 
 ### Designer Subagent
 
-Use the project's `designer` subagent (`.opencode/agents/designer.md`, pinned to `zai-coding-plan/glm-5.2`) for all design/plan authoring. It applies the `AGENTS.md` rules and writes plans that satisfy the Design And Plan Requirements above.
+Use the project's `designer` subagent (`.opencode/agents/designer.md`, pinned to `openai/gpt-5.5`) for all design/plan authoring. It applies the `AGENTS.md` rules and writes plans that satisfy the Design And Plan Requirements above.
 
 Invoke it via the Task tool with `subagent_type: "designer"`, passing the issue/context and the absolute path of the working file to write. For revisions, also pass the material findings to address. Example:
 
