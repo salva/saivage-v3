@@ -23,9 +23,16 @@ export interface CleanStaleProcessOptions {
   saivageWorkDir: string;
   /** CardStore instance retained for the public cleanup API shape */
   store: CardStore;
+  /** Absolute filesystem paths/directories that cleanup must preserve */
+  preserve: Set<string>;
   /** Maximum age of completed process dirs before cleanup, in ms (default: 24h) */
   maxAgeMs?: number;
 }
+
+type ConversationIndexForCleanup = {
+  schema_version: 2;
+  versions: Record<string, unknown>;
+};
 
 // ── Safety Helpers ────────────────────────────────────────────
 
@@ -97,6 +104,7 @@ export function cleanCardTmp(saivageWorkDir: string, cardId: string): boolean {
  */
 export function cleanStaleStash(
   saivageWorkDir: string,
+  preserve: Set<string>,
   maxAgeMs: number = 24 * 60 * 60 * 1000,
 ): number {
   const stashDir = safeResolve(saivageWorkDir, join('tmp', 'stash'));
@@ -121,6 +129,7 @@ export function cleanStaleStash(
   for (const entry of entries) {
     const fullPath = join(stashDir, entry);
     try {
+      if (preserve.has(normalize(resolve(fullPath)))) continue;
       const st = statSync(fullPath);
       if (st.mtimeMs < cutoff) {
         rmSync(fullPath, { recursive: true, force: true });
@@ -247,7 +256,7 @@ export function cleanStaleUploads(
  * @returns Number of process directories cleaned
  */
 export function cleanStaleProcessOutput(options: CleanStaleProcessOptions): number {
-  const { saivageWorkDir, maxAgeMs = 24 * 60 * 60 * 1000 } = options;
+  const { saivageWorkDir, preserve, maxAgeMs = 24 * 60 * 60 * 1000 } = options;
   const processesDir = safeResolve(saivageWorkDir, 'processes');
   if (!processesDir) return 0;
   if (!existsSync(processesDir)) return 0;
@@ -284,6 +293,9 @@ export function cleanStaleProcessOutput(options: CleanStaleProcessOptions): numb
 
     // Never remove output for registry-running processes.
     if (runningProcessIds.has(entry)) continue;
+
+    // Never remove output referenced by any conversation version.
+    if (preserve.has(normalize(resolve(procDir)))) continue;
 
     // Skip if too new
     if (st.mtimeMs >= cutoff) continue;
@@ -332,6 +344,8 @@ export function cleanAll(
     staleUploadsRemoved: 0,
   };
 
+  const preserve = referencedRecoverableUrls(resolve(saivageWorkDir, '..'));
+
   // 1. Clean card tmp directories
   // Iterate over all cards and clean their tmp dirs
   try {
@@ -348,6 +362,7 @@ export function cleanAll(
   // 2. Clean stale stash
   result.staleStashRemoved = cleanStaleStash(
     saivageWorkDir,
+    preserve,
     options?.stashMaxAgeMs,
   );
 
@@ -355,6 +370,7 @@ export function cleanAll(
   result.processDirsCleaned = cleanStaleProcessOutput({
     saivageWorkDir,
     store,
+    preserve,
     maxAgeMs: options?.processMaxAgeMs,
   });
 
@@ -371,6 +387,27 @@ export function cleanAll(
   );
 
   return result;
+}
+
+export function referencedRecoverableUrls(projectRoot: string): Set<string> {
+  const preserve = new Set<string>();
+  const conversationsDir = join(projectRoot, '.saivage', 'agents', 'conversations');
+  if (!existsSync(conversationsDir)) return preserve;
+
+  for (const entry of readdirSync(conversationsDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const conversationDir = join(conversationsDir, entry.name);
+    const indexPath = join(conversationDir, 'index.json');
+    if (!existsSync(indexPath)) continue;
+    const index = parseConversationIndexForCleanup(indexPath);
+    for (const version of Object.keys(index.versions)) {
+      const versionPath = join(conversationDir, `${version}.jsonl`);
+      if (!existsSync(versionPath)) throw new Error(`Conversation version '${versionPath}' listed in '${indexPath}' was not found.`);
+      collectRecoverableUrlPaths(projectRoot, readFileSync(versionPath, 'utf8'), preserve);
+    }
+  }
+
+  return preserve;
 }
 
 // ── Internal Helpers ──────────────────────────────────────────
@@ -393,6 +430,60 @@ function loadRunningProcessIds(saivageWorkDir: string): Set<string> | null {
     }
   }
   return running;
+}
+
+function parseConversationIndexForCleanup(indexPath: string): ConversationIndexForCleanup {
+  const parsed = JSON.parse(readFileSync(indexPath, 'utf8')) as unknown;
+  if (!parsed || typeof parsed !== 'object' || (parsed as { schema_version?: unknown }).schema_version !== 2) {
+    throw new Error(`Conversation index '${indexPath}' must use schema_version 2 for cleanup reference scanning.`);
+  }
+  const versions = (parsed as { versions?: unknown }).versions;
+  if (!versions || typeof versions !== 'object' || Array.isArray(versions)) {
+    throw new Error(`Conversation index '${indexPath}' has no version map for cleanup reference scanning.`);
+  }
+  return { schema_version: 2, versions: versions as Record<string, unknown> };
+}
+
+function collectRecoverableUrlPaths(projectRoot: string, jsonl: string, preserve: Set<string>): void {
+  for (const line of jsonl.split('\n')) {
+    if (!line) continue;
+    const row = JSON.parse(line) as { kind?: unknown; content?: unknown };
+    if ((row.kind !== 'tool_result' && row.kind !== 'context_compaction') || typeof row.content !== 'string') continue;
+    for (const url of extractWorkUrls(row.content)) {
+      const protectedPath = recoverableUrlPath(projectRoot, url);
+      if (protectedPath) preserve.add(protectedPath);
+    }
+  }
+}
+
+function extractWorkUrls(content: string): string[] {
+  return Array.from(content.matchAll(/work:\/\/\/[^\s`"'<>\])}]+/g), (match) => match[0].replace(/[.,;:]+$/u, ''));
+}
+
+function recoverableUrlPath(projectRoot: string, rawUrl: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'work:') return null;
+
+  const saivageWorkDir = join(projectRoot, '.saivage-work');
+  const pathname = decodeURIComponent(url.pathname);
+  const stashPrefix = '/tmp/stash/';
+  if (pathname.startsWith(stashPrefix)) {
+    const stashFile = safeResolve(saivageWorkDir, join('tmp', 'stash', pathname.slice(stashPrefix.length)));
+    return stashFile ? normalize(resolve(stashFile)) : null;
+  }
+
+  const processMatch = /^\/processes\/([^/]+)\//u.exec(pathname);
+  if (processMatch) {
+    const processDir = safeResolve(saivageWorkDir, join('processes', processMatch[1]));
+    return processDir ? normalize(resolve(processDir)) : null;
+  }
+
+  return null;
 }
 
 function escapeRegex(s: string): string {

@@ -22,6 +22,7 @@ import {
   cleanStaleUploads,
   cleanStaleProcessOutput,
   cleanAll,
+  referencedRecoverableUrls,
 } from '../../src/runtime/cleanup.js';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -32,6 +33,7 @@ describe('Cleanup Utility Smoke Tests', () => {
 
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), 'cleanup-'));
+    currentTestRoot = root;
     initProjectTree(root);
     store = new CardStore(root);
   });
@@ -41,6 +43,7 @@ describe('Cleanup Utility Smoke Tests', () => {
       rmSync(root, { recursive: true, force: true });
     } catch {
     }
+    currentTestRoot = '';
   });
 
   function saivageWorkDir(): string {
@@ -89,7 +92,7 @@ describe('Cleanup Utility Smoke Tests', () => {
     mkdirSync(stashDir, { recursive: true });
     writeFileSync(join(stashDir, 'old.txt'), 'old data');
     await sleep(100);
-    const removed = cleanStaleStash(swd, 1);
+    const removed = cleanStaleStash(swd, new Set(), 1);
     expect(removed).toBe(1);
     expect(existsSync(join(stashDir, 'old.txt'))).toBe(false);
   });
@@ -99,7 +102,7 @@ describe('Cleanup Utility Smoke Tests', () => {
     const stashDir = join(swd, 'tmp', 'stash');
     mkdirSync(stashDir, { recursive: true });
     writeFileSync(join(stashDir, 'new.txt'), 'new data');
-    const removed = cleanStaleStash(swd, 24 * 60 * 60 * 1000);
+    const removed = cleanStaleStash(swd, new Set(), 24 * 60 * 60 * 1000);
     expect(removed).toBe(0);
     expect(existsSync(join(stashDir, 'new.txt'))).toBe(true);
   });
@@ -131,7 +134,7 @@ describe('Cleanup Utility Smoke Tests', () => {
     mkdirSync(procDir, { recursive: true });
     writeFileSync(join(procDir, 'combined.log'), 'process output');
     await sleep(150);
-    const cleaned = cleanStaleProcessOutput({ saivageWorkDir: swd, store, maxAgeMs: 1 });
+    const cleaned = cleanStaleProcessOutput({ saivageWorkDir: swd, store, preserve: new Set(), maxAgeMs: 1 });
     expect(cleaned).toBe(1);
     expect(existsSync(procDir)).toBe(false);
   });
@@ -146,7 +149,7 @@ describe('Cleanup Utility Smoke Tests', () => {
     writeFileSync(registryPath, JSON.stringify([{ id: procId, status: 'running' }], null, 2));
     await sleep(150);
 
-    expect(cleanStaleProcessOutput({ saivageWorkDir: swd, store, maxAgeMs: 1 })).toBe(0);
+    expect(cleanStaleProcessOutput({ saivageWorkDir: swd, store, preserve: new Set(), maxAgeMs: 1 })).toBe(0);
     expect(existsSync(procDir)).toBe(true);
     expect(existsSync(registryPath)).toBe(true);
   });
@@ -216,4 +219,112 @@ describe('Cleanup Utility Smoke Tests', () => {
     expect(existsSync(join(dlDir, 'meta.json'))).toBe(true);
     expect(existsSync(join(qDir, 'meta.json'))).toBe(true);
   });
+
+  it('cleanAll: preserves aged stash files referenced by tool_result rows and removes unreferenced aged files', async () => {
+    const swd = saivageWorkDir();
+    const stashDir = join(swd, 'tmp', 'stash');
+    mkdirSync(stashDir, { recursive: true });
+    const referenced = join(stashDir, 'referenced-stash.txt');
+    const unreferenced = join(stashDir, 'unreferenced-stash.txt');
+    writeFileSync(referenced, 'referenced');
+    writeFileSync(unreferenced, 'unreferenced');
+    writeConversationVersion('planner:stash', '1', [message({
+      id: 'stash-result',
+      kind: 'tool_result',
+      role: 'tool',
+      content: JSON.stringify({ success: true, stash_url: 'work:///tmp/stash/referenced-stash.txt' }),
+    })]);
+    await sleep(100);
+
+    const result = cleanAll(swd, store, { stashMaxAgeMs: 1 });
+
+    expect(result.staleStashRemoved).toBe(1);
+    expect(existsSync(referenced)).toBe(true);
+    expect(existsSync(unreferenced)).toBe(false);
+  });
+
+  it('cleanAll: preserves aged process output directories referenced by tool_result rows and removes unreferenced aged directories', async () => {
+    const swd = saivageWorkDir();
+    const referencedDir = join(swd, 'processes', 'proc-referenced');
+    const unreferencedDir = join(swd, 'processes', 'proc-unreferenced');
+    mkdirSync(referencedDir, { recursive: true });
+    mkdirSync(unreferencedDir, { recursive: true });
+    writeFileSync(join(referencedDir, 'stdout.log'), 'referenced stdout');
+    writeFileSync(join(unreferencedDir, 'stdout.log'), 'unreferenced stdout');
+    writeConversationVersion('planner:process', '1', [message({
+      id: 'process-result',
+      kind: 'tool_result',
+      role: 'tool',
+      content: JSON.stringify({ success: true, stdout_url: 'work:///processes/proc-referenced/stdout.log' }),
+    })]);
+    await sleep(100);
+
+    const result = cleanAll(swd, store, { processMaxAgeMs: 1 });
+
+    expect(result.processDirsCleaned).toBe(1);
+    expect(existsSync(referencedDir)).toBe(true);
+    expect(existsSync(unreferencedDir)).toBe(false);
+  });
+
+  it('referencedRecoverableUrls: extracts markdown work URL literals from context_compaction content in active and frozen versions', () => {
+    const swd = saivageWorkDir();
+    const stashPath = join(swd, 'tmp', 'stash', 'summary-stash.txt');
+    const processDir = join(swd, 'processes', 'proc-summary');
+    writeConversationVersion('planner:summary', '1', [message({
+      id: 'frozen-summary',
+      kind: 'context_compaction',
+      role: 'user',
+      content: '## Recoverable evidence\n- **stash** `work:///tmp/stash/summary-stash.txt` — old webfetch',
+    })], '2', { '1': { status: 'frozen', opened_at: new Date().toISOString() }, '2': { status: 'active', opened_at: new Date().toISOString() } });
+    appendConversationVersion('planner:summary', '2', [message({
+      id: 'active-summary',
+      kind: 'context_compaction',
+      role: 'user',
+      content: '## Recoverable evidence\n- **process_stdout** `work:///processes/proc-summary/stdout.log` — pytest',
+    })]);
+
+    const preserve = referencedRecoverableUrls(root);
+
+    expect(preserve.has(stashPath)).toBe(true);
+    expect(preserve.has(processDir)).toBe(true);
+  });
 });
+
+function message(overrides: Partial<Record<string, unknown>>): Record<string, unknown> {
+  return {
+    id: 'msg',
+    session_id: 'session',
+    role: 'user',
+    kind: 'text',
+    content: 'content',
+    round_id: 'r-user-00000000000000000000000000000000',
+    message_index: 0,
+    block_index: 0,
+    timestamp: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
+function writeConversationVersion(
+  sessionId: string,
+  version: string,
+  rows: Record<string, unknown>[],
+  activeVersion: string = version,
+  versions: Record<string, unknown> = { [version]: { status: 'active', opened_at: new Date().toISOString() } },
+): void {
+  const dir = join(currentRoot(), '.saivage', 'agents', 'conversations', encodeURIComponent(sessionId));
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'index.json'), JSON.stringify({ schema_version: 2, session_id: sessionId, active_version: Number(activeVersion), versions }, null, 2));
+  appendConversationVersion(sessionId, version, rows);
+}
+
+function appendConversationVersion(sessionId: string, version: string, rows: Record<string, unknown>[]): void {
+  const dir = join(currentRoot(), '.saivage', 'agents', 'conversations', encodeURIComponent(sessionId));
+  writeFileSync(join(dir, `${version}.jsonl`), rows.map((row) => JSON.stringify({ ...row, session_id: sessionId })).join('\n') + '\n');
+}
+
+let currentTestRoot = '';
+
+function currentRoot(): string {
+  return currentTestRoot;
+}
