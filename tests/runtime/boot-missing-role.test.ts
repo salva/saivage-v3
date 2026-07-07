@@ -4,14 +4,16 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { EnvironmentLoadError, loadEnvironment } from '../../src/config/environment.js';
 import { startApp, type App } from '../../src/boot/index.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
 
 const roots: string[] = [];
 const liveApps: App[] = [];
 
-function makeProject(modelsSection: unknown): string {
+function makeProject(modelsSection: unknown, initializeProjectTree = false): string {
   const root = mkdtempSync(join(tmpdir(), 'saivage-boot-role-'));
   roots.push(root);
-  mkdirSync(join(root, '.saivage'), { recursive: true });
+  if (initializeProjectTree) initProjectTree(root);
+  else mkdirSync(join(root, '.saivage'), { recursive: true });
   const cfg = {
     models: modelsSection,
     providers: {},
@@ -60,7 +62,7 @@ describe('boot fail-fast on missing dispatched model roles', () => {
   });
 
   it('startApp resolves and /api/runtime/status is reachable when models.default is set', async () => {
-    const root = makeProject({ default: ['gpt-4.1'] });
+    const root = makeProject({ default: ['gpt-4.1'] }, true);
     const app = await startApp({
       argv: ['node', 'saivage', 'start'],
       env: {
