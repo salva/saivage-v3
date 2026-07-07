@@ -2,15 +2,15 @@
   <div class="conversation-timeline">
     <div v-if="timeline.modelLabel" class="timeline-model" data-testid="timeline-model">via {{ timeline.modelLabel }}</div>
     <section
-      v-for="round in timeline.rounds"
+      v-for="(round, index) in timeline.rounds"
       :key="round.id"
       class="round-card"
       data-testid="round-card"
-      :class="`round-${round.kind}`"
+      :class="[`round-${round.kind}`, { 'continues-author': !isAuthorBoundary(index) }]"
     >
       <CompactedCluster v-if="round.kind === 'compacted'" :entries="round.entries" />
       <template v-else>
-        <header class="round-head">{{ round.kind }}<span class="round-position"> · {{ round.position }}</span></header>
+        <header v-if="isAuthorBoundary(index)" class="round-head">{{ round.kind }}<span class="round-position"> · {{ round.position }}</span></header>
         <ContextBlock v-for="entry in round.texts" :key="entry.id" :entry="entry" />
         <DiagnosticRow v-for="entry in round.diagnostics" :key="entry.id" :entry="entry" />
         <template v-for="item in round.items" :key="itemKey(item)">
@@ -42,10 +42,14 @@ import PendingCallFooter from './PendingCallFooter.vue';
 import ToolChip from './ToolChip.vue';
 import ToolGroupRow from './ToolGroupRow.vue';
 
-defineProps<{ timeline: AgentTimeline; expandedIds: Set<string> }>();
+const props = defineProps<{ timeline: AgentTimeline; expandedIds: Set<string> }>();
 const emit = defineEmits<{ toggle: [id: string] }>();
 
 function itemKey(item: ToolListItem): string { return isToolGroup(item) ? item.id : item.call.id; }
+function isAuthorBoundary(index: number): boolean {
+  if (index <= 0) return true;
+  return props.timeline.rounds[index - 1].kind !== props.timeline.rounds[index].kind;
+}
 </script>
 
 <style scoped>
@@ -55,6 +59,7 @@ function itemKey(item: ToolListItem): string { return isToolGroup(item) ? item.i
 .round-card.round-user { padding-top:10px; border-top:1px solid var(--surface-3); }
 .round-card.round-assistant { padding-top:8px; border-top:1px solid var(--surface-3); }
 .round-card.round-diagnostic { padding-top:8px; }
+.round-card.continues-author { padding-top:0; border-top:none; }
 .round-head { font-size:11px; font-weight:600; color:var(--text-muted); text-transform:capitalize; }
 .round-card.round-assistant .round-head { font-weight:500; opacity:.85; }
 .round-head .round-position { color:var(--border-strong); font-weight:400; }
