@@ -40,5 +40,7 @@ describe('ContextBlock', () => {
     expect(wrapper.find('details').exists()).toBe(false);
     expect(wrapper.find('article.context-block').exists()).toBe(true);
     expect(wrapper.text()).toContain('Visible assistant text');
+    expect(wrapper.find('.context-role').exists()).toBe(false);
+    expect(wrapper.text()).not.toContain('Assistant');
   });
 });
