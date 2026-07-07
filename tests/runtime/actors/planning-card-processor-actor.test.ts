@@ -874,14 +874,27 @@ describe('PlanningCardProcessorActor', () => {
     const store = new CardStore(projectRoot);
     const project = createProject(store);
     markDone(store, createGoal(store, project.id));
-    const provider = withMandatoryRecords((input: LlmInvocationInput) => input.role === 'reviewer' ? { kind: 'message' as const, content: JSON.stringify({ status: 'done', summary: 'ok' }) } : plannerResult('done', 'done'));
+    let reviewerTurns = 0;
+    const plainReviewerMessage = JSON.stringify({ status: 'done', summary: 'ok' });
+    const provider = withMandatoryRecords((input: LlmInvocationInput) => {
+      if (input.role !== 'reviewer') return plannerResult('done', 'done');
+      reviewerTurns++;
+      if (reviewerTurns <= 2) return { kind: 'message' as const, content: plainReviewerMessage };
+      throw new Error('model stopped after repeated plain reviewer messages');
+    });
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
 
     expect(outcome).toMatchObject({ status: 'failed', result: { kind: 'failed' } });
-    expect(outcome.summary).toContain('emit_result');
+    expect(outcome.summary).toContain('model stopped after repeated plain reviewer messages');
+    expect(outcome.summary).not.toBe('ok');
+    const repairInput = (provider.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls.find((call) => call[0].role === 'reviewer' && call[0].contextMessages.some((message) => (message as { content?: string }).content === plainReviewerMessage))?.[0];
+    expect(repairInput?.contextMessages).toEqual(expect.arrayContaining([
+      { role: 'assistant', content: plainReviewerMessage },
+      expect.objectContaining({ role: 'user', content: expect.stringContaining('Plain reviewer messages are not accepted') }),
+    ]));
   }));
 
   it('repairs plain reviewer prose and accepts a later terminal assessment', async () => withTempProject(async (projectRoot) => {
@@ -971,14 +984,28 @@ describe('PlanningCardProcessorActor', () => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     const project = createProject(store);
-    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: JSON.stringify({ status: 'done', summary: 'done' }) })) };
+    let plannerTurns = 0;
+    const plainPlannerMessage = JSON.stringify({ status: 'done', summary: 'done' });
+    const provider: LLMProviderPort = {
+      completeTurn: jest.fn(async () => {
+        plannerTurns++;
+        if (plannerTurns <= 2) return { kind: 'message' as const, content: plainPlannerMessage };
+        throw new Error('model stopped after repeated plain planner messages');
+      }),
+    };
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
     actor.start();
 
     const outcome = await actor.activate({ card: project, caller: { kind: 'root' }, notificationDelivery: noopNotificationDelivery() }, new AbortController().signal);
 
     expect(outcome).toMatchObject({ status: 'failed', result: { kind: 'failed' } });
-    expect(outcome.summary).toContain('emit_result');
+    expect(outcome.summary).toContain('model stopped after repeated plain planner messages');
+    expect(outcome.summary).not.toBe('done');
+    const repairInput = (provider.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls[1]?.[0];
+    expect(repairInput.contextMessages).toEqual(expect.arrayContaining([
+      { role: 'assistant', content: plainPlannerMessage },
+      expect.objectContaining({ role: 'user', content: expect.stringContaining('Plain planner messages are not accepted') }),
+    ]));
   }));
 
   it('repairs plain planner prose and succeeds with a later terminal result', async () => withTempProject(async (projectRoot) => {

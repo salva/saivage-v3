@@ -232,7 +232,14 @@ describe('TerminalCardProcessorActor', () => {
 
   it('does not accept plain executor prose as terminal result', async () => withTempProject(async (projectRoot) => {
     const { store, card } = setup(projectRoot);
-    const provider: LLMProviderPort = { completeTurn: jest.fn(async () => ({ kind: 'message' as const, content: 'implemented' })) };
+    let turns = 0;
+    const provider: LLMProviderPort = {
+      completeTurn: jest.fn(async () => {
+        turns++;
+        if (turns <= 2) return { kind: 'message' as const, content: 'implemented' };
+        throw new Error('model stopped after repeated plain executor messages');
+      }),
+    };
     const processor = terminalProcessor(projectRoot, card.id, provider, store);
     processor.start();
     const actor = actorFromCard(projectRoot, store, card, processor, provider);
@@ -240,8 +247,14 @@ describe('TerminalCardProcessorActor', () => {
     const outcome = await actor.activate({ kind: 'parent', cardId: 'project' });
 
     expect(outcome).toMatchObject({ status: 'failed', result: { kind: 'failed' } });
-    expect(outcome.summary).toContain('emit_result');
+    expect(outcome.summary).toContain('model stopped after repeated plain executor messages');
+    expect(outcome.summary).not.toBe('implemented');
     expect(provider.completeTurn).toHaveBeenCalledTimes(3);
+    const repairInput = (provider.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls[1]?.[0];
+    expect(repairInput.contextMessages).toEqual(expect.arrayContaining([
+      { role: 'assistant', content: 'implemented' },
+      expect.objectContaining({ role: 'user', content: expect.stringContaining('Plain executor messages are not accepted') }),
+    ]));
   }));
 
   it('repairs plain executor prose and succeeds when the model emits a terminal result', async () => withTempProject(async (projectRoot) => {
