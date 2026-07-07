@@ -70,7 +70,7 @@ function withExecutorStatusRecord(responder: (input: LlmInvocationInput, signal:
         pending.set(key, result);
         const count = (statusWrites.get(key) ?? 0) + 1;
         statusWrites.set(key, count);
-        return recordWrite(`status-${key}-${count}`, 'record://status.md?v=next', `Status for ${input.episodeContext.cardId ?? key}`);
+        return recordWrite(`status-${key}-${count}`, 'record:///status.md?v=next', `Status for ${input.episodeContext.cardId ?? key}`);
       }
       return result;
     }),
@@ -124,7 +124,7 @@ describe('TerminalCardProcessorActor', () => {
       agentId: `executor:${card.id}`,
       role: 'executor',
       terminalToolNames: ['emit_result'],
-      systemPrompt: expect.stringContaining('record://status.md?v=next'),
+      systemPrompt: expect.stringContaining('record:///status.md?v=next'),
       tools: expect.arrayContaining(['read', 'write', 'glob', 'grep', 'edit', 'apply_patch', 'run_command', 'wait_process', 'kill_process', 'list_card_history', 'get_card_history_entry', 'diff_card', 'websearch', 'webfetch', 'skill', 'mcp_tool_call'].map((name) => expect.objectContaining({ function: expect.objectContaining({ name }) }))),
     }), expect.any(AbortSignal));
     const input = (provider.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls[0]?.[0];
@@ -312,7 +312,7 @@ describe('TerminalCardProcessorActor', () => {
         if (last.toolName === 'emit_result') {
           actions.push('write_status_after_repair');
           expect(store.read(card.id)?.status).toBe('running');
-          return recordWrite('executor-status-after-repair', 'record://status.md?v=next', 'Executor status after repair.');
+          return recordWrite('executor-status-after-repair', 'record:///status.md?v=next', 'Executor status after repair.');
         }
         actions.push('emit_after_status');
         return executorResult(card.id, 'implemented after missing-record repair');
@@ -330,7 +330,7 @@ describe('TerminalCardProcessorActor', () => {
     expect(calls).toHaveLength(3);
     expect(calls.map(([input]) => input.sessionId)).toEqual([`executor:${card.id}`, `executor:${card.id}`, `executor:${card.id}`]);
     const repairInput = calls[1][0];
-    const missingRecord = `Required record 'record://status.md?card=${card.id}&v=next' was not created.`;
+    const missingRecord = `Required record 'record:///status.md?card=${card.id}&v=next' was not created.`;
     expect(repairInput.episodeContext.lastToolResult).toMatchObject({
       toolCallId: 'executor-done',
       toolName: 'emit_result',
@@ -339,7 +339,7 @@ describe('TerminalCardProcessorActor', () => {
     expect(repairInput.contextMessages).toEqual(expect.arrayContaining([
       expect.objectContaining({ role: 'assistant', kind: 'tool_call', tool: 'emit_result', tool_call_id: 'executor-done' }),
       expect.objectContaining({ role: 'tool', kind: 'tool_result', tool: 'emit_result', tool_call_id: 'executor-done', content: JSON.stringify({ success: false, error: missingRecord }) }),
-      expect.objectContaining({ role: 'user', content: expect.stringContaining('Create record://status.md?v=next, then call emit_result again.') }),
+      expect.objectContaining({ role: 'user', content: expect.stringContaining('Create record:///status.md?v=next, then call emit_result again.') }),
     ]));
   }));
 
@@ -374,7 +374,7 @@ describe('TerminalCardProcessorActor', () => {
     let sawMissingRecordResult = false;
     const provider = withExecutorStatusRecord((input: LlmInvocationInput) => {
       if (!input.episodeContext.lastToolResult) {
-        return { kind: 'tool_calls' as const, tool_calls: [{ id: 'read-status-before-write', type: 'function' as const, function: { name: 'read', arguments: JSON.stringify({ path: 'record://status.md' }) } }] };
+        return { kind: 'tool_calls' as const, tool_calls: [{ id: 'read-status-before-write', type: 'function' as const, function: { name: 'read', arguments: JSON.stringify({ path: 'record:///status.md' }) } }] };
       }
       sawMissingRecordResult = true;
       expect(input.episodeContext.lastToolResult).toMatchObject({

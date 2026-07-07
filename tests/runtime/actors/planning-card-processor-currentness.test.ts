@@ -58,12 +58,12 @@ describe('PlanningCardProcessorActor reviewer currentness', () => {
     const provider: LLMProviderPort = { completeTurn: jest.fn(async (input: LlmInvocationInput) => {
       const lastToolResult = input.episodeContext.lastToolResult as { toolName?: string } | undefined;
       if (input.role === 'planner') {
-        if (!lastToolResult) return toolCall('planner-write', 'write', { path: 'record://status.md?v=next', content: 'planner status' });
+        if (!lastToolResult) return toolCall('planner-write', 'write', { path: 'record:///status.md?v=next', content: 'planner status' });
         return plannerDone();
       }
       if (!lastToolResult) {
         reviewerAttempt++;
-        return toolCall(`reviewer-write-${reviewerAttempt}`, 'write', { path: 'record://review.md?v=next', content: `review ${reviewerAttempt}` });
+        return toolCall(`reviewer-write-${reviewerAttempt}`, 'write', { path: 'record:///review.md?v=next', content: `review ${reviewerAttempt}` });
       }
       if (!mutatedDuringReview) {
         mutatedDuringReview = true;
@@ -95,12 +95,12 @@ describe('PlanningCardProcessorActor reviewer currentness', () => {
     const provider: LLMProviderPort = { completeTurn: jest.fn(async (input: LlmInvocationInput) => {
       const lastToolResult = input.episodeContext.lastToolResult as { toolName?: string } | undefined;
       if (input.role === 'planner') {
-        if (!lastToolResult) return toolCall('planner-write', 'write', { path: 'record://status.md?v=next', content: 'planner status' });
+        if (!lastToolResult) return toolCall('planner-write', 'write', { path: 'record:///status.md?v=next', content: 'planner status' });
         return plannerDone();
       }
       if (!lastToolResult) {
         reviewerAttempt++;
-        return toolCall(`reviewer-write-${reviewerAttempt}`, 'write', { path: 'record://review.md?v=next', content: `review ${reviewerAttempt}` });
+        return toolCall(`reviewer-write-${reviewerAttempt}`, 'write', { path: 'record:///review.md?v=next', content: `review ${reviewerAttempt}` });
       }
       if (!flippedPending) {
         flippedPending = true;
@@ -128,11 +128,11 @@ describe('PlanningCardProcessorActor reviewer currentness', () => {
     const provider: LLMProviderPort = { completeTurn: jest.fn(async (input: LlmInvocationInput) => {
       const lastToolResult = input.episodeContext.lastToolResult as { toolName?: string } | undefined;
       if (input.role === 'planner') {
-        if (!lastToolResult) return toolCall('planner-write', 'write', { path: 'record://status.md?v=next', content: 'planner status' });
+        if (!lastToolResult) return toolCall('planner-write', 'write', { path: 'record:///status.md?v=next', content: 'planner status' });
         return plannerDone();
       }
       if (!lastToolResult) return reviewerPass('reviewer-pass-missing-file', child.id);
-      if (lastToolResult.toolName === 'emit_result') return toolCall('reviewer-write-repair', 'write', { path: 'record://review.md?v=next', content: 'repaired review' });
+      if (lastToolResult.toolName === 'emit_result') return toolCall('reviewer-write-repair', 'write', { path: 'record:///review.md?v=next', content: 'repaired review' });
       return reviewerPass('reviewer-pass-repaired', child.id);
     }) };
     const actor = new PlanningCardProcessorActor({ projectRoot, cardId: project.id, store, children: { get: () => null }, provider });
@@ -156,12 +156,12 @@ describe('PlanningCardProcessorActor reviewer currentness', () => {
     const provider: LLMProviderPort = { completeTurn: jest.fn(async (input: LlmInvocationInput) => {
       const lastToolResult = input.episodeContext.lastToolResult as { toolName?: string } | undefined;
       if (input.role === 'planner') {
-        if (!lastToolResult) return toolCall('planner-write', 'write', { path: 'record://status.md?v=next', content: 'planner status' });
+        if (!lastToolResult) return toolCall('planner-write', 'write', { path: 'record:///status.md?v=next', content: 'planner status' });
         return plannerDone();
       }
       if (!lastToolResult) {
         reviewerAttempt++;
-        return toolCall(`reviewer-write-${reviewerAttempt}`, 'write', { path: 'record://review.md?v=next', content: `review ${reviewerAttempt}` });
+        return toolCall(`reviewer-write-${reviewerAttempt}`, 'write', { path: 'record:///review.md?v=next', content: `review ${reviewerAttempt}` });
       }
       pending = !pending;
       return reviewerPass(`reviewer-pass-${reviewerAttempt}`, child.id);

@@ -70,7 +70,7 @@ describe('analyst_tool_invoked event projection source', () => {
     const root = setupRoot();
     try {
       writeFileSync(join(root, 'README.md'), 'hello');
-      mockToolCall('read', { path: 'project://README.md' });
+      mockToolCall('read', { path: 'project:///README.md' });
       const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root, eventBus }) });
       await runtime.submit('s1', { userContent: 'inspect README.md' });
       expect(broadcasts.length).toBeGreaterThan(0);

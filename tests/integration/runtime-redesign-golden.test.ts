@@ -45,11 +45,11 @@ function withMandatoryRecords(responder: (input: LlmInvocationInput) => Promise<
       if (result.kind !== 'tool_calls') return result;
       if (result.tool_calls.some((toolCall) => toolCall.function.name === 'emit_result')) {
         pending.set(input.sessionId, result);
-        return recordWrite(`status-${input.sessionId}`, 'record://status.md?v=next', `Status for ${input.episodeContext.cardId}`);
+        return recordWrite(`status-${input.sessionId}`, 'record:///status.md?v=next', `Status for ${input.episodeContext.cardId}`);
       }
       if (result.tool_calls.some((toolCall) => toolCall.function.name === 'emit_result')) {
         pending.set(input.sessionId, result);
-        return recordWrite(`review-${input.sessionId}`, 'record://review.md?v=next', `Review for ${input.episodeContext.cardId}`);
+        return recordWrite(`review-${input.sessionId}`, 'record:///review.md?v=next', `Review for ${input.episodeContext.cardId}`);
       }
       return result;
     }),

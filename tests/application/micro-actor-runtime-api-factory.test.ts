@@ -38,7 +38,7 @@ describe('createMicroActorRuntimeApi', () => {
       invokeWithRecovery: jest.fn(async (): Promise<LlmCompleteResult> => {
         if (!wroteStatus) {
           wroteStatus = true;
-          return { kind: 'tool_calls' as const, tool_calls: [{ id: 'planner-write-status', type: 'function' as const, function: { name: 'write', arguments: JSON.stringify({ path: 'record://status.md?v=next', content: 'waiting for operator' }) } }] };
+          return { kind: 'tool_calls' as const, tool_calls: [{ id: 'planner-write-status', type: 'function' as const, function: { name: 'write', arguments: JSON.stringify({ path: 'record:///status.md?v=next', content: 'waiting for operator' }) } }] };
         }
         return plannerTerminal;
       }),

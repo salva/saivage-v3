@@ -124,13 +124,13 @@ function withMandatoryRecords(responder: (input: LlmInvocationInput) => Promise<
         pending.set(key, result);
         const count = (recordWrites.get(key) ?? 0) + 1;
         recordWrites.set(key, count);
-        return recordWrite(`status-${key}-${count}`, 'record://status.md?v=next', `Status for ${input.episodeContext.cardId ?? key}`);
+        return recordWrite(`status-${key}-${count}`, 'record:///status.md?v=next', `Status for ${input.episodeContext.cardId ?? key}`);
       }
       if (result.tool_calls.some((toolCall) => toolCall.function.name === 'emit_result') && input.role === 'reviewer') {
         pending.set(key, result);
         const count = (recordWrites.get(key) ?? 0) + 1;
         recordWrites.set(key, count);
-        return recordWrite(`review-${key}-${count}`, 'record://review.md?v=next', `Review for ${input.episodeContext.cardId ?? key}`);
+        return recordWrite(`review-${key}-${count}`, 'record:///review.md?v=next', `Review for ${input.episodeContext.cardId ?? key}`);
       }
       return result;
     }),
@@ -165,7 +165,7 @@ describe('PlanningCardProcessorActor', () => {
         expect.objectContaining({ role: 'user', content: 'Cancellation requested: stop' }),
       ]),
       terminalToolNames: ['emit_result'],
-      systemPrompt: expect.stringContaining('record://status.md?v=next'),
+      systemPrompt: expect.stringContaining('record:///status.md?v=next'),
       tools: expect.arrayContaining([expect.objectContaining({ function: expect.objectContaining({ name: 'emit_result' }) })]),
     }), expect.any(AbortSignal));
     expect(provider.completeTurn).toHaveBeenCalledWith(expect.objectContaining({
@@ -173,7 +173,7 @@ describe('PlanningCardProcessorActor', () => {
       role: 'reviewer',
       sessionId: `reviewer:${project.id}:assessment-${project.id}-1`,
       terminalToolNames: ['emit_result'],
-      systemPrompt: expect.stringContaining('record://review.md?v=next'),
+      systemPrompt: expect.stringContaining('record:///review.md?v=next'),
       tools: expect.arrayContaining(['read', 'write', 'glob', 'grep', 'edit', 'list_card_history', 'get_card_history_entry', 'diff_card', 'websearch', 'webfetch', 'skill', 'mcp_tool_call', 'emit_result'].map((name) => expect.objectContaining({ function: expect.objectContaining({ name }) }))),
     }), expect.any(AbortSignal));
 
@@ -745,7 +745,7 @@ describe('PlanningCardProcessorActor', () => {
     expect(reviewerAttempts).toBe(2);
     const plannerInputs = (provider.completeTurn as jest.MockedFunction<LLMProviderPort['completeTurn']>).mock.calls.map(([input]) => input).filter((input) => input.role === 'planner');
     const reworkInput = plannerInputs.find((input) => JSON.stringify(input.episodeContext.lastToolResult ?? {}).includes('Reviewer requested rework'));
-    expect(JSON.stringify(reworkInput?.episodeContext.lastToolResult)).toContain('record://review.md?card=project&v=1');
+    expect(JSON.stringify(reworkInput?.episodeContext.lastToolResult)).toContain('record:///review.md?card=project&v=1');
     expect(JSON.stringify(reworkInput?.episodeContext.lastToolResult)).toContain('missing proof');
   }));
 
@@ -934,7 +934,7 @@ describe('PlanningCardProcessorActor', () => {
         if (input.role === 'planner') {
           if (!last) {
             actions.push('planner_write_status');
-            return recordWrite('planner-status-before-review', 'record://status.md?v=next', 'Planner status before review.');
+            return recordWrite('planner-status-before-review', 'record:///status.md?v=next', 'Planner status before review.');
           }
           actions.push('planner_emit_done');
           return plannerResult('done', 'ready for review');
@@ -945,7 +945,7 @@ describe('PlanningCardProcessorActor', () => {
         }
         if (last.toolName === 'emit_result') {
           actions.push('reviewer_write_review_after_repair');
-          return recordWrite('reviewer-review-after-repair', 'record://review.md?v=next', 'Reviewer assessment after repair.');
+          return recordWrite('reviewer-review-after-repair', 'record:///review.md?v=next', 'Reviewer assessment after repair.');
         }
         actions.push('reviewer_emit_after_review');
         return reviewerResult({ status: 'done', summary: 'review ok after missing-record repair' });
@@ -967,7 +967,7 @@ describe('PlanningCardProcessorActor', () => {
       `reviewer:${project.id}:assessment-${project.id}-1`,
     ]);
     const repairInput = reviewerCalls[1][0];
-    const missingRecord = `Required record 'record://review.md?card=${project.id}&v=next' was not created.`;
+    const missingRecord = `Required record 'record:///review.md?card=${project.id}&v=next' was not created.`;
     expect(repairInput.episodeContext.lastToolResult).toMatchObject({
       toolCallId: 'reviewer-result-1',
       toolName: 'emit_result',
@@ -976,7 +976,7 @@ describe('PlanningCardProcessorActor', () => {
     expect(repairInput.contextMessages).toEqual(expect.arrayContaining([
       expect.objectContaining({ role: 'assistant', kind: 'tool_call', tool: 'emit_result', tool_call_id: 'reviewer-result-1' }),
       expect.objectContaining({ role: 'tool', kind: 'tool_result', tool: 'emit_result', tool_call_id: 'reviewer-result-1', content: JSON.stringify({ success: false, error: missingRecord }) }),
-      expect.objectContaining({ role: 'user', content: expect.stringContaining('Create record://review.md?v=next, then call emit_result again.') }),
+      expect.objectContaining({ role: 'user', content: expect.stringContaining('Create record:///review.md?v=next, then call emit_result again.') }),
     ]));
   }));
 
@@ -1061,7 +1061,7 @@ describe('PlanningCardProcessorActor', () => {
         }
         if (last.toolName === 'emit_result') {
           actions.push('write_status_after_repair');
-          return recordWrite('planner-status-after-repair', 'record://status.md?v=next', 'Planner status after repair.');
+          return recordWrite('planner-status-after-repair', 'record:///status.md?v=next', 'Planner status after repair.');
         }
         actions.push('emit_after_status');
         return plannerResult('blocked', 'blocked after missing-record repair');
@@ -1078,7 +1078,7 @@ describe('PlanningCardProcessorActor', () => {
     expect(calls).toHaveLength(3);
     expect(calls.map(([input]) => input.sessionId)).toEqual([`planner:${project.id}`, `planner:${project.id}`, `planner:${project.id}`]);
     const repairInput = calls[1][0];
-    const missingRecord = `Required record 'record://status.md?card=${project.id}&v=next' was not created.`;
+    const missingRecord = `Required record 'record:///status.md?card=${project.id}&v=next' was not created.`;
     expect(repairInput.episodeContext.lastToolResult).toMatchObject({
       toolCallId: 'planner-blocked',
       toolName: 'emit_result',
@@ -1087,7 +1087,7 @@ describe('PlanningCardProcessorActor', () => {
     expect(repairInput.contextMessages).toEqual(expect.arrayContaining([
       expect.objectContaining({ role: 'assistant', kind: 'tool_call', tool: 'emit_result', tool_call_id: 'planner-blocked' }),
       expect.objectContaining({ role: 'tool', kind: 'tool_result', tool: 'emit_result', tool_call_id: 'planner-blocked', content: JSON.stringify({ success: false, error: missingRecord }) }),
-      expect.objectContaining({ role: 'user', content: expect.stringContaining('Create record://status.md?v=next, then call emit_result again.') }),
+      expect.objectContaining({ role: 'user', content: expect.stringContaining('Create record:///status.md?v=next, then call emit_result again.') }),
     ]));
   }));
 
