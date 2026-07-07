@@ -89,7 +89,7 @@ describe('runtime redesign final golden behavior', () => {
         });
       }
       await waitForRootRun(projectRoot, 'blocked');
-      expect(readActorSnapshots(projectRoot).map((item) => item.actor_id).sort()).toEqual(['card:project', 'planner:project', 'processor:project', 'supervisor']);
+      expect(readActorSnapshots(projectRoot).map((item) => item.actor_id).sort()).toEqual(['card:project', 'planner:project', 'processor:project']);
       await api.shutdown();
     } finally { rmSync(projectRoot, { recursive: true, force: true }); }
   });

@@ -1,8 +1,10 @@
 import { readActorSnapshots, readRecoveryDiagnostics, type ActorRecoveryDiagnostic, type ActorRecoveryDiagnosticAction } from '../../runtime/actors/index.js';
-import { parseCardActorId, parseLlmActorId, readSupervisorModeValue, readSupervisorWorkValue, toPublicAgentPhase, toPublicCardActorState } from '../../runtime/actors/index.js';
+import { parseCardActorId, parseLlmActorId, toPublicAgentPhase, toPublicCardActorState } from '../../runtime/actors/index.js';
 import type { LlmActorRole, PublicAgentPhase, PublicCardActorState } from '../../runtime/actors/index.js';
 import type { ActorPauseMode } from '../../runtime/actors/actor-vocabulary.js';
 import { CardStore } from '../../cards/card-store.js';
+import { readRuntimeState } from '../../runtime/state-api.js';
+import type { RuntimeStatus } from '../../schemas/index.js';
 
 export type { ActorPauseMode };
 export type ActorActiveWork = 'none' | 'model_invocation' | 'shutdown' | 'unknown';
@@ -37,18 +39,14 @@ export interface ActorRuntimeReadModel {
 export function buildActorRuntimeReadModel(projectRoot: string): ActorRuntimeReadModel {
   const snapshots = readActorSnapshots(projectRoot);
   const diagnostics: string[] = [];
-  let pauseMode: ActorPauseMode = 'unknown';
-  let activeWork: ActorActiveWork = 'unknown';
+  const runtimeStatus = readRuntimeState(projectRoot)?.status ?? null;
+  const pauseMode = pauseModeFromRuntimeStatus(runtimeStatus);
+  const activeWork = activeWorkFromRuntimeStatus(runtimeStatus);
   const cards: CardActorProjection[] = [];
   const agents: AgentRunnerProjection[] = [];
   const cardStore = new CardStore(projectRoot);
 
   for (const snapshot of snapshots) {
-    if (snapshot.actor_kind === 'supervisor') {
-      pauseMode = readSupervisorMode(snapshot.state_value, diagnostics);
-      activeWork = readSupervisorActiveWork(snapshot.state_value, diagnostics);
-      continue;
-    }
     if (snapshot.actor_kind === 'card') {
       const cardId = readCardActorId(snapshot.actor_id, diagnostics);
       const card = cardStore.read(cardId);
@@ -82,29 +80,6 @@ function readAgent(actorId: string, value: unknown): AgentRunnerProjection {
   return { agentId: actorId, role: parsed.role, cardId: parsed.cardId, phase: toPublicAgentPhase(value) };
 }
 
-function readSupervisorMode(value: unknown, diagnostics: string[]): ActorPauseMode {
-  if (!value || typeof value !== 'object' || !('mode' in value)) {
-    diagnostics.push('supervisor snapshot is missing mode region');
-    return 'unknown';
-  }
-  const mode = readSupervisorModeValue(value);
-  if (mode === 'idle') return 'idle';
-  if (mode === 'running' || mode === 'paused') return mode;
-  diagnostics.push(`supervisor snapshot has unknown mode '${String((value as { mode: unknown }).mode)}'`);
-  return 'unknown';
-}
-
-function readSupervisorActiveWork(value: unknown, diagnostics: string[]): ActorActiveWork {
-  if (!value || typeof value !== 'object' || !('work' in value)) {
-    diagnostics.push('supervisor snapshot is missing active work region');
-    return 'unknown';
-  }
-  const work = readSupervisorWorkValue(value);
-  if (work === 'ready') return 'none';
-  diagnostics.push(`supervisor snapshot has unknown active work '${String((value as { work: unknown }).work)}'`);
-  return 'unknown';
-}
-
 function readCardActorId(value: string, diagnostics: string[]): string {
   try {
     return parseCardActorId(value);
@@ -112,4 +87,16 @@ function readCardActorId(value: string, diagnostics: string[]): string {
     diagnostics.push(`actor id '${value}' is missing expected 'card:' prefix`);
   }
   return value;
+}
+
+function pauseModeFromRuntimeStatus(status: RuntimeStatus | null): ActorPauseMode {
+  if (status === 'running') return 'running';
+  if (status === 'paused') return 'paused';
+  if (status === 'stopped') return 'idle';
+  return 'unknown';
+}
+
+function activeWorkFromRuntimeStatus(status: RuntimeStatus | null): ActorActiveWork {
+  if (status === 'running' || status === 'paused' || status === 'stopped') return 'none';
+  return 'unknown';
 }

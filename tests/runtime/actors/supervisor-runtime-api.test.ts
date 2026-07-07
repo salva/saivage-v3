@@ -5,7 +5,7 @@ import { describe, expect, it, jest } from '@jest/globals';
 import { existsSync, readFileSync } from 'node:fs';
 import { CardStore } from '../../../src/cards/card-store.js';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { appendLlmTurnFinished, createSupervisorRuntimeApi, readActorSnapshots, readRecoveryDiagnostics, readToolCallStatuses, RuntimeSupervisorActor, saveActorSnapshot, SupervisorRuntimeApi, type CardActorStorePort, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
+import { appendLlmTurnFinished, createSupervisorRuntimeApi, readActorSnapshots, readRecoveryDiagnostics, readToolCallStatuses, saveActorSnapshot, SupervisorRuntimeApi, type CardActorStorePort, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
 import { actorToolCallStatusesPath, appendToolCallStatus } from '../../../src/runtime/actors/index.js';
 import type { LlmCompleteResult } from '../../../src/agents/llm-contracts.js';
@@ -173,29 +173,7 @@ function writeRequiredRecord(projectRoot: string, cardId: string, filename: 'sta
 }
 
 describe('SupervisorRuntimeApi', () => {
-  it('supervisor no longer tracks provider-call state', () => withTempProject((projectRoot) => {
-    const supervisor = new RuntimeSupervisorActor();
-    supervisor.start();
-    supervisor.initialize(projectRoot);
-    supervisor.run();
-
-    expect(supervisor.work).toBe('ready');
-    expect(supervisor.snapshot().context).toEqual({ projectRoot });
-  }));
-
-  it('transitions shutdown directly to idle without fake asynchronous work', () => withTempProject((projectRoot) => {
-    const supervisor = new RuntimeSupervisorActor();
-    supervisor.start();
-    supervisor.initialize(projectRoot);
-    supervisor.run();
-
-    expect(supervisor.shutdown()).toBe(true);
-
-    expect(supervisor.mode).toBe('idle');
-    expect(supervisor.work).toBe('ready');
-  }));
-
-  it('implements start, pause, resume, status, and shutdown through RuntimeSupervisorActor', async () => withTempProject(async (projectRoot) => {
+  it('implements start, pause, resume, status, and shutdown through SupervisorRuntimeApi', async () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     createProject(store);
@@ -203,7 +181,7 @@ describe('SupervisorRuntimeApi', () => {
 
     await api.start();
     expect(api.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null });
-    expect(() => api.pause()).toThrow("Cannot pause runtime from 'idle'.");
+    expect(() => api.pause()).toThrow("Cannot pause runtime from 'stopped'.");
 
     const start = await api.startProject('operator');
     expect(start.success).toBe(true);
@@ -218,8 +196,8 @@ describe('SupervisorRuntimeApi', () => {
     if (!duplicateStart.success) expect(duplicateStart.error.code).toBe('runtime_already_running');
     await waitForRootRun(projectRoot, (run) => run.phase === 'blocked');
     expect(api.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null });
-    expect(() => api.pause()).toThrow("Cannot pause runtime from 'idle'.");
-    expect(() => api.resume()).toThrow("Cannot resume runtime from 'idle'.");
+    expect(() => api.pause()).toThrow("Cannot pause runtime from 'stopped'.");
+    expect(() => api.resume()).toThrow("Cannot resume runtime from 'stopped'.");
     expect(api.getActorRuntimeReadModel()).toMatchObject({
       pauseMode: 'idle',
       cards: [{ cardId: 'project', actorState: 'blocked' }],
@@ -227,7 +205,7 @@ describe('SupervisorRuntimeApi', () => {
     });
     await api.shutdown();
 
-    expect(readActorSnapshots(projectRoot).some((item) => item.actor_id === 'supervisor')).toBe(true);
+    expect(readActorSnapshots(projectRoot).some((item) => item.actor_id === 'supervisor')).toBe(false);
   }));
 
   it('resume opens the runtime gate without requiring a second run command', async () => withTempProject(async (projectRoot) => {
@@ -693,7 +671,7 @@ describe('SupervisorRuntimeApi', () => {
       expect(result.run).toMatchObject({ card_id: 'project', phase: 'pending', runtime_status: 'running', outcome: null });
     }
     await waitForRootRun(projectRoot, (run) => run.phase === 'blocked');
-    expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toEqual(expect.arrayContaining(['card:project', 'planner:project', 'processor:project', 'supervisor']));
+    expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toEqual(expect.arrayContaining(['card:project', 'planner:project', 'processor:project']));
   }));
 
   it('executes the project card through CardActor when actor dependencies are supplied', async () => withTempProject(async (projectRoot) => {
@@ -719,7 +697,7 @@ describe('SupervisorRuntimeApi', () => {
     expect(terminal).toMatchObject({ phase: 'completed', runtime_status: 'stopped', outcome: { kind: 'completed', result: 'done' } });
     expect(store.read('project')).toMatchObject({ status: 'done', status_text: 'project reviewed', lifecycle: { result: { kind: 'done', summary: 'project reviewed' } } });
     expect(readToolCallStatuses(projectRoot).filter((record) => record.tool_name === 'emit_result' && record.status === 'terminal_projected').map((record) => record.agent_id).sort()).toEqual(['planner:project', 'reviewer:project']);
-    expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toEqual(expect.arrayContaining(['card:project', 'planner:project', 'reviewer:project', 'processor:project', 'supervisor']));
+    expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toEqual(expect.arrayContaining(['card:project', 'planner:project', 'reviewer:project', 'processor:project']));
   }));
 
   it('throws on startProject when the project card record is missing', async () => withTempProject(async (projectRoot) => {

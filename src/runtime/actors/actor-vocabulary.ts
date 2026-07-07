@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const actorKinds = ['supervisor', 'card', 'llm', 'processor'] as const;
+export const actorKinds = ['card', 'llm', 'processor'] as const;
 export type ActorKind = typeof actorKinds[number];
 export const actorKindSchema = z.enum(actorKinds);
 
@@ -24,14 +24,6 @@ export const actorPauseModes = ['idle', 'running', 'paused', 'unknown'] as const
 export type ActorPauseMode = typeof actorPauseModes[number];
 export const actorPauseModeSchema = z.enum(actorPauseModes);
 
-export const supervisorModes = ['idle', 'running', 'paused'] as const;
-export type SupervisorMode = typeof supervisorModes[number];
-export const supervisorModeSchema = z.enum(supervisorModes);
-
-export const supervisorWorkStates = ['ready'] as const;
-export type SupervisorWorkState = typeof supervisorWorkStates[number];
-export const supervisorWorkStateSchema = z.enum(supervisorWorkStates);
-
 export function parseLlmActorPhase(value: unknown): LlmActorPhase | null {
   const result = llmActorPhaseSchema.safeParse(value);
   return result.success ? result.data : null;
@@ -48,16 +40,4 @@ export function toPublicAgentPhase(value: unknown): PublicAgentPhase {
   if (phase === 'waiting_tool') return 'waiting_for_tool';
   if (phase === 'idle' || phase === 'calling_provider') return phase;
   throw new Error(`Unknown LLM actor phase '${String(value)}'.`);
-}
-
-export function readSupervisorModeValue(value: unknown): SupervisorMode | null {
-  if (!value || typeof value !== 'object' || !('mode' in value)) return null;
-  const result = supervisorModeSchema.safeParse((value as { mode: unknown }).mode);
-  return result.success ? result.data : null;
-}
-
-export function readSupervisorWorkValue(value: unknown): SupervisorWorkState | null {
-  if (!value || typeof value !== 'object' || !('work' in value)) return null;
-  const result = supervisorWorkStateSchema.safeParse((value as { work: unknown }).work);
-  return result.success ? result.data : null;
 }

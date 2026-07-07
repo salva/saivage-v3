@@ -3,7 +3,6 @@ import { cardRecordSchema, createActionableErrorEnvelope, type CardRecord } from
 import { PROJECT_CARD_ID } from '../../cards/project-card.js';
 import { buildActorRecoveryPlan, runActorStartupRecovery, type ActorRecoveryPlan, type ActorStartupRecoveryReport } from './actor-recovery.js';
 import { cardActorId, plannerActorId, parseLlmActorId } from './ids.js';
-import { RuntimeSupervisorActor } from './runtime-supervisor.js';
 import { CardActor, type CardActivationOutcome, type CardActorDeps, type CardActorStorePort } from './card-actor.js';
 import { BaseMainLLMCardProcessorActor } from './base-main-llm-card-processor-actor.js';
 import { toPublicAgentPhase, toPublicCardActorState } from './actor-vocabulary.js';
@@ -40,7 +39,6 @@ export interface SupervisorRuntimeApiOptions {
 }
 
 export class SupervisorRuntimeApi implements RuntimeApi {
-  private readonly supervisor = new RuntimeSupervisorActor();
   private readonly eventBus: EventBus;
   private readonly now: () => string;
   private readonly runtimeState: RuntimeStateMutationPort;
@@ -75,11 +73,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       store: this.options.actorStore,
       generatedAt: this.now(),
     });
-    this.supervisor.start();
-    this.supervisor.initialize(this.options.projectRoot);
     if (this.hasRunningRecoveryWork(recoveryPlan)) {
-      this.supervisor.run();
-      this.supervisor.pause();
       this.constructRunningCardActors(recoveryPlan);
       this.recoverRootCard();
       this.runtimeState.apply({ kind: 'patchRuntimeState', patch: { ...buildPauseRuntimeStatePatch(), active_card_run: null, updated_at: this.now() } });
@@ -96,7 +90,6 @@ export class SupervisorRuntimeApi implements RuntimeApi {
 
   async shutdown(): Promise<void> {
     if (!this.started) return;
-    this.supervisor.shutdown();
     await this.options.processRunner.stopRuntimeOwned('runtime shutdown', { graceMs: 5000 });
     this.started = false;
     this.currentCardId = null;
@@ -105,16 +98,16 @@ export class SupervisorRuntimeApi implements RuntimeApi {
 
   pause(): void {
     if (!this.started) throw new Error('Cannot pause runtime before it is started.');
-    if (this.supervisor.mode !== 'running') throw new Error(`Cannot pause runtime from '${this.supervisor.mode}'.`);
+    const status = this.runtimeStatus() ?? 'stopped';
+    if (status !== 'running') throw new Error(`Cannot pause runtime from '${status}'.`);
     this.runtimeGate.close();
-    this.supervisor.pause();
     this.runtimeState.apply({ kind: 'patchRuntimeState', patch: { ...buildPauseRuntimeStatePatch(), active_card_run: null, updated_at: this.now() } });
   }
 
   resume(): void {
     if (!this.started) throw new Error('Cannot resume runtime before it is started.');
-    if (this.supervisor.mode !== 'paused') throw new Error(`Cannot resume runtime from '${this.supervisor.mode}'.`);
-    this.supervisor.run();
+    const status = this.runtimeStatus() ?? 'stopped';
+    if (status !== 'paused') throw new Error(`Cannot resume runtime from '${status}'.`);
     const activeRunStartedAt = this.activeRun?.started_at ?? this.now();
     this.runtimeState.apply({ kind: 'patchRuntimeState', patch: { ...buildResumeRuntimeStatePatch(readRuntimeState(this.options.projectRoot)), status: 'running', active_card_run: this.activeCardRun(activeRunStartedAt), updated_at: this.now() } });
     this.runtimeGate.open();
@@ -145,7 +138,6 @@ export class SupervisorRuntimeApi implements RuntimeApi {
 
     const command = this.runtimeState.apply({ kind: 'appendRuntimeCommand', commandKind: 'start_project', source });
     const startedAt = this.now();
-    this.supervisor.run();
     this.runtimeGate.open();
     this.currentCardId = PROJECT_CARD_ID;
     const run = this.runtimeState.apply({ kind: 'appendRuntimeRun', run: this.runRecordInput(command.command_id, startedAt, null, 'pending', 'running') });
@@ -166,7 +158,6 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     const runToCancel = this.activeRun;
     this.cardActors.get(PROJECT_CARD_ID)?.cancel({ reason: 'runtime_project_cancelled', cancelled_at: stoppedAt });
     await this.options.processRunner.stopRuntimeOwned('runtime_project_cancelled', { graceMs: 5000 });
-    this.supervisor.cancelProject();
     const run = runToCancel
       ? this.runtimeState.apply({
           kind: 'updateRuntimeRun',
@@ -197,9 +188,9 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     if (!this.started) {
       return { status: 'stopped', currentCardId: null, goalCount: 0, lastTickAt: null };
     }
-    const mode = this.supervisor.mode;
+    const status = this.runtimeStatus();
     return {
-      status: mode === 'paused' ? 'paused' : mode === 'running' ? 'running' : 'stopped',
+      status: status ?? 'stopped',
       currentCardId: this.currentCardId,
       goalCount: this.currentCardId ? 1 : 0,
       lastTickAt: null,
@@ -246,7 +237,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
   }
 
   private startProjectRejection(source: RuntimeCommandSource): StartProjectResult | null {
-    if (this.supervisor.mode === 'running') return this.rejectStart(source, 'runtime_already_running', 'Cannot start runtime: project execution is already running.', 'Wait for the active run to finish or stop it before starting again.');
+    if (this.runtimeStatus() === 'running') return this.rejectStart(source, 'runtime_already_running', 'Cannot start runtime: project execution is already running.', 'Wait for the active run to finish or stop it before starting again.');
     if (this.activeRun?.runtime_status === 'running') return this.rejectStart(source, 'runtime_run_already_active', `Cannot start runtime: run '${this.activeRun.run_id}' is already active.`, 'Wait for the active run to finish or stop it before starting again.');
     return null;
   }
@@ -256,7 +247,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     const error = createActionableErrorEnvelope({
       code,
       message,
-      currentState: { mode: this.supervisor.mode, work: this.supervisor.work, activeRunId: this.activeRun?.run_id ?? null },
+      currentState: { runtimeStatus: this.runtimeStatus(), activeRunId: this.activeRun?.run_id ?? null },
       nextAction,
       docsRef: 'docs/architecture/micro-actor-runtime-design.md',
       runId: this.activeRun?.run_id ?? null,
@@ -315,12 +306,9 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       }
     } finally {
       if (this.activeRun?.run_id === run.run_id) {
-        const shouldCancel = this.activeRun.phase === 'cancelled';
         this.currentCardId = null;
         this.activeRun = null;
         this.runtimeState.apply({ kind: 'patchRuntimeState', patch: { status: 'stopped', active_card_run: null, updated_at: this.now() } });
-        if (shouldCancel) this.supervisor.cancelProject();
-        else this.supervisor.settleProject();
       }
     }
   }
@@ -431,13 +419,19 @@ export class SupervisorRuntimeApi implements RuntimeApi {
   }
 
   private actorPauseMode(): ActorPauseMode {
-    const mode = this.supervisor.mode;
-    if (mode === 'paused') return 'paused';
-    return mode === 'running' ? 'running' : 'idle';
+    const status = this.runtimeStatus();
+    if (status === 'running') return 'running';
+    if (status === 'paused') return 'paused';
+    if (status === 'error') return 'unknown';
+    return 'idle';
   }
 
   private actorActiveWork(): ActorActiveWork {
     return 'none';
+  }
+
+  private runtimeStatus(): RuntimeStatus | null {
+    return readRuntimeState(this.options.projectRoot)?.status ?? null;
   }
 }
 

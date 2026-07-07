@@ -8,7 +8,6 @@ import type { CardRecord, CardStatus } from '../../schemas/index.js';
 import type { CardActiveReconstructionRecord, LlmActiveReconstructionRecord, ProcessorActiveReconstructionRecord } from './active-reconstruction.js';
 import { readCardActiveReconstruction, readLlmActiveReconstruction, readProcessorActiveReconstruction } from './active-reconstruction.js';
 import { parseCardActorId, parseLlmActorId, parseProcessorActorId } from './ids.js';
-import { readSupervisorModeValue } from './actor-vocabulary.js';
 import type { LlmActorRole } from './actor-vocabulary.js';
 import { cardActivationOutcomePatch, type CardActivationOutcome } from './card-actor.js';
 import type { LLMActorOutcome } from './llm-actor.js';
@@ -85,7 +84,7 @@ export interface ActorRecoveryDiagnostic {
 
 export interface ActorRecoveryDiagnosticAction {
   actorId: string;
-  kind: 'active_card' | 'active_llm' | 'llm_recovery_action' | 'active_processor' | 'discarded_supervisor';
+  kind: 'active_card' | 'active_llm' | 'llm_recovery_action' | 'active_processor';
   action: string;
   cardId?: string;
 }
@@ -98,7 +97,6 @@ export interface ActorRecoveryDiagnosticsSnapshot {
 }
 
 export interface ActorRecoveryPlan {
-  supervisor: ActorSnapshotRecord | null;
   cards: CardActorRecoveryRecord[];
   llms: LlmActorRecoveryRecord[];
   processors: ProcessorActorRecoveryRecord[];
@@ -125,7 +123,6 @@ export interface ActorStartupRecoveryReport {
 
 export function buildActorRecoveryPlan(projectRoot: string, cards?: ActorRecoveryCardReader): ActorRecoveryPlan {
   const snapshots = readActorSnapshots(projectRoot);
-  const supervisor = snapshots.find((snapshot) => snapshot.actor_id === 'supervisor') ?? null;
   const cardSnapshots = snapshots.filter((snapshot) => snapshot.actor_kind === 'card');
   const knownCardIds = new Set<string>();
   const cardRecords = cardSnapshots.map((snapshot): CardActorRecoveryRecord => {
@@ -158,7 +155,6 @@ export function buildActorRecoveryPlan(projectRoot: string, cards?: ActorRecover
       };
     });
   return {
-    supervisor,
     cards: cardRecords.sort((a, b) => a.cardId.localeCompare(b.cardId)),
     llms: llms.sort((a, b) => a.actorId.localeCompare(b.actorId)),
     processors: processors.sort((a, b) => a.actorId.localeCompare(b.actorId)),
@@ -173,7 +169,7 @@ const recoveryDiagnosticSchema = z.object({
 
 const recoveryDiagnosticActionSchema = z.object({
   actorId: z.string().min(1),
-  kind: z.enum(['active_card', 'active_llm', 'llm_recovery_action', 'active_processor', 'discarded_supervisor']),
+  kind: z.enum(['active_card', 'active_llm', 'llm_recovery_action', 'active_processor']),
   action: z.string().min(1),
   cardId: z.string().optional(),
 });
@@ -226,7 +222,6 @@ export function runActorStartupRecovery(plan: ActorRecoveryPlan, deps: ActorReco
   const generatedAt = deps.generatedAt ?? new Date().toISOString();
   const cancelledCleanup = cleanupCancelledCardSnapshots(deps.projectRoot, plan, deps.store);
   const effectivePlan = cancelledCleanup.length > 0 ? buildActorRecoveryPlan(deps.projectRoot, deps.store) : plan;
-  const preCleanupProjection = projectActorRecovery(effectivePlan);
   const recoveries = recoverActorStartupOutcomes(effectivePlan, { ...deps, generatedAt });
   cleanupRecoveredActorSnapshots(deps.projectRoot, recoveries);
   const abandonedToolCalls = abandonStalePendingToolCalls(deps.projectRoot, undefined, activePendingToolCallKeys(effectivePlan));
@@ -235,7 +230,6 @@ export function runActorStartupRecovery(plan: ActorRecoveryPlan, deps: ActorReco
   return {
     generated_at: generatedAt,
     incidents: [
-      ...startupIncidentsFromProjection(preCleanupProjection),
       ...cancelledCleanup,
       ...recoveries.map((recovery) => ({ actorId: recovery.actorIds[0] ?? recovery.cardId, kind: 'converted_actor_snapshots' as const, action: 'project_or_convert_startup_outcome', cardId: recovery.cardId, message: recovery.reason })),
       ...abandonedToolCalls.map((record) => ({ actorId: record.agent_id, kind: 'stale_tool_call' as const, action: 'abandon_stale_pending_tool_call', message: record.error ?? 'Startup recovery abandoned a stale pending tool call.', cardId: cardIdFromAgentId(record.agent_id) })),
@@ -415,19 +409,12 @@ function recoveryDiagnosticsFile(projectRoot: string, lock: ProjectLock = recove
 export function projectActorRecovery(plan: ActorRecoveryPlan, cardReader?: ActorRecoveryCardReader): ActorRecoveryProjection {
   const llmActions = new Map(plan.llms.map((llm) => [llm.actorId, llmRecoveryDiagnosticAction(llm.snapshot, llm.active)]));
   const actions: ActorRecoveryDiagnosticAction[] = [
-    ...(isNonIdleSupervisorSnapshot(plan.supervisor) ? [{ actorId: 'supervisor', kind: 'discarded_supervisor' as const, action: 'discard_stale_supervisor' }] : []),
     ...plan.cards.filter((card) => card.active).map((card) => ({ actorId: card.snapshot.actor_id, kind: 'active_card' as const, action: 'diagnose_active_card', cardId: card.cardId })),
     ...plan.llms.filter((llm) => llm.active).map((llm) => ({ actorId: llm.actorId, kind: 'active_llm' as const, action: 'diagnose_active_llm', cardId: llm.cardId ?? undefined })),
     ...plan.llms.filter((llm) => llmActions.get(llm.actorId) !== 'none').map((llm) => ({ actorId: llm.actorId, kind: 'llm_recovery_action' as const, action: llmActions.get(llm.actorId)!, cardId: llm.cardId ?? undefined })),
     ...plan.processors.filter((processor) => processor.active).map((processor) => ({ actorId: processor.actorId, kind: 'active_processor' as const, action: 'diagnose_active_processor', cardId: processor.cardId })),
   ].sort((a, b) => a.actorId.localeCompare(b.actorId) || a.kind.localeCompare(b.kind));
   return { diagnostics: recoveryDiagnostics(plan, llmActions, cardReader), actions };
-}
-
-function isNonIdleSupervisorSnapshot(snapshot: ActorSnapshotRecord | null): boolean {
-  if (!snapshot) return false;
-  const mode = readSupervisorModeValue(snapshot.state_value);
-  return mode !== null && mode !== 'idle';
 }
 
 function llmRecoveryDiagnosticAction(snapshot: ActorSnapshotRecord, active: boolean): LlmRecoveryDiagnosticAction {
@@ -442,9 +429,8 @@ function recoveryDiagnostics(
   llmActions: Map<string, LlmRecoveryDiagnosticAction>,
   cardReader?: ActorRecoveryCardReader,
 ): ActorRecoveryDiagnostic[] {
-  const { supervisor, cards, llms, processors } = plan;
+  const { cards, llms, processors } = plan;
   return [
-    ...(isNonIdleSupervisorSnapshot(supervisor) ? [{ actorId: 'supervisor', severity: 'warning' as const, message: 'Non-idle supervisor snapshot is not resumed; startup creates a fresh supervisor and records this discard.' }] : []),
     ...cards.filter(hasUnknownCardActorLifecycleState).map((card) => ({ actorId: card.snapshot.actor_id, severity: 'warning' as const, message: `Card actor snapshot has unknown lifecycle state '${String(card.snapshot.state_value)}'.` })),
     ...cards.filter(isAmbiguousActiveCard).map((card) => ({ actorId: card.snapshot.actor_id, severity: 'warning' as const, message: `Active card snapshot has lifecycle state '${String(card.snapshot.state_value)}' and requires explicit recovery reconciliation.` })),
     ...cards.filter((card) => isStrandedActiveCard(card, cards, llms, processors, cardReader)).map((card) => ({ actorId: card.snapshot.actor_id, severity: 'warning' as const, message: 'Active card snapshot has no active processor, LLM, or active child evidence and cannot be safely reconstructed yet.' })),
@@ -453,13 +439,6 @@ function recoveryDiagnostics(
     ...llms.filter((llm) => llm.active && llmActions.get(llm.actorId) === 'none').map((llm) => ({ actorId: llm.actorId, severity: 'warning' as const, message: `Active LLM snapshot state '${String(llm.snapshot.state_value)}' has no concrete recovery action yet.` })),
     ...processors.filter((processor) => processor.active).map((processor) => ({ actorId: processor.actorId, severity: 'warning' as const, message: 'Active processor snapshot requires reconstruction of activation/tool waits before autonomous execution resumes.' })),
   ].sort((a, b) => a.actorId.localeCompare(b.actorId));
-}
-
-function startupIncidentsFromProjection(projection: ActorRecoveryProjection): ActorStartupRecoveryIncident[] {
-  const diagnostics = new Map(projection.diagnostics.map((diagnostic) => [diagnostic.actorId, diagnostic.message]));
-  return projection.actions
-    .filter((action) => action.kind === 'discarded_supervisor')
-    .map((action) => ({ ...action, message: diagnostics.get(action.actorId) ?? `Startup recovery handled ${action.action}.` }));
 }
 
 function cardIdFromAgentId(agentId: string): string | undefined {

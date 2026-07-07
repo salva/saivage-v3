@@ -3,10 +3,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from '@jest/globals';
 import { buildActorRuntimeReadModel } from '../../src/application/read-models/actor-runtime-read-model.js';
-import { RuntimeSupervisorActor, buildActorRecoveryPlan, saveActorSnapshot, writeRecoveryDiagnostics } from '../../src/runtime/actors/index.js';
+import { buildActorRecoveryPlan, saveActorSnapshot, writeRecoveryDiagnostics } from '../../src/runtime/actors/index.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import type { CardStatus } from '../../src/schemas/index.js';
+import { createRuntimeStateMutationPort } from '../../src/runtime/mutations.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-actor-read-model-'));
@@ -17,20 +18,6 @@ function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promis
   }
   rmSync(projectRoot, { recursive: true, force: true });
   return result;
-}
-
-async function eventually(assertion: () => void, timeoutMs = 1000): Promise<void> {
-  let lastError: unknown;
-  for (let i = 0; i < 40; i++) {
-    try {
-      assertion();
-      return;
-    } catch (error) {
-      lastError = error;
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-  }
-  throw lastError;
 }
 
 function createCardWithStatus(store: CardStore, status: CardStatus) {
@@ -45,16 +32,10 @@ function createCardWithStatus(store: CardStore, status: CardStatus) {
 }
 
 describe('actor runtime read model', () => {
-  it('projects supervisor, card actor, and LLM actor snapshots without raw state details', () => withTempProject(async (projectRoot) => {
+  it('projects runtime status, card actor, and LLM actor snapshots without raw state details', () => withTempProject(async (projectRoot) => {
     initProjectTree(projectRoot);
     const card = new CardStore(projectRoot).create({ type: 'code', parent: 'project', depth: 1, title: 'Task', brief: '', status: 'running', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
-    const supervisor = new RuntimeSupervisorActor();
-    supervisor.start();
-    supervisor.initialize(projectRoot);
-    supervisor.run();
-    await eventually(() => { expect(supervisor.mode).toBe('running'); });
-    supervisor.pause();
-    await eventually(() => { expect(supervisor.mode).toBe('paused'); });
+    createRuntimeStateMutationPort(projectRoot).apply({ kind: 'patchRuntimeState', patch: { status: 'paused' } });
     saveActorSnapshot(projectRoot, {
       actor_id: `card:${card.id}`,
       actor_kind: 'card',
@@ -109,46 +90,35 @@ describe('actor runtime read model', () => {
     });
   }));
 
-  it('accepts current supervisor modes without unknown-mode diagnostics', () => withTempProject((projectRoot) => {
-    for (const [mode, expected] of [['idle', 'idle'], ['running', 'running'], ['paused', 'paused']] as const) {
-      saveActorSnapshot(projectRoot, { actor_id: 'supervisor', actor_kind: 'supervisor', state_value: { mode, work: 'ready' }, context: {}, updated_at: new Date().toISOString() });
+  it('accepts current runtime statuses without unknown-mode diagnostics', () => withTempProject((projectRoot) => {
+    for (const [status, expected] of [['stopped', 'idle'], ['running', 'running'], ['paused', 'paused']] as const) {
+      createRuntimeStateMutationPort(projectRoot).apply({ kind: 'patchRuntimeState', patch: { status } });
       expect(buildActorRuntimeReadModel(projectRoot)).toMatchObject({ pauseMode: expected, activeWork: 'none', diagnostics: [] });
     }
   }));
 
-  it('reports unknown supervisor snapshot shape as diagnostics', () => withTempProject((projectRoot) => {
-    saveActorSnapshot(projectRoot, {
-      actor_id: 'supervisor',
-      actor_kind: 'supervisor',
-      state_value: 'running',
-      context: {},
-      updated_at: new Date().toISOString(),
-    });
+  it('maps error runtime status to unknown runtime availability', () => withTempProject((projectRoot) => {
+    createRuntimeStateMutationPort(projectRoot).apply({ kind: 'patchRuntimeState', patch: { status: 'error' } });
 
     expect(buildActorRuntimeReadModel(projectRoot)).toMatchObject({
       pauseMode: 'unknown',
       activeWork: 'unknown',
-      diagnostics: ['supervisor snapshot is missing mode region', 'supervisor snapshot is missing active work region'],
+      diagnostics: [],
     });
   }));
 
-  it('maps idle supervisor snapshots to idle runtime availability', () => withTempProject((projectRoot) => {
-    saveActorSnapshot(projectRoot, {
-      actor_id: 'supervisor',
-      actor_kind: 'supervisor',
-      state_value: { mode: 'idle', work: 'ready' },
-      context: {},
-      updated_at: new Date().toISOString(),
-    });
+  it('maps stopped runtime status to idle runtime availability', () => withTempProject((projectRoot) => {
+    createRuntimeStateMutationPort(projectRoot).apply({ kind: 'patchRuntimeState', patch: { status: 'stopped' } });
 
     expect(buildActorRuntimeReadModel(projectRoot)).toMatchObject({ pauseMode: 'idle', activeWork: 'none', diagnostics: [], recovery: null });
   }));
 
   it('projects sanitized recovery diagnostics', () => withTempProject((projectRoot) => {
+    const card = new CardStore(projectRoot).create({ type: 'code', parent: 'project', depth: 1, title: 'Task', brief: '', status: 'running', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], retries: 0 });
     saveActorSnapshot(projectRoot, {
-      actor_id: 'supervisor',
-      actor_kind: 'supervisor',
-      state_value: { mode: 'running', work: 'ready' },
+      actor_id: `card:${card.id}`,
+      actor_kind: 'card',
+      state_value: 'running',
       context: { providerPayload: 'not projected' },
       updated_at: '2026-06-12T00:00:00.000Z',
     });
@@ -158,8 +128,8 @@ describe('actor runtime read model', () => {
 
     expect(model.recovery).toMatchObject({
       generated_at: '2026-06-12T00:00:00.000Z',
-      diagnostics: [expect.objectContaining({ actorId: 'supervisor', severity: 'warning' })],
-      actions: [expect.objectContaining({ actorId: 'supervisor', kind: 'discarded_supervisor', action: 'discard_stale_supervisor' })],
+      diagnostics: [expect.objectContaining({ actorId: `card:${card.id}`, severity: 'warning' })],
+      actions: [expect.objectContaining({ actorId: `card:${card.id}`, kind: 'active_card', action: 'diagnose_active_card' })],
     });
     expect(JSON.stringify(model.recovery)).not.toContain('not projected');
   }));

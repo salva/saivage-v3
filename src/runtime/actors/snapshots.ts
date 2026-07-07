@@ -28,7 +28,6 @@ function actorSnapshotsLock(projectRoot: string): ProjectLock {
 }
 
 export function actorSnapshotPath(projectRoot: string, actorId: string): string {
-  if (actorId === 'supervisor') return join(actorSnapshotsPath(projectRoot), 'supervisor.json');
   const actorKind = actorKindFromId(actorId);
   return join(actorSnapshotsPath(projectRoot), actorKind, `${encodeURIComponent(actorId)}.json`);
 }
@@ -111,10 +110,7 @@ export function removeActorSnapshot(projectRoot: string, actorId: string): boole
 function actorSnapshotFilePaths(projectRoot: string): string[] {
   const root = actorSnapshotsPath(projectRoot);
   const paths: string[] = [];
-  const supervisorPath = join(root, 'supervisor.json');
-  if (existsSync(supervisorPath)) paths.push(supervisorPath);
   for (const kind of actorKinds) {
-    if (kind === 'supervisor') continue;
     const dir = join(root, kind);
     if (!existsSync(dir)) continue;
     for (const entry of readdirSync(dir, { withFileTypes: true })) {

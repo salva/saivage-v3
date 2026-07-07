@@ -4,10 +4,6 @@ import type { ActorKind, LlmActorRole } from './actor-vocabulary.js';
 export { actorKindSchema, actorKinds, llmActorRoleSchema, llmActorRoles } from './actor-vocabulary.js';
 export type { ActorKind, LlmActorRole } from './actor-vocabulary.js';
 
-export function supervisorActorId(): string {
-  return 'supervisor';
-}
-
 export function cardActorId(cardId: string): string {
   return `card:${cardId}`;
 }
@@ -29,7 +25,6 @@ export function processorActorId(cardId: string): string {
 }
 
 export function actorKindFromId(actorId: string): ActorKind {
-  if (actorId === supervisorActorId()) return 'supervisor';
   if (actorId.startsWith('card:')) return 'card';
   if (actorId.startsWith('planner:') || actorId.startsWith('reviewer:') || actorId.startsWith('executor:') || actorId.startsWith('analyst:')) return 'llm';
   if (actorId.startsWith('processor:')) return 'processor';
