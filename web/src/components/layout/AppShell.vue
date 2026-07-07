@@ -267,6 +267,11 @@ onUnmounted(() => {
   background: var(--bg);
 }
 
+.analyst-pane {
+  min-height: 0;
+  overflow: hidden;
+}
+
 .mobile-pane-switch { display: none; }
 
 @media (max-width: 880px) {
