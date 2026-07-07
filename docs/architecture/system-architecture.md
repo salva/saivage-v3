@@ -160,7 +160,7 @@ API bearer tokens are accepted in `Authorization: Bearer` headers, not URL query
 
 The Analyst may inspect secrets when the authenticated user request requires it. UI projections and logs may redact secrets by default, but that redaction is a display/output policy rather than a limit on Analyst authority.
 
-File inspection and process output are filtered through containment, binary/size checks, and safe command rendering. Secret display should be deliberate and minimized, not categorically unavailable to the Analyst.
+File inspection and process output are filtered through containment, binary/size checks, and safe command rendering. The workspace `read` tool enforces hard inline caps: at most 2000 lines, at most 2000 characters per line, about 256KB total inline content, and a roughly 10MB file-size ceiling. It supports `metadata_only` reads for size, mtime, directory status, and directory entry counts. Oversized text reads return metadata and guidance for narrower inspection rather than inline content or a generic failure. Secret display should be deliberate and minimized, not categorically unavailable to the Analyst.
 
 Provider diagnostics, account details, runtime internals, and raw error metadata must not be injected into planner, executor, reviewer, or analyst model context merely because they exist. Agent-visible context is deliberately constructed: include actionable recovery information when needed, sanitize diagnostic detail, and preserve raw data in logs or projections with appropriate access controls.
 

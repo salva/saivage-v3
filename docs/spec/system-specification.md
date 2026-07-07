@@ -274,6 +274,8 @@ When a request is ambiguous, the Analyst asks one clarifying question rather tha
 
 For operator-directed repair, the Analyst may use canonical workspace tools directly: `read`, `write`, `edit`, `glob`, and `grep` over scoped `project:///`, `record:///`, `tmp:///`, read-only `work:///`, or `system:///` paths, and `apply_patch` for project-relative unified diffs. `apply_patch` paths are project-relative only and reject scoped URL diff paths. This authority is for inspection, diagnosis, and repair, not for replacing executor delivery work. Card objective changes still use semantic card tools or `write(record:///brief.md?card=<id>&v=next)` when that is the correct operation.
 
+`read` inline content is hard-capped by line length and total bytes; files above roughly 10MB return metadata and guidance rather than content, and `metadata_only` returns `{ size, mtime, is_directory, entries_count? }` without content.
+
 All scoped file URLs use canonical triple-slash form (`<scheme>:///...`). Runtime-owned process output and oversized webfetch stashes are addressed through read-only `work:///` URLs under `.saivage-work`; `read` and `grep` redact `work:///` content before returning it to agents because command output and fetched content may contain secrets.
 
 For destructive or hard-to-reverse actions, the Analyst confirms in conversation before executing. Confirmation is conversational, not a modal.

@@ -1,5 +1,5 @@
 import * as childProcess from 'node:child_process';
-import { lstatSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative } from 'node:path';
 
 import type { AgentRole } from '../schemas/index.js';
@@ -16,6 +16,11 @@ const DEFAULT_READ_LIMIT = 2000;
 const DEFAULT_SEARCH_LIMIT = 200;
 const MAX_SEARCH_LIMIT = 1000;
 const SKIPPED_DIRS = new Set(['.git', 'node_modules', '.saivage', '.saivage-work', 'dist', 'build', '__pycache__']);
+export const MAX_READ_FILE_BYTES = 10 * 1024 * 1024;
+export const MAX_READ_OUTPUT_BYTES = 256 * 1024;
+export const MAX_READ_LINE_CHARS = 2000;
+export const READ_HEAD_SAMPLE_BYTES = 4096;
+const TMP_SCOPED_PREFIX_RE = /^\.saivage-work\/cards\/[^/]+\/tmp\/?/;
 
 export type WorkspaceContext = { projectRoot: string; cardId?: string; agentRole?: AgentRole; store?: Pick<CardStore, 'read'> };
 type ResolvedToolPath = ResolvedScopedPath;
@@ -53,6 +58,56 @@ function displayPathForResolved(projectRoot: string, resolved: ResolvedToolPath,
   return resolved.kind === 'work' ? workUrlFromAbsolutePath(projectRoot, absolutePath) : resolved.relativePath;
 }
 
+function readFileHead(absolutePath: string, maxBytes: number): Buffer {
+  const fd = openSync(absolutePath, 'r');
+  try {
+    const buffer = Buffer.alloc(maxBytes);
+    const bytesRead = readSync(fd, buffer, 0, maxBytes, 0);
+    return buffer.subarray(0, bytesRead);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function scopedReadFilterRel(resolved: ResolvedToolPath, candidateAbs: string, candidateScopedRel: string): string {
+  const workRoot = workRootOf(resolved);
+  if (workRoot) return normalizeRel(relative(workRoot, candidateAbs));
+  if (resolved.kind === 'tmp') return candidateScopedRel.replace(TMP_SCOPED_PREFIX_RE, '');
+  return candidateScopedRel;
+}
+
+function listVisibleDirectoryEntries(ctx: WorkspaceContext, resolved: ResolvedToolPath): Array<{ name: string; type: 'dir' | 'file' }> {
+  const { absolutePath, relativePath } = resolved;
+  return readdirSync(absolutePath, { withFileTypes: true })
+    .map((entry) => ({ name: entry.name, type: entry.isDirectory() ? 'dir' as const : 'file' as const, absolutePath: join(absolutePath, entry.name), relativePath: normalizeRel(join(relativePath === '.' ? '' : relativePath, entry.name)) }))
+    .filter((entry) => !isHiddenPath(ctx.projectRoot, entry.absolutePath, scopedReadFilterRel(resolved, entry.absolutePath, entry.relativePath)))
+    .map(({ name, type }) => ({ name, type }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function truncateUtf8(content: string, maxBytes: number): { content: string; truncated: boolean } {
+  let bytes = 0;
+  let end = 0;
+  for (const char of content) {
+    const nextBytes = Buffer.byteLength(char, 'utf8');
+    if (bytes + nextBytes > maxBytes) return { content: content.slice(0, end), truncated: true };
+    bytes += nextBytes;
+    end += char.length;
+  }
+  return { content, truncated: false };
+}
+
+function truncateChars(content: string, maxChars: number): { content: string; truncated: boolean } {
+  let chars = 0;
+  let end = 0;
+  for (const char of content) {
+    if (chars === maxChars) return { content: content.slice(0, end), truncated: true };
+    chars += 1;
+    end += char.length;
+  }
+  return { content, truncated: false };
+}
+
 function assertReadable(projectRoot: string, path: string, label = 'read path'): { absolutePath: string; relativePath: string } {
   const resolved = resolveProjectPath(projectRoot, path, label);
   if (isHiddenPath(projectRoot, resolved.absolutePath, resolved.relativePath)) throw toolInputError(`Access to '${resolved.relativePath}' is blocked for security reasons.`);
@@ -87,8 +142,7 @@ function resolveToolPath(ctx: WorkspaceContext, raw: string, mode: 'read' | 'wri
     if ((scheme === 'project' || scheme === 'system') && mode === 'write' && !canWriteWorkspaceFiles(ctx.agentRole)) throw toolInputError(`${ctx.agentRole} cannot write ${scheme} files.`);
     const resolved = scopedPathResolvers[scheme]({ projectRoot: ctx.projectRoot, agent: { cardId: ctx.cardId, agentRole: ctx.agentRole }, fail: toolInputError }, raw, mode);
     if (mode === 'read' && resolved.kind !== 'record') {
-      const workRoot = workRootOf(resolved);
-      const filterRel = workRoot ? normalizeRel(relative(workRoot, resolved.absolutePath)) : resolved.kind === 'tmp' ? resolved.relativePath.replace(/^\.saivage-work\/cards\/[^/]+\/tmp\/?/, '') : resolved.relativePath;
+      const filterRel = scopedReadFilterRel(resolved, resolved.absolutePath, resolved.relativePath);
       if (isHiddenPath(ctx.projectRoot, resolved.absolutePath, filterRel)) throw toolInputError(`Access to '${resolved.relativePath}' is blocked for security reasons.`);
     }
     if (mode === 'write' && resolved.kind !== 'record') {
@@ -162,29 +216,57 @@ function patchPaths(patch: string): string[] {
   return [...paths];
 }
 
-export async function readProject(ctx: WorkspaceContext, params: { path: string; offset?: number; limit?: number; read_mode?: 'auto' | 'text' | 'multimodal' }): Promise<unknown> {
-  const mode = params.read_mode ?? 'auto';
-  if (mode === 'multimodal') throw toolInputError('multimodal read_mode is not supported by v3 project tools yet.');
+export async function readProject(ctx: WorkspaceContext, params: { path: string; offset?: number; limit?: number; read_mode?: 'auto' | 'text' | 'multimodal'; metadata_only?: boolean }): Promise<unknown> {
   const resolved = resolveToolPath(ctx, params.path, 'read');
   const { absolutePath, relativePath } = resolved;
   const st = statSync(absolutePath);
+  const baseRecord = { path: displayPathForResolved(ctx.projectRoot, resolved), ...(resolved.kind === 'record' ? { record_url: resolved.recordUrl } : {}) };
+  if (params.metadata_only === true) {
+    if (st.isDirectory()) return { ...baseRecord, metadata_only: true, is_directory: true, size: st.size, mtime: st.mtime.toISOString(), entries_count: listVisibleDirectoryEntries(ctx, resolved).length };
+    if (!st.isFile()) throw toolInputError(`Unsupported file type: ${relativePath}`);
+    return { ...baseRecord, metadata_only: true, is_directory: false, size: st.size, mtime: st.mtime.toISOString() };
+  }
+  const mode = params.read_mode ?? 'auto';
+  if (mode === 'multimodal') throw toolInputError('multimodal read_mode is not supported by v3 project tools yet.');
   const offset = parseNonNegativeInt(params.offset, 0);
   const limit = parseNonNegativeInt(params.limit, DEFAULT_READ_LIMIT, DEFAULT_READ_LIMIT);
   if (st.isDirectory()) {
-    const entries = readdirSync(absolutePath, { withFileTypes: true })
-      .map((entry) => ({ name: entry.name, type: entry.isDirectory() ? 'dir' : 'file', absolutePath: join(absolutePath, entry.name), relativePath: normalizeRel(join(relativePath === '.' ? '' : relativePath, entry.name)) }))
-      .filter((entry) => !isHiddenPath(ctx.projectRoot, entry.absolutePath, workRootOf(resolved) ? normalizeRel(relative(workRootOf(resolved)!, entry.absolutePath)) : entry.relativePath))
-      .map(({ name, type }) => ({ name, type }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-    return { path: displayPathForResolved(ctx.projectRoot, resolved), ...(resolved.kind === 'record' ? { record_url: resolved.recordUrl } : {}), entries: entries.slice(offset, offset + limit), offset, limit, total_entries: entries.length, truncated: offset + limit < entries.length };
+    const entries = listVisibleDirectoryEntries(ctx, resolved);
+    return { ...baseRecord, entries: entries.slice(offset, offset + limit), offset, limit, total_entries: entries.length, truncated: offset + limit < entries.length };
   }
   if (!st.isFile()) throw toolInputError(`Unsupported file type: ${relativePath}`);
+  if (st.size > MAX_READ_FILE_BYTES) {
+    const sample = readFileHead(absolutePath, READ_HEAD_SAMPLE_BYTES);
+    if (isBinarySample(sample)) throw toolInputError(`Cannot read binary file as text: ${relativePath}`);
+    return { ...baseRecord, content: null, offset, limit, total_lines: null, truncated: true, too_large: true, size: st.size, max_bytes: MAX_READ_FILE_BYTES, bytes: 0, message: `File is larger than ${MAX_READ_FILE_BYTES} bytes and was not read inline. Use metadata_only to inspect file metadata, or grep/glob to find narrower text targets before reading.` };
+  }
   const buffer = readFileSync(absolutePath);
-  if (isBinarySample(buffer.subarray(0, Math.min(buffer.length, 1024)))) throw toolInputError(`Cannot read binary file as text: ${relativePath}`);
+  if (isBinarySample(buffer.subarray(0, Math.min(buffer.length, READ_HEAD_SAMPLE_BYTES)))) throw toolInputError(`Cannot read binary file as text: ${relativePath}`);
   const lines = buffer.toString('utf8').split(/\r?\n/);
-  const window = lines.slice(offset, offset + limit);
-  const content = resolved.kind === 'work' ? redactTextForOutbound(window.join('\n'), 'operator.api', { source: 'project-file-tools.read.work' }) : window.join('\n');
-  return { path: displayPathForResolved(ctx.projectRoot, resolved), ...(resolved.kind === 'record' ? { record_url: resolved.recordUrl } : {}), content, offset, limit, total_lines: lines.length, truncated: offset + limit < lines.length };
+  let linesTruncated = false;
+  const window = lines.slice(offset, offset + limit).map((line) => {
+    const cappedLine = truncateChars(line, MAX_READ_LINE_CHARS);
+    if (cappedLine.truncated) linesTruncated = true;
+    return cappedLine.content;
+  });
+  const capped = truncateUtf8(window.join('\n'), MAX_READ_OUTPUT_BYTES);
+  const redactedContent = resolved.kind === 'work' ? redactTextForOutbound(capped.content, 'operator.api', { source: 'project-file-tools.read.work' }) : capped.content;
+  const returned = truncateUtf8(redactedContent, MAX_READ_OUTPUT_BYTES);
+  const contentTruncated = capped.truncated || returned.truncated;
+  const truncated = offset + limit < lines.length || linesTruncated || contentTruncated;
+  const content = returned.content;
+  return {
+    ...baseRecord,
+    content,
+    offset,
+    limit,
+    total_lines: lines.length,
+    truncated,
+    size: st.size,
+    bytes: Buffer.byteLength(content, 'utf8'),
+    ...(linesTruncated ? { lines_truncated: true } : {}),
+    ...(contentTruncated ? { content_truncated: true, max_bytes: MAX_READ_OUTPUT_BYTES } : {}),
+  };
 }
 
 export async function writeProject(ctx: WorkspaceContext, params: { path: string; content: string }): Promise<unknown> {
