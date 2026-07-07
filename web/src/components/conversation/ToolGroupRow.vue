@@ -41,10 +41,10 @@ const groupLabel = computed(() => `${props.group.label}: ${props.group.summary}`
 
 <style scoped>
 .tool-group { display:flex; flex-direction:column; gap:4px; }
-.tool-group-toggle { display:flex; align-items:baseline; gap:8px; width:100%; border:0; padding:3px 0; background:transparent; cursor:pointer; font:inherit; font-family:'SF Mono',monospace; font-size:12px; text-align:left; border-radius:5px; color:var(--text-muted); }
+.tool-group-toggle { display:flex; align-items:baseline; gap:8px; width:100%; border:0; padding:4px 6px; background:transparent; cursor:pointer; font:inherit; font-size:12px; text-align:left; border-radius:var(--radius-sm); color:var(--text-muted); }
 .tool-group-toggle:hover { background:var(--surface-2); }
 .tool-group-caret { color:var(--text-muted); }
 .tool-group-label { color:var(--text); font-weight:600; }
-.tool-group-summary { color:var(--text-muted); }
+.tool-group-summary { color:var(--text-muted); border:1px solid var(--border); border-radius:var(--radius-pill); background:var(--surface-2); padding:0 8px; line-height:1.35; }
 .tool-group-body { display:flex; flex-direction:column; gap:2px; padding-left:14px; border-left:2px solid var(--surface-3); margin-left:4px; }
 </style>

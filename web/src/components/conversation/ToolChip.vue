@@ -12,24 +12,20 @@
     </div>
     <div v-if="expanded" :id="detailsId" class="tool-chip-detail">
       <div class="tool-chip-body">
-        <div class="detail-facts">
-          <div class="detail-fact">
-            <span class="detail-label">Action</span>
-            <span class="detail-value">{{ display.action }}</span>
+        <dl class="tool-chip-fields">
+          <div class="tool-chip-field">
+            <dt>Tool</dt>
+            <dd><code>{{ display.toolName }}</code></dd>
           </div>
-          <div class="detail-fact">
-            <span class="detail-label">Tool</span>
-            <code class="detail-value detail-tool">{{ display.toolName }}</code>
+          <div class="tool-chip-field">
+            <dt>Status</dt>
+            <dd :data-tone="display.statusTone">{{ statusText }}</dd>
           </div>
-          <div class="detail-fact">
-            <span class="detail-label">Status</span>
-            <span class="detail-value" :data-tone="display.statusTone">{{ statusText }}</span>
+          <div v-if="display.target.length || display.links.length" class="tool-chip-field">
+            <dt>Target</dt>
+            <dd><InlineParts :parts="detailTarget" /></dd>
           </div>
-          <div v-if="display.target.length || display.links.length" class="detail-fact">
-            <span class="detail-label">Target</span>
-            <span class="detail-value detail-target"><InlineParts :parts="detailTarget" /></span>
-          </div>
-        </div>
+        </dl>
         <div v-if="!display.known && display.statusTone !== 'pending'" class="detail-hint">Generic tool — view raw payload for full detail.</div>
       </div>
       <div class="tool-chip-raw-bar">
@@ -98,34 +94,35 @@ watch(() => props.resultContent, () => { showRawResult.value = false; });
 <style scoped>
 .tool-chip { display:flex; flex-direction:column; gap:2px; width:100%; }
 .tool-chip-main { display:flex; align-items:stretch; width:100%; }
-.tool-chip-toggle { display:grid; grid-template-columns: 14px auto minmax(0, 1fr) auto auto; align-items:baseline; gap:8px; flex:1; min-width:0; border:0; padding:3px 0; background:transparent; color:var(--text-muted); cursor:pointer; font:inherit; font-family:'SF Mono',monospace; font-size:12px; text-align:left; border-radius:5px; }
+.tool-chip-toggle { display:grid; grid-template-columns: 14px auto minmax(0, 1fr) auto auto; align-items:baseline; gap:8px; flex:1; min-width:0; border:0; padding:4px 6px; background:transparent; color:var(--text-muted); cursor:pointer; font:inherit; font-size:12px; text-align:left; border-radius:var(--radius-sm); }
 .tool-chip-toggle:hover { background:var(--surface-2); }
 .tool-chip-caret { color:var(--text-muted); }
 .tool-chip-action { color:var(--accent-2); font-weight:600; }
 .tool-chip-target { color:var(--text-muted); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.tool-chip-status { justify-self:end; max-width:min(42vw, 520px); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text-muted); }
-.tool-chip-status[data-tone="ok"] { color:var(--accent-2); }
-.tool-chip-status[data-tone="error"] { color:var(--danger); }
-.tool-chip-status[data-tone="warn"] { color:var(--warn); }
-.tool-chip-status[data-tone="pending"] { color:var(--accent); font-style:italic; }
+.tool-chip-status { justify-self:end; max-width:min(42vw, 520px); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text-muted); border:1px solid var(--border); border-radius:var(--radius-pill); background:var(--surface-2); padding:1px 8px; line-height:1.35; }
+.tool-chip-status[data-tone="ok"] { color:var(--accent-2); border-color:var(--entry-accent-border); background:var(--entry-accent-bg); }
+.tool-chip-status[data-tone="error"] { color:var(--danger); border-color:var(--entry-danger-border); background:var(--entry-danger-bg); }
+.tool-chip-status[data-tone="warn"] { color:var(--warn); border-color:var(--entry-warn-border); background:var(--entry-warn-bg); }
+.tool-chip-status[data-tone="pending"] { color:var(--accent); border-color:var(--entry-accent-border); background:var(--entry-accent-bg); font-style:italic; }
 .tool-chip-time { color:var(--text-muted); font-size:11px; white-space:nowrap; }
 .tool-chip-pending .tool-chip-action { color:var(--accent); }
 .tool-chip-error .tool-chip-action { color:var(--danger); }
 .tool-chip-error .tool-chip-toggle { background:var(--entry-danger-bg); }
-.tool-chip-links { align-items:baseline; padding:3px 0 3px 8px; font-family:'SF Mono',monospace; font-size:12px; min-width:0; }
+.tool-chip-links { align-items:baseline; padding:3px 0 3px 8px; font-size:12px; min-width:0; }
 
-.tool-chip-detail { display:flex; flex-direction:column; gap:8px; padding:8px 0 4px 22px; }
+.tool-chip-detail { display:flex; flex-direction:column; gap:8px; background:var(--surface-1); border-left:2px solid var(--surface-3); border-radius:0 var(--radius-sm) var(--radius-sm) 0; padding:8px 12px; margin:4px 0 4px 22px; }
+.tool-chip-pending .tool-chip-detail { border-left-color:var(--accent); background:var(--entry-accent-bg); }
+.tool-chip-error .tool-chip-detail { border-left-color:var(--danger); background:var(--entry-danger-bg); }
 .tool-chip-body { display:flex; flex-direction:column; gap:8px; font-size:13px; }
-.detail-facts { display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:4px 12px; }
-.detail-fact { display:flex; flex-direction:column; gap:1px; min-width:0; }
-.detail-label { font-size:10px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.04em; }
-.detail-value { color:var(--text); overflow-wrap:anywhere; }
-.detail-value[data-tone="ok"] { color:var(--accent-2); }
-.detail-value[data-tone="error"] { color:var(--danger); }
-.detail-value[data-tone="warn"] { color:var(--warn); }
-.detail-value[data-tone="pending"] { color:var(--accent); }
-.detail-tool { font-family:'SF Mono',monospace; font-size:12px; color:var(--text-muted); }
-.detail-target { font-family:'SF Mono',monospace; font-size:12px; }
+.tool-chip-fields { display:flex; flex-direction:column; gap:4px; margin:0; }
+.tool-chip-field { display:flex; align-items:baseline; gap:8px; min-width:0; }
+.tool-chip-field dt { color:var(--text-muted); font-size:var(--font-size-sm); flex-shrink:0; }
+.tool-chip-field dd { min-width:0; color:var(--text); overflow-wrap:anywhere; margin:0; }
+.tool-chip-field dd[data-tone="ok"] { color:var(--accent-2); }
+.tool-chip-field dd[data-tone="error"] { color:var(--danger); }
+.tool-chip-field dd[data-tone="warn"] { color:var(--warn); }
+.tool-chip-field dd[data-tone="pending"] { color:var(--accent); }
+.tool-chip-field code { font-family:'SF Mono',monospace; font-size:12px; color:var(--text-muted); }
 .detail-hint { font-size:11px; color:var(--text-muted); font-style:italic; }
 
 .tool-chip-raw-bar { display:flex; gap:8px; flex-wrap:wrap; }
