@@ -164,10 +164,17 @@ describe('Tool inventory mirrors SPEC-r7 capability classes', () => {
       const prose = staticCapabilityProse(prompt);
       const registeredNames = new Set(toolNames);
       expect(prose).toContain('Workspace repair: use read, write, edit, glob, and grep');
+      expect(prose).not.toMatch(/grep[^.]*record:\/\//);
+      expect(prose).toContain('Records are discovered via glob record:///<cardId>');
+      expect(prose).toContain('read, written, or edited as documents via record:///<filename>?card=<id>&v=<n>');
       for (const staticProviderReference of ['read', 'write', 'edit', 'apply_patch', 'glob', 'grep', 'run_command', 'webfetch', 'skill', 'mcp_tool_call']) {
         expect(registeredNames.has(staticProviderReference)).toBe(true);
         expect(prose).toMatch(new RegExp(`\\b${staticProviderReference}\\b`));
       }
+      const grepToolLine = prompt.split('\n').find((line) => line.startsWith('- grep:'));
+      expect(grepToolLine).toContain('grep does not support record:/// paths');
+      expect(grepToolLine).toContain('glob record:///<cardId>');
+      expect(grepToolLine).toContain('read record:///<filename>?card=<id>&v=<n>');
       for (const retiredTool of RETIRED_ACTIVE_SURFACE_TOOLS) expect(prose).not.toMatch(new RegExp(`\\b${retiredTool}\\b`));
     } finally { rmSync(root, { recursive: true, force: true }); }
   });

@@ -36,7 +36,6 @@ export {
 export {
   assertRecordWrite,
   parseScopedPathScheme,
-  resolveRecordSearchTarget,
   resolveRecordWriteTarget,
   scopedPathResolvers,
   validRecordSegment,
@@ -45,3 +44,22 @@ export {
   type ScopedPathMode,
   type ScopedPathScheme,
 } from './scoped-path-schemes.js';
+export {
+  displayPathForResolved,
+  globScopedPath,
+  globSegmentToRegExp,
+  globToRegExp,
+  isHiddenPath,
+  listScopedPath,
+  listVisibleDirectoryEntries,
+  resolveScopedPath,
+  scopedReadFilterRel,
+  walkFiles,
+  workRootOf,
+  type RecordSummary,
+  type VfsContext,
+  type VfsEntry,
+  type VfsListing,
+  type VfsMode,
+  type VfsResolved,
+} from './vfs.js';

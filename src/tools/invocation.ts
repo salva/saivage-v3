@@ -96,7 +96,7 @@ export async function invokeToolCall(surface: InvocationSurface, name: string, r
   } catch {
     return { success: false, error: 'Tool arguments must be valid JSON.' };
   }
-  return invokeTool(surface, name, args, signal);
+  return invokeToolForLlm(surface, name, args, signal);
 }
 
 export async function cleanupInvocationSurface(surface: InvocationSurface, reason: ToolProviderCleanupReason): Promise<void> {

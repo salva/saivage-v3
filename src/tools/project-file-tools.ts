@@ -1,11 +1,11 @@
 import * as childProcess from 'node:child_process';
-import { closeSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, join, relative } from 'node:path';
+import { closeSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, isAbsolute, join } from 'node:path';
 
 import type { AgentRole } from '../schemas/index.js';
 import { isBinarySample } from './analyst-tool-helpers.js';
 import { redactTextForOutbound } from '../redaction/index.js';
-import { assertRecordWrite, isReadBlocked, isWriteBlocked, looksLikeSecretPath, parseScopedPathScheme, resolveContainedProjectPath, resolveRecordSearchTarget, resolveRecordWriteTarget, scopedPathResolvers, workUrlFromAbsolutePath, type ResolvedScopedPath, type ScopedPathScheme } from '../workspace/index.js';
+import { assertRecordWrite, displayPathForResolved, globScopedPath, globToRegExp, isHiddenPath, isWriteBlocked, listScopedPath, listVisibleDirectoryEntries, looksLikeSecretPath, resolveContainedProjectPath, resolveRecordWriteTarget, resolveScopedPath, scopedReadFilterRel, walkFiles, workRootOf, type VfsResolved } from '../workspace/index.js';
 import { closeOpenRecordSlot, discardOpenRecordSlot, openRecordSlot, readRecordSlotIndex } from '../runtime/records/record-slots.js';
 import type { CardStore } from '../cards/store-api.js';
 import { readRuntimeState } from '../runtime/state-api.js';
@@ -15,15 +15,13 @@ const { spawnSync } = childProcess;
 const DEFAULT_READ_LIMIT = 2000;
 const DEFAULT_SEARCH_LIMIT = 200;
 const MAX_SEARCH_LIMIT = 1000;
-const SKIPPED_DIRS = new Set(['.git', 'node_modules', '.saivage', '.saivage-work', 'dist', 'build', '__pycache__']);
 export const MAX_READ_FILE_BYTES = 10 * 1024 * 1024;
 export const MAX_READ_OUTPUT_BYTES = 256 * 1024;
 export const MAX_READ_LINE_CHARS = 2000;
 export const READ_HEAD_SAMPLE_BYTES = 4096;
-const TMP_SCOPED_PREFIX_RE = /^\.saivage-work\/cards\/[^/]+\/tmp\/?/;
 
 export type WorkspaceContext = { projectRoot: string; cardId?: string; agentRole?: AgentRole; store?: Pick<CardStore, 'read'> };
-type ResolvedToolPath = ResolvedScopedPath;
+type ResolvedToolPath = Extract<VfsResolved, { kind: 'project' | 'tmp' | 'system' | 'work' }> | Extract<VfsResolved, { kind: 'record'; recordKind: 'document' }>;
 
 export class WorkspaceToolInputError extends Error {
   constructor(message: string) {
@@ -36,26 +34,10 @@ function toolInputError(message: string): WorkspaceToolInputError {
   return new WorkspaceToolInputError(message);
 }
 
-function normalizeRel(path: string): string {
-  return path.replace(/\\/g, '/');
-}
-
 function resolveProjectPath(projectRoot: string, path: string, label: string): { absolutePath: string; relativePath: string } {
   const resolved = resolveContainedProjectPath(projectRoot, path);
   if (!resolved.safe || !resolved.relativePath) throw toolInputError(resolved.reason ?? `${label} must resolve inside the project root.`);
   return { absolutePath: resolved.absolutePath, relativePath: resolved.relativePath };
-}
-
-function isHiddenPath(projectRoot: string, absolutePath: string, relativePath: string): boolean {
-  return isReadBlocked(relativePath) || looksLikeSecretPath(absolutePath) || relativePath.split('/').some((part) => SKIPPED_DIRS.has(part));
-}
-
-function workRootOf(resolved: { kind?: string; workRoot?: unknown; absolutePath?: string; relativePath?: string }): string | undefined {
-  return resolved.kind === 'work' && typeof resolved.workRoot === 'string' ? resolved.workRoot : undefined;
-}
-
-function displayPathForResolved(projectRoot: string, resolved: ResolvedToolPath, absolutePath = resolved.absolutePath): string {
-  return resolved.kind === 'work' ? workUrlFromAbsolutePath(projectRoot, absolutePath) : resolved.relativePath;
 }
 
 function readFileHead(absolutePath: string, maxBytes: number): Buffer {
@@ -67,22 +49,6 @@ function readFileHead(absolutePath: string, maxBytes: number): Buffer {
   } finally {
     closeSync(fd);
   }
-}
-
-function scopedReadFilterRel(resolved: ResolvedToolPath, candidateAbs: string, candidateScopedRel: string): string {
-  const workRoot = workRootOf(resolved);
-  if (workRoot) return normalizeRel(relative(workRoot, candidateAbs));
-  if (resolved.kind === 'tmp') return candidateScopedRel.replace(TMP_SCOPED_PREFIX_RE, '');
-  return candidateScopedRel;
-}
-
-function listVisibleDirectoryEntries(ctx: WorkspaceContext, resolved: ResolvedToolPath): Array<{ name: string; type: 'dir' | 'file' }> {
-  const { absolutePath, relativePath } = resolved;
-  return readdirSync(absolutePath, { withFileTypes: true })
-    .map((entry) => ({ name: entry.name, type: entry.isDirectory() ? 'dir' as const : 'file' as const, absolutePath: join(absolutePath, entry.name), relativePath: normalizeRel(join(relativePath === '.' ? '' : relativePath, entry.name)) }))
-    .filter((entry) => !isHiddenPath(ctx.projectRoot, entry.absolutePath, scopedReadFilterRel(resolved, entry.absolutePath, entry.relativePath)))
-    .map(({ name, type }) => ({ name, type }))
-    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function truncateUtf8(content: string, maxBytes: number): { content: string; truncated: boolean } {
@@ -131,74 +97,67 @@ function canWriteWorkspaceFiles(role: AgentRole | undefined): boolean {
   return role === undefined || role === 'executor' || role === 'analyst';
 }
 
-function resolveToolPath(ctx: WorkspaceContext, raw: string, mode: 'read' | 'write'): ResolvedToolPath {
-  let scheme: ScopedPathScheme | null;
-  try {
-    scheme = parseScopedPathScheme(raw);
-  } catch (error) {
-    throw toolInputError(error instanceof Error ? error.message : String(error));
-  }
-  if (scheme) {
-    if ((scheme === 'project' || scheme === 'system') && mode === 'write' && !canWriteWorkspaceFiles(ctx.agentRole)) throw toolInputError(`${ctx.agentRole} cannot write ${scheme} files.`);
-    const resolved = scopedPathResolvers[scheme]({ projectRoot: ctx.projectRoot, agent: { cardId: ctx.cardId, agentRole: ctx.agentRole }, fail: toolInputError }, raw, mode);
-    if (mode === 'read' && resolved.kind !== 'record') {
-      const filterRel = scopedReadFilterRel(resolved, resolved.absolutePath, resolved.relativePath);
-      if (isHiddenPath(ctx.projectRoot, resolved.absolutePath, filterRel)) throw toolInputError(`Access to '${resolved.relativePath}' is blocked for security reasons.`);
-    }
-    if (mode === 'write' && resolved.kind !== 'record') {
-      if (resolved.absolutePath === '/' || raw.endsWith('/') || (resolved.kind !== 'system' && (resolved.relativePath === '.' || resolved.relativePath.endsWith('/')))) throw toolInputError('write requires a file path, not a directory.');
-      if (resolved.kind === 'project' && (resolved.relativePath === '.saivage' || resolved.relativePath.startsWith('.saivage/') || resolved.relativePath === '.saivage-work' || resolved.relativePath.startsWith('.saivage-work/'))) throw toolInputError('Cannot modify Saivage internal state directories.');
-      if (isWriteBlocked(resolved.relativePath) || looksLikeSecretPath(resolved.absolutePath)) throw toolInputError(`Write access to '${resolved.relativePath}' is blocked for security reasons.`);
-      try {
-        if (lstatSync(resolved.absolutePath).isSymbolicLink()) throw toolInputError(`Write access to symlink '${resolved.relativePath}' is blocked for security reasons.`);
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
-      }
-    }
+function vfsCtx(ctx: WorkspaceContext) {
+  return { projectRoot: ctx.projectRoot, agent: { cardId: ctx.cardId, agentRole: ctx.agentRole }, fail: toolInputError };
+}
+
+function assertScopedReadable(ctx: WorkspaceContext, resolved: VfsResolved): ResolvedToolPath {
+  if (resolved.kind === 'record') {
+    if (resolved.recordKind === 'directory') throw new Error('Record directory must be handled by caller.');
     return resolved;
   }
-  const projectPath = raw;
-  if (mode === 'write' && !canWriteWorkspaceFiles(ctx.agentRole)) throw toolInputError(`${ctx.agentRole} cannot write project files.`);
-  const resolved = mode === 'read' ? assertReadable(ctx.projectRoot, projectPath) : assertWritable(ctx.projectRoot, projectPath);
-  return { kind: 'project', ...resolved };
+  const filterRel = scopedReadFilterRel(resolved, resolved.absolutePath, resolved.relativePath);
+  if (isHiddenPath(ctx.projectRoot, resolved.absolutePath, filterRel)) throw toolInputError(`Access to '${resolved.relativePath}' is blocked for security reasons.`);
+  return resolved;
+}
+
+function assertScopedWritable(ctx: WorkspaceContext, raw: string, resolved: VfsResolved): ResolvedToolPath {
+  if (resolved.kind === 'record') {
+    if (resolved.recordKind === 'directory') throw toolInputError('write requires a file path, not a directory.');
+    return resolved;
+  }
+  if ((resolved.kind === 'project' || resolved.kind === 'system') && !canWriteWorkspaceFiles(ctx.agentRole)) throw toolInputError(`${ctx.agentRole} cannot write ${resolved.kind} files.`);
+  if (resolved.absolutePath === '/' || raw.endsWith('/') || (resolved.kind !== 'system' && (resolved.relativePath === '.' || resolved.relativePath.endsWith('/')))) throw toolInputError('write requires a file path, not a directory.');
+  if (resolved.kind === 'project' && (resolved.relativePath === '.saivage' || resolved.relativePath.startsWith('.saivage/') || resolved.relativePath === '.saivage-work' || resolved.relativePath.startsWith('.saivage-work/'))) throw toolInputError('Cannot modify Saivage internal state directories.');
+  if (isWriteBlocked(resolved.relativePath) || looksLikeSecretPath(resolved.absolutePath)) throw toolInputError(`Write access to '${resolved.relativePath}' is blocked for security reasons.`);
+  try {
+    if (lstatSync(resolved.absolutePath).isSymbolicLink()) throw toolInputError(`Write access to symlink '${resolved.relativePath}' is blocked for security reasons.`);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+  }
+  return resolved;
+}
+
+function resolveReadPath(ctx: WorkspaceContext, raw: string): { resolved: ResolvedToolPath | Extract<VfsResolved, { kind: 'record'; recordKind: 'directory' }>; scoped: boolean } {
+  const resolved = resolveScopedPath(vfsCtx(ctx), raw, 'read');
+  if (resolved === null) return { resolved: { kind: 'project', ...assertReadable(ctx.projectRoot, raw), isRoot: false }, scoped: false };
+  if (resolved.kind === 'record' && resolved.recordKind === 'directory') return { resolved, scoped: true };
+  return { resolved: assertScopedReadable(ctx, resolved), scoped: true };
+}
+
+function resolveWritePath(ctx: WorkspaceContext, raw: string): ResolvedToolPath {
+  const resolved = resolveScopedPath(vfsCtx(ctx), raw, 'write');
+  if (resolved === null) {
+    if (!canWriteWorkspaceFiles(ctx.agentRole)) throw toolInputError(`${ctx.agentRole} cannot write project files.`);
+    return { kind: 'project', ...assertWritable(ctx.projectRoot, raw), isRoot: false };
+  }
+  return assertScopedWritable(ctx, raw, resolved);
+}
+
+async function directoryEntriesForRead(ctx: WorkspaceContext, raw: string, resolved: ResolvedToolPath, scoped: boolean) {
+  if (scoped) {
+    const listing = await listScopedPath(vfsCtx(ctx), raw);
+    if (listing.kind !== 'entries') throw new Error('Filesystem directory listing did not return entries.');
+    return listing.entries;
+  }
+  if (resolved.kind === 'record') throw new Error('Record document cannot be listed as a directory.');
+  return listVisibleDirectoryEntries(ctx, resolved);
 }
 
 function parseNonNegativeInt(value: unknown, fallback: number, max = Number.MAX_SAFE_INTEGER): number {
   if (value === undefined) return fallback;
   if (!Number.isInteger(value) || Number(value) < 0) throw toolInputError('Expected a non-negative integer.');
   return Math.min(Number(value), max);
-}
-
-function globSegmentToRegExp(segment: string): string {
-  return segment.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]');
-}
-
-function globToRegExp(pattern: string): RegExp {
-  const segments = normalizeRel(pattern).split('/');
-  const parts = ['^'];
-  for (let i = 0; i < segments.length; i += 1) {
-    const segment = segments[i];
-    if (segment === '**') parts.push(i === segments.length - 1 ? '.*' : '(?:[^/]+/)*');
-    else parts.push(globSegmentToRegExp(segment));
-    if (i < segments.length - 1 && segment !== '**') parts.push('/');
-  }
-  parts.push('$');
-  return new RegExp(parts.join(''));
-}
-
-function walkFiles(projectRoot: string, start: string, visitor: (absolutePath: string, relativePath: string) => boolean | void, options: { includeHidden: boolean; root?: string; displayPath?: (absolutePath: string, relativePath: string) => string } = { includeHidden: false }): void {
-  const root = options.root ?? projectRoot;
-  for (const entry of readdirSync(start, { withFileTypes: true })) {
-    const absolutePath = join(start, entry.name);
-    const relativePath = normalizeRel(relative(root, absolutePath));
-    if (entry.isDirectory()) {
-      if (!options.includeHidden && (SKIPPED_DIRS.has(entry.name) || isHiddenPath(projectRoot, absolutePath, relativePath))) continue;
-      walkFiles(projectRoot, absolutePath, visitor, options);
-      continue;
-    }
-    if (!entry.isFile() || (!options.includeHidden && isHiddenPath(projectRoot, absolutePath, relativePath))) continue;
-    if (visitor(absolutePath, options.displayPath ? options.displayPath(absolutePath, relativePath) : relativePath) === false) return;
-  }
 }
 
 function patchPaths(patch: string): string[] {
@@ -217,12 +176,23 @@ function patchPaths(patch: string): string[] {
 }
 
 export async function readProject(ctx: WorkspaceContext, params: { path: string; offset?: number; limit?: number; read_mode?: 'auto' | 'text' | 'multimodal'; metadata_only?: boolean }): Promise<unknown> {
-  const resolved = resolveToolPath(ctx, params.path, 'read');
+  const { resolved, scoped } = resolveReadPath(ctx, params.path);
+  if (resolved.kind === 'record' && resolved.recordKind === 'directory') {
+    const listing = await listScopedPath(vfsCtx(ctx), params.path);
+    if (listing.kind !== 'records') throw new Error('Record directory listing did not return records.');
+    const offset = parseNonNegativeInt(params.offset, 0);
+    const limit = parseNonNegativeInt(params.limit, DEFAULT_READ_LIMIT, DEFAULT_READ_LIMIT);
+    if (params.metadata_only === true) return { path: `record:///${resolved.cardId}`, metadata_only: true, is_directory: true, entries_count: listing.records.length };
+    return { path: `record:///${resolved.cardId}`, records: listing.records.slice(offset, offset + limit), offset, limit, total_records: listing.records.length, truncated: offset + limit < listing.records.length };
+  }
   const { absolutePath, relativePath } = resolved;
   const st = statSync(absolutePath);
   const baseRecord = { path: displayPathForResolved(ctx.projectRoot, resolved), ...(resolved.kind === 'record' ? { record_url: resolved.recordUrl } : {}) };
   if (params.metadata_only === true) {
-    if (st.isDirectory()) return { ...baseRecord, metadata_only: true, is_directory: true, size: st.size, mtime: st.mtime.toISOString(), entries_count: listVisibleDirectoryEntries(ctx, resolved).length };
+    if (st.isDirectory()) {
+      const entries = await directoryEntriesForRead(ctx, params.path, resolved, scoped);
+      return { ...baseRecord, metadata_only: true, is_directory: true, size: st.size, mtime: st.mtime.toISOString(), entries_count: entries.length };
+    }
     if (!st.isFile()) throw toolInputError(`Unsupported file type: ${relativePath}`);
     return { ...baseRecord, metadata_only: true, is_directory: false, size: st.size, mtime: st.mtime.toISOString() };
   }
@@ -231,7 +201,7 @@ export async function readProject(ctx: WorkspaceContext, params: { path: string;
   const offset = parseNonNegativeInt(params.offset, 0);
   const limit = parseNonNegativeInt(params.limit, DEFAULT_READ_LIMIT, DEFAULT_READ_LIMIT);
   if (st.isDirectory()) {
-    const entries = listVisibleDirectoryEntries(ctx, resolved);
+    const entries = await directoryEntriesForRead(ctx, params.path, resolved, scoped);
     return { ...baseRecord, entries: entries.slice(offset, offset + limit), offset, limit, total_entries: entries.length, truncated: offset + limit < entries.length };
   }
   if (!st.isFile()) throw toolInputError(`Unsupported file type: ${relativePath}`);
@@ -271,7 +241,7 @@ export async function readProject(ctx: WorkspaceContext, params: { path: string;
 
 export async function writeProject(ctx: WorkspaceContext, params: { path: string; content: string }): Promise<unknown> {
   if (ctx.agentRole === 'analyst' && params.path.startsWith('record:///')) return writeAnalystBriefRecord(ctx, params);
-  const resolved = resolveToolPath(ctx, params.path, 'write');
+  const resolved = resolveWritePath(ctx, params.path);
   const { absolutePath, relativePath } = resolved;
   mkdirSync(dirname(absolutePath), { recursive: true });
   writeFileSync(absolutePath, params.content, 'utf8');
@@ -289,16 +259,16 @@ export function authorizeWriteProject(ctx: WorkspaceContext, params: { path: str
     return;
   }
   if (params.path.startsWith('tmp:///')) {
-    resolveToolPath(ctx, params.path, 'write');
+    resolveWritePath(ctx, params.path);
     return;
   }
   if (params.path.startsWith('system:///')) {
     if (!canWriteWorkspaceFiles(ctx.agentRole)) throw toolInputError(`${ctx.agentRole} cannot write system files.`);
-    resolveToolPath(ctx, params.path, 'write');
+    resolveWritePath(ctx, params.path);
     return;
   }
   if (!canWriteWorkspaceFiles(ctx.agentRole)) throw toolInputError(`${ctx.agentRole} cannot write project files.`);
-  resolveToolPath(ctx, params.path, 'write');
+  resolveWritePath(ctx, params.path);
 }
 
 function writeAnalystBriefRecord(ctx: WorkspaceContext, params: { path: string; content: string }): unknown {
@@ -346,38 +316,42 @@ function validateBriefMarkdown(content: string): void {
 }
 
 export async function globProject(ctx: WorkspaceContext, params: { directory: string; pattern: string; max_results?: number }): Promise<unknown> {
-  const isRecordSearch = params.directory.startsWith('record:///');
-  const isSystemSearch = params.directory.startsWith('system:///');
-  const isWorkSearch = params.directory.startsWith('work:///');
-  const resolved = isRecordSearch
-    ? resolveRecordSearchPath(ctx, params.directory)
-    : resolveToolPath(ctx, params.directory, 'read');
+  const scoped = resolveScopedPath(vfsCtx(ctx), params.directory, 'search');
+  const limit = parseNonNegativeInt(params.max_results, DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT);
+  if (scoped !== null) {
+    const result = await globScopedPath(vfsCtx(ctx), params.directory, params.pattern, limit);
+    return { directory: displayPathForResolved(ctx.projectRoot, scoped), pattern: params.pattern, matches: result.matches, truncated: result.truncated };
+  }
+  const resolved = { kind: 'project' as const, ...assertReadable(ctx.projectRoot, params.directory), isRoot: false };
   const { absolutePath, relativePath } = resolved;
   const st = statSync(absolutePath);
   const pattern = globToRegExp(params.pattern);
-  const limit = parseNonNegativeInt(params.max_results, DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT);
   const matches: string[] = [];
   const consider = (abs: string, rel: string): boolean | void => {
-    const within = normalizeRel(relative(relativePath === '.' ? ctx.projectRoot : absolutePath, abs));
+    const within = abs === absolutePath ? relativePath : abs.slice((relativePath === '.' ? ctx.projectRoot : absolutePath).length + 1).replace(/\\/g, '/');
     if (pattern.test(within) || pattern.test(rel)) matches.push(rel);
     if (matches.length >= limit) return false;
   };
-  if (st.isFile()) consider(absolutePath, isWorkSearch ? workUrlFromAbsolutePath(ctx.projectRoot, absolutePath) : relativePath);
-  else walkFiles(ctx.projectRoot, absolutePath, consider, { includeHidden: isRecordSearch, root: isSystemSearch ? absolutePath : workRootOf(resolved), displayPath: isSystemSearch ? (abs) => `system:///${normalizeRel(abs).replace(/^\/+/, '')}` : isWorkSearch ? (abs) => workUrlFromAbsolutePath(ctx.projectRoot, abs) : undefined });
-  return { directory: isWorkSearch ? workUrlFromAbsolutePath(ctx.projectRoot, absolutePath) : relativePath, pattern: params.pattern, matches, truncated: matches.length >= limit };
+  if (st.isFile()) consider(absolutePath, relativePath);
+  else walkFiles(ctx.projectRoot, absolutePath, consider, { includeHidden: false });
+  return { directory: relativePath, pattern: params.pattern, matches, truncated: matches.length >= limit };
 }
 
 export async function grepProject(ctx: WorkspaceContext, params: { pattern: string; path?: string; include?: string; max_results?: number }): Promise<unknown> {
-  const isRecordSearch = params.path?.startsWith('record:///') ?? false;
-  const isSystemSearch = params.path?.startsWith('system:///') ?? false;
-  const isWorkSearch = params.path?.startsWith('work:///') ?? false;
-  const target = isRecordSearch
-    ? resolveRecordSearchPath(ctx, params.path!)
-    : resolveToolPath(ctx, params.path ?? '.', 'read');
-  const regex = new RegExp(params.pattern);
+  const raw = params.path ?? '.';
+  if (raw.startsWith('record:///')) throw toolInputError('grep does not support record:/// paths; use glob + read to inspect records.');
+  const scoped = resolveScopedPath(vfsCtx(ctx), raw, 'search');
+  const target = scoped === null ? { kind: 'project' as const, ...assertReadable(ctx.projectRoot, raw), isRoot: false } : assertScopedReadable(ctx, scoped);
+  let regex: RegExp;
+  try {
+    regex = new RegExp(params.pattern);
+  } catch (error) {
+    throw toolInputError(error instanceof Error ? error.message : String(error));
+  }
   const include = params.include ? globToRegExp(params.include) : null;
   const limit = parseNonNegativeInt(params.max_results, DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT);
   const matches: Array<{ path: string; line: number; preview: string }> = [];
+  const isWorkSearch = target.kind === 'work';
   const scan = (abs: string, rel: string): boolean | void => {
     if (include && !include.test(rel)) return;
     const sample = readFileSync(abs);
@@ -392,13 +366,13 @@ export async function grepProject(ctx: WorkspaceContext, params: { pattern: stri
     }
   };
   const st = statSync(target.absolutePath);
-  if (st.isFile()) scan(target.absolutePath, isWorkSearch ? workUrlFromAbsolutePath(ctx.projectRoot, target.absolutePath) : target.relativePath);
-  else walkFiles(ctx.projectRoot, target.absolutePath, scan, { includeHidden: isRecordSearch, root: isSystemSearch ? target.absolutePath : workRootOf(target), displayPath: isSystemSearch ? (abs) => `system:///${normalizeRel(abs).replace(/^\/+/, '')}` : isWorkSearch ? (abs) => workUrlFromAbsolutePath(ctx.projectRoot, abs) : undefined });
+  if (st.isFile()) scan(target.absolutePath, displayPathForResolved(ctx.projectRoot, target));
+  else walkFiles(ctx.projectRoot, target.absolutePath, scan, { includeHidden: false, root: target.kind === 'system' ? target.absolutePath : workRootOf(target), displayPath: target.kind === 'system' ? (abs) => `system:///${abs.replace(/\\/g, '/').replace(/^\/+/, '')}` : target.kind === 'work' ? (abs) => displayPathForResolved(ctx.projectRoot, target, abs) : undefined });
   return { pattern: params.pattern, matches, truncated: matches.length >= limit };
 }
 
 export async function editProject(ctx: WorkspaceContext, params: { path: string; old_string: string; new_string: string; replace_all?: boolean }): Promise<unknown> {
-  const resolved = resolveToolPath(ctx, params.path, 'write');
+  const resolved = resolveWritePath(ctx, params.path);
   const { absolutePath, relativePath } = resolved;
   const content = readFileSync(absolutePath, 'utf8');
   const occurrences = content.split(params.old_string).length - 1;
@@ -419,9 +393,4 @@ export async function applyProjectPatch(ctx: WorkspaceContext, params: { patch: 
   const applied = spawnSync('git', ['apply', '--'], { cwd: ctx.projectRoot, input: params.patch, encoding: 'utf8' });
   if (applied.status !== 0) throw toolInputError(applied.stderr || applied.stdout || 'Patch apply failed.');
   return { changed_files: affected, applied: true };
-}
-
-function resolveRecordSearchPath(ctx: WorkspaceContext, raw: string): { absolutePath: string; relativePath: string } {
-  if (!ctx.agentRole) throw toolInputError('record:/// paths require an active agent role.');
-  return resolveRecordSearchTarget({ projectRoot: ctx.projectRoot, agent: { cardId: ctx.cardId, agentRole: ctx.agentRole }, fail: toolInputError }, raw);
 }

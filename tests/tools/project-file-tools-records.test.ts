@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { globProject, grepProject, readProject, writeProject } from '../../src/tools/project-file-tools.js';
 import { closeOpenRecordSlot, readClosedRecordSlotMetadata } from '../../src/runtime/records/record-slots.js';
+import { initRuntimeState } from '../../src/runtime/state.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-project-tools-'));
@@ -30,6 +31,20 @@ describe('project file tools record enforcement', () => {
     await expect(writeProject({ projectRoot, cardId: 'card-1', agentRole: 'planner' }, { path: 'record:///card.json?v=next', content: '{}' })).rejects.toThrow('internal');
   }));
 
+  it('classifies analyst unsupported record slots as workspace tool input errors', async () => withTempProject(async (projectRoot) => {
+    initRuntimeState(projectRoot);
+    const store = { read: () => ({ id: 'card-1', version_seq: 1 }) as any };
+
+    await expect(writeProject({ projectRoot, cardId: 'card-1', agentRole: 'analyst', store }, { path: 'record:///bogus.md?card=card-1&v=next', content: 'bad' })).rejects.toMatchObject({ name: 'WorkspaceToolInputError' });
+  }));
+
+  it('classifies analyst malformed record URLs as workspace tool input errors', async () => withTempProject(async (projectRoot) => {
+    initRuntimeState(projectRoot);
+    const store = { read: () => ({ id: 'card-1', version_seq: 1 }) as any };
+
+    await expect(writeProject({ projectRoot, cardId: 'card-1', agentRole: 'analyst', store }, { path: 'record:///brief.md/../x', content: 'bad' })).rejects.toMatchObject({ name: 'WorkspaceToolInputError' });
+  }));
+
   it('exposes metadata for closed record documents without exposing internal card storage', async () => withTempProject(async (projectRoot) => {
     await writeProject({ projectRoot, cardId: 'card-1', agentRole: 'executor' }, { path: 'record:///status.md?v=next', content: 'executor status' });
     closeOpenRecordSlot(projectRoot, { cardId: 'card-1', filename: 'status.md', writer: 'executor', cardVersionSeq: 3 });
@@ -49,8 +64,8 @@ describe('project file tools record enforcement', () => {
     mkdirSync(join(projectRoot, '.saivage', 'runtime'), { recursive: true });
     writeFileSync(join(projectRoot, '.saivage', 'runtime', 'state.json'), '{"secret":true}');
 
-    await expect(globProject({ projectRoot, cardId: 'card-1', agentRole: 'planner' }, { directory: 'record:///..%2Fruntime', pattern: '**/*' })).rejects.toThrow('traversal or separator');
-    await expect(grepProject({ projectRoot, cardId: 'card-1', agentRole: 'planner' }, { path: 'record:///a..b', pattern: 'secret' })).rejects.toThrow('Invalid card id');
-    await expect(globProject({ projectRoot, cardId: 'card-1', agentRole: 'planner' }, { directory: 'record:///card-1/..%2Fruntime', pattern: '**/*' })).rejects.toThrow('traversal or separator');
+    await expect(globProject({ projectRoot, cardId: 'card-1', agentRole: 'planner' }, { directory: 'record:///..%2Fruntime', pattern: '**/*' })).rejects.toMatchObject({ name: 'WorkspaceToolInputError' });
+    await expect(grepProject({ projectRoot, cardId: 'card-1', agentRole: 'planner' }, { path: 'record:///a..b', pattern: 'secret' })).rejects.toThrow('grep does not support record:/// paths; use glob + read to inspect records.');
+    await expect(globProject({ projectRoot, cardId: 'card-1', agentRole: 'planner' }, { directory: 'record:///card-1/..%2Fruntime', pattern: '**/*' })).rejects.toMatchObject({ name: 'WorkspaceToolInputError' });
   }));
 });

@@ -208,16 +208,40 @@ describe('workspace and patch providers', () => {
 
       const write = await invokeTool(surface, 'write', { path: `record:///brief.md?card=${card.id}&v=next`, content: VALID_BRIEF });
       const read = await invokeTool(surface, 'read', { path: `record:///brief.md?card=${card.id}` });
+      const recordDirectoryRead = await invokeTool(surface, 'read', { path: `record:///${card.id}` });
       const glob = await invokeTool(surface, 'glob', { directory: `record:///${card.id}`, pattern: '**/*.md' });
       const grep = await invokeTool(surface, 'grep', { path: `record:///${card.id}/brief.md`, pattern: 'Acceptance Criteria' });
 
       expect(write.success).toBe(true);
       expect(read.success).toBe(true);
       if (read.success) expect(read.data).toMatchObject({ content: VALID_BRIEF, record_url: `record:///brief.md?card=${card.id}&v=2` });
+      expect(recordDirectoryRead.success).toBe(true);
+      if (recordDirectoryRead.success) expect(recordDirectoryRead.data).toMatchObject({ records: expect.arrayContaining([expect.objectContaining({ filename: 'brief.md', url: `record:///brief.md?card=${card.id}&v=2` })]) });
       expect(glob.success).toBe(true);
-      if (glob.success) expect((glob.data as { matches: string[] }).matches.some((path) => path.endsWith('/brief/2.md'))).toBe(true);
-      expect(grep.success).toBe(true);
-      if (grep.success) expect((grep.data as { matches: Array<{ preview: string }> }).matches.some((match) => match.preview.includes('Acceptance Criteria'))).toBe(true);
+      if (glob.success) expect((glob.data as { matches: string[] }).matches).toContain(`record:///brief.md?card=${card.id}&v=2`);
+      expect(grep.success).toBe(false);
+      if (!grep.success) expect(grep.error).toContain('grep does not support record:/// paths; use glob + read to inspect records.');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('resolves project roots and invalid grep regexes as model-visible tool results', async () => {
+    const { root } = setupProject();
+    try {
+      writeFileSync(join(root, 'SPEC.md'), 'spec', 'utf8');
+      const surface = buildInvocationSurface('executor', [createWorkspaceProvider({ projectRoot: root, cardId: 'card-1', agentRole: 'executor' })]);
+
+      const read = await invokeTool(surface, 'read', { path: 'project:///' });
+      const glob = await invokeTool(surface, 'glob', { directory: 'project:///', pattern: '**/*.md' });
+      const grep = await invokeTool(surface, 'grep', { pattern: '(unclosed' });
+
+      expect(read.success).toBe(true);
+      if (read.success) expect(read.data).toMatchObject({ entries: expect.arrayContaining([expect.objectContaining({ name: 'SPEC.md' })]) });
+      expect(glob.success).toBe(true);
+      if (glob.success) expect((glob.data as { matches: string[] }).matches).toContain('SPEC.md');
+      expect(grep.success).toBe(false);
+      if (!grep.success) expect(grep.error).toContain('Invalid regular expression');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

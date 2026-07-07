@@ -2,7 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { MAX_READ_FILE_BYTES, MAX_READ_LINE_CHARS, MAX_READ_OUTPUT_BYTES, readProject } from '../../src/tools/project-file-tools.js';
+import { globProject, grepProject, MAX_READ_FILE_BYTES, MAX_READ_LINE_CHARS, MAX_READ_OUTPUT_BYTES, readProject } from '../../src/tools/project-file-tools.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-read-limits-'));
@@ -33,6 +33,26 @@ describe('project file tool read limits', () => {
     const result = await readProject(ctx(projectRoot), { path: '.', metadata_only: true });
 
     expect(result).toEqual({ path: '.', metadata_only: true, is_directory: true, size: expect.any(Number), mtime: expect.any(String), entries_count: 1 });
+  }));
+
+  it('preserves non-scoped directory read, glob, and grep branches', async () => withTempProject(async (projectRoot) => {
+    mkdirSync(join(projectRoot, '.saivage'), { recursive: true });
+    mkdirSync(join(projectRoot, 'node_modules'), { recursive: true });
+    writeFileSync(join(projectRoot, '.saivage', 'hidden.txt'), 'needle hidden', 'utf8');
+    writeFileSync(join(projectRoot, 'node_modules', 'hidden.txt'), 'needle hidden', 'utf8');
+    writeFileSync(join(projectRoot, 'visible.txt'), 'needle visible', 'utf8');
+
+    const read = await readProject(ctx(projectRoot), { path: '.' }) as { path: string; entries: Array<{ name: string }>; total_entries: number };
+    const metadata = await readProject(ctx(projectRoot), { path: '.', metadata_only: true });
+    const glob = await globProject(ctx(projectRoot), { directory: '.', pattern: '**/*' }) as { directory: string; matches: string[] };
+    const grep = await grepProject(ctx(projectRoot), { pattern: 'needle' }) as { matches: Array<{ path: string; preview: string }> };
+
+    expect(read.path).toBe('.');
+    expect(read.total_entries).toBe(1);
+    expect(read.entries).toEqual([{ name: 'visible.txt', type: 'file' }]);
+    expect(metadata).toEqual({ path: '.', metadata_only: true, is_directory: true, size: expect.any(Number), mtime: expect.any(String), entries_count: 1 });
+    expect(glob).toMatchObject({ directory: '.', matches: ['visible.txt'] });
+    expect(grep.matches).toEqual([{ path: 'visible.txt', line: 1, preview: 'needle visible' }]);
   }));
 
   it('matches work directory metadata count to normal listing', async () => withTempProject(async (projectRoot) => {

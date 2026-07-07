@@ -1,7 +1,7 @@
 import { join, relative, resolve } from 'node:path';
 
 import type { AgentRole } from '../schemas/index.js';
-import { concreteRecordSlot, exposedRecordSlotDefinitionForFilename, latestClosedRecordSlot, openRecordSlot, readRecordSlotIndex, RECORD_OUTPUTS_RELATIVE_DIR, recordSlotDir, type OpenRecordSlot } from '../runtime/records/record-slots.js';
+import { concreteRecordSlot, exposedRecordSlotDefinitionForFilename, latestClosedRecordSlot, openRecordSlot, readRecordSlotIndex, type OpenRecordSlot } from '../runtime/records/record-slots.js';
 import { resolveContainedProjectPath } from './file-access-security.js';
 import { buildScopedPathUrl, parseScopedPathUrl, type ParsedScopedPathUrl } from './scoped-path-url.js';
 
@@ -43,6 +43,10 @@ function assertOnlyRecordQuery(raw: string, parsed: ParsedScopedPathUrl, fail: S
   if ((parsed.query.getAll('card')).length > 1 || (parsed.query.getAll('v')).length > 1) throw fail(`Invalid record URL '${raw}' duplicate query parameter.`);
 }
 
+function toolFacingErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export function assertRecordWrite(role: AgentRole | undefined, currentCardId: string | undefined, cardId: string, filename: string, version: string, fail: ScopedPathErrorFactory): void {
   if (!currentCardId) throw fail('Record writes require an active card context.');
   if (cardId !== currentCardId) throw fail('Agents may write records only for their current card.');
@@ -53,25 +57,43 @@ export function assertRecordWrite(role: AgentRole | undefined, currentCardId: st
 
 export function resolveRecordWriteTarget(ctx: ResolveScopedPathContext, raw: string): { agent: ScopedAgentContext; filename: string; cardId: string; version: string; recordUrl: string } {
   const agent = requireAgent(ctx, 'record:///');
-  const parsed = parseScopedPathUrl(raw, 'record');
+  let parsed: ParsedScopedPathUrl;
+  try {
+    parsed = parseScopedPathUrl(raw, 'record');
+  } catch (error) {
+    throw ctx.fail(toolFacingErrorMessage(error));
+  }
   if (parsed.hadFragment) throw ctx.fail(`record URL '${raw}' must not include a fragment.`);
   assertOnlyRecordQuery(raw, parsed, ctx.fail);
   if (parsed.segments.length !== 1) throw ctx.fail(`Invalid record URL '${raw}'.`);
   const filename = parsed.segments[0]!;
-  exposedRecordSlotDefinitionForFilename(filename);
+  try {
+    exposedRecordSlotDefinitionForFilename(filename);
+  } catch (error) {
+    throw ctx.fail(toolFacingErrorMessage(error));
+  }
   const cardId = validRecordSegment(parsed.query?.get('card') ?? agent.cardId ?? '', 'card id', raw, ctx.fail);
   const version = parsed.query?.get('v') ?? 'next';
   return { agent, filename, cardId, version, recordUrl: `${buildScopedPathUrl('record', [filename])}?card=${encodeURIComponent(cardId)}&v=${encodeURIComponent(version)}` };
 }
 
-function resolveRecordReadTarget(ctx: ResolveScopedPathContext, raw: string): OpenRecordSlot {
+export function resolveRecordReadTarget(ctx: ResolveScopedPathContext, raw: string): OpenRecordSlot {
   const agent = requireAgent(ctx, 'record:///');
-  const parsed = parseScopedPathUrl(raw, 'record');
+  let parsed: ParsedScopedPathUrl;
+  try {
+    parsed = parseScopedPathUrl(raw, 'record');
+  } catch (error) {
+    throw ctx.fail(toolFacingErrorMessage(error));
+  }
   if (parsed.hadFragment) throw ctx.fail(`record URL '${raw}' must not include a fragment.`);
   assertOnlyRecordQuery(raw, parsed, ctx.fail);
   if (parsed.segments.length !== 1) throw ctx.fail(`Invalid record URL '${raw}'.`);
   const filename = parsed.segments[0]!;
-  exposedRecordSlotDefinitionForFilename(filename);
+  try {
+    exposedRecordSlotDefinitionForFilename(filename);
+  } catch (error) {
+    throw ctx.fail(toolFacingErrorMessage(error));
+  }
   const cardId = validRecordSegment(parsed.query?.get('card') ?? agent.cardId ?? '', 'card id', raw, ctx.fail);
   const version = parsed.query?.get('v') ?? 'latest';
   if (version === 'next') {
@@ -86,19 +108,6 @@ function resolveRecordReadTarget(ctx: ResolveScopedPathContext, raw: string): Op
   const entry = readRecordSlotIndex(ctx.projectRoot, cardId, record.slot).versions[String(numeric)];
   if (entry.status !== 'closed' && !(entry.status === 'open' && cardId === agent.cardId && exposedRecordSlotDefinitionForFilename(filename).writers.includes(agent.agentRole!))) throw ctx.fail('Only closed records are readable outside the owning open slot.');
   return record;
-}
-
-export function resolveRecordSearchTarget(ctx: ResolveScopedPathContext, raw: string): { absolutePath: string; relativePath: string } {
-  const parsed = parseScopedPathUrl(raw, 'record');
-  if (parsed.query !== null || parsed.hadFragment) throw ctx.fail(`Invalid record search URL '${raw}'.`);
-  if (parsed.segments.length < 1 || parsed.segments.length > 2) throw ctx.fail(`Invalid record search URL '${raw}'.`);
-  const cardId = validRecordSegment(parsed.segments[0]!, 'card id', raw, ctx.fail);
-  const slotOrFilename = parsed.segments[1];
-  const absolutePath = slotOrFilename ? recordSlotDir(ctx.projectRoot, cardId, exposedRecordSlotDefinitionForFilename(slotOrFilename.includes('.') ? slotOrFilename : `${slotOrFilename}.md`).slot) : join(ctx.projectRoot, RECORD_OUTPUTS_RELATIVE_DIR, cardId);
-  const relativePath = relative(ctx.projectRoot, absolutePath).replace(/\\/g, '/');
-  const contained = resolveContainedProjectPath(ctx.projectRoot, relativePath);
-  if (!contained.safe || contained.relativePath !== relativePath || !relativePath.startsWith(`${RECORD_OUTPUTS_RELATIVE_DIR}/${cardId}`)) throw ctx.fail(`Invalid record search URL '${raw}'.`);
-  return { absolutePath, relativePath };
 }
 
 export const scopedPathResolvers = {

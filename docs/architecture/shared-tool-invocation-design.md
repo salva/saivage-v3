@@ -226,7 +226,7 @@ The shared layer also includes these siblings:
 - `invokeTool` passes `signal` through to the executor; the executor may observe the signal and abort on it, or ignore it for synchronous operations (see §3.2). `invokeTool` checks the signal before lookup and after schema parse, and does not catch executor exceptions — executors must return `ToolResult` for expected/model/project failures and throw for impossible programmer/configuration states (§3.10).
 - `invokeToolForLlm(surface, name, args, signal?)` wraps `invokeTool` and does catch: a thrown error is converted to `{ success: false, error }` unless `signal?.aborted`, in which case it re-throws so the abort propagates.
 - `replayToolForRecovery(surface, name, args)` is the recovery-side sibling: it invokes the tool's optional `replay` (or resolves to a default interrupted result) so a waiting-tool call whose result was lost to a restart is re-driven during startup recovery.
-- `invokeToolCall(surface, name, rawArgs: string, signal?)` parses the JSON string (returning a `ToolResult` error on malformed JSON) and delegates to `invokeTool`. The `signal?` parameter is threaded through. Tests and callers that already hold parsed args call `invokeTool` or `invokeToolForLlm` directly; the production LLM-call path uses `invokeToolCall`.
+- `invokeToolCall(surface, name, rawArgs: string, signal?)` parses the JSON string (returning a `ToolResult` error on malformed JSON) and delegates to `invokeToolForLlm`. The `signal?` parameter is threaded through, non-abort executor exceptions become `{ success: false, error }`, and abort re-throws propagate. Tests and callers that already hold parsed args call `invokeTool` or `invokeToolForLlm` directly; the production raw-JSON LLM-call path uses `invokeToolCall`.
 - `cleanupInvocationSurface(surface, reason: ToolProviderCleanupReason)` calls each provider's optional `cleanup?(reason)`. It is used in production at `src/runtime/actors/terminal-card-processor-actor.ts:113`, which calls `cleanupInvocationSurface(surface, { kind: 'activation_settled', status: signal.aborted ? 'cancelled' : cleanupStatus })` in a `finally` block on every terminal activation; providers use it to free activation/session-scoped resources.
 
 Schema validation (`inputSchema.safeParse`) happens inside all invocation entry points before executor invocation.
@@ -324,7 +324,9 @@ There is no `code` field on the error. Coarse error categorization (permission v
 
 This keeps `invokeTool` transparent: it never swallows a bug as a silent tool error, and it never crashes the activation for expected model output.
 
-`invokeToolForLlm`, the LLM-call-path sibling, does catch and converts thrown errors to `{ success: false, error }` unless the signal aborted (see §3.4). Call sites that need exceptions to surface as activation/session failures use `invokeTool` directly; call sites that need every error shaped as a model-visible `ToolResult` use `invokeToolForLlm`.
+The LLM-call-path wrappers, `invokeToolForLlm` and `invokeToolCall`, catch and convert thrown errors to `{ success: false, error }` unless the signal aborted (see §3.4). `invokeToolCall` owns raw JSON parsing, then delegates to `invokeToolForLlm` so both LLM-facing entry points share the same catch-and-convert semantics. Call sites that need exceptions to surface as activation/session failures use `invokeTool` directly; call sites that need every error shaped as a model-visible `ToolResult` use an LLM-call-path wrapper.
+
+Executors must still classify expected input failures at the source rather than relying on wrapper catch-all behavior. Workspace scoped-URL, segment, and record-slot failures are raised as `WorkspaceToolInputError`; malformed `grep` regular expressions are likewise classified before returning through the workspace provider. The wrapper catch is the final LLM-facing resilience boundary, not a substitute for executor contracts.
 
 ### 3.11 Relationship to the tool catalog
 
@@ -382,6 +384,7 @@ Focused tests should cover:
 - Unknown tool from model → `invokeTool` returns `{ success: false, error }`.
 - Invalid arguments → schema parse failure returns a model-visible tool error, not a thrown exception.
 - Malformed JSON arguments → `invokeToolCall` returns `{ success: false, error }`, not a thrown exception.
+- Non-abort executor exception from raw JSON arguments → `invokeToolCall` returns `{ success: false, error }`, not a thrown exception; abort still re-throws.
 - `ToolResult` discriminated union: `{ success: true, error }` and `{ success: false }` (no error) are compile-time type errors.
 - Domain provider isolation: planner card tools are present only when the planner provider is composed into the surface. Composing it into an executor surface is a configuration bug caught by review/tests, not a runtime check — and not a type-level impossibility.
 - Patch availability: `PatchProvider` (`apply_patch`) is composed only into executor and analyst; planner and reviewer surfaces must not include it.

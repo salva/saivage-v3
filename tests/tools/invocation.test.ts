@@ -63,6 +63,31 @@ describe('tool invocation surface', () => {
     await expect(invokeTool(surface, 'buggy', {})).rejects.toThrow('programmer bug');
   });
 
+  it('returns model-visible errors from invokeToolCall for non-abort executor exceptions', async () => {
+    const surface = buildInvocationSurface('analyst', [{
+      providerName: 'buggy',
+      tools: [
+        defineTool({
+          name: 'buggy',
+          description: 'Buggy tool.',
+          inputSchema: z.object({}).strict(),
+          executor: async () => { throw new Error('programmer bug'); },
+        }),
+      ],
+    }]);
+
+    await expect(invokeToolCall(surface, 'buggy', '{}')).resolves.toEqual({ success: false, error: 'programmer bug' });
+  });
+
+  it('rethrows from invokeToolCall when the signal is already aborted', async () => {
+    const surface = buildInvocationSurface('analyst', [provider('a')]);
+    const controller = new AbortController();
+    const reason = new Error('cancelled');
+    controller.abort(reason);
+
+    await expect(invokeToolCall(surface, 'demo', JSON.stringify({ value: 'ok' }), controller.signal)).rejects.toThrow('cancelled');
+  });
+
   it('projects invocation surface tools to LLM tool definitions', () => {
     const surface = buildInvocationSurface('planner', [provider('a')]);
 
