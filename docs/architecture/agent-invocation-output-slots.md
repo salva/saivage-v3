@@ -183,7 +183,6 @@ The runtime checks whether each mandatory record slot has a concrete normalized 
 
 - **All files present:** accept the terminal result and close that slot version.
 - **Files missing:** reject, re-enter the same agent session with a continuation message naming the missing `record://` URLs, increment nothing.
-- **Repair budget exhausted:** fail the activation with a clear runtime diagnostic.
 
 ### What the agent uses to write files
 
@@ -368,8 +367,6 @@ runtime checks mandatory concrete record URL(s) exist and are non-empty
     append continuation message to same LLM session:
       "Required file record://{slot}.md?v=next was not created. Create it and call {terminal_tool} again."
     re-enter same agent (not a new session)
-    if repair budget exhausted:
-      fail activation with runtime diagnostic
   if present:
     for reviewer results, first check currentness:
       compare currentness snapshot with current subtree/record versions
@@ -384,9 +381,9 @@ runtime checks mandatory concrete record URL(s) exist and are non-empty
 
 The repair uses the existing `LLMToolContinuationContextHook` seam — the same mechanism that injects notification context between tool result and next LLM turn. No new "repair event" framework.
 
-Repair budget: 2 attempts by default. Configurable per card via card metadata if needed later.
+Same-session missing-file repair is unbounded: the corrective tool result is always delivered to the model, and the loop terminates only when the terminal contract is valid, a non-repairable `error` outcome fails fast, or the activation is aborted. There is no per-card repair-budget configuration.
 
-Relaunch budget: 2 reviewer relaunch attempts by default. A missing-file repair is a same-session continuation (agent mistake); a currentness relaunch is a fresh reviewer invocation with updated context (runtime-driven). These are separate budgets. Repair budgets do not affect relaunch counts and vice versa.
+Relaunch budget: 2 reviewer relaunch attempts by default. A missing-file repair is a same-session continuation (agent mistake); a currentness relaunch is a fresh reviewer invocation with updated context (runtime-driven). The reviewer relaunch budget does not limit same-session missing-file repair.
 
 ## Persistence
 
@@ -562,7 +559,7 @@ Remaining follow-up:
 3. On stale review, call `discardOpenRecordSlot(..., reason: 'stale_review')`, do not advance `latest`, and relaunch the reviewer with fresh context.
 4. Replace the standalone notification-pending invalidation check with currentness. It still exists in `PlanningCardProcessorActor.reviewPlannerDone(...)` and must be removed only when currentness is wired.
 5. Pass the normalized concrete review URL into planner correction context when reviewer returns `rework`.
-6. Add focused actor tests for missing-review repair, stale-review relaunch/discard, childless review skip, budget exhaustion, and planner correction context.
+6. Add focused actor tests for missing-review repair, stale-review relaunch/discard, childless review skip, reviewer-relaunch budget exhaustion, and planner correction context.
 
 ### Phase 4: Replace evidence gate - implemented
 
@@ -578,7 +575,7 @@ Implemented in `src/runtime/reviewer-assessment.ts` and `src/runtime/actors/revi
 Implemented:
 
 1. Planner prompt requires `record://status.md?v=next`.
-2. Planner terminal acceptance closes `status.md`; missing/empty status triggers same-session repair with budget 2.
+2. Planner terminal acceptance closes `status.md`; missing/empty status triggers same-session repair.
 3. Planner gets scheme-aware file tools and can read reviewer records.
 
 Remaining follow-up:
@@ -591,7 +588,7 @@ Remaining follow-up:
 Implemented:
 
 1. Executor prompt requires `record://status.md?v=next`.
-2. Executor terminal acceptance closes `status.md`; missing/empty status triggers same-session repair with budget 2.
+2. Executor terminal acceptance closes `status.md`; missing/empty status triggers same-session repair.
 3. Executor keeps project-write tools and can write ordinary work files through `project://` or project paths.
 4. Executor no longer appends artifact/attachment evidence refs during terminal acceptance.
 

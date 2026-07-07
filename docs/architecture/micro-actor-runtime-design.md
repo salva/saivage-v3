@@ -430,7 +430,7 @@ Rules:
 - Delivery happens before the next provider call, not by interrupting an in-flight call.
 - Delivery evidence is the agent session transcript and a small durable delivery marker.
 - Project/goal processors must have access to their owning `CardActor` so they can drain newly queued main-agent notifications before every planner provider turn, not only at activation.
-- If undelivered main-agent notifications exist when the processor's bounded repair loop receives a `done` terminal report, the report is deferred: the card stays `running`, the pending notifications are appended to the next LLM turn, and the agent decides whether to re-report `done`, adjust its result, block, or fail. `CardActor` only commits clean outcomes; it never flips `done` to `changed` because of pending notifications. Notifications arriving on an already-inactive `done` card after settlement are queued for future delivery and do not mutate lifecycle state. `changed` is produced only by card edits/subtree mutations, never by notification delivery.
+- If undelivered main-agent notifications exist when the processor's contract repair loop receives a `done` terminal report, the report is deferred: the card stays `running`, the pending notifications are appended to the next LLM turn, and the agent decides whether to re-report `done`, adjust its result, block, or fail. `CardActor` only commits clean outcomes; it never flips `done` to `changed` because of pending notifications. Notifications arriving on an already-inactive `done` card after settlement are queued for future delivery and do not mutate lifecycle state. `changed` is produced only by card edits/subtree mutations, never by notification delivery.
 
 Notifications can affect flow:
 

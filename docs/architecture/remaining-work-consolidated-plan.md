@@ -475,7 +475,7 @@ All ~32 unwired event catalog kinds are old remnants — they had emitters in th
    - `tests/runtime/actors/planning-card-processor-actor.test.ts` covers planner `emit_result` before `record://status.md?v=next`, same-session repair prompt/tool result, explicit `write`, and terminal retry.
    - `tests/runtime/actors/planning-card-processor-actor.test.ts` also covers reviewer `emit_result` before `record://review.md?v=next` with the same repair shape.
    - `tests/runtime/actors/terminal-card-processor-actor.test.ts` covers executor `emit_result` before `record://status.md?v=next` with same-session repair and terminal retry.
-   - No runtime changes were needed; these are regression tests for the existing contract-bounded repair loop.
+   - No runtime changes were needed; these are regression tests for the existing contract repair loop.
 
    Focused validation:
    - `npm run test:direct -- tests/runtime/actors/planning-card-processor-actor.test.ts tests/runtime/actors/terminal-card-processor-actor.test.ts --runInBand`

@@ -104,7 +104,7 @@ If the cascade does not reach a running card (corrupted parent state, manual edi
 
 ## 6. Resolving the Initial LLM Outcome
 
-The processor's `runActivation` must produce an `initialOutcome` for the contract-bounded repair loop. A single method handles all recovered LLM states:
+The processor's `runActivation` must produce an `initialOutcome` for the contract repair loop. A single method handles all recovered LLM states:
 
 ```ts
 private async resolveInitialOutcome(llm, surface, contract, input, signal): Promise<LLMActorOutcome> {

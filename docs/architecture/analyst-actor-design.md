@@ -114,7 +114,7 @@ The session actor has no intra-turn external-command boundary (tools are dispatc
 
 ## The Conversation Loop
 
-The analyst owns its conversation loop. It does **not** share a generic loop-control function with the autonomous processors. The autonomous `runContractBoundedRepairLoop` and the analyst loop have different domains — contract-terminal card activation with a bounded repair budget versus an open-ended user conversation with a fingerprint anti-loop — and collapsing them into one hook-driven engine would build a small workflow framework beside the actors, which is exactly the kind of abstraction to avoid.
+The analyst owns its conversation loop. It does **not** share a generic loop-control function with the autonomous processors. The autonomous `runContractRepairLoop` and the analyst loop have different domains — contract-terminal card activation with no internal repair cap, terminating on valid terminal, non-repairable `error`, or activation abort, versus an open-ended user conversation with a fingerprint anti-loop — and collapsing them into one hook-driven engine would build a small workflow framework beside the actors, which is exactly the kind of abstraction to avoid.
 
 What they share is the building blocks beneath the loop, which is where the real duplication was:
 
@@ -123,7 +123,7 @@ What they share is the building blocks beneath the loop, which is where the real
 - the conversation store for transcript persistence;
 - the micro-actor patterns (state machine, `runTask`, the promise side-channel).
 
-The analyst loop itself stays analyst-specific. It drives `llm.turn(...)` / `llm.appendToolResult(...)` until the model returns a plain assistant message (`LLMActorOutcome` `result`), an error, or the cancellation flag is observed, and it enforces its own anti-loop rule: a tool call whose `(tool, arguments)` fingerprint repeats without an intervening change ends the turn by driving one final provider turn with a stop directive (through the existing tool-result/repair path), so the terminal no-progress message is a real provider output, not a synthesized row. That stop-directive turn is attempted once; if the model still returns a tool call instead of a terminal message, the turn ends immediately (the parked LLM turn is abandoned, the caller receives an error result with a no-progress reason, and the transcript keeps the honest record), so the anti-loop can never re-enter itself. There is no terminal contract tool and no repair budget. The loop is a method on the session actor (or a small analyst-specific helper it calls), not a shared abstraction.
+The analyst loop itself stays analyst-specific. It drives `llm.turn(...)` / `llm.appendToolResult(...)` until the model returns a plain assistant message (`LLMActorOutcome` `result`), an error, or the cancellation flag is observed, and it enforces its own anti-loop rule: a tool call whose `(tool, arguments)` fingerprint repeats without an intervening change ends the turn by driving one final provider turn with a stop directive (through the existing tool-result/repair path), so the terminal no-progress message is a real provider output, not a synthesized row. That stop-directive turn is attempted once; if the model still returns a tool call instead of a terminal message, the turn ends immediately (the parked LLM turn is abandoned, the caller receives an error result with a no-progress reason, and the transcript keeps the honest record), so the anti-loop can never re-enter itself. There is no terminal contract tool and no terminal-contract repair loop; the analyst's fingerprint anti-loop is its distinct bound. The loop is a method on the session actor (or a small analyst-specific helper it calls), not a shared abstraction.
 
 ## Composition Root: AnalystRuntime
 
@@ -210,8 +210,8 @@ Cancellation that ends the turn without rolling back completed transcript work i
 **Intentionally different from autonomous card processors:**
 
 - The analyst is session-scoped, not card-scoped. There is no card, no activation outcome vocabulary, and no reviewer.
-- The analyst owns its own conversation loop; it does not share a generic loop-control function with the contract-terminal bounded repair loop. The loops serve different domains.
-- The analyst has no contract terminal tools; a turn ends on a plain assistant message. Its anti-loop guard is the fingerprint check, not a bounded repair budget.
+- The analyst owns its own conversation loop; it does not share a generic loop-control function with the autonomous terminal contract repair loop. The loops serve different domains.
+- The analyst has no contract terminal tools; a turn ends on a plain assistant message. Its anti-loop guard is the fingerprint check, while the autonomous terminal contract repair loop has no internal cap and terminates on valid terminal, non-repairable `error`, or activation abort.
 - The analyst is operator-owned: it bypasses the autonomous `RuntimeGate` and spawns `owner_kind: 'operator'` processes.
 - The analyst is projected live via `AnalystRuntime.listSessions()`; `onActivity` is per-turn streaming to the initiating transport, not a general projection channel. The analyst is not part of the autonomous snapshot store, `actor_kind` schema, or `actorRuntime` recovery.
 - The analyst has no main-agent notification queue; continuation context is just the tool exchange.
