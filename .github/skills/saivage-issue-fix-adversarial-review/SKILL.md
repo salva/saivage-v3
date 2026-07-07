@@ -36,7 +36,7 @@ Create a working directory under `docs/working/` for the issue, for example `doc
 
 Rules:
 
-- `docs/working/` is ignored and must not be committed. Its files are temporary working documents only, not main documentation and not a substitute for updating `docs/spec/`, `docs/architecture/`, `docs/runbook/`, or `README.md`.
+- `docs/working/` is ignored and must not be committed. Its files are temporary working documents only, not main documentation and not a substitute for updating the canonical main docs: `docs/spec/system-specification.md`, `docs/spec/operator-ui.md`, `docs/architecture/system-architecture.md`, and `README.md`.
 - Keep each revised design/plan self-contained. Do not require readers to diff prior rounds to understand the current plan.
 - Keep review files factual and actionable. Do not preserve weak or speculative critiques as required work.
 
@@ -56,7 +56,6 @@ The first design/plan must include:
     - `docs/spec/system-specification.md` — functional behavior.
     - `docs/spec/operator-ui.md` — operator UI behavior.
     - `docs/architecture/system-architecture.md` — architecture and runtime contracts.
-    - `docs/runbook/` — operator procedures, deployment, incidents, and validation.
     - `README.md` — validation profiles and documentation authority status.
 - If current main docs are already stale or inconsistent with the implementation for the area being changed, document that finding and include tasks to correct those docs as part of the same change. Keep the correction scoped to the parts related to the issue/fix; do not expand into an unrelated documentation rewrite.
 - Validation plan with focused checks and broader gates appropriate to the risk.

@@ -2,7 +2,7 @@
 
 Status: current functional UI authority.
 
-Last updated: 2026-06-30.
+Last updated: 2026-07-07.
 
 ## 1. Purpose
 
@@ -17,9 +17,9 @@ At typical desktop widths, the operator web UI is a single screen with two alway
 - A left workspace area, roughly 70-80% of the viewport.
 - A right Analyst panel, roughly 20-30% of the viewport.
 
-The Analyst panel contains the current Analyst session, chat history, and composer. It is not a drawer, modal, popover, slide-over, or hidden panel. There is no control whose job is to open, close, hide, reveal, expand-to-full-screen, or toggle the Analyst panel.
+The Analyst panel contains the current Analyst session, chat history, and composer. It is not a drawer, modal, popover, slide-over, or hidden panel. At desktop widths there is no control whose job is to open, close, hide, reveal, expand-to-full-screen, or toggle the Analyst panel.
 
-Narrow/mobile layouts are intentionally unspecified for now.
+At narrow widths, the shell collapses to a single column and exposes a presentation-only `Workspace` / `Analyst` pane switch so the user can choose which region is visible. The switch changes only the local layout; it does not mutate server state and does not turn the Analyst into a modal or separate control surface.
 
 ## 3. Workspace Area
 

@@ -7,16 +7,12 @@ const PREFIX_RE = /See historical:/i;
 
 const DEFAULT_CURRENT_DOCS = [
   'README.md',
-  'docs/index.md',
-  'docs/install.md',
-  'docs/configuration.md',
-  'docs/operation.md',
-  'docs/operator-runbook.md',
-  'docs/troubleshooting.md',
-  'docs/release-checklist.md',
-  'docs/agents.md',
-  'docs/analyst.md',
-  'docs/goal-planning-runtime.md',
+  'AGENTS.md',
+  'docs/spec/index.md',
+  'docs/spec/system-specification.md',
+  'docs/spec/operator-ui.md',
+  'docs/architecture/index.md',
+  'docs/architecture/system-architecture.md',
 ];
 
 function parseArgs(argv) {
@@ -44,7 +40,7 @@ function parseArgs(argv) {
 }
 
 function printHelp() {
-  console.log(`Usage: node scripts/check-historical-isolation.js [options]\n\nOptions:\n  --root <path>        Repository root (default: cwd)\n  --doc <path>         Current-doc path to scan; repeatable. Defaults to current/stale docs from inventory.\n  --expect-failure     Negative-test mode: pass only if an unprefixed historical reference is found.\n`);
+  console.log(`Usage: node scripts/check-historical-isolation.js [options]\n\nOptions:\n  --root <path>        Repository root (default: cwd)\n  --doc <path>         Current-doc path to scan; repeatable. Defaults to the canonical current docs.\n  --expect-failure     Negative-test mode: pass only if an unprefixed historical reference is found.\n`);
 }
 
 function inventoryCurrentDocs(root) {
@@ -130,7 +126,7 @@ function main() {
     }
     process.exit(1);
   }
-  console.log(`✓ historical isolation holds for ${result.scanned.length} current/stale Markdown doc(s)`);
+  console.log(`✓ historical isolation holds for ${result.scanned.length} current canonical Markdown doc(s)`);
 }
 
 main();

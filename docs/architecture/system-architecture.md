@@ -2,11 +2,13 @@
 
 Status: current design summary.
 
-Last updated: 2026-06-22.
+Last updated: 2026-07-07.
 
 ## 1. Architectural Shape
 
 Saivage is a card-centered autonomous runtime with a conversational control surface.
+
+The runtime engine is Node.js 24; `package.json` engines require `node >=24 <25` and `npm >=10 <12`, matching the GitHub Actions CI validation environment.
 
 The major subsystems are:
 
@@ -57,7 +59,7 @@ Executor sessions are one-shot per terminal card activation.
 
 Reviewer sessions are one-shot per assessment.
 
-Reviewer assessment happens after runtime readiness and evidence gates pass. The reviewer receives the project card data, the assessed goal subtree, and the planner return value. Reviewer approval is valid only for the card tree snapshot it assessed. If the goal or any descendant changes before approval commits, the runtime invalidates the reviewer pass and returns the goal to planner ownership with correction/change context. Reviewer sessions must never drain the card's main-agent notification queue; notifications queued during review remain pending for planner/main-agent delivery and may invalidate reviewer success through currentness checks (see Implementation Plan P5). Negative reviewer results are stored with the card and injected back into the planner context through the completion-return response; positive reviewer text is only attached to the card.
+Reviewer assessment happens after runtime readiness and evidence gates pass. The reviewer receives the project card data, the assessed goal subtree, and the planner return value. Reviewer approval is valid only for the card tree snapshot it assessed. If the goal or any descendant changes before approval commits, the runtime invalidates the reviewer pass and returns the goal to planner ownership with correction/change context. Reviewer sessions must never drain the card's main-agent notification queue; notifications queued during review remain pending for planner/main-agent delivery and may invalidate reviewer success through currentness checks (see [Implementation Plan P5](./micro-actor-runtime-implementation-plan.md#p5-reviewer-cannot-reach-main-agent-notification-delivery)). Negative reviewer results are stored with the card and injected back into the planner context through the completion-return response; positive reviewer text is only attached to the card.
 
 Analyst sessions are user-facing conversational sessions. Analyst mutations go through canonical runtime, card, config, process, and notification services.
 
@@ -117,7 +119,7 @@ The acceptance gate prevents a planner from closing a goal while any executable 
 
 Cancellation is immediate only for inactive cards. Recursive cancellation preserves descendants that are already `done` and converts inactive non-completion-compatible descendants, including `failed`, `blocked`, `backlog`, and `changed`, to `cancelled`.
 
-Cancelling a running card is authoritative: `CardActor.cancel()` cancels the current activation, writes `cancelled` to the card store immediately, resolves the pending activation as cancelled, stops activation-owned runtime process scope, and drops late provider/tool/process outcomes through the CardActor cancellation flag (see Implementation Plan P3). Running children are cancelled through their own `CardActor.cancel()` so they are cancelled too. Shutdown remains the hard operation for forcibly stopping all runtime-owned process scopes.
+Cancelling a running card is authoritative: `CardActor.cancel()` cancels the current activation, writes `cancelled` to the card store immediately, resolves the pending activation as cancelled, stops activation-owned runtime process scope, and drops late provider/tool/process outcomes through the CardActor cancellation flag (see [Implementation Plan P3](./micro-actor-runtime-implementation-plan.md#p3-cardactor-owns-authoritative-cancellation-and-activation-id-settlement)). Running children are cancelled through their own `CardActor.cancel()` so they are cancelled too. Shutdown remains the hard operation for forcibly stopping all runtime-owned process scopes.
 
 Project-card cancellation is the root case of the same operation. Inactive project work is cancelled immediately; running project work is cancelled via the same activation path, which marks the card store `cancelled` immediately and rejects late outcomes.
 
@@ -125,7 +127,7 @@ Project-card cancellation is the root case of the same operation. Inactive proje
 
 Durable state remains project-local. Saivage state must live under the project `.saivage/` and `.saivage-work/` directories, not under user-global state.
 
-Startup recovery is process-first and root-cascade based (see Implementation Plan P1/P2). The runtime reconciles persisted running process records before actor recovery: runtime/agent-owned process records are killed by PID/process-group or marked lost, operator-owned records are observed best-effort or marked lost, and no `reattach_state` or live process reattachment fiction is used. After process reconciliation (runtime/agent-owned records killed or marked lost as terminal `killed`/`failed`; operator-owned records still alive matched and remaining `running`; operator-owned missing/skewed records marked lost as terminal `failed`; no record removed), startup validates the project root card record and throws if it is missing or schema-invalid. Recovery then runs the pre-reconstruction `runActorStartupRecovery` pass for terminal projection, cancelled/terminal-projected snapshot cleanup, stale-tool-call abandonment, and sanitized diagnostics, constructs running card actors with deferred processor start, and calls `recoverCurrentCardState()` on the root card only. Recovery cascades through replayed `activate_card` calls; processors start lazily when reached, recovered LLM snapshots are adopted inside `processor.recoverActive`, in-flight provider calls are reissued, and waiting tool calls are resolved inline through `resolveInitialOutcome` and tool replay. Safe terminal decisions may be projected from complete durable terminal records. A `blocked` card status may still arise from safe terminal projection when the persisted planner terminal is itself `blocked`. Process reattachment remains excluded.
+Startup recovery is process-first and root-cascade based (see [Implementation Plan P1](./micro-actor-runtime-implementation-plan.md#p1-processrunner-owns-truthful-process-state-and-scoped-termination) and [P2](./micro-actor-runtime-implementation-plan.md#p2-startup-reconciles-processes-before-actor-recovery)). The runtime reconciles persisted running process records before actor recovery: runtime/agent-owned process records are killed by PID/process-group or marked lost, operator-owned records are observed best-effort or marked lost, and no `reattach_state` or live process reattachment fiction is used. After process reconciliation (runtime/agent-owned records killed or marked lost as terminal `killed`/`failed`; operator-owned records still alive matched and remaining `running`; operator-owned missing/skewed records marked lost as terminal `failed`; no record removed), startup validates the project root card record and throws if it is missing or schema-invalid. Recovery then runs the pre-reconstruction `runActorStartupRecovery` pass for terminal projection, cancelled/terminal-projected snapshot cleanup, stale-tool-call abandonment, and sanitized diagnostics, constructs running card actors with deferred processor start, and calls `recoverCurrentCardState()` on the root card only. Recovery cascades through replayed `activate_card` calls; processors start lazily when reached, recovered LLM snapshots are adopted inside `processor.recoverActive`, in-flight provider calls are reissued, and waiting tool calls are resolved inline through `resolveInitialOutcome` and tool replay. Safe terminal decisions may be projected from complete durable terminal records. A `blocked` card status may still arise from safe terminal projection when the persisted planner terminal is itself `blocked`. Process reattachment remains excluded.
 
 Expected persisted concerns include:
 
@@ -167,7 +169,7 @@ The runtime implementation direction is micro-actor-centered: actor states, subm
 Target actor ownership:
 
 - `CardActor`s own direct child `CardActor` instances and the associated processor actor for that card type;
-- `BaseCardProcessorActor` owns shared processor mechanics: activation, settlement, outcome reporting to the owning `CardActor`, and processor snapshot mechanics. It has no cancellation API; running cancellation is owned by `CardActor` (see P3);
+- `BaseCardProcessorActor` owns shared processor mechanics: activation, settlement, outcome reporting to the owning `CardActor`, and processor snapshot mechanics. It has no cancellation API; running cancellation is owned by `CardActor` (see [Implementation Plan P3](./micro-actor-runtime-implementation-plan.md#p3-cardactor-owns-authoritative-cancellation-and-activation-id-settlement));
 - `BaseMainLLMCardProcessorActor` owns shared main-agent LLM loop mechanics and per-turn notification delivery without role-specific policy;
 - `PlanningCardProcessorActor` owns project/goal planner and reviewer semantics;
 - `TerminalCardProcessorActor` owns executor semantics for terminal cards; it constructs card-scoped capabilities and does not own child cards.
@@ -175,3 +177,87 @@ Target actor ownership:
 Process execution follows a launch-and-monitor model through the process runner, process registry, and process tool provider. Agents launch project commands, inspect status/logs over time, use bounded waits for completion, and explicitly terminate processes when needed. The functional specification does not impose process concurrency limits for now.
 
 Controllers that advance runtime behavior are disallowed by default. A retained `RuntimeApi` may accept commands, call actor public methods, wait on projections, and project read models; it must not execute workflow logic itself.
+
+## 14. Source-Derived Reference
+
+This appendix is maintained as source-derived reference data for documentation drift guards. Route entries come from Fastify registrations and `src/contracts/operator-api*.ts`; tool and config entries come from the corresponding source registries and schemas.
+
+### Operator routes
+
+<!-- saivage:operator-routes:start -->
+| Route | Purpose | Source |
+|---|---|---|
+| `GET /api/agents` | Agent session list projection. | `src/contracts/operator-api-agents.ts:56` |
+| `GET /api/agents/:id` | Agent session detail projection. | `src/contracts/operator-api-agents.ts:66` |
+| `GET /api/agents/:id/conversation` | Agent conversation transcript projection. | `src/contracts/operator-api-agents.ts:77` |
+| `GET /api/agents/:id/llm-exchange` | Agent LLM exchange projection. | `src/contracts/operator-api-agents.ts:88` |
+| `GET /api/cards` | Card list projection. | `src/contracts/operator-api-runtime-cards.ts:197` |
+| `GET /api/cards/:id` | Card detail projection. | `src/contracts/operator-api-runtime-cards.ts:207` |
+| `GET /api/cards/:id/diff` | Card diff projection. | `src/contracts/operator-api-runtime-cards.ts:241` |
+| `GET /api/cards/:id/history` | Card history projection. | `src/contracts/operator-api-runtime-cards.ts:219` |
+| `GET /api/cards/:id/history/:seq` | Card history entry projection. | `src/contracts/operator-api-runtime-cards.ts:230` |
+| `GET /api/chats` | Analyst chat session list projection. | `src/contracts/operator-api-chats.ts:57` |
+| `GET /api/chats/:sessionId` | Analyst chat session projection. | `src/contracts/operator-api-chats.ts:67` |
+| `GET /api/config` | Redacted project configuration projection. | `src/contracts/operator-api-config.ts:71` |
+| `GET /api/control-actions` | Control-action audit projection. | `src/contracts/operator-api-config.ts:91` |
+| `GET /api/events` | Runtime event timeline projection. | `src/contracts/operator-api-events.ts:35` |
+| `GET /api/files` | Project file listing projection. | `src/contracts/operator-api-files-debug.ts:52` |
+| `GET /api/files/content` | Project file content projection. | `src/contracts/operator-api-files-debug.ts:63` |
+| `GET /api/mcp/status` | MCP server status projection. | `src/contracts/operator-api-mcp.ts:72` |
+| `GET /api/mcp/tools` | MCP tool list projection. | `src/contracts/operator-api-mcp.ts:82` |
+| `GET /api/processes` | Process list projection. | `src/contracts/operator-api-processes.ts:48` |
+| `GET /api/processes/:id` | Process detail projection. | `src/contracts/operator-api-processes.ts:58` |
+| `GET /api/providers` | Provider configuration projection. | `src/contracts/operator-api-config.ts:81` |
+| `GET /api/runtime/card-runs` | Runtime card-run projection. | `src/contracts/operator-api-runtime-cards.ts:283` |
+| `GET /api/runtime/status` | Runtime status projection. | `src/contracts/operator-api-runtime-cards.ts:253` |
+| `GET /api/state` | Operator state projection. | `src/contracts/operator-api-runtime-cards.ts:187` |
+| `GET /health` | Liveness probe. | `src/contracts/operator-api-runtime-cards.ts:165` |
+| `GET /health/ready` | Readiness probe. | `src/contracts/operator-api-runtime-cards.ts:176` |
+| `POST /api/auth/ws-ticket` | WebSocket ticket issuance. | `src/contracts/operator-api-auth.ts:22` |
+| `POST /api/chats/:sessionId` | Analyst chat turn submission. | `src/contracts/operator-api-chats.ts:78` |
+| `POST /api/runtime/pause` | Runtime pause control. | `src/contracts/operator-api-runtime-cards.ts:263` |
+| `POST /api/runtime/resume` | Runtime resume control. | `src/contracts/operator-api-runtime-cards.ts:273` |
+<!-- saivage:operator-routes:end -->
+
+### Internal debug routes
+
+<!-- saivage:internal-debug-routes:start -->
+| Route | Purpose | Source |
+|---|---|---|
+| `POST /api/debug/runtime/start` | Internal runtime-start diagnostic action. | `src/server/routes/chats-files-debug.ts:15` |
+| `GET /api/debug/doctor` | Internal doctor diagnostic projection. | `src/server/routes/chats-files-debug.ts:24` |
+| `GET /api/debug/errors` | Internal runtime error-log projection. | `src/contracts/operator-api-files-debug.ts:84` |
+| `GET /api/debug/state` | Internal runtime state diagnostic projection. | `src/contracts/operator-api-files-debug.ts:74` |
+| `GET /api/debug/supervision` | Internal supervision diagnostic projection. | `src/server/routes/chats-files-debug.ts:82` |
+| `GET /api/debug/timeline` | Internal runtime timeline projection. | `src/contracts/operator-api-files-debug.ts:94` |
+<!-- saivage:internal-debug-routes:end -->
+
+### Agent tools
+
+<!-- saivage:agent-tools:start -->
+| Role | Tools | Source |
+|---|---|---|
+| `planner` | `cancel_card,create_card,queue_notification,reorder_child` | `src/tools/analyst-card-tools.ts:265` |
+| `executor` | `` | `src/tools/analyst-tool-registry.ts:55` |
+| `reviewer` | `` | `src/tools/analyst-tool-registry.ts:55` |
+| `analyst` | `cancel_card,create_card,delete_card,get_status,list_agent_sessions,list_processes_tool,navigate_back,navigate_workspace,pause_runtime,queue_notification,read_agent_session,read_control_actions,read_runtime_errors,read_runtime_events,reconfigure,reorder_child,restart_server,resume_runtime,show_config,start_project,stop_project` | `src/tools/analyst-tool-registry.ts:64` |
+<!-- saivage:agent-tools:end -->
+
+### Config schema
+
+<!-- saivage:config-schema:start -->
+| Section | Fields | Source |
+|---|---|---|
+| `top-level` | `mcpServers,models,notifications,providers,runtime,security,server,telegram` | `src/agents/config-schema.ts:167` |
+| `models` | `default,equivalents,failover,max_tokens,profiles,routing,temperature` | `src/agents/config-schema.ts:36` |
+| `providers.entry` | `accounts,apiKey,authProfile,baseUrl,capabilities,modelCapabilities,models,priority` | `src/agents/config-schema.ts:93` |
+| `providers.account` | `apiKey,authProfile,baseUrl,capabilities,models,priority` | `src/agents/config-schema.ts:83` |
+| `server` | `host,port` | `src/agents/config-schema.ts:105` |
+| `runtime` | `candidate_availability_compact_bytes,continuous_improvement,max_review_retries,process_timeouts` | `src/agents/config-schema.ts:117` |
+| `runtime.process_timeouts` | `executor_ms,planner_ms,reviewer_ms` | `src/agents/config-schema.ts:111` |
+| `security` | `injectionModel,injectionScanner,maxScanLengthBytes` | `src/agents/config-schema.ts:134` |
+| `supervisor` | `` | `src/agents/config-schema.ts:215` |
+| `telegram` | `allowedUserIds,botToken,notificationChatIds` | `src/agents/config-schema.ts:141` |
+| `notifications` | `channels` | `src/agents/config-schema.ts:150` |
+| `mcpServers.entry` | `args,autostart,command,disabled,env,transport,url` | `src/agents/config-schema.ts:155` |
+<!-- saivage:config-schema:end -->

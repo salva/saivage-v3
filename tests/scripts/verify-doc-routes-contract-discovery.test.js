@@ -51,10 +51,32 @@ describe('verify-doc-routes operator contract discovery', () => {
       'GET /api/processes',
       'GET /api/config',
       'GET /api/mcp/status',
+      'POST /api/debug/runtime/start',
+      'GET /api/debug/doctor',
+      'GET /api/debug/supervision',
+      'GET /api/debug/state',
+      'GET /api/debug/errors',
+      'GET /api/debug/timeline',
       'POST /api/auth/ws-ticket',
       'GET /health',
       'GET /health/ready',
     ]));
+  });
+
+  it('classifies every /api/debug route into the internal debug inventory', () => {
+    const projectRoot = process.cwd();
+    const result = verifyDocSourceContracts({ projectRoot });
+    const debugRoutes = result.routeResult.internalDebugRows.map((row) => row.key).sort();
+
+    expect(debugRoutes).toEqual([
+      'GET /api/debug/doctor',
+      'GET /api/debug/errors',
+      'GET /api/debug/state',
+      'GET /api/debug/supervision',
+      'GET /api/debug/timeline',
+      'POST /api/debug/runtime/start',
+    ]);
+    expect(result.routeResult.routeInventoryRows.map((row) => row.key)).not.toEqual(expect.arrayContaining(debugRoutes));
   });
 
   it('reports discovered route-bearing contract sources in docs verification output', () => {

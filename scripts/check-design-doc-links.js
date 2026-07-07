@@ -3,7 +3,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 const root = process.cwd();
-const designDir = path.join(root, 'docs', 'design');
+const designDir = path.join(root, 'docs', 'architecture');
 const markdownLinkPattern = /(?<!!)(?<!\\)\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
 const errors = [];
 
@@ -79,7 +79,7 @@ function checkLink(fromFile, rawTarget) {
 }
 
 if (!existsSync(designDir)) {
-  console.error('✗ docs/design/ does not exist');
+  console.error('✗ docs/architecture/ does not exist');
   process.exit(1);
 }
 
@@ -89,7 +89,7 @@ const files = readdirSync(designDir, { withFileTypes: true })
   .sort((a, b) => a.localeCompare(b));
 
 if (files.length === 0) {
-  console.error('✗ docs/design/ has no Markdown files');
+  console.error('✗ docs/architecture/ has no Markdown files');
   process.exit(1);
 }
 
@@ -101,11 +101,11 @@ for (const file of files) {
 }
 
 if (errors.length > 0) {
-  console.error('✗ design documentation link check failed');
+  console.error('✗ architecture documentation link check failed');
   for (const error of errors) {
     console.error(`  - ${error}`);
   }
   process.exit(1);
 }
 
-console.log(`✓ design documentation link check passed for ${files.length} Markdown file(s)`);
+console.log(`✓ architecture documentation link check passed for ${files.length} Markdown file(s)`);

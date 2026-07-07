@@ -8,19 +8,16 @@ const DOC_ROUTE_RE = /\b(GET|POST|PATCH|DELETE|PUT)\s+(?:https?:\/\/[^\s`)'"<>]+
 const INVENTORY_ROW_RE = /^\|\s*`([^`]+)`\s*\|\s*current\s*\|/;
 const CODE_LINE_ANCHOR_PATTERN = String.raw`[^\s:|]+:\d+(?:\s+"(?:\\.|[^"\\])*")?`;
 const ROUTE_TABLE_ROW_RE = new RegExp('^\\|\\s*`(GET|POST|PATCH|DELETE|PUT)\\s+([^`]+)`\\s*\\|\\s*([^|]+?)\\s*\\|\\s*`(' + CODE_LINE_ANCHOR_PATTERN + ')`\\s*\\|');
-const ROLE_TOOL_ROW_RE = /^\|\s*`(planner|executor|reviewer|analyst)`\s*\|\s*`([^`]+)`\s*\|\s*`([^`]+:\d+)`\s*\|/;
-const CONFIG_ROW_RE = /^\|\s*`([^`]+)`\s*\|\s*`([^`]+)`\s*\|\s*`([^`]+:\d+)`\s*\|/;
-const INTERNAL_DEBUG_ROUTES = new Set(['GET /api/debug/doctor', 'GET /api/debug/supervision']);
-const INTERNAL_DEBUG_ROW_RE = new RegExp('^\|\s*`(GET\s+\/api\/debug\/(?:doctor|supervision))`\s*\|\s*([^|]+?)\s*\|\s*`(' + CODE_LINE_ANCHOR_PATTERN + ')`\s*\|');
-const RUNTIME_CONTROL_ROW_RE = /^\|\s*`(POST\s+\/api\/runtime\/(?:pause|resume|freeze|resume-from-freeze))`\s*\|\s*`([^`]+)`\s*\|\s*`([^`]+)`\s*\|\s*`([^`]+:\d+(?:\s+\"(?:\\\\.|[^\"\\\\])*\")?)`\s*\|/;
+const ROLE_TOOL_ROW_RE = /^\|\s*`(planner|executor|reviewer|analyst)`\s*\|\s*`([^`]*)`\s*\|\s*`([^`]+:\d+)`\s*\|/;
+const CONFIG_ROW_RE = /^\|\s*`([^`]+)`\s*\|\s*`([^`]*)`\s*\|\s*`([^`]+:\d+)`\s*\|/;
 
 const DEFAULT_REMOVED_ROUTES = new Set(['POST /api/runtime/dispatch']);
-const DEFAULT_OPERATOR_DOCS = new Set(['README.md','docs/index.md','docs/install.md','docs/configuration.md','docs/operation.md','docs/operator-runbook.md','docs/troubleshooting.md','docs/release-checklist.md']);
+const DEFAULT_OPERATOR_DOCS = new Set(['README.md', 'docs/spec/system-specification.md', 'docs/spec/operator-ui.md', 'docs/architecture/system-architecture.md']);
 const STATIC_SOURCE_FILES = ['src/server/server.ts', 'src/server/composition/fastify-app.ts', 'src/server/composition/route-composition.ts', 'src/server/routes', 'src/server/routes/operator-contracts.ts', 'src/server/contract-runtime.ts', 'src/agents/config-schema.ts'];
-const OPERATION_DOC = 'docs/operation.md';
-const AGENTS_DOC = 'docs/agents.md';
-const CONFIG_DOC = 'docs/configuration.md';
-const CONFIG_DOCS = ['docs/configuration.md', 'docs/design/configuration.md'];
+const OPERATION_DOC = 'docs/architecture/system-architecture.md';
+const AGENTS_DOC = 'docs/architecture/system-architecture.md';
+const CONFIG_DOC = 'docs/architecture/system-architecture.md';
+const CONFIG_DOCS = ['docs/architecture/system-architecture.md'];
 const CONTRACT_ROUTE_RE = /method:\s*['"`](GET|POST|PATCH|DELETE|PUT)['"`][\s\S]*?path:\s*['"`]([^'"`]+)['"`]/g;
 
 function listTsFiles(directory) {
@@ -45,6 +42,12 @@ export function normalizeRoutePath(routePath) {
   return normalized;
 }
 export function routeKey(method, routePath) { return `${method.toUpperCase()} ${normalizeRoutePath(routePath)}`; }
+
+function isInternalDebugRoute(routeKey) {
+  const spaceIndex = routeKey.indexOf(' ');
+  const routePath = spaceIndex === -1 ? routeKey : routeKey.slice(spaceIndex + 1);
+  return routePath.startsWith('/api/debug/');
+}
 
 export function discoverOperatorContractSourceFiles(projectRoot = process.cwd()) {
   const contractsDirectory = join(projectRoot, 'src/contracts');
@@ -176,19 +179,6 @@ function parseConfigTable(projectRoot, docPath = CONFIG_DOC) {
     const match = line.match(CONFIG_ROW_RE);
     if (!match || match[1] === 'section') continue;
     rows.set(match[1], { fields: match[2].split(',').map((field) => field.trim()).filter(Boolean).sort(), anchor: match[3] });
-  }
-  return rows;
-}
-
-function parseRuntimeControlTable(projectRoot, docPath = OPERATION_DOC) {
-  const fullPath = join(projectRoot, docPath);
-  const rows = new Map();
-  if (!existsSync(fullPath)) return rows;
-  const block = extractMarkedBlock(readFileSync(fullPath, 'utf-8'), 'runtime-controls') ?? '';
-  for (const line of block.split('\n')) {
-    const match = line.match(RUNTIME_CONTROL_ROW_RE);
-    if (!match) continue;
-    rows.set(match[1], { request: match[2], response: match[3], anchor: match[4] });
   }
   return rows;
 }
@@ -335,14 +325,6 @@ function verifyAnchor(projectRoot, anchor, failures, context) {
   }
 }
 
-function verifyAnchorLineContains(projectRoot, anchor, requiredFragments, failures, context) {
-  const line = anchorLine(projectRoot, anchor);
-  if (line === null) return;
-  for (const fragment of requiredFragments) {
-    if (!line.includes(fragment)) failures.push({ type: 'anchor-source-mismatch', message: `${context} anchor ${anchor} does not contain expected source fragment ${JSON.stringify(fragment)}` });
-  }
-}
-
 function sourceContains(projectRoot, relPath, fragments) {
   const fullPath = join(projectRoot, relPath);
   if (!existsSync(fullPath)) return false;
@@ -370,7 +352,7 @@ export function verifyDocRoutes(options = {}) {
   for (const row of inventoryRows) {
     inventoryCounts.set(row.key, (inventoryCounts.get(row.key) ?? 0) + 1);
     verifyAnchor(projectRoot, row.anchor, failures, `route inventory ${row.key}`);
-    if (INTERNAL_DEBUG_ROUTES.has(row.key)) failures.push({ type: 'internal-debug-in-operator-inventory', route: row.key, message: `${OPERATION_DOC} must document ${row.key} in the internal debug inventory, not the operator route inventory` });
+    if (isInternalDebugRoute(row.key)) failures.push({ type: 'internal-debug-in-operator-inventory', route: row.key, message: `${OPERATION_DOC} must document ${row.key} in the internal debug inventory, not the operator route inventory` });
   }
   const internalDebugCounts = new Map();
   for (const row of internalDebugRows) {
@@ -378,9 +360,9 @@ export function verifyDocRoutes(options = {}) {
     verifyAnchor(projectRoot, row.anchor, failures, `internal debug route ${row.key}`);
   }
   for (const route of implementedRoutes) {
-    const count = INTERNAL_DEBUG_ROUTES.has(route) ? (internalDebugCounts.get(route) ?? 0) : (inventoryCounts.get(route) ?? 0);
+    const count = isInternalDebugRoute(route) ? (internalDebugCounts.get(route) ?? 0) : (inventoryCounts.get(route) ?? 0);
     if (count !== 1) {
-      const block = INTERNAL_DEBUG_ROUTES.has(route) ? 'internal debug inventory' : 'operator route inventory';
+      const block = isInternalDebugRoute(route) ? 'internal debug inventory' : 'operator route inventory';
       failures.push({ type: 'route-inventory-count', route, message: `${OPERATION_DOC} must document implemented route ${route} exactly once in the ${block}; found ${count}` });
     }
   }
@@ -389,7 +371,7 @@ export function verifyDocRoutes(options = {}) {
     if (count > 1) failures.push({ type: 'route-inventory-count', route, message: `${OPERATION_DOC} route inventory lists ${route} ${count} times` });
   }
   for (const [route, count] of internalDebugCounts) {
-    if (!INTERNAL_DEBUG_ROUTES.has(route)) failures.push({ type: 'unexpected-internal-debug-route', route, message: `${OPERATION_DOC} internal debug inventory lists unclassified route ${route}` });
+    if (!isInternalDebugRoute(route)) failures.push({ type: 'unexpected-internal-debug-route', route, message: `${OPERATION_DOC} internal debug inventory lists unclassified route ${route}` });
     if (!implementedRoutes.has(route)) failures.push({ type: 'route-inventory-missing', route, message: `${OPERATION_DOC} internal debug inventory lists ${route}, but no matching Fastify route was found` });
     if (count > 1) failures.push({ type: 'route-inventory-count', route, message: `${OPERATION_DOC} internal debug inventory lists ${route} ${count} times` });
   }
@@ -409,22 +391,6 @@ export function verifyAgentToolDocs(options = {}) {
     if (!sameArray(row.tools, tools)) failures.push({ type: 'agent-tool-parity', role, message: `${AGENTS_DOC} tools for ${role} do not match provider-era tool source (doc=${row.tools.join(',')} source=${tools.join(',')})` });
   }
   return { ok: failures.length === 0, failures, expected, documented };
-}
-
-export function verifyRuntimeControlDocs(options = {}) {
-  const projectRoot = options.projectRoot ?? process.cwd();
-  const rows = options.rows ?? parseRuntimeControlTable(projectRoot);
-  const verifySource = options.verifySource ?? true;
-  const failures = [];
-  const expected = new Map();
-  for (const [route, shape] of expected) {
-    const row = rows.get(route);
-    if (!row) { failures.push({ type: 'missing-runtime-control', message: `${OPERATION_DOC} is missing runtime-control shape row for ${route}` }); continue; }
-    verifyAnchor(projectRoot, row.anchor, failures, `runtime control ${route}`);
-    if (verifySource) verifyAnchorLineContains(projectRoot, row.anchor, shape.sourceFragments, failures, `runtime control ${route}`);
-    if (row.request !== shape.request || row.response !== shape.response) failures.push({ type: 'runtime-control-shape', route, message: `${OPERATION_DOC} documents ${route} as ${row.request} -> ${row.response}, expected ${shape.request} -> ${shape.response}` });
-  }
-  return { ok: failures.length === 0, failures, expected, documented: rows };
 }
 
 export function verifyConfigDocs(options = {}) {
@@ -452,10 +418,9 @@ export function verifyDocSourceContracts(options = {}) {
   const projectRoot = options.projectRoot ?? process.cwd();
   const routeResult = verifyDocRoutes({ ...options, projectRoot });
   const toolResult = verifyAgentToolDocs({ projectRoot });
-  const runtimeControlResult = verifyRuntimeControlDocs({ projectRoot });
   const configResult = verifyConfigDocs({ projectRoot });
-  const failures = [...routeResult.failures, ...toolResult.failures, ...runtimeControlResult.failures, ...configResult.failures];
-  return { ok: failures.length === 0, failures, routeResult, toolResult, runtimeControlResult, configResult };
+  const failures = [...routeResult.failures, ...toolResult.failures, ...configResult.failures];
+  return { ok: failures.length === 0, failures, routeResult, toolResult, configResult };
 }
 
 function sourceFilesForReport(projectRoot) {
@@ -465,9 +430,9 @@ function sourceFilesForReport(projectRoot) {
 export function formatVerificationResult(result, projectRoot = process.cwd()) {
   const lines = [];
   lines.push('==> Verifying active docs against source contracts...');
-  lines.push(`  Checked ${result.routeResult.checkedDocs.length} active doc(s), ${result.routeResult.implementedRoutes.size} implemented operator route(s), ${result.routeResult.routeInventoryRows.length} inventory row(s).`);
-  lines.push(`  Checked agent tool parity, runtime-control shapes, configuration schema fields in ${result.configResult.checkedDocs.length} config doc(s), and code anchors.`);
-  if (result.ok) lines.push('  ✓ current docs match Fastify/contract routes, agent tools, runtime controls, config schema, and anchors');
+  lines.push(`  Checked ${result.routeResult.checkedDocs.length} active doc(s), ${result.routeResult.implementedRoutes.size} implemented route(s), ${result.routeResult.routeInventoryRows.length} operator inventory row(s), and ${result.routeResult.internalDebugRows.length} internal debug row(s).`);
+  lines.push(`  Checked agent tool parity, configuration schema fields in ${result.configResult.checkedDocs.length} config doc(s), and code anchors.`);
+  if (result.ok) lines.push('  ✓ current docs match Fastify/contract routes, agent tools, config schema, and anchors');
   else {
     lines.push('  ✗ documentation/source drift detected:');
     for (const failure of result.failures) lines.push(`    - ${failure.message}`);

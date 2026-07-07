@@ -213,10 +213,7 @@ function validFiles(overrides = {}) {
     'package.json': PACKAGE_JSON,
     'README.md': 'Use Node.js 24 with `node >=24 <25` and `npm >=10 <12`, matching package.json engines and GitHub Actions CI.\n```bash\nnpm run docs:verify\nnpm run typecheck\nnpm run build\nnpm test\nnpm run web:test:operator-smoke\n```\n' + VALID_PROFILE_DOCS,
     'web/package.json': WEB_PACKAGE_JSON,
-    'docs/runbook/operations.md': 'Run Saivage with Node.js 24; package.json engines require `node >=24 <25` and `npm >=10 <12`, matching CI.\n',
-    'docs/runbook/release.md': 'Release uses Node.js 24 with package engines `node >=24 <25` and `npm >=10 <12`, matching CI.\n```bash\nnpm run docs:build\nnpm run web:test:sweep\nnpm run test:web:sweep\n```\n' + VALID_PROFILE_DOCS,
-    'docs/runbook/incidents.md': 'Validation-command confusion: canonical `npm run web:test:analyst-ui` and alias `npm run test:web:analyst-ui`; smoke uses `npm run web:test:operator-smoke` or `npm run test:web:operator-smoke`.\n',
-    'docs/runbook/index.md': 'No extra validation commands here.\n',
+    'docs/architecture/system-architecture.md': 'Run Saivage with Node.js 24; package.json engines require `node >=24 <25` and `npm >=10 <12`, matching CI.\nValidation-command confusion: canonical `npm run web:test:analyst-ui` and alias `npm run test:web:analyst-ui`; smoke uses `npm run web:test:operator-smoke` or `npm run test:web:operator-smoke`.\n```bash\nnpm run docs:build\nnpm run web:test:sweep\nnpm run test:web:sweep\n```\n' + VALID_PROFILE_DOCS,
     '.github/workflows/validation.yml': VALID_WORKFLOW,
     'scripts/docs-verify.sh': VALID_DOCS_VERIFY,
     'scripts/check-existing.js': '#!/usr/bin/env node\n',
@@ -298,8 +295,8 @@ describe('validation cadence guard', () => {
     withFixture(validFiles({ 'package.json': JSON.stringify({ engines: { node: '>=24 <25', npm: '>=10 <12' }, scripts }) }), (root) => {
       const result = verifyValidationCadence({ root });
       expect(result.ok).toBe(false);
-      expect(result.failures).toContain('docs/runbook/incidents.md: npm run test:web:analyst-ui documents npm run test:web:analyst-ui, but package.json has no "test:web:analyst-ui" script');
-      expect(result.failures).toContain('docs/runbook/incidents.md: npm run test:web:analyst-ui documents npm run test:web:analyst-ui, but package.json has no "test:web:analyst-ui" alias to "web:test:analyst-ui"');
+      expect(result.failures).toContain('docs/architecture/system-architecture.md: npm run test:web:analyst-ui documents npm run test:web:analyst-ui, but package.json has no "test:web:analyst-ui" script');
+      expect(result.failures).toContain('docs/architecture/system-architecture.md: npm run test:web:analyst-ui documents npm run test:web:analyst-ui, but package.json has no "test:web:analyst-ui" alias to "web:test:analyst-ui"');
     });
   });
 

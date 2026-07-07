@@ -37,7 +37,15 @@ describe('boot fail-fast on missing dispatched model roles', () => {
     try { loadEnvironment(['node', 'saivage', 'start'], { SAIVAGE_PROJECT_ROOT: root }); }
     catch (err) { thrown = err; }
     expect(thrown).toBeInstanceOf(EnvironmentLoadError);
-    expect((thrown as Error).message).toMatch(/missing model role\(s\): planner, executor, reviewer, analyst/);
+    const error = thrown as EnvironmentLoadError;
+    expect(error.message).toMatch(/missing model role\(s\): planner, executor, reviewer, analyst/);
+    expect(error.message).toMatch(/model name or a non-empty array/);
+    expect(error.message).toContain('models.routing[');
+    expect(error.message).toContain('models.profiles[');
+    expect(error.message).toContain('models.default');
+    expect(error.expected).toContain('model name or non-empty array');
+    expect(error.expected).toContain('models.routing');
+    expect(error.expected).toContain('models.default');
   });
 
   it('startApp rejects with EnvironmentLoadError before any server binds or runtime initializes', async () => {

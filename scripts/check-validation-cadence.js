@@ -5,10 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 const DEFAULT_DOCUMENTED_COMMAND_FILES = [
   'README.md',
-  'docs/runbook/release.md',
-  'docs/runbook/incidents.md',
-  'docs/runbook/index.md',
-  'docs/operation.md',
+  'docs/architecture/system-architecture.md',
 ];
 
 const DEFAULT_WORKFLOW_DIRS = ['.github/workflows'];
@@ -19,7 +16,7 @@ const EXPECTED_NODE_MAJOR = '24';
 const EXPECTED_NODE_ENGINE = '>=24 <25';
 const EXPECTED_NPM_ENGINE = '>=10 <12';
 const RUNTIME_REFERENCE_PATTERN = /Node(?:\.js)?\s+24[\s\S]{0,160}(?:npm\s+10|package\.json\s+engines|package engines|CI|GitHub Actions)/i;
-const REQUIRED_RUNTIME_DOC_FILES = ['README.md', 'docs/runbook/operations.md', 'docs/runbook/release.md'];
+const REQUIRED_RUNTIME_DOC_FILES = ['README.md', 'docs/architecture/system-architecture.md'];
 const PASS_WITH_NO_TESTS_FLAG = '--passWithNoTests';
 
 
@@ -625,7 +622,7 @@ function validateRequiredValidationScripts({ scripts, documentedCommands }) {
     }
     const documented = documentedCommands.some((location) => location.includes(`npm run ${required.name}`));
     if (!documented && !required.documentationOptional) {
-      failures.push(`required validation script "${required.name}" is not documented in README.md or docs/runbook/*.md validation cadence`);
+      failures.push(`required validation script "${required.name}" is not documented in README.md or docs/architecture/system-architecture.md validation cadence`);
     }
   }
 
@@ -656,7 +653,7 @@ function validateValidationProfiles({ scripts, documentedCommands, markdownByFil
     }
     const documented = documentedCommands.some((location) => location.includes(`npm run ${profile.name}`));
     if (!documented) {
-      failures.push(`validation profile "${profile.name}" is not documented in README.md or docs/runbook/*.md validation cadence`);
+      failures.push(`validation profile "${profile.name}" is not documented in README.md or docs/architecture/system-architecture.md validation cadence`);
     }
     if (profile.documentedExclusion && !profile.documentedExclusion.test(corpus)) {
       failures.push(`validation profile "${profile.name}" has intentional exclusions, but the exclusion is not documented near the profile command`);

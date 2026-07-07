@@ -18,11 +18,13 @@ describe('release-readiness documentation', () => {
     expect(readme).toContain('npm test');
   });
 
-  it('README records the current reconstructed documentation tree', () => {
+  it('README records the canonical documentation authority set', () => {
     const readme = readDoc('README.md');
 
-    expect(readme).toContain('docs/spec/');
-    expect(readme).toContain('docs/architecture/');
-    expect(readme).toContain('documentation tree is being reconstructed');
+    expect(readme).toContain('docs/spec/system-specification.md');
+    expect(readme).toContain('docs/spec/operator-ui.md');
+    expect(readme).toContain('docs/architecture/system-architecture.md');
+    expect(readme).toContain('README.md');
+    expect(readme).not.toContain('documentation tree is being reconstructed');
   });
 });

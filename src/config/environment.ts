@@ -227,14 +227,14 @@ export function loadEnvironment(argv: readonly string[], env: EnvironmentSource)
     const missing = roleCheck.missingRoles.join(', ');
     const lines = [`Configuration validation failed: missing model role(s): ${missing}.`];
     for (const r of roleCheck.missingRoles) {
-      lines.push(`  models.${r} = (unset) — set "models.${r}" to a non-empty string[] in .saivage/saivage.json`);
+      lines.push(`  models.${r} = (unset) — set "models.${r}" to a model name or a non-empty array of model names, or route it via "models.routing['${r}']" to a "models.profiles[<name>]" entry (preferred + allowed), in .saivage/saivage.json`);
     }
-    lines.push('  or set "models.default" as a shared fallback');
+    lines.push('  or set "models.default" as a shared fallback (used by every role that does not resolve directly or via routing)');
     const present = Object.entries(roleCheck.configuredRoles).map(([r, ms]) => `${r} = ${JSON.stringify(ms)}`);
     if (present.length > 0) lines.push(`Roles defined in this config: ${present.join(', ')}`);
     throw new EnvironmentLoadError(lines.join('\n'), {
       field: `models.${roleCheck.missingRoles[0]}`,
-      expected: 'non-empty string[] or models.default',
+      expected: 'a model name or non-empty array (models.<role>), a models.routing[role] -> models.profiles[<name>] path, or models.default',
       received: 'unset',
       source: 'file',
     });
