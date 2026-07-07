@@ -1,45 +1,41 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { z } from 'zod';
-import { appendSyncIdempotentByKey, writeFileAtomic } from '../../persistence/index.js';
+import { appendSyncIdempotentByKey } from '../../persistence/index.js';
 import { agentMessageSchema } from '../../schemas/index.js';
 import type { AgentMessage, MessageRole } from '../../schemas/index.js';
 import { generateRoundId } from '../../schemas/round-id-server.js';
+import {
+  activeVersionPath,
+  ensureConversationIndex,
+  readConversationIndex,
+} from './conversation-index.js';
 
-const conversationSegmentNameSchema = z.string().regex(/^seg-\d{3}\.jsonl$/);
-const conversationIndexSchema = z.object({
-  schema_version: z.literal(1),
-  active_segment: conversationSegmentNameSchema,
-}).strict();
-
-type ConversationIndex = z.infer<typeof conversationIndexSchema>;
-
-export function conversationDir(projectRoot: string, sessionId: string): string {
-  return join(projectRoot, '.saivage', 'agents', 'conversations', encodeURIComponent(sessionId));
-}
-
-export function conversationIndexPath(projectRoot: string, sessionId: string): string {
-  return join(conversationDir(projectRoot, sessionId), 'index.json');
-}
-
-export function conversationSegmentPath(projectRoot: string, sessionId: string, segmentName: string): string {
-  return join(conversationDir(projectRoot, sessionId), conversationSegmentNameSchema.parse(segmentName));
-}
+export { conversationDir, conversationIndexPath } from './conversation-index.js';
 
 export function readConversationMessages(projectRoot: string, sessionId: string): AgentMessage[] {
+  const index = readConversationIndex(projectRoot, sessionId);
+  if (!index) return [];
   const seen = new Set<string>();
   const messages: AgentMessage[] = [];
-  for (const message of conversationSegmentPaths(projectRoot, sessionId).flatMap((path) => readConversationSegment(path))) {
-    if (seen.has(message.id)) continue;
-    seen.add(message.id);
-    messages.push(message);
+  for (const version of Object.keys(index.versions).map(Number).sort((a, b) => a - b)) {
+    const path = activeVersionPath(projectRoot, sessionId, version);
+    if (!existsSync(path)) throw new Error(`Conversation version '${version}' for '${sessionId}' was not found.`);
+    for (const message of readConversationVersion(path)) {
+      if (seen.has(message.id)) continue;
+      seen.add(message.id);
+      messages.push(message);
+    }
   }
   return messages;
 }
 
 export function readActiveVersionMessages(projectRoot: string, sessionId: string): AgentMessage[] {
-  return readConversationMessages(projectRoot, sessionId);
+  const index = readConversationIndex(projectRoot, sessionId);
+  if (!index) return [];
+  const path = activeVersionPath(projectRoot, sessionId, index.active_version);
+  if (!existsSync(path)) throw new Error(`Conversation active version '${index.active_version}' for '${sessionId}' was not found.`);
+  return readConversationVersion(path);
 }
 
 export function listConversationSessionIds(projectRoot: string): string[] {
@@ -53,7 +49,7 @@ export function listConversationSessionIds(projectRoot: string): string[] {
 
 export function appendConversationMessage(projectRoot: string, message: AgentMessage): void {
   const parsed = agentMessageSchema.parse(message);
-  appendSyncIdempotentByKey(activeConversationSegmentPath(projectRoot, parsed.session_id), parsed, 'id');
+  appendSyncIdempotentByKey(activeConversationVersionPath(projectRoot, parsed.session_id), parsed, 'id');
 }
 
 export type UserContextMessageCategory = 'planner_state' | 'notification' | 'reviewer_descendant' | 'reviewer_currentness' | 'continuation_hook';
@@ -116,50 +112,17 @@ export function buildContextTextMessage(sessionId: string, role: Extract<Message
 }
 
 export function conversationMessagesForModel(messages: AgentMessage[]): AgentMessage[] {
-  return messages.filter((message) => message.kind === 'text' || message.kind === 'tool_call' || message.kind === 'tool_result' || message.kind === 'model_repair');
+  return messages.filter((message) => message.kind === 'text' || message.kind === 'tool_call' || message.kind === 'tool_result' || message.kind === 'model_repair' || message.kind === 'context_compaction');
 }
 
-function activeConversationSegmentPath(projectRoot: string, sessionId: string): string {
+function activeConversationVersionPath(projectRoot: string, sessionId: string): string {
   const index = ensureConversationIndex(projectRoot, sessionId);
-  const path = conversationSegmentPath(projectRoot, sessionId, index.active_segment);
-  if (!existsSync(path)) throw new Error(`Conversation active segment '${index.active_segment}' for '${sessionId}' was not found.`);
+  const path = activeVersionPath(projectRoot, sessionId, index.active_version);
+  if (!existsSync(path)) throw new Error(`Conversation active version '${index.active_version}' for '${sessionId}' was not found.`);
   return path;
 }
 
-function ensureConversationIndex(projectRoot: string, sessionId: string): ConversationIndex {
-  const dir = conversationDir(projectRoot, sessionId);
-  const path = conversationIndexPath(projectRoot, sessionId);
-  if (existsSync(path)) return readConversationIndex(path);
-  mkdirSync(dir, { recursive: true });
-  const segment = conversationSegmentPath(projectRoot, sessionId, 'seg-001.jsonl');
-  writeFileAtomic(segment, '');
-  const index: ConversationIndex = { schema_version: 1, active_segment: 'seg-001.jsonl' };
-  writeFileAtomic(path, JSON.stringify(index, null, 2) + '\n');
-  return index;
-}
-
-function readConversationIndex(path: string): ConversationIndex {
-  try {
-    return conversationIndexSchema.parse(JSON.parse(readFileSync(path, 'utf-8')));
-  } catch (error) {
-    throw new Error(`Conversation index '${path}' is malformed: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
-
-function conversationSegmentPaths(projectRoot: string, sessionId: string): string[] {
-  const dir = conversationDir(projectRoot, sessionId);
-  const indexPath = conversationIndexPath(projectRoot, sessionId);
-  if (!existsSync(indexPath)) return [];
-  const index = readConversationIndex(indexPath);
-  const entries = readdirSync(dir, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && conversationSegmentNameSchema.safeParse(entry.name).success)
-    .map((entry) => entry.name)
-    .sort();
-  if (!entries.includes(index.active_segment)) throw new Error(`Conversation active segment '${index.active_segment}' for '${sessionId}' was not found.`);
-  return entries.map((entry) => conversationSegmentPath(projectRoot, sessionId, entry));
-}
-
-function readConversationSegment(path: string): AgentMessage[] {
+function readConversationVersion(path: string): AgentMessage[] {
   return readFileSync(path, 'utf-8')
     .split('\n')
     .filter(Boolean)

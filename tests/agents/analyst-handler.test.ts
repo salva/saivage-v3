@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTestAnalystRuntime, loadTestConfig } from '../helpers/test-runtime-application.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 import { appendConversationMessage, readConversationMessages } from '../../src/runtime/actors/conversation-store.js';
+import { activeVersionPath, conversationDir, writeConversationIndex } from '../../src/runtime/actors/conversation-index.js';
 import { resolveAnalystSessionId } from '../../src/agents/session-ids.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { actorSnapshotPath } from '../../src/runtime/actors/snapshots.js';
@@ -224,6 +225,57 @@ describe('AnalystHandler F05 contract', () => {
 
       expect(modelInputContents.some((content) => content.includes('provider debug diagnostic'))).toBe(false);
       expect(readPersistedRows(root, 's-filter').some((row) => row.kind === 'model_issue')).toBe(true);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('loads only the active conversation version into the first analyst turn', async () => {
+    const root = setupRoot();
+    try {
+      const sessionId = resolveAnalystSessionId('s-active-version');
+      mkdirSync(conversationDir(root, sessionId), { recursive: true });
+      writeFileSync(activeVersionPath(root, sessionId, 1), JSON.stringify({
+        role: 'user',
+        kind: 'text',
+        content: 'frozen row must not reach provider',
+        round_id: 'r-user-00000000000000000000000000000001',
+        message_index: 1,
+        block_index: 0,
+        timestamp: '2026-01-01T00:00:00.000Z',
+        id: 'frozen-row',
+        session_id: sessionId,
+      }) + '\n');
+      writeFileSync(activeVersionPath(root, sessionId, 2), JSON.stringify({
+        role: 'user',
+        kind: 'text',
+        content: 'active row must reach provider',
+        round_id: 'r-user-00000000000000000000000000000002',
+        message_index: 1,
+        block_index: 0,
+        timestamp: '2026-01-01T00:00:01.000Z',
+        id: 'active-row',
+        session_id: sessionId,
+      }) + '\n');
+      writeConversationIndex(root, sessionId, {
+        schema_version: 2,
+        session_id: sessionId,
+        active_version: 2,
+        versions: {
+          '1': { status: 'frozen', opened_at: '2026-01-01T00:00:00.000Z', frozen_at: '2026-01-01T00:00:02.000Z' },
+          '2': { status: 'active', opened_at: '2026-01-01T00:00:03.000Z' },
+        },
+      });
+      let modelInputContents: string[] = [];
+      jest.spyOn(globalThis, 'fetch').mockImplementation(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? '{}')) as { messages?: Array<{ content?: string }> };
+        modelInputContents = (body.messages ?? []).map((message) => String(message.content ?? ''));
+        return messageResponse('Done.');
+      });
+
+      const runtime = new AnalystRuntime({ projectRoot: root, config: loadTestConfig(root), runtimeDeps: createTestAnalystRuntime({ projectRoot: root }) });
+      await runtime.submit('s-active-version', { userContent: 'hi' });
+
+      expect(modelInputContents.some((content) => content.includes('active row must reach provider'))).toBe(true);
+      expect(modelInputContents.some((content) => content.includes('frozen row must not reach provider'))).toBe(false);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });

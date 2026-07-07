@@ -19,7 +19,7 @@ import { getModelParamsForRole } from './config-schema.js';
 import type { SaivageConfig } from './config-schema.js';
 import { capabilityRequestForLlmOptions } from './provider-capabilities.js';
 import { buildAgentProtocolViolation, parseProtocolToolArgs } from './agent-protocol-violation.js';
-import { buildContextTextMessage, conversationMessagesForModel, readConversationMessages } from '../runtime/actors/conversation-store.js';
+import { buildContextTextMessage, conversationMessagesForModel, readActiveVersionMessages, readConversationMessages } from '../runtime/actors/conversation-store.js';
 import { ConversationLLMActor, type LLMActorOutcome, type LLMProviderPort } from '../runtime/actors/llm-actor.js';
 import type { LlmInvocationInput } from '../runtime/actors/llm-invocation.js';
 import { resolveAnalystSessionId } from './session-ids.js';
@@ -382,7 +382,7 @@ export class AnalystSessionActor extends BaseActor {
     const modelParams = getModelParamsForRole(this.args.config, 'analyst');
     const contextMessages = this.llm.input
       ? [...this.llm.input.contextMessages, ...newMessages]
-      : [...conversationMessagesForModel(readConversationMessages(this.args.projectRoot, this.sessionId)), ...newMessages] as AgentMessage[];
+      : [...conversationMessagesForModel(readActiveVersionMessages(this.args.projectRoot, this.sessionId)), ...newMessages] as AgentMessage[];
     return {
       inputId: `${this.llm.agentId}:turn:${Date.now()}`,
       agentId: this.llm.agentId,

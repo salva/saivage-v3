@@ -164,6 +164,6 @@ describe('application read models', () => {
     expect(chat.entries.map((entry) => entry.kind)).toEqual(['system_prompt', 'text']);
     expect(debug.total).toBe(1);
     expect(JSON.stringify(debug.errors)).not.toContain('secret');
-    expect(existsSync(join(root, '.saivage', 'agents', 'conversations', encodeURIComponent('analyst:global'), 'seg-001.jsonl'))).toBe(true);
+    expect(existsSync(join(root, '.saivage', 'agents', 'conversations', encodeURIComponent('analyst:global'), '1.jsonl'))).toBe(true);
   });
 });

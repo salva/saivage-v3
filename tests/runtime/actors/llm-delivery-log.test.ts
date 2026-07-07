@@ -3,7 +3,8 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { abandonStalePendingToolCalls, appendConversationMessage, appendLlmTurnFinished, appendLlmTurnStarted, appendTerminalToolProjectedStatus, buildContextTextMessage, conversationIndexPath, conversationMessagesForModel, conversationSegmentPath, listConversationSessionIds, readLoggedToolCall, readToolCallStatuses } from '../../../src/runtime/actors/index.js';
+import { abandonStalePendingToolCalls, appendConversationMessage, appendLlmTurnFinished, appendLlmTurnStarted, appendTerminalToolProjectedStatus, buildContextTextMessage, conversationIndexPath, conversationMessagesForModel, listConversationSessionIds, readLoggedToolCall, readToolCallStatuses } from '../../../src/runtime/actors/index.js';
+import { activeVersionPath } from '../../../src/runtime/actors/conversation-index.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => T): T {
@@ -42,8 +43,8 @@ describe('llm delivery log recovery helpers', () => {
     appendLlmTurnStarted(projectRoot, input());
     appendLlmTurnStarted(projectRoot, input('planner:G-1:2'), { includeSystemPrompt: false });
 
-    expect(JSON.parse(readFileSync(conversationIndexPath(projectRoot, 'planner:G-1'), 'utf-8'))).toEqual({ schema_version: 1, active_segment: 'seg-001.jsonl' });
-    const rows = jsonl(conversationSegmentPath(projectRoot, 'planner:G-1', 'seg-001.jsonl'));
+    expect(JSON.parse(readFileSync(conversationIndexPath(projectRoot, 'planner:G-1'), 'utf-8'))).toMatchObject({ schema_version: 2, active_version: 1 });
+    const rows = jsonl(activeVersionPath(projectRoot, 'planner:G-1', 1));
     expect(rows[0]).toMatchObject({ role: 'system', kind: 'system_prompt', content: 'system' });
     expect(rows.filter((entry) => entry.kind === 'system_prompt')).toHaveLength(1);
   }));
@@ -58,7 +59,7 @@ describe('llm delivery log recovery helpers', () => {
       tool_name: 'emit_result',
       args: { status: 'blocked', summary: 'blocked' },
     });
-    const toolCallMessage = jsonl(conversationSegmentPath(projectRoot, 'planner:G-1', 'seg-001.jsonl')).find((entry) => entry.kind === 'tool_call');
+    const toolCallMessage = jsonl(activeVersionPath(projectRoot, 'planner:G-1', 1)).find((entry) => entry.kind === 'tool_call');
     expect(JSON.parse(String(toolCallMessage?.content))).toEqual({
       role: 'assistant',
       tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked', summary: 'blocked' }) } }],
@@ -107,7 +108,7 @@ describe('llm delivery log recovery helpers', () => {
     expect(message).toMatchObject({ session_id: 'analyst:global', role: 'system', kind: 'text', content: '[workspace-context]' });
     expect(message.id).toContain('analyst:global:context:');
     expect(message.round_id).toMatch(/^r-pre-/);
-    expect(jsonl(conversationSegmentPath(projectRoot, 'analyst:global', 'seg-001.jsonl'))).toHaveLength(1);
+    expect(jsonl(activeVersionPath(projectRoot, 'analyst:global', 1))).toHaveLength(1);
   }));
 
   it('projects only provider-visible conversation messages for model reconstruction', () => withTempProject((projectRoot) => {
@@ -117,6 +118,6 @@ describe('llm delivery log recovery helpers', () => {
     appendConversationMessage(projectRoot, { ...buildContextTextMessage(sessionId, 'user', 'repair'), id: 'repair', kind: 'model_repair' });
     appendConversationMessage(projectRoot, { ...buildContextTextMessage(sessionId, 'system', 'issue'), id: 'issue', kind: 'model_issue' });
 
-    expect(conversationMessagesForModel(jsonl(conversationSegmentPath(projectRoot, sessionId, 'seg-001.jsonl')) as never).map((message) => message.kind)).toEqual(['text', 'model_repair']);
+    expect(conversationMessagesForModel(jsonl(activeVersionPath(projectRoot, sessionId, 1)) as never).map((message) => message.kind)).toEqual(['text', 'model_repair']);
   }));
 });

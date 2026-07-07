@@ -3,7 +3,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { actorKindFromId, actorToolCallStatusesPath, appendActivationMarker, appendUserContextMessage, BaseMainLLMCardProcessorActor, conversationIndexPath, conversationSegmentPath, LLMActor, parseLlmActorId, readActorSnapshots, readConversationMessages, type LLMActorOutcome, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
+import { actorKindFromId, actorToolCallStatusesPath, appendActivationMarker, appendUserContextMessage, BaseMainLLMCardProcessorActor, conversationIndexPath, LLMActor, parseLlmActorId, readActorSnapshots, readConversationMessages, type LLMActorOutcome, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
+import { activeVersionPath } from '../../../src/runtime/actors/conversation-index.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
 import type { LlmCompleteResult } from '../../../src/agents/llm-contracts.js';
@@ -42,7 +43,7 @@ function corruptActorMessages(projectRoot: string): void {
   const indexPath = conversationIndexPath(projectRoot, 'planner:project');
   mkdirSync(dirname(indexPath), { recursive: true });
   writeFileSync(indexPath, JSON.stringify({ schema_version: 1, active_segment: 'seg-001.jsonl' }) + '\n', 'utf-8');
-  const path = conversationSegmentPath(projectRoot, 'planner:project', 'seg-001.jsonl');
+  const path = join(dirname(indexPath), 'seg-001.jsonl');
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, '{"partial"', 'utf-8');
 }
@@ -84,7 +85,7 @@ describe('LLMActor', () => {
     let sawStartedMessage = false;
     const provider: LLMProviderPort = {
       completeTurn: jest.fn(async () => {
-        sawStartedMessage = jsonl(conversationSegmentPath(projectRoot, 'planner:project', 'seg-001.jsonl')).some((entry) => String(entry.id).endsWith(':started'));
+        sawStartedMessage = jsonl(activeVersionPath(projectRoot, 'planner:project', 1)).some((entry) => String(entry.id).endsWith(':started'));
         return { kind: 'message' as const, content: 'done' };
       }),
     };
@@ -96,7 +97,7 @@ describe('LLMActor', () => {
     expect(sawStartedMessage).toBe(true);
     expect(outcome).toMatchObject({ type: 'result', result: { content: 'done' } });
     await eventually(() => expect(actor.state()).toBe('idle'));
-    expect(jsonl(conversationSegmentPath(projectRoot, 'planner:project', 'seg-001.jsonl')).map((entry) => entry.kind)).toEqual(['system_prompt', 'activity', 'text']);
+    expect(jsonl(activeVersionPath(projectRoot, 'planner:project', 1)).map((entry) => entry.kind)).toEqual(['system_prompt', 'activity', 'text']);
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toContain('planner:project');
     expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === 'planner:project')?.context.active_reconstruction).toBeNull();
   }));
@@ -285,7 +286,7 @@ describe('LLMActor', () => {
       { role: 'user', content: 'Use emit_result.' },
     ]);
     expect((actor.input?.contextMessages ?? []).filter((message) => (message as { role?: string; content?: string }).role === 'assistant' && (message as { content?: string }).content === 'plain text')).toHaveLength(1);
-    const rows = jsonl(conversationSegmentPath(projectRoot, 'planner:project', 'seg-001.jsonl'));
+    const rows = jsonl(activeVersionPath(projectRoot, 'planner:project', 1));
     expect(rows.map((entry) => entry.kind)).toEqual(['system_prompt', 'activity', 'text', 'model_repair', 'activity', 'text']);
     expect(rows.find((entry) => entry.kind === 'model_repair')).toMatchObject({ role: 'user', content: 'Use emit_result.' });
   }));

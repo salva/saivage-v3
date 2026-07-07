@@ -3,6 +3,16 @@ export * from './actor-vocabulary.js';
 export * from './snapshots.js';
 export * from './llm-delivery-log.js';
 export * from './conversation-store.js';
+export {
+  activeVersionPath,
+  versionExists,
+  readConversationIndex,
+  writeConversationIndex,
+  ensureConversationIndex,
+  conversationIndexSchema,
+  conversationVersionEntrySchema,
+} from './conversation-index.js';
+export type { ConversationIndex, ConversationVersionEntry } from './conversation-index.js';
 export * from './actor-recovery.js';
 export * from './active-reconstruction.js';
 export * from './llm-invocation.js';
