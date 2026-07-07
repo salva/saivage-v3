@@ -2,12 +2,11 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, jest } from '@jest/globals';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { CardStore } from '../../../src/cards/card-store.js';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { appendLlmTurnFinished, createSupervisorRuntimeApi, readActorSnapshots, readRecoveryDiagnostics, readToolCallStatuses, saveActorSnapshot, SupervisorRuntimeApi, type CardActorStorePort, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
+import { appendLlmTurnFinished, appendToolDelivery, createSupervisorRuntimeApi, readActorSnapshots, readConversationMessages, readRecoveryDiagnostics, saveActorSnapshot, SupervisorRuntimeApi, type CardActorStorePort, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
-import { actorToolCallStatusesPath, appendToolCallStatus } from '../../../src/runtime/actors/index.js';
 import type { LlmCompleteResult } from '../../../src/agents/llm-contracts.js';
 import type { CardRecord } from '../../../src/schemas/index.js';
 import { openRecordSlot } from '../../../src/runtime/records/record-slots.js';
@@ -22,15 +21,6 @@ function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promis
   if (result instanceof Promise) return result.finally(() => rmSync(projectRoot, { recursive: true, force: true }));
   rmSync(projectRoot, { recursive: true, force: true });
   return result;
-}
-
-function readJsonl(path: string): Array<Record<string, unknown>> {
-  if (!existsSync(path)) return [];
-  return readFileSync(path, 'utf-8')
-    .trim()
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 
 function testProcessRunner(projectRoot: string): ProcessRunner {
@@ -167,6 +157,18 @@ function appendExecutorToolCall(projectRoot: string, cardId: string, toolName: s
   appendLlmTurnFinished(projectRoot, { inputId, agentId, role: 'executor', sessionId: agentId, systemPrompt: 'system', contextMessages: [], tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: { cardId, caller: { kind: 'parent', cardId: 'project', sessionId: 'planner:project' }, activationId: `card:${cardId}:activation:1` } }, { kind: 'tool_calls', tool_calls: [{ id: toolCallId, type: 'function', function: { name: toolName, arguments: JSON.stringify(args) } }] });
 }
 
+function toolResultMessages(projectRoot: string, sessionId: string) {
+  return readConversationMessages(projectRoot, sessionId).filter((message) => message.kind === 'tool_result');
+}
+
+function projectedToolResultMessages(projectRoot: string, sessionId: string) {
+  return toolResultMessages(projectRoot, sessionId).filter((message) => message.content === JSON.stringify({ projected: true }));
+}
+
+function toolMessageKinds(projectRoot: string, sessionId: string): string[] {
+  return readConversationMessages(projectRoot, sessionId).filter((message) => message.kind === 'tool_call' || message.kind === 'tool_result').map((message) => message.kind);
+}
+
 function writeRequiredRecord(projectRoot: string, cardId: string, filename: 'status.md' | 'review.md', content: string): void {
   const record = openRecordSlot(projectRoot, { cardId, filename });
   writeFileSync(record.absolutePath, content, 'utf8');
@@ -263,7 +265,7 @@ describe('SupervisorRuntimeApi', () => {
     expect(terminal).toMatchObject({ phase: 'blocked', runtime_status: 'stopped', finished_at: null, outcome: { kind: 'blocked', error: 'waiting for operator' } });
     expect(api.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null, goalCount: 0 });
     expect(api.getActorRuntimeReadModel()).toMatchObject({ pauseMode: 'idle', activeWork: 'none' });
-    expect(readToolCallStatuses(projectRoot, 'planner:project').filter((record) => record.tool_name === 'emit_result').map((record) => record.status)).toEqual(['pending', 'terminal_projected']);
+    expect(projectedToolResultMessages(projectRoot, 'planner:project')).toEqual([expect.objectContaining({ tool: 'emit_result' })]);
   }));
 
   it('settles failed root project activations without projecting active runtime work', async () => withTempProject(async (projectRoot) => {
@@ -387,34 +389,15 @@ describe('SupervisorRuntimeApi', () => {
     initProjectTree(projectRoot);
     const store = new CardStore(projectRoot);
     createProject(store);
-    appendToolCallStatus(projectRoot, {
-      agent_id: 'planner:G-stale',
-      source_input_id: 'input:G-stale',
-      tool_call_id: 'call-stale',
-      tool_name: 'activate_card',
-      status: 'pending',
-    });
-    appendToolCallStatus(projectRoot, {
-      agent_id: 'planner:G-delivered',
-      source_input_id: 'input:G-delivered',
-      tool_call_id: 'call-delivered',
-      tool_name: 'activate_card',
-      status: 'pending',
-    });
-    appendToolCallStatus(projectRoot, {
-      agent_id: 'planner:G-delivered',
-      source_input_id: 'input:G-delivered',
-      tool_call_id: 'call-delivered',
-      tool_name: 'activate_card',
-      status: 'delivered',
-      delivery_input_id: 'input:G-delivered:child:1',
-    });
+    appendPlannerToolCall(projectRoot, 'G-stale', 'activate_card', { card_id: 'child-stale' }, 'call-stale');
+    appendPlannerToolCall(projectRoot, 'G-delivered', 'activate_card', { card_id: 'child-delivered' }, 'call-delivered');
+    appendToolDelivery(projectRoot, { agent_id: 'planner:G-delivered', session_id: 'planner:G-delivered', source_input_id: 'planner:G-delivered:1', delivery_input_id: 'planner:G-delivered:1:tool:1', tool_call_id: 'call-delivered', tool_name: 'activate_card', result: { success: true } });
     const api = new SupervisorRuntimeApi({ projectRoot, actorStore: store, provider: blockedPlannerProvider(), processRunner: testProcessRunner(projectRoot), now: () => '2026-06-12T00:00:00.000Z' });
 
     await api.start();
 
-    expect(readJsonl(actorToolCallStatusesPath(projectRoot, 'planner:G-stale')).map((entry) => entry.status)).toEqual(['pending', 'abandoned']);
-    expect(readJsonl(actorToolCallStatusesPath(projectRoot, 'planner:G-delivered')).map((entry) => entry.status)).toEqual(['pending', 'delivered']);
+    expect(toolResultMessages(projectRoot, 'planner:G-stale')).toEqual([expect.objectContaining({ id: 'planner:G-stale:1:tool:0:tool-result:call-stale', content: JSON.stringify({ success: false, error: 'Runtime restarted before the pending tool call reached a terminal delivery state.' }) })]);
+    expect(toolResultMessages(projectRoot, 'planner:G-delivered')).toEqual([expect.objectContaining({ id: 'planner:G-delivered:1:tool:1:tool-result:call-delivered', content: JSON.stringify({ success: true }) })]);
   }));
 
   it('reconstructs interrupted running card work paused during startup recovery', async () => withTempProject(async (projectRoot) => {
@@ -493,7 +476,7 @@ describe('SupervisorRuntimeApi', () => {
 
     expect(api.getStatus()).toMatchObject({ status: 'paused' });
     expect(store.read(card.id)).toMatchObject({ status: 'running' });
-    expect(readToolCallStatuses(projectRoot, `executor:${card.id}`).map((record) => record.status)).toEqual(['pending']);
+    expect(toolMessageKinds(projectRoot, `executor:${card.id}`)).toEqual(['tool_call']);
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toEqual(expect.arrayContaining([`card:${card.id}`, `executor:${card.id}`, `processor:${card.id}`]));
   }));
 
@@ -530,7 +513,7 @@ describe('SupervisorRuntimeApi', () => {
 
     expect(store.read(project.id)).toMatchObject({ status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'blocked', summary: 'needs operator' } } });
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).not.toEqual(expect.arrayContaining(['card:project', 'planner:project', 'processor:project']));
-    expect(readToolCallStatuses(projectRoot, 'planner:project').map((record) => record.status)).toEqual(['pending', 'terminal_projected']);
+    expect(projectedToolResultMessages(projectRoot, 'planner:project')).toEqual([expect.objectContaining({ tool: 'emit_result' })]);
     expect(readRecoveryDiagnostics(projectRoot)).toBeNull();
   }));
 
@@ -575,7 +558,8 @@ describe('SupervisorRuntimeApi', () => {
     await api.start();
 
     expect(store.read(project.id)).toMatchObject({ status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'review ok' } } });
-    expect(readToolCallStatuses(projectRoot).filter((record) => record.status === 'terminal_projected').map((record) => record.agent_id).sort()).toEqual(['planner:project', 'reviewer:project']);
+    expect(projectedToolResultMessages(projectRoot, 'planner:project')).toEqual([expect.objectContaining({ tool: 'emit_result' })]);
+    expect(projectedToolResultMessages(projectRoot, 'reviewer:project:assessment-project-1')).toEqual([expect.objectContaining({ tool: 'emit_result' })]);
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).not.toEqual(expect.arrayContaining(['card:project', 'planner:project', 'processor:project', 'reviewer:project']));
   }));
 
@@ -622,7 +606,8 @@ describe('SupervisorRuntimeApi', () => {
     await api.start();
 
     expect(store.read(project.id)).toMatchObject({ status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'review ok' } } });
-    expect(readToolCallStatuses(projectRoot).filter((record) => record.status === 'terminal_projected').map((record) => record.agent_id).sort()).toEqual(['planner:project', 'reviewer:project']);
+    expect(projectedToolResultMessages(projectRoot, 'planner:project')).toEqual([expect.objectContaining({ tool: 'emit_result' })]);
+    expect(projectedToolResultMessages(projectRoot, 'reviewer:project:assessment-project-1')).toEqual([expect.objectContaining({ tool: 'emit_result' })]);
   }));
 
   it('recovers activate_card waiting tool calls when child evidence is terminal', async () => withTempProject(async (projectRoot) => {
@@ -659,7 +644,7 @@ describe('SupervisorRuntimeApi', () => {
 
     expect(api.getStatus()).toMatchObject({ status: 'paused' });
     expect(store.read(project.id)).toMatchObject({ status: 'running', status_text: null });
-    await eventually(() => expect(readToolCallStatuses(projectRoot, 'planner:project').map((record) => record.status)).toEqual(['pending', 'delivered']));
+    await eventually(() => expect(toolMessageKinds(projectRoot, 'planner:project')).toEqual(['tool_call', 'tool_result']));
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toEqual(expect.arrayContaining(['card:project', 'planner:project', 'processor:project']));
   }));
 
@@ -709,7 +694,8 @@ describe('SupervisorRuntimeApi', () => {
     const terminal = await waitForRootRun(projectRoot, (run) => run.phase === 'completed');
     expect(terminal).toMatchObject({ phase: 'completed', runtime_status: 'stopped', outcome: { kind: 'completed', result: 'done' } });
     expect(store.read('project')).toMatchObject({ status: 'done', status_text: 'project reviewed', lifecycle: { result: { kind: 'done', summary: 'project reviewed' } } });
-    expect(readToolCallStatuses(projectRoot).filter((record) => record.tool_name === 'emit_result' && record.status === 'terminal_projected').map((record) => record.agent_id).sort()).toEqual(['planner:project', 'reviewer:project']);
+    expect(projectedToolResultMessages(projectRoot, 'planner:project')).toEqual([expect.objectContaining({ tool: 'emit_result' })]);
+    expect(projectedToolResultMessages(projectRoot, 'reviewer:project:assessment-project-1')).toEqual([expect.objectContaining({ tool: 'emit_result' })]);
     expect(readActorSnapshots(projectRoot).map((snapshot) => snapshot.actor_id)).toEqual(expect.arrayContaining(['card:project', 'planner:project', 'reviewer:project', 'processor:project']));
   }));
 

@@ -113,7 +113,6 @@ describe('Core schemas still validate expected records', () => {
       output_dir: '/tmp/out',
       stdout_path: '/tmp/out/stdout.log',
       stderr_path: '/tmp/out/stderr.log',
-      combined_log_path: '/tmp/out/combined.log',
     }).success).toBe(true);
   });
 

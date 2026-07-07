@@ -17,7 +17,7 @@ describe('process contract alignment', () => {
       card_id: 'card-1',
       command: 'echo ok',
       cwd: '/work/project',
-      logs: { stdout: null, stderr: null, combined: 'logs/proc-1.log' },
+      logs: { stdout: 'work:///processes/proc-1/stdout.log', stderr: null },
     });
 
     const processView: ProcessView = parsed;
@@ -25,6 +25,6 @@ describe('process contract alignment', () => {
     const detailResponse: ProcessDetailResponse = { process: processView };
 
     expect(listResponse.processes[0]).toEqual(detailResponse.process);
-    expect(detailResponse.process.logs.combined).toBe('logs/proc-1.log');
+    expect(detailResponse.process.logs.stdout).toBe('work:///processes/proc-1/stdout.log');
   });
 });

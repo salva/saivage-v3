@@ -1,14 +1,12 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
 import { z } from 'zod';
-import { appendSyncIdempotentByKey } from '../../persistence/index.js';
 import { agentMessageSchema } from '../../schemas/index.js';
 import type { AgentMessage } from '../../schemas/index.js';
 import type { LlmCompleteResult, ToolCall } from '../../agents/llm-contracts.js';
 import { parseToolCallMessage } from '../../contracts/persisted-tool-call.js';
 import type { LlmInvocationInput } from './llm-invocation.js';
-import { appendConversationMessage, readConversationMessages } from './conversation-store.js';
+import { appendConversationMessage, listConversationSessionIds, readConversationMessages } from './conversation-store.js';
+import { agentIdFromSessionId, cardIdFromSessionId } from './ids.js';
 
 const toolDeliveryRecordSchema = z.object({
   delivery_id: z.string().min(1),
@@ -22,20 +20,16 @@ const toolDeliveryRecordSchema = z.object({
   created_at: z.string().datetime(),
 });
 
-const toolCallStatusRecordSchema = z.object({
-  transition_id: z.string().min(1),
-  agent_id: z.string().min(1),
-  source_input_id: z.string().min(1),
-  tool_call_id: z.string().min(1),
-  tool_name: z.string().min(1),
-  status: z.enum(['pending', 'delivered', 'errored', 'abandoned', 'terminal_projected']),
-  delivery_input_id: z.string().min(1).optional(),
-  error: z.string().min(1).optional(),
-  created_at: z.string().datetime(),
-});
-
 export type ToolDeliveryRecord = z.infer<typeof toolDeliveryRecordSchema>;
-export type ToolCallStatusRecord = z.infer<typeof toolCallStatusRecordSchema>;
+
+export interface AbandonedToolCallRecord {
+  agent_id: string;
+  card_id?: string;
+  source_input_id: string;
+  tool_call_id: string;
+  tool_name: string;
+  error: string;
+}
 
 export interface LoggedToolCall {
   agent_id: string;
@@ -43,18 +37,6 @@ export interface LoggedToolCall {
   tool_call_id: string;
   tool_name: string;
   args: unknown;
-}
-
-export function actorToolDeliveriesPath(projectRoot: string, agentId: string): string {
-  return join(projectRoot, '.saivage', 'agents', 'tool-deliveries', `${encodeURIComponent(agentId)}.jsonl`);
-}
-
-function actorToolCallStatusesDir(projectRoot: string): string {
-  return join(projectRoot, '.saivage', 'agents', 'tool-call-statuses');
-}
-
-export function actorToolCallStatusesPath(projectRoot: string, agentId: string): string {
-  return join(actorToolCallStatusesDir(projectRoot), `${encodeURIComponent(agentId)}.jsonl`);
 }
 
 export function appendLlmTurnStarted(projectRoot: string, input: LlmInvocationInput, options: { includeSystemPrompt?: boolean } = {}): void {
@@ -102,13 +84,6 @@ export function appendLlmTurnFinished(projectRoot: string, input: LlmInvocationI
   }
   result.tool_calls.forEach((toolCall, index) => {
     appendToolCallMessage(projectRoot, input, toolCall, index);
-    appendToolCallStatus(projectRoot, {
-      agent_id: input.agentId,
-      source_input_id: input.inputId,
-      tool_call_id: toolCall.id,
-      tool_name: toolCall.function.name,
-      status: 'pending',
-    });
   });
 }
 
@@ -133,33 +108,8 @@ export function appendToolDelivery(projectRoot: string, record: Omit<ToolDeliver
     created_at: new Date().toISOString(),
   };
   const parsed = toolDeliveryRecordSchema.parse(delivery);
-  appendSyncIdempotentByKey(actorToolDeliveriesPath(projectRoot, parsed.agent_id), parsed, 'delivery_id');
   appendConversationMessage(projectRoot, toolResultAgentMessage(parsed));
-  appendToolCallStatus(projectRoot, {
-    agent_id: parsed.agent_id,
-    source_input_id: parsed.source_input_id,
-    tool_call_id: parsed.tool_call_id,
-    tool_name: parsed.tool_name,
-    status: 'delivered',
-    delivery_input_id: parsed.delivery_input_id,
-  });
   return parsed;
-}
-
-export function appendToolCallStatus(projectRoot: string, record: Omit<ToolCallStatusRecord, 'transition_id' | 'created_at'>): ToolCallStatusRecord {
-  const statusRecord: ToolCallStatusRecord = {
-    ...record,
-    transition_id: toolStatusTransitionId(record),
-    created_at: new Date().toISOString(),
-  };
-  const parsed = toolCallStatusRecordSchema.parse(statusRecord);
-  appendSyncIdempotentByKey(actorToolCallStatusesPath(projectRoot, parsed.agent_id), parsed, 'transition_id');
-  return parsed;
-}
-
-export function readToolCallStatuses(projectRoot: string, agentId?: string): ToolCallStatusRecord[] {
-  const paths = agentId ? [actorToolCallStatusesPath(projectRoot, agentId)] : actorToolCallStatusPaths(projectRoot);
-  return paths.flatMap((path) => readToolCallStatusPath(path));
 }
 
 export function readLoggedToolCall(projectRoot: string, sessionId: string, agentId: string, sourceInputId: string, toolCallId: string): LoggedToolCall {
@@ -177,35 +127,74 @@ export function readLoggedToolCall(projectRoot: string, sessionId: string, agent
   }
 }
 
-export function appendTerminalToolProjectedStatus(projectRoot: string, record: Omit<ToolCallStatusRecord, 'transition_id' | 'created_at' | 'status'>): ToolCallStatusRecord {
-  return appendToolCallStatus(projectRoot, { ...record, status: 'terminal_projected' });
+export function appendTerminalProjectedToolResult(projectRoot: string, record: { sessionId: string; sourceInputId: string; toolCallId: string; toolName: string }): AgentMessage {
+  return appendSyntheticToolResult(projectRoot, {
+    sessionId: record.sessionId,
+    sourceInputId: record.sourceInputId,
+    toolCallId: record.toolCallId,
+    toolName: record.toolName,
+    result: { projected: true },
+  });
 }
 
-export function abandonStalePendingToolCalls(projectRoot: string, reason = 'Runtime restarted before the pending tool call reached a terminal delivery state.', preserveKeys: ReadonlySet<string> = new Set()): ToolCallStatusRecord[] {
-  const records = readToolCallStatuses(projectRoot);
-  const terminalKeys = new Set(records
-    .filter((record) => record.status === 'delivered' || record.status === 'errored' || record.status === 'abandoned' || record.status === 'terminal_projected')
-    .map(toolCallKey));
-  const abandoned: ToolCallStatusRecord[] = [];
-  for (const record of records) {
-    if (record.status !== 'pending') continue;
-    if (terminalKeys.has(toolCallKey(record))) continue;
-    if (preserveKeys.has(toolCallKey(record))) continue;
-    abandoned.push(appendToolCallStatus(projectRoot, {
-      agent_id: record.agent_id,
-      source_input_id: record.source_input_id,
-      tool_call_id: record.tool_call_id,
-      tool_name: record.tool_name,
-      status: 'abandoned',
-      error: reason,
-    }));
-    terminalKeys.add(toolCallKey(record));
+export function abandonStalePendingToolCalls(projectRoot: string, reason = 'Runtime restarted before the pending tool call reached a terminal delivery state.', preserveKeys: ReadonlySet<string> = new Set()): AbandonedToolCallRecord[] {
+  const abandoned: AbandonedToolCallRecord[] = [];
+  for (const sessionId of listConversationSessionIds(projectRoot)) {
+    const messages = readConversationMessages(projectRoot, sessionId);
+    const settledKeys = new Set<string>();
+    for (const message of messages) {
+      if (message.kind !== 'tool_result' || !message.tool_call_id) continue;
+      const sourceInputId = sourceInputIdFromToolResultMessageId(message.id, message.tool_call_id);
+      settledKeys.add(loggedToolCallKey({ session_id: sessionId, source_input_id: sourceInputId, tool_call_id: message.tool_call_id }));
+    }
+    for (const message of messages) {
+      if (message.kind !== 'tool_call' || !message.tool_call_id) continue;
+      if (!message.tool) throw new Error(`Logged tool call '${message.id}' in session '${sessionId}' is missing a tool name.`);
+      const sourceInputId = sourceInputIdFromToolCallMessageId(message.id);
+      const key = loggedToolCallKey({ session_id: sessionId, source_input_id: sourceInputId, tool_call_id: message.tool_call_id });
+      if (settledKeys.has(key) || preserveKeys.has(key)) continue;
+      appendSyntheticToolResult(projectRoot, {
+        sessionId,
+        sourceInputId,
+        toolCallId: message.tool_call_id,
+        toolName: message.tool,
+        result: { success: false, error: reason },
+      });
+      settledKeys.add(key);
+      abandoned.push({
+        agent_id: agentIdFromSessionId(sessionId),
+        card_id: cardIdFromSessionId(sessionId),
+        source_input_id: sourceInputId,
+        tool_call_id: message.tool_call_id,
+        tool_name: message.tool,
+        error: reason,
+      });
+    }
   }
   return abandoned;
 }
 
-export function loggedToolCallKey(record: Pick<ToolCallStatusRecord, 'agent_id' | 'source_input_id' | 'tool_call_id'>): string {
-  return toolCallKey(record);
+export function loggedToolCallKey(record: { session_id: string; source_input_id: string; tool_call_id: string }): string {
+  return [record.session_id, record.source_input_id, record.tool_call_id].join(':');
+}
+
+export function sourceInputIdFromToolCallMessageId(id: string): string {
+  const delimiter = ':tool-call:';
+  const index = id.indexOf(delimiter);
+  if (index <= 0) throw new Error(`Malformed tool_call message id '${id}': missing '${delimiter}'.`);
+  return id.slice(0, index);
+}
+
+export function sourceInputIdFromToolResultMessageId(id: string, toolCallId?: string): string {
+  const suffix = toolCallId ? `:tool-result:${toolCallId}` : ':tool-result:';
+  const suffixIndex = toolCallId ? id.lastIndexOf(suffix) : id.indexOf(suffix);
+  if (suffixIndex <= 0) throw new Error(`Malformed tool_result message id '${id}': missing '${suffix}'.`);
+  const deliveryInputId = id.slice(0, suffixIndex);
+  const deliveryMarker = deliveryInputId.lastIndexOf(':tool:');
+  if (deliveryMarker <= 0) throw new Error(`Malformed tool_result message id '${id}': missing delivery input ':tool:<counter>' segment.`);
+  const counter = deliveryInputId.slice(deliveryMarker + ':tool:'.length);
+  if (!/^\d+$/.test(counter)) throw new Error(`Malformed tool_result message id '${id}': delivery counter '${counter}' is not numeric.`);
+  return deliveryInputId.slice(0, deliveryMarker);
 }
 
 export function toolCallAgentMessage(input: LlmInvocationInput, toolCall: ToolCall, index = 0, timestamp = new Date().toISOString()): AgentMessage {
@@ -238,6 +227,25 @@ export function toolResultAgentMessage(record: ToolDeliveryRecord): AgentMessage
     block_index: 0,
     timestamp: record.created_at,
   });
+}
+
+function appendSyntheticToolResult(projectRoot: string, record: { sessionId: string; sourceInputId: string; toolCallId: string; toolName: string; result: unknown }): AgentMessage {
+  const deliveryInputId = `${record.sourceInputId}:tool:0`;
+  const message = agentMessageSchema.parse({
+    id: `${deliveryInputId}:tool-result:${record.toolCallId}`,
+    session_id: record.sessionId,
+    role: 'tool',
+    kind: 'tool_result',
+    content: JSON.stringify(record.result),
+    tool: record.toolName,
+    tool_call_id: record.toolCallId,
+    round_id: roundId('user', deliveryInputId),
+    message_index: 2,
+    block_index: 0,
+    timestamp: new Date().toISOString(),
+  });
+  appendConversationMessage(projectRoot, message);
+  return message;
 }
 
 function appendToolCallMessage(projectRoot: string, input: LlmInvocationInput, toolCall: ToolCall, index: number): void {
@@ -278,29 +286,4 @@ export function appendModelRepairMessage(projectRoot: string, input: LlmInvocati
 
 function roundId(kind: 'pre' | 'user' | 'assistant', seed: string): string {
   return `r-${kind}-${createHash('sha256').update(seed).digest('hex').slice(0, 32)}`;
-}
-
-function actorToolCallStatusPaths(projectRoot: string): string[] {
-  const dir = actorToolCallStatusesDir(projectRoot);
-  if (!existsSync(dir)) return [];
-  return readdirSync(dir, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.endsWith('.jsonl'))
-    .map((entry) => join(dir, entry.name))
-    .sort();
-}
-
-function readToolCallStatusPath(path: string): ToolCallStatusRecord[] {
-  if (!existsSync(path)) return [];
-  return readFileSync(path, 'utf-8')
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => toolCallStatusRecordSchema.parse(JSON.parse(line)));
-}
-
-function toolCallKey(record: Pick<ToolCallStatusRecord, 'agent_id' | 'source_input_id' | 'tool_call_id'>): string {
-  return [record.agent_id, record.source_input_id, record.tool_call_id].join(':');
-}
-
-function toolStatusTransitionId(record: Omit<ToolCallStatusRecord, 'transition_id' | 'created_at'>): string {
-  return [record.agent_id, record.source_input_id, record.tool_call_id, record.status, record.delivery_input_id ?? '', record.error ?? ''].join(':');
 }

@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { actorKindFromId, actorToolCallStatusesPath, appendActivationMarker, appendUserContextMessage, BaseMainLLMCardProcessorActor, conversationIndexPath, LLMActor, parseLlmActorId, readActorSnapshots, readConversationMessages, type LLMActorOutcome, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
+import { actorKindFromId, appendActivationMarker, appendUserContextMessage, BaseMainLLMCardProcessorActor, conversationIndexPath, LLMActor, parseLlmActorId, readActorSnapshots, readConversationMessages, type LLMActorOutcome, type LLMProviderPort } from '../../../src/runtime/actors/index.js';
 import { activeVersionPath } from '../../../src/runtime/actors/conversation-index.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
@@ -287,7 +287,8 @@ describe('LLMActor', () => {
 
     expect(first).toEqual({ type: 'tool_call', agentId: 'planner:project', inputId: 'turn-1', toolCallId: 'call-1', toolName: 'inspect', args: { ok: true } });
     await eventually(() => expect(actor.state()).toBe('waiting_tool'));
-    expect(jsonl(actorToolCallStatusesPath(projectRoot, 'planner:project')).map((entry) => entry.status)).toEqual(['pending']);
+    expect(readConversationMessages(projectRoot, 'planner:project').filter((message) => message.kind === 'tool_call')).toHaveLength(1);
+    expect(readConversationMessages(projectRoot, 'planner:project').filter((message) => message.kind === 'tool_result')).toHaveLength(0);
     expect(readActorSnapshots(projectRoot).find((snapshot) => snapshot.actor_id === 'planner:project')?.context.active_reconstruction).toMatchObject({
       kind: 'llm_turn',
       input_id: 'turn-1',
@@ -300,7 +301,9 @@ describe('LLMActor', () => {
     const second = await actor.appendToolResult('call-1', { success: true, data: { inspected: true } });
 
     expect(second).toMatchObject({ type: 'result', result: { content: 'continued' } });
-    expect(jsonl(actorToolCallStatusesPath(projectRoot, 'planner:project')).map((entry) => entry.status)).toEqual(['pending', 'delivered']);
+    expect(readConversationMessages(projectRoot, 'planner:project').filter((message) => message.kind === 'tool_result')).toEqual([
+      expect.objectContaining({ id: 'turn-1:tool:1:tool-result:call-1', tool_call_id: 'call-1', content: JSON.stringify({ success: true, data: { inspected: true } }) }),
+    ]);
     expect(provider.completeTurn).toHaveBeenCalledTimes(2);
   }));
 

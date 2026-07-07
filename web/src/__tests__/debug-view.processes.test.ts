@@ -70,7 +70,7 @@ describe('DebugView processes tab', () => {
         ended_at: null,
         exit_code: null,
         timed_out: false,
-        logs: { combined: '.saivage-work/tmp/processes/proc-1/combined.log', stdout: null, stderr: null },
+        logs: { stdout: '.saivage-work/tmp/processes/proc-1/stdout.log', stderr: null },
       }],
     });
   });
@@ -95,6 +95,6 @@ describe('DebugView processes tab', () => {
     expect(wrapper.findAll('button').map((button) => button.text().toLowerCase())).not.toEqual(expect.arrayContaining(['terminate', 'kill']));
 
     await wrapper.find('.process-link-button').trigger('click');
-    expect(mockPush).toHaveBeenCalledWith({ name: 'files', query: { path: '.saivage-work/tmp/processes/proc-1/combined.log' } });
+    expect(mockPush).toHaveBeenCalledWith({ name: 'files', query: { path: '.saivage-work/tmp/processes/proc-1/stdout.log' } });
   });
 });

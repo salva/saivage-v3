@@ -132,7 +132,6 @@ describe('Cleanup Utility Smoke Tests', () => {
     const swd = saivageWorkDir();
     const procDir = join(swd, 'processes', 'proc-test-1');
     mkdirSync(procDir, { recursive: true });
-    writeFileSync(join(procDir, 'combined.log'), 'process output');
     await sleep(150);
     const cleaned = cleanStaleProcessOutput({ saivageWorkDir: swd, store, preserve: new Set(), maxAgeMs: 1 });
     expect(cleaned).toBe(1);
@@ -144,7 +143,6 @@ describe('Cleanup Utility Smoke Tests', () => {
     const procId = 'proc-legacy-running-1';
     const procDir = join(swd, 'processes', procId);
     mkdirSync(procDir, { recursive: true });
-    writeFileSync(join(procDir, 'combined.log'), 'legacy running');
     const registryPath = join(root, '.saivage', 'runtime', 'processes.json');
     writeFileSync(registryPath, JSON.stringify([{ id: procId, status: 'running' }], null, 2));
     await sleep(150);

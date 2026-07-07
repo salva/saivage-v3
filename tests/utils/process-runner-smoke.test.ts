@@ -41,8 +41,8 @@ describe('Process Runner Smoke Tests', () => {
 
     const proc = runner.get(result.id);
     expect(proc).not.toBeNull();
-    expect(existsSync(proc!.combined_log_path)).toBe(true);
-    expect(readFileSync(proc!.combined_log_path, 'utf-8')).toContain('line3');
+    expect(existsSync(join(proc!.output_dir, 'combined.log'))).toBe(false);
+    expect(readFileSync(proc!.stdout_path, 'utf-8')).toContain('line3');
   });
 
   it('lists and filters durable process records', async () => {
@@ -66,7 +66,7 @@ describe('Process Runner Smoke Tests', () => {
 
     const finished = await runner.wait(proc.id, 1000);
     expect(finished.status).toBe('exited');
-    expect(readFileSync(runner.get(proc.id)!.combined_log_path, 'utf-8')).toContain('done');
+    expect(readFileSync(runner.get(proc.id)!.stdout_path, 'utf-8')).toContain('done');
   });
 
   it('exports product process termination APIs', async () => {

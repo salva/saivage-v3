@@ -29,7 +29,6 @@ function processRecord(projectRoot: string, overrides: Partial<ProcessRecord> = 
     output_dir: join(projectRoot, '.saivage-work', 'processes', 'proc-1'),
     stdout_path: join(projectRoot, '.saivage-work', 'processes', 'proc-1', 'stdout.log'),
     stderr_path: join(projectRoot, '.saivage-work', 'processes', 'proc-1', 'stderr.log'),
-    combined_log_path: join(projectRoot, '.saivage-work', 'processes', 'proc-1', 'combined.log'),
     agent_session_id: null,
     goal_id: null,
     launch_reason: null,
@@ -63,7 +62,6 @@ describe('contract-backed process routes', () => {
           logs: {
             stdout: 'work:///processes/proc-1/stdout.log',
             stderr: 'work:///processes/proc-1/stderr.log',
-            combined: 'work:///processes/proc-1/combined.log',
           },
         })],
       });

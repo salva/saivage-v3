@@ -11,7 +11,7 @@ import { parseCardActorId, parseLlmActorId, parseProcessorActorId } from './ids.
 import type { LlmActorRole } from './actor-vocabulary.js';
 import { cardActivationOutcomePatch, type CardActivationOutcome } from './card-actor.js';
 import type { LLMActorOutcome } from './llm-actor.js';
-import { abandonStalePendingToolCalls, appendTerminalToolProjectedStatus, loggedToolCallKey, readLoggedToolCall } from './llm-delivery-log.js';
+import { abandonStalePendingToolCalls, appendTerminalProjectedToolResult, loggedToolCallKey, readLoggedToolCall } from './llm-delivery-log.js';
 import { createPlannerContract, type PlannerTypedResult } from '../../contracts/planner-contract.js';
 import { createExecutorContract } from '../../contracts/executor-contract.js';
 import { createReviewerContract } from '../../contracts/reviewer-contract.js';
@@ -232,7 +232,7 @@ export function runActorStartupRecovery(plan: ActorRecoveryPlan, deps: ActorReco
     incidents: [
       ...cancelledCleanup,
       ...recoveries.map((recovery) => ({ actorId: recovery.actorIds[0] ?? recovery.cardId, kind: 'converted_actor_snapshots' as const, action: 'project_or_convert_startup_outcome', cardId: recovery.cardId, message: recovery.reason })),
-      ...abandonedToolCalls.map((record) => ({ actorId: record.agent_id, kind: 'stale_tool_call' as const, action: 'abandon_stale_pending_tool_call', message: record.error ?? 'Startup recovery abandoned a stale pending tool call.', cardId: cardIdFromAgentId(record.agent_id) })),
+      ...abandonedToolCalls.map((record) => ({ actorId: record.agent_id, kind: 'stale_tool_call' as const, action: 'abandon_stale_pending_tool_call', message: record.error, cardId: record.card_id ?? cardIdFromAgentId(record.agent_id) })),
     ].sort((a, b) => a.actorId.localeCompare(b.actorId) || a.action.localeCompare(b.action)),
     outstanding,
   };
@@ -248,8 +248,8 @@ function activePendingToolCallKeys(plan: ActorRecoveryPlan): Set<string> {
   const keys = new Set<string>();
   for (const llm of plan.llms) {
     const waiting = llm.activeReconstruction?.waiting_tool_call;
-    if (!llm.active || !waiting) continue;
-    keys.add(loggedToolCallKey({ agent_id: llm.actorId, source_input_id: waiting.sourceInputId, tool_call_id: waiting.toolCallId }));
+    if (!llm.active || !waiting || !llm.activeReconstruction) continue;
+    keys.add(loggedToolCallKey({ session_id: llm.activeReconstruction.input.sessionId, source_input_id: waiting.sourceInputId, tool_call_id: waiting.toolCallId }));
   }
   return keys;
 }
@@ -302,11 +302,11 @@ export function recoverProjectedTerminalToolOutcomes(plan: ActorRecoveryPlan, de
     const projected = projectTerminalRecoveryOutcome(deps, processor.activeReconstruction, card, cardSnapshot.activeReconstruction, outcome);
     if (!projected) continue;
     deps.store.commitTerminalLifecyclePatch(llm.cardId, cardActivationOutcomePatch(projected, generatedAt));
-    appendTerminalToolProjectedStatus(deps.projectRoot, {
-      agent_id: llm.actorId,
-      source_input_id: waiting.sourceInputId,
-      tool_call_id: waiting.toolCallId,
-      tool_name: waiting.toolName,
+    appendTerminalProjectedToolResult(deps.projectRoot, {
+      sessionId: llm.activeReconstruction.input.sessionId,
+      sourceInputId: waiting.sourceInputId,
+      toolCallId: waiting.toolCallId,
+      toolName: waiting.toolName,
     });
     recovered.push({
       cardId: llm.cardId,
@@ -351,8 +351,8 @@ function projectReviewerRecoveryOutcome(
   if (!closeRecoveredRecordSlot(deps.projectRoot, card.id, 'review.md', 'reviewer', card.version_seq)) return null;
   deps.store.commitTerminalLifecyclePatch(card.id, cardActivationOutcomePatch(projected, generatedAt));
   const plannerWaiting = planner.activeReconstruction!.waiting_tool_call!;
-  appendTerminalToolProjectedStatus(deps.projectRoot, { agent_id: planner.actorId, source_input_id: plannerWaiting.sourceInputId, tool_call_id: plannerWaiting.toolCallId, tool_name: plannerWaiting.toolName });
-  appendTerminalToolProjectedStatus(deps.projectRoot, { agent_id: reviewer.actorId, source_input_id: reviewerWaiting.sourceInputId, tool_call_id: reviewerWaiting.toolCallId, tool_name: reviewerWaiting.toolName });
+  appendTerminalProjectedToolResult(deps.projectRoot, { sessionId: planner.activeReconstruction!.input.sessionId, sourceInputId: plannerWaiting.sourceInputId, toolCallId: plannerWaiting.toolCallId, toolName: plannerWaiting.toolName });
+  appendTerminalProjectedToolResult(deps.projectRoot, { sessionId: reviewer.activeReconstruction.input.sessionId, sourceInputId: reviewerWaiting.sourceInputId, toolCallId: reviewerWaiting.toolCallId, toolName: reviewerWaiting.toolName });
   return {
     cardId: card.id,
     actorIds: [cardSnapshot.snapshot.actor_id, processor.actorId, planner.actorId, reviewer.actorId].sort(),

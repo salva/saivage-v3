@@ -141,7 +141,7 @@ If the Analyst needs to discuss or use a secret, it should avoid unnecessary dis
 
 ## 10. Process And Tool Output Projections
 
-Process rows and process detail responses expose `logs.stdout`, `logs.stderr`, and `logs.combined` as canonical `work:///processes/<id>/{stdout,stderr,combined}.log` URLs or `null`. The operator process API contract rejects bare `.saivage-work` paths, non-work schemes, non-canonical encodings, and mismatched log filenames. The Debug process-log Browse action forwards these `work:///` values to the Files read-model, which resolves them under `.saivage-work/` and previews the log content without reintroducing a bare path field.
+Process rows and process detail responses expose `logs.stdout` and `logs.stderr` as canonical `work:///processes/<id>/{stdout,stderr}.log` URLs or `null`; there is no Combined log entry. The operator process API contract rejects bare `.saivage-work` paths, non-work schemes, non-canonical encodings, and mismatched log filenames. The Debug process-log Browse action forwards these `work:///` values to the Files read-model, which resolves them under `.saivage-work/` and previews the log content without reintroducing a bare path field. The Debug agents area shows Conversation and Raw LLM Exchange views; the duplicate Tool Deliveries tab is removed.
 
 Tool-activity websocket projections use the unified process result fields: `process_id`, `exit_code`, `status`, `stdout_url`, `stderr_url`, `stdout_bytes`, `stderr_bytes`, `stdout_tail`, `stderr_tail`, and `tail_truncated`. Legacy `stdout`, `stderr`, `truncated`, `log_path`, `running`, `terminated`, and `still_running` result shapes are not projected.
 

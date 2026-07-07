@@ -18,7 +18,7 @@ import type { NotifyCardResult } from '../runtime-api.js';
 import { closeOpenRecordSlot, concreteRecordSlot, discardOpenRecordSlot, latestClosedRecordSlot, readRecordSlotIndex, recordFileIsNonEmpty } from '../records/record-slots.js';
 import { cardBriefForPrompt } from '../records/card-brief.js';
 import { runContractRepairLoop } from './contract-repair-loop.js';
-import { appendTerminalToolProjectedStatus } from './llm-delivery-log.js';
+import { appendTerminalProjectedToolResult } from './llm-delivery-log.js';
 import type { RuntimeGate } from '../runtime-gate.js';
 import { appendActivationMarker, appendUserContextMessage, conversationMessagesForModel, readActiveVersionMessages } from './conversation-store.js';
 import type { BufferSizeEstimator, CompactionConfig } from './compaction/compactor.js';
@@ -117,14 +117,14 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
         const projected = await this.projectPlannerTerminal(input, terminalOutcome, signal, contract);
         if (projected.result.kind === 'rework') {
           if (reviewerReworkAttempts >= MAX_REVIEWER_REWORK_ATTEMPTS) {
-            this.markTerminalProjected(terminalOutcome);
+            this.markTerminalProjected(terminalOutcome, plannerActorId(this.cardId));
             return control.done(projected);
           }
           reviewerReworkAttempts++;
           const message = this.reviewerReworkPlannerMessage(input.card.id, projected.summary);
           return control.continue(await llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: message }, signal, () => [{ role: 'user', content: message }]));
         }
-        this.markTerminalProjected(terminalOutcome);
+        this.markTerminalProjected(terminalOutcome, plannerActorId(this.cardId));
         return control.done(projected);
       },
       onNonTerminalTool: async (toolOutcome) => {
@@ -198,12 +198,12 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     return { status: 'failed', summary: parsed.summary, result: { kind: 'failed', summary: parsed.summary } };
   }
 
-  private markTerminalProjected(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): void {
-    appendTerminalToolProjectedStatus(this.projectRoot, {
-      agent_id: outcome.agentId,
-      source_input_id: outcome.inputId,
-      tool_call_id: outcome.toolCallId,
-      tool_name: outcome.toolName,
+  private markTerminalProjected(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, sessionId: string): void {
+    appendTerminalProjectedToolResult(this.projectRoot, {
+      sessionId,
+      sourceInputId: outcome.inputId,
+      toolCallId: outcome.toolCallId,
+      toolName: outcome.toolName,
     });
   }
 
@@ -251,7 +251,7 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
           }
           const closeError = this.closeRequiredRecord(input.card.id, 'review.md', 'reviewer', input.card.version_seq);
           if (closeError) return control.done(this.plannerFailure(closeError));
-          this.markTerminalProjected(terminalOutcome);
+          this.markTerminalProjected(terminalOutcome, sessionId);
           return control.done(evaluateReviewerTerminalOutcome({ outcome: terminalOutcome }));
         },
         onNonTerminalTool: async (toolOutcome) => {

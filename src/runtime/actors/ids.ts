@@ -44,6 +44,27 @@ export function parseLlmActorId(actorId: string): { role: LlmActorRole; cardId: 
   throw new Error(`Expected LLM actor id, received '${actorId}'.`);
 }
 
+export function cardIdFromSessionId(sessionId: string): string | undefined {
+  const reviewerPrefix = 'reviewer:';
+  if (sessionId.startsWith(reviewerPrefix)) {
+    const rest = sessionId.slice(reviewerPrefix.length);
+    const assessmentDelimiter = rest.lastIndexOf(':');
+    if (assessmentDelimiter === -1) return rest;
+    return rest.slice(0, assessmentDelimiter);
+  }
+  const parsed = parseLlmActorId(sessionId);
+  return parsed.cardId ?? undefined;
+}
+
+export function agentIdFromSessionId(sessionId: string): string {
+  if (sessionId.startsWith('reviewer:')) {
+    const cardId = cardIdFromSessionId(sessionId);
+    if (!cardId) throw new Error(`Reviewer session '${sessionId}' is missing a card id.`);
+    return reviewerActorId(cardId);
+  }
+  return sessionId;
+}
+
 export function parseProcessorActorId(actorId: string): string {
   if (!actorId.startsWith('processor:')) throw new Error(`Expected processor actor id, received '${actorId}'.`);
   return actorId.slice('processor:'.length);

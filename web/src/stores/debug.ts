@@ -56,7 +56,7 @@ import {
 
 const log = createLogger('store:debug');
 
-export type AgentDebugKind = 'conversation' | 'toolDeliveries' | 'llmExchange';
+export type AgentDebugKind = 'conversation' | 'llmExchange';
 type RawAgentDebugKind = Exclude<AgentDebugKind, 'conversation'>;
 interface AgentDebugSession extends Pick<AgentSession, 'id' | 'role' | 'status'> {
   files: Partial<Record<AgentDebugKind, string>>;
@@ -64,7 +64,6 @@ interface AgentDebugSession extends Pick<AgentSession, 'id' | 'role' | 'status'>
 
 export const agentDebugKinds: Array<{ id: AgentDebugKind; label: string }> = [
   { id: 'conversation', label: 'Conversation' },
-  { id: 'toolDeliveries', label: 'Tool Deliveries' },
   { id: 'llmExchange', label: 'Raw LLM Exchange' },
 ];
 
@@ -337,14 +336,12 @@ export const useDebugStore = defineStore('debug', () => {
     agentDebugLoading.value = true;
     agentDebugError.value = null;
     try {
-      const [sessionResponse, toolDeliveries, llmExchanges] = await Promise.all([
+      const [sessionResponse, llmExchanges] = await Promise.all([
         listAgentSessions(),
-        listAgentDebugFiles('.saivage/agents/tool-deliveries'),
         listAgentDebugFiles('.saivage/agents/llm-exchanges'),
       ]);
       const bySession = new Map<string, AgentDebugSession>();
       for (const session of sessionResponse.sessions) bySession.set(session.id, { id: session.id, role: session.role, status: session.status, files: {} });
-      addAgentDebugFiles(bySession, toolDeliveries, 'toolDeliveries');
       addAgentDebugFiles(bySession, llmExchanges, 'llmExchange');
       agentDebugSessions.value = [...bySession.values()].sort((a, b) => a.id.localeCompare(b.id));
       if (!selectedAgentDebugSessionId.value || !bySession.has(selectedAgentDebugSessionId.value)) selectedAgentDebugSessionId.value = agentDebugSessions.value[0]?.id ?? null;

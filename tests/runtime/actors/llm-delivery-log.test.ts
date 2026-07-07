@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initProjectTree } from '../../../src/persistence/file-tree.js';
-import { abandonStalePendingToolCalls, appendConversationMessage, appendLlmTurnFinished, appendLlmTurnStarted, appendTerminalToolProjectedStatus, buildContextTextMessage, conversationIndexPath, conversationMessagesForModel, listConversationSessionIds, readLoggedToolCall, readToolCallStatuses } from '../../../src/runtime/actors/index.js';
+import { abandonStalePendingToolCalls, appendConversationMessage, appendLlmTurnFinished, appendLlmTurnStarted, appendTerminalProjectedToolResult, buildContextTextMessage, conversationIndexPath, conversationMessagesForModel, listConversationSessionIds, loggedToolCallKey, readConversationMessages, readLoggedToolCall, sourceInputIdFromToolCallMessageId, sourceInputIdFromToolResultMessageId } from '../../../src/runtime/actors/index.js';
 import { activeVersionPath } from '../../../src/runtime/actors/conversation-index.js';
 import type { LlmInvocationInput } from '../../../src/runtime/actors/index.js';
 
@@ -86,13 +86,73 @@ describe('llm delivery log recovery helpers', () => {
     expect(() => readLoggedToolCall(projectRoot, 'reviewer:G-1', 'reviewer:G-1', 'reviewer:G-1:1', 'call-1')).toThrow(/not found/);
   }));
 
-  it('treats terminal_projected status as terminal for stale pending abandonment', () => withTempProject((projectRoot) => {
+  it('treats terminal-projected tool_result as terminal for stale pending abandonment', () => withTempProject((projectRoot) => {
     appendLlmTurnFinished(projectRoot, input(), { kind: 'tool_calls', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked' }) } }] });
-    appendTerminalToolProjectedStatus(projectRoot, { agent_id: 'planner:G-1', source_input_id: 'planner:G-1:1', tool_call_id: 'call-1', tool_name: 'emit_result' });
+    appendTerminalProjectedToolResult(projectRoot, { sessionId: 'planner:G-1', sourceInputId: 'planner:G-1:1', toolCallId: 'call-1', toolName: 'emit_result' });
 
     expect(abandonStalePendingToolCalls(projectRoot)).toEqual([]);
-    expect(readToolCallStatuses(projectRoot, 'planner:G-1').map((record) => record.status)).toEqual(['pending', 'terminal_projected']);
+    expect(readConversationMessages(projectRoot, 'planner:G-1').filter((message) => message.kind === 'tool_result')).toEqual([
+      expect.objectContaining({ id: 'planner:G-1:1:tool:0:tool-result:call-1', tool_call_id: 'call-1', content: JSON.stringify({ projected: true }) }),
+    ]);
   }));
+
+  it('writes reviewer terminal projection to the passed reviewer session id', () => withTempProject((projectRoot) => {
+    const sessionId = 'reviewer:G-1:assessment-G-1-1';
+    appendLlmTurnFinished(projectRoot, { ...input('reviewer:G-1:1'), agentId: 'reviewer:G-1', role: 'reviewer', sessionId }, { kind: 'tool_calls', tool_calls: [{ id: 'call-review', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'done', summary: 'ok' }) } }] });
+    appendTerminalProjectedToolResult(projectRoot, { sessionId, sourceInputId: 'reviewer:G-1:1', toolCallId: 'call-review', toolName: 'emit_result' });
+
+    expect(readConversationMessages(projectRoot, sessionId).filter((message) => message.kind === 'tool_result')).toEqual([
+      expect.objectContaining({ id: 'reviewer:G-1:1:tool:0:tool-result:call-review', tool_call_id: 'call-review', content: JSON.stringify({ projected: true }) }),
+    ]);
+    expect(readConversationMessages(projectRoot, 'reviewer:G-1').filter((message) => message.kind === 'tool_result')).toEqual([]);
+    expect(abandonStalePendingToolCalls(projectRoot)).toEqual([]);
+  }));
+
+  it('matches settlement by session, source input, and tool call id', () => withTempProject((projectRoot) => {
+    const sessionId = 'planner:G-1';
+    appendLlmTurnFinished(projectRoot, input('planner:G-1:1'), { kind: 'tool_calls', tool_calls: [{ id: 'call_dup', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'blocked' }) } }] });
+    appendLlmTurnFinished(projectRoot, input('planner:G-1:2'), { kind: 'tool_calls', tool_calls: [{ id: 'call_dup', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ status: 'done' }) } }] });
+    appendConversationMessage(projectRoot, {
+      id: 'planner:G-1:2:tool:1:tool-result:call_dup',
+      session_id: sessionId,
+      role: 'tool',
+      kind: 'tool_result',
+      content: JSON.stringify({ success: true }),
+      tool: 'emit_result',
+      tool_call_id: 'call_dup',
+      round_id: 'r-user-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      message_index: 2,
+      block_index: 0,
+      timestamp: new Date().toISOString(),
+    });
+
+    const incidents = abandonStalePendingToolCalls(projectRoot, 'stale');
+    expect(incidents.map((incident) => incident.source_input_id)).toEqual(['planner:G-1:1']);
+    const toolResults = readConversationMessages(projectRoot, sessionId).filter((message) => message.kind === 'tool_result');
+    expect(toolResults).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'planner:G-1:1:tool:0:tool-result:call_dup', content: JSON.stringify({ success: false, error: 'stale' }) }),
+      expect.objectContaining({ id: 'planner:G-1:2:tool:1:tool-result:call_dup', content: JSON.stringify({ success: true }) }),
+    ]));
+    expect(toolResults.some((message) => message.id === 'planner:G-1:2:tool:0:tool-result:call_dup')).toBe(false);
+  }));
+
+  it('preserves reviewer pending tool calls by session-scoped key', () => withTempProject((projectRoot) => {
+    const sessionId = 'reviewer:G-1:assessment-G-1-1';
+    appendLlmTurnFinished(projectRoot, { ...input('reviewer:G-1:1'), agentId: 'reviewer:G-1', role: 'reviewer', sessionId }, { kind: 'tool_calls', tool_calls: [{ id: 'call-preserve', type: 'function', function: { name: 'read', arguments: JSON.stringify({ path: 'README.md' }) } }] });
+
+    const incidents = abandonStalePendingToolCalls(projectRoot, 'stale', new Set([loggedToolCallKey({ session_id: sessionId, source_input_id: 'reviewer:G-1:1', tool_call_id: 'call-preserve' })]));
+
+    expect(incidents).toEqual([]);
+    expect(readConversationMessages(projectRoot, sessionId).filter((message) => message.kind === 'tool_result')).toEqual([]);
+  }));
+
+  it('extracts source input ids from tool message ids and fails fast on malformed ids', () => {
+    expect(sourceInputIdFromToolCallMessageId('planner:G-1:1:tool-call:call_dup')).toBe('planner:G-1:1');
+    expect(sourceInputIdFromToolResultMessageId('planner:G-1:2:tool:1:tool-result:call_dup')).toBe('planner:G-1:2');
+    expect(() => sourceInputIdFromToolCallMessageId('planner:G-1:1')).toThrow(/Malformed tool_call/);
+    expect(() => sourceInputIdFromToolResultMessageId('planner:G-1:2:tool:1')).toThrow(/Malformed tool_result/);
+    expect(() => sourceInputIdFromToolResultMessageId('planner:G-1:2:tool-result:call_dup')).toThrow(/delivery input/);
+  });
 
   it('lists encoded conversation session directories as decoded ids', () => withTempProject((projectRoot) => {
     appendConversationMessage(projectRoot, buildContextTextMessage('reviewer:G-1:assessment 1', 'user', 'hello'));

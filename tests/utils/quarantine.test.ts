@@ -745,7 +745,6 @@ describe('cleanup safety — quarantine is never cleaned', () => {
     // Create a process directory that can be cleaned
     const procDir = join(saivageWorkDir, 'processes', 'proc-test');
     mkdirSync(procDir, { recursive: true });
-    writeFileSync(join(procDir, 'combined.log'), 'log');
 
     // Create a quarantine item
     const result = quarantineContent({

@@ -30,7 +30,6 @@ function isCanonicalProcessLogUrl(filename: string): (value: string | null) => b
 export const ProcessLogRefsSchema = z.object({
   stdout: z.string().nullable().refine(isCanonicalProcessLogUrl('stdout.log'), 'stdout must be a canonical work:///processes/<id>/stdout.log URL or null'),
   stderr: z.string().nullable().refine(isCanonicalProcessLogUrl('stderr.log'), 'stderr must be a canonical work:///processes/<id>/stderr.log URL or null'),
-  combined: z.string().nullable().refine(isCanonicalProcessLogUrl('combined.log'), 'combined must be a canonical work:///processes/<id>/combined.log URL or null'),
 });
 
 export const ProcessViewSchema = z.object({

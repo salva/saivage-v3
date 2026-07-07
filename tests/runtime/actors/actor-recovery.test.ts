@@ -12,7 +12,6 @@ import {
   runActorStartupRecovery,
   readRecoveryDiagnostics,
   readActorSnapshots,
-  readToolCallStatuses,
   recoveryDiagnosticsPath,
   removeActorSnapshot,
   saveActorSnapshot,
@@ -71,6 +70,14 @@ function appendLoggedToolCall(projectRoot: string, cardId: string, role: 'planne
   if (!writeRequiredRecord) return;
   const record = openRecordSlot(projectRoot, { cardId, filename: role === 'reviewer' ? 'review.md' : 'status.md' });
   writeFileSync(record.absolutePath, `${role} recovery record`, 'utf8');
+}
+
+function toolMessageKinds(projectRoot: string, sessionId: string): string[] {
+  return readConversationMessages(projectRoot, sessionId).filter((message) => message.kind === 'tool_call' || message.kind === 'tool_result').map((message) => message.kind);
+}
+
+function projectedToolResultSessions(projectRoot: string, sessions: string[]): string[] {
+  return sessions.filter((sessionId) => readConversationMessages(projectRoot, sessionId).some((message) => message.kind === 'tool_result' && message.content === JSON.stringify({ projected: true })));
 }
 
 function reviewerPass(_evidenceId: string, summary = 'review ok'): Record<string, unknown> {
@@ -357,7 +364,7 @@ describe('actor recovery plan', () => {
 
     expect(recoverProjectedTerminalToolOutcomes(buildActorRecoveryPlan(projectRoot, store), recoveryProcessorDeps(projectRoot, store))).toEqual([]);
     expect(store.read(cardId)?.status).toBe('running');
-    expect(readToolCallStatuses(projectRoot, `planner:${cardId}`).map((record) => record.status)).toEqual(['pending']);
+    expect(toolMessageKinds(projectRoot, `planner:${cardId}`)).toEqual(['tool_call']);
   }));
 
   it('does not recover a terminal planner tool call when the required status record is empty', () => withTempProject((projectRoot) => {
@@ -371,7 +378,7 @@ describe('actor recovery plan', () => {
 
     expect(recoverProjectedTerminalToolOutcomes(buildActorRecoveryPlan(projectRoot, store), recoveryProcessorDeps(projectRoot, store))).toEqual([]);
     expect(store.read(cardId)?.status).toBe('running');
-    expect(readToolCallStatuses(projectRoot, `planner:${cardId}`).map((pending) => pending.status)).toEqual(['pending']);
+    expect(toolMessageKinds(projectRoot, `planner:${cardId}`)).toEqual(['tool_call']);
   }));
 
   it('propagates unexpected record-slot close failures during projected recovery', () => withTempProject((projectRoot) => {
@@ -411,7 +418,8 @@ describe('actor recovery plan', () => {
     const recoveries = recoverProjectedTerminalToolOutcomes(buildActorRecoveryPlan(projectRoot, store), recoveryProcessorDeps(projectRoot, store));
     expect(recoveries).toEqual([{ cardId, status: 'done', reason: expect.stringContaining('planner and reviewer'), actorIds: [`card:${cardId}`, `planner:${cardId}`, `processor:${cardId}`, `reviewer:${cardId}`].sort() }]);
     expect(store.read(cardId)).toMatchObject({ status: 'done', lifecycle: { status: 'done', result: { kind: 'done', summary: 'review ok' } } });
-    expect(readToolCallStatuses(projectRoot).filter((record) => record.status === 'terminal_projected').map((record) => record.agent_id).sort()).toEqual([`planner:${cardId}`, `reviewer:${cardId}`].sort());
+    expect(projectedToolResultSessions(projectRoot, [`planner:${cardId}`, `reviewer:${cardId}:assessment-${cardId}-1`]).sort()).toEqual([`planner:${cardId}`, `reviewer:${cardId}:assessment-${cardId}-1`].sort());
+    expect(readConversationMessages(projectRoot, `reviewer:${cardId}`).filter((message) => message.kind === 'tool_result')).toEqual([]);
   }));
 
   it('fails fast when reviewer projection needs descendant traversal but store cannot list children', () => withTempProject((projectRoot) => {
@@ -516,7 +524,7 @@ describe('actor recovery plan', () => {
 
     expect(recoverActorStartupOutcomes(buildActorRecoveryPlan(projectRoot, store), recoveryProcessorDeps(projectRoot, store))).toEqual([]);
     expect(store.read(cardId)?.status).toBe('running');
-    expect(readToolCallStatuses(projectRoot, `planner:${cardId}`).map((record) => record.status)).toEqual(['pending']);
+    expect(toolMessageKinds(projectRoot, `planner:${cardId}`)).toEqual(['tool_call']);
   }));
 
   it('recovers startup outcomes in a single pass without converting projected cards again', () => withTempProject((projectRoot) => {
@@ -541,8 +549,9 @@ describe('actor recovery plan', () => {
 
     runActorStartupRecovery(buildActorRecoveryPlan(projectRoot, store), recoveryProcessorDeps(projectRoot, store));
 
-    expect(readToolCallStatuses(projectRoot, `planner:${cardId}`).map((record) => record.status)).toEqual(['pending', 'terminal_projected']);
-    expect(readToolCallStatuses(projectRoot, `planner:${cardId}`).map((record) => record.status)).not.toContain('abandoned');
+    expect(readConversationMessages(projectRoot, `planner:${cardId}`).filter((message) => message.kind === 'tool_result')).toEqual([
+      expect.objectContaining({ id: `planner:${cardId}:1:tool:0:tool-result:call-1`, content: JSON.stringify({ projected: true }) }),
+    ]);
   }));
 
   it('does not alter non-running cards during startup outcome recovery', () => withTempProject((projectRoot) => {

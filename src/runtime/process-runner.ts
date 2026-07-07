@@ -66,7 +66,7 @@ export class ProcessRunner {
   private processRecords: Map<string, ProcessRecord> | null = null;
   private commandHashSalt: Buffer | null = null;
   readonly activeProcesses = new Map<string, ChildProcess>();
-  readonly outputStreams = new Map<string, { stdout: WriteStream; stderr: WriteStream; combined: WriteStream }>();
+  readonly outputStreams = new Map<string, { stdout: WriteStream; stderr: WriteStream }>();
   readonly pendingStreamCloses = new Map<string, number>();
   readonly streamCloseWaiters = new Map<string, Promise<void>>();
   private scope: RuntimeLifecycleScope | null = null;
@@ -285,17 +285,15 @@ function ensureProcessDir(projectRoot: string, procId: string): string {
 function openOutputStreams(dir: string): {
   stdout: WriteStream;
   stderr: WriteStream;
-  combined: WriteStream;
 } {
   const stdout = createWriteStream(join(dir, 'stdout.log'), { flags: 'a' });
   const stderr = createWriteStream(join(dir, 'stderr.log'), { flags: 'a' });
-  const combined = createWriteStream(join(dir, 'combined.log'), { flags: 'a' });
 
-  for (const stream of [stdout, stderr, combined]) {
+  for (const stream of [stdout, stderr]) {
     stream.on('error', () => {});
   }
 
-  return { stdout, stderr, combined };
+  return { stdout, stderr };
 }
 
 function closeAllStreams(service: ProcessRunner, procId: string): Promise<void> {
@@ -358,7 +356,6 @@ function startProcessForRunner(service: ProcessRunner, spec: ProcessSpawnSpec): 
 
   const stdoutPath = join(dir, 'stdout.log');
   const stderrPath = join(dir, 'stderr.log');
-  const combinedLogPath = join(dir, 'combined.log');
 
   const streams = openOutputStreams(dir);
   service.pendingStreamCloses.set(id, 2);
@@ -379,13 +376,11 @@ function startProcessForRunner(service: ProcessRunner, spec: ProcessSpawnSpec): 
 
   if (child.stdout) {
     child.stdout.pipe(streams.stdout);
-    child.stdout.pipe(streams.combined, { end: false });
     child.stdout.on('end', () => onStreamEnd(service, id));
   }
 
   if (child.stderr) {
     child.stderr.pipe(streams.stderr);
-    child.stderr.pipe(streams.combined, { end: false });
     child.stderr.on('end', () => onStreamEnd(service, id));
   }
 
@@ -399,7 +394,6 @@ function startProcessForRunner(service: ProcessRunner, spec: ProcessSpawnSpec): 
   rememberProcessResource(service, id, scope.registerChildProcess(child, 'detach', `child:${id}`, `child:${id}`));
   rememberProcessResource(service, id, scope.registerStream(streams.stdout, `stdout:${id}`, `stream:stdout:${id}`));
   rememberProcessResource(service, id, scope.registerStream(streams.stderr, `stderr:${id}`, `stream:stderr:${id}`));
-  rememberProcessResource(service, id, scope.registerStream(streams.combined, `combined:${id}`, `stream:combined:${id}`));
 
   const record: ProcessRecord = {
     id,
@@ -421,7 +415,6 @@ function startProcessForRunner(service: ProcessRunner, spec: ProcessSpawnSpec): 
     output_dir: dir,
     stdout_path: stdoutPath,
     stderr_path: stderrPath,
-    combined_log_path: combinedLogPath,
     agent_session_id: options.agentSessionId ?? null,
     goal_id: options.goalId ?? null,
     launch_reason: options.launchReason ?? null,
@@ -474,7 +467,6 @@ function startProcessForRunner(service: ProcessRunner, spec: ProcessSpawnSpec): 
     const errorMsg = `[process-runner] spawn error: ${err.message}\n`;
     try {
       streams.stderr.write(errorMsg);
-      streams.combined.write(errorMsg);
     } catch { void 0; }
 
     const updatedRecord: ProcessRecord = {
@@ -608,7 +600,7 @@ function waitProcessForRunner(
       }
     };
 
-    const onExit = () => doResolve(false);
+    const onExit = () => {};
     const onClose = () => doResolve(false);
     const onError = () => doResolve(false);
 

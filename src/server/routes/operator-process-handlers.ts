@@ -18,7 +18,7 @@ function toProcessView(projectRoot: string, record: ProcessRecord): Record<strin
     card_id: record.card_id,
     command: redactCommandForOperator(record.command),
     cwd: safePath(record.cwd),
-    logs: { stdout: logUrl(record.stdout_path), stderr: logUrl(record.stderr_path), combined: logUrl(record.combined_log_path) },
+    logs: { stdout: logUrl(record.stdout_path), stderr: logUrl(record.stderr_path) },
   };
 }
 

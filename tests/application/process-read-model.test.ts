@@ -25,7 +25,6 @@ function record(overrides: Partial<ProcessRecord> = {}): ProcessRecord {
     output_dir: '/workspace/project/.saivage-work/processes/proc-1',
     stdout_path: '/workspace/project/.saivage-work/processes/proc-1/stdout.log',
     stderr_path: '/workspace/project/.saivage-work/processes/proc-1/stderr.log',
-    combined_log_path: '/workspace/project/.saivage-work/processes/proc-1/combined.log',
     agent_session_id: 'agent-1',
     goal_id: null,
     launch_reason: null,
@@ -63,7 +62,6 @@ describe('process operator view projection', () => {
       logs: {
         stdout: 'work:///processes/proc-1/stdout.log',
         stderr: 'work:///processes/proc-1/stderr.log',
-        combined: 'work:///processes/proc-1/combined.log',
       },
     });
   });
@@ -74,12 +72,11 @@ describe('process operator view projection', () => {
       cwd: '/workspace/project/subdir',
       stdout_path: null as unknown as string,
       stderr_path: null as unknown as string,
-      combined_log_path: undefined as unknown as string,
     }));
 
     expect(view.command).not.toContain('secret-token');
     expect(view.cwd).toBe('subdir');
-    expect(view.logs).toEqual({ stdout: null, stderr: null, combined: null });
+    expect(view.logs).toEqual({ stdout: null, stderr: null });
   });
 
   it('preserves the timed_out heuristic used by operator routes', async () => {

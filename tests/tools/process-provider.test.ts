@@ -84,7 +84,7 @@ describe('process provider', () => {
     const processRunner = new ProcessRunner(root);
     const missing = join(root, '.saivage-work', 'processes', 'proc-missing');
     processRunner.setTransientRegistry(new Map([['proc-missing', {
-      id: 'proc-missing', card_id: 'card-1', owner_id: 'activation-1', command: 'sleep 1', command_hash: 'a'.repeat(64), cwd: root, cwd_canonical: root, status: 'running', pid: 123, started_at: '2026-01-01T00:00:00.000Z', started_at_monotonic: 1, completed_at: null, exit_code: null, signal: null, terminal_reason: null, required_for_card_completion: true, output_dir: missing, stdout_path: join(missing, 'stdout.log'), stderr_path: join(missing, 'stderr.log'), combined_log_path: join(missing, 'combined.log'), agent_session_id: 'activation-1', goal_id: null, launch_reason: null, owner_kind: 'agent', background_policy: null, process_group_id: 123, failure_classification: null,
+      id: 'proc-missing', card_id: 'card-1', owner_id: 'activation-1', command: 'sleep 1', command_hash: 'a'.repeat(64), cwd: root, cwd_canonical: root, status: 'running', pid: 123, started_at: '2026-01-01T00:00:00.000Z', started_at_monotonic: 1, completed_at: null, exit_code: null, signal: null, terminal_reason: null, required_for_card_completion: true, output_dir: missing, stdout_path: join(missing, 'stdout.log'), stderr_path: join(missing, 'stderr.log'), agent_session_id: 'activation-1', goal_id: null, launch_reason: null, owner_kind: 'agent', background_policy: null, process_group_id: 123, failure_classification: null,
     } satisfies ProcessRecord]]));
     const surface = buildInvocationSurface('executor', [createProcessProvider({ projectRoot: root, processRunner, ownerId: 'activation-1', cardId: 'card-1', ownerKind: 'agent' })]);
 

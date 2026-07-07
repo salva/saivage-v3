@@ -38,8 +38,8 @@ describe('ProcessRunner', () => {
     expect(result.status).toBe('exited');
     expect(existsSync(rec.stdout_path)).toBe(true);
     expect(existsSync(rec.stderr_path)).toBe(true);
-    expect(existsSync(rec.combined_log_path)).toBe(true);
-    expect(readFileSync(rec.combined_log_path, 'utf-8')).toContain('hello stderr');
+    expect(existsSync(join(rec.output_dir, 'combined.log'))).toBe(false);
+    expect(readFileSync(rec.stderr_path, 'utf-8')).toContain('hello stderr');
   });
 
   it('generates unique process IDs', async () => {
@@ -93,7 +93,7 @@ describe('ProcessRunner', () => {
 
     const finished = await runner.wait(rec.id, 1000);
     expect(finished.status).toBe('exited');
-    expect(readFileSync(runner.get(rec.id)!.combined_log_path, 'utf-8')).toContain('done');
+    expect(readFileSync(runner.get(rec.id)!.stdout_path, 'utf-8')).toContain('done');
   });
 
   it('lists process records and filters by status/card id', async () => {
@@ -136,7 +136,6 @@ describe('ProcessRunner', () => {
       output_dir: join(root, '.saivage-work/processes/proc-reconcile'),
       stdout_path: join(root, '.saivage-work/processes/proc-reconcile/stdout.log'),
       stderr_path: join(root, '.saivage-work/processes/proc-reconcile/stderr.log'),
-      combined_log_path: join(root, '.saivage-work/processes/proc-reconcile/combined.log'),
       agent_session_id: null,
       goal_id: null,
       launch_reason: null,

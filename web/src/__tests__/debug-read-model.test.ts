@@ -16,7 +16,7 @@ function process(overrides: Partial<ProcessView>): ProcessView {
     card_id: 'card',
     command: 'echo ok',
     cwd: null,
-    logs: { stdout: null, stderr: null, combined: null },
+    logs: { stdout: null, stderr: null },
     ...overrides,
   };
 }

@@ -8,6 +8,5 @@
   "required_for_card_completion": true,
   "output_dir": ".saivage-work/processes/proc-0002/",
   "stdout_path": ".saivage-work/processes/proc-0002/stdout.log",
-  "stderr_path": ".saivage-work/processes/proc-0002/stderr.log",
-  "combined_log_path": ".saivage-work/processes/proc-0002/combined.log"
+  "stderr_path": ".saivage-work/processes/proc-0002/stderr.log"
 }

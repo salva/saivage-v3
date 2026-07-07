@@ -14,6 +14,7 @@ import { redactTextForOutbound } from '../redaction/index.js';
 import { writeFileAtomic } from './durable-write.js';
 import { CardStore } from '../cards/card-store.js';
 import { createDefaultRuntimeState } from '../runtime/default-state.js';
+import { isLocked } from '../runtime/lock.js';
 
 export function readProjectFileAtomic(
   projectRoot: string,
@@ -67,7 +68,6 @@ const SAIVAGE_DIRS: string[] = [
   'runtime',
   'tmp/state',
   'supervision',
-  'views',
   'instructions',
 ];
 
@@ -80,6 +80,9 @@ const LEGACY_REJECTED_ARTIFACTS: string[] = [
   'cards/dependencies/depends-on.json',
   'cards/dependencies/blocks.json',
   'cards/blocks.json',
+  'agents/tool-deliveries',
+  'agents/tool-call-statuses',
+  'views',
 ];
 const SAIVAGE_WORK_DIRS: string[] = [
   'cards',
@@ -116,7 +119,6 @@ function isNewSaivageState(projectRoot: string): boolean {
     'outputs/cards',
     'agents/conversations',
     'runtime',
-    'views',
     'supervision',
   ];
   for (const dir of requiredDirs) {
@@ -133,20 +135,20 @@ function isNewSaivageState(projectRoot: string): boolean {
   return isValidJsonFile(join(saivageDir, 'project.json'), projectConfigSchema);
 }
 
-function discardLegacySaivageDir(projectRoot: string): void {
+function discardLegacyState(projectRoot: string, stamp: string): void {
   const saivageDir = join(projectRoot, '.saivage');
-  const discardedDir = join(
-    projectRoot,
-    `.saivage.discarded-${new Date().toISOString().replace(/[:.]/g, '-')}`,
-  );
-  renameSync(saivageDir, discardedDir);
+  const saivageWorkDir = join(projectRoot, '.saivage-work');
+  renameSync(saivageDir, join(projectRoot, `.saivage.discarded-${stamp}`));
+  if (existsSync(saivageWorkDir)) renameSync(saivageWorkDir, join(projectRoot, `.saivage-work.discarded-${stamp}`));
 }
 
 function ensureCleanSlateBoot(projectRoot: string): void {
   const saivageDir = join(projectRoot, '.saivage');
   if (!existsSync(saivageDir)) return;
   if (isNewSaivageState(projectRoot)) return;
-  discardLegacySaivageDir(projectRoot);
+  if (isLocked(projectRoot)) throw new Error(`Cannot discard legacy Saivage state while runtime lock '${join(projectRoot, '.saivage-work', 'tmp', 'runtime', 'runtime.lock')}' is held. Stop the runtime first.`);
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  discardLegacyState(projectRoot, stamp);
 }
 
 export function explainLegacyStateRejection(
@@ -167,14 +169,6 @@ export function initProjectTree(projectRoot: string): { projectRoot: string } {
   for (const dir of SAIVAGE_DIRS) mkdirSync(join(saivageDir, dir), { recursive: true });
   for (const dir of SAIVAGE_WORK_DIRS) mkdirSync(join(saivageWorkDir, dir), { recursive: true });
   writeFileAtomic(projectJsonPath, JSON.stringify(defaultProjectConfig(name), null, 2) + '\n');
-  writeFileAtomic(
-    join(saivageDir, 'views', 'leaderboard.json'),
-    JSON.stringify([], null, 2) + '\n',
-  );
-  writeFileAtomic(
-    join(saivageDir, 'views', 'saved-filters.json'),
-    JSON.stringify([], null, 2) + '\n',
-  );
   writeFileAtomic(join(saivageDir, 'skills', 'index.json'), JSON.stringify([], null, 2) + '\n');
   writeFileAtomic(join(saivageDir, 'runtime', 'events.jsonl'), '');
   writeFileAtomic(join(saivageDir, 'runtime', 'errors.jsonl'), '');

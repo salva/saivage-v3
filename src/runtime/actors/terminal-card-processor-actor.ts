@@ -14,7 +14,7 @@ import type { ProcessRunner } from '../process-runner.js';
 import { closeOpenRecordSlot, discardOpenRecordSlot } from '../records/record-slots.js';
 import { cardBriefForPrompt } from '../records/card-brief.js';
 import { runContractRepairLoop } from './contract-repair-loop.js';
-import { appendTerminalToolProjectedStatus } from './llm-delivery-log.js';
+import { appendTerminalProjectedToolResult } from './llm-delivery-log.js';
 import type { RuntimeGate } from '../runtime-gate.js';
 import { appendActivationMarker, appendUserContextMessage, conversationMessagesForModel, readActiveVersionMessages } from './conversation-store.js';
 import type { BufferSizeEstimator, CompactionConfig } from './compaction/compactor.js';
@@ -101,7 +101,7 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
             const message = 'Pending main-agent notifications arrived before terminal completion. Read the delivered notifications, update record:///status.md?v=next if needed, then call emit_result again.';
             return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: message }, signal, (inputId) => this.plannerNotificationContext(input, inputId)));
           }
-          this.markTerminalProjected(terminalOutcome);
+          this.markTerminalProjected(terminalOutcome, executorActorId(this.cardId));
           return control.done(projected);
         },
         onNonTerminalTool: async (toolOutcome) => {
@@ -158,12 +158,12 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     }
   }
 
-  private markTerminalProjected(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): void {
-    appendTerminalToolProjectedStatus(this.projectRoot, {
-      agent_id: outcome.agentId,
-      source_input_id: outcome.inputId,
-      tool_call_id: outcome.toolCallId,
-      tool_name: outcome.toolName,
+  private markTerminalProjected(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, sessionId: string): void {
+    appendTerminalProjectedToolResult(this.projectRoot, {
+      sessionId,
+      sourceInputId: outcome.inputId,
+      toolCallId: outcome.toolCallId,
+      toolName: outcome.toolName,
     });
   }
 

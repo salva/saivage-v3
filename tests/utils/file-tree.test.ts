@@ -32,6 +32,26 @@ function listDiscardedSaivageDirs(projectRoot: string): string[] {
     : [];
 }
 
+function listDiscardedSaivageWorkDirs(projectRoot: string): string[] {
+  return existsSync(projectRoot)
+    ? readdirSync(projectRoot).filter((entry) => entry.startsWith('.saivage-work.discarded-'))
+    : [];
+}
+
+function discardStamp(name: string, prefix: string): string {
+  return name.slice(prefix.length);
+}
+
+function seedPostStage1RequiredLegacyState(projectRoot: string): void {
+  const legacyDir = join(projectRoot, '.saivage');
+  mkdirSync(join(legacyDir, 'outputs', 'cards'), { recursive: true });
+  mkdirSync(join(legacyDir, 'agents', 'conversations'), { recursive: true });
+  mkdirSync(join(legacyDir, 'runtime'), { recursive: true });
+  mkdirSync(join(legacyDir, 'supervision'), { recursive: true });
+  mkdirSync(join(legacyDir, 'views'), { recursive: true });
+  writeFileSync(join(legacyDir, 'project.json'), JSON.stringify({ id: 'project', name: 'legacy', context: '', goals_summary: '', constraints: [], planner_enabled: true, created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' }));
+}
+
 describe('isInitialized', () => {
   it('returns false before init', () => {
     expect(isInitialized(tmpDir)).toBe(false);
@@ -81,22 +101,6 @@ describe('initProjectTree', () => {
     expect(existsSync(join(tmpDir, '.saivage', 'notes'))).toBe(false);
   });
 
-  it('creates views/leaderboard.json as empty array', () => {
-    initProjectTree(tmpDir);
-    const lb = JSON.parse(
-      readFileSync(join(tmpDir, '.saivage', 'views', 'leaderboard.json'), 'utf-8'),
-    );
-    expect(lb).toEqual([]);
-  });
-
-  it('creates views/saved-filters.json as empty array', () => {
-    initProjectTree(tmpDir);
-    const sf = JSON.parse(
-      readFileSync(join(tmpDir, '.saivage', 'views', 'saved-filters.json'), 'utf-8'),
-    );
-    expect(sf).toEqual([]);
-  });
-
   it('creates skills/index.json as empty array', () => {
     initProjectTree(tmpDir);
     const skills = JSON.parse(
@@ -136,7 +140,6 @@ describe('initProjectTree', () => {
       'agents/conversations',
       'runtime',
       'supervision',
-      'views',
       'instructions',
     ];
     for (const dir of saivageDirs) {
@@ -186,18 +189,26 @@ describe('initProjectTree', () => {
 
   it('discards legacy .saivage layouts and creates a fresh tree', () => {
     const legacyDir = join(tmpDir, '.saivage');
+    const legacyWorkDir = join(tmpDir, '.saivage-work');
     mkdirSync(join(legacyDir, 'runtime'), { recursive: true });
+    mkdirSync(join(legacyWorkDir, 'processes', 'proc-legacy'), { recursive: true });
     writeFileSync(
       join(legacyDir, 'runtime', 'state.json'),
       JSON.stringify({ status: 'running' }, null, 2),
     );
     writeFileSync(join(legacyDir, 'old-layout.json'), '{"legacy":true}');
+    writeFileSync(join(legacyWorkDir, 'processes', 'proc-legacy', 'combined.log'), 'combined');
 
     initProjectTree(tmpDir);
 
     const discarded = listDiscardedSaivageDirs(tmpDir);
+    const discardedWork = listDiscardedSaivageWorkDirs(tmpDir);
     expect(discarded).toHaveLength(1);
+    expect(discardedWork).toHaveLength(1);
     expect(existsSync(join(tmpDir, discarded[0], 'old-layout.json'))).toBe(true);
+    expect(existsSync(join(tmpDir, discardedWork[0], 'processes', 'proc-legacy', 'combined.log'))).toBe(true);
+    expect(discardStamp(discarded[0], '.saivage.discarded-')).toBe(discardStamp(discardedWork[0], '.saivage-work.discarded-'));
+    expect(existsSync(join(tmpDir, '.saivage-work', 'processes', 'proc-legacy', 'combined.log'))).toBe(false);
     expect(JSON.parse(readFileSync(join(tmpDir, '.saivage', 'project.json'), 'utf-8')).id).toBe(
       'project',
     );
@@ -206,12 +217,53 @@ describe('initProjectTree', () => {
   it('keeps already-new .saivage state instead of discarding it', () => {
     initProjectTree(tmpDir);
     const sentinelPath = join(tmpDir, '.saivage', 'runtime', 'events.jsonl');
+    const workSentinelPath = join(tmpDir, '.saivage-work', 'processes', 'sentinel.txt');
     writeFileSync(sentinelPath, 'sentinel-event\n');
+    writeFileSync(workSentinelPath, 'work-sentinel\n');
 
     initProjectTree(tmpDir);
 
     expect(listDiscardedSaivageDirs(tmpDir)).toEqual([]);
+    expect(listDiscardedSaivageWorkDirs(tmpDir)).toEqual([]);
     expect(readFileSync(sentinelPath, 'utf-8')).toBe('sentinel-event\n');
+    expect(readFileSync(workSentinelPath, 'utf-8')).toBe('work-sentinel\n');
+  });
+
+  it('discards pre-Stage-1 .saivage-work with the paired legacy .saivage state', () => {
+    seedPostStage1RequiredLegacyState(tmpDir);
+    mkdirSync(join(tmpDir, '.saivage-work', 'processes', 'proc-1'), { recursive: true });
+    writeFileSync(join(tmpDir, '.saivage-work', 'processes', 'proc-1', 'stdout.log'), 'stdout');
+    writeFileSync(join(tmpDir, '.saivage-work', 'processes', 'proc-1', 'combined.log'), 'combined');
+
+    initProjectTree(tmpDir);
+
+    const discarded = listDiscardedSaivageDirs(tmpDir);
+    const discardedWork = listDiscardedSaivageWorkDirs(tmpDir);
+    expect(discarded).toHaveLength(1);
+    expect(discardedWork).toHaveLength(1);
+    expect(discardStamp(discarded[0], '.saivage.discarded-')).toBe(discardStamp(discardedWork[0], '.saivage-work.discarded-'));
+    expect(existsSync(join(tmpDir, discardedWork[0], 'processes', 'proc-1', 'combined.log'))).toBe(true);
+    expect(existsSync(join(tmpDir, '.saivage-work', 'processes', 'proc-1', 'combined.log'))).toBe(false);
+  });
+
+  it('fails fast instead of discarding legacy state while a live runtime lock is held', () => {
+    seedPostStage1RequiredLegacyState(tmpDir);
+    mkdirSync(join(tmpDir, '.saivage-work', 'processes', 'proc-1'), { recursive: true });
+    mkdirSync(join(tmpDir, '.saivage-work', 'tmp', 'runtime'), { recursive: true });
+    writeFileSync(join(tmpDir, '.saivage-work', 'processes', 'proc-1', 'combined.log'), 'combined');
+    const lockPath = join(tmpDir, '.saivage-work', 'tmp', 'runtime', 'runtime.lock');
+    writeFileSync(lockPath, JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() }));
+
+    expect(() => initProjectTree(tmpDir)).toThrow(/runtime lock .*Stop the runtime first/);
+    expect(listDiscardedSaivageDirs(tmpDir)).toEqual([]);
+    expect(listDiscardedSaivageWorkDirs(tmpDir)).toEqual([]);
+    expect(existsSync(join(tmpDir, '.saivage', 'views'))).toBe(true);
+    expect(existsSync(join(tmpDir, '.saivage-work', 'processes', 'proc-1', 'combined.log'))).toBe(true);
+
+    rmSync(lockPath);
+    initProjectTree(tmpDir);
+    expect(listDiscardedSaivageDirs(tmpDir)).toHaveLength(1);
+    expect(listDiscardedSaivageWorkDirs(tmpDir)).toHaveLength(1);
   });
 });
 
