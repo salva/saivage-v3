@@ -40,6 +40,7 @@ export {
   resolveRecordWriteTarget,
   scopedPathResolvers,
   validRecordSegment,
+  workUrlFromAbsolutePath,
   type ResolvedScopedPath,
   type ScopedPathMode,
   type ScopedPathScheme,

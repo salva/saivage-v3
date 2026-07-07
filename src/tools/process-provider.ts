@@ -1,12 +1,28 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { z } from 'zod';
 
-import { DEFAULT_COMMAND_TIMEOUT_MS, DEFAULT_MAX_OUTPUT_BYTES, MAX_COMMAND_TIMEOUT_MS, truncateCommandOutput } from '../runtime/command-policy.js';
+import { redactTextForOutbound } from '../redaction/index.js';
+import { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from '../runtime/command-policy.js';
 import type { ProcessRunner } from '../runtime/process-runner.js';
-import type { AgentRole, ProcessRecord } from '../schemas/index.js';
-import { parseScopedPathUrl, resolveContainedProjectPath } from '../workspace/index.js';
+import type { AgentRole, ProcessRecord, ProcessStatus } from '../schemas/index.js';
+import { buildScopedPathUrl, parseScopedPathUrl, resolveContainedProjectPath } from '../workspace/index.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
+
+const MAX_TAIL_BYTES = 2048;
+
+interface ProcessToolResult {
+  process_id: string;
+  exit_code: number | null;
+  status: ProcessStatus;
+  stdout_url: string;
+  stderr_url: string;
+  stdout_bytes: number;
+  stderr_bytes: number;
+  stdout_tail: string;
+  stderr_tail: string;
+  tail_truncated: boolean;
+}
 
 export interface ProcessProviderContext {
   readonly projectRoot: string;
@@ -84,12 +100,25 @@ function scopedCwd(projectRoot: string, raw: string | undefined): string {
   return resolved.absolutePath;
 }
 
-function logText(path: string | null | undefined): string {
-  if (!path) return '';
+function lineAlignedTail(text: string, truncated: boolean): string {
+  if (!truncated) return text;
+  const newline = text.search(/\r?\n/);
+  if (newline < 0) return text;
+  const skip = text[newline] === '\r' && text[newline + 1] === '\n' ? newline + 2 : newline + 1;
+  return text.slice(skip);
+}
+
+function logTail(path: string, source: string): { bytes: number; tail: string; truncated: boolean } {
   try {
-    return truncateCommandOutput(readFileSync(path, 'utf8'), DEFAULT_MAX_OUTPUT_BYTES);
-  } catch {
-    return '';
+    const size = statSync(path).size;
+    const buffer = readFileSync(path);
+    const window = buffer.subarray(Math.max(0, buffer.length - MAX_TAIL_BYTES));
+    const truncated = size > MAX_TAIL_BYTES;
+    const tail = redactTextForOutbound(lineAlignedTail(window.toString('utf8'), truncated), 'operator.api', { source });
+    return { bytes: size, tail, truncated };
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { bytes: 0, tail: '', truncated: false };
+    throw err;
   }
 }
 
@@ -100,16 +129,21 @@ function assertOwned(ctx: ProcessProviderContext, processId: string): ProcessRec
   return record;
 }
 
-function processResult(ctx: ProcessProviderContext, processId: string): Record<string, unknown> {
+function processResult(ctx: ProcessProviderContext, processId: string): ProcessToolResult {
   const record = assertOwned(ctx, processId);
+  const stdout = logTail(record.stdout_path, 'process-provider.tail.stdout');
+  const stderr = logTail(record.stderr_path, 'process-provider.tail.stderr');
   return {
     process_id: record.id,
     exit_code: record.exit_code ?? null,
     status: record.status,
-    stdout: logText(record.stdout_path),
-    stderr: logText(record.stderr_path),
-    truncated: false,
-    log_path: `.saivage-work/processes/${record.id}/combined.log`,
+    stdout_url: buildScopedPathUrl('work', ['processes', record.id, 'stdout.log']),
+    stderr_url: buildScopedPathUrl('work', ['processes', record.id, 'stderr.log']),
+    stdout_bytes: stdout.bytes,
+    stderr_bytes: stderr.bytes,
+    stdout_tail: stdout.tail,
+    stderr_tail: stderr.tail,
+    tail_truncated: stdout.truncated || stderr.truncated,
   };
 }
 
@@ -161,11 +195,12 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
               launchReason,
               backgroundPolicy: args.wait === false ? undefined : 'foreground',
             });
-            if (args.wait === false) return { success: true, data: { process_id: record.id, running: true } };
+            if (args.wait === false) return { success: true, data: processResult(ctx, record.id) };
             try {
               await waitForProcess(ctx, record.id, timeoutMs(args.timeout_ms), signal);
             } catch (err) {
               await ctx.processRunner.kill(record.id, 'tool invocation interrupted', { graceMs: 5000 });
+              if (isAbortError(err, signal)) return { success: true, data: processResult(ctx, record.id) };
               throw err;
             }
             return { success: true, data: processResult(ctx, record.id) };
@@ -183,9 +218,9 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
           try {
             throwIfAborted(signal);
             const current = assertOwned(ctx, args.process_id);
-            if (args.timeout_ms === 0 && current.status === 'running') return { success: true, data: { process_id: args.process_id, still_running: true } };
+            if (args.timeout_ms === 0 && current.status === 'running') return { success: true, data: processResult(ctx, args.process_id) };
             const result = await waitForProcess(ctx, args.process_id, timeoutMs(args.timeout_ms), signal);
-            if (result.timedOut) return { success: true, data: { process_id: args.process_id, still_running: true } };
+            if (result.timedOut) return { success: true, data: processResult(ctx, args.process_id) };
             return { success: true, data: processResult(ctx, args.process_id) };
           } catch (err) {
             if (isAbortError(err, signal)) throw err;
@@ -202,7 +237,7 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
             assertOwned(ctx, args.process_id);
             const record = await ctx.processRunner.kill(args.process_id, 'tool kill_process');
             if (!record) throw new Error(`Unknown process '${args.process_id}'.`);
-            return { success: true, data: { process_id: args.process_id, terminated: true } };
+            return { success: true, data: processResult(ctx, args.process_id) };
           } catch (err) {
             return failureFromError(err);
           }

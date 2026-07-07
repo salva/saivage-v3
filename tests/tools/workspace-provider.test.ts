@@ -243,18 +243,31 @@ describe('workspace and patch providers', () => {
     const { root } = setupProject();
     try {
       mkdirSync(join(root, '.saivage-work', 'processes', 'proc-1'), { recursive: true });
-      writeFileSync(join(root, '.saivage-work', 'processes', 'proc-1', 'stdout.log'), 'runtime output', 'utf8');
+      writeFileSync(join(root, '.saivage-work', 'processes', 'proc-1', 'stdout.log'), 'runtime output Authorization: Bearer secret-token', 'utf8');
       const surface = buildInvocationSurface('executor', [
         createWorkspaceProvider({ projectRoot: root, cardId: 'card-1', agentRole: 'executor' }),
         createPatchProvider({ projectRoot: root, cardId: 'card-1', agentRole: 'executor' }),
       ]);
 
       const read = await invokeTool(surface, 'read', { path: 'work:///processes/proc-1/stdout.log' });
+      const listing = await invokeTool(surface, 'read', { path: 'work:///processes' });
+      const glob = await invokeTool(surface, 'glob', { directory: 'work:///processes', pattern: '**/*.log' });
+      const grep = await invokeTool(surface, 'grep', { path: 'work:///processes', pattern: 'Authorization' });
       const write = await invokeTool(surface, 'write', { path: 'work:///processes/proc-1/stdout.log', content: 'no' });
       const patch = await invokeTool(surface, 'apply_patch', { patch: '--- /dev/null\n+++ b/work:///processes/proc-1/stdout.log\n@@ -0,0 +1 @@\n+bad\n' });
 
       expect(read.success).toBe(true);
-      if (read.success) expect(read.data).toMatchObject({ content: 'runtime output' });
+      if (read.success) {
+        expect(read.data).toMatchObject({ path: 'work:///processes/proc-1/stdout.log' });
+        expect((read.data as { content: string }).content).toContain('[REDACTED]');
+        expect((read.data as { content: string }).content).not.toContain('secret-token');
+      }
+      expect(listing.success).toBe(true);
+      if (listing.success) expect((listing.data as { entries: Array<{ name: string }> }).entries.some((entry) => entry.name === 'proc-1')).toBe(true);
+      expect(glob.success).toBe(true);
+      if (glob.success) expect(glob.data).toMatchObject({ directory: 'work:///processes', matches: expect.arrayContaining(['work:///processes/proc-1/stdout.log']) });
+      expect(grep.success).toBe(true);
+      if (grep.success) expect((grep.data as { matches: Array<{ path: string; preview: string }> }).matches[0]).toEqual(expect.objectContaining({ path: 'work:///processes/proc-1/stdout.log', preview: expect.not.stringContaining('secret-token') }));
       expect(write.success).toBe(false);
       if (!write.success) expect(write.error).toContain('read-only');
       expect(patch.success).toBe(false);

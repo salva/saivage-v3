@@ -281,11 +281,17 @@ describe('operator API contract registry', () => {
       card_id: 'card-1',
       command: 'npm test',
       cwd: '.',
-      logs: { stdout: 'stdout.log', stderr: null, combined: 'combined.log' },
+      logs: { stdout: 'work:///processes/proc-1/stdout.log', stderr: null, combined: 'work:///processes/proc-1/combined.log' },
     };
     expect(parseOperatorResponse('processes.list', { processes: [process] }).processes[0].id).toBe('proc-1');
     expect(parseOperatorResponse('processes.get', { process }).process.card_id).toBe('card-1');
     expect(() => parseOperatorResponse('processes.list', { processes: [{ ...process, logs: { stdout: 1, stderr: null, combined: null } }] })).toThrow();
+    expect(() => parseOperatorResponse('processes.list', { processes: [{ ...process, logs: { stdout: '.saivage-work/processes/proc-1/stdout.log', stderr: null, combined: 'work:///processes/proc-1/combined.log' } }] })).toThrow();
+    expect(() => parseOperatorResponse('processes.list', { processes: [{ ...process, logs: { stdout: 'foo', stderr: null, combined: 'work:///processes/proc-1/combined.log' } }] })).toThrow();
+    expect(() => parseOperatorResponse('processes.list', { processes: [{ ...process, logs: { stdout: 'project:///processes/proc-1/stdout.log', stderr: null, combined: 'work:///processes/proc-1/combined.log' } }] })).toThrow();
+    expect(() => parseOperatorResponse('processes.list', { processes: [{ ...process, logs: { stdout: 'work:///processes/proc 1/stdout.log', stderr: null, combined: 'work:///processes/proc-1/combined.log' } }] })).toThrow();
+    expect(() => parseOperatorResponse('processes.list', { processes: [{ ...process, logs: { stdout: 'work:///processes/%70roc-1/stdout.log', stderr: null, combined: 'work:///processes/proc-1/combined.log' } }] })).toThrow();
+    expect(() => parseOperatorResponse('processes.list', { processes: [{ ...process, logs: { stdout: 'work:///processes/proc-1/stdout.log', stderr: null, combined: 'work:///processes/proc-1/stdout.log' } }] })).toThrow();
   });
 
 

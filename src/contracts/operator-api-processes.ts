@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { buildScopedPathUrl, parseScopedPathUrl } from '../workspace/index.js';
 import {
   ApiErrorSchema,
   publicContract,
@@ -8,10 +9,28 @@ import {
 
 export const ProcessIdParamsSchema = z.object({ id: z.string().min(1) });
 
+function isCanonicalProcessLogUrl(filename: string): (value: string | null) => boolean {
+  return (value) => {
+    if (value === null) return true;
+    try {
+      const parsed = parseScopedPathUrl(value, 'work');
+      return parsed.query === null
+        && !parsed.hadFragment
+        && parsed.segments.length === 3
+        && parsed.segments[0] === 'processes'
+        && parsed.segments[1] !== ''
+        && parsed.segments[2] === filename
+        && buildScopedPathUrl('work', parsed.segments) === value;
+    } catch {
+      return false;
+    }
+  };
+}
+
 export const ProcessLogRefsSchema = z.object({
-  stdout: z.string().nullable(),
-  stderr: z.string().nullable(),
-  combined: z.string().nullable(),
+  stdout: z.string().nullable().refine(isCanonicalProcessLogUrl('stdout.log'), 'stdout must be a canonical work:///processes/<id>/stdout.log URL or null'),
+  stderr: z.string().nullable().refine(isCanonicalProcessLogUrl('stderr.log'), 'stderr must be a canonical work:///processes/<id>/stderr.log URL or null'),
+  combined: z.string().nullable().refine(isCanonicalProcessLogUrl('combined.log'), 'combined must be a canonical work:///processes/<id>/combined.log URL or null'),
 });
 
 export const ProcessViewSchema = z.object({

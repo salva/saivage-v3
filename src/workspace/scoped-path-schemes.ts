@@ -141,6 +141,14 @@ export const scopedPathResolvers = {
 
 export type ScopedPathScheme = keyof typeof scopedPathResolvers;
 
+export function workUrlFromAbsolutePath(projectRoot: string, absolutePath: string): string {
+  const workRoot = join(projectRoot, '.saivage-work');
+  const rel = relative(workRoot, absolutePath).replace(/\\/g, '/');
+  const contained = resolveContainedProjectPath(workRoot, rel);
+  if (!contained.safe || !contained.relativePath || contained.relativePath === '.' || contained.relativePath.startsWith('../')) throw new Error(`Path '${absolutePath}' is not under the work root.`);
+  return buildScopedPathUrl('work', contained.relativePath.split('/'));
+}
+
 export function parseScopedPathScheme(raw: string): ScopedPathScheme | null {
   const match = /^([a-z][a-z0-9+.-]*):\/\//i.exec(raw);
   if (!match) return null;

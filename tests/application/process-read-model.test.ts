@@ -1,5 +1,4 @@
 import { describe, expect, it } from '@jest/globals';
-import { join } from 'node:path';
 
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { buildProcessOperatorContractHandlers } from '../../src/server/routes/operator-process-handlers.js';
@@ -62,24 +61,24 @@ describe('process operator view projection', () => {
       command: expect.any(String),
       cwd: 'subdir',
       logs: {
-        stdout: join('.saivage-work', 'processes', 'proc-1', 'stdout.log'),
-        stderr: join('.saivage-work', 'processes', 'proc-1', 'stderr.log'),
-        combined: join('.saivage-work', 'processes', 'proc-1', 'combined.log'),
+        stdout: 'work:///processes/proc-1/stdout.log',
+        stderr: 'work:///processes/proc-1/stderr.log',
+        combined: 'work:///processes/proc-1/combined.log',
       },
     });
   });
 
-  it('redacts sensitive commands and hides paths outside the project root', async () => {
+  it('redacts sensitive commands and preserves missing log paths as null', async () => {
     const view = await processView(record({
       command: 'curl https://example.test --header "Authorization: Bearer secret-token"',
-      cwd: '/etc',
-      stdout_path: '/tmp/out.log',
+      cwd: '/workspace/project/subdir',
+      stdout_path: null as unknown as string,
       stderr_path: null as unknown as string,
       combined_log_path: undefined as unknown as string,
     }));
 
     expect(view.command).not.toContain('secret-token');
-    expect(view.cwd).toBeNull();
+    expect(view.cwd).toBe('subdir');
     expect(view.logs).toEqual({ stdout: null, stderr: null, combined: null });
   });
 

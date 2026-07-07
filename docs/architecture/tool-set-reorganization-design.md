@@ -326,9 +326,9 @@ All tool schemas use snake_case field names to match the OpenCode/Copilot conven
 | `apply_patch` | `patch: string` | `{ changed_files, applied: true }` |
 | `glob` | `directory: string, pattern: string, max_results?: number` | `{ directory, pattern, matches, truncated }` |
 | `grep` | `pattern: string, path?: string, include?: string, max_results?: number` | `{ pattern, matches, truncated }` (match: `{ path, line, preview }`) |
-| `run_command` | `command: string, cwd?: string, timeout_ms?: number, inactivity_timeout_ms?: number, wait?: boolean` | `wait: true` → `{ exit_code, stdout, stderr, truncated, log_path? }` (`log_path` is a scoped URL, usually `tmp://` or `record://`). `wait: false` → `{ process_id, running: true }`. |
-| `wait_process` | `process_id: string, timeout_ms?: number` | `{ exit_code, stdout, stderr, truncated, log_path? }` or `{ process_id, still_running: true }` on timeout. |
-| `kill_process` | `process_id: string, signal?: string` | `{ process_id, terminated: true, signal? }`. Default signal is SIGTERM. |
+| `run_command` | `command: string, cwd?: string, timeout_ms?: number, inactivity_timeout_ms?: number, wait?: boolean` | Unified process result: `{ process_id, exit_code, status, stdout_url, stderr_url, stdout_bytes, stderr_bytes, stdout_tail, stderr_tail, tail_truncated }`. Background and interrupted runs return the same partial shape. |
+| `wait_process` | `process_id: string, timeout_ms?: number` | Same unified process result; timeout returns `status: 'running'` rather than a separate shape. |
+| `kill_process` | `process_id: string` | Same unified process result after termination, normally with `status: 'killed'`. |
 | `websearch` | `query: string, max_results?: number` | `{ query, results: [{ title, url, snippet }], skipped? }` |
 | `webfetch` | `url: string, read_mode?: 'auto'\|'text'\|'multimodal', metadata_only?: boolean, max_bytes?: number, save_as?: string` | Metadata: `{ status, headers }`. Text: `{ content, truncated, saved_path? }` (`save_as` and `saved_path` are scoped URLs, e.g. `tmp://` or `project://`). |
 | `skill` | `name?: string` | No name: `{ skills: [{ name, description }] }`. With name: skill content. |

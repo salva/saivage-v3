@@ -11,6 +11,7 @@ import type { ToolContext, ToolResult as AnalystToolResult } from './analyst-too
 import { toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
 import { defineTool, type ToolProvider, type ToolResult as InvocationToolResult } from './invocation.js';
 import { authorizeWriteProject, writeProject, type WorkspaceContext } from './project-file-tools.js';
+import { buildScopedPathUrl } from '../workspace/index.js';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_BYTES = 500_000;
@@ -191,11 +192,12 @@ async function webfetchCore(ctx: WebProviderContext, params: { url: string; read
     const inlineCap = Math.min(Math.max(params.max_inline_bytes ?? DEFAULT_MAX_INLINE_BYTES, 1), maxBytes);
     if (Buffer.byteLength(text, 'utf8') <= inlineCap) return { success: true, data: { ...metadata, text, bytes: Buffer.byteLength(text, 'utf8'), truncated: false } };
     const hash = createHash('sha256').update(text).digest('hex').slice(0, 16);
-    const stash = `.saivage-work/tmp/stash/webfetch-${Date.now()}-${hash}.txt`;
+    const filename = `webfetch-${Date.now()}-${hash}.txt`;
+    const stash = `.saivage-work/tmp/stash/${filename}`;
     const absolute = join(ctx.projectRoot, stash);
     mkdirSync(dirname(absolute), { recursive: true });
     writeFileSync(absolute, text, 'utf8');
-    return { success: true, data: { ...metadata, stash_path: stash, bytes: Buffer.byteLength(text, 'utf8'), truncated: true } };
+    return { success: true, data: { ...metadata, stash_url: buildScopedPathUrl('work', ['tmp', 'stash', filename]), bytes: Buffer.byteLength(text, 'utf8'), truncated: true } };
   } catch (err) {
     if (isAbortError(err, signal)) throw err;
     return { success: false, error: err instanceof Error ? err.message : String(err) };
@@ -226,7 +228,7 @@ export function createWebProvider(ctx: WebProviderContext): ToolProvider {
       }),
       defineTool({
         name: 'webfetch',
-        description: 'Fetch a public HTTP(S) URL with bounded size and private-network protections.',
+        description: 'Fetch a public HTTP(S) URL with bounded size and private-network protections. Oversized text is stashed as stash_url, a work:///tmp/stash/<file> URL readable with read or grep.',
         inputSchema: webfetchSchema,
         executor: async (args, signal) => webfetchCore(ctx, args, signal),
       }),

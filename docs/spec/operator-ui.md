@@ -137,7 +137,15 @@ The Analyst may inspect secrets when authorized and necessary. The UI may still 
 
 If the Analyst needs to discuss or use a secret, it should avoid unnecessary disclosure and should summarize where possible. Redaction in the UI is a display policy, not a limitation on Analyst inspection authority.
 
-## 11. Acceptance Criteria
+## 11. Process And Tool Output Projections
+
+Process rows and process detail responses expose `logs.stdout`, `logs.stderr`, and `logs.combined` as canonical `work:///processes/<id>/{stdout,stderr,combined}.log` URLs or `null`. The operator process API contract rejects bare `.saivage-work` paths, non-work schemes, non-canonical encodings, and mismatched log filenames. The Debug process-log Browse action forwards these `work:///` values to the Files read-model, which resolves them under `.saivage-work/` and previews the log content without reintroducing a bare path field.
+
+Tool-activity websocket projections use the unified process result fields: `process_id`, `exit_code`, `status`, `stdout_url`, `stderr_url`, `stdout_bytes`, `stderr_bytes`, `stdout_tail`, `stderr_tail`, and `tail_truncated`. Legacy `stdout`, `stderr`, `truncated`, `log_path`, `running`, `terminated`, and `still_running` result shapes are not projected.
+
+Oversized `webfetch` text returns `stash_url: work:///tmp/stash/<file>`. The websocket projection forwards `stash_url`, and the webfetch result presenter displays that URL; `stash_path` is not part of the UI contract.
+
+## 12. Acceptance Criteria
 
 The UI satisfies this specification when:
 

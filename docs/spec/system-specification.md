@@ -274,6 +274,8 @@ When a request is ambiguous, the Analyst asks one clarifying question rather tha
 
 For operator-directed repair, the Analyst may use canonical workspace tools directly: `read`, `write`, `edit`, `glob`, and `grep` over scoped `project:///`, `record:///`, `tmp:///`, read-only `work:///`, or `system:///` paths, and `apply_patch` for project-relative unified diffs. `apply_patch` paths are project-relative only and reject scoped URL diff paths. This authority is for inspection, diagnosis, and repair, not for replacing executor delivery work. Card objective changes still use semantic card tools or `write(record:///brief.md?card=<id>&v=next)` when that is the correct operation.
 
+All scoped file URLs use canonical triple-slash form (`<scheme>:///...`). Runtime-owned process output and oversized webfetch stashes are addressed through read-only `work:///` URLs under `.saivage-work`; `read` and `grep` redact `work:///` content before returning it to agents because command output and fetched content may contain secrets.
+
 For destructive or hard-to-reverse actions, the Analyst confirms in conversation before executing. Confirmation is conversational, not a modal.
 
 ## 14. UI Integration
@@ -306,6 +308,10 @@ Agents may start project commands through runtime-owned process facilities. Proc
 The Analyst may inspect process state and terminate processes owned by its current session when canonical process control supports it. Analyst-started commands are session-owned operator work; websocket session cleanup terminates running processes owned by that session. Shutdown also terminates runtime-owned running processes after pausing scheduling.
 
 Process handling uses a launch-and-monitor model rather than unbounded synchronous shell tools. An agent may launch a project command, inspect its evolving status and logs over time, wait for completion with a bounded `wait_process` operation, and then decide whether to wait again, terminate the process, or continue other work. A wait timeout must not by itself kill the process.
+
+`run_command`, `wait_process`, and `kill_process` all return the same process result contract: `process_id`, `exit_code` (`null` while running), `status`, `stdout_url`, `stderr_url`, `stdout_bytes`, `stderr_bytes`, redacted `stdout_tail`/`stderr_tail`, and `tail_truncated`. The output URLs are canonical `work:///processes/<id>/stdout.log` and `work:///processes/<id>/stderr.log` values that can be passed back to `read` or `grep` for paged output. Background starts, wait timeouts, kills, and interrupted foreground commands return this same partial-result shape.
+
+Process-list projections, including `list_processes_tool` and the operator process API, expose `process.logs.stdout`, `process.logs.stderr`, and `process.logs.combined` as canonical `work:///processes/<id>/{stdout,stderr,combined}.log` URLs, never as bare `.saivage-work` paths. Oversized `webfetch` text stores the body under `.saivage-work/tmp/stash/` and returns `stash_url: work:///tmp/stash/<file>`.
 
 The specification does not impose a process concurrency limit for now. Future runtime settings may add per-card, per-goal, or per-runtime limits.
 

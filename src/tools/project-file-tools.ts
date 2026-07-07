@@ -4,7 +4,8 @@ import { dirname, isAbsolute, join, relative } from 'node:path';
 
 import type { AgentRole } from '../schemas/index.js';
 import { isBinarySample } from './analyst-tool-helpers.js';
-import { assertRecordWrite, isReadBlocked, isWriteBlocked, looksLikeSecretPath, parseScopedPathScheme, resolveContainedProjectPath, resolveRecordSearchTarget, resolveRecordWriteTarget, scopedPathResolvers, type ResolvedScopedPath, type ScopedPathScheme } from '../workspace/index.js';
+import { redactTextForOutbound } from '../redaction/index.js';
+import { assertRecordWrite, isReadBlocked, isWriteBlocked, looksLikeSecretPath, parseScopedPathScheme, resolveContainedProjectPath, resolveRecordSearchTarget, resolveRecordWriteTarget, scopedPathResolvers, workUrlFromAbsolutePath, type ResolvedScopedPath, type ScopedPathScheme } from '../workspace/index.js';
 import { closeOpenRecordSlot, discardOpenRecordSlot, openRecordSlot, readRecordSlotIndex } from '../runtime/records/record-slots.js';
 import type { CardStore } from '../cards/store-api.js';
 import { readRuntimeState } from '../runtime/state-api.js';
@@ -46,6 +47,10 @@ function isHiddenPath(projectRoot: string, absolutePath: string, relativePath: s
 
 function workRootOf(resolved: { kind?: string; workRoot?: unknown; absolutePath?: string; relativePath?: string }): string | undefined {
   return resolved.kind === 'work' && typeof resolved.workRoot === 'string' ? resolved.workRoot : undefined;
+}
+
+function displayPathForResolved(projectRoot: string, resolved: ResolvedToolPath, absolutePath = resolved.absolutePath): string {
+  return resolved.kind === 'work' ? workUrlFromAbsolutePath(projectRoot, absolutePath) : resolved.relativePath;
 }
 
 function assertReadable(projectRoot: string, path: string, label = 'read path'): { absolutePath: string; relativePath: string } {
@@ -171,14 +176,15 @@ export async function readProject(ctx: WorkspaceContext, params: { path: string;
       .filter((entry) => !isHiddenPath(ctx.projectRoot, entry.absolutePath, workRootOf(resolved) ? normalizeRel(relative(workRootOf(resolved)!, entry.absolutePath)) : entry.relativePath))
       .map(({ name, type }) => ({ name, type }))
       .sort((a, b) => a.name.localeCompare(b.name));
-    return { path: relativePath, ...(resolved.kind === 'record' ? { record_url: resolved.recordUrl } : {}), entries: entries.slice(offset, offset + limit), offset, limit, total_entries: entries.length, truncated: offset + limit < entries.length };
+    return { path: displayPathForResolved(ctx.projectRoot, resolved), ...(resolved.kind === 'record' ? { record_url: resolved.recordUrl } : {}), entries: entries.slice(offset, offset + limit), offset, limit, total_entries: entries.length, truncated: offset + limit < entries.length };
   }
   if (!st.isFile()) throw toolInputError(`Unsupported file type: ${relativePath}`);
   const buffer = readFileSync(absolutePath);
   if (isBinarySample(buffer.subarray(0, Math.min(buffer.length, 1024)))) throw toolInputError(`Cannot read binary file as text: ${relativePath}`);
   const lines = buffer.toString('utf8').split(/\r?\n/);
   const window = lines.slice(offset, offset + limit);
-  return { path: relativePath, ...(resolved.kind === 'record' ? { record_url: resolved.recordUrl } : {}), content: window.join('\n'), offset, limit, total_lines: lines.length, truncated: offset + limit < lines.length };
+  const content = resolved.kind === 'work' ? redactTextForOutbound(window.join('\n'), 'operator.api', { source: 'project-file-tools.read.work' }) : window.join('\n');
+  return { path: displayPathForResolved(ctx.projectRoot, resolved), ...(resolved.kind === 'record' ? { record_url: resolved.recordUrl } : {}), content, offset, limit, total_lines: lines.length, truncated: offset + limit < lines.length };
 }
 
 export async function writeProject(ctx: WorkspaceContext, params: { path: string; content: string }): Promise<unknown> {
@@ -274,9 +280,9 @@ export async function globProject(ctx: WorkspaceContext, params: { directory: st
     if (pattern.test(within) || pattern.test(rel)) matches.push(rel);
     if (matches.length >= limit) return false;
   };
-  if (st.isFile()) consider(absolutePath, relativePath);
-  else walkFiles(ctx.projectRoot, absolutePath, consider, { includeHidden: isRecordSearch, root: isSystemSearch ? absolutePath : workRootOf(resolved), displayPath: isSystemSearch ? (abs) => `system:///${normalizeRel(abs).replace(/^\/+/, '')}` : undefined });
-  return { directory: relativePath, pattern: params.pattern, matches, truncated: matches.length >= limit };
+  if (st.isFile()) consider(absolutePath, isWorkSearch ? workUrlFromAbsolutePath(ctx.projectRoot, absolutePath) : relativePath);
+  else walkFiles(ctx.projectRoot, absolutePath, consider, { includeHidden: isRecordSearch, root: isSystemSearch ? absolutePath : workRootOf(resolved), displayPath: isSystemSearch ? (abs) => `system:///${normalizeRel(abs).replace(/^\/+/, '')}` : isWorkSearch ? (abs) => workUrlFromAbsolutePath(ctx.projectRoot, abs) : undefined });
+  return { directory: isWorkSearch ? workUrlFromAbsolutePath(ctx.projectRoot, absolutePath) : relativePath, pattern: params.pattern, matches, truncated: matches.length >= limit };
 }
 
 export async function grepProject(ctx: WorkspaceContext, params: { pattern: string; path?: string; include?: string; max_results?: number }): Promise<unknown> {
@@ -296,13 +302,16 @@ export async function grepProject(ctx: WorkspaceContext, params: { pattern: stri
     if (isBinarySample(sample.subarray(0, Math.min(sample.length, 1024)))) return;
     const lines = sample.toString('utf8').split(/\r?\n/);
     for (let i = 0; i < lines.length; i += 1) {
-      if (regex.test(lines[i])) matches.push({ path: rel, line: i + 1, preview: lines[i].slice(0, 500) });
+      if (regex.test(lines[i])) {
+        const preview = lines[i].slice(0, 500);
+        matches.push({ path: rel, line: i + 1, preview: isWorkSearch ? redactTextForOutbound(preview, 'operator.api', { source: 'project-file-tools.read.work' }) : preview });
+      }
       if (matches.length >= limit) return false;
     }
   };
   const st = statSync(target.absolutePath);
-  if (st.isFile()) scan(target.absolutePath, target.relativePath);
-  else walkFiles(ctx.projectRoot, target.absolutePath, scan, { includeHidden: isRecordSearch, root: isSystemSearch ? target.absolutePath : workRootOf(target), displayPath: isSystemSearch ? (abs) => `system:///${normalizeRel(abs).replace(/^\/+/, '')}` : undefined });
+  if (st.isFile()) scan(target.absolutePath, isWorkSearch ? workUrlFromAbsolutePath(ctx.projectRoot, target.absolutePath) : target.relativePath);
+  else walkFiles(ctx.projectRoot, target.absolutePath, scan, { includeHidden: isRecordSearch, root: isSystemSearch ? target.absolutePath : workRootOf(target), displayPath: isSystemSearch ? (abs) => `system:///${normalizeRel(abs).replace(/^\/+/, '')}` : isWorkSearch ? (abs) => workUrlFromAbsolutePath(ctx.projectRoot, abs) : undefined });
   return { pattern: params.pattern, matches, truncated: matches.length >= limit };
 }
 

@@ -1,11 +1,19 @@
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
-import { getSafeFileForAgent, resolveContainedProjectPath } from '../../workspace/index.js';
+import { join, relative } from 'node:path';
+import { buildScopedPathUrl, getSafeFileForAgent, parseScopedPathUrl, resolveContainedProjectPath, workUrlFromAbsolutePath } from '../../workspace/index.js';
 
 const MAX_FILE_SIZE_BYTES = 1_048_576;
 const BINARY_SAMPLE_BYTES = 4096;
 
 export type WorkspaceFileResult = { statusCode?: number; body: unknown };
+
+interface ResolvedRequestPath {
+  safe: boolean;
+  absolutePath: string;
+  responsePath: string;
+  reason?: string;
+  kind: 'project' | 'work';
+}
 
 function isBinaryBuffer(buffer: Buffer): boolean {
   const length = Math.min(buffer.length, BINARY_SAMPLE_BYTES);
@@ -23,25 +31,40 @@ function isBinaryBuffer(buffer: Buffer): boolean {
 export class WorkspaceFileReadModelService {
   constructor(private readonly projectRoot: string) {}
 
+  private resolveRequestedPath(requestedPath: string): ResolvedRequestPath {
+    if (requestedPath.startsWith('work:///')) {
+      try {
+        const parsed = parseScopedPathUrl(requestedPath, 'work');
+        if (parsed.query !== null || parsed.hadFragment || buildScopedPathUrl('work', parsed.segments) !== requestedPath) return { safe: false, absolutePath: '', responsePath: requestedPath, reason: 'Invalid work URL.', kind: 'work' };
+        const resolved = resolveContainedProjectPath(this.projectRoot, `.saivage-work/${parsed.segments.join('/')}`);
+        return { safe: resolved.safe, absolutePath: resolved.absolutePath, responsePath: requestedPath, reason: resolved.reason, kind: 'work' };
+      } catch (err) {
+        return { safe: false, absolutePath: '', responsePath: requestedPath, reason: err instanceof Error ? err.message : String(err), kind: 'work' };
+      }
+    }
+    const resolved = resolveContainedProjectPath(this.projectRoot, requestedPath);
+    return { safe: resolved.safe, absolutePath: resolved.absolutePath, responsePath: resolved.relativePath ?? requestedPath, reason: resolved.reason, kind: 'project' };
+  }
+
   listFiles(requestedPath = '.'): WorkspaceFileResult {
-    const { safe, absolutePath, reason, relativePath } = resolveContainedProjectPath(this.projectRoot, requestedPath);
+    const { safe, absolutePath, reason, responsePath, kind } = this.resolveRequestedPath(requestedPath);
     if (!safe) return { statusCode: 403, body: { error: reason } };
-    const responsePath = relativePath ?? '.';
     if (!existsSync(absolutePath)) return { statusCode: 404, body: { error: 'Path not found', path: responsePath } };
     const pathStat = statSync(absolutePath);
     if (!pathStat.isDirectory()) return { statusCode: 400, body: { error: 'Path is not a directory', path: responsePath } };
     const files = readdirSync(absolutePath).flatMap((entry: string) => {
-      const lexicalEntryPath = join(responsePath === '.' ? '' : responsePath, entry).replace(/^$/, entry).replace(/\\/g, '/');
+      const entryAbsolutePath = join(absolutePath, entry);
+      const lexicalEntryPath = relative(this.projectRoot, entryAbsolutePath).replace(/\\/g, '/');
       const containedEntry = resolveContainedProjectPath(this.projectRoot, lexicalEntryPath);
       if (!containedEntry.safe || !containedEntry.relativePath || !existsSync(containedEntry.absolutePath)) return [];
       try {
-        const linkStats = lstatSync(join(absolutePath, entry));
+        const linkStats = lstatSync(entryAbsolutePath);
         if (linkStats.isSymbolicLink()) {
-          const resolvedLink = resolveContainedProjectPath(this.projectRoot, join(absolutePath, entry));
+          const resolvedLink = resolveContainedProjectPath(this.projectRoot, entryAbsolutePath);
           if (!resolvedLink.safe) return [];
         }
         const entryStat = statSync(containedEntry.absolutePath);
-        return [{ name: entry, path: containedEntry.relativePath, type: entryStat.isDirectory() ? 'directory' : 'file', size: entryStat.isFile() ? entryStat.size : undefined, modifiedAt: entryStat.mtime.toISOString() }];
+        return [{ name: entry, path: kind === 'work' ? workUrlFromAbsolutePath(this.projectRoot, containedEntry.absolutePath) : containedEntry.relativePath, type: entryStat.isDirectory() ? 'directory' : 'file', size: entryStat.isFile() ? entryStat.size : undefined, modifiedAt: entryStat.mtime.toISOString() }];
       } catch { return []; }
     });
     return { body: { path: responsePath, files } };
@@ -49,9 +72,8 @@ export class WorkspaceFileReadModelService {
 
   readFileContent(requestedPath: string | undefined): WorkspaceFileResult {
     if (!requestedPath) return { statusCode: 400, body: { error: 'Path query parameter is required.' } };
-    const { safe, absolutePath, reason, relativePath } = resolveContainedProjectPath(this.projectRoot, requestedPath);
+    const { safe, absolutePath, reason, responsePath } = this.resolveRequestedPath(requestedPath);
     if (!safe) return { statusCode: 403, body: { error: reason } };
-    const responsePath = relativePath ?? '.';
     if (!existsSync(absolutePath)) return { statusCode: 404, body: { error: 'File not found', path: responsePath } };
     const fileStat = statSync(absolutePath);
     if (fileStat.isDirectory()) return { statusCode: 400, body: { error: 'Path is a directory', path: responsePath } };

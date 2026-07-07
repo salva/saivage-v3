@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { PROJECT_CARD_ID } from '../cards/store-api.js';
 import { listControlActions } from '../persistence/index.js';
 import type { ProcessRecord } from '../schemas/index.js';
-import { redactCommandForOperator, toContainedRelativePath } from '../workspace/index.js';
+import { redactCommandForOperator, toContainedRelativePath, workUrlFromAbsolutePath } from '../workspace/index.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import type { UnifiedToolDefinition } from './analyst-tool-definition.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
@@ -16,6 +16,7 @@ const JSONL_TAIL_MAX = 1000;
 
 function processView(projectRoot: string, record: ProcessRecord): Record<string, unknown> {
   const safePath = (path: string | null | undefined) => path ? toContainedRelativePath(projectRoot, path) : null;
+  const logUrl = (path: string | null | undefined) => path ? workUrlFromAbsolutePath(projectRoot, path) : null;
   return {
     id: record.id,
     status: record.status,
@@ -29,7 +30,7 @@ function processView(projectRoot: string, record: ProcessRecord): Record<string,
     card_id: record.card_id,
     command: redactCommandForOperator(record.command),
     cwd: safePath(record.cwd),
-    logs: { stdout: safePath(record.stdout_path), stderr: safePath(record.stderr_path), combined: safePath(record.combined_log_path) },
+    logs: { stdout: logUrl(record.stdout_path), stderr: logUrl(record.stderr_path), combined: logUrl(record.combined_log_path) },
   };
 }
 

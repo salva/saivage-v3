@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { presentToolCall } from '../../utils/tool-presenters';
+import { presentToolCall, presentToolResult } from '../../utils/tool-presenters';
 import { callEnvelope, inlineText } from './_helpers';
 
 describe('kill_process presenter', () => {
@@ -10,5 +10,12 @@ describe('kill_process presenter', () => {
     expect(Array.isArray(view.headline)).toBe(true);
     expect(inlineText(view.headline)).toBeTypeOf('string');
     expect(view.bodyKind).toBe('json');
+  });
+
+  it('renders unified killed process results', () => {
+    const view = presentToolResult(JSON.stringify({ process_id: 'proc-1', status: 'killed', exit_code: null }), { tool: 'kill_process' });
+
+    expect(inlineText(view.headline)).toContain('killed');
+    expect(inlineText(view.detail)).toContain('proc-1');
   });
 });

@@ -1,9 +1,10 @@
 import type { ProcessRecord } from '../../schemas/index.js';
-import { redactCommandForOperator, redactOperatorErrorMessage, toContainedRelativePath } from '../../workspace/index.js';
+import { redactCommandForOperator, redactOperatorErrorMessage, toContainedRelativePath, workUrlFromAbsolutePath } from '../../workspace/index.js';
 import type { OperatorContractHandlerMap, OperatorProjectContext } from './operator-handler-context.js';
 
 function toProcessView(projectRoot: string, record: ProcessRecord): Record<string, unknown> {
   const safePath = (path: string | null | undefined) => path ? toContainedRelativePath(projectRoot, path) : null;
+  const logUrl = (path: string | null | undefined) => path ? workUrlFromAbsolutePath(projectRoot, path) : null;
   return {
     id: record.id,
     status: record.status,
@@ -17,7 +18,7 @@ function toProcessView(projectRoot: string, record: ProcessRecord): Record<strin
     card_id: record.card_id,
     command: redactCommandForOperator(record.command),
     cwd: safePath(record.cwd),
-    logs: { stdout: safePath(record.stdout_path), stderr: safePath(record.stderr_path), combined: safePath(record.combined_log_path) },
+    logs: { stdout: logUrl(record.stdout_path), stderr: logUrl(record.stderr_path), combined: logUrl(record.combined_log_path) },
   };
 }
 
