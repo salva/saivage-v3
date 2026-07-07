@@ -1,7 +1,5 @@
 import type { LLMActorOutcome } from './llm-actor.js';
 
-const MAX_TERMINAL_CONTRACT_REPAIRS = 2;
-
 type ToolCallOutcome = Extract<LLMActorOutcome, { type: 'tool_call' }>;
 
 export type ContractRepairStep<T> =
@@ -17,10 +15,10 @@ export interface ContractRepairControl<T> {
   done(value: T): ContractRepairStep<T>;
   continue(outcome: LLMActorOutcome): ContractRepairStep<T>;
   restart(): ContractRepairStep<T>;
-  repair(message: string, next: () => Promise<LLMActorOutcome>): Promise<ContractRepairStep<T>>;
+  repair(next: () => Promise<LLMActorOutcome>): Promise<ContractRepairStep<T>>;
 }
 
-export async function runContractBoundedRepairLoop<T>(args: {
+export async function runContractRepairLoop<T>(args: {
   initialOutcome: LLMActorOutcome;
   isTerminalToolName: (name: string) => boolean;
   fail: (message: string) => T | Promise<T>;
@@ -29,17 +27,12 @@ export async function runContractBoundedRepairLoop<T>(args: {
   onNonTerminalTool: (outcome: ToolCallOutcome) => Promise<LLMActorOutcome>;
 }): Promise<ContractRepairLoopResult<T>> {
   let outcome = args.initialOutcome;
-  let repairAttempts = 0;
 
   const control: ContractRepairControl<T> = {
     done: (value) => ({ kind: 'done', value }),
     continue: (nextOutcome) => ({ kind: 'continue', outcome: nextOutcome }),
     restart: () => ({ kind: 'restart' }),
-    repair: async (message, next) => {
-      if (repairAttempts >= MAX_TERMINAL_CONTRACT_REPAIRS) return { kind: 'done', value: await args.fail(message) };
-      repairAttempts++;
-      return { kind: 'continue', outcome: await next() };
-    },
+    repair: async (next) => ({ kind: 'continue', outcome: await next() }),
   };
 
   for (;;) {

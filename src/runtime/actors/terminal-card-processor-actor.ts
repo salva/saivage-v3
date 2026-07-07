@@ -13,7 +13,7 @@ import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import type { ProcessRunner } from '../process-runner.js';
 import { closeOpenRecordSlot, discardOpenRecordSlot } from '../records/record-slots.js';
 import { cardBriefForPrompt } from '../records/card-brief.js';
-import { runContractBoundedRepairLoop } from './contract-bounded-repair-loop.js';
+import { runContractRepairLoop } from './contract-repair-loop.js';
 import { appendTerminalToolProjectedStatus } from './llm-delivery-log.js';
 import type { RuntimeGate } from '../runtime-gate.js';
 
@@ -73,27 +73,27 @@ export class TerminalCardProcessorActor extends BaseMainLLMCardProcessorActor im
     let cleanupStatus: 'done' | 'blocked' | 'failed' | 'cancelled' = 'failed';
     try {
       const outcome = await this.resolveInitialOutcome(llm, llmInput, surface, (name) => contract.isTerminalToolName(name), signal, (inputId) => this.plannerNotificationContext(input, inputId));
-      const result = await runContractBoundedRepairLoop<TerminalProcessorOutcome>({
+      const result = await runContractRepairLoop<TerminalProcessorOutcome>({
         initialOutcome: outcome,
         isTerminalToolName: (name) => contract.isTerminalToolName(name),
         fail: (message) => ({ status: 'failed', summary: message, result: executorFailure(message) }),
         onPlainText: async (_outcome, control) => {
           const message = `${expectedTerminalToolMessage(contract)} Plain executor messages are not accepted as terminal results.`;
-          return control.repair(message, () => llm.continueAfterPlainText(`${message} Do not summarize, simulate file writes, or describe what you would do. Use tools. Write record://status.md?v=next if needed, then call emit_result with valid JSON arguments.`, signal));
+          return control.repair(() => llm.continueAfterPlainText(`${message} Do not summarize, simulate file writes, or describe what you would do. Use tools. Write record://status.md?v=next if needed, then call emit_result with valid JSON arguments.`, signal));
         },
         onTerminalTool: async (terminalOutcome, control) => {
           const invalidTerminal = this.validateExecutorTerminal(terminalOutcome, contract);
           if (invalidTerminal) {
-            return control.repair(invalidTerminal, () => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: invalidTerminal }, signal, () => [{ role: 'user', content: `${invalidTerminal} Call emit_result again with valid JSON arguments.` }]));
+            return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: invalidTerminal }, signal, () => [{ role: 'user', content: `${invalidTerminal} Call emit_result again with valid JSON arguments.` }]));
           }
           const missingRecord = this.closeRequiredStatusRecord(input.card.version_seq);
           if (missingRecord) {
-            return control.repair(missingRecord, () => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: missingRecord }, signal, () => [{ role: 'user', content: `${missingRecord} Create record://status.md?v=next, then call emit_result again.` }]));
+            return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: missingRecord }, signal, () => [{ role: 'user', content: `${missingRecord} Create record://status.md?v=next, then call emit_result again.` }]));
           }
           const projected = projectTerminalExecutorOutcome(terminalOutcome, contract);
           if (projected.status === 'done' && (input.notificationDelivery.hasPendingNotifications?.() ?? false)) {
             const message = 'Pending main-agent notifications arrived before terminal completion. Read the delivered notifications, update record://status.md?v=next if needed, then call emit_result again.';
-            return control.repair(message, () => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: message }, signal, (inputId) => this.plannerNotificationContext(input, inputId)));
+            return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: message }, signal, (inputId) => this.plannerNotificationContext(input, inputId)));
           }
           this.markTerminalProjected(terminalOutcome);
           return control.done(projected);

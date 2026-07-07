@@ -17,7 +17,7 @@ import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import type { NotifyCardResult } from '../runtime-api.js';
 import { closeOpenRecordSlot, concreteRecordSlot, discardOpenRecordSlot, latestClosedRecordSlot, readRecordSlotIndex, recordFileIsNonEmpty } from '../records/record-slots.js';
 import { cardBriefForPrompt } from '../records/card-brief.js';
-import { runContractBoundedRepairLoop } from './contract-bounded-repair-loop.js';
+import { runContractRepairLoop } from './contract-repair-loop.js';
 import { appendTerminalToolProjectedStatus } from './llm-delivery-log.js';
 import type { RuntimeGate } from '../runtime-gate.js';
 
@@ -82,30 +82,30 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
     const surface = this.plannerInvocationSurface(input.card.id);
     const outcome = await this.resolveInitialOutcome(llm, this.buildLlmInput(input, contract), surface, (name) => contract.isTerminalToolName(name), signal, (inputId) => this.plannerNotificationContext(input, inputId));
     let reviewerReworkAttempts = 0;
-    const result = await runContractBoundedRepairLoop<PlannerProcessorOutcome>({
+    const result = await runContractRepairLoop<PlannerProcessorOutcome>({
       initialOutcome: outcome,
       isTerminalToolName: (name) => contract.isTerminalToolName(name),
       fail: (message) => this.plannerFailure(message),
       onPlainText: async (_outcome, control) => {
         const message = `${expectedTerminalToolMessage(contract)} Plain planner messages are not accepted as terminal results.`;
-        return control.repair(message, () => llm.continueAfterPlainText(`${message} Use tools. Write record://status.md?v=next if needed, then call emit_result with valid JSON arguments.`, signal));
+        return control.repair(() => llm.continueAfterPlainText(`${message} Use tools. Write record://status.md?v=next if needed, then call emit_result with valid JSON arguments.`, signal));
       },
       onTerminalTool: async (terminalOutcome, control) => {
         const invalidTerminal = this.validatePlannerTerminal(terminalOutcome, contract);
         if (invalidTerminal) {
-          return control.repair(invalidTerminal, () => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: invalidTerminal }, signal, () => [{ role: 'user', content: `${invalidTerminal} Call emit_result again with valid JSON arguments.` }]));
+          return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: invalidTerminal }, signal, () => [{ role: 'user', content: `${invalidTerminal} Call emit_result again with valid JSON arguments.` }]));
         }
         if (this.isPlannerDoneTerminal(terminalOutcome, contract) && (input.notificationDelivery.hasPendingNotifications?.() ?? false)) {
           const message = 'Pending main-agent notifications arrived before terminal completion. Read the delivered notifications, update record://status.md?v=next if needed, then call emit_result again.';
-          return control.repair(message, () => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: message }, signal, (inputId) => this.plannerNotificationContext(input, inputId)));
+          return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: message }, signal, (inputId) => this.plannerNotificationContext(input, inputId)));
         }
         const missingRecord = this.closeRequiredRecord(input.card.id, 'status.md', 'planner', input.card.version_seq);
         if (missingRecord) {
-          return control.repair(missingRecord, () => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: missingRecord }, signal, () => [{ role: 'user', content: `${missingRecord} Create record://status.md?v=next, then call emit_result again.` }]));
+          return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: missingRecord }, signal, () => [{ role: 'user', content: `${missingRecord} Create record://status.md?v=next, then call emit_result again.` }]));
         }
         const completionGateFailure = this.validatePlannerCompletionGate(terminalOutcome, contract);
         if (completionGateFailure) {
-          return control.repair(completionGateFailure, () => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: completionGateFailure }, signal, () => [{ role: 'user', content: completionGateFailure }]));
+          return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: completionGateFailure }, signal, () => [{ role: 'user', content: completionGateFailure }]));
         }
         const projected = await this.projectPlannerTerminal(input, terminalOutcome, signal, contract);
         if (projected.result.kind === 'rework') {
@@ -215,22 +215,22 @@ export class PlanningCardProcessorActor extends BaseMainLLMCardProcessorActor im
       const currentness = this.captureReviewerCurrentness(input);
       const surface = this.reviewerInvocationSurface(input.card.id, sessionId);
       const outcome = await this.resolveInitialOutcome(llm, this.buildReviewerLlmInput(input, assessmentId, sessionId, currentness), surface, (name) => reviewerContract.isTerminalToolName(name), signal, () => this.reviewerContext(input));
-      const review = await runContractBoundedRepairLoop<PlannerProcessorOutcome>({
+      const review = await runContractRepairLoop<PlannerProcessorOutcome>({
         initialOutcome: outcome,
         isTerminalToolName: (name) => reviewerContract.isTerminalToolName(name),
         fail: (message) => this.plannerFailure(message),
         onPlainText: async (_outcome, control) => {
           const message = `${expectedTerminalToolMessage(reviewerContract)} Plain reviewer messages are not accepted as terminal results.`;
-          return control.repair(message, () => llm.continueAfterPlainText(`${message} Use tools. Write record://review.md?v=next if needed, then call emit_result with valid JSON arguments.`, signal));
+          return control.repair(() => llm.continueAfterPlainText(`${message} Use tools. Write record://review.md?v=next if needed, then call emit_result with valid JSON arguments.`, signal));
         },
         onTerminalTool: async (terminalOutcome, control) => {
           const invalidTerminal = this.validateReviewerTerminal(terminalOutcome, reviewerContract);
           if (invalidTerminal) {
-            return control.repair(invalidTerminal, () => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: invalidTerminal }, signal, () => [{ role: 'user', content: `${invalidTerminal} Call emit_result again with valid JSON arguments.` }]));
+            return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: invalidTerminal }, signal, () => [{ role: 'user', content: `${invalidTerminal} Call emit_result again with valid JSON arguments.` }]));
           }
           const missingRecord = this.validateRequiredOpenRecord(input.card.id, 'review.md');
           if (missingRecord) {
-            return control.repair(missingRecord, () => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: missingRecord }, signal, () => [{ role: 'user', content: `${missingRecord} Create record://review.md?v=next, then call emit_result again.` }]));
+            return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: missingRecord }, signal, () => [{ role: 'user', content: `${missingRecord} Create record://review.md?v=next, then call emit_result again.` }]));
           }
           const staleReason = this.reviewerCurrentnessStaleReason(input, currentness);
           if (staleReason) {
