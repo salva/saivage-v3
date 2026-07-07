@@ -99,8 +99,10 @@ describe('read-only positive checklist', () => {
     expect(debugViewSource).toContain('browseQuarantineItem(entry.quarantine_id)');
 
     // Card detail and tree navigation remain read-only positive paths.
-    expect(cardDetailSource).toContain('EntityLink');
-    expect(cardDetailSource).toContain('@click="navigateCard(child.id)"');
+    expect(cardDetailSource).toContain('CardRecordsSection');
+    expect(cardDetailSource).toContain('CardConversationsSection');
+    expect(cardDetailSource).toContain('Version history');
+    expect(cardDetailSource).toContain('@click="navigateCard(dispatch.targetCardId)"');
     expect(cardsTreeSource).toContain("emit('toggle', node.card.id)");
     expect(cardsTreeSource).toContain("emit('select', node.card.id)");
 

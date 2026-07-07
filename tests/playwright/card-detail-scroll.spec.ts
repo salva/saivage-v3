@@ -75,10 +75,8 @@ test('desktop card detail keeps all content reachable inside the bounded detail 
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify(parseOperatorResponse('cards.get', {
-        card: { ...card, dependencyRefs: [], relatedRefs: [] },
+        card,
         children,
-        ancestorIds: ['project-smoke'],
-        ancestorRefs: [{ id: 'project-smoke', display_path: null, title: 'Synthetic Project' }],
       })),
     });
   });

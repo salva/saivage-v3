@@ -41,7 +41,6 @@
                 <span class="dc-type">{{ card.type[0].toUpperCase() }}</span>
                 <span class="dc-title">{{ card.title }}</span>
                 <span class="dc-status" :class="'s-' + card.status">{{ card.status }}</span>
-                <span class="dc-priority">P{{ card.priority }}</span>
                 <span v-if="card.depends_on.length" class="dc-deps">{{ card.depends_on.length }}</span>
                 <section class="card-children-section" data-testid="debug-view-card-children" v-if="childrenForCard(card.id).length > 0">
                   <ul data-testid="debug-card-children-list">
@@ -551,7 +550,6 @@ onUnmounted(() => {
 .dc-status.s-done { color:var(--accent); background:var(--entry-accent-bg); }
 .dc-status.s-failed { color:var(--danger); background:var(--entry-danger-bg); }
 .dc-status.s-cancelled { color:var(--border-strong); background:var(--surface-3); }
-.dc-priority { font-size:10px; color:var(--text-muted); font-family:'SF Mono',monospace; }
 .dc-deps { font-size:10px; color:var(--border-strong); }
 .errors-list { display:flex; flex-direction:column; gap:16px; }
 .error-source-title { font-size:12px; font-weight:600; color:var(--text-muted); margin:0 0 6px 0; }

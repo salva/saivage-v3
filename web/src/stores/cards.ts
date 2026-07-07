@@ -6,7 +6,6 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import type {
   CardRecord,
-  CardRefView,
   CardType,
   CardStatus,
   CardListResponse,
@@ -31,8 +30,6 @@ const log = createLogger('store:cards');
 let cardDetailRequestSeq = 0;
 
 /* ─── Selectors ───────────────────────────────────────────────────────────── */
-
-const CARD_STATUSES: CardStatus[] = ['backlog', 'running', 'blocked', 'changed', 'done', 'failed', 'cancelled', 'needs_verification'];
 
 export interface CardFilterState {
   status: CardStatus | '';
@@ -86,11 +83,6 @@ export function buildTree(cards: CardRecord[]): CardRecord[] {
   return roots;
 }
 
-export function sortCards(a: CardRecord, b: CardRecord): number {
-  if (a.priority !== b.priority) return b.priority - a.priority;
-  return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
-}
-
 export function sortCardsByParentPosition(a: CardRecord, b: CardRecord): number {
   const pa = a.position ?? Number.POSITIVE_INFINITY;
   const pb = b.position ?? Number.POSITIVE_INFINITY;
@@ -113,10 +105,6 @@ export function applyCardFilters(source: CardRecord[], filters: CardFilterState)
   return result;
 }
 
-export function selectFilteredCards(source: CardRecord[], filters: CardFilterState): CardRecord[] {
-  return [...applyCardFilters(source, filters)].sort(sortCards);
-}
-
 export function selectOrderedFilteredCards(source: CardRecord[], filters: CardFilterState): CardRecord[] {
   const matched = applyCardFilters(source, filters);
   if (matched.length === source.length) return matched;
@@ -132,17 +120,6 @@ export function selectOrderedFilteredCards(source: CardRecord[], filters: CardFi
     }
   }
   return source.filter((card) => included.has(card.id));
-}
-
-export function selectBoardColumns(cards: CardRecord[]): Map<CardStatus, CardRecord[]> {
-  const columns = new Map<CardStatus, CardRecord[]>();
-  for (const status of CARD_STATUSES) columns.set(status, []);
-  for (const card of cards) {
-    const column = columns.get(card.status);
-    if (column) column.push(card);
-  }
-  for (const column of columns.values()) column.sort(sortCards);
-  return columns;
 }
 
 export function selectChildrenOf(cards: CardRecord[], parentId: string): CardRecord[] {
@@ -215,8 +192,6 @@ export interface DispatchSummary {
 export interface CardDetailViewModel {
   card: CardRecord;
   children: CardRecord[];
-  ancestorIds: string[];
-  ancestorRefs: CardRefView[];
   lifecycle?: CardLifecycleSummary | null;
   dispatches?: DispatchSummary | null;
 }
@@ -277,12 +252,10 @@ export function deriveCardLifecycleSummary(card: CardRecord, children: CardRecor
   };
 }
 
-export function toCardDetailViewModel(response: { card: CardRecord; children: CardRecord[]; ancestorIds: string[]; ancestorRefs?: CardRefView[] }): CardDetailViewModel {
+export function toCardDetailViewModel(response: { card: CardRecord; children: CardRecord[] }): CardDetailViewModel {
   return {
     card: response.card,
     children: response.children,
-    ancestorIds: response.ancestorIds,
-    ancestorRefs: response.ancestorRefs ?? response.ancestorIds.map((id) => ({ id, display_path: null, title: null })),
     lifecycle: deriveCardLifecycleSummary(response.card, response.children),
     dispatches: null,
   };
@@ -298,8 +271,6 @@ export const useCardStore = defineStore('cards', () => {
 
   const currentCard = ref<CardRecord | null>(null);
   const currentChildren = ref<CardRecord[]>([]);
-  const currentAncestorIds = ref<string[]>([]);
-  const currentAncestorRefs = ref<CardRefView[]>([]);
   const currentLifecycle = ref<CardLifecycleSummary | null>(null);
   const currentDispatches = ref<DispatchSummary | null>(null);
   const currentDetailError = ref<DetailErrorState | null>(null);
@@ -317,15 +288,9 @@ export const useCardStore = defineStore('cards', () => {
     query: searchQuery.value,
   }));
 
-  const filteredCards = computed<CardRecord[]>(() => selectFilteredCards(cards.value, activeFilters.value));
-
   const orderedFilteredCards = computed<CardRecord[]>(() => selectOrderedFilteredCards(cards.value, activeFilters.value));
 
-  const cardTree = computed<CardRecord[]>(() => buildTree(filteredCards.value));
-
   const orderedCardTree = computed<CardRecord[]>(() => buildTree(orderedFilteredCards.value));
-
-  const board = computed<Map<CardStatus, CardRecord[]>>(() => selectBoardColumns(filteredCards.value));
 
   const currentCardHasStaleWarning = computed(() => {
     const cardId = currentCard.value?.id;
@@ -343,8 +308,6 @@ export const useCardStore = defineStore('cards', () => {
   function clearCurrentDetail(): void {
     currentCard.value = null;
     currentChildren.value = [];
-    currentAncestorIds.value = [];
-    currentAncestorRefs.value = [];
     currentLifecycle.value = null;
     currentDispatches.value = null;
     currentDetailError.value = null;
@@ -472,8 +435,6 @@ export const useCardStore = defineStore('cards', () => {
       const viewModel = toCardDetailViewModel(response);
       currentCard.value = viewModel.card;
       currentChildren.value = viewModel.children;
-      currentAncestorIds.value = viewModel.ancestorIds;
-      currentAncestorRefs.value = viewModel.ancestorRefs;
       currentLifecycle.value = viewModel.lifecycle ?? null;
       currentDispatches.value = viewModel.dispatches ?? null;
       resetDetailFreshness();
@@ -522,8 +483,6 @@ export const useCardStore = defineStore('cards', () => {
     error,
     currentCard,
     currentChildren,
-    currentAncestorIds,
-    currentAncestorRefs,
     currentLifecycle,
     currentDispatches,
     currentDetailError,
@@ -543,11 +502,8 @@ export const useCardStore = defineStore('cards', () => {
     filterStatus,
     filterType,
     searchQuery,
-    filteredCards,
     orderedFilteredCards,
-    cardTree,
     orderedCardTree,
-    board,
     isStale,
     fetchCards,
     fetchCardDetail,

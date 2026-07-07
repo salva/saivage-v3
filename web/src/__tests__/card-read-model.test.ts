@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CardRecord } from '../api/types';
-import { buildTree, selectBoardColumns, selectChildrenOf, selectFilteredCards } from '../stores/cards';
+import { applyCardFilters, buildTree, selectChildrenOf } from '../stores/cards';
 
 function card(overrides: Partial<CardRecord>): CardRecord {
   return {
@@ -27,14 +27,14 @@ function card(overrides: Partial<CardRecord>): CardRecord {
 }
 
 describe('card selectors', () => {
-  it('filters and priority-sorts cards without owning fetch state', () => {
+  it('filters cards without owning fetch state', () => {
     const cards = [
       card({ id: 'low', title: 'Alpha', priority: 1, tags: ['ui'] }),
       card({ id: 'high', title: 'Beta', priority: 9, tags: ['ui'] }),
       card({ id: 'other', title: 'Gamma', priority: 10, tags: ['api'] }),
     ];
 
-    expect(selectFilteredCards(cards, { status: '', type: '', query: '' }).map((entry) => entry.id)).toEqual(['other', 'high', 'low']);
+    expect(applyCardFilters(cards, { status: '', type: '', query: 'a' }).map((entry) => entry.id)).toEqual(['low', 'high', 'other']);
   });
 
   it('builds trees and ordered child projections from authoritative card records', () => {
@@ -46,14 +46,5 @@ describe('card selectors', () => {
 
     expect((buildTree(cards)[0].children ?? []).map((entry) => entry.id)).toEqual(['child-b', 'child-a']);
     expect(selectChildrenOf(cards, 'root').map((entry) => entry.id)).toEqual(['child-a', 'child-b']);
-  });
-
-  it('selects board columns as pure projections', () => {
-    const cards = [
-      card({ id: 'done', status: 'done', tags: ['z', 'a'] }),
-      card({ id: 'blocked', status: 'blocked', tags: ['a'] }),
-    ];
-
-    expect(selectBoardColumns(cards).get('done')?.map((entry) => entry.id)).toEqual(['done']);
   });
 });

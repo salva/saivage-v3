@@ -22,20 +22,10 @@
           </button>
           <span v-else class="node-toggle placeholder"></span>
 
-          <span class="node-type" :class="`type-${node.card.type}`">{{ shortLabelForCardType(node.card.type) }}</span>
-          <StatusBadge :status="cardUiStatus(node.card.status)" show-dot />
+          <span class="state-ball" :class="`tone-${toneForCardStatus(node.card.status)}`" aria-hidden="true"></span>
           <span v-if="node.card.display_path" class="node-path">{{ node.card.display_path }}</span>
           <span class="node-title">{{ node.card.title }}</span>
-
-          <span v-if="node.card.priority >= 80" class="node-priority high">P{{ node.card.priority }}</span>
-
-          <span v-if="node.card.tags.length" class="node-tags">
-            <span v-for="tag in node.card.tags" :key="tag" class="node-tag">{{ tag }}</span>
-          </span>
-
-          <span v-if="node.card.depends_on.length" class="node-deps" :title="node.card.depends_on.join(', ')">
-            ↳ {{ node.card.depends_on.length }}
-          </span>
+          <span class="node-kind">{{ labelForCardType(node.card.type) }}</span>
         </SelectableRow>
       </li>
     </ul>
@@ -44,10 +34,9 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { CardStatus, CardRecord } from '../../types/view-models';
-import { shortLabelForCardType, toneForCardStatus, type UiStatus } from '../../utils/status';
+import type { CardRecord } from '../../types/view-models';
+import { labelForCardType, toneForCardStatus } from '../../utils/status';
 import SelectableRow from '../ui/SelectableRow.vue';
-import StatusBadge from '../ui/StatusBadge.vue';
 
 const props = defineProps<{
   cards: CardRecord[];
@@ -99,9 +88,6 @@ const renderedTree = computed<TreeNode[]>(() => {
   return flat;
 });
 
-function cardUiStatus(status: CardStatus): UiStatus {
-  return { label: status, tone: toneForCardStatus(status) };
-}
 </script>
 
 <style scoped>
@@ -155,18 +141,23 @@ function cardUiStatus(status: CardStatus): UiStatus {
   visibility: hidden;
 }
 
-.node-type {
-  font-size: 10px;
-  font-weight: 600;
-  padding: 1px 5px;
-  border-radius: 3px;
-  background: var(--surface-3);
-  color: var(--text-muted);
-  border: 1px solid var(--border);
+.state-ball {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
   flex-shrink: 0;
-  text-transform: uppercase;
-  letter-spacing: .03em;
 }
+
+.state-ball.tone-neutral { background: var(--text-muted); }
+.state-ball.tone-active { background: var(--accent-2); }
+.state-ball.tone-info { background: var(--accent-2); }
+.state-ball.tone-success { background: var(--accent); }
+.state-ball.tone-warning { background: var(--warn); }
+.state-ball.tone-danger { background: var(--danger); }
+.state-ball.tone-pending { background: var(--warn); }
+.state-ball.tone-stale { background: var(--warn); }
+.state-ball.tone-unauthorized { background: var(--danger); }
+.state-ball.tone-offline { background: var(--border-strong); }
 
 .node-title {
   flex: 1;
@@ -189,43 +180,9 @@ function cardUiStatus(status: CardStatus): UiStatus {
   flex-shrink: 0;
 }
 
-.node-priority {
-  font-size: 10px;
-  font-weight: 600;
-  padding: 1px 4px;
-  border-radius: 3px;
-  background: var(--surface-3);
-  flex-shrink: 0;
-}
-
-.node-priority.high {
-  background: var(--entry-danger-bg);
-  color: var(--danger);
-}
-
-.node-tags {
-  display: flex;
-  gap: 2px;
-  flex-shrink: 0;
-}
-
-.node-tag {
-  font-size: 10px;
-  padding: 1px 5px;
-  background: var(--entry-user-bg);
-  color: var(--accent-2);
-  border-radius: 3px;
-  border: 1px solid var(--border);
-  max-width: 80px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.node-deps {
-  font-size: 10px;
+.node-kind {
+  font-size: 11px;
   color: var(--text-muted);
-  font-family: 'SF Mono', monospace;
   flex-shrink: 0;
 }
 </style>

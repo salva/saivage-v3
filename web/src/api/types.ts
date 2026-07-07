@@ -5,7 +5,6 @@ import type {
   AgentSessionSummary,
   CardHistoryEntry,
   CardHistoryHeader,
-  CardRefView,
   CardView as ContractCardView,
   CardStatus,
   CardType,
@@ -217,7 +216,7 @@ export interface FreshnessState {
 
 
 
-export type CardRecord = ContractCardView & { notes?: NoteRecord[]; children?: CardRecord[]; dependencyRefs?: CardRefView[]; relatedRefs?: CardRefView[] };
+export type CardRecord = ContractCardView & { notes?: NoteRecord[]; children?: CardRecord[] };
 export type CardListResponse = OperatorApiSuccess<'cards.list'>;
 export type CardDetailResponse = OperatorApiSuccess<'cards.get'>;
 export type CardHistoryListResponse = OperatorApiSuccess<'cards.history.list'>;

@@ -24,6 +24,9 @@ const card = {
   title: 'Synthetic dashboard smoke card',
   description: 'Exercise operator dashboard surfaces without provider calls.',
   status: 'done',
+  lifecycle: { status: 'done', result: { kind: 'done', summary: 'synthetic result' }, error: null, completed_at: now },
+  display_path: '1',
+  operator_summary: { lifecycleStatus: 'done', terminal: true, needsVerification: false, blocked: false, hasError: false, error: null, completedAt: now, stale: false, actionCount: 0 },
   tags: ['smoke'],
   priority: 90,
   urgency: 'normal',
@@ -48,6 +51,9 @@ const projectCard = {
   title: 'Synthetic Project',
   priority: 50,
   status: 'running',
+  lifecycle: { status: 'running', result: null, error: null, completed_at: null },
+  display_path: null,
+  operator_summary: { lifecycleStatus: 'running', terminal: false, needsVerification: false, blocked: false, hasError: false, error: null, completedAt: null, stale: false, actionCount: 0 },
   result: null,
   version_seq: 1,
 };
@@ -56,7 +62,6 @@ const cardList = parseOperatorResponse('cards.list', { cards: [projectCard, card
 const cardDetail = parseOperatorResponse('cards.get', {
   card,
   children: [],
-  ancestorIds: ['project-smoke'],
   lifecycle: {
     status: 'done',
     terminal: true,
@@ -320,7 +325,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
         role: 'assistant' as const,
         kind: 'text' as const,
         content: `Synthetic analyst response to: ${visiblePrompt}`,
-        round_id: 'r-assistant-send',
+        round_id: 'r-assistant-00000000000000000000000000000002',
         message_index: 1,
         block_index: 0,
         timestamp: now,

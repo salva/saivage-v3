@@ -29,7 +29,6 @@ test('operator control room supports analyst chat send and migrated debug panels
   await expect(composer).toHaveValue('');
   await expect(page.getByText(syntheticToken)).toHaveCount(0);
 
-  expect(rest.counts.get('POST /api/chats/analyst')).toBe(1);
   expect(rest.chatPosts).toHaveLength(1);
   expect(rest.chatPosts[0]?.sessionId).toBe('analyst:global');
   expect(rest.chatPosts[0]?.body).toMatchObject({
@@ -60,7 +59,7 @@ test('operator control room supports analyst chat send and migrated debug panels
 });
 
 
-test('card detail Discuss with analyst sends hidden card seed and workspace context without UI leaks', async ({ page }) => {
+test('card detail view forwards workspace context to analyst chat on send', async ({ page }) => {
   const pageErrors: string[] = [];
   const failedRequests: string[] = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
@@ -75,17 +74,9 @@ test('card detail Discuss with analyst sends hidden card seed and workspace cont
 
   await expect(page).toHaveURL(/\/cards\/card-smoke$/);
   await expect(page.getByText('Synthetic dashboard smoke card').first()).toBeVisible();
-  await expect(page.getByText('ID: card-smoke')).toBeVisible();
   await expect(page.getByRole('region', { name: 'Analyst chat' })).toBeVisible();
 
   const composer = page.getByRole('textbox', { name: 'Analyst chat composer' });
-  await page.getByRole('button', { name: 'Seed analyst chat with this card' }).click();
-  await expect(composer).toBeFocused();
-  await expect(composer).toHaveValue('');
-  await expect(page.getByText('System context: this per-card analyst discussion')).toHaveCount(0);
-  await expect(page.getByText('Tool result get_card')).toHaveCount(0);
-  await expect(page.getByText(syntheticToken)).toHaveCount(0);
-
   const visiblePrompt = 'What should I inspect on this card?';
   await composer.fill(visiblePrompt);
   await page.getByRole('button', { name: 'Send' }).click();
@@ -93,26 +84,14 @@ test('card detail Discuss with analyst sends hidden card seed and workspace cont
   await expect(page.getByText(`Synthetic analyst response to: ${visiblePrompt}`)).toBeVisible();
   await expect(composer).toBeFocused();
   await expect(composer).toHaveValue('');
-  await expect(page.getByText('System context: this per-card analyst discussion')).toHaveCount(0);
-  await expect(page.getByText('Tool result get_card')).toHaveCount(0);
   await expect(page.getByText(syntheticToken)).toHaveCount(0);
 
-  expect(rest.counts.get('POST /api/chats/analyst')).toBe(1);
   expect(rest.chatPosts).toHaveLength(1);
   const post = rest.chatPosts[0];
   expect(post?.sessionId).toBe('analyst:global');
   expect(post?.body.workspaceContext).toEqual({ view: 'cards', entityId: 'card-smoke', refinement: null });
+  expect(post?.body.content).toBe(visiblePrompt);
   expect(post?.body.content).not.toContain(syntheticToken);
-  expect(post?.body.content).toContain('System context: this per-card analyst discussion was opened from the card detail view.');
-  expect(post?.body.content).toContain('Card title: Synthetic dashboard smoke card');
-  expect(post?.body.content).toContain('Card description: Exercise operator dashboard surfaces without provider calls.');
-  expect(post?.body.content).toContain('Card status: done');
-  expect(post?.body.content).toContain('Card blockers: none');
-  expect(post?.body.content).toContain('Tool result get_card:');
-  expect(post?.body.content).toContain('"id":"card-smoke"');
-  expect(post?.body.content).toContain('"version_seq":3');
-  expect(post?.body.content).toContain(`Use this seeded card context as the default subject unless the operator asks otherwise.\n\n${visiblePrompt}`);
-  expect(String(post?.body.content).endsWith(visiblePrompt)).toBe(true);
 
   expect(rest.unknown).toEqual([]);
   expect(failedRequests).toEqual([]);

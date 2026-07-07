@@ -30,30 +30,6 @@ describe('analyst chat store', () => {
     apiMocks.sendChatMessage.mockResolvedValue({ sessionId: 'analyst:global', message: { id: 'm1', role: 'assistant', kind: 'text', content: 'reply', timestamp: '2025-01-01T00:00:00Z' }, toolInvocations: [] });
   });
 
-  it('seedCardContext reuses the canonical analyst session and stages visible get_card context in the draft', () => {
-    const store = useAnalystChat();
-    const card = { id: 'card-7', title: 'Investigate', status: 'running', version_seq: 4, depends_on: ['dep-1'], lifecycle: { error: null } } as any;
-    const first = store.seedCardContext(card);
-    const firstDraft = store.draft;
-    const second = store.seedCardContext(card);
-    expect(first).toBe('analyst:global');
-    expect(second).toBe('analyst:global');
-    expect(store.draft).toBe(firstDraft);
-    expect(firstDraft).toContain('Card title: Investigate');
-    expect(firstDraft).toContain('Card status: running');
-    expect(firstDraft).toContain('depends_on:dep-1');
-    expect(firstDraft).toContain('Tool result get_card:');
-    expect(firstDraft).toContain('\"tool\":\"get_card\"');
-  });
-
-  it('sends the visible seeded context without hidden synthetic prepends', async () => {
-    const store = useAnalystChat();
-    store.seedCardContext({ id: 'card-9', title: 'Seed', status: 'running', version_seq: 3, lifecycle: { error: null } } as any);
-    await store.sendMessage();
-    expect(apiMocks.sendChatMessage).toHaveBeenCalledWith('analyst:global', expect.stringContaining('Card title: Seed'), expect.anything());
-    expect(apiMocks.sendChatMessage.mock.calls[0][1]).not.toMatch(/Card title: Seed[\s\S]*Card title: Seed/);
-  });
-
   it('createNewChat resolves to the canonical analyst session', async () => {
     const store = useAnalystChat();
     const sessionId = store.createNewChat();

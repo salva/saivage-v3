@@ -3,12 +3,11 @@ import detailSource from '../components/cards/CardDetailView.vue?raw';
 import recordsSource from '../components/cards/CardRecordsSection.vue?raw';
 
 describe('CardDetailView S06 read-only detail contract', () => {
-  it('retains navigation, refresh, record-output, and analyst-seed affordances', () => {
-    expect(detailSource).toContain('Discuss with analyst');
-    expect(detailSource).toContain('seedAnalystForCard');
+  it('retains refresh, dispatch navigation, and record-output affordances', () => {
     expect(detailSource).toContain('Refresh card');
     expect(detailSource).toContain('reloadDetail');
-    expect(detailSource).toContain('navigateCard(child.id)');
+    expect(detailSource).toContain('navigateCard(dispatch.targetCardId)');
+    expect(detailSource).toContain('navigateCard(dispatch.parentCardId)');
   });
 
   it('surfaces record outputs through the dedicated records section', () => {
@@ -26,12 +25,6 @@ describe('CardDetailView S06 read-only detail contract', () => {
 
   it('surfaces agent conversations tied to the card', () => {
     expect(detailSource).toContain('CardConversationsSection');
-  });
-
-  it('uses an in-app confirmation before replacing an existing analyst draft', () => {
-    expect(detailSource).toContain('confirmSeedVisible');
-    expect(detailSource).toContain('Replace Analyst draft?');
-    expect(detailSource).not.toContain('window.confirm');
   });
 
   it('does not expose direct card mutation controls or store actions', () => {

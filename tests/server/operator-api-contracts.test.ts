@@ -206,7 +206,7 @@ describe('operator API contract registry', () => {
       actorRuntime: { pauseMode: 'running', activeWork: 'none', cards: [], agents: [], diagnostics: [], recovery: null },
     }).runtime).toBe('running');
     expect(parseOperatorResponse('cards.list', { cards: [card], total: 1 }).total).toBe(1);
-    expect(parseOperatorResponse('cards.get', { card: { ...card, dependencyRefs: [], relatedRefs: [] }, children: [], ancestorIds: [], ancestorRefs: [] }).card.id).toBe('card-1');
+    expect(parseOperatorResponse('cards.get', { card, children: [] }).card.id).toBe('card-1');
     const chatSend = parseOperatorResponse('chats.send', {
       sessionId: 'analyst:global',
       message: { id: 'm1', role: 'assistant', kind: 'text', content: 'hello', timestamp: '2026-01-01T00:00:03.000Z' },

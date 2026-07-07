@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { writeFileAtomic } from '../../src/persistence/index.js';
@@ -108,11 +108,8 @@ describe('shuffled persisted subtree ordering', () => {
 
     const response = await fetch(`${baseUrl}/api/cards/${parentId}`, { headers: { authorization: `Bearer ${authToken}` } });
     expect(response.status).toBe(200);
-    const body = await response.json() as { children: Array<{ id: string }>; ancestorRefs: unknown[]; card: { dependencyRefs: unknown[]; relatedRefs: unknown[] } };
+    const body = await response.json() as { children: Array<{ id: string }> };
     expect(body.children.map((child) => child.id)).toEqual(expectedChildOrder);
-    expect(body.ancestorRefs).toEqual([{ id: 'project', display_path: null, title: basename(tmpDir) }]);
-    expect(body.card.dependencyRefs).toEqual([]);
-    expect(body.card.relatedRefs).toEqual([]);
 
     const processRunner = new ProcessRunner(tmpDir);
     const cardResult = await get_card({ projectRoot: tmpDir, processRunner, store: reloaded, actor: 'analyst', surface: 'web-chat' }, { id: parentId });

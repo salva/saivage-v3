@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
-import type { AgentConversationEntry, CardRecord, ChatSession, DetailErrorState } from '../api/types';
+import type { AgentConversationEntry, ChatSession, DetailErrorState } from '../api/types';
 import {
   ApiError,
   getChatEntries,
@@ -9,7 +9,7 @@ import {
 } from '../api/client';
 import { useWorkspaceRouteStore } from './workspaceRoute';
 import { useFeedbackStore } from './feedback';
-import { ANALYST_SESSION_ID, buildCardContextSeed } from './analyst-chat-context';
+import { ANALYST_SESSION_ID } from './analyst-chat-context';
 import {
   dedupePendingToolInvocations,
   normalizePendingSummary,
@@ -77,7 +77,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
   const sendError = ref<DetailErrorState | null>(null);
   const pendingToolInvocations = ref<PendingToolInvocation[]>([]);
 
-  const hasDraft = computed(() => draft.value.trim().length > 0);
   const activeSession = computed(() => sessions.value.find((session) => session.id === activeSessionId.value) ?? null);
 
   function ensureSessionInList(sessionId = ANALYST_SESSION_ID, role = 'analyst'): void {
@@ -147,13 +146,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     activeSessionId.value = ANALYST_SESSION_ID;
     messagesError.value = null;
     ensureSessionInList();
-    return ANALYST_SESSION_ID;
-  }
-
-  function seedCardContext(card: CardRecord): string {
-    activeSessionId.value = ANALYST_SESSION_ID;
-    ensureSessionInList();
-    draft.value = buildCardContextSeed(card);
     return ANALYST_SESSION_ID;
   }
 
@@ -284,7 +276,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     activeSession,
     messages,
     draft,
-    hasDraft,
     sessionsLoading,
     sessionsError,
     messagesLoading,
@@ -298,7 +289,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     selectSession,
     fetchMessages,
     createNewChat,
-    seedCardContext,
     sendMessage,
     ingestWsEvent,
   };

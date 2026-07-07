@@ -20,7 +20,7 @@ function card(overrides: Partial<CardRecord>): CardRecord {
 describe('useCardStore ordered tree', () => {
   beforeEach(() => setActivePinia(createPinia()));
 
-  it('preserves backend sibling order in orderedCardTree while cardTree keeps priority sorting', () => {
+  it('preserves backend sibling order in orderedCardTree', () => {
     const store = useCardStore();
     const root = card({ id: 'project', type: 'project', title: 'Project', parent: null });
     const backendFirst = card({ id: 'child-low', title: 'Backend first', parent: 'project', priority: 1, updated_at: '2025-01-01T00:00:00Z' });
@@ -29,9 +29,7 @@ describe('useCardStore ordered tree', () => {
     store.cards = [root, backendFirst, backendSecond, backendThird];
 
     const orderedRoot = store.orderedCardTree[0] as CardTreeNode;
-    const sortedRoot = store.cardTree[0] as CardTreeNode;
     expect(orderedRoot.children?.map((child: CardTreeNode) => child.id)).toEqual(['child-low', 'child-mid', 'child-high']);
     expect(orderedRoot.children?.map((child: CardTreeNode) => child.id)).not.toEqual(['child-high', 'child-mid', 'child-low']);
-    expect(sortedRoot.children?.map((child: CardTreeNode) => child.id)).toEqual(['child-high', 'child-mid', 'child-low']);
   });
 });

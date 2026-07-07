@@ -6,7 +6,6 @@ function mountHeader(connectionState: 'connected' | 'connecting' | 'offline' | '
   return mount(WorkspaceHeader, {
     props: {
       sectionTitle: 'Dashboard',
-      projectName: 'saivage-v3',
       connectionState,
       runtimeStatus: 'running',
       runtimeStatusLabel: 'running',
@@ -40,7 +39,6 @@ describe('WorkspaceHeader', () => {
     const noToken = mount(WorkspaceHeader, {
       props: {
         sectionTitle: 'Dashboard',
-        projectName: 'saivage-v3',
         connectionState: 'no-token',
         runtimeStatus: 'running',
         runtimeStatusLabel: 'running',
@@ -54,7 +52,6 @@ describe('WorkspaceHeader', () => {
     const unauthorized = mount(WorkspaceHeader, {
       props: {
         sectionTitle: 'Dashboard',
-        projectName: 'saivage-v3',
         connectionState: 'unauthorized',
         runtimeStatus: 'running',
         runtimeStatusLabel: 'running',
@@ -78,5 +75,12 @@ describe('WorkspaceHeader', () => {
     expect(wrapper.findAll('button').map((button) => button.text())).not.toContain('Resume');
     await runtimeChip.trigger('click');
     expect(wrapper.emitted('toggle-pause')).toBeUndefined();
+  });
+
+  it('does not render the project name inside the workspace header', () => {
+    const wrapper = mountHeader('connected');
+
+    expect(wrapper.find('.project-name').exists()).toBe(false);
+    expect(wrapper.text()).not.toContain('saivage-v3');
   });
 });

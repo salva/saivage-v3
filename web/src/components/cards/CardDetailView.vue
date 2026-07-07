@@ -12,12 +12,8 @@
         :type="labelForCardType(currentCard.type)"
         :status="cardUiStatus(currentCard.status, reason)"
       >
-        <template #actions>
-          <button type="button" class="discuss-btn" aria-label="Seed analyst chat with this card" @click="seedAnalystForCard">Discuss with analyst</button>
-        </template>
         <template #meta>
           <span class="ori-item"><span class="ori-key">v{{ currentCard.version_seq ?? '?' }}</span></span>
-          <span class="ori-item"><span class="ori-key">priority</span> {{ currentCard.priority }}</span>
           <span v-if="currentCard.assigned_to" class="ori-item"><span class="ori-key">assigned</span> {{ currentCard.assigned_to }}</span>
           <span class="ori-item"><span class="ori-key">updated</span> {{ fmtDate(currentCard.updated_at) }}</span>
           <span v-if="lifecycle?.durationMs != null" class="ori-item"><span class="ori-key">duration</span> {{ lifecycle.durationMs }} ms</span>
@@ -30,38 +26,9 @@
         </StatusBanner>
       </EntityHeader>
 
-      <RelatedLinks label="Related" :links="cardRelatedLinks" />
-
       <CardRecordsSection :card-id="currentCard.id" />
 
       <CardConversationsSection :card-id="currentCard.id" />
-
-      <Section v-if="currentChildren.length || currentAncestorRefs.length || currentCard.depends_on.length" title="Hierarchy">
-        <div v-if="currentAncestorRefs.length" class="hierarchy-row">
-          <span class="hierarchy-key">Ancestors</span>
-          <div class="pill-list">
-            <EntityLink v-for="ancestorRef in currentAncestorRefs" :key="ancestorRef.id" kind="card" :id="ancestorRef.id" :label="ancestorRef.display_path ?? ancestorRef.title" :title="ancestorRef.title" :missing="ancestorRef.missing" />
-          </div>
-        </div>
-        <div v-if="currentChildren.length" class="hierarchy-row">
-          <span class="hierarchy-key">Children</span>
-          <div class="children-list">
-            <button v-for="child in currentChildren" :key="child.id" type="button" class="child-row" @click="navigateCard(child.id)">
-              <span class="child-card-main">
-                <span class="output-path">{{ child.display_path || child.id }}</span>
-                <StatusBadge :status="cardUiStatus(child.status)" />
-              </span>
-              <span class="child-card-title">{{ child.title }}</span>
-            </button>
-          </div>
-        </div>
-        <div v-if="currentCard.depends_on.length" class="hierarchy-row">
-          <span class="hierarchy-key">Blocking dependencies</span>
-          <div class="pill-list">
-            <EntityLink v-for="depRef in dependencyRefs" :key="depRef.id" kind="card" :id="depRef.id" :label="depRef.display_path ?? depRef.title" :title="depRef.title" :missing="depRef.missing" />
-          </div>
-        </div>
-      </Section>
 
       <Section v-if="currentCard.notes && currentCard.notes.length" title="Notes &amp; activity">
         <div class="notes-list">
@@ -73,7 +40,7 @@
 
       <Section v-if="dispatches && (dispatches.outgoing.length || dispatches.incoming.length)" title="Dispatch summary">
         <div v-if="dispatches.outgoing.length" class="list-block">
-          <div class="hierarchy-key">Outgoing</div>
+          <div class="section-key">Outgoing</div>
           <div v-for="dispatch in dispatches.outgoing" :key="dispatch.dispatchId" class="verification-row">
             <button type="button" class="pill card-ref-button" @click="navigateCard(dispatch.targetCardId)">{{ dispatch.targetCardId }}</button>
             <StatusBadge :status="dispatchUiStatus(dispatch.status)" />
@@ -82,7 +49,7 @@
           </div>
         </div>
         <div v-if="dispatches.incoming.length" class="list-block">
-          <div class="hierarchy-key">Incoming</div>
+          <div class="section-key">Incoming</div>
           <div v-for="dispatch in dispatches.incoming" :key="dispatch.dispatchId" class="verification-row">
             <button type="button" class="pill card-ref-button" @click="navigateCard(dispatch.parentCardId)">{{ dispatch.parentCardId }}</button>
             <StatusBadge :status="dispatchUiStatus(dispatch.status)" />
@@ -107,7 +74,6 @@
           <div class="meta-item"><span class="meta-key">Created</span><span class="meta-value" :title="timestampTitle(currentCard.created_at)">{{ fmtDate(currentCard.created_at) }}</span></div>
           <div class="meta-item"><span class="meta-key">Updated</span><span class="meta-value" :title="timestampTitle(currentCard.updated_at)">{{ fmtDate(currentCard.updated_at) }}</span></div>
           <div class="meta-item"><span class="meta-key">Type</span><span class="meta-value">{{ labelForCardType(currentCard.type) }}</span></div>
-          <div class="meta-item"><span class="meta-key">Priority</span><span class="meta-value" :class="{ high: currentCard.priority >= 80 }">{{ currentCard.priority }}</span></div>
           <div class="meta-item"><span class="meta-key">Urgency</span><span class="meta-value">{{ currentCard.urgency }}</span></div>
           <div v-if="currentCard.assigned_to" class="meta-item"><span class="meta-key">Assigned to</span><span class="meta-value">{{ currentCard.assigned_to }}</span></div>
           <div v-if="currentCard.started_at || lifecycle?.startedAt" class="meta-item"><span class="meta-key">Started</span><span class="meta-value" :title="timestampTitle(currentCard.started_at || lifecycle?.startedAt || '')">{{ fmtDate(currentCard.started_at || lifecycle?.startedAt || '') }}</span></div>
@@ -125,23 +91,11 @@
         <CardHistoryPanel v-if="historyOpen" :card-id="currentCard.id" />
       </details>
     </template>
-
-    <Dialog :visible="confirmSeedVisible" title-id="card-seed-confirm-title" @dismiss="confirmSeedVisible = false">
-      <div class="seed-confirm-dialog">
-        <h2 id="card-seed-confirm-title">Replace Analyst draft?</h2>
-        <p>The Analyst composer already has an editable draft. Replace it with this card context?</p>
-        <div class="seed-confirm-actions">
-          <button type="button" class="banner-action" @click="cancelSeedAnalystForCard">Keep draft</button>
-          <button type="button" class="discuss-btn" @click="confirmSeedAnalystForCard">Replace draft</button>
-        </div>
-      </div>
-    </Dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
-import { useAnalystChat } from '../../stores/analystChat';
 import { useCardStore } from '../../stores/cards';
 import { storeToRefs } from 'pinia';
 import type { DetailErrorState, CardStatus } from '../../types/view-models';
@@ -151,14 +105,11 @@ import { toneForCardStatus, labelForCardType, type UiStatus } from '../../utils/
 import CardHistoryPanel from './CardHistoryPanel.vue';
 import CardRecordsSection from './CardRecordsSection.vue';
 import CardConversationsSection from './CardConversationsSection.vue';
-import EntityLink from '../entity/EntityLink.vue';
-import RelatedLinks from '../entity/RelatedLinks.vue';
 import Section from '../ui/Section.vue';
 import EntityHeader from '../ui/EntityHeader.vue';
 import StatusBanner from '../ui/StatusBanner.vue';
 import StatusBadge from '../ui/StatusBadge.vue';
 import ViewState from '../ui/ViewState.vue';
-import Dialog from '../ui/Dialog.vue';
 import CodeBlock from '../content/CodeBlock.vue';
 import DocumentFrame from '../content/DocumentFrame.vue';
 import MarkdownText from '../content/MarkdownText.vue';
@@ -168,11 +119,8 @@ const log = createLogger('comp:card-detail');
 const props = defineProps<{ cardId: string }>();
 const emit = defineEmits<{ navigate: [id: string] }>();
 const cardStore = useCardStore();
-const analystChat = useAnalystChat();
 const {
   currentCard,
-  currentChildren,
-  currentAncestorRefs,
   currentLifecycle: lifecycle,
   currentDispatches: dispatches,
   currentDetailError,
@@ -184,7 +132,6 @@ const {
 const detailError = computed<DetailErrorState | null>(() => currentDetailError.value);
 
 const historyOpen = ref(false);
-const confirmSeedVisible = ref(false);
 
 function fmtDate(ts: string): string { return ts ? formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute') : ''; }
 function statusExplainer(status: CardStatus): string {
@@ -233,14 +180,6 @@ const resultSize = computed(() => {
   try { return `${new Blob([JSON.stringify(result)]).size} B`; } catch { return ''; }
 });
 
-const dependencyRefs = computed(() => currentCard.value?.dependencyRefs ?? currentCard.value?.depends_on.map((id) => ({ id, display_path: null, title: null, missing: false })) ?? []);
-const cardRelatedLinks = computed(() => {
-  const links: Array<{ kind: 'card'; id: string; label?: string | null; title?: string | null; missing?: boolean }> = [];
-  for (const ref of currentAncestorRefs.value) links.push({ kind: 'card', id: ref.id, label: ref.display_path ?? ref.title, title: ref.title, missing: ref.missing });
-  for (const child of currentChildren.value) links.push({ kind: 'card', id: child.id, label: child.display_path || child.id, title: child.title });
-  for (const ref of dependencyRefs.value) links.push({ kind: 'card', id: ref.id, label: ref.display_path ?? ref.title, title: ref.title, missing: ref.missing });
-  return links;
-});
 const detailErrorTitle = computed(() => {
   switch (detailError.value?.kind) {
     case 'unauthorized': return 'Unauthorized';
@@ -252,32 +191,6 @@ const detailErrorTitle = computed(() => {
 });
 function navigateCard(id: string): void { emit('navigate', id); }
 async function reloadDetail(): Promise<void> { try { await cardStore.fetchCardDetail(props.cardId); } catch (err) { log.error('fetch', err); } }
-
-async function seedAnalystForCard(): Promise<void> {
-  if (!currentCard.value) return;
-  if (analystChat.hasDraft) {
-    confirmSeedVisible.value = true;
-    return;
-  }
-  await applyAnalystCardSeed();
-}
-
-async function applyAnalystCardSeed(): Promise<void> {
-  if (!currentCard.value) return;
-  confirmSeedVisible.value = false;
-  analystChat.seedCardContext(currentCard.value);
-  await analystChat.fetchMessages(analystChat.activeSessionId).catch(() => {});
-  window.dispatchEvent(new CustomEvent('saivage:focus-chat'));
-}
-
-function cancelSeedAnalystForCard(): void {
-  confirmSeedVisible.value = false;
-  window.dispatchEvent(new CustomEvent('saivage:focus-chat'));
-}
-
-function confirmSeedAnalystForCard(): void {
-  void applyAnalystCardSeed();
-}
 
 onMounted(async () => {
   await reloadDetail();
@@ -302,15 +215,7 @@ function actionLabel(action: string): string {
 .status-banner.tone-warning { background:var(--entry-warn-bg); color:var(--warn); }
 .banner-action { padding:3px 10px; background:var(--surface-3); border:1px solid var(--border); color:var(--text); border-radius:4px; cursor:pointer; font:inherit; font-size:11px; }
 
-.discuss-btn { margin-left:auto; border:1px solid var(--accent-2); background:var(--bg); color:var(--accent-2); border-radius:999px; padding:6px 10px; cursor:pointer; }
-.seed-confirm-dialog { width:min(420px, calc(100vw - 32px)); border:1px solid var(--border); border-radius:12px; background:var(--surface-1); color:var(--text); padding:18px; box-shadow:0 18px 60px rgba(0,0,0,.35); }
-.seed-confirm-dialog h2 { margin:0 0 8px; font-size:18px; }
-.seed-confirm-dialog p { margin:0; color:var(--text-muted); font-size:13px; line-height:1.45; }
-.seed-confirm-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
-
-.hierarchy-row { display:flex; flex-direction:column; gap:6px; margin-bottom:10px; }
-.hierarchy-row:last-child { margin-bottom:0; }
-.hierarchy-key { font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; }
+.section-key { font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; }
 .pill-list { display:flex; flex-wrap:wrap; gap:8px; }
 .children-list { display:flex; flex-direction:column; gap:6px; }
 .child-row { text-align:left; cursor:pointer; background:var(--surface-1); border:1px solid var(--surface-3); border-radius:6px; padding:8px 12px; font:inherit; color:var(--text); }
@@ -345,7 +250,6 @@ function actionLabel(action: string): string {
 .meta-key { font-size:11px; color:var(--text-muted); }
 .meta-value { font-size:13px; color:var(--text); }
 .meta-value.mono { font-family:'SF Mono',monospace; font-size:12px; }
-.meta-value.high { color:var(--danger); font-weight:600; }
 .allowed-actions { display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; align-items:center; }
 .allowed-actions-label { font-size:11px; color:var(--text-muted); }
 .allowed-action { font-size:11px; padding:2px 6px; border-radius:999px; color:var(--accent-2); border:1px solid var(--accent-2); opacity:.7; }

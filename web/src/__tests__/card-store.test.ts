@@ -14,7 +14,7 @@ import { selectChildrenOf } from '../stores/cards';
 function setupStore() { setActivePinia(createPinia()); vi.clearAllMocks(); return useCardStore(); }
 function makeCard(overrides: Partial<CardRecord> = {}): CardRecord { const id = overrides.id || 'c1'; const lifecycle = overrides.lifecycle ?? { status: overrides.status ?? 'running', result: null, error: null, completed_at: null } as CardRecord['lifecycle']; return { id, type: 'code', parent: null, depth: 0, position: 0, title: `Card ${id}`, status: 'running', tags: [], priority: 5, urgency: 'normal', created_by: 'user', created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z', version_seq: 1, depends_on: [], related: [], retries: 0, ...overrides, display_path: overrides.display_path ?? null, lifecycle, operator_summary: overrides.operator_summary ?? { lifecycleStatus: lifecycle.status, terminal: false, needsVerification: lifecycle.status === 'needs_verification', blocked: lifecycle.status === 'blocked', hasError: Boolean(lifecycle.error), error: lifecycle.error ?? null, completedAt: lifecycle.completed_at ?? null, stale: lifecycle.status === 'changed', actionCount: 0 } }; }
 function mlr(cards: CardRecord[], total?: number): CardListResponse { return { cards, total: total ?? cards.length }; }
-function mdr(card: CardRecord, children: CardRecord[] = [], ancestorIds: string[] = []): CardDetailResponse { return { card: { ...card, dependencyRefs: [], relatedRefs: [] }, children, ancestorIds, ancestorRefs: [] }; }
+function mdr(card: CardRecord, children: CardRecord[] = []): CardDetailResponse { return { card, children }; }
 
 const A = makeCard({ id: 'card-a', title: 'Alpha' });
 
@@ -25,7 +25,7 @@ describe('useCardStore evidence support', () => {
   it('stores backend card detail and derives local lifecycle view state', async () => {
     const s = setupStore();
     const child = makeCard({ id: 'child-a', parent: 'card-a', status: 'running' });
-    vi.mocked(getCard).mockResolvedValue(mdr(A, [child], []));
+    vi.mocked(getCard).mockResolvedValue(mdr(A, [child]));
     await s.fetchCardDetail('card-a');
     expect(s.currentCard?.id).toBe('card-a');
     expect(s.currentChildren.map((card) => card.id)).toEqual(['child-a']);

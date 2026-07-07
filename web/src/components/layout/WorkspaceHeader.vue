@@ -2,7 +2,6 @@
   <header class="workspace-header">
     <div class="header-left">
       <h1 class="section-title">{{ sectionTitle }}</h1>
-      <span v-if="projectName" class="project-name">{{ projectName }}</span>
     </div>
 
     <div class="header-right">
@@ -38,7 +37,6 @@ import type { WsConnectionState } from '../../types/view-models';
 
 const props = defineProps<{
   sectionTitle: string;
-  projectName?: string;
   connectionState: WsConnectionState;
   runtimeStatus: string | null;
   runtimeStatusLabel: string;
@@ -118,18 +116,6 @@ const cueClass = computed(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.project-name {
-  font-size: 12px;
-  color: var(--text-muted);
-  padding: 2px 8px;
-  background: var(--surface-3);
-  border-radius: 4px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 300px;
 }
 
 .header-right {

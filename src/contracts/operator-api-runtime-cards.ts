@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import {
   cardViewSchema,
-  cardRefViewSchema,
   cardStatusSchema,
   cardActionSchema,
   cardHistoryEntrySchema,
@@ -67,16 +66,11 @@ export const CardListResponseSchema = z.object({
   total: z.number().int().nonnegative(),
 });
 
-export const CardDetailCardSchema = cardViewSchema.and(z.object({
-  dependencyRefs: z.array(cardRefViewSchema),
-  relatedRefs: z.array(cardRefViewSchema),
-}));
+export const CardDetailCardSchema = cardViewSchema;
 
 export const CardDetailResponseSchema = z.object({
   card: CardDetailCardSchema,
   children: z.array(cardViewSchema),
-  ancestorIds: z.array(z.string()),
-  ancestorRefs: z.array(cardRefViewSchema),
 });
 
 export const CardHistoryParamsSchema = z.object({ id: z.string().min(1) });
